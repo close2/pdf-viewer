@@ -48,7 +48,7 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 | [27](27-the-interfaces-own-font.md) | The interface's own font: a character it cannot set is a box now; what is open is *coverage* | 74 |
 | [28](28-a-catalogue-that-draws-nothing.md) | A catalogue that drew nothing: the YCCK image is decoded; §11.6.6 and §11.4.7 are what is left, and this document is their witness | 0, and that is the point |
 | [30](30-a-native-host.md) | GTK4, then Qt, then `viewer-ffi` | — |
-| [31](31-accessibility-host.md) | AccessKit over `Query::AccessibilityTree` | — |
+| [31](31-accessibility-host.md) | AccessKit over `Query::AccessibilityTree` — **built and read back off a real AT-SPI bus** (ADR 0214); a `TH`'s axis, a `Form`'s control role, the `Text` interface and actions are what is left | — |
 | [32](32-presentation-player.md) | Draw a transition's frames | — |
 | [33](33-annotation-editing.md) | Free text, and a click that places the caret inside a value — §12.5.6.10's markup, §14.8.2.5's logical order and the caret itself are done | — |
 | [34](34-sandbox-the-interpreter.md) | Confine the interpreter and rasteriser, not only the codecs | — |

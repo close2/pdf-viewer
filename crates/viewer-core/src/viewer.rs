@@ -1162,26 +1162,19 @@ impl Viewer {
         else {
             return Vec::new();
         };
-        crate::accessibility::nodes(
-            &open.document,
-            page,
-            &interpreted.text,
-            &interpreted.marked,
-            &interpreted.described,
-            interpreted.language.as_deref(),
-        )
-        .into_iter()
-        .map(|(parent, gathered)| {
-            crate::accessibility::finish(
-                gathered,
-                parent,
-                &interpreted.text,
-                &interpreted.marked,
-                &interpreted.described,
-                |start, end| self.device_quads(open, (start, end)),
-            )
-        })
-        .collect()
+        crate::accessibility::nodes(&open.document, page, interpreted.language.as_deref())
+            .into_iter()
+            .map(|(parent, gathered)| {
+                crate::accessibility::finish(
+                    gathered,
+                    parent,
+                    &interpreted.text,
+                    &interpreted.marked,
+                    &interpreted.described,
+                    |start, end| self.device_quads(open, (start, end)),
+                )
+            })
+            .collect()
     }
 
     /// The shapes covering a range of the readback, in device pixels of the viewport.

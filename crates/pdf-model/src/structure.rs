@@ -184,8 +184,13 @@ pub enum Child {
 /// The parent tree above answers "which element does this marked-content sequence belong
 /// to", which is what drawing a page needs. This answers the other direction — what the
 /// document *says it is* — which is what a reading-order consumer, an accessibility tree or
-/// a navigation panel needs. Like Table 99's `/Order`, the data is this crate's and the
-/// consumer is not: nothing in this program yet hands a structure tree to anybody.
+/// a navigation panel needs. **This used to end "the data is this crate's and the consumer is
+/// not: nothing in this program yet hands a structure tree to anybody", and it had been false for
+/// two hundred and twenty-seven sessions before the three-hundred-and-seventy-sixth wrote the
+/// second consumer.** `viewer_core::Query::AccessibilityTree` has answered with this since the
+/// hundred-and-forty-ninth (ADR 0134), and `viewer-accessibility` puts the answer on AT-SPI
+/// through AccessKit (ADR 0214) — so [`Tree::role`]'s §14.7.3 mapping and [`StandardType`] are
+/// read by a program a person uses rather than by tests alone.
 #[derive(Debug, Clone)]
 pub struct Tree {
     /// The structure tree root dictionary itself.

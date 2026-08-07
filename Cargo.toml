@@ -27,6 +27,7 @@ test-scenes = { path = "crates/test-scenes", version = "0.1.0" }
 pdfref = { path = "tools/pdfref", version = "0.1.0" }
 viewer-core = { path = "crates/viewer-core", version = "0.1.0" }
 render-quorra = { path = "crates/render-quorra", version = "0.1.0" }
+viewer-accessibility = { path = "crates/viewer-accessibility", version = "0.1.0" }
 
 # External on purpose: the document renderer doc/RENDER_LIBRARY.md commissioned,
 # developed against that brief in its own repository and wired in here at its final
@@ -108,6 +109,24 @@ skrifa = "0.45.1"
 # The version is pinned to the one skrifa depends on so cargo unifies them into a single
 # build rather than compiling two copies. Keep them in step when upgrading skrifa.
 read-fonts = { version = "0.42.1", features = ["agl"] }
+
+# ISO 32000-2 §14.7's logical structure, handed to a platform accessibility API. `CLAUDE.md`
+# names AccessKit as this project's accessibility layer and this is it: the vocabulary crate
+# is platform-free, dependency-light and used by the *mapping*, which builds and is tested on
+# every platform.
+accesskit = "0.24.1"
+
+# The Linux adapter, and the one place in this tree an asynchronous runtime exists. It reaches
+# AT-SPI through `zbus`, which is asynchronous, so it puts an `async-io` executor on a thread of
+# its own; that thread connects to the session bus and every adapter stays *inactive* until
+# `org.a11y.Status.IsEnabled` says an assistive technology is present. Sixty-one packages arrive
+# with it, all MIT or Apache-2.0, and `memchr` is not among the ones that reach a shipped binary
+# — which is the crate ADR 0186 declined `quick-xml` over.
+#
+# What confines it: only `viewer-accessibility` may name it, that crate is Linux-only in its own
+# manifest, and `Bridge::new` is called *after* the first frame is presented, so nothing on the
+# launch path touches D-Bus. Measured before and after in ADR 0214.
+accesskit_unix = "0.22.1"
 
 # §14.3.2's metadata streams are XMP, which is RDF/XML (ISO 16684-1), so reading one is an
 # XML parser over untrusted bytes — 319 of the 974 corpus documents carry a stream. ADR 0186

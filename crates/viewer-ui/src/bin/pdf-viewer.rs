@@ -245,6 +245,14 @@ fn arguments() -> Arguments {
         );
     }
 
+    // And what this build can hand a screen reader, said in the same breath and for the same
+    // reason: AT-SPI is Linux's, AccessKit's other two adapters are not wired in here, and a
+    // build that quietly exposed nothing would look exactly like one whose bridge is broken.
+    // ADR 0194's precedent, one interface over. ADR 0214.
+    if let Some(missing) = viewer_accessibility::Bridge::shortfall() {
+        println!("note: {missing}");
+    }
+
     if !sandbox {
         pdf_sandbox::set_isolation(pdf_sandbox::Isolation::InProcess);
         // Said out loud, once, on the way past. Turning the sandbox off is a reasonable choice
@@ -428,6 +436,8 @@ fn main() {
         opening: Some(opening),
         instancing: Some(instancing),
         launch,
+        accessibility: None,
+        spoken: None,
     };
 
     let event_loop = EventLoop::new().expect("an event loop requires a display server");
@@ -628,6 +638,21 @@ struct App {
     instancing: Option<std::thread::JoinHandle<quorra_gpu::wgpu::Instance>>,
     /// The launch path's milestones, printed once under `--trace` when the first frame lands.
     launch: Launch,
+    /// §14.7's structure on AT-SPI, once there is a page to put there.
+    ///
+    /// **`None` until the first frame has been presented**, and that is `CLAUDE.md`'s startup
+    /// rule rather than laziness for its own sake: bringing this up creates a thread and a D-Bus
+    /// connection, and page one may not wait behind either. Once it exists it costs nothing per
+    /// page — `accesskit_unix` keeps every adapter inactive until an assistive technology is
+    /// actually present, so publishing a page a screen reader is not reading is a lock and a
+    /// clone. ADR 0214.
+    accessibility: Option<viewer_accessibility::Bridge>,
+    /// The page and viewport last handed to it, so that one is not rebuilt per frame.
+    ///
+    /// A scroll and a zoom leave the structure alone; a page turn replaces it, and a resize moves
+    /// every rectangle in it. Those are the two things this remembers, and everything else a
+    /// person does costs the bridge nothing.
+    spoken: Option<(usize, u32, u32)>,
 }
 
 /// The magnification past which quorra's GPU coverage lane is the cheaper one.
@@ -1659,6 +1684,148 @@ impl App {
         )
     }
 
+    /// Brings the accessibility bridge up, once, and keeps it in step with the page.
+    ///
+    /// **Called from the first present and from every one after it, and never before one.** That
+    /// ordering is `CLAUDE.md`'s startup rule made concrete: `Bridge::new` spawns a thread that
+    /// connects to the session bus, and page one may not wait behind a D-Bus round trip for a
+    /// screen reader that is probably not there. What it costs after the first frame is one
+    /// comparison per frame, because the structure of a page does not change when it is scrolled.
+    fn attend(&mut self) {
+        if self.accessibility.is_none() {
+            self.accessibility = Some(viewer_accessibility::Bridge::new());
+            if self.trace {
+                println!("trace: accessibility bridge up");
+            }
+        }
+        let Some((width, height, _)) = self.window() else {
+            return;
+        };
+        let Answer::Page { index: page, .. } = self.viewer.query(Query::CurrentPage) else {
+            return;
+        };
+        if self.spoken == Some((page, width, height)) {
+            return;
+        }
+        self.spoken = Some((page, width, height));
+        self.place_window();
+        self.speak();
+    }
+
+    /// Tells the bridge where the window is, which is what AT-SPI needs to place a node.
+    ///
+    /// A node's bounds cross in the window's own pixels and AT-SPI reports them in the screen's,
+    /// so the adapter adds the window's position. Under Wayland an application cannot learn its
+    /// own position and winit says so by refusing the call; there is nothing to be done about
+    /// that here and nothing is claimed instead.
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a window's position and size in device pixels; f32 is exact to 2^24"
+    )]
+    fn place_window(&mut self) {
+        let Some(state) = self.state.as_ref() else {
+            return;
+        };
+        let outer = state.window.outer_size();
+        let inner = state.window.inner_size();
+        let (Ok(outer_at), Ok(inner_at)) =
+            (state.window.outer_position(), state.window.inner_position())
+        else {
+            return;
+        };
+        let outer = (
+            outer_at.x as f32,
+            outer_at.y as f32,
+            (outer_at.x.saturating_add_unsigned(outer.width)) as f32,
+            (outer_at.y.saturating_add_unsigned(outer.height)) as f32,
+        );
+        let inner = (
+            inner_at.x as f32,
+            inner_at.y as f32,
+            (inner_at.x.saturating_add_unsigned(inner.width)) as f32,
+            (inner_at.y.saturating_add_unsigned(inner.height)) as f32,
+        );
+        if let Some(bridge) = self.accessibility.as_mut() {
+            bridge.placed(outer, inner);
+        }
+    }
+
+    /// Hands §14.7's structure for the page being shown to the platform's accessibility API.
+    ///
+    /// **The fifth of the five things `doc/HANDOVER.md` section 0 listed as blocked on the
+    /// `viewer-core` boundary, and the last.** `Query::AccessibilityTree` has answered since the
+    /// hundred-and-forty-ninth session and nothing asked; this asks. What crosses is
+    /// `viewer-accessibility`'s business — §14.8.4's types onto AccessKit's roles, and AT-SPI
+    /// underneath that — and what is this host's is the three things only a host knows: what the
+    /// window is called, which page is showing, and what the page could not draw.
+    ///
+    /// **Everything is copied before the bridge is touched.** `Query::Reports` and
+    /// `Answer::Outline` borrow the viewer, and the bridge is a field of the same struct; owning
+    /// the answers first is what lets both be reached in one function without the borrow checker
+    /// having to be argued with.
+    ///
+    /// Does nothing until [`App::accessibility`] exists, which is after the first present.
+    fn speak(&mut self) {
+        if self.accessibility.is_none() {
+            return;
+        }
+        let document = self.named().to_owned();
+        let window = format!("{document} — {}", self.caption);
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a viewport in device pixels; f32 is exact to 2^24 and no display is"
+        )]
+        let viewport = self.window().map_or((0.0, 0.0), |(width, height, _)| {
+            (width as f32, height as f32)
+        });
+        let (page, label, pages) = match self.viewer.query(Query::CurrentPage) {
+            Answer::Page {
+                index, label, of, ..
+            } => (index, label, of),
+            _ => (0, None, 0),
+        };
+        let reports: Vec<String> = match self.viewer.query(Query::Reports) {
+            Answer::Reports(notes) => notes.to_vec(),
+            _ => Vec::new(),
+        };
+        let nodes = match self.viewer.query(Query::AccessibilityTree) {
+            Answer::Accessibility(nodes) => nodes,
+            _ => Vec::new(),
+        };
+        if self.trace {
+            println!(
+                "trace: accessibility: {} element(s), {} report(s) on page {}",
+                nodes.len(),
+                reports.len(),
+                page.saturating_add(1)
+            );
+        }
+        let view = viewer_accessibility::PageView {
+            window: &window,
+            document: &document,
+            page,
+            label: label.as_deref(),
+            pages,
+            viewport,
+            nodes: &nodes,
+            reports: &reports,
+        };
+        if let Some(bridge) = self.accessibility.as_mut() {
+            bridge.publish(&view);
+            // An action nobody carries out is said out loud rather than dropped. The tree this
+            // program publishes declares no actions at all, so this list is expected to be empty
+            // — and a line here would mean a client asked for something anyway, which is worth
+            // knowing (trap 5).
+            for asked in bridge.requested() {
+                println!(
+                    "note: an assistive technology asked for {:?} on node {:?}, which this host \
+                     does not carry out",
+                    asked.action, asked.node
+                );
+            }
+        }
+    }
+
     /// Adds what the page could not draw to the title bar.
     ///
     /// A count rather than the list: a page may report dozens of items and a title bar that
@@ -1968,6 +2135,10 @@ impl App {
         let outcome = self.present();
         if matches!(outcome, Some(Rendered::Presented | Rendered::Raster(_))) {
             self.launch.arrived(self.trace);
+            // **After the timeline is closed, never before it.** Everything the accessibility
+            // bridge does is off the launch path by construction, and this line is where that is
+            // enforced rather than merely intended.
+            self.attend();
         }
         if self.trace {
             println!(

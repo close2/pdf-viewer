@@ -1707,6 +1707,113 @@ fn a_tagged_page_answers_with_its_structure_and_an_untagged_one_says_so() {
     ));
 }
 
+/// A two-page tagged document whose own `/RoleMap` renames one of §14.8.4's types.
+///
+/// Three things in one fixture, because they are three properties of one answer: §14.7.3's role
+/// map (`Chap` is this file's name for a `Sect`), an element whose own text is not its subtree's,
+/// and a second page whose elements are in the same tree and not on this page.
+fn with_a_role_map() -> Vec<u8> {
+    use std::fmt::Write as _;
+    let first = "BT /F1 12 Tf 10 60 Td\n\
+         /P <</MCID 0>> BDC (Alpha) Tj EMC\n\
+         /P <</MCID 1>> BDC (Beta) Tj EMC\n\
+         /P <</MCID 2>> BDC (Gamma) Tj EMC\nET\n";
+    let second = "BT /F1 12 Tf 10 60 Td\n/P <</MCID 0>> BDC (Delta) Tj EMC\nET\n";
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 8 0 R \
+          /MarkInfo << /Marked true >> >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Contents 5 0 R \
+          /Resources << /Font << /F1 7 0 R >> >> /StructParents 0 >>\nendobj\n\
+         4 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Contents 6 0 R \
+          /Resources << /Font << /F1 7 0 R >> >> /StructParents 1 >>\nendobj\n\
+         5 0 obj\n<< /Length {} >>\nstream\n{first}endstream\nendobj\n\
+         6 0 obj\n<< /Length {} >>\nstream\n{second}endstream\nendobj\n\
+         7 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n\
+         8 0 obj\n<< /Type /StructTreeRoot /K [9 0 R 12 0 R] \
+          /RoleMap << /Chap /Sect >> >>\nendobj\n\
+         9 0 obj\n<< /Type /StructElem /S /Chap /P 8 0 R /Pg 3 0 R \
+          /K [0 10 0 R 11 0 R] >>\nendobj\n\
+         10 0 obj\n<< /Type /StructElem /S /Span /P 9 0 R /Pg 3 0 R /K [1] >>\nendobj\n\
+         11 0 obj\n<< /Type /StructElem /S /Figure /P 9 0 R /Pg 3 0 R /K [2] \
+          /Alt (a picture of a bridge) >>\nendobj\n\
+         12 0 obj\n<< /Type /StructElem /S /P /P 8 0 R /Pg 4 0 R /K [0] >>\nendobj\n",
+        first.len(),
+        second.len()
+    );
+
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// §14.7.3's role map is applied, an element speaks for itself, and another page is another page.
+///
+/// > A structure type shall always be mapped to its corresponding name in the role map, if there
+/// > is one, even if the original name is one of the standard types.
+///
+/// **A `shall` this answer did not obey until the three-hundred-and-seventy-sixth session**, on
+/// an argument that was about a different mapping: `pdf-model` has followed the role map since
+/// the seventy-eighth and this query read the raw `/S` past it. ADR 0214.
+#[test]
+fn a_structure_type_crosses_role_mapped_and_speaking_only_for_itself() {
+    let mut viewer = Viewer::new(400, 300, 1.0);
+    let events: Vec<Event> = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: with_a_role_map(),
+            password: None,
+            fragment: None,
+        })
+        .collect();
+    let request = request(&events).clone();
+    serve(&mut viewer, &request);
+
+    let Answer::Accessibility(nodes) = viewer.query(Query::AccessibilityTree) else {
+        panic!("the query always answers");
+    };
+    // Three elements are on page one; the fourth is on page two and is not answered with.
+    assert_eq!(nodes.len(), 3, "{nodes:?}");
+    assert!(
+        nodes.iter().all(|node| !node.name.contains("Delta")),
+        "page two's text reached page one's tree: {nodes:?}"
+    );
+
+    // §14.7.3: the file's own `Chap` is the standard `Sect` its role map says it is.
+    assert_eq!(nodes[0].role, "Sect", "{nodes:?}");
+    assert_eq!(nodes[0].parent, None);
+    // Its own marked-content sequence, and not its children's: a container whose name repeated
+    // what is under it would be read twice by anything that walks the tree.
+    assert_eq!(nodes[0].name, "Alpha", "{nodes:?}");
+    assert!(!nodes[0].substituted);
+    // And it still *covers* what it encloses, which is what a focus ring is drawn round.
+    assert!(nodes[0].quads.len() >= 3, "{:?}", nodes[0]);
+
+    assert_eq!(nodes[1].role, "Span");
+    assert_eq!(nodes[1].parent, Some(0));
+    assert_eq!(nodes[1].name, "Beta");
+
+    // §14.9.3's `/Alt` is a substitution for the whole element, and says so.
+    assert_eq!(nodes[2].role, "Figure");
+    assert_eq!(nodes[2].name, "a picture of a bridge");
+    assert!(nodes[2].substituted, "{:?}", nodes[2]);
+}
+
 #[test]
 fn a_page_stating_a_duration_advances_when_it_is_told_the_time() {
     // §12.4.4.1's `/Dur`, and rule 3: this crate has no clock, so the only way it learns that a

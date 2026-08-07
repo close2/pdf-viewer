@@ -1,0 +1,31 @@
+[package]
+name = "viewer-accessibility"
+description = "ISO 32000-2 §14.7's logical structure, handed to AccessKit and so to AT-SPI."
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# The vocabulary: roles, nodes, tree updates. Platform-free and dependency-light — one
+# optional `serde` this crate does not turn on — so the *mapping* half of this crate builds
+# and is tested on every platform. ADR 0214.
+accesskit.workspace = true
+# §14.8.4's forty-one standard structure types, which is what the mapping maps *from*.
+pdf-model.workspace = true
+# `AccessibilityNode`, which is what the mapping maps.
+viewer-core.workspace = true
+
+# **Linux only, and the async runtime is confined here.** `accesskit_unix` reaches AT-SPI
+# through `zbus`, which needs an executor; it puts one on a thread of its own, connects to the
+# session bus there, and stays `Inactive` until `org.a11y.Status.IsEnabled` says an assistive
+# technology is present. Nothing on the launch path touches it — `Bridge::new` is called after
+# the first frame is on the screen — and no other crate in this tree may depend on it. ADR 0214
+# has the measurement and the argument; `Bridge::shortfall` is what the other two platforms say
+# instead of nothing.
+[target.'cfg(target_os = "linux")'.dependencies]
+accesskit_unix.workspace = true
+
+[lints]
+workspace = true

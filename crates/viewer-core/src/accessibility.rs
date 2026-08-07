@@ -7,15 +7,20 @@
 //! question with an answer the viewer already holds, which is exactly what the second channel is
 //! for — the same argument [`crate::Query::Selection`] makes.
 //!
-//! # What this is, and what a host still owes
+//! # What this is, and who reads it
 //!
 //! `pdf-model` has read §14.7's structure tree since the seventy-eighth session and §14.9's
-//! `/Alt`, `/E`, `/Lang` and `/ActualText` since the sixtieth, and this file is the first
-//! consumer of either: until now nothing in this program handed a structure tree to anybody.
-//! What crosses is toolkit-free by construction — a role name, a string to speak, a language tag
-//! and the quadrilaterals the element covers, in the same device pixels
+//! `/Alt`, `/E`, `/Lang` and `/ActualText` since the sixtieth, and this file was the first
+//! consumer of either. What crosses is toolkit-free by construction — a role name, a string to
+//! speak, a language tag and the quadrilaterals the element covers, in the same device pixels
 //! [`crate::Query::Selection`] answers in — so a host builds `AccessKit`'s nodes, AT-SPI's, or
 //! `NSAccessibility`'s from it without this crate naming any of them.
+//!
+//! **`viewer-accessibility` is that host since the three-hundred-and-seventy-sixth session**, and
+//! the sentence this comment used to carry — "until now nothing in this program handed a
+//! structure tree to anybody" — is what it retired. Two things this answer owes it are stated
+//! below and were both wrong until that round: the role is mapped through §14.7.3's `/RoleMap`,
+//! and an element's name is its own text rather than its subtree's. ADR 0214.
 //!
 //! # The order the nodes are in
 //!
@@ -23,6 +28,16 @@
 //! stream's. That is the whole reason a tagged document is worth reading: a page whose producer
 //! wrote its columns out of order gives its text in that order to a selection and in the right
 //! order here.
+//!
+//! # What is on this page, and what is merely in the file
+//!
+//! A structure tree spans the whole document; this answers for one page. An element is kept when
+//! it, or something below it, names a content item on the page being asked about — Table 355's
+//! `/Pg` and Table 358's, through §14.7.5.2's marked-content sequences and §14.7.5.3's object
+//! references. Everything else belongs to another page and is not answered with, which is what
+//! ADR 0134 said this did and what the three-hundred-and-seventy-sixth session found it did not:
+//! a thousand-page document handed a screen reader every element in the file, with text and
+//! quadrilaterals on none but one page's.
 
 use pdf_model::accessibility::Described;
 use pdf_model::content::MarkedSpan;
@@ -50,20 +65,47 @@ pub struct AccessibilityNode {
     /// An index rather than a nesting of children, because that is the shape both `AccessKit` and
     /// AT-SPI want and because a flat list has no recursion for a host to bound.
     pub parent: Option<usize>,
-    /// §14.7.4's `/S`: the structure type, as the document states it.
+    /// §14.7.4's `/S`, **after §14.7.3's and §14.8.6.2's role mapping**.
     ///
-    /// Not mapped through §14.7.4's role map or §14.8.4's standard set, deliberately: a host
-    /// that knows the platform's own vocabulary is better placed to map `H1` or `TD` onto it than
-    /// this crate is, and a mapping here would be a second opinion nobody asked for. What the
-    /// document says it is, is what crosses.
+    /// ISO 32000-2 §14.7.3:
+    ///
+    /// > A structure type shall always be mapped to its corresponding name in the role map, if
+    /// > there is one, even if the original name is one of the standard types.
+    ///
+    /// so a document's own `Chap` crosses as the `Sect` its own `/RoleMap` says it is.
+    /// [`pdf_model::structure::Tree::role`] is where that is done, transitively and bounded.
+    ///
+    /// **This used to be the raw `/S`**, on the argument that "a host that knows the platform's
+    /// own vocabulary is better placed to map `H1` or `TD` onto it than this crate is" — which is
+    /// true and is about a *different* mapping. §14.7.3's role map is the file's own statement
+    /// about its own names and is a `shall`; §14.8.4's standard set onto a platform's roles is the
+    /// host's. Two mappings wearing one coat, and only the second was ever the host's (ADR 0214).
+    ///
+    /// Still a name rather than [`pdf_model::structure::StandardType`]: §14.8.4.1 requires a
+    /// tagged document's types to be standard or mapped to standard ones, so a name that is
+    /// neither is a fact about the document a host may want to say, and
+    /// [`pdf_model::structure::StandardType::read`] is one call away for the ones that are.
     pub role: String,
-    /// What a text-to-speech engine would say for this element.
+    /// What a text-to-speech engine would say for **this element and no other**.
     ///
     /// §14.9.3's `/Alt` where the element states one — "human-readable text that could, for
     /// example, be vocalised by a text-to-speech engine" — else §14.9.5's `/E`, else the text the
-    /// element's own marked-content sequences produced. The precedence is
+    /// element's *own* marked-content sequences produced. The precedence is
     /// [`pdf_model::accessibility::Described`]'s, stated once there and followed here.
+    ///
+    /// **The element's own text, not its subtree's**, which is the shape every platform
+    /// accessibility tree takes: text belongs to the node that carries it, and a container whose
+    /// name repeated its children's would be read twice. Where the element states a substitution
+    /// there is nothing to repeat, and [`Self::substituted`] says which of the two this is.
     pub name: String,
+    /// Whether [`Self::name`] **replaces** what is below this element, or merely names it.
+    ///
+    /// ISO 32000-2 §14.9.3 makes `/Alt` "a complete (or whole) word or phrase substitution for the
+    /// current element", and §14.9.5 says the same of `/E` for what it expands — so an element
+    /// stating one has said what to speak *instead of* its content, and a host handing this to a
+    /// platform API stops there rather than descending. `false` is the ordinary case: the name is
+    /// this element's own text and its children carry theirs.
+    pub substituted: bool,
     /// §14.9.2's language, where the element or an enclosing one states one.
     pub language: Option<String>,
     /// Where the element is, in device pixels of the viewport, as quadrilaterals.
@@ -77,14 +119,23 @@ pub struct AccessibilityNode {
 
 /// What one element contributes before its quads are mapped into the viewport.
 pub(crate) struct Gathered {
-    /// The element's own `/S`.
+    /// The element's `/S`, role mapped.
     pub(crate) role: String,
     /// The `/MCID`s below it, including those of its descendants.
     ///
-    /// Descendants' too, because an element's spoken text is everything it encloses: §14.9.3's
-    /// `/Alt` "is a complete (or whole) word or phrase substitution for the current element",
-    /// which only means something if the element has text to substitute *for*.
+    /// Descendants' too, because the *place* an element occupies is everything it encloses: a
+    /// focus ring round a table cell is drawn round what the cell contains. What it is *spoken*
+    /// as is [`Self::own`], for the reason [`AccessibilityNode::name`] gives.
     pub(crate) mcids: Vec<i64>,
+    /// The `/MCID`s of the element's own content items, without its descendants'.
+    pub(crate) own: Vec<i64>,
+    /// Whether this element, or one below it, names a content item on the page being asked about.
+    ///
+    /// The one thing an `/OBJR` contributes: §14.7.5.3's object reference is an annotation or an
+    /// `XObject` rather than text, so it produces no `/MCID` and no quadrilateral — but Table 358
+    /// gives it a `/Pg`, and an element whose only content item is an annotation on this page is
+    /// on this page. Without it, such an element would be pruned as belonging elsewhere.
+    pub(crate) on_page: bool,
     /// §14.9.3's `/Alt` or §14.9.5's `/E`, where the element itself states one.
     pub(crate) phrase: Option<String>,
     /// §14.9.2's `/Lang`, where the element itself states one.
@@ -103,9 +154,6 @@ pub(crate) struct Gathered {
 pub(crate) fn nodes(
     document: &Document,
     page: pdf_syntax::ObjectId,
-    text: &str,
-    marked: &[MarkedSpan],
-    described: &[Described],
     default_language: Option<&str>,
 ) -> Vec<(Option<usize>, Gathered)> {
     let Some(tree) = Tree::of(document) else {
@@ -122,7 +170,32 @@ pub(crate) fn nodes(
         0,
         &mut out,
     );
-    let _ = (text, marked, described);
+    prune(out)
+}
+
+/// Drops the elements that have nothing on this page, and repairs the parent links.
+///
+/// An element is kept when it names a content item on this page or something below it does —
+/// which is what `mcids` and `on_page` already record, because both are pushed up the chain to
+/// every ancestor as the walk meets them. Order is preserved, so the answer stays parent-first
+/// and a parent index stays lower than its child's.
+fn prune(gathered: Vec<(Option<usize>, Gathered)>) -> Vec<(Option<usize>, Gathered)> {
+    let mut moved: Vec<Option<usize>> = vec![None; gathered.len()];
+    let mut out: Vec<(Option<usize>, Gathered)> = Vec::new();
+    for (index, (parent, entry)) in gathered.into_iter().enumerate() {
+        if entry.mcids.is_empty() && !entry.on_page {
+            continue;
+        }
+        // A kept element's nearest kept ancestor. The walk pushed every content item to every
+        // ancestor, so an ancestor of a kept element is itself kept and this is always the
+        // parent — but reading it out of the map rather than assuming it is what makes the
+        // answer well formed whatever the bounds did.
+        let above = parent.and_then(|above| moved.get(above).copied().flatten());
+        if let Some(slot) = moved.get_mut(index) {
+            *slot = Some(out.len());
+        }
+        out.push((above, entry));
+    }
     out
 }
 
@@ -188,11 +261,13 @@ fn walk(
                 // states none inherits what encloses it.
                 let language =
                     text_entry(document, &dict, "Lang").or_else(|| language.map(str::to_owned));
-                let role = document
-                    .get_key(&dict, "S")
-                    .as_name()
-                    .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned())
-                    .unwrap_or_default();
+                // §14.7.3's role map, which is a `shall` on whoever reads a structure type and
+                // not a courtesy: "[a] structure type shall always be mapped to its corresponding
+                // name in the role map, if there is one, even if the original name is one of the
+                // standard types." `Tree::role` follows it transitively and through §14.8.6.2's
+                // namespace maps; an element with no `/S` at all keeps the empty name, because
+                // Table 355 requires the entry and inventing one would be a guess.
+                let role = tree.role(document, &dict).unwrap_or_default();
                 let phrase =
                     text_entry(document, &dict, "Alt").or_else(|| text_entry(document, &dict, "E"));
                 let index = out.len();
@@ -201,6 +276,8 @@ fn walk(
                     Gathered {
                         role,
                         mcids: Vec::new(),
+                        own: Vec::new(),
+                        on_page: false,
                         phrase,
                         language: language.clone(),
                     },
@@ -224,7 +301,13 @@ fn walk(
                     continue;
                 }
                 // The identifier belongs to the element that contains it *and* to every element
-                // above it, because an ancestor's text is everything it encloses.
+                // above it, because an ancestor's *extent* is everything it encloses. Its own
+                // spoken text is only the first of those, which is what `own` records.
+                if let Some(index) = parent
+                    && let Some((_, entry)) = out.get_mut(index)
+                {
+                    entry.own.push(mcid);
+                }
                 let mut at = parent;
                 while let Some(index) = at {
                     let Some((above, entry)) =
@@ -239,8 +322,23 @@ fn walk(
             // §14.7.5.3's object reference is an annotation or an XObject rather than text on
             // this page's readback. It is not skipped silently: it contributes no `/MCID`, so
             // its element is answered with whatever `/Alt` it states and no quads, which is a
-            // true statement about what this program can locate.
-            Child::Object { .. } => {}
+            // true statement about what this program can locate — and Table 358's `/Pg` is what
+            // keeps such an element from being pruned as belonging to another page.
+            Child::Object { page: on, .. } => {
+                if on.is_some_and(|object| object != page) {
+                    continue;
+                }
+                let mut at = parent;
+                while let Some(index) = at {
+                    let Some((above, entry)) =
+                        out.get_mut(index).map(|(above, entry)| (*above, entry))
+                    else {
+                        break;
+                    };
+                    entry.on_page = true;
+                    at = above;
+                }
+            }
         }
     }
 }
@@ -273,18 +371,20 @@ pub(crate) fn finish(
     described: &[Described],
     quads: impl Fn(usize, usize) -> Vec<[f32; 8]>,
 ) -> AccessibilityNode {
-    let spans = ranges(marked, &gathered.mcids);
-    let name = gathered
-        .phrase
-        .unwrap_or_else(|| spoken(text, described, &spans));
+    let substituted = gathered.phrase.is_some();
+    let name = gathered.phrase.unwrap_or_else(|| {
+        // The element's own content items, not its descendants': see `AccessibilityNode::name`.
+        spoken(text, described, &ranges(marked, &gathered.own))
+    });
     let mut all = Vec::new();
-    for (start, end) in spans {
+    for (start, end) in ranges(marked, &gathered.mcids) {
         all.extend(quads(start, end));
     }
     AccessibilityNode {
         parent,
         role: gathered.role,
         name,
+        substituted,
         language: gathered.language,
         quads: all,
     }

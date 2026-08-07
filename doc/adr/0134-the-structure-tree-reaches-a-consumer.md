@@ -70,8 +70,14 @@ call says so.
 
 ## What is still owed
 
-- **A host that uses it.** `viewer-ui` does not, and `AccessKit` is not a dependency of anything
-  yet. The interface is the part that was blocked; wiring AT-SPI to it is a host job.
+- ~~**A host that uses it.**~~ **Built in the three-hundred-and-seventy-sixth session**:
+  `viewer-accessibility` maps §14.8.4's types onto `accesskit::Role` and `accesskit_unix` puts the
+  tree on AT-SPI (ADR 0214). That round also found two of this ADR's own statements untrue of the
+  code: "[t]he role is not mapped" conflated §14.7.3's role map — a `shall` on whoever reads a
+  structure type, and the *file's* statement about its own names — with §14.8.4's set onto a
+  platform's vocabulary, which is the host's and only the host's; and "an element belonging to
+  another page is skipped rather than answered with" was true of §14.7.5.2's content items and
+  false of the elements themselves.
 - **§14.8.2.5's logical order for a *selection*.** This answers in the structure tree's order,
   which is the logical one. A selection is still taken in content order, and the map between the
   two offsets is what `HANDOVER.md` has listed as owed since the hundred-and-thirty-third session.
