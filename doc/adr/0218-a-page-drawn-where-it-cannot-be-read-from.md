@@ -121,11 +121,21 @@ a strip below the first is composed with `Transform::translate(0, -top)`, and a 
 is a different `f32` rounding for a mark that lands on a coverage boundary. Trap 12b in one line —
 six synthetic scenes test six synthetic scenes.
 
+**The paragraph above is right about the guard and wrong about the matrix, and session 382
+established that before it changed anything** (ADR 0219): `Transform::then` with a pure
+translation is exact in every component, so the translated matrix is *not* a different rounding —
+the first strip's is the page's, bit for bit. The departure is one composition later, where the
+mark's own transform is added to a page transform that has already been shifted. The offset is
+composed last now, that pixel is exact, and what survives is `tiny-skia`'s own arithmetic at a
+shifted origin.
+
 Two consequences, and only the first is this round's:
 
 - `tests/confined.rs` pins the in-process side to one strip, so that its byte-for-byte comparison
-  is a statement about the *confinement* and not about the strip planner.
-- The claim itself is now a defect with a reproduction, in `doc/todo/12`.
+  is a statement about the *confinement* and not about the strip planner. It still does, and ADR
+  0219 measures what it is pinned against: 15 pixels on page 2 at 200%, one supersample apiece.
+- The claim itself became a defect with a reproduction, in `doc/todo/12` — closed by ADR 0219,
+  which narrowed ADR 0139's property to what is attainable and proved the rest is not.
 
 ## What it costs, measured
 

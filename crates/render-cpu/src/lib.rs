@@ -58,13 +58,17 @@ impl CpuRasterizer {
 
     /// Asks for a fixed number of horizontal strips instead of one per available core.
     ///
-    /// **This changes how long a page takes and, on one known page, one pixel of what it looks
-    /// like**, which is the claim of [`CpuRasterizer::encode_in_strips`] and its correction: the
-    /// property is only checkable by rendering one page several ways and comparing the bytes,
-    /// which is what `strip_parallelism.rs` does over six scenes and what found the exception on
-    /// a seventh — `plan_strips` has it, `doc/todo/12` has the diagnosis. **One** is the value
-    /// that departs, and it is the value a caller with no filesystem must pass (ADR 0218). A page
-    /// still gets fewer strips than asked for where its curves forbid the cuts.
+    /// **This changes how long a page takes and almost nothing about what it looks like**, which
+    /// is [`Surface`]'s claim and is the reason this method exists: the property is only
+    /// checkable by rendering one page several ways and comparing the bytes, which is what
+    /// `strip_parallelism.rs` does — over six scenes here, and over three real pages in
+    /// `pdf-model`, which is where the exception the six scenes could not hold was found. What
+    /// "almost" covers is `tiny-skia`'s own arithmetic at a shifted origin, worth one supersample
+    /// on an edge that lands on one: ADR 0219 measures it and says why it cannot be removed.
+    ///
+    /// **One** is the value a caller with no filesystem must pass, because asking the machine
+    /// reads `/proc` (ADR 0218). A page still gets fewer strips than asked for where its curves
+    /// forbid the cuts.
     #[must_use]
     pub fn with_strips(mut self, strips: u32) -> Self {
         self.strips = Some(strips);
@@ -251,6 +255,9 @@ impl CpuRasterizer {
     /// none — one wide gradient under one curved clip, `bug1721218_reduced.pdf` — is drawn
     /// serially, which is not a fallback but the only division of it that draws the same page.
     ///
+    /// That rule is about *geometry*, and it was not the whole of it: the *arithmetic* had to
+    /// be the page's too, which is [`Surface`] and ADR 0219.
+    ///
     /// # Errors
     ///
     /// As [`CpuRasterizer::encode`]. A strip that fails takes the render with it: half a page
@@ -264,12 +271,13 @@ impl CpuRasterizer {
         let boundaries = plan_strips(list, target, self.strips);
         let strips = boundaries.len().saturating_sub(1);
         if strips < 2 {
-            let mut masks = MaskCache::new(target, self.anti_alias, MASK_BUDGET);
+            let surface = Surface::whole(target);
+            let mut masks = MaskCache::new(surface, self.anti_alias, MASK_BUDGET);
             return self.encode(
                 &mut pixmap.as_mut(),
                 list,
                 list.commands(),
-                target,
+                surface,
                 &mut masks,
                 0,
                 Compose::Over,
@@ -296,30 +304,25 @@ impl CpuRasterizer {
         pieces
             .into_par_iter()
             .try_for_each(|(top, rows, piece)| -> Result<(), CpuRasterError> {
-                let spec = TargetSpec {
-                    width,
-                    height: rows,
-                    #[expect(
-                        clippy::cast_precision_loss,
-                        reason = "rasterize rejects a target taller than MAX_EXTENT = 2^24, \
-                                  every integer below which is exact in f32"
-                    )]
-                    transform: target
-                        .transform
-                        .then(Transform::translate(0.0, -(top as f32))),
+                // The page's own target travels into the strip, not a shifted copy of it:
+                // where the strip starts is [`Surface`]'s other field, and it reaches the
+                // geometry once, last. ADR 0219 is what a shifted copy cost.
+                let surface = Surface {
+                    page: target,
+                    rows: Band { top, height: rows },
                 };
-                let mut surface = tiny_skia::PixmapMut::from_bytes(piece, width, rows).ok_or(
+                let mut piece = tiny_skia::PixmapMut::from_bytes(piece, width, rows).ok_or(
                     CpuRasterError::Allocation {
                         width,
                         height: rows,
                     },
                 )?;
-                let mut masks = MaskCache::new(spec, self.anti_alias, budget);
+                let mut masks = MaskCache::new(surface, self.anti_alias, budget);
                 self.encode(
-                    &mut surface,
+                    &mut piece,
                     list,
                     list.commands(),
-                    spec,
+                    surface,
                     &mut masks,
                     0,
                     Compose::Over,
@@ -383,16 +386,16 @@ impl CpuRasterizer {
     )]
     fn draw_stroke(
         &self,
-        surface: &mut tiny_skia::PixmapMut<'_>,
+        pixmap: &mut tiny_skia::PixmapMut<'_>,
         path: &Path,
         transform: Transform,
         stroke: &Stroke,
         paint: &Paint,
         blend: tiny_skia::BlendMode,
-        to_device: Transform,
+        to_device: ToDevice,
         clip: Option<&tiny_skia::Mask>,
     ) -> Result<(), CpuRasterError> {
-        let at = transform.then(to_device);
+        let at = to_device.of(transform);
         let width = stroke.device_width(at);
         // ISO 32000-2 §8.5.3.2's two rules about a stroke with no length. Neither is
         // Skia's answer: it paints a projecting square cap where the clause asks for
@@ -417,7 +420,7 @@ impl CpuRasterizer {
             if dashed {
                 style.dash = None;
             }
-            surface.stroke_path(
+            pixmap.stroke_path(
                 &converted,
                 &self.paint(paint, blend, page_to_path(transform)?, &mut scratch)?,
                 &style,
@@ -431,7 +434,7 @@ impl CpuRasterizer {
             && let Some(converted) = convert::path(&dots)
         {
             let mut scratch = None;
-            surface.fill_path(
+            pixmap.fill_path(
                 &converted,
                 &self.paint(paint, blend, page_to_path(transform)?, &mut scratch)?,
                 tiny_skia::FillRule::Winding,
@@ -465,19 +468,19 @@ impl CpuRasterizer {
         pixmap: &mut tiny_skia::PixmapMut<'_>,
         list: &DisplayList,
         commands: &[Command],
-        target: TargetSpec,
+        surface: Surface,
         masks: &mut MaskCache,
         depth: usize,
         compose: Compose,
     ) -> Result<(), CpuRasterError> {
         for command in commands {
-            // A command whose extent misses this target marks nothing, and saying so here is
+            // A command whose extent misses this surface marks nothing, and saying so here is
             // what makes a strip cost what its own rows cost: without it every strip would
             // build every command's path and compile every command's pipeline, which session
             // 154 measured at 19% of a dense page's rasterisation. A row of margin, for the
             // same reason `Band::covering` takes one — the extent comes from control points
             // and the mask from the path.
-            if misses_target(command, target) {
+            if misses_surface(command, surface) {
                 continue;
             }
 
@@ -485,7 +488,7 @@ impl CpuRasterizer {
             // it renders a whole command list of its own and so needs the cache mutably.
             // Idempotent: the second command under the same mask finds it already there.
             if let Some(id) = command.mask() {
-                self.build_soft_mask(list, id, target, masks, depth)?;
+                self.build_soft_mask(list, id, surface, masks, depth)?;
             }
 
             // A group is the one command that needs the mask cache mutably *while* it
@@ -526,7 +529,7 @@ impl CpuRasterizer {
                             Compose::Over
                         },
                     },
-                    target,
+                    surface,
                     masks,
                     depth,
                 )?;
@@ -543,10 +546,10 @@ impl CpuRasterizer {
 
             // Everything below draws into the band rather than the page, which is what
             // keeps a command's cost proportional to the pixels its clip can admit.
-            // The device transform carries the band's offset so that geometry, paints
+            // The device map carries the band's first row so that geometry, paints
             // and images all move together; missing one would tear the page apart in a
             // way no metric would notice, so there is exactly one of these.
-            let to_device = target.transform.then(band.offset());
+            let to_device = surface.to_device(band);
 
             // ISO 32000-2 §11.3.5.3's four modes are computed by this backend rather than
             // by `tiny-skia`, whose three of them are wrong (ADR 0047), so such a command
@@ -554,42 +557,46 @@ impl CpuRasterizer {
             // Drawing onto transparency loses nothing: with αb = 0 the compositing formula
             // collapses to the source, whatever the blend mode.
             if let Some(mode) = compose.non_separable(command.blend()) {
-                let mut layer = tiny_skia::Pixmap::new(target.width, band.height).ok_or(
+                let mut layer = tiny_skia::Pixmap::new(surface.width(), band.height).ok_or(
                     CpuRasterError::Allocation {
-                        width: target.width,
+                        width: surface.width(),
                         height: band.height,
                     },
                 )?;
                 self.draw(&mut layer.as_mut(), command, to_device, clip, compose)?;
-                let mut surface = band.rows(pixmap).ok_or(CpuRasterError::Allocation {
-                    width: target.width,
-                    height: band.height,
-                })?;
-                blend::composite(&mut surface, &layer, mode);
+                let mut rows = band
+                    .rows(pixmap, surface)
+                    .ok_or(CpuRasterError::Allocation {
+                        width: surface.width(),
+                        height: band.height,
+                    })?;
+                blend::composite(&mut rows, &layer, mode);
                 continue;
             }
 
-            let mut surface = band.rows(pixmap).ok_or(CpuRasterError::Allocation {
-                width: target.width,
-                height: band.height,
-            })?;
+            let mut rows = band
+                .rows(pixmap, surface)
+                .ok_or(CpuRasterError::Allocation {
+                    width: surface.width(),
+                    height: band.height,
+                })?;
 
-            self.draw(&mut surface, command, to_device, clip, compose)?;
+            self.draw(&mut rows, command, to_device, clip, compose)?;
         }
         Ok(())
     }
 
     /// Composites one transparency group (ISO 32000-2 §11.4.1).
     ///
-    /// The elements are drawn onto a fully transparent surface of the target's size — the
+    /// The elements are drawn onto a fully transparent buffer the size of this surface — the
     /// isolated group's initial backdrop of §11.4.5 — and the result is then painted onto
     /// the page once, under the group's own constant alpha and blend mode. Compositing the
     /// elements one at a time onto the page instead is what §11.6.6's initialisation of the
     /// alpha constants exists to prevent, and is visibly different wherever two elements
     /// overlap.
     ///
-    /// The surface is the whole target rather than the group's band because the elements'
-    /// clips are resolved against the target, so their bands are target rows; a band-sized
+    /// The buffer covers the whole surface rather than the group's band because the elements'
+    /// clips are resolved against the surface, so their bands are its rows; a band-sized
     /// buffer would need every one of them shifted, and one coordinate system that is right
     /// beats two that have to agree.
     fn draw_group(
@@ -597,7 +604,7 @@ impl CpuRasterizer {
         pixmap: &mut tiny_skia::PixmapMut<'_>,
         list: &DisplayList,
         group: Group<'_>,
-        target: TargetSpec,
+        surface: Surface,
         masks: &mut MaskCache,
         depth: usize,
     ) -> Result<(), CpuRasterError> {
@@ -616,17 +623,17 @@ impl CpuRasterizer {
             return Ok(());
         };
 
-        let mut buffer = tiny_skia::Pixmap::new(target.width, target.height).ok_or(
+        let mut buffer = tiny_skia::Pixmap::new(surface.width(), surface.rows.height).ok_or(
             CpuRasterError::Allocation {
-                width: target.width,
-                height: target.height,
+                width: surface.width(),
+                height: surface.rows.height,
             },
         )?;
         self.encode(
             &mut buffer.as_mut(),
             list,
             group.commands,
-            target,
+            surface,
             masks,
             depth,
             group.compose,
@@ -636,7 +643,7 @@ impl CpuRasterizer {
         // they share the cache; rebuilding it is what makes eviction safe here as it is for
         // a clip.
         if let Some(id) = group.mask {
-            self.build_soft_mask(list, id, target, masks, depth)?;
+            self.build_soft_mask(list, id, surface, masks, depth)?;
         }
 
         // Resolved again rather than held across the recursion: the elements' own clips
@@ -653,11 +660,14 @@ impl CpuRasterizer {
             // interpolated and the quality setting cannot change a pixel.
             quality: tiny_skia::FilterQuality::Nearest,
         };
-        // Negative, because the buffer covers the whole target and the surface starts at
-        // the band's first row.
-        let top = i32::try_from(band.top).map_err(|_| CpuRasterError::Allocation {
-            width: target.width,
-            height: band.height,
+        // Negative, because the buffer covers the whole surface and the rows drawn into
+        // start at the band's first row. Both are page rows, so the difference is what the
+        // buffer has to be shifted by.
+        let top = i32::try_from(band.top.saturating_sub(surface.rows.top)).map_err(|_| {
+            CpuRasterError::Allocation {
+                width: surface.width(),
+                height: band.height,
+            }
         })?;
 
         // §11.3.5.3's four modes are this backend's own (ADR 0047), and a group reaches
@@ -665,9 +675,9 @@ impl CpuRasterizer {
         // are applied onto transparency, and the result is composited by `blend`. The
         // extra buffer is the price of the mode, not of every group.
         if let Some(mode) = blend::NonSeparable::of(group.blend) {
-            let mut layer = tiny_skia::Pixmap::new(target.width, band.height).ok_or(
+            let mut layer = tiny_skia::Pixmap::new(surface.width(), band.height).ok_or(
                 CpuRasterError::Allocation {
-                    width: target.width,
+                    width: surface.width(),
                     height: band.height,
                 },
             )?;
@@ -682,19 +692,23 @@ impl CpuRasterizer {
                 tiny_skia::Transform::identity(),
                 clip,
             );
-            let mut surface = band.rows(pixmap).ok_or(CpuRasterError::Allocation {
-                width: target.width,
-                height: band.height,
-            })?;
-            blend::composite(&mut surface, &layer, mode);
+            let mut rows = band
+                .rows(pixmap, surface)
+                .ok_or(CpuRasterError::Allocation {
+                    width: surface.width(),
+                    height: band.height,
+                })?;
+            blend::composite(&mut rows, &layer, mode);
             return Ok(());
         }
 
-        let mut surface = band.rows(pixmap).ok_or(CpuRasterError::Allocation {
-            width: target.width,
-            height: band.height,
-        })?;
-        surface.draw_pixmap(
+        let mut rows = band
+            .rows(pixmap, surface)
+            .ok_or(CpuRasterError::Allocation {
+                width: surface.width(),
+                height: band.height,
+            })?;
+        rows.draw_pixmap(
             0,
             top.saturating_neg(),
             buffer.as_ref(),
@@ -707,7 +721,7 @@ impl CpuRasterizer {
 
     /// Evaluates a soft mask into the cache, if it is not there already (§11.5).
     ///
-    /// The mask's group is drawn onto a fully transparent target-sized surface — the same
+    /// The mask's group is drawn onto a fully transparent buffer covering this surface — the same
     /// isolated backdrop [`CpuRasterizer::draw_group`] uses, and what both §11.5.2 and
     /// §11.5.3 ask for — and each pixel is then turned into a mask value by
     /// [`pdf_render::SoftMask::value`], which is the function the GPU backend calls on its
@@ -723,7 +737,7 @@ impl CpuRasterizer {
         &self,
         list: &DisplayList,
         id: SoftMaskId,
-        target: TargetSpec,
+        surface: Surface,
         masks: &mut MaskCache,
         depth: usize,
     ) -> Result<(), CpuRasterError> {
@@ -734,10 +748,10 @@ impl CpuRasterizer {
             .soft_mask(id)
             .ok_or(CpuRasterError::UnknownSoftMask(id))?;
 
-        let mut buffer = tiny_skia::Pixmap::new(target.width, target.height).ok_or(
+        let mut buffer = tiny_skia::Pixmap::new(surface.width(), surface.rows.height).ok_or(
             CpuRasterError::Allocation {
-                width: target.width,
-                height: target.height,
+                width: surface.width(),
+                height: surface.rows.height,
             },
         )?;
         // A soft mask's group is evaluated as §11.4.5's ordinary group: `SoftMask` carries
@@ -746,7 +760,7 @@ impl CpuRasterizer {
             &mut buffer.as_mut(),
             list,
             &mask.commands,
-            target,
+            surface,
             masks,
             depth,
             Compose::Over,
@@ -758,18 +772,18 @@ impl CpuRasterizer {
         let values = mask.values(&buffer.take_demultiplied());
         let built = tiny_skia::Mask::from_vec(
             values,
-            tiny_skia::IntSize::from_wh(target.width, target.height).ok_or(
+            tiny_skia::IntSize::from_wh(surface.width(), surface.rows.height).ok_or(
                 CpuRasterError::Allocation {
-                    width: target.width,
-                    height: target.height,
+                    width: surface.width(),
+                    height: surface.rows.height,
                 },
             )?,
         )
         .ok_or(CpuRasterError::Allocation {
-            width: target.width,
-            height: target.height,
+            width: surface.width(),
+            height: surface.rows.height,
         })?;
-        masks.admit_soft_mask(id, built, target);
+        masks.admit_soft_mask(id, built, surface.rows);
         Ok(())
     }
 
@@ -794,15 +808,15 @@ impl CpuRasterizer {
     )]
     fn draw_fill(
         &self,
-        surface: &mut tiny_skia::PixmapMut<'_>,
+        pixmap: &mut tiny_skia::PixmapMut<'_>,
         (source, fill_rule): (&Path, pdf_render::FillRule),
         transform: Transform,
         paint: &Paint,
         blend: tiny_skia::BlendMode,
-        to_device: Transform,
+        to_device: ToDevice,
         clip: Option<&tiny_skia::Mask>,
     ) -> Result<(), CpuRasterError> {
-        let at = transform.then(to_device);
+        let at = to_device.of(transform);
         let path = convert::path(source).ok_or(CpuRasterError::InvalidPath)?;
 
         // A mesh carries a colour per triangle corner, which no shader can express, so it is
@@ -811,10 +825,10 @@ impl CpuRasterizer {
             && let pdf_render::ShadingKind::Mesh { triangles } = shading.kind.as_ref()
         {
             shading::fill_mesh(
-                surface,
+                pixmap,
                 &path,
                 triangles,
-                shading.transform.then(to_device),
+                to_device.of(shading.transform),
                 convert::fill_rule(fill_rule),
                 convert::transform(at),
                 clip,
@@ -841,7 +855,7 @@ impl CpuRasterizer {
             } = shading.kind.as_ref()
             && shading::is_a_cone(*start, *start_radius, *end, *end_radius)
             && shading::fill_radial(
-                surface,
+                pixmap,
                 &path,
                 pdf_render::Radial {
                     start: *start,
@@ -851,7 +865,7 @@ impl CpuRasterizer {
                     ramp,
                     extend: *extend,
                 },
-                shading.transform.then(to_device),
+                to_device.of(shading.transform),
                 convert::fill_rule(fill_rule),
                 convert::transform(at),
                 clip,
@@ -871,7 +885,7 @@ impl CpuRasterizer {
             && !split.marks.is_empty()
             && let Some(marks) = convert::path(&split.marks)
         {
-            surface.fill_path(
+            pixmap.fill_path(
                 &marks,
                 &brush,
                 tiny_skia::FillRule::Winding,
@@ -885,7 +899,7 @@ impl CpuRasterizer {
             Some(split) => convert::path(&split.filled).ok_or(CpuRasterError::InvalidPath)?,
             None => path,
         };
-        surface.fill_path(
+        pixmap.fill_path(
             &path,
             &brush,
             convert::fill_rule(fill_rule),
@@ -895,10 +909,12 @@ impl CpuRasterizer {
         Ok(())
     }
 
-    /// Draws one command onto `surface`, which is the band its clip admits.
+    /// Draws one command onto `pixmap`, which is the band its clip admits.
     ///
-    /// `to_device` maps page space onto that band, so it already carries the band's row
-    /// offset; every transform below composes with it and none reaches the page directly.
+    /// `to_device` maps page space onto that band, carrying its first row as a whole number
+    /// subtracted at the end of every composition; every transform below goes through it and
+    /// none reaches the device directly. See [`ToDevice`] for why that order is the property
+    /// rather than a detail.
     ///
     /// # Errors
     ///
@@ -906,9 +922,9 @@ impl CpuRasterizer {
     /// command variant this backend does not implement, or for an inconsistent image.
     fn draw(
         &self,
-        surface: &mut tiny_skia::PixmapMut<'_>,
+        pixmap: &mut tiny_skia::PixmapMut<'_>,
         command: &Command,
-        to_device: Transform,
+        to_device: ToDevice,
         clip: Option<&tiny_skia::Mask>,
         compose: Compose,
     ) -> Result<(), CpuRasterError> {
@@ -922,7 +938,7 @@ impl CpuRasterizer {
                 ..
             } => {
                 self.draw_fill(
-                    surface,
+                    pixmap,
                     (source, *fill_rule),
                     *transform,
                     paint,
@@ -940,7 +956,7 @@ impl CpuRasterizer {
                 ..
             } => {
                 self.draw_stroke(
-                    surface,
+                    pixmap,
                     path,
                     *transform,
                     stroke,
@@ -963,7 +979,7 @@ impl CpuRasterizer {
                     blend: compose.mode(*blend),
                     to_device,
                 };
-                self.draw_image(surface, image, placement, clip)?;
+                self.draw_image(pixmap, image, placement, clip)?;
             }
             // `Command` is `#[non_exhaustive]`, so new commands will appear here before
             // this backend implements them. Erroring keeps an unimplemented command
@@ -1041,7 +1057,7 @@ struct ImagePlacement {
     transform: Transform,
     alpha: f32,
     blend: tiny_skia::BlendMode,
-    to_device: Transform,
+    to_device: ToDevice,
 }
 
 impl CpuRasterizer {
@@ -1074,7 +1090,7 @@ impl CpuRasterizer {
             blend,
             to_device,
         } = placement;
-        let placement = transform.then(to_device);
+        let placement = to_device.of(transform);
         // Where a command's samples do not exist until the device scale does — §11.6.5.2's
         // soft mask on a grid of its own is the case — this is where they are produced, and
         // `pdf_render` decides the grid so that the three backends cannot ask for different
@@ -1200,7 +1216,7 @@ fn premultiply(value: u8, alpha: u8) -> u8 {
     u8::try_from(scaled / 255).unwrap_or(u8::MAX)
 }
 
-/// A contiguous run of target rows: the only rows a command is allowed to mark.
+/// A contiguous run of **page** rows: the only rows a command is allowed to mark.
 ///
 /// A command can only change pixels its clip admits, and a clip usually admits very
 /// little of the page. Restricting the drawing surface to those rows is what keeps a
@@ -1216,26 +1232,22 @@ fn premultiply(value: u8, alpha: u8) -> u8 {
 /// and `tiny-skia` exposes no sub-rectangle view. The same constraint applies to the
 /// clip mask, which must share the pixmap's row stride, so it is band-tall and
 /// page-wide too.
+///
+/// **Page rows, and a [`Surface`]'s own rows are one of these too.** A strip of a page and
+/// the band a clip admits are the same idea at two scales, and counting both from the page's
+/// first row is what lets the offset from page space reach the geometry once (ADR 0219).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Band {
-    /// First target row this band covers.
+    /// First page row this band covers.
     top: u32,
     /// Number of rows.
     height: u32,
 }
 
 impl Band {
-    /// The band covering the whole target — what an unclipped command draws into.
-    fn whole(target: TargetSpec) -> Self {
-        Self {
-            top: 0,
-            height: target.height,
-        }
-    }
-
-    /// The band covering `bounds`, clipped to a target `height` rows tall.
+    /// The band covering `bounds`, clipped to the rows `surface` holds.
     ///
-    /// Returns `None` when `bounds` covers no row of the target.
+    /// Returns `None` when `bounds` covers no row of the surface.
     ///
     /// `bounds` is widened by a row before rounding outward. Clip bounds are computed
     /// from a path's control points and then transformed, while the mask is built by
@@ -1243,11 +1255,12 @@ impl Band {
     /// rather than exactly, and a band one row short would erase a row of a shading
     /// that the clip admits. A spare row costs a fraction of a percent of the band and
     /// removes that class of defect entirely.
-    fn covering(bounds: tiny_skia::Rect, height: u32) -> Option<Self> {
+    fn covering(bounds: tiny_skia::Rect, surface: Surface) -> Option<Self> {
         let rows = bounds.outset(0.0, 1.0)?.round_out()?;
-        let limit = i32::try_from(height).ok()?;
-        let top = rows.top().clamp(0, limit);
-        let bottom = rows.bottom().clamp(0, limit);
+        let first = i32::try_from(surface.rows.top).ok()?;
+        let limit = first.checked_add(i32::try_from(surface.rows.height).ok()?)?;
+        let top = rows.top().clamp(first, limit);
+        let bottom = rows.bottom().clamp(first, limit);
         let rows = u32::try_from(bottom.checked_sub(top)?).ok()?;
         (rows > 0).then_some(Self {
             top: u32::try_from(top).ok()?,
@@ -1255,27 +1268,18 @@ impl Band {
         })
     }
 
-    /// Maps target coordinates into this band's coordinates.
-    fn offset(self) -> Transform {
-        #[expect(
-            clippy::cast_precision_loss,
-            reason = "rasterize rejects a target taller than MAX_EXTENT = 2^24, and every \
-                      integer below that is exactly representable as f32"
-        )]
-        Transform::translate(0.0, -(self.top as f32))
-    }
-
-    /// Borrows this band's rows of `pixmap` as a pixmap in its own right.
+    /// Borrows this band's rows of `pixmap`, which covers `surface`, as a pixmap of its own.
     ///
-    /// `None` only if the band does not lie within the pixmap, which
-    /// [`Band::covering`] does not produce.
+    /// `None` only if the band does not lie within the surface, which [`Band::covering`]
+    /// does not produce.
     fn rows<'a>(
         self,
         pixmap: &'a mut tiny_skia::PixmapMut<'_>,
+        surface: Surface,
     ) -> Option<tiny_skia::PixmapMut<'a>> {
         let width = pixmap.width();
         let stride = (width as usize).checked_mul(4)?;
-        let start = (self.top as usize).checked_mul(stride)?;
+        let start = (self.top.checked_sub(surface.rows.top)? as usize).checked_mul(stride)?;
         let end = start.checked_add((self.height as usize).checked_mul(stride)?)?;
         let rows = pixmap.data_mut().get_mut(start..end)?;
         tiny_skia::PixmapMut::from_bytes(rows, width, self.height)
@@ -1287,19 +1291,105 @@ impl Band {
     }
 }
 
-/// Whether a command's own extent lies wholly above or below `target`'s rows.
+/// The rows of a page one call draws into, and the page they belong to.
+///
+/// # Why the page's transform travels and a strip's does not
+///
+/// A strip is a run of the page's rows, and the obvious way to hand one to a rasteriser is to
+/// give it a target whose transform has been shifted up by the rows above it. That is what
+/// this backend did from ADR 0139 until session 382, and **it made the picture depend on how
+/// the page was divided**: `Transform::then` folds the shift into the page transform's `f`, so
+/// a mark's own translation is then added to a number of a different magnitude and the sum
+/// rounds elsewhere. One `ulp` of the composed matrix is one supersample of a glyph's edge,
+/// which `tiny-skia` quantises to 16 of 255 — the pixel ADR 0219 was written for.
+///
+/// So the page's own target is what travels, and where the surface starts is a separate whole
+/// number of rows, applied once and last by [`ToDevice`]. Every band, clip mask and group
+/// buffer below is measured in page rows for the same reason.
+#[derive(Debug, Clone, Copy)]
+struct Surface {
+    /// The whole page's target: `transform` maps page space onto the *page's* device grid,
+    /// however few of its rows this surface holds.
+    page: TargetSpec,
+    /// The page rows it holds.
+    rows: Band,
+}
+
+impl Surface {
+    /// The surface covering a whole page.
+    fn whole(page: TargetSpec) -> Self {
+        Self {
+            page,
+            rows: Band {
+                top: 0,
+                height: page.height,
+            },
+        }
+    }
+
+    /// Pixels across, which is the page's width: a surface is a run of whole rows.
+    fn width(self) -> u32 {
+        self.page.width
+    }
+
+    /// The map onto the device grid of `band`, which must be rows this surface holds.
+    fn to_device(self, band: Band) -> ToDevice {
+        ToDevice {
+            page: self.page.transform,
+            top: band.top,
+        }
+    }
+}
+
+/// Page space onto the device grid of a surface starting at page row `top`.
+///
+/// Two values rather than one matrix, and that is the whole of ADR 0219: the row offset is
+/// composed **last**, onto the fully composed matrix, where subtracting a whole number of rows
+/// from a device coordinate is exact. Folded in first — as `target.transform.then(offset)` —
+/// it changes the magnitude every later composition rounds at, and a page drawn in strips stops
+/// being the page drawn whole.
+#[derive(Debug, Clone, Copy)]
+struct ToDevice {
+    /// Page space to the whole page's device grid.
+    page: Transform,
+    /// First page row of the surface being drawn into.
+    top: u32,
+}
+
+impl ToDevice {
+    /// The matrix geometry stated in `transform`'s space is drawn under.
+    fn of(self, transform: Transform) -> Transform {
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "rasterize rejects a target taller than MAX_EXTENT = 2^24, and every \
+                      integer below that is exactly representable as f32"
+        )]
+        let rows = self.top as f32;
+        transform
+            .then(self.page)
+            .then(Transform::translate(0.0, -rows))
+    }
+}
+
+/// Whether a command's own extent lies wholly above or below `surface`'s rows.
 ///
 /// A group answers `false`: its elements carry the extents and each is asked in turn.
-fn misses_target(command: &Command, target: TargetSpec) -> bool {
-    let Some(bounds) = command.device_bounds(target.transform) else {
+///
+/// Measured on the *page's* grid, so a strip asks the same question of the same numbers the
+/// whole page asks — only over a different run of rows.
+fn misses_surface(command: &Command, surface: Surface) -> bool {
+    let Some(bounds) = command.device_bounds(surface.page.transform) else {
         return false;
     };
     #[expect(
         clippy::cast_precision_loss,
         reason = "a target height below MAX_EXTENT = 2^24 is exact in f32"
     )]
-    let height = target.height as f32;
-    bounds.max.y < -1.0 || bounds.min.y > height + 1.0
+    let (top, bottom) = (
+        surface.rows.top as f32,
+        surface.rows.top.saturating_add(surface.rows.height) as f32,
+    );
+    bounds.max.y < top - 1.0 || bounds.min.y > bottom + 1.0
 }
 
 /// The rows at which to cut this target, or one strip's worth if it may not be cut.
@@ -1307,17 +1397,21 @@ fn misses_target(command: &Command, target: TargetSpec) -> bool {
 /// The strip count asked for is what this machine offers, bounded by [`MAX_STRIPS`] and by
 /// [`MIN_STRIP_ROWS`]; what comes back may be fewer, because a cut is only made at a row no
 /// curve crosses. **The picture is very nearly independent of the answer**, which is the property
-/// ADR 0139 exists to establish and `strip_parallelism.rs` asserts over six scenes: a machine with
-/// four cores and one with thirty-two draw the same bytes.
+/// ADR 0139 exists to establish and `strip_parallelism.rs` asserts: a machine with four cores and
+/// one with thirty-two draw the same bytes but for a handful in a million.
 ///
-/// **"Very nearly" is a correction the three-hundred-and-eighty-first session made**, and it is a
-/// pixel wide. This doc comment said the picture does not depend on the answer *at all*, and
-/// `doc/PDF20_AN001-BPC.pdf` page 1 at 500×708 says otherwise: one strip against any number from
-/// two to thirty-two differs at (117, 636), 127 against 111. Every division above one agrees with
-/// every other, so what departs is the whole-page path — the only one that draws under
-/// `target.transform` itself rather than under it composed with a strip's translation.
-/// `doc/todo/12` has the diagnosis and what to do; ADR 0218 is where it was found, by a confined
-/// process that draws in one strip because it may not ask how many cores it has.
+/// **"Very nearly" is a correction sessions 381 and 382 made together**, and both halves are worth
+/// carrying. The 381st found the claim false — `doc/PDF20_AN001-BPC.pdf` page 1 differed by one
+/// pixel between one strip and every division above one — by drawing a page in one strip on
+/// purpose, which a confined process must because it may not ask how many cores it has (ADR 0218).
+/// The 382nd found the cause not to be the one written down: a strip's offset was folded into the
+/// page transform *before* a mark's own transform was composed with it, so the sum rounded at
+/// another magnitude. It is applied last now, and that page is exact — see [`ToDevice`].
+///
+/// What survives is a dependency's. `tiny-skia` maps a point as `y·sy + ty`, and shifting `ty` by
+/// a whole number of rows moves the sum into another binade; ADR 0219 measures what is left —
+/// fewer than one pixel in ten thousand, none by more than one supersample — and says why no
+/// arrangement of this crate's arithmetic closes it.
 fn plan_strips(list: &DisplayList, target: TargetSpec, asked: Option<u32>) -> Vec<u32> {
     // Asked of the machine only where the caller did not say, and that is not tidiness:
     // `available_parallelism` reads `/proc/self/cgroup` on Linux, and a caller drawing inside a
@@ -1408,7 +1502,7 @@ enum Key {
 /// so build order tracks use order closely enough that an active clip is rebuilt at
 /// most once per run.
 struct MaskCache {
-    target: TargetSpec,
+    surface: Surface,
     anti_alias: bool,
     /// Masks by what they were built from. `None` records a clip that admits no row of the
     /// target, which is worth remembering rather than rediscovering: every command it clips
@@ -1449,9 +1543,9 @@ impl MaskCache {
     /// The budget is a parameter rather than [`MASK_BUDGET`] itself because a page drawn in
     /// strips has one cache per strip and they are alive at once: dividing the constant keeps
     /// a parallel render's mask memory equal to a serial one's.
-    fn new(target: TargetSpec, anti_alias: bool, budget: usize) -> Self {
+    fn new(surface: Surface, anti_alias: bool, budget: usize) -> Self {
         Self {
-            target,
+            surface,
             anti_alias,
             built: HashMap::new(),
             order: VecDeque::new(),
@@ -1483,7 +1577,7 @@ impl MaskCache {
         mask: Option<SoftMaskId>,
     ) -> Result<Option<(Band, Option<&tiny_skia::Mask>)>, CpuRasterError> {
         match (clip, mask) {
-            (None, None) => Ok(Some((Band::whole(self.target), None))),
+            (None, None) => Ok(Some((self.surface.rows, None))),
             (Some(clip), None) => Ok(self.get(list, clip)?.map(|(band, mask)| (band, Some(mask)))),
             (None, Some(mask)) => {
                 let entry = self.soft_mask(mask)?;
@@ -1527,8 +1621,10 @@ impl MaskCache {
 
         let band = clipped.band;
         let mut product = clipped.mask.clone();
-        let width = self.target.width as usize;
-        let start = (band.top as usize).saturating_mul(width);
+        let width = self.surface.width() as usize;
+        // The soft mask covers the whole surface and the clip a band of it, both counted in
+        // page rows, so the difference is where the clip's rows start within the mask.
+        let start = (band.top.saturating_sub(self.surface.rows.top) as usize).saturating_mul(width);
         let soft_rows = soft
             .mask
             .data()
@@ -1583,11 +1679,10 @@ impl MaskCache {
     /// no combination is in flight: [`CpuRasterizer::encode`] evaluates the mask a command
     /// needs before it asks for anything else. Their budget is the same one, counted
     /// separately, and the newest is never dropped for the same reason a clip's is not.
-    fn admit_soft_mask(&mut self, id: SoftMaskId, mask: tiny_skia::Mask, target: TargetSpec) {
-        let band = Band::whole(target);
+    fn admit_soft_mask(&mut self, id: SoftMaskId, mask: tiny_skia::Mask, band: Band) {
         self.soft_bytes = self
             .soft_bytes
-            .saturating_add(band.mask_bytes(self.target.width));
+            .saturating_add(band.mask_bytes(self.surface.width()));
         self.soft_order.push_back(id);
         self.built.insert(Key::Soft(id), Some(Built { mask, band }));
 
@@ -1598,7 +1693,7 @@ impl MaskCache {
             if let Some(Some(entry)) = self.built.remove(&Key::Soft(oldest)) {
                 self.soft_bytes = self
                     .soft_bytes
-                    .saturating_sub(entry.band.mask_bytes(self.target.width));
+                    .saturating_sub(entry.band.mask_bytes(self.surface.width()));
             }
         }
     }
@@ -1702,7 +1797,7 @@ impl MaskCache {
             // so leaving a clip out of it only widens the band; what is drawn is decided
             // by the mask, which is built from the paths themselves either way.
             if let Some(device) = path.bounds().transform(convert::transform(
-                clip.transform.then(self.target.transform),
+                clip.transform.then(self.surface.page.transform),
             )) {
                 bounds = match bounds {
                     None => Some(device),
@@ -1729,19 +1824,19 @@ impl MaskCache {
             return Err(CpuRasterError::UnknownClip(id));
         };
         let band = match bounds {
-            Some(bounds) => match Band::covering(bounds, self.target.height) {
+            Some(bounds) => match Band::covering(bounds, self.surface) {
                 Some(band) => band,
-                // The clip admits no row of the target at all.
+                // The clip admits no row of this surface at all.
                 None => return Ok(None),
             },
             // Nothing in the chain could be measured, so nothing bounds the band.
-            None => Band::whole(self.target),
+            None => self.surface.rows,
         };
 
-        let to_band = self.target.transform.then(band.offset());
-        let mut mask = tiny_skia::Mask::new(self.target.width, band.height).ok_or(
+        let to_band = self.surface.to_device(band);
+        let mut mask = tiny_skia::Mask::new(self.surface.width(), band.height).ok_or(
             CpuRasterError::Allocation {
-                width: self.target.width,
+                width: self.surface.width(),
                 height: band.height,
             },
         )?;
@@ -1750,14 +1845,14 @@ impl MaskCache {
             &root.path,
             root.fill_rule,
             self.anti_alias,
-            convert::transform(root.transform.then(to_band)),
+            convert::transform(to_band.of(root.transform)),
         );
         for shape in nested {
             mask.intersect_path(
                 &shape.path,
                 shape.fill_rule,
                 self.anti_alias,
-                convert::transform(shape.transform.then(to_band)),
+                convert::transform(to_band.of(shape.transform)),
             );
         }
 
@@ -1769,7 +1864,7 @@ impl MaskCache {
         if let Some(entry) = &built {
             self.bytes = self
                 .bytes
-                .saturating_add(entry.band.mask_bytes(self.target.width));
+                .saturating_add(entry.band.mask_bytes(self.surface.width()));
             self.order.push_back(id);
         }
         self.built.insert(id, built);
@@ -1785,7 +1880,7 @@ impl MaskCache {
             if let Some(Some(entry)) = self.built.remove(&oldest) {
                 self.bytes = self
                     .bytes
-                    .saturating_sub(entry.band.mask_bytes(self.target.width));
+                    .saturating_sub(entry.band.mask_bytes(self.surface.width()));
             }
         }
     }
@@ -1798,7 +1893,7 @@ mod tests {
         TargetSpec, Transform,
     };
 
-    use super::{Band, MASK_BUDGET, MaskCache};
+    use super::{Band, MASK_BUDGET, MaskCache, Surface};
 
     /// A page carrying `count` clips, each a thin horizontal bar at its own height.
     ///
@@ -1834,7 +1929,7 @@ mod tests {
     #[test]
     fn the_mask_cache_stays_inside_its_budget() {
         let (list, ids, target) = stacked_clips(40);
-        let mut cache = MaskCache::new(target, true, MASK_BUDGET);
+        let mut cache = MaskCache::new(Surface::whole(target), true, MASK_BUDGET);
         // Room for two of these masks and no more.
         let one = Band { top: 0, height: 4 }.mask_bytes(target.width);
         cache.budget = one * 2;
@@ -1865,13 +1960,13 @@ mod tests {
         let (list, ids, target) = stacked_clips(8);
         let first = *ids.first().expect("eight clips");
 
-        let mut generous = MaskCache::new(target, true, MASK_BUDGET);
+        let mut generous = MaskCache::new(Surface::whole(target), true, MASK_BUDGET);
         let before = generous
             .get(&list, first)
             .expect("builds")
             .map(|(band, mask)| (band, mask.data().to_vec()));
 
-        let mut tight = MaskCache::new(target, true, MASK_BUDGET);
+        let mut tight = MaskCache::new(Surface::whole(target), true, MASK_BUDGET);
         tight.budget = 1;
         for &id in &ids {
             tight.get(&list, id).expect("builds");
@@ -1905,7 +2000,7 @@ mod tests {
             .expect("first clip");
         let target = TargetSpec::for_page(&list, 1.0, 1 << 30).expect("valid target");
 
-        let mut cache = MaskCache::new(target, true, MASK_BUDGET);
+        let mut cache = MaskCache::new(Surface::whole(target), true, MASK_BUDGET);
         assert!(
             cache.get(&list, id).expect("resolves").is_none(),
             "a clip entirely above the page admits no row"
@@ -1926,14 +2021,15 @@ mod tests {
     #[test]
     fn a_clip_never_evicts_a_soft_mask() {
         let (list, ids, target) = stacked_clips(40);
-        let mut cache = MaskCache::new(target, true, MASK_BUDGET);
+        let surface = Surface::whole(target);
+        let mut cache = MaskCache::new(surface, true, MASK_BUDGET);
         cache.budget = Band { top: 0, height: 4 }.mask_bytes(target.width) * 2;
 
         let mask = SoftMaskId::new(0);
         cache.admit_soft_mask(
             mask,
             tiny_skia::Mask::new(target.width, target.height).expect("a target-sized mask"),
-            target,
+            surface.rows,
         );
         for &id in &ids {
             cache.get(&list, id).expect("a rectangular clip builds");
@@ -1953,6 +2049,70 @@ mod tests {
     #[test]
     fn the_shipped_budget_is_thirty_two_mebibytes() {
         assert_eq!(MASK_BUDGET, 32 * 1024 * 1024);
+    }
+
+    /// A strip's matrix is the page's matrix with a whole number of rows taken off, exactly.
+    ///
+    /// This is the whole of ADR 0219 in one assertion, and it is stated in `f64` so that it is
+    /// about the arithmetic rather than about itself: recomputing the subtraction in `f32`
+    /// would round the same way twice and prove nothing. Every component but `f` must be the
+    /// page's own bits, and `f` must be the page's `f` minus the offset with no rounding at all
+    /// — which is what makes composing the offset *last* different from folding it into the
+    /// page transform first, where the mark's own translation is then added at another
+    /// magnitude and rounds elsewhere.
+    #[test]
+    fn the_offset_is_composed_last_and_costs_nothing() {
+        // A page transform of the shape `TargetSpec::for_page` builds, and mark transforms of
+        // the shapes a content stream states: a glyph at 8 and at 20 points, and a form's.
+        let pages = [
+            Transform::new(1.0, 0.0, 0.0, -1.0, 0.0, 841.89),
+            Transform::new(0.838_926_2, 0.0, 0.0, -0.838_926_2, 0.0, 706.283_57),
+            Transform::new(2.019_7, 0.0, 0.0, -2.019_7, 0.0, 1_683.783_4),
+        ];
+        let marks = [
+            Transform::IDENTITY,
+            Transform::new(8.0, 0.0, 0.0, 8.0, 488.387_54, 51.023_6),
+            Transform::new(20.0, 0.0, 0.0, 20.0, 51.023_6, 51.023_6),
+            Transform::new(0.5, 0.25, -0.25, 0.5, 133.777, 642.101),
+        ];
+
+        for page in pages {
+            for mark in marks {
+                let whole = super::ToDevice { page, top: 0 }.of(mark);
+                for top in [1_u32, 8, 64, 236, 512, 887, 1024] {
+                    let strip = super::ToDevice { page, top }.of(mark);
+                    assert_eq!(
+                        (
+                            strip.a.to_bits(),
+                            strip.b.to_bits(),
+                            strip.c.to_bits(),
+                            strip.d.to_bits(),
+                            strip.e.to_bits()
+                        ),
+                        (
+                            whole.a.to_bits(),
+                            whole.b.to_bits(),
+                            whole.c.to_bits(),
+                            whole.d.to_bits(),
+                            whole.e.to_bits()
+                        ),
+                        "a row offset moved something other than the vertical translation"
+                    );
+                    #[expect(
+                        clippy::float_cmp,
+                        reason = "exactly what is asserted: the subtraction of a whole number \
+                                  of rows from a device coordinate rounds not at all, so an \
+                                  epsilon here would assert nothing"
+                    )]
+                    let exact = (f64::from(whole.f) - f64::from(top)) == f64::from(strip.f);
+                    assert!(
+                        exact,
+                        "{top} rows off {whole:?} gave {strip:?}, which is not the page's \
+                         translation minus {top}: the subtraction rounded"
+                    );
+                }
+            }
+        }
     }
 }
 

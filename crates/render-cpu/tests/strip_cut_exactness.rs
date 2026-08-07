@@ -18,7 +18,21 @@
 //! exactly — the assertion fails, and what it should provoke is a *relaxation* of
 //! `Path::oblique_spans`, not a repair here.
 //!
-//! Why this is a test rather than a paragraph: the rule is a claim about a dependency's
+//! **A third question was missing until session 382, and the answer to it retired a claim this
+//! project made about itself.** The three probes above cut a shape at a row and ask whether the
+//! pieces join; none of them asks whether drawing the *same* shape under the *same* matrix into
+//! a surface whose first row is elsewhere gives the same pixels. It does not — `tiny-skia` maps
+//! a point as `y·sy + ty` in `f32`, and subtracting a whole number of rows from `ty` changes
+//! the magnitude that sum rounds at. See `a_surface_that_starts_elsewhere_is_not_invariant`,
+//! and ADR 0219 for what follows: a page drawn in strips is the page drawn whole *up to this*,
+//! and no arrangement of this crate's arithmetic can close it.
+//!
+//! Note what the three probes above have in common, because it is why they never asked: every
+//! coordinate in them is a dyadic fraction — 111.75, 903.25, 37.25 — and subtracting an integer
+//! from one of those is exact. A suite of shapes is a suite of shapes, and so is a suite of
+//! *coordinates*.
+//!
+//! Why these are tests rather than paragraphs: the rules are claims about a dependency's
 //! internals, and a dependency's internals change without asking.
 
 #![expect(
@@ -158,4 +172,86 @@ fn an_oblique_edge_and_a_curve_do_not_survive_a_cut() {
              — see ADR 0139"
         );
     }
+}
+
+/// A path drawn into a surface whose first row is elsewhere, under the matrix that puts it in
+/// the same place, is **not** the same drawing.
+///
+/// This is the residual ADR 0219 could not remove. `CpuRasterizer` now hands a strip exactly
+/// the matrix it hands the whole page with a whole number of rows subtracted from `f` — that
+/// much is this crate's own arithmetic and is exact (see `the_offset_is_composed_last` in the
+/// crate's unit tests). What is left is the dependency's: a point becomes `y·sy + ty`, and
+/// `fl(p + ty)` minus an integer is not `fl(p + ty − integer)` when the two sums fall in
+/// different binades. One `ulp` of a device coordinate is one of `tiny-skia`'s sixteen
+/// supersamples wherever an edge lands within an `ulp` of a sample row, which is 16 of 255.
+///
+/// Asserted in the direction it is true — that a difference exists — for the same reason
+/// `an_oblique_edge_and_a_curve_do_not_survive_a_cut` is: if a `tiny-skia` release ever makes
+/// this invariant, the failure here is the notice that the narrowed claim can be widened again.
+#[test]
+fn a_surface_that_starts_elsewhere_is_not_invariant() {
+    // Coordinates that are *not* dyadic fractions, and a page transform of the shape
+    // `TargetSpec::for_page` produces: a scale and a flip about the page's height.
+    let (scale, f) = (2.0197_f32, 1683.7834_f32);
+    let mut differing = 0_usize;
+    let mut worst = 0_u8;
+
+    for shape in 0..40_u32 {
+        let y = 3.13 * shape as f32 + 11.7;
+        let mut builder = PathBuilder::new();
+        builder.move_to(10.3, y);
+        builder.line_to(240.7, y + 7.31);
+        builder.quad_to(300.1, y + 20.9, 120.4, y + 33.77);
+        builder.line_to(11.9, y + 12.5);
+        builder.close();
+        let path = builder
+            .finish()
+            .expect("a quadrilateral with one curved side");
+
+        let mut paint = Paint::default();
+        paint.set_color_rgba8(20, 60, 200, 255);
+        paint.anti_alias = true;
+        let tall = 1684;
+        let mut whole = Pixmap::new(WIDTH, tall).expect("a target");
+        whole.fill_path(
+            &path,
+            &paint,
+            FillRule::Winding,
+            Transform::from_row(scale, 0.0, 0.0, -scale, 0.0, f),
+            None,
+        );
+
+        for rows in [1_u32, 8, 64, 236, 512, 887, 1024] {
+            let mut strip = Pixmap::new(WIDTH, tall - rows).expect("a target");
+            strip.fill_path(
+                &path,
+                &paint,
+                FillRule::Winding,
+                Transform::from_row(scale, 0.0, 0.0, -scale, 0.0, f - rows as f32),
+                None,
+            );
+            let from = (rows as usize) * (WIDTH as usize) * 4;
+            let pairs = || whole.data()[from..].iter().zip(strip.data());
+            differing += pairs().filter(|(one, other)| one != other).count();
+            worst = worst.max(
+                pairs()
+                    .map(|(one, other)| one.abs_diff(*other))
+                    .max()
+                    .unwrap_or(0),
+            );
+        }
+    }
+
+    assert!(
+        differing > 0,
+        "`tiny-skia` drew 40 shapes at 7 offsets identically at every one of them, so it is \
+         now invariant under a whole-row shift of the origin and ADR 0219's narrowing of \
+         ADR 0139 can be revisited"
+    );
+    assert!(
+        worst <= 16,
+        "a whole-row shift moved a byte by {worst}, which is more than the one supersample \
+         (16 of 255) an `ulp` of position can cost — that is a chopped path rather than a \
+         rounded one, and it means something other than the origin has moved"
+    );
 }

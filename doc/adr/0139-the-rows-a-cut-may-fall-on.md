@@ -1,6 +1,6 @@
 # ADR 0139 — The rows a cut may fall on
 
-Status: accepted, 2026-08-02. Session 155. **Built and shipped**, which is what ADR 0138 was
+Status: accepted, 2026-08-02. Session 155. **Amended by ADR 0219 (session 382): its closing property — "the picture does not depend on how it was divided" — is false and unattainable.** What this ADR established stands: a cut at a row no re-stated segment crosses is exact, and that rule is intact. What it did not see is that a strip's *origin* is arithmetic of its own — the row offset was folded into the page transform before a mark's was composed with it — and that `tiny-skia` is not invariant under a whole-row shift even when it is not. Read the section "Why bit-identity and not a tolerance" below with 0219 beside it. **Built and shipped**, which is what ADR 0138 was
 not. That one cut the page wherever the cost was even, four oracle pages stopped agreeing with
 the reference consensus, and everything but the planner was reverted. It closed by naming the
 shape of the next attempt and one probe that would decide it. This is that probe, and what

@@ -1,4 +1,4 @@
-//! A page drawn in strips is the page drawn in one piece, byte for byte.
+//! A page drawn in strips is the page drawn in one piece, byte for byte — over these scenes.
 //!
 //! This backend is the oracle the GPU backend is judged against and the reference every
 //! corpus and oracle verdict is taken from, so a render that depended on how the page was
@@ -15,12 +15,16 @@
 //! planner exists to deliver: over a suite of scenes and a range of divisions **the bytes are
 //! equal**.
 //!
-//! **And the suite is where its limit is.** The three-hundred-and-eighty-first session drew a
-//! *real* page in one strip on purpose — a confined process may not ask how many cores it has —
-//! and `doc/PDF20_AN001-BPC.pdf` page 1 differs by one pixel between one strip and every number
-//! above one. So what this file establishes is the property over these scenes, and the property
-//! at large is `doc/todo/12`'s open question. That is trap 12b said about the guard rather than
-//! about the code it guards.
+//! **And the suite is where its limit is, which two sessions of work now stand on.** The
+//! three-hundred-and-eighty-first drew a *real* page in one strip on purpose — a confined process
+//! may not ask how many cores it has — and `doc/PDF20_AN001-BPC.pdf` page 1 differed by one pixel
+//! between one strip and every number above one, while these six scenes passed. The
+//! three-hundred-and-eighty-second found why (a strip's offset was folded into the page transform
+//! before a mark's was composed with it, ADR 0219), fixed it, and put the assertion where it
+//! belongs: `pdf-model/tests/strip_parallelism.rs`, on pages interpreted from documents, because
+//! only there is there a mark whose device position lands within an `ulp` of a supersample row.
+//! **That file is the gate now and this one is its unit-sized companion**; equality here is still
+//! required, and what it can see is scenes.
 //!
 //! # Why the scenes are these scenes
 //!
@@ -28,6 +32,10 @@
 //! A suite of rectangles would have passed and let the defect reach the oracle four pages
 //! later, so `curves` and `diagonal_stroke` are the two that must be here; the rest are here
 //! because a group, a soft mask and a knockout each render through a different surface.
+//!
+//! And their coordinates are round, which is the second half of trap 12b and was invisible until
+//! ADR 0219: subtracting a whole number of rows from a dyadic fraction is exact, so no scene
+//! written by hand at tidy coordinates can exercise the arithmetic that failed.
 
 #![expect(
     clippy::expect_used,

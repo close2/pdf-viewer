@@ -77,10 +77,11 @@ fn opened() -> (Confined, Vec<Event>) {
 fn drawn_here(commands: &[Command]) -> Viewer {
     let mut viewer = Viewer::new(VIEWPORT.0, VIEWPORT.1, 1.0);
     // **One strip, because the confined side draws in one** — and pinning it is what makes this a
-    // comparison of the confinement rather than of the strip planner. It is not a formality: on
-    // this very document, one strip and any number above one differ by one pixel, 127 against 111
-    // at (117, 636), which is a departure `render-cpu` has on its own and which ADR 0218 records
-    // as a finding of the round that first drew a page in one strip on purpose.
+    // comparison of the confinement rather than of the strip planner. It is not a formality: with
+    // it removed, page 2 of this document at 200% differs in **15 pixels**, each by one of
+    // `tiny-skia`'s sixteen supersamples. ADR 0218 found that departure (and blamed the wrong
+    // arithmetic for it); ADR 0219 fixed this crate's half — a strip's row offset is composed
+    // last now — and measured the half that is the dependency's and cannot be closed.
     let mut rasterizer = CpuRasterizer::new().with_strips(1);
     let mut pending: Vec<Command> = Vec::new();
     for command in commands {
