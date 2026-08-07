@@ -19,17 +19,43 @@ features no file exercises.
 ```sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets      # must be silent of lints
-cargo test --workspace
-cargo build --release -p pdf-sandbox --bins # trap 10: Cargo will not do this for you
-cargo test --release -p pdf-model      --test corpus          -- --ignored --nocapture
-cargo test --release -p pdf-model      --test oracle          -- --ignored --nocapture
-cargo test --release -p pdf-model      --test text_extraction -- --ignored --nocapture
-cargo test --release -p pdf-model      --test dates           -- --ignored --nocapture
-cargo test --release -p pdf-model      --test xmp             -- --ignored --nocapture
-cargo test --release -p pdf-model      --test jpeg2000        -- --nocapture
-cargo test --release -p render-quorra  --test corpus          -- --ignored --nocapture
+cargo nextest run --workspace               # 1308 tests, 9 ignored
+cargo test --workspace --doc                # the one doctest nextest does not run
+cargo build --profile gates -p pdf-sandbox --bins   # trap 10: Cargo will not do this for you
+cargo test  --profile gates -p pdf-model      --test corpus          -- --ignored --nocapture
+cargo build --profile gates -p hayro-compare --bin pdfref-hayro      # trap 10 again, see below
+cargo test  --profile gates -p pdf-model      --test oracle          -- --ignored --nocapture
+cargo test  --profile gates -p pdf-model      --test text_extraction -- --ignored --nocapture
+cargo test  --profile gates -p pdf-model      --test dates           -- --ignored --nocapture
+cargo test  --profile gates -p pdf-model      --test xmp             -- --ignored --nocapture
+cargo test  --profile gates -p pdf-model      --test jpeg2000        -- --nocapture
+cargo test  --profile gates -p render-quorra  --test corpus          -- --ignored --nocapture
 cargo test -p conformance -- --nocapture
 ```
+
+**This sequence is 268 s where the same gates were 608 s until the three-hundred-and-eighty-fifth
+session**, which measured every step of it and changed four things; ADR 0222 has the table and the
+argument, and `Cargo.toml`'s profiles carry the reasoning beside the settings. Three notes bind
+here:
+
+- **`--profile gates`, not `--release`.** Release-grade optimisation with cheap linking, because a
+  fat whole-graph link *per gate binary* was 175 s of every round. All eight gates were run under
+  both profiles and their output compared line by line — 1794 oracle page verdicts, 957 quorra
+  pages, 974 corpus documents, 4990 citations, **every field identical**. `--release` still works
+  and is still the same gate; it is only slower. **`[profile.release]` did not change**, and §5's
+  binaries are still built with it.
+- **`cargo nextest` is a user-local install** — `cargo install cargo-nextest --locked`, or the
+  prebuilt from `https://get.nexte.st/latest/linux` into `~/.cargo/bin`. Without it,
+  `cargo test --workspace` is exactly the same gate at three times the wall clock, and that is
+  what CI runs. `nextest` skips doctests, which is why the line after it is there: 1308 + 1 = the
+  **1309** `cargo test --workspace` reports.
+- **`pdfref-hayro` is the oracle's fourth reading and nothing built it.** It is a *program*, found
+  beside the running test binary, and its absence costs no verdict — `Reference::Hayro` never
+  votes — but it is what a person looks at on a page the three references cannot settle. Until
+  this session it existed under `target/release/` only because some earlier round happened to run
+  `cargo build --release -p hayro-compare --bins`. Its line is placed *after* the corpus gate
+  rather than in front of it, which is worth 7 s: the corpus gate compiles `pdf-model`'s rlib and
+  its own test target in one graph, and `-p hayro-compare` on its own has nothing to overlap.
 
 **Ten fuzz targets, not five** — the handover's list had never included `object` and
 `document`, `sfnt` arrived in the two-hundred-and-forty-first, `xmp` in the two-hundred-and-ninety-fourth and `fragment` in the three-hundred-and-sixty-ninth. A round that touches a parser
@@ -69,13 +95,18 @@ at.** So at the end of every round, copy what a person would run into the projec
 `target/`:
 
 ```sh
-cargo build --release -p viewer-ui --bin pdf-viewer
-cargo build --release -p pdf-sandbox --bins
-cargo build --release -p viewer-confined --bins
+cargo build --release --bin pdf-viewer --bin pdf-sandbox-worker --bin pdf-view-worker
 install -Dm755 /home/AI/cargo-target/pdf-viewer/release/pdf-viewer          target/pdf-viewer
 install -Dm755 /home/AI/cargo-target/pdf-viewer/release/pdf-sandbox-worker  target/pdf-sandbox-worker
 install -Dm755 /home/AI/cargo-target/pdf-viewer/release/pdf-view-worker     target/pdf-view-worker
 ```
+
+**One invocation, not three**, since the three-hundred-and-eighty-fifth: each of these is a whole-graph
+fat link and Cargo runs three of them beside each other where three commands run them one after
+another — **109.7 s to 79.3 s**, measured both ways after touching one file in `pdf-model` (ADR 0222).
+`--release` here is deliberate and is the one place in a round that still pays for `lto = "fat"`:
+these are what a person runs and what every launch measurement is taken from, and `--profile gates`
+above exists so that the *gates* stop paying for it.
 
 **Three, not two** — this section named two for three rounds after the third arrived, which the
 three-hundred-and-eighty-third flagged and the three-hundred-and-eighty-fourth fixed. All three
@@ -89,6 +120,35 @@ Build them first, in release. `cargo test` only ever builds the debug binaries, 
 executable is a measurement of the past — the hundred-and-forty-second session was reported as
 "still lags" against a binary three hours and six commits old, one of which was the 40×
 page-turn fix.
+
+**`viewer-confined`'s two binaries used to be built in release *before* the gates**, on a note
+saying the gates needed them. They do not: those tests run under `cargo test --workspace`, which
+builds the debug worker itself, and no release or gates binary in this tree names
+`viewer-confined` — checked by grep over `pdf-model`'s and `render-quorra`'s manifests and test
+sources in the three-hundred-and-eighty-fifth. That was 31 s a round in the wrong section.
+
+## 5a. Sweep the build directory when it passes a hundred gigabytes
+
+`/home/AI/cargo-target/pdf-viewer` was **311 GB** in the three-hundred-and-eighty-fifth session,
+and a *clean* tree is 17 GB of dev artefacts plus about 1 GB per release-grade profile. The rest
+is superseded output that Cargo on stable has no command to remove — `cargo clean --gc` is
+nightly-only. So it is swept by hand, and `target/tmp/` is what the sweep must **not** take:
+
+```sh
+du -sh /home/AI/cargo-target/pdf-viewer
+rm -rf /home/AI/cargo-target/pdf-viewer/{debug,release,gates}   # never tmp/ — see below
+```
+
+`target/tmp/pdfref-cache` is the reference-render cache (ADR 0020), **1.5 GB**, and deleting it
+costs the next oracle run about a thousand seconds of `pdftoppm`, `mutool` and `gs`. `cargo clean`
+takes the whole directory including that, which is why the sweep names its subdirectories instead.
+Run in the three-hundred-and-eighty-fifth: **334 GB → 8.1 GB**, the cache untouched.
+
+The cost of the sweep is one cold build, measured on the swept tree: **87.9 s** of
+`cargo test --workspace --no-run` and **97.2 s** of the whole gates profile, with `release` on top
+of that only when §5 runs. Three minutes for three hundred gigabytes. It buys no speed — the warm
+no-op build was 0.42 s with the directory at 311 GB — so it is hygiene, on its own schedule rather
+than every round.
 
 ## 6. Write it down, then commit
 

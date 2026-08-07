@@ -332,10 +332,76 @@ missing_errors_doc = "warn"
 missing_panics_doc = "warn"
 undocumented_unsafe_blocks = "warn"
 
+# What a person runs and what every performance number is taken from. Whole-graph
+# link-time optimisation over one code generation unit is the slowest thing this
+# workspace does — 78 s to relink `pdf-viewer` after one file in `pdf-model` moves,
+# essentially single-threaded — and it stays, because the binaries in `target/` are the
+# ones a launch is timed with. `[profile.gates]` below is where the gates went instead.
 [profile.release]
 lto = "fat"
 codegen-units = 1
 panic = "abort"
+
+# Two departures from Cargo's defaults, each measured in one tree and each with a cost
+# written down. Both are ADR 0222's, and the round that made them ran the whole suite under
+# each: **1308 tests and one doctest pass either way**, which is the same 1309 `cargo test
+# --workspace` runs at `debug = 2, opt-level = 0`.
+#
+# `debug = "line-tables-only"` — line tables rather than full debug information. An
+# incremental `cargo test --workspace --no-run` after touching one file in `pdf-model` falls
+# from **12.9 s to 7.0 s** (three samples apiece), and a clean dev tree from **17 GB to
+# 8 GB**: this workspace links about 120 test binaries against one large rlib graph, so what
+# the linker copies into each of them is most of what it does. What it costs is a debugger's
+# view of local variables. It does not cost a *backtrace*, which is what this project reads
+# when a test fails — file and line survive, because they are what a line table is.
+#
+# `opt-level = 1` — the workspace's own crates optimised lightly. `cargo nextest run
+# --workspace` falls from **76.6 s to 20.0 s** (two samples apiece), because this suite's
+# critical path is one test that draws each of its scenes whole and again at 2, 3, 5, 8
+# and 16 strips, and unoptimised rasterisation is most of what that costs. It is **not** a semantic change: `dev` keeps
+# `debug-assertions` and `overflow-checks` on — they are their own profile keys — so an
+# arithmetic overflow still panics and every `debug_assert!` still fires. What it costs is
+# **a cold build, 40 s to 86 s**, which is a fresh clone and nothing a round does; the
+# incremental case did not pay for it at all and came out slightly cheaper, 7.0 s to 5.5 s,
+# because optimised code is smaller code to link 120 times. The other cost is that inlining
+# merges frames, so a backtrace is less precise than the line tables above could be.
+#
+# `[profile.bench]` sets `debug = true` on its own line below, so profiling and the callgrind
+# counters are unaffected by either.
+[profile.dev]
+debug = "line-tables-only"
+opt-level = 1
+
+# The corpus gates' profile: release-grade optimisation, cheap linking.
+#
+# Every gate in `doc/todo/02-every-round.md` §2 ran under `[profile.release]` until the
+# three-hundred-and-eighty-fifth session, which measured what that cost: a round pays a
+# whole-graph fat link *per gate binary*, eight of them, over a dependency graph that
+# includes wgpu, vello and quorra. Fat LTO with one code generation unit has almost no
+# parallelism to give 24 cores, so the wall clock is the LLVM pass list.
+#
+# Thin LTO over 16 units keeps the optimisation — it is still cross-crate, still inlining
+# across the graph — and gives the machine something to do in parallel. Measured after
+# touching one file in `pdf-model`, two samples apiece (ADR 0222):
+#
+# | | `release` | `gates` |
+# |---|---|---|
+# | the six `pdf-model` gate binaries | 90.7 s | 20.1 s |
+# | `render-quorra`'s corpus gate | 52.6 s | 12.8 s |
+# | `viewer-confined`'s two binaries | 31.4 s | 8.1 s |
+#
+# What it costs is written down rather than assumed. **A second profile is a second copy of
+# the object graph**: 1.1 GB on disk and, once, 66 s of compilation that `release` had
+# already done. And **the gates now measure a differently-optimised program than the one
+# that ships**, which would be intolerable if they measured *speed* — they do not; they
+# compare pixels and counts, and ADR 0222 ran all eight under both profiles and diffed the
+# output rather than arguing that codegen cannot move a float. Anything that takes a
+# *timing* — `cargo bench`, the callgrind examples, the launch measurements — stays on
+# `release` and `bench`, which is where the fat link belongs.
+[profile.gates]
+inherits = "release"
+lto = "thin"
+codegen-units = 16
 
 # Benchmarks and profiling need symbols with release-grade optimisation.
 # `panic` is not set: Cargo ignores it for the bench profile, and a setting that has

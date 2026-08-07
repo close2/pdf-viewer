@@ -79,6 +79,13 @@ jobs:
       - name: Reference renderers for the comparison harness
         run: sudo apt-get install -y poppler-utils mupdf-tools ghostscript
 
+      # `cargo test --workspace`, and not the `cargo nextest` a local round runs since the
+      # three-hundred-and-eighty-fifth session. They are the same 1309 tests; nextest's advantage
+      # is running 118 test binaries in one pool instead of one at a time, which is worth 214
+      # seconds on a 24-core machine (ADR 0222) and very little on a two-core runner. Adding a
+      # tool install to the job that gates the snapshot release is not worth that, and the
+      # `--ignored` corpus gates -- the ones that moved to `--profile gates` -- do not run here at
+      # all, so no job on this file uses that profile.
       - run: cargo test --workspace
 
   # Supply chain. Separated so that an advisory published upstream does not mask a

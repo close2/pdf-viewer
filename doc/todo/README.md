@@ -58,6 +58,7 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 | [40](40-mask-chain-crop.md) | A clip chain as one crop and one intersect | 1 |
 | [41](41-decoded-stream-cache.md) | 0.7% of interpretation, priced and not taken | — |
 | [42](42-the-launch-path.md) | The launch path: 145 ms to 110, four of five items closed, the fifth is quorra's | all |
+| [43](43-the-projects-own-turnaround.md) | **The *project's* performance rather than the program's**: a round was 608 s and is 268; §5's fat link is what is left, and caching our own renders is priced and refused | — |
 | [51](51-signatures-and-public-keys.md) | A signature's three questions: **the first is answered** — has the document changed since it was signed (ADR 0215) — the signer's key and the signer's trustworthiness are not; public-key handlers; `/R` 5 | 10 signatures, 4 changed |
 | [52](52-zlib-rs-deallocates-through-the-wrong-pointer.md) | `zlib-rs` fails both of Miri's aliasing models — an upstream report to write | — |
 | — | [`_scan-conversion.md`](_scan-conversion.md) | shared: §10.7.4, what this tree departs from and why |
