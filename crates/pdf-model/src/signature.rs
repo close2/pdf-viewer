@@ -1,7 +1,8 @@
 //! ISO 32000-2 §12.8's digital signatures, as far as a program without a trust store can go.
 //!
-//! §12.8.1 divides the subject for us. Verifying a signature has two halves, and the clause
-//! states them in order:
+//! # A signature asks three questions and they need three different things
+//!
+//! §12.8.1 divides the subject for us, in one sentence per part:
 //!
 //! > To verify the signature, an appropriate signature handler is required. … The signer's
 //! > certificate shall be determined and verified by the signature handler to match with any of
@@ -10,18 +11,35 @@
 //! > in the document. Differences between the two indicates that modifications have been made
 //! > since the document was signed and thus the signature shall be considered invalid.
 //!
-//! The first half — a certificate, a chain, a revocation check — is a public-key infrastructure
-//! and a threat model, which §7.6.5's public-key security handlers are already refused for (ADR
-//! 0031). The second half is a digest over bytes this program has in hand.
+//! 1. **Has the document changed since it was signed?** A digest over §12.8.1's `/ByteRange`,
+//!    compared with the digest the signature value records. No certificate, no trust decision and
+//!    no network — the file and a hash function. [`Signature::integrity`] **answers this**.
+//! 2. **Is the signature cryptographically valid for the signer's public key?** That needs the
+//!    key out of an X.509 certificate and an RSA or ECDSA verification. **Not answered**, and
+//!    named as unanswered rather than skipped: [`Integrity::UnderTheSignersKey`] is the case where
+//!    it is the *only* thing that could answer question 1 as well.
+//! 3. **Is the signer trusted, and had the certificate been revoked?** A trust store and a
+//!    network (§12.8.3.4.6's CRLs and OCSP). **Not answered**, and reported.
 //!
-//! # What is here: everything a signature says, and one thing it can be *checked* against
+//! ADR 0215 is the argument, and the separation is the point of it: the whole clause used to be
+//! refused on question 3's infrastructure, which questions 1 and 2 do not need.
+//!
+//! # What a matching digest proves
+//!
+//! **Less than a mismatching one, and the difference decides how this is worded.** The recorded
+//! digest sits *beside* the signature: whoever changes the document can change it to match, and
+//! what they cannot do is make the signature over it verify. So a difference proves the bytes
+//! moved after signing — §12.8.1 says exactly that — while agreement proves only that nothing
+//! changed carelessly. Neither is "the signature is valid", and nothing here ever says so.
+//!
+//! # What is here
 //!
 //! [`Signature`] is Table 255. [`Permissions`] is §12.8.6's `/Perms` with §12.8.2.2's `/P`
 //! level, which is what a document says may be changed without invalidating its author's
 //! signature.
 //!
-//! And [`Signature::coverage`] is the check that needs no cryptography at all. §12.8.1 says what
-//! a byte range digest covers:
+//! [`Signature::coverage`] is the check that needs no cryptography *and* no signature value.
+//! §12.8.1 says what a byte range digest covers:
 //!
 //! > This range should be the entire PDF file, including the signature dictionary but excluding
 //! > the signature value itself (the Contents entry).
@@ -30,17 +48,13 @@
 //! — an incremental update appended after signing — and saying so costs one comparison against
 //! the file's length. It is not a validity verdict and this module never calls it one: a
 //! signature whose range covers everything may still be forged, and one that does not may be a
-//! perfectly honest later revision. What it is, is the one statement about a signature that a
-//! renderer can make on its own evidence.
+//! perfectly honest later revision.
 //!
-//! # What is deliberately not here
-//!
-//! No digest is computed and no `/Contents` is parsed. Computing the digest would be honest and
-//! useless without the certificate half — a hash that matches proves the bytes are the bytes the
-//! *stored* hash was made from, and nothing about who made it — and it would invite a caller to
-//! read "digest matches" as "signature valid", which is the failure mode this module is shaped
-//! to avoid. 8 of the 974 corpus documents carry a `/ByteRange`, and 7 a signature dictionary.
+//! [`Signature::integrity`] is the digest, over [`crate::cms`]'s reading of §12.8.3.3's signature
+//! value. [`Signature::pades_departures`] is §12.8.3.4's structural requirements on a `PAdES`
+//! signature, which are checkable without cryptography and which no corpus document exercises.
 
+use crate::cms::{self, CmsError, Digest, SignedData};
 use pdf_syntax::{Dictionary, Document, Object};
 
 /// Most signatures read from one document.
@@ -49,8 +63,17 @@ use pdf_syntax::{Dictionary, Document, Object};
 /// bound is on a file built to make a reader work rather than on any real workflow.
 const MAX_SIGNATURES: usize = 1024;
 
+/// Most `(offset, length)` pairs a `/ByteRange` may state before it stops describing a file.
+///
+/// §12.8.1 describes two — everything before the signature value and everything after it — and
+/// says "[m]ultiple discontiguous byte ranges shall be used to describe a digest that does not
+/// include the signature value" without bounding them. A file stating more than this is refused
+/// whole rather than read to the bound, so a truncated range never reaches the arithmetic:
+/// [`Signature::coverage`] answers [`Coverage::Malformed`] and a person is told.
+const MAX_BYTE_RANGE_PAIRS: usize = 64;
+
 /// One signature dictionary. Table 255.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Signature {
     /// `/Type`: `Sig`, or `DocTimeStamp` for §12.8.5's document timestamp.
     ///
@@ -70,6 +93,19 @@ pub struct Signature {
     pub sub_filter: Option<String>,
     /// `/ByteRange`, "an array of pairs of integers (starting byte offset, length in bytes)".
     pub byte_range: Vec<(u64, u64)>,
+    /// `/Contents`, "[t]he signature value" — the bytes as the file wrote them.
+    ///
+    /// §7.6.2's fourth exception keeps these out of the encryption, so they are the producer's
+    /// own octets even in an encrypted document; `pdf_syntax::Document` already honours that.
+    /// [`Signature::integrity`] is what reads them, through [`crate::cms`].
+    pub contents: Vec<u8>,
+    /// Whether the dictionary states a `/Cert`.
+    ///
+    /// Table 255 makes it "(Required when `SubFilter` is adbe.x509.rsa\_sha1)" and §12.8.3.4.2
+    /// makes it forbidden for a `PAdES` signature — "[t]he signature dictionary shall not contain a
+    /// Cert entry" — so its *presence* is the fact worth keeping, and the chain itself is X.509
+    /// and a trust decision this program does not make.
+    pub certificate_chain: bool,
     /// `/Name`, "[t]he name of the person or authority signing the document".
     pub name: Option<String>,
     /// `/M`, the time of signing, as the §7.9.4 date string the file wrote.
@@ -113,6 +149,111 @@ pub enum Coverage {
     /// The range is not two ascending pairs covering a prefix and a suffix — so what it names
     /// cannot be compared with the file at all.
     Malformed,
+}
+
+/// The answer to the first of a signature's three questions: **has the document changed?**
+///
+/// §12.8.1 states the check and what a difference means:
+///
+/// > The digest shall be recomputed and compared with the one stored in the document. Differences
+/// > between the two indicates that modifications have been made since the document was signed and
+/// > thus the signature shall be considered invalid.
+///
+/// Nothing in this enum is a verdict on the *signature*. [`Self::Changed`] is the one variant that
+/// settles anything on its own — the bytes moved — and even [`Self::Unchanged`] leaves questions 2
+/// and 3 open, which is why no variant is called `Valid`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Integrity {
+    /// The bytes `/ByteRange` names still hash to the digest the signature value records.
+    Unchanged {
+        /// The algorithm the signature named, and this one recomputed with.
+        digest: Digest,
+    },
+    /// They do not, so the document was modified after it was signed.
+    Changed {
+        /// The algorithm the signature named, and this one recomputed with.
+        digest: Digest,
+    },
+    /// The signature value records no digest in the clear, so answering needs the signer's key.
+    ///
+    /// Two shapes reach this. §12.8.3.2's `adbe.x509.rsa_sha1` is "a DER-encoded PKCS #1 binary
+    /// data object" — the digest is inside the RSA signature and comes out only with the public
+    /// key. And a CMS `SignerInfo` with no signed attributes signs the content directly, which
+    /// RFC 5652 permits and one corpus document does, so there is no `message-digest` attribute
+    /// to compare against.
+    UnderTheSignersKey,
+    /// The signature records a digest made with an algorithm this program does not implement.
+    ///
+    /// All six that Table 260 and Table 256 name are implemented, so this is a signature using
+    /// something the standard does not list — reported rather than guessed at, because hashing
+    /// with the wrong function produces a mismatch that reads as a modified document.
+    UnknownDigest,
+    /// The `/ByteRange` does not name bytes of this file, so there is nothing to hash.
+    RangeNotInThisFile,
+    /// The dictionary states no `/Contents`, which Table 255 makes required.
+    NoSignatureValue,
+    /// The signature value could not be read as §12.8.3.3's CMS object.
+    Unreadable(CmsError),
+}
+
+/// A requirement §12.8.3.4 places on a `PAdES` signature that a file does not meet.
+///
+/// Every one of these is checkable with no cryptography at all, which is why they are here: the
+/// clause's *validation* steps (§12.8.3.4.5) are all certificates and revocation, and its
+/// *structural* rules are arithmetic over what the file says. A departure is not a verdict — it is
+/// a file breaking a `shall`, said out loud, which is what this project does with those.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PadesDeparture {
+    /// §12.8.3.4.2: "The `ByteRange` shall cover the entire PDF file, including the signature
+    /// dictionary but excluding the Contents entry."
+    RangeDoesNotCoverTheFile,
+    /// §12.8.3.4.2: "The signature dictionary shall not contain a Cert entry."
+    CertEntryPresent,
+    /// §12.8.3.4.2: "Either the time of signing may be indicated by the value of the M entry in
+    /// the signature dictionary or the signing-time attribute may be used, but not both."
+    BothSigningTimesStated,
+    /// §12.8.3.4.3 (a): "content-type: shall be present and shall always have the value
+    /// \"id-data\"."
+    ContentTypeIsNotData,
+    /// §12.8.3.4.3 (d): "exactly one single `SignerInfo` attribute shall be present."
+    NotExactlyOneSigner,
+    /// §12.8.3.4.3 (e): "message-digest: shall be present and shall be used as defined in CMS
+    /// ( Internet RFC 5652 )."
+    NoMessageDigest,
+    /// §12.8.3.4.3 (i): "these attributes shall not be used: counter-signature, content-reference,
+    /// content-identifier, and contenthints."
+    ///
+    /// **Only the first of the four is checked**, and the reason is principle 5's: RFC 5652 gives
+    /// `counter-signature` its object identifier, while the other three are defined in documents
+    /// this tree does not hold. Naming an identifier we cannot check against the source would be
+    /// asserting a fact about a specification nobody here has read.
+    CounterSignature,
+}
+
+/// Everything but the signature value, which is thousands of bytes of certificate.
+///
+/// Written out rather than derived for one reason: `/Contents` is 33 680 bytes on the corpus's
+/// largest, and a derived `Debug` puts every one of them into a test's output as a decimal
+/// integer. Its *length* is the fact a reader of a log wants.
+impl std::fmt::Debug for Signature {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Signature")
+            .field("timestamp", &self.timestamp)
+            .field("handler", &self.handler)
+            .field("sub_filter", &self.sub_filter)
+            .field("byte_range", &self.byte_range)
+            .field("contents", &format_args!("{} bytes", self.contents.len()))
+            .field("certificate_chain", &self.certificate_chain)
+            .field("name", &self.name)
+            .field("signed_at", &self.signed_at)
+            .field("location", &self.location)
+            .field("reason", &self.reason)
+            .field("contact", &self.contact)
+            .field("changes", &self.changes)
+            .field("certification", &self.certification)
+            .finish()
+    }
 }
 
 impl Signature {
@@ -174,6 +315,152 @@ impl Signature {
             }
         }
     }
+
+    /// The bytes this signature was made over: the file with `/ByteRange`'s hole in it.
+    ///
+    /// Slices rather than one buffer, because the ranges of a 3 MB document describe 3 MB and
+    /// joining them to hash them would copy the whole file. `None` where any pair names bytes
+    /// outside the file, which is the same condition [`Coverage::Malformed`] reports.
+    #[must_use]
+    pub fn signed_bytes<'a>(&self, file: &'a [u8]) -> Option<Vec<&'a [u8]>> {
+        if self.byte_range.is_empty() {
+            return None;
+        }
+        let mut pieces = Vec::with_capacity(self.byte_range.len());
+        for &(start, length) in &self.byte_range {
+            let start = usize::try_from(start).ok()?;
+            let length = usize::try_from(length).ok()?;
+            let end = start.checked_add(length)?;
+            pieces.push(file.get(start..end)?);
+        }
+        Some(pieces)
+    }
+
+    /// §12.8.3.3's signature value, read as RFC 5652's `SignedData`.
+    ///
+    /// # Errors
+    ///
+    /// A [`CmsError`] naming what the value is instead. §12.8.3.2's `adbe.x509.rsa_sha1` is a
+    /// PKCS #1 object rather than a CMS one and produces [`CmsError::NotContentInfo`] here; use
+    /// [`Self::integrity`], which reads `/SubFilter` first and says the useful thing.
+    pub fn signed_data(&self) -> Result<SignedData<'_>, CmsError> {
+        cms::signed_data(&self.contents)
+    }
+
+    /// **Has this document changed since it was signed?**, over the bytes of `file`.
+    ///
+    /// The digest to compare against comes from one of three places, and which one is decided by
+    /// the shape §12.8.3 gives each signature format rather than by trying them in turn:
+    ///
+    /// - a **document timestamp** (`ETSI.RFC3161`) commits to it in RFC 3161's `TSTInfo`, which
+    ///   Table 255 states outright: "[t]he value of the messageImprint field within the
+    ///   `TimeStampToken` shall be a hash of the bytes of the document indicated by the `ByteRange`";
+    /// - **`adbe.pkcs7.sha1`** encapsulates it — §12.8.3.3.1: "[t]he SHA-1 digest of the
+    ///   document's byte range shall be encapsulated in the CMS `SignedData` field with `ContentInfo`
+    ///   of type Data";
+    /// - every other CMS format is **detached**, and the digest is the signer's `message-digest`
+    ///   signed attribute, which §12.8.3.4.3 (e) requires of a `PAdES` signature and RFC 5652
+    ///   defines for all of them.
+    ///
+    /// Read [`Integrity`] before reading a result: [`Integrity::Unchanged`] is not "valid".
+    #[must_use]
+    pub fn integrity(&self, file: &[u8]) -> Integrity {
+        // §12.8.3.2: "For signing PDF files using PKCS #1, the only value of SubFilter that should
+        // be used is adbe.x509.rsa_sha1". Table 255 says such a `/Contents` "should be either a
+        // DER-encoded PKCS #1 binary data object, a DER-encoded CMS binary data object or a
+        // DER-encoded CMS SignedData binary data object" — and a PKCS #1 object is the signature
+        // itself, with the digest inside it. There is nothing to compare without the public key,
+        // and saying so is more use than "not a CMS object".
+        if self.sub_filter.as_deref() == Some("adbe.x509.rsa_sha1") {
+            return Integrity::UnderTheSignersKey;
+        }
+        if self.contents.is_empty() {
+            return Integrity::NoSignatureValue;
+        }
+        let Some(signed) = self.signed_bytes(file) else {
+            return Integrity::RangeNotInThisFile;
+        };
+        let cms = match self.signed_data() {
+            Ok(cms) => cms,
+            Err(error) => return Integrity::Unreadable(error),
+        };
+        // **The `/SubFilter` decides which of two digests is the document's, and guessing from the
+        // encoding would be a wrong answer rather than an unknown one.** For `adbe.pkcs7.sha1` the
+        // encapsulated content *is* the document's digest and the `message-digest` attribute is a
+        // digest of that — so a reader that fell back to the attribute when it could not read the
+        // content would compare the wrong two values and report a modified document.
+        let (digest, recorded) = if self.sub_filter.as_deref() == Some("adbe.pkcs7.sha1") {
+            // §12.8.3.3.1: "The SHA-1 digest of the document's byte range shall be encapsulated in
+            // the CMS SignedData field with ContentInfo of type Data." The clause names the
+            // algorithm, so `digestAlgorithm` — which describes the digest *of* that content — is
+            // not consulted.
+            let Some(encapsulated) = cms
+                .encapsulated
+                .filter(|_| cms.content_type == cms::ID_DATA)
+            else {
+                return Integrity::Unreadable(CmsError::MalformedSignedData);
+            };
+            (Digest::Sha1, encapsulated)
+        } else if let Some(imprint) = cms.timestamp_imprint() {
+            imprint
+        } else if let Some(digest) = cms.message_digest {
+            let Some(algorithm) = cms.digest else {
+                return Integrity::UnknownDigest;
+            };
+            (algorithm, digest)
+        } else {
+            // RFC 5652 signs the encapsulated content directly when there are no signed
+            // attributes, so nothing records the document's digest in the clear.
+            return Integrity::UnderTheSignersKey;
+        };
+        if digest.compute(&signed) == recorded {
+            Integrity::Unchanged { digest }
+        } else {
+            Integrity::Changed { digest }
+        }
+    }
+
+    /// §12.8.3.4's structural requirements on a `PAdES` signature, checked against this file.
+    ///
+    /// Empty where the signature meets them all, and empty for a signature that is not one:
+    /// §12.8.3.4.1 scopes the whole subclause to "[t]he PDF signatures using the `SubFilter` value
+    /// ETSI.CAdES.detached", so applying its rules to an `adbe.pkcs7.*` signature would be this
+    /// program inventing a requirement.
+    ///
+    /// **No corpus document is a `PAdES` signature** — all six the 974 carry in a signature field
+    /// are `adbe.pkcs7.*` — so this condition is counted rather than assumed to have members, and
+    /// what exercises it is a fixture.
+    #[must_use]
+    pub fn pades_departures(&self, cms: &SignedData<'_>, file_length: u64) -> Vec<PadesDeparture> {
+        if self.sub_filter.as_deref() != Some("ETSI.CAdES.detached") {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        if self.coverage(file_length) != Coverage::WholeFile {
+            out.push(PadesDeparture::RangeDoesNotCoverTheFile);
+        }
+        if self.certificate_chain {
+            out.push(PadesDeparture::CertEntryPresent);
+        }
+        if self.signed_at.is_some() && cms.has_signed_attribute(cms::ID_SIGNING_TIME) {
+            out.push(PadesDeparture::BothSigningTimesStated);
+        }
+        if cms.content_type != cms::ID_DATA {
+            out.push(PadesDeparture::ContentTypeIsNotData);
+        }
+        if cms.signers != 1 {
+            out.push(PadesDeparture::NotExactlyOneSigner);
+        }
+        if cms.message_digest.is_none() {
+            out.push(PadesDeparture::NoMessageDigest);
+        }
+        if cms.has_signed_attribute(cms::ID_COUNTERSIGNATURE)
+            || cms.has_unsigned_attribute(cms::ID_COUNTERSIGNATURE)
+        {
+            out.push(PadesDeparture::CounterSignature);
+        }
+        out
+    }
 }
 
 /// §12.8.6's permissions dictionary. Table 263.
@@ -190,6 +477,22 @@ pub struct Permissions {
     /// clause opens by saying so — and read anyway, because four corpus documents carry one and
     /// §12.8.2.3 puts an obligation on a processor that *writes*.
     pub usage_rights: Option<UsageRights>,
+    /// The `/UR3` **signature dictionary itself**, which no signature field points at.
+    ///
+    /// §12.8.1 is explicit that this one is reached only from here: a usage rights signature's
+    /// "signature dictionary shall be referenced from the UR3 ( PDF 1.6 ) entry in the permissions
+    /// dictionary, whose entries are listed in "Table 263 -Entries in a permissions dictionary",
+    /// (not from a signature field)". So [`signatures`] cannot see it, and until it was kept here
+    /// three corpus documents carried a signature this tree read the *rights* of and never the
+    /// signature — including its `/ByteRange` and its digest.
+    pub usage_rights_signature: Option<Signature>,
+    /// The `/DocMDP` signature dictionary, likewise.
+    ///
+    /// Unlike `/UR3` this one is also the value of a signature field — §12.8.1 says a
+    /// certification signature's dictionary "shall be the value of a signature field" and "may
+    /// also be referenced from the `DocMDP` entry" — so it is normally the same object [`signatures`]
+    /// returns, and it is kept because "normally" is not "always".
+    pub doc_mdp_signature: Option<Signature>,
 }
 
 /// §12.8.2.3's UR transform parameters. Table 258.
@@ -447,6 +750,11 @@ pub fn read(document: &Document, dict: &Dictionary) -> Option<Signature> {
         handler: name("Filter"),
         sub_filter: name("SubFilter"),
         byte_range: byte_range(document, dict),
+        contents: match document.get_key(dict, "Contents") {
+            Object::String(bytes) => bytes.to_vec(),
+            _ => Vec::new(),
+        },
+        certificate_chain: dict.get("Cert").is_some(),
         name: text("Name"),
         signed_at: text("M"),
         location: text("Location"),
@@ -467,15 +775,17 @@ pub fn permissions(document: &Document) -> Permissions {
     let Some(perms) = perms.as_dict() else {
         return Permissions::default();
     };
+    let doc_mdp = document.get_key(perms, "DocMDP");
+    let ur3 = document.get_key(perms, "UR3");
     Permissions {
-        doc_mdp: document
-            .get_key(perms, "DocMDP")
+        doc_mdp: doc_mdp
             .as_dict()
             .and_then(|signature| modification(document, signature)),
-        usage_rights: document
-            .get_key(perms, "UR3")
+        usage_rights: ur3
             .as_dict()
             .and_then(|signature| usage_rights(document, signature)),
+        usage_rights_signature: ur3.as_dict().and_then(|dict| read(document, dict)),
+        doc_mdp_signature: doc_mdp.as_dict().and_then(|dict| read(document, dict)),
     }
 }
 
@@ -594,11 +904,19 @@ fn has_transform(document: &Document, signature: &Dictionary, method: &[u8]) -> 
 }
 
 /// Table 255's `/ByteRange`, as the pairs the clause states.
+///
+/// An array of more than [`MAX_BYTE_RANGE_PAIRS`] pairs is refused whole rather than read to the
+/// bound: a range with its tail cut off would describe a different digest from the one the file
+/// states, and answering a question with a silently shortened input is the failure this project
+/// keeps finding elsewhere.
 fn byte_range(document: &Document, dict: &Dictionary) -> Vec<(u64, u64)> {
     let range = document.get_key(dict, "ByteRange");
     let Some(range) = range.as_array() else {
         return Vec::new();
     };
+    if range.len() > MAX_BYTE_RANGE_PAIRS.saturating_mul(2).saturating_add(1) {
+        return Vec::new();
+    }
     range
         .chunks_exact(2)
         .filter_map(|pair| {
@@ -836,11 +1154,20 @@ fn census(document: &Document) -> Vec<(String, i64)> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Coverage, Modification, legal, permissions, security_store, signatures};
+    use super::{
+        Coverage, Integrity, Modification, PadesDeparture, legal, permissions, security_store,
+        signatures,
+    };
+    use crate::cms::{Digest, fixtures};
     use pdf_syntax::Document;
 
     /// Builds a document from object bodies numbered from 1.
     fn document(objects: &[&str]) -> Document {
+        Document::open(document_bytes(objects)).expect("a valid file")
+    }
+
+    /// The same, stopping at the bytes — which is what a signature is over.
+    fn document_bytes(objects: &[&str]) -> Vec<u8> {
         use std::fmt::Write as _;
         let mut out = String::from("%PDF-1.7\n");
         let mut offsets = Vec::new();
@@ -862,7 +1189,7 @@ mod tests {
             "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n",
             objects.len().saturating_add(1)
         );
-        Document::open(out.into_bytes()).expect("a valid file")
+        out.into_bytes()
     }
 
     /// A certification signature, its permissions, and what its range covers.
@@ -1029,6 +1356,290 @@ mod tests {
             legal.disagreements(&doc),
             vec![("LaunchActions".to_owned(), 2, 0)],
             "the URI action agrees; the two launch actions the author declared are not there"
+        );
+    }
+
+    /// A whole document signed the way §12.8.1 says one is, so the digest can be checked.
+    ///
+    /// This is what a signature handler does, minus the private key: write the dictionary with a
+    /// hole where the signature value will go, fill in `/ByteRange` to name everything *but* that
+    /// hole, digest what is named, and write a signature value committing to that digest. Every
+    /// substitution is length-preserving — ten-digit offsets and a fixed-width hexadecimal string,
+    /// which is how real producers do it — so the cross-reference table stays right.
+    ///
+    /// Returns the file's bytes. `sign` receives the digest of the signed range and returns the
+    /// signature value to put in the hole, which is how one builder serves a detached signature, a
+    /// document timestamp and a signer with no attributes at all.
+    fn signed_document(
+        sub_filter: &str,
+        extra: &str,
+        digest: Digest,
+        sign: impl Fn(&[u8]) -> Vec<u8>,
+    ) -> Vec<u8> {
+        use std::fmt::Write as _;
+        /// Hexadecimal characters reserved for the signature value.
+        const ROOM: usize = 2048;
+        // No `/Type`: Table 255 makes it "(Optional if Sig)" with "[t]he default value is: Sig .",
+        // so this is the shape a signature dictionary is permitted to have, and the one
+        // `issue17069.pdf` actually has. `extra` is where a document timestamp states its own.
+        let signature = format!(
+            "<< /Filter /Adobe.PPKLite /SubFilter /{sub_filter} {extra} \
+             /ByteRange [0000000000 0000000000 0000000000 0000000000] /Contents <{}> >>",
+            "0".repeat(ROOM)
+        );
+        let mut bytes = document_bytes(&[
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] /SigFlags 3 >> >>",
+            "<< /Type /Pages /Count 0 /Kids [] >>",
+            "<< /Unused true >>",
+            "<< /FT /Sig /T (Signature1) /V 5 0 R /Subtype /Widget >>",
+            &signature,
+        ]);
+
+        let open = bytes
+            .windows(11)
+            .position(|window| window == b"/Contents <")
+            .expect("the /Contents hole")
+            .saturating_add(10);
+        assert_eq!(bytes[open], b'<');
+        assert_eq!(bytes[open.saturating_add(ROOM).saturating_add(1)], b'>');
+        // §12.8.1's range: everything up to the value, and everything after it.
+        let after = open.saturating_add(ROOM).saturating_add(2);
+        let tail = bytes.len().saturating_sub(after);
+        let hole = b"[0000000000 0000000000 0000000000 0000000000]";
+        let range = format!("[{:010} {open:010} {after:010} {tail:010}]", 0);
+        assert_eq!(range.len(), hole.len());
+        let at = bytes
+            .windows(hole.len())
+            .position(|window| window == hole)
+            .expect("the /ByteRange hole");
+        bytes.splice(at..at.saturating_add(hole.len()), range.bytes());
+
+        let value = sign(&digest.compute(&[&bytes[..open], &bytes[after..]]));
+        let hex = value.iter().fold(String::new(), |mut out, byte| {
+            let _ = write!(out, "{byte:02x}");
+            out
+        });
+        assert!(hex.len() <= ROOM, "the signature value fits its hole");
+        let value_at = open.saturating_add(1);
+        bytes.splice(value_at..value_at.saturating_add(hex.len()), hex.bytes());
+        bytes
+    }
+
+    /// The signature of the document, and the file it came from.
+    fn only_signature(bytes: &[u8]) -> (Document, super::Signature) {
+        let document = Document::open(bytes.to_vec()).expect("a valid file");
+        let found = signatures(&document);
+        let [signature] = found.as_slice() else {
+            panic!("one signature, got {found:?}");
+        };
+        (document, signature.clone())
+    }
+
+    /// **Question 1, both ways round**: a document that has not changed, and one byte that did.
+    ///
+    /// §12.8.1: "The digest shall be recomputed and compared with the one stored in the document.
+    /// Differences between the two indicates that modifications have been made since the document
+    /// was signed". The second half of this test is the one worth having — a check that only ever
+    /// says "unchanged" has not been shown to check anything — and the byte it moves is inside the
+    /// signed range, not in the tail an incremental update is allowed to add.
+    #[test]
+    fn a_signed_document_says_whether_its_signed_bytes_moved() {
+        let bytes = signed_document(
+            "adbe.pkcs7.detached",
+            "",
+            Digest::Sha256,
+            fixtures::detached,
+        );
+        let (document, signature) = only_signature(&bytes);
+        assert_eq!(
+            signature.coverage(bytes.len() as u64),
+            Coverage::WholeFile,
+            "the range names everything but the value"
+        );
+        assert_eq!(
+            signature.integrity(document.bytes()),
+            Integrity::Unchanged {
+                digest: Digest::Sha256
+            }
+        );
+
+        let mut altered = bytes.clone();
+        let at = altered
+            .windows(9)
+            .position(|nine| nine == b"Signature")
+            .expect("a byte inside the signed range");
+        altered[at] = b'X';
+        let (altered_document, altered_signature) = only_signature(&altered);
+        assert_eq!(
+            altered_signature.integrity(altered_document.bytes()),
+            Integrity::Changed {
+                digest: Digest::Sha256
+            },
+            "one byte of the signed range, and the recomputed digest no longer matches"
+        );
+
+        // And a byte *after* the signed range is §12.8.1's NOTE 1 — an incremental update — which
+        // the digest is not entitled to notice and `Coverage` is.
+        let mut appended = bytes.clone();
+        appended.extend_from_slice(b"% a later revision would go here\n");
+        let (appended_document, appended_signature) = only_signature(&appended);
+        assert_eq!(
+            appended_signature.integrity(appended_document.bytes()),
+            Integrity::Unchanged {
+                digest: Digest::Sha256
+            }
+        );
+        assert_eq!(
+            appended_signature.coverage(appended.len() as u64),
+            Coverage::Unsigned { tail: 33 }
+        );
+    }
+
+    /// A signer with no signed attributes records no digest, and the program says which it is.
+    ///
+    /// RFC 5652 then signs the encapsulated content directly, so question 1 has no answer that
+    /// does not come through question 2's public key. `bug854315.pdf` is this shape, which is why
+    /// the corpus gate holds the count at one rather than at zero.
+    #[test]
+    fn a_signature_with_no_message_digest_says_the_answer_is_under_the_key() {
+        let bytes = signed_document("adbe.pkcs7.detached", "", Digest::Sha256, |_| {
+            fixtures::without_signed_attributes()
+        });
+        let (document, signature) = only_signature(&bytes);
+        assert_eq!(
+            signature.integrity(document.bytes()),
+            Integrity::UnderTheSignersKey
+        );
+    }
+
+    /// §12.8.3.3.1's `adbe.pkcs7.sha1` commits to the digest in its *content*, not its attribute.
+    ///
+    /// The clause puts "[t]he SHA-1 digest of the document's byte range" in the encapsulated
+    /// content and makes the `message-digest` attribute a digest of *that*, so the two are
+    /// different values and reaching for the wrong one reports a document that never changed as
+    /// one that did. The fixture's attribute is deliberately nonsense for exactly that reason.
+    /// **The corpus's only witness is a fuzzed file**, so this is the shape the clause states
+    /// rather than the shape one document happens to have (trap 8).
+    #[test]
+    fn an_encapsulating_signature_is_checked_against_its_content_and_not_its_attribute() {
+        let bytes = signed_document("adbe.pkcs7.sha1", "", Digest::Sha1, fixtures::encapsulating);
+        let (document, signature) = only_signature(&bytes);
+        assert_eq!(
+            signature.integrity(document.bytes()),
+            Integrity::Unchanged {
+                digest: Digest::Sha1
+            }
+        );
+
+        // And a value that states that sub-filter without encapsulating anything is unreadable
+        // rather than silently compared against the attribute.
+        let detached = signed_document("adbe.pkcs7.sha1", "", Digest::Sha1, fixtures::detached);
+        let (detached_document, detached_signature) = only_signature(&detached);
+        assert_eq!(
+            detached_signature.integrity(detached_document.bytes()),
+            Integrity::Unreadable(crate::cms::CmsError::MalformedSignedData)
+        );
+    }
+
+    /// §12.8.3.2's PKCS #1 signature is refused before its value is even looked at.
+    ///
+    /// The clause makes `adbe.x509.rsa_sha1` "the only value of `SubFilter` that should be used" for
+    /// PKCS #1, and such a value is the RSA signature itself with the digest inside it. Reading it
+    /// as a CMS object would report "not a CMS `ContentInfo`", which is true and useless; what a
+    /// person needs to hear is that the answer is behind the signer's key.
+    #[test]
+    fn a_pkcs1_signature_names_the_key_rather_than_the_encoding() {
+        let bytes = signed_document("adbe.x509.rsa_sha1", "", Digest::Sha1, |_| {
+            vec![0x01, 0x02, 0x03]
+        });
+        let (document, signature) = only_signature(&bytes);
+        assert_eq!(
+            signature.integrity(document.bytes()),
+            Integrity::UnderTheSignersKey
+        );
+    }
+
+    /// §12.8.5's document timestamp commits to the same digest in RFC 3161's `TSTInfo`.
+    ///
+    /// Table 255 says so of a `DocTimeStamp`'s `/Contents`: "[t]he value of the messageImprint
+    /// field within the `TimeStampToken` shall be a hash of the bytes of the document indicated by
+    /// the `ByteRange` and the `ByteRange` shall specify the complete PDF file contents (excepting the
+    /// Contents value)." **No corpus document carries one**, so this fixture is the only thing
+    /// that exercises the path.
+    #[test]
+    fn a_document_timestamp_is_checked_against_its_message_imprint() {
+        let bytes = signed_document(
+            "ETSI.RFC3161",
+            "/Type /DocTimeStamp",
+            Digest::Sha256,
+            fixtures::timestamp_token,
+        );
+        let document = Document::open(bytes.clone()).expect("a valid file");
+        let found = signatures(&document);
+        let [timestamp] = found.as_slice() else {
+            panic!("one timestamp, got {found:?}");
+        };
+        assert!(timestamp.timestamp, "/Type DocTimeStamp");
+        assert!(
+            timestamp.must_cover_whole_file(),
+            "ETSI.RFC3161 makes the whole-file range a shall"
+        );
+        assert_eq!(
+            timestamp.integrity(document.bytes()),
+            Integrity::Unchanged {
+                digest: Digest::Sha256
+            }
+        );
+    }
+
+    /// §12.8.3.4's structural requirements on a `PAdES` signature, which no corpus document has.
+    ///
+    /// The fixture breaks three of them at once and meets the rest: its `/ByteRange` stops short
+    /// of the file's end (§12.8.3.4.2), it states a `/Cert` (§12.8.3.4.2), and it states both an
+    /// `/M` and a `signing-time` attribute (§12.8.3.4.2 again, which permits "but not both").
+    /// Content type, signer count and message digest are all as §12.8.3.4.3 requires, so their
+    /// absence from the answer is as much of the test as the three that are there.
+    #[test]
+    fn a_pades_signature_is_held_to_the_rules_that_need_no_certificate() {
+        let bytes = signed_document(
+            "ETSI.CAdES.detached",
+            "/M (D:20260807000000Z) /Cert <00>",
+            Digest::Sha256,
+            fixtures::detached,
+        );
+        let (document, signature) = only_signature(&bytes);
+        let cms = signature.signed_data().expect("a SignedData");
+        assert_eq!(
+            signature.integrity(document.bytes()),
+            Integrity::Unchanged {
+                digest: Digest::Sha256
+            },
+            "the digest is right; what follows is about the structure around it"
+        );
+        // One byte longer than the file the range describes, so the range stops short of the end.
+        assert_eq!(
+            signature.pades_departures(&cms, bytes.len() as u64 + 1),
+            vec![
+                PadesDeparture::RangeDoesNotCoverTheFile,
+                PadesDeparture::CertEntryPresent,
+                PadesDeparture::BothSigningTimesStated,
+            ]
+        );
+
+        // And an `adbe.pkcs7.detached` signature with the same three faults has none of these
+        // departures, because §12.8.3.4.1 scopes the whole subclause to ETSI.CAdES.detached.
+        let other = signed_document(
+            "adbe.pkcs7.detached",
+            "/M (D:20260807000000Z) /Cert <00>",
+            Digest::Sha256,
+            fixtures::detached,
+        );
+        let (_, other_signature) = only_signature(&other);
+        let other_cms = other_signature.signed_data().expect("a SignedData");
+        assert!(
+            other_signature
+                .pades_departures(&other_cms, other.len() as u64 + 1)
+                .is_empty()
         );
     }
 }

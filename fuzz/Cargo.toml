@@ -91,3 +91,10 @@ path = "fuzz_targets/fragment.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "cms"
+path = "fuzz_targets/cms.rs"
+test = false
+doc = false
+bench = false

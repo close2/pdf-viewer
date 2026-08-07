@@ -19,6 +19,11 @@ pdf-syntax.workspace = true
 # §8.9.5's per-sample colour conversion, on a photograph, is embarrassingly parallel; see
 # `image::rows_per_band` for the measurement that decided the threshold.
 rayon.workspace = true
+# §12.8.3's six digest functions, between them and `md-5` above. `cms::Digest` is the one place
+# any of them is named; see the workspace manifest and ADR 0215.
+ripemd.workspace = true
+sha1.workspace = true
+sha2.workspace = true
 thiserror.workspace = true
 # §14.3.2's metadata stream, read by `xmp.rs`. See the workspace manifest for why this
 # tokenizer and doc/adr/0186 for the decision.

@@ -11,7 +11,9 @@
 
 use std::path::{Path, PathBuf};
 
-use pdf_model::signature::{Coverage, Right, UsageRights, permissions, signatures};
+use pdf_model::signature::{
+    Coverage, Integrity, Right, Signature, UsageRights, permissions, signatures,
+};
 use pdf_syntax::Document;
 
 /// The pdf.js corpus, or `None` when the submodule is not checked out.
@@ -199,5 +201,156 @@ fn every_signed_corpus_document_says_what_it_signed() {
         with_permissions.len(),
         4,
         "documents stating §12.8.6 permissions: {with_permissions:?}"
+    );
+}
+
+/// Every signature dictionary one document holds, from both places §12.8.1 puts one.
+///
+/// A signature reached from `/Perms` is the same object as a field's whenever a field points at
+/// it, so the certification signature of a document that states both is returned once.
+/// `Signature` compares by value, which is what makes that de-duplication exact.
+fn every_signature(document: &Document) -> Vec<Signature> {
+    let permissions = permissions(document);
+    let mut found = signatures(document);
+    for extra in [
+        permissions.usage_rights_signature,
+        permissions.doc_mdp_signature,
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if !found.contains(&extra) {
+            found.push(extra);
+        }
+    }
+    found
+}
+
+/// Every signature dictionary in the corpus, asked whether its document changed after signing.
+///
+/// **This is the round's measurement** (ADR 0215) and it covers more signatures than the test
+/// above: §12.8.1 puts a usage rights signature's dictionary in the permissions dictionary "(not
+/// from a signature field)", so `signatures` cannot reach one, and three corpus documents carry
+/// nothing else.
+///
+/// **Four of the ten come out `Changed`, and that is the finding rather than a failure.** Each is
+/// a file whose bytes no longer hash to what its own signature records, which §12.8.1 says
+/// "indicates that modifications have been made since the document was signed":
+///
+/// - `issue6127.pdf` and both of `xfa_filled_imm1344e.pdf`'s signatures were re-saved rather than
+///   incrementally updated. Their `/ByteRange` no longer even brackets their own `/Contents` — the
+///   gap it names falls in the middle of the hexadecimal string in one and inside the XFA packet
+///   in the other — so the bytes before the signature moved, which is a rewrite and not §7.5.6's
+///   append. The gap's *size* still matches the signature value's to the byte in both, which is
+///   what says these were once correct.
+/// - `poppler-395-0-fuzzed.pdf` is a fuzzed file and is expected to fail everything.
+///
+/// The counts are held so that a change announces itself in either direction.
+#[test]
+fn every_corpus_signature_is_asked_whether_its_document_changed() {
+    let Some(files) = corpus() else {
+        println!("skipped: the doc/pdf.js submodule is not checked out");
+        return;
+    };
+
+    let mut lines = Vec::new();
+    let mut documents = 0usize;
+    let mut unchanged = 0usize;
+    let mut changed = Vec::new();
+    let mut under_the_key = 0usize;
+    let mut unreadable = Vec::new();
+    let mut algorithms = std::collections::BTreeMap::<&'static str, usize>::new();
+    for path in &files {
+        let Ok(bytes) = std::fs::read(path) else {
+            continue;
+        };
+        let Ok(document) = Document::open(bytes) else {
+            continue;
+        };
+        let file = document.bytes().clone();
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        let found = every_signature(&document);
+        if found.is_empty() {
+            continue;
+        }
+        documents = documents.saturating_add(1);
+        for signature in &found {
+            let integrity = signature.integrity(&file);
+            match integrity {
+                Integrity::Unchanged { digest } => {
+                    unchanged = unchanged.saturating_add(1);
+                    *algorithms.entry(digest.name()).or_default() += 1;
+                }
+                Integrity::Changed { digest } => {
+                    changed.push(format!("{name} ({})", digest.name()));
+                }
+                Integrity::UnderTheSignersKey => under_the_key = under_the_key.saturating_add(1),
+                other => unreadable.push(format!("{name}: {other:?}")),
+            }
+            lines.push(format!(
+                "  {name}: {} /{}, {:?}, {:?}",
+                if signature.timestamp {
+                    "timestamp"
+                } else {
+                    "signature"
+                },
+                signature.sub_filter.as_deref().unwrap_or("(no SubFilter)"),
+                signature.coverage(file.len() as u64),
+                integrity
+            ));
+        }
+    }
+
+    lines.sort();
+    println!("{documents} corpus documents carry a signature dictionary:");
+    for line in &lines {
+        println!("{line}");
+    }
+    println!("  digest recomputed and unchanged: {unchanged} {algorithms:?}");
+    println!("  digest recomputed and CHANGED:   {changed:?}");
+    println!("  digest under the signer's key:   {under_the_key}");
+    println!("  signature values not readable:   {unreadable:?}");
+
+    assert_eq!(documents, 9, "documents carrying a signature dictionary");
+    assert_eq!(lines.len(), 10, "signature dictionaries");
+    assert_eq!(
+        unchanged, 5,
+        "signatures whose signed bytes still hash to what they record"
+    );
+    changed.sort();
+    assert_eq!(
+        changed,
+        [
+            "issue6127.pdf (SHA256)",
+            "poppler-395-0-fuzzed.pdf (SHA1)",
+            "xfa_filled_imm1344e.pdf (SHA1)",
+            "xfa_filled_imm1344e.pdf (SHA256)",
+        ],
+        "signed bytes that no longer hash to what the signature records"
+    );
+    // `bug854315.pdf`, whose `SignerInfo` carries no signed attributes at all. RFC 5652 then
+    // signs the content directly, so no `message-digest` records the document's digest in the
+    // clear and question 1 cannot be answered without question 2 — which is the shape this
+    // round's separation of the three exists to be able to say out loud.
+    assert_eq!(
+        under_the_key, 1,
+        "signatures recording no digest in the clear"
+    );
+    assert!(
+        unreadable.is_empty(),
+        "signature values that could not be read: {unreadable:?}"
+    );
+
+    // Table 260's algorithms, counted: the corpus uses two of the six, which is why the other
+    // four are checked against published vectors in `cms.rs` rather than by a document.
+    assert_eq!(
+        algorithms.get("SHA1").copied().unwrap_or_default(),
+        2,
+        "{algorithms:?}"
+    );
+    assert_eq!(
+        algorithms.get("SHA256").copied().unwrap_or_default(),
+        3,
+        "{algorithms:?}"
     );
 }

@@ -818,16 +818,35 @@ impl Document {
 ///
 /// §12.8.1's Table 255 requires a signature's `/Contents` to be a hexadecimal string, so
 /// the qualifier describes the value rather than narrowing the exception, and what has to
-/// be recognised is the dictionary. `/Type` is the only thing that identifies one: a
-/// document time-stamp is a signature dictionary too, and both are reached from a form
-/// field's `/V` rather than from a key of their own.
+/// be recognised is the dictionary. A signature dictionary has no key of its own — both it
+/// and a document time-stamp are reached from a form field's `/V` — so it is recognised by
+/// what it says about itself.
+///
+/// **`/Type` is not the only thing that identifies one, and reading it as though it were cost
+/// `issue17069.pdf` its signature value for as long as this predicate existed.** Table 255
+/// makes the entry "(Optional if Sig; Required if `DocTimeStamp`)" and states "[t]he default
+/// value is: Sig ." — so a dictionary that omits it *is* a signature dictionary, and that
+/// document is one: encrypted, with a `/ByteRange`, a `/Contents` and no `/Type` at all. The
+/// exception did not apply, the 33 680-byte signature value went through the cipher, and what
+/// came back was empty.
+///
+/// What identifies one with no `/Type` is what Table 255 requires of every signature carrying
+/// a byte range digest: `/ByteRange`, "[a]n array of pairs of integers", and `/Contents`, the
+/// signature value. Nothing else in ISO 32000-2 has a `/ByteRange`.
 fn is_signature_dictionary(dict: &Dictionary) -> bool {
-    matches!(
-        dict.get("Type")
-            .and_then(Object::as_name)
-            .map(Name::as_bytes),
-        Some(b"Sig" | b"DocTimeStamp")
-    )
+    match dict
+        .get("Type")
+        .and_then(Object::as_name)
+        .map(Name::as_bytes)
+    {
+        Some(b"Sig" | b"DocTimeStamp") => true,
+        // A dictionary that says it is something else is taken at its word.
+        Some(_) => false,
+        None => {
+            matches!(dict.get("ByteRange"), Some(Object::Array(_)))
+                && matches!(dict.get("Contents"), Some(Object::String(_)))
+        }
+    }
 }
 
 /// A stream's data with its image codec, if any, still to be applied.
@@ -900,5 +919,41 @@ mod tests {
         // A dictionary with a `/Contents` and no `/Type` is an annotation or a page, both
         // of which carry ordinary encrypted values under that key.
         assert!(!is_signature_dictionary(&Dictionary::new()));
+    }
+
+    /// Table 255 makes `/Type` optional, so a signature that omits it is still one.
+    ///
+    /// `issue17069.pdf` is that document — encrypted, `/ByteRange`, `/Contents`, no `/Type` —
+    /// and until the three-hundred-and-seventy-seventh session its 33 680-byte signature value
+    /// went through the cipher and came back empty. What identifies one without a `/Type` is
+    /// the pair Table 255 requires of every signature carrying a byte range digest, and a
+    /// dictionary holding only one of them is not exempted: an annotation's `/Contents` is an
+    /// ordinary encrypted text string and staying out of the cipher would leave it unreadable.
+    #[test]
+    fn a_signature_dictionary_with_no_type_is_recognised_by_its_byte_range() {
+        let mut signature = Dictionary::new();
+        signature.insert(Name::new(b"ByteRange".to_vec()), Object::Array(Vec::new()));
+        signature.insert(
+            Name::new(b"Contents".to_vec()),
+            Object::String(Arc::from([0u8].as_slice())),
+        );
+        assert!(is_signature_dictionary(&signature));
+
+        let mut annotation = Dictionary::new();
+        annotation.insert(
+            Name::new(b"Contents".to_vec()),
+            Object::String(Arc::from(b"a note".as_slice())),
+        );
+        assert!(
+            !is_signature_dictionary(&annotation),
+            "a /Contents alone is an annotation's text and belongs in the cipher"
+        );
+
+        // And a dictionary that names another type keeps that word even with both entries.
+        signature.insert(
+            Name::new(b"Type".to_vec()),
+            Object::Name(Name::new(b"Annot".to_vec())),
+        );
+        assert!(!is_signature_dictionary(&signature));
     }
 }

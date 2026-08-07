@@ -195,6 +195,15 @@ rc4 = "0.2.0"
 md-5 = "0.11.0"
 sha2 = "0.11.0"
 
+# §12.8.3's signature values name six digest functions between Table 260 ("SHA1 ( PDF 1.3 )
+# SHA256 (PDF 1.6) SHA384 (PDF 1.7) SHA512 (PDF 1.7) RIPEMD160 (PDF 1.7 )") and Table 256's
+# `/DigestMethod`, which adds MD5. `sha2` and `md-5` above already cover four of them; these two
+# are the remaining pair, from the same RustCrypto family, under the same MIT OR Apache-2.0 as
+# every other hash here. Implementing five of six would leave the sixth silent rather than
+# refused, which is the failure this project spends its rounds removing. ADR 0215.
+sha1 = "0.11.0"
+ripemd = "0.2.0"
+
 # §7.6.4.1 requires a password to be processed with the SASLprep profile (Internet RFC
 # 4013) of stringprep (Internet RFC 3454) before it is used. That is Unicode normalisation,
 # a character-class mapping and a BiDi check — data rather than algorithm, and exactly the

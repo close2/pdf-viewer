@@ -59,7 +59,7 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 | [40](40-mask-chain-crop.md) | A clip chain as one crop and one intersect | 1 |
 | [41](41-decoded-stream-cache.md) | 0.7% of interpretation, priced and not taken | — |
 | [42](42-the-launch-path.md) | The launch path: 145 ms to 110, four of five items closed, the fifth is quorra's | all |
-| [51](51-signatures-and-public-keys.md) | Validation, public-key handlers, `/R` 5 | 1 |
+| [51](51-signatures-and-public-keys.md) | A signature's three questions: **the first is answered** — has the document changed since it was signed (ADR 0215) — the signer's key and the signer's trustworthiness are not; public-key handlers; `/R` 5 | 10 signatures, 4 changed |
 | [52](52-zlib-rs-deallocates-through-the-wrong-pointer.md) | `zlib-rs` fails both of Miri's aliasing models — an upstream report to write | — |
 | — | [`_scan-conversion.md`](_scan-conversion.md) | shared: §10.7.4, what this tree departs from and why |
 | — | [`_image-codecs-and-the-sandbox.md`](_image-codecs-and-the-sandbox.md) | shared: the three sandboxed codecs are already pure safe Rust — what the sandbox is really for, corpus demand measured, and what a subset would and would not buy |

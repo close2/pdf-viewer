@@ -8,6 +8,7 @@
 //!
 //! Nothing here is an error and nothing here stops a document opening.
 
+use pdf_model::signature::PadesDeparture;
 use pdf_syntax::Document;
 
 /// Everything worth saying about a document the moment it opens.
@@ -139,17 +140,69 @@ pub(crate) fn refusal(
 
 /// §12.8's signatures: what a program with no trust store can honestly say about one.
 ///
-/// Three things are said and a fourth is refused: who signed, why, whether the range they signed
-/// runs to the end of the file (§12.8.1) — and that this program does not verify anything,
-/// because verification needs a certificate chain and a trust store, which is §7.6.5's refusal
-/// one clause over (ADR 0031).
+/// **A signature asks three questions and this program answers one of them** (ADR 0215), so the
+/// hardest part of this function is keeping them apart in the words it uses. It says who signed,
+/// why, whether the range they signed runs to the end of the file (§12.8.1), and — since the
+/// three-hundred-and-seventy-seventh session — **whether the bytes that range names still hash to
+/// the digest the signature records**. It does not say whether the signature verifies against the
+/// signer's public key, or whether that signer is anyone to trust: the first needs a certificate
+/// and the second a trust store and a network, which is §7.6.5's refusal one clause over (ADR
+/// 0031). None of these sentences contains the word *valid*, and that is the point of them.
 fn signatures(document: &Document, notes: &mut Vec<String>) {
-    let signatures = pdf_model::signature::signatures(document);
+    let signatures = every_signature(document);
     if signatures.is_empty() {
         return;
     }
     let length = document.bytes().len() as u64;
     for signature in &signatures {
+        about_one(signature, document, length, notes);
+    }
+    permissions(document, notes);
+    // The three questions, named, in the order §12.8.1 states them. This paragraph is what stops
+    // the sentence above it being read as "the signature is good": a digest that matches is
+    // evidence about the *bytes*, and the recorded digest sits beside the signature rather than
+    // inside it, so whoever changed the document could have changed it too. What they could not
+    // do is make the signature over it verify, and that is the question this program leaves open.
+    notes.push(
+        "of the three questions a signature asks, this program answers one: whether the document \
+         changed since it was signed (§12.8.1's digest, recomputed above). It does not check the \
+         signature against the signer's public key, and it does not know whether the signer is \
+         trusted or had been revoked — it has no certificate store and makes no network request. \
+         So nothing here says a signature is valid"
+            .to_owned(),
+    );
+}
+
+/// Every signature dictionary the document holds, from both places §12.8.1 puts one.
+///
+/// §12.8.1 puts a usage rights signature's dictionary in the permissions dictionary "(not from a
+/// signature field)", so the field walk cannot reach one and three corpus documents carry nothing
+/// else. A certification signature is normally in both and is said once.
+fn every_signature(document: &Document) -> Vec<pdf_model::signature::Signature> {
+    let permissions = pdf_model::signature::permissions(document);
+    let mut signatures = pdf_model::signature::signatures(document);
+    for extra in [
+        permissions.usage_rights_signature,
+        permissions.doc_mdp_signature,
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if !signatures.contains(&extra) {
+            signatures.push(extra);
+        }
+    }
+    signatures
+}
+
+/// What one signature says, what it covers, and whether the bytes under it moved.
+fn about_one(
+    signature: &pdf_model::signature::Signature,
+    document: &Document,
+    length: u64,
+    notes: &mut Vec<String>,
+) {
+    {
         let who = signature.name.as_deref().unwrap_or("an unnamed signer");
         let why = signature
             .reason
@@ -204,7 +257,49 @@ fn signatures(document: &Document, notes: &mut Vec<String>) {
                 notes.push("that signature's /ByteRange does not describe this file".to_owned());
             }
         }
+        notes.push(integrity(signature, document));
+        // §12.8.3.4's rules on a PAdES signature that need no certificate to check. Silent for
+        // every other `/SubFilter`, which is §12.8.3.4.1's own scope.
+        if let Ok(cms) = signature.signed_data() {
+            // §12.8.3.3.2's revocation information, whose object identifier the clause prints
+            // itself. Its presence is the fact this program can state: the CRLs and OCSP
+            // responses inside it are what a *validator* would use, and using them is question
+            // three. `issue17069.pdf` is the corpus's one witness.
+            if cms.has_signed_attribute(pdf_model::cms::ADBE_REVOCATION_INFO_ARCHIVAL) {
+                notes.push(
+                    "that signature carries revocation information with it \
+                     (§12.8.3.3.2's adbe-revocationInfoArchival attribute), which this program \
+                     does not check — it makes no trust decision about any certificate"
+                        .to_owned(),
+                );
+            }
+            for departure in signature.pades_departures(&cms, length) {
+                notes.push(format!(
+                    "that signature states /SubFilter /ETSI.CAdES.detached, and {}",
+                    match departure {
+                        PadesDeparture::RangeDoesNotCoverTheFile =>
+                            "§12.8.3.4.2 requires its /ByteRange to cover the entire file",
+                        PadesDeparture::CertEntryPresent =>
+                            "§12.8.3.4.2 says its dictionary shall not contain a /Cert entry",
+                        PadesDeparture::BothSigningTimesStated =>
+                            "§12.8.3.4.2 permits either its /M or a signing-time attribute, not both",
+                        PadesDeparture::ContentTypeIsNotData =>
+                            "§12.8.3.4.3 (a) requires its content-type to be id-data",
+                        PadesDeparture::NotExactlyOneSigner =>
+                            "§12.8.3.4.3 (d) requires exactly one SignerInfo",
+                        PadesDeparture::NoMessageDigest =>
+                            "§12.8.3.4.3 (e) requires a message-digest attribute",
+                        PadesDeparture::CounterSignature =>
+                            "§12.8.3.4.3 (i) says a counter-signature attribute shall not be used",
+                    }
+                ));
+            }
+        }
     }
+}
+
+/// §12.8.6's permissions dictionary, said before a person starts typing rather than after.
+fn permissions(document: &Document, notes: &mut Vec<String>) {
     // §12.8.2.2.1's parenthesis is a `shall` addressed to a processor that modifies: "(These
     // changes to the document shall also be prevented if the signature dictionary is referred
     // from the DocMDP entry in the permissions dictionary.)" This program modifies since the
@@ -256,11 +351,51 @@ fn signatures(document: &Document, notes: &mut Vec<String>) {
             );
         }
     }
-    notes.push(
-        "signatures are not verified — this program has no certificate store, so it says what a \
-         signature claims and never whether it is valid"
-            .to_owned(),
-    );
+}
+
+/// One sentence about whether a document changed after it was signed.
+///
+/// Worded per case rather than by printing an enum, because the difference between the two that
+/// matter is the whole of ADR 0215: a mismatch is a fact about this file and a match is the
+/// absence of one kind of evidence against it.
+fn integrity(signature: &pdf_model::signature::Signature, document: &Document) -> String {
+    use pdf_model::signature::Integrity;
+    match signature.integrity(document.bytes()) {
+        Integrity::Changed { digest } => format!(
+            "the bytes that signature covers no longer hash to the {} digest it records — this \
+             document was modified after it was signed (§12.8.1)",
+            digest.name()
+        ),
+        Integrity::Unchanged { digest } => format!(
+            "the bytes that signature covers still hash to the {} digest it records, so nothing \
+             changed after signing — who signed is a separate question and is not answered",
+            digest.name()
+        ),
+        Integrity::UnderTheSignersKey => {
+            "that signature records no digest in the open, so whether the document changed \
+             cannot be answered without the signer's public key — which this program has no way \
+             to obtain"
+                .to_owned()
+        }
+        Integrity::UnknownDigest => {
+            "that signature records a digest made with an algorithm outside Table 260's six, so \
+             whether the document changed was not checked"
+                .to_owned()
+        }
+        Integrity::RangeNotInThisFile => {
+            "that signature's /ByteRange names bytes outside this file, so there was nothing to \
+             hash"
+                .to_owned()
+        }
+        Integrity::NoSignatureValue => {
+            "that signature states no /Contents, which Table 255 requires, so there is nothing to \
+             check the document against"
+                .to_owned()
+        }
+        Integrity::Unreadable(error) => {
+            format!("that signature's value could not be read: {error}")
+        }
+    }
 }
 
 #[cfg(test)]
@@ -292,6 +427,48 @@ mod tests {
             objects.len().saturating_add(1)
         );
         Document::open(out.into_bytes()).expect("a valid file")
+    }
+
+    /// The words a person is given about a real document whose signed bytes no longer hash.
+    ///
+    /// `xfa_filled_imm1344e.pdf` is the corpus's certification signature, and the round that
+    /// recomputed its digest found that it does not match: the file was re-saved rather than
+    /// incrementally updated, so the bytes before its signature moved. ADR 0215 has the argument
+    /// and `pdf-model`'s `tests/signatures.rs` has the measurement over all ten corpus
+    /// signatures; this pins the *sentence*, because the whole risk of this round is a program
+    /// that says more than it checked.
+    #[test]
+    fn a_document_whose_signed_bytes_moved_says_so_and_claims_nothing_more() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../doc/pdf.js/test/pdfs/xfa_filled_imm1344e.pdf");
+        let Ok(bytes) = std::fs::read(&path) else {
+            println!("skipped: the doc/pdf.js submodule is not checked out");
+            return;
+        };
+        let document = Document::open(bytes).expect("a valid file");
+        let said = about(&document).join("\n");
+
+        assert!(
+            said.contains("no longer hash to the SHA256 digest it records"),
+            "{said}"
+        );
+        assert!(
+            said.contains("modified after it was signed (§12.8.1)"),
+            "{said}"
+        );
+        assert!(
+            said.contains("this program answers one: whether the document changed"),
+            "the three questions are named and only one is claimed: {said}"
+        );
+        assert!(
+            said.contains("no certificate store and makes no network request"),
+            "{said}"
+        );
+        assert!(
+            !said.to_lowercase().contains("signature is valid")
+                || said.contains("nothing here says a signature is valid"),
+            "no sentence here calls a signature valid: {said}"
+        );
     }
 
     /// An uncovered tail is ordinary under one sub-filter and a broken `shall` under another.
