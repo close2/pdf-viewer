@@ -74,7 +74,7 @@ use pdf_syntax::{Dictionary, Document, Object};
 use std::fmt::Write as _;
 
 use crate::icon::{self, Mark};
-use crate::variable_text::{self, Owed, Quadding, Request, Shape};
+use crate::variable_text::{self, Asked, Owed, Quadding, Request, Shape};
 use crate::view::FieldValue;
 
 /// How many `/Parent` links a field's inheritable entry is followed through.
@@ -351,7 +351,7 @@ pub(crate) fn regenerate(
         source,
         inset(bbox, width),
         value,
-        None,
+        Asked::default(),
     ) {
         Ok(Some(laid_out)) => (laid_out.content, laid_out.owed.map(|owed| owed.detail())),
         // A field with no value has no marks, and an empty marked-content region is the
@@ -1577,7 +1577,7 @@ fn widget(
     // where text can go without being struck through by its own frame. Nothing states a
     // further margin and none is added.
     let inner = inset(rect, border.width);
-    let laid_out = match field_text(document, annotation, source, inner, value, None) {
+    let laid_out = match field_text(document, annotation, source, inner, value, Asked::default()) {
         Ok(laid_out) => laid_out,
         Err(refusal) => {
             rotation.end(stream);
@@ -1719,16 +1719,16 @@ impl Rotation {
 /// the common case and not a gap: 147 widgets on the corpus's first pages are empty text
 /// fields waiting for a person.
 ///
-/// `caret` is a byte offset into the *value*, asked for by [`caret`] and by nothing that draws:
-/// where it is `Some`, an empty field is laid out rather than skipped, because a place for the
-/// next character is exactly what an empty field can still be asked for.
+/// `asked` is what a *question* wants out of the layout and is empty for everything that draws:
+/// where it asks anything at all, an empty field is laid out rather than skipped, because a place
+/// for the next character is exactly what an empty field can still be asked for.
 fn field_text(
     document: &Document,
     annotation: &Dictionary,
     characteristics: &Dictionary,
     box_: [f32; 4],
     value: FieldValue<'_>,
-    caret: Option<usize>,
+    asked: Asked,
 ) -> Result<Option<variable_text::LaidOut>, Refusal> {
     let field = Field::read(document, annotation, value);
     if field.too_deep {
@@ -1779,7 +1779,7 @@ fn field_text(
             // An empty field draws nothing — and it still has somewhere the next character
             // goes, which is the one thing an empty field can be asked about. So the layout is
             // skipped only when nobody asked where that place is.
-            if value.is_empty() && caret.is_none() {
+            if value.is_empty() && asked == Asked::default() {
                 return Ok(None);
             }
             // Table 231 bit 14: a password field's characters "shall instead be echoed in some
@@ -1803,7 +1803,7 @@ fn field_text(
                 .as_ref()
                 .and_then(|value| variable_text::value_text(document, value))
                 .unwrap_or_default();
-            if value.is_empty() && caret.is_none() {
+            if value.is_empty() && asked == Asked::default() {
                 return Ok(None);
             }
             (value, Shape::SingleLine)
@@ -1834,7 +1834,7 @@ fn field_text(
         resources: &resources,
         quadding: Quadding::read(document, &sources),
         shape,
-        caret,
+        asked,
     };
     variable_text::lay_out(document, &request)
         .map(Some)
@@ -1873,6 +1873,117 @@ pub(crate) fn caret(
     view: crate::view::AnnotationView<'_>,
     offset: usize,
 ) -> Option<[f32; 4]> {
+    let asked = Asked {
+        caret: Some(offset),
+        ..Asked::default()
+    };
+    let (laid_out, onto_page) = ask(document, annotation, view, asked)?;
+    let caret = laid_out.caret?;
+    let from = onto_page.apply(Point::new(caret.from[0], caret.from[1]));
+    let to = onto_page.apply(Point::new(caret.to[0], caret.to[1]));
+    Some([from.x, from.y, to.x, to.y])
+}
+
+/// Which byte of a widget's value a point in **default user space** falls nearest.
+///
+/// [`caret`]'s inverse, and the piece a click inside a value needs: that one takes an offset and
+/// answers a place, this takes a place and answers an offset, and the two are computed in the same
+/// walk of §12.7.4.3's layout so that they cannot disagree. An offset this answers with, handed
+/// straight back to [`caret`], puts the cursor where the click was.
+///
+/// **Nearest rather than inside**, which is the choice a point outside every glyph forces: a click
+/// past the end of a line answers the end of that line, one above the first line answers the
+/// first, and one in a field whose value is empty answers zero. There is no such thing as a click
+/// inside a field that names no place to type, so refusing would leave a host with nothing to do
+/// with a press it has already decided is a press into the field. ADR 0225.
+///
+/// `None` in exactly the cases [`caret`] answers `None` in, and for the same reasons.
+pub(crate) fn offset_at(
+    document: &Document,
+    annotation: &Dictionary,
+    view: crate::view::AnnotationView<'_>,
+    point: (f32, f32),
+) -> Option<usize> {
+    // The layout works in the appearance's own coordinates, so the *point* is what has to move —
+    // the inverse of the map every shape leaves through. A transform with no inverse is a widget
+    // whose appearance collapses to a line or a point, which has no inside for a click to be in.
+    let (box_, onto_page) = frame(document, annotation, view)?;
+    let inside = onto_page.invert()?.apply(Point::new(point.0, point.1));
+    let asked = Asked {
+        point: Some([inside.x, inside.y]),
+        ..Asked::default()
+    };
+    laid_out_in(document, annotation, view, box_, asked)?.offset
+}
+
+/// The shapes covering a byte range of a widget's value, in **default user space**.
+///
+/// One quadrilateral per line the range touches, `[x0, y0, … x3, y3]` — four corners rather than a
+/// rectangle because Table 192's `/R`, the appearance's `/Matrix` and §12.5.5's placement can each
+/// turn the box, exactly as they can turn the caret.
+///
+/// **Deliberately not two carets.** A host holding both ends of a selection could join them itself
+/// on a single-line field and could not on a multiline one: §12.7.5.3's Table 231 bit 13 lets
+/// `variable_text::wrap` break the value where the host cannot see, and the lines *between* the
+/// two ends are this crate's to name. ADR 0225.
+///
+/// Empty where the range covers no glyph — two equal offsets, or a range holding nothing but a
+/// line break — because a highlight over nothing is nothing, and `None` in the cases [`caret`]
+/// answers `None` in.
+pub(crate) fn selection(
+    document: &Document,
+    annotation: &Dictionary,
+    view: crate::view::AnnotationView<'_>,
+    range: (usize, usize),
+) -> Option<Vec<[f32; 8]>> {
+    let asked = Asked {
+        selection: Some((range.0.min(range.1), range.0.max(range.1))),
+        ..Asked::default()
+    };
+    let (laid_out, onto_page) = ask(document, annotation, view, asked)?;
+    Some(
+        laid_out
+            .selection
+            .iter()
+            .map(|[x0, y0, x1, y1]| {
+                let corners = [(*x0, *y1), (*x1, *y1), (*x1, *y0), (*x0, *y0)];
+                let mut quad = [0.0_f32; 8];
+                for (corner, place) in corners.iter().zip(quad.chunks_exact_mut(2)) {
+                    let point = onto_page.apply(Point::new(corner.0, corner.1));
+                    place[0] = point.x;
+                    place[1] = point.y;
+                }
+                quad
+            })
+            .collect(),
+    )
+}
+
+/// Lays a widget's value out to answer a question, with the map onto the page beside it.
+///
+/// One function rather than three copies of it: [`caret`], [`offset_at`] and [`selection`] differ
+/// only in what they ask for and in what they do with the answer, and a second reading of which
+/// space the value is laid out in would be a second chance to read it differently.
+fn ask(
+    document: &Document,
+    annotation: &Dictionary,
+    view: crate::view::AnnotationView<'_>,
+    asked: Asked,
+) -> Option<(variable_text::LaidOut, Transform)> {
+    let (box_, onto_page) = frame(document, annotation, view)?;
+    let laid_out = laid_out_in(document, annotation, view, box_, asked)?;
+    Some((laid_out, onto_page))
+}
+
+/// The box a widget's value is laid out in, and the map from that box onto the page.
+///
+/// The two `crate::annotation::decide` chooses between, chosen the same way — see [`caret`]'s own
+/// note on which space is which.
+fn frame(
+    document: &Document,
+    annotation: &Dictionary,
+    view: crate::view::AnnotationView<'_>,
+) -> Option<([f32; 4], Transform)> {
     let field = Field::read(document, annotation, view.value);
     if field.too_deep
         || !matches!(
@@ -1887,25 +1998,30 @@ pub(crate) fn caret(
     let width = Border::read(document, annotation, source, "BC")
         .map(|border| border.width)
         .unwrap_or_default();
-    let (box_, onto_page) = if let Some((bbox, placement)) =
-        crate::annotation::stored_frame(document, annotation, view)
-    {
-        (inset(bbox, width), placement)
-    } else {
-        let rect = rectangle(document, annotation).ok()?;
-        let rotation = Rotation::read(document, source)?;
-        (
-            inset(rotation.content_box(rect), width),
-            rotation.transform(rect),
-        )
-    };
-    let laid_out = field_text(document, annotation, source, box_, view.value, Some(offset))
+    if let Some((bbox, placement)) = crate::annotation::stored_frame(document, annotation, view) {
+        return Some((inset(bbox, width), placement));
+    }
+    let rect = rectangle(document, annotation).ok()?;
+    let rotation = Rotation::read(document, source)?;
+    Some((
+        inset(rotation.content_box(rect), width),
+        rotation.transform(rect),
+    ))
+}
+
+/// The layout itself, in the box [`frame`] chose.
+fn laid_out_in(
+    document: &Document,
+    annotation: &Dictionary,
+    view: crate::view::AnnotationView<'_>,
+    box_: [f32; 4],
+    asked: Asked,
+) -> Option<variable_text::LaidOut> {
+    let characteristics = document.get_key(annotation, "MK").as_dict().cloned();
+    let source = characteristics.as_ref().unwrap_or(annotation);
+    field_text(document, annotation, source, box_, view.value, asked)
         .ok()
-        .flatten()?;
-    let caret = laid_out.caret?;
-    let from = onto_page.apply(Point::new(caret.from[0], caret.from[1]));
-    let to = onto_page.apply(Point::new(caret.to[0], caret.to[1]));
-    Some([from.x, from.y, to.x, to.y])
+        .flatten()
 }
 
 /// The text a text or combo-box field would be laid out with, as §12.7.4.3 sees it.
@@ -2021,7 +2137,7 @@ pub(crate) fn accepted_prefix(
             resources: &resources,
             quadding,
             shape,
-            caret: None,
+            asked: Asked::default(),
         };
         // A layout this crate cannot build says nothing about how much text the box holds, so
         // it constrains nothing — the report `field_text` raises is the honest answer there.
@@ -2110,7 +2226,7 @@ fn free_text(document: &Document, annotation: &Dictionary, stream: &mut Stream) 
         // Table 177 states no single-line free text: the annotation is a box of prose.
         shape: Shape::Multiline,
         // §12.5.6.6's text is not a field and nothing types into it — see `doc/todo/33`.
-        caret: None,
+        asked: Asked::default(),
     };
     let laid_out = variable_text::lay_out(document, &request).map_err(Refusal::Text)?;
     stream.text.push_str(&laid_out.content);

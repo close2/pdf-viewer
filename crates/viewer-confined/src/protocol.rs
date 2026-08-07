@@ -1527,6 +1527,10 @@ mod query_kind {
     pub(super) const PREFERENCES: u8 = 23;
     pub(super) const POPUPS: u8 = 24;
     pub(super) const ACCESSIBILITY_TREE: u8 = 25;
+    // The caret's inverse and the shapes over a selected range of a field's value, carried since
+    // the three-hundred-and-eighty-eighth session. ADR 0225.
+    pub(super) const OFFSET: u8 = 26;
+    pub(super) const FIELD_SELECTION: u8 = 27;
 }
 
 /// Encodes one question.
@@ -1566,6 +1570,16 @@ pub(crate) fn encode_query(query: Query<'_>) -> Result<Vec<u8>, Uncarried> {
         }
         Query::Caret { at, offset } => {
             writer.u8(k::CARET).point(at).usize(offset);
+        }
+        Query::Offset { at, point } => {
+            writer.u8(k::OFFSET).point(at).point(point);
+        }
+        Query::FieldSelection { at, from, to } => {
+            writer
+                .u8(k::FIELD_SELECTION)
+                .point(at)
+                .usize(from)
+                .usize(to);
         }
         Query::Dirty => {
             writer.u8(k::DIRTY);
@@ -1646,7 +1660,19 @@ pub(crate) enum PlainQuery {
     PageLabel(usize),
     LinkAt((f32, f32)),
     FieldAt((f32, f32)),
-    Caret { at: (f32, f32), offset: usize },
+    Caret {
+        at: (f32, f32),
+        offset: usize,
+    },
+    Offset {
+        at: (f32, f32),
+        point: (f32, f32),
+    },
+    FieldSelection {
+        at: (f32, f32),
+        from: usize,
+        to: usize,
+    },
     Dirty,
     Selection,
     LogicalSelection,
@@ -1679,6 +1705,10 @@ impl OwnedQuery {
                 PlainQuery::LinkAt(at) => Query::LinkAt(at),
                 PlainQuery::FieldAt(at) => Query::FieldAt(at),
                 PlainQuery::Caret { at, offset } => Query::Caret { at, offset },
+                PlainQuery::Offset { at, point } => Query::Offset { at, point },
+                PlainQuery::FieldSelection { at, from, to } => {
+                    Query::FieldSelection { at, from, to }
+                }
                 PlainQuery::Dirty => Query::Dirty,
                 PlainQuery::Selection => Query::Selection,
                 PlainQuery::LogicalSelection => Query::LogicalSelection,
@@ -1724,6 +1754,15 @@ pub(crate) fn decode_query(bytes: &[u8]) -> Result<OwnedQuery, ProtocolError> {
         k::CARET => OwnedQuery::Plain(PlainQuery::Caret {
             at: reader.point("a point")?,
             offset: reader.usize("a caret offset")?,
+        }),
+        k::OFFSET => OwnedQuery::Plain(PlainQuery::Offset {
+            at: reader.point("a point")?,
+            point: reader.point("a point")?,
+        }),
+        k::FIELD_SELECTION => OwnedQuery::Plain(PlainQuery::FieldSelection {
+            at: reader.point("a point")?,
+            from: reader.usize("a selection offset")?,
+            to: reader.usize("a selection offset")?,
         }),
         k::DIRTY => OwnedQuery::Plain(PlainQuery::Dirty),
         k::FIND => OwnedQuery::Find(reader.string("a search string")?),
@@ -1783,6 +1822,10 @@ mod answer_kind {
     pub(super) const PREFERENCES: u8 = 24;
     pub(super) const POPUPS: u8 = 25;
     pub(super) const ACCESSIBILITY: u8 = 26;
+    // The caret's inverse and a field selection's shapes, since the three-hundred-and-eighty-eighth
+    // session. ADR 0225.
+    pub(super) const OFFSET: u8 = 27;
+    pub(super) const FIELD_SELECTION: u8 = 28;
 }
 
 /// Encodes one answer.
@@ -1853,6 +1896,15 @@ pub(crate) fn encode_answer(answer: &Answer<'_>) -> Result<Vec<u8>, Uncarried> {
         }
         Answer::Caret { from, to } => {
             writer.u8(k::CARET).point(*from).point(*to);
+        }
+        Answer::Offset(offset) => {
+            writer.u8(k::OFFSET).usize(*offset);
+        }
+        Answer::FieldSelection(quads) => {
+            writer.u8(k::FIELD_SELECTION).usize(quads.len());
+            for quad in quads {
+                writer.quad(*quad);
+            }
         }
         Answer::Found(occurrences) => {
             writer.u8(k::FOUND).usize(occurrences.len());
@@ -2005,6 +2057,10 @@ pub(crate) fn decode_answer(bytes: &[u8]) -> Result<Reply, ProtocolError> {
             from: reader.point("a caret")?,
             to: reader.point("a caret")?,
         },
+        k::OFFSET => Reply::Offset(reader.usize("a caret offset")?),
+        k::FIELD_SELECTION => {
+            Reply::FieldSelection(read_quads(&mut reader, "a field selection's shapes")?)
+        }
         k::FOUND => {
             let what = "a search result";
             Reply::Found(reader.list(what, |reader| read_quads(reader, what))?)
@@ -2395,6 +2451,15 @@ mod tests {
                 at: (3.0, 4.0),
                 offset: 5,
             },
+            Query::Offset {
+                at: (3.0, 4.0),
+                point: (11.0, 12.0),
+            },
+            Query::FieldSelection {
+                at: (3.0, 4.0),
+                from: 2,
+                to: 6,
+            },
             Query::Dirty,
             Query::Find("needle"),
             Query::Selection,
@@ -2414,7 +2479,7 @@ mod tests {
             Query::Popups,
             Query::AccessibilityTree,
         ];
-        assert_eq!(carried.len(), 25, "every question `viewer-core` states");
+        assert_eq!(carried.len(), 27, "every question `viewer-core` states");
         for query in carried {
             let encoded = encode_query(query).unwrap();
             let read = decode_query(&encoded).unwrap();

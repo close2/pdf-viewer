@@ -109,6 +109,54 @@ pub enum Query<'a> {
         /// How far into the field's value the caret is, in bytes.
         offset: usize,
     },
+    /// How far into a field's value a point inside it is, in bytes.
+    ///
+    /// **[`Query::Caret`]'s inverse**, and the one piece a click that places the cursor and a drag
+    /// that selects inside a value both need: that question takes an offset and answers a place,
+    /// this takes a place and answers an offset. Both are computed inside §12.7.4.3's own layout,
+    /// so an offset this answers with, handed straight back as [`Query::Caret`]'s, puts the caret
+    /// where the click was. The standard states neither; ADR 0225 records the choice.
+    ///
+    /// The answer is the *nearest* boundary between two glyphs and never a refusal for a point in
+    /// the wrong place: a drag past the end of a line answers that line's end, one below the last
+    /// line answers the last, and an empty field answers zero. A host that has already decided a
+    /// press belongs to a field has to be able to put the cursor somewhere.
+    ///
+    /// [`Answer::None`] in exactly the cases [`Query::Caret`] answers it in.
+    Offset {
+        /// Device pixels naming the field, exactly as [`Query::Caret`]'s and [`Query::FieldAt`]'s
+        /// do — the point a host kept from the press that aimed the keyboard (ADR 0201).
+        at: (f32, f32),
+        /// Device pixels of the place inside it to measure.
+        ///
+        /// The same point as `at` on a click, and a different one on every move of a drag —
+        /// which is why there are two. A drag that leaves the widget's rectangle is still a drag
+        /// inside that field's value, and a single point could not say so.
+        point: (f32, f32),
+    },
+    /// The shapes covering a byte range of a field's value, for a host that draws a highlight.
+    ///
+    /// **A third question rather than [`Query::Caret`] twice**, and the case that settles it is
+    /// §12.7.5.3's Table 231 bit 13: a multiline field's value is broken into lines by the layout,
+    /// so a host holding both ends of a selection cannot name the lines *between* them. On a
+    /// single-line field it could, and one rule for both is what keeps a host from having two.
+    ///
+    /// What is deliberately **not** here is the selected *text*. A host reads a field's value back
+    /// from [`Answer::Field`] after every keystroke (ADR 0201) and the two offsets are into that
+    /// same string, so the characters are a slice it already holds — and copying, cutting and
+    /// pasting inside a field are that slice plus [`crate::Edit::SetField`], which needs no
+    /// message this vocabulary does not have. ADR 0225.
+    ///
+    /// [`Answer::None`] in the cases [`Query::Caret`] answers it in; an empty list where the range
+    /// covers no glyph, which is what two equal offsets are.
+    FieldSelection {
+        /// Device pixels naming the field, as [`Query::Offset`]'s does.
+        at: (f32, f32),
+        /// One end of the range, as a byte offset into the field's value.
+        from: usize,
+        /// The other end. Either order: what is covered is between them.
+        to: usize,
+    },
     /// Whether anything has been edited since the document opened.
     Dirty,
     /// §14.3.3's document information dictionary, and §14.3.2's metadata stream beside it.
@@ -291,6 +339,14 @@ pub enum Answer<'a> {
         /// The end on the ascent side.
         to: (f32, f32),
     },
+    /// How far into a field's value a point is, in bytes — [`Answer::Caret`]'s inverse.
+    Offset(usize),
+    /// The shapes covering a range of a field's value, one per line it touches.
+    ///
+    /// `[x0, y0, … x3, y3]` apiece in device pixels of the viewport, the same form
+    /// [`Selected::quads`] takes and drawn the same way: in the host's own selection colour,
+    /// because what a highlight looks like belongs to a platform and not to a document.
+    FieldSelection(Vec<[f32; 8]>),
     /// Where a string occurs, one entry per occurrence in the order they are shown.
     ///
     /// Each is the shapes covering one occurrence, merged per run of a line, in device pixels of

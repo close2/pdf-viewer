@@ -100,6 +100,31 @@ pub(crate) struct Caret {
     pub to: [f32; 2],
 }
 
+/// What a *question* wants out of the layout, beside the stream it always writes.
+///
+/// **None of this is in ISO 32000-2**, and the empty value is what everything that only draws
+/// asks for. The standard states where a glyph goes; a caret, the offset a click lands on and the
+/// shapes covering a range of a value are what an interface needs on top of that, and each is
+/// computed in the walk that places the glyphs rather than beside it — a second implementation of
+/// §12.7.4.3's auto-sizing, wrapping and quadding would put a cursor next to the text instead of
+/// in it. ADRs 0211 and 0225.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub(crate) struct Asked {
+    /// Where in the value a caret is wanted, as a byte offset — `None` for a layout that only
+    /// draws. See [`LaidOut::caret`].
+    pub caret: Option<usize>,
+    /// A point in the box's own coordinates to turn into a byte offset of the value.
+    ///
+    /// The caret's inverse, and what a click inside a value needs. See [`LaidOut::offset`].
+    pub point: Option<[f32; 2]>,
+    /// A byte range of the value to answer with the shapes covering it.
+    ///
+    /// What a selection inside a value needs, and deliberately not two carets: §12.7.5.3's
+    /// Multiline flag lets [`wrap`] break a line where a caller cannot see, so the lines between
+    /// the two ends are this module's to name. See [`LaidOut::selection`].
+    pub selection: Option<(usize, usize)>,
+}
+
 /// One layout job: the text, the box, and the entries §12.7.4.3 reads.
 pub(crate) struct Request<'a> {
     /// The value to show, already decoded from its §7.9.2.2 text string.
@@ -114,15 +139,11 @@ pub(crate) struct Request<'a> {
     pub quadding: Quadding,
     /// How the text fills the box.
     pub shape: Shape,
-    /// Where in [`Self::text`] a caret is wanted, as a byte offset — `None` for a layout that
-    /// only draws.
+    /// What a question wants out of the layout, on top of the stream.
     ///
-    /// **Nothing in ISO 32000-2 asks for this**: the standard says where a *glyph* goes and says
-    /// nothing whatever about a text cursor. What makes it belong here rather than in a caller is
-    /// that the answer is the position the next glyph would be placed at, and that position is
-    /// this module's arithmetic — a second opinion about it in a host would sit the caret beside
-    /// the text instead of in it. See [`LaidOut::caret`].
-    pub caret: Option<usize>,
+    /// [`Asked::default`] for everything that only draws, which is every caller but the three
+    /// queries in [`crate::appearance`].
+    pub asked: Asked,
 }
 
 /// What §12.7.4.3 asks for that this module cannot supply.
@@ -208,10 +229,21 @@ pub(crate) struct LaidOut {
     /// this adds is the ability to *ask*, which is what a program that fills a field needs and a
     /// program that only draws one does not. See [`crate::view::ViewState::set_field`].
     pub overflows: bool,
-    /// Where a caret at [`Request::caret`] sits, in the appearance's own coordinates.
+    /// Where a caret at [`Asked::caret`] sits, in the appearance's own coordinates.
     ///
     /// `None` where none was asked for, and where the value could not be laid out at all.
     pub caret: Option<Caret>,
+    /// Which byte of the value [`Asked::point`] landed nearest, as an offset into it.
+    ///
+    /// The caret's inverse: an offset this answers with, handed back as [`Asked::caret`], puts the
+    /// caret at the boundary the point was nearest. `None` where no point was asked about.
+    pub offset: Option<usize>,
+    /// The boxes covering [`Asked::selection`], in the appearance's own coordinates.
+    ///
+    /// `[x0, y0, x1, y1]` apiece, one per line the range touches, between the same descent and
+    /// ascent the caret stands between — so a host draws a highlight the same height as a cursor.
+    /// Empty where nothing was asked for, and where the range covers no glyph.
+    pub selection: Vec<[f32; 4]>,
     /// A font dictionary this module invented, to be added to the appearance's `/Resources`
     /// under the name the `/DA` used.
     ///
@@ -355,7 +387,7 @@ fn set_in(
         )));
     }
 
-    let runs = encode(&font, request.text, request.caret);
+    let runs = encode(&font, request.text, request.asked);
     // **A character the base encoding has no code for, given one.** §9.6.5.1 lets an encoding
     // dictionary name glyphs directly — "the value of the Differences entry [is] an array of
     // character codes and glyph names" — and a font *this module invented* is one whose encoding
@@ -392,7 +424,7 @@ fn named_glyphs_reach_more(
 ) -> Option<(Dictionary, pdf_font::LoadedFont, Encoded)> {
     let named = with_differences(dict, &runs.missing)?;
     let reloaded = pdf_font::LoadedFont::load(document, &named, font_name).ok()?;
-    let again = encode(&reloaded, request.text, request.caret);
+    let again = encode(&reloaded, request.text, request.asked);
     (again.missing.len() < runs.missing.len()).then_some((named, reloaded, again))
 }
 
@@ -596,18 +628,24 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
     let mut stream = String::new();
     open_marked_content(&mut stream, &appearance, (&font_name, size), box_);
 
-    let caret = if let Shape::Comb(count) = request.shape {
+    // One value for both branches, because everything but the matrix is the same in each and two
+    // spellings of it would be two chances to leave a question out of one of them.
+    let written = |matrix: [f32; 6]| Written {
+        codes: &runs.codes,
+        caret: runs.caret,
+        selection: runs.selection,
+        point: request.asked.point,
+        offsets: &runs.offsets,
+        matrix,
+    };
+    let marks = if let Shape::Comb(count) = request.shape {
         comb(
             &mut stream,
             &measure,
-            Written {
-                codes: &runs.codes,
-                caret: runs.caret,
-                // The identity, because a comb writes one `Tm` per cell and that is the matrix it
-                // writes: Table 231 bit 25 places each character in a position of its own, so a
-                // `/DA`'s own `Tm` has nothing here to translate.
-                matrix: IDENTITY,
-            },
+            // The identity, because a comb writes one `Tm` per cell and that is the matrix it
+            // writes: Table 231 bit 25 places each character in a position of its own, so a
+            // `/DA`'s own `Tm` has nothing here to translate.
+            written(IDENTITY),
             Set {
                 size,
                 metrics: &metrics,
@@ -633,11 +671,7 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
             },
             leading,
             request,
-            Written {
-                codes: &runs.codes,
-                caret: runs.caret,
-                matrix: appearance.matrix.unwrap_or(IDENTITY),
-            },
+            written(appearance.matrix.unwrap_or(IDENTITY)),
         )
     };
 
@@ -645,7 +679,9 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
     Ok(LaidOut {
         content: stream,
         owed,
-        caret,
+        caret: marks.caret,
+        offset: marks.offset,
+        selection: marks.selection,
         overflows: overflows(
             &measure,
             &runs.codes,
@@ -748,36 +784,55 @@ struct Encoded {
     missing: String,
     /// Whether [`MAX_CODES`] was reached and the rest of the value dropped.
     truncated: bool,
-    /// Which code [`Request::caret`]'s byte offset falls before, where one was asked for.
+    /// Which code [`Asked::caret`]'s byte offset falls before, where one was asked for.
     ///
     /// An index into [`Self::codes`] rather than into the value, because that is what the layout
     /// works in: a character the font states no code for produces none, and a caret cannot sit
     /// beside a glyph that is not drawn.
     caret: Option<usize>,
+    /// The same translation for [`Asked::selection`]'s two ends, in the same direction.
+    selection: Option<(usize, usize)>,
+    /// Which byte of the value each code came from, with the end after the last.
+    ///
+    /// The mapping the other two run backwards, and the only one that needs a vector: a point
+    /// lands between two codes and the answer owed is a byte offset. Built **only** where
+    /// [`Asked::point`] asked for one, so that nothing that draws pays for it.
+    offsets: Vec<usize>,
 }
 
 /// Turns a value into the font's own character codes, collecting what it cannot represent.
 ///
-/// The caret's byte offset is turned into a code index here, in the one loop that knows how many
-/// codes a character produced — which is none for a character the font cannot spell, and one for
-/// each of §12.7.5.3's line breaks. An offset inside a character counts that character as still
-/// to come, and one past the end is the end.
-fn encode(font: &pdf_font::LoadedFont, text: &str, caret: Option<usize>) -> Encoded {
+/// The byte offsets [`Asked`] carries are turned into code indices here, in the one loop that
+/// knows how many codes a character produced — which is none for a character the font cannot
+/// spell, and one for each of §12.7.5.3's line breaks. An offset inside a character counts that
+/// character as still to come, and one past the end is the end. [`Encoded::offsets`] is the same
+/// correspondence written down, for the one question that runs it backwards.
+fn encode(font: &pdf_font::LoadedFont, text: &str, asked: Asked) -> Encoded {
     let mut codes = Vec::with_capacity(text.len().min(MAX_CODES));
     let mut missing = String::new();
     let mut truncated = false;
-    let mut caret_code = None;
+    let wanted = [
+        asked.caret,
+        asked.selection.map(|(from, _)| from),
+        asked.selection.map(|(_, to)| to),
+    ];
+    let mut marks: [Option<usize>; 3] = [None; 3];
+    let mut offsets = Vec::new();
     // A carriage return, a line feed and the pair are all one line break, and none of them is
     // a glyph. They travel through the layout as `BREAK` and `show` drops them. Read from the
-    // value as it stands rather than from a normalised copy, so that the caret's offset means
+    // value as it stands rather than from a normalised copy, so that a caret's offset means
     // the same thing here as it does to the host that sent it.
     let mut after_return = false;
+    let mut end = text.len();
     for (at, character) in text.char_indices() {
-        if caret_code.is_none() && caret.is_some_and(|offset| offset <= at) {
-            caret_code = Some(codes.len());
+        for (mark, want) in marks.iter_mut().zip(wanted) {
+            if mark.is_none() && want.is_some_and(|offset| offset <= at) {
+                *mark = Some(codes.len());
+            }
         }
         if codes.len() >= MAX_CODES {
             truncated = true;
+            end = at;
             break;
         }
         let character = match character {
@@ -794,21 +849,42 @@ fn encode(font: &pdf_font::LoadedFont, text: &str, caret: Option<usize>) -> Enco
                 other
             }
         };
-        if character == '\n' {
-            codes.push(BREAK);
-            continue;
-        }
-        match font
-            .code_for(character)
-            .or_else(|| substitutable(character, font))
-        {
-            Some(code) => codes.push(code),
-            None if missing.contains(character) => {}
-            None => missing.push(character),
+        let produced = if character == '\n' {
+            Some(BREAK)
+        } else {
+            match font
+                .code_for(character)
+                .or_else(|| substitutable(character, font))
+            {
+                Some(code) => Some(code),
+                None if missing.contains(character) => None,
+                None => {
+                    missing.push(character);
+                    None
+                }
+            }
+        };
+        if let Some(code) = produced {
+            codes.push(code);
+            if asked.point.is_some() {
+                offsets.push(at);
+            }
         }
     }
+    if asked.point.is_some() {
+        // The end, so that an index of `codes.len()` — a point past the last glyph — has a byte
+        // offset to answer with.
+        offsets.push(end);
+    }
+    // An offset no character index reached is one past the value's last character, which is the
+    // end of the codes — the case a caret at the end of a value is in every time.
+    let last = codes.len();
     Encoded {
-        caret: caret.map(|_| caret_code.unwrap_or(codes.len())),
+        caret: wanted[0].map(|_| marks[0].unwrap_or(last)),
+        selection: asked
+            .selection
+            .map(|_| (marks[1].unwrap_or(last), marks[2].unwrap_or(last))),
+        offsets,
         codes,
         missing,
         truncated,
@@ -939,7 +1015,7 @@ fn write_lines(
     leading: f32,
     request: &Request,
     written: Written,
-) -> Option<Caret> {
+) -> Marks {
     let box_ = request.box_;
     let matrix = written.matrix;
     let (width, height) = ((box_[2] - box_[0]).max(0.0), (box_[3] - box_[1]).max(0.0));
@@ -952,7 +1028,8 @@ fn write_lines(
         box_[1] + (height + text_height) * 0.5
     };
     let first = top - ascent;
-    let mut caret = None;
+    let mut marks = Marks::default();
+    let mut nearest: Option<(f32, f32, usize)> = None;
 
     for (index, line) in lines.iter().enumerate() {
         let codes = line_codes(written.codes, line);
@@ -968,17 +1045,54 @@ fn write_lines(
         // and the start of the next, and this is the end of the earlier one. A hard break is not
         // ambiguous — `BREAK` occupies an index of its own, so the position after it is past this
         // line's end and lands on the next.
-        if caret.is_none()
+        if marks.caret.is_none()
             && let Some(at) = written.caret.filter(|at| *at <= line.end)
         {
             let before = codes
                 .get(..at.saturating_sub(line.start).min(codes.len()))
                 .unwrap_or(codes);
             let x = x + measure.width(before, set.size);
-            caret = Some(Caret {
+            marks.caret = Some(Caret {
                 from: [x, baseline + descent],
                 to: [x, baseline + ascent],
             });
+        }
+        // The part of the selected range this line holds, as one box between the same descent
+        // and ascent the caret stands between: a highlight and a cursor the same height is what
+        // makes the two look like one thing, and neither is the standard's.
+        if let Some((from, to)) = written.selection {
+            let (start, end) = (from.max(line.start), to.min(line.end));
+            if start < end {
+                let x0 =
+                    x + measure.width(line_codes(written.codes, &(line.start..start)), set.size);
+                let x1 = x + measure.width(line_codes(written.codes, &(line.start..end)), set.size);
+                // A range covering nothing but a line break has no shape, because a break draws
+                // no glyph — the same reason `show` skips it.
+                if x1 > x0 {
+                    marks
+                        .selection
+                        .push([x0, baseline + descent, x1, baseline + ascent]);
+                }
+            }
+        }
+        if let Some([px, py]) = written.point {
+            // Vertically first and horizontally within the line, which is the order the two
+            // questions are asked in: a point below every line belongs to the last one, and a
+            // point past the end of a line belongs to that line's end.
+            let (bottom, top) = (baseline + descent, baseline + ascent);
+            let dy = if py < bottom {
+                bottom - py
+            } else if py > top {
+                py - top
+            } else {
+                0.0
+            };
+            let (at, dx) = nearest_boundary(measure, codes, set.size, x, px);
+            if nearest
+                .is_none_or(|(best_y, best_x, _)| dy < best_y || (dy <= best_y && dx < best_x))
+            {
+                nearest = Some((dy, dx, line.start.saturating_add(at)));
+            }
         }
         let _ = writeln!(
             stream,
@@ -987,18 +1101,77 @@ fn write_lines(
         );
         show(stream, codes);
     }
-    caret
+    marks.offset = nearest.map(|(_, _, code)| written.byte(code));
+    marks
+}
+
+/// The boundary between two glyphs a point is nearest, within one line already positioned.
+///
+/// The index of the code the boundary is *before*, and how far the point was from it. Walked
+/// rather than solved because the advance of a code is the font's and the running total is the
+/// same one [`Measure::width`] sums — a boundary found by any other arithmetic would be a second
+/// opinion about where the glyphs are.
+fn nearest_boundary(
+    measure: &Measure,
+    codes: &[pdf_font::Code],
+    size: f32,
+    x: f32,
+    point: f32,
+) -> (usize, f32) {
+    let mut at = x;
+    let mut best = ((point - x).abs(), 0_usize);
+    for (index, code) in codes.iter().enumerate() {
+        at += measure.width(std::slice::from_ref(code), size);
+        let distance = (point - at).abs();
+        if distance < best.0 {
+            best = (distance, index.saturating_add(1));
+        }
+    }
+    (best.1, best.0)
+}
+
+/// What a question asked of the layout, in the appearance's own coordinates.
+///
+/// Three answers from one walk, because they are three views of the same placement: where the
+/// next glyph goes, which glyph boundary a point is nearest, and the boxes a range of the value
+/// occupies. [`LaidOut`] carries them out.
+#[derive(Default)]
+struct Marks {
+    caret: Option<Caret>,
+    offset: Option<usize>,
+    selection: Vec<[f32; 4]>,
 }
 
 /// What is being written out, beside the box and the metrics it is written into.
 ///
-/// Three things a line needs that are not properties of the *box*: the codes its range indexes,
-/// where a caret goes if one was asked for, and the `/DA`'s own text matrix.
+/// The codes a line's range indexes, the `/DA`'s own text matrix, and the three questions
+/// [`Asked`] carries — the first two of them already translated from bytes into code indices by
+/// [`encode`], because that is the space a line is measured in.
 #[derive(Clone, Copy)]
 struct Written<'a> {
     codes: &'a [pdf_font::Code],
     caret: Option<usize>,
+    selection: Option<(usize, usize)>,
+    point: Option<[f32; 2]>,
+    /// Which byte of the value each code came from, from [`Encoded::offsets`].
+    offsets: &'a [usize],
     matrix: [f32; 6],
+}
+
+impl Written<'_> {
+    /// The byte of the value a code index stands at.
+    ///
+    /// The last entry for an index past the end, which is what [`encode`] put there: a point past
+    /// the last glyph is the end of the value. Zero where no offsets were collected, which cannot
+    /// happen for a caller that asked for a point and is answered without a panic rather than with
+    /// one.
+    fn byte(self, code: usize) -> usize {
+        self.offsets
+            .get(code)
+            .or_else(|| self.offsets.last())
+            .copied()
+            .unwrap_or_default()
+    }
 }
 
 /// Whether the laid-out value needs more room than the box gives, on the axis §12.7.5.3 names.
@@ -1125,7 +1298,7 @@ fn comb(
     set: Set,
     cell_count: u32,
     request: &Request,
-) -> Option<Caret> {
+) -> Marks {
     let size = set.size;
     let box_ = request.box_;
     let (width, height) = ((box_[2] - box_[0]).max(0.0), (box_[3] - box_[1]).max(0.0));
@@ -1155,19 +1328,64 @@ fn comb(
         show(stream, std::slice::from_ref(code));
     }
 
-    // The caret goes at the *left edge* of the comb the next character would be laid into, rather
-    // than beside the last character drawn: Table 231 bit 25 divides the box into positions and
-    // puts one character in each, so the place a person is about to type into is a cell and not a
-    // gap between glyphs. A caret past the last cell stays on the box's right edge, which is
-    // where the value has stopped fitting.
-    let at = written.caret?;
-    let filled = codes.get(..at.min(codes.len())).unwrap_or_default();
-    let slot = first + count(filled.iter().filter(|code| **code != BREAK).count());
-    let x = cell.mul_add(slot.min(cells), 0.0) + box_[0];
-    Some(Caret {
-        from: [x, baseline + set.metrics.descent * size],
-        to: [x, baseline + set.metrics.ascent * size],
-    })
+    let (bottom, top) = (
+        baseline + set.metrics.descent * size,
+        baseline + set.metrics.ascent * size,
+    );
+    // Everything below is stated in *cells*, because Table 231 bit 25 divides the box into
+    // positions and puts one character in each: the place a person is about to type into is a
+    // cell and not a gap between glyphs, and so is the place a click lands on and the run a
+    // selection covers. `edge` is the left side of the comb a slot names, clamped to the box —
+    // a position past the last cell stays on the right edge, which is where the value has
+    // stopped fitting.
+    let slot_of = |at: usize| {
+        let filled = codes.get(..at.min(codes.len())).unwrap_or_default();
+        first + count(filled.iter().filter(|code| **code != BREAK).count())
+    };
+    let edge = |slot: f32| cell.mul_add(slot.min(cells), 0.0) + box_[0];
+
+    let caret = written.caret.map(|at| Caret {
+        from: [edge(slot_of(at)), bottom],
+        to: [edge(slot_of(at)), top],
+    });
+    let mut selection = Vec::new();
+    if let Some((from, to)) = written.selection {
+        let (x0, x1) = (edge(slot_of(from)), edge(slot_of(to)));
+        if x1 > x0 {
+            selection.push([x0, bottom, x1, top]);
+        }
+    }
+    let mut offset = None;
+    if let Some([point, _]) = written.point {
+        // The nearest cell edge, and then the code that cell holds. A comb is single-line by the
+        // same rule, so the vertical half of the question does not arise.
+        let mut nearest = (0_usize, (point - edge(first)).abs());
+        for index in 1..=shown.len() {
+            let distance = (point - edge(first + count(index))).abs();
+            if distance < nearest.1 {
+                nearest = (index, distance);
+            }
+        }
+        // Back from a count of *shown* characters to an index into the codes, which differ by the
+        // line breaks a comb does not lay out.
+        let mut seen = 0_usize;
+        let mut at = codes.len();
+        for (index, code) in codes.iter().enumerate() {
+            if seen == nearest.0 {
+                at = index;
+                break;
+            }
+            if *code != BREAK {
+                seen = seen.saturating_add(1);
+            }
+        }
+        offset = Some(written.byte(at));
+    }
+    Marks {
+        caret,
+        offset,
+        selection,
+    }
 }
 
 /// Writes one run of codes as a `Tj` with a literal string operand.

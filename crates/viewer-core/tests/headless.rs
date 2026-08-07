@@ -1217,6 +1217,110 @@ fn a_caret_says_where_the_next_character_goes() {
     );
 }
 
+/// A point turned into an offset, and the shapes over what lies between two of them.
+///
+/// **`Query::Caret`'s inverse and the third question beside it**, in the device pixels a host
+/// works in. The standard states none of this — no cursor, no click that places one, no selection
+/// inside a value — so what is pinned is the relation the pair has to each other: an offset gives
+/// a place through `Query::Caret`, and that place gives the offset back through `Query::Offset`.
+/// A host that can do that round trip can put the caret where the click was, which is the whole
+/// of what a person means by clicking into a word. ADR 0225.
+#[test]
+fn a_point_inside_a_value_names_the_byte_it_is_nearest() {
+    let Some(bytes) = corpus_bytes("form_two_pages.pdf") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password: None,
+            fragment: None,
+        })
+        .for_each(drop);
+    let Answer::Geometry(geometry) = viewer.query(Query::PageGeometry(0)) else {
+        panic!("the page has a geometry");
+    };
+    // The same widget the caret test presses: `[48.54, 727.93, 198.54, 749.93]`, from the file.
+    let at = (
+        geometry.origin.0 + 120.0 * geometry.scale,
+        geometry.origin.1 + (geometry.page.height - 738.0) * geometry.scale,
+    );
+    viewer
+        .handle(Command::Edit(Edit::SetField {
+            field: "Text1".to_owned(),
+            value: Some("Ada Lovelace".to_owned()),
+        }))
+        .for_each(drop);
+
+    let caret = |viewer: &Viewer, offset: usize| match viewer.query(Query::Caret { at, offset }) {
+        Answer::Caret { from, to } => (from, to),
+        other => panic!("the field has a caret at {offset}: {other:?}"),
+    };
+    let offset =
+        |viewer: &Viewer, point: (f32, f32)| match viewer.query(Query::Offset { at, point }) {
+            Answer::Offset(offset) => offset,
+            other => panic!("a point in the field names an offset: {other:?}"),
+        };
+
+    // The round trip, at every byte of the value.
+    for want in 0..="Ada Lovelace".len() {
+        let (from, to) = caret(&viewer, want);
+        let middle = (from.0, (from.1 + to.1) * 0.5);
+        assert_eq!(
+            offset(&viewer, middle),
+            want,
+            "the caret at {want} is at {middle:?}, and that point names {want} again"
+        );
+    }
+
+    // A point past the end of the value names the end rather than refusing — the choice ADR 0225
+    // records, and what a host needs from a press it has already decided is a press into a field.
+    let (end, _) = caret(&viewer, "Ada Lovelace".len());
+    assert_eq!(offset(&viewer, (end.0 + 40.0, end.1)), "Ada Lovelace".len());
+    // And the *field-naming* point is what says which field: a point outside every widget, asked
+    // about with `at` naming this one, is still measured inside this value. That is what makes a
+    // drag out of the widget's rectangle keep selecting inside it.
+    assert_eq!(offset(&viewer, (2.0, 2.0)), 0);
+    // While a point that names no widget at all has no offset, which is how a host decides the
+    // keyboard belongs to the page.
+    assert!(matches!(
+        viewer.query(Query::Offset {
+            at: (2.0, 2.0),
+            point: (2.0, 2.0)
+        }),
+        Answer::None
+    ));
+
+    // The shapes over a range, in the same device pixels: one line, so one shape, and it runs
+    // from the caret at one end to the caret at the other.
+    let Answer::FieldSelection(quads) = viewer.query(Query::FieldSelection {
+        at,
+        from: 4,
+        to: 12,
+    }) else {
+        panic!("a range of the value has shapes");
+    };
+    assert_eq!(quads.len(), 1, "one line of a single-line field: {quads:?}");
+    let (start, _) = caret(&viewer, 4);
+    let (finish, _) = caret(&viewer, 12);
+    let (left, right) = (quads[0][0].min(quads[0][2]), quads[0][0].max(quads[0][2]));
+    assert!(
+        (left - start.0).abs() < 0.01 && (right - finish.0).abs() < 0.01,
+        "the shape runs between the two carets: {:?} against {start:?} and {finish:?}",
+        quads[0]
+    );
+    // Two equal offsets are a caret rather than a selection, and a caret is drawn by the host as
+    // a line: no shapes come back for it.
+    let Answer::FieldSelection(none) = viewer.query(Query::FieldSelection { at, from: 3, to: 3 })
+    else {
+        panic!("an empty range still answers");
+    };
+    assert!(none.is_empty(), "{none:?}");
+}
+
 /// §8.11.4.3's Table 99 `/ListMode`, which is the one entry of that table whose answer depends
 /// on the window rather than on the file.
 ///

@@ -270,6 +270,10 @@ pub enum Reply {
         /// The end on the ascent side.
         to: (f32, f32),
     },
+    /// How far into a field's value a point is, in bytes — the caret's inverse.
+    Offset(usize),
+    /// The shapes covering a range of a field's value, one per line it touches.
+    FieldSelection(Vec<[f32; 8]>),
     /// Where a string occurs, one entry per occurrence.
     Found(Vec<Vec<[f32; 8]>>),
     /// Whether anything has been edited.

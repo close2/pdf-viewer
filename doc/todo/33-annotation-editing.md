@@ -1,10 +1,10 @@
 # Annotation editing, a caret, and logical-order selection
 
 Status: **markup landed in the three-hundred-and-twenty-first session** (ADR 0196), **a window
-types into a field since the three-hundred-and-forty-ninth** (ADR 0201), and **a caret says where
-the next character goes since the three-hundred-and-seventy-first** (ADR 0211). What is left is
-free text, placing the caret by a click *inside* a value, a selection within one, and a host that
-sends the markup command from a drag.
+types into a field since the three-hundred-and-forty-ninth** (ADR 0201), **a caret says where the
+next character goes since the three-hundred-and-seventy-first** (ADR 0211), and **a click places it
+and a drag selects since the three-hundred-and-eighty-eighth** (ADR 0225). What is left is free
+text and a host that sends the markup command from a drag.
 Priority: 33
 Clauses: §12.5.6.6, §12.5.6.10, §12.7.4.3, §7.5.6, §14.8.2.5
 Code: `crates/viewer-core/src/command.rs` (`Edit`), `crates/pdf-model/src/view.rs`,
@@ -31,12 +31,31 @@ to the page's `/Annots`. ADR 0196 has the argument. Three decisions worth keepin
   display list's, so `content::page_transform` is public and its inverse is what an author
   composes.
 
-### What is still owed here: free text
+### What is still owed here: free text, on a blocker re-read in the three-hundred-and-eighty-eighth
 
-§12.5.6.6's free-text annotation is a *different* shape: it has no selection to take its geometry
-from and it carries text this program would have to lay out (§12.7.4.3's `/DA` machinery, one
-clause over). Nothing in the corpus asks for it, and a host has nowhere to type it yet — the
-caret below is the same missing piece.
+§12.5.6.6's free-text annotation is a *different* shape, and **two of the three reasons this file
+gave have expired**. It said the annotation "carries text this program would have to lay out
+(§12.7.4.3's `/DA` machinery, one clause over)" — `appearance::free_text` has laid it out since the
+**twenty-third** session, and session 387 taught it Table 177's `/RC` beside `/Contents` (ADR 0224).
+It said "a host has nowhere to type it yet — the caret below is the same missing piece", and the
+caret landed in the three-hundred-and-seventy-first with a click and a selection following it here.
+
+What is left is real, and it is three things rather than one:
+
+- **A geometry that comes from a drag rather than from a selection.** `Edit::Markup` takes what is
+  selected; a free text annotation is a rectangle a person drew, so the host has to send one and
+  `Open::resolve` has to fix it the way it already fixes a markup's quadrilaterals.
+- **An `Edit` verb and a `ViewState::add_free_text`** beside §12.5.6.10's markup, writing Table 177's
+  required `/DA` and Table 166's `/Contents` through §7.5.6's incremental update — which
+  `add_markup` already shows the shape of.
+- **A caret path that works on an *annotation*.** `appearance::caret`, `appearance::offset_at` and
+  `appearance::selection` all begin by reading a `Field` and refusing anything that is not a text or
+  combo-box field. A free text annotation is not a field at all, so typing into one needs the same
+  three questions asked of `/Contents` and Table 177's own `/DA` — the layout underneath is shared
+  and the way in is not.
+
+Nothing in the corpus asks for it, which is why it is still below the two above rather than beside
+them.
 
 ## 2. ~~A caret~~ — **done in the three-hundred-and-seventy-first session**
 
@@ -56,19 +75,24 @@ Three things worth keeping here:
   §12.7.5.3's `DoNotScroll` truncates — the same reason ADR 0201 has it keep the point and not the
   text.
 
-### What is still owed here: a point turned into an offset
+### ~~A point turned into an offset~~ — **done in the three-hundred-and-eighty-eighth session**
 
-Two things want the same missing piece, which is this query's *inverse*:
+`Query::Offset { at, point }` is the caret's inverse and `Query::FieldSelection { at, from, to }` is
+the shapes over a range of a value; `viewer-ui` places the caret where a click landed, selects with a
+drag, and copies, cuts and pastes inside a field. ADR 0225 has the argument. Four things worth
+keeping here:
 
-- **A click inside a value places the caret.** Today a click aims the keyboard at the field and puts
-  the caret at the end of its value, wherever inside the field it landed; the arrow keys reach the
-  rest, so nothing is unreachable and everything is one press further away than it should be.
-- **A selection inside a value**, which is a drag between two such offsets — and then a decision
-  about what copy, cut and paste mean inside a field, which is a vocabulary question and not only a
-  geometry one.
-
-Neither is a clause: the standard says nothing about a text cursor, so both are choices to be made
-and written down the way ADR 0211's were.
+- **The inverse takes two points and not one.** `at` names the field and `point` is measured inside
+  it, because a drag that leaves the widget's rectangle is still a drag inside its value.
+- **A selection is a third question rather than two carets.** Table 231 bit 13 lets the layout break
+  a value into lines a host cannot see, so the lines *between* the two ends are `pdf-model`'s to
+  name. On a single-line field a host could have joined two carets itself; one rule for both shapes
+  is what keeps it from needing two.
+- **Copy, cut and paste needed no message.** The offsets are into the value a host has already read
+  back, so the characters are a slice it holds and the edit is the `Edit::SetField` a keystroke
+  already sends. The clipboard is the host's, and the system's is a platform's.
+- **A point outside every glyph answers the nearest boundary** rather than refusing, which is a
+  choice: a press a host has already decided belongs to a field has to leave the cursor somewhere.
 
 ## 3. ~~§14.8.2.5's logical order~~ — **done in the two-hundred-and-ninety-sixth session**
 

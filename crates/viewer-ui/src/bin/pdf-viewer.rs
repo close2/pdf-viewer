@@ -571,6 +571,7 @@ fn main() {
         articles: Vec::new(),
         collection: None,
         typing: None,
+        clipboard: String::new(),
         pages: Vec::new(),
         information: pdf_model::metadata::Information::default(),
         metadata: None,
@@ -785,6 +786,16 @@ struct App {
     ///
     /// `None` is a host that is not typing, which is every host until somebody clicks a field.
     typing: Option<Typing>,
+    /// What Ctrl + C and Ctrl + X took out of a field, for Ctrl + V to put back.
+    ///
+    /// **This program's own clipboard and not the system's.** Reaching the platform's is a
+    /// platform's business — X11's `CLIPBOARD` selection, Wayland's data device, `NSPasteboard`,
+    /// `OpenClipboard` — and a native host embedding `viewer-core` owns that end by construction,
+    /// exactly as it owns the colour a selection is drawn in. What this host demonstrates is the
+    /// part that is the *viewer's*: which characters those three keys mean, which is the range
+    /// `Query::FieldSelection` draws and `Edit::SetField` replaces. Nothing about it crosses the
+    /// boundary, and that is ADR 0225's finding rather than a shortcut.
+    clipboard: String,
     /// §12.3.4's tab: one entry per page, with its label and its decoded thumbnail.
     ///
     /// **Empty until that tab is first shown**, which is principle 2 with a clause behind it:
@@ -958,18 +969,69 @@ fn spliced(value: &str, from: usize, to: usize, insert: &str) -> String {
     out
 }
 
+/// Where the two ends of a selection go when an arrow key moves the caret.
+///
+/// Three cases, and only the first is anybody's convention but this host's: **shift** holds the
+/// anchor and moves the caret by one character, so the selection grows or shrinks; a move with
+/// something selected and no shift lands on the *edge* of it, which is what a person means by
+/// pressing Left with a word swept; and a move with nothing selected steps one character and takes
+/// the anchor with it. The standard states none of this — it describes no cursor at all — so it is
+/// recorded as the choice it is (ADR 0225).
+fn stepped(current: &str, ends: (usize, usize), shift: bool, forward: bool) -> (usize, usize) {
+    let (caret, anchor) = ends;
+    let (low, high) = (caret.min(anchor), caret.max(anchor));
+    let step = if forward {
+        after(current, caret)
+    } else {
+        before(current, caret)
+    };
+    if shift {
+        (step, anchor)
+    } else if low < high {
+        let edge = if forward { high } else { low };
+        (edge, edge)
+    } else {
+        (step, step)
+    }
+}
+
 /// A person typing into a form field: which field, and where in its value.
 ///
-/// Two numbers and no text, which is ADR 0201's decision with ADR 0211's caret added to it. The
-/// point names the field because a field does not move; the offset says where the next character
-/// goes, and it is the one thing about typing that the core cannot know — nothing in a document
-/// says where a person's cursor is.
+/// Three numbers and no text, which is ADR 0201's decision with ADR 0211's caret and ADR 0225's
+/// selection added to it. The point names the field because a field does not move; the two offsets
+/// say where the next character goes and how much of the value a person has swept, and they are
+/// the one thing about typing that the core cannot know — nothing in a document says where a
+/// person's cursor is.
+///
+/// **A caret is a collapsed selection here, and two questions in the core.** This host holds one
+/// pair of offsets and calls them equal when nothing is selected; `viewer-core` answers
+/// `Query::Caret` with a segment and `Query::FieldSelection` with boxes, because those are two
+/// shapes and not one (ADR 0225).
 #[derive(Debug, Clone, Copy)]
 struct Typing {
     /// The point on the page that named the field, in the page viewport's device pixels.
     at: (f32, f32),
     /// How far into the field's value the caret is, in bytes.
     caret: usize,
+    /// The other end of the selection, in bytes — equal to [`Self::caret`] when nothing is
+    /// selected, which is the ordinary state.
+    anchor: usize,
+}
+
+impl Typing {
+    /// Nothing selected, at one offset.
+    fn at_offset(at: (f32, f32), offset: usize) -> Self {
+        Self {
+            at,
+            caret: offset,
+            anchor: offset,
+        }
+    }
+
+    /// The selected range, low end first — empty where the two offsets are the same.
+    fn range(self) -> (usize, usize) {
+        (self.caret.min(self.anchor), self.caret.max(self.anchor))
+    }
 }
 
 /// How this window's pixels reach it: with a graphics device, or without one.
@@ -1283,6 +1345,28 @@ impl App {
             return;
         }
         let point = self.on_page(self.cursor);
+        // **A drag that began inside a field belongs to that field's value**, and the page's own
+        // selection is not asked to extend: two highlights over one gesture would say the person
+        // had swept the page as well. The anchor stays where the press put it and the caret
+        // follows the pointer, which is what makes the pair a selection — `Query::Offset` is asked
+        // with the field's point and the pointer's, because a drag that leaves the widget's
+        // rectangle is still a drag inside its value (ADR 0225).
+        if self.dragging
+            && let Some(typing) = self.typing
+        {
+            if let Answer::Offset(offset) = self.viewer.query(Query::Offset {
+                at: typing.at,
+                point,
+            }) && offset != typing.caret
+            {
+                self.typing = Some(Typing {
+                    caret: offset,
+                    ..typing
+                });
+                self.redraw();
+            }
+            return;
+        }
         self.dispatch(Command::Pointer {
             at: point,
             action: if self.dragging {
@@ -1331,16 +1415,18 @@ impl App {
                 value: Some(value),
             } => {
                 println!("note: typing into the field {}", name.shown());
-                // **The caret starts at the end of the value, wherever inside the field the
-                // click landed**, and that is a choice this host makes rather than a reading:
-                // placing it *where* the click was means turning a point into an offset, which
-                // is the inverse of `Query::Caret` and does not exist yet (`doc/todo/33`). The
-                // arrow keys, Home and End reach the rest of the value, so nothing is
-                // unreachable — it is one press further away than it should be.
-                Some(Typing {
-                    at,
-                    caret: value.len(),
-                })
+                // **The caret goes where the click went**, which is `Query::Offset` — the inverse
+                // of `Query::Caret`, and the piece `doc/todo/33` said was missing until the
+                // three-hundred-and-eighty-eighth session. The point names the field and is also
+                // the point measured, because a press is one place; a drag then asks the same
+                // question with the pointer's place instead. The end of the value is what a field
+                // whose layout could not answer falls back to, which is where the caret used to
+                // start every time.
+                let caret = match self.viewer.query(Query::Offset { at, point: at }) {
+                    Answer::Offset(offset) => offset,
+                    _ => value.len(),
+                };
+                Some(Typing::at_offset(at, caret))
             }
             _ => None,
         };
@@ -1375,14 +1461,58 @@ impl App {
                 value: Some(value),
             } => {
                 println!("note: typing into the field {}", name.shown());
-                Some(Typing {
-                    at,
-                    caret: value.len(),
-                })
+                // The end of the value, and here that is not a fallback: a tab press names no
+                // point inside the value, so there is nothing for `Query::Offset` to measure and
+                // the end is the place ADR 0211 chose for a walk that arrives without one.
+                Some(Typing::at_offset(at, value.len()))
             }
             _ => None,
         };
         self.redraw();
+    }
+
+    /// Ctrl + C, X and V inside a field's value: what the press does to the value, if anything.
+    ///
+    /// **The finding this round records: copying, cutting and pasting inside a field needed no
+    /// message.** The two offsets are into the value `Query::FieldAt` just answered with, so the
+    /// characters between them are a slice this host already holds; cutting and pasting are that
+    /// slice spliced out or in and sent back as exactly the `Edit::SetField` every keystroke
+    /// sends. Nothing crosses the boundary that did not cross it before, which is why ADR 0225
+    /// added two questions and no verbs.
+    ///
+    /// `None` for a character this does not answer, which the caller consumes rather than passing
+    /// on. A copy answers `None` for a different reason and says so where it happens: it changes
+    /// no value, so there is nothing for the caller to send.
+    fn clipped(
+        &mut self,
+        text: &str,
+        current: &str,
+        range: (usize, usize),
+    ) -> Option<(Option<String>, usize, usize)> {
+        let (low, high) = range;
+        match text {
+            "c" | "x" => {
+                current
+                    .get(low..high)
+                    .unwrap_or_default()
+                    .clone_into(&mut self.clipboard);
+                println!(
+                    "note: {} {} bytes out of the field",
+                    if text == "c" { "copied" } else { "cut" },
+                    self.clipboard.len()
+                );
+                if text == "c" {
+                    self.redraw();
+                    return Some((None, low, high));
+                }
+                Some((Some(spliced(current, low, high, "")), low, low))
+            }
+            "v" => {
+                let to = low.saturating_add(self.clipboard.len());
+                Some((Some(spliced(current, low, high, &self.clipboard)), to, to))
+            }
+            _ => None,
+        }
     }
 
     /// One key press, while a field has the keyboard. Answers whether it was consumed.
@@ -1405,7 +1535,14 @@ impl App {
         // The caret is clamped to the value *this* press starts from, because the last one may
         // have been truncated by §12.7.5.3's `DoNotScroll` — the same reason nothing is buffered.
         let caret = caret_boundary(&current, typing.caret);
-        let (next, moved) = match *key {
+        let anchor = caret_boundary(&current, typing.anchor);
+        let (low, high) = (caret.min(anchor), caret.max(anchor));
+        // **Shift holds the anchor still and moves only the caret**, which is this host's
+        // convention and no clause's — the standard states neither a cursor nor a selection inside
+        // a value (ADR 0225). Without it a move collapses the selection, which is why every arm
+        // below says where *both* ends go.
+        let held = |to: usize| if self.shift { (to, anchor) } else { (to, to) };
+        let (next, moved, anchored) = match *key {
             Key::Named(NamedKey::Escape) => {
                 self.typing = None;
                 println!("note: the keyboard is back on the page");
@@ -1415,43 +1552,76 @@ impl App {
                 self.redraw();
                 return true;
             }
+            // Ctrl + C, X and V, which needed no message at all — see `clipped`.
+            Key::Character(text) if self.control => match self.clipped(text, &current, (low, high))
+            {
+                Some(outcome) => outcome,
+                // Every other key with Control held is consumed rather than sent to the page: a
+                // field has the keyboard, and a magnification while somebody is typing is the
+                // surprise this whole state exists to prevent.
+                None => return true,
+            },
             // Moving the caret changes nothing about the document, so these send no edit at all
-            // and only ask for the frame that redraws the caret.
-            Key::Named(NamedKey::ArrowLeft) => (None, before(&current, caret)),
-            Key::Named(NamedKey::ArrowRight) => (None, after(&current, caret)),
-            Key::Named(NamedKey::Home) => (None, 0),
-            Key::Named(NamedKey::End) => (None, current.len()),
-            Key::Named(NamedKey::Backspace) => {
-                let from = before(&current, caret);
-                (Some(spliced(&current, from, caret, "")), from)
+            // and only ask for the frame that redraws the caret. A move that is not extending the
+            // selection lands on the *edge* of it rather than one character further, which is what
+            // a person means by pressing Left with something selected.
+            Key::Named(NamedKey::ArrowLeft) => {
+                let (to, anchor) = stepped(&current, (caret, anchor), self.shift, false);
+                (None, to, anchor)
             }
-            Key::Named(NamedKey::Delete) => (
-                Some(spliced(&current, caret, after(&current, caret), "")),
-                caret,
-            ),
+            Key::Named(NamedKey::ArrowRight) => {
+                let (to, anchor) = stepped(&current, (caret, anchor), self.shift, true);
+                (None, to, anchor)
+            }
+            Key::Named(NamedKey::Home) => {
+                let (to, anchor) = held(0);
+                (None, to, anchor)
+            }
+            Key::Named(NamedKey::End) => {
+                let (to, anchor) = held(current.len());
+                (None, to, anchor)
+            }
+            // With something selected, Backspace and Delete take out what is selected and nothing
+            // more — the same statement typing a character makes, and the reason both are one
+            // splice rather than two behaviours.
+            Key::Named(NamedKey::Backspace) => {
+                let from = if low < high {
+                    low
+                } else {
+                    before(&current, caret)
+                };
+                (Some(spliced(&current, from, high, "")), from, from)
+            }
+            Key::Named(NamedKey::Delete) => {
+                let to = if low < high {
+                    high
+                } else {
+                    after(&current, caret)
+                };
+                (Some(spliced(&current, low, to, "")), low, low)
+            }
             Key::Named(NamedKey::Enter) => {
                 // §12.7.5.3's Multiline decides whether a return is a character or the end of
                 // typing, and the core is what knows: a value with a newline in it lays out on two
                 // lines only where Table 231 bit 13 is set, and `variable_text::wrap` is where
                 // that is read. So the host offers the newline and the field decides what to keep.
-                (
-                    Some(spliced(&current, caret, caret, "\n")),
-                    caret.saturating_add(1),
-                )
+                let to = low.saturating_add(1);
+                (Some(spliced(&current, low, high, "\n")), to, to)
             }
-            Key::Character(text) if !text.is_empty() => (
-                Some(spliced(&current, caret, caret, text)),
-                caret.saturating_add(text.len()),
-            ),
-            Key::Named(NamedKey::Space) => (
-                Some(spliced(&current, caret, caret, " ")),
-                caret.saturating_add(1),
-            ),
+            Key::Character(text) if !text.is_empty() => {
+                let to = low.saturating_add(text.len());
+                (Some(spliced(&current, low, high, text)), to, to)
+            }
+            Key::Named(NamedKey::Space) => {
+                let to = low.saturating_add(1);
+                (Some(spliced(&current, low, high, " ")), to, to)
+            }
             _ => return false,
         };
         self.typing = Some(Typing {
             at: typing.at,
             caret: moved,
+            anchor: anchored,
         });
         // A caret that moved is chrome and not a page: `Query::Caret` answers from state this host
         // holds, so nothing has to be interpreted again and the window only repaints. A keystroke
@@ -1479,6 +1649,7 @@ impl App {
             self.typing = Some(Typing {
                 at: typing.at,
                 caret: caret_boundary(&taken, moved),
+                anchor: caret_boundary(&taken, anchored),
             });
         }
         true
@@ -2186,6 +2357,44 @@ impl App {
         Some(list)
     }
 
+    /// What is selected *inside* a field's value, in the window's own pixels.
+    ///
+    /// The same blue `Query::Selection`'s shapes are drawn in, deliberately: a person sweeping
+    /// text on the page and a person sweeping text in a field are doing one thing, and two colours
+    /// would say they were doing two. Where the shapes come from is the core — `Query::FieldSelection`
+    /// answers one quadrilateral per line, because §12.7.5.3's Multiline flag lets the layout break
+    /// a value where this host cannot see (ADR 0225).
+    ///
+    /// `None` while nothing is selected, which is a caret's ordinary state: the two offsets are
+    /// equal and the core answers with no shapes at all.
+    fn field_selection_list(
+        &self,
+        edge: f32,
+        width: u32,
+        height: u32,
+    ) -> Option<pdf_render::DisplayList> {
+        let typing = self.typing?;
+        let (from, to) = typing.range();
+        if from == to {
+            return None;
+        }
+        let Answer::FieldSelection(mut quads) = self.viewer.query(Query::FieldSelection {
+            at: typing.at,
+            from,
+            to,
+        }) else {
+            return None;
+        };
+        // Device pixels of the *page's* viewport, which begins where the panel ends — the same one
+        // addition `selection_list`, `focus_list` and `caret_list` make.
+        for quad in &mut quads {
+            for x in quad.iter_mut().step_by(2) {
+                *x += edge;
+            }
+        }
+        highlight_list(&quads, width, height)
+    }
+
     /// The caret: a line where the next character will be drawn, while a field has the keyboard.
     ///
     /// **The standard states no caret**, and §12.5.6.11's caret *annotation* is a different thing
@@ -2262,6 +2471,7 @@ impl App {
             about: self.about_list(width, height),
         };
         let selection = self.selection_list(edge, width, height);
+        let field_selection = self.field_selection_list(edge, width, height);
         let focus = self.focus_list(edge, width, height);
         let caret = self.caret_list(edge, width, height);
         let popups = self.popup_list(edge, width, height);
@@ -2269,6 +2479,7 @@ impl App {
         // modal card on top — the same order the Vello host drew them in.
         let mut overlays: Vec<&pdf_render::DisplayList> = Vec::new();
         overlays.extend(selection.as_ref());
+        overlays.extend(field_selection.as_ref());
         overlays.extend(focus.as_ref());
         overlays.extend(caret.as_ref());
         overlays.extend(popups.as_ref());
@@ -2656,6 +2867,17 @@ impl ApplicationHandler for App {
                     event_loop.exit();
                     return;
                 }
+                // **A field being typed into takes every character key**, which is what makes `+`
+                // a plus sign there and a magnification everywhere else — and what this branch
+                // defeated for two of them in exactly the shape Escape's did: an `o` typed into a
+                // field toggled the sidebar and a `?` opened the About card, because both were
+                // answered before `typed` was ever asked. Escape's copy of this defect was found
+                // in the three-hundred-and-seventy-first session and these two survived it to the
+                // three-hundred-and-eighty-eighth, which is the reason `keys_reach_the_field`
+                // now presses one of them at a field rather than trusting the order.
+                if self.typing.is_some() && self.typed(&logical_key.as_ref()) {
+                    return;
+                }
                 // The two keys this program answers itself rather than by sending a command:
                 // whether a panel is shown is chrome, and `viewer-core` has no opinion about
                 // chrome by construction (rule 5).
@@ -2672,13 +2894,6 @@ impl ApplicationHandler for App {
                 // Everything else goes to the page, and the About card is over it: a key press
                 // that turned a page nobody can see would be answering the wrong question.
                 if self.about.shown {
-                    return;
-                }
-                // A field being typed into takes the keyboard, which is what makes `+` a plus
-                // sign there and a magnification everywhere else. Escape leaves the field rather
-                // than the program — the one binding this state changes the meaning of, and the
-                // one a person expects it to.
-                if self.typing.is_some() && self.typed(&logical_key.as_ref()) {
                     return;
                 }
                 let Some(command) = key_command(&logical_key.as_ref(), self.shift) else {

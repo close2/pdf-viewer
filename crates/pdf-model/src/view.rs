@@ -767,6 +767,66 @@ impl ViewState {
         crate::appearance::caret(document, dict, self.annotation(widget), offset)
     }
 
+    /// Which byte of a field's value a point inside it falls nearest, as an offset into it.
+    ///
+    /// [`Self::caret_at`]'s inverse, and what a click inside a value needs: that one takes an
+    /// offset and answers a place, this takes a place and answers an offset. Both are computed
+    /// inside §12.7.4.3's own layout walk, so an offset this answers with, handed straight back to
+    /// [`Self::caret_at`], puts the cursor where the click was.
+    ///
+    /// `at` names the widget, in default user space, exactly as [`Self::caret_at`]'s point does;
+    /// `point` is the place inside it to measure, in the same space. They are the same point on a
+    /// click and different ones during a drag, which is the whole reason there are two: a drag
+    /// that leaves the widget's rectangle is still a drag inside that field's value.
+    ///
+    /// **The answer is the nearest boundary and never a refusal**, which is a choice: a point past
+    /// the end of a line answers that line's end and a point below every line answers the last.
+    /// A press a host has already decided is a press into a field has to leave the cursor
+    /// somewhere. ADR 0225.
+    ///
+    /// `None` in exactly the cases [`Self::caret_at`] answers `None` in — no widget under `at`, a
+    /// field §12.7.4.3 lays no text out for, or a value that could not be laid out.
+    #[must_use]
+    pub fn offset_at(
+        &self,
+        document: &Document,
+        page: &crate::Page,
+        at: (f32, f32),
+        point: (f32, f32),
+    ) -> Option<usize> {
+        let widget = widgets_at(document, page, at.0, at.1).last().copied()?;
+        let object = document.get(widget);
+        let dict = object.as_dict()?;
+        crate::appearance::offset_at(document, dict, self.annotation(widget), point)
+    }
+
+    /// The shapes covering a byte range of a field's value, in **default user space**.
+    ///
+    /// One quadrilateral per line the range touches, `[x0, y0, … x3, y3]`, between the same ascent
+    /// and descent the caret stands between — so a host draws a highlight the height of its own
+    /// cursor. Four corners rather than a rectangle for the reason [`Self::caret_at`] answers two
+    /// points: Table 192's `/R`, an appearance's `/Matrix` and a `/DA`'s `Tm` can each turn it.
+    ///
+    /// **Not two carets**, and that is the whole reason this exists: §12.7.5.3's Table 231 bit 13
+    /// lets the layout break a value into lines a caller cannot see, so the lines *between* the
+    /// two ends of a selection are this crate's to name. ADR 0225.
+    ///
+    /// The two offsets are into the value [`Self::field_value`] answers with, in either order, and
+    /// the range covers `from` up to but not including `to`. Empty where it covers no glyph.
+    #[must_use]
+    pub fn field_selection(
+        &self,
+        document: &Document,
+        page: &crate::Page,
+        at: (f32, f32),
+        range: (usize, usize),
+    ) -> Option<Vec<[f32; 8]>> {
+        let widget = widgets_at(document, page, at.0, at.1).last().copied()?;
+        let object = document.get(widget);
+        let dict = object.as_dict()?;
+        crate::appearance::selection(document, dict, self.annotation(widget), range)
+    }
+
     /// Forgets what a person typed into one field, leaving whatever the file and the actions say.
     ///
     /// The operation an undo needs, and it is deliberately not "set it back to the old value":

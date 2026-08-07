@@ -86,4 +86,22 @@ fuzz_target!(|bytes: &[u8]| {
         return;
     };
     let _ = pdf_model::interpret(&document, &page);
+
+    // **And the three questions §12.7.4.3's layout answers for an interface**, since the
+    // three-hundred-and-eighty-eighth session: where a caret goes, which byte a point is nearest,
+    // and the shapes over a range (ADRs 0211, 0225). None of them draws, so nothing above reaches
+    // them — and all three divide by widths the *document* chooses, place a caret in cells whose
+    // count is its `/MaxLen`, and index a value at offsets a host supplies. The offsets and the
+    // point come out of the fuzzer's own bytes so that an input varies them with the layout.
+    let view = pdf_model::view::ViewState::of(&document);
+    let at = (100.0_f32, 50.0_f32);
+    let offset = usize::from(bytes.first().copied().unwrap_or_default());
+    let other = usize::from(bytes.get(1).copied().unwrap_or_default());
+    let point = (
+        f32::from(bytes.get(2).copied().unwrap_or_default()),
+        f32::from(bytes.get(3).copied().unwrap_or_default()),
+    );
+    let _ = view.caret_at(&document, &page, at.0, at.1, offset);
+    let _ = view.offset_at(&document, &page, at, point);
+    let _ = view.field_selection(&document, &page, at, (offset, other));
 });

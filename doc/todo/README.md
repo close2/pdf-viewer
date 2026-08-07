@@ -49,7 +49,7 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 | [30](30-a-native-host.md) | GTK4, then Qt, then `viewer-ffi` | — |
 | [31](31-accessibility-host.md) | AccessKit over `Query::AccessibilityTree` — **built and read back off a real AT-SPI bus** (ADR 0214); a `TH`'s axis, a `Form`'s control role, the `Text` interface and actions are what is left | — |
 | [32](32-presentation-player.md) | Draw a transition's frames | — |
-| [33](33-annotation-editing.md) | Free text, and a click that places the caret inside a value — §12.5.6.10's markup, §14.8.2.5's logical order and the caret itself are done | — |
+| [33](33-annotation-editing.md) | Free text, and a host that sends the markup command from a drag — §12.5.6.10's markup, §14.8.2.5's logical order, the caret, the click that places it and the selection inside a value are done | — |
 | [34](34-sandbox-the-interpreter.md) | Confine the interpreter and rasteriser — **built, drawing real pages behind seccomp and answering all twenty-five questions** (ADRs 0218, 0223); the window is tier 2, a hostile document has no cancel, and §12.3.5.1's `/D` is decided by nobody | — |
 | [35](35-confinement-off-linux.md) | Confinement on macOS and Windows — what the snapshot release cannot ship, and the three ways out | — |
 | [37](37-what-a-native-host-would-not-draw-itself.md) | Five of six chrome populations already cross as data; **form fields are the gap** — audited at the owner's request | — |

@@ -180,6 +180,12 @@ impl Viewer {
             Query::Caret { at, offset } => self
                 .caret(open, at, offset)
                 .map_or(Answer::None, |(from, to)| Answer::Caret { from, to }),
+            Query::Offset { at, point } => self
+                .offset(open, at, point)
+                .map_or(Answer::None, Answer::Offset),
+            Query::FieldSelection { at, from, to } => self
+                .field_selection(open, at, (from, to))
+                .map_or(Answer::None, Answer::FieldSelection),
             Query::Dirty => Answer::Dirty(open.dirty()),
             Query::Properties => Answer::Properties {
                 information: pdf_model::metadata::Information::read(&open.document),
@@ -1053,6 +1059,50 @@ impl Viewer {
         let from = self.device_point(open, (segment[0], segment[1]))?;
         let to = self.device_point(open, (segment[2], segment[3]))?;
         Some((from, to))
+    }
+
+    /// How far into the field at a viewport point another viewport point is, in bytes.
+    ///
+    /// [`Self::caret`] backwards, and it goes through the same two maps in the same order: the
+    /// viewport point becomes a point in default user space, and §12.7.4.3's own layout is what
+    /// turns that into an offset. Both points are mapped, because the second is where the pointer
+    /// is now and the first is only what names the field.
+    fn offset(&self, open: &Open, at: (f32, f32), point: (f32, f32)) -> Option<usize> {
+        let (x, y) = self.user_space(open, at)?;
+        let point = self.user_space(open, point)?;
+        let page = open.shown_page()?;
+        open.view.offset_at(&open.document, page, (x, y), point)
+    }
+
+    /// The shapes covering a range of the value of the field at a viewport point.
+    ///
+    /// The model answers in default user space, one quadrilateral per line, and this is the same
+    /// mapping onto the screen every other shape here goes through — [`Self::device_point`] per
+    /// corner rather than [`Self::device_quad`], because the corners have already been turned by
+    /// whatever Table 192's `/R` and §12.5.5's placement do and a rectangle could not carry that.
+    fn field_selection(
+        &self,
+        open: &Open,
+        at: (f32, f32),
+        range: (usize, usize),
+    ) -> Option<Vec<[f32; 8]>> {
+        let (x, y) = self.user_space(open, at)?;
+        let page = open.shown_page()?;
+        let quads = open
+            .view
+            .field_selection(&open.document, page, (x, y), range)?;
+        quads
+            .into_iter()
+            .map(|quad| {
+                let mut out = [0.0_f32; 8];
+                for (corner, place) in quad.chunks_exact(2).zip(out.chunks_exact_mut(2)) {
+                    let (x, y) = self.device_point(open, (corner[0], corner[1]))?;
+                    place[0] = x;
+                    place[1] = y;
+                }
+                Some(out)
+            })
+            .collect()
     }
 
     /// §12.5.1's tab order, applied: the focus moves to the next or previous annotation.

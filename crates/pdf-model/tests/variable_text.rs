@@ -1153,3 +1153,189 @@ fn a_caret_in_a_comb_field_stands_at_the_next_cell() {
         );
     }
 }
+
+/// Which byte a point inside a value names, from the same fixtures the caret is measured on.
+///
+/// The caret's inverse, and **the standard states neither**: nothing in ISO 32000-2 describes a
+/// text cursor, a click that places one or a selection inside a field's value. What is checked is
+/// therefore the relation the two halves have to each other rather than a clause — an offset fed
+/// to `caret_at` gives a place, and that place fed back to `offset_at` gives the offset (ADR
+/// 0225).
+fn offset_at(bytes: Vec<u8>, point: (f32, f32)) -> usize {
+    offset_in(bytes, point, (100.0, 55.0))
+}
+
+/// The same, naming the widget from a point the caller chooses.
+fn offset_in(bytes: Vec<u8>, point: (f32, f32), at: (f32, f32)) -> usize {
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let view = pdf_model::view::ViewState::of(&document);
+    view.offset_at(&document, &page, at, point)
+        .expect("the widget under the point lays text out")
+}
+
+/// The shapes covering a range of a value, in default user space.
+fn selection_of(bytes: Vec<u8>, from: usize, to: usize) -> Vec<[f32; 8]> {
+    selection_in(bytes, from, to, (100.0, 55.0))
+}
+
+/// The same, naming the widget from a point the caller chooses.
+fn selection_in(bytes: Vec<u8>, from: usize, to: usize, at: (f32, f32)) -> Vec<[f32; 8]> {
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let view = pdf_model::view::ViewState::of(&document);
+    view.field_selection(&document, &page, at, (from, to))
+        .expect("the widget under the point lays text out")
+}
+
+#[test]
+fn a_point_names_the_byte_whose_caret_stands_there() {
+    // The round trip, over every position of the value: the caret for an offset is a place, and
+    // that place names the offset again. Anything that moved the glyphs without moving the
+    // boundaries — or the other way round — breaks this and nothing else in the file.
+    let field = || text_field("abc", "", "");
+    for offset in 0..=3 {
+        let caret = caret_of(field(), offset);
+        let middle = (caret[1] + caret[3]) * 0.5;
+        assert_eq!(
+            offset_at(field(), (caret[0], middle)),
+            offset,
+            "the caret at {offset} is at {caret:?}, and that point names {offset} again"
+        );
+    }
+}
+
+#[test]
+fn a_point_outside_the_value_names_the_end_it_is_nearest() {
+    // **Nearest rather than inside**, which is the choice a point in the empty part of a field
+    // forces: a press a host has already decided belongs to the field has to leave the cursor
+    // somewhere. `/Rect [20 40 180 70]` holds three characters at the left, so the right half of
+    // the box is past the value entirely.
+    let field = || text_field("abc", "", "");
+    assert_eq!(offset_at(field(), (175.0, 55.0)), 3, "past the last glyph");
+    assert_eq!(offset_at(field(), (21.0, 55.0)), 0, "before the first");
+    // And an empty field answers the only offset it has rather than refusing, which is what a
+    // click into an untouched field is.
+    assert_eq!(offset_at(text_field("", "", ""), (100.0, 55.0)), 0);
+}
+
+#[test]
+fn a_point_in_a_multiline_field_names_the_line_it_landed_on() {
+    // Table 231 bit 13, with the same wrapped value the caret test uses: a point on the second
+    // line names a byte after the first line's characters, which is the case a host cannot work
+    // out for itself — where `wrap` broke the value is this crate's alone.
+    let value = "alpha beta gamma delta epsilon zeta eta theta iota kappa";
+    let field = || {
+        pdf_with(
+            "",
+            &format!(
+                "<< /Type /Annot /Subtype /Widget /Rect [20 10 100 90] /F 4 /FT /Tx /Ff 4096 \
+                 /T (field) /V ({value}) /DA (/Helv 10 Tf 0 g) >>"
+            ),
+        )
+    };
+    let first = caret_in(field(), 0, (60.0, 50.0));
+    let second_line = first[1] - 12.0;
+    let offset = offset_in(field(), (25.0, second_line), (60.0, 50.0));
+    assert!(
+        offset > 0 && offset < value.len(),
+        "a point on the second line is inside the value, not {offset}"
+    );
+    // And it is where the caret goes back to: the two agree on the line as well as on the byte.
+    // The caret is a segment from the line's descent to its ascent, so what "the same line" means
+    // is that the point is between its ends.
+    let back = caret_in(field(), offset, (60.0, 50.0));
+    assert!(
+        back[1] <= second_line && second_line <= back[3],
+        "the offset a second-line point named puts the caret back on that line: {back:?} \
+         against {second_line}"
+    );
+    assert!(
+        back[1] < first[1],
+        "and below the first line: {back:?} against {first:?}"
+    );
+}
+
+#[test]
+fn a_point_in_a_comb_field_names_the_cell_it_landed_on() {
+    // Table 231 bit 25's eight cells of 19.75 points across `/Rect [20 40 180 70]`, so the third
+    // cell begins at 20 + 1 + 2 × 19.75 = 60.5 and a point in the middle of it names the byte
+    // that cell holds.
+    let comb = || {
+        pdf_with(
+            "",
+            "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Tx /Ff 16777216 \
+             /MaxLen 8 /T (field) /V (1234) /DA (/Helv 12 Tf 0 g) >>",
+        )
+    };
+    for cell in 0..4_usize {
+        #[expect(clippy::cast_precision_loss, reason = "four cells")]
+        let middle = 21.0 + (cell as f32 + 0.5) * 19.75;
+        assert_eq!(
+            offset_at(comb(), (middle, 55.0)),
+            cell,
+            "the middle of cell {cell} names the character in it"
+        );
+    }
+}
+
+#[test]
+fn a_selection_covers_the_glyphs_between_two_offsets() {
+    // One shape for a single-line value, and it runs from the caret at one end to the caret at
+    // the other — the two are the same arithmetic, which is the property that keeps a highlight
+    // under the text a person swept rather than beside it.
+    let field = || text_field("abc", "", "");
+    let start = caret_of(field(), 1);
+    let end = caret_of(field(), 3);
+    let quads = selection_of(field(), 1, 3);
+    assert_eq!(quads.len(), 1, "one line, one shape: {quads:?}");
+    let quad = quads[0];
+    let (left, right) = (quad[0].min(quad[2]), quad[0].max(quad[2]));
+    assert!(
+        (left - start[0]).abs() < 0.001 && (right - end[0]).abs() < 0.001,
+        "the shape runs between the two carets: {quad:?} against {start:?} and {end:?}"
+    );
+    // And it is as tall as the caret is, so a host draws a highlight the height of its cursor.
+    let (low, high) = (quad[1].min(quad[5]), quad[1].max(quad[5]));
+    assert!(
+        (high - low - (start[3] - start[1])).abs() < 0.001,
+        "the shape is one line tall: {quad:?} against {start:?}"
+    );
+    // Two equal offsets select nothing, which is what a caret is: the shapes are absent rather
+    // than a rectangle of no width, because a host draws the caret itself for that.
+    assert!(selection_of(field(), 2, 2).is_empty());
+    // The order of the two ends does not change what is between them.
+    let backwards = selection_of(field(), 3, 1);
+    assert_eq!(backwards.len(), 1);
+    assert!((backwards[0][0] - quad[0]).abs() < 0.001);
+}
+
+#[test]
+fn a_selection_across_a_wrap_is_one_shape_per_line() {
+    // **The case that makes this a question of its own rather than two carets.** A host holding
+    // both ends of a selection could join them itself on one line; where §12.7.5.3's Multiline
+    // flag let `wrap` break the value, the lines between the ends are this crate's to name.
+    let value = "alpha beta gamma delta epsilon zeta eta theta iota kappa";
+    let field = || {
+        pdf_with(
+            "",
+            &format!(
+                "<< /Type /Annot /Subtype /Widget /Rect [20 10 100 90] /F 4 /FT /Tx /Ff 4096 \
+                 /T (field) /V ({value}) /DA (/Helv 10 Tf 0 g) >>"
+            ),
+        )
+    };
+    let whole = selection_in(field(), 0, value.len(), (60.0, 50.0));
+    assert!(
+        whole.len() > 1,
+        "a wrapped value selected end to end covers every line it wrapped onto: {whole:?}"
+    );
+    // Each shape is a line further down the box than the one before it, in the order the lines
+    // are shown.
+    for pair in whole.windows(2) {
+        assert!(
+            pair[1][1] < pair[0][1],
+            "the shapes run down the box: {pair:?}"
+        );
+    }
+}
