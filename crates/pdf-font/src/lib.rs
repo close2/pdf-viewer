@@ -1856,9 +1856,9 @@ fn declared_codes(document: &Document, dict: &Dictionary) -> std::ops::RangeIncl
     }
 }
 
-/// The names Table 112 permits `/Encoding` and `/BaseEncoding` to hold.
+/// The names Table 109 permits `/Encoding` to hold, and Table 112 `/BaseEncoding`.
 ///
-/// ISO 32000-2 §9.6.2.1, Table 112:
+/// ISO 32000-2 §9.6.2.1, Table 109, of a font dictionary's `/Encoding`:
 ///
 /// > The value of Encoding shall be either the name of a predefined encoding (
 /// > MacRomanEncoding, MacExpertEncoding , or WinAnsiEncoding , as described in Annex D,
@@ -1869,7 +1869,7 @@ fn declared_codes(document: &Document, dict: &Dictionary) -> std::ops::RangeIncl
 /// a deliberate extra rather than an oversight, and it is why this list exists separately from
 /// [`BaseEncoding::by_name`] — the two answer different questions, *may a font say this* and
 /// *does this crate have the table*, and `MacExpertEncoding` is the name where they differ.
-const TABLE_112_ENCODINGS: [&[u8]; 4] = [
+const PERMITTED_ENCODING_NAMES: [&[u8]; 4] = [
     b"StandardEncoding",
     b"MacRomanEncoding",
     b"MacExpertEncoding",
@@ -1880,7 +1880,7 @@ const TABLE_112_ENCODINGS: [&[u8]; 4] = [
 ///
 /// # A name the table does not permit is not an encoding this font uses
 ///
-/// Table 112 makes `/Encoding` **optional** and says what its absence means in the same cell —
+/// Table 109 makes `/Encoding` **optional** and says what its absence means in the same cell —
 /// it is "[a] specification of the font's character encoding **if different from its built-in
 /// encoding**" — so a font that states nothing readable there has stated nothing, and the
 /// built-in encoding stands. A name outside the four above is therefore treated as absent
@@ -1911,7 +1911,7 @@ fn base_encoding(
 
     match named {
         None => Ok(None),
-        Some(named) if !TABLE_112_ENCODINGS.contains(&named.as_slice()) => Ok(None),
+        Some(named) if !PERMITTED_ENCODING_NAMES.contains(&named.as_slice()) => Ok(None),
         Some(named) => {
             BaseEncoding::by_name(&named)
                 .map(Some)
@@ -2732,7 +2732,7 @@ fn embedded_program(
             Program::Sfnt
         };
 
-        // A collection is not a font program (§9.9 Table 127) and four corpus documents
+        // A collection is not a font program (§9.9 Table 124) and four corpus documents
         // embed one anyway. The face is chosen by the descriptor's own `/FontName` and
         // copied out before anything else looks at the bytes, so nothing downstream has to
         // know the container existed.
@@ -2804,7 +2804,7 @@ fn embedded_program(
 /// documents were refused for eighty sessions with "units per em is zero", which is what
 /// `metrics()` answers when it cannot find `head`. Both are simply short:
 /// `bug1050040.pdf` holds 45 240 bytes of a program whose directory describes 59 210, and
-/// `issue11651.pdf` holds 512 bytes of a ten-table font. §9.9 Table 127 requires the program to
+/// `issue11651.pdf` holds 512 bytes of a ten-table font. §9.9 Table 124 requires the program to
 /// "include these tables: \"glyf\", \"head\", \"hhea\", \"hmtx\", \"loca\", and \"maxp\"", and every
 /// one of them is *named* in these directories — what is absent is the bytes.
 ///
@@ -2816,7 +2816,7 @@ fn truncation(data: &[u8]) -> Option<(String, u64)> {
     const RECORDS: usize = 12;
     /// Bytes per table record: tag, checksum, offset, length.
     const RECORD: usize = 16;
-    /// The one table of §9.9 Table 127's six whose absence stops the program drawing at all.
+    /// The one table of §9.9 Table 124's six whose absence stops the program drawing at all.
     ///
     /// **The condition was narrowed four times and each time by a document**, which is trap 11
     /// on a report's condition rather than on its wording. Counting every record refused two
@@ -4432,9 +4432,9 @@ mod cff_encoding_tests {
         assert_eq!(table[66], None);
     }
 
-    /// An `/Encoding` name Table 112 does not permit leaves the font its own encoding.
+    /// An `/Encoding` name Table 109 does not permit leaves the font its own encoding.
     ///
-    /// ISO 32000-2 §9.6.2.1, Table 112, of `/Encoding`:
+    /// ISO 32000-2 §9.6.2.1, Table 109, of `/Encoding`:
     ///
     /// > ( Optional ) A specification of the font's character encoding if different from its
     /// > built-in encoding. The value of Encoding shall be either the name of a predefined

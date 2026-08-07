@@ -3,7 +3,7 @@
 //! A Type 1 font program is, in §9.6.2.1's words, "a stylised PostScript language program
 //! that describes glyph shapes": a cleartext header holding the font's dictionaries and its
 //! built-in `/Encoding` array, then an `eexec`-encrypted section holding the charstrings,
-//! each of which is encrypted again under its own key. §9.9.1's Table 123 wraps that in
+//! each of which is encrypted again under its own key. §9.9.1's Table 125 wraps that in
 //! three lengths, `/Length1`, `/Length2` and `/Length3`, one per section.
 //!
 //! # Why this module is thin, and why it exists at all

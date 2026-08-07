@@ -1,11 +1,19 @@
 # Empty the oracle's ambiguous bucket
 
-Status: **standing task**, since the hundred-and-seventy-sixth session. **5 names left**, from 754.
+Status: **standing task**, since the hundred-and-seventy-sixth session. **0 names left**, from 754.
 Priority: 00 — the last large population where a defect can live without a name
-Corpus: 786 ambiguous pages (750 on documents we call complete); **781 diagnosed, 5 held by name**
+Corpus: 786 ambiguous pages (750 on documents we call complete); **all 786 diagnosed, 0 held by name**
 — and the 72 this line used to say was `wc -l` of a file with a twelve-line header, corrected in the
 three-hundred-and-seventeenth session by counting what the gate counts
+
 Code: `crates/pdf-model/tests/oracle.rs`, `crates/pdf-model/tests/ambiguous_undiagnosed.txt`
+
+**The list emptied in the three-hundred-and-seventy-ninth session and the task does not end with it.**
+The gate holds `ambiguous_undiagnosed.txt` to equality in *both* directions, so a page that stops
+agreeing arrives in an empty file and fails the build on the arrival — which is the regression this
+instrument was built to see and is now the only thing it has left to do. Step 7 is likewise standing:
+it is the half of the work no ranking can perform, and it is re-run after any round that changes what
+gets drawn.
 
 ## Why this is work rather than a caveat
 
@@ -193,6 +201,18 @@ clause. The absolute values here are a hair off the numbers above because this r
 `255 − mean` over a straight `L` conversion; what is compared across runs is the same instrument
 before and after, and it is unchanged.
 
+**Re-run whole in the three-hundred-and-seventy-ninth**, the round that emptied the ranking and moved
+no pixel, over all 786 and filtered to the 743 on documents this tree calls complete. **The head is the
+same five names in the same order** — `issue16038.pdf` −5.642, `issue12295.pdf` −1.712,
+`issue7821.pdf` −1.000, `jpx_smaskindata.pdf` −0.840, `issue16473.pdf` −0.717, then nothing past
+−0.535 — **three names at or past −1 and all three diagnosed**, which is the sixth consecutive run of
+the alarm holding. The positive side is unchanged too: `bug1743245.pdf` +23.129, `bug920426.pdf`
++21.073, `issue4260_reduced.pdf` +17.577. This run's ink is `(1 − mean) × 255` after `-alpha off
+-colorspace Gray`, which is why `issue16038.pdf`'s absolute value differs from the
+three-hundred-and-seventy-fourth's `L`-conversion figure on a *coloured* page while
+`issue4260_reduced.pdf`'s agrees to the thousandth; the gate's own numbers for that page — worst mean
+40.55, similarity 0.3935 — are identical to that round's, so nothing moved.
+
 **Re-run whole in the three-hundred-and-seventy-fourth**, the round that folded a tiling's repeated
 mark (ADR 0213), over all 786 and filtered to the same 743. **The head moved and nothing else did**:
 `issue16038.pdf` **−6.404 → −5.398**, `issue12295.pdf` −1.708, `issue7821.pdf` −1.069,
@@ -337,7 +357,7 @@ The tenth is found and not fixed either: a stroke under a pixel wide loses the h
 `tiny-skia`'s hairline smear that falls outside the raster's top edge, which is `doc/todo/11`
 item 3 and was found by a synthetic ladder rather than by a reference.
 
-The bucket itself went 754 → 704 undiagnosed, and that is the least interesting number in this
+The bucket itself went 754 → 704 → **0** undiagnosed, and that is the least interesting number in this
 file. *Nine defects nobody could see* is the one to watch — **and one gate that found thirteen
 more.** `jp2k-resetprob.pdf` sat at the top of the ranking with a name that named its own
 hypothesis, and checking the hypothesis meant building `tests/jpeg2000.rs`: every corpus
@@ -405,6 +425,45 @@ about the file. **Take the tail first**: each of those is a file somebody added 
 reason, and the reason is written down.
 
 ## The next names on the ranking
+
+**There are none, as of the three-hundred-and-seventy-ninth session**, and the shape of that last
+five is the result worth keeping. Every one of them was a *font* page — five different files, five
+different mechanisms, and not one of them a defect in this tree:
+
+- **`issue4665.pdf`** (0.17 / 0.93) and **`bug911034.pdf`** (0.29 / 2.44) are `AMBIGUOUS_GLYPH_SCAN_CONVERSION`,
+  and the first is the group's cleanest instance yet: **all four ladders end within 0.044 of 255 and
+  the three without `ghostscript` within 0.009**, so the reference that is 38% heavy at 72 dpi agrees
+  with everybody at 1 152 dpi. That is a stronger statement than a spread — it is the *same*
+  renderer's later rungs saying that its own 1× excess was scan conversion. `bug911034.pdf` is the
+  same page at a quarter the glyph size: three ladders end within 0.031, ours between them, and
+  `ghostscript` is 9.07 of 255 over its own limit at the page's own scale.
+- **`issue9084.pdf`** (0.16 / 1.09) is `AMBIGUOUS_SUBSTITUTED_FACE`, and it is shape 3 stated by the
+  clause outright: a non-embedded `ArialMT` under `Identity-H`, where §9.7.4.2 ends "[t]he means by
+  which this is accomplished are implementation-dependent". What that clause does *not* leave open is
+  checkable and was checked — "they shall always be used to determine the glyph metrics" — and at 8×
+  ours and `mupdf` put the line's ink in the same 1022 × 123 box **to the pixel** while all four
+  references span the same width to 0.7%. Four flat ladders in two camps 1.46 apart.
+- **`issue12705.pdf`** (0.18 / 1.00) is `AMBIGUOUS_UNCOLOURED_GLYPH_PROCEDURE`, the sharpest instance
+  of shape 1 the bucket has had: **111 of the file's 114 Type 3 glyph descriptions state `1 1 1 rg`
+  before filling**, and §9.6.4 Table 111 says a `d1` description's colour operators "shall be
+  ignored". A processor honouring them would paint white on white and the page would be *blank*. All
+  five draw the line, so all five apply the rule, and the two readings are as far apart as two
+  readings get.
+- **`bug1308536.pdf`** (0.35 / 3.79) is `AMBIGUOUS_REFUSED_EMBEDDED_FONT`, a group of one and a
+  mechanism this bucket had not named: `ghostscript` prints *An embedded font is invalid* and loads
+  `NimbusSans-Regular` instead, where four renderers draw the producer's own ultra-condensed face and
+  end within 0.015 of 255 at the limit. The program's Private DICT really is corrupt — six real
+  operands the format cannot mean — and **the corrupt part carries no outline**: the hinting
+  parameters are broken, the CharStrings INDEX is not, and §9.2.4's advances come from `/Widths`.
+  Table 124 requires the program to conform and states no consequence for one that does not.
+
+**The step this adds, and it is about a ladder that does *not* converge.** On `issue12705.pdf` four
+of the five renderers bracket the geometry and `ghostscript` sits 6.0% to 7.1% above the ink at 4×,
+8× *and* 16× alike. Dividing its excess by the ink a one-pixel erosion of our own raster removes
+turns that into an outward offset — 0.161, 0.355 and 0.587 device pixels — which **triples in device
+pixels and holds at 0.040 ± 0.004 points**. A constant offset in *user* space is a different shape
+being filled; a constant offset in *device* space is scan conversion. One ratio tells them apart, and
+until this round the bucket had only "it does not converge, so it is not scan conversion".
 
 **Three in the three-hundred-and-seventy-second, and two of them turned a group's argument into
 arithmetic.** The ranking's whole head is now pages whose *nearest* is under 0.4, so step 1's

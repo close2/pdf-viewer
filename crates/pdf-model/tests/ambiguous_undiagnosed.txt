@@ -10,8 +10,7 @@
 #
 # One page per line, exactly as the gate names it. Blank lines and lines beginning with `#`
 # are ignored.
-bug1308536.pdf page 1
-bug911034.pdf page 1
-issue12705.pdf page 1
-issue4665.pdf page 1
-issue9084.pdf page 1
+#
+# It is empty as of the three-hundred-and-seventy-ninth session, from 754 in the
+# hundred-and-seventy-sixth. Empty is a state this file can be in and not a state it stays
+# in: a page that stops agreeing arrives here, and the gate fails on the arrival.
