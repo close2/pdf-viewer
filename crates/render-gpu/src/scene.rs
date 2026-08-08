@@ -148,6 +148,21 @@ fn nested_group_in_knockout() -> GpuRasterError {
     )
 }
 
+/// §11.4.4's non-isolated group, which this backend cannot build.
+///
+/// A Vello layer always begins fully transparent — §11.4.5's initial backdrop — and a scene
+/// cannot read what it has drawn so far, so there is no way to seed one with the page a
+/// non-isolated group's elements have to composite onto. The frame goes to the CPU backend;
+/// drawing the isolated group this is not would be a plausible wrong picture, which is what
+/// [`GpuRasterError`] exists to prevent.
+fn non_isolated_group() -> GpuRasterError {
+    GpuRasterError::UnsupportedCommand(
+        "a non-isolated transparency group: a Vello layer begins transparent and its \
+         elements have to composite onto the page behind it (ISO 32000-2 §11.4.4, §11.4.5)"
+            .to_owned(),
+    )
+}
+
 /// Empties the area an element is about to knock out (§11.4.6).
 ///
 /// # Why not `Compose::Copy`, which is the rule itself
@@ -757,11 +772,15 @@ fn encode(
                 commands,
                 alpha,
                 blend,
+                isolated,
                 knockout,
                 ..
             } => {
                 if spec.compose == Compose::Knockout {
                     return Err(nested_group_in_knockout());
+                }
+                if !*isolated {
+                    return Err(non_isolated_group());
                 }
                 encode_group(scene, list, commands, (*alpha, *blend), *knockout, spec)?;
             }

@@ -621,41 +621,176 @@ fn a_non_isolated_group_blends_with_the_page_behind_it() {
     );
 }
 
-/// §11.4.5 against §11.4.4: a non-isolated group is reported only where isolation shows.
+/// A one-page fixture nesting a group inside an *isolated* one, so the inner group's
+/// backdrop is partly transparent.
+///
+/// [`fixture`]'s page is opaque, and an opaque backdrop hides half of §11.4.4: the
+/// interpolation's two weights are then the only thing acting. Here the outer form fills
+/// with `/GS`'s `ca 0.5` before invoking the inner one, so the inner group's backdrop has an
+/// alpha of one half and the arithmetic has an `alpha0` to carry.
+///
+/// `inner` is the inner form's `/Group`; `content` is what it draws; `outer_body` is the
+/// outer isolated group's content, which invokes it.
+fn nested_fixture(inner: &str, content: &str, outer_body: &str) -> Vec<u8> {
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+         /Resources << /XObject << /Ou 5 0 R >> >> /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length 8 >>\nstream\n/Ou Do\nendstream\nendobj\n\
+         5 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] \
+         /Group << /S /Transparency /I true >> \
+         /Resources << /ExtGState << /GS << /ca 0.5 >> /GB << /BM /Multiply >> >> \
+         /XObject << /Fm 6 0 R >> >> /Length {} >>\nstream\n{outer_body}\nendstream\nendobj\n\
+         6 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] {inner} \
+         /Resources << /ExtGState << /GB << /BM /Multiply >> >> >> /Length {} >>\n\
+         stream\n{content}\nendstream\nendobj\n",
+        outer_body.len() + 1,
+        content.len() + 1
+    );
+
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len() + 1;
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// §11.4.5 against §11.4.4: what is left to report once §11.4.4's own model is drawn.
 ///
 /// A non-isolated group composites its elements onto the group's backdrop and then removes
 /// that backdrop's contribution again (§11.4.4 NOTE 3). Under the Normal blend mode the
 /// removal is exact and the two computations agree, which is what §11.6.7's NOTE 1 states
-/// for the same computation applied to a pattern cell. What makes them differ is a blend
-/// mode inside the group — §11.4.4's NOTE 2 gives that as the whole reason the two kinds of
-/// group exist — so that is what the report fires on, and only for the group NOTE 5 cannot
-/// flatten: one whose own `Do` states an alpha, a blend mode or a soft mask.
+/// for the same computation applied to a pattern cell — so a group whose every element
+/// paints Normal is drawn as an isolated one whatever it declares, and says nothing.
+///
+/// Where an element *does* blend, the display list states the group's own backdrop (ADR
+/// 0237) on three conditions, and this pins what happens either side of each of them: a
+/// constant alpha and a soft mask at the `Do` are drawn, a blend mode at the `Do` is not,
+/// and neither is a knockout group or an element of one.
 #[test]
-fn a_non_isolated_group_reports_only_when_an_element_blends() {
-    let reported = |group: &str, form: &str| {
+fn a_non_isolated_group_reports_only_where_the_backdrop_cannot_be_stated() {
+    let reported = |group: &str, form: &str, page: &str| {
         format!(
             "{:?}",
-            interpret(fixture(group, "[0 0 100 100]", form, "/GS gs /Fm Do")).unsupported
+            interpret(fixture(group, "[0 0 100 100]", form, page)).unsupported
         )
     };
     let non_isolated = "/Group << /S /Transparency >>";
+    let blending = "/GB gs 1 0 0 rg 10 10 50 50 re f";
 
     assert!(
-        reported(non_isolated, "/GB gs 1 0 0 rg 10 10 50 50 re f").contains("non-isolated"),
-        "an element blending Multiply sees a backdrop the isolated computation excludes"
+        !reported(non_isolated, blending, "/GS gs /Fm Do").contains("non-isolated"),
+        "a constant alpha at the `Do` is the weight §11.4.4's two steps collapse to"
     );
     assert!(
-        !reported(non_isolated, TWO_SQUARES).contains("non-isolated"),
+        !reported(non_isolated, blending, "/GM gs /Fm Do").contains("non-isolated"),
+        "and so is a soft mask, which is what every corpus witness states"
+    );
+    assert!(
+        reported(non_isolated, blending, "/GB gs /Fm Do").contains("non-isolated"),
+        "a blend mode at the `Do` is where the collapse fails: the group's own colour is \
+         needed, and with it Table 140's group alpha"
+    );
+    assert!(
+        !reported(non_isolated, TWO_SQUARES, "/GS gs /Fm Do").contains("non-isolated"),
         "with every element Normal the backdrop cancels and the two agree"
     );
     assert!(
         !reported(
             "/Group << /S /Transparency /I true >>",
-            "/GB gs 1 0 0 rg 10 10 50 50 re f"
+            blending,
+            "/GS gs /Fm Do"
         )
         .contains("non-isolated"),
-        "an isolated group is what this composites, blend modes and all"
+        "an isolated group is what a rasteriser's layer already is"
     );
+    assert!(
+        reported(
+            "/Group << /S /Transparency /K true >>",
+            blending,
+            "/GS gs /Fm Do"
+        )
+        .contains("non-isolated"),
+        "§11.4.6 composites each element with the group's *initial* backdrop, which is not \
+         the pair of draws this states"
+    );
+}
+
+/// §11.4.4's own model, drawn: a non-isolated group's element blends with the page.
+///
+/// # The arithmetic, from the clause and not from a renderer
+///
+/// §11.4.4 composites the elements onto the group's backdrop and then removes it again
+/// (NOTE 3), and §11.3.3 composites the group's result back onto that same backdrop. The
+/// removal divides by Table 140's group alpha and the re-compositing multiplies by it, so
+/// with the Normal blend function at the `Do` the pair collapses to an interpolation
+/// between the backdrop `B` and the elements composited onto it, `E(B)`, by the group's
+/// constant alpha times its soft mask. See `Command::Group`'s `isolated` and ADR 0237.
+///
+/// The page is opaque red and the group's one element is an opaque **blue** under `Multiply`.
+/// §11.3.5.2's Multiply is the componentwise product, so `E(B)` is `(1,0,0) × (0,0,1)` =
+/// black inside the element and the red page outside it. With `w = ½` from `/GS`'s `ca`,
+///
+/// ```text
+/// (1 − ½) × (1, 0, 0) + ½ × (0, 0, 0) = (½, 0, 0)     inside
+/// (1 − ½) × (1, 0, 0) + ½ × (1, 0, 0) = (1,  0, 0)    outside
+/// ```
+///
+/// which is **(128, 0, 0)** and **(255, 0, 0)**. Drawing the group on §11.4.5's transparent
+/// backdrop instead — what this tree did until ADR 0237, and what it reported — leaves the
+/// blue unblended and gives `(128, 0, 128)`: the whole blue channel.
+///
+/// The second half doubles the weight through a soft mask as well as the constant, because
+/// a soft mask at the `Do` is what all four corpus witnesses actually state: `w = ¼` gives
+/// `(¾, 0, 0)` = **(191, 0, 0)**.
+#[test]
+fn a_non_isolated_groups_element_blends_with_the_backdrop_the_group_is_painted_over() {
+    let blend_over_red = |page: &str| {
+        interpret(fixture(
+            "/Group << /S /Transparency >>",
+            "[0 0 100 100]",
+            "/GB gs 0 0 1 rg 10 10 50 50 re f",
+            page,
+        ))
+    };
+
+    let by_alpha = blend_over_red("1 0 0 rg 0 0 100 100 re f /GS gs /Fm Do");
+    assert!(by_alpha.is_complete(), "{:?}", by_alpha.unsupported);
+    // Device y = 60 is page y = 40, inside the element; x = 70 is outside it and inside
+    // the form's `/BBox`, which is the whole page.
+    assert_eq!(
+        pixel(&by_alpha, 30, 60),
+        [128, 0, 0, 255],
+        "Multiply against the page the group does not exclude leaves no blue at all"
+    );
+    assert_eq!(
+        pixel(&by_alpha, 70, 60),
+        [255, 0, 0, 255],
+        "and where the group marks nothing the weight puts the page back unchanged"
+    );
+
+    let by_mask = blend_over_red("1 0 0 rg 0 0 100 100 re f /GS gs /GM gs /Fm Do");
+    assert!(by_mask.is_complete(), "{:?}", by_mask.unsupported);
+    assert_eq!(
+        pixel(&by_mask, 30, 60),
+        [191, 0, 0, 255],
+        "the soft mask and the constant are one weight, and it is their product"
+    );
+    assert_eq!(pixel(&by_mask, 70, 60), [255, 0, 0, 255]);
 }
 
 /// The second of §11.4.6's two stages is an *addition*, and one pixel says so.
@@ -699,4 +834,88 @@ fn the_object_is_added_to_the_backdrop_the_shape_left_behind() {
     // red whole, and shape 1 replaces it with the half-opaque blue.
     assert_eq!(pixel(&painted, 9, 60), [255, 0, 0, 255]);
     assert_eq!(pixel(&painted, 11, 60), [127, 127, 255, 255]);
+}
+
+/// §11.4.4 with a backdrop that is not opaque, which is where the interpolation shows.
+///
+/// # Why the page above cannot ask this
+///
+/// A page is opaque, and over an opaque backdrop the two weights of
+/// `(1 − w) × B + w × E(B)` are the whole of the arithmetic. Nest the group inside an
+/// *isolated* one and its backdrop is that group's buffer — half-transparent here — and two
+/// further things become visible: the blend function inside the group sees a backdrop alpha,
+/// and the region the group does **not** mark has to come back exactly as it was. Ordinary
+/// source-over of the buffer would not do the second: it weights the backdrop by
+/// `1 − w × alpha_buffer` where §11.4.4 weights it by `1 − w`, and at `alpha_buffer = ½` and
+/// `w = ½` that is **(255, 95, 95)** against the backdrop's own (255, 127, 127) — 32 of 255
+/// on two channels, the same magnitude ADR 0234 measured for §11.4.6's second stage.
+///
+/// # The arithmetic
+///
+/// The outer group fills opaque red at `ca 0.5`, so its buffer holds premultiplied
+/// `(128, 0, 0; 128)` — one half of full scale as eight bits carry it. The inner
+/// non-isolated group draws opaque blue under `Multiply`, whose §11.3.5.2 value is the
+/// componentwise product `(1,0,0) × (0,0,1) = (0,0,0)`, so §11.3.3 gives
+///
+/// ```text
+/// alpha = 1,  C = Cb + ((1 - alpha0) Cs + alpha0 B(Cb, Cs) - Cb) = (0, 0, 1 - 128/255)
+/// ```
+///
+/// premultiplied `(0, 0, 127; 255)`. Interpolating at `w = ½`:
+///
+/// ```text
+/// inside   (64, 0, 63.5; 191.5) -> (64, 0, 64; 192)
+/// outside  the buffer is the backdrop, so (128, 0, 0; 128) comes back unchanged
+/// ```
+///
+/// and the outer group over the white page adds `255 - alpha` of white to each component:
+/// **(127, 63, 127)** and **(255, 127, 127)**.
+///
+/// Drawn on §11.4.5's transparent backdrop instead, the blue never meets the red at all and
+/// the same pixel is **(127, 63, 191)**.
+#[test]
+fn a_non_isolated_group_inside_another_keeps_the_backdrop_alpha_it_composites_onto() {
+    let content = "/GB gs 0 0 1 rg 10 10 50 50 re f";
+    let invoking = "/GS gs 1 0 0 rg 0 0 100 100 re f /Fm Do";
+    let backdrop_alone = "/GS gs 1 0 0 rg 0 0 100 100 re f";
+
+    let drawn = interpret(nested_fixture(
+        "/Group << /S /Transparency >>",
+        content,
+        invoking,
+    ));
+    assert!(drawn.is_complete(), "{:?}", drawn.unsupported);
+    assert_eq!(
+        pixel(&drawn, 30, 60),
+        [127, 63, 127, 255],
+        "Multiply against a half-opaque red leaves half the blue, not all of it"
+    );
+
+    // The same page with the inner form never invoked. Compared rather than predicted: this
+    // is §11.4.4 with the group's own marks taken out, and it is the assertion that fails if
+    // the buffer is composited back with source-over instead of interpolated.
+    let backdrop = interpret(nested_fixture(
+        "/Group << /S /Transparency >>",
+        content,
+        backdrop_alone,
+    ));
+    assert_eq!(
+        pixel(&drawn, 70, 60),
+        pixel(&backdrop, 70, 60),
+        "where the group marks nothing, its backdrop comes back exactly as it was"
+    );
+    assert_eq!(pixel(&backdrop, 70, 60), [255, 127, 127, 255]);
+
+    // And §11.4.5's transparent initial backdrop, which is what this tree drew until the
+    // four-hundredth session and reported by name while it did.
+    let flattened_wrongly = interpret(nested_fixture(
+        "/Group << /S /Transparency /I true >>",
+        content,
+        invoking,
+    ));
+    assert_eq!(
+        pixel(&flattened_wrongly, 30, 60),
+        [127, 63, 191, 255],
+        "an isolated group's element multiplies against nothing and keeps its blue"
+    );
 }

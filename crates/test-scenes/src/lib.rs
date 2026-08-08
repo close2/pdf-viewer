@@ -188,6 +188,7 @@ pub fn transparency_group() -> DisplayList {
         clip: None,
         mask: None,
         blend: BlendMode::Multiply,
+        isolated: true,
         knockout: false,
     });
 
@@ -278,6 +279,7 @@ pub fn knockout_group() -> DisplayList {
         clip: None,
         mask: None,
         blend: BlendMode::Normal,
+        isolated: true,
         knockout: true,
     });
 
@@ -337,6 +339,7 @@ pub fn knockout_stated_shape() -> DisplayList {
             clip: None,
             mask: None,
             blend: BlendMode::Normal,
+            isolated: true,
             knockout: false,
         }),
         shape: Box::new(Command::Group {
@@ -345,6 +348,7 @@ pub fn knockout_stated_shape() -> DisplayList {
             clip: None,
             mask: None,
             blend: BlendMode::Normal,
+            isolated: true,
             knockout: false,
         }),
     };
@@ -366,7 +370,66 @@ pub fn knockout_stated_shape() -> DisplayList {
         clip: None,
         mask: None,
         blend: BlendMode::Normal,
+        isolated: true,
         knockout: true,
+    });
+
+    list
+}
+
+/// A non-isolated group whose element blends with the page behind it (§11.4.4, §11.4.5).
+///
+/// ISO 32000-2 §11.4.5 defines the *other* backdrop, and it is the one every rasterising
+/// library gives a layer:
+///
+/// > An isolated group is one whose elements shall be composited onto a fully transparent
+/// > initial backdrop rather than onto the group's backdrop.
+///
+/// §11.4.4's own model is the group's backdrop, and it can only be seen where an element
+/// blends: with every element painting Normal the backdrop is composited in and removed
+/// again exactly (its NOTE 3), which is why this scene's element carries `Multiply`.
+///
+/// The green page under a `Multiply` blue leaves no blue at all; drawn on transparency the
+/// blue survives whole. The group is painted at `alpha 0.5`, because a non-isolated group
+/// whose result composites at 1.0 under Normal is NOTE 5's flattening and needs no group at
+/// all — so this is the smallest scene the construction is *needed* for.
+///
+/// # Why no backend agreement is asserted on it
+///
+/// Only `render-cpu` draws this. A Vello layer begins fully transparent and a scene cannot
+/// read what it has drawn so far, so `render-gpu` refuses; `quorra_scene::GroupSpec` opens
+/// its layer the same way, so `render-quorra` refuses too. Both refusals are tested against
+/// this scene, which is what keeps them from becoming silent.
+#[must_use]
+pub fn non_isolated_group() -> DisplayList {
+    let mut list = DisplayList::new(A4);
+
+    list.push(Command::Fill {
+        path: Arc::new(rect(40.0, 100.0, 555.0, 750.0)),
+        transform: Transform::IDENTITY,
+        fill_rule: FillRule::NonZero,
+        paint: Paint::Solid(GREEN),
+        clip: None,
+        mask: None,
+        blend: BlendMode::Normal,
+    });
+
+    list.push(Command::Group {
+        commands: vec![Command::Fill {
+            path: Arc::new(rect(100.0, 200.0, 450.0, 600.0)),
+            transform: Transform::IDENTITY,
+            fill_rule: FillRule::NonZero,
+            paint: Paint::Solid(BLUE),
+            clip: None,
+            mask: None,
+            blend: BlendMode::Multiply,
+        }],
+        alpha: 0.5,
+        clip: None,
+        mask: None,
+        blend: BlendMode::Normal,
+        isolated: false,
+        knockout: false,
     });
 
     list

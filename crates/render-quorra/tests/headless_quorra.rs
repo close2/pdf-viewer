@@ -137,6 +137,30 @@ fn quorra_refuses_a_knockout_element_that_states_its_shape() {
     );
 }
 
+/// §11.4.4's non-isolated group is refused **by name**.
+///
+/// `quorra_scene::GroupSpec` opens its layer on a fully transparent surface — §11.4.5's
+/// initial backdrop — and a non-isolated group's elements have to composite onto the page
+/// behind it instead. Nothing in the scene vocabulary states the second backdrop, so the
+/// backend says so rather than drawing the isolated group it is not.
+///
+/// A *test of the refusal*, as `quorra_refuses_a_knockout_element_that_states_its_shape` is:
+/// it fails if the refusal ever becomes silent, and it is what
+/// `doc/QUORRA_FEEDBACK.md`'s entry is measured against.
+#[test]
+fn quorra_refuses_a_non_isolated_group() {
+    let list = test_scenes::non_isolated_group();
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("target fits the budget");
+    let refusal = quorra()
+        .rasterize(&list, target)
+        .expect_err("quorra has no group buffer seeded from its backdrop")
+        .to_string();
+    assert!(
+        refusal.contains("§11.4.4") && refusal.contains("non-isolated"),
+        "the refusal names the clause and what it needs: {refusal}"
+    );
+}
+
 #[test]
 fn cpu_and_quorra_agree_on_all_sixteen_blend_modes() {
     // Release only, for the reason `cpu_and_gpu_agree_on_every_blend_mode` records:

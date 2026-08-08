@@ -148,19 +148,14 @@ pub enum Command {
     /// > The result shall then be treated as if it were a single object for subsequent
     /// > compositing operations.
     ///
-    /// That is the whole of what this command asks a backend for: draw `commands` onto a
-    /// fully transparent backdrop, then paint the result once, under `alpha` and `blend`.
+    /// That is the whole of what this command asks a backend for: draw `commands` onto the
+    /// backdrop [`Self::isolated`] names, then paint the result once, under `alpha` and
+    /// `blend`.
     ///
-    /// # Why isolation is not a flag and knockout is
+    /// # Why knockout is a flag
     ///
-    /// A backend is told to composite onto a transparent backdrop, which is §11.4.5's
-    /// isolated group. Isolation is decided before the command is built: `pdf-model` emits
-    /// this command for a non-isolated group only where the computation is provably the
-    /// same one (every element blending Normal — see ADR 0026), and reports the cases that
-    /// are not. A flag no backend reads would be a placeholder rather than a description.
-    ///
-    /// Knockout is a flag because the two models differ in the *elements'* compositing and
-    /// no rewriting of the element list can express it: see [`Self::knockout`].
+    /// The two models differ in the *elements'* compositing and no rewriting of the element
+    /// list can express it: see [`Self::knockout`].
     Group {
         /// The group's elements, in painting order.
         ///
@@ -183,6 +178,56 @@ pub enum Command {
         mask: Option<SoftMaskId>,
         /// How the composited group combines with its backdrop.
         blend: BlendMode,
+        /// What the elements are composited *onto* (§11.4.5, §11.4.4).
+        ///
+        /// `true` is §11.4.5's isolated group, which is what a layer in any rasterising
+        /// library is:
+        ///
+        /// > An isolated group is one whose elements shall be composited onto a fully
+        /// > transparent initial backdrop rather than onto the group's backdrop.
+        ///
+        /// `false` is §11.4.4's own model, where the elements composite onto the backdrop
+        /// the group is being painted over and the backdrop's contribution is then taken
+        /// out again (its NOTE 3: "Essentially, these formulas remove the contribution of
+        /// the group backdrop from the computed results."). It matters only where an
+        /// element *blends*, which is what §11.4.4's NOTE 2 gives as the whole reason the
+        /// two kinds of group exist — with every element painting Normal the backdrop is
+        /// composited in and removed again exactly, and the two models are the same page.
+        ///
+        /// # What a backend must do for `false`, and why it needs no second alpha
+        ///
+        /// §11.4.4's removal divides by Table 140's *group alpha* — the elements' own
+        /// accumulated alpha, "excluding the initial backdrop" — which is not the alpha a
+        /// raster of premultiplied samples holds. NOTE 4 is the clause's own advice:
+        ///
+        /// > For shape and alpha, backdrop removal can be accomplished by maintaining two
+        /// > sets of variables to hold the accumulated values.
+        ///
+        /// A rasteriser has one set. **It does not need the second**, because the quantity
+        /// the removal divides out is multiplied straight back in when the group's result is
+        /// composited with that same backdrop under §11.3.3. Writing `B` for the backdrop
+        /// and `E(B)` for the elements composited onto it, both premultiplied, and `w` for
+        /// [`Self::alpha`] times [`Self::mask`] at the pixel, the two steps together are
+        ///
+        /// ```text
+        /// result = (1 − w) × B + w × E(B)
+        /// ```
+        ///
+        /// — an ordinary interpolation, exact for every backdrop alpha and every blend mode
+        /// *inside* the group. ADR 0237 has the derivation; `w = 1` reduces it to `E(B)`,
+        /// which is NOTE 5's flattening, and that is the case `pdf-model` never builds a
+        /// group for at all.
+        ///
+        /// # What is guaranteed, because the collapse has one condition
+        ///
+        /// The step that cancels is §11.3.3 with the **Normal** blend function. Under any
+        /// other, the group's own colour is needed and with it the group alpha, and the
+        /// identity is false — 0.60 of full scale apart at its worst over random inputs. So
+        /// `pdf-model` emits `false` only where [`Self::blend`] is [`BlendMode::Normal`],
+        /// [`Self::knockout`] is `false` and no enclosing group is a knockout group, and
+        /// reports the groups it therefore cannot draw. A backend may rely on all three and
+        /// should refuse rather than approximate if handed anything else.
+        isolated: bool,
         /// Whether the elements knock each other out (§11.4.6).
         ///
         /// > In a knockout group, each individual element shall be composited with the

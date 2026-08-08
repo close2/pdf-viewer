@@ -113,8 +113,25 @@ const MIN_STRUCTURAL_SIMILARITY: f64 = 0.99;
 /// says and the backend says it cannot draw it. A refusal that replaces an agreement about a
 /// wrong picture is a gain, and it is `doc/QUORRA_FEEDBACK.md` section 14's entry: two Porter-Duff
 /// operators, Destination-Out and Plus.
-const REFUSED: [&str; 5] = [
+///
+/// **Four more in the four-hundredth, and the argument is the same one a second time.** ADR 0237
+/// draws §11.4.4's non-isolated group — its elements composite onto the *page's* own colour rather
+/// than onto §11.4.5's transparency — and `quorra_scene::GroupSpec` opens its layer transparent,
+/// as every rasterising library's does. So the backend refuses, naming the clause. All four used
+/// to be counted as **agreeing**, and that agreement was two backends substituting the same wrong
+/// backdrop: the CPU one draws the clause now and this one says it cannot.
+///
+/// The list is exactly the four documents the corpus gate used to report §11.4.4 on and no
+/// longer does — `bug1755507.pdf`, `issue12798_page1_reduced.pdf`, `issue13520.pdf` and
+/// `issue18032.pdf` — which is the check that the display list gained the construction exactly
+/// where the report left. `doc/QUORRA_FEEDBACK.md` section 16 is the request: a group buffer a
+/// caller can have seeded from the layer beneath it.
+const REFUSED: [&str; 9] = [
     "bug1721218_reduced.pdf",
+    "bug1755507.pdf",
+    "issue12798_page1_reduced.pdf",
+    "issue13520.pdf",
+    "issue18032.pdf",
     "knockout_inner_backdrop.pdf",
     "knockout_nested.pdf",
     "knockout_nested_group_alpha.pdf",

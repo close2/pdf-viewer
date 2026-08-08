@@ -211,6 +211,78 @@ impl NonSeparable {
     }
 }
 
+/// §11.4.4's interpolation between a group's backdrop and its elements composited onto it.
+///
+/// Writes `(1 − w) × destination + w × buffer` at every pixel of `surface`, premultiplied,
+/// where `w` is `weight` times `mask`'s value there. `buffer` covers the whole surface and
+/// `surface` is the band starting at `from_row` of it; `mask` is the band's own.
+///
+/// # Why this is the whole of a non-isolated group
+///
+/// `Command::Group`'s `isolated` derives it: §11.4.4 composites the elements onto the
+/// group's backdrop and removes that backdrop again (NOTE 3), §11.3.3 then composites the
+/// result back onto the same backdrop, and with the Normal blend function the division by
+/// Table 140's group alpha and the multiplication by it cancel. What is left is this line,
+/// and it holds for every backdrop alpha and every blend mode *inside* the group.
+///
+/// # Why it is a pass of its own rather than two Porter-Duff draws
+///
+/// Destination-Out by `w` followed by `Plus` of the buffer at `w` computes the same
+/// expression and is what ADR 0234's shaped element uses. It rounds twice: at `w = ½` over
+/// an opaque backdrop each draw keeps 127 of 255 and the pair leaves **254**, so a page the
+/// clause makes fully opaque comes back one level transparent and the white behind it shows
+/// through on every channel. One pass rounds once and the identity `w + (1 − w) = 1` is
+/// exact in it.
+pub(crate) fn interpolate(
+    surface: &mut tiny_skia::PixmapMut<'_>,
+    buffer: &tiny_skia::Pixmap,
+    from_row: u32,
+    weight: f32,
+    mask: Option<&tiny_skia::Mask>,
+) {
+    let width = surface.width() as usize;
+    let skipped = (from_row as usize).saturating_mul(width);
+    let source = buffer.pixels().get(skipped..).unwrap_or_default();
+    let coverage = mask.map(tiny_skia::Mask::data);
+    for (index, destination) in surface.pixels_mut().iter_mut().enumerate() {
+        let Some(&source) = source.get(index) else {
+            break;
+        };
+        // Outside the group's marks the buffer *is* the backdrop, and interpolating a value
+        // with itself is that value. The band is mostly that, so the branch is what keeps a
+        // group's cost proportional to what it drew.
+        if source == *destination {
+            continue;
+        }
+        let level = coverage.map_or(255, |data| data.get(index).copied().unwrap_or(0));
+        let w = weight * f32::from(level) / 255.0;
+        if w <= 0.0 {
+            continue;
+        }
+        let channel = |backdrop: u8, drawn: u8| {
+            let mixed = f32::from(drawn).mul_add(w, f32::from(backdrop) * (1.0 - w));
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "a convex combination of two values in 0..=255, offset by half a \
+                          level, so the truncating cast is the rounding and stays in range"
+            )]
+            let rounded = mixed.clamp(0.0, 255.0).round() as u8;
+            rounded
+        };
+        // Premultiplied validity survives: each operand's channel is at most its own alpha,
+        // so the same convex combination of the two bounds the combination of the alphas,
+        // and rounding both the same way keeps the order.
+        *destination = tiny_skia::PremultipliedColorU8::from_rgba(
+            channel(destination.red(), source.red()),
+            channel(destination.green(), source.green()),
+            channel(destination.blue(), source.blue()),
+            channel(destination.alpha(), source.alpha()),
+        )
+        .unwrap_or(*destination);
+    }
+}
+
 /// Composites a layer onto a surface under a non-separable blend mode.
 ///
 /// Both pixmaps hold premultiplied eight-bit RGBA and cover the same pixels; `layer` is

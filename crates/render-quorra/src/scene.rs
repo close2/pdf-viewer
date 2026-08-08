@@ -145,8 +145,24 @@ impl<'a> Encoder<'a> {
                     clip,
                     mask,
                     blend,
+                    isolated,
                     knockout,
                 } => {
+                    // §11.4.4's non-isolated group composites its elements onto the page
+                    // the group is being painted over, so a backend needs a group buffer
+                    // that starts as a copy of its own backdrop. `quorra_scene`'s
+                    // `GroupSpec` opens one on transparency — §11.4.5's isolated group —
+                    // and nothing in the vocabulary states the other initial backdrop, so
+                    // the group is refused rather than drawn as the isolated one it is
+                    // not. `doc/QUORRA_FEEDBACK.md`'s entry is the request.
+                    if !*isolated {
+                        return Err(QuorraRasterError::Unsupported(
+                            "a non-isolated transparency group: quorra's GroupSpec opens a \
+                             layer on transparency and its elements have to composite onto \
+                             the page behind it (ISO 32000-2 §11.4.4, §11.4.5)"
+                                .to_owned(),
+                        ));
+                    }
                     let Admitted::Chain(clip) = self.clip_chain(builder, *clip)? else {
                         continue; // the clip admits nothing: the group draws nothing
                     };

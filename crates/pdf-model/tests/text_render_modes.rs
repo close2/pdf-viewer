@@ -229,6 +229,7 @@ fn a_translucent_mode_2_glyph_is_one_knockout_group() {
             clip,
             mask,
             blend,
+            isolated,
             knockout,
         },
     ] = commands
@@ -236,6 +237,11 @@ fn a_translucent_mode_2_glyph_is_one_knockout_group() {
         panic!("expected one group, got {:?}", kinds(&drawn));
     };
     assert!(*knockout, "the clause asks for a knockout group");
+    assert!(
+        *isolated,
+        "§11.4.6 composites each element with the group's *initial* backdrop, and this \
+         group's elements are the two portions of one glyph"
+    );
     assert_eq!(*alpha, 1.0, "composited \"using an alpha value of 1.0\"");
     assert_eq!(*blend, pdf_render::BlendMode::Normal);
     assert!(clip.is_none() && mask.is_none());

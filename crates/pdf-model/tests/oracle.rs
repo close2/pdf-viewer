@@ -53,6 +53,13 @@
 //! output. Pages that agree have theirs deleted: five thousand PNGs of pages nobody will
 //! look at is a gigabyte of evidence for nothing.
 
+// `diagnosed_ambiguous` chains one iterator per `AMBIGUOUS_*` group, and each `.chain` nests
+// the type one level deeper. The sixty-third group, added in the four-hundredth session,
+// overflowed the compiler's default query depth of 128 while computing that type's layout —
+// which is a limit on the *type* rather than on anything the test does at run time. Raised
+// here rather than folding the groups into a slice of slices, because the chain is what makes
+// a group's name appear beside its diagnosis at the one place both are read.
+#![recursion_limit = "256"]
 #![expect(
     clippy::panic,
     clippy::print_stdout,
@@ -4301,6 +4308,64 @@ const AMBIGUOUS_SUBTRACTIVE_MASK_GROUP: [&str; 1] = ["bug1703683_page2_reduced.p
 /// which is what it looks like when a file states something the standard does not define.
 const AMBIGUOUS_MATTE_WITHOUT_A_SOFT_MASK_IMAGE: [&str; 1] = ["jpx_smaskindata.pdf page 1"];
 
+/// Ambiguous, and ours ends **0.0030 of 255** from `poppler`'s limit on three flat ladders.
+///
+/// `issue12798_page1_reduced.pdf` page 1 is a public-health poster: white space over a magenta
+/// band carrying two lines of small type. Four commands. It reached this bucket by being
+/// *drawn* — until the four-hundredth session its artwork sat inside a **non-isolated group
+/// under a soft mask** whose elements blend `Multiply` and `Screen`, which §11.4.4's NOTE 5
+/// cannot flatten, and the page reported it by name (ADR 0237).
+///
+/// Its verdict is the ordinary tolerance's on everything but one tile: mean 0.29 against a
+/// bound of 1.00, similarity 0.9964 against 0.9900, 0.44% of pixels differing — and a worst
+/// tile of 8.79 against 5.00, which is the small white type on the band and nothing else.
+///
+/// ```text
+///              72 dpi   288 dpi   576 dpi
+/// poppler     23.7199   23.8327   23.8408
+/// mupdf       23.8604   23.9477   23.9610
+/// ours        23.8002   23.8373   23.8438
+/// ```
+///
+/// Three ladders climbing in parallel, each converged by 288 dpi, and ours ends **0.0030**
+/// from `poppler`'s limit while the two references' own limits are **0.120** apart. At the
+/// page's own scale the five renderers span 23.72 to 24.01 — a tenth of one level of 255 over
+/// the whole poster — and ours is second of the five. The page stays `ambiguous` because a
+/// worst-tile bound measured over glyph edges is tighter than five renderers' scan conversion
+/// of 6-point type, which is `AMBIGUOUS_GLYPH_SCAN_CONVERSION`'s subject wearing this file's
+/// name.
+const AMBIGUOUS_NON_ISOLATED_POSTER: [&str; 1] = ["issue12798_page1_reduced.pdf page 1"];
+
+/// Ambiguous, and the five renderers span **3.65 of 255** on a 209 x 90 illustration.
+///
+/// `issue13520.pdf` page 1 is one glossy blob — an Illustrator drawing of five overlapping
+/// lozenges, ten commands, nested transparency groups with `/Luminosity` soft masks, `Screen`
+/// blend modes and constant alphas of 0.20, 0.79 and 0.81. It reached this bucket the same way
+/// `AMBIGUOUS_NON_ISOLATED_POSTER` did: its outer group is non-isolated under a soft mask with
+/// elements that blend, so until the four-hundredth session the page reported §11.4.4 by name
+/// and was never judged (ADR 0237).
+///
+/// ```text
+///              72 dpi   288 dpi   576 dpi
+/// poppler     17.6287   17.4891   17.4397
+/// mupdf       16.5747   16.7086   16.6970
+/// ours        16.9987   17.1636   17.1585
+/// ```
+///
+/// **The two references' limits are 0.743 of 255 apart and they approach from opposite sides**,
+/// so there is no consensus to sit inside or outside; ours converges by 288 dpi and ends
+/// between them, 0.281 below `poppler` and 0.462 above `mupdf`. The other two are further
+/// still: at the page's own scale `ghostscript` is 20.03 and `hayro` 20.23 against `mupdf`'s
+/// 16.57, which is **3.65 of 255** across five renderers on an illustration 209 pixels wide.
+///
+/// The four-panel strip says where it lives and the numbers do not: the same lozenge carries a
+/// white highlight in ours and `poppler`, a grey one in `mupdf`, an outlined one in
+/// `ghostscript` and a dark blot at its right-hand end in `hayro`. That is five readings of a
+/// stack of `Screen` blends under luminosity masks, which is §11.6.6's blending space —
+/// `doc/todo/23`'s standing item — rather than a mark anybody is missing. This tree reports
+/// nothing on the page and `open_one` finds all ten commands.
+const AMBIGUOUS_STACKED_SCREEN_UNDER_MASKS: [&str; 1] = ["issue13520.pdf page 1"];
+
 /// Ambiguous, and three pages where every renderer paints more than the geometry.
 ///
 /// ```text
@@ -6296,6 +6361,8 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_MASKED_BLUR)
         .chain(&AMBIGUOUS_SUBTRACTIVE_MASK_GROUP)
         .chain(&AMBIGUOUS_MATTE_WITHOUT_A_SOFT_MASK_IMAGE)
+        .chain(&AMBIGUOUS_NON_ISOLATED_POSTER)
+        .chain(&AMBIGUOUS_STACKED_SCREEN_UNDER_MASKS)
         .chain(&AMBIGUOUS_GRADIENT_ON_A_TIGHT_BOUND)
         .chain(&AMBIGUOUS_OVERSIZED_BORDER)
         .chain(&AMBIGUOUS_CONSTRUCTED_WIDGET)

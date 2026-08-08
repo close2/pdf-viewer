@@ -162,11 +162,12 @@ pub enum Unsupported {
     },
     /// A transparency group asking for something §11.4 defines and this does not do.
     ///
-    /// A `/Group` is composited as §11.4.5's isolated, non-knockout group: its elements are
-    /// drawn onto a transparent backdrop and the result painted once, under the constant
-    /// alpha and blend mode in force at `Do`. Table 145's other two answers — non-isolated
-    /// and knockout — and a group blending colour space that is not the device's are drawn
-    /// the same way, and reported where they can change a pixel. See
+    /// A `/Group` is composited onto the backdrop Table 145's `/I` names — §11.4.5's
+    /// transparency for an isolated one, the page for a non-isolated one — and the result
+    /// painted once, under the constant alpha and blend mode in force at `Do`. `/K` reaches
+    /// the display list too, for the elements whose shape a backend can draw or state. What
+    /// is reported is the residue of each, plus a group blending colour space that is not
+    /// the device's, and each only where it can change a pixel. See
     /// [`Interpreter::note_group_departures`] for each condition and the clause it is from.
     TransparencyGroup {
         /// What the group asked for.
@@ -1237,6 +1238,9 @@ fn stated_shape(command: &Command) -> Option<Command> {
             clip: *clip,
             mask: None,
             blend: BlendMode::Normal,
+            // A shape is accumulated on transparency by definition — §11.6.4.2 gives it
+            // from geometry alone — so the backdrop this is drawn over states nothing.
+            isolated: true,
             knockout: false,
         }),
         Command::Shaped { shape, .. } => Some((**shape).clone()),
@@ -3009,6 +3013,7 @@ impl Interpreter<'_> {
                         clip: None,
                         mask: None,
                         blend: BlendMode::Normal,
+                        isolated: true,
                         knockout: true,
                     });
                 } else {
@@ -3373,7 +3378,10 @@ impl Interpreter<'_> {
             // `false`: a mask's group is evaluated into a mask raster by
             // `pdf_render::SoftMask`, which carries no knockout flag, so a knockout here is
             // a departure whatever its elements are.
-            self.note_group_structure(&group, &commands, false);
+            // `true` for the second: a mask raster is built on transparency, so a
+            // non-isolated mask group is drawn as §11.4.5's isolated one and reports on the
+            // same condition a painted group used to.
+            self.note_group_structure(&group, &commands, false, true);
         }
         self.note_blended_luminosity(request.compositing, &commands);
 
@@ -3773,7 +3781,37 @@ impl Interpreter<'_> {
                 knockout = true;
             }
         }
-        self.note_group_departures(group, &commands, knockout);
+        // §11.4.4's own model, for the group NOTE 5 could not flatten: the elements
+        // composite onto the backdrop the group is painted over, and the display list says
+        // so rather than substituting §11.4.5's transparent one. The three conditions are
+        // what makes the clause's backdrop removal cancel against §11.3.3's re-compositing
+        // — see `Command::Group`'s `isolated` and ADR 0237 — and each is load-bearing:
+        //
+        // - **Normal at the `Do`.** The cancellation is of a division by Table 140's group
+        //   alpha against a multiplication by it, and only the Normal blend function
+        //   performs the second. Under any other the group's own colour is needed.
+        // - **Not a knockout group.** §11.4.6 composites each element with the group's
+        //   *initial* backdrop, which here is the page rather than transparency, so the two
+        //   stages are not the pair `Command::Shaped` states.
+        // - **Not inside one.** A knockout group's element is weighted by its own shape,
+        //   which is a quantity this command does not carry.
+        //
+        // And a fourth condition, which is not about correctness but about *cost*: with
+        // every element painting Normal the backdrop is composited in and removed again
+        // exactly, so the two models are the same page and the isolated one is what every
+        // rasteriser already has. Stating the harder construction there would buy nothing
+        // and would cost a surface-sized copy per group — and two of the three backends
+        // cannot draw it at all, so it would take pages off the cross-backend comparison
+        // for a difference that provably does not exist. This is the same condition the
+        // report fired on before the construction existed, and for the same reason.
+        //
+        // Isolation is otherwise §11.4.5's, which is what a rasteriser's layer is.
+        let isolated = group.isolated
+            || group.knockout
+            || enclosing_knockout
+            || outer.blend != BlendMode::Normal
+            || !any_command(&commands, &command_blends);
+        self.note_group_departures(group, &commands, knockout, isolated);
         // §11.6.6's final compositing: the group's shape "shall then be painted into the
         // parent group or page, using the group's accumulated colour and opacity at each
         // point" — under the state in force at `Do`, which is where `ca` and `/BM` were left
@@ -3783,6 +3821,7 @@ impl Interpreter<'_> {
             commands,
             alpha: outer.fill_alpha,
             clip: inner.clip,
+            isolated,
             // The mask in force at the `Do`, applied to the group as one object — which is
             // §11.6.4.3's NOTE 2 recommending exactly this construction: "[t]o apply a soft
             // mask to multiple objects, it is usually best to define the objects as a
@@ -3820,9 +3859,9 @@ impl Interpreter<'_> {
 
     /// Reports the parts of §11.4 this group asks for and does not get.
     ///
-    /// A group is composited here onto a transparent backdrop, under its own constant alpha
-    /// and blend mode: §11.4.5's isolated, non-knockout group. Three of Table 145's answers
-    /// ask for something else, and each is reported only where it can change a pixel —
+    /// A group is composited here under its own constant alpha and blend mode, onto the
+    /// backdrop `isolated_drawn` names. Three of Table 145's answers can ask for more than
+    /// the display list carries, and each is reported only where it can change a pixel —
     /// a report that fires where the output is provably identical costs the page its place
     /// in the oracle's comparison and buys nothing.
     fn note_group_departures(
@@ -3830,8 +3869,9 @@ impl Interpreter<'_> {
         group: &TransparencyGroup,
         commands: &[Command],
         knockout_drawn: bool,
+        isolated_drawn: bool,
     ) {
-        self.note_group_structure(group, commands, knockout_drawn);
+        self.note_group_structure(group, commands, knockout_drawn, isolated_drawn);
 
         // §11.6.6: for an isolated group, a `/CS` means "all painting operators shall
         // convert source colours ... to the group colour space before compositing objects
@@ -3860,6 +3900,7 @@ impl Interpreter<'_> {
         group: &TransparencyGroup,
         commands: &[Command],
         knockout_drawn: bool,
+        isolated_drawn: bool,
     ) {
         // §11.4.4 composites a non-isolated group's elements onto the group's backdrop and
         // then removes that backdrop's contribution again (its NOTE 3). Under the Normal
@@ -3869,10 +3910,19 @@ impl Interpreter<'_> {
         // blend mode, this behaviour can be optimised by treating the pattern cell as if it
         // were an isolated group. Since in this case the results depend only on the colour,
         // shape, and opacity of the pattern cell and not on those of the backdrop". So a
-        // non-isolated group is drawn as an isolated one, and only a blend mode inside it
-        // makes that a departure — which is the same sentence §11.4.4's NOTE 2 gives as the
-        // reason the two kinds of group differ at all.
-        if !group.isolated && any_command(commands, &|command| command_blends(command)) {
+        // group all of whose elements paint Normal is drawn as an isolated one whatever it
+        // says, and only a blend mode inside it can tell the difference — the same sentence
+        // §11.4.4's NOTE 2 gives as the reason the two kinds of group differ at all.
+        //
+        // Where one does blend, the display list states the group's backdrop instead of
+        // substituting §11.4.5's (ADR 0237), and `isolated_drawn` is false. What is left
+        // here is the population that construction refuses: a knockout group, an element of
+        // one, and a group composited under a blend mode of its own — plus a *mask* group,
+        // which is evaluated into a raster built on transparency whatever it declares.
+        if !group.isolated
+            && isolated_drawn
+            && any_command(commands, &|command| command_blends(command))
+        {
             self.note(Unsupported::TransparencyGroup {
                 detail: "non-isolated, and an element blends with the backdrop it excludes"
                     .to_owned(),
@@ -5711,6 +5761,7 @@ impl Interpreter<'_> {
                     clip: None,
                     mask: None,
                     blend: BlendMode::Normal,
+                    isolated: true,
                     knockout: true,
                 });
             } else {
@@ -5833,6 +5884,7 @@ impl Interpreter<'_> {
                     clip: None,
                     mask: None,
                     blend: BlendMode::Normal,
+                    isolated: true,
                     knockout: true,
                 });
             } else {
@@ -6057,7 +6109,15 @@ impl Interpreter<'_> {
         // the results depend only on the colour, shape, and opacity of the pattern cell and
         // not on those of the backdrop" — and a cell that sets a blend mode of its own is the
         // case it is not, which is §11.4.4's report.
-        if any_command(&parts, &command_blends) {
+        // — and since ADR 0237 the display list can say the cell's own backdrop instead of
+        // substituting §11.4.5's, on the three conditions `Command::Group`'s `isolated`
+        // states. What is left to report is a cell composited under a blend mode of its own,
+        // and a cell inside a knockout group, where the collapse those conditions rest on
+        // does not hold.
+        let isolated = self.inside_knockout
+            || state.blend != BlendMode::Normal
+            || !any_command(&parts, &command_blends);
+        if isolated && any_command(&parts, &command_blends) {
             self.note(Unsupported::TransparencyGroup {
                 detail: "non-isolated, and an element blends with the backdrop it excludes"
                     .to_owned(),
@@ -6071,6 +6131,7 @@ impl Interpreter<'_> {
             clip: None,
             mask: state.soft_mask,
             blend: state.blend,
+            isolated,
             knockout: false,
         });
     }

@@ -488,23 +488,16 @@ impl CpuRasterizer {
                 self.build_soft_mask(list, id, surface, masks, depth)?;
             }
 
-            // §11.4.6's two stages, for an element whose shape the display list states
-            // separately: empty `1 − shape` of what is under it, then add the object.
-            // Outside a knockout group the shape is unused — §11.4.4 reaches it only
-            // through shape × opacity — so the object is drawn alone, which is what
-            // `Command::Shaped` guarantees a backend may do.
             if let Command::Shaped { object, shape } = command {
-                if compose == Compose::Knockout {
-                    let shape = std::slice::from_ref(&**shape);
-                    self.encode(pixmap, list, shape, surface, masks, depth, Compose::Erase)?;
-                }
-                let object = std::slice::from_ref(&**object);
-                let after = if compose == Compose::Knockout {
-                    Compose::Add
-                } else {
-                    compose
-                };
-                self.encode(pixmap, list, object, surface, masks, depth, after)?;
+                self.encode_shaped(
+                    pixmap,
+                    list,
+                    (object, shape),
+                    surface,
+                    masks,
+                    depth,
+                    compose,
+                )?;
                 continue;
             }
 
@@ -515,6 +508,7 @@ impl CpuRasterizer {
                 commands,
                 alpha,
                 blend,
+                isolated,
                 knockout,
                 ..
             } = command
@@ -541,6 +535,7 @@ impl CpuRasterizer {
                         blend: *blend,
                         clip: command.clip(),
                         mask: command.mask(),
+                        isolated: *isolated,
                         compose: if *knockout {
                             Compose::Knockout
                         } else {
@@ -616,19 +611,77 @@ impl CpuRasterizer {
         Ok(())
     }
 
+    /// Draws §11.4.6's two stages for an element that states its shape (`Command::Shaped`).
+    ///
+    /// Empty `1 − shape` of what is under it, then add the object: `P' = (1 − f) × P + S`,
+    /// which is the clause's weighted average on the transparent initial backdrop a group is
+    /// built on. Outside a knockout group the shape is unused — §11.4.4 reaches it only
+    /// through shape × opacity — so the object is drawn alone, which is what
+    /// `Command::Shaped` guarantees a backend may do.
+    ///
+    /// # Errors
+    ///
+    /// As [`CpuRasterizer::encode`].
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the two halves of one element, and everything `encode` carries; this is \
+                  that recursion split at one arm rather than a call with its own state"
+    )]
+    fn encode_shaped(
+        &self,
+        pixmap: &mut tiny_skia::PixmapMut<'_>,
+        list: &DisplayList,
+        (object, shape): (&Command, &Command),
+        surface: Surface,
+        masks: &mut MaskCache,
+        depth: usize,
+        compose: Compose,
+    ) -> Result<(), CpuRasterError> {
+        if compose == Compose::Knockout {
+            let shape = std::slice::from_ref(shape);
+            self.encode(pixmap, list, shape, surface, masks, depth, Compose::Erase)?;
+        }
+        let object = std::slice::from_ref(object);
+        let after = if compose == Compose::Knockout {
+            Compose::Add
+        } else {
+            compose
+        };
+        self.encode(pixmap, list, object, surface, masks, depth, after)
+    }
+
     /// Composites one transparency group (ISO 32000-2 §11.4.1).
     ///
-    /// The elements are drawn onto a fully transparent buffer the size of this surface — the
-    /// isolated group's initial backdrop of §11.4.5 — and the result is then painted onto
-    /// the page once, under the group's own constant alpha and blend mode. Compositing the
-    /// elements one at a time onto the page instead is what §11.6.6's initialisation of the
-    /// alpha constants exists to prevent, and is visibly different wherever two elements
-    /// overlap.
+    /// The elements are drawn onto a buffer the size of this surface and the result is then
+    /// painted onto the page once, under the group's own constant alpha and blend mode.
+    /// Compositing the elements one at a time onto the page instead is what §11.6.6's
+    /// initialisation of the alpha constants exists to prevent, and is visibly different
+    /// wherever two elements overlap.
     ///
     /// The buffer covers the whole surface rather than the group's band because the elements'
     /// clips are resolved against the surface, so their bands are its rows; a band-sized
     /// buffer would need every one of them shifted, and one coordinate system that is right
     /// beats two that have to agree.
+    ///
+    /// # The two backdrops, and the two ways the buffer comes back
+    ///
+    /// An **isolated** group starts on transparency — §11.4.5's initial backdrop — and comes
+    /// back with source-over. A **non-isolated** one starts as a *copy of the page*, which is
+    /// §11.4.4's own model, and comes back as the interpolation `Command::Group`'s `isolated`
+    /// derives: `(1 − w) × page + w × buffer`, with `w` the group's constant alpha times its
+    /// soft mask at the pixel. That is two draws — Destination-Out by `w` over the band, then
+    /// Plus of the buffer at `w` — and the pair is bounded by 1 everywhere, because the two
+    /// weights sum to 1 and each operand is a valid premultiplied sample, so `Plus` never
+    /// saturates.
+    ///
+    /// Outside the group's marks the buffer still *is* the page, and the interpolation of a
+    /// value with itself is that value, so the copy costs the region nothing.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CpuRasterError::UnsupportedCommand`] for a non-isolated group carrying
+    /// anything the collapse above does not hold for; `pdf-model` guarantees it does not
+    /// build one, and refusing keeps that from becoming a silence.
     fn draw_group(
         &self,
         pixmap: &mut tiny_skia::PixmapMut<'_>,
@@ -653,12 +706,7 @@ impl CpuRasterizer {
             return Ok(());
         };
 
-        let mut buffer = tiny_skia::Pixmap::new(surface.width(), surface.rows.height).ok_or(
-            CpuRasterError::Allocation {
-                width: surface.width(),
-                height: surface.rows.height,
-            },
-        )?;
+        let mut buffer = initial_backdrop(pixmap, surface, &group)?;
         self.encode(
             &mut buffer.as_mut(),
             list,
@@ -703,6 +751,24 @@ impl CpuRasterizer {
                 height: band.height,
             }
         })?;
+
+        // §11.4.4's own model, for a group whose elements were drawn onto a copy of the
+        // page: `(1 − w) × page + w × buffer`, with `w` the group's constant alpha times its
+        // soft mask at the pixel. One pass over the band rather than two Porter-Duff draws,
+        // for the rounding reason `blend::interpolate` records. The whole band is walked
+        // because outside the group's marks the buffer *is* the page and the interpolation
+        // has to put it back unchanged — which it does, exactly, and cheaply.
+        if !group.isolated {
+            let from_row = band.top.saturating_sub(surface.rows.top);
+            let mut rows = band
+                .rows(pixmap, surface)
+                .ok_or(CpuRasterError::Allocation {
+                    width: surface.width(),
+                    height: band.height,
+                })?;
+            blend::interpolate(&mut rows, &buffer, from_row, paint.opacity, clip);
+            return Ok(());
+        }
 
         // §11.3.5.3's four modes are this backend's own (ADR 0047), and a group reaches
         // them by the same two steps a command does: the group's clip, alpha and offset
@@ -1122,6 +1188,8 @@ struct Group<'a> {
     blend: pdf_render::BlendMode,
     clip: Option<ClipId>,
     mask: Option<SoftMaskId>,
+    /// What the elements are composited onto — see `Command::Group`'s `isolated`.
+    isolated: bool,
     /// How this group's own elements combine with each other (§11.4.6).
     compose: Compose,
     /// How the finished group combines with what it is drawn onto.
@@ -1618,6 +1686,63 @@ fn crop_to_mask(
         transform.then(to_device.page),
         convert::from_skia_rect(admits?),
     )
+}
+
+/// The buffer a transparency group's elements are drawn onto (ISO 32000-2 §11.4.4, §11.4.5).
+///
+/// Transparent for §11.4.5's isolated group, and a **copy of `pixmap`** for a non-isolated
+/// one, whose elements composite onto the group's own backdrop. Copied rather than aliased:
+/// the elements read it while they blend, and [`blend::interpolate`] reads the original
+/// again to put the two together.
+///
+/// A non-isolated group carries three guarantees from `pdf-model` — `Command::Group`'s
+/// `isolated` states them, and each is what makes §11.4.4's backdrop removal cancel against
+/// §11.3.3's re-compositing — and this is where they are checked rather than assumed.
+///
+/// # Errors
+///
+/// [`CpuRasterError::Allocation`] if the buffer does not fit, and
+/// [`CpuRasterError::UnsupportedCommand`] for a non-isolated group carrying anything the
+/// collapse does not hold for.
+fn initial_backdrop(
+    pixmap: &tiny_skia::PixmapMut<'_>,
+    surface: Surface,
+    group: &Group<'_>,
+) -> Result<tiny_skia::Pixmap, CpuRasterError> {
+    if !group.isolated
+        && (group.compose != Compose::Over
+            || group.into != Compose::Over
+            || group.blend != pdf_render::BlendMode::Normal)
+    {
+        return Err(CpuRasterError::UnsupportedCommand(
+            "a non-isolated group whose result is not composited by §11.3.3's Normal blend \
+             function needs Table 140's group alpha kept apart from the composite alpha \
+             (ISO 32000-2 §11.4.4 NOTE 4)"
+                .to_owned(),
+        ));
+    }
+    let mut buffer = tiny_skia::Pixmap::new(surface.width(), surface.rows.height).ok_or(
+        CpuRasterError::Allocation {
+            width: surface.width(),
+            height: surface.rows.height,
+        },
+    )?;
+    if group.isolated {
+        return Ok(buffer);
+    }
+    buffer.as_mut().draw_pixmap(
+        0,
+        0,
+        pixmap.as_ref(),
+        &tiny_skia::PixmapPaint {
+            opacity: 1.0,
+            blend_mode: tiny_skia::BlendMode::Source,
+            quality: tiny_skia::FilterQuality::Nearest,
+        },
+        tiny_skia::Transform::identity(),
+        None,
+    );
+    Ok(buffer)
 }
 
 /// Whether a command's own extent lies wholly above or below `surface`'s rows.

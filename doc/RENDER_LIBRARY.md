@@ -344,16 +344,26 @@ The scene that found this: fourteen cross-backend fixtures existed and every com
 them carried `BlendMode::Normal`, so sixteen blend functions had never been compared at all. Three
 of them disagreed by 113 of 255 (ADR 0046).
 
-### 4.4 Groups composite onto transparency (§11.4.1, §11.4.5, §11.6.6)
+### 4.4 Groups composite onto transparency, except where §11.4.4 says otherwise (§11.4.1, §11.4.5, §11.6.6)
 
 A group's elements draw onto a fully transparent backdrop; the result is then painted once, under
 the group's own constant alpha and blend mode. Compositing the elements onto the page one at a
 time instead is visibly different wherever two of them overlap, and it is what §11.6.6's
 initialisation of the alpha constants exists to prevent.
 
-We decide isolation upstream and only emit a group where the computation is provably the isolated
-one, so **you can assume every group is isolated** — but please say so in your documentation
-rather than leaving it implicit.
+**This used to say you could assume every group is isolated, and since the four-hundredth session
+you cannot.** §11.4.4's *non-isolated* group composites its elements onto the backdrop the group
+is being painted over, and the difference shows wherever an element blends — with every element
+painting Normal the backdrop is composited in and removed again exactly (§11.4.4 NOTE 3), which is
+the case we still emit an ordinary isolated group for and which is almost all of them.
+
+Where it does show, the whole construction is two things: **a group buffer that begins as a copy of
+what is under it**, and a composite back that writes `(1 − w) × destination + w × buffer` with `w`
+the group's alpha times its mask — which is Porter-Duff Source *modulated by coverage* rather than
+source-over. ADR 0237 has the derivation from the clause's own formulas, including why NOTE 4's
+advice to keep a second alpha accumulator turns out to be unnecessary. A backend that cannot seed a
+layer from its destination should **refuse the group by name** rather than draw the isolated one;
+ours does that on the GPU and the CPU backend draws the frame.
 
 ### 4.5 Four decisions that are ours, not yours
 

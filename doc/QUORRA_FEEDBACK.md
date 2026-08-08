@@ -1130,3 +1130,89 @@ express "this fill is bounded by this rectangle" at all, since a clip in a scene
 rather than a bound. If it can, a host could state the bound instead of shrinking the geometry, and
 that is the better shape — it keeps the producer's rectangle in the scene and lets the rasteriser
 decide what to do with it.
+
+## 16. A group's buffer always starts transparent, and §11.4.4 defines the other one — **open, and it is the same shape as section 14**
+
+Written 2026-08-08, at the end of this viewer's four-hundredth session.
+
+`quorra_scene::GroupSpec` opens a layer, draws into it and composites the result once. That is
+ISO 32000-2 §11.4.5's **isolated** group exactly, and it is what every rasterising library
+offers, ours included:
+
+> An isolated group is one whose elements shall be composited onto a fully transparent initial
+> backdrop rather than onto the group's backdrop.
+
+§11.4.4 defines the other initial backdrop: for a **non-isolated** group the elements composite
+onto the group's own backdrop, and the clause then removes that backdrop's contribution from the
+result so it is counted once. The difference can only be seen where an element *blends* — with
+every element painting Normal the backdrop is composited in and removed again exactly (§11.4.4
+NOTE 3, and §11.6.7's NOTE 1 says the same for a pattern cell) — which is why this side emits
+nothing new for the ordinary case and why it never came up before.
+
+### What this side did, and the part worth having
+
+The clause's own advice for the non-isolated case is NOTE 4: keep *two* sets of accumulated
+variables, Table 140's group alpha apart from the composite alpha, because the removal divides
+by the first. A premultiplied raster has one set, and this project had written down twice that
+one raster therefore cannot do it.
+
+**It can, and the reason is that the quantity the removal divides out is multiplied straight
+back in.** The group's object alpha *is* Table 140's group alpha, so when §11.3.3 composites the
+group's result onto the same backdrop under the **Normal** blend function, the two cancel. With
+`B` the backdrop, `E(B)` the elements composited onto it, both premultiplied, and `w` the group's
+constant alpha times its soft mask at the pixel:
+
+```text
+result = (1 − w) × B + w × E(B)
+```
+
+exact for every backdrop alpha and every blend mode *inside* the group. `w = 1` reduces it to
+`E(B)`, which is NOTE 5's flattening. Checked against transcriptions of §11.4.4's recurrence and
+§11.3.3's formula over 200 000 random inputs: worst deviation 5.6 × 10⁻¹⁶. With a non-Normal
+blend mode at the `Do` it is **0.601 of full scale** wrong, so that case is excluded and reported.
+
+So the whole construction is: **a group buffer that starts as a copy of what is under it**, and
+one interpolation to bring it back. Our CPU backend seeds a `tiny-skia` pixmap from the target
+and writes the line above in a single pass over the band — one pass rather than Destination-Out
+plus Plus, because two draws round twice and at `w = ½` over an opaque page they leave alpha 254
+of 255.
+
+### What the corpus says
+
+**Four documents, and all four used to be counted as agreeing in section 0's gate**:
+`bug1755507.pdf`, `issue12798_page1_reduced.pdf`, `issue13520.pdf` and `issue18032.pdf`. Every
+one of them is Illustrator or InDesign artwork — nested groups under `/Luminosity` soft masks
+with `Screen` and `Multiply` elements — which is what a non-isolated group with a blending
+element looks like in the wild.
+
+That agreement was two backends substituting the same wrong initial backdrop. They are now
+`refused` by name: `957 pages compared: 912 agree, 36 differ, 9 refused, 17 not comparable`,
+against 916/36/5/17 before. As in section 14, a refusal that replaces an agreement about a wrong
+picture is a gain rather than a regression, and the list is held to equality in both directions
+so it cannot quietly grow.
+
+### The ask
+
+**One flag on `GroupSpec`: whether the group's buffer begins transparent or as a copy of what is
+under it.** `GroupSpec` carries `alpha`, `blend`, `clip`, `knockout` and `mask`, which is
+§11.4.5's group exactly; this is Table 145's remaining entry, `/I`, and it is the only thing the
+vocabulary is missing.
+
+**And the composite back is an operator you already have and already describe correctly.**
+`Compose::Src` is documented as "Porter-Duff Source, **modulated by coverage**: an element with
+40% coverage replaces 40% of what was there and leaves the rest" — which *is*
+`(1 − w) × destination + w × source`, the line above, with `w` the coverage. So if a group's
+composite can be `Src` rather than `SrcOver` when the flag is set, and the group's alpha and mask
+supply the coverage, nothing else is needed at all: a seeded buffer plus that operator is the
+whole of §11.4.4.
+
+Whether that is one change or two depends on where the fine rasteriser can start a layer from the
+destination, which we cannot see from here. If it can only be the operator and not the buffer,
+the answer is a refusal we can go on printing rather than a workaround — the two halves are not
+separable, since the interpolation is between the backdrop and the *elements composited onto it*.
+
+**What is not asked for**: anything about the isolated group, or about `Compose::Src` itself.
+`GroupSpec` is right for the isolated case, this viewer emits it for every group whose elements
+paint Normal — which is almost all of them, because that is the case the clause itself says needs
+nothing — and a seeded buffer is strictly more expensive. The flag's default is the behaviour
+that exists.

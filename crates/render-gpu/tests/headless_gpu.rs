@@ -237,6 +237,33 @@ fn cpu_and_gpu_agree_on_a_knockout_group_that_states_its_shape() {
     );
 }
 
+/// §11.4.4's non-isolated group is refused **by name** on this backend.
+///
+/// A Vello layer begins fully transparent — §11.4.5's initial backdrop — and a scene cannot
+/// read what it has drawn so far, so there is no way to seed one with the page a
+/// non-isolated group's elements have to composite onto. The frame goes to the CPU backend,
+/// which is what `CLAUDE.md` keeps that backend for; drawing the isolated group it is not
+/// would be a plausible wrong picture, and this fails if that ever becomes the answer.
+#[test]
+fn the_gpu_refuses_a_non_isolated_group() {
+    let list = test_scenes::non_isolated_group();
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+    let refusal = gpu()
+        .rasterize(&list, target)
+        .expect_err("Vello has no layer seeded from its backdrop")
+        .to_string();
+    assert!(
+        refusal.contains("§11.4.4") && refusal.contains("non-isolated"),
+        "the refusal names the clause and what it needs: {refusal}"
+    );
+    // And the CPU backend draws it: §11.3.5.2's Multiply of blue over green leaves nothing
+    // of the blue, so the group's half-alpha result over the green page is a darker green
+    // rather than the teal an isolated group would give.
+    CpuRasterizer::new()
+        .rasterize(&list, target)
+        .expect("the correctness oracle draws what the device refuses");
+}
+
 /// Every one of §11.3.5's sixteen blend modes is the same function on both backends, to
 /// the channel.
 ///
