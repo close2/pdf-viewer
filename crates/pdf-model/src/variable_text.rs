@@ -522,7 +522,8 @@ const LINE_HEIGHT: f32 = 13.0 / 12.0;
 /// **A choice.** Nothing in ISO 32000-2 says where in a field's box its text sits vertically —
 /// the clause asks only for "positioning values [the processor] determines to be appropriate".
 /// A font descriptor that states Table 120's `/Ascent` and `/Descent` is the document
-/// answering the question and outranks this; a standard-14 font has no descriptor at all, and
+/// answering the question and outranks this — where the pair could be a measurement of a face,
+/// which is [`Metrics::read`]'s band. A standard-14 font has no descriptor at all, and
 /// this is what stands in. Splitting the em three-to-one puts the baseline where Latin text
 /// normally sits, and being a constant it makes the layout independent of which fonts are
 /// installed — which the substitute glyphs themselves are not, and layout should not be.
@@ -746,15 +747,37 @@ struct Metrics {
 impl Metrics {
     /// Reads the font descriptor's vertical metrics, or falls back to the documented split.
     ///
-    /// Table 120: `/Ascent` is "the maximum height above the baseline reached by glyphs in
-    /// this font" and `/Descent` "the maximum depth below the baseline", both in glyph space,
-    /// whose unit is one thousandth of an em. Both are required of every font descriptor and
-    /// a descriptor is required of every font but the standard 14 — which is exactly the case
-    /// a `/DA` usually names, so the fallback is the common path rather than the odd one.
+    /// ISO 32000-2 §9.8.1's Table 120 defines both entries as measurements of the face rather
+    /// than as free parameters. `/Ascent`:
     ///
-    /// A font whose stated ascent and descent do not straddle the baseline states nothing
-    /// usable, and the fallback stands: an `/Ascent` of 0 would put every line's baseline on
-    /// the top edge of its box.
+    /// > The maximum height above the baseline reached by glyphs in this font. The height of
+    /// > glyphs for accented characters shall be excluded.
+    ///
+    /// and `/Descent`:
+    ///
+    /// > The maximum depth below the baseline reached by glyphs in this font. The value shall be
+    /// > a negative number.
+    ///
+    /// Both are in glyph space, whose unit §9.2.4 makes one thousandth of a text space unit.
+    /// Both are required of every font descriptor and a descriptor is required of every font but
+    /// the standard 14 — which is exactly the case a `/DA` usually names, so the fallback is the
+    /// common path rather than the odd one.
+    ///
+    /// **Whether a stated pair could be a measurement at all is
+    /// [`pdf_font::measured_extent`]'s question**, and asking it here is what ADR 0216 named as
+    /// a divergence and left for a round that could measure it. The guard used to be
+    /// `ascent > 0.0 && descent < 0.0`, which is a statement that the pair straddles the
+    /// baseline and nothing more: it believed `/Ascent 4000 /Descent -1140`, a five-em line that
+    /// would put a field's baseline four ems above the bottom of its own box, and refused
+    /// `/Ascent 905 /Descent 211`, which is Arial's real metrics with Table 120's sign
+    /// convention broken rather than its measurement withheld. Sharing the band settles both,
+    /// and one rule for the two things this tree reads these entries for is worth more than the
+    /// two constants either would have needed.
+    ///
+    /// A pair the band refuses gets [`DEFAULT_ASCENT`] and [`DEFAULT_DESCENT`] rather than
+    /// `pdf_font::vertical_extent`'s em box, and the difference is not an oversight: that one
+    /// answers *how tall is this line* for a selection highlight, and this one answers *where in
+    /// its box does this field's text sit*, which is the choice those two constants record.
     fn read(document: &Document, dict: &Dictionary) -> Self {
         let descriptor = document.get_key(dict, "FontDescriptor");
         let read = |key: &str| {
@@ -762,18 +785,20 @@ impl Metrics {
                 .as_dict()
                 .map(|descriptor| document.get_key(descriptor, key))
                 .and_then(|value| value.as_number())
-                .map(|value| narrow(value) / 1000.0)
+                .map(narrow)
                 .filter(|value| value.is_finite())
         };
-        match (read("Ascent"), read("Descent")) {
-            (Some(ascent), Some(descent)) if ascent > 0.0 && descent < 0.0 => {
-                Self { ascent, descent }
-            }
-            _ => Self {
+        let stated = match (read("Ascent"), read("Descent")) {
+            (Some(ascent), Some(descent)) => pdf_font::measured_extent(ascent, descent),
+            _ => None,
+        };
+        stated.map_or(
+            Self {
                 ascent: DEFAULT_ASCENT,
                 descent: DEFAULT_DESCENT,
             },
-        }
+            |(ascent, descent)| Self { ascent, descent },
+        )
     }
 }
 

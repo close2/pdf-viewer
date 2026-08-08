@@ -61,6 +61,12 @@ cargo run --release -p pdf-model --example clip_chain_census -- [file.pdf] [page
   # (ADR 0236). A profile cannot see either number — it counts commands, not what a command covers
 cargo run --release -p pdf-model --example field_flag_census -- doc/pdf.js/test/pdfs/*.pdf
   # which of §12.7's twenty field flags any real document states (ADR 0197)
+cargo run --release -p pdf-model --example variable_text_census -- doc/pdf.js/test/pdfs/*.pdf
+  # what §12.7.4.3 actually lays text out for, which the two censuses above cannot say: 622 widgets
+  # of a text field or a combo box, 305 with no /AP /N stream, and 73 of §12.5.6.6's free text
+  # annotations — with each one's /DA font classified by what its descriptor says about a baseline,
+  # and §12.7.5.4's list boxes counted beside them. `font_metric_census` counts the fonts a *page*
+  # draws with, which is a different population and was mistaken for this one (ADR 0240)
 cargo run --release -p pdf-model --example presentation_census -- doc/pdf.js/test/pdfs/*.pdf doc/*.pdf
   # what any real document says about §12.4.4: 978 opened, 1971 pages walked, and **not one**
   # states a /Trans, a /Dur or a /PresSteps — asked of the page tree rather than of the raw bytes,

@@ -42,6 +42,29 @@ fn pdf_with(form: &str, annotation: &str) -> Vec<u8> {
 
 /// The same, with the stored appearance stream's contents given.
 fn pdf_with_appearance(form: &str, annotation: &str, appearance: &str) -> Vec<u8> {
+    pdf_with_font(form, annotation, appearance, "")
+}
+
+/// The same again, with a font descriptor given to the `/Helv` the `/DR` defines.
+///
+/// §9.8.1's Table 120 is where a field's baseline comes from when the document states one, and
+/// the standard 14 the other fixtures name have no descriptor at all — so this is the only way
+/// to put those two entries in front of the layout. `descriptor` is written verbatim into a
+/// dictionary the font's `/FontDescriptor` reaches.
+fn pdf_with_descriptor(annotation: &str, descriptor: &str) -> Vec<u8> {
+    pdf_with_font(
+        "",
+        annotation,
+        "0 0 1 rg 0 0 10 10 re f",
+        &format!(
+            "/FontDescriptor << /Type /FontDescriptor /FontName /Helvetica /Flags 32 \
+             /ItalicAngle 0 /StemV 80 /FontBBox [-100 -300 1000 900] {descriptor} >>"
+        ),
+    )
+}
+
+/// The one builder the three above share, with entries added to the `/DR` font dictionary.
+fn pdf_with_font(form: &str, annotation: &str, appearance: &str, font: &str) -> Vec<u8> {
     let (width, height) = PAGE;
     let body = format!(
         "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /AcroForm \
@@ -54,7 +77,7 @@ fn pdf_with_appearance(form: &str, annotation: &str, appearance: &str) -> Vec<u8
          6 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 160 30] /Length {} >>\n\
          stream\n{appearance}\nendstream\nendobj\n\
          7 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica \
-         /Encoding /WinAnsiEncoding >>\nendobj\n",
+         /Encoding /WinAnsiEncoding {font} >>\nendobj\n",
         appearance.len().saturating_add(1)
     );
 
@@ -1525,5 +1548,108 @@ fn a_callout_line_is_reported_rather_than_invented() {
     assert!(
         reports[0].contains("/CL") && reports[0].contains("/LE"),
         "the report names both entries: {reports:?}"
+    );
+}
+
+/// A text field whose `/DR` font states the descriptor given, at 24 points in a 60-point box.
+///
+/// One helper for the four tests below because the arithmetic they check is one arithmetic and
+/// its inputs must not drift: §12.5.4's default border is one point wide and drawn inside
+/// `/Rect`, so the box the text is laid out in is `[21 21 179 79]` and 58 points tall. A single
+/// line is centred in it, which puts the baseline at `21 + (58 + 24(A − D))/2 − 24A`, or
+/// **50 − 12(A + D)** for a pair `(A, D)` in ems — so a pair that raises `A + D` moves the
+/// baseline *down*, by twelve points per em.
+///
+/// The value has no descender on purpose: with `HI` the topmost inked row is the baseline plus a
+/// cap height, so a difference between two fixtures drawn in the same face is exactly the
+/// difference between their baselines, and the face this machine substitutes cancels out.
+fn field_with_descriptor(descriptor: &str) -> Vec<u8> {
+    pdf_with_descriptor(
+        "<< /Type /Annot /Subtype /Widget /Rect [20 20 180 80] /F 4 /FT /Tx \
+         /T (field) /V (HI) /DA (/Helv 24 Tf 0 g) >>",
+        descriptor,
+    )
+}
+
+/// The topmost row any glyph reached, in PDF y.
+fn ink_top(bytes: Vec<u8>) -> u32 {
+    let (_, raster) = draw(bytes);
+    let rows = inked_rows(&raster);
+    *rows.iter().max().expect("the value was drawn")
+}
+
+/// A pair no measurement of a face could produce is answered by the em-relative split.
+///
+/// ISO 32000-2 §9.8.1's Table 120 defines `/Ascent` as "[t]he maximum height above the baseline
+/// reached by glyphs in this font" and `/Descent` as "[t]he maximum depth below the baseline
+/// reached by glyphs in this font", both in glyph space — so `/Ascent 4000 /Descent -1140` is a
+/// line five ems tall, which is a number in the wrong unit rather than a face. The old guard
+/// asked only that the pair straddle the baseline and believed it, which put this field's
+/// baseline at 50 − 12 × 2.86 = 15.7 points: *below its own rectangle*, where the clause's own
+/// clip then took most of the value away. `pdf_font::measured_extent` refuses it and the split
+/// answers, which is the same picture as a descriptor stating nothing at all (ADR 0216, 0240).
+#[test]
+fn a_fields_baseline_ignores_a_descriptor_that_cannot_be_a_measurement() {
+    let refused = ink_top(field_with_descriptor("/Ascent 4000 /Descent -1140"));
+    let silent = ink_top(field_with_descriptor(""));
+    assert_eq!(
+        refused, silent,
+        "a pair the band refuses draws where a descriptor stating neither entry does"
+    );
+}
+
+/// A pair the band believes is believed to the number, which is the control on the one above.
+///
+/// `/Ascent 1200 /Descent -300` is a 1.5 em line, inside the band, and `A + D` is 0.9 against the
+/// split's 0.5 — so the baseline sits 12 × 0.4 = 4.8 points lower. A band that threw away true
+/// statements would draw this at the same height as the fixture with no descriptor at all.
+#[test]
+fn a_fields_baseline_follows_a_descriptor_the_band_believes() {
+    let stated = ink_top(field_with_descriptor("/Ascent 1200 /Descent -300"));
+    let silent = ink_top(field_with_descriptor(""));
+    let dropped = silent.saturating_sub(stated);
+    assert!(
+        (4..=6).contains(&dropped),
+        "the stated pair moves the baseline 4.8 points down, not {dropped}"
+    );
+}
+
+/// Table 120's sign convention is a convention, and a positive `/Descent` states a depth.
+///
+/// ISO 32000-2 §9.8.1's Table 120, on `/Descent`:
+///
+/// > The maximum depth below the baseline reached by glyphs in this font. The value shall be a
+/// > negative number.
+///
+/// Two sentences: the first defines a depth, which is a magnitude, and the second is how to write
+/// it down. `/Ascent 905 /Descent 211` is Arial's real metrics with the second broken, so it is
+/// read as the pair the first states — and the strongest form of that claim is that it draws
+/// *identically* to the same file with the sign put back. The old guard refused it and the split
+/// stood in, 2.3 points away. **A choice and not a clause**, argued in ADR 0216 and shared with a
+/// field's baseline here.
+#[test]
+fn a_fields_baseline_reads_a_positive_descent_as_the_depth_it_states() {
+    let unsigned = ink_top(field_with_descriptor("/Ascent 905 /Descent 211"));
+    let signed = ink_top(field_with_descriptor("/Ascent 905 /Descent -211"));
+    assert_eq!(
+        unsigned, signed,
+        "a descent written without its sign is the same face as one written with it"
+    );
+}
+
+/// A `/Descent` of zero is a face whose glyphs stop at the baseline, not a face that said nothing.
+///
+/// The old guard asked for `descent < 0` and fell back on `/Ascent 1000 /Descent 0`, which states
+/// a line of exactly one em — §9.2.2's own nominal line, "arranged so that the nominal height of
+/// tightly spaced lines of text is 1 unit". `A + D` is 1.0 against the split's 0.5, so believing
+/// it puts the baseline six points lower.
+#[test]
+fn a_fields_baseline_reads_a_zero_descent_as_a_face_with_no_descenders() {
+    let stated = ink_top(field_with_descriptor("/Ascent 1000 /Descent 0"));
+    let silent = ink_top(field_with_descriptor(""));
+    let dropped = silent.saturating_sub(stated);
+    assert!(
+        (5..=7).contains(&dropped),
+        "a one-em line moves the baseline six points down, not {dropped}"
     );
 }
