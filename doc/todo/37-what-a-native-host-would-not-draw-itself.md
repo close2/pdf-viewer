@@ -1,8 +1,9 @@
 # What a native host would not draw itself, and whether the API lets it delegate
 
 Status: **six of six populations cross as data** since the three-hundred-and-ninety-eighth session
-(ADR 0235). What is left is one decision the audit named and did not take: a page rendered
-*without* its widget appearances.
+(ADR 0235), and **a real native host has now been built on them** (`crates/viewer-gtk`, ADR 0244,
+session 408). What is left is the one decision the audit named and did not take: a page rendered
+*without* its widget appearances — which that host makes visible rather than hypothetical.
 Priority: 37 — capability, and a prerequisite for `doc/todo/30`'s hosts being any good
 Clauses: §12.5.6.14 (popups), §12.7.4 and §12.7.5 (fields), §12.3.3, §12.3.4, §8.11.4.3, §7.11.4,
 §14.3.3, §12.5.1
@@ -77,13 +78,35 @@ page went on drawing the state the file was saved in, on both the stored and the
 ADR 0235 has the numbers and the fix. `viewer-ui` toggles a box and a radio button from a click as of
 the same round, which is the first thing in this tree that gives a button field a value.
 
-## What is left, and it is one decision
+## What is left, and it is one decision — **now with a photograph behind it**
 
 **A page rendered without its widget appearances.** A host placing native controls over the page gets
 both pictures unless it can ask for one without them. This is a second decision and a larger one:
 §12.5.5's appearance streams are page content, and leaving them out changes `interpret`, on which the
 oracle's 1794-page comparison rests. It is probably a flag on the render request rather than a query
 — a departure a host *asks for* rather than one this crate takes — and it wants its own round.
+
+**The four-hundred-and-eighth session hit it**, which is the difference between a prediction and a
+finding. `crates/viewer-gtk` places real GTK4 controls over the page: `160F-2019.pdf`, 67 fields on
+page one, **76 controls**, every one on top of the picture of itself, so a person sees each field
+twice. ADR 0244 has the photograph. Three things that round adds to this section:
+
+- **A second consequence this audit did not name.** A platform control has a **minimum size** the
+  document's rectangle can be smaller than — a `GtkEntry` under the default theme is about 34
+  logical pixels tall and a widget's `/Rect` on a 596×842 page is commonly 15 — so the control does
+  not merely sit *over* its appearance, it **overflows** it and covers the page's own text around
+  it. Removing the appearance underneath would not fix that. It is a separate consequence of the
+  same decision and it means a real native form host also wants to choose the scale the page is
+  drawn at.
+- **A quadrilateral is not a rectangle.** `FormWidget::quad` carries four corners so that
+  §7.7.3.3's `/Rotate` and Table 189's `/R` survive the crossing, correctly; every platform control
+  is axis-aligned, so a host takes the bound and loses the rotation. That is the host's loss and not
+  the boundary's, and it is worth recording here because a rotated widget is exactly where an
+  appearance underneath a control is most visible.
+- **The cheapest shape that does not touch the oracle**, stated so the round that takes this has
+  somewhere to start: a flag that is `false` in every existing caller, so that the gates' display
+  lists are byte-identical **by construction** rather than by comparison. That is a claim to test,
+  not a design to adopt.
 
 Two smaller things, both named rather than left to be found:
 

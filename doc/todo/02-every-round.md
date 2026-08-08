@@ -19,7 +19,7 @@ features no file exercises.
 ```sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets      # must be silent of lints
-cargo nextest run --workspace               # 1420 tests, 10 ignored
+cargo nextest run --workspace               # 1430 tests, 10 ignored
 cargo test --workspace --doc                # the one doctest nextest does not run
 cargo build --profile gates -p pdf-sandbox --bins   # trap 10: Cargo will not do this for you
 cargo test  --profile gates -p pdf-model      --test corpus          -- --ignored --nocapture
@@ -58,7 +58,8 @@ here:
   more and it was not behind either; the four-hundred-and-fifth added **two** and it was not behind for the third round running, which is what happens when each round writes the gate's own
   number down. The four-hundred-and-seventh added one **ignored** test and moved the second number
   instead — 9 skipped to **10** — which is the one the line beside it had never been checked
-  against.)
+  against. The four-hundred-and-eighth added **ten**, a whole new host crate's, and this line was
+  not behind for the fourth round running.)
 - **`pdfref-hayro` is the oracle's fourth reading and nothing built it.** It is a *program*, found
   beside the running test binary, and its absence costs no verdict — `Reference::Hayro` never
   votes — but it is what a person looks at on a page the three references cannot settle. Until
@@ -114,10 +115,12 @@ at.** So at the end of every round, copy what a person would run into the projec
 `target/`:
 
 ```sh
-cargo build --release --bin pdf-viewer --bin pdf-sandbox-worker --bin pdf-view-worker
+cargo build --release --bin pdf-viewer --bin pdf-sandbox-worker --bin pdf-view-worker \
+                     --bin pdf-viewer-gtk
 install -Dm755 /home/AI/cargo-target/pdf-viewer/release/pdf-viewer          target/pdf-viewer
 install -Dm755 /home/AI/cargo-target/pdf-viewer/release/pdf-sandbox-worker  target/pdf-sandbox-worker
 install -Dm755 /home/AI/cargo-target/pdf-viewer/release/pdf-view-worker     target/pdf-view-worker
+install -Dm755 /home/AI/cargo-target/pdf-viewer/release/pdf-viewer-gtk      target/pdf-viewer-gtk
 ```
 
 **One invocation, not three**, since the three-hundred-and-eighty-fifth: each of these is a whole-graph
@@ -127,7 +130,9 @@ another — **109.7 s to 79.3 s**, measured both ways after touching one file in
 these are what a person runs and what every launch measurement is taken from, and `--profile gates`
 above exists so that the *gates* stop paying for it.
 
-**Three, not two** — this section named two for three rounds after the third arrived, which the
+**Four, not three, since the four-hundred-and-eighth** — `pdf-viewer-gtk` is the GTK4 host and it
+is a program a person runs, so it belongs in the same invocation and for the same reason as the other
+three (ADR 0244). This section named two for three rounds after the third arrived, which the
 three-hundred-and-eighty-third flagged and the three-hundred-and-eighty-fourth fixed. All three
 beside each other: `pdf_sandbox::WORKER_PROGRAM` is a separate executable the viewer spawns for
 JBIG2 and JPEG 2000, and a viewer that cannot find it refuses those images rather than falling

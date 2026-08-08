@@ -1,0 +1,31 @@
+[package]
+name = "viewer-gtk"
+description = "A GTK4 host for viewer-core: the first native-toolkit consumer of the UI boundary."
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# The boundary this crate exists to consume. Nothing from a toolkit appears in its API,
+# which is what makes this crate possible at all.
+viewer-core.workspace = true
+# `Raster`, `Rect` and `TargetSpec` cross the boundary, so a host names them.
+pdf-render.workspace = true
+# Tier 1: the host rasterises. `render-cpu` is what does it here, and ADR 0244 says why
+# a GTK4 host has no other tier available to it.
+render-cpu.workspace = true
+# §12.7.5's `Control`, which decides which platform widget a field becomes, and §7.9.4's
+# date behind an attachment's `/ModDate`.
+pdf-model.workspace = true
+# §12.5.6.5's link targets and §8.11's groups are named by object identity.
+pdf-syntax.workspace = true
+# The toolkit, and the whole point of the crate. See ADR 0244 for the decision, the
+# licence position and what confines it to this crate.
+gtk4.workspace = true
+# Every refusal in this crate is a typed error, as everywhere else in the tree.
+thiserror.workspace = true
+
+[lints]
+workspace = true

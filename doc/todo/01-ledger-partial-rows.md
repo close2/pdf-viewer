@@ -914,3 +914,24 @@ What separates the tenth from the sixth is that it reads the sentence rather tha
 **The false-positive ratio is 7:1 and it is not a gate**, for the ninth sweep's reason: tightening it
 enough to fail a build would mean deciding which of English's ways of counting are about a family.
 One run is under a second.
+
+## The fifth sweep run again in the four-hundred-and-eighth, with a **fifth** host crate
+
+The round built `crates/viewer-gtk`, so the sweep's grep population grew from four host crates to
+five. **246 `pub fn`s in `pdf-model`, 85 named by no host — and the GTK host names not one that the
+other four do not.**
+
+Two things about that number, and the second is the finding.
+
+- **The delta is what to trust, not the level.** The four-hundred-and-fifth recorded 246 and *86*
+  with its own script; this round's script says 246 and 85 over the same four crates at `HEAD`, so
+  the two extractions differ by one name and neither is wrong about the population. What is exact is
+  the difference a fifth host makes, which was computed by running the sweep both ways in one
+  sitting: **zero**.
+- **A native host reaches `pdf-model` for *types* and for no function of its own.** `viewer-gtk`
+  names `form::Control`, `TextControl`, `ChoiceControl`, `Choice`, `attachment::Attachment`,
+  `outline::Outline` and `outline::Item` — the shapes `viewer-core`'s answers carry — and calls
+  nothing in that crate the existing hosts do not already call. That is the boundary working as
+  designed rather than a null result: the sweep exists because a capability can reach the crate
+  implementing a clause and never reach a program, and a whole new program needing no new entry
+  point is the strongest available evidence that the entry points are the answers.

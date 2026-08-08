@@ -92,6 +92,26 @@ that state indefinite lengths. Both modules are in tree — `pdf_model::x509` at
 all four checks with no package added and the licence position unchanged**. ADR 0229 has the
 argument, including what would change the answer: an ECDSA or DSA signature arriving in a real file.
 
+**And in the four-hundred-and-eighth, `gtk4` 0.11.4 — a *toolkit*, which is a first for this
+record.** `doc/todo/30`'s order made GTK4 the first native host, and the crate is the GNOME project's
+own GIR-generated binding. **41 packages** arrive with it — `glib`, `gio`, `gdk4`, `gsk4`, `pango`,
+`cairo-rs`, `graphene-rs`, their four `-sys` crates, and the `system-deps`/`pkg-config` machinery
+their build scripts use — and **every one of them is MIT**, which is this project's own licence, so
+the answer to "what may I do with a build of this?" is unchanged. `cargo deny check` is clean on all
+four checks with no new exception in `deny.toml`.
+
+Three things about it belong here rather than in ADR 0244. **It is confined to one crate**: `gtk4`
+is named by `crates/viewer-gtk`'s manifest and by no other, nothing that touches PDF bytes gains a
+toolkit dependency, and `viewer-ui`'s and `viewer-confined`'s graphs are byte-for-byte what they
+were. **It costs no `unsafe` in this tree**: `viewer-gtk` and its binary both keep
+`#![forbid(unsafe_code)]`, because `gtk4-rs` is a safe binding and the `unsafe` is inside
+`gtk4-sys` and `glib` — which is the property `doc/todo/30` chose GTK4 for and the property the Qt
+host will not have. And **it is linked against the platform's own libraries** rather than vendored:
+a native host depending on the desktop being installed is the point of a native host, and it is why
+`viewer-gtk` is excluded from the two cross-target checks by the same rule that makes
+`viewer-accessibility` Linux-only in its own manifest — `glib-sys`'s build script wants a
+cross-compiling `pkg-config` and there would be no GTK 4 development files for the target anyway.
+
 **Provenance is a principle-4 question**, and the tree has one precedent — `pdf-spec`'s Arlington
 tables, built by `build.rs` from a pinned submodule. Vendored data arrives the same way: a
 checked-in tool, a pinned upstream revision recorded beside the bytes, the licence file verbatim

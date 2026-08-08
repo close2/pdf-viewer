@@ -29,6 +29,7 @@ viewer-core = { path = "crates/viewer-core", version = "0.1.0" }
 render-quorra = { path = "crates/render-quorra", version = "0.1.0" }
 viewer-accessibility = { path = "crates/viewer-accessibility", version = "0.1.0" }
 viewer-confined = { path = "crates/viewer-confined", version = "0.1.0" }
+viewer-gtk = { path = "crates/viewer-gtk", version = "0.1.0" }
 
 # External on purpose: the document renderer doc/RENDER_LIBRARY.md commissioned,
 # developed against that brief in its own repository and wired in here at its final
@@ -121,6 +122,27 @@ softbuffer = { version = "0.4.8", default-features = false, features = [
     "wayland",
     "wayland-dlopen",
 ] }
+
+# The first native host's toolkit (ADR 0244, `doc/todo/30`). `gtk4-rs` is the GNOME
+# project's own binding: safe Rust over the C library, generated from GIR, with no C++
+# bridge — which is why `doc/todo/30`'s order puts GTK4 first and Qt second.
+#
+# **Confined to `crates/viewer-gtk` and nowhere else.** Nothing under `crates/` that
+# touches PDF bytes may name it, and `viewer-gtk` depends on no other host crate, so the
+# toolkit reaches exactly one manifest. `viewer-gtk` itself keeps `#![forbid(unsafe_code)]`:
+# the binding's `unsafe` is inside `gtk4-sys` and `glib`, and a host written against the
+# safe layer needs none of its own. That is the property `cxx-qt` will not have.
+#
+# What it costs, measured rather than asserted, is in ADR 0244: a link against the system
+# GTK 4, GLib, Pango, cairo and graphene, and about 40 crates of bindings. It is dynamically
+# linked against the platform's own libraries — this is a *native* host, so depending on the
+# desktop being installed is the point rather than a cost.
+#
+# `v4_10` is the feature floor and is deliberate: it is what makes `gtk::ColumnView`,
+# `gtk::DropDown` and `gtk::TreeListModel` available without reaching for the widgets GTK
+# deprecated in that release (`GtkTreeView`, `GtkComboBoxText`), which would compile with a
+# deprecation warning and this workspace turns warnings into errors.
+gtk4 = { version = "0.11.4", features = ["v4_10"] }
 
 # Fonts. Memory-safe replacement for FreeType; covers OpenType/TrueType/CFF.
 # Type1 and Type3 are handled in `pdf-font` because skrifa does not cover them.

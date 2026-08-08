@@ -1,6 +1,7 @@
 # The UI boundary — `viewer-core`, its vocabulary, and the three pixel tiers
 
-Status: **built** — two consumers on it, a third behind a confinement.
+Status: **built** — four consumers on it, one of them a *native toolkit* since the
+four-hundred-and-eighth session (`crates/viewer-gtk`, ADR 0244), and one behind a confinement.
 Read by: anybody writing a host, adding a `Command`, `Event` or `Query`, or asking what the
 crate boundary permits. `doc/HANDOVER.md` §0 is the pointer to this file, and ADRs 0116 to 0121
 are the argument.
@@ -34,10 +35,14 @@ hundred-and-thirtieth session to permit the writing that implies.
 
 #### What exists
 
-Two consumers: `viewer-ui`'s `pdf-viewer.rs` (winit + vello, tier 2) and
-`viewer-core/tests/headless.rs` (no display at all, tier 1). Neither can prove the interface
-alone — one is a toolkit, the other is not a program — and together they are why the vocabulary
-is worth trusting.
+Four consumers: `viewer-ui`'s `pdf-viewer.rs` (winit + vello, tier 2),
+`viewer-core/tests/headless.rs` (no display at all, tier 1), `viewer-confined`'s `pdf-view-worker`
+(a process with no filesystem, tier 1) and, since the four-hundred-and-eighth,
+**`viewer-gtk`'s `pdf-viewer-gtk` — a real GTK4 application, tier 1** (ADR 0244). The first two
+could not prove the interface alone — one is a toolkit, the other is not a program — and the fourth
+is what `doc/todo/30` calls the proof the answers are enough for *somebody else's widgets*: a
+`GtkListView` over §12.3.3's outline, a `GtkEntry` over §12.7.5.3's text field, a `GtkCheckButton`
+over §12.7.5.2.3's check box, and a whole native host that needed **no new message**.
 
 ```
 host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)  ──Event──▶  host
@@ -159,8 +164,9 @@ reason and neither adding a message: `Command::Zoom` gained the viewport point t
 things a variant carried one of, the variant changes and every consumer fails to compile, which is
 what nothing being `#[non_exhaustive]` is *for*.
 
-So what is left of §0 is **hosts**, and each has a file: [30](todo/30-a-native-host.md) a native
-host and then `viewer-ffi`, [31](todo/31-accessibility-host.md) the four edges the AccessKit
+So what is left of §0 is **hosts**, and each has a file: [30](todo/30-a-native-host.md), whose
+first of three landed in the four-hundred-and-eighth and whose remainder is Qt and then
+`viewer-ffi`, [31](todo/31-accessibility-host.md) the four edges the AccessKit
 bridge does not yet cover — a `TH` cell's axis, a `Form` element's control role, AT-SPI's `Text`
 interface and the actions a client may request — and
 [32](todo/32-presentation-player.md) a presentation player. **Ctrl + wheel zooming landed in the
@@ -196,6 +202,10 @@ is set in the same Helvetica on a machine with no fonts installed.
   AccessKit, and the only crate permitted to name `accesskit_unix` and therefore an async runtime.
   Depends on `viewer-core`, `pdf-model` and `accesskit`; nothing depends on it but `viewer-ui`.
 - `viewer-ui` — consumer #1 since session 132, and a tier-2 host.
+- `viewer-gtk` — **exists** since the four-hundred-and-eighth, and the only crate in the tree that
+  names a toolkit. GTK4 through `gtk4-rs`, tier 1, `#![forbid(unsafe_code)]` held. Depends on
+  `viewer-core`, `pdf-render`, `render-cpu`, `pdf-model` and `pdf-syntax`; nothing depends on it.
+  ADR 0244.
 - `pdf-model` — has the text layer (ADR 0118). The edit log lives in `viewer-core` and reaches
   interpretation through `ViewState`, which was already the log §12.6.4's actions write to — so
   `interpret` did not need a third input after all, and rule 1 holds without one.
@@ -228,7 +238,12 @@ is set in the same Helvetica on a machine with no fonts installed.
 construction rather than by discipline. **This paragraph used to add "and it is not a compromise
 here, because `CLAUDE.md` makes the CPU backend the startup path", and that reason is gone**: the
 project owner decided in the two-hundred-and-seventy-third session that page one goes to the
-graphics device, so tier 1 is a portability choice and not a startup one. Cost, with a number: 1920×1080 RGBA is 8.3 MB,
+graphics device, so tier 1 is a portability choice and not a startup one. **And the first native
+host had no choice about it**: GTK4 gives a widget no native surface for tier 2 and hands out no
+device for tier 3, so tier 1 is what its public API admits and nothing else (ADR 0244) — with the
+copy *measured* through a real toolkit rather than estimated, `Raster` being `GDK_MEMORY_R8G8B8A8`
+exactly so that there is no conversion at all and 2.69 MB reaches a `gdk::MemoryTexture` in about
+**0.8 ms**, ≈3.2 GB/s. Cost, with a number: 1920×1080 RGBA is 8.3 MB,
 so full-window repaint at 60 fps is ~500 MB/s of memcpy — a few percent of a core, and only
 during smooth scroll. `TargetSpec::transform` already carries "any tile offset", so tiled repaint
 is the first lever if it matters.
@@ -239,6 +254,15 @@ force a page re-render. Emitting them as quads and points lets a native host dra
 **macOS's selection colour, KDE's accent, the Windows highlight brush**, with its own caret blink
 and focus ring. That is most of what makes an embedded view feel native and is unreachable if we
 hand over finished pixels. It also means a slow render never blocks feedback.
+
+**And the first native host found that the *colour* is not always available to ask for.** GTK 4.22
+exposes no accent colour to application code at all — there is no symbol containing `accent` in
+`gtk4-sys`, and `@accent_bg_color` is a CSS name libadwaita defines. What a widget can be asked for
+is `gtk_widget_get_color`, the theme's own foreground, which follows a light or dark theme without
+the program knowing which is on, and that is what `viewer-gtk` draws the selection fill and
+§12.5.1's ring in. **This sharpens the argument rather than weakening it**: handing over finished
+pixels would have made even that impossible, and which colour a platform will part with is a fact
+about each platform rather than about this boundary.
 
 | | crosses as | changes at | drawn by |
 |---|---|---|---|

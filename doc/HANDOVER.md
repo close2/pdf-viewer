@@ -135,6 +135,20 @@ outline at 88 KB, which is a fiftieth of that page (ADR 0223). **The window does
 deliberately: `viewer-ui` is a tier-2 host and this boundary is tier 1, so putting it there is a
 change of tier and a decision with a number attached rather than a switch. ADR 0218, `doc/todo/34`.
 
+**And since the four-hundred-and-eighth there is a fourth consumer, and it is somebody else's
+toolkit.** `crates/viewer-gtk`'s `pdf-viewer-gtk` is a real GTK4 application on the same boundary:
+§12.3.3's outline, §8.11.4.3's layers and §7.11.4's files in a `GtkListView` over a
+`GtkTreeListModel`, §12.7's fields as a `GtkEntry`, a `GtkPasswordEntry`, a `GtkCheckButton`, a
+`GtkDropDown` and a `GtkListView` placed over the page, the selection and §12.5.1's focus ring drawn
+in the theme's own colour, and the two decisions a host owns — §12.7.6.4's file and §7.6.4.1's
+password. `doc/todo/30`'s order made GTK4 first because `gtk4-rs` is Rust-safe with no C++ bridge,
+and the crate keeps `#![forbid(unsafe_code)]` to prove it; `gtk4` is named by that manifest and by no
+other. **Tier 1, because GTK4 admits no other**: a widget has no native surface and GSK hands out no
+device, so `Query::Frame`'s raster becomes a `gdk::MemoryTexture` with no conversion at all — 2.69 MB
+in about 0.8 ms. **It needed no new message.** What it *did* produce is six things the boundary was
+missing, the largest of them `doc/todo/37`'s page drawn without its widget appearances, now a
+photograph rather than a prediction. ADR 0244, `doc/todo/30`.
+
 **And since the three-hundred-and-seventy-seventh it can tell a person that a signed document
 changed after it was signed, and since the three-hundred-and-ninety-second whether its signature
 verifies.** §12.8.1 divides verifying a signature into three questions and only the third needs the
@@ -235,6 +249,23 @@ under `crates/` is `tests/oracle.rs` and `raster-compare`'s doc comments**, so n
 oracle's 1794 verdict lines are identical to the round's own baseline but for two timing lines, and
 every other gate reproduced. Step 7 **not owed**. ADR 0243, `doc/todo/12`.
 
+**And the four-hundred-and-eighth ran the whole sequence with a new crate in the workspace, and
+every line below reproduced except three counts.** It built `crates/viewer-gtk`, the GTK4 host — a
+new crate, a new binary and a new *dependency*, and nothing that touches a page — so the test count
+moved by its ten (1420 → **1430**), the citations by 98 (5660 → **5758**) and the quotations by one
+(553 → **554**), while the corpus's 974, the oracle's 905/68/786, quorra's 912/36/9/17, the text
+gate's 99.2%, the dates, the XMP and the JPEG 2000 lines are what the table says. `doc/todo/00`'s
+step 7 is **not owed** and no raster can have changed: the whole diff under `crates/` is a new
+directory nothing else depends on. Three things beyond §2 were run and are claimed: **`cargo deny
+check`** — *advisories ok, bans ok, licenses ok, sources ok* with `gtk4` and its 41 packages in the
+graph — **both cross-target checks**, which pass unmoved because they name their packages with `-p`
+and `viewer-gtk` is deliberately excluded from them (ADR 0244), and **the window under `Xvfb`**,
+which is this round's whole point: a page drawn at 96.5 ms median of five, two pages turned, a layer
+switched from a native check button moving 6656 of 474 721 pixels, 76 controls placed over 67
+fields, a field typed into, an attachment extracted and §7.6.4.1's password prompt opening an
+encrypted document. **Not run and therefore not claimed**: the twelve fuzz targets, which have
+nothing to catch here — no parser, no decoder and no document code changed.
+
 **And the four-hundred-and-sixth, which moved no verdict and forty-three lines.** It worked the
 contradicted list and found the defect in the *instrument*: a contradicted page's line was measured
 against whichever reference had the largest tile — which need not be one the verdict rests on — and
@@ -248,7 +279,7 @@ names in the same order as the three-hundred-and-ninety-seventh's. ADR 0242.
 
 | gate | what it printed | where |
 |---|---|---|
-| tests | `1420 tests run: 1420 passed, 10 skipped` — the tenth skip is the four-hundred-and-seventh session's `the_fixed_bounds_against_the_references_own_spread`, which derives the oracle's own bounds and is run explicitly — and `cargo test --workspace --doc` **1 passed** beside it, so `cargo test --workspace` reports **1421**. `clippy --workspace --all-targets` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`; `fmt --all --check` clean | `cargo nextest run --workspace`, **33.5 s** |
+| tests | `1430 tests run: 1430 passed, 10 skipped` — the tenth skip is the four-hundred-and-seventh session's `the_fixed_bounds_against_the_references_own_spread`, which derives the oracle's own bounds and is run explicitly — and `cargo test --workspace --doc` **1 passed** beside it, so `cargo test --workspace` reports **1431**. `clippy --workspace --all-targets` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`; `fmt --all --check` clean | `cargo nextest run --workspace`, **33.5 s** |
 | corpus (974 pdf.js documents, page one) | `974 documents in 5.9s: 0 unopenable, 8 locked, 2 encrypted beyond us, 5 pageless, **65 incomplete**, 0 slow` | `tests/corpus.rs`, **5.9 s** |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | `1794 pages (1693 we call complete, 101 incomplete)`; **905 agree / 863 of them complete**, **68 contradicted / 66 complete**, **786 ambiguous / 753 complete**, our geometry 1/0, reference geometry 2/2, not comparable 14/9, no render 18/0 — and **the undiagnosed ambiguous list printed empty**, which is the ratchet holding. Nothing moved in the four-hundred-and-sixth — it changed only what the gate *prints* about a contradicted page (ADR 0242) — nor in the four-hundred-and-seventh, which added a second `#[ignore]`d test to the same file that re-derives the bounds this gate judges by (ADR 0243) — and the run now ends with a second ranking, `contradicted, and furthest from the nearest reference`, headed by `bitmap-symbol-context-reuse.pdf` at 28.91 nearest | `tests/oracle.rs`, **41.1 s** |
 | text (vs `pdftotext`, same 974) | `overall 99.2% (24043/24243 words), 25 below 90%`, with 24 skipped and 62 incomplete and not gated | `tests/text_extraction.rs`, **30.1 s** |
@@ -256,7 +287,7 @@ names in the same order as the three-hundred-and-ninety-seventh's. ADR 0242.
 | dates | `1545 date strings in 974 documents: **1514 conform** to §7.9.4 (97.99%), 31 do not, over 22 distinct strings` | `tests/dates.rs`, **0.9 s** |
 | **§14.3.2's XMP** (same 974) | `319 documents carry §14.3.2's stream: **318 read, 1 refused**, 3191 properties between them, 106 state dc:title` — the refusal is a fuzzed file whose stream does not decode at all | `tests/xmp.rs`, **0.4 s** |
 | **JPEG 2000 vs ISO/IEC 15444-5's reference software** | 30 corpus codestreams: **14 byte-identical, 13 differing, 3 not comparable**, and no remaining difference exceeds one level. `doc/JPEG2000_FEEDBACK.md` §§7–8 has the two defects behind that | `tests/jpeg2000.rs`, **13.8 s** |
-| conformance | **5660 citations**, all naming clauses the standard has; **553 quotations**, all verbatim; **212** distinct tables cited by this tree and **250** named in the ledger's notes; **875 ledger rows** (400 implemented, 252 partial, 19 reported, 83 inapplicable, 8 writer-side, 113 out-of-scope) | `cargo test -p conformance`, **2.7 s** |
+| conformance | **5758 citations**, all naming clauses the standard has; **554 quotations**, all verbatim; **213** distinct tables cited by this tree and **250** named in the ledger's notes; **875 ledger rows** (400 implemented, 252 partial, 19 reported, 83 inapplicable, 8 writer-side, 113 out-of-scope) | `cargo test -p conformance`, **2.7 s** |
 | **the round itself** | **not measured as one span this round**, and the honest number is what the gates themselves printed: **154 s** of test execution summed from the ten lines above (25.7 + 4.2 + 46.9 + 30.1 + 34.1 + 0.6 + 0.3 + 9.9 + 2.0), with each gate's incremental build on top and each run separately rather than back to back. `doc/todo/02` records **268 s** for §2 *and* §5's binaries together, from 608 s until the three-hundred-and-eighty-fifth measured every step (ADR 0222); the three-hundred-and-ninety-seventh read 287 s off file timestamps for §2 alone | ADR 0222, `doc/todo/43` |
 
 **Two things beyond §2 were run in the three-hundred-and-ninety-eighth and are claimed**: the
@@ -453,12 +484,14 @@ thirty-one sessions (0115). None was `silent`, none was `reported`, and no gate 
 last. Three were found by reading the clause beside the code; the fourth by measuring something
 else.
 
-### 0. The UI boundary — built, with two consumers on it and one panel on top
+### 0. The UI boundary — built, with four consumers on it and a native host among them
 
 **[`doc/ui-boundary.md`](ui-boundary.md)** — the vocabulary (`Command`, `Event`, `Query` →
 `Answer`), why each message exists, the five rules, the three pixel tiers, the text layer, the edit
-log, and what is still owed. ADRs 0116 to 0121. What is left of it is *hosts*:
-[30](todo/30-a-native-host.md) a native host and then `viewer-ffi`,
+log, and what is still owed. ADRs 0116 to 0121, and ADR 0244 for what the first *native* host found
+in it. What is left of it is *hosts*:
+[30](todo/30-a-native-host.md), whose GTK4 half is done and whose remainder is Qt and then
+`viewer-ffi`,
 [31](todo/31-accessibility-host.md) the four edges the AccessKit bridge does not cover,
 [32](todo/32-presentation-player.md) the presentation player's remaining five styles, and
 [33](todo/33-annotation-editing.md) editing a free text annotation the *file* states.
@@ -510,7 +543,8 @@ where a page turn goes, and the four items priced and refused. Still open, each 
 ## Run it
 
 ```sh
-cargo run --release -p viewer-ui --bin pdf-viewer -- doc/PDF20_AN001-BPC.pdf
+cargo run --release -p viewer-ui  --bin pdf-viewer     -- doc/PDF20_AN001-BPC.pdf
+cargo run --release -p viewer-gtk --bin pdf-viewer-gtk -- doc/PDF20_AN001-BPC.pdf   # the GTK4 host
 ```
 
 **[`doc/running-the-viewer.md`](running-the-viewer.md)** is the rest and is all of it: every flag

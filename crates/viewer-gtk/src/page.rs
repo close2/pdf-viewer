@@ -1,0 +1,104 @@
+//! Tier 1: the raster the viewer is holding, turned into something GSK can put on the screen.
+//!
+//! `doc/ui-boundary.md` prices the tier at "one copy per frame", and this module is that copy.
+//! [`pdf_render::Raster`] is row-major RGBA with straight alpha and no row padding, which is
+//! exactly [`gdk::MemoryFormat::R8g8b8a8`] — so what crosses is a `memcpy` into a
+//! [`glib::Bytes`] and no conversion at all. GSK uploads it to the graphics device on its own
+//! schedule, which is the part of a native host that is the toolkit's business rather than ours.
+
+use gtk4::gdk;
+use gtk4::glib;
+use pdf_render::{Raster, RasterFormat};
+
+/// Why a raster could not become a texture.
+///
+/// Both are conditions GDK's own interface imposes and neither can be reached by any page this
+/// program draws today — a raster is bounded by `pdf_render::MAX_EXTENT`, which is 2^24. They are
+/// typed and reported rather than asserted away, because the alternative to a report here is a
+/// window that shows the previous page and says nothing.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub(crate) enum PixelError {
+    /// GDK measures a texture in `i32`, and this raster does not fit.
+    #[error("a raster of {width}x{height} exceeds GDK's 32-bit texture dimensions")]
+    TooLarge {
+        /// The raster's width in pixels.
+        width: u32,
+        /// Its height.
+        height: u32,
+    },
+    /// The raster is in a pixel format this host has no GDK format for.
+    ///
+    /// **Unreachable today and typed anyway**, because [`pdf_render::RasterFormat`] is
+    /// `#[non_exhaustive]` — which is the one place a type crossing this boundary breaks
+    /// `viewer_core`'s own rule that "[a] new [`viewer_core::Event`] should fail to compile in
+    /// every consumer". A second format added there would compile here and would have to be
+    /// caught at runtime, which is exactly what the rule exists to prevent. ADR 0244.
+    #[error("a raster in {format} has no GDK memory format")]
+    UnknownFormat {
+        /// The format, as `pdf_render` spells it.
+        format: String,
+    },
+    /// The raster holds fewer bytes than its own dimensions call for.
+    #[error("a raster of {width}x{height} needs {need} bytes and holds {have}")]
+    Short {
+        /// The raster's width in pixels.
+        width: u32,
+        /// Its height.
+        height: u32,
+        /// How many bytes four channels of those dimensions need.
+        need: usize,
+        /// How many it holds.
+        have: usize,
+    },
+}
+
+/// The viewer's pixels, as a paintable.
+pub(crate) fn texture(raster: &Raster) -> Result<gdk::MemoryTexture, PixelError> {
+    // `RasterFormat` is `#[non_exhaustive]`, so this arm cannot be exhaustive and a second
+    // format would arrive here rather than failing to compile. Trap 5: it is refused by name.
+    match raster.format {
+        RasterFormat::Rgba8 => {}
+        other => {
+            return Err(PixelError::UnknownFormat {
+                format: format!("{other:?}"),
+            });
+        }
+    }
+    let (Ok(width), Ok(height)) = (i32::try_from(raster.width), i32::try_from(raster.height))
+    else {
+        return Err(PixelError::TooLarge {
+            width: raster.width,
+            height: raster.height,
+        });
+    };
+    let stride = usize::try_from(raster.width)
+        .ok()
+        .and_then(|width| width.checked_mul(4))
+        .ok_or(PixelError::TooLarge {
+            width: raster.width,
+            height: raster.height,
+        })?;
+    let need = usize::try_from(raster.height)
+        .ok()
+        .and_then(|height| height.checked_mul(stride))
+        .ok_or(PixelError::TooLarge {
+            width: raster.width,
+            height: raster.height,
+        })?;
+    if raster.data.len() < need {
+        return Err(PixelError::Short {
+            width: raster.width,
+            height: raster.height,
+            need,
+            have: raster.data.len(),
+        });
+    }
+    let bytes = glib::Bytes::from(&raster.data);
+    Ok(gdk::MemoryTexture::new(
+        width,
+        height,
+        gdk::MemoryFormat::R8g8b8a8,
+        &bytes,
+        stride,
+    ))
+}

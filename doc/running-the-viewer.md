@@ -196,6 +196,26 @@ licences covering the compiled-in standard 14 fonts oblige a binary to carry. `-
 decodes JBIG2 and JPEG 2000 in-process — faster by a spawn and a pipe round trip, appropriate for trusted
 documents, and it prints what it gave up.
 
+**And since the four-hundred-and-eighth there is a second program, with a second toolkit.**
+
+```sh
+cargo run --release -p viewer-gtk --bin pdf-viewer-gtk -- doc/PDF20_AN001-BPC.pdf
+```
+
+`pdf-viewer-gtk` is the GTK4 host (ADR 0244, `doc/todo/30`). It takes one document, Annex O's
+`#fragment` after it, and `--trace[=launch,frames,events,panel]` in the same line format
+`pdf-viewer` uses, so the two hosts' launch timelines can be read side by side. It is deliberately a
+**separate binary** rather than a flag: the two differ in their toolkit and in nothing else, which
+is the claim `viewer-core` exists to make and which one binary linking both would stop making.
+
+What it binds: `Left`/`Right`/`Up`/`Down`/`Page_Up`/`Page_Down` to turn pages, `Home`/`End`,
+`+`/`-`/`0` to zoom, `a` to select all, `Escape` to select nothing, `s` to save, `z`/`y` to undo and
+redo, a drag to select, and the sidebar's three tabs to §12.3.3's outline, §8.11.4.3's layers and
+§7.11.4's files — each a real `GtkListView`, with a layer's switch a real `GtkCheckButton` and an
+attachment's row writing the file beside the document. §12.7's fields are real controls placed over
+the page. **The one thing to know about that** is `doc/todo/37`'s open decision: the page still
+carries the widget appearances underneath them, so a form is drawn twice.
+
 **The pipeline is a gate this project had stopped reading, and both its failures were real** (ADR
 0189). It had been red since 2026-08-02. `render-gpu`'s bounded wait was one second rather than the
 sixty its constant and comment claimed, because `wgpu::PollError::Timeout` from the *slice* was

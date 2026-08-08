@@ -32,6 +32,11 @@ RUSTFLAGS="-D warnings" cargo check --target x86_64-pc-windows-msvc -p viewer-ui
   # build script needs a C toolchain for the target and this machine has neither MSVC nor macOS's.
   # The CI runners do, which is why the `platforms` job builds the binaries and these two check
   # what a benchmark does not reach.
+  # **`viewer-gtk` is deliberately in none of these**, and asking for it says why: `glib-sys`'s
+  # build script needs a cross-compiling `pkg-config` wrapper, and the target would need GTK 4's
+  # own development files, which is a platform package manager's job rather than a Rust target's.
+  # A host binds a platform and is checked on it — the same rule that makes `viewer-accessibility`
+  # Linux-only in its own manifest (ADRs 0214, 0244).
 # And the Windows *read path* runs here, which is the only way to test it from Linux: the two
 # implementations are chosen by `#[cfg(unix)]` / `#[cfg(not(unix))]`, so rewriting those two
 # attributes compiles the thread-and-channel one on this machine. ADR 0194 has the recipe; all 19
@@ -49,6 +54,9 @@ cargo run --release -p pdf-model --example render_at -- [file.pdf] [page] [scale
 cargo run --release -p render-quorra --example zoom_ladder -- [file.pdf] [page] [out-dir]
   # the two backends compared up a ladder of magnifications and back down, through one device,
   # switching coverage lanes where `viewer-ui` does. `doc/QUORRA_FEEDBACK.md` §11
+cargo run --release -p viewer-gtk --example outline_census -- [file.pdf]
+  # how many rows §12.3.3's outline becomes and how many the document's own `/Count` signs ask to
+  # be open, which is the number ADR 0244 quotes for the GTK host's tree
 cargo run --release -p viewer-ui --example chrome_ladder -- [file.pdf] [page] [out-dir]
   # the window's *whole frame* offscreen — page and chrome in one scene, which no gate does —
   # with a device per rung beside one device, which is what separates state from magnification
