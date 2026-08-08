@@ -46,6 +46,17 @@ pub(crate) struct ResourceCaches {
     ramps: HashMap<usize, Entry<Arc<ShadingKind>, quorra_scene::RampId>>,
     /// Advances once per frame; entries touched this frame are never evicted.
     frame: u64,
+    /// How many entries this frame *stored* — that is, how many lookups missed and
+    /// became an upload.
+    ///
+    /// Counted here rather than at the nine `upload_*` call sites because this is
+    /// where the miss is decided, and because a counter costs an increment where a
+    /// timer at each site would cost a clock read. What it answers is the question a
+    /// slow frame raises first: whether the caches are working at all. A page drawn
+    /// twice with an unchanged display list should store nothing the second time —
+    /// entries are keyed by `Arc` identity, so a list rebuilt from scratch every
+    /// frame would re-upload every resource and this is what would say so.
+    stored: u32,
 }
 
 impl std::fmt::Debug for ResourceCaches {
@@ -55,6 +66,7 @@ impl std::fmt::Debug for ResourceCaches {
             .field("images", &self.images.len())
             .field("ramps", &self.ramps.len())
             .field("frame", &self.frame)
+            .field("stored", &self.stored)
             .finish()
     }
 }
@@ -66,6 +78,7 @@ impl ResourceCaches {
             images: HashMap::new(),
             ramps: HashMap::new(),
             frame: 0,
+            stored: 0,
         }
     }
 
@@ -73,6 +86,12 @@ impl ResourceCaches {
     /// in use by this frame.
     pub(crate) fn begin_frame(&mut self) {
         self.frame = self.frame.saturating_add(1);
+        self.stored = 0;
+    }
+
+    /// How many lookups missed and became an upload since [`Self::begin_frame`].
+    pub(crate) fn stored(&self) -> u32 {
+        self.stored
     }
 
     pub(crate) fn outline(&mut self, path: &Arc<Path>) -> Option<quorra_scene::OutlineId> {
@@ -84,6 +103,7 @@ impl ResourceCaches {
     }
 
     pub(crate) fn store_outline(&mut self, path: &Arc<Path>, id: quorra_scene::OutlineId) {
+        self.stored = self.stored.saturating_add(1);
         self.outlines.insert(
             key(Arc::as_ptr(path).cast::<u8>()),
             Entry {
@@ -101,6 +121,7 @@ impl ResourceCaches {
     }
 
     pub(crate) fn store_image(&mut self, data: &Arc<[u8]>, id: quorra_scene::ImageId) {
+        self.stored = self.stored.saturating_add(1);
         self.images.insert(
             key(data.as_ptr()),
             Entry {
@@ -118,6 +139,7 @@ impl ResourceCaches {
     }
 
     pub(crate) fn store_ramp(&mut self, kind: &Arc<ShadingKind>, id: quorra_scene::RampId) {
+        self.stored = self.stored.saturating_add(1);
         self.ramps.insert(
             key(Arc::as_ptr(kind).cast::<u8>()),
             Entry {

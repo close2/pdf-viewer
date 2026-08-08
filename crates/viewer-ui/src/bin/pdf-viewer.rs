@@ -207,34 +207,480 @@ impl Launch {
     /// Two columns because two questions are asked of a launch: *when did this step finish*,
     /// which is what a person waiting sees, and *what did it cost*, which is what a regression
     /// shows up in. Neither is derivable from the other once steps are added or reordered.
-    fn arrived(&mut self, trace: bool) {
+    fn arrived(&mut self, trace: Trace) {
         if self.reported {
             return;
         }
         self.reported = true;
         self.marks.push(("first present", self.began.elapsed()));
-        if !trace {
+        if !trace.on(Topic::Launch) {
             return;
         }
-        println!("trace: launch path, process start to first present:");
+        trace.say(
+            Topic::Launch,
+            format_args!("launch path, process start to first present:"),
+        );
         let mut previous = std::time::Duration::ZERO;
         for (step, at) in &self.marks {
-            println!(
-                "trace:   {step:<22} {:8.3} ms  (+{:.3})",
-                at.as_secs_f64() * 1e3,
-                at.saturating_sub(previous).as_secs_f64() * 1e3
+            trace.more(
+                Topic::Launch,
+                format_args!(
+                    "{step:<22} {:8.3} ms  (+{:.3})",
+                    at.as_secs_f64() * 1e3,
+                    at.saturating_sub(previous).as_secs_f64() * 1e3
+                ),
             );
             previous = *at;
         }
     }
 }
 
+/// What a trace line is *about*.
+///
+/// **The answer to "a verbosity that is not all-or-nothing", and it is a set rather than a
+/// level** — ADR 0227 has the argument. The short of it: these seven are not ordered. A person
+/// chasing a slow frame wants `frames` and nothing else; a person chasing a window that never
+/// appears wants `launch` and `window`; a level would have to decide which of those is "more
+/// verbose" than the other, and there is no such fact. 285 of the 1490 lines of the trace that
+/// raised that ADR were pointer moves, and `--trace=-pointer` is the whole of what that person
+/// needed to type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Topic {
+    /// The launch timeline, the graphics device's bring-up, and the line that closes pipeline
+    /// compilation.
+    Launch,
+    /// One line per frame with its stages, and the summary at exit.
+    Frames,
+    /// Commands handed to `viewer-core` and the events that came back — pointer moves excepted,
+    /// because they are the flood.
+    Events,
+    /// Window events from winit, the pointer's excepted for the same reason.
+    Window,
+    /// Pointer movement, both the window event and the command it becomes.
+    Pointer,
+    /// The accessibility bridge and what it publishes.
+    Access,
+    /// How many shapes a selection is, which is the number `doc/todo/13` turned on.
+    Selection,
+}
+
+impl Topic {
+    /// Every topic, in the order `--trace=?` lists them.
+    const ALL: [Self; 7] = [
+        Self::Launch,
+        Self::Frames,
+        Self::Events,
+        Self::Window,
+        Self::Pointer,
+        Self::Access,
+        Self::Selection,
+    ];
+
+    /// What a person types after `--trace=`.
+    fn name(self) -> &'static str {
+        match self {
+            Self::Launch => "launch",
+            Self::Frames => "frames",
+            Self::Events => "events",
+            Self::Window => "window",
+            Self::Pointer => "pointer",
+            Self::Access => "access",
+            Self::Selection => "selection",
+        }
+    }
+
+    /// This topic's place in [`Trace::topics`].
+    fn bit(self) -> u16 {
+        match self {
+            Self::Launch => 1,
+            Self::Frames => 1 << 1,
+            Self::Events => 1 << 2,
+            Self::Window => 1 << 3,
+            Self::Pointer => 1 << 4,
+            Self::Access => 1 << 5,
+            Self::Selection => 1 << 6,
+        }
+    }
+
+    /// The topic a word names, or `None` for a word that is not one.
+    fn parse(word: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|topic| topic.name() == word)
+    }
+}
+
+/// Every topic at once: what a bare `--trace` asks for, and what `all` names.
+const EVERY_TOPIC: u16 = 0x7f;
+
+/// Whether to say what is happening, about what, and since when.
+///
+/// `Copy`, deliberately: this is read from inside methods that already hold `&mut self`, and a
+/// borrowing instrument would have to be argued with at every call site.
+#[derive(Debug, Clone, Copy)]
+struct Trace {
+    /// The set of [`Topic`] bits `--trace` asked for; zero when it was not given at all.
+    topics: u16,
+    /// `main`'s first `Instant`, so that every line can carry a clock.
+    ///
+    /// **ADR 0227**: every line of the trace that raised it carried a *duration* and
+    /// none carried a time, so the interval a person actually waited could not be recovered and
+    /// a gap in the log could not be told from a run of cheap work. One `Instant::elapsed` per
+    /// line — tens of nanoseconds against a `println!` that costs microseconds.
+    began: std::time::Instant,
+}
+
+impl Trace {
+    /// Nothing is traced, which is what a run without the flag gets — and what every run starts
+    /// as, since the flag may appear anywhere on the command line.
+    fn off(began: std::time::Instant) -> Self {
+        Self { topics: 0, began }
+    }
+
+    /// Whether anything at all is traced, which is what decides the graphics stack's own voice.
+    fn any(self) -> bool {
+        self.topics != 0
+    }
+
+    /// Whether lines about `topic` are wanted.
+    fn on(self, topic: Topic) -> bool {
+        self.topics & topic.bit() != 0
+    }
+
+    /// One line, stamped with the seconds since this process started.
+    ///
+    /// The check is repeated here even where the caller has already made it, because the caller
+    /// makes it to avoid *formatting* the arguments and this makes it to avoid printing them —
+    /// a call site that forgot the first is quiet rather than wrong.
+    fn say(self, topic: Topic, what: std::fmt::Arguments<'_>) {
+        if !self.on(topic) {
+            return;
+        }
+        println!("trace: {:9.3} {what}", self.began.elapsed().as_secs_f64());
+    }
+
+    /// A continuation of the line above: indented under the message column, and carrying no
+    /// clock of its own because it happened at the same moment.
+    fn more(self, topic: Topic, what: std::fmt::Arguments<'_>) {
+        if !self.on(topic) {
+            return;
+        }
+        println!("trace: {:9}   {what}", "");
+    }
+}
+
+/// The set of topics a `--trace` argument asks for, or the word that named none of them.
+///
+/// Empty asks for everything, which is what a bare `--trace` has always meant and what the
+/// project owner's own invocation types. A list that *starts* with a subtraction is read as
+/// "everything except", because `--trace=-pointer` can mean nothing else and demanding
+/// `--trace=all,-pointer` would be a rule with no purpose but to be remembered.
+fn parse_topics(list: &str) -> Result<u16, String> {
+    if list.is_empty() {
+        return Ok(EVERY_TOPIC);
+    }
+    let mut topics = if list.starts_with('-') {
+        EVERY_TOPIC
+    } else {
+        0
+    };
+    for word in list.split(',') {
+        let (word, remove) = match word.strip_prefix('-') {
+            Some(rest) => (rest, true),
+            None => (word, false),
+        };
+        if word == "all" {
+            topics = if remove { 0 } else { EVERY_TOPIC };
+            continue;
+        }
+        let Some(topic) = Topic::parse(word) else {
+            return Err(word.to_owned());
+        };
+        if remove {
+            topics &= !topic.bit();
+        } else {
+            topics |= topic.bit();
+        }
+    }
+    Ok(topics)
+}
+
+/// The topics `--trace=` accepts, for a message that has to list them.
+fn topic_names() -> String {
+    Topic::ALL
+        .iter()
+        .map(|topic| topic.name())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// How many frames the summary keeps samples of.
+///
+/// A bound rather than a `Vec` that grows for as long as the program runs: `CLAUDE.md`'s third
+/// principle asks for explicit memory budgets, and this one is 16 384 × 128 bytes ≈ 2 MB. The
+/// *count* is not bounded, and the summary says outright when its percentiles came from the
+/// first 16 384 of more frames than that rather than quietly reporting a prefix as the whole.
+const FRAME_SAMPLES: usize = 16_384;
+
+/// What one frame spent, in the stages a host can separate.
+///
+/// **ADR 0227**: `present -> presented in T` was one number over four different
+/// things. These are the four, plus the two the same item's second point took *out* of the
+/// frame — the accessibility publication and the launch timeline are not the frame's cost and
+/// were being reported as though they were.
+#[derive(Debug, Clone, Copy, Default)]
+struct Stages {
+    /// The page this frame drew, counting from one.
+    page: usize,
+    /// How many display-list commands the page carried.
+    commands: usize,
+    /// This host's own work before anything is handed over: the page's geometry, the selection,
+    /// the focus ring, the caret, the popup windows and the panel, each a query into the core.
+    host: std::time::Duration,
+    /// What `render-quorra` reported for the same frame, which is where the device's own
+    /// accounting arrives from.
+    gpu: render_quorra::FrameCost,
+    /// `render-cpu` rasterising the page and presenting it, on a frame the device refused.
+    fallback: std::time::Duration,
+    /// The accessibility publication — measured *beside* the frame rather than inside it.
+    attend: std::time::Duration,
+    /// The whole of `redraw_requested`, which is what the old single number was.
+    total: std::time::Duration,
+}
+
+/// Every frame this run has drawn, for the summary at exit.
+#[derive(Debug, Default)]
+struct FrameLog {
+    /// The samples, capped at [`FRAME_SAMPLES`].
+    samples: Vec<Stages>,
+    /// How many frames there were, which is not `samples.len()` past the cap.
+    count: usize,
+    /// Whether the line explaining the frame line's columns has been printed.
+    legend: bool,
+    /// Whether the closing line for pipeline compilation has been printed.
+    pipelines: bool,
+}
+
+/// How to read one stage out of one frame.
+type StageOf = fn(&Stages) -> std::time::Duration;
+
+/// The summary's rows: what to call each stage and how to read it.
+///
+/// One table rather than nine `format!`s, so that a stage added later cannot appear in the
+/// per-frame line and go missing from the percentiles.
+const SUMMARY_ROWS: [(&str, StageOf); 10] = [
+    ("frame", |frame| frame.total),
+    ("host", |frame| frame.host),
+    ("scene", |frame| frame.gpu.scene),
+    ("device", |frame| frame.gpu.device),
+    ("  encode", |frame| frame.gpu.encode),
+    ("  transfer", |frame| frame.gpu.upload),
+    ("  execute", |frame| frame.gpu.execute),
+    // What is inside `Device::render` and outside the three phases it names: acquiring the
+    // swapchain texture, presenting it, and reading the timestamp queries back. Printed as its
+    // own row rather than left for a reader to subtract, because an unnamed remainder is where
+    // a cost hides — and on this machine it is a quarter of the frame.
+    ("  elsewhere", |frame| {
+        frame.gpu.device.saturating_sub(
+            frame
+                .gpu
+                .encode
+                .saturating_add(frame.gpu.upload)
+                .saturating_add(frame.gpu.execute),
+        )
+    }),
+    ("settle", |frame| frame.gpu.settle),
+    ("fallback", |frame| frame.fallback),
+];
+
+impl FrameLog {
+    /// Says what one frame cost, and keeps it for the summary.
+    fn frame(&mut self, trace: Trace, stages: &Stages, outcome: &str) {
+        // Nothing is *kept* unless somebody asked: the durations are gathered either way, at the
+        // few hundred nanoseconds `Stages` documents, but a run with no `--trace` must not also
+        // be carrying two megabytes of samples for a summary it will never print.
+        if !trace.on(Topic::Frames) {
+            return;
+        }
+        self.count = self.count.saturating_add(1);
+        if self.samples.len() < FRAME_SAMPLES {
+            self.samples.push(*stages);
+        }
+        if !self.legend {
+            self.legend = true;
+            Self::legend(trace);
+        }
+        // One line per frame, and it stays one line: the stages are *in* it, and the two that
+        // only a strange frame has — the processor drawing what the device refused, and the
+        // accessibility publication that happens on a page turn — are appended only when they
+        // are not zero. An ordinary frame is therefore no longer than the two lines this
+        // replaced (ADR 0227).
+        let mut unusual = String::new();
+        for (name, spent) in [("fallback", stages.fallback), ("attend", stages.attend)] {
+            if spent > std::time::Duration::ZERO {
+                unusual = format!("{unusual} {name} {:.1}", ms(spent));
+            }
+        }
+        trace.say(
+            Topic::Frames,
+            format_args!(
+                "frame p{} {}cmd {outcome} {:.1} | host {:.1} scene {:.1} device {:.1} \
+                 settle {:.1}{unusual} | {} up, {} culled",
+                stages.page,
+                stages.commands,
+                ms(stages.total),
+                ms(stages.host),
+                ms(stages.gpu.scene),
+                ms(stages.gpu.device),
+                ms(stages.gpu.settle),
+                stages.gpu.uploads,
+                stages.gpu.commands_culled,
+            ),
+        );
+    }
+
+    /// What the frame line's columns mean, once, before the first of them.
+    fn legend(trace: Trace) {
+        trace.say(
+            Topic::Frames,
+            format_args!(
+                "frame lines: page, display-list commands, outcome, the whole frame in ms, then"
+            ),
+        );
+        for (column, meaning) in [
+            (
+                "host",
+                "this host's queries — page geometry, selection, focus, caret, popups, panel",
+            ),
+            (
+                "scene",
+                "display lists translated into a GPU scene, this frame's uploads included",
+            ),
+            (
+                "device",
+                "quorra's render: encoding, transfers, and the passes it already waits on",
+            ),
+            (
+                "settle",
+                "the frame's transient resources released and settled cache entries evicted",
+            ),
+            (
+                "fallback",
+                "render-cpu drawing a frame the device refused — absent when there was none",
+            ),
+            (
+                "attend",
+                "the accessibility publication, beside the frame and not inside its total",
+            ),
+            (
+                "up",
+                "resources handed to the device; culled: commands that reached no pixel",
+            ),
+        ] {
+            trace.more(Topic::Frames, format_args!("{column:<9} {meaning}"));
+        }
+    }
+
+    /// The percentiles, once, when the program exits.
+    ///
+    /// **This is where percentiles belong** (ADR 0227): "why did it feel slow" is a question
+    /// about a distribution, and a distribution costs nothing per frame but cannot be read off
+    /// one. Nearest rank rather than an interpolated percentile, so every figure printed is a
+    /// frame that actually happened.
+    fn summary(&self, trace: Trace) {
+        if !trace.on(Topic::Frames) || self.count == 0 {
+            return;
+        }
+        let truncated = if self.count > self.samples.len() {
+            format!(", percentiles over the first {}", self.samples.len())
+        } else {
+            String::new()
+        };
+        trace.say(
+            Topic::Frames,
+            format_args!("{} frame(s){truncated}, milliseconds:", self.count),
+        );
+        trace.more(
+            Topic::Frames,
+            format_args!(
+                "{:<11}{:>9}{:>9}{:>9}{:>10}",
+                "", "median", "p90", "max", "sum"
+            ),
+        );
+        for (name, read) in SUMMARY_ROWS {
+            let mut values: Vec<std::time::Duration> = self.samples.iter().map(read).collect();
+            values.sort_unstable();
+            let sum = values.iter().fold(std::time::Duration::ZERO, |total, one| {
+                total.saturating_add(*one)
+            });
+            trace.more(
+                Topic::Frames,
+                format_args!(
+                    "{name:<11}{:>9.1}{:>9.1}{:>9.1}{:>10.1}",
+                    ms(at_rank(&values, 1, 2)),
+                    ms(at_rank(&values, 9, 10)),
+                    ms(values.last().copied().unwrap_or_default()),
+                    ms(sum)
+                ),
+            );
+        }
+        let uploads: u64 = self
+            .samples
+            .iter()
+            .map(|frame| u64::from(frame.gpu.uploads))
+            .sum();
+        let most = self
+            .samples
+            .iter()
+            .map(|frame| frame.gpu.uploads)
+            .max()
+            .unwrap_or(0);
+        let measured = self.samples.iter().any(|frame| frame.gpu.execute_measured);
+        trace.more(
+            Topic::Frames,
+            format_args!(
+                "{uploads} resource upload(s), {most} in the busiest frame; execute is {}",
+                if measured {
+                    "the device's own timestamps"
+                } else {
+                    "a wall clock — this adapter offers no timestamp queries"
+                }
+            ),
+        );
+    }
+}
+
+/// A duration in milliseconds, which is the unit every trace line is in.
+fn ms(duration: std::time::Duration) -> f64 {
+    duration.as_secs_f64() * 1e3
+}
+
+/// The value `numerator/denominator` of the way through a sorted sample, by nearest rank.
+///
+/// Integer arithmetic throughout: the workspace forbids unchecked arithmetic, and a percentile
+/// computed in floating point would have to justify its rounding as well as its rank.
+fn at_rank(
+    sorted: &[std::time::Duration],
+    numerator: usize,
+    denominator: usize,
+) -> std::time::Duration {
+    let rank = sorted
+        .len()
+        .saturating_mul(numerator)
+        .saturating_add(denominator.saturating_sub(1))
+        .checked_div(denominator)
+        .unwrap_or(0);
+    let index = rank
+        .max(1)
+        .saturating_sub(1)
+        .min(sorted.len().saturating_sub(1));
+    sorted.get(index).copied().unwrap_or_default()
+}
+
 /// What the command line asked for.
 struct Arguments {
     /// The document to open.
     path: PathBuf,
-    /// Whether to say what is happening, from `--trace`.
-    trace: bool,
+    /// What to say about what is happening, from `--trace` and `--trace=<topics>`.
+    trace: Trace,
     /// Whether to draw with `render-cpu` rather than the graphics device, from `--cpu`.
     ///
     /// **And therefore whether a graphics device is created at all**, since the
@@ -265,10 +711,10 @@ struct Arguments {
 ///
 /// Separate from `main` because the sandbox decision is one of them: it decides *where* this
 /// document's images are decoded, and a policy applied halfway through is not a policy.
-fn arguments() -> Arguments {
+fn arguments(began: std::time::Instant) -> Arguments {
     let mut path = None;
     let mut sandbox = true;
-    let mut trace = false;
+    let mut trace = Trace::off(began);
     let mut processor = false;
     let mut backend = DEFAULT_BACKEND;
     let mut backend_asked_for = false;
@@ -281,10 +727,27 @@ fn arguments() -> Arguments {
             std::process::exit(0);
         } else if argument == "--no-sandbox" {
             sandbox = false;
-        } else if argument == "--trace" {
-            trace = true;
+        } else if argument == "--trace" || argument.to_string_lossy().starts_with("--trace=") {
+            // `--trace=<topics>` rather than `--trace <topics>`, because the flag has taken no
+            // value for a hundred sessions and a document is what follows it: `--trace doc.pdf`
+            // must keep meaning what it always meant, and only the equals form can promise that.
+            let list = argument.to_string_lossy();
+            let list = list.split_once('=').map_or("", |(_, rest)| rest);
+            match parse_topics(list) {
+                Ok(topics) => trace.topics = topics,
+                Err(word) => {
+                    eprintln!(
+                        "--trace={word}: not a topic. One of: {}, or all — each optionally \
+                         prefixed with - to leave it out.",
+                        topic_names()
+                    );
+                    std::process::exit(2);
+                }
+            }
             // The graphics stack's own voice, which is silent until something receives it.
-            speak_up();
+            if trace.any() {
+                speak_up();
+            }
         } else if argument == "--cpu" {
             processor = true;
         } else if argument == "--backend" {
@@ -494,7 +957,7 @@ fn main() {
         opens_at,
         fragment,
         restrictions,
-    } = arguments();
+    } = arguments(launch.began);
     launch.mark("arguments");
 
     // **The document opens on a thread of its own, and this is the launch path's one lever that
@@ -579,6 +1042,7 @@ fn main() {
         opening: Some(opening),
         instancing,
         launch,
+        frames: FrameLog::default(),
         accessibility: None,
         spoken: None,
     };
@@ -620,12 +1084,21 @@ fn usage() {
     eprintln!("                metal or gl. What to reach for when one stack on this machine is");
     eprintln!("                broken and another is not. Refused, rather than quietly ignored,");
     eprintln!("                where this machine has no adapter behind the one named.");
-    eprintln!("  --trace       print every command, every event and every frame, with the time");
-    eprintln!("                each took, and whatever the graphics stack has to say. What to");
-    eprintln!("                run when a page will not appear: the last line printed is the");
-    eprintln!("                step that did not finish. PDFVIEWER_LOG=error|warn|info|debug");
-    eprintln!("                sets how much of the graphics stack's own logging comes with it,");
-    eprintln!("                and defaults to warn.");
+    eprintln!("  --trace       print every command, every event and every frame, each line");
+    eprintln!("                stamped with the seconds since this process started, and");
+    eprintln!("                whatever the graphics stack has to say. What to run when a page");
+    eprintln!("                will not appear: the last line printed is the step that did not");
+    eprintln!("                finish. A frame's line names its stages — host, scene, device,");
+    eprintln!("                settle — and the percentiles over every frame are printed on the");
+    eprintln!("                way out. PDFVIEWER_LOG=error|warn|info|debug sets how much of");
+    eprintln!(
+        "                the graphics stack's own logging comes with it, defaulting to warn."
+    );
+    eprintln!("  --trace=T,U   only the topics named, of: launch, frames, events, window,");
+    eprintln!("                pointer, access, selection — or all. A topic prefixed with -");
+    eprintln!("                is left out, and a list that starts with one means everything");
+    eprintln!("                else: --trace=frames to chase a slow page, --trace=-pointer for");
+    eprintln!("                everything but the flood a moving mouse makes.");
     eprintln!("  --ignore-restrictions");
     eprintln!("                perform an operation a document says its reader may not — filling");
     eprintln!("                in a field under §7.6.4.2's permission flags or an author's");
@@ -642,9 +1115,9 @@ const PASSWORD_ATTEMPTS: usize = 3;
 
 #[expect(
     clippy::struct_excessive_bools,
-    reason = "four independent facts about a window, each read in one place: whether a button is \
-              down, whether the core has been told about the last frame, whether anything is \
-              unsaved, and whether to say what is happening"
+    reason = "independent facts about a window, each read in one place: whether a button is \
+              down, which modifiers are held, whether the core has been told about the last \
+              frame, whether anything is unsaved, and what this run asked of the graphics stack"
 )]
 struct App {
     /// Everything about documents, pages and clicks.
@@ -679,13 +1152,15 @@ struct App {
     /// `winit` reports movement and clicks as separate events, so a click needs the position
     /// remembered from the last `CursorMoved` — the click itself carries none.
     cursor: (f64, f64),
-    /// Whether to say what is happening, from `--trace`.
+    /// What to say about what is happening, from `--trace`.
     ///
     /// A viewer that will not draw a page has to be able to say how far it got, and the four
     /// steps between a key press and a frame — command, interpretation, draw, present — are
     /// invisible from outside the process. This makes them visible, in order, with a duration
-    /// apiece; the *last line printed* is the step that did not finish.
-    trace: bool,
+    /// apiece and a clock; the *last line printed* is the step that did not finish.
+    trace: Trace,
+    /// Every frame this run has drawn, for the summary printed when it exits.
+    frames: FrameLog,
     /// Whether to draw with `render-cpu` rather than the graphics device, from `--cpu`.
     ///
     /// The same rasteriser the reference oracle is built on, and the same one that draws a page
@@ -1815,13 +2290,14 @@ impl App {
     /// viewer they came from was on another thread — and everything after that is the ordinary
     /// loop, so a `PasswordRequired` from the thread is answered exactly as one from a command.
     fn receive(&mut self, events: Vec<Event>) {
-        if self.trace {
-            println!(
-                "trace: opened on its own thread -> {} event(s)",
-                events.len()
+        if self.trace.on(Topic::Events) {
+            self.trace.say(
+                Topic::Events,
+                format_args!("opened on its own thread -> {} event(s)", events.len()),
             );
             for event in &events {
-                println!("trace:     {}", describe_event(event));
+                self.trace
+                    .more(Topic::Events, format_args!("{}", describe_event(event)));
             }
         }
         let mut queue = VecDeque::new();
@@ -1835,16 +2311,28 @@ impl App {
     fn pump(&mut self, mut queue: VecDeque<Command>) {
         while let Some(command) = queue.pop_front() {
             let started = std::time::Instant::now();
-            let described = self.trace.then(|| describe_command(&command));
+            // The pointer is its own topic and not `events`: 285 of the 1490 lines of the trace
+            // that raised ADR 0227 were pointer moves, and they arrive faster than a person
+            // can read whatever else is happening.
+            let topic = if matches!(command, Command::Pointer { .. }) {
+                Topic::Pointer
+            } else {
+                Topic::Events
+            };
+            let described = self.trace.on(topic).then(|| describe_command(&command));
             let events: Vec<Event> = self.viewer.handle(command).collect();
             if let Some(described) = described {
-                println!(
-                    "trace: {described} -> {} event(s) in {:?}",
-                    events.len(),
-                    started.elapsed()
+                self.trace.say(
+                    topic,
+                    format_args!(
+                        "{described} -> {} event(s) in {:?}",
+                        events.len(),
+                        started.elapsed()
+                    ),
                 );
                 for event in &events {
-                    println!("trace:     {}", describe_event(event));
+                    self.trace
+                        .more(topic, format_args!("{}", describe_event(event)));
                 }
             }
             for event in events {
@@ -2097,12 +2585,31 @@ impl App {
     /// connects to the session bus, and page one may not wait behind a D-Bus round trip for a
     /// screen reader that is probably not there. What it costs after the first frame is one
     /// comparison per frame, because the structure of a page does not change when it is scrolled.
+    ///
+    /// **What it costs on a *page turn* is 2.0 ms on average and 3.9 at worst**, measured in the
+    /// three-hundred-and-ninetieth session over 40 frames of a 65-page document — and where
+    /// [`viewer_accessibility::Bridge::shortfall`] answers `Some`, all of it is spent building a
+    /// tree that platform has nowhere to publish. That is a defect and it is written down in
+    /// `doc/todo/45` rather than patched here: the decision belongs in the crate that knows
+    /// whether it has an adapter, and `doc/todo/31` is going to give the other two platforms one.
     fn attend(&mut self) {
         if self.accessibility.is_none() {
             self.accessibility = Some(viewer_accessibility::Bridge::new());
-            if self.trace {
-                println!("trace: accessibility bridge up");
-            }
+            // **One of these two sentences used to be false, and ADR 0227 settled which.**
+            // The Windows trace printed `note: this build has no accessibility bridge` at line
+            // 2 and `trace: accessibility bridge up` at line 46. The note was right:
+            // `Bridge::new` builds an `accesskit_unix::Adapter` on Linux and, on every other
+            // platform, a struct with no adapter in it at all — so what came "up" there was a
+            // tree with nowhere to publish it. The line now asks `shortfall`, which is the same
+            // function the note came from, so the two cannot disagree again.
+            let said = match viewer_accessibility::Bridge::shortfall() {
+                None => "accessibility bridge up",
+                Some(_) => {
+                    "accessibility: no bridge on this platform — §14.7's tree is still built \
+                     and published to nothing, and the note above says so"
+                }
+            };
+            self.trace.say(Topic::Access, format_args!("{said}"));
         }
         let Some((width, height, _)) = self.window() else {
             return;
@@ -2198,14 +2705,15 @@ impl App {
             Answer::Accessibility(nodes) => nodes,
             _ => Vec::new(),
         };
-        if self.trace {
-            println!(
-                "trace: accessibility: {} element(s), {} report(s) on page {}",
+        self.trace.say(
+            Topic::Access,
+            format_args!(
+                "accessibility: {} element(s), {} report(s) on page {}",
                 nodes.len(),
                 reports.len(),
                 page.saturating_add(1)
-            );
-        }
+            ),
+        );
         let view = viewer_accessibility::PageView {
             window: &window,
             document: &document,
@@ -2280,12 +2788,16 @@ impl App {
                 *x += edge;
             }
         }
-        if self.trace {
-            // The number every part of `doc/todo/13` turned on: the frame the compositor refused
-            // was 63 quads, and a present cost 1.9 ms a quad before it. Kept in the tree so that
-            // a selection's cost stays visible rather than being rediscovered.
-            eprintln!("trace: SELECTION quads {}", quads.len());
-        }
+        // The number every part of `doc/todo/13` turned on: the frame the compositor refused was
+        // 63 quads, and a present cost 1.9 ms a quad before it. Kept in the tree so that a
+        // selection's cost stays visible rather than being rediscovered. On stdout with every
+        // other trace line since the three-hundred-and-ninetieth: it was the one on stderr, and
+        // PowerShell wrapped each of its lines in six of its own in the trace that raised
+        // ADR 0227.
+        self.trace.say(
+            Topic::Selection,
+            format_args!("SELECTION quads {}", quads.len()),
+        );
         highlight_list(&quads, width, height)
     }
 
@@ -2437,11 +2949,15 @@ impl App {
         Some(list)
     }
 
-    fn present(&mut self) -> Option<Rendered> {
+    /// `stages` is filled in as the frame goes: see [`Stages`] for why one number was not enough.
+    fn present(&mut self, stages: &mut Stages) -> Option<Rendered> {
+        let began = std::time::Instant::now();
         // §12.3.4's list is built here and nowhere else: this is the one place that holds
         // `&mut self` and runs before the panel is drawn.
         self.ensure_pages();
         let request = self.request.clone()?;
+        stages.page = request.page.saturating_add(1);
+        stages.commands = request.list.commands().len();
         // Where the page sits in the window: the core centres it and scrolls it, and the host
         // draws it there by composing that offset into the target's own transform.
         let origin = match self.viewer.query(Query::PageGeometry(request.page)) {
@@ -2485,6 +3001,7 @@ impl App {
         overlays.extend(popups.as_ref());
         overlays.extend(chrome.panel.as_ref());
         overlays.extend(chrome.about.as_ref());
+        stages.host = began.elapsed();
 
         let state = self.state.as_mut()?;
         let drawn = match &mut state.surface {
@@ -2497,13 +3014,17 @@ impl App {
                 // changes, because it is a field write and tracking the change would be
                 // more state than the thing it saved.
                 presenter.set_coverage(coverage_for(target.transform));
-                match presenter.present(PresentFrame {
+                let outcome = presenter.present(PresentFrame {
                     width,
                     height,
                     page: Some((&request.list, target)),
                     raster: None,
                     overlays: &overlays,
-                }) {
+                });
+                // Read back whatever the frame cost before anything is decided about it: a
+                // refusal has an accounting too, and it is the one a person most wants.
+                stages.gpu = presenter.last_frame();
+                match outcome {
                     Ok(()) => Ok(()),
                     // Swapchain states are events, not failures: nothing was presented,
                     // nothing is stale, and the processor cannot help a window that is
@@ -2529,9 +3050,10 @@ impl App {
             }
         };
         if let Err(problem) = drawn {
-            if let Err(second) =
-                on_the_processor(&mut state.surface, &request.list, target, &overlays)
-            {
+            let fell_back = std::time::Instant::now();
+            let second = on_the_processor(&mut state.surface, &request.list, target, &overlays);
+            stages.fallback = fell_back.elapsed();
+            if let Err(second) = second {
                 return Some(Rendered::Failed(if problem.is_empty() {
                     second
                 } else {
@@ -2612,7 +3134,7 @@ impl App {
         };
         let brought_up = began.elapsed();
         self.launch.mark("graphics device");
-        if self.trace {
+        if self.trace.on(Topic::Launch) {
             let startup = presenter.startup();
             // Two lines about one choice, and they answer different questions. The first is what
             // was *asked for* — which is a fact about this command line — and the second ends in
@@ -2620,18 +3142,27 @@ impl App {
             // it: `llvmpipe (LLVM 22.1.8, 256 bits) (Cpu, Vulkan)`. A person diagnosing a driver
             // crash needs both, and before the three-hundred-and-eighty-fourth session there was
             // no way to ask for the first at all.
-            println!("trace: backend asked for: {}", self.backend_description());
-            println!("trace: rendering with {}", presenter.adapter_description());
-            println!(
-                "trace: device up in {brought_up:?} — instance {:?}, surface {:?}, adapter {:?}, \
-                 device {:?}, pipelines {}",
-                startup.instance_creation,
-                startup.surface_creation,
-                startup.adapter_selection,
-                startup.device_creation,
-                startup
-                    .pipeline_compilation
-                    .map_or_else(|| "still compiling".to_owned(), |d| format!("{d:?}"))
+            self.trace.say(
+                Topic::Launch,
+                format_args!("backend asked for: {}", self.backend_description()),
+            );
+            self.trace.say(
+                Topic::Launch,
+                format_args!("rendering with {}", presenter.adapter_description()),
+            );
+            self.trace.say(
+                Topic::Launch,
+                format_args!(
+                    "device up in {brought_up:?} — instance {:?}, surface {:?}, adapter {:?}, \
+                     device {:?}, pipelines {}",
+                    startup.instance_creation,
+                    startup.surface_creation,
+                    startup.adapter_selection,
+                    startup.device_creation,
+                    startup
+                        .pipeline_compilation
+                        .map_or_else(|| "still compiling".to_owned(), |d| format!("{d:?}"))
+                ),
             );
         }
         Some(Surface::Device(Box::new(presenter)))
@@ -2722,37 +3253,70 @@ impl App {
         Self::software(window)
     }
 
+    /// Closes the one line the launch timeline never had: when the pipelines finished compiling.
+    ///
+    /// **ADR 0227.** Bring-up prints `pipelines still compiling` because
+    /// `CLAUDE.md` forbids waiting for warmth on the launch path, and nothing ever said when the
+    /// wait nobody did would have ended — so a first frame that absorbed a shader compilation
+    /// and one that did not read identically. Polled once a frame, which behind the topic check
+    /// is one `Option` read; *noticed* rather than *finished*, because the compilation ends on
+    /// quorra's own thread and this is only the first frame to look.
+    fn pipelines_compiled(&mut self) {
+        if self.frames.pipelines || !self.trace.on(Topic::Launch) {
+            return;
+        }
+        let Some(State {
+            surface: Surface::Device(presenter),
+            ..
+        }) = self.state.as_ref()
+        else {
+            return;
+        };
+        let Some(compiling) = presenter.startup().pipeline_compilation else {
+            return;
+        };
+        self.frames.pipelines = true;
+        self.trace.say(
+            Topic::Launch,
+            format_args!(
+                "pipelines compiled in {compiling:?}, noticed at this frame — nothing on the \
+                 launch path waited for them, so every frame before this one drew with whatever \
+                 was ready"
+            ),
+        );
+    }
+
     /// Draws the frame the window asked for, and tells the core what became of it.
+    ///
+    /// **The frame's number is the frame's, since the three-hundred-and-ninetieth session.**
+    /// This used to start a timer, present, close the launch timeline, publish the accessibility
+    /// tree, and *then* read the timer — so `present -> presented in T` was the frame plus the
+    /// bridge plus the timeline's own printing. ADR 0227 called that a measurement
+    /// defect rather than a design choice, which is exactly what it was: on a page turn the tree
+    /// is rebuilt and published, and that work was being attributed to the graphics device.
     fn redraw_requested(&mut self) {
         let started = std::time::Instant::now();
-        if self.trace {
-            println!(
-                "trace: redraw requested, page {:?}",
-                self.request
-                    .as_ref()
-                    .map(|request| request.page.saturating_add(1))
-            );
-        }
-        let outcome = self.present();
+        let mut stages = Stages::default();
+        let outcome = self.present(&mut stages);
+        stages.total = started.elapsed();
         if matches!(outcome, Some(Rendered::Presented | Rendered::Raster(_))) {
             self.launch.arrived(self.trace);
             // **After the timeline is closed, never before it.** Everything the accessibility
             // bridge does is off the launch path by construction, and this line is where that is
             // enforced rather than merely intended.
+            let attending = std::time::Instant::now();
             self.attend();
+            stages.attend = attending.elapsed();
         }
-        if self.trace {
-            println!(
-                "trace: present -> {} in {:?}",
-                match &outcome {
-                    None => "nothing to show".to_owned(),
-                    Some(Rendered::Presented) => "presented".to_owned(),
-                    Some(Rendered::Failed(why)) => format!("failed: {why}"),
-                    Some(Rendered::Raster(_)) => "a raster".to_owned(),
-                },
-                started.elapsed()
-            );
-        }
+        let outcome_said = match &outcome {
+            None => "nothing to show".to_owned(),
+            Some(Rendered::Presented) => "presented".to_owned(),
+            Some(Rendered::Failed(why)) => format!("failed: {why}"),
+            Some(Rendered::Raster(_)) => "a raster".to_owned(),
+        };
+        let trace = self.trace;
+        self.frames.frame(trace, &stages, &outcome_said);
+        self.pipelines_compiled();
         let Some(rendered) = outcome else {
             return;
         };
@@ -2766,6 +3330,16 @@ impl App {
 }
 
 impl ApplicationHandler for App {
+    /// The percentiles, printed on the way out.
+    ///
+    /// **The shape of the question "why did it feel slow" is a distribution**, and the trace
+    /// that raised ADR 0227 had 63 frame lines and no way to say that their median was
+    /// 60 ms and their worst 514 without a spreadsheet. Here because it costs nothing per frame
+    /// and everything it needs is already recorded.
+    fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
+        self.frames.summary(self.trace);
+    }
+
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.state.is_some() {
             return;
@@ -2835,11 +3409,15 @@ impl ApplicationHandler for App {
         if self.state.is_none() {
             return;
         }
-        // Every window event but the pointer's, which arrives faster than a person can read.
-        // What this answers is the question a stuck window raises first: *is the program being
-        // told anything at all?*
-        if self.trace && !matches!(event, WindowEvent::CursorMoved { .. }) {
-            println!("trace: window event {}", describe_window_event(&event));
+        // Every window event but the pointer's, which arrives faster than a person can read and
+        // which `pump` prints under `pointer` a moment later as the command it becomes — one
+        // line for the movement rather than two. What this answers is the question a stuck
+        // window raises first: *is the program being told anything at all?*
+        if self.trace.on(Topic::Window) && !matches!(event, WindowEvent::CursorMoved { .. }) {
+            self.trace.say(
+                Topic::Window,
+                format_args!("window event {}", describe_window_event(&event)),
+            );
         }
 
         match event {
