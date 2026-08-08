@@ -2097,18 +2097,161 @@ fn with_a_thread() -> Vec<u8> {
     out.into_bytes()
 }
 
-/// A three-page document whose every page states §12.4.4.1's `/Dur 1`.
-fn with_durations() -> Vec<u8> {
-    use std::fmt::Write as _;
-    let body = "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
-         2 0 obj\n<< /Type /Pages /Kids [3 0 R 4 0 R 5 0 R] /Count 3 >>\nendobj\n\
-         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Dur 1 \
-         /Trans << /S /Split >> >>\nendobj\n\
-         4 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Dur 1 \
-         /Trans << /S /Wipe >> >>\nendobj\n\
-         5 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Dur 1 >>\nendobj\n"
-        .to_owned();
+/// §12.4.4's transition, drawn: frame `n` is between the two pages, in pixels.
+///
+/// **This is the whole of what a host owes a transition** — the core shapes the frame and the
+/// host owns the clock (ADR 0230) — so a tier-1 host with no display can play one by choosing a
+/// fraction, which is what this does at a quarter and a half of the way through.
+///
+/// Table 164's `Wipe`: "[a] single line sweeps across the screen from one edge to the other in
+/// the direction specified by the Di entry, revealing the new page", with `/Di 0` "[l]eft to
+/// right". So at a quarter of the way through, the left quarter of the window is the page moved
+/// **to** and the rest is the page being left — which is a statement about pixels and is checked
+/// as one, against the two flat colours the fixture draws.
+#[test]
+fn a_transition_frame_is_between_the_two_pages() {
+    const WINDOW: (u32, u32) = (200, 100);
+    let mut viewer = Viewer::new(WINDOW.0, WINDOW.1, 1.0);
+    let events: Vec<Event> = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: two_coloured_pages(),
+            password: None,
+            fragment: None,
+        })
+        .collect();
+    let leaving = raster(request(&events));
+    assert_eq!(&leaving.data[0..3], &[255, 0, 0], "page one is red");
 
+    // The clock, which is the only way this crate learns that a second went by (rule 3).
+    let advanced: Vec<Event> = viewer.handle(Command::Tick { millis: 1100 }).collect();
+    let transition = advanced
+        .iter()
+        .find_map(|event| match event {
+            Event::Transition { transition, .. } => Some(transition.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("page two states a /Trans: {advanced:?}"));
+    let arriving = raster(request(&advanced));
+    assert_eq!(&arriving.data[0..3], &[0, 0, 255], "page two is blue");
+
+    let viewport = pdf_render::Rect::from_corners(
+        pdf_render::Point::new(0.0, 0.0),
+        pdf_render::Point::new(200.0, 100.0),
+    );
+    let (outgoing, incoming) = (
+        viewer_core::transition::drawable(&leaving).expect("a page is drawable"),
+        viewer_core::transition::drawable(&arriving).expect("a page is drawable"),
+    );
+
+    for (progress, revealed) in [(0.25_f32, 50_u32), (0.5, 100)] {
+        let frame = viewer_core::transition::frame(&transition, viewport, progress)
+            .expect("a /Wipe is shaped");
+        let list = frame
+            .draw(viewport, &outgoing, &incoming)
+            .expect("two images and one clip");
+        let drawn = CpuRasterizer::new()
+            .rasterize(
+                &list,
+                pdf_render::TargetSpec {
+                    width: WINDOW.0,
+                    height: WINDOW.1,
+                    transform: pdf_render::Transform::IDENTITY,
+                },
+            )
+            .expect("the CPU backend draws a transition frame");
+        // Where the sweeping line is, to the pixel: everything left of it is the new page and
+        // everything right of it is the old one.
+        let at = |x: u32| {
+            let index = (x as usize).saturating_mul(4).saturating_add(50 * 200 * 4);
+            drawn
+                .data
+                .get(index..index.saturating_add(3))
+                .map(<[u8]>::to_vec)
+        };
+        assert_eq!(
+            at(revealed.saturating_sub(2)),
+            Some(vec![0, 0, 255]),
+            "at {progress}: the swept side is the page moved to"
+        );
+        assert_eq!(
+            at(revealed.saturating_add(2)),
+            Some(vec![255, 0, 0]),
+            "at {progress}: the rest is the page being left"
+        );
+    }
+}
+
+/// A style Table 164 names and this reader does not draw is reported by name.
+///
+/// Trap 5 where a viewer is most tempted to be silent: the page that arrives looks right, and
+/// only the file knows it asked for an effect. `Blinds` is "[m]ultiple lines, evenly spaced
+/// across the screen" and the clause never says how many, which is why it is one of the four
+/// left unshaped (ADR 0230).
+#[test]
+fn a_transition_this_reader_does_not_draw_is_named_rather_than_cut() {
+    let body = "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Dur 1 >>\nendobj\n\
+         4 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] \
+         /Trans << /S /Blinds >> >>\nendobj\n";
+    let mut viewer = Viewer::new(200, 100, 1.0);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: assemble(body),
+            password: None,
+            fragment: None,
+        })
+        .for_each(drop);
+    let advanced: Vec<Event> = viewer.handle(Command::Tick { millis: 1100 }).collect();
+    let said = advanced
+        .iter()
+        .find_map(|event| match event {
+            Event::Reported { notes, page, .. } => Some((notes.join(" "), *page)),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("a style with no frames is reported: {advanced:?}"));
+    assert!(said.0.contains("/Blinds"), "{said:?}");
+    assert_eq!(said.1, Some(1), "about the page it was moving to");
+    // And it is still *named*, because a host that can draw it is not this one.
+    assert!(
+        advanced
+            .iter()
+            .any(|event| matches!(event, Event::Transition { .. })),
+        "{advanced:?}"
+    );
+}
+
+/// Two pages of one flat colour each, the second stating a `/Trans`, both stating a `/Dur`.
+///
+/// A transition is a picture *between two pages*, so the fixture's whole job is to make the two
+/// distinguishable by a pixel: page one is red and page two is blue, and neither draws anything
+/// else. §12.4.4.1's `/Trans` is on the page arrived at — "the transition style that shall be
+/// used when moving to this page from another" — so the `Wipe` belongs to page two.
+///
+/// `/Di 0` is Table 164's "[l]eft to right", which is the direction the assertion reads.
+fn two_coloured_pages() -> Vec<u8> {
+    let red = "1 0 0 rg 0 0 200 100 re f";
+    let blue = "0 0 1 rg 0 0 200 100 re f";
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Dur 1 \
+         /Contents 5 0 R >>\nendobj\n\
+         4 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Dur 1 \
+         /Trans << /Type /Trans /S /Wipe /D 2 /Di 0 >> /Contents 6 0 R >>\nendobj\n\
+         5 0 obj\n<< /Length {} >>\nstream\n{red}\nendstream\nendobj\n\
+         6 0 obj\n<< /Length {} >>\nstream\n{blue}\nendstream\nendobj\n",
+        red.len(),
+        blue.len()
+    );
+    assemble(&body)
+}
+
+/// Wraps hand-written objects in a header, a cross-reference table and a trailer.
+fn assemble(body: &str) -> Vec<u8> {
+    use std::fmt::Write as _;
     let mut out = String::from("%PDF-1.7\n");
     let mut offsets = Vec::new();
     for object in body.split_inclusive("endobj\n") {
@@ -2127,6 +2270,18 @@ fn with_durations() -> Vec<u8> {
         "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
     );
     out.into_bytes()
+}
+
+/// A three-page document whose every page states §12.4.4.1's `/Dur 1`.
+fn with_durations() -> Vec<u8> {
+    let body = "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R 4 0 R 5 0 R] /Count 3 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Dur 1 \
+         /Trans << /S /Split >> >>\nendobj\n\
+         4 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Dur 1 \
+         /Trans << /S /Wipe >> >>\nendobj\n\
+         5 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Dur 1 >>\nendobj\n";
+    assemble(body)
 }
 
 /// §12.3.3's outline activates, and the index it lands on is the page tree's.

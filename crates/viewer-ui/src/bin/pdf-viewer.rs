@@ -55,8 +55,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use pdf_render::{
-    BlendMode, Color, Command as DrawCommand, FillRule, Paint, Path, PathCommand, Point,
-    Rasterizer as _, Size, TargetSpec, Transform,
+    BlendMode, Color, Command as DrawCommand, FillRule, Image, Paint, Path, PathCommand, Point,
+    Raster, Rasterizer as _, Rect, Size, TargetSpec, Transform,
 };
 use render_cpu::CpuRasterizer;
 use render_quorra::{PresentFrame, QuorraPresenter};
@@ -1035,6 +1035,9 @@ fn main() {
         caption: String::new(),
         request: None,
         acknowledged: true,
+        presented: None,
+        presentation: None,
+        arming: None,
         trace,
         processor,
         backend,
@@ -1167,6 +1170,20 @@ struct App {
     request: Option<RenderRequest>,
     /// Whether the core has been told that request was drawn.
     acknowledged: bool,
+    /// The page and placement last put on the screen, for §12.4.4's transition to draw from.
+    ///
+    /// **The page being left, exactly where it was.** A transition is a picture between two
+    /// pages, and by the time `Event::Transition` arrives the core has already moved on — so the
+    /// outgoing page is this, kept at the moment it was presented rather than reconstructed
+    /// afterwards from a geometry that now describes the page arriving.
+    presented: Option<(Arc<pdf_render::DisplayList>, TargetSpec)>,
+    /// §12.4.4's presentation, while `p` has one running. `None` is a window reading a document.
+    presentation: Option<Presentation>,
+    /// A transition named but not yet begun, waiting for the arriving page's own display list.
+    ///
+    /// See [`App::arm_transition`]: the core settles after the page turn, so the render request
+    /// for the page being moved to arrives one event *after* the transition that names it.
+    arming: Option<pdf_model::navigation::Transition>,
     /// Where the pointer last was, in device pixels.
     ///
     /// `winit` reports movement and clicks as separate events, so a click needs the position
@@ -1410,6 +1427,24 @@ fn on_the_processor(
     }
 }
 
+/// One page of a §12.4.4 transition: the display list drawn to pixels, ready to be drawn again.
+///
+/// [`CpuRasterizer`] and not the graphics device, because this asks for *pixels* and a presenter
+/// answers only by presenting. It happens twice per transition rather than per frame.
+fn face(list: &pdf_render::DisplayList, target: TargetSpec) -> Option<Image> {
+    let raster: Raster = CpuRasterizer::new().rasterize(list, target).ok()?;
+    viewer_core::transition::drawable(&raster)
+}
+
+/// The far corner of a window, as a point in its own device pixels.
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "window dimensions are far below f32's exact integer range"
+)]
+fn whole(width: u32, height: u32) -> Point {
+    Point::new(width as f32, height as f32)
+}
+
 /// The nearest character boundary at or before `offset`, clamped to the value's length.
 ///
 /// A caret is a place *between* characters, and the value it indexes changes under it: a field
@@ -1527,6 +1562,42 @@ impl Typing {
     fn range(self) -> (usize, usize) {
         (self.caret.min(self.anchor), self.caret.max(self.anchor))
     }
+}
+
+/// How often the clock is offered to `viewer-core` while a presentation is running and nothing
+/// is being animated.
+///
+/// §12.4.4.1's `/Dur` is "in seconds", and `Command::Tick` carries the milliseconds that actually
+/// passed rather than an assumed step, so the only thing this decides is *when the advance is
+/// noticed* — a tenth of a second against a duration a document states in whole ones. Ten times a
+/// second rather than every frame, because between transitions a slide show has nothing to draw
+/// and a window that redrew anyway would spend a processor on a still page.
+const PRESENTATION_TICK: std::time::Duration = std::time::Duration::from_millis(100);
+
+/// §12.4.4's presentation, while this window is driving one.
+///
+/// **The existence of this value is what "presentation mode" means here**, which is ADR 0135's
+/// answer rather than this round's: `viewer-core` has no clock and no mode, so "is a presentation
+/// running" is answered by whether a host is ticking. `p` starts and stops it.
+struct Presentation {
+    /// When the clock was last read, so that a tick carries the milliseconds that really passed.
+    ticked: std::time::Instant,
+    /// When the next tick is due, which is what the event loop waits until.
+    wake: std::time::Instant,
+    /// The transition being drawn, where one is in flight.
+    playing: Option<Playing>,
+}
+
+/// One transition, mid-flight: what it is, when it began, and the two pages it is between.
+struct Playing {
+    /// Table 164's style, duration and direction, as the page arrived at states them.
+    transition: pdf_model::navigation::Transition,
+    /// When the first frame of it was drawn.
+    began: std::time::Instant,
+    /// The page being left, as it was last presented.
+    outgoing: Image,
+    /// The page being moved to, at the same size.
+    incoming: Image,
 }
 
 /// How this window's pixels reach it: with a graphics device, or without one.
@@ -2428,6 +2499,11 @@ impl App {
             Event::NeedsRender(request) => {
                 self.request = Some(request);
                 self.acknowledged = false;
+                // §12.4.4: the page a transition moves *to* is the one whose list has just
+                // arrived, so this is where one that was armed can be drawn.
+                if let Some(transition) = self.arming.take() {
+                    self.begin_transition(transition);
+                }
                 self.redraw();
             }
             Event::Damage(_) => self.redraw(),
@@ -2439,13 +2515,12 @@ impl App {
                 let bytes = self.supply(purpose, &name);
                 queue.push_back(Command::Supply { purpose, bytes });
             }
-            // §12.6.4.15: this window redraws whole pages and animates nothing, so what it can
-            // honestly do with a transition is name it.
-            Event::Transition { transition, .. } => println!(
-                "link: a transition action asks for {:?} over {} s; this program draws the page \
-                 without animating it",
-                transition.style, transition.duration
-            ),
+            // §12.4.4: the frames of it are drawn, since the three-hundred-and-ninety-third
+            // session — by this host, because a transition is an animation over wall time and
+            // `viewer-core` has no clock (rule 3). What arrives here is the *shape* of what to
+            // draw; when to draw it is this window's, and a window that is not presenting shows
+            // the page, which is the transition's own end state. ADR 0230.
+            Event::Transition { transition, .. } => self.arm_transition(transition),
             // Rule 2 in one arm: the core produced the bytes and the host owns the filesystem.
             // Written beside the document with `.edited.pdf` appended rather than over it,
             // because overwriting somebody's file is a decision this program has not been given.
@@ -2985,6 +3060,230 @@ impl App {
         Some(list)
     }
 
+    /// Starts or stops driving §12.4.4's clock, which is the whole of what presentation mode is
+    /// in this program.
+    ///
+    /// ADR 0135 decided that `viewer-core` has no presentation *state*: "is a presentation
+    /// running" is answered by whether something is driving the clock, and a host that stops
+    /// presenting stops ticking. So this is a host field and a key, and nothing crosses the
+    /// boundary but `Command::Tick`.
+    ///
+    /// Full screen is deliberately not part of it. §12.4.4.1 says a processor "may allow a
+    /// document to be displayed in the form of a presentation or slide show" and says nothing
+    /// about a window; what the clause states is the advance timing and the transition, and those
+    /// are what this draws.
+    fn present_or_stop(&mut self) {
+        if self.presentation.take().is_some() {
+            println!("presentation: stopped — no clock is being driven");
+            self.redraw();
+            return;
+        }
+        let now = std::time::Instant::now();
+        self.presentation = Some(Presentation {
+            ticked: now,
+            wake: now,
+            playing: None,
+        });
+        println!(
+            "presentation: running — §12.4.4's /Dur advances the page and its /Trans is drawn"
+        );
+        self.redraw();
+    }
+
+    /// Tells the core how long the page has been up, where a presentation is running.
+    ///
+    /// **The clock is held while a transition is being drawn**, and that is the clause's own
+    /// arithmetic rather than a convenience: §12.4.4.1's EXAMPLE describes "a page to be
+    /// displayed for 5 seconds" whose 3.5-second transition happens "[b]efore the page is
+    /// displayed", so the transition is not part of the display duration it precedes. A tick
+    /// during it would spend the new page's `/Dur` on the effect that introduces it.
+    fn drive_the_clock(&mut self) {
+        let Some(presentation) = self.presentation.as_mut() else {
+            return;
+        };
+        if presentation.playing.is_some() {
+            presentation.ticked = std::time::Instant::now();
+            return;
+        }
+        let now = std::time::Instant::now();
+        let elapsed = now.saturating_duration_since(presentation.ticked);
+        presentation.ticked = now;
+        let millis = u32::try_from(elapsed.as_millis()).unwrap_or(u32::MAX);
+        if millis == 0 {
+            return;
+        }
+        self.dispatch(Command::Tick { millis });
+    }
+
+    /// Takes `transition` to be drawn as soon as there is a page to draw it to, or says why this
+    /// program will not draw it at all.
+    ///
+    /// Two rasters are taken per transition and none per frame: the page being left, as it was
+    /// last presented, and the page arriving, at the same size. Both are drawn by
+    /// [`CpuRasterizer`] — the one rasteriser this host can ask for *pixels* rather than for a
+    /// present — and each crosses to the graphics device once, because [`pdf_render::Image`]
+    /// holds its samples behind an `Arc` and quorra's caches are keyed by that pointer.
+    ///
+    /// The cost is therefore two page renders at the start of a transition and two image draws
+    /// per frame after it, which is the trade this host makes deliberately: a transition frame
+    /// that re-rasterised both pages would pay a page's interpretation sixty times a second.
+    fn arm_transition(&mut self, transition: pdf_model::navigation::Transition) {
+        let Some((width, height, _)) = self.window() else {
+            return;
+        };
+        // A window that is not presenting draws the page, which is the transition's end state.
+        if self.presentation.is_none() {
+            println!(
+                "note: transition: {:?} over {} s — nothing is presenting, so the page is shown \
+                 at once (press p)",
+                transition.style, transition.duration
+            );
+            return;
+        }
+        let viewport = Rect::from_corners(Point::new(0.0, 0.0), whole(width, height));
+        if viewer_core::transition::frame(&transition, viewport, 0.0).is_none() {
+            // The core has already said *why* through `Event::Reported`; a second sentence here
+            // would say it twice.
+            return;
+        }
+        // **Armed rather than begun, and the ordering is the reason.** `Viewer::handle` settles
+        // *after* the command that turned the page, so the events arrive as page change,
+        // transition, render request — and the arriving page's display list is in the last of
+        // the three. A transition begun here would have rasterised the page being left twice
+        // and animated it against itself, which is what the window showed before this was found.
+        // §12.4.4.1's transition is one *to* a page, so waiting for that page's own request is
+        // the clause's own order as well as this host's.
+        self.arming = Some(transition);
+    }
+
+    /// Draws the armed transition between the page last presented and the one just asked for.
+    ///
+    /// Two rasters are taken here and none per frame: see [`App::arm_transition`] for why this
+    /// is not the moment the event arrived.
+    fn begin_transition(&mut self, transition: pdf_model::navigation::Transition) {
+        let began = std::time::Instant::now();
+        let Some((width, height, _)) = self.window() else {
+            return;
+        };
+        let Some((list, target)) = self.presented.clone() else {
+            return;
+        };
+        let Some(request) = self.request.clone() else {
+            return;
+        };
+        let origin = match self.viewer.query(Query::PageGeometry(request.page)) {
+            Answer::Geometry(geometry) => geometry.origin,
+            _ => (0.0, 0.0),
+        };
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a panel width in pixels, which is hundreds"
+        )]
+        let edge = self.inset() as f32;
+        // The same composition `present` makes, because the page arriving has to be drawn where
+        // it is about to be presented — otherwise the last frame of the transition would move.
+        let arriving = TargetSpec {
+            width,
+            height,
+            transform: request
+                .target
+                .transform
+                .then(Transform::translate(origin.0 + edge, origin.1)),
+        };
+        let (Some(outgoing), Some(incoming)) = (face(&list, target), face(&request.list, arriving))
+        else {
+            println!(
+                "note: transition: {:?} was named but the pages behind it would not rasterise, \
+                 so the page is shown at once",
+                transition.style
+            );
+            return;
+        };
+        // The cost of starting one, which is where all of a transition's page work is: a frame
+        // after this draws two images and interprets nothing.
+        self.trace.say(
+            Topic::Frames,
+            format_args!(
+                "TRANSITION {:?} over {} s: two {width}x{height} pages rasterised in {:?}",
+                transition.style,
+                transition.duration,
+                began.elapsed()
+            ),
+        );
+        if let Some(presentation) = self.presentation.as_mut() {
+            presentation.playing = Some(Playing {
+                transition,
+                began: std::time::Instant::now(),
+                outgoing,
+                incoming,
+            });
+        }
+        self.redraw();
+    }
+
+    /// The frame of a transition in flight, or `None` when there is nothing being drawn.
+    ///
+    /// Ends the transition at `/D` seconds, which is the one place this host decides that time
+    /// has run out: the fraction handed to `viewer_core::transition::frame` is elapsed over
+    /// duration, linear, because Table 164 states a duration and no curve.
+    fn transition_frame(&mut self, width: u32, height: u32) -> Option<pdf_render::DisplayList> {
+        let presentation = self.presentation.as_mut()?;
+        let playing = presentation.playing.as_ref()?;
+        let elapsed = playing.began.elapsed().as_secs_f32();
+        let progress = if playing.transition.duration > 0.0 {
+            elapsed / playing.transition.duration
+        } else {
+            1.0
+        };
+        if progress >= 1.0 {
+            presentation.playing = None;
+            // The clock restarts where the transition ends, so the page gets the whole of its
+            // own `/Dur` — see `drive_the_clock`.
+            presentation.ticked = std::time::Instant::now();
+            return None;
+        }
+        let viewport = Rect::from_corners(Point::new(0.0, 0.0), whole(width, height));
+        let shaped = viewer_core::transition::frame(&playing.transition, viewport, progress)?;
+        match shaped.draw(viewport, &playing.outgoing, &playing.incoming) {
+            Ok(list) => Some(list),
+            Err(problem) => {
+                // Not reachable from a frame — the largest one adds four clips — and said rather
+                // than swallowed for the reason every refusal in this tree is.
+                println!("note: transition: this frame would not draw: {problem}");
+                presentation.playing = None;
+                None
+            }
+        }
+    }
+
+    /// What this frame draws: a transition's own picture, or the page itself.
+    ///
+    /// A transition frame is already in the window's pixels — it is two page rasters placed by
+    /// [`viewer_core::transition`] — so it draws at the identity transform where a page draws
+    /// through its own placement.
+    fn frame_to_draw(
+        &mut self,
+        request: &RenderRequest,
+        target: TargetSpec,
+        width: u32,
+        height: u32,
+    ) -> (Option<pdf_render::DisplayList>, TargetSpec) {
+        if let Some(frame) = self.transition_frame(width, height) {
+            return (
+                Some(frame),
+                TargetSpec {
+                    width,
+                    height,
+                    transform: Transform::IDENTITY,
+                },
+            );
+        }
+        // What the screen is about to show, kept so that the next transition has a page to move
+        // *from*. Only the page itself: a transition frame is already a picture of two of them.
+        self.presented = Some((Arc::clone(&request.list), target));
+        (None, target)
+    }
+
     /// `stages` is filled in as the frame goes: see [`Stages`] for why one number was not enough.
     fn present(&mut self, stages: &mut Stages) -> Option<Rendered> {
         let began = std::time::Instant::now();
@@ -3018,25 +3317,14 @@ impl App {
                 .then(Transform::translate(origin.0 + edge, origin.1)),
         };
 
-        let chrome = Overlays {
-            panel: self.panel_list(height),
-            about: self.about_list(width, height),
-        };
-        let selection = self.selection_list(edge, width, height);
-        let field_selection = self.field_selection_list(edge, width, height);
-        let focus = self.focus_list(edge, width, height);
-        let caret = self.caret_list(edge, width, height);
-        let popups = self.popup_list(edge, width, height);
-        // Selection first (it belongs to the page), then the sidebar, then the
-        // modal card on top — the same order the Vello host drew them in.
-        let mut overlays: Vec<&pdf_render::DisplayList> = Vec::new();
-        overlays.extend(selection.as_ref());
-        overlays.extend(field_selection.as_ref());
-        overlays.extend(focus.as_ref());
-        overlays.extend(caret.as_ref());
-        overlays.extend(popups.as_ref());
-        overlays.extend(chrome.panel.as_ref());
-        overlays.extend(chrome.about.as_ref());
+        // §12.4.4: a transition in flight substitutes its own picture of *two* pages for the one,
+        // and it is a display list, so everything below this line is unchanged by it — which is
+        // the point of shaping a frame in `viewer_core::transition` rather than compositing here.
+        let (playing, target) = self.frame_to_draw(&request, target, width, height);
+        let list = playing.as_ref().map_or(&*request.list, |frame| frame);
+
+        let chrome = Overlays::of(self, edge, width, height);
+        let overlays = chrome.lists();
         stages.host = began.elapsed();
 
         let state = self.state.as_mut()?;
@@ -3053,7 +3341,7 @@ impl App {
                 let outcome = presenter.present(PresentFrame {
                     width,
                     height,
-                    page: Some((&request.list, target)),
+                    page: Some((list, target)),
                     raster: None,
                     overlays: &overlays,
                 });
@@ -3087,7 +3375,7 @@ impl App {
         };
         if let Err(problem) = drawn {
             let fell_back = std::time::Instant::now();
-            let second = on_the_processor(&mut state.surface, &request.list, target, &overlays);
+            let second = on_the_processor(&mut state.surface, list, target, &overlays);
             stages.fallback = fell_back.elapsed();
             if let Err(second) = second {
                 return Some(Rendered::Failed(if problem.is_empty() {
@@ -3331,6 +3619,9 @@ impl App {
     /// defect rather than a design choice, which is exactly what it was: on a page turn the tree
     /// is rebuilt and published, and that work was being attributed to the graphics device.
     fn redraw_requested(&mut self) {
+        // Before the frame rather than after it: a tick can advance the page, and a page that
+        // advanced after its frame was drawn would be one frame late for the whole slide show.
+        self.drive_the_clock();
         let started = std::time::Instant::now();
         let mut stages = Stages::default();
         let outcome = self.present(&mut stages);
@@ -3374,6 +3665,35 @@ impl ApplicationHandler for App {
     /// and everything it needs is already recorded.
     fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
         self.frames.summary(self.trace);
+    }
+
+    /// Keeps §12.4.4's clock, and only while there is one to keep.
+    ///
+    /// **Three speeds, and the idle one is the default.** A window reading a document waits for
+    /// an event, which is what `main` sets and what a viewer is doing almost all of the time. A
+    /// presentation between transitions wakes ten times a second, which is enough to notice a
+    /// `/Dur` stated in seconds. A transition in flight polls, because it *is* an animation and
+    /// every frame it can draw is one a person sees.
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        let Some(presentation) = self.presentation.as_mut() else {
+            event_loop.set_control_flow(ControlFlow::Wait);
+            return;
+        };
+        if presentation.playing.is_some() {
+            event_loop.set_control_flow(ControlFlow::Poll);
+            self.redraw();
+            return;
+        }
+        let now = std::time::Instant::now();
+        let due = now >= presentation.wake;
+        if due {
+            presentation.wake = now.checked_add(PRESENTATION_TICK).unwrap_or(now);
+        }
+        let wake = presentation.wake;
+        if due {
+            self.redraw();
+        }
+        event_loop.set_control_flow(ControlFlow::WaitUntil(wake));
     }
 
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
@@ -3503,6 +3823,13 @@ impl ApplicationHandler for App {
                 if matches!(logical_key.as_ref(), Key::Character("?")) {
                     self.about.toggle();
                     self.redraw();
+                    return;
+                }
+                // §12.4.4's presentation, and the third key this program answers itself: whether
+                // a clock is running is a fact about this host and not about the document
+                // (ADR 0135), so there is no command for it.
+                if matches!(logical_key.as_ref(), Key::Character("p")) {
+                    self.present_or_stop();
                     return;
                 }
                 // Everything else goes to the page, and the About card is over it: a key press
@@ -3902,13 +4229,58 @@ const CARET_WIDTH: f32 = 2.0;
 /// Gathered once per frame and handed to the presenter beside the page, which is why they are
 /// display lists and not backend calls: they draw through the same translation as the page
 /// itself, and that is what a `--cpu` run and a page the graphics device refuses both need.
+///
+/// Held in one value so that the borrowed lists [`Self::lists`] hands the presenter outlive the
+/// call: each of these is built for this frame and dropped after it.
 #[derive(Default)]
 struct Overlays {
+    /// What is selected on the page, which belongs to the page and so is under everything else.
+    selection: Option<pdf_render::DisplayList>,
+    /// What is selected inside a form field (ADR 0225).
+    field_selection: Option<pdf_render::DisplayList>,
+    /// §12.5.1's focus ring, round whatever the tab key last landed on.
+    focus: Option<pdf_render::DisplayList>,
+    /// §12.7.4.3's caret, where the next character goes (ADR 0211).
+    caret: Option<pdf_render::DisplayList>,
+    /// §12.5.6.14's popup windows, which belong to the document and so are under the sidebar.
+    popups: Option<pdf_render::DisplayList>,
     /// The sidebar, where it is shown.
     panel: Option<pdf_render::DisplayList>,
-    /// `/NOTICE`, where it is shown. **Second, so it is on top**: it is a modal card and the
+    /// `/NOTICE`, where it is shown. **Last, so it is on top**: it is a modal card and the
     /// sidebar is behind it.
     about: Option<pdf_render::DisplayList>,
+}
+
+impl Overlays {
+    /// Builds every one of them for this frame.
+    fn of(app: &App, edge: f32, width: u32, height: u32) -> Self {
+        Self {
+            selection: app.selection_list(edge, width, height),
+            field_selection: app.field_selection_list(edge, width, height),
+            focus: app.focus_list(edge, width, height),
+            caret: app.caret_list(edge, width, height),
+            popups: app.popup_list(edge, width, height),
+            panel: app.panel_list(height),
+            about: app.about_list(width, height),
+        }
+    }
+
+    /// The ones there are, in the order they are drawn: selection first (it belongs to the page),
+    /// then the sidebar, then the modal card on top — the order the Vello host drew them in.
+    fn lists(&self) -> Vec<&pdf_render::DisplayList> {
+        [
+            self.selection.as_ref(),
+            self.field_selection.as_ref(),
+            self.focus.as_ref(),
+            self.caret.as_ref(),
+            self.popups.as_ref(),
+            self.panel.as_ref(),
+            self.about.as_ref(),
+        ]
+        .into_iter()
+        .flatten()
+        .collect()
+    }
 }
 
 /// Reads a password from the terminal, or `None` if the person cancelled with an empty line.

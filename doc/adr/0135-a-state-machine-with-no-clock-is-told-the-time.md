@@ -1,6 +1,12 @@
 # ADR 0135 — A state machine with no clock is told the time
 
 Status: accepted, 2026-08-02. Session 150. The last item of `viewer-core`'s vocabulary.
+**Amended by ADR 0230 (session 393): the section "What is still not done" below is closed, and one
+sentence in it was false.** A host does draw the frames now, and "a sequence of frames over 0.7
+seconds is exactly the thing a crate with no clock cannot own" was the right instinct with the
+wrong object — the crate cannot own the *seconds*, and it can own the *shape*, which is a pure
+function of a fraction. What this ADR decided is untouched: `Command::Tick` is still how time
+arrives, there is still no presentation state in the crate, and the three rules below still hold.
 
 ## Context
 

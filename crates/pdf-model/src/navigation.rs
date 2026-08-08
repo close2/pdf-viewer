@@ -34,13 +34,18 @@
 //!
 //! # What is deliberately not here
 //!
-//! **Nothing turns the presentation on.** §12.4.4.2's NOTE 3 says "[a]n interactive PDF
-//! processor needs to respect navigation nodes only when in presentation mode", and this program
-//! has no presentation mode — no full-screen state, no clock, and no animation. So what a page
-//! *states* about a presentation is read and nothing plays it: a transition is a picture
-//! interpolated between two pages over `/D` seconds, which is a thing a display list cannot
-//! express and a window's event loop can. A caller that has a presentation mode drives all
-//! three of these from the values here.
+//! **Nothing here turns the presentation on**, and nothing here draws one. §12.4.4.2's NOTE 3
+//! says "[a]n interactive PDF processor needs to respect navigation nodes only when in
+//! presentation mode", and this crate has no clock to run one with. So what a page *states* about
+//! a presentation is read here and a caller with a clock drives all three of these from the
+//! values.
+//!
+//! **A caller does drive them, since the hundred-and-fiftieth session and the
+//! three-hundred-and-ninety-third.** `viewer_core::viewer` advances a `/Dur` on
+//! `Command::Tick` (ADR 0135), and `viewer_core::transition` shapes the frames of a `/Trans` at a
+//! fraction of the way through, which `viewer-ui` draws (ADR 0230) — seven of Table 164's twelve
+//! styles, with the other five reported by name. What still has no control is §12.4.4.2's own
+//! subject: nothing steps through a page's navigation nodes.
 //!
 //! That division is the same one Table 99's `/Order` and `/ListMode` are read under (§8.11.4.3):
 //! the document's own words belong to this crate, and what a window does with them does not.

@@ -96,6 +96,8 @@ mod report;
 mod select;
 mod viewer;
 
+pub mod transition;
+
 pub use accessibility::AccessibilityNode;
 pub use command::{
     Command, Edit, FocusMove, PageTarget, PointerAction, Purpose, Rendered, RestrictionLevel,

@@ -48,7 +48,7 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 | [28](28-a-catalogue-that-draws-nothing.md) | A catalogue that drew nothing: the YCCK image is decoded and §11.5.3's masks are finished (ADRs 0217, 0220); §11.4.7 is what is left, and one run over the file is now a check rather than a question | 0, and that is the point |
 | [30](30-a-native-host.md) | GTK4, then Qt, then `viewer-ffi` | — |
 | [31](31-accessibility-host.md) | AccessKit over `Query::AccessibilityTree` — **built and read back off a real AT-SPI bus** (ADR 0214); a `TH`'s axis, a `Form`'s control role, the `Text` interface and actions are what is left | — |
-| [32](32-presentation-player.md) | Draw a transition's frames | — |
+| [32](32-presentation-player.md) | **Seven of Table 164's twelve styles are drawn** (ADR 0230); `Blinds`, `Glitter`, `Dissolve` and `Fly` are reported by name, and §12.4.4.2's states have no control | — |
 | [33](33-annotation-editing.md) | Free text, and a host that sends the markup command from a drag — §12.5.6.10's markup, §14.8.2.5's logical order, the caret, the click that places it and the selection inside a value are done | — |
 | [34](34-sandbox-the-interpreter.md) | Confine the interpreter and rasteriser — **built, drawing real pages behind seccomp and answering all twenty-five questions** (ADRs 0218, 0223); the window is tier 2, a hostile document has no cancel, and §12.3.5.1's `/D` is decided by nobody | — |
 | [35](35-confinement-off-linux.md) | Confinement on macOS and Windows — what the snapshot release cannot ship, and the three ways out | — |
