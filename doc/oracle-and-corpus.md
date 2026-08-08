@@ -107,6 +107,41 @@ honoured to **1420 device columns against both references' 1419** at 8×, and wh
 naming, font substitution, and glyph selection are implementation-dependent" — and the group had
 argued from it for four hundred sessions without citing it.
 
+### 3c. The bound those thirty-eight fail was never derived, and it is left where it is
+
+**The four-hundred-and-seventh session asked the question §3b's last paragraph raises** — a bound a
+page fails while passing every other bound comfortably is either the bound doing its job or a bound
+nobody derived — **and measured it the way this file's structural floor of 0.90 was measured, by
+asking how far the references sit from each other.** `oracle.rs`'s
+`the_fixed_bounds_against_the_references_own_spread` re-derives all eight fixed bounds from the
+corpus: every reference pair on every page, split by tolerance class and by whether the pair crosses
+the hinting boundary, **each measure taken over the pairs the *other three* bounds admit** — which is
+`Tolerance::VECTOR`'s own stated method and is what stops a bound from being measured over the
+population it already defines.
+
+**Over 2638 pairs of the three independent references on text pages, the share of reference pairs
+each `TEXT_HEAVY` bound rejects is 0.0% (mean), 1.2% (worst tile), 0.5% (structural similarity) and
+29.4% (the differing fraction).** One bound of the four sits below the spread of the implementations
+that set it, and it is the one 38 of the 68 fail on and no other. The same measure on *vector* pages
+rejects 2.8% against its siblings' 0.0%, 9.7% and 3.3%, so this is one number in one class rather
+than an argument about counting channels.
+
+**The sentence that claims to derive it names another measure's number.** Re-run on the population
+that sentence cites — the 14 specification PDFs' first pages, 42 reference pairs — the worst tile
+reproduces to the digit (p90 26.72, max 28.17, "26 to 28"), and the differing fraction is median
+3.11%, max **5.14%**, with **11.9% of those pairs already outside the 5.00%** the comment sets. What
+is 2.7 on that population is the *mean absolute difference*'s maximum, 2.7355.
+
+**It is not moved, and both reasons are measured.** The bound decides whether two references form a
+consensus *and* floors the per-page bound; raised to the reference spread's 99th percentile, 12.02%,
+the corpus goes from 905/68/786 to **1121/309/329** — 457 pages leave `ambiguous` and **278 arrive
+newly contradicted** against 37 leaving, which is 278 diagnoses rather than a round. And the only
+population that would justify loosening our own side alone is the one crossing the hinting boundary,
+where the median differing fraction doubles (1.69% → 3.42%) — but the sole renderer on the far side
+of it is `hayro`, which shares `skrifa` with this tree, so it is not evidence about us.
+**ADR 0243** has the tables; [todo 12](todo/12-one-bound-two-jobs.md) has the work; the 38 pages'
+status is unchanged and now has a reason beside it.
+
 **Two cautions the contradicted list earned.** A page may be contradicted for a reason other than
 the one its group names — **eight for eight, so far, on the group being wrong**, the newest being
 `issue4304.pdf` in the four-hundred-and-fifth session, which sat in `CONTRADICTED_SUBSTITUTED_FONT`

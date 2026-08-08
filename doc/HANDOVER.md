@@ -221,6 +221,20 @@ saying what it can: its population is the ambiguous bucket, and a page moving be
 and *agrees* is invisible to it, so the identity means no ambiguous page's ink changed. The test,
 citation and quotation counts moved by the round's own two tests and its citations.
 
+**And the four-hundred-and-seventh, which moved no verdict at all and answered a question about a
+number.** It asked whether the one bound 38 of the 68 contradicted pages fail — the differing
+fraction — is catching something the averages hide or was never derived, and measured it the way
+this project's structural floor of 0.90 was measured: over **9898 reference pairs**, each measure
+taken over the pairs the other three bounds admit. On text pages `TEXT_HEAVY`'s four bounds reject
+**0.0%, 1.2%, 0.5% and 29.4%** of the reference pairs that agree by everything else, so one of the
+four sits below the spread of the implementations that set it — and the sentence claiming to derive
+it names `mean_error`'s number. **It is left where it is**, because raising it to the derived 12.02%
+takes the corpus from 905/68/786 to **1121/309/329**: the bound also decides whether two references
+form a consensus, so 457 pages leave `ambiguous` and 278 arrive newly contradicted. **The whole diff
+under `crates/` is `tests/oracle.rs` and `raster-compare`'s doc comments**, so no raster changed: the
+oracle's 1794 verdict lines are identical to the round's own baseline but for two timing lines, and
+every other gate reproduced. Step 7 **not owed**. ADR 0243, `doc/todo/12`.
+
 **And the four-hundred-and-sixth, which moved no verdict and forty-three lines.** It worked the
 contradicted list and found the defect in the *instrument*: a contradicted page's line was measured
 against whichever reference had the largest tile — which need not be one the verdict rests on — and
@@ -234,9 +248,9 @@ names in the same order as the three-hundred-and-ninety-seventh's. ADR 0242.
 
 | gate | what it printed | where |
 |---|---|---|
-| tests | `1420 tests run: 1420 passed, 9 skipped`, and `cargo test --workspace --doc` **1 passed** beside it, so `cargo test --workspace` reports **1421**. `clippy --workspace --all-targets` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`; `fmt --all --check` clean | `cargo nextest run --workspace`, **33.5 s** |
+| tests | `1420 tests run: 1420 passed, 10 skipped` — the tenth skip is the four-hundred-and-seventh session's `the_fixed_bounds_against_the_references_own_spread`, which derives the oracle's own bounds and is run explicitly — and `cargo test --workspace --doc` **1 passed** beside it, so `cargo test --workspace` reports **1421**. `clippy --workspace --all-targets` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`; `fmt --all --check` clean | `cargo nextest run --workspace`, **33.5 s** |
 | corpus (974 pdf.js documents, page one) | `974 documents in 5.9s: 0 unopenable, 8 locked, 2 encrypted beyond us, 5 pageless, **65 incomplete**, 0 slow` | `tests/corpus.rs`, **5.9 s** |
-| oracle (1794 pages vs poppler, mupdf, ghostscript) | `1794 pages (1693 we call complete, 101 incomplete)`; **905 agree / 863 of them complete**, **68 contradicted / 66 complete**, **786 ambiguous / 753 complete**, our geometry 1/0, reference geometry 2/2, not comparable 14/9, no render 18/0 — and **the undiagnosed ambiguous list printed empty**, which is the ratchet holding. Nothing moved in the four-hundred-and-sixth — it changed only what the gate *prints* about a contradicted page (ADR 0242) — and the run now ends with a second ranking, `contradicted, and furthest from the nearest reference`, headed by `bitmap-symbol-context-reuse.pdf` at 28.91 nearest | `tests/oracle.rs`, **41.1 s** |
+| oracle (1794 pages vs poppler, mupdf, ghostscript) | `1794 pages (1693 we call complete, 101 incomplete)`; **905 agree / 863 of them complete**, **68 contradicted / 66 complete**, **786 ambiguous / 753 complete**, our geometry 1/0, reference geometry 2/2, not comparable 14/9, no render 18/0 — and **the undiagnosed ambiguous list printed empty**, which is the ratchet holding. Nothing moved in the four-hundred-and-sixth — it changed only what the gate *prints* about a contradicted page (ADR 0242) — nor in the four-hundred-and-seventh, which added a second `#[ignore]`d test to the same file that re-derives the bounds this gate judges by (ADR 0243) — and the run now ends with a second ranking, `contradicted, and furthest from the nearest reference`, headed by `bitmap-symbol-context-reuse.pdf` at 28.91 nearest | `tests/oracle.rs`, **41.1 s** |
 | text (vs `pdftotext`, same 974) | `overall 99.2% (24043/24243 words), 25 below 90%`, with 24 skipped and 62 incomplete and not gated | `tests/text_extraction.rs`, **30.1 s** |
 | **quorra vs the CPU oracle** (974 documents, page one, same display list) | `957 pages compared in 46.8s: **912 agree, 36 differ, 9 refused, 17 not comparable**` — one refusal is `bug1721218_reduced.pdf`, whose coverage outgrows a 16384×16384 scratch image; **four are §11.4.6's stated shape**, which needs two Porter-Duff operators quorra's `Compose` does not have (ADR 0234, `QUORRA_FEEDBACK.md` section 14); **four more are §11.4.4's non-isolated group**, whose buffer has to start as a copy of the page where `GroupSpec` opens one on transparency (ADR 0237, section 16). All eight used to *agree* about a picture both backends drew wrongly | `render-quorra/tests/corpus.rs`, **33.5 s** |
 | dates | `1545 date strings in 974 documents: **1514 conform** to §7.9.4 (97.99%), 31 do not, over 22 distinct strings` | `tests/dates.rs`, **0.9 s** |
@@ -465,7 +479,10 @@ out **no** (ADR 0229).
 
 **[`doc/oracle-and-corpus.md`](oracle-and-corpus.md)** — the 66 contradicted pages on complete
 documents grouped with their diagnoses, the 65 incomplete documents split by report kind, and the
-two cautions the contradicted list earned.
+two cautions the contradicted list earned. Its **§3c** is the four-hundred-and-seventh session's
+answer to why 38 of the 68 fail one bound and nothing else: that bound rejects **29.4%** of the
+reference pairs that agree by every other measure, where its three siblings reject 0.0%, 1.2% and
+0.5%, and it is left where it is for reasons ADR 0243 measured rather than asserted.
 
 ### 3a. The ambiguous bucket — watched since the hundred-and-seventy-sixth, and emptied in the three-hundred-and-seventy-ninth
 

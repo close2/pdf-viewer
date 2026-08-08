@@ -82,6 +82,24 @@ impl Tolerance {
     /// pdf.js corpus, the pages where every reference pair already falls inside the three
     /// pixel bounds above have a structural similarity of 0.9971 at worst and 0.9999 at
     /// the median. 0.99 sits just under that floor.
+    ///
+    /// # Both halves re-run in the four-hundred-and-seventh session
+    ///
+    /// `pdfref`'s own `end_to_end` test prints the first sentence's numbers on every run, and
+    /// today's renderers give **0.0016 to 0.0352** and **0.4062 to 1.0625** — the worst tile
+    /// exactly as written, the mean's upper end 0.035 where the sentence says 0.047, which is
+    /// four hundred sessions of `poppler` and `ghostscript` releases and not a correction.
+    ///
+    /// The 51-document sample is gone and cannot be re-run, but the whole corpus can be, and
+    /// `oracle.rs`'s `the_fixed_bounds_against_the_references_own_spread` does it. Over the
+    /// **1121** reference pairs on vector pages, each measure taken over the pairs the other
+    /// three admit, the share of pairs each of these four bounds rejects is **0.0%, 9.7%, 2.8%
+    /// and 3.3%** in the order the fields are declared. So the sample's "0.9971 at worst" does
+    /// not hold corpus-wide — the worst is 0.9300 — and what does hold is that all four bounds
+    /// sit in the same place relative to their own references: at the top of the distribution,
+    /// rejecting a few percent of it. **`max_differing_fraction` here has no written
+    /// derivation of its own and needs none**, because it lands where its three siblings land.
+    /// [`Self::TEXT_HEAVY`]'s does not, and that is where the finding is.
     pub const VECTOR: Self = Self {
         max_mean: 1.0,
         max_worst_tile: 5.0,
@@ -96,6 +114,34 @@ impl Tolerance {
     /// difference map shows the disagreement is confined to glyph outlines and
     /// single-pixel shape borders — the interiors of filled areas are identical — so it is
     /// hinting and antialiasing, not a rendering error.
+    ///
+    /// # `max_differing_fraction` is the one bound here set *below* the spread it was
+    /// measured on, and the sentence above is why
+    ///
+    /// Re-run on its own population in the four-hundred-and-seventh session — the 14
+    /// specification PDFs' first pages, **42 reference pairs** — the worst tile reproduces to
+    /// the digit: median 18.42, p90 **26.72**, max **28.17**, against a bound of 40. The
+    /// differing fraction on those same pairs is median **3.11%**, p90 **4.99%**, max
+    /// **5.14%**, and **11.9% of them are already outside the 5.00% written here**. The
+    /// number the sentence attributes to it, 2.7, is `mean_error`'s maximum on that
+    /// population — 2.7355 — so the one bound of the four that names no derivation of its own
+    /// is the one that was given another measure's.
+    ///
+    /// Over the whole corpus the gap is wider and one-sided. Across **2638** pairs of the
+    /// three references on text pages, each measure taken over the pairs the other three
+    /// admit, the share of pairs each bound rejects is **0.0%** (mean), **1.2%** (worst tile),
+    /// **29.4%** (differing fraction) and **0.5%** (structural similarity). Three of these
+    /// four sit at or above the 99th percentile of what two independent implementations do to
+    /// each other on a page of this class; the fourth sits between the median (1.69%) and the
+    /// 90th percentile (10.38%).
+    ///
+    /// **It is left where it is, and that is a decision rather than an omission — ADR 0243.**
+    /// The bound does two jobs: it decides whether two references form a consensus at all,
+    /// and it floors the per-page bound [`Self::widened_to`] derives. Raising it to the 99th
+    /// percentile of the reference spread, 12.02%, was run over the corpus and forms **457**
+    /// new consensuses, of which **278** then contradict us — so the derived value cannot be
+    /// adopted without arguing 278 pages, and adopting it for our own side alone would loosen
+    /// the gate in the one direction that flatters us. `doc/todo/12` is the work.
     ///
     /// # The pixel bounds here are weak, and the structural bound is what gates
     ///
@@ -179,6 +225,24 @@ impl Tolerance {
     /// disappear is the move this project forbids itself, and what would justify a change is a
     /// measurement of how far a *fourth* independent rasteriser sits from the three, which
     /// nobody has.
+    ///
+    /// # The four-hundred-and-seventh session took that measurement and it is still not that
+    /// renderer
+    ///
+    /// `hayro` is independent of all three C references and does not grid-fit, so a
+    /// `hayro`-against-`poppler` pair is one hinting renderer against one that is not, with
+    /// neither of the two being us. Over the corpus's text pages, on the pairs every other
+    /// bound admits, that population's differing fraction runs median **3.42%**, p90 11.24%,
+    /// p99 16.00% against the three C references' own median **1.69%**, p90 10.38%, p99
+    /// 12.02% — the *median* doubling as soon as one member of the pair stops hinting. So the
+    /// sentence above is quantified: their spread understates the floor, and by how much is
+    /// now a number.
+    ///
+    /// It still justifies no change, and the reason is the one [`crate::Reference`] states.
+    /// `hayro` shares `skrifa` with this tree, so widening our own bound on the strength of
+    /// how far *it* sits from `poppler` would forgive whatever the two of us get wrong
+    /// together — which is the circularity `Reference::independence` exists to prevent, and
+    /// the same circularity whether it reaches the verdict through a vote or through a bound.
     ///
     /// The fixed bounds stay as a floor rather than being replaced, because a spread of
     /// zero — two references producing identical pixels, which happens on simple pages —

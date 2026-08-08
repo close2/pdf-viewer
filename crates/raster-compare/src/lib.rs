@@ -66,10 +66,18 @@ pub struct Comparison {
     pub worst_tile_error: f64,
     /// Where the worst tile begins, in pixels from the top-left.
     pub worst_tile_at: (u32, u32),
-    /// Fraction of pixels differing by more than a just-noticeable amount, `0.0..=1.0`.
+    /// Fraction of **channels** differing by more than four levels of 255, `0.0..=1.0`.
     ///
     /// Useful for separating "everything is slightly off" from "a small region is
     /// completely wrong" when the two metrics above disagree.
+    ///
+    /// Channels rather than pixels, which is what the denominator says — four per pixel,
+    /// alpha included — and this comment said *pixels* for four hundred sessions. The
+    /// difference is not cosmetic on a page whose disagreement is a glyph edge: a pixel
+    /// whose red alone moved contributes a quarter of what "one differing pixel" suggests,
+    /// so the figure is a count of moved channels and reads lower than a per-pixel one
+    /// would. It is also **not** a count of channels that moved *at all*: a difference of
+    /// four levels or fewer is noise here by construction.
     pub differing_fraction: f64,
     /// Mean structural similarity over the image, in `-1.0..=1.0`, where 1.0 is identical.
     ///

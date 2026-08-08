@@ -111,6 +111,17 @@ anchor that makes it checkable.
 
 - **Compare the references with each other before opening a page.** Four unexplained contradicted
   pages sorted themselves into one group from a table of pairwise means.
+- **A tolerance is a claim about a population, so measure the population.** A fixed bound says "two
+  independent implementations of this clause are not further apart than *this* on a page of this
+  kind", which is a statement the corpus can check: take every reference pair, and take each
+  measure over the pairs the **other** bounds admit — a bound measured over the pairs it already
+  admits returns the bound. Run over 9898 pairs it found one of eight sitting below its own
+  references' spread, rejecting **29.4%** of them where its three siblings reject 0.0%, 1.2% and
+  0.5%, and the sentence that claimed to derive it naming a *different* measure's number. ADR 0243.
+- **Then check what the number is used for before moving it.** The same bound decided whether two
+  references agree at all, so the derived value took 68 contradicted pages to 309 and emptied 457
+  out of `ambiguous`. A derivation says where a number should be; it does not say the number has
+  only one job.
 - **Rank the suspects by a ratio, not a distance** — our worst measurement over the bound it is
   held to. Five times it has chosen the next item before an artefact was opened.
 - **Before believing "one pixel out" is rounding, compare the raster sizes.** One reference put

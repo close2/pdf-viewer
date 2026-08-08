@@ -228,16 +228,23 @@ pub fn summarise(case: &str, triangulation: &Triangulation) -> String {
 
     // Printed even on success: our own numbers are only interpretable next to how much
     // the references differ from each other.
+    //
+    // All **four** of `Tolerance::accepts`' measures, since the four-hundred-and-seventh
+    // session. This line printed three and left out the differing fraction, which is the same
+    // omission ADR 0242 found in `oracle.rs`'s per-page line and has the same consequence one
+    // step earlier: these are the numbers a fixed bound is *derived* from, and the one bound
+    // whose derivation nothing could check was the one nothing printed.
     let _ = writeln!(out, "  references vs each other:");
     for (left, right, comparison) in &triangulation.between_references {
         let _ = writeln!(
             out,
-            "    {:<12} vs {:<12} mean {:>7.4}  worst tile {:>8.4}  ssim {:>6.4}  \
-             worst ssim {:>6.4}",
+            "    {:<12} vs {:<12} mean {:>7.4}  worst tile {:>8.4}  differing {:>7.4}%  \
+             ssim {:>6.4}  worst ssim {:>6.4}",
             left.name(),
             right.name(),
             comparison.mean_error,
             comparison.worst_tile_error,
+            comparison.differing_fraction * 100.0,
             comparison.structural_similarity,
             comparison.worst_tile_similarity
         );

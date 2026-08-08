@@ -1035,12 +1035,37 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 17] = [
 /// mean — the measure this entry was built on — is a fifth to a half of its bound on every page.
 ///
 /// **The diagnosis survives and gets sharper, which is why the correction is worth more than
-/// the error.** `differing_fraction` counts channels that moved *at all*; `mean_error` weighs
-/// how far. A glyph drawn at a different sub-pixel phase moves every pixel of every outline by
-/// a little, which is a large count and a small average — so this population failing the count
-/// and nothing else is the arithmetic form of "the ink is right and its placement inside the
-/// pixel is not". The ink table below was already saying it; the bound was saying it too and
-/// was not being read.
+/// the error.** `differing_fraction` counts channels that moved by more than four levels of
+/// 255 — not channels that moved *at all*, which is what this sentence said until the
+/// four-hundred-and-seventh session, and not pixels either; `mean_error` weighs how far. A
+/// glyph drawn at a different sub-pixel phase moves every pixel of every outline by a little,
+/// which is a large count and a small average — so this population failing the count and
+/// nothing else is the arithmetic form of "the ink is right and its placement inside the pixel
+/// is not". The ink table below was already saying it; the bound was saying it too and was not
+/// being read.
+///
+/// # And the bound they fail is the one of the four that sits below the references' own spread
+///
+/// Measured in the four-hundred-and-seventh session by
+/// [`the_fixed_bounds_against_the_references_own_spread`], which is the derivation
+/// `Tolerance::TEXT_HEAVY` claims and nothing had re-run. Over **2638** pairs of the three
+/// independent references on text pages — each measure taken over the pairs the *other* three
+/// bounds admit, so that a bound is not measured over the population it already defines — the
+/// share of reference pairs each bound rejects is:
+///
+/// | bound | its value | reference pairs it rejects |
+/// |---|---|---|
+/// | mean | 5.00 | 0.0% |
+/// | worst tile | 40.00 | 1.2% |
+/// | structural similarity | 0.9000 | 0.5% |
+/// | **differing fraction** | **5.00%** | **29.4%** |
+///
+/// Our 5.07% to 10.58% on these 21 pages sits between that population's median (1.69%) and its
+/// 99th percentile (12.02%). **So the verdict on them is a statement about the consensus pair
+/// being unusually close**, which is trap 12, and not about the marks — exactly what the ink
+/// table and the twice-drawn glyph already said by two other routes. The bound is not moved:
+/// ADR 0243 has the derivation, what moving it would cost, and why the measurement that would
+/// justify moving it for us alone comes from a renderer sharing `skrifa` with us.
 ///
 /// `franz_2.pdf` is the same shape one group over and is this file's tightest instance of it:
 /// **5.01% against 5.00%**, one part in five hundred.
@@ -7741,4 +7766,338 @@ fn assert_ratchet(what: &str, actual: &[&str], expected: &[&str], guidance: &str
          Delete them from the list: a fixed page must not be able to come back.",
         gone.len()
     );
+}
+
+/// One reference pair's disagreement about one page: the unit a fixed bound is derived from.
+///
+/// [`Tolerance::VECTOR`] and [`Tolerance::TEXT_HEAVY`] are four numbers apiece, and each is a
+/// claim about how far two *independent* implementations of the same clauses sit from one
+/// another on a page of that kind. So the population that can check such a claim is pairs of
+/// references; a pair including us would be the gate marking its own work.
+#[derive(Debug, Clone, Copy)]
+struct Spread {
+    /// Whether this page is judged by [`Tolerance::TEXT_HEAVY`], decided exactly as
+    /// [`examine`] decides it.
+    text: bool,
+    /// What this pair can and cannot say about the floor.
+    kind: PairKind,
+    /// The four measurements, as [`pdfref::triangulate_with`] takes them.
+    comparison: raster_compare::Comparison,
+}
+
+/// What a pair of reference renderers can say about the noise floor between two renderers.
+///
+/// The distinction exists because of one `ldd`: `pdftoppm`, `mutool` and `gs` link the same
+/// `libfreetype.so.6` and grid-fit glyphs through it, so on a page whose difference is a
+/// letter's edges the three of them are one rasteriser — `Reference::independence` records
+/// that, and `Tolerance::widened_to` says the consequence is one-sided. A pair including
+/// `hayro` is the other thing: two implementations sharing no code *with each other*, one of
+/// which hints and one of which does not.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PairKind {
+    /// Two of `poppler`, `mupdf` and `ghostscript`.
+    OneGlyphRasteriser,
+    /// `hayro` against one of those three.
+    AcrossTheHintingBoundary,
+}
+
+impl PairKind {
+    /// Which kind a pair is. Every pair involving `hayro` crosses the boundary.
+    fn of(left: Reference, right: Reference) -> Self {
+        if left == Reference::Hayro || right == Reference::Hayro {
+            Self::AcrossTheHintingBoundary
+        } else {
+            Self::OneGlyphRasteriser
+        }
+    }
+
+    /// How the printed table names this population.
+    fn label(self) -> &'static str {
+        match self {
+            Self::OneGlyphRasteriser => "poppler/mupdf/ghostscript pairs (one FreeType)",
+            Self::AcrossTheHintingBoundary => "hayro against one of the three (hinting boundary)",
+        }
+    }
+}
+
+/// One of the four bounds [`Tolerance::accepts`] applies, written as a distance and a limit.
+///
+/// Everything here is *distance from agreement*, larger being further, so that structural
+/// similarity — which runs the other way — can be read on the same axis as the three that
+/// measure pixels. `1 - ssim` against `1 - min_structural_similarity` is exactly the
+/// comparison `accepts` makes, spelled so that a percentile means what it says.
+struct Measure {
+    /// How the printed table names it, with its unit.
+    name: &'static str,
+    /// How far this pair sits from agreement on this measure.
+    distance: fn(&raster_compare::Comparison) -> f64,
+    /// How far the class's fixed bound allows it to be.
+    limit: fn(&Tolerance) -> f64,
+    /// Multiplier applied for printing, so a fraction reads as a percentage.
+    scale: f64,
+}
+
+/// The four, in the order [`Tolerance::accepts`] checks them.
+const MEASURES: [Measure; 4] = [
+    Measure {
+        name: "mean (of 255)",
+        distance: |c| c.mean_error,
+        limit: |t| t.max_mean,
+        scale: 1.0,
+    },
+    Measure {
+        name: "worst tile (of 255)",
+        distance: |c| c.worst_tile_error,
+        limit: |t| t.max_worst_tile,
+        scale: 1.0,
+    },
+    Measure {
+        name: "differing (%)",
+        distance: |c| c.differing_fraction,
+        limit: |t| t.max_differing_fraction,
+        scale: 100.0,
+    },
+    Measure {
+        name: "1 - ssim",
+        distance: |c| 1.0 - c.structural_similarity,
+        limit: |t| 1.0 - t.min_structural_similarity,
+        scale: 1.0,
+    },
+];
+
+/// Where the fixed bounds come from, re-derived from the corpus rather than remembered.
+///
+/// # Why this is a separate run and not part of the gate
+///
+/// Because it renders `hayro` on every page, which the gate deliberately does not: the gate
+/// asks `hayro` only about pages worth looking at, and its verdicts never depend on it. This
+/// asks a different question — *what is the floor* — and for that the fourth renderer is the
+/// whole point, since it is the only one in the room that does not grid-fit glyphs through
+/// `libfreetype` and is not us.
+///
+/// # The method, which is the one that produced the bounds being checked
+///
+/// For each measure, the distribution is taken over the pairs that agree by the **other
+/// three**. That conditioning is `Tolerance::VECTOR`'s own derivation — "the pages where
+/// every reference pair already falls inside the three pixel bounds above have a structural
+/// similarity of 0.9971 at worst" — and it is what stops the measurement from being circular:
+/// a bound measured over the pairs it already admits returns the bound.
+///
+/// It prints, and asserts only that it had a population to print. A number in this table is
+/// evidence for changing a bound; it is not itself a gate, because a bound that moved
+/// whenever a reference renderer was upgraded would be the curve-fitting `CLAUDE.md` forbids
+/// wearing a schedule.
+#[test]
+#[ignore = "renders every corpus page with all four renderers; run explicitly, in release"]
+fn the_fixed_bounds_against_the_references_own_spread() {
+    require_the_sandbox();
+    let Some(items) = work_items() else {
+        println!("skipped: the doc/pdf.js submodule is not checked out");
+        return;
+    };
+
+    let voting: Vec<Reference> = Reference::voting()
+        .into_iter()
+        .filter(|reference| reference.is_available())
+        .collect();
+    assert!(
+        voting.len() >= 2,
+        "at least two reference renderers are needed; found {}",
+        voting.len()
+    );
+    let fourth = Reference::Hayro.is_available().then_some(Reference::Hayro);
+    if fourth.is_none() {
+        println!(
+            "note: {} is not built, so the hinting boundary cannot be measured — {}",
+            Reference::Hayro.name(),
+            Reference::Hayro.package_hint()
+        );
+    }
+    for reference in voting.iter().chain(fourth.iter()) {
+        println!(
+            "{}: {}",
+            reference.name(),
+            reference.version().unwrap_or_default()
+        );
+    }
+
+    let work_root = Path::new(env!("CARGO_TARGET_TMPDIR")).join("spread");
+    let cache = reference_cache();
+    let selection = Selection::from_environment();
+    let items: Vec<Work> = items
+        .into_iter()
+        .filter(|work| selection.admits(work))
+        .collect();
+    assert!(!items.is_empty(), "no pages selected");
+
+    let started = Instant::now();
+    let spreads: Vec<Spread> = items
+        .par_iter()
+        .flat_map(|work| spreads_of(work, &work_root, &voting, fourth, &cache))
+        .collect();
+    println!(
+        "\n{} reference pairs over {} pages in {:.1}s",
+        spreads.len(),
+        items.len(),
+        started.elapsed().as_secs_f64()
+    );
+    assert!(
+        !spreads.is_empty(),
+        "no reference pair could be compared, so the table below would read as agreement"
+    );
+
+    for (class, bounds, text) in [
+        (
+            "text pages, Tolerance::TEXT_HEAVY",
+            Tolerance::TEXT_HEAVY,
+            true,
+        ),
+        ("vector pages, Tolerance::VECTOR", Tolerance::VECTOR, false),
+    ] {
+        for kind in [
+            PairKind::OneGlyphRasteriser,
+            PairKind::AcrossTheHintingBoundary,
+        ] {
+            let population: Vec<Spread> = spreads
+                .iter()
+                .copied()
+                .filter(|spread| spread.text == text && spread.kind == kind)
+                .collect();
+            print_the_distribution(class, kind, &population, &bounds);
+        }
+    }
+}
+
+/// Every reference pair's disagreement about one page, or nothing where the page is not
+/// comparable.
+///
+/// The rasters are the gate's own: rendered at the same resolution, reconciled by
+/// [`reconcile`] in the same order, with `hayro` added afterwards only when it already agrees
+/// about the page's size — which is what [`examine`] does, and for the same reason. A fourth
+/// renderer allowed into the reconciliation could tip a two-against-two about the page's
+/// extent and change which rasters the other three are compared at.
+fn spreads_of(
+    work: &Work,
+    work_root: &Path,
+    voting: &[Reference],
+    fourth: Option<Reference>,
+    cache: &Cache,
+) -> Vec<Spread> {
+    let stem = work.path.file_stem().unwrap_or_default().to_string_lossy();
+    let work_dir = work_root
+        .join(stem.as_ref())
+        .join(format!("p{}", work.page));
+    let cleanup = || {
+        let _ = std::fs::remove_dir_all(&work_dir);
+    };
+
+    let Ok(ours) = render_ours(work) else {
+        cleanup();
+        return Vec::new();
+    };
+    let Ok(mut references) = render_references(work, &work_dir, voting, cache) else {
+        cleanup();
+        return Vec::new();
+    };
+    let mut raster = ours.raster;
+    if reconcile(&mut raster, &mut references).is_err() {
+        cleanup();
+        return Vec::new();
+    }
+    if let Some(fourth) = fourth
+        && let Ok(extra) = cache.render(fourth, &work.path, work.page, DPI, &work_dir)
+        && extra.width == raster.width
+        && extra.height == raster.height
+    {
+        references.push((fourth, extra));
+    }
+    cleanup();
+
+    let mut spreads = Vec::new();
+    for (index, (left_name, left)) in references.iter().enumerate() {
+        for (right_name, right) in references.iter().skip(index.saturating_add(1)) {
+            if let Ok(comparison) = raster_compare::compare(left, right) {
+                spreads.push(Spread {
+                    text: ours.has_text,
+                    kind: PairKind::of(*left_name, *right_name),
+                    comparison,
+                });
+            }
+        }
+    }
+    spreads
+}
+
+/// One block of the table: every measure's distribution over one class and one pair kind.
+///
+/// The last column is the one a bound is read from — how many of these pairs the fixed bound
+/// would call a disagreement. A bound sitting under its own references' spread is not a bound
+/// at all, and a bound far above it forgives whatever lies between.
+fn print_the_distribution(class: &str, kind: PairKind, population: &[Spread], bounds: &Tolerance) {
+    println!("\n  {class} — {}: {} pairs", kind.label(), population.len());
+    println!(
+        "    {:<20} {:>7} {:>9} {:>9} {:>9} {:>9} {:>9} {:>7}",
+        "measure", "n", "median", "p90", "p99", "max", "bound", "over"
+    );
+    for (index, measure) in MEASURES.iter().enumerate() {
+        let limit = (measure.limit)(bounds);
+        let mut values: Vec<f64> = population
+            .iter()
+            .filter(|spread| admitted_by_the_others(spread, index, bounds))
+            .map(|spread| (measure.distance)(&spread.comparison))
+            .collect();
+        values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let over = values.iter().filter(|value| **value > limit).count();
+        println!(
+            "    {:<20} {:>7} {:>9.4} {:>9.4} {:>9.4} {:>9.4} {:>9.4} {:>6.1}%",
+            measure.name,
+            values.len(),
+            quantile(&values, 1, 2) * measure.scale,
+            quantile(&values, 9, 10) * measure.scale,
+            quantile(&values, 99, 100) * measure.scale,
+            quantile(&values, 1, 1) * measure.scale,
+            limit * measure.scale,
+            share(over, values.len()) * 100.0
+        );
+    }
+}
+
+/// `part` as a fraction of `whole`, and zero where there is nothing to divide.
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "both counts are bounded by the corpus's reference pairs, some tens of \
+              thousands, which f64 holds exactly"
+)]
+fn share(part: usize, whole: usize) -> f64 {
+    if whole == 0 {
+        0.0
+    } else {
+        part as f64 / whole as f64
+    }
+}
+
+/// Whether every bound *except* the one indexed admits this pair.
+///
+/// See [`the_fixed_bounds_against_the_references_own_spread`]: measuring a bound over the
+/// pairs that bound already admits returns the bound.
+fn admitted_by_the_others(spread: &Spread, exclude: usize, bounds: &Tolerance) -> bool {
+    MEASURES
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| *index != exclude)
+        .all(|(_, measure)| (measure.distance)(&spread.comparison) <= (measure.limit)(bounds))
+}
+
+/// The value `numerator/denominator` of the way through a sorted sample.
+///
+/// Nearest-rank rather than interpolated: every value here was produced by a real pair of
+/// renderers on a real page, and a quantile that is the average of two of them is a number
+/// nobody measured.
+fn quantile(sorted: &[f64], numerator: usize, denominator: usize) -> f64 {
+    let last = sorted.len().saturating_sub(1);
+    let index = last
+        .saturating_mul(numerator)
+        .checked_div(denominator)
+        .unwrap_or(0);
+    sorted.get(index).copied().unwrap_or(0.0)
 }
