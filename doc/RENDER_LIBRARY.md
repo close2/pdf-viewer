@@ -715,5 +715,5 @@ anyone's taste.
 | axis-aligned edges survive a cut, oblique ones and curves do not | ADR 0139, `render-cpu/tests/strip_cut_exactness.rs` |
 | the frame split of §6.1 | `render-gpu/examples/frame_split.rs`, this document |
 
-`doc/HANDOVER.md` is the state of play and carries the traps and habits these requirements came
+`doc/HANDOVER.md` is the state of play and carries the traps these requirements came
 from; `CLAUDE.md` is the project's principles. Both are worth an hour before you start.

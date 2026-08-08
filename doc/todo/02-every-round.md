@@ -64,8 +64,10 @@ here:
 runs the one that covers it; a round that touches `pdf-font`'s glyph-table repairs runs `sfnt`
 **with its corpus seeded**, because unseeded it never forms a table directory and tests nothing.
 
-`doc/HANDOVER.md`'s "Verify it" has the rest — `cargo deny`, the five fuzzers, the callgrind
-counters — and says which of them a change needs.
+`doc/verify.md` has the rest — `cargo deny`, the twelve fuzzers, the two cross-target checks, the
+callgrind counters and the census examples — and says which of them a change needs. **This sentence
+said "the five fuzzers" while the paragraph above it said twelve**, and the three-hundred-and-ninety-fifth
+corrected it while moving the list out of `doc/HANDOVER.md`.
 
 ## 3. Leave the ledger non-`unreviewed`
 
@@ -170,7 +172,8 @@ directory over: the instrument that says a change happened is not the change.
 
 
 - The ADR, if the round made a decision. The argument goes there, not in the handover.
-- `doc/HANDOVER.md`: the gate numbers if they moved, one row in "How the project got here".
+- `doc/HANDOVER.md`: the gate numbers if they moved. **The session row goes in `doc/history.md`**,
+  which is where "How the project got here" moved in the three-hundred-and-ninety-fifth.
 - The todo file: delete it if the item is done, correct it if the round changed what it owes.
 
 ## 7. Three habits these rounds added, which belong here rather than in a trap

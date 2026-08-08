@@ -9,7 +9,8 @@ Code: new crates beside `crates/viewer-core`
 The viewer is to be **embeddable in native frameworks** — Win32/WinUI, AppKit, KDE/Qt, GTK — not
 built on a cross-platform toolkit. `viewer-core` is that interface: `Command` in, `Event` out,
 `Query` → `Answer` beside them, with no type from a windowing or graphics library anywhere in its
-API (ADRs 0116 to 0121, and `doc/HANDOVER.md` §0 for the vocabulary and the three pixel tiers).
+API (ADRs 0116 to 0121, and `doc/ui-boundary.md` — `doc/HANDOVER.md` §0's pointer — for the
+vocabulary and the three pixel tiers).
 
 ## The order, and it is not negotiable
 

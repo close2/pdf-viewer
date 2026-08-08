@@ -16,7 +16,8 @@ The project owner:
 > rendering it ourself. I might want to switch displaying for instance pop-ups from rendering
 > ourself to native gui frameworks. Make sure that we have a clear-cut API for this.
 
-`doc/HANDOVER.md` §0 already states the rule this is measuring against:
+`doc/ui-boundary.md` (`doc/HANDOVER.md` §0's pointer) already states the rule this is measuring
+against:
 
 > **Interactive chrome crosses as geometry, not pixels.** Selection highlights, an in-progress
 > annotation rubber-band, resize handles, a caret — these change at pointer speed and must not

@@ -80,7 +80,7 @@ summary says so in a line of its own now, and the two ways out are quorra's. ADR
 
 **What is still ours in this row**: this host builds a fresh `quorra_scene::Scene` every frame, so
 nothing inside `encode` *can* be reused. A retained scene is the lever, it is named in
-`doc/HANDOVER.md` §4 as one of `RENDER_LIBRARY.md`'s five, and the number it would have to beat is
+`doc/performance.md` (`doc/HANDOVER.md` §4's pointer) as one of `RENDER_LIBRARY.md`'s five, and the number it would have to beat is
 3.86 µs a command.
 
 ## 4. There is no second machine
