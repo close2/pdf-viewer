@@ -146,8 +146,11 @@ and the crate keeps `#![forbid(unsafe_code)]` to prove it; `gtk4` is named by th
 other. **Tier 1, because GTK4 admits no other**: a widget has no native surface and GSK hands out no
 device, so `Query::Frame`'s raster becomes a `gdk::MemoryTexture` with no conversion at all — 2.69 MB
 in about 0.8 ms. **It needed no new message.** What it *did* produce is six things the boundary was
-missing, the largest of them `doc/todo/37`'s page drawn without its widget appearances, now a
-photograph rather than a prediction. ADR 0244, `doc/todo/30`.
+missing, the largest of them the page drawn without its widget appearances, now a photograph rather
+than a prediction. ADR 0244, `doc/todo/30`. **That one was taken in the four-hundred-and-ninth**
+(ADR 0245): `Command::Delegate` is §6.3.2.2's "unless otherwise instructed", `pdf-viewer-gtk` sends
+it by default, and what the picture then exposed is the *scale* — 11 of 76 controls on
+`160F-2019.pdf` are wider than the `/Rect` they cover and all 76 are taller.
 
 **And since the three-hundred-and-seventy-seventh it can tell a person that a signed document
 changed after it was signed, and since the three-hundred-and-ninety-second whether its signature
@@ -249,6 +252,22 @@ under `crates/` is `tests/oracle.rs` and `raster-compare`'s doc comments**, so n
 oracle's 1794 verdict lines are identical to the round's own baseline but for two timing lines, and
 every other gate reproduced. Step 7 **not owed**. ADR 0243, `doc/todo/12`.
 
+**The four-hundred-and-ninth changed `interpret` and owed a demonstration that no existing caller
+noticed.** ADR 0245 adds `Command::Delegate(WidgetAppearances)` — §6.3.2.2's "unless otherwise
+instructed", reaching interpretation through `ViewState` where the magnification already sits — so a
+native host can have the page without the pictures of the fields it draws itself. Summary numbers
+are the wrong instrument for that claim, because two different display lists can rasterise to the
+same verdict, so the **artefact** was compared: `pdf-model`'s `display_list_digest` example prints
+page one's command count, `Debug` length and hash for every corpus document, and `89de636` in a
+worktree against this tree gives an **empty diff over 975 lines**. Read that beside the fact that the
+instrument caught a real difference first — 96 documents differed until trap 10's
+`pdf-sandbox-worker` was built in *both* trees, `bug1815476.pdf` at 1490 against 1522 commands — which
+is the only reason an empty diff means anything. Every gate below reproduced except the three counts
+in the table (tests 1430 → **1435**, citations 5758 → **5812**, quotations 554 → **557**);
+`doc/todo/00`'s step 7 is **not owed**, because no existing caller's display list moved. Run beyond
+§2 and claimed: **the window under `Xvfb`**, twice over one binary, which is where the change is
+visible at all.
+
 **And the four-hundred-and-eighth ran the whole sequence with a new crate in the workspace, and
 every line below reproduced except three counts.** It built `crates/viewer-gtk`, the GTK4 host — a
 new crate, a new binary and a new *dependency*, and nothing that touches a page — so the test count
@@ -279,7 +298,7 @@ names in the same order as the three-hundred-and-ninety-seventh's. ADR 0242.
 
 | gate | what it printed | where |
 |---|---|---|
-| tests | `1430 tests run: 1430 passed, 10 skipped` — the tenth skip is the four-hundred-and-seventh session's `the_fixed_bounds_against_the_references_own_spread`, which derives the oracle's own bounds and is run explicitly — and `cargo test --workspace --doc` **1 passed** beside it, so `cargo test --workspace` reports **1431**. `clippy --workspace --all-targets` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`; `fmt --all --check` clean | `cargo nextest run --workspace`, **33.5 s** |
+| tests | `1435 tests run: 1435 passed, 10 skipped` — the tenth skip is the four-hundred-and-seventh session's `the_fixed_bounds_against_the_references_own_spread`, which derives the oracle's own bounds and is run explicitly — and `cargo test --workspace --doc` **1 passed** beside it, so `cargo test --workspace` reports **1436**. `clippy --workspace --all-targets` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`; `fmt --all --check` clean | `cargo nextest run --workspace`, **32.6 s** |
 | corpus (974 pdf.js documents, page one) | `974 documents in 5.9s: 0 unopenable, 8 locked, 2 encrypted beyond us, 5 pageless, **65 incomplete**, 0 slow` | `tests/corpus.rs`, **5.9 s** |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | `1794 pages (1693 we call complete, 101 incomplete)`; **905 agree / 863 of them complete**, **68 contradicted / 66 complete**, **786 ambiguous / 753 complete**, our geometry 1/0, reference geometry 2/2, not comparable 14/9, no render 18/0 — and **the undiagnosed ambiguous list printed empty**, which is the ratchet holding. Nothing moved in the four-hundred-and-sixth — it changed only what the gate *prints* about a contradicted page (ADR 0242) — nor in the four-hundred-and-seventh, which added a second `#[ignore]`d test to the same file that re-derives the bounds this gate judges by (ADR 0243) — and the run now ends with a second ranking, `contradicted, and furthest from the nearest reference`, headed by `bitmap-symbol-context-reuse.pdf` at 28.91 nearest | `tests/oracle.rs`, **41.1 s** |
 | text (vs `pdftotext`, same 974) | `overall 99.2% (24043/24243 words), 25 below 90%`, with 24 skipped and 62 incomplete and not gated | `tests/text_extraction.rs`, **30.1 s** |
@@ -287,7 +306,7 @@ names in the same order as the three-hundred-and-ninety-seventh's. ADR 0242.
 | dates | `1545 date strings in 974 documents: **1514 conform** to §7.9.4 (97.99%), 31 do not, over 22 distinct strings` | `tests/dates.rs`, **0.9 s** |
 | **§14.3.2's XMP** (same 974) | `319 documents carry §14.3.2's stream: **318 read, 1 refused**, 3191 properties between them, 106 state dc:title` — the refusal is a fuzzed file whose stream does not decode at all | `tests/xmp.rs`, **0.4 s** |
 | **JPEG 2000 vs ISO/IEC 15444-5's reference software** | 30 corpus codestreams: **14 byte-identical, 13 differing, 3 not comparable**, and no remaining difference exceeds one level. `doc/JPEG2000_FEEDBACK.md` §§7–8 has the two defects behind that | `tests/jpeg2000.rs`, **13.8 s** |
-| conformance | **5758 citations**, all naming clauses the standard has; **554 quotations**, all verbatim; **213** distinct tables cited by this tree and **250** named in the ledger's notes; **875 ledger rows** (400 implemented, 252 partial, 19 reported, 83 inapplicable, 8 writer-side, 113 out-of-scope) | `cargo test -p conformance`, **2.7 s** |
+| conformance | **5812 citations**, all naming clauses the standard has; **557 quotations**, all verbatim; **213** distinct tables cited by this tree and **250** named in the ledger's notes; **875 ledger rows** (400 implemented, 252 partial, 19 reported, 83 inapplicable, 8 writer-side, 113 out-of-scope) | `cargo test -p conformance`, **2.7 s** |
 | **the round itself** | **not measured as one span this round**, and the honest number is what the gates themselves printed: **154 s** of test execution summed from the ten lines above (25.7 + 4.2 + 46.9 + 30.1 + 34.1 + 0.6 + 0.3 + 9.9 + 2.0), with each gate's incremental build on top and each run separately rather than back to back. `doc/todo/02` records **268 s** for §2 *and* §5's binaries together, from 608 s until the three-hundred-and-eighty-fifth measured every step (ADR 0222); the three-hundred-and-ninety-seventh read 287 s off file timestamps for §2 alone | ADR 0222, `doc/todo/43` |
 
 **Two things beyond §2 were run in the three-hundred-and-ninety-eighth and are claimed**: the

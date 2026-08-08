@@ -4380,6 +4380,7 @@ fn describe_command(command: &Command) -> String {
         Command::Open { id, bytes, .. } => format!("open {:?}, {} bytes", id, bytes.len()),
         Command::Close(id) => format!("close {id:?}"),
         Command::Restrict(level) => format!("restrictions {level:?}"),
+        Command::Delegate(appearances) => format!("widget appearances {appearances:?}"),
         Command::Tick { millis } => format!("tick {millis} ms"),
         Command::Focus(id) => format!("focus {id:?}"),
         Command::Resize {

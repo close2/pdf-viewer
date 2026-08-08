@@ -19,7 +19,7 @@ features no file exercises.
 ```sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets      # must be silent of lints
-cargo nextest run --workspace               # 1430 tests, 10 ignored
+cargo nextest run --workspace               # 1435 tests, 10 ignored
 cargo test --workspace --doc                # the one doctest nextest does not run
 cargo build --profile gates -p pdf-sandbox --bins   # trap 10: Cargo will not do this for you
 cargo test  --profile gates -p pdf-model      --test corpus          -- --ignored --nocapture
@@ -47,8 +47,8 @@ here:
 - **`cargo nextest` is a user-local install** — `cargo install cargo-nextest --locked`, or the
   prebuilt from `https://get.nexte.st/latest/linux` into `~/.cargo/bin`. Without it,
   `cargo test --workspace` is exactly the same gate at three times the wall clock, and that is
-  what CI runs. `nextest` skips doctests, which is why the line after it is there: 1418 + 1 = the
-  **1419** `cargo test --workspace` reports. (This line said 1314 until the
+  what CI runs. `nextest` skips doctests, which is why the line after it is there: 1435 + 1 = the
+  **1436** `cargo test --workspace` reports. (This line said 1314 until the
   three-hundred-and-eighty-eighth, which counted the tree with `nextest list` before and after its
   own seven and found the number two behind — the count is the gate's and not this file's. It said
   **1398** until the four-hundred-and-second, which added six tests to a gate that printed 1410:
@@ -59,7 +59,8 @@ here:
   number down. The four-hundred-and-seventh added one **ignored** test and moved the second number
   instead — 9 skipped to **10** — which is the one the line beside it had never been checked
   against. The four-hundred-and-eighth added **ten**, a whole new host crate's, and this line was
-  not behind for the fourth round running.)
+  not behind for the fourth round running; the four-hundred-and-ninth added **five** and it was not
+  behind for the fifth.)
 - **`pdfref-hayro` is the oracle's fourth reading and nothing built it.** It is a *program*, found
   beside the running test binary, and its absence costs no verdict — `Reference::Hayro` never
   votes — but it is what a person looks at on a page the three references cannot settle. Until

@@ -24,6 +24,7 @@ use std::rc::{Rc, Weak};
 
 use gtk4::glib;
 use gtk4::prelude::*;
+use pdf_model::view::WidgetAppearances;
 use pdf_render::Rasterizer;
 use render_cpu::CpuRasterizer;
 use viewer_core::{
@@ -135,6 +136,13 @@ pub struct Host {
     placed: Vec<Placed>,
     /// Whether the first frame has been reported, so that the launch line is printed once.
     presented: bool,
+    /// §6.3.2.2: who draws §12.7's widgets — this host's controls, or the document's own pictures.
+    ///
+    /// [`WidgetAppearances::Delegated`] unless the command line asked otherwise, because this host
+    /// *does* place a real control over every widget and leaving the appearance underneath is the
+    /// duplication ADR 0244 photographed. `--draw-widget-appearances` restores §6.3.2.2's default,
+    /// which is what taking the two pictures side by side needs.
+    widget_appearances: WidgetAppearances,
 }
 
 impl std::fmt::Debug for Host {
@@ -164,6 +172,7 @@ impl Host {
         app: &gtk4::Application,
         path: &Path,
         fragment: Option<String>,
+        widget_appearances: WidgetAppearances,
         trace: Trace,
     ) -> Result<Rc<RefCell<Self>>, HostError> {
         let bytes = std::fs::read(path).map_err(|error| HostError::Unreadable {
@@ -200,6 +209,7 @@ impl Host {
                 caption: String::new(),
                 placed: Vec::new(),
                 presented: false,
+                widget_appearances,
             })
         }))
     }
@@ -246,12 +256,18 @@ impl Host {
     fn open_document(&mut self, password: Option<String>) {
         let bytes = self.bytes.clone();
         let fragment = self.fragment.clone();
-        self.dispatch(Command::Open {
-            id: DOCUMENT,
-            bytes,
-            password,
-            fragment,
-        });
+        // §6.3.2.2's instruction goes first, so that page one is interpreted once. It is a
+        // property of *this host* rather than of the document, which is why it is not part of
+        // `Open`: a host that changes its mind sends it again and the page is rebuilt.
+        self.pump(VecDeque::from([
+            Command::Delegate(self.widget_appearances),
+            Command::Open {
+                id: DOCUMENT,
+                bytes,
+                password,
+                fragment,
+            },
+        ]));
     }
 
     /// One command, and everything it produces.
@@ -496,6 +512,7 @@ impl Host {
         // The quadrilaterals are in device pixels of the viewport, the same form
         // `Selected::quads` and `Answer::Focus` take — one arithmetic in one place (ADR 0118).
         self.suppress.set(true);
+        let mut fit = ControlFit::default();
         for field in fields {
             for widget in &field.widgets {
                 let key = (field.name.qualified.clone(), widget.annotation);
@@ -506,14 +523,17 @@ impl Host {
                 self.ui
                     .fixed
                     .move_(&placed.widget, f64::from(x) / scale, f64::from(y) / scale);
-                placed.widget.set_size_request(
+                let (asked_width, asked_height) = (
                     logical(f64::from(width), scale),
                     logical(f64::from(height), scale),
                 );
+                placed.widget.set_size_request(asked_width, asked_height);
+                fit.record(&placed.widget, asked_width, asked_height);
                 write_back(placed, field.value.as_deref());
             }
         }
         self.suppress.set(false);
+        fit.say(&self.trace);
     }
 
     /// What a control does when a person changes it.
@@ -809,10 +829,11 @@ fn write_back(placed: &Placed, value: Option<&str>) {
 
 /// The axis-aligned bound of a quadrilateral, in the device pixels it arrived in.
 ///
-/// A widget's `/Rect` can arrive rotated — §7.7.3.3's `/Rotate` and Table 189's `/R` both turn it
+/// A widget's `/Rect` can arrive rotated — §7.7.3.3's `/Rotate` and Table 192's `/R` both turn it
 /// — and a platform control is a rectangle, so this is where a host loses that. Said rather than
-/// hidden: a rotated widget gets an upright control over a rotated appearance, which is one more
-/// reason `doc/todo/37`'s decision matters.
+/// hidden: a rotated widget gets an upright control, and now that ADR 0245 takes the appearance out
+/// from under it there is nothing rotated left on the page to disagree with. (This cited Table 189,
+/// which is the *movie* annotation's, until the four-hundred-and-ninth session read it.)
 fn bounds(quad: [f32; 8]) -> (f32, f32, f32, f32) {
     let xs = [quad[0], quad[2], quad[4], quad[6]];
     let ys = [quad[1], quad[3], quad[5], quad[7]];
@@ -821,6 +842,77 @@ fn bounds(quad: [f32; 8]) -> (f32, f32, f32, f32) {
     let top = ys.iter().copied().fold(f32::INFINITY, f32::min);
     let bottom = ys.iter().copied().fold(f32::NEG_INFINITY, f32::max);
     (left, top, right - left, bottom - top)
+}
+
+/// How badly the platform's controls fit the rectangles the document states for them.
+///
+/// **ADR 0244's second finding, measured now that it can be seen alone.** A `/Rect` is whatever
+/// the document says; a GTK control has a *minimum* size its theme decides, and
+/// `gtk_widget_set_size_request` is a floor rather than a size — so a control whose minimum
+/// exceeds its rectangle covers the page around it. Taking the widget's own `measure` is what
+/// turns "a `GtkEntry` is about 34 logical pixels tall" into a count and a worst case, per page
+/// and per run.
+///
+/// Not a defect in `viewer-core` and not this host's to fix by shrinking a control: a platform
+/// control that a theme sizes is the whole point of using one. What it says is that a native form
+/// host also wants to choose the *scale* the page is drawn at, which is a third thing and neither
+/// this crate's nor `pdf-model`'s.
+#[derive(Debug, Default)]
+struct ControlFit {
+    /// How many controls were placed.
+    placed: usize,
+    /// How many are wider than their rectangle, and how many are taller.
+    over: (usize, usize),
+    /// The largest excess width, and the rectangle's own width beside it, in logical pixels.
+    widest: (i32, i32),
+    /// The largest excess height, and the rectangle's own height beside it.
+    tallest: (i32, i32),
+}
+
+impl ControlFit {
+    /// Measures one control against the rectangle it was asked to occupy.
+    ///
+    /// `measure` is asked with `-1` in both directions — GTK's "for no particular size" — because
+    /// asking for a height at a width smaller than the control's minimum is the case GTK warns
+    /// about on the console, and what is wanted here is the minimum itself.
+    fn record(&mut self, widget: &gtk4::Widget, width: i32, height: i32) {
+        self.placed = self.placed.saturating_add(1);
+        let (minimum_width, ..) = widget.measure(gtk4::Orientation::Horizontal, -1);
+        let (minimum_height, ..) = widget.measure(gtk4::Orientation::Vertical, -1);
+        if minimum_width > width {
+            self.over.0 = self.over.0.saturating_add(1);
+            if minimum_width.saturating_sub(width) > self.widest.0 {
+                self.widest = (minimum_width.saturating_sub(width), width);
+            }
+        }
+        if minimum_height > height {
+            self.over.1 = self.over.1.saturating_add(1);
+            if minimum_height.saturating_sub(height) > self.tallest.0 {
+                self.tallest = (minimum_height.saturating_sub(height), height);
+            }
+        }
+    }
+
+    /// Says what was measured, where anything was placed.
+    fn say(&self, trace: &Trace) {
+        if self.placed == 0 {
+            return;
+        }
+        trace.say(
+            Topic::Panel,
+            format_args!(
+                "{} of {} control(s) wider than their /Rect (worst +{} on {} px), {} taller \
+                 (worst +{} on {} px)",
+                self.over.0,
+                self.placed,
+                self.widest.0,
+                self.widest.1,
+                self.over.1,
+                self.tallest.0,
+                self.tallest.1
+            ),
+        );
+    }
 }
 
 /// Device pixels as the logical ones GTK lays out in.

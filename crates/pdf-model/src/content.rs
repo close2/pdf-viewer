@@ -16,7 +16,7 @@
 //! partial page *and* know it is partial: the viewer can say so, and the harness can
 //! exclude the page from comparison rather than reporting a false difference.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -1498,6 +1498,16 @@ pub fn interpret_with(
 ) -> Interpretation {
     let (content, issues) = page.content_with_report(document);
     let size = displayed_size(page);
+    // §6.3.2.2's "unless otherwise instructed", asked once per page and only where a host has
+    // instructed: a document nobody has said this about pays one enum comparison, and one that
+    // has pays a walk of §12.7.4.1's field tree — the same walk `Query::Fields` already makes
+    // for the same page, which is what keeps the two sets identical rather than similar.
+    let delegated = match state.widget_appearances() {
+        crate::view::WidgetAppearances::Drawn => BTreeSet::new(),
+        crate::view::WidgetAppearances::Delegated => {
+            crate::form::delegated_widgets(document, page, state)
+        }
+    };
 
     let mut interpreter = Interpreter {
         document,
@@ -1527,6 +1537,7 @@ pub fn interpret_with(
         output_intent: output_intent_space(document),
         optional_content: state.optional_content().cloned(),
         view: state,
+        delegated,
         hidden: 0,
         glyph_depth: 0,
         soft_mask_depth: 0,
@@ -1950,6 +1961,11 @@ struct Interpreter<'a> {
     optional_content: Option<crate::optional_content::OptionalContent>,
     /// The viewer state, for the half of it the interpreter asks per annotation (§12.6.4.11).
     view: &'a crate::view::ViewState,
+    /// §12.7's widgets on this page whose appearance the host draws instead (§6.3.2.2).
+    ///
+    /// Empty for every caller that has not asked, which is every caller in this workspace but a
+    /// native form host — see [`crate::view::WidgetAppearances`].
+    delegated: BTreeSet<ObjectId>,
     /// How many enclosing `BDC /OC` sections are hidden.
     ///
     /// A counter rather than a flag because marked content nests, and the outermost hidden
@@ -4789,8 +4805,9 @@ impl Interpreter<'_> {
             }
         }
         // §12.5.6.10's markups a *person* added, after the page's own and in the order they
-        // were added — which is §12.5.2's rule for `/Annots` applied to the log beside it:
-        // "the annotations shall be drawn in the order in which they appear in the array".
+        // were added — which is §12.5.5's rule applied to the log beside `/Annots`: an
+        // annotation's group "shall be composited with a backdrop consisting of the page content
+        // along with any previously painted annotations", and later is later either way.
         // They are drawn from the same three functions the file's own annotations take, because
         // an annotation this program constructed is not a second kind of annotation.
         let added: Vec<(ObjectId, Dictionary)> = self
@@ -4812,6 +4829,18 @@ impl Interpreter<'_> {
         base: Transform,
         view_clip: Option<ClipId>,
     ) {
+        // §6.3.2.2's "unless otherwise instructed": a host drawing this field in its own
+        // control asked for the page without the picture of it, and §12.5.6.19 makes that
+        // picture the field's appearance rather than page content. Silent for the same reason
+        // the two conditions below are — an appearance somebody else is drawing is not one this
+        // program failed to draw — and narrow for the reason `form::delegated_widgets` states:
+        // the set is what `Query::Fields` answered, so nothing leaves the page that no control
+        // replaced.
+        if let Some(id) = id
+            && self.delegated.contains(&id)
+        {
+            return;
+        }
         // §8.11.3.3: "If an annotation contains an OC entry, it shall be visible for
         // screen or print only if the flags have the appropriate settings and the group
         // or membership dictionary indicates it shall be visible." The flags are

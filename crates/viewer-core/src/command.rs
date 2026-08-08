@@ -117,6 +117,27 @@ pub enum Command {
     /// restrictions without being asked would be making the choice on the person's behalf in the
     /// other direction.
     Restrict(RestrictionLevel),
+    /// Who draws §12.7's form widgets: this crate, or the host that placed real controls.
+    ///
+    /// **The second host-supplied policy value, and a different kind from [`Self::Restrict`].**
+    /// That one says how much of what a *document* asserts over its reader this program obeys;
+    /// this one says which half of the page the *host* has undertaken to draw. Both are asked
+    /// once and answered by the only party that knows — §6.3.2.2's "unless otherwise instructed"
+    /// is addressed to a processor, and only a host knows whether it has instructed.
+    ///
+    /// Applies to every open document and to every one opened afterwards, until it is sent again.
+    /// [`pdf_model::view::WidgetAppearances::Drawn`] is the default, so a host that never sends
+    /// this gets the page §6.3.2.2 describes and the display list this crate has always produced.
+    ///
+    /// **Not on [`Self::Open`] and not on [`crate::RenderRequest`]**, and neither is arbitrary. A
+    /// render request is this crate's *output* — it carries a display list that has already been
+    /// interpreted — so a flag there would arrive after the decision it governs. And a host may
+    /// change its mind: `viewer-gtk` can show the same document with its controls or with the
+    /// document's own pictures, which is how ADR 0245's evidence was taken.
+    ///
+    /// Changing it re-interprets the page, because §12.5.5's appearance streams are drawing
+    /// commands and not pixels.
+    Delegate(pdf_model::view::WidgetAppearances),
     /// Change something about the document, and add it to the log.
     ///
     /// The document itself is never changed — `CLAUDE.md`'s rule 1 makes it immutable — so an

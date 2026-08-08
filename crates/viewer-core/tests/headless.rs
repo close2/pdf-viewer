@@ -19,6 +19,7 @@
 use std::path::{Path, PathBuf};
 
 use pdf_model::form::Control;
+use pdf_model::view::WidgetAppearances;
 use pdf_render::Rasterizer;
 use render_cpu::CpuRasterizer;
 use viewer_core::{
@@ -1501,7 +1502,7 @@ fn a_click_finds_the_field_it_landed_on() {
 
 /// §12.7's whole form on a page, as a host that draws it in native controls needs it.
 ///
-/// **The sixth chrome population, and the one `doc/todo/37` audited as missing.** Five already
+/// **The sixth chrome population, and the one the chrome audit found missing.** Five already
 /// crossed as data — §12.3.3's outline, §8.11.4.3's layers, §7.11.4's files, §12.3.5's collection,
 /// §12.5.6.14's popups — and a form field did not, so a native host could draw everything else in
 /// a `QTreeView` or an `NSPopover` and then had to take its fields as pixels off the raster.
@@ -4260,4 +4261,91 @@ fn red(raster: &pdf_render::Raster) -> usize {
         .chunks_exact(4)
         .filter(|pixel| pixel[0] > 150 && pixel[1] < 100 && pixel[2] < 100)
         .count()
+}
+
+/// §6.3.2.2's "unless otherwise instructed", asked by a host that has its own controls.
+///
+/// The whole of what a native form host needs from this crate, in one exchange: it reads the
+/// form with [`Query::Fields`], places a control per widget, and then asks for the page *without*
+/// the pictures of those widgets — otherwise a person sees each field twice, which is what
+/// ADR 0244 photographed. Three things are asserted and each is a way the change could be wrong.
+///
+/// The page is interpreted again, because §12.5.5's appearance streams are drawing commands and
+/// not pixels; the form is still answered, because delegating the *appearance* must not withdraw
+/// the description a host builds its controls from; and asking for them back restores the list
+/// the viewer started with, which is what makes this a policy rather than a one-way door.
+#[test]
+fn a_host_can_ask_for_the_page_without_the_widgets_it_draws_itself() {
+    let Some(bytes) = corpus_bytes("160F-2019.pdf") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    let events: Vec<_> = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password: None,
+            fragment: None,
+        })
+        .collect();
+    let drawn = request(&events).clone();
+    serve(&mut viewer, &drawn.clone());
+
+    let Answer::Fields(fields) = viewer.query(Query::Fields) else {
+        panic!("this page is a form");
+    };
+    let widgets: usize = fields.iter().map(|field| field.widgets.len()).sum();
+    assert!(
+        fields.len() > 1 && widgets >= fields.len(),
+        "{} field(s), {widgets} widget(s)",
+        fields.len()
+    );
+
+    let events: Vec<_> = viewer
+        .handle(Command::Delegate(WidgetAppearances::Delegated))
+        .collect();
+    let delegated = request(&events).clone();
+    assert_eq!(
+        (delegated.page, delegated.target),
+        (drawn.page, drawn.target),
+        "the same page at the same size"
+    );
+    assert!(
+        delegated.list.commands().len() < drawn.list.commands().len(),
+        "the widgets' own drawing is gone: {} command(s) against {}",
+        delegated.list.commands().len(),
+        drawn.list.commands().len()
+    );
+
+    // The description survives the picture. A host that lost the form when it took over drawing
+    // it would have nothing to put in its controls.
+    let Answer::Fields(after) = viewer.query(Query::Fields) else {
+        panic!("the page is still a form");
+    };
+    assert_eq!(
+        after.len(),
+        fields.len(),
+        "delegating an appearance withdraws no field"
+    );
+
+    // And back. §6.3.2.2's default is what a processor nobody has instructed does, so a host
+    // that changes its mind gets the page the standard describes.
+    serve(&mut viewer, &delegated.clone());
+    let events: Vec<_> = viewer
+        .handle(Command::Delegate(WidgetAppearances::Drawn))
+        .collect();
+    let again = request(&events).clone();
+    assert_eq!(
+        again.list.commands().len(),
+        drawn.list.commands().len(),
+        "the page came back whole"
+    );
+    // `DisplayList`'s own equality, which `Path` defines as "the same commands" and which
+    // deliberately ignores the bounds a rasterisation memoises into the path it drew — the list
+    // that has been on screen carries those and the one just built does not.
+    assert!(
+        *again.list == *drawn.list,
+        "the same page, command for command"
+    );
 }

@@ -96,8 +96,11 @@ pub struct FormField {
     pub no_export: bool,
     /// The widgets of this field that lie on the page asked about, in `/Annots` order.
     ///
-    /// §12.5.2 has annotations "drawn in the order in which they appear in the array", so this is
-    /// painting order and a host stacking controls may follow it.
+    /// `/Annots` order is painting order, so a host stacking controls may follow it. §12.5.5 is
+    /// where ISO 32000-2 says so — an annotation's group "shall be composited with a backdrop
+    /// consisting of the page content along with any previously painted annotations" — and the
+    /// array is the only order the standard gives those annotations. (This cited a sentence
+    /// §12.5.2 does not contain until the four-hundred-and-ninth session; see ADR 0245.)
     pub widgets: Vec<Widget>,
 }
 
@@ -312,9 +315,10 @@ pub struct Choice {
 
 /// The fields of the document's interactive form that have a widget on this page.
 ///
-/// In the page's `/Annots` order, taken from each field's *first* widget on the page: §12.5.2 has
-/// the annotations "drawn in the order in which they appear in the array", so a host laying
-/// controls over the page in this order stacks them the way the document stacks its appearances.
+/// In the page's `/Annots` order, taken from each field's *first* widget on the page — which is
+/// painting order, by §12.5.5's "along with any previously painted annotations" over the only
+/// order the standard states — so a host laying controls over the page in this order stacks them
+/// the way the document stacks its appearances.
 ///
 /// The state is `view`'s, so a field a person has typed into answers with what they typed, one an
 /// FDF import replaced answers with the imported value, and one §12.7.6.3 reset answers with `/DV`
@@ -359,6 +363,36 @@ pub fn fields(document: &Document, page: &Page, view: &ViewState) -> Vec<FormFie
             let widgets = grouped.get(&name)?;
             read(document, view, &name, widgets)
         })
+        .collect()
+}
+
+/// The widget annotations on this page whose appearance a host has undertaken to draw itself.
+///
+/// **Exactly the widgets [`fields`] answered for**, and that identity is the whole point rather
+/// than an implementation detail: what [`crate::view::WidgetAppearances::Delegated`] leaves out
+/// of the page is what a host was handed a control for, so no appearance can disappear without a
+/// control taking its place. Built from the same call for that reason —
+/// `every_delegated_widget_is_one_a_host_was_told_about` is the assertion, and a second traversal
+/// that agreed today could stop agreeing.
+///
+/// Three kinds of widget are therefore **not** here and keep their appearance. One the field tree
+/// does not reach, which §12.7.4.2 makes "simply a Widget annotation"; one belonging to a field
+/// whose `/Parent` chain runs past this crate's bound, which [`fields`] refuses for the same
+/// reason `crate::appearance::field_text_value` does; and one with no `/Rect`, which is a widget
+/// nothing could place a control over.
+///
+/// A [`std::collections::BTreeSet`] rather than a list because the interpreter asks about one
+/// annotation at a time, in `/Annots` order, and this is asked once per page.
+#[must_use]
+pub fn delegated_widgets(
+    document: &Document,
+    page: &Page,
+    view: &ViewState,
+) -> std::collections::BTreeSet<ObjectId> {
+    fields(document, page, view)
+        .iter()
+        .flat_map(|field| field.widgets.iter())
+        .map(|widget| widget.annotation)
         .collect()
 }
 

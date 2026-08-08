@@ -213,8 +213,13 @@ What it binds: `Left`/`Right`/`Up`/`Down`/`Page_Up`/`Page_Down` to turn pages, `
 redo, a drag to select, and the sidebar's three tabs to §12.3.3's outline, §8.11.4.3's layers and
 §7.11.4's files — each a real `GtkListView`, with a layer's switch a real `GtkCheckButton` and an
 attachment's row writing the file beside the document. §12.7's fields are real controls placed over
-the page. **The one thing to know about that** is `doc/todo/37`'s open decision: the page still
-carries the widget appearances underneath them, so a form is drawn twice.
+the page, and since the four-hundred-and-ninth the page underneath them is drawn **without** the
+document's own pictures of those fields (ADR 0245) — §6.3.2.2's "unless otherwise instructed", which
+this host instructs by default. `--draw-widget-appearances` puts them back, which is what the
+standard asks of a processor nobody has instructed and what the two pictures in ADR 0245 were taken
+with. **The one thing left to know** is the size: a GTK control has a theme's minimum and a widget's
+`/Rect` can be smaller, so on `160F-2019.pdf` all 76 controls are taller than the rectangle they
+cover. Choosing the magnification is `doc/todo/30`'s.
 
 **The pipeline is a gate this project had stopped reading, and both its failures were real** (ADR
 0189). It had been red since 2026-08-02. `render-gpu`'s bounded wait was one second rather than the

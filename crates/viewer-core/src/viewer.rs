@@ -87,6 +87,14 @@ pub struct Viewer {
     /// [`Command::Restrict`] and asked **once per operation** in [`Self::edit`]. Defaults to
     /// obeying. ADR 0212.
     restrictions: crate::RestrictionLevel,
+    /// Who draws §12.7's form widgets, as the host has said (§6.3.2.2).
+    ///
+    /// Held here rather than per document because it is a fact about the *host*: a program that
+    /// places native controls over a page places them over every page of every document it shows.
+    /// Pushed into each document's [`pdf_model::view::ViewState`] in [`Self::settle`], which is
+    /// the same route [`pdf_model::view::ViewState::set_magnification`] takes and for the same
+    /// reason — rule 1 makes that state the only channel into interpretation. ADR 0245.
+    delegated: pdf_model::view::WidgetAppearances,
 }
 
 impl Viewer {
@@ -105,6 +113,7 @@ impl Viewer {
             raising: false,
             holds_rasters: true,
             restrictions: crate::RestrictionLevel::default(),
+            delegated: pdf_model::view::WidgetAppearances::default(),
         }
     }
 
@@ -313,6 +322,10 @@ impl Viewer {
             Command::Zoom { zoom, at } => self.set_zoom(zoom, at, events),
             Command::Scroll { dx, dy } => self.scroll(dx, dy, events),
             Command::Restrict(level) => self.restrictions = level,
+            // Recorded here and applied in `settle`, where the magnification is: both are facts
+            // about the window that have to reach every open document's view state, and a
+            // document opened after this command has to get it too.
+            Command::Delegate(appearances) => self.delegated = appearances,
             Command::Edit(edit) => self.edit(edit, events),
             Command::Undo => self.move_cursor(-1, events),
             Command::Redo => self.move_cursor(1, events),
@@ -1473,6 +1486,14 @@ impl Viewer {
                 .as_ref()
                 .is_some_and(|interpreted| interpreted.view_dependent)
         {
+            open.interpreted = None;
+        }
+
+        // §6.3.2.2's "unless otherwise instructed", carried to whichever document is on screen.
+        // Unconditional where it changed — unlike the magnification above, which asks whether
+        // the page has anything that would notice: a page with no widget on it costs one field
+        // walk that answers nothing, and a page with one would be wrong to keep.
+        if open.view.set_widget_appearances(self.delegated) {
             open.interpreted = None;
         }
 

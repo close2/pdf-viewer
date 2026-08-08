@@ -142,12 +142,22 @@ every field that has a widget on the page being shown — §12.7.5's type, the f
 231 and 233 that decide what kind of control it is, Table 234's items and selection, Table 232's
 `/MaxLen`, and the appearance-state name §12.7.5.2.3 makes a check box's value — so a host builds a
 real `QLineEdit`, a real combo box and a real check box instead of taking a form as pixels off the
-raster. `doc/todo/37` is the audit that found it the last of six chrome populations not to cross, and
-the round that closed it found something the audit had not: **a check box could not be checked at
-all**, because §12.7.5.2.3's "[t]he value of the V key shall also be the value of the AS key" binds
-the processor that changes `/V` and this tree read only the sentence after it. What §0 still owes
-here is a page drawn *without* its widget appearances, which is a change to `interpret` and a round
-of its own.
+raster. `doc/todo/37` was the audit that found it the last of six chrome populations not to cross —
+absorbed into [30](todo/30-a-native-host.md) once its last decision was taken — and the round that
+closed it found something the audit had not: **a check box could not be checked at all**, because
+§12.7.5.2.3's "[t]he value of the V key shall also be the value of the AS key" binds the processor
+that changes `/V` and this tree read only the sentence after it.
+
+**And the page drawn *without* those widget appearances since the four-hundred-and-ninth** (ADR
+0245), which is the last thing §0 owed here. `Command::Delegate(WidgetAppearances)` is §6.3.2.2's
+"unless otherwise instructed" as a value only a host can supply — the second policy in this
+vocabulary after `Restrict`, and a different kind: that one says how much of what a *document*
+asserts over its reader this program obeys, this says which half of the page the *host* draws. It
+reaches `interpret` through `ViewState`, where rule 1 says a statement about the view belongs and
+where the magnification already sits, and it removes **exactly the widgets `Query::Fields` answered
+for** — a widget §12.7.4.2 leaves "simply a Widget annotation" keeps its appearance, because no
+control replaced it. `ViewState::of` is the other value, so every existing caller's display list is
+unchanged: 974 corpus documents digested before and after, an empty diff.
 
 **The vocabulary is complete**, and ten sessions of building on it added five messages rather than
 changing any — ten now, with `Query::Caret` in the three-hundred-and-seventy-first,

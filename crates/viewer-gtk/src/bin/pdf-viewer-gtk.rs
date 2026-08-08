@@ -13,6 +13,8 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
+use pdf_model::view::WidgetAppearances;
+
 use gtk4::prelude::*;
 use gtk4::{gio, glib};
 use viewer_gtk::{Host, Topic, Trace, parse_topics};
@@ -27,6 +29,8 @@ struct Arguments {
     fragment: Option<String>,
     /// The topics `--trace` asked for, zero for a run without it.
     topics: u8,
+    /// Who draws §12.7's widgets, per `--draw-widget-appearances`.
+    widget_appearances: WidgetAppearances,
 }
 
 /// Reads the command line, or says what is wrong with it.
@@ -34,8 +38,11 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
     let mut path: Option<PathBuf> = None;
     let mut fragment = None;
     let mut topics = 0;
+    let mut widget_appearances = WidgetAppearances::Delegated;
     for word in words {
-        if word == "--trace" {
+        if word == "--draw-widget-appearances" {
+            widget_appearances = WidgetAppearances::Drawn;
+        } else if word == "--trace" {
             topics = parse_topics("")?;
         } else if let Some(list) = word.strip_prefix("--trace=") {
             topics = parse_topics(list)
@@ -57,12 +64,14 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
             }
         }
     }
-    let path =
-        path.ok_or_else(|| "usage: pdf-viewer-gtk [--trace[=topics]] <file.pdf>".to_owned())?;
+    let path = path.ok_or_else(|| {
+        "usage: pdf-viewer-gtk [--trace[=topics]] [--draw-widget-appearances] <file.pdf>".to_owned()
+    })?;
     Ok(Arguments {
         path,
         fragment,
         topics,
+        widget_appearances,
     })
 }
 
@@ -94,7 +103,13 @@ fn main() -> glib::ExitCode {
         std::cell::RefCell::new(Vec::new());
     app.connect_activate(move |app| {
         trace.say(Topic::Launch, format_args!("GTK ready"));
-        match Host::open(app, &arguments.path, arguments.fragment.clone(), trace) {
+        match Host::open(
+            app,
+            &arguments.path,
+            arguments.fragment.clone(),
+            arguments.widget_appearances,
+            trace,
+        ) {
             Ok(host) => held.borrow_mut().push(host),
             Err(error) => {
                 eprintln!("{error}");
@@ -132,6 +147,22 @@ mod tests {
             arguments(["--trace=frames,wrong".to_owned(), "x.pdf".to_owned()].into_iter())
                 .expect_err("a topic that does not exist is a mistake worth reporting");
         assert!(complaint.contains("wrong"), "{complaint}");
+    }
+
+    /// §6.3.2.2's default is the standard's, and this host's default is the other one.
+    ///
+    /// Worth a test rather than a comment because it is the one place `pdf-viewer-gtk` and
+    /// `pdf-viewer` disagree about what a page is, and the flag that undoes it is what ADR 0245's
+    /// two photographs were taken with.
+    #[test]
+    fn the_widgets_are_delegated_unless_the_flag_asks_for_them() {
+        use pdf_model::view::WidgetAppearances;
+        let asked = arguments(["x.pdf".to_owned()].into_iter()).expect("a document");
+        assert_eq!(asked.widget_appearances, WidgetAppearances::Delegated);
+        let asked =
+            arguments(["--draw-widget-appearances".to_owned(), "x.pdf".to_owned()].into_iter())
+                .expect("a document");
+        assert_eq!(asked.widget_appearances, WidgetAppearances::Drawn);
     }
 
     #[test]

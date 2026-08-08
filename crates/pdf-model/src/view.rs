@@ -118,7 +118,19 @@ pub struct ViewState {
     /// which is what the corpus gate, the oracle and every caller of [`ViewState::of`] mean.
     /// Under it `NoZoom` changes nothing, so a page rendered at its own scale is the page it
     /// always was.
+    ///
+    /// (This entry said it was *the* one such thing until the four-hundred-and-ninth session,
+    /// which added the second — [`ViewState::widget_appearances`] — for exactly the reason
+    /// stated above. Two is not a trend, and each is here because a clause makes interpretation
+    /// depend on something only a window knows.)
     magnification: Option<f32>,
+    /// Whether §12.7's form widgets are drawn, or left to whoever asked for the page.
+    ///
+    /// The second thing in this struct that is a property of the *host* rather than of the
+    /// document or of anything a person did to it, and it is here for `magnification`'s reason:
+    /// it changes what is drawn, and rule 1 makes this state the only channel by which anything
+    /// outside the file may.
+    widget_appearances: WidgetAppearances,
     /// Annotations a person has **added**, in the order they added them.
     ///
     /// The fifth thing in this struct that comes from outside the document, and the first that
@@ -353,6 +365,62 @@ pub enum Appearance {
     Down,
 }
 
+/// Who draws §12.7's form fields: this crate, or whoever asked for the page.
+///
+/// A native host places a real `GtkEntry`, `QLineEdit` or `NSTextField` over the page at each
+/// widget's own rectangle, which is what [`crate::form`] describes a form *for*. Unless it can
+/// also ask for the page **without** the widgets' own pictures, a person sees every field twice:
+/// the control, and the appearance stream underneath it. ADR 0244 measured that at 76 controls
+/// over one corpus document's 67 fields, every one sitting on the picture of itself.
+///
+/// # This is an instruction, not a departure
+///
+/// §6.3.2.2 places the obligation on a rendering processor and states its own exception in the
+/// same sentence:
+///
+/// > A PDF processor shall also render the appropriate appearance stream for all annotations
+/// > (12.5.5, "Appearance streams") which have appearance streams designated for this purpose as
+/// > indicated by the annotation flags (see 12.5.3, "Annotation flags"), unless otherwise
+/// > instructed.
+///
+/// [`Self::Delegated`] is that instruction, and it can only come from a host that has undertaken
+/// to draw those appearances itself. It is never this crate's own choice: [`ViewState::of`] is
+/// [`Self::Drawn`], so a caller that does not ask gets the page §6.3.2.2 describes.
+///
+/// # Why the widgets and nothing else
+///
+/// §12.5.6.19 is what makes them separable from everything else clause 12 puts on a page:
+///
+/// > Interactive forms (see 12.7, "Forms") use widget annotations (PDF 1.2) to represent the
+/// > appearance of fields and to manage user interactions.
+///
+/// A widget annotation **is** a field's appearance, so a host that draws the field has replaced
+/// exactly it. Nothing else has a counterpart in a toolkit — §12.5.6.10's markups, §12.5.6.4's
+/// icons and §12.5.6.12's stamps are page content and stay on the page — and §12.5.1 draws the
+/// same line from the standard's side, where Table 31's `/Tabs` has a value for the widgets alone:
+///
+/// > W (widgets order): Widget annotations shall be visited in the order in which they appear in
+/// > the page Annots array, followed by other annotation types in row order.
+///
+/// So "leave out the widgets" and "leave out the annotations" are different requests, and only
+/// the first is one a form host has any business making.
+///
+/// # And only the widgets a host was told about
+///
+/// Narrower than `/Subtype /Widget`, deliberately: §12.7.4.2 leaves a dictionary whose `/Parent`
+/// chain never reaches the form "simply a Widget annotation", [`crate::form::fields`] answers
+/// nothing for it, no host was handed a control for it, and dropping its appearance would take
+/// ink off the page that nothing replaces. [`crate::form::delegated_widgets`] is the set, built
+/// from that same call so the two cannot drift.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WidgetAppearances {
+    /// This crate draws them, which is what §6.3.2.2 asks of a processor nobody has instructed.
+    #[default]
+    Drawn,
+    /// The host draws them, so the page is interpreted without them.
+    Delegated,
+}
+
 impl ViewState {
     /// The state a document opens in.
     ///
@@ -370,8 +438,32 @@ impl ViewState {
             appended: Vec::new(),
             pointer: None,
             magnification: None,
+            widget_appearances: WidgetAppearances::default(),
             added: Vec::new(),
         }
+    }
+
+    /// Whether §12.7's form widgets are drawn on the page, or left to the host.
+    #[must_use]
+    pub fn widget_appearances(&self) -> WidgetAppearances {
+        self.widget_appearances
+    }
+
+    /// Says who draws §12.7's form widgets.
+    ///
+    /// [`WidgetAppearances::Drawn`] until a host says otherwise, so a caller that never calls
+    /// this draws the page §6.3.2.2 describes — which is what makes the corpus gate, the oracle
+    /// and every other existing caller produce the display list they produced before this
+    /// existed, by construction rather than by comparison.
+    ///
+    /// Returns whether the value changed, so a caller can decide whether the page has to be
+    /// interpreted again — the same shape [`ViewState::set_magnification`] has, and for the same
+    /// reason: this decides what is *drawn*, so a change invalidates a display list rather than
+    /// only the pixels made from it.
+    pub fn set_widget_appearances(&mut self, appearances: WidgetAppearances) -> bool {
+        let changed = self.widget_appearances != appearances;
+        self.widget_appearances = appearances;
+        changed
     }
 
     /// How large the page is being drawn, where a caller has said.
@@ -829,8 +921,9 @@ impl ViewState {
 
     /// Every annotation a person added to one page, in the order they added them.
     ///
-    /// What the interpreter draws after the page's own `/Annots`, which is where §12.5.2 puts
-    /// them: "the annotations shall be drawn in the order in which they appear in the array".
+    /// What the interpreter draws after the page's own `/Annots`, which is where §12.5.5 puts
+    /// them: an annotation is composited over "the page content along with any previously painted
+    /// annotations", and one added later was painted later.
     /// A page reached without an identity — [`crate::Pages::detached`]'s, which is §12.7.7's
     /// template — has none of these by construction.
     pub fn added_on(&self, page: Option<ObjectId>) -> impl Iterator<Item = &Added> {

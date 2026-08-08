@@ -1,7 +1,9 @@
 # A native host, then the C ABI
 
 Status: **one of three done.** GTK4 landed in the four-hundred-and-eighth session
-(`crates/viewer-gtk`, ADR 0244). Qt is next; the C ABI is last and still waits on it.
+(`crates/viewer-gtk`, ADR 0244). Qt is next; the C ABI is last and still waits on it. **This file
+absorbed `doc/todo/37` in the four-hundred-and-ninth**, whose one open decision was taken (ADR 0245)
+and whose three remaining items are host questions rather than boundary ones.
 Priority: 30 — the largest single thing the project owes, and §0 was built for it
 Code: `crates/viewer-gtk` (exists), new crates beside it
 
@@ -64,11 +66,26 @@ Each of these was written before any native host existed. What the GTK host foun
 
 - **Qt/KDE via `cxx-qt`**, which is now the next item in the order.
 - **`viewer-ffi`**, after it.
-- **The page drawn without its widget appearances**, which is not this file's — `doc/todo/37` owns
-  it — and which the GTK host turned from a prediction into a photograph. It is now the thing
-  standing between a native host and a *good* one, and ADR 0244 records a second consequence the
-  audit had not named: a platform control has a **minimum size** the document's rectangle can be
-  smaller than, so a `GtkEntry` over a 15-pixel widget covers the page's own text around it.
+- **The scale a native form host draws the page at**, which is what is left of `doc/todo/37` after
+  the four-hundred-and-ninth session took its one decision (ADR 0245). The page *is* drawn without
+  its widget appearances now — `Command::Delegate(WidgetAppearances::Delegated)`, which
+  `pdf-viewer-gtk` sends by default — and taking that picture measured the other half:
+  **11 of 76 controls on `160F-2019.pdf` are wider than their `/Rect` (worst +85 logical px on 120)
+  and all 76 are taller (worst +22 on 12)**. A platform control has a theme-decided minimum and
+  `set_size_request` is a floor, so on that form every control covers page content around the field
+  it belongs to. Not a control to shrink and not `viewer-core`'s to fix: a host has to be able to
+  ask for the page at a magnification where the document's rectangles are at least as large as the
+  platform's controls, and to find that magnification it needs the widgets' rectangles — which
+  `Query::Fields` already gives it in device pixels. **Nothing new may be needed at all**, and
+  establishing that is the next round's, because a host that simply zooms until the worst
+  `/Rect` fits has answered it with the messages that exist.
+- **Table 229 bit 26's `RadiosInUnison` crosses and is not obeyed** (from `doc/todo/37`). Turning
+  on every button of a set that shares an on state is a decision for whatever handles the press,
+  and this tree's own host has the flag rather than the behaviour.
+- **§12.7.5.4's list box still draws nothing on the page** (from `doc/todo/37`), and says so: the
+  clause states which items are selected and states no highlight, so `variable_text` refuses it. A
+  host with the items and the selection draws a real list — which is the point — but a page with a
+  list box on it is still light, and the report is what says so.
 - **`pdf_render::RasterFormat` is `#[non_exhaustive]` and crosses the boundary**, which breaks
   `viewer-core`'s own rule that a new variant should fail to compile in every consumer. The GTK
   host refuses an unknown format by name; the next host will have to do the same. ADR 0244 §2.

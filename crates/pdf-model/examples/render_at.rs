@@ -4,7 +4,12 @@
 //! geometry a page states. Doing that with *this* renderer as well as with a reference is what
 //! separates "our scan conversion differs" from "we draw different shapes".
 //!
-//! `cargo run -p pdf-model --example render_at -- <file.pdf> <page> <scale> <out.png>`
+//! `cargo run -p pdf-model --example render_at -- <file.pdf> <page> <scale> <out.png> [--delegate]`
+//!
+//! `--delegate` draws the page as a host that places its own form controls asks for it: §6.3.2.2's
+//! "unless otherwise instructed", which takes §12.7's widget appearances off the page and leaves
+//! everything else (`pdf_model::view::WidgetAppearances`, ADR 0245). It is here rather than in a
+//! test because the two pages side by side are what a person reads.
 
 #![expect(
     clippy::print_stdout,
@@ -22,12 +27,17 @@ fn main() {
         .expect("a number");
     let scale: f32 = args.next().expect("a scale").parse().expect("a number");
     let out = args.next().expect("an output png");
+    let delegate = args.next().is_some_and(|word| word == "--delegate");
 
     let document =
         pdf_syntax::Document::open(std::fs::read(&path).expect("readable")).expect("a PDF");
     let pages = pdf_model::Pages::new(&document);
     let page = pages.get(page.saturating_sub(1)).expect("that page");
-    let interpretation = pdf_model::interpret(&document, &page);
+    let mut view = pdf_model::view::ViewState::of(&document);
+    if delegate {
+        view.set_widget_appearances(pdf_model::view::WidgetAppearances::Delegated);
+    }
+    let interpretation = pdf_model::content::interpret_with(&document, &page, &view);
     let list = interpretation.display_list;
     let target = pdf_render::TargetSpec::for_page(&list, scale, 1 << 34).expect("a target");
     let mut rasterizer = render_cpu::CpuRasterizer::new();

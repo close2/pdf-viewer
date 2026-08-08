@@ -22,7 +22,7 @@
 
 use pdf_model::navigation::{Dimension, Direction, Motion, Style, Transition};
 use pdf_model::restriction::Operation;
-use pdf_model::view::Markup;
+use pdf_model::view::{Markup, WidgetAppearances};
 use pdf_render::{Point, Raster, RasterFormat, Rect, Size};
 use pdf_sandbox::lockdown::{Confinement, LandlockLevel, SystemCalls};
 use pdf_syntax::{Name, ObjectId};
@@ -721,6 +721,7 @@ mod command_kind {
     pub(super) const SET_GROUP: u8 = 18;
     pub(super) const POINTER: u8 = 19;
     pub(super) const SUPPLY: u8 = 20;
+    pub(super) const DELEGATE: u8 = 21;
 }
 
 /// Encodes one command.
@@ -789,6 +790,14 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
             writer.u8(k::RESTRICT).u8(match level {
                 RestrictionLevel::On => 0,
                 RestrictionLevel::Off => 1,
+            });
+        }
+        // §6.3.2.2's instruction crosses the confinement like every other policy: the confined
+        // process interprets, so the party that draws the widgets has to tell it.
+        Command::Delegate(appearances) => {
+            writer.u8(k::DELEGATE).u8(match appearances {
+                WidgetAppearances::Drawn => 0,
+                WidgetAppearances::Delegated => 1,
             });
         }
         Command::Edit(edit) => {
@@ -910,6 +919,16 @@ pub(crate) fn decode_command(bytes: &[u8]) -> Result<Command, ProtocolError> {
             value => {
                 return Err(ProtocolError::Unrecognised {
                     what: "a restriction level",
+                    value: u32::from(value),
+                });
+            }
+        }),
+        k::DELEGATE => Command::Delegate(match reader.u8("a widget-appearance policy")? {
+            0 => WidgetAppearances::Drawn,
+            1 => WidgetAppearances::Delegated,
+            value => {
+                return Err(ProtocolError::Unrecognised {
+                    what: "a widget-appearance policy",
                     value: u32::from(value),
                 });
             }
