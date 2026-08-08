@@ -251,8 +251,11 @@ pub(crate) enum Highlight {
 /// **The default is `I` and this applies it only where the annotation states no down
 /// appearance.** The two clauses genuinely disagree for an annotation that states a `/D` and no
 /// `/H`: §12.5.5 says the down appearance "shall be used when the mouse button is pressed", and
-/// Table 192 gives `/H` the default `I` and says "[a] highlighting mode other than P shall
-/// override any down appearance". Taking the default flatly makes the *file's own artwork*
+/// Table 191 gives `/H` the default `I` and says "[a] highlighting mode other than P shall
+/// override any down appearance". (**This comment said "Table 192" until the
+/// four-hundred-and-second session**, which is the number §12.5.6.19's ledger row was corrected
+/// for fifteen rounds earlier and this file was not: 192 is the `/MK` appearance characteristics
+/// dictionary, and `/H` is the widget annotation's own entry. `doc/todo/01`'s ninth sweep.) Taking the default flatly makes the *file's own artwork*
 /// unshowable — 95 of the corpus's page-one annotations state a `/D` and no `/H`, so 95 pieces
 /// of artwork would exist for a moment that could never display them. Taking a stated `/D` as
 /// the writer having said `P` leaves every stated entry meaning something, and loses only a
@@ -1098,7 +1101,7 @@ fn is_empty(rect: [f32; 4]) -> bool {
 }
 
 /// The axis-aligned box around a box a transform has moved — §12.5.5's step 1.
-fn transformed(box_: [f32; 4], matrix: Transform) -> [f32; 4] {
+pub(crate) fn transformed(box_: [f32; 4], matrix: Transform) -> [f32; 4] {
     let corners = [
         Point::new(box_[0], box_[1]),
         Point::new(box_[2], box_[1]),
@@ -1115,7 +1118,7 @@ fn transformed(box_: [f32; 4], matrix: Transform) -> [f32; 4] {
 }
 
 /// Reads a `/Matrix` entry, defaulting to the identity.
-fn matrix(document: &Document, dict: &Dictionary) -> Transform {
+pub(crate) fn matrix(document: &Document, dict: &Dictionary) -> Transform {
     let Some(values) = numbers(document, dict, "Matrix") else {
         return Transform::IDENTITY;
     };
@@ -1160,7 +1163,11 @@ pub(crate) fn rectangle(
 }
 
 /// Reads an array of numbers, resolving each entry.
-fn numbers(document: &Document, dict: &Dictionary, key: &'static str) -> Option<Vec<f32>> {
+pub(crate) fn numbers(
+    document: &Document,
+    dict: &Dictionary,
+    key: &'static str,
+) -> Option<Vec<f32>> {
     Some(
         document
             .get_key(dict, key)

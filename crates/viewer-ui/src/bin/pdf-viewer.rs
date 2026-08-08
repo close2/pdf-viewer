@@ -3062,7 +3062,7 @@ impl App {
 
     /// Hands §14.7's structure for the page being shown to the platform's accessibility API.
     ///
-    /// **The fifth of the five things `doc/HANDOVER.md` section 0 listed as blocked on the
+    /// **The fifth of the five things `doc/ui-boundary.md` lists as blocked on the
     /// `viewer-core` boundary, and the last.** `Query::AccessibilityTree` has answered since the
     /// hundred-and-forty-ninth session and nothing asked; this asks. What crosses is
     /// `viewer-accessibility`'s business — §14.8.4's types onto AccessKit's roles, and AT-SPI

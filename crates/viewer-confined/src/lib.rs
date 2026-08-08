@@ -3,7 +3,7 @@
 //! `pdf-sandbox` confines three image decoders. This confines everything above them: the
 //! document, the content interpreter and the rasteriser — which is where a PDF's bytes actually
 //! go, and by far the larger attack surface. `CLAUDE.md` principle 3 asks for it, and
-//! `doc/HANDOVER.md`'s section 0 says why it costs one protocol rather than two: if the boundary
+//! `doc/ui-boundary.md` says why it costs one protocol rather than two: if the boundary
 //! is `Command`/`Event` with `Raster` payloads, the confined process owns document,
 //! interpretation and rasterisation, and the host receives pixels and events. The design question
 //! that used to be recorded there — whether a display list would have to cross — dissolves,

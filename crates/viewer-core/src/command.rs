@@ -392,7 +392,7 @@ pub enum Edit {
 ///
 /// **What makes them cheap to add is that nothing here is `#[non_exhaustive]`.** The day a host
 /// can ask, two variants arrive and every consumer of this crate fails to compile until it says
-/// what it does about them — which is the whole reason `doc/HANDOVER.md`'s UI boundary keeps
+/// what it does about them — which is the whole reason `doc/ui-boundary.md` keeps
 /// these enums exhaustive, and it is why the shape is what this round owed rather than the
 /// levels. ADR 0212.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

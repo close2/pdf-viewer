@@ -81,6 +81,16 @@ fn render(bytes: Vec<u8>) -> pdf_render::Raster {
         .expect("supported")
 }
 
+/// Rasterises an interpretation that reported something, which [`render`] refuses to.
+fn render_incomplete(interpretation: &pdf_model::Interpretation) -> pdf_render::Raster {
+    let list = &interpretation.display_list;
+    let target = TargetSpec::for_page(list, 1.0, GENEROUS).expect("valid target");
+    CpuRasterizer::new()
+        .with_background(pdf_render::Color::TRANSPARENT)
+        .rasterize(list, target)
+        .expect("supported")
+}
+
 /// Interprets a fixture without demanding that it drew completely.
 fn interpret(bytes: Vec<u8>) -> pdf_model::Interpretation {
     let document = Document::open(bytes).expect("the fixture is a valid PDF");
@@ -364,7 +374,7 @@ fn an_appearance_state_is_selected_by_as() {
 /// `PushPin`, `Paperclip` and `Tag` and §12.5.6.16's `Speaker` and `Mic` name **objects**, which
 /// is more than §12.5.6.4's mandatory seven give — `NewParagraph` and `Insert` had to be invented
 /// out of a typographer's convention — so the artwork is argued from the clause's own word.
-/// §12.5.6.12's Table 186 names `Approved`, `Experimental`, `NotApproved`, `Draft` and the rest:
+/// §12.5.6.12's Table 184 names `Approved`, `Experimental`, `NotApproved`, `Draft` and the rest:
 /// **legends rather than symbols**, so drawing one means choosing typography and a border, and a
 /// reader would see a word this program picked in a face this program picked. A recommendation is
 /// not a licence to invent a different kind of thing from the one the name names.
@@ -1905,5 +1915,148 @@ fn a_polygons_line_endings_are_reported_because_it_has_no_ends() {
         format!("{:?}", interpretation.unsupported).contains("no two points"),
         "{:?}",
         interpretation.unsupported
+    );
+}
+
+/// A push-button with no appearance stream draws Table 192's `/I` as its icon.
+///
+/// §12.5.6.19's Table 191 makes the appearance characteristics dictionary the input to
+/// *constructing* a stream, so this is the only route by which the entry can reach a pixel: a widget with its own
+/// `/AP` is drawn from that and never asks. `/TP 1` is the table's "No caption; icon only", which
+/// is what makes the mark here the icon's and nothing else's.
+///
+/// The fixture's icon is object 6, the same form `XObject` every other test here hands to `/AP` —
+/// a red square on `/BBox [0 0 10 10]`. Table 250's defaults scale it "Always", "Proportional",
+/// centred, so it fills the rectangle inside §12.5.4's one-unit border.
+#[test]
+fn a_push_buttons_normal_icon_is_drawn_where_it_has_no_appearance_stream() {
+    let raster = render(pdf_with(
+        "<< /Type /Annot /Subtype /Widget /Rect [10 10 90 90] /F 4 /FT /Btn /Ff 65536 \
+         /T (go) /MK << /I 6 0 R /TP 1 >> >>",
+        "/BBox [0 0 10 10]",
+        "1 0 0 rg 0 0 10 10 re f",
+    ));
+    assert_eq!(
+        colour_at(&raster, 50, 50),
+        (255, 0, 0),
+        "the icon fills the rectangle Table 250's defaults fit it into"
+    );
+    assert!(painted(&raster, 15, 15), "and reaches its corner");
+    assert!(!painted(&raster, 5, 5), "and not past /Rect");
+}
+
+/// Table 250's `/SW N` — "Never scale" — leaves the icon its own size, and `/A` places it.
+///
+/// The icon's `/BBox` is 10 by 10 in a rectangle 78 by 78 inside the border, so an unscaled icon
+/// occupies a hundredth of it and where that hundredth sits is entirely `/A`'s answer: the
+/// default `[0.5 0.5]` centres it, `[0.0 0.0]` puts it "at the bottom-left corner". Two fixtures
+/// differing in one entry, because a single one cannot tell a placement from a scale.
+#[test]
+fn table_250s_never_scale_keeps_the_icons_own_size_and_a_places_it() {
+    let centred = render(pdf_with(
+        "<< /Type /Annot /Subtype /Widget /Rect [10 10 90 90] /F 4 /FT /Btn /Ff 65536 \
+         /T (go) /MK << /I 6 0 R /TP 1 /IF << /SW /N >> >> >>",
+        "/BBox [0 0 10 10]",
+        "1 0 0 rg 0 0 10 10 re f",
+    ));
+    assert!(painted(&centred, 50, 50), "the default /A centres it");
+    assert!(!painted(&centred, 20, 20), "and it is not scaled up");
+
+    let cornered = render(pdf_with(
+        "<< /Type /Annot /Subtype /Widget /Rect [10 10 90 90] /F 4 /FT /Btn /Ff 65536 \
+         /T (go) /MK << /I 6 0 R /TP 1 /IF << /SW /N /A [0 0] >> >> >>",
+        "/BBox [0 0 10 10]",
+        "1 0 0 rg 0 0 10 10 re f",
+    ));
+    assert!(
+        painted(&cornered, 15, 15),
+        "/A [0.0 0.0] puts it at the bottom-left corner"
+    );
+    assert!(!painted(&cornered, 50, 50), "and nowhere near the centre");
+}
+
+/// Table 192's `/TP 0` is "No icon; caption only", and it is the table's default.
+///
+/// A widget stating an `/I` and no `/TP` states a button the standard says shows its caption, so
+/// drawing the icon there would put a mark on the page the file asked not to have. The fixture
+/// states neither a caption nor a background, so obeying the code leaves the page blank.
+#[test]
+fn table_192s_default_caption_position_draws_no_icon() {
+    let raster = render(pdf_with(
+        "<< /Type /Annot /Subtype /Widget /Rect [10 10 90 90] /F 4 /FT /Btn /Ff 65536 \
+         /T (go) /MK << /I 6 0 R >> >>",
+        "/BBox [0 0 10 10]",
+        "1 0 0 rg 0 0 10 10 re f",
+    ));
+    assert!(
+        !painted(&raster, 50, 50),
+        "code 0 is 'No icon; caption only', and this button has no caption"
+    );
+}
+
+/// The icon entries are Table 192's "push-button fields only", and a check box is not one.
+///
+/// Table 229 bit 17 is what separates them, and it is inheritable — so this is the same fixture
+/// with `/Ff 0`, which makes the field a check box and the `/I` an entry that applies to nothing.
+#[test]
+fn a_check_box_does_not_draw_table_192s_push_button_icon() {
+    let interpretation = interpret(pdf_with(
+        "<< /Type /Annot /Subtype /Widget /Rect [10 10 90 90] /F 4 /FT /Btn /Ff 0 \
+         /T (tick) /V /Off /MK << /I 6 0 R /TP 1 >> >>",
+        "/BBox [0 0 10 10]",
+        "1 0 0 rg 0 0 10 10 re f",
+    ));
+    assert!(
+        interpretation.display_list.commands().is_empty(),
+        "the entries are for push-buttons and this field is a check box"
+    );
+}
+
+/// Table 192's codes 2 to 5 name the caption's side and not its size, and are reported.
+///
+/// "Caption below the icon" fixes a relation and no proportion, and the clause states none
+/// anywhere: choosing one would put a layout on the page that neither the document nor the
+/// standard asked for. The icon is still drawn, which is the half the code does state.
+#[test]
+fn table_192s_beside_codes_are_named_rather_than_invented() {
+    let interpretation = interpret(pdf_with(
+        "<< /Type /Annot /Subtype /Widget /Rect [10 10 90 90] /F 4 /FT /Btn /Ff 65536 \
+         /T (go) /MK << /I 6 0 R /TP 2 /CA (Go) >> >>",
+        "/BBox [0 0 10 10]",
+        "1 0 0 rg 0 0 10 10 re f",
+    ));
+    let reported = format!("{:?}", interpretation.unsupported);
+    assert!(
+        reported.contains("/TP 2"),
+        "the code that states a side and no size must be named: {reported}"
+    );
+    assert!(
+        !interpretation.display_list.commands().is_empty(),
+        "and the icon the code does state is still drawn"
+    );
+}
+
+/// Table 192's `/RI` and `/IX` are states a still frame has no way to be in, and are reported.
+///
+/// Both are defined by what the pointer is doing — the rollover icon "when the user rolls the
+/// cursor into its active area", the alternate one "when the mouse button is pressed" — and a
+/// constructed appearance is one stream where §12.5.5 gives a stored one three. No corpus
+/// document states either, which is why they are named rather than built.
+#[test]
+fn table_192s_rollover_icon_is_named_rather_than_drawn() {
+    let interpretation = interpret(pdf_with(
+        "<< /Type /Annot /Subtype /Widget /Rect [10 10 90 90] /F 4 /FT /Btn /Ff 65536 \
+         /T (go) /MK << /I 6 0 R /RI 6 0 R /TP 1 >> >>",
+        "/BBox [0 0 10 10]",
+        "1 0 0 rg 0 0 10 10 re f",
+    ));
+    let reported = format!("{:?}", interpretation.unsupported);
+    assert!(
+        reported.contains("/RI"),
+        "the rollover icon must be named: {reported}"
+    );
+    assert!(
+        painted(&render_incomplete(&interpretation), 50, 50),
+        "and the normal icon is still drawn"
     );
 }

@@ -187,14 +187,16 @@ character for character except the test count**, which its own seven tests moved
 strongest thing it has to say about a change to the correctness oracle's rasteriser that halved the
 corpus's worst page (ADR 0236).
 
-**And so did the four-hundred-and-first**, which added §12.5.6.6's free text: the test count moved
-by its six, the citation and quotation counts by what it wrote, and every other figure in the table
-below reproduced exactly. A round that adds a verb a corpus document cannot exercise should move
-nothing else, and this one did not (ADR 0238).
+**And so did the four-hundred-and-second**, which was a sweep round that also drew §12.5.6.19's
+push-button icon: the test count moved by its six, the citation and quotation counts by what it
+wrote, and every other figure in the table below reproduced exactly. That is the expected result and
+it is worth stating — the entries it implemented cannot change a mark on any of the 974, counted
+before the work by `examples/push_button_census` (ADR 0239), so the instrument that answers this
+round is the ledger and not the corpus.
 
 | gate | what it printed | where |
 |---|---|---|
-| tests | `1404 tests run: 1404 passed, 9 skipped`, and `cargo test --workspace --doc` **1 passed** beside it, so `cargo test --workspace` reports **1405**. `clippy --workspace --all-targets` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`; `fmt --all --check` clean | `cargo nextest run --workspace`, **40.7 s** |
+| tests | `1410 tests run: 1410 passed, 9 skipped`, and `cargo test --workspace --doc` **1 passed** beside it, so `cargo test --workspace` reports **1411**. `clippy --workspace --all-targets` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`; `fmt --all --check` clean | `cargo nextest run --workspace`, **38.7 s** |
 | corpus (974 pdf.js documents, page one) | `974 documents in 4.3s: 0 unopenable, 8 locked, 2 encrypted beyond us, 5 pageless, **65 incomplete**, 0 slow` | `tests/corpus.rs`, **4.3 s** |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | `1794 pages (1693 we call complete, 101 incomplete)`; **904 agree / 862 of them complete**, **69 contradicted / 67 complete**, **786 ambiguous / 753 complete**, our geometry 1/0, reference geometry 2/2, not comparable 14/9, no render 18/0 — and **the undiagnosed ambiguous list printed empty**, which is the ratchet holding. The two pages that became *complete* in the four-hundredth session both landed ambiguous and both have a group with a two-ladder diagnosis (ADR 0237) | `tests/oracle.rs`, **47.2 s** |
 | text (vs `pdftotext`, same 974) | `overall 99.2% (24043/24243 words), 25 below 90%`, with 24 skipped and 62 incomplete and not gated | `tests/text_extraction.rs`, **30.1 s** |
@@ -202,7 +204,7 @@ nothing else, and this one did not (ADR 0238).
 | dates | `1545 date strings in 974 documents: **1514 conform** to §7.9.4 (97.99%), 31 do not, over 22 distinct strings` | `tests/dates.rs`, **0.9 s** |
 | **§14.3.2's XMP** (same 974) | `319 documents carry §14.3.2's stream: **318 read, 1 refused**, 3191 properties between them, 106 state dc:title` — the refusal is a fuzzed file whose stream does not decode at all | `tests/xmp.rs`, **0.4 s** |
 | **JPEG 2000 vs ISO/IEC 15444-5's reference software** | 30 corpus codestreams: **14 byte-identical, 13 differing, 3 not comparable**, and no remaining difference exceeds one level. `doc/JPEG2000_FEEDBACK.md` §§7–8 has the two defects behind that | `tests/jpeg2000.rs`, **13.8 s** |
-| conformance | **5574 citations**, all naming clauses the standard has; **542 quotations**, all verbatim; **210** distinct tables cited by this tree and **249** named in the ledger's notes; **875 ledger rows** (400 implemented, 252 partial, 19 reported, 83 inapplicable, 8 writer-side, 113 out-of-scope) | `cargo test -p conformance`, **2.0 s** |
+| conformance | **5604 citations**, all naming clauses the standard has; **546 quotations**, all verbatim; **212** distinct tables cited by this tree and **250** named in the ledger's notes; **875 ledger rows** (400 implemented, 252 partial, 19 reported, 83 inapplicable, 8 writer-side, 113 out-of-scope) | `cargo test -p conformance`, **3.0 s** |
 | **the round itself** | **not measured as one span this round**, and the honest number is what the gates themselves printed: **154 s** of test execution summed from the ten lines above (25.7 + 4.2 + 46.9 + 30.1 + 34.1 + 0.6 + 0.3 + 9.9 + 2.0), with each gate's incremental build on top and each run separately rather than back to back. `doc/todo/02` records **268 s** for §2 *and* §5's binaries together, from 608 s until the three-hundred-and-eighty-fifth measured every step (ADR 0222); the three-hundred-and-ninety-seventh read 287 s off file timestamps for §2 alone | ADR 0222, `doc/todo/43` |
 
 **Two things beyond §2 were run in the three-hundred-and-ninety-eighth and are claimed**: the

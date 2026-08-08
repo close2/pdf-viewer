@@ -19,7 +19,7 @@ features no file exercises.
 ```sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets      # must be silent of lints
-cargo nextest run --workspace               # 1398 tests, 9 ignored
+cargo nextest run --workspace               # 1410 tests, 9 ignored
 cargo test --workspace --doc                # the one doctest nextest does not run
 cargo build --profile gates -p pdf-sandbox --bins   # trap 10: Cargo will not do this for you
 cargo test  --profile gates -p pdf-model      --test corpus          -- --ignored --nocapture
@@ -47,10 +47,12 @@ here:
 - **`cargo nextest` is a user-local install** — `cargo install cargo-nextest --locked`, or the
   prebuilt from `https://get.nexte.st/latest/linux` into `~/.cargo/bin`. Without it,
   `cargo test --workspace` is exactly the same gate at three times the wall clock, and that is
-  what CI runs. `nextest` skips doctests, which is why the line after it is there: 1398 + 1 = the
-  **1399** `cargo test --workspace` reports. (This line said 1314 until the
+  what CI runs. `nextest` skips doctests, which is why the line after it is there: 1410 + 1 = the
+  **1411** `cargo test --workspace` reports. (This line said 1314 until the
   three-hundred-and-eighty-eighth, which counted the tree with `nextest list` before and after its
-  own seven and found the number two behind — the count is the gate's and not this file's.)
+  own seven and found the number two behind — the count is the gate's and not this file's. It said
+  **1398** until the four-hundred-and-second, which added six tests to a gate that printed 1410:
+  the number was six behind again, over the eight rounds since it was last written down.)
 - **`pdfref-hayro` is the oracle's fourth reading and nothing built it.** It is a *program*, found
   beside the running test binary, and its absence costs no verdict — `Reference::Hayro` never
   votes — but it is what a person looks at on a page the three references cannot settle. Until

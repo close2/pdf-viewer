@@ -187,6 +187,8 @@ enum Refusal {
     NonStandardIcon(String),
     /// The clause names an appearance without stating what it looks like.
     NotDerivable(&'static str),
+    /// Table 192's `/TP` names the side the caption goes on and not how much room it gets.
+    CaptionBeside(i64),
     /// §12.7.4.3's variable text could not be laid out, or not entirely.
     Text(Owed),
 }
@@ -204,6 +206,10 @@ impl Refusal {
                  §12.5.6.4 requires an appearance for"
             ),
             Self::NotDerivable(why) => format!("no appearance stream, and {why}"),
+            Self::CaptionBeside(code) => format!(
+                "no appearance stream, and Table 192's /TP {code} states which side of the icon \
+                 the caption goes on and not how much of the rectangle it takes"
+            ),
             Self::Text(owed) => owed.detail(),
         }
     }
@@ -248,14 +254,14 @@ pub(crate) fn construct(
         b"Text" => text_icon(document, annotation, &mut stream, rect),
         b"FileAttachment" | b"Sound" => symbol_icon(document, annotation, &mut stream, subtype),
         // §12.5.6.12's stamp is the one of the four icon clauses whose standard names are not
-        // *objects*. Table 186's list is `Approved`, `Experimental`, `NotApproved`, `AsIs`,
+        // *objects*. Table 184's list is `Approved`, `Experimental`, `NotApproved`, `AsIs`,
         // `Expired`, `Draft` and the rest — legends rather than symbols, so drawing one means
         // inventing typography and a border, and what a reader would then see is a word this
         // program chose to set in a face this program chose. The clause says **should**, and a
         // recommendation is not a licence to invent a different kind of thing from the one the
         // name names. `doc/todo/26` holds the argument.
         b"Stamp" => Err(Refusal::NotDerivable(
-            "its clause recommends rather than requires a predefined icon, and Table 186's \
+            "its clause recommends rather than requires a predefined icon, and Table 184's \
              standard names are legends rather than symbols",
         )),
         _ => Err(Refusal::NotDerivable("its clause states no geometry")),
@@ -268,10 +274,11 @@ pub(crate) fn construct(
             report: Some(refusal),
         },
     };
+    let content = painted.drawn.then(|| stream.text.clone().into_bytes());
     Constructed {
-        content: painted.drawn.then(|| stream.text.into_bytes()),
+        content,
         report: painted.report.map(|refusal| refusal.detail()),
-        resources: stream.resources.unwrap_or_default(),
+        resources: stream.finish(),
         bounded,
     }
 }
@@ -1580,8 +1587,12 @@ fn widget(
     // where text can go without being struck through by its own frame. Nothing states a
     // further margin and none is added.
     let inner = inset(rect, border.width);
-    let laid_out = match field_text(document, annotation, source, inner, value, Asked::default()) {
-        Ok(laid_out) => laid_out,
+
+    // Table 192's push-button half: the icon, its fit and where the caption goes. Reached only
+    // where the `/MK` states one of the entries, so the 807 corpus widgets that are not
+    // push-buttons pay two dictionary lookups rather than a second walk of §12.7.4.1's chain.
+    let button = match push_button_icon(document, annotation, source, value, rect, inner, stream) {
+        Ok(button) => button,
         Err(refusal) => {
             rotation.end(stream);
             return Ok(Painted {
@@ -1590,10 +1601,33 @@ fn widget(
             });
         }
     };
+
+    if !button.draws_caption {
+        rotation.end(stream);
+        return Ok(Painted {
+            drawn: frame || button.drawn,
+            report: button.report.or(border.simulated().report),
+        });
+    }
+
+    let laid_out = match field_text(document, annotation, source, inner, value, Asked::default()) {
+        Ok(laid_out) => laid_out,
+        Err(refusal) => {
+            rotation.end(stream);
+            return Ok(Painted {
+                drawn: frame || button.drawn,
+                report: Some(refusal),
+            });
+        }
+    };
     let Some(laid_out) = laid_out else {
         rotation.end(stream);
-        return Ok(if frame {
-            border.simulated()
+        let report = button.report.or(border.simulated().report);
+        return Ok(if frame || button.drawn || report.is_some() {
+            Painted {
+                drawn: frame || button.drawn,
+                report,
+            }
         } else {
             Painted::EMPTY
         });
@@ -1610,8 +1644,381 @@ fn widget(
         report: laid_out
             .owed
             .map(Refusal::Text)
+            .or(button.report)
             .or(border.simulated().report),
     })
+}
+
+/// What Table 192's push-button entries decided, for the caller that draws the rest of a widget.
+struct ButtonIcon {
+    /// Whether an icon reached the stream.
+    drawn: bool,
+    /// Whether `/TP` leaves the caption to be laid out at all.
+    draws_caption: bool,
+    /// What the clause states and this did not draw.
+    report: Option<Refusal>,
+}
+
+impl ButtonIcon {
+    /// Every widget that is not a push-button, and every push-button stating none of the entries.
+    const NONE: Self = Self {
+        drawn: false,
+        draws_caption: true,
+        report: None,
+    };
+}
+
+/// Draws Table 192's `/I` where a push-button states one, and says what `/TP` did with it.
+///
+/// §12.5.6.19's Table 191 is what makes these entries reachable at all. Its `/MK` is an
+/// appearance characteristics dictionary
+///
+/// > that shall be used in constructing a dynamic appearance stream specifying the annotation's
+/// > visual presentation on the page.
+///
+/// so a widget that states its own `/AP` is drawn from that by §12.5.5 and never arrives here —
+/// 33 of the corpus's 42 push-buttons, counted by `examples/push_button_census`.
+///
+/// The seven entries that were unread before this divide three ways, and the census is what
+/// decides which of them is work rather than a clause with no witness:
+///
+/// - `/I` and `/IF` are drawn. Both are fully stated: Table 192 gives the icon as a form `XObject`
+///   and Table 250 gives every rule for fitting it, with a default for every entry.
+/// - `/TP` decides which of the icon and the caption is drawn, for the three codes that say so
+///   without stating a proportion; the other four are reported by [`CaptionPosition::Beside`].
+/// - `/RI`, `/IX`, `/RC` and `/AC` are the rollover and down states. Each is defined by what the
+///   *pointer* is doing — "when the user rolls the cursor into its active area", "when the mouse
+///   button is pressed" — and a constructed appearance is one stream rather than the three
+///   §12.5.5's `/N`, `/R` and `/D` subdictionaries hold, so a file stating them is told so. **No
+///   corpus document states any of the four**, over all 974.
+fn push_button_icon(
+    document: &Document,
+    annotation: &Dictionary,
+    characteristics: &Dictionary,
+    value: FieldValue<'_>,
+    rect: [f32; 4],
+    inner: [f32; 4],
+    stream: &mut Stream,
+) -> Result<ButtonIcon, Refusal> {
+    const ENTRIES: [&str; 7] = ["I", "RI", "IX", "IF", "TP", "RC", "AC"];
+    if !ENTRIES
+        .iter()
+        .any(|key| !matches!(characteristics.get(key), None | Some(Object::Null)))
+    {
+        return Ok(ButtonIcon::NONE);
+    }
+    // Table 192 marks all seven "push-button fields only", and §12.7.5.2.2's push-button is
+    // Table 229 bit 17 on a `/Btn` — read up §12.7.4.1's `/Parent` chain, because the flags are
+    // inheritable and a widget in a field hierarchy states none of its own.
+    let field = Field::read(document, annotation, value);
+    if !matches!(field.kind, Some(FieldKind::Button { toggling: false })) {
+        return Ok(ButtonIcon::NONE);
+    }
+
+    let Some(position) = CaptionPosition::read(document, characteristics) else {
+        return Err(Refusal::NotDerivable(
+            "Table 192's /TP is outside the seven codes the table defines",
+        ));
+    };
+
+    // The rollover and down states, named where the file states one. They are a report rather
+    // than a refusal: the normal icon and caption below are what a still frame shows, and
+    // dropping those to say the other two were not built would lose the mark the clause states.
+    let interactive = ["RI", "IX", "RC", "AC"]
+        .into_iter()
+        .find(|key| !matches!(characteristics.get(key), None | Some(Object::Null)));
+    let report = interactive.map(|key| match key {
+        "RI" => Refusal::NotDerivable(
+            "Table 192's /RI is the icon for a cursor rolled into the widget, and a constructed \
+             appearance is one stream rather than §12.5.5's three",
+        ),
+        "IX" => Refusal::NotDerivable(
+            "Table 192's /IX is the icon for a pressed mouse button, and a constructed \
+             appearance is one stream rather than §12.5.5's three",
+        ),
+        "RC" => Refusal::NotDerivable(
+            "Table 192's /RC is the caption for a cursor rolled into the widget, and a \
+             constructed appearance is one stream rather than §12.5.5's three",
+        ),
+        _ => Refusal::NotDerivable(
+            "Table 192's /AC is the caption for a pressed mouse button, and a constructed \
+             appearance is one stream rather than §12.5.5's three",
+        ),
+    });
+    let report = match position {
+        CaptionPosition::Beside(code) => Some(Refusal::CaptionBeside(code)).or(report),
+        _ => report,
+    };
+
+    if !position.draws_icon() {
+        return Ok(ButtonIcon {
+            drawn: false,
+            draws_caption: position.draws_caption(),
+            report,
+        });
+    }
+
+    let Some(icon) = Icon::read(document, characteristics) else {
+        return Ok(ButtonIcon {
+            drawn: false,
+            draws_caption: position.draws_caption(),
+            report: report.or(
+                matches!(characteristics.get("I"), None | Some(Object::Null))
+                    .then_some(Refusal::Missing("/I"))
+                    .or(Some(Refusal::NotDerivable(
+                        "Table 192's /I names no form XObject with a §8.10.2 /BBox",
+                    ))),
+            ),
+        });
+    };
+
+    let fit = IconFit::read(document, characteristics);
+    // `/FB`: "the button appearance shall be scaled to fit fully within the bounds of the
+    // annotation without taking into consideration the line width of the border" — so the
+    // target is `/Rect` itself rather than `/Rect` inset by §12.5.4's border.
+    let target = if fit.ignore_border { rect } else { inner };
+    let Some(placement) = fit.place(icon.extent, target) else {
+        return Ok(ButtonIcon {
+            drawn: false,
+            draws_caption: position.draws_caption(),
+            report: report.or(Some(Refusal::NotDerivable(
+                "Table 192's /I has a /BBox of no area, so Table 250 has nothing to fit",
+            ))),
+        });
+    };
+    stream.form(document, icon.reference, placement);
+    Ok(ButtonIcon {
+        drawn: true,
+        draws_caption: position.draws_caption(),
+        report,
+    })
+}
+
+/// Table 192's `/TP`: where a push-button's caption sits relative to its icon.
+///
+/// §12.5.6.19, Table 192:
+///
+/// > A code indicating where to position the text of the widget annotation's caption relative to
+/// > its icon: 0 No icon; caption only 1 No caption; icon only 2 Caption below the icon 3 Caption
+/// > above the icon 4 Caption to the right of the icon 5 Caption to the left of the icon 6 Caption
+/// > overlaid directly on the icon Default value: 0 .
+///
+/// **Three of the seven codes are carried out and four are named, and the split is the standard's
+/// own.** Codes 0, 1 and 6 each say which of the two things is drawn and give both of them the
+/// whole rectangle; codes 2 to 5 say which *side* the caption is on and state nothing about how
+/// much of the rectangle it takes. Choosing that proportion would be inventing a layout the
+/// document did not ask for — the same refusal §12.5.6.12's stamp legends get — so those four are
+/// reported by name with the icon drawn and the caption left off, which is the half the clause
+/// does state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CaptionPosition {
+    /// 0, the table's default: the caption is drawn and the icon is not.
+    CaptionOnly,
+    /// 1: the icon is drawn and the caption is not.
+    IconOnly,
+    /// 6: both, each over the whole rectangle.
+    Overlaid,
+    /// 2, 3, 4 and 5, which name a side and no size. The code is kept for the report.
+    Beside(i64),
+}
+
+impl CaptionPosition {
+    /// Table 192's `/TP`, or `None` for a value outside the seven codes it defines.
+    fn read(document: &Document, characteristics: &Dictionary) -> Option<Self> {
+        match document.get_key(characteristics, "TP") {
+            Object::Null | Object::Integer(0) => Some(Self::CaptionOnly),
+            Object::Integer(1) => Some(Self::IconOnly),
+            Object::Integer(6) => Some(Self::Overlaid),
+            Object::Integer(code @ 2..=5) => Some(Self::Beside(code)),
+            _ => None,
+        }
+    }
+
+    /// Whether the caption is drawn at all under this code.
+    fn draws_caption(self) -> bool {
+        matches!(self, Self::CaptionOnly | Self::Overlaid)
+    }
+
+    /// Whether the icon is drawn at all under this code.
+    fn draws_icon(self) -> bool {
+        !matches!(self, Self::CaptionOnly)
+    }
+}
+
+/// Table 250's `/SW`: when the icon is scaled into the rectangle at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum ScaleWhen {
+    /// `A`, the table's default: "Always scale."
+    #[default]
+    Always,
+    /// `B`: "Scale only when the icon is bigger than the annotation rectangle."
+    Bigger,
+    /// `S`: "Scale only when the icon is smaller than the annotation rectangle."
+    Smaller,
+    /// `N`: "Never scale."
+    Never,
+}
+
+/// Table 250's `/S`: which of the two scalings is used.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum Scaling {
+    /// `A`: "Scale the icon to fill the annotation rectangle exactly, without regard to its
+    /// original aspect ratio".
+    Anamorphic,
+    /// `P`, the table's default: "Scale the icon to fit the width or height of the annotation
+    /// rectangle while maintaining the icon's original aspect ratio."
+    #[default]
+    Proportional,
+}
+
+/// Table 250's icon fit dictionary, whole: §12.5.6.19's Table 192 `/IF`.
+///
+/// > An icon fit dictionary (see "Table 250 - Entries in an icon fit dictionary") specifying how
+/// > the widget annotation's icon shall be displayed within its annotation rectangle. If present,
+/// > the icon fit dictionary shall apply to all of the annotation's icons (normal, rollover, and
+/// > alternate).
+///
+/// **Table 250 itself is printed under §12.7.8.3.2**, where an FDF field's own `/IF` names it,
+/// and a widget's is the second entry to point at the same dictionary. The entries below are
+/// that table's, and every one of them has a default it states — so a widget with no `/IF` fits
+/// its icon by this structure's own [`Default`]: proportional scaling, always, centred.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+struct IconFit {
+    when: ScaleWhen,
+    scaling: Scaling,
+    /// `/A`: "the fraction of leftover space to allocate at the left and bottom of the icon".
+    anchor: [f32; 2],
+    /// `/FB`: whether the icon is fitted "without taking into consideration the line width of
+    /// the border".
+    ignore_border: bool,
+}
+
+impl IconFit {
+    /// The table's default: `/SW A`, `/S P`, `/A [0.5 0.5]`, `/FB false`.
+    const DEFAULT: Self = Self {
+        when: ScaleWhen::Always,
+        scaling: Scaling::Proportional,
+        anchor: [0.5, 0.5],
+        ignore_border: false,
+    };
+
+    /// Table 192's `/IF`, with Table 250's default for every entry the dictionary omits.
+    fn read(document: &Document, characteristics: &Dictionary) -> Self {
+        let entry = document.get_key(characteristics, "IF");
+        let Some(fit) = entry.as_dict() else {
+            return Self::DEFAULT;
+        };
+        let when = match document.get_key(fit, "SW") {
+            Object::Name(name) => match name.as_bytes() {
+                b"B" => ScaleWhen::Bigger,
+                b"S" => ScaleWhen::Smaller,
+                b"N" => ScaleWhen::Never,
+                _ => ScaleWhen::Always,
+            },
+            _ => ScaleWhen::Always,
+        };
+        let scaling = match document.get_key(fit, "S") {
+            Object::Name(name) if name.as_bytes() == b"A" => Scaling::Anamorphic,
+            _ => Scaling::Proportional,
+        };
+        // "An array of two numbers that shall be between 0.0 and 1.0": a value outside that is
+        // the file breaking the table's own bound, and clamping keeps the icon inside the
+        // rectangle the entry is a fraction of.
+        let anchor = crate::annotation::numbers(document, fit, "A")
+            .filter(|values| values.len() >= 2)
+            .map_or(Self::DEFAULT.anchor, |values| {
+                [values[0].clamp(0.0, 1.0), values[1].clamp(0.0, 1.0)]
+            });
+        let ignore_border = matches!(document.get_key(fit, "FB"), Object::Boolean(true));
+        Self {
+            when,
+            scaling,
+            anchor,
+            ignore_border,
+        }
+    }
+
+    /// The transform that puts an icon of extent `icon` into `target`, under this fit.
+    ///
+    /// The scaling question is Table 250's two entries taken in the order it states them: `/SW`
+    /// decides *whether* there is any, `/S` decides which kind. "Bigger than the annotation
+    /// rectangle" is read as exceeding it on either axis and "smaller" as fitting on both with
+    /// room to spare, which the table does not spell out and which is the only reading under
+    /// which `B` and `S` are complementary rather than overlapping.
+    ///
+    /// `/A` is applied only under proportional scaling, because the table says so in as many
+    /// words — "This entry shall be used only if the icon is scaled proportionally" — so an
+    /// anamorphically fitted icon that does not fill its rectangle sits at the corner `[0.0 0.0]`
+    /// names. That case exists only under `/SW N` and `/SW B`, where the file has asked for the
+    /// icon's own size and said nothing about where to put it.
+    fn place(self, icon: [f32; 4], target: [f32; 4]) -> Option<Transform> {
+        let (width, height) = (icon[2] - icon[0], icon[3] - icon[1]);
+        let (room_x, room_y) = (target[2] - target[0], target[3] - target[1]);
+        if !(width > 0.0 && height > 0.0 && room_x > 0.0 && room_y > 0.0) {
+            return None;
+        }
+        let scales = match self.when {
+            ScaleWhen::Always => true,
+            ScaleWhen::Bigger => width > room_x || height > room_y,
+            ScaleWhen::Smaller => width < room_x && height < room_y,
+            ScaleWhen::Never => false,
+        };
+        let (scale_x, scale_y) = if scales {
+            match self.scaling {
+                Scaling::Anamorphic => (room_x / width, room_y / height),
+                Scaling::Proportional => {
+                    let scale = (room_x / width).min(room_y / height);
+                    (scale, scale)
+                }
+            }
+        } else {
+            (1.0, 1.0)
+        };
+        let anchor = match self.scaling {
+            Scaling::Proportional => self.anchor,
+            Scaling::Anamorphic => [0.0, 0.0],
+        };
+        let left = target[0] + anchor[0] * (room_x - width * scale_x) - icon[0] * scale_x;
+        let bottom = target[1] + anchor[1] * (room_y - height * scale_y) - icon[1] * scale_y;
+        let transform = Transform::new(scale_x, 0.0, 0.0, scale_y, left, bottom);
+        transform.a.is_finite().then_some(transform)
+    }
+}
+
+/// A push-button's normal icon: §12.5.6.19's Table 192 `/I`.
+///
+/// > (Optional; push-button fields only; shall be an indirect reference) A form XObject defining
+/// > the widget annotation's normal icon , which shall be displayed when it is not interacting
+/// > with the user.
+///
+/// The indirect reference the table requires is what makes the icon usable as a resource without
+/// copying the stream: the reference goes into the constructed appearance's `/XObject` and the
+/// interpreter resolves it against the same document.
+///
+/// The icon's own extent is §8.10.2's, since a form `XObject` states its size nowhere else: the
+/// `/BBox` "in the form coordinate system", transformed by the `/Matrix` that maps that system
+/// into the space the `Do` runs in. Table 250 then fits *that* rectangle into the annotation's.
+struct Icon {
+    /// The `/I` entry as the file wrote it — a reference, kept unresolved.
+    reference: Object,
+    /// `/BBox` under `/Matrix`, which is what Table 250 scales.
+    extent: [f32; 4],
+}
+
+impl Icon {
+    /// Table 192's `/I`, or `None` where the entry is absent or names no usable form `XObject`.
+    fn read(document: &Document, characteristics: &Dictionary) -> Option<Self> {
+        let reference = characteristics.get("I")?.clone();
+        if matches!(reference, Object::Null) {
+            return None;
+        }
+        let stream = document.resolve(&reference);
+        let stream = stream.as_dict()?;
+        let bbox = crate::annotation::rectangle(document, stream, "BBox")?;
+        let extent =
+            crate::annotation::transformed(bbox, crate::annotation::matrix(document, stream));
+        Some(Self { reference, extent })
+    }
 }
 
 /// Table 192's `/R`: which way up a widget's contents are drawn.
@@ -3031,6 +3438,14 @@ struct Stream {
     /// of the interpretation pass on a specification page full of link borders, none of which
     /// names a resource. Measured by callgrind on `examples/callgrind_interpret`.
     resources: Option<Dictionary>,
+    /// Table 192's `/I`, under the name [`Self::form`] gave it.
+    ///
+    /// Held apart from [`Self::resources`] rather than written into it, because the two are
+    /// filled in at opposite ends of a widget's construction: the icon is drawn before the
+    /// caption so that §12.5.6.19's code 6 puts the caption *over* it, and the caption is what
+    /// replaces the resource dictionary wholesale with `/DR`'s. Merging at the end is what keeps
+    /// the drawing order from deciding which resource survives.
+    icon: Option<(pdf_syntax::Name, Object)>,
 }
 
 impl Stream {
@@ -3038,7 +3453,58 @@ impl Stream {
         Self {
             text: String::new(),
             resources: None,
+            icon: None,
         }
+    }
+
+    /// The resource dictionary this stream needs, with any icon added to its `/XObject`.
+    fn finish(mut self) -> Dictionary {
+        let mut resources = self.resources.take().unwrap_or_default();
+        let Some((name, reference)) = self.icon else {
+            return resources;
+        };
+        let key = pdf_syntax::Name::new(b"XObject".to_vec());
+        let mut forms = resources
+            .get_by_name(&key)
+            .and_then(Object::as_dict)
+            .cloned()
+            .unwrap_or_default();
+        forms.insert(name, reference);
+        resources.insert(key, Object::Dictionary(forms));
+        resources
+    }
+
+    /// Draws a form `XObject` under `placement`: `q a b c d e f cm /Name Do Q`.
+    ///
+    /// The name is chosen against `/DR`'s own `/XObject` names, because §12.7.4.3 makes those the
+    /// constructed appearance's resources and a collision would draw the document's form instead
+    /// of the icon.
+    fn form(&mut self, document: &Document, reference: Object, placement: Transform) {
+        let taken = default_resources(document);
+        let taken = taken
+            .get_by_name(&pdf_syntax::Name::new(b"XObject".to_vec()))
+            .and_then(Object::as_dict)
+            .cloned()
+            .unwrap_or_default();
+        let mut name = pdf_syntax::Name::new(b"Icon".to_vec());
+        for suffix in 0..=u8::MAX {
+            if taken.get_by_name(&name).is_none() {
+                break;
+            }
+            name = pdf_syntax::Name::new(format!("Icon{suffix}").into_bytes());
+        }
+        let _ = writeln!(
+            self.text,
+            "q {} {} {} {} {} {} cm /{} Do Q",
+            placement.a,
+            placement.b,
+            placement.c,
+            placement.d,
+            placement.e,
+            placement.f,
+            name.as_str().unwrap_or("Icon")
+        );
+        self.icon = Some((name, reference));
     }
 
     /// Sets the non-stroking or stroking colour, in the space the component count names.

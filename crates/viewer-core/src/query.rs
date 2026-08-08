@@ -283,7 +283,7 @@ pub enum Query<'a> {
     Frame,
     /// §14.7's logical structure for the page being shown, as an accessibility API takes it.
     ///
-    /// The last of the five items `doc/HANDOVER.md`'s section 0 listed as blocked on this interface, and
+    /// The last of the five items `doc/ui-boundary.md` lists as blocked on this interface, and
     /// the first consumer of six sessions' reading of §14.7 and §14.9. Answers with an empty list
     /// for an untagged document, which is an answer: the page says nothing about its own
     /// structure, and §14.7 leaves it free to.

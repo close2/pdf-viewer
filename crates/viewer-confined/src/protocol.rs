@@ -15,7 +15,7 @@
 //! [`viewer_core::Command::RenderReady`] and [`viewer_core::Event::NeedsRender`] — are named as
 //! [`Uncarried`], which is a refusal a caller can read, and they are not carried because the
 //! confined process answers them *itself*: it holds the rasteriser, so the render round trip
-//! never crosses the pipe. That is `doc/HANDOVER.md`'s section 0, "one boundary, not two".
+//! never crosses the pipe. That is `doc/ui-boundary.md`'s "one boundary, not two".
 //!
 //! **A message that cannot be decoded is a refusal that says so.** [`ProtocolError`] names what
 //! was truncated or unrecognised; nothing here defaults, clamps or guesses.
@@ -1981,8 +1981,8 @@ pub(crate) fn encode_answer(answer: &Answer<'_>) -> Result<Vec<u8>, Uncarried> {
         }
         Answer::Frame(frame) => {
             // The raster is why this boundary is worth having: the confined process draws the
-            // page and the host is handed pixels, which is the whole of `doc/HANDOVER.md`'s
-            // section 0 tier 1. `RasterFormat` is written out rather than assumed, because a second
+            // page and the host is handed pixels, which is the whole of `doc/ui-boundary.md`'s
+            // tier 1. `RasterFormat` is written out rather than assumed, because a second
             // format would otherwise be read as the first.
             let format = match frame.raster.format {
                 RasterFormat::Rgba8 => 0,

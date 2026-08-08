@@ -1,13 +1,16 @@
 # Read the ledger's `partial` rows against the code
 
-Status: **standing task.** ~132 of the **252** rows have not been re-read — 29 went in the
-three-hundred-and-seventy-fifth, 16 in the three-hundred-and-eighty-seventh and 11 in the
-three-hundred-and-ninety-fourth, against a population that grew by 12 in between. **The ninth
-sweep, at the bottom, is the first to check that a citation names the *right* table**, and its
-first run corrected nine ledger rows and nine source comments — a whole block of §12.5.6's
+Status: **standing task.** ~123 of the **252** rows have not been re-read — 29 went in the
+three-hundred-and-seventy-fifth, 16 in the three-hundred-and-eighty-seventh, 11 in the
+three-hundred-and-ninety-fourth and 9 in the four-hundred-and-second, against a population that grew
+by 12 in between. **The ninth sweep is the first to check that a citation names the *right* table**,
+and its first run corrected nine ledger rows and nine source comments — a whole block of §12.5.6's
 annotation tables and a whole block of §14.8.5's attribute tables, every one of them ISO 32000-1's
 number for something else. **Its second run, seven rounds later, found two more and one of them was
-in the round before's own work.**
+in the round before's own work; its third, eight rounds after that, found three and all three were
+in the *source*, beside ledger rows that had been corrected without them.** **The tenth sweep, at
+the bottom, is new in the four-hundred-and-second** — it compares a parent row's stated *count* of
+its children with what the children say — and it paid twice on its first run.
 Priority: 01 — the population with no gate, and it has paid on every session that touched it
 Code: `doc/conformance/ledger.toml`, checked by `cargo test -p conformance`
 
@@ -685,10 +688,14 @@ for `another_document`. It stays a sweep, and it is cheap: one run is under a se
   after this file recorded it as owed. It took what the entry predicted, a field on
   `Answer::Collection` and a consumer, and **a correction recorded in a todo file is still not a
   correction**: it sat named through seven rounds that each had room for it.
-- **§12.5.6.19's seven unread Table 192 entries** — `/I`, `/RI`, `/IX`, `/IF`, `/AC`, `/RC` and
-  `/TP`, a push-button's three icons, their fit, its two other captions and where the caption sits
-  relative to the icon. They are what keeps that row `partial` now that the false claim above it
-  is gone, and they were nowhere in the row until the three-hundred-and-eighty-seventh session.
+- ~~**§12.5.6.19's seven unread Table 192 entries**~~ — **three of the seven closed in the
+  four-hundred-and-second** (ADR 0239): `/I`'s form XObject icon, `/IF`'s Table 250 fit whole, and
+  three of `/TP`'s seven codes. What is still owed is `/TP`'s codes 2 to 5, which name the side the
+  caption goes on and state no proportion for it, and `/RI`, `/IX`, `/RC` and `/AC`, which are
+  pointer states a *constructed* appearance has no room for — one stream where §12.5.5 gives a stored
+  one three. **The count came first and it decided the shape**: `examples/push_button_census` finds
+  42 push-buttons in the corpus, 33 with their own `/AP /N`, so nine can reach the construction at
+  all — and the only entry any of the nine states is `/IF`, in a document that states no icon.
 - ~~**Annex I.2's version number**~~ — closed in the three-hundred-and-sixty-first session, the
   round after the sweep that found it (ADR 0207). It was worth one line here for exactly one round:
   a `should` nobody had read, two lines from a parser already standing on the number.
@@ -807,3 +814,103 @@ says "three of the twenty".
 
 80 suspects after both corrections, from 81 before, and the rest are the known prose shape — a
 sentence naming a table and then a key belonging to the dictionary that table describes.
+
+
+## All ten run again in the four-hundred-and-second, and the tenth was built
+
+Eight rounds with no sweep: `doc/HANDOVER.md` restructured into ten files (395), JPEG 2000's
+reduced-resolution decode (396), §11.4.6's knockout shape and `/AIS` (397), a check box that could be
+checked (398), a shading's clip cropped (399), §11.4.4's non-isolated groups (400), and §12.5.6.6's
+free text created and typed into (401). Over `ledger.toml` and over `crates/`:
+
+- **Arithmetic (sweep 6)**: two hits, §7.9.2 and §O, both of which this file already records as read
+  and kept. Clean, for the fifth run running.
+- **Expired blockers**: 9 over the ledger and 13 over `crates/`. Four of the ledger's are the quoted
+  retired wording inside a correction (§8.6.8, §11.3.7.2, §11.6.4.3, §11.7.4.4); §12.10.2's wait on
+  §12.10.3 and §12.5.6.22's on printing are real; the rest are past tense, which **a sweep for a
+  blocker cannot see** and which the three-hundred-and-ninety-fourth already named.
+- **Entries claimed unread (sweep 2)**: 31, thirty of them the known one-short-key-three-clauses
+  population or lists checked in earlier runs — **and the thirty-first is this round's oldest
+  finding.** §12.5.6.19's "[a]ll seven are read by nothing" was re-checked rather than believed and
+  was true, which is what the round then implemented.
+- **Capability reasons (sweep 3)**: 30 over the ledger and 96 over `crates/`, and every source hit
+  was a true statement about a boundary a crate keeps — no clock, no filesystem, no toolkit, no
+  trust store, no printer. Two of the ledger's are the quoted retired wording inside a correction.
+- **Retired claim (sweep 4)**, run over the nouns eight rounds gave the tree — `knockout`, `/AIS`,
+  `check box`, `free text`, `/DR`, `non-isolated`, `reduced resolution`. **It paid twice, both on
+  `/AIS`, and the pair is this sweep's own subject**: §11.6.4.3's row was corrected in the
+  three-hundred-and-ninety-seventh and the two other rows describing the same mechanism were not.
+  §8.4.5 still listed `/AIS` among Table 57's *not read* entries with ADR 0027 as the reason — the
+  argument ADR 0234 retired — and §11.5.1 still said it was "immaterial and deliberately not read",
+  whose conclusion survives and whose second half does not. **And the same row gave a third**:
+  §8.4.5's `/TR`/`/TR2` sentence pointed at "§10.5, which is `silent` now", forty-five rounds after
+  ADR 0204 made §10.5 `implemented` — a row saying its neighbour is the ledger's *last* silence when
+  the ledger has had none since the three-hundred-and-sixty-ninth.
+- **Caller sweep (5)**: 246 `pub fn`s in `pdf-model`, 86 named by no host — up from 242 and 87. The
+  new names are `measurement.rs`'s four (§12.10.2's real wait on §12.10.3), `named_page.rs`'s
+  `disagreements` and `article.rs`'s `page_array_agrees`, all of them the known "functions
+  `pdf-model` calls itself, or that only a test reaches" population. `document_part::first_page`
+  reads as unnamed and is reached by every `GoToDp`, through `DocumentPartJump::page_in` — a host
+  calling the *wrapper* is a shape this sweep cannot see and is worth knowing it cannot.
+- **`inapplicable` (sweep 7)**: 30 of 83 rows name vocabulary the source names, none of them wrong.
+- **Citations (sweep 8)**: one hit over files, §8.9.6.1 quoting the `doc/todo/20` its own correction
+  retired, which is this sweep's known false positive. **But the shape generalises past files, which
+  this file has said since the sweep was built, and running it over *sections* paid**: six comments
+  in `crates/` cite "`doc/HANDOVER.md`'s section 0", and the three-hundred-and-ninety-fifth moved
+  that section whole into `doc/ui-boundary.md`. The file they name still exists, so the file-level
+  sweep sees nothing; what a reader following the pointer finds is one row of a table. **A section is
+  a citation and it decays faster than a file, because moving one is a thing a session does on
+  purpose.**
+- **Table numbers (sweep 9)**: 193 suspects, **three defects and all three in the source**. Both
+  are the sweep's own subject — a mechanism gets one row per place that mentions it, and correcting
+  one leaves the others lying:
+  - `annotation.rs`'s `/H` doc comment said "Table 192 gives `/H` the default `I`". `/H` is **Table
+    191**'s, the widget annotation's own entry; 192 is the `/MK` dictionary. This is the *exact*
+    correction the three-hundred-and-eighty-seventh made to §12.5.6.19's ledger row, and the source
+    comment one directory away was not swept with it.
+  - `appearance.rs` twice and `tests/annotations.rs` once said §12.5.6.12's stamp names are "Table
+    186's list". Table 186 is the **popup** annotation; the rubber stamp's `/Name` is **Table 184**'s
+    — and §12.5.6.12's own ledger row has said 184 all along. **The ledger held the right answer and
+    three source comments held the wrong one**, which is shape 7 across the ledger/source line rather
+    than between two rows.
+
+## A tenth sweep, built in the four-hundred-and-second: **a parent's stated count against its children**
+
+Invented by the three-hundred-and-ninety-fourth and not built. The sixth sweep asks whether every
+child of an owing parent is *settled*, which §12.6.4 never qualifies for because four of its
+eighteen children are `reported` or `out-of-scope` for good reasons. What that run wanted instead is
+arithmetic on the **prose**: a parent row that says "three of the twenty" is making a checkable claim
+about the rows below it.
+
+Thirty lines: for every row with direct children, find a number word or digit in the note followed
+within a phrase by a verb of implementation, and print it beside the children's actual statuses.
+
+**Its first run produced 16 hits and two were wrong.** Most of the rest are the shape worth naming
+before believing any of them: a count about something that is *not* the children — §9.6's "three of
+the clause's properties", §12.7.8's "two entries that would add to a document", §7.4's "[f]our of
+them are stream filters". A number in a parent row is usually about the clause and not about the
+family, and the sweep cannot tell which without reading it.
+
+The two that were wrong:
+
+- **§14.11 said "[t]wo of its seven subclauses reach a screen … and both are implemented"**, and it
+  was wrong on both halves. **Three reach a screen**: §14.11.3's printer's marks left the "for a
+  press" list in the three-hundred-and-fifty-ninth, when the seventh sweep read the clause's own
+  flags sentence — and this row went on naming them among "[t]he rest [that] are for a press" for
+  forty-three rounds, while §14.11.3's own row carried the correction and §12.5.6.20's had said the
+  code drew them all along. And **neither of the two it named is `implemented`**: §14.11.2 is
+  `partial`. The seventh sweep found the *child*; nothing was watching the parent.
+- **§12.3 said §12.3.5's collections and §12.3.6's navigators are "both … read as data with nothing
+  presenting them"**, false of the first since the three-hundred-and-fifty-second, where
+  `viewer_ui::chrome`'s files tab became the presentation §12.3.5's own `shall` asks for (ADR 0202),
+  and further false since the three-hundred-and-ninety-fourth (ADR 0231). §12.3.5's own row says so
+  in two sentences.
+
+**Both are the fifth failure shape at family scale**, which is what the three-hundred-and-ninety-fourth
+predicted this sweep would find, and both were invisible to the sixth: §14.11's children are not all
+settled and §12.3's are not either, so the arithmetic that compares *statuses* never looks at them.
+What separates the tenth from the sixth is that it reads the sentence rather than the status column.
+
+**The false-positive ratio is 7:1 and it is not a gate**, for the ninth sweep's reason: tightening it
+enough to fail a build would mean deciding which of English's ways of counting are about a family.
+One run is under a second.
