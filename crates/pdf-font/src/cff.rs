@@ -173,6 +173,50 @@ pub fn draw(data: &[u8], glyph: u16, pen: &mut impl OutlinePen) -> Result<(), Cf
     Ok(())
 }
 
+/// The advance widths a bare CFF states for the given glyphs, in the program's own units.
+///
+/// One entry per requested glyph, `None` where the program states no width for it — a Type 2
+/// charstring may omit the leading width operand, and a Private DICT need not carry a
+/// `defaultWidthX`, in which case the format itself supplies no answer.
+///
+/// This is the width ISO 32000-2 §9.2.4 calls a glyph's horizontal displacement, read from
+/// the program rather than from the document, which §9.6.2's Table 109 says the two shall
+/// agree about: "These widths shall be consistent with the actual widths given in the font
+/// program." It exists because a *substituted* standard 14 font states no `/Widths` and
+/// Adobe's published metrics name only the standard character set, so a glyph outside it —
+/// `.notdef` above all — has no other statement of its width anywhere.
+///
+/// The program is opened once for the whole batch: [`draw`] opens it per glyph because a
+/// page draws a few dozen glyphs out of hundreds, while this is asked at load time for
+/// every code at once.
+///
+/// # Errors
+///
+/// See [`CffError`]. A glyph the program cannot evaluate yields `None` rather than an error,
+/// because one unreadable charstring is not a reason to lose the other 255 widths.
+pub fn advances(data: &[u8], glyphs: &[u16]) -> Result<Vec<Option<f32>>, CffError> {
+    /// Discards the outline: only the charstring's width operand is wanted here.
+    struct NoOutline;
+    impl OutlinePen for NoOutline {
+        fn move_to(&mut self, _x: f32, _y: f32) {}
+        fn line_to(&mut self, _x: f32, _y: f32) {}
+        fn quad_to(&mut self, _cx: f32, _cy: f32, _x: f32, _y: f32) {}
+        fn curve_to(&mut self, _cx0: f32, _cy0: f32, _cx1: f32, _cy1: f32, _x: f32, _y: f32) {}
+        fn close(&mut self) {}
+    }
+
+    let font = open(data)?;
+    Ok(glyphs
+        .iter()
+        .map(|glyph| {
+            let id = GlyphId::from(*glyph);
+            let index = font.subfont_index(id)?;
+            let subfont = font.subfont(index, &[]).ok()?;
+            font.draw(&subfont, id, &[], None, &mut NoOutline).ok()?
+        })
+        .collect())
+}
+
 /// Opens a bare CFF font program.
 ///
 /// The units per em is left unstated so it is taken from the font's own `FontMatrix`;

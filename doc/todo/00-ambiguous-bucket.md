@@ -201,6 +201,27 @@ the page's own scale is their scan conversion of five-point type and ours is alr
 That is the alarm doing what it is for: a page arriving in the negative tail with an explanation
 rather than a shrug.
 
+**Re-run before and after in the four-hundred-and-fifth**, the round that made a substituted
+standard-14 font's third width source reachable (§9.6.2.1), over all 786 and with the corpus's
+incomplete list labelled inside the loop. **Every one of the 786 lines is byte-identical**, numbers
+and labels both. On the complete documents the negative head is `issue16038.pdf` −5.507,
+`issue12295.pdf` −1.709, `issue14297.pdf` −1.120, `issue7821.pdf` −1.032, then `jpx_smaskindata.pdf`
+−0.839 and `issue16473.pdf` −0.717 and nothing past −0.537 — **four names at or past −1 and all four
+diagnosed**, the eighth consecutive run of the alarm holding. The positive tail is `bug1743245.pdf`
++23.129, `colorspace_atan.pdf` +28.004, `colorspace_cos.pdf` and `_sin.pdf` +29.138 and
+`issue6006.pdf` +113.420, every one of them a reference that drew nearly nothing.
+
+**And the identity is a statement rather than a shrug, which is the same property the
+three-hundred-and-ninety-seventh's run had**: the page this round moved was *contradicted* before it
+and *agrees* after it, and a page crossing those two states is invisible to a sweep whose population
+is the ambiguous bucket. What the byte-identity does say is that no ambiguous page's ink changed —
+which is a real claim about this round, because `standard_fonts.pdf`'s fourteen pages are ambiguous
+and set specimen text in all fourteen substituted faces with no `/Widths`. Adobe's published metrics
+answered every code they use, so the new third source was asked nothing there. This run's ink is
+`(1 − mean) × 255` over a luma greyscale, which is why its absolute values sit a little below the
+`-colorspace Gray` runs above; what is compared across a round is the same instrument before and
+after, and it did not move.
+
 **Re-run before and after in the three-hundred-and-ninety-seventh**, the round that stated a
 knockout element's shape apart from its alpha (ADR 0234), and **every line of all 786 is identical
 — the numbers and the labels both**. Head `issue16038.pdf` −5.758, then `issue12295.pdf` −1.712,

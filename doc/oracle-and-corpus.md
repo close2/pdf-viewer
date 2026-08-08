@@ -22,7 +22,7 @@ sessions 6 to 61, steady at 65 until the hundred-and-forty-eighth took it to 70,
 hundred-and-fifty-sixth to **72** and the two-hundred-and-fifth back to **68** — the last two were `noembed-eucjp.pdf` and `noembed-sjis.pdf`,
 recorded as drawing あいうえお "in a face the references do not have" — **and they were drawing
 nothing at all**, which the hundred-and-eighty-second session found by making the silence loud
-(ADR 0152). Both report now, and two widget-border pages left in the two-hundred-and-fifth session (ADR 0165), so the count is **68**. Five of the earlier ones were net,
+(ADR 0152). Both report now, and two widget-border pages left in the two-hundred-and-fifth session (ADR 0165), so the count was **69** until the four-hundred-and-fifth, whose one width defect took it to **68**. Five of the earlier ones were net,
 argued and written down in `CONTRADICTED_SUBSTITUTED_FONT`: the standard 14 are compiled in now,
 so we stopped reading the same URW faces off this machine's disk that the three C references
 read, and the oracle noticed within one run (ADR 0133). Corpus documents drawing incompletely: 291 → 89 over
@@ -31,12 +31,22 @@ drawing the wrong font in silence started saying so, and **76** in the hundred-a
 
 ### 3. What the corpus still names
 
-**The oracle's 68 contradicted pages**, grouped and ratcheted in both directions in `oracle.rs`,
-where each group carries its own diagnosis and its measurement: 4 page rounding, 2 our own
-anti-aliasing at a shape's edge, **21 glyph edges** whose ink matches the consensus to a fraction
-of a level, 7 a shared JBIG2 decoder, 1 a shared *gap*, 3 a link border, 1 a sub-pixel image, 1 a
-`CalRGB` alternate, 1 an eight-bit mask value, **5 a `DeviceCMYK` conversion**, 2 a reference that
-drew nothing, 1 a CID width, 1 a negative line width, **21 substituted fonts**, **1 a tight consensus**, **0 unexplained**.
+**The oracle's 68 contradicted pages, 66 of them on documents we call complete**, grouped and
+ratcheted in both directions in `oracle.rs`, where each group carries its own diagnosis and its
+measurement. **The 66 counted off the groups themselves in the four-hundred-and-fifth session**,
+because this paragraph's own list summed to 72 and had said "4 page rounding" for a group of 2 and
+"21 substituted fonts" for a list of 18: 2 page rounding, 2 our own anti-aliasing at a shape's
+edge, **21 glyph edges** whose ink matches the consensus to a fraction of a level, 7 a shared
+JBIG2 decoder, 1 a visibility expression the two agreeing references share a *gap* about, 3 a link
+border, 1 a sub-pixel image, 1 a `CalRGB` alternate, 1 an eight-bit mask value, **5 a `DeviceCMYK`
+conversion**, 2 a reference that drew nothing, 1 a reference glyph width, 1 a negative line width,
+**17 substituted fonts**, **1 a tight consensus**, **0 unexplained**. The other 2 are on documents
+this tree already reports (`issue5751.pdf`, `knockout_blend_multiply.pdf`) and are held by the
+incomplete list rather than by a group.
+
+**A count beside a list is not the list**, which is `doc/todo/02` §6's rule arriving one directory
+over: the numbers above are now what `oracle.rs`'s arrays hold, and the way to keep them so is to
+count them rather than to adjust them.
 
 **The unexplained list is empty**, from 14 four sessions ago and from 42 at the start, and no
 session that emptied it opened a debugger — the method is in
@@ -58,7 +68,14 @@ that — which is the argument for the closed form: it is the one number derived
 at all.
 
 **Two cautions the contradicted list earned.** A page may be contradicted for a reason other than
-the one its group names — seven for seven, so far, on the group being wrong — and "make it match
+the one its group names — **eight for eight, so far, on the group being wrong**, the newest being
+`issue4304.pdf` in the four-hundred-and-fifth session, which sat in `CONTRADICTED_SUBSTITUTED_FONT`
+for a hundred and eighty sessions while drawing *Wordsthatshouldhavespacesbetweenthem.* against
+four renderers' *Words that should have spaces between them.* Its font really is substituted and
+that really was not the difference: `/Differences [32 /.notdef …]` sent code 32 to a glyph whose
+advance §9.6.2.1 obliges this processor to supply, and the third of `simple_widths`' three sources
+read the program through an sfnt parser that refuses the bare CFF ten of the fourteen compiled-in
+standard faces are. Six spaces of zero width — and "make it match
 mupdf" is the failure principle 5 forbids. And a page can be contradicted by a departure this
 project decided on purpose: `colors.pdf` pages 1 and 2 left the unexplained list in session 68 and
 are *not* fixed, because §10.7.4 asks for the hard edge and this tree anti-aliases

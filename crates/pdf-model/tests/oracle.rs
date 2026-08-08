@@ -354,16 +354,55 @@ const CONTRADICTED_DEVICE_CMYK_CONVERSION: [&str; 5] = [
 ///
 /// 1 page. `issue4436r.pdf` is the whole test: a 1x1 image mask under
 /// `180 0 0 -0.48 10 25 cm`, so it covers 180 pixels by *0.48* of one, and the page says in
-/// words that "a thin line should be visible above this text". We draw it antialiased, at
-/// 48% coverage of one row; `poppler` and `mupdf` draw a solid black row.
+/// words that "a thin line should be visible above this text". pdf.js issue 4436 is the
+/// bibliography and it is about a *document* rather than a clause — "fraction lines and top
+/// bars of square root signs are occasionally missing" in a LaTeX paper at low zoom.
 ///
-/// Nothing in ISO 32000-2 decides this. §8.4.3.2 gives a *stroke* the rule — a zero width
-/// "shall denote the thinnest line that can be rendered at device resolution" — and says
-/// nothing of the kind about an image, whose geometry is the unit square its matrix maps.
-/// Coverage is what the image asks for and is what we draw; snapping it to a full row is a
-/// device-specific minimum, which is a defensible choice and not one the standard states.
-/// The page is listed rather than chased for that reason: closing it would mean copying a
-/// convention rather than reading a clause.
+/// # This entry said "[n]othing in ISO 32000-2 decides this", and that was wrong
+///
+/// It reasoned from §8.4.3.2, which gives a *stroke* the rule for a zero width and says
+/// nothing about an image — true, and the wrong clause. §10.7.4 has a paragraph for exactly
+/// this case, and the four-hundred-and-fifth session read it:
+///
+/// > However, only those pixels whose centres lie within the region shall be painted.
+///
+/// That paragraph opens by saying a sampled image's region is determined similarly to a
+/// filled shape's *though not identically*, and the sentence above is the difference. An
+/// image mask is an image XObject (§8.9.6.2), so it is the paragraph that applies here — and
+/// note what it does not carry over: the guarantee §10.7.4 states two paragraphs earlier,
+///
+/// > This ensures that no shape ever disappears as a result of unfavourable placement
+/// > relative to the device pixel grid, as might happen with other possible scan conversion
+/// > rules.
+///
+/// is stated for a *shape*. An image is therefore allowed to vanish, and this one does.
+///
+/// # The arithmetic, and it names four answers where the ratio had named two
+///
+/// The page is `[0 0 200 50]` with no crop box, rendered 200 x 50, so device y is 50 − user
+/// y exactly. The `cm` maps the unit square to user y `[24.52, 25]`, which is device y
+/// `[25, 25.48)`. Row 25's centre is at device y **25.5**, outside it — and no other row is
+/// nearer. So the clause paints **nothing**:
+///
+/// | | coverage of row 25 |
+/// |---|---|
+/// | §10.7.4's sampled-image rule | 0.000 |
+/// | the geometry (0.48 of a row) | 0.480 |
+/// | ours | **0.502** — row 25 is `0x7F` across all 180 columns |
+/// | `poppler`, `mupdf`, `ghostscript`, `hayro` | 1.000 |
+///
+/// **All five renderers depart from the clause, in two directions**, which is the ambiguous
+/// bucket's shape 2 arriving on the contradicted list. Ours is §10.7.4's ledger row's
+/// departure (1) — an anti-aliasing rasteriser paints a partly covered pixel partly — and the
+/// four references' whole row is the *shape* rule applied to an image, which is the paragraph
+/// before the one that governs. Snapping to a full row would be neither the clause nor our
+/// departure, so the page stays listed.
+///
+/// The 0.502 against a geometry of 0.480 is a second, smaller thing and it is `tiny-skia`'s:
+/// the scan converter samples four sub-rows at 0.125, 0.375, 0.625 and 0.875, and a band from
+/// 25.000 to 25.480 crosses two of them, so 0.48 is quantised to 0.50. ADR 0226 removed that
+/// quantum for an axis-aligned *rectangle* — `pdf_render::sub_pixel_bands` — and an image does
+/// not take that path. 4.6% on one row of one corpus page, recorded rather than chased.
 const CONTRADICTED_SUBPIXEL_IMAGE: [&str; 1] = ["issue4436r.pdf page 1"];
 
 /// Contradicted, where the two references that agree are the same decoder.
@@ -674,7 +713,9 @@ const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 0] = [];
 
 /// Contradicted, with a font on the page that carries no embedded program.
 ///
-/// 19 pages. The weakest entries here, because the difference need not be anyone's defect:
+/// 17 pages — the header said 19 while the list held 18, which is what a count written beside
+/// a list rather than counted off it does. The weakest entries here, because the difference
+/// need not be anyone's defect:
 /// every renderer substitutes, and where two references happen to choose the same system
 /// font and we choose another, the consensus is about their font rather than about the page.
 ///
@@ -805,7 +846,54 @@ const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 0] = [];
 ///
 /// The font is still substituted and the page's text is still drawn in a different face; that
 /// simply was not what put it over the bound.
-const CONTRADICTED_SUBSTITUTED_FONT: [&str; 18] = [
+///
+/// # `issue4304.pdf` page 1 left in the four-hundred-and-fifth, and it was six missing spaces
+///
+/// **Six for seven on this list's name failing to diagnose a member**, and this one is the
+/// worst of the seven because the page drew the exact defect the file was collected to prove.
+/// pdf.js issue 4304 is titled *PDF Without Spaces*, and the four-panel strip says it in one
+/// look: four renderers draw *Words that should have spaces between them.* and this tree drew
+/// **Wordsthatshouldhavespacesbetweenthem.** The font is a non-embedded `/Times-Roman`, so the
+/// page landed here; the face was never what differed.
+///
+/// The file is 895 bytes and is one experiment: `/Differences [ 32 /.notdef 39 /quotesingle
+/// … ]` over a standard-14 font dictionary with no `/Widths`, `/FirstChar`, `/LastChar` or
+/// `/FontDescriptor`. So code 32 selects the glyph named `.notdef` — §9.6.5.1's Table 112
+/// makes the first name after a code "the name corresponding to that code", and §9.6.5.2 says
+/// every Type 1 program contains an actual glyph of that name whose effect "is at the
+/// discretion of the font designer". Drawing nothing for it is right. **The advance is what
+/// was wrong**: §9.2.4 makes a glyph's width "the distance the current text position shall
+/// move … when the glyph is painted", and this tree moved it by 0.
+///
+/// The measurement is the column profile, and it is exact rather than close. Our ink runs
+/// device x 11 to 176 and all four references' 11 to **191**: 15 pixels, which is six spaces
+/// of 250/1000 em at 10 pt, to the pixel. Ours was short by the whole width six times.
+///
+/// # Where the 0 came from, and it is a reader this tree has and did not use
+///
+/// §9.6.2.1's closing paragraph puts the obligation on the processor — "PDF processors shall
+/// provide glyph widths and font descriptor data for those standard fonts … when the entries
+/// are absent" — and `pdf_font::standard_metrics` is that provision. Adobe's published metrics
+/// name only the standard character set and no `.notdef`, which is consistent with §9.6.5.2
+/// leaving that glyph to the designer, so `simple_widths` fell through to its third source:
+/// the advance the substitute program itself states, which Table 109 requires to agree with
+/// the width anyway ("These widths shall be consistent with the actual widths given in the
+/// font program").
+///
+/// That third source read the program through `skrifa`'s `FontRef`, **which parses an sfnt
+/// container and refuses a bare CFF** — and ten of the fourteen compiled-in standard faces
+/// (ADR 0133) are bare CFF programs from `PDFium`'s Foxit set. So on every serif, fixed-pitch
+/// and symbolic standard-14 substitution the third source answered nothing at all, and the
+/// code fell to Table 120's `/MissingWidth` default of 0. `pdf_font::cff::advances` is the
+/// reader that was missing; `FoxitSerif.pfb` states 250 for `.notdef`, which is what the page
+/// draws now.
+///
+/// **The 250 is corroboration and not the target.** It is read from the program this tree
+/// draws, and the same number turns up in every metric clone of the face for the same reason —
+/// `NimbusRoman` 250, `NimbusSans` 278, `NimbusMonoPS` 600, `LiberationMono` 600, each of them
+/// its own `space` — which is why four renderers agree. The clause is what decides; that they
+/// agree is how we know the clause was read the same way.
+const CONTRADICTED_SUBSTITUTED_FONT: [&str; 17] = [
     "bad-PageLabels.pdf page 1",
     "bug847420.pdf page 1",
     "bug850854.pdf page 1",
@@ -816,7 +904,6 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 18] = [
     "franz_2.pdf page 1",
     "issue11403_reduced.pdf page 1",
     "issue15716.pdf page 1",
-    "issue4304.pdf page 1",
     "issue6069.pdf page 1",
     "issue6108.pdf page 1",
     "issue7580.pdf page 1",

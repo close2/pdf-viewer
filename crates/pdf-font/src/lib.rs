@@ -233,8 +233,12 @@ impl From<substitute::Format> for Program {
     ///
     /// The two enumerations exist separately because [`substitute::Format`] is what
     /// [`substitute::find`] can produce — an `sfnt` from the machine or from the compiled-in
-    /// Liberation faces, or a bare Type 1 from the compiled-in Foxit ones — while [`Program`]
+    /// Liberation faces, or a bare **CFF** from the compiled-in Foxit ones — while [`Program`]
     /// also names a bare Type 1 program, which only an *embedded* `/FontFile` can be.
+    ///
+    /// This comment said "bare Type 1" for the Foxit faces, which are `Format::BareCff` and
+    /// always were; the four-hundred-and-fifth session corrected it while reading this path
+    /// for `program_widths`, where the same confusion had a cost rather than a spelling.
     fn from(format: substitute::Format) -> Self {
         match format {
             substitute::Format::Sfnt => Self::Sfnt,
@@ -566,6 +570,7 @@ impl LoadedFont {
             substituted,
             names: names.as_ref(),
             data: &data,
+            program,
             mapping: &mapping,
             units_per_em,
         };
@@ -2011,6 +2016,9 @@ struct SimpleMetrics<'a> {
     names: Option<&'a GlyphNames>,
     /// The font program.
     data: &'a [u8],
+    /// Which reader parses `data`, since the advance a program states is read differently
+    /// from an sfnt's `hmtx` and from a CFF charstring's leading width operand.
+    program: Program,
     mapping: &'a CodeMapping,
     units_per_em: f32,
 }
@@ -2238,34 +2246,65 @@ fn simple_widths(
             }
         }
     }
-    for (code, width) in program_widths(font.data, font.mapping, font.units_per_em) {
+    for (code, width) in program_widths(font, |code| !widths.contains_key(&code)) {
         widths.entry(code).or_insert(width);
     }
     widths
 }
 
-/// Fills a width table from the font program's own advances.
+/// Fills a width table from the font program's own advances, for the codes `wanted` accepts.
 ///
-/// Used only when the document states no widths, which the standard 14 are allowed to do.
-fn program_widths(data: &[u8], mapping: &CodeMapping, units_per_em: f32) -> BTreeMap<u32, f32> {
+/// Used only when the document states no widths, which the standard 14 are allowed to do,
+/// and asked only about the codes §9.6.2.2's published metrics did not answer — which is
+/// what makes it cheap enough to evaluate a bare CFF's charstrings at load time.
+///
+/// **Ten of the fourteen compiled-in standard faces are bare CFF programs, and until the
+/// four-hundred-and-fifth session this function could not read one**: it went through
+/// `skrifa`'s `FontRef`, which parses an sfnt container and refuses a bare CFF, so every
+/// serif, fixed-pitch and symbolic standard-14 substitution answered nothing here and every
+/// unanswered code fell to `/MissingWidth`'s default of 0 (Table 120). `issue4304.pdf` is
+/// what that cost — `/Differences [32 /.notdef …]` over a non-embedded `/Times-Roman`, so
+/// §9.2.4's horizontal displacement for the code the page uses as a space came from nowhere
+/// and the page drew *Wordsthatshouldhavespacesbetweenthem.*
+fn program_widths(font: SimpleMetrics<'_>, wanted: impl Fn(u32) -> bool) -> BTreeMap<u32, f32> {
     let mut widths = BTreeMap::new();
-    let CodeMapping::Named(table) = mapping else {
+    let CodeMapping::Named(table) = font.mapping else {
         return widths;
     };
-    let Ok(font) = FontRef::new(data) else {
-        return widths;
-    };
-    let metrics = font.glyph_metrics(Size::unscaled(), LocationRef::default());
+    let asked: Vec<(u32, u16)> = table
+        .iter()
+        .enumerate()
+        .filter_map(|(code, glyph)| Some((u32::try_from(code).ok()?, (*glyph)?)))
+        .filter(|(code, _)| wanted(*code))
+        .collect();
 
-    for (code, glyph) in table.iter().enumerate() {
-        let Some(glyph) = *glyph else { continue };
-        let Ok(code) = u32::try_from(code) else {
-            continue;
-        };
-        let Some(advance) = metrics.advance_width(GlyphId::from(glyph)) else {
-            continue;
-        };
-        widths.insert(code, advance / units_per_em * 1000.0);
+    let advances: Vec<Option<f32>> = match font.program {
+        Program::Sfnt => {
+            let Ok(program) = FontRef::new(font.data) else {
+                return widths;
+            };
+            let metrics = program.glyph_metrics(Size::unscaled(), LocationRef::default());
+            asked
+                .iter()
+                .map(|(_, glyph)| metrics.advance_width(GlyphId::from(*glyph)))
+                .collect()
+        }
+        Program::BareCff => {
+            let glyphs: Vec<u16> = asked.iter().map(|(_, glyph)| *glyph).collect();
+            let Ok(advances) = cff::advances(font.data, &glyphs) else {
+                return widths;
+            };
+            advances
+        }
+        // A substitute is never a bare Type 1 program: `substitute::Format` offers an sfnt
+        // or a bare CFF and nothing else, and this function runs only for a substituted
+        // font. An *embedded* Type 1 reaches here with `substituted` unset and returns above.
+        Program::Type1 => return widths,
+    };
+
+    for ((code, _), advance) in asked.iter().zip(advances) {
+        let Some(advance) = advance else { continue };
+        widths.insert(*code, advance / font.units_per_em * 1000.0);
     }
     widths
 }
@@ -4649,6 +4688,51 @@ mod missing_width_tests {
 
         assert_eq!(missing_width(&document, descriptor.as_dict()), 0.0);
         assert_eq!(missing_width(&document, None), 0.0);
+    }
+}
+
+/// The third source of a simple font's advances: the program this processor actually draws.
+///
+/// ISO 32000-2 §9.6.2.1's closing paragraph obliges a processor to supply glyph widths for
+/// the standard 14 when the dictionary omits them, and §9.6.2.2 lets it do that with "their
+/// font metrics and suitable substitution fonts". Adobe's published metrics name only the
+/// standard character set, so a `/Differences` reaching any other glyph — `.notdef` is the
+/// one every Type 1 program is required to have (§9.6.5.2) — is answered by the program.
+///
+/// `issue4304.pdf` is the corpus's witness and the oracle held it by name for a hundred and
+/// eighty sessions under the wrong diagnosis; these state the rule, which is what survives
+/// that file being deleted.
+#[cfg(test)]
+mod substituted_width_tests {
+    use super::fixture::font_dictionary;
+    use super::{Code, LoadedFont};
+
+    /// A code the published metrics do not name takes the substitute program's own advance.
+    ///
+    /// `/Times-Roman` with no `/Widths` resolves to a compiled-in bare CFF face, whose
+    /// `.notdef` charstring states 250 — the same number every metric clone of that face
+    /// carries, because each of them gives `.notdef` its own `space` width.
+    #[test]
+    fn a_differences_entry_naming_notdef_takes_the_programs_advance() {
+        let (document, dict) =
+            font_dictionary("/BaseFont /Times-Roman /Encoding << /Differences [32 /.notdef] >>");
+        let font = LoadedFont::load(&document, &dict, "F1").expect("a standard 14 name loads");
+
+        assert!((font.advance(Code::single_byte(32)) - 0.250).abs() < 1e-6);
+        // The rest of the encoding is untouched: `A` is Adobe's published 722.
+        assert!((font.advance(Code::single_byte(b'A')) - 0.722).abs() < 1e-6);
+    }
+
+    /// Without the `/Differences`, code 32 is the base encoding's `space` and is 250 too.
+    ///
+    /// The pair is what says the fix did not simply hard-code a number: the two routes to
+    /// 250 are the published metrics for `space` and the program's charstring for `.notdef`.
+    #[test]
+    fn an_unmodified_code_thirty_two_is_the_published_space_width() {
+        let (document, dict) = font_dictionary("/BaseFont /Times-Roman");
+        let font = LoadedFont::load(&document, &dict, "F1").expect("a standard 14 name loads");
+
+        assert!((font.advance(Code::single_byte(32)) - 0.250).abs() < 1e-6);
     }
 }
 

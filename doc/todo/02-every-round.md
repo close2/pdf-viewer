@@ -19,7 +19,7 @@ features no file exercises.
 ```sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets      # must be silent of lints
-cargo nextest run --workspace               # 1418 tests, 9 ignored
+cargo nextest run --workspace               # 1420 tests, 9 ignored
 cargo test --workspace --doc                # the one doctest nextest does not run
 cargo build --profile gates -p pdf-sandbox --bins   # trap 10: Cargo will not do this for you
 cargo test  --profile gates -p pdf-model      --test corpus          -- --ignored --nocapture
@@ -55,7 +55,8 @@ here:
   the number was six behind again, over the eight rounds since it was last written down. The
   four-hundred-and-third added four and this line was **not** behind, which is what happens when
   the round before it wrote the gate's own number down; the four-hundred-and-fourth added four
-  more and it was not behind either.)
+  more and it was not behind either; the four-hundred-and-fifth added **two** and it was not behind for the third round running, which is what happens when each round writes the gate's own
+  number down.)
 - **`pdfref-hayro` is the oracle's fourth reading and nothing built it.** It is a *program*, found
   beside the running test binary, and its absence costs no verdict — `Reference::Hayro` never
   votes — but it is what a person looks at on a page the three references cannot settle. Until

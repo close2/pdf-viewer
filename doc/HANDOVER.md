@@ -211,17 +211,27 @@ step 7 is therefore **not owed** — nothing was drawn differently — and that 
 `examples/variable_text_census`'s prediction before the code was written rather than a hope after
 it (ADR 0240).
 
+**And the four-hundred-and-fifth, which is the first of these in a while to move a *verdict*.** It
+worked the contradicted list rather than the ambiguous one and found a width defect behind a
+hundred-and-eighty-session-old diagnosis (§9.6.2.1, `issue4304.pdf`): **one page of 1794 changed
+verdict**, contradicted to agreeing, and the oracle's other 1793 lines, quorra's 957, the corpus's
+974 and the text gate's output are unmoved. `doc/todo/00`'s step 7 was run **before and after**
+anyway, because pixels did move, and **all 786 lines are byte-identical** — which is the sweep
+saying what it can: its population is the ambiguous bucket, and a page moving between *contradicted*
+and *agrees* is invisible to it, so the identity means no ambiguous page's ink changed. The test,
+citation and quotation counts moved by the round's own two tests and its citations.
+
 | gate | what it printed | where |
 |---|---|---|
-| tests | `1418 tests run: 1418 passed, 9 skipped`, and `cargo test --workspace --doc` **1 passed** beside it, so `cargo test --workspace` reports **1419**. `clippy --workspace --all-targets` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`; `fmt --all --check` clean | `cargo nextest run --workspace`, **38.7 s** |
+| tests | `1420 tests run: 1420 passed, 9 skipped`, and `cargo test --workspace --doc` **1 passed** beside it, so `cargo test --workspace` reports **1421**. `clippy --workspace --all-targets` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`; `fmt --all --check` clean | `cargo nextest run --workspace`, **33.5 s** |
 | corpus (974 pdf.js documents, page one) | `974 documents in 4.3s: 0 unopenable, 8 locked, 2 encrypted beyond us, 5 pageless, **65 incomplete**, 0 slow` | `tests/corpus.rs`, **4.3 s** |
-| oracle (1794 pages vs poppler, mupdf, ghostscript) | `1794 pages (1693 we call complete, 101 incomplete)`; **904 agree / 862 of them complete**, **69 contradicted / 67 complete**, **786 ambiguous / 753 complete**, our geometry 1/0, reference geometry 2/2, not comparable 14/9, no render 18/0 — and **the undiagnosed ambiguous list printed empty**, which is the ratchet holding. The two pages that became *complete* in the four-hundredth session both landed ambiguous and both have a group with a two-ladder diagnosis (ADR 0237) | `tests/oracle.rs`, **47.2 s** |
+| oracle (1794 pages vs poppler, mupdf, ghostscript) | `1794 pages (1693 we call complete, 101 incomplete)`; **905 agree / 863 of them complete**, **68 contradicted / 66 complete**, **786 ambiguous / 753 complete**, our geometry 1/0, reference geometry 2/2, not comparable 14/9, no render 18/0 — and **the undiagnosed ambiguous list printed empty**, which is the ratchet holding. `issue4304.pdf` page 1 is the one that moved in the four-hundred-and-fifth, off `CONTRADICTED_SUBSTITUTED_FONT`, where its diagnosis had been wrong since the hundred-and-forty-eighth | `tests/oracle.rs`, **40.6 s** |
 | text (vs `pdftotext`, same 974) | `overall 99.2% (24043/24243 words), 25 below 90%`, with 24 skipped and 62 incomplete and not gated | `tests/text_extraction.rs`, **30.1 s** |
 | **quorra vs the CPU oracle** (974 documents, page one, same display list) | `957 pages compared in 33.5s: **912 agree, 36 differ, 9 refused, 17 not comparable**` — one refusal is `bug1721218_reduced.pdf`, whose coverage outgrows a 16384×16384 scratch image; **four are §11.4.6's stated shape**, which needs two Porter-Duff operators quorra's `Compose` does not have (ADR 0234, `QUORRA_FEEDBACK.md` section 14); **four more are §11.4.4's non-isolated group**, whose buffer has to start as a copy of the page where `GroupSpec` opens one on transparency (ADR 0237, section 16). All eight used to *agree* about a picture both backends drew wrongly | `render-quorra/tests/corpus.rs`, **33.5 s** |
 | dates | `1545 date strings in 974 documents: **1514 conform** to §7.9.4 (97.99%), 31 do not, over 22 distinct strings` | `tests/dates.rs`, **0.9 s** |
 | **§14.3.2's XMP** (same 974) | `319 documents carry §14.3.2's stream: **318 read, 1 refused**, 3191 properties between them, 106 state dc:title` — the refusal is a fuzzed file whose stream does not decode at all | `tests/xmp.rs`, **0.4 s** |
 | **JPEG 2000 vs ISO/IEC 15444-5's reference software** | 30 corpus codestreams: **14 byte-identical, 13 differing, 3 not comparable**, and no remaining difference exceeds one level. `doc/JPEG2000_FEEDBACK.md` §§7–8 has the two defects behind that | `tests/jpeg2000.rs`, **13.8 s** |
-| conformance | **5639 citations**, all naming clauses the standard has; **549 quotations**, all verbatim; **212** distinct tables cited by this tree and **250** named in the ledger's notes; **875 ledger rows** (400 implemented, 252 partial, 19 reported, 83 inapplicable, 8 writer-side, 113 out-of-scope) | `cargo test -p conformance`, **3.0 s** |
+| conformance | **5656 citations**, all naming clauses the standard has; **551 quotations**, all verbatim; **212** distinct tables cited by this tree and **250** named in the ledger's notes; **875 ledger rows** (400 implemented, 252 partial, 19 reported, 83 inapplicable, 8 writer-side, 113 out-of-scope) | `cargo test -p conformance`, **2.7 s** |
 | **the round itself** | **not measured as one span this round**, and the honest number is what the gates themselves printed: **154 s** of test execution summed from the ten lines above (25.7 + 4.2 + 46.9 + 30.1 + 34.1 + 0.6 + 0.3 + 9.9 + 2.0), with each gate's incremental build on top and each run separately rather than back to back. `doc/todo/02` records **268 s** for §2 *and* §5's binaries together, from 608 s until the three-hundred-and-eighty-fifth measured every step (ADR 0222); the three-hundred-and-ninety-seventh read 287 s off file timestamps for §2 alone | ADR 0222, `doc/todo/43` |
 
 **Two things beyond §2 were run in the three-hundred-and-ninety-eighth and are claimed**: the
@@ -442,9 +452,9 @@ out **no** (ADR 0229).
 
 ### 3. What the corpus still names
 
-**[`doc/oracle-and-corpus.md`](oracle-and-corpus.md)** — the 67 contradicted pages grouped with
-their diagnoses, the 70 incomplete documents split by report kind, and the two cautions the
-contradicted list earned.
+**[`doc/oracle-and-corpus.md`](oracle-and-corpus.md)** — the 66 contradicted pages on complete
+documents grouped with their diagnoses, the 65 incomplete documents split by report kind, and the
+two cautions the contradicted list earned.
 
 ### 3a. The ambiguous bucket — watched since the hundred-and-seventy-sixth, and emptied in the three-hundred-and-seventy-ninth
 
@@ -530,8 +540,10 @@ hidden started rendering (ADR 0148).
 *reading of the specification* rather than finding a defect. `issue6621.pdf` and `issue7901.pdf`
 were both code that was right about the clause it cited.
 
-**A contradicted page's group names a hypothesis, not a diagnosis — seven for seven on being
-wrong.** Open the artefact before believing the label — **and measure it, because a label this
+**A contradicted page's group names a hypothesis, not a diagnosis — eight for eight on being
+wrong**, the newest being `issue4304.pdf` in the four-hundred-and-fifth session, which spent a
+hundred and eighty sessions inside `CONTRADICTED_SUBSTITUTED_FONT` while the difference was six
+spaces of zero width and the side-by-side said so in one look. Open the artefact before believing the label — **and measure it, because a label this
 project wrote is still a label**. Twice the instrument that settled one was the font's own `cmap`,
 `loca` and `post` tables read directly: ten minutes, exact.
 
