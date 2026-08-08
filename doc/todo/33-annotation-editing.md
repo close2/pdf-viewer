@@ -2,9 +2,10 @@
 
 Status: **markup landed in the three-hundred-and-twenty-first session** (ADR 0196), **a window
 types into a field since the three-hundred-and-forty-ninth** (ADR 0201), **a caret says where the
-next character goes since the three-hundred-and-seventy-first** (ADR 0211), and **a click places it
-and a drag selects since the three-hundred-and-eighty-eighth** (ADR 0225). What is left is free
-text and a host that sends the markup command from a drag.
+next character goes since the three-hundred-and-seventy-first** (ADR 0211), **a click places it
+and a drag selects since the three-hundred-and-eighty-eighth** (ADR 0225), and **§12.5.6.6's free
+text since the four-hundred-and-first** (ADR 0238). What is left is one annotation this program
+still will not touch — the *file's* own — and a callout line no clause states a colour for.
 Priority: 33
 Clauses: §12.5.6.6, §12.5.6.10, §12.7.4.3, §7.5.6, §14.8.2.5
 Code: `crates/viewer-core/src/command.rs` (`Edit`), `crates/pdf-model/src/view.rs`,
@@ -31,31 +32,46 @@ to the page's `/Annots`. ADR 0196 has the argument. Three decisions worth keepin
   display list's, so `content::page_transform` is public and its inverse is what an author
   composes.
 
-### What is still owed here: free text, on a blocker re-read in the three-hundred-and-eighty-eighth
+## 1a. ~~Free text~~ — **done in the four-hundred-and-first session**
 
-§12.5.6.6's free-text annotation is a *different* shape, and **two of the three reasons this file
-gave have expired**. It said the annotation "carries text this program would have to lay out
-(§12.7.4.3's `/DA` machinery, one clause over)" — `appearance::free_text` has laid it out since the
-**twenty-third** session, and session 387 taught it Table 177's `/RC` beside `/Contents` (ADR 0224).
-It said "a host has nowhere to type it yet — the caret below is the same missing piece", and the
-caret landed in the three-hundred-and-seventy-first with a click and a selection following it here.
+`Edit::FreeText { from, to, colour }` puts §12.5.6.6's annotation over a rectangle a person
+**drew**, `Edit::SetFreeText { annotation, text }` says what it says, and `Query::FreeTextAt { at }`
+is how a host learns which annotation the drag made — asked at a point inside it, because a host
+that can ask needs no event. `viewer-ui` binds `f`, `viewer-confined` carries all three, and ADR
+0238 has the argument. Four things worth keeping here:
 
-What is left is real, and it is three things rather than one:
+- **A drag, because this subtype has no text to be over.** §12.5.6.10's four "appear as
+  highlights, underlines, strikeouts … in the text of a document" and need only a selection;
+  §12.5.6.6 "displays text directly on the page" and has to be given a box. The two corners cross
+  in device pixels like every other point in the vocabulary and are mapped to default user space
+  by `Viewer` — the map needs the viewport and the scale, which are the window's — before
+  `Open::resolve` puts the rectangle in the log.
+- **Two verbs rather than one carrying both.** One verb with a rectangle *and* a string would add
+  an annotation per keystroke on replay, because nothing in the log would say the second entry was
+  about the first one's object. The object is stable across a replay, which is what makes naming
+  one in the log sound.
+- **The caret needed no new arithmetic.** `appearance::caret`, `offset_at` and `selection` are
+  unchanged; `frame` and `laid_out_in` one level below them dispatch on `/Subtype`. §12.5.6.6 sends
+  this subtype to §12.7.4.3 itself, so the layout underneath is one layout and only the way in
+  differs — which is what this file predicted in one line.
+- **The `/DA` this program writes obeys §12.7.4.3's `/DR` `shall`.** A save states `/Helv` in Table
+  224's `/DR`, creating the interactive form dictionary where the document has none. This tree
+  reads six corpus documents that break that sentence; writing a seventh would be a different
+  thing.
 
-- **A geometry that comes from a drag rather than from a selection.** `Edit::Markup` takes what is
-  selected; a free text annotation is a rectangle a person drew, so the host has to send one and
-  `Open::resolve` has to fix it the way it already fixes a markup's quadrilaterals.
-- **An `Edit` verb and a `ViewState::add_free_text`** beside §12.5.6.10's markup, writing Table 177's
-  required `/DA` and Table 166's `/Contents` through §7.5.6's incremental update — which
-  `add_markup` already shows the shape of.
-- **A caret path that works on an *annotation*.** `appearance::caret`, `appearance::offset_at` and
-  `appearance::selection` all begin by reading a `Field` and refusing anything that is not a text or
-  combo-box field. A free text annotation is not a field at all, so typing into one needs the same
-  three questions asked of `/Contents` and Table 177's own `/DA` — the layout underneath is shared
-  and the way in is not.
+### What is still owed on this subtype, and neither is a capability
 
-Nothing in the corpus asks for it, which is why it is still below the two above rather than beside
-them.
+- **Editing a free text annotation the *file* states.** `ViewState::set_free_text` takes only an
+  annotation this session added and `free_text_at` answers `None` for the producer's own, which is
+  deliberate: appending an object is the writing `CLAUDE.md` permits, and replacing one the
+  producer wrote is a decision nobody has made. What it would cost is a second map in `ViewState`
+  — annotation to text — read where `appearance::free_text` takes `/Contents`, plus a replacement
+  object at save time. Table 167's `Locked` and `LockedContents` become reachable the same day and
+  the §12.5.3 ledger row says so.
+- **Table 177's `/CL` and `/LE` drawn rather than reported.** The geometry is stated and the colour
+  is not — Table 166's `/C` is an icon's background, a popup's title bar and a link's border, none
+  of which this subtype has — so drawing it means inventing one, exactly as `/BS`'s border does.
+  Reported by name since this round. No corpus first page states one.
 
 ## 2. ~~A caret~~ — **done in the three-hundred-and-seventy-first session**
 

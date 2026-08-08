@@ -72,7 +72,7 @@ It is **used**, which is what the nine sessions from the hundred-and-thirty-firs
 locked document asks for its password (§7.6.4.1, owed since the twenty-second session); the page
 zooms and scrolls; the cursor knows what it is over and §12.5.5's appearances follow it, as does
 §12.5.6.19's `/H`; a drag **selects text**, whose shapes cross to the host as geometry so that it
-draws them in its own colour; a person can **fill in a form field** — in the window since the three-hundred-and-forty-ninth session, where the host keeps the *point* it clicked and never the text, so §12.7.5.3's truncation is read back rather than predicted (ADR 0201), **with a caret since the three-hundred-and-seventy-first** that says where the next character goes and moves with the arrow keys, so correcting the middle of a value is no longer deleting back to it (ADR 0211) — undo it and redo it; a click on a markup annotation **opens the window §12.5.6.14 gives it**, which is the second half of §12.5.1's sentence about activation and was owed to a capability this program had had for a hundred and eighty sessions (ADR 0191); and the
+draws them in its own colour; a person can **fill in a form field** — in the window since the three-hundred-and-forty-ninth session, where the host keeps the *point* it clicked and never the text, so §12.7.5.3's truncation is read back rather than predicted (ADR 0201), **with a caret since the three-hundred-and-seventy-first** that says where the next character goes and moves with the arrow keys, so correcting the middle of a value is no longer deleting back to it (ADR 0211) — undo it and redo it; a click on a markup annotation **opens the window §12.5.6.14 gives it**, which is the second half of §12.5.1's sentence about activation and was owed to a capability this program had had for a hundred and eighty sessions (ADR 0191); a person can **add an annotation** — §12.5.6.10's four markups over what is selected since the three-hundred-and-twenty-first (ADR 0196), and since the four-hundred-and-first **§12.5.6.6's free text, drawn as a rectangle and typed into**, which is the one markup subtype whose text *is* the annotation and therefore the one whose geometry has to come from a drag rather than from a selection (ADR 0238); and the
 result can be **saved** — the file it was opened from, unchanged, with §7.5.6's incremental update
 appended, which is the one kind of writing `CLAUDE.md` permits.
 
@@ -187,9 +187,14 @@ character for character except the test count**, which its own seven tests moved
 strongest thing it has to say about a change to the correctness oracle's rasteriser that halved the
 corpus's worst page (ADR 0236).
 
+**And so did the four-hundred-and-first**, which added §12.5.6.6's free text: the test count moved
+by its six, the citation and quotation counts by what it wrote, and every other figure in the table
+below reproduced exactly. A round that adds a verb a corpus document cannot exercise should move
+nothing else, and this one did not (ADR 0238).
+
 | gate | what it printed | where |
 |---|---|---|
-| tests | `1398 tests run: 1398 passed, 9 skipped`, and `cargo test --workspace --doc` **1 passed** beside it, so `cargo test --workspace` reports **1399**. `clippy --workspace --all-targets` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`; `fmt --all --check` clean | `cargo nextest run --workspace`, **28.9 s** |
+| tests | `1404 tests run: 1404 passed, 9 skipped`, and `cargo test --workspace --doc` **1 passed** beside it, so `cargo test --workspace` reports **1405**. `clippy --workspace --all-targets` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`; `fmt --all --check` clean | `cargo nextest run --workspace`, **40.7 s** |
 | corpus (974 pdf.js documents, page one) | `974 documents in 4.3s: 0 unopenable, 8 locked, 2 encrypted beyond us, 5 pageless, **65 incomplete**, 0 slow` | `tests/corpus.rs`, **4.3 s** |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | `1794 pages (1693 we call complete, 101 incomplete)`; **904 agree / 862 of them complete**, **69 contradicted / 67 complete**, **786 ambiguous / 753 complete**, our geometry 1/0, reference geometry 2/2, not comparable 14/9, no render 18/0 — and **the undiagnosed ambiguous list printed empty**, which is the ratchet holding. The two pages that became *complete* in the four-hundredth session both landed ambiguous and both have a group with a two-ladder diagnosis (ADR 0237) | `tests/oracle.rs`, **47.2 s** |
 | text (vs `pdftotext`, same 974) | `overall 99.2% (24043/24243 words), 25 below 90%`, with 24 skipped and 62 incomplete and not gated | `tests/text_extraction.rs`, **30.1 s** |
@@ -197,7 +202,7 @@ corpus's worst page (ADR 0236).
 | dates | `1545 date strings in 974 documents: **1514 conform** to §7.9.4 (97.99%), 31 do not, over 22 distinct strings` | `tests/dates.rs`, **0.9 s** |
 | **§14.3.2's XMP** (same 974) | `319 documents carry §14.3.2's stream: **318 read, 1 refused**, 3191 properties between them, 106 state dc:title` — the refusal is a fuzzed file whose stream does not decode at all | `tests/xmp.rs`, **0.4 s** |
 | **JPEG 2000 vs ISO/IEC 15444-5's reference software** | 30 corpus codestreams: **14 byte-identical, 13 differing, 3 not comparable**, and no remaining difference exceeds one level. `doc/JPEG2000_FEEDBACK.md` §§7–8 has the two defects behind that | `tests/jpeg2000.rs`, **13.8 s** |
-| conformance | **5492 citations**, all naming clauses the standard has; **538 quotations**, all verbatim; **210** distinct tables cited by this tree and **249** named in the ledger's notes; **875 ledger rows** (400 implemented, 252 partial, 19 reported, 83 inapplicable, 8 writer-side, 113 out-of-scope) | `cargo test -p conformance`, **2.0 s** |
+| conformance | **5574 citations**, all naming clauses the standard has; **542 quotations**, all verbatim; **210** distinct tables cited by this tree and **249** named in the ledger's notes; **875 ledger rows** (400 implemented, 252 partial, 19 reported, 83 inapplicable, 8 writer-side, 113 out-of-scope) | `cargo test -p conformance`, **2.0 s** |
 | **the round itself** | **not measured as one span this round**, and the honest number is what the gates themselves printed: **154 s** of test execution summed from the ten lines above (25.7 + 4.2 + 46.9 + 30.1 + 34.1 + 0.6 + 0.3 + 9.9 + 2.0), with each gate's incremental build on top and each run separately rather than back to back. `doc/todo/02` records **268 s** for §2 *and* §5's binaries together, from 608 s until the three-hundred-and-eighty-fifth measured every step (ADR 0222); the three-hundred-and-ninety-seventh read 287 s off file timestamps for §2 alone | ADR 0222, `doc/todo/43` |
 
 **Two things beyond §2 were run in the three-hundred-and-ninety-eighth and are claimed**: the
@@ -396,7 +401,7 @@ log, and what is still owed. ADRs 0116 to 0121. What is left of it is *hosts*:
 [30](todo/30-a-native-host.md) a native host and then `viewer-ffi`,
 [31](todo/31-accessibility-host.md) the four edges the AccessKit bridge does not cover,
 [32](todo/32-presentation-player.md) the presentation player's remaining five styles, and
-[33](todo/33-annotation-editing.md) free text.
+[33](todo/33-annotation-editing.md) editing a free text annotation the *file* states.
 
 ### 1. Third-party data: shipped, and the record of what was read
 

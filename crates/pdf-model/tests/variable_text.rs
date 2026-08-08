@@ -1419,3 +1419,111 @@ fn a_selection_across_a_wrap_is_one_shape_per_line() {
         );
     }
 }
+
+/// An annotation a person drew, typed into, and asked where the cursor is (§12.5.6.6).
+///
+/// **The three questions ADR 0211 and ADR 0225 answered for a field, asked of an annotation.**
+/// §12.5.6.6 sends its own subtype to §12.7.4.3 — "[s]ubclause 12.7.4.3, 'Variable text',
+/// describes the process of using these entries to generate the appearance of the text in these
+/// annotations" — so the layout is the same layout and the caret is the same arithmetic; what this
+/// pins is that the *way in* reaches it. Nothing in the corpus can: no document contains an
+/// annotation this program added, by construction.
+#[test]
+fn a_free_text_annotation_a_person_added_answers_the_carets_three_questions() {
+    let bytes = pdf_with("", "<< /Type /Annot /Subtype /Link /Rect [0 0 1 1] >>");
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let id = page
+        .id
+        .expect("a page reached through the tree is an object");
+    let mut view = pdf_model::view::ViewState::of(&document);
+    let annotation = view
+        .add_free_text(&document, id, [20.0, 40.0, 180.0, 70.0], "abc", [0.0; 3])
+        .expect("a rectangle with area is something to write in");
+
+    // Inside the rectangle, which is what names the annotation — the same rule `Query::FieldAt`
+    // and every question beside it follow.
+    let at = (100.0, 55.0);
+    let start = view
+        .caret_at(&document, &page, at.0, at.1, 0)
+        .expect("the annotation under the point lays text out");
+    let end = view
+        .caret_at(&document, &page, at.0, at.1, 3)
+        .expect("and at the end of its text");
+    assert!(
+        (start[0] - start[2]).abs() < 0.001,
+        "a caret is a vertical segment: {start:?}"
+    );
+    assert!(
+        (start[0] - 20.0).abs() < 0.5,
+        "Table 177 states no border inset for the text, so a left-quadded line starts at /Rect's \
+         own left edge, not {}",
+        start[0]
+    );
+    assert!(
+        end[0] > start[0],
+        "three characters later the caret has moved right: {start:?} {end:?}"
+    );
+
+    // The inverse, which is what a click needs: an offset handed back as a point comes back as
+    // the offset (ADR 0225's round trip, on the other subtype).
+    for offset in 0..=3 {
+        let caret = view
+            .caret_at(&document, &page, at.0, at.1, offset)
+            .expect("a caret at every boundary of the value");
+        let middle = ((caret[0] + caret[2]) * 0.5, (caret[1] + caret[3]) * 0.5);
+        assert_eq!(
+            view.offset_at(&document, &page, at, middle),
+            Some(offset),
+            "the point the caret stands at names the byte it stands before"
+        );
+    }
+
+    // And a selection over the whole of it is one line's worth of shape.
+    let shapes = view
+        .field_selection(&document, &page, at, (0, 3))
+        .expect("a range of the annotation's own text");
+    assert_eq!(shapes.len(), 1, "one line, one shape: {shapes:?}");
+
+    // Then what a person typed reaches the page, and it is the text they typed rather than the
+    // empty box they drew.
+    assert!(view.set_free_text(annotation, "abcdef"));
+    let raster = draw_with(&document, &page, &view);
+    let (first, last) = ink_span(&raster);
+    assert!(
+        first >= 20 && last <= 180,
+        "the text escaped the annotation: {first}..{last}"
+    );
+    let wider = last;
+    assert!(view.set_free_text(annotation, "a"));
+    let (_, last) = ink_span(&draw_with(&document, &page, &view));
+    assert!(
+        last < wider,
+        "one character inks less far than six: {last} against {wider}"
+    );
+}
+
+/// Table 177's `/CL` and `/LE` are reported by name rather than drawn (§12.5.6.6).
+///
+/// The clause states the geometry — "[s]ix numbers … represent the starting, knee point, and
+/// ending coordinates of the line in default user space" — and states no colour to draw it in:
+/// Table 166's `/C` is "the background of the annotation's icon when closed, the title bar of the
+/// annotation's popup window, [and] the border of a link annotation", and this subtype has none of
+/// the three. So the callout is refused for the same reason `/BS`'s border is, and named, which is
+/// trap 5's rule: an annotation drawn without what it asked for is a silently wrong page. This is
+/// also the whole of Table 177's `/IT` — `FreeTextCallout` is the intent that needs this line, and
+/// the other two ask for nothing more than the text.
+#[test]
+fn a_callout_line_is_reported_rather_than_invented() {
+    let (reports, _) = draw(pdf_with(
+        "",
+        "<< /Type /Annot /Subtype /FreeText /Rect [20 40 180 70] /F 4 /Contents (visible) \
+         /IT /FreeTextCallout /CL [10 10 15 30 20 45] /LE /OpenArrow \
+         /DA (/Helv 12 Tf 0 g) /Border [0 0 0] >>",
+    ));
+    assert_eq!(reports.len(), 1, "{reports:?}");
+    assert!(
+        reports[0].contains("/CL") && reports[0].contains("/LE"),
+        "the report names both entries: {reports:?}"
+    );
+}

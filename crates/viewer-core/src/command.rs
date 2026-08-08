@@ -276,9 +276,16 @@ pub enum PointerAction {
 
 /// One change a person made.
 ///
-/// Two variants, and they are the two halves of `CLAUDE.md`'s amended exclusion: a value put into
-/// a field the document already holds, and an annotation added to it. Both are a log beside an
+/// Four variants, and they are the two halves of `CLAUDE.md`'s amended exclusion: a value put into
+/// something the document already holds, and an annotation added to it. Both are a log beside an
 /// immutable document, and both leave through §7.5.6's incremental update.
+///
+/// **Two of them are one subtype's**, which is what §12.5.6.6 costs and nothing else here did:
+/// a free text annotation's text *is* the annotation, so creating one and then saying what it says
+/// are two different things, where [`Self::Markup`] takes its whole meaning from the selection it
+/// arrives beside. [`Self::FreeText`] draws the box, [`Self::SetFreeText`] fills it, and the
+/// second names its target by object for [`Self::SetField`]'s reason turned around: a field has
+/// §12.7.4.2's qualified name and an annotation has none.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Edit {
     /// §12.7.4: put a value into a field, by the fully qualified name §12.7.4.2 gives it.
@@ -316,6 +323,57 @@ pub enum Edit {
         kind: pdf_model::view::Markup,
         /// Table 166's `/C`, as `DeviceRGB` components in 0..=1.
         colour: [f32; 3],
+    },
+    /// §12.5.6.6: put an empty free text annotation over a rectangle a person **drew**.
+    ///
+    /// > A free text annotation ( PDF 1.3 ) displays text directly on the page.
+    ///
+    /// The geometry is a drag rather than a selection, which is the whole difference from
+    /// [`Self::Markup`] and follows from the clause: §12.5.6.10's four "appear as highlights,
+    /// underlines, strikeouts … **in the text of a document**" and this one displays text of its
+    /// own, so there is nothing on the page for it to be over.
+    ///
+    /// The two corners are in **device pixels of the viewport**, in either order, exactly as
+    /// [`Command::Pointer`]'s point and [`crate::Query::Offset`]'s two are: what a host has is
+    /// where the pointer went down and where it came up. The viewer maps them back through the
+    /// transform the frame on the screen was drawn with and records what was *done* — the page and
+    /// the rectangle in default user space — because the zoom and the scroll that made the mapping
+    /// are not part of what a replay must reproduce.
+    ///
+    /// The colour is the text's, and it goes into Table 177's Required `/DA` rather than into
+    /// Table 166's `/C`: that entry is an icon's background, a popup's title bar and a link's
+    /// border, and this subtype has none of the three. Nothing happens for a rectangle with no
+    /// area, which is a press that never moved.
+    ///
+    /// Answering *which* annotation it made is [`crate::Query::FreeTextAt`]'s, asked at a point
+    /// inside the rectangle — an event carrying it would be a second way to say something a host
+    /// can ask.
+    FreeText {
+        /// Where the drag began, in device pixels from the viewport's top-left corner.
+        from: (f32, f32),
+        /// Where it ended.
+        to: (f32, f32),
+        /// The colour of the text, as `DeviceRGB` components in 0..=1.
+        colour: [f32; 3],
+    },
+    /// §12.5.6.6: say what a free text annotation a person added says, as Table 166's `/Contents`.
+    ///
+    /// That entry is the text to be displayed for the annotation, and on this subtype the text is
+    /// the whole of what there is to display. The annotation is named by object because it has no other name — §12.7.4.2 gives a *field*
+    /// a qualified name and nothing gives an annotation one — and a host gets the object from
+    /// [`crate::Query::FreeTextAt`], which is the same shape [`Command::Activate`] and
+    /// [`Command::SetGroup`] already take.
+    ///
+    /// **Only an annotation this session added takes it.** A free text annotation the file itself
+    /// states is the producer's object, and replacing one is a different kind of writing from
+    /// appending one; `doc/todo/33` carries what it would cost. Nothing happens, and the log stays
+    /// as it was.
+    SetFreeText {
+        /// The object [`crate::Query::FreeTextAt`] answered with.
+        annotation: ObjectId,
+        /// What the annotation now says. Empty is an annotation with nothing in it, which is what
+        /// one a person has just drawn is.
+        text: String,
     },
 }
 

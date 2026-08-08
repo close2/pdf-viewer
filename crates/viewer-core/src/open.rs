@@ -229,6 +229,26 @@ pub(crate) enum Done {
         /// Table 182's `/QuadPoints`, one entry per run of a line.
         quads: Vec<[f32; 8]>,
     },
+    /// §12.5.6.6's free text annotation, over a rectangle in **default user space**.
+    FreeText {
+        /// The page it was added to, which is `Page::id`.
+        page: ObjectId,
+        /// Table 166's `/Rect`, mapped out of the viewport the drag was measured in.
+        rect: [f32; 4],
+        /// The colour of the text, which Table 177's `/DA` carries.
+        colour: [f32; 3],
+    },
+    /// §12.5.6.6's `/Contents`, on an annotation an earlier entry of this log added.
+    ///
+    /// **The object is stable across a replay**, which is what lets the log name one at all:
+    /// `ViewState::add_free_text` allocates from the document's own highest number plus however
+    /// many annotations have been added, and a replay adds the same ones in the same order.
+    SetFreeText {
+        /// The annotation.
+        annotation: ObjectId,
+        /// What it now says.
+        text: String,
+    },
 }
 
 /// A page, interpreted.
@@ -403,10 +423,33 @@ impl Open {
     /// without an identity ([`Pages::detached`]'s, which is §12.7.7's template): each is a
     /// request this crate cannot turn into an annotation, and adding an empty one would be worse
     /// than doing nothing.
-    pub(crate) fn resolve(&self, edit: crate::command::Edit) -> Option<Done> {
+    ///
+    /// `drag` is [`crate::Edit::FreeText`]'s two corners, **already in default user space**, and
+    /// it is a parameter rather than something read here because the map from the viewport is the
+    /// *viewer's*: it needs the viewport's size and the display's scale, which are properties of
+    /// the window and not of an open document. Everything else a resolution needs — the page, the
+    /// selection, the page transform — is this type's.
+    pub(crate) fn resolve(
+        &self,
+        edit: crate::command::Edit,
+        drag: Option<[(f32, f32); 2]>,
+    ) -> Option<Done> {
         match edit {
             crate::command::Edit::SetField { field, value } => {
                 Some(Done::SetField { field, value })
+            }
+            crate::command::Edit::SetFreeText { annotation, text } => {
+                Some(Done::SetFreeText { annotation, text })
+            }
+            crate::command::Edit::FreeText { colour, .. } => {
+                let [from, to] = drag?;
+                let interpreted = self.interpreted.as_ref()?;
+                let page = self.page(interpreted.page)?;
+                Some(Done::FreeText {
+                    page: page.id?,
+                    rect: [from.0, from.1, to.0, to.1],
+                    colour,
+                })
             }
             crate::command::Edit::Markup { kind, colour } => {
                 let interpreted = self.interpreted.as_ref()?;
@@ -466,6 +509,13 @@ impl Open {
                 } => {
                     self.view
                         .add_markup(&self.document, *page, *kind, *colour, quads);
+                }
+                Done::FreeText { page, rect, colour } => {
+                    self.view
+                        .add_free_text(&self.document, *page, *rect, "", *colour);
+                }
+                Done::SetFreeText { annotation, text } => {
+                    self.view.set_free_text(*annotation, text);
                 }
             }
         }

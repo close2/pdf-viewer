@@ -4103,3 +4103,161 @@ fn a_collections_initial_document_reaches_a_host() {
         Initial::Empty
     );
 }
+
+/// §12.5.6.6: a person drags a box, types into it, saves, and another reader shows the words.
+///
+/// **The whole of what this round added, end to end**, and every step of it is something no
+/// other test in this tree can see: the geometry comes from a drag rather than from a selection,
+/// the annotation is found again by asking at a point inside it, the text goes in by object, the
+/// caret stands inside the annotation the way it stands inside a field, and the file that comes
+/// out is one a second viewer — which knows nothing of any of it — draws the words from.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one sitting from a drag to a re-opened file, which is the statement: splitting it \
+              into steps would let one of them pass while the sitting does not"
+)]
+fn a_free_text_annotation_is_drawn_from_a_drag_typed_into_and_read_back() {
+    let (mut viewer, events) = opened(600, 800);
+    // This page has red in it already — the note's own headings — so every count below is read
+    // against this one rather than against zero.
+    let plain = red(&raster(request(&events)));
+    let Answer::Geometry(geometry) = viewer.query(Query::PageGeometry(0)) else {
+        panic!("the page on the screen has a geometry");
+    };
+    // The two corners a pointer would have gone down and come up at, in device pixels — a wide
+    // band across the middle of the page, where nothing this document draws is red.
+    let corner = |across: f32, down: f32| {
+        (
+            geometry.origin.0 + geometry.page.width * across * geometry.scale,
+            geometry.origin.1 + geometry.page.height * down * geometry.scale,
+        )
+    };
+    let (from, to) = (corner(0.2, 0.45), corner(0.8, 0.55));
+
+    let events: Vec<_> = viewer
+        .handle(Command::Edit(Edit::FreeText {
+            from,
+            to,
+            colour: [1.0, 0.0, 0.0],
+        }))
+        .collect();
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, Event::Dirty { dirty: true, .. })),
+        "{events:?}"
+    );
+    assert_eq!(
+        red(&raster(request(&events))),
+        plain,
+        "§12.5.6.6's text *is* the annotation, so an empty one draws nothing"
+    );
+
+    // Which annotation: asked at a point inside the rectangle, because the core hands back no
+    // event carrying it — a host can ask, so there is no message for it.
+    let middle = (f32::midpoint(from.0, to.0), f32::midpoint(from.1, to.1));
+    let Answer::FreeText {
+        annotation,
+        ref text,
+    } = viewer.query(Query::FreeTextAt { at: middle })
+    else {
+        panic!("the drag made an annotation and it is under the point");
+    };
+    assert!(text.is_empty(), "nothing has been typed into it yet");
+
+    let events: Vec<_> = viewer
+        .handle(Command::Edit(Edit::SetFreeText {
+            annotation,
+            text: "Reviewed".to_owned(),
+        }))
+        .collect();
+    let typed = red(&raster(request(&events)));
+    assert!(
+        typed > plain + 40,
+        "the text a person typed is on the page in the colour the /DA states: {typed} pixels \
+         against {plain} before it"
+    );
+
+    // And the caret stands inside it, from the same question a field answers — which is the
+    // piece `doc/todo/33` said was missing, because `appearance::caret` began by reading a field.
+    let Answer::Caret {
+        from: low,
+        to: high,
+    } = viewer.query(Query::Caret {
+        at: middle,
+        offset: "Reviewed".len(),
+    })
+    else {
+        panic!("the annotation lays its text out, so it has somewhere the next character goes");
+    };
+    assert!(
+        (low.0 - high.0).abs() < 0.01 && high.1 < low.1,
+        "a caret is a vertical segment with the ascent end above the descent end: {low:?} {high:?}"
+    );
+    assert!(
+        low.0 > from.0 && low.0 < to.0,
+        "and it stands inside the rectangle that was dragged: {low:?}"
+    );
+
+    // Undo is a replay of the log's surviving prefix, and there are two entries in it.
+    let events: Vec<_> = viewer.handle(Command::Undo).collect();
+    assert_eq!(
+        red(&raster(request(&events))),
+        plain,
+        "the first undo takes the text back out"
+    );
+    let events: Vec<_> = viewer.handle(Command::Redo).collect();
+    assert!(
+        red(&raster(request(&events))) > plain + 40,
+        "and redo puts it back, because the annotation's object is the same on every replay"
+    );
+
+    let events: Vec<_> = viewer.handle(Command::Save).collect();
+    let saved = events
+        .iter()
+        .find_map(|event| match event {
+            Event::Saved { bytes, .. } => Some(bytes.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("{events:?}"));
+
+    // A second viewer, which knows nothing of the drag or the keystrokes, opens the saved bytes.
+    let mut reader = Viewer::new(600, 800, 1.0);
+    let events: Vec<_> = reader
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: saved,
+            password: None,
+            fragment: None,
+        })
+        .collect();
+    let reopened = red(&raster(request(&events)));
+    assert!(
+        reopened > plain + 40,
+        "what another reader shows is what this round is judged on: {reopened} red pixels \
+         against {plain} on the page the producer wrote"
+    );
+    let request = request(&events).clone();
+    serve(&mut reader, &request);
+    reader
+        .handle(Command::Select(Selection::All))
+        .for_each(drop);
+    let Answer::Selected(selection) = reader.query(Query::Selection) else {
+        panic!("the reopened page has text on it");
+    };
+    assert!(
+        selection.text.contains("Reviewed"),
+        "and the words read back off the page: {:?}",
+        selection.text
+    );
+}
+
+/// How many pixels are red, counted against the same page before anything was added to it.
+fn red(raster: &pdf_render::Raster) -> usize {
+    raster
+        .data
+        .chunks_exact(4)
+        .filter(|pixel| pixel[0] > 150 && pixel[1] < 100 && pixel[2] < 100)
+        .count()
+}

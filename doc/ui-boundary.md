@@ -51,7 +51,9 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
   trip**, which is why the second channel is not a command.
 - `Command`: `Open { id, bytes, password, fragment }`, `Close`, `Focus`, `Resize { width, height, scale }`,
   `GoTo(PageTarget)`, `Zoom`, `Scroll`, `SetGroup`, **`Activate(ObjectId)`**, `Pointer { at, action }`,
-  `Select`, **`Focused(FocusMove)`** (§12.5.1's tab key), `Edit(Edit)`, `Undo`, `Redo`, `Save`, **`Extract { name }`**,
+  `Select`, **`Focused(FocusMove)`** (§12.5.1's tab key), `Edit(Edit)` — four of them now, with
+  §12.5.6.6's `FreeText` and `SetFreeText` beside `SetField` and `Markup` (ADR 0238) —
+  `Undo`, `Redo`, `Save`, **`Extract { name }`**,
   `Supply { purpose, bytes }`, **`Restrict(RestrictionLevel)`**, `Tick { millis }`, `RenderReady { token, rendered }`.
   **`Restrict` is the one policy value in the crate**, and rule 2 is the whole reason it exists:
   how much of what a document asserts over its reader this program obeys is the *reader's*,
@@ -77,6 +79,8 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
   **`Caret { at, offset }`** (§12.7.4.3's layout, ADR 0211), **`Offset { at, point }`** — that
   question's inverse — and **`FieldSelection { at, from, to }`**, the shapes over a range of a
   field's value (ADR 0225),
+  **`FreeTextAt { at }`** — §12.5.6.6's annotation at a point and its `/Contents`, which is how a
+  host aims a keyboard at one (ADR 0238) —
   `Selection`, **`LogicalSelection`** (§14.8.2.5), **`Focus`** (§12.5.1's ring), `Find`, `Dirty`, `Outline`, `Layers`, `Attachments`, `AccessibilityTree`,
   **`Opening`** (Table 29's `/PageMode` and `/PageLayout`), **`Properties`** (§14.3.3's Table 349),
   `Preferences`, `Frame`, `Reports`. **`Selection` answers in device pixels
@@ -113,9 +117,20 @@ so a click places the caret where it landed, and `Query::FieldSelection` answers
 range so a drag can select inside a value — a *third* question rather than two carets, because
 §12.7.5.3's Multiline flag lets the layout break a value into lines a host cannot see. Copying,
 cutting and pasting inside a field needed **no** message: the characters are a slice of the value a
-host has already read back and the edit is the `Edit::SetField` a keystroke already sends. What
-[todo 33](todo/33-annotation-editing.md) still owes is free text and a host that sends the markup
-command from a drag.
+host has already read back and the edit is the `Edit::SetField` a keystroke already sends.
+
+**And §12.5.6.6's free text since the four-hundred-and-first** (ADR 0238), which is the last thing
+[todo 33](todo/33-annotation-editing.md) called missing. `Edit::FreeText { from, to, colour }`
+takes the two corners of a **drag** rather than a selection — that subtype "displays text directly
+on the page" and so has nothing on the page to be over — `Edit::SetFreeText { annotation, text }`
+says what it says, and `Query::FreeTextAt { at }` is how a host learns which annotation the drag
+made. Three things came with it. The caret needed *no* new question: §12.5.6.6 sends its own
+subtype to §12.7.4.3, so `Query::Caret`, `Query::Offset` and `Query::FieldSelection` answer for an
+annotation exactly as they answer for a field and only the box underneath them differs. The
+annotation is named by **object** where a field is named by §12.7.4.2's qualified name, because an
+annotation has no name for anything to address it by. And an annotation the *file* states is
+deliberately not answered by `Query::FreeTextAt` at all: appending an object is the writing
+`CLAUDE.md` permits and replacing the producer's is a decision nobody has made.
 
 **And a *form* since the three-hundred-and-ninety-eighth** (ADR 0235). `Query::Fields` answers with
 every field that has a widget on the page being shown — §12.7.5's type, the flags of Tables 227, 229,
@@ -130,9 +145,10 @@ here is a page drawn *without* its widget appearances, which is a change to `int
 of its own.
 
 **The vocabulary is complete**, and ten sessions of building on it added five messages rather than
-changing any — nine now, with `Query::Caret` in the three-hundred-and-seventy-first,
-`Query::Offset` and `Query::FieldSelection` in the three-hundred-and-eighty-eighth and
-`Query::Fields` in the three-hundred-and-ninety-eighth, and it is the
+changing any — ten now, with `Query::Caret` in the three-hundred-and-seventy-first,
+`Query::Offset` and `Query::FieldSelection` in the three-hundred-and-eighty-eighth,
+`Query::Fields` in the three-hundred-and-ninety-eighth and `Query::FreeTextAt` in the
+four-hundred-and-first, and it is the
 same rule those five followed: a *question* a host cannot answer for itself, never a second way to
 say something it can — `Command::Activate`, `Command::Extract`, `Event::Extracted`, `Query::Opening`,
 `Query::Properties`, each because a *clause* needed a channel — with one variant **removed** the
@@ -297,8 +313,9 @@ answer with `pdf-model` types and are refused by name, and a page draws on one t
 #### Near, and far
 
 Form-field editing landed in the hundred-and-thirty-fifth session and saving in the
-hundred-and-thirty-sixth. What is left of *using* a document — free-text annotations, and a click that places the caret inside
-a value, §14.8.2.5's logical order having gone in the two-hundred-and-ninety-sixth and the caret
-itself in the three-hundred-and-seventy-first — is one file:
-[todo 33](todo/33-annotation-editing.md). Editing the page's own text is far and deliberately out
-of scope until those exist.
+hundred-and-thirty-sixth; §14.8.2.5's logical order in the two-hundred-and-ninety-sixth, the caret
+in the three-hundred-and-seventy-first, the click that places it in the three-hundred-and-eighty-eighth
+and §12.5.6.6's free text in the four-hundred-and-first. What is left of *using* a document is one
+file, [todo 33](todo/33-annotation-editing.md), and it is two items rather than a feature: editing
+an annotation the **file** states, and Table 177's callout line. Editing the page's own text is far
+and deliberately out of scope.

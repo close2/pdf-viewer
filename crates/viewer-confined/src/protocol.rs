@@ -1078,6 +1078,19 @@ fn encode_edit(writer: &mut Writer, edit: &Edit) {
                 .f32(colour[1])
                 .f32(colour[2]);
         }
+        // §12.5.6.6, carried since the four-hundred-and-first session. ADR 0238.
+        Edit::FreeText { from, to, colour } => {
+            writer
+                .u8(2)
+                .point(*from)
+                .point(*to)
+                .f32(colour[0])
+                .f32(colour[1])
+                .f32(colour[2]);
+        }
+        Edit::SetFreeText { annotation, text } => {
+            writer.u8(3).object(*annotation).str(text);
+        }
     }
 }
 
@@ -1106,6 +1119,19 @@ fn decode_edit(reader: &mut Reader<'_>) -> Result<Edit, ProtocolError> {
                 reader.f32("a markup colour")?,
                 reader.f32("a markup colour")?,
             ],
+        },
+        2 => Edit::FreeText {
+            from: reader.point("a free text corner")?,
+            to: reader.point("a free text corner")?,
+            colour: [
+                reader.f32("a free text colour")?,
+                reader.f32("a free text colour")?,
+                reader.f32("a free text colour")?,
+            ],
+        },
+        3 => Edit::SetFreeText {
+            annotation: reader.object("a free text annotation")?,
+            text: reader.string("a free text annotation's contents")?,
         },
         value => {
             return Err(ProtocolError::Unrecognised {
@@ -1534,6 +1560,9 @@ mod query_kind {
     // §12.7's form fields, carried since the three-hundred-and-ninety-eighth session: the sixth of
     // `doc/todo/37`'s chrome populations and the last to cross. ADR 0235.
     pub(super) const FIELDS: u8 = 28;
+    // §12.5.6.6's annotation at a point, carried since the four-hundred-and-first session: the way
+    // in to typing on the one markup subtype whose text is the annotation. ADR 0238.
+    pub(super) const FREE_TEXT_AT: u8 = 29;
 }
 
 /// Encodes one question.
@@ -1583,6 +1612,9 @@ pub(crate) fn encode_query(query: Query<'_>) -> Result<Vec<u8>, Uncarried> {
                 .point(at)
                 .usize(from)
                 .usize(to);
+        }
+        Query::FreeTextAt { at } => {
+            writer.u8(k::FREE_TEXT_AT).point(at);
         }
         Query::Dirty => {
             writer.u8(k::DIRTY);
@@ -1679,6 +1711,9 @@ pub(crate) enum PlainQuery {
         from: usize,
         to: usize,
     },
+    FreeTextAt {
+        at: (f32, f32),
+    },
     Dirty,
     Selection,
     LogicalSelection,
@@ -1716,6 +1751,7 @@ impl OwnedQuery {
                 PlainQuery::FieldSelection { at, from, to } => {
                     Query::FieldSelection { at, from, to }
                 }
+                PlainQuery::FreeTextAt { at } => Query::FreeTextAt { at },
                 PlainQuery::Dirty => Query::Dirty,
                 PlainQuery::Selection => Query::Selection,
                 PlainQuery::LogicalSelection => Query::LogicalSelection,
@@ -1771,6 +1807,9 @@ pub(crate) fn decode_query(bytes: &[u8]) -> Result<OwnedQuery, ProtocolError> {
             at: reader.point("a point")?,
             from: reader.usize("a selection offset")?,
             to: reader.usize("a selection offset")?,
+        }),
+        k::FREE_TEXT_AT => OwnedQuery::Plain(PlainQuery::FreeTextAt {
+            at: reader.point("a point")?,
         }),
         k::DIRTY => OwnedQuery::Plain(PlainQuery::Dirty),
         k::FIND => OwnedQuery::Find(reader.string("a search string")?),
@@ -1837,6 +1876,8 @@ mod answer_kind {
     pub(super) const FIELD_SELECTION: u8 = 28;
     // §12.7's form fields, the twelfth answer a panel — or a native form — is made of. ADR 0235.
     pub(super) const FIELDS: u8 = 29;
+    // §12.5.6.6's annotation and its `/Contents`, since the four-hundred-and-first. ADR 0238.
+    pub(super) const FREE_TEXT: u8 = 30;
 }
 
 /// Encodes one answer.
@@ -1925,6 +1966,9 @@ pub(crate) fn encode_answer(answer: &Answer<'_>) -> Result<Vec<u8>, Uncarried> {
                     writer.quad(*quad);
                 }
             }
+        }
+        Answer::FreeText { annotation, text } => {
+            writer.u8(k::FREE_TEXT).object(*annotation).str(text);
         }
         Answer::Dirty(dirty) => {
             writer.u8(k::DIRTY).bool(*dirty);
@@ -2084,6 +2128,10 @@ pub(crate) fn decode_answer(bytes: &[u8]) -> Result<Reply, ProtocolError> {
             let what = "a search result";
             Reply::Found(reader.list(what, |reader| read_quads(reader, what))?)
         }
+        k::FREE_TEXT => Reply::FreeText {
+            annotation: reader.object("a free text annotation")?,
+            text: reader.string("a free text annotation's contents")?,
+        },
         k::DIRTY => Reply::Dirty(reader.bool("a dirty flag")?),
         k::FOCUS => Reply::Focus {
             object: reader.object("an annotation")?,
@@ -2212,6 +2260,11 @@ mod tests {
     /// `encode_command`'s match fail to compile, and this is where somebody then notices that
     /// the new one has no round trip.
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one entry per command this transport carries, and the count is `viewer-core`'s. \
+                  A second list would be a list somebody forgets to add to"
+    )]
     fn every_carried_command_round_trips() {
         let commands = vec![
             Command::Open {
@@ -2272,6 +2325,17 @@ mod tests {
             Command::Edit(Edit::Markup {
                 kind: Markup::Squiggly,
                 colour: [1.0, 0.5, 0.0],
+            }),
+            // §12.5.6.6's two, since the four-hundred-and-first session: a rectangle a person
+            // drew, and what they typed in it.
+            Command::Edit(Edit::FreeText {
+                from: (12.0, 34.0),
+                to: (56.0, 78.0),
+                colour: [0.7, 0.1, 0.1],
+            }),
+            Command::Edit(Edit::SetFreeText {
+                annotation: ObjectId::new(19, 0),
+                text: "Reviewed".to_owned(),
             }),
             Command::Undo,
             Command::Redo,
@@ -2483,6 +2547,7 @@ mod tests {
                 from: 2,
                 to: 6,
             },
+            Query::FreeTextAt { at: (3.0, 4.0) },
             Query::Dirty,
             Query::Find("needle"),
             Query::Selection,
@@ -2503,7 +2568,7 @@ mod tests {
             Query::Fields,
             Query::AccessibilityTree,
         ];
-        assert_eq!(carried.len(), 28, "every question `viewer-core` states");
+        assert_eq!(carried.len(), 29, "every question `viewer-core` states");
         for query in carried {
             let encoded = encode_query(query).unwrap();
             let read = decode_query(&encoded).unwrap();

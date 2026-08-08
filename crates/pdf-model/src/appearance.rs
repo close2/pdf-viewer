@@ -1844,7 +1844,12 @@ fn field_text(
         .map_err(Refusal::Text)
 }
 
-/// Where the caret sits inside a widget's value, in **default user space**.
+/// Where the caret sits inside the text of an annotation, in **default user space**.
+///
+/// **Two subtypes, and [`frame`] says why**: a widget whose field §12.7.4.3 lays text out for, and
+/// §12.5.6.6's free text annotation, whose own clause sends it to that same subclause. Everything
+/// below is written of a field because that is where it started, and every word of it is true of
+/// the other — the layout underneath is one layout, and the way in is what differs.
 ///
 /// The place the next character will be drawn, which §12.7.4.3's layout is what knows: the x a
 /// line is positioned at plus the width of the value's own prefix, between the ascent and the
@@ -1978,15 +1983,25 @@ fn ask(
     Some((laid_out, onto_page))
 }
 
-/// The box a widget's value is laid out in, and the map from that box onto the page.
+/// The box the text is laid out in, and the map from that box onto the page.
 ///
 /// The two `crate::annotation::decide` chooses between, chosen the same way — see [`caret`]'s own
 /// note on which space is which.
+///
+/// **Two subtypes reach here and the standard is why**: §12.7.4.3 lays text out for a widget whose
+/// field states some, and §12.5.6.6 sends its own annotation to that same subclause — "[s]ubclause
+/// 12.7.4.3, 'Variable text', describes the process of using these entries to generate the
+/// appearance of the text in these annotations". What differs is the *box*, because Table 177
+/// states one entry Table 192 does not and neither of Table 192's two: a free text annotation's
+/// text sits in `/RD`'s inner rectangle, a widget's inside its border and under Table 192's `/R`.
 fn frame(
     document: &Document,
     annotation: &Dictionary,
     view: crate::view::AnnotationView<'_>,
 ) -> Option<([f32; 4], Transform)> {
+    if is_free_text(document, annotation) {
+        return free_text_frame(document, annotation, view);
+    }
     let field = Field::read(document, annotation, view.value);
     if field.too_deep
         || !matches!(
@@ -2012,6 +2027,26 @@ fn frame(
     ))
 }
 
+/// The box §12.5.6.6's text is laid out in, and the map from it onto the page.
+///
+/// [`frame`]'s other half. Where the file carries an appearance stream the text is laid out in
+/// that stream's `/BBox` and §12.5.5's algorithm maps it onto `/Rect`, exactly as for a widget;
+/// where there is none, [`free_text`] writes its marks in Table 177's `/RD` rectangle — which is
+/// already in the page's own space, so the map is the identity and not a coincidence. `/BBox` is
+/// `/Rect` for an appearance this program writes (ADR 0196's argument, one subtype over), which
+/// makes §12.5.5's map the identity too.
+fn free_text_frame(
+    document: &Document,
+    annotation: &Dictionary,
+    view: crate::view::AnnotationView<'_>,
+) -> Option<([f32; 4], Transform)> {
+    if let Some((bbox, placement)) = crate::annotation::stored_frame(document, annotation, view) {
+        return Some((bbox, placement));
+    }
+    let rect = rectangle(document, annotation).ok()?;
+    Some((differences(document, annotation, rect), Transform::IDENTITY))
+}
+
 /// The layout itself, in the box [`frame`] chose.
 fn laid_out_in(
     document: &Document,
@@ -2020,6 +2055,11 @@ fn laid_out_in(
     box_: [f32; 4],
     asked: Asked,
 ) -> Option<variable_text::LaidOut> {
+    if is_free_text(document, annotation) {
+        return free_text_layout(document, annotation, box_, asked)
+            .ok()
+            .flatten();
+    }
     let characteristics = document.get_key(annotation, "MK").as_dict().cloned();
     let source = characteristics.as_ref().unwrap_or(annotation);
     field_text(document, annotation, source, box_, view.value, asked)
@@ -2182,7 +2222,15 @@ pub(crate) fn accepted_prefix(
 /// shall be used in drawing the annotation's border" and no clause states its *colour* — Table
 /// 166's `/C` is the icon background, the popup title bar and a link's border, none of which a
 /// free text annotation has. So a border is refused on the same grounds as §12.5.6.10's marks,
-/// and reported only where a width is stated for it.
+/// and reported wherever one has a width.
+///
+/// **This sentence said "reported only where a width is stated for it" until the
+/// four-hundred-and-first session**, and that is not the condition: Table 166's `/Border` states
+/// "Default value: [0 0 1]", so an annotation saying nothing at all about its border has one a
+/// point wide and is reported. The default is the *table's* rather than this module's, which is
+/// why the condition stands and the sentence changed — and it is why
+/// [`crate::view::ViewState::add_free_text`] writes a `/BS` with Table 168's `/W` 0 rather than
+/// leaving the question to a default.
 ///
 /// # Where the text comes from, and Table 177's second source for it
 ///
@@ -2205,13 +2253,91 @@ pub(crate) fn accepted_prefix(
 /// annotation.
 fn free_text(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Outcome {
     let rect = rectangle(document, annotation)?;
+    // §12.5.6.6's `/RD` uses the same left, top, right, bottom order §12.5.6.8's does, which
+    // `differences` already reads.
+    let box_ = differences(document, annotation, rect);
+    let laid_out = free_text_layout(document, annotation, box_, Asked::default())?;
+    let decoration = undrawn_decoration(document, annotation);
+    let Some(laid_out) = laid_out else {
+        return Ok(Painted {
+            drawn: false,
+            report: decoration,
+        });
+    };
+    stream.text.push_str(&laid_out.content);
+    stream.resources = Some(with_stand_in_font(
+        default_resources(document),
+        laid_out.font,
+    ));
+    Ok(Painted {
+        drawn: true,
+        report: laid_out.owed.map(Refusal::Text).or(decoration),
+    })
+}
+
+/// What Table 177 asks to be drawn *around* the text and no clause states a colour for.
+///
+/// Two entries, both reported by name rather than guessed at, and both for one reason: Table
+/// 166's `/C` is "the background of the annotation's icon when closed, the title bar of the
+/// annotation's popup window, [and] the border of a link annotation", none of which a free text
+/// annotation has — so nothing in the standard says what colour either mark is.
+///
+/// - `/CL` is "an array of four or six numbers specifying a callout line attached to the free
+///   text annotation", with `/LE` naming "the line ending style that shall be used in drawing the
+///   callout line specified in `CL`". This is also the whole of what Table 177's `/IT` asks for:
+///   `FreeTextCallout` is "intended to function as a callout … through the callout line specified
+///   in CL", `FreeTextTypeWriter` states that "no callout line is drawn", and `FreeText` is the
+///   default and plain — so the two intents that are not this one ask for nothing this
+///   construction does not already do.
+/// - `/BS` gives "the line width and dash pattern that shall be used in drawing the annotation's
+///   border".
+///
+/// The callout outranks the border because it is the larger absence: a line reaching out to a
+/// place on the page says which place the note is about.
+fn undrawn_decoration(document: &Document, annotation: &Dictionary) -> Option<Refusal> {
+    let callout = document
+        .get_key(annotation, "CL")
+        .as_array()
+        .is_some_and(|line| !line.is_empty());
+    if callout {
+        return Some(Refusal::NotDerivable(
+            "Table 177's /CL states a callout line and /LE the style of its ending, and no \
+             clause states the colour to draw them in",
+        ));
+    }
+    Border::read(document, annotation, annotation, "C")
+        .is_ok_and(|border| border.width > 0.0)
+        .then_some(Refusal::NotDerivable(
+            "Table 177's /BS gives its border a width, and no clause states the colour",
+        ))
+}
+
+/// §12.5.6.6's text, laid out by §12.7.4.3 in the box the annotation leaves for it.
+///
+/// **One function for the two things that ask for this layout**, which is why it is not simply
+/// [`free_text`]'s middle: the appearance that draws, and the three questions [`caret`],
+/// [`offset_at`] and [`selection`] ask of an annotation a person is typing into. A second copy of
+/// the wiring — where the text comes from, which `/DA` applies, which `/Q` — would be a second
+/// chance to answer one of those differently, and the cursor would sit beside the text rather
+/// than in it.
+///
+/// `Ok(None)` is an annotation stating no text, which draws nothing. **An empty one is still laid
+/// out where a question asked something of it**, exactly as an empty field is: somewhere for the
+/// first character to go is the one thing an empty box can be asked, and an annotation a person
+/// has just drawn with a pointer is empty by construction.
+fn free_text_layout(
+    document: &Document,
+    annotation: &Dictionary,
+    box_: [f32; 4],
+    asked: Asked,
+) -> Result<Option<variable_text::LaidOut>, Refusal> {
     let text = variable_text::string(document, &[annotation], "Contents")
         .filter(|contents| !contents.is_empty())
-        .or_else(|| crate::popup::rich_text(document, annotation));
-    let Some(text) = text.filter(|text| !text.is_empty()) else {
-        return Ok(Painted::EMPTY);
-    };
-
+        .or_else(|| crate::popup::rich_text(document, annotation))
+        .unwrap_or_default();
+    if text.is_empty() && asked == Asked::default() {
+        return Ok(None);
+    }
     let form = interactive_form(document).unwrap_or_default();
     let sources = [annotation, &form];
     let Some(default_appearance) = variable_text::bytes(document, &sources, "DA") else {
@@ -2220,31 +2346,25 @@ fn free_text(document: &Document, annotation: &Dictionary, stream: &mut Stream) 
     let resources = default_resources(document);
     let request = Request {
         text: &text,
-        // §12.5.6.6's `/RD` uses the same left, top, right, bottom order §12.5.6.8's does,
-        // which `differences` already reads.
-        box_: differences(document, annotation, rect),
+        box_,
         default_appearance: &default_appearance,
         resources: &resources,
         quadding: Quadding::read(document, &sources),
         // Table 177 states no single-line free text: the annotation is a box of prose.
         shape: Shape::Multiline,
-        // §12.5.6.6's text is not a field and nothing types into it — see `doc/todo/33`.
-        asked: Asked::default(),
+        asked,
     };
-    let laid_out = variable_text::lay_out(document, &request).map_err(Refusal::Text)?;
-    stream.text.push_str(&laid_out.content);
-    stream.resources = Some(with_stand_in_font(resources, laid_out.font));
+    variable_text::lay_out(document, &request)
+        .map(Some)
+        .map_err(Refusal::Text)
+}
 
-    let bordered =
-        Border::read(document, annotation, annotation, "C").is_ok_and(|border| border.width > 0.0);
-    Ok(Painted {
-        drawn: true,
-        report: laid_out.owed.map(Refusal::Text).or_else(|| {
-            bordered.then_some(Refusal::NotDerivable(
-                "Table 177's /BS gives its border a width, and no clause states the colour",
-            ))
-        }),
-    })
+/// Whether this annotation is §12.5.6.6's, which Table 177 makes `/Subtype /FreeText`.
+fn is_free_text(document: &Document, annotation: &Dictionary) -> bool {
+    document
+        .get_key(annotation, "Subtype")
+        .as_name()
+        .is_some_and(|subtype| subtype.as_bytes() == b"FreeText")
 }
 
 /// Adds the font [`variable_text::lay_out`] invented, if it invented one, to `/DR`'s resources.

@@ -132,6 +132,26 @@ pub struct ViewState {
     added: Vec<Added>,
 }
 
+/// The resource name the `/DA` of a free text annotation this program creates uses.
+///
+/// **One of §12.7.4.3's own fourteen abbreviations**, and that is the whole argument for it:
+/// `variable_text`'s `STANDARD_ABBREVIATIONS` is a bijection between these names and §9.6.2.2's
+/// fourteen standard fonts, so a reader that has never heard of this program still knows what
+/// `/Helv` denotes — and where the document's `/DR` already defines the name, that definition is
+/// the document's own and wins, which is exactly what the clause asks.
+const FREE_TEXT_FONT: &str = "Helv";
+
+/// What [`FREE_TEXT_FONT`] is defined as when the document defines nothing under that name.
+const FREE_TEXT_BASE_FONT: &str = "Helvetica";
+
+/// The size the `/DA` of a free text annotation this program creates states, in points.
+///
+/// **A choice, and the standard states nothing about it**: §12.7.4.3 describes reading a `/DA`
+/// and says only that "[a] zero value for size means that the font shall be auto-sized". Zero is
+/// therefore available and is not what a person drawing a text box means — auto-sizing grows one
+/// character until it fills whatever rectangle was dragged. Twelve points is a note.
+const FREE_TEXT_SIZE: f32 = 12.0;
+
 /// One annotation a person added, and the page it belongs to.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Added {
@@ -572,6 +592,218 @@ impl ViewState {
         Some(id)
     }
 
+    /// Adds §12.5.6.6's free text annotation over a rectangle a person drew.
+    ///
+    /// > A free text annotation ( PDF 1.3 ) displays text directly on the page. Unlike an ordinary
+    /// > text annotation (see 12.5.6.4, "Text annotations"), a free text annotation has no open or
+    /// > closed state; instead of being displayed in a popup window, the text shall be always
+    /// > visible.
+    ///
+    /// The one markup subtype whose text *is* the annotation, which is why the geometry comes from
+    /// a **drag** rather than from a selection the way [`ViewState::add_markup`]'s does: there is
+    /// no text on the page for it to be over. `rect` is in **default user space**, in either corner
+    /// order, and the two corners are normalised here for the reason §12.5.2 gives — Table 166's
+    /// `/Rect` "shall be two opposite corners", and states no order for them.
+    ///
+    /// Returns the object the annotation will be written under — its identity for as long as the
+    /// document is open, which is what [`ViewState::set_free_text`] names it by — or `None` for a
+    /// rectangle with a non-finite corner or no area at all. **The second is a choice**: a press
+    /// that never moved has drawn no box, and an annotation of zero extent would be one nothing
+    /// could be typed into and nothing could be seen in.
+    ///
+    /// # What is written, and what the standard requires of it
+    ///
+    /// Table 177's `/Subtype` and `/DA`, both Required; Table 166's `/Rect`, `/Contents` and
+    /// `/F 4`. Three of them are decisions rather than readings and are recorded as such:
+    ///
+    /// - **The `/DA`.** Table 177 makes it "[t]he default appearance string that shall be used in
+    ///   formatting the text", and §12.7.4.3 states what it must contain: "[a]t a minimum, the
+    ///   string shall include a Tf (text font) operator along with its two operands, font and
+    ///   size." The standard describes *reading* one and states nothing about what a processor
+    ///   creating an annotation should write, so the colour is the caller's, the size is
+    ///   [`FREE_TEXT_SIZE`] and the resource name is [`FREE_TEXT_FONT`]. A size of 0 would be the
+    ///   clause's auto-sizing, which grows the first character to fill whatever box was dragged;
+    ///   a fixed size is what a person drawing a text box means by drawing it.
+    /// - **The colour goes in the `/DA` and not in Table 166's `/C`.** That entry is "the
+    ///   background of the annotation's icon when closed, the title bar of the annotation's popup
+    ///   window, [and] the border of a link annotation", none of which this subtype has — the
+    ///   colour of the *text* is §12.7.4.3's, which is the `/DA`.
+    /// - **`/F 4` is Table 167's `Print` bit**, for [`ViewState::add_markup`]'s reason exactly: a
+    ///   note a person adds to send a document on means the note to survive printing.
+    ///
+    /// `/M` and `/T` are left out for the same two reasons `add_markup` leaves them out — rule 3
+    /// gives this crate no clock, and a person's name is not something this program knows.
+    ///
+    /// **Nothing is written to the file** until [`ViewState::save`] turns the log into §7.5.6's
+    /// incremental update, which is where §12.7.4.3's `/DR` obligation is met — see
+    /// [`Update::state_default_font`].
+    pub fn add_free_text(
+        &mut self,
+        document: &Document,
+        page: ObjectId,
+        rect: [f32; 4],
+        text: &str,
+        colour: [f32; 3],
+    ) -> Option<ObjectId> {
+        if !rect.iter().all(|edge| edge.is_finite()) {
+            return None;
+        }
+        let (left, right) = (rect[0].min(rect[2]), rect[0].max(rect[2]));
+        let (bottom, top) = (rect[1].min(rect[3]), rect[1].max(rect[3]));
+        if left >= right || bottom >= top {
+            return None;
+        }
+        let [red, green, blue] = colour.map(|value| value.clamp(0.0, 1.0));
+        let mut dict = Dictionary::default();
+        dict.insert(
+            Name::new(&b"Type"[..]),
+            Object::Name(Name::new(&b"Annot"[..])),
+        );
+        dict.insert(
+            Name::new(&b"Subtype"[..]),
+            Object::Name(Name::new(&b"FreeText"[..])),
+        );
+        dict.insert(
+            Name::new(&b"Rect"[..]),
+            Object::Array(
+                [left, bottom, right, top]
+                    .into_iter()
+                    .map(|edge| Object::Real(f64::from(edge)))
+                    .collect(),
+            ),
+        );
+        dict.insert(
+            Name::new(&b"DA"[..]),
+            Object::String(
+                format!("{red} {green} {blue} rg /{FREE_TEXT_FONT} {FREE_TEXT_SIZE} Tf")
+                    .into_bytes()
+                    .into(),
+            ),
+        );
+        // Table 167 bit 3.
+        dict.insert(Name::new(&b"F"[..]), Object::Integer(4));
+        // Table 168's `/W`: "If this value is 0, no border shall be drawn." Stated rather than
+        // left out, and that is the point — Table 166's `/Border` defaults to `[0 0 1]`, so an
+        // annotation saying *nothing* about its border has one a point wide, and no clause
+        // anywhere says what colour to draw it. A file this program writes may not leave that
+        // question open: `appearance`'s `undrawn_decoration` would report the annotation this
+        // program itself just created, which is a program telling a person it cannot do what it
+        // has done. So the annotation says it has no border, which is a **choice** and the honest
+        // one available — the alternative is inventing a colour.
+        let mut style = Dictionary::default();
+        style.insert(
+            Name::new(&b"Type"[..]),
+            Object::Name(Name::new(&b"Border"[..])),
+        );
+        style.insert(Name::new(&b"W"[..]), Object::Integer(0));
+        dict.insert(Name::new(&b"BS"[..]), Object::Dictionary(style));
+        let id = self.next_free_object(document);
+        self.added.push(Added { id, page, dict });
+        self.set_free_text(id, text);
+        Some(id)
+    }
+
+    /// Puts §12.5.6.6's text into an annotation a person added, as Table 166's `/Contents`.
+    ///
+    /// Table 166 gives that entry two jobs — text to be displayed for the annotation, or, where
+    /// the subtype displays none, a description of what it holds — and §12.5.6.6 is the first
+    /// kind: the text is what the annotation *is*, so the entry is its
+    /// value in the sense Table 226's `/V` is a field's — and this is [`ViewState::set_field`]'s
+    /// counterpart, named by object rather than by §12.7.4.2's qualified name because an
+    /// annotation has no such name and nothing inherits from it.
+    ///
+    /// Returns whether anything took the text. **`false` for an annotation this state did not
+    /// add**, which includes every free text annotation the file itself states: changing one of
+    /// those means replacing an object the producer wrote, and what this crate holds is a log
+    /// beside an immutable document. `doc/todo/33` carries what that would cost.
+    pub fn set_free_text(&mut self, annotation: ObjectId, text: &str) -> bool {
+        let Some(added) = self.added.iter_mut().find(|added| added.id == annotation) else {
+            return false;
+        };
+        if added
+            .dict
+            .get("Subtype")
+            .and_then(Object::as_name)
+            .is_none_or(|subtype| subtype.as_bytes() != b"FreeText")
+        {
+            return false;
+        }
+        added.dict.insert(
+            Name::new(&b"Contents"[..]),
+            Object::String(pdf_syntax::text_string::encode_text_string(text).into()),
+        );
+        true
+    }
+
+    /// The free text annotation a person added at a point, and what it says now.
+    ///
+    /// The point is in **default user space**, as every other question here takes it, and the
+    /// answer is the **last** annotation covering it — §12.5.2 draws them in the order they were
+    /// added and the one on top is the one under the pointer, which is the rule
+    /// [`crate::view::annotation_at`] applies to the page's own array.
+    ///
+    /// **Only annotations this state added**, for [`ViewState::set_free_text`]'s reason: aiming a
+    /// keyboard at one whose text nothing can change would be an interface that looks like it
+    /// works.
+    #[must_use]
+    pub fn free_text_at(
+        &self,
+        document: &Document,
+        page: &crate::Page,
+        x: f32,
+        y: f32,
+    ) -> Option<(ObjectId, String)> {
+        let (id, dict) = self.added_free_text_at(document, page, x, y)?;
+        let text = crate::variable_text::string(document, &[&dict], "Contents").unwrap_or_default();
+        Some((id, text))
+    }
+
+    /// [`Self::free_text_at`] with the dictionary rather than the text, for the caret's three
+    /// questions.
+    fn added_free_text_at(
+        &self,
+        document: &Document,
+        page: &crate::Page,
+        x: f32,
+        y: f32,
+    ) -> Option<(ObjectId, Dictionary)> {
+        self.added_on(page.id)
+            .filter(|added| {
+                added
+                    .dict
+                    .get("Subtype")
+                    .and_then(Object::as_name)
+                    .is_some_and(|subtype| subtype.as_bytes() == b"FreeText")
+            })
+            .filter(|added| rectangle_covers(document, &added.dict, f64::from(x), f64::from(y)))
+            .last()
+            .map(|added| (added.id, added.dict.clone()))
+    }
+
+    /// The thing at a point that a person can put a caret in, whatever kind it is.
+    ///
+    /// Two kinds, because §12.7.4.3 lays text out for two: a widget whose field states text, and
+    /// §12.5.6.6's free text annotation, whose clause sends it to that same subclause. The added
+    /// annotation is asked about **first**, because the interpreter draws what a person added
+    /// after the page's own `/Annots` and the last thing drawn is the thing on top.
+    fn typeable_at(
+        &self,
+        document: &Document,
+        page: &crate::Page,
+        x: f32,
+        y: f32,
+    ) -> Option<(ObjectId, Dictionary)> {
+        if let Some(found) = self.added_free_text_at(document, page, x, y) {
+            return Some(found);
+        }
+        // The last widget covering the point, which is the one drawn on top (§12.5.2's order) and
+        // the one `field_at` names — so the caret and the name a host asked for are the same
+        // field's.
+        let widget = widgets_at(document, page, x, y).last().copied()?;
+        let dict = document.get(widget).as_dict().cloned()?;
+        Some((widget, dict))
+    }
+
     /// A number no object in the file and no annotation already added is using.
     ///
     /// The same rule [`Update::beside`] applies, and for the same reason: §7.5.5 makes `/Size`
@@ -729,7 +961,12 @@ impl ViewState {
         crate::appearance::field_text_value(document, dict, self.annotation(widget).value)
     }
 
-    /// Where the caret sits in the field at a point, as a segment in **default user space**.
+    /// Where the caret sits in whatever is at a point, as a segment in **default user space**.
+    ///
+    /// **Two kinds of thing answer**, and §12.5.6.6 is why the second does: a widget whose field
+    /// §12.7.4.3 lays text out for, and a free text annotation a person added, whose own clause
+    /// sends it to that same subclause. The rest of this comment is written of a field because
+    /// that is where it started, and every word of it holds for the other.
     ///
     /// `[x0, y0, x1, y1]`: the end on the descent side of the baseline, then the end on the
     /// ascent side. Two points rather than a rectangle because a caret has no width — how thick
@@ -758,13 +995,8 @@ impl ViewState {
         y: f32,
         offset: usize,
     ) -> Option<[f32; 4]> {
-        // The last widget covering the point, which is the one drawn on top (§12.5.2's order) and
-        // the one `field_at` names — so the caret and the name a host asked for are the same
-        // field's.
-        let widget = widgets_at(document, page, x, y).last().copied()?;
-        let object = document.get(widget);
-        let dict = object.as_dict()?;
-        crate::appearance::caret(document, dict, self.annotation(widget), offset)
+        let (id, dict) = self.typeable_at(document, page, x, y)?;
+        crate::appearance::caret(document, &dict, self.annotation(id), offset)
     }
 
     /// Which byte of a field's value a point inside it falls nearest, as an offset into it.
@@ -794,10 +1026,8 @@ impl ViewState {
         at: (f32, f32),
         point: (f32, f32),
     ) -> Option<usize> {
-        let widget = widgets_at(document, page, at.0, at.1).last().copied()?;
-        let object = document.get(widget);
-        let dict = object.as_dict()?;
-        crate::appearance::offset_at(document, dict, self.annotation(widget), point)
+        let (id, dict) = self.typeable_at(document, page, at.0, at.1)?;
+        crate::appearance::offset_at(document, &dict, self.annotation(id), point)
     }
 
     /// The shapes covering a byte range of a field's value, in **default user space**.
@@ -821,10 +1051,8 @@ impl ViewState {
         at: (f32, f32),
         range: (usize, usize),
     ) -> Option<Vec<[f32; 8]>> {
-        let widget = widgets_at(document, page, at.0, at.1).last().copied()?;
-        let object = document.get(widget);
-        let dict = object.as_dict()?;
-        crate::appearance::selection(document, dict, self.annotation(widget), range)
+        let (id, dict) = self.typeable_at(document, page, at.0, at.1)?;
+        crate::appearance::selection(document, &dict, self.annotation(id), range)
     }
 
     /// Forgets what a person typed into one field, leaving whatever the file and the actions say.
@@ -939,6 +1167,17 @@ impl ViewState {
             // The numbers were allocated when the annotation was added, so nothing else in this
             // update may reach for them.
             update.reserve(added.id);
+        }
+        // §12.7.4.3's `shall` about the `/DA` [`ViewState::add_free_text`] writes, met by the
+        // writing rather than left to the next reader to recover from.
+        if self.added.iter().any(|added| {
+            added
+                .dict
+                .get("Subtype")
+                .and_then(Object::as_name)
+                .is_some_and(|subtype| subtype.as_bytes() == b"FreeText")
+        }) {
+            update.state_default_font(document);
         }
         for added in &self.added {
             let mut dict = added.dict.clone();
@@ -1403,6 +1642,91 @@ impl Update {
             next: highest.saturating_add(1).max(stated),
             needs_appearances: false,
         }
+    }
+
+    /// States [`FREE_TEXT_FONT`] in Table 224's `/DR`, where the document states nothing there.
+    ///
+    /// §12.7.4.3 puts a `shall` on the `/DA` this program writes, and it is about a *different*
+    /// dictionary from the one the `/DA` is in:
+    ///
+    /// > The specified font value shall match a resource name in the Font entry of the default
+    /// > resource dictionary (referenced from the DR entry of the interactive form dictionary; see
+    /// > "Table 224 -Entries in the interactive form dictionary").
+    ///
+    /// So a file carrying a free text annotation whose `/DA` names a font `/DR` does not define is
+    /// a file that breaks the clause — which is a thing this program *reads* six of in the corpus
+    /// and recovers from by name, and a thing it may not *write*. `/AP` taking precedence over
+    /// `/DA` (Table 177) does not settle it: the next reader to regenerate the appearance is
+    /// exactly the one the entry is for.
+    ///
+    /// **The document's own definition always wins**, because the clause's sentence is satisfied
+    /// the moment `/DR` states the name and the definition is then the document's opinion about
+    /// its own resource, which is the same rule `variable_text`'s `Resolution::Named` follows when
+    /// drawing. Nothing is written where `/Font` already has the key.
+    ///
+    /// **Where the file keeps each level is where each is rewritten**, which is `/Annots`' rule one
+    /// clause over: the innermost indirect object on the path is the one replaced, and the levels
+    /// above it are folded into it only where the file wrote them inline. A document with no
+    /// interactive form dictionary at all gets one, with Table 224's Required `/Fields` as the
+    /// empty array — a form with no fields, which is what the document has.
+    fn state_default_font(&mut self, document: &Document) {
+        let Ok(catalog) = document.catalog() else {
+            return;
+        };
+        let held = |update: &Self, entry: Option<&Object>| match entry {
+            Some(Object::Reference(id)) => (Some(*id), update.current(document, *id)),
+            other => (None, other.and_then(Object::as_dict).cloned()),
+        };
+        let (form_id, form) = held(self, catalog.get("AcroForm"));
+        let mut form = form.unwrap_or_else(|| {
+            let mut form = Dictionary::default();
+            // Table 224: "(Required) An array of references to the document's root fields."
+            form.insert(Name::new(&b"Fields"[..]), Object::Array(Vec::new()));
+            form
+        });
+        let (resources_id, resources) = held(self, form.get("DR"));
+        let mut resources = resources.unwrap_or_default();
+        let (fonts_id, fonts) = held(self, resources.get("Font"));
+        let mut fonts = fonts.unwrap_or_default();
+        if fonts.get(FREE_TEXT_FONT).is_some() {
+            return;
+        }
+        let mut font = Dictionary::default();
+        for (key, value) in [
+            (&b"Type"[..], &b"Font"[..]),
+            (&b"Subtype"[..], &b"Type1"[..]),
+            (&b"BaseFont"[..], FREE_TEXT_BASE_FONT.as_bytes()),
+        ] {
+            font.insert(Name::new(key), Object::Name(Name::new(value)));
+        }
+        fonts.insert(
+            Name::new(FREE_TEXT_FONT.as_bytes()),
+            Object::Dictionary(font),
+        );
+        if let Some(id) = fonts_id {
+            self.put(id, Object::Dictionary(fonts));
+            return;
+        }
+        resources.insert(Name::new(&b"Font"[..]), Object::Dictionary(fonts));
+        if let Some(id) = resources_id {
+            self.put(id, Object::Dictionary(resources));
+            return;
+        }
+        form.insert(Name::new(&b"DR"[..]), Object::Dictionary(resources));
+        if let Some(id) = form_id {
+            self.put(id, Object::Dictionary(form));
+            return;
+        }
+        let Some(root) = document
+            .trailer()
+            .get("Root")
+            .and_then(Object::as_reference)
+        else {
+            return;
+        };
+        let mut catalog = catalog;
+        catalog.insert(Name::new(&b"AcroForm"[..]), Object::Dictionary(form));
+        self.put(root, Object::Dictionary(catalog));
     }
 
     /// Records what one object now says, replacing anything already recorded for it.

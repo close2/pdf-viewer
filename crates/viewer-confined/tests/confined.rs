@@ -705,6 +705,81 @@ fn a_form_crosses_the_boundary_and_can_be_filled_in_through_it() {
     );
 }
 
+/// §12.5.6.6: a confined host draws a text box, types in it, and saves the file.
+///
+/// **The third consumer, and the one that would silently have less.** A vocabulary that reached
+/// `viewer-ui` and the headless harness and not this transport would be a confined host that can
+/// read a document and not annotate one, which is ADR 0178's failure exactly. Every message this
+/// round added crosses here: the drag, the question that names what it made, the text, and the
+/// bytes coming back — and the *pixels* are the proof, because the confined process is what drew
+/// them and this process never saw a display list.
+#[test]
+fn a_free_text_annotation_is_drawn_typed_and_saved_behind_the_filter() {
+    let (mut confined, _) = opened();
+    let Ok(Reply::Geometry(geometry)) = confined.query(Query::PageGeometry(0)) else {
+        panic!("the page in the confined process has a geometry");
+    };
+    let corner = |across: f32, down: f32| {
+        (
+            geometry.origin.0 + geometry.page.width * across * geometry.scale,
+            geometry.origin.1 + geometry.page.height * down * geometry.scale,
+        )
+    };
+    let (from, to) = (corner(0.2, 0.45), corner(0.8, 0.55));
+    confined
+        .handle(&Command::Edit(viewer_core::Edit::FreeText {
+            from,
+            to,
+            colour: [1.0, 0.0, 0.0],
+        }))
+        .expect("a drag crosses");
+
+    let middle = (f32::midpoint(from.0, to.0), f32::midpoint(from.1, to.1));
+    let Ok(Reply::FreeText { annotation, text }) = confined.query(Query::FreeTextAt { at: middle })
+    else {
+        panic!("the annotation the drag made is under the point");
+    };
+    assert!(text.is_empty(), "nothing has been typed into it yet");
+
+    confined
+        .handle(&Command::Edit(viewer_core::Edit::SetFreeText {
+            annotation,
+            text: "Reviewed".to_owned(),
+        }))
+        .expect("the text crosses");
+    let Ok(Reply::FreeText { text, .. }) = confined.query(Query::FreeTextAt { at: middle }) else {
+        panic!("and it is still there");
+    };
+    assert_eq!(text, "Reviewed", "read back through the pipe");
+
+    // The pixels, which is what this boundary exists to carry: the confined process interpreted
+    // and rasterised the page, and the red is a `/DA` this side never laid out.
+    let Ok(Reply::Frame { raster, .. }) = confined.query(Query::Frame) else {
+        panic!("the confined process has drawn a frame");
+    };
+    let red = raster
+        .data
+        .chunks_exact(4)
+        .filter(|pixel| pixel[0] > 150 && pixel[1] < 100 && pixel[2] < 100)
+        .count();
+    assert!(red > 40, "the text is on the confined frame: {red} pixels");
+
+    // And §7.5.6's update, produced by a process with no filesystem to write it to — which is
+    // exactly why the bytes come back rather than being written there.
+    let events = confined.handle(&Command::Save).expect("a save crosses");
+    let saved = events
+        .iter()
+        .find_map(|event| match event {
+            Event::Saved { bytes, .. } => Some(bytes.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("{events:?}"));
+    assert!(
+        saved.starts_with(&specification_bytes()),
+        "§7.5.6 appends, leaving the producer's bytes underneath"
+    );
+}
+
 /// A document whose images need a codec `pdf-sandbox` would ordinarily confine separately.
 ///
 /// The confined viewer cannot spawn anything — the filter has no `execve` — so it decodes its

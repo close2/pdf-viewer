@@ -274,6 +274,13 @@ pub enum Reply {
     Offset(usize),
     /// The shapes covering a range of a field's value, one per line it touches.
     FieldSelection(Vec<[f32; 8]>),
+    /// §12.5.6.6's annotation at a point, and Table 166's `/Contents` as it now stands.
+    FreeText {
+        /// The object, which [`viewer_core::Edit::SetFreeText`] names it by.
+        annotation: ObjectId,
+        /// What it says.
+        text: String,
+    },
     /// Where a string occurs, one entry per occurrence.
     Found(Vec<Vec<[f32; 8]>>),
     /// Whether anything has been edited.

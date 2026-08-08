@@ -122,6 +122,13 @@ impl Viewer {
 
     /// Answers a question about the viewer's state without changing any of it.
     #[must_use]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one arm per variant of this crate's own question enum, and the count is that \
+                  enum's. Splitting it would put half the vocabulary in another function and lose \
+                  what the exhaustive match is here for: the compiler naming the question nobody \
+                  answered"
+    )]
     pub fn query(&self, query: Query<'_>) -> Answer<'_> {
         let (Some(id), Some(open)) = (self.focused, self.focused()) else {
             return Answer::None;
@@ -186,6 +193,16 @@ impl Viewer {
             Query::FieldSelection { at, from, to } => self
                 .field_selection(open, at, (from, to))
                 .map_or(Answer::None, Answer::FieldSelection),
+            Query::FreeTextAt { at } => self
+                .user_space(open, at)
+                .and_then(|(x, y)| {
+                    let page = open.shown_page()?;
+                    open.view.free_text_at(&open.document, page, x, y)
+                })
+                .map_or(Answer::None, |(annotation, text)| Answer::FreeText {
+                    annotation,
+                    text,
+                }),
             Query::Dirty => Answer::Dirty(open.dirty()),
             Query::Properties => Answer::Properties {
                 information: pdf_model::metadata::Information::read(&open.document),
@@ -822,13 +839,28 @@ impl Viewer {
             events.push(refused);
             return;
         }
+        // §12.5.6.6's rectangle is measured in the viewport, and the map out of it needs the
+        // viewport's size and the display's scale — this type's rather than an open document's.
+        // Taken before the mutable borrow, because the two cannot be held at once.
+        let drag = match &edit {
+            crate::command::Edit::FreeText { from, to, .. } => {
+                let Some(open) = self.focused() else { return };
+                let (Some(from), Some(to)) =
+                    (self.user_space(open, *from), self.user_space(open, *to))
+                else {
+                    return;
+                };
+                Some([from, to])
+            }
+            _ => None,
+        };
         let Some(open) = self.focused_mut() else {
             return;
         };
         // What was *done*, rather than what was asked for: `Edit::Markup` names its target as
         // "what is selected", and a replay after the selection moved would mark up something
         // else. See `open::Done`.
-        let Some(done) = open.resolve(edit) else {
+        let Some(done) = open.resolve(edit, drag) else {
             return;
         };
         let before = open.dirty();
@@ -1801,7 +1833,14 @@ fn annotations_on(open: &Open, pages: &pdf_model::Pages, index: usize) -> Vec<Ob
 fn operation_of(edit: &crate::command::Edit) -> pdf_model::restriction::Operation {
     match edit {
         crate::command::Edit::SetField { .. } => pdf_model::restriction::Operation::FillInForm,
-        crate::command::Edit::Markup { .. } => pdf_model::restriction::Operation::Annotate,
+        // §12.5.6.6's annotation and the text inside it are both annotating, which Table 22's own
+        // wording separates from filling in a form: bit 6 is "[a]dd or modify text annotations,
+        // fill in interactive form fields", and bit 9 permits filling alone. So an edit to a free
+        // text annotation's `/Contents` is Annotate and not FillInForm, whatever it resembles at a
+        // keyboard.
+        crate::command::Edit::Markup { .. }
+        | crate::command::Edit::FreeText { .. }
+        | crate::command::Edit::SetFreeText { .. } => pdf_model::restriction::Operation::Annotate,
     }
 }
 

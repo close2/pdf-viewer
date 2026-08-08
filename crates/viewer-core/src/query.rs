@@ -185,6 +185,25 @@ pub enum Query<'a> {
         /// The other end. Either order: what is covered is between them.
         to: usize,
     },
+    /// §12.5.6.6: the free text annotation a person added at a point, and what it says now.
+    ///
+    /// **The way in to typing on this subtype**, and it is the counterpart of [`Query::FieldAt`]
+    /// rather than a second one of it: that question answers with §12.7.4.2's qualified name,
+    /// which an annotation has not got, so this one answers with the object —
+    /// [`crate::Edit::SetFreeText`] is what names it back.
+    ///
+    /// The text is Table 166's `/Contents` as the edit log has it now, which a host re-asks after
+    /// every keystroke for ADR 0201's reason: the value a host appends to must be the value the
+    /// document has, and not one it remembers sending.
+    ///
+    /// [`Answer::None`] where no such annotation covers the point — including for **every free
+    /// text annotation the file itself states**, because nothing in this crate can change one of
+    /// those and a host aiming a keyboard at it would be an interface pretending to work.
+    /// `doc/todo/33` carries what editing the producer's own object would cost.
+    FreeTextAt {
+        /// Device pixels from the viewport's top-left corner, as [`Query::FieldAt`] takes.
+        at: (f32, f32),
+    },
     /// Whether anything has been edited since the document opened.
     Dirty,
     /// §14.3.3's document information dictionary, and §14.3.2's metadata stream beside it.
@@ -390,6 +409,13 @@ pub enum Answer<'a> {
     /// [`Selected::quads`] takes and drawn the same way: in the host's own selection colour,
     /// because what a highlight looks like belongs to a platform and not to a document.
     FieldSelection(Vec<[f32; 8]>),
+    /// §12.5.6.6's annotation at a point, and Table 166's `/Contents` as it now stands.
+    FreeText {
+        /// The object, which [`crate::Edit::SetFreeText`] names it by.
+        annotation: ObjectId,
+        /// What it says. Empty for one a person has just drawn and not yet typed into.
+        text: String,
+    },
     /// Where a string occurs, one entry per occurrence in the order they are shown.
     ///
     /// Each is the shapes covering one occurrence, merged per run of a line, in device pixels of

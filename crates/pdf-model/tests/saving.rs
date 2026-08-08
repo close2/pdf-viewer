@@ -318,3 +318,164 @@ fn a_markup_a_person_added_is_written_and_attached_to_its_page() {
         "appended rather than inserted"
     );
 }
+
+/// §12.5.6.6's annotation, written whole, with the `/DR` §12.7.4.3 requires beside it.
+///
+/// The free text half of the test above, and it asks one thing that one cannot: §12.7.4.3 puts a
+/// `shall` on the `/DA` this program *writes*, and it is about a different dictionary —
+///
+/// > The specified font value shall match a resource name in the Font entry of the default
+/// > resource dictionary (referenced from the DR entry of the interactive form dictionary; see
+/// > "Table 224 -Entries in the interactive form dictionary").
+///
+/// — so a file this program produced that named a font `/DR` did not define would be a file
+/// breaking a clause this program otherwise recovers six corpus documents from. `alphatrans.pdf`
+/// states no interactive form dictionary at all, which is the case that has to build one.
+#[test]
+fn a_free_text_annotation_carries_the_font_its_default_appearance_names() {
+    let Some(bytes) = corpus("alphatrans.pdf") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    let document = Document::open(bytes.clone()).expect("the fixture opens");
+    let page = pdf_model::Pages::new(&document)
+        .get(0)
+        .expect("page one")
+        .id
+        .expect("a page reached through the tree is an object");
+    assert!(
+        document
+            .catalog()
+            .expect("the fixture has a catalog")
+            .get("AcroForm")
+            .is_none(),
+        "the point of this fixture is that it has no interactive form dictionary"
+    );
+
+    let mut view = ViewState::of(&document);
+    let added = view
+        .add_free_text(
+            &document,
+            page,
+            [72.0, 600.0, 300.0, 680.0],
+            "note",
+            [0.7, 0.1, 0.1],
+        )
+        .expect("a rectangle with area is something to write in");
+    let out = view.save(&document).expect("the fixture can be written");
+    assert!(
+        out.starts_with(&bytes),
+        "§7.5.6 appends: the producer's bytes are untouched underneath"
+    );
+    let saved = Document::open(out).expect("what was written can be read");
+
+    assert_eq!(
+        entry(&saved, added, "Subtype")
+            .as_name()
+            .map(|name| name.as_bytes().to_vec()),
+        Some(b"FreeText".to_vec()),
+        "Table 177 makes the subtype Required"
+    );
+    let contents = entry(&saved, added, "Contents");
+    let contents = contents
+        .as_string()
+        .expect("Table 166's /Contents is a string");
+    assert_eq!(
+        pdf_syntax::text_string::text_string(contents),
+        "note",
+        "the text is what a person typed"
+    );
+    let default_appearance = entry(&saved, added, "DA");
+    let default_appearance = String::from_utf8_lossy(
+        default_appearance
+            .as_string()
+            .expect("Table 177 makes /DA Required"),
+    )
+    .into_owned();
+    assert!(
+        default_appearance.contains("/Helv 12 Tf") && default_appearance.contains("rg"),
+        "§12.7.4.3: the string shall include a Tf with its two operands — {default_appearance}"
+    );
+
+    // The `shall` this test exists for. Table 224's `/DR` is where §12.7.4.3 says the name is
+    // resolved, and the whole chain — catalog, form, `/DR`, `/Font` — had to be created here.
+    let catalog = saved.catalog().expect("the saved file has a catalog");
+    let form = saved.get_key(&catalog, "AcroForm");
+    let form = form.as_dict().expect("an interactive form dictionary now");
+    assert!(
+        matches!(saved.get_key(form, "Fields"), Object::Array(ref fields) if fields.is_empty()),
+        "Table 224 makes /Fields Required, and this document has no fields"
+    );
+    let resources = saved.get_key(form, "DR");
+    let resources = resources.as_dict().expect("Table 224's /DR");
+    let fonts = saved.get_key(resources, "Font");
+    let fonts = fonts.as_dict().expect("its /Font");
+    let helvetica = saved.get_key(fonts, "Helv");
+    let helvetica = helvetica.as_dict().expect("the name the /DA states");
+    assert_eq!(
+        saved
+            .get_key(helvetica, "BaseFont")
+            .as_name()
+            .map(|name| name.as_bytes().to_vec()),
+        Some(b"Helvetica".to_vec()),
+        "one of §9.6.2.2's fourteen, which is what /Helv denotes"
+    );
+
+    // And the appearance, because a reader that constructs none would show the page unmarked.
+    let appearance = entry(&saved, added, "AP");
+    let normal = appearance
+        .as_dict()
+        .map(|appearances| saved.get_key(appearances, "N"))
+        .expect("the annotation carries an /AP");
+    let stream = normal.as_stream().expect("its /N is a stream");
+    let content = saved
+        .decoded_stream_data(stream)
+        .expect("the stream this program wrote decodes");
+    let content = String::from_utf8_lossy(&content);
+    assert!(
+        content.contains("Tj") || content.contains("TJ"),
+        "§12.5.6.6's text is what the annotation is, so the stream shows some: {content}"
+    );
+}
+
+/// A document that already defines the name is left exactly as it was.
+///
+/// §12.7.4.3's sentence is satisfied the moment `/DR` states the name, and what it states is then
+/// the document's own opinion about its own resource — the same rule `variable_text`'s
+/// `Resolution::Named` follows when drawing. `160F-2019.pdf` defines `/Helv` already.
+#[test]
+fn a_documents_own_default_font_is_not_replaced() {
+    let Some(bytes) = corpus("160F-2019.pdf") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    let document = Document::open(bytes).expect("the fixture opens");
+    let catalog = document.catalog().expect("a catalog");
+    let form = catalog
+        .get("AcroForm")
+        .and_then(Object::as_reference)
+        .expect("this fixture states its form indirectly");
+    let before = document.get(form);
+    let page = pdf_model::Pages::new(&document)
+        .get(0)
+        .expect("page one")
+        .id
+        .expect("a page reached through the tree is an object");
+
+    let mut view = ViewState::of(&document);
+    view.add_free_text(
+        &document,
+        page,
+        [72.0, 600.0, 300.0, 680.0],
+        "note",
+        [0.0, 0.0, 0.0],
+    )
+    .expect("a rectangle with area is something to write in");
+    let out = view.save(&document).expect("the fixture can be written");
+    let saved = Document::open(out).expect("what was written can be read");
+    assert_eq!(
+        format!("{:?}", saved.get(form)),
+        format!("{before:?}"),
+        "the form dictionary is untouched where /DR already names the font"
+    );
+}

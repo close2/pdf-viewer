@@ -59,6 +59,7 @@ use pdf_render::{
     BlendMode, Color, Command as DrawCommand, FillRule, Image, Paint, Path, PathCommand, Point,
     Raster, Rasterizer as _, Rect, Size, TargetSpec, Transform,
 };
+use pdf_syntax::ObjectId;
 use render_cpu::CpuRasterizer;
 use render_quorra::{PresentFrame, QuorraPresenter};
 use viewer_core::{
@@ -1059,6 +1060,7 @@ fn main() {
         collection: None,
         typing: None,
         clipboard: String::new(),
+        drawing: None,
         pages: Vec::new(),
         information: pdf_model::metadata::Information::default(),
         metadata: None,
@@ -1313,6 +1315,16 @@ struct App {
     /// `Query::FieldSelection` draws and `Edit::SetField` replaces. Nothing about it crosses the
     /// boundary, and that is ADR 0225's finding rather than a shortcut.
     clipboard: String,
+    /// §12.5.6.6's rectangle while a person is drawing one, in the page viewport's pixels.
+    ///
+    /// **`Some` only between `f` and the release that ends the drag**, which is a mode a highlight
+    /// does not need: a free text annotation's geometry is a box a person drew rather than text
+    /// they swept, so there is nothing on the page for a press to mean until they have drawn it.
+    /// `f` arms it, the next press records the first corner, and the release sends
+    /// `Edit::FreeText` with both. Which key, and that there is a mode at all, are this host's —
+    /// the standard describes the annotation and says nothing about how a person comes to make
+    /// one.
+    drawing: Option<Drawing>,
     /// §12.3.4's tab: one entry per page, with its label and its decoded thumbnail.
     ///
     /// **Empty until that tab is first shown**, which is principle 2 with a clause behind it:
@@ -1561,6 +1573,8 @@ fn stepped(current: &str, ends: (usize, usize), shift: bool, forward: bool) -> (
 /// shapes and not one (ADR 0225).
 #[derive(Debug, Clone, Copy)]
 struct Typing {
+    /// Which of the two kinds of thing on a page takes characters.
+    target: Target,
     /// The point on the page that named the field, in the page viewport's device pixels.
     at: (f32, f32),
     /// How far into the field's value the caret is, in bytes.
@@ -1570,10 +1584,48 @@ struct Typing {
     anchor: usize,
 }
 
+/// How one keystroke's edit is addressed, resolved when the key is pressed.
+///
+/// [`Target`] says which *kind* of thing has the keyboard and is cheap enough to keep in
+/// [`Typing`]; this carries the name, which is a `String` for one of the two and would cost
+/// `Typing` its `Copy`.
+enum Aim {
+    /// §12.7.4.2's fully qualified name.
+    Field(String),
+    /// The annotation's object.
+    FreeText(ObjectId),
+}
+
+/// A free text annotation being drawn: armed, or with its first corner down.
+#[derive(Debug, Clone, Copy)]
+enum Drawing {
+    /// `f` was pressed and the next press on the page starts the rectangle.
+    Armed,
+    /// The pointer went down here, in the page viewport's device pixels.
+    From((f32, f32)),
+}
+
+/// What a person is typing into.
+///
+/// **Two, and the standard is why**: §12.7.4.3 lays out the value of a field, and §12.5.6.6 sends
+/// its own annotation to that same subclause — "[s]ubclause 12.7.4.3, 'Variable text', describes
+/// the process of using these entries to generate the appearance of the text in these
+/// annotations". The caret, the selection and every key below are the *same* for both, because the
+/// core answers `Query::Caret`, `Query::Offset` and `Query::FieldSelection` for both; what differs
+/// is the one question that reads the text back and the one edit that puts it there.
+#[derive(Debug, Clone, Copy)]
+enum Target {
+    /// §12.7's field at [`Typing::at`], named by §12.7.4.2's qualified name when an edit is sent.
+    Field,
+    /// §12.5.6.6's annotation, named by its object because it has no other name.
+    FreeText(ObjectId),
+}
+
 impl Typing {
     /// Nothing selected, at one offset.
-    fn at_offset(at: (f32, f32), offset: usize) -> Self {
+    fn at_offset(target: Target, at: (f32, f32), offset: usize) -> Self {
         Self {
+            target,
             at,
             caret: offset,
             anchor: offset,
@@ -2010,6 +2062,13 @@ impl App {
     fn aim_at_field(&mut self) {
         let at = self.on_page(self.cursor);
         let was = self.typing.is_some();
+        // §12.5.6.6 first, because the core hit-tests it first: an annotation a person added is
+        // drawn after the page's own `/Annots` and the thing on top is the thing under the
+        // pointer. Asking in the other order would put the keyboard in a field underneath a note.
+        if let Some(typing) = self.aim_at_free_text(at) {
+            self.typing = Some(typing);
+            return;
+        }
         self.typing = match self.viewer.query(Query::FieldAt(at)) {
             Answer::Field {
                 name,
@@ -2027,12 +2086,74 @@ impl App {
                     Answer::Offset(offset) => offset,
                     _ => value.len(),
                 };
-                Some(Typing::at_offset(at, caret))
+                Some(Typing::at_offset(Target::Field, at, caret))
             }
             _ => None,
         };
         if was && self.typing.is_none() {
             println!("note: the keyboard is back on the page");
+        }
+    }
+
+    /// Aims the keyboard at §12.5.6.6's annotation, where one a person added is under the point.
+    ///
+    /// The same two questions a field takes, in the same order and for the same reasons:
+    /// `Query::FreeTextAt` names the annotation and hands back Table 166's `/Contents` as the log
+    /// has it, and `Query::Offset` says where inside that text the press landed. Neither is a
+    /// second implementation of anything — the core answers both from §12.7.4.3's own layout,
+    /// which is the subclause §12.5.6.6 sends this subtype to.
+    fn aim_at_free_text(&mut self, at: (f32, f32)) -> Option<Typing> {
+        let Answer::FreeText { annotation, text } = self.viewer.query(Query::FreeTextAt { at })
+        else {
+            return None;
+        };
+        println!(
+            "note: typing into the free text annotation {} {}",
+            annotation.number, annotation.generation
+        );
+        let caret = match self.viewer.query(Query::Offset { at, point: at }) {
+            Answer::Offset(offset) => offset,
+            _ => text.len(),
+        };
+        Some(Typing::at_offset(Target::FreeText(annotation), at, caret))
+    }
+
+    /// One end of the drag that draws §12.5.6.6's rectangle.
+    ///
+    /// The press records a corner and the release sends `Edit::FreeText` with both, then aims the
+    /// keyboard at what it made — which needs no event, because `Query::FreeTextAt` at a point
+    /// inside the rectangle answers with the annotation the core just added. Asking rather than
+    /// being told is the rule this vocabulary has grown by: a message is added for a question a
+    /// host cannot answer for itself, and this is not one.
+    ///
+    /// **The mode ends with the release, whether or not anything was made.** A drag that never
+    /// moved has drawn no box and the core answers it by doing nothing (`add_free_text` refuses a
+    /// rectangle with no area); leaving the mode armed after that would be a program that seemed
+    /// stuck.
+    fn draw_free_text(&mut self, drawing: Drawing, element: ElementState) {
+        let at = self.on_page(self.cursor);
+        match (drawing, element) {
+            (Drawing::Armed, ElementState::Pressed) => self.drawing = Some(Drawing::From(at)),
+            (Drawing::From(from), ElementState::Released) => {
+                self.drawing = None;
+                // The colour of the *text*, which Table 177's `/DA` carries — Table 166's `/C` is
+                // an icon's background, a popup's title bar and a link's border, none of which
+                // this subtype has. A dark red is this host's choice and no clause's, the same
+                // footing the highlight's yellow stands on.
+                self.dispatch(Command::Edit(Edit::FreeText {
+                    from,
+                    to: at,
+                    colour: FREE_TEXT_INK,
+                }));
+                let middle = ((from.0 + at.0) * 0.5, (from.1 + at.1) * 0.5);
+                self.typing = self.aim_at_free_text(middle);
+                if self.typing.is_none() {
+                    println!("note: that rectangle has no area, so there is nothing to type in");
+                }
+                self.redraw();
+            }
+            (Drawing::Armed, ElementState::Released)
+            | (Drawing::From(_), ElementState::Pressed) => {}
         }
     }
 
@@ -2156,7 +2277,7 @@ impl App {
                 // The end of the value, and here that is not a fallback: a tab press names no
                 // point inside the value, so there is nothing for `Query::Offset` to measure and
                 // the end is the place ADR 0211 chose for a walk that arrives without one.
-                Some(Typing::at_offset(at, value.len()))
+                Some(Typing::at_offset(Target::Field, at, value.len()))
             }
             _ => None,
         };
@@ -2217,13 +2338,12 @@ impl App {
         let Some(typing) = self.typing else {
             return false;
         };
-        let Answer::Field { name, value } = self.viewer.query(Query::FieldAt(typing.at)) else {
-            // The field went away — a page turned under the pointer — so the keyboard goes back.
+        let Some((current, aim)) = self.aimed(typing) else {
+            // The field or the annotation went away — a page turned under the pointer — so the
+            // keyboard goes back.
             self.typing = None;
             return false;
         };
-        let field = name.qualified.clone();
-        let current = value.unwrap_or_default();
         // The caret is clamped to the value *this* press starts from, because the last one may
         // have been truncated by §12.7.5.3's `DoNotScroll` — the same reason nothing is buffered.
         let caret = caret_boundary(&current, typing.caret);
@@ -2311,9 +2431,9 @@ impl App {
             _ => return false,
         };
         self.typing = Some(Typing {
-            at: typing.at,
             caret: moved,
             anchor: anchored,
+            ..typing
         });
         // A caret that moved is chrome and not a page: `Query::Caret` answers from state this host
         // holds, so nothing has to be interpreted again and the window only repaints. A keystroke
@@ -2328,23 +2448,53 @@ impl App {
         // Through `dispatch`, not through `Viewer::handle` directly: the events an edit raises
         // are what asks for the next frame, and a host that counted them instead of pumping them
         // would type into a page that never redraws. (It did, for one run.)
-        self.dispatch(Command::Edit(Edit::SetField {
-            field,
-            value: Some(next),
+        self.dispatch(Command::Edit(match aim {
+            Aim::Field(field) => Edit::SetField {
+                field,
+                value: Some(next),
+            },
+            Aim::FreeText(annotation) => Edit::SetFreeText {
+                annotation,
+                text: next,
+            },
         }));
         // And the field decides how much of that it took, so where the caret ended up is read
         // back rather than assumed — a value §12.7.5.3 truncated is shorter than what was sent.
-        if let Answer::Field {
-            value: Some(taken), ..
-        } = self.viewer.query(Query::FieldAt(typing.at))
-        {
+        if let Some((taken, _)) = self.aimed(typing) {
             self.typing = Some(Typing {
-                at: typing.at,
                 caret: caret_boundary(&taken, moved),
                 anchor: caret_boundary(&taken, anchored),
+                ..typing
             });
         }
         true
+    }
+
+    /// What the thing being typed into says now, and how an edit to it is addressed.
+    ///
+    /// One question per keystroke, asked twice — once before the key is applied and once after,
+    /// because what the *document* took is what the caret has to be clamped to (ADR 0197). Which
+    /// question it is depends on the target and nothing else does: a field is addressed by
+    /// §12.7.4.2's qualified name and §12.5.6.6's annotation by its object, because an annotation
+    /// has no name for anything to address it by.
+    ///
+    /// `None` where the thing is no longer under the point — a page turned under the pointer —
+    /// which is what takes the keyboard back to the page.
+    fn aimed(&self, typing: Typing) -> Option<(String, Aim)> {
+        match typing.target {
+            Target::Field => match self.viewer.query(Query::FieldAt(typing.at)) {
+                Answer::Field { name, value } => {
+                    Some((value.unwrap_or_default(), Aim::Field(name.qualified)))
+                }
+                _ => None,
+            },
+            Target::FreeText(annotation) => {
+                match self.viewer.query(Query::FreeTextAt { at: typing.at }) {
+                    Answer::FreeText { text, .. } => Some((text, Aim::FreeText(annotation))),
+                    _ => None,
+                }
+            }
+        }
     }
 
     /// Whether the pointer is over the panel rather than over the page.
@@ -3968,6 +4118,21 @@ impl ApplicationHandler for App {
                     self.present_or_stop();
                     return;
                 }
+                // §12.5.6.6, and the fourth: whether the next drag draws a text box is a mode this
+                // host is in, and `viewer-core` has no opinion about chrome by construction
+                // (rule 5). The command goes out on the *release*, with both corners.
+                if matches!(logical_key.as_ref(), Key::Character("f")) {
+                    self.drawing = if self.drawing.is_some() {
+                        println!("note: not drawing a free text annotation after all");
+                        None
+                    } else {
+                        println!(
+                            "note: drag out a rectangle for a free text annotation (§12.5.6.6)"
+                        );
+                        Some(Drawing::Armed)
+                    };
+                    return;
+                }
                 // Everything else goes to the page, and the About card is over it: a key press
                 // that turned a page nobody can see would be answering the wrong question.
                 if self.about.shown {
@@ -4018,6 +4183,15 @@ impl ApplicationHandler for App {
                 // already raises §12.6.3's focus events from the same press; what this adds is
                 // the host's own state, because *where the keys go* is chrome and `viewer-core`
                 // has no opinion about chrome by construction (rule 5).
+                // §12.5.6.6's geometry is a *drag*, which is the whole of what this mode adds:
+                // the press puts one corner down and the release sends both. It runs before the
+                // two below because while it is armed the press means nothing else — a person who
+                // has said "draw a box here" has not said "type in the field underneath it".
+                if let Some(drawing) = self.drawing {
+                    self.draw_free_text(drawing, element);
+                    self.dragging = element == ElementState::Pressed;
+                    return;
+                }
                 if element == ElementState::Pressed {
                     self.aim_at_field();
                     // And §12.7.5.2's other kind of press, which takes no keyboard: a click on a
@@ -4363,6 +4537,13 @@ const CARET: Color = Color {
 
 /// How wide the caret is, in device pixels.
 const CARET_WIDTH: f32 = 2.0;
+
+/// The colour §12.5.6.6's text is written in when this host creates one, as `DeviceRGB`.
+///
+/// **A choice**, and the same one the highlight's yellow is: Table 177's `/DA` carries whatever a
+/// processor was told and no clause states what to tell it. A dark red is what a note written on
+/// somebody else's page is, and it is what this host offers a person with one key.
+const FREE_TEXT_INK: [f32; 3] = [0.7, 0.1, 0.1];
 
 /// The chrome drawn over a page, as display lists in the window's own pixels.
 ///
