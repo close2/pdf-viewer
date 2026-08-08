@@ -228,16 +228,23 @@ fn a_mark_inside_an_even_odd_fill_does_not_cut_a_hole_in_it() {
 /// whole pixel's worth. Only a shape with *no* extent is one that cannot appear at any
 /// placement or any scale, which is what this rule is about.
 ///
-/// # A second shape that disappears, measured here and not fixed here
+/// # A second shape that disappeared, measured here and closed elsewhere
 ///
-/// Half a unit is chosen because it is above `tiny-skia`'s own floor, and the floor is worth
-/// writing down: filling this sliver at scale 1.0 deposits 39.8 of the 40 pixels its area
-/// asks for at 0.5 units and **0** at 0.1, because the CPU rasteriser samples four times per
-/// row and rounds. The measured ladder, in ink against the area's own answer, is 0.05 → 0,
-/// 0.1 → 0, 0.2 → 19.8 of 16, 0.5 → 39.8 of 40. So a fill under an eighth of a device pixel
-/// thick vanishes on this backend as surely as a flat one does, which is §10.7.4's sentence
-/// again one step along — a *device*-dependent disappearance rather than a geometric one, and
-/// a rule of its own to write rather than an extension of this one.
+/// Half a unit was chosen because it was above `tiny-skia`'s own floor, and that floor was
+/// worth writing down: this sliver at scale 1.0 used to deposit 39.8 of the 40 pixels its area
+/// asks for at 0.5 units and **0** at 0.1, because the scan converter supersamples four times
+/// per pixel row and takes each sub-row's sample at its centre. The ladder was 0.05 → 0,
+/// 0.1 → 0, 0.2 → 19.8 of 16, 0.5 → 39.8 of 40 — a *device*-dependent disappearance rather than
+/// a geometric one, and a rule of its own rather than an extension of this one.
+///
+/// It is `pdf_render::sub_pixel`'s since the three-hundred-and-eighty-ninth session, and the
+/// whole ladder is now within one level of 255 of the area (ADR 0226): 0.05 → 0.0510 of a row,
+/// 0.1 → 0.1020, 0.2 → 0.2000, 0.5 → 0.5020, where an eight-bit raster's own steps are 1/255
+/// apart and there is nowhere finer to put them. This sliver's own answer moves from 39.8 to
+/// **40.157** of its 40, which is 128 of 255 per column where the area asks for 127.5. The
+/// tolerance below is unchanged, because what this test is for is unchanged: that an ordinary
+/// thin shape is *not* given a whole pixel's mark — 80 pixels, which it is still forty away
+/// from.
 #[test]
 fn a_sliver_keeps_the_coverage_its_area_asks_for() {
     let sliver = [

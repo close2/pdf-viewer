@@ -36,7 +36,7 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 | [00](00-ambiguous-bucket.md) | Empty the oracle's ambiguous bucket, page by page | 5 names |
 | [01](01-ledger-partial-rows.md) | Read the ledger's 240 `partial` rows against the code — and the seven sweeps | — |
 | [02](02-every-round.md) | **What every round does** — the gates, the sweeps, the binaries | — |
-| [11](11-shapes-that-still-disappear.md) | A fill under an eighth of a pixel; two marks abutting across a cell's box edge; a hairline at the raster's edge | 3 |
+| [11](11-shapes-that-still-disappear.md) | **The sub-pixel fill and the sub-pixel stroke are closed** (ADR 0226); what is left is a sub-pixel rule that is *diagonal*, and two marks abutting across a cell's box edge with no witness | 1 |
 | [13](13-the-transfer-function.md) | §10.5's `/TR` decides what a screen shows, and this tree ignores it — the ledger's first `silent` row since session 35, and a question for the owner | 1 draws wrong |
 | [21](21-font-substitution.md) | `Identity` orderings; a font reported as a whole; per-character fallback, with no witness left | 40 |
 | [22](22-variable-text-edges.md) | §12.7.4.3's remaining edges: a `/DA` font `/DR` lacks, a list box, a value a host cannot read back — and a field's baseline reading Table 120 with a weaker guard than ADR 0216's | 3 |

@@ -266,6 +266,27 @@ impl Transform {
         self.a * self.d - self.b * self.c
     }
 
+    /// Whether this transform maps the axes onto the axes: a scale and a translation, or a
+    /// quarter turn.
+    ///
+    /// What it is asked for is whether an axis-aligned shape stays axis-aligned — which is what
+    /// [`crate::collapsed`] needs before it can snap a mark to a device pixel, what
+    /// [`crate::sub_pixel`] needs before it can stretch one into a pixel line, and what
+    /// [`Self::bounds`] relies on to map a hull instead of walking it. The two shapes are the two
+    /// ways a 2×2 matrix can have a zero in each row and column.
+    ///
+    /// An off-diagonal that is *exactly* zero is the property being asked about: a small one
+    /// shears, and a caller relying on this needs the strict answer.
+    ///
+    /// **The doc comment here used to be the second half of [`Self::max_stretch`]'s**, spliced
+    /// into the middle of this one and leaving that function's last sentence stranded above its
+    /// own signature. Found in the three-hundred-and-eighty-ninth session by a round that needed
+    /// to read it.
+    #[must_use]
+    pub fn preserves_axes(self) -> bool {
+        (self.b == 0.0 && self.c == 0.0) || (self.a == 0.0 && self.d == 0.0)
+    }
+
     /// Returns the largest factor by which this transform lengthens a vector.
     ///
     /// This is the linear part's larger singular value. It is what a line width is
@@ -278,20 +299,6 @@ impl Transform {
     /// `determinant().abs().sqrt()` is the *geometric mean* of the two singular values and
     /// agrees with this only where they are equal — every similarity transform, which is
     /// what a page transform is. A shear separates them without changing the determinant at
-    /// Whether this transform maps the axes onto the axes: a scale and a translation, or a
-    /// quarter turn.
-    ///
-    /// What it is asked for is whether an axis-aligned segment stays axis-aligned, which is
-    /// what [`Path::oblique_spans`] needs to know before it can call one exact under a cut.
-    /// The two shapes are the two ways a 2×2 matrix can have a zero in each row and column.
-    ///
-    /// An off-diagonal that is *exactly* zero is the property being asked about: a small one
-    /// shears, and a caller relying on this needs the strict answer.
-    #[must_use]
-    pub fn preserves_axes(self) -> bool {
-        (self.b == 0.0 && self.c == 0.0) || (self.a == 0.0 && self.d == 0.0)
-    }
-
     /// all, so a length bound derived from the determinant can be arbitrarily too small.
     #[must_use]
     pub fn max_stretch(self) -> f32 {
@@ -378,6 +385,13 @@ pub struct Path {
     /// with no extent along an axis to a shape with no extent along its image — so one walk
     /// answers it at every scale the page is ever drawn at.
     collapses: std::sync::OnceLock<bool>,
+    /// The narrowest side of any axis-aligned rectangle among the subpaths, built on first use.
+    ///
+    /// Memoised for the reason [`Self::collapses`] is, and the answer is a property of the
+    /// commands for the same reason: an affine map *scales* an extent, so which rectangle is the
+    /// narrowest never changes and the only thing a transform decides is whether that narrowest
+    /// side is under a device pixel — one multiplication and one comparison, in front of a walk.
+    narrowest_rectangle: std::sync::OnceLock<Option<f32>>,
 }
 
 impl Clone for Path {
@@ -390,6 +404,7 @@ impl Clone for Path {
             commands: self.commands.clone(),
             hull: std::sync::OnceLock::new(),
             collapses: std::sync::OnceLock::new(),
+            narrowest_rectangle: std::sync::OnceLock::new(),
         }
     }
 }
@@ -410,7 +425,23 @@ impl Path {
             commands: Vec::new(),
             hull: std::sync::OnceLock::new(),
             collapses: std::sync::OnceLock::new(),
+            narrowest_rectangle: std::sync::OnceLock::new(),
         }
+    }
+
+    /// The narrowest side of any axis-aligned rectangle among this path's subpaths, in the path's
+    /// own space, ISO 32000-2 §10.7.4.
+    ///
+    /// `None` where no subpath is such a rectangle. Where one is, comparing this against the
+    /// device's own pixel says whether [`sub_pixel_bands`] has anything to do, which is the
+    /// question a fill command asks once per strip and which must not walk the path each time.
+    ///
+    /// [`sub_pixel_bands`]: crate::sub_pixel::sub_pixel_bands
+    #[must_use]
+    pub fn narrowest_rectangle(&self) -> Option<f32> {
+        *self
+            .narrowest_rectangle
+            .get_or_init(|| crate::sub_pixel::narrowest_rectangle(self))
     }
 
     /// Whether any subpath of this path encloses no area, ISO 32000-2 §10.7.4.

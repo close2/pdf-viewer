@@ -89,7 +89,9 @@ two rather than this renderer doing so:
 - **A stroke has a width the document stated.** Moving its *coordinates* onto the grid is
   §10.7.5's first requirement — "the line width and the coordinates of a stroke shall
   automatically be adjusted as necessary to produce lines of uniform thickness" — and the same
-  clause makes it conditional, on Table 58's `/SA`. `AMBIGUOUS_STROKE_ADJUSTMENT`'s reading of
+  clause makes it conditional, on Table 57's `/SA` (**this ADR said Table 58, which is the path
+  construction operators; corrected in the three-hundred-and-eighty-ninth session by
+  `doc/todo/02` §4's ninth sweep**). `AMBIGUOUS_STROKE_ADJUSTMENT`'s reading of
   `bug1743245.pdf` is a derivation precisely because this tree conditions §10.7.5 on `/SA` rather
   than applying it always; grid-fitting every hairline would turn that into a coincidence.
 - **A degenerate fill has no width at all.** Every pixel of its mark is this processor's

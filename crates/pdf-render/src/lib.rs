@@ -32,6 +32,7 @@ pub mod repeat;
 pub mod shading;
 pub mod soft_mask;
 pub mod strips;
+pub mod sub_pixel;
 
 pub use backend::{
     BackendError, MAX_EXTENT, MAX_GROUP_DEPTH, Raster, RasterFormat, Rasterizer, TargetSpec,
@@ -58,3 +59,4 @@ pub use strips::{
     command_extents, replay_ratio, row_costs, strip_boundaries, strip_boundaries_avoiding,
     unsplittable_rows,
 };
+pub use sub_pixel::{SubPixelBand, only_flat_subpaths, sub_pixel_bands};

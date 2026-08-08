@@ -221,19 +221,23 @@ enum Axis {
 }
 
 /// One subpath's extent within a path's command list.
-struct Extent {
+///
+/// Visible to [`crate::sub_pixel`], which asks the same question of the same subpaths one rule
+/// along — a shape thinner than a pixel rather than one with no extent at all — and would
+/// otherwise carry a second walk that could disagree with this one about where a subpath ends.
+pub(crate) struct Extent {
     /// Index of the subpath's first command.
     first: usize,
     /// Index one past its last command.
     last: usize,
     /// The corner with the smallest coordinates, over control points as well as endpoints.
-    min: Point,
+    pub(crate) min: Point,
     /// The corner with the largest.
-    max: Point,
+    pub(crate) max: Point,
 }
 
 impl Extent {
-    fn range(&self) -> core::ops::Range<usize> {
+    pub(crate) fn range(&self) -> core::ops::Range<usize> {
         self.first..self.last
     }
 
@@ -356,7 +360,7 @@ fn snapped_span(extent: &Extent, grid: Grid) -> Option<(Point, Point)> {
 ///
 /// A subpath ends at the next `m` or at a `h`, for the reason [`crate::degenerate`]'s own walk
 /// gives: Table 58 makes `h` terminate the current subpath.
-fn subpath_extents(path: &Path) -> impl Iterator<Item = Extent> + '_ {
+pub(crate) fn subpath_extents(path: &Path) -> impl Iterator<Item = Extent> + '_ {
     let commands = path.commands();
     let mut index = 0usize;
     // Where the most recent `m` put the current point. A subpath opened by a segment after an

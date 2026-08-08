@@ -420,13 +420,10 @@ impl CpuRasterizer {
             if dashed {
                 style.dash = None;
             }
-            pixmap.stroke_path(
-                &converted,
-                &self.paint(paint, blend, page_to_path(transform)?, &mut scratch)?,
-                &style,
-                convert::transform(at),
-                clip,
-            );
+            let brush = self.paint(paint, blend, page_to_path(transform)?, &mut scratch)?;
+            if !draw_sub_pixel_rule(pixmap, (&geometry, &converted), &style, at, &brush, clip) {
+                pixmap.stroke_path(&converted, &brush, &style, convert::transform(at), clip);
+            }
         }
         // The marks are *filled*, not stroked: §8.5.3.2 asks for "a filled circle
         // centred at the single point", and the stroking paint is what fills it.
@@ -893,9 +890,31 @@ impl CpuRasterizer {
                 clip,
             );
         }
-        let path = match &split {
+        let remaining = match &split {
             // Every subpath collapsed, so the marks are the whole of the drawing.
             Some(split) if split.filled.is_empty() => return Ok(()),
+            Some(split) => &split.filled,
+            None => source,
+        };
+        // §10.7.4 again, for a shape this rasteriser's coverage quantum would round to nothing.
+        if carries_coverage_as_alpha(&brush)
+            && let Some(bands) = pdf_render::sub_pixel_bands(remaining, at, fill_rule)
+        {
+            for band in &bands {
+                let shape = convert::path(&band.shape).ok_or(CpuRasterError::InvalidPath)?;
+                let mut faint = brush.clone();
+                faint.shader.apply_opacity(band.coverage);
+                pixmap.fill_path(
+                    &shape,
+                    &faint,
+                    tiny_skia::FillRule::Winding,
+                    convert::transform(at),
+                    clip,
+                );
+            }
+            return Ok(());
+        }
+        let path = match &split {
             Some(split) => convert::path(&split.filled).ok_or(CpuRasterError::InvalidPath)?,
             None => path,
         };
@@ -1205,6 +1224,132 @@ fn page_to_path(transform: Transform) -> Result<Transform, CpuRasterError> {
     transform.invert().ok_or_else(|| {
         CpuRasterError::UnsupportedPaint(format!("singular transform {transform:?}"))
     })
+}
+
+/// Draws a straight rule thinner than a device pixel as the fill of its own outline, ISO 32000-2
+/// §10.7.4, and reports whether it did.
+///
+/// The clause's "no shape ever disappears" applies to strokes as well as fills — "[t]his rule
+/// applies both to fill operations and to strokes with non-zero width" — and `tiny-skia` loses a
+/// thin one in a way of its own. Its painter draws a stroke under a pixel wide as a **hairline**
+/// with the paint's opacity scaled by the width, which conserves the ink and approximates the
+/// placement: the mark is smeared symmetrically about the path whatever fraction of a pixel the
+/// path lies at, and a rule within half a pixel of the raster's edge loses the half of its smear
+/// that falls outside. Measured by `render-quorra/examples/sub_pixel_marks` before this function
+/// existed, a 0.1-unit rule at the top edge of a 320-unit page carried **0.0549** of its own 0.1
+/// on this backend where the graphics device carried 0.0980; both now carry 0.0980.
+///
+/// The outline of such a rule is the rectangle its width and length state, and
+/// [`pdf_render::sub_pixel_bands`] draws that exactly — including the part that is off the raster,
+/// which is then clipped away rather than folded back in. So the answer here is to stop asking for
+/// a hairline.
+///
+/// # What it declines, and why the gate is cheap
+///
+/// Building an outline allocates a path where the hairline path allocates nothing, and a page of
+/// technical line work is thousands of sub-pixel strokes. So the questions that cost nothing are
+/// asked first — the width, the dash, the blend mode, the transform, and
+/// [`pdf_render::only_flat_subpaths`], which is one walk over the commands — and the stroker runs
+/// only for a path made of straight axis-aligned rules. Anything else, including a rule whose
+/// round cap ends it with an arc, falls back to the hairline, because
+/// [`pdf_render::sub_pixel_bands`] answers `None` for an outline it cannot measure exactly.
+///
+/// A dashed rule keeps the hairline for a plainer reason: the dashes are dispensed by
+/// `stroke_path` itself, and dashing here would be a second implementation of §8.4.3.6 beside the
+/// one `tiny-skia` already runs. ADR 0226.
+fn draw_sub_pixel_rule(
+    pixmap: &mut tiny_skia::PixmapMut<'_>,
+    geometry: (&Path, &tiny_skia::Path),
+    style: &tiny_skia::Stroke,
+    at: Transform,
+    brush: &tiny_skia::Paint<'_>,
+    clip: Option<&tiny_skia::Mask>,
+) -> bool {
+    let Some(one_pixel) = pdf_render::thinnest_line(at) else {
+        return false;
+    };
+    if style.width >= one_pixel
+        || style.dash.is_some()
+        || !carries_coverage_as_alpha(brush)
+        || !at.preserves_axes()
+        || !pdf_render::only_flat_subpaths(geometry.0)
+    {
+        return false;
+    }
+    // The resolution scale bounds how finely a curve is measured while it is offset. A path of
+    // straight rules has no curve, so this decides nothing here beyond agreeing with what
+    // `stroke_path` would have used had the hairline test not fired.
+    let scale = tiny_skia::PathStroker::compute_resolution_scale(&convert::transform(at));
+    let Some(outline) = geometry.1.stroke(style, scale) else {
+        return false;
+    };
+    let Some(bands) = pdf_render::sub_pixel_bands(
+        &convert::from_skia_path(&outline),
+        at,
+        pdf_render::FillRule::NonZero,
+    ) else {
+        return false;
+    };
+    // Converted before anything is drawn, so a shape the rasteriser rejects leaves the hairline
+    // to draw the whole rule rather than half of it.
+    let Some(shapes) = bands
+        .iter()
+        .map(|band| Some((convert::path(&band.shape)?, band.coverage)))
+        .collect::<Option<Vec<_>>>()
+    else {
+        return false;
+    };
+    for (shape, coverage) in &shapes {
+        let mut faint = brush.clone();
+        faint.shader.apply_opacity(*coverage);
+        pixmap.fill_path(
+            shape,
+            &faint,
+            tiny_skia::FillRule::Winding,
+            convert::transform(at),
+            clip,
+        );
+    }
+    true
+}
+
+/// Whether painting a shape at alpha `c` says the same thing as painting it at coverage `c`.
+///
+/// **The first condition is that this rasteriser is anti-aliasing at all.** The substitution's
+/// whole warrant is the departure §10.7.4's row records — the clause's "paint the pixel" replaced
+/// by coverage proportional to area — so where [`CpuRasterizer::with_anti_alias`] has turned that
+/// departure off, the clause's own answer for a sub-pixel shape is a *whole* covered pixel and a
+/// fractional alpha is neither that nor what the rasteriser was asked for. The aliased mode is
+/// therefore left exactly as it was. It is one test's knob today and this costs it nothing; what
+/// it buys is that the rule below is true as stated rather than true of one configuration.
+///
+/// [`pdf_render::sub_pixel_bands`] hands back a coverage this rasteriser cannot express as a
+/// shape, and the only place left to put it is the paint's alpha. The standard says when the two
+/// are one quantity, ISO 32000-2 §11.3.7.1:
+///
+/// > As stated earlier, the alpha values that control the compositing process shall be defined as
+/// > the product of shape and opacity
+///
+/// and §11.3.7.2's NOTE 1 says that anti-aliased coverage is the first of the two factors:
+///
+/// > Mathematically, elementary objects have "hard" edges, with a shape value of either 0.0 or
+/// > 1.0 at every point. However, when such objects are rasterized to device pixels, the shape
+/// > values along the boundaries can be anti-aliased, taking on fractional values representing
+/// > fractional coverage of those pixels. When such anti-aliasing is performed, it is important
+/// > to treat the fractional coverage as shape rather than opacity.
+///
+/// A raster that carries one alpha channel per pixel carries exactly that product, so folding a
+/// band's coverage into it is the clause's own arithmetic rather than a trick — every blend
+/// function reads `αs` and none of them can tell which factor it came from.
+///
+/// **The NOTE's warning is the exception, and it is why this returns `false` for one mode.**
+/// Where shape has to stay distinguishable from opacity the substitution is wrong, and this
+/// backend has one such place: §11.4.6's knockout group, where an element replaces its backdrop
+/// *within its own shape* and `tiny-skia` states that as Porter-Duff Source. There a scaled alpha
+/// leaves a partly transparent pixel where a partly covered one is meant. A sub-pixel shape inside
+/// a knockout group therefore keeps whatever the rasteriser already gave it. ADR 0226.
+fn carries_coverage_as_alpha(brush: &tiny_skia::Paint<'_>) -> bool {
+    brush.anti_alias && brush.blend_mode != tiny_skia::BlendMode::Source
 }
 
 /// Multiplies a straight-alpha channel by its alpha.

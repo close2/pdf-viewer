@@ -1,24 +1,34 @@
 //! What each backend does with a mark thinner than a pixel — the two numbers `doc/todo/11`
-//! called *unmeasured*.
+//! called *unmeasured*, and then the instrument that closed them.
 //!
-//! §10.7.4 says "a shape that is smaller than a device pixel is nevertheless rendered", and
-//! `doc/todo/11` records two places where the CPU backend loses one anyway:
+//! §10.7.4 says "[t]his ensures that no shape ever disappears", and `doc/todo/11` recorded two
+//! places where the CPU backend lost one anyway. Both were **that backend's alone** — the
+//! graphics device drew every one of them — and both were closed in the
+//! three-hundred-and-eighty-ninth session by ADR 0226:
 //!
-//! 1. **A fill under an eighth of a device pixel thick vanishes.** `tiny-skia` samples four times
-//!    per row and rounds, so a sliver *with* an area disappears — 0.05 and 0.1 user units of an
-//!    80-unit rule give zero ink at scale 1. That is the device's coverage quantum rather than the
-//!    shape's geometry, which is why it is a rule of its own rather than ADR 0154's.
-//! 2. **A sub-pixel stroke within half a pixel of the raster's top edge loses half its ink.**
-//!    `tiny-skia` draws a stroke under a pixel wide as a hairline smeared symmetrically about the
-//!    path rather than as an exact area, and the half of the smear above row zero has nowhere to
-//!    go. Only the top and left edges lose, because `TargetSpec::for_page` rounds the raster *up*
-//!    to contain the page (ADR 0064).
+//! 1. **A fill under an eighth of a device pixel thick vanished.** `tiny-skia` supersamples four
+//!    times per pixel row and takes each sub-row's sample at its centre, so a sliver *with* an
+//!    area crossed no sample line — 0.05 and 0.1 user units of an 80-unit rule gave zero ink at
+//!    scale 1. That is the rasteriser's coverage quantum rather than the shape's geometry, which
+//!    is why it was a rule of its own rather than ADR 0154's.
+//! 2. **A sub-pixel stroke within half a pixel of the raster's edge lost half its ink.**
+//!    `tiny-skia` drew a stroke under a pixel wide as a hairline smeared symmetrically about the
+//!    path rather than as an exact area, and the half of the smear outside the raster had nowhere
+//!    to go. On a page whose height is a whole number of units **both** edges lose, which the
+//!    100 × 320 page below shows; where the page's extent is fractional only the top and left do,
+//!    because `TargetSpec::for_page` rounds the raster *up* to contain the page (ADR 0064).
 //!
-//! Both entries end "**Unmeasured**: whether the GPU backend does the same", and the comparison
-//! that would say so — `render-quorra/tests/corpus.rs` — only ever draws page one, while both
-//! witnesses are pages 2 and 3 of `vertical.pdf`. So this asks the question directly, with a
-//! synthetic page rather than a document: five identical sub-pixel rules at known distances from
-//! the raster's edges, and a ladder of filled slivers of decreasing thickness.
+//! `render-quorra/tests/corpus.rs` could not answer whether the device did the same, because it
+//! only ever draws page one and both witnesses are pages 2 and 3 of `vertical.pdf`. So this asks
+//! the question directly, with synthetic pages rather than documents, and it is now what to run
+//! when `tests/sub_pixel_coverage.rs` fails. Three sections:
+//!
+//! - a ladder of filled slivers of decreasing thickness — the quantum;
+//! - five identical sub-pixel rules at known distances from the raster's edges — the smear;
+//! - a ladder **across** the one-pixel boundary, which is where the substitution stops. That one
+//!   is the constraint rather than the symptom: a rule that promoted every sub-quantum mark to a
+//!   full mark would fight the anti-aliasing departure on ordinary thin shapes, and this section
+//!   is what says whether it does. It reads a step at the boundary if it ever starts to.
 //!
 //! ```sh
 //! cargo run --release -p render-quorra --example sub_pixel_marks
@@ -185,6 +195,27 @@ fn main() {
                 "  {label:<17}  {name:<8}  {:>4}   {total:>6.4}   {}",
                 rows.len(),
                 spread.join(" ")
+            );
+        }
+    }
+
+    // 3. The shapes that are *not* degenerate, which is the constraint on any rule written for
+    //    the two above: the substitution stops at one device pixel, so the ladder must cross that
+    //    boundary without a step. A rule that promoted a sub-quantum mark to a whole pixel would
+    //    print 1.0000 on the left of the boundary and the thickness on the right.
+    println!();
+    println!("a filled sliver either side of the one-pixel boundary, at scale {scale}");
+    println!("  thickness   backend   total ink   expected   error");
+    for thickness in [
+        0.60_f32, 0.80, 0.90, 0.95, 0.99, 1.00, 1.01, 1.05, 1.20, 1.50, 2.00,
+    ] {
+        let mut list = DisplayList::new(PAGE);
+        list.push(fill(rect(10.0, 160.0, 90.0, 160.0 + thickness)));
+        for (name, raster) in draw(&list, scale) {
+            let total: f32 = inked(&raster, scale).iter().map(|(_, ink)| ink).sum();
+            println!(
+                "  {thickness:>9.2}   {name:<8}  {total:>9.4}   {thickness:>8.2}   {:>6.2}%",
+                100.0 * (total - thickness) / thickness
             );
         }
     }

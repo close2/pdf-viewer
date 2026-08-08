@@ -776,7 +776,22 @@ const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 0] = [];
 ///
 /// The lesson is the older one about this file: a group's comment is a claim about a picture,
 /// and a picture is one `Read` away.
-const CONTRADICTED_SUBSTITUTED_FONT: [&str; 19] = [
+///
+/// # `issue8125.pdf` page 1 left in the three-hundred-and-eighty-ninth, and not for a font
+///
+/// It agrees with `poppler` and `mupdf` since §10.7.4's sub-pixel rule reached this backend (ADR
+/// 0226), and the mechanism is worth the paragraph because it is the *opposite* of the one that
+/// rule was written for. The page states one rectangle twice whose device extent is **0.882 of a
+/// pixel** along y; `tiny-skia`'s scan converter samples four sub-rows at their centres, so a
+/// shape that crosses all four is rounded **up** to a whole row, and the mark was 13% larger than
+/// the document asked for. It is now 0.598 of one row plus 0.284 of the next, which is its own
+/// area. Nothing here disappeared and nothing was promoted — a promotion was *withdrawn*, which
+/// is why this page is proof that the rule does not fight the anti-aliasing departure on
+/// ordinary thin shapes.
+///
+/// The font is still substituted and the page's text is still drawn in a different face; that
+/// simply was not what put it over the bound.
+const CONTRADICTED_SUBSTITUTED_FONT: [&str; 18] = [
     "bad-PageLabels.pdf page 1",
     "bug847420.pdf page 1",
     "bug850854.pdf page 1",
@@ -794,7 +809,6 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 19] = [
     "issue8088.pdf page 1",
     "issue8088.pdf page 2",
     "issue8088.pdf page 3",
-    "issue8125.pdf page 1",
     "issue9243.pdf page 1",
 ];
 
@@ -2050,6 +2064,27 @@ const AMBIGUOUS_ZERO_AREA_FILL: [&str; 1] = ["issue4260_reduced.pdf page 1"];
 /// left in both squares is 1.5% to 3% at 2× and 4×, and it is the rules' *ends* meeting column by
 /// column — the same seam one axis over, one pixel column per three rather than the whole length
 /// of every rule.
+///
+/// # The three-hundred-and-eighty-ninth moved where the ink is and hardly moved how much
+///
+/// That session made a sub-pixel stroke the fill of its own outline on the processor (ADR 0226),
+/// and this page's rule is 0.53 of a device pixel at 1×, so it is one of the marks that changed.
+/// Measured over the whole raster with `examples/render_at`, ink in square points, before and
+/// after: **284.74 → 283.44 at 1×**, a movement of 0.46%, and **299.02 → 299.02 at 8×** to the
+/// digit — the second is the check rather than a spare number, because a 0.53-unit stroke is 4.2
+/// device pixels wide at 8× and the rule may not touch it there. (Those two are the *whole*
+/// raster; the four-scale table above measures interior coverage over eight periods, and its 1×
+/// column predates ADR 0226. It was not re-measured, and it is the only row here that would
+/// move.)
+///
+/// **What moved is the placement, and the instrument that says so needs no reference at all.**
+/// `render-quorra/tests/corpus.rs` compares the two backends on this page's own display list, and
+/// its mean went **6.5359 → 1.8563** with structural similarity 0.90046 → 0.97723 — the largest
+/// movement that gate has recorded. The device was already drawing the rule as its area; the
+/// processor was smearing it as a hairline. Against the *references* the same change reads the
+/// other way — worst mean 40.55 → 42.78, similarity 0.3935 → 0.3228 — and that is expected here
+/// rather than a contradiction: the worst reference on this page is `ghostscript` at 2.13× the
+/// geometry, so approaching the geometry is receding from it.
 const AMBIGUOUS_TILING_CELL_CLIP: [&str; 1] = ["issue16038.pdf page 1"];
 
 /// Ambiguous, and it is a page made almost entirely of sub-pixel line work.
@@ -2140,7 +2175,7 @@ const AMBIGUOUS_TILING_CELL_CLIP: [&str; 1] = ["issue16038.pdf page 1"];
 /// At the page's own scale:
 ///
 /// ```text
-/// ours 0.121   mupdf 0.263   ghostscript 0.424   hayro 0.857   poppler 1.578
+/// ours 0.140   mupdf 0.263   ghostscript 0.424   hayro 0.857   poppler 1.578
 ///                                                            └ the limit is 0.174
 /// ```
 ///
@@ -2149,17 +2184,27 @@ const AMBIGUOUS_TILING_CELL_CLIP: [&str; 1] = ["issue16038.pdf page 1"];
 /// disagreement the two pages above hold. Ours is the only one under the limit, and the reason
 /// is measured rather than guessed: see below.
 ///
-/// ## Why ours is *under* it, which is a finding rather than the departure
+/// ## Why ours is under it, and the half of that which was a defect until the 389th
 ///
 /// A synthetic page with the same box and five identical rules — at the top edge, at y 300,
-/// 160, 20 and at the bottom edge — says where the ink goes. Four of the five carry
-/// **0.098 of an expected 0.1**; the one whose edge lies on the page's *top* carries 0.055.
-/// `tiny-skia` draws a stroke under a pixel wide as a hairline smeared symmetrically about the
-/// path — the ladder shows it, since each interior rule splits 0.047/0.051 across two rows
+/// 160, 20 and at the bottom edge — says where the ink goes. **Ours read 0.121 until the
+/// three-hundred-and-eighty-ninth session** because four of the five carried 0.098 of an
+/// expected 0.1 while the one whose edge lay on the page's top carried **0.055**:
+/// `tiny-skia` drew a stroke under a pixel wide as a hairline smeared symmetrically about the
+/// path — the ladder showed it, since each interior rule split 0.047/0.051 across two rows
 /// whatever its sub-pixel position — and for a rule 0.05 above the top edge half of that smear
-/// falls above row zero and is lost with the raster. `doc/todo/11` holds it as the third
-/// member of its family: a loss the *rasteriser's own construction* causes rather than the
-/// display list.
+/// fell above row zero and was lost with the raster.
+///
+/// A sub-pixel stroke on a straight axis-aligned rule is now the fill of its own outline (ADR
+/// 0226), so all five carry **0.098 of 0.1** and this page reads **0.140**. Its own raster at
+/// scale 1 is 250 × 322 for a 249.45 × 321.02 page, and the per-row profile is exactly the two
+/// rules and nothing else: row 0 at 25 of 255, rows 320 and 321 at 20 and 5, which is the lower
+/// rule's 0.1 divided between the two rows its 0.08/0.02 straddle — 0.155 of 255 over that
+/// raster where the geometry over the same raster is 0.158.
+///
+/// **What is left below the limit is the departure and not a loss.** 0.140 against 0.174 is
+/// anti-aliased coverage against a clause that paints whole pixels, and the two rules are 0.1
+/// of a pixel thick: no arrangement of an eight-bit raster puts more there.
 ///
 /// # `issue11473.pdf`, and it is the same width inside a §8.7.3 tiling cell
 ///
@@ -2180,7 +2225,7 @@ const AMBIGUOUS_TILING_CELL_CLIP: [&str; 1] = ["issue16038.pdf page 1"];
 ///                72 dpi   288 dpi   576 dpi
 /// poppler        1.1007   0.7769    0.7604
 /// mupdf          0.7674   0.7519    0.7543
-/// ours (1x/4x/8x) 0.6753  0.7507    0.7516
+/// ours (1x/4x/8x) 0.6780  0.7507    0.7516
 /// hayro          0.7130      —         —
 /// ghostscript    1.2027      —         —
 /// ```
@@ -2191,6 +2236,13 @@ const AMBIGUOUS_TILING_CELL_CLIP: [&str; 1] = ["issue16038.pdf page 1"];
 /// §10.7.4 as written on a 0.4-pixel stroke; ours is 10% under and `hayro` 5% under, which is
 /// the hairline smear this group's `vertical.pdf` paragraph measures. The spread is 0.53 of 255
 /// on a page whose whole ink is 0.75.
+///
+/// The first rung read 0.6753 until the three-hundred-and-eighty-ninth and moved by **0.003**
+/// when a sub-pixel stroke became the fill of its own outline (ADR 0226) — the *grid* swatch's
+/// two axis-aligned rules and nothing else, because the other three swatches are diagonals,
+/// which `pdf_render::sub_pixel` declines. The 4× and 8× rungs cannot have moved and were not
+/// re-measured: at those scales a 0.3985-unit stroke is 1.6 and 3.2 device pixels wide, and the
+/// rule applies only under one.
 ///
 /// Not `AMBIGUOUS_TILED_STROKES`, though it is one document over: that group is about
 /// `poppler`'s ladder *drifting* on a tiling pattern rather than converging, and here its ladder

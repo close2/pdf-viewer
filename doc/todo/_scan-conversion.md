@@ -35,6 +35,19 @@ rasteriser's own algorithm (the clause's last sentence allows it), and — since
 hundred-and-eighty-sixth session — **"no shape ever disappears"** for a fill whose subpath has no
 extent along one axis (`pdf_render::collapsed`, ADR 0154).
 
+**And since the three-hundred-and-eighty-ninth, the shape that has an area and loses it anyway.**
+Anti-aliasing replaces "paint the pixel" with coverage proportional to area, and a coverage that
+rounds to *nothing* is not that replacement — it is the same disappearance reached by another road.
+`tiny-skia` supersamples four times per pixel row at each sub-row's centre, so its smallest
+non-zero coverage is a sixteenth of a pixel and a fill under an eighth of one vanished; and it
+draws a stroke under a pixel wide as a hairline smeared symmetrically about the path, so one within
+half a pixel of the raster's edge lost half its ink. `pdf_render::sub_pixel_bands` draws an
+axis-aligned rectangle thinner than a device pixel as the whole pixel line it lies in, at the
+coverage its own area there implies, and a sub-pixel stroke on a straight axis-aligned rule is
+outlined into one first. **The graphics device never had either fault**, so this is the *oracle*
+being brought up to it rather than a rule about scan conversion. A rule that is not axis-aligned is
+declined and `doc/todo/11` carries it. ADR 0226.
+
 **And since the three-hundred-and-sixty-eighth, *where* that mark goes.** NOTE 1 of the same
 subclause says a filling region "is considered to intersect every pixel through which its boundary
 passes, even if the interior of the filling region is empty", and its EXAMPLE says "A zero-width or
@@ -79,6 +92,10 @@ automatically be adjusted": that is grid-fitting, the non-uniformity it removes 
 the aliased scan conversion this tree already departs from, and nothing reports it because there
 is no page on which this device could do better. **Any proposal to snap something to the pixel
 grid has to say why it is not this.**
+
+**ADR 0226 answers it by not snapping anything**, which is the cheapest form of that answer: a
+0.1-unit rule draws 0.1 of a row at the fractional position the document put it, and what is
+substituted is which *shape* carries the coverage rather than where the coverage goes.
 
 The one that has been taken says it in two sentences, and both are the standard's. A stroke has a
 width the document stated, so adjusting its coordinates is *this* clause's requirement and is

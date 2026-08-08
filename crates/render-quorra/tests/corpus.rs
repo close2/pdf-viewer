@@ -133,8 +133,16 @@ const REFUSED: [&str; 1] = ["bug1721218_reduced.pdf"];
 /// redundant clip came off (ADR 0165) there was nothing left to differ about. **A page in this
 /// list can be here because of something upstream of both backends**, which is not what its name
 /// suggests.
-const DIFFERS_AT_THE_EDGES: [&str; 27] = [
-    "bug1308536.pdf",
+///
+/// **Three more left in the three-hundred-and-eighty-ninth, and it is the same shape one clause
+/// along.** `bug1308536.pdf` (mean 1.5709), `issue11913.pdf` (1.5275) and `issue13447.pdf`
+/// (1.5652) agreed when §10.7.4's coverage rule reached a shape thinner than a device pixel on
+/// the processor (ADR 0226). What each of them was is a rectangle under a pixel thick that
+/// `tiny-skia` rounded to a quantum of its own — up to a whole row, or down to nothing — where
+/// quorra drew the area. Once the processor draws the area too there is nothing left for two
+/// rasterisers to distribute differently, which is the same sentence `issue4260_reduced.pdf`
+/// left on.
+const DIFFERS_AT_THE_EDGES: [&str; 24] = [
     "bug1885505.pdf",
     "bug1992868.pdf",
     "chrome-text-selection-markedContent.pdf",
@@ -142,9 +150,7 @@ const DIFFERS_AT_THE_EDGES: [&str; 27] = [
     "extgstate.pdf",
     "inks_basic.pdf",
     "issue11473.pdf",
-    "issue11913.pdf",
     "issue12810.pdf",
-    "issue13447.pdf",
     "issue14415.pdf",
     "issue14438.pdf",
     "issue15012.pdf",
@@ -173,24 +179,38 @@ const DIFFERS_AT_THE_EDGES: [&str; 27] = [
 /// from 256 to 4096 texels — a banded shading's hard stop boundary snapped to the coarser
 /// grid and sat ~3.5 px off on a page-spanning axis.
 ///
-/// What stays, measured pixel by pixel: six pages (`copy_paste_ligatures`,
-/// `issue4402_reduced`, `issue18030`, `issue7454`, `issue15150`, `160F-2019`) have **zero**
+/// **Three more left in the three-hundred-and-eighty-ninth**, when §10.7.4's coverage rule
+/// reached a sub-pixel shape on the processor (ADR 0226): `160F-2019.pdf` (mean 1.3399, ssim
+/// 0.96854), `issue7454.pdf` (1.8493, 0.97706) and `issue840.pdf` (0.8886, 0.99000). All three
+/// were named in the paragraph below as pages where nothing moved and only a uniform sub-step
+/// coverage difference dragged the score down — which is exactly what a quantised coverage *is*,
+/// and it stopped being one backend's when the two started answering a thin rectangle with its
+/// own area.
+///
+/// What stays, measured pixel by pixel: four pages (`copy_paste_ligatures`,
+/// `issue4402_reduced`, `issue18030`, `issue15150`) have **zero**
 /// pixels differing by more than 64 of 255 — miniature or enormous pages where uniform
 /// sub-step coverage differences drag the similarity score below the threshold without any
-/// shape moving. `knockout_groups_test.pdf` and `issue840.pdf` differ on 2 and 4 pixels
-/// respectively. The rest are the hairline-and-texture family — sub-half-pixel rules
+/// shape moving. `knockout_groups_test.pdf` differs on 2 pixels. The rest are the
+/// hairline-and-texture family — sub-half-pixel rules
 /// (`issue16038`, `issue12295`, `issue20232`, `22060_A1_01_Plans`; the first of those went from
 /// mean 6.1643 to **6.5359** in the three-hundred-and-seventy-fourth session, when its pattern's
 /// rule became one 0.53-pixel stroke instead of two clipped 0.27-pixel halves — the same ink for
 /// two rasterisers to distribute differently, in one mark instead of two, and the page moved 4%
-/// toward the geometry's own answer while doing it, ADR 0213), 8-px text
+/// toward the geometry's own answer while doing it, ADR 0213 — **and back to 1.8563 in the
+/// three-hundred-and-eighty-ninth**, ssim 0.90046 to 0.97723, when that one 0.53-pixel stroke
+/// stopped being a hairline on the processor and became the fill of its own outline: it is the
+/// largest single movement this list has recorded, and it is the two backends agreeing rather
+/// than either moving toward the other, ADR 0226), 8-px text
 /// (`issue16316`, `standard_fonts`), halftone photographs under the stated linear-sampler
 /// variance (`issue269_2`) — where the two rasterisers put the same ink on different sides
-/// of a pixel boundary. Matching `tiny-skia`'s sub-pixel distribution byte-for-byte would be
-/// curve-fitting to another renderer, which quorra's charter forbids; they stay listed so a
-/// *growth* in their numbers is still a finding.
-const DIFFERS_IN_SHAPE: [&str; 15] = [
-    "160F-2019.pdf",
+/// of a pixel boundary. **`22060_A1_01_Plans.pdf` is unmoved to four decimals and that is a
+/// finding rather than an omission**: its rules are diagonals and polylines, which
+/// `pdf_render::sub_pixel` declines by name, so the corpus's largest page of sub-pixel line work
+/// is the one the new rule does not reach. Matching `tiny-skia`'s sub-pixel distribution
+/// byte-for-byte would be curve-fitting to another renderer, which quorra's charter forbids;
+/// they stay listed so a *growth* in their numbers is still a finding.
+const DIFFERS_IN_SHAPE: [&str; 12] = [
     "22060_A1_01_Plans.pdf",
     "copy_paste_ligatures.pdf",
     "issue12295.pdf",
@@ -201,8 +221,6 @@ const DIFFERS_IN_SHAPE: [&str; 15] = [
     "issue20232.pdf",
     "issue269_2.pdf",
     "issue4402_reduced.pdf",
-    "issue7454.pdf",
-    "issue840.pdf",
     "knockout_groups_test.pdf",
     "standard_fonts.pdf",
 ];
