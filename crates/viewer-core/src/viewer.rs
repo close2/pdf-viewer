@@ -150,8 +150,7 @@ impl Viewer {
             }
             // Read on demand for the same reason: not one of the 974 corpus documents states a
             // `/Collection`, and a read at launch would walk a folder tree that is never there.
-            Query::Collection => pdf_model::collection::Collection::read(&open.document)
-                .map_or(Answer::None, Answer::Collection),
+            Query::Collection => collection(open),
             Query::PageLabel(index) => label(open, index).map_or(Answer::None, Answer::Label),
             Query::Thumbnail(index) => pdf_model::Pages::new(&open.document)
                 .get(index)
@@ -1785,6 +1784,22 @@ pub(crate) fn px(value: u32) -> f32 {
     )]
     let value = value as f32;
     value
+}
+
+/// §12.3.5's collection, and the document §12.3.5.1's `/D` says to present first.
+///
+/// The resolution happens here rather than in a host because Table 153's `/D` "identifies an
+/// entry in the `EmbeddedFiles` name tree" and that tree is the document's — a panel holding the
+/// collection dictionary has no way to tell a `/D` naming a file from a `/D` naming nothing.
+/// [`Answer::Collection`] carries both halves for that reason.
+fn collection(open: &Open) -> Answer<'static> {
+    pdf_model::collection::Collection::read(&open.document).map_or(Answer::None, |collection| {
+        let initial = collection.initial_document(&open.document);
+        Answer::Collection {
+            collection,
+            initial,
+        }
+    })
 }
 
 /// §12.4.2's label for a page, where the document states a non-empty one.

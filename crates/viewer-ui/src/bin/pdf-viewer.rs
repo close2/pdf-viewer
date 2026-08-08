@@ -1269,8 +1269,12 @@ struct App {
     /// §12.3.5's collection, where the catalog states one — read once, like the rest.
     ///
     /// `None` for every document anyone has opened. Where it is `Some`, the files tab draws
-    /// §12.3.5.2's folder tree and the schema's columns instead of a flat list.
-    collection: Option<pdf_model::collection::Collection>,
+    /// §12.3.5.2's folder tree and the schema's columns instead of a flat list, and §12.3.5.1's
+    /// resolved `/D` decides which of its rows is the document the file says to open on.
+    collection: Option<(
+        pdf_model::collection::Collection,
+        pdf_model::collection::Initial,
+    )>,
     /// §14.3.3's Table 349, likewise.
     information: pdf_model::metadata::Information,
     /// §14.3.2's metadata stream, read — `None` where the catalog names none.
@@ -1707,7 +1711,10 @@ impl App {
             self.articles = threads;
         }
         self.collection = match self.viewer.query(Query::Collection) {
-            Answer::Collection(collection) => Some(collection),
+            Answer::Collection {
+                collection,
+                initial,
+            } => Some((collection, initial)),
             _ => None,
         };
         if let Answer::Properties {
@@ -1839,7 +1846,12 @@ impl App {
             layers,
             attachments: &self.attachments,
             articles: &self.articles,
-            collection: self.collection.as_ref(),
+            collection: self.collection.as_ref().map(|(collection, initial)| {
+                viewer_ui::chrome::Presentation {
+                    collection,
+                    initial,
+                }
+            }),
             information: &self.information,
             metadata: self.metadata.as_ref(),
             pages: &self.pages,
@@ -1893,7 +1905,12 @@ impl App {
                 layers: &layers,
                 attachments: &self.attachments,
                 articles: &self.articles,
-                collection: self.collection.as_ref(),
+                collection: self.collection.as_ref().map(|(collection, initial)| {
+                    viewer_ui::chrome::Presentation {
+                        collection,
+                        initial,
+                    }
+                }),
                 information: &self.information,
                 metadata: self.metadata.as_ref(),
                 pages: &self.pages,
@@ -2257,7 +2274,12 @@ impl App {
                 layers: &layers,
                 attachments: &self.attachments,
                 articles: &self.articles,
-                collection: self.collection.as_ref(),
+                collection: self.collection.as_ref().map(|(collection, initial)| {
+                    viewer_ui::chrome::Presentation {
+                        collection,
+                        initial,
+                    }
+                }),
                 information: &self.information,
                 metadata: self.metadata.as_ref(),
                 pages: &self.pages,
@@ -2351,7 +2373,12 @@ impl App {
                     layers: &layers,
                     attachments: &self.attachments,
                     articles: &self.articles,
-                    collection: self.collection.as_ref(),
+                    collection: self.collection.as_ref().map(|(collection, initial)| {
+                        viewer_ui::chrome::Presentation {
+                            collection,
+                            initial,
+                        }
+                    }),
                     information: &self.information,
                     metadata: self.metadata.as_ref(),
                     pages: &self.pages,

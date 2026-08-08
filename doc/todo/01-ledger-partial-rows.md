@@ -1,11 +1,13 @@
 # Read the ledger's `partial` rows against the code
 
-Status: **standing task.** ~140 of the **249** rows have not been re-read — 29 went in the
-three-hundred-and-seventy-fifth and 16 in the three-hundred-and-eighty-seventh, against a
-population that grew by 9 in between. **The ninth sweep, at the bottom, is the first to check that
-a citation names the *right* table**, and its first run corrected nine ledger rows and nine source
-comments — a whole block of §12.5.6's annotation tables and a whole block of §14.8.5's attribute
-tables, every one of them ISO 32000-1's number for something else.
+Status: **standing task.** ~132 of the **252** rows have not been re-read — 29 went in the
+three-hundred-and-seventy-fifth, 16 in the three-hundred-and-eighty-seventh and 11 in the
+three-hundred-and-ninety-fourth, against a population that grew by 12 in between. **The ninth
+sweep, at the bottom, is the first to check that a citation names the *right* table**, and its
+first run corrected nine ledger rows and nine source comments — a whole block of §12.5.6's
+annotation tables and a whole block of §14.8.5's attribute tables, every one of them ISO 32000-1's
+number for something else. **Its second run, seven rounds later, found two more and one of them was
+in the round before's own work.**
 Priority: 01 — the population with no gate, and it has paid on every session that touched it
 Code: `doc/conformance/ledger.toml`, checked by `cargo test -p conformance`
 
@@ -671,13 +673,18 @@ for `another_document`. It stays a sweep, and it is cheap: one run is under a se
   all four corpus documents carrying a `/UR3` grant what this program does, so no file here can
   trip it. What is still owed under §12.8.2.3 is §12.8.2.2.2's comparison of two revisions, which
   needs the digest.
-- **~140 `partial` rows** not yet re-read against the code, of 249.
+- **~132 `partial` rows** not yet re-read against the code, of 252.
 - ~~**§12.5.6.6's `/RC`**~~ — closed in the three-hundred-and-eighty-seventh by the second sweep
   (ADR 0224). It is the **fourth** row to have carried "`/RC` … is XFA rich text, which principle 5
   excludes", after §12.5.6.2's in the three-hundred-and-forty-second and §12.5.2's in the
   three-hundred-and-seventy-fifth — and the first where the sentence hid a *different* `shall`:
   Table 177's `/RC` "shall be used to generate the appearance of the annotation", so a free text
   annotation stating only that entry drew a blank page.
+- ~~**§12.3.5.1's `/D` fallback, implemented and reachable from no host**~~ — closed in the
+  three-hundred-and-ninety-fourth (ADR 0231), eight rounds after the fifth sweep found it and two
+  after this file recorded it as owed. It took what the entry predicted, a field on
+  `Answer::Collection` and a consumer, and **a correction recorded in a todo file is still not a
+  correction**: it sat named through seven rounds that each had room for it.
 - **§12.5.6.19's seven unread Table 192 entries** — `/I`, `/RI`, `/IX`, `/IF`, `/AC`, `/RC` and
   `/TP`, a push-button's three icons, their fit, its two other captions and where the caption sits
   relative to the icon. They are what keeps that row `partial` now that the false claim above it
@@ -726,3 +733,77 @@ prose and the tree's comments, and this one read a *checker*. A predicate about 
 spelled is a test of how the author spelled it, and the way to find the next one is to write the
 thing the gate is meant to catch and check that it *is* caught — in every spelling a person would
 plausibly use.
+
+## All nine run again in the three-hundred-and-ninety-fourth, after seven rounds with no sweep
+
+`Query::Offset` and `Query::FieldSelection` (388), a sub-pixel rule drawn as the pixel line it lies
+in (389), `--trace`'s stages and clock (390), `Image::area_averaged` at 7.6× (391), a signature
+verified under the signer's key (392) and §12.4.4's transitions drawn (393) had all landed since the
+last run. Over `ledger.toml` and over `crates/`:
+
+- **Arithmetic (sweep 6)**: two hits, §7.9.2 and §O, both of which this file already records as read
+  and kept. Clean, for the fourth run running.
+- **Expired blockers**: 13 over the ledger and 9 over `crates/`. Four of the ledger's are the quoted
+  retired wording inside a correction (§11.3.7.2, §11.6.4.3, §11.7.4.4, §12.5.6.19); §12.10.2's wait
+  on §12.10.3 and §12.5.6.22's on printing are real. `pdf-syntax/src/tree.rs`'s "four families …
+  were blocked on one small piece of clause 7" reads as a hit and is in the past tense, which is a
+  false-positive shape worth naming: **a sweep for a blocker cannot see a tense.**
+- **Entries claimed unread**: 24, and every one is the known one-short-key-three-clauses population
+  or a list whose entries were checked in the two-hundred-and-ninth, three-hundred-and-thirty-second
+  and three-hundred-and-eighty-seventh runs. §12.5.6.19's "[a]ll seven are read by nothing" was
+  re-checked against the tree rather than believed — `/I`, `/RI`, `/IX`, `/IF`, `/AC`, `/RC` and
+  `/TP` are read nowhere, and the two hits a grep finds for `RI` and `IF` are §8.6.5.8's rendering
+  intent and §12.7.8's FDF field. **A true row is a result**; it stays `partial` and stays named.
+- **Capability reasons**: 41 over the ledger, 112 over `crates/`, and every source hit was a true
+  statement about a boundary a crate keeps. `navigation.rs`'s "this crate has no clock to run one
+  with" survives ADR 0230 by construction, because the round that drew a transition put the clock in
+  `viewer-core` and said so in the same module comment.
+- **Caller sweep**: 242 `pub fn`s in `pdf-model`, 87 named by no host — up from 231 and 84, the
+  growth being session 392's DER, CMS and X.509 readers, which are the known "functions `pdf-model`
+  calls itself" population. **`Collection::initial_document` is off the list**, which is this
+  round's work.
+- **`inapplicable` (sweep 7)**: 64 of 83 rows name vocabulary the source names, on a looser
+  stop-list than the three-hundred-and-eighty-seventh's 25 of 83. None was wrong.
+- **Citations (sweep 8)**: clean. Two hits, both §8.9.6.1 quoting the `doc/todo/20` its own
+  correction retired, which is this sweep's known false positive. **The first run of it had a
+  parser bug worth recording**: `examples/foo` lives under `crates/<crate>/examples/`, so a glob
+  anchored at the repository root reported 32 live paths as dead. An instrument that says a
+  citation is broken has to be right about where a file lives.
+- **Retired claim**, run over the nouns seven rounds gave the tree — `selection`, `verif`,
+  `trust store`, `transition`, `presentation mode`, `no clock`, `sub-pixel`, `trace`. **It paid
+  twice, and both were parent rows.**
+
+### The two the fourth sweep found, and they are the fifth failure shape at family scale
+
+**§12.1 is clause 12's own map, and it said "§12.8's signatures read and never verified"** — retired
+by ADR 0229 one round earlier, in nine rows of §12.8 that all say the opposite. The map row is
+written once and amended by nobody, because the sessions that implement a member do not cite it.
+
+**§12.6.4 said "three are performed and they are the three that change what is displayed"** — and
+its own eighteen children say eight. `/GoToE` (§12.6.4.4), `/GoToDp` (§12.6.4.5), `/Thread`
+(§12.6.4.7) and `/Named` (§12.6.4.12) had each been implemented by a different session, and
+`/Trans` (§12.6.4.15) by the round before this one; §12.6's row repeated the same three one clause
+up. **The sixth sweep cannot see this**: it asks whether every child is *settled*, and four of
+§12.6.4's are `reported` or `out-of-scope` for good reasons, so the family never qualifies. What
+finds it is counting the children — and the last sentence of §12.6.4's note was the fourth sweep's
+own subject, a claim ADR 0230 had retired in the row next door: "`/Trans` is the fourth that could
+change a mark and does not".
+
+**What that adds to the method**: a parent row that states a *number* about its children is
+checkable arithmetic, and no sweep here did that. The sixth sweep compares statuses; this compares
+a count in the prose with the rows below it. Worth a tenth sweep the next time a family's parent
+says "three of the twenty".
+
+### And the ninth sweep paid on its second run, once on the round before's work
+
+- **`pdf-model/src/navigation.rs`** opened "[`transition`] is Table 164's `/Trans`" — written in the
+  three-hundred-and-ninety-third, and `/Trans` is **Table 31**'s, a page object entry. Nine lines
+  down the same module comment says "Table 31 lists both as entries of a page object", so the module
+  held both answers at once from the day it was written. Table 164 is what the entry's *value* is.
+- **§12.6.4.2** cited "Table 206's `/D`" and the go-to action's `/D` is **Table 202**'s; 206 is
+  §12.6.4.5's GoToDp dictionary, whose two entries are `/S` and `/Dp`. This one was in the
+  three-hundred-and-eighty-seventh's 94 suspects and was not among its eighteen corrections, which
+  is what a sweep with a 5:1 noise ratio costs: **the run has to be read to the end.**
+
+80 suspects after both corrections, from 81 before, and the rest are the known prose shape — a
+sentence naming a table and then a key belonging to the dictionary that table describes.

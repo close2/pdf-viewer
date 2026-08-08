@@ -34,14 +34,13 @@ ADR 0223 has the argument, the measurements and what it refuses.
 
 ### 1. Two things the panel answers left behind, and neither is a hole in the transport
 
-**§12.3.5.1's `/D` is decided by nobody.** `Collection::initial_document` answers the clause's own
-three fallbacks — the container, a named embedded file, the first file, or "an empty preview
-window" — and needs the `&Document` that only `viewer-core` holds, so no host can call it: not
-`viewer_ui::chrome`, which draws the collection, and not a confined one. Found by `doc/todo/01`'s
-fifth sweep in the three-hundred-and-eighty-sixth and written into §12.3.5.1's ledger row. Closing
-it is a field on `Answer::Collection` — the shape `Answer::Field` took in ADR 0167 — and a consumer
-for it, which is a panel marking the row a document asks to open first. Nothing is
-`#[non_exhaustive]`, so the change breaks every consumer's build, which is what that is for.
+**~~§12.3.5.1's `/D` is decided by nobody.~~ Closed in the three-hundred-and-ninety-fourth session**
+(ADR 0231). `Answer::Collection` carries the resolved `Initial` beside Table 153, the protocol
+encodes its four cases, and `viewer_ui::chrome` sets the initial document's row in bold while an
+empty tree says so instead of drawing nothing. It took exactly what this entry predicted — a field
+on the answer and a consumer for it — and it was never a hole in the transport: `viewer_ui::chrome`
+was in the same position in the same process. Nothing is `#[non_exhaustive]`, so the change broke
+every consumer's build, which is what that is for.
 
 **An outline row cannot say which page it goes to.** `Item::destination` crosses, but turning a
 `Destination` into a page index is `page_index_with(document, pages, …)` and a host has neither.

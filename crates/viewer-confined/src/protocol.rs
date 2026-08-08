@@ -1977,9 +1977,13 @@ pub(crate) fn encode_answer(answer: &Answer<'_>) -> Result<Vec<u8>, Uncarried> {
             writer.u8(k::ARTICLES);
             panels::encode_articles(&mut writer, threads);
         }
-        Answer::Collection(collection) => {
+        Answer::Collection {
+            collection,
+            initial,
+        } => {
             writer.u8(k::COLLECTION);
             panels::encode_collection(&mut writer, collection)?;
+            panels::encode_initial(&mut writer, initial);
         }
         Answer::Thumbnail(thumbnail) => {
             writer.u8(k::THUMBNAIL);
@@ -2120,7 +2124,10 @@ pub(crate) fn decode_answer(bytes: &[u8]) -> Result<Reply, ProtocolError> {
         k::OUTLINE => Reply::Outline(panels::decode_outline(&mut reader)?),
         k::LAYERS => Reply::Layers(panels::decode_layers(&mut reader)?),
         k::ATTACHMENTS => Reply::Attachments(panels::decode_attachments(&mut reader)?),
-        k::COLLECTION => Reply::Collection(Box::new(panels::decode_collection(&mut reader)?)),
+        k::COLLECTION => Reply::Collection {
+            collection: Box::new(panels::decode_collection(&mut reader)?),
+            initial: panels::decode_initial(&mut reader)?,
+        },
         k::ARTICLES => Reply::Articles(panels::decode_articles(&mut reader)?),
         k::THUMBNAIL => Reply::Thumbnail(panels::decode_thumbnail(&mut reader)?),
         k::PROPERTIES => {
@@ -2736,10 +2743,24 @@ mod tests {
 
         // §12.3.5.
         let collection = a_populated_collection();
-        let Reply::Collection(read) = round_trip(&Answer::Collection(collection.clone())) else {
+        // §12.3.5.1's resolved `/D` crosses beside the dictionary: `Initial::Embedded` is the
+        // variant that carries a name, so a codec that dropped the name would show here.
+        let initial = pdf_model::collection::Initial::Embedded("<1>letter.pdf".to_owned());
+        let Reply::Collection {
+            collection: read,
+            initial: read_initial,
+        } = round_trip(&Answer::Collection {
+            collection: collection.clone(),
+            initial: initial.clone(),
+        })
+        else {
             panic!("a collection comes back as one");
         };
         assert_eq!(*read, collection, "a collection changed on the way through");
+        assert_eq!(
+            read_initial, initial,
+            "the initial document changed on the way through"
+        );
 
         // §12.4.3.
         let threads = vec![Thread {
@@ -3003,7 +3024,11 @@ mod tests {
             }),
             ..Collection::default()
         };
-        let refused = encode_answer(&Answer::Collection(collection)).unwrap_err();
+        let refused = encode_answer(&Answer::Collection {
+            collection,
+            initial: pdf_model::collection::Initial::Container,
+        })
+        .unwrap_err();
         assert_eq!(refused.message, "Answer::Collection");
     }
 

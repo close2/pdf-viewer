@@ -609,7 +609,7 @@ pub struct Content<'a> {
     /// `None` for every document anyone has opened. Where it is `Some`, the files tab draws
     /// §12.3.5.2's folder tree and the schema's visible columns instead of a flat list — the same
     /// files, presented as the clause says a collection shall be presented.
-    pub collection: Option<&'a pdf_model::collection::Collection>,
+    pub collection: Option<Presentation<'a>>,
     /// §14.3.3's Table 349, from [`viewer_core::Query::Properties`].
     pub information: &'a pdf_model::metadata::Information,
     /// §14.3.2's metadata stream, read — `None` where the catalog names none.
@@ -620,6 +620,20 @@ pub struct Content<'a> {
     /// thumbnail is a decoded image, `viewer_core::Query::Thumbnail` answers one page at a time,
     /// and a thousand-page document would otherwise decode a thousand miniatures to draw eight.
     pub pages: &'a [Page],
+}
+
+/// §12.3.5's collection as this panel needs it: the dictionary, and where the clause says to open.
+///
+/// The two travel together because neither presents a collection on its own. Table 153 says what
+/// the files are and how they are arranged; §12.3.5.1's `/D` says which of them a person is
+/// looking at when the document opens, and it is a *resolved* answer rather than the entry —
+/// [`viewer_core::Answer::Collection`] explains why the resolution is not a panel's to make.
+#[derive(Debug, Clone, Copy)]
+pub struct Presentation<'a> {
+    /// Table 153, whole, with the schema's columns and §12.3.5.2's folder tree.
+    pub collection: &'a pdf_model::collection::Collection,
+    /// Which document §12.3.5.1 says shall be presented first.
+    pub initial: &'a pdf_model::collection::Initial,
 }
 
 /// One page, as §12.3.4's tab shows it.
@@ -866,7 +880,9 @@ impl Sidebar {
                     // §12.3.5: "[i]f this dictionary is present in a PDF document, the interactive
                     // PDF processor shall present the document as a portable collection." The same
                     // files, in §12.3.5.2's folders and with the schema's columns beside them.
-                    Some(collection) => collection_rows(collection, content.attachments, &mut out),
+                    Some(presentation) => {
+                        collection_rows(presentation, content.attachments, &mut out);
+                    }
                     None => {
                         for file in content.attachments {
                             let mut row = Row::plain(
@@ -1175,11 +1191,31 @@ fn tab_at(x: f32, scale: f32) -> Tab {
 /// in folder 3, and `collection::folder_of` reads it. A key that does not conform names no folder,
 /// and the clause says such files "shall be treated as associated with the root folder" — so they
 /// are drawn at depth zero, above the folders, which is where the root's own files belong.
+///
+/// # §12.3.5.1's `/D`, and what "presented" means for a panel over a page
+///
+/// Table 153's `/D` "identif[ies] an entry in the `EmbeddedFiles` name tree, determining the
+/// document that shall be initially presented in the user interface", with three fallbacks the
+/// clause states as `shall`s: a missing or invalid entry means the container, a valid one naming
+/// no file means "the first item from the list of files to display in its user interface", and
+/// an empty tree means "an empty preview window". [`pdf_model::collection::Initial`] is those
+/// four outcomes and `viewer_core` resolves them, because the name tree is the document's.
+///
+/// This panel obeys them the only way a panel over a page can: the row of the initial document is
+/// **the one set in bold**, and an empty tree says so instead of drawing nothing. The container
+/// case marks no row, because the container is what is already on the screen — the decision above.
+/// The standard states no appearance for any of this, so the emphasis is a choice, made once here.
 fn collection_rows(
-    collection: &pdf_model::collection::Collection,
+    presentation: Presentation<'_>,
     files: &[pdf_model::attachment::Attachment],
     out: &mut Vec<Row>,
 ) {
+    let Presentation {
+        collection,
+        initial,
+    } = presentation;
+    let start = out.len();
+
     // The schema's visible columns in Table 155's `/O` order, which is "[t]he relative order of
     // the field name in the user interface". A field with no `/O` sorts after the ones that state
     // one, by key, which is the only order left when the file states none.
@@ -1209,6 +1245,29 @@ fn collection_rows(
     under(None, out, 0);
     if let Some(root) = collection.folders.as_ref() {
         folder_rows(root, 0, &mut under, out);
+    }
+
+    // The rows this call added, in the order a person reads them, which is what the clause's
+    // "the first item from the list of files to display in its user interface" points at.
+    let listed = &mut out[start..];
+    let opened = match initial {
+        pdf_model::collection::Initial::Embedded(name) => listed
+            .iter_mut()
+            .find(|row| row.act == Act::Extract(name.clone())),
+        pdf_model::collection::Initial::FirstFile => listed
+            .iter_mut()
+            .find(|row| matches!(row.act, Act::Extract(_))),
+        // The container's own pages are on the screen already, so there is no row to mark; an
+        // empty tree has no rows at all, and says so below instead.
+        pdf_model::collection::Initial::Container | pdf_model::collection::Initial::Empty => None,
+    };
+    if let Some(row) = opened {
+        row.style.bold = true;
+    }
+    if matches!(initial, pdf_model::collection::Initial::Empty) {
+        out.push(nothing(
+            "This collection names an initial document and holds no files.",
+        ));
     }
 }
 

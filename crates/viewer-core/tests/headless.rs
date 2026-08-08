@@ -3768,3 +3768,106 @@ fn the_reader_can_turn_a_documents_restrictions_off() {
         "the /DocMDP is where the producer put it"
     );
 }
+
+/// A collection whose `/D` names an entry the `/EmbeddedFiles` tree has, or does not, or cannot.
+///
+/// ISO 32000-2 §12.3.5.1, Table 153's `/D`, whose value is "[a] string that identifies an entry
+/// in the `EmbeddedFiles` name tree, determining the document that shall be initially presented in
+/// the user interface".
+fn a_collection_naming(initial: &str, files: &str) -> Vec<u8> {
+    use std::fmt::Write as _;
+
+    let objects: [String; 4] = [
+        format!(
+            "<< /Type /Catalog /Pages 2 0 R /Names << /EmbeddedFiles << /Names [{files}] >> >> \
+             /Collection << /Type /Collection {initial} >> >>"
+        ),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>".to_owned(),
+        "<< /Type /Filespec /F (report.pdf) >>".to_owned(),
+    ];
+    let mut out = String::from("%PDF-2.0\n");
+    let mut offsets = Vec::new();
+    for (index, body) in objects.iter().enumerate() {
+        offsets.push(out.len());
+        let number = index.saturating_add(1);
+        let _ = write!(out, "{number} 0 obj\n{body}\nendobj\n");
+    }
+    let at = out.len();
+    let size = objects.len().saturating_add(1);
+    let _ = write!(out, "xref\n0 {size}\n0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// The collection this viewer answers with, and the document §12.3.5.1 says it opens on.
+fn collection_of(bytes: Vec<u8>) -> pdf_model::collection::Initial {
+    let mut viewer = Viewer::new(200, 200, 1.0);
+    let opened = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password: None,
+            fragment: None,
+        })
+        .any(|event| matches!(event, Event::Opened { .. }));
+    assert!(opened, "the fixture is a valid PDF");
+    let Answer::Collection { initial, .. } = viewer.query(Query::Collection) else {
+        panic!("a document with a /Collection answers with one");
+    };
+    initial
+}
+
+/// §12.3.5.1's four `/D` outcomes reach a host, which none of them could before.
+///
+/// Table 153's `/D` states three fallbacks as `shall`s and the entry's presence as the fourth
+/// case, and every one of them is decided against the `/EmbeddedFiles` name tree rather than
+/// against the collection dictionary — which is why `Collection::initial_document` takes the
+/// document, and why no panel holding Table 153 could work it out. It was implemented in the
+/// three-hundred-and-fifty-second session and reachable from no host until the
+/// three-hundred-and-ninety-fourth.
+#[test]
+fn a_collections_initial_document_reaches_a_host() {
+    use pdf_model::collection::Initial;
+
+    let one_file = "(<1>report.pdf) 4 0 R";
+
+    // "If the D entry is missing or is not a valid byte string, the initial document shall be the
+    // one that contains the collection dictionary."
+    assert_eq!(
+        collection_of(a_collection_naming("", one_file)),
+        Initial::Container
+    );
+    assert_eq!(
+        collection_of(a_collection_naming("/D /report", one_file)),
+        Initial::Container,
+        "a name is not a byte string"
+    );
+
+    // A `/D` that names an entry the tree holds is that entry.
+    assert_eq!(
+        collection_of(a_collection_naming("/D (<1>report.pdf)", one_file)),
+        Initial::Embedded("<1>report.pdf".to_owned())
+    );
+
+    // "If the D entry is a valid byte string that does not match any file in the EmbeddedFiles
+    // name tree, the interactive PDF processor shall select the first item from the list of files
+    // to display in its user interface".
+    assert_eq!(
+        collection_of(a_collection_naming("/D (missing.pdf)", one_file)),
+        Initial::FirstFile
+    );
+
+    // "if no files exist in the name tree, the interactive PDF processor shall display an empty
+    // preview window."
+    assert_eq!(
+        collection_of(a_collection_naming("/D (missing.pdf)", "")),
+        Initial::Empty
+    );
+}

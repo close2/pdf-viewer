@@ -175,8 +175,11 @@ fn main() {
     }
 
     match ask(&mut confined, "collection", Query::Collection) {
-        Reply::Collection(collection) => println!(
-            "    {} schema column(s), view {:?}, {} folder(s)",
+        Reply::Collection {
+            collection,
+            initial,
+        } => println!(
+            "    {} schema column(s), view {:?}, {} folder(s), opens on {initial:?}",
             collection.schema.len(),
             collection.view,
             collection.all_folders().len()

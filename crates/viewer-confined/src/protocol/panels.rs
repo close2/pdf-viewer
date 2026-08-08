@@ -38,8 +38,8 @@
 use pdf_model::article::{Bead, Thread};
 use pdf_model::attachment::{Attachment as FileAttachment, Relationship};
 use pdf_model::collection::{
-    Collection, Colours, Field, FieldKind, Folder, Item as CollectionItem, Layout, Navigator, Sort,
-    Split, SplitDirection, Value as CollectionValue, View as CollectionView,
+    Collection, Colours, Field, FieldKind, Folder, Initial, Item as CollectionItem, Layout,
+    Navigator, Sort, Split, SplitDirection, Value as CollectionValue, View as CollectionView,
 };
 use pdf_model::destination::{Destination, Target, View};
 use pdf_model::metadata::{Information, Trapped};
@@ -633,6 +633,41 @@ pub(super) fn decode_collection(reader: &mut Reader<'_>) -> Result<Collection, P
         colours,
         split,
         folders,
+    })
+}
+
+/// Encodes §12.3.5.1's resolved `/D`: which document the collection opens on.
+///
+/// Four instructions rather than an optional name, because the clause states four outcomes for
+/// one entry and a host that received `None` would have to consult the `/EmbeddedFiles` tree to
+/// tell "no `/D`" from "a `/D` naming nothing" — which is the tree a confined host does not have.
+pub(super) fn encode_initial(writer: &mut Writer, initial: &Initial) {
+    match initial {
+        Initial::Container => {
+            writer.u8(0);
+        }
+        Initial::Embedded(name) => {
+            writer.u8(1);
+            writer.str(name);
+        }
+        Initial::FirstFile => {
+            writer.u8(2);
+        }
+        Initial::Empty => {
+            writer.u8(3);
+        }
+    }
+}
+
+/// Reads §12.3.5.1's resolved `/D`.
+pub(super) fn decode_initial(reader: &mut Reader<'_>) -> Result<Initial, ProtocolError> {
+    let what = "a collection's initial document";
+    Ok(match reader.u8(what)? {
+        0 => Initial::Container,
+        1 => Initial::Embedded(reader.string("an initial document's name")?),
+        2 => Initial::FirstFile,
+        3 => Initial::Empty,
+        value => return Err(unrecognised(what, value)),
     })
 }
 

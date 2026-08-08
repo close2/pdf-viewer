@@ -310,12 +310,18 @@ pub enum Reply {
     /// [`Attachment`] rather than [`pdf_model::attachment::Attachment`], and the difference is the
     /// stream: see that type.
     Attachments(Vec<Attachment>),
-    /// §12.3.5's portable collection, read.
+    /// §12.3.5's portable collection, read, and the document it opens on.
     ///
     /// Boxed because it is Table 153, Table 155's columns, Table 156's sort, Table 158's split,
     /// Table 159's folder tree and Table 160's navigator together, and an enumeration is as large
     /// as its largest variant — a `Reply::Count` would otherwise cost what a collection costs.
-    Collection(Box<pdf_model::collection::Collection>),
+    Collection {
+        /// Table 153, whole.
+        collection: Box<pdf_model::collection::Collection>,
+        /// §12.3.5.1's `/D`, resolved against the `/EmbeddedFiles` name tree the confined process
+        /// holds and this one does not. See [`viewer_core::Answer::Collection`].
+        initial: pdf_model::collection::Initial,
+    },
     /// §12.4.3's article threads, in the `/Threads` array's own order.
     Articles(Vec<pdf_model::article::Thread>),
     /// §12.3.4's thumbnail for the page asked about, decoded.

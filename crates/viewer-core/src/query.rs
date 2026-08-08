@@ -41,7 +41,9 @@ pub enum Query<'a> {
     /// The clause is a `shall` on a *viewer*: "[i]f this dictionary is present in a PDF document,
     /// the interactive PDF processor shall present the document as a portable collection". What
     /// crosses is Table 153 whole — the schema's columns, §12.3.5.2's folder tree, the initial
-    /// view — and presenting it is a host's, in the same sense §12.3.3's outline is.
+    /// view — and presenting it is a host's, in the same sense §12.3.3's outline is. **And
+    /// §12.3.5.1's `/D`, resolved**, which is the one part of the clause no host could work out
+    /// for itself: see [`Answer::Collection`].
     ///
     /// [`Answer::None`] for the 974 corpus documents that state none, which is all of them.
     Collection,
@@ -282,8 +284,21 @@ pub enum Answer<'a> {
     Attachments(Vec<pdf_model::attachment::Attachment>),
     /// §12.4.3's article threads, in the `/Threads` array's own order.
     Articles(Vec<pdf_model::article::Thread>),
-    /// §12.3.5's collection dictionary, read.
-    Collection(pdf_model::collection::Collection),
+    /// §12.3.5's collection dictionary, read, and the document it opens on.
+    ///
+    /// Two values rather than one because §12.3.5.1 asks a *reader* to make one decision here
+    /// and states its answer in the dictionary only indirectly. Table 153's `/D` "identifies an
+    /// entry in the `EmbeddedFiles` name tree, determining the document that shall be initially
+    /// presented in the user interface", and resolving it against that tree is what turns a byte
+    /// string into one of [`pdf_model::collection::Initial`]'s four instructions. The tree is the
+    /// document's, so a host holding only the dictionary cannot make the decision — which is
+    /// exactly what this answer carried until the three-hundred-and-ninety-fourth session.
+    Collection {
+        /// Table 153, whole, with Tables 154 to 160 behind it.
+        collection: pdf_model::collection::Collection,
+        /// Which document §12.3.5.1 says shall be presented first.
+        initial: pdf_model::collection::Initial,
+    },
     /// §12.4.2's label for the page asked about, or [`Answer::None`] where it states none.
     Label(String),
     /// §12.3.4's thumbnail for the page asked about, decoded.

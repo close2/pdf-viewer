@@ -5,9 +5,10 @@
 //! user control", and §12.4.4.2 adds the ability to advance between states of *one* page.
 //!
 //! A page states three things about that, and all three are read here. Two of them are
-//! §12.4.4.1's, on the page object itself: [`transition`] is Table 164's `/Trans`, "the style and
-//! duration of the visual transition to use when moving from another page to the given page", and
-//! [`display_duration`] is `/Dur`, the seconds after which a presentation advances by itself. The
+//! §12.4.4.1's, on the page object itself: [`transition`] is Table 31's `/Trans`, "the style and
+//! duration of the visual transition to use when moving from another page to the given page" —
+//! whose *value* is Table 164's transition dictionary — and [`display_duration`] is `/Dur`, the
+//! seconds after which a presentation advances by itself. The
 //! third is §12.4.4.2's [`steps`], the page's own states in order.
 //!
 //! # A page entry, not an inherited one
@@ -142,7 +143,7 @@ pub enum Direction {
     None,
 }
 
-/// §12.4.4.1's `/Trans`: how a presentation moves *to* this page. Table 164.
+/// §12.4.4.1's `/Trans`: how a presentation moves *to* this page. Table 164's dictionary.
 ///
 /// Every entry carries the table's default where the file states none, so a caller reads a
 /// complete transition or no transition at all. The one entry with no stated default is `/Di`,

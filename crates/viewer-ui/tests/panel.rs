@@ -503,7 +503,10 @@ fn a_collection_puts_its_files_in_folders_with_the_schemas_columns() {
         layers: &[],
         attachments: &files,
         articles: &[],
-        collection: Some(&collection),
+        collection: Some(viewer_ui::chrome::Presentation {
+            collection: &collection,
+            initial: &pdf_model::collection::Initial::Container,
+        }),
         information: &NOTHING,
         metadata: None,
         pages: &[],
@@ -544,6 +547,98 @@ fn a_collection_puts_its_files_in_folders_with_the_schemas_columns() {
         Some(Hit::Extract("<3>report.pdf".to_owned())),
         "a flat list is the /EmbeddedFiles tree's own order"
     );
+}
+
+/// §12.3.5.1's `/D`: the row of the initial document is set apart, and an empty tree says so.
+///
+/// ISO 32000-2 Table 153's `/D` determines "the document that shall be initially presented in the
+/// user interface", with three fallbacks stated as `shall`s. The clause states no *appearance*
+/// for any of it, so bold is this program's choice — what the test can check is that the four
+/// outcomes reach the panel and that only one of them marks a row.
+#[test]
+fn a_collections_initial_document_is_the_row_set_in_bold() {
+    use pdf_model::collection::{Collection, Initial};
+    let chrome = Chrome::new().expect("§9.6.2.2's fourteen are compiled in");
+    let outline = Outline::default();
+    let collection = Collection::default();
+    let files = vec![attachment("readme.txt", 12), attachment("report.pdf", 4096)];
+
+    let drawn = |initial: &Initial| {
+        let content = Content {
+            outline: &outline,
+            layers: &[],
+            attachments: &files,
+            articles: &[],
+            collection: Some(viewer_ui::chrome::Presentation {
+                collection: &collection,
+                initial,
+            }),
+            information: &NOTHING,
+            metadata: None,
+            pages: &[],
+        };
+        let mut panel = Sidebar::default();
+        panel.toggle();
+        assert_eq!(panel.click((tab(3), 8.0), content, 1.0), Some(Hit::Redraw));
+        panel.draw(&chrome, content, HEIGHT, 1.0)
+    };
+
+    // The container is what is already on the screen, so no row is marked — the baseline every
+    // other case is compared against.
+    let plain = drawn(&Initial::Container);
+    let (first, second) = (26..46, 46..66);
+    let (plain_first, plain_second) = (ink(&plain, first.clone()), ink(&plain, second.clone()));
+    assert!(
+        plain_first > 40 && plain_second > 40,
+        "both files are drawn"
+    );
+
+    // "the interactive PDF processor shall select the first item from the list of files to
+    // display in its user interface" — which is the first row, and not the second.
+    let first_file = drawn(&Initial::FirstFile);
+    assert!(
+        ink(&first_file, first.clone()) > plain_first,
+        "the first row is set apart"
+    );
+    assert_eq!(
+        ink(&first_file, second.clone()),
+        plain_second,
+        "and the second row is not"
+    );
+
+    // A `/D` the tree holds names one row wherever it sits in the list.
+    let named = drawn(&Initial::Embedded("report.pdf".to_owned()));
+    assert_eq!(
+        ink(&named, first.clone()),
+        plain_first,
+        "the file /D did not name is left alone"
+    );
+    assert!(
+        ink(&named, second.clone()) > plain_second,
+        "and the one it named is set apart"
+    );
+
+    // "if no files exist in the name tree, the interactive PDF processor shall display an empty
+    // preview window" — a sentence rather than a blank panel, which is this file's own habit for
+    // a list that is empty because the document said so.
+    let empty = Content {
+        outline: &outline,
+        layers: &[],
+        attachments: &[],
+        articles: &[],
+        collection: Some(viewer_ui::chrome::Presentation {
+            collection: &collection,
+            initial: &Initial::Empty,
+        }),
+        information: &NOTHING,
+        metadata: None,
+        pages: &[],
+    };
+    let mut panel = Sidebar::default();
+    panel.toggle();
+    assert_eq!(panel.click((tab(3), 8.0), empty, 1.0), Some(Hit::Redraw));
+    let list = panel.draw(&chrome, empty, HEIGHT, 1.0);
+    assert!(ink(&list, first) > 40, "the empty tree is said out loud");
 }
 
 /// One embedded file, as `Query::Attachments` answers with it.

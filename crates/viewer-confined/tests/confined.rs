@@ -508,7 +508,19 @@ fn every_panel_answer_crosses_a_real_document_unchanged() {
             ask(&mut confined, Query::Collection),
             here.query(Query::Collection),
         ) {
-            (Reply::Collection(crossed), Answer::Collection(ours)) => assert_eq!(*crossed, ours),
+            (
+                Reply::Collection {
+                    collection: crossed,
+                    initial: crossed_initial,
+                },
+                Answer::Collection {
+                    collection: ours,
+                    initial: ours_initial,
+                },
+            ) => {
+                assert_eq!(*crossed, ours);
+                assert_eq!(crossed_initial, ours_initial);
+            }
             (Reply::None, Answer::None) => {}
             (crossed, ours) => panic!("{name}: a collection came back as {crossed:?} for {ours:?}"),
         }
