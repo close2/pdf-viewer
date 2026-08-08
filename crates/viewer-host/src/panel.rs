@@ -1,8 +1,10 @@
 //! Three of `viewer_core`'s answers turned into one shape a platform tree can hold.
 //!
-//! **Toolkit-free on purpose.** `src/tree.rs` is what builds the [`gtk4::ListView`]; this module
-//! is the mapping, and keeping the two apart is what makes the mapping testable with no display —
-//! which is the only part of a native host a workspace test suite can see.
+//! **Toolkit-free on purpose**, which is why it is in this crate and not in either host: a
+//! `GtkListView` and a `QTreeView` want the same rows and want them in different objects, so the
+//! mapping is written once and the widget twice. Keeping the two apart is also what makes the
+//! mapping testable with no display, which is the only part of a native host a workspace test
+//! suite can see.
 //!
 //! The three answers are §12.3.3's outline ([`viewer_core::Query::Outline`]), §8.11.4.3's `/Order`
 //! ([`viewer_core::Query::Layers`]) and §7.11.4's embedded files

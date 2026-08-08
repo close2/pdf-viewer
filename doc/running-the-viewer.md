@@ -221,6 +221,30 @@ with. **The one thing left to know** is the size: a GTK control has a theme's mi
 `/Rect` can be smaller, so on `160F-2019.pdf` all 76 controls are taller than the rectangle they
 cover. Choosing the magnification is `doc/todo/30`'s.
 
+**And since the four-hundred-and-tenth there is a third program, with a third toolkit.**
+
+```sh
+cargo run --release -p viewer-qt --bin pdf-viewer-qt -- doc/PDF20_AN001-BPC.pdf
+```
+
+`pdf-viewer-qt` is the Qt 6 Widgets host (ADR 0246, `doc/todo/30`). It takes the same arguments
+`pdf-viewer-gtk` does — one document, Annex O's `#fragment` after it, `--trace[=topics]` in the same
+line format, `--draw-widget-appearances` — and binds the same keys, so the two hosts can be run side
+by side and differ only in their toolkit. **One flag is its own**: `--quit-after=<ms>` closes the
+window by itself, because a window under `Xvfb` has nobody to close it and a test that killed the
+process could not tell a clean exit from a crash.
+
+What it shows that the GTK host cannot: the selection and §12.5.1's focus ring in the *desktop's*
+colours — `QPalette::Highlight` and `QPalette::Accent`, which GTK 4.22 exposes no equivalent of at
+all — and Table 233 bit 19's editable combo box, which `QComboBox` supports and `GtkDropDown` does
+not. The sidebar's three tabs are `QTreeView`s over one `QAbstractItemModel` with two columns, a
+layer's switch is `Qt::CheckStateRole` rather than a widget, and §12.7's fields are `QLineEdit`,
+`QPlainTextEdit`, `QCheckBox`, `QRadioButton`, `QPushButton`, `QComboBox` and `QListWidget` placed
+over the page.
+
+**It needs Qt 6's development files to build** — `qmake6`, `moc` and a C++ compiler — which is what a
+native host binding a platform means, and is why it is in none of the three cross-target checks.
+
 **The pipeline is a gate this project had stopped reading, and both its failures were real** (ADR
 0189). It had been red since 2026-08-02. `render-gpu`'s bounded wait was one second rather than the
 sixty its constant and comment claimed, because `wgpu::PollError::Timeout` from the *slice* was

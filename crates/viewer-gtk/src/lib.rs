@@ -4,7 +4,15 @@
 //! with no C++ bridge and it is this project's development platform, Qt second, and the C ABI
 //! last, because a frozen ABI is the one mistake that cannot be taken back and two Rust consumers
 //! have to shake the vocabulary out before it is worth freezing. This crate is the first of those
-//! two.
+//! two; `crates/viewer-qt` is the second.
+//!
+//! # What is here, and what turned out not to be GTK's
+//!
+//! Four of this crate's original eight modules named no GTK type at all, and the second host wanted
+//! all four unchanged — so they are [`viewer_host`] now: §12.3.3's, §8.11.4.3's and §7.11.4's
+//! answers as one row shape, §12.7.5's field as the control it is, §12.7.6.4's file policy, and
+//! the launch timeline. What is left here is the toolkit and nothing else, which is why this
+//! crate's whole public interface is [`Host`] and [`HostError`] (ADR 0246).
 //!
 //! # What it is for, and what it is not
 //!
@@ -43,16 +51,8 @@
 #![forbid(unsafe_code)]
 
 mod controls;
-mod form;
 mod host;
 mod page;
-mod panel;
-mod policy;
-mod trace;
 mod tree;
 
-pub use form::{ControlKind, control_kind};
 pub use host::{Host, HostError};
-pub use panel::{PanelRow, RowAction, attachment_rows, layer_rows, outline_rows};
-pub use policy::{ImportRefusal, read_import, resolve_import};
-pub use trace::{Topic, Trace, parse_topics};

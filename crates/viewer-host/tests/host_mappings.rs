@@ -1,11 +1,12 @@
 //! What a native host has to derive from `viewer-core`'s answers, checked without a display.
 //!
-//! **The whole of what a workspace test suite can see of a GTK host is this.** Building a
-//! [`gtk4::Window`] needs a display, and a test that skipped itself when there was none would be
-//! worse than no test — so the crate is written with the *decisions* in toolkit-free modules and
-//! the widget construction in modules that only wire them up. These are the decisions. The
-//! widgets are checked by running the program under `Xvfb` and reading its pixels back, which is
-//! ADR 0126's recipe and is recorded in ADR 0244.
+//! **The whole of what a workspace test suite can see of a native host is this.** Building a
+//! `GtkApplicationWindow` or a `QMainWindow` needs a display, and a test that skipped itself when
+//! there was none would be worse than no test — so the decisions live in this toolkit-free crate
+//! and the widget construction lives in the hosts, which only wire them up. These are the
+//! decisions, and both hosts are built on exactly these. The widgets are checked by running each
+//! program under `Xvfb` and reading its pixels back, which is ADR 0126's recipe and is recorded in
+//! ADRs 0244 and 0246.
 
 #![expect(
     clippy::panic,
@@ -17,7 +18,7 @@ use std::path::{Path, PathBuf};
 
 use pdf_model::form::{Choice, ChoiceControl, Control, TextControl};
 use viewer_core::{Answer, Command, DocumentId, Query, Viewer};
-use viewer_gtk::{
+use viewer_host::{
     ControlKind, ImportRefusal, PanelRow, RowAction, attachment_rows, control_kind, layer_rows,
     outline_rows, resolve_import,
 };
@@ -213,7 +214,8 @@ fn a_real_forms_fields_each_decide_a_control() {
 #[test]
 fn a_password_field_asks_for_the_platforms_secure_control() {
     // Table 231 bit 14: "intended for entering a secure password that should not be echoed
-    // visibly to the screen". The flag decides the *control* — GTK4 has `GtkPasswordEntry` — and
+    // visibly to the screen". The flag decides the *control* — a `GtkPasswordEntry`, or a
+    // `QLineEdit` in `QLineEdit::Password` echo mode — and
     // it is also the one control whose value this host does not read back, because
     // `Answer::Field` answers a password field with bullets rather than with its characters.
     let control = Control::Text(TextControl {

@@ -22,7 +22,7 @@ use std::rc::Rc;
 use gtk4::prelude::*;
 use gtk4::{gio, glib, pango};
 
-use crate::panel::{PanelRow, RowAction};
+use viewer_host::panel::{PanelRow, RowAction};
 
 /// How many rows the initial expansion will open before it stops.
 ///

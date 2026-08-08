@@ -33,9 +33,10 @@ use viewer_core::{
 };
 
 use crate::controls::{FieldChange, Placed};
-use crate::panel::RowAction;
-use crate::trace::{Topic, Trace};
-use crate::{controls, page, panel, tree};
+use viewer_host::panel::{self, RowAction};
+use viewer_host::trace::{Topic, Trace};
+
+use crate::{controls, page, tree};
 
 /// The identity this host gives the one document it opens.
 const DOCUMENT: DocumentId = DocumentId(1);
@@ -372,7 +373,8 @@ impl Host {
             // host has not been given — the same answer `viewer-ui` gives.
             Event::OpenUri { uri, .. } => self.say(&format!("link: {uri}")),
             Event::NeedsFile { purpose, name, .. } => {
-                let bytes = match crate::policy::read_import(self.directory.as_deref(), &name) {
+                let bytes = match viewer_host::policy::read_import(self.directory.as_deref(), &name)
+                {
                     Ok(bytes) => Some(bytes),
                     Err(refusal) => {
                         self.say(&format!("import-data: declined — {refusal}"));
@@ -799,7 +801,7 @@ fn write_back(placed: &Placed, value: Option<&str>) {
         return;
     };
     match &placed.kind {
-        crate::form::ControlKind::Entry {
+        viewer_host::form::ControlKind::Entry {
             multiline: false,
             password: false,
             ..
@@ -810,7 +812,7 @@ fn write_back(placed: &Placed, value: Option<&str>) {
                 entry.set_text(value);
             }
         }
-        crate::form::ControlKind::Entry {
+        viewer_host::form::ControlKind::Entry {
             multiline: true, ..
         } => {
             if let Some(scroller) = placed.widget.downcast_ref::<gtk4::ScrolledWindow>()

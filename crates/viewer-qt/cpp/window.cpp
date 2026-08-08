@@ -1,0 +1,928 @@
+// The Qt half of the second native host.
+//
+// Read this beside `crates/viewer-gtk/src/host.rs`: the two files do the same job for the same
+// answers, and what differs between them is ADR 0246's subject.
+#include "window.h"
+
+#include <chrono>
+
+#include <QAction>
+#include <QApplication>
+#include <QCheckBox>
+#include <QComboBox>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QElapsedTimer>
+#include <QHeaderView>
+#include <QLabel>
+#include <QLineEdit>
+#include <QListWidget>
+#include <QMouseEvent>
+#include <QPainter>
+#include <QPainterPath>
+#include <QPlainTextEdit>
+#include <QPushButton>
+#include <QRadioButton>
+#include <QResizeEvent>
+#include <QSplitter>
+#include <QStatusBar>
+#include <QTabWidget>
+#include <QTimer>
+#include <QToolBar>
+#include <QTreeView>
+#include <QVBoxLayout>
+
+namespace pdf_viewer_qt {
+namespace {
+
+/// A `rust::String` as Qt spells one. Both are UTF-8, so this is a length and a pointer.
+QString text(const rust::String& from)
+{
+    return QString::fromUtf8(from.data(), static_cast<qsizetype>(from.size()));
+}
+
+/// How many rows §12.3.3's `/Count` will open before the tree stops obeying it.
+///
+/// The same bound `viewer-gtk` sets, and for the same reason: ISO 32000-2's own outline is nine
+/// hundred items, so "do what the file asked" has to have an end.
+constexpr int kExpansionLimit = 4096;
+
+/// Refuses a call into the host that arrives while another one is running.
+///
+/// Two `&mut Host` at once is undefined behaviour and nothing here would say so, and Qt delivers
+/// events from nested event loops. See `MainWindow::busy_`.
+struct Busy
+{
+    explicit Busy(bool& flag) : flag_(flag) { flag_ = true; }
+    ~Busy() { flag_ = false; }
+    Busy(const Busy&) = delete;
+    Busy& operator=(const Busy&) = delete;
+
+private:
+    bool& flag_;
+};
+
+/// One quadrilateral as a closed path, in the logical pixels Qt paints in.
+QPainterPath pathOf(const QtQuad& quad, qreal scale)
+{
+    QPainterPath path;
+    path.moveTo(quad.x0 / scale, quad.y0 / scale);
+    path.lineTo(quad.x1 / scale, quad.y1 / scale);
+    path.lineTo(quad.x2 / scale, quad.y2 / scale);
+    path.lineTo(quad.x3 / scale, quad.y3 / scale);
+    path.closeSubpath();
+    return path;
+}
+
+} // namespace
+
+// ---------------------------------------------------------------------------------------------
+// PanelModel
+// ---------------------------------------------------------------------------------------------
+
+PanelModel::PanelModel(QObject* parent) : QAbstractItemModel(parent)
+{
+    nodes_.push_back(Node{-1, -1, {}});
+}
+
+void PanelModel::setRows(const rust::Vec<QtRow>& rows)
+{
+    beginResetModel();
+    rows_.clear();
+    nodes_.clear();
+    nodeOfFlat_.clear();
+    nodes_.push_back(Node{-1, -1, {}});
+
+    // The rows arrive depth first with a depth on each, so one pass and a stack of open parents
+    // rebuilds the tree. `open[d]` is the node that a row of depth `d + 1` belongs under.
+    std::vector<int> open;
+    open.push_back(0);
+    for (std::size_t i = 0; i < rows.size(); ++i) {
+        const QtRow& row = rows[i];
+        rows_.push_back(row);
+        const std::size_t depth = static_cast<std::size_t>(row.depth) + 1;
+        // A malformed depth — one that skips a level — would index past the stack. Clamping is
+        // the only answer that keeps a row visible, and the Rust side cannot produce it.
+        while (open.size() > depth) {
+            open.pop_back();
+        }
+        const int parent = open.empty() ? 0 : open.back();
+        const int id = static_cast<int>(nodes_.size());
+        nodes_.push_back(Node{static_cast<int>(i), parent, {}});
+        nodes_[static_cast<std::size_t>(parent)].children.push_back(id);
+        nodeOfFlat_.push_back(id);
+        open.push_back(id);
+    }
+    endResetModel();
+}
+
+const PanelModel::Node* PanelModel::nodeAt(const QModelIndex& index) const
+{
+    const quintptr id = index.isValid() ? index.internalId() : 0;
+    if (id >= nodes_.size()) {
+        return nullptr;
+    }
+    return &nodes_[static_cast<std::size_t>(id)];
+}
+
+int PanelModel::flatRow(const QModelIndex& index) const
+{
+    const Node* node = nodeAt(index);
+    return node == nullptr ? -1 : node->flat;
+}
+
+QModelIndex PanelModel::indexOfFlatRow(int flat) const
+{
+    if (flat < 0 || static_cast<std::size_t>(flat) >= nodeOfFlat_.size()) {
+        return {};
+    }
+    const int id = nodeOfFlat_[static_cast<std::size_t>(flat)];
+    const Node& node = nodes_[static_cast<std::size_t>(id)];
+    const Node& parent = nodes_[static_cast<std::size_t>(node.parent)];
+    for (std::size_t row = 0; row < parent.children.size(); ++row) {
+        if (parent.children[row] == id) {
+            return createIndex(static_cast<int>(row), 0, static_cast<quintptr>(id));
+        }
+    }
+    return {};
+}
+
+QModelIndex PanelModel::index(int row, int column, const QModelIndex& parent) const
+{
+    const Node* node = nodeAt(parent);
+    if (node == nullptr || row < 0 || static_cast<std::size_t>(row) >= node->children.size()) {
+        return {};
+    }
+    return createIndex(row, column, static_cast<quintptr>(node->children[static_cast<std::size_t>(row)]));
+}
+
+QModelIndex PanelModel::parent(const QModelIndex& child) const
+{
+    const Node* node = nodeAt(child);
+    if (node == nullptr || node->parent <= 0) {
+        return {};
+    }
+    const Node& parent = nodes_[static_cast<std::size_t>(node->parent)];
+    const Node& above = nodes_[static_cast<std::size_t>(parent.parent < 0 ? 0 : parent.parent)];
+    for (std::size_t row = 0; row < above.children.size(); ++row) {
+        if (above.children[row] == node->parent) {
+            return createIndex(static_cast<int>(row), 0, static_cast<quintptr>(node->parent));
+        }
+    }
+    return {};
+}
+
+int PanelModel::rowCount(const QModelIndex& parent) const
+{
+    if (parent.column() > 0) {
+        return 0;
+    }
+    const Node* node = nodeAt(parent);
+    return node == nullptr ? 0 : static_cast<int>(node->children.size());
+}
+
+int PanelModel::columnCount(const QModelIndex&) const
+{
+    // Two columns, which is Qt's own way of showing a second line and is where the two hosts
+    // diverge in shape rather than in data: `viewer-gtk` stacks the label and the detail in a
+    // `GtkBox` inside one column, because a `GtkListView` row is a widget.
+    return 2;
+}
+
+QVariant PanelModel::data(const QModelIndex& index, int role) const
+{
+    const int flat = flatRow(index);
+    if (flat < 0 || static_cast<std::size_t>(flat) >= rows_.size()) {
+        return {};
+    }
+    const QtRow& row = rows_[static_cast<std::size_t>(flat)];
+    if (role == Qt::DisplayRole) {
+        return index.column() == 0 ? text(row.label) : text(row.detail);
+    }
+    // §8.11.4.3's switch is a *role* here and a widget in the other host. Qt puts the check box
+    // in the model; GTK4's list view puts a `GtkCheckButton` in the row. ADR 0246.
+    if (role == Qt::CheckStateRole && index.column() == 0 && row.action == 2) {
+        return row.on ? Qt::Checked : Qt::Unchecked;
+    }
+    if (role == Qt::ToolTipRole && !row.detail.empty()) {
+        return text(row.detail);
+    }
+    return {};
+}
+
+QVariant PanelModel::headerData(int section, Qt::Orientation orientation, int role) const
+{
+    if (orientation != Qt::Horizontal || role != Qt::DisplayRole) {
+        return {};
+    }
+    return section == 0 ? QStringLiteral("Name") : QStringLiteral("Detail");
+}
+
+bool PanelModel::setData(const QModelIndex& index, const QVariant& value, int role)
+{
+    if (role != Qt::CheckStateRole) {
+        return false;
+    }
+    const int flat = flatRow(index);
+    if (flat < 0 || static_cast<std::size_t>(flat) >= rows_.size()) {
+        return false;
+    }
+    QtRow& row = rows_[static_cast<std::size_t>(flat)];
+    if (row.action != 2 || row.locked) {
+        return false;
+    }
+    row.on = value.toInt() == Qt::Checked;
+    Q_EMIT dataChanged(index, index, {Qt::CheckStateRole});
+    Q_EMIT switched(flat, row.on);
+    return true;
+}
+
+Qt::ItemFlags PanelModel::flags(const QModelIndex& index) const
+{
+    Qt::ItemFlags flags = Qt::ItemIsEnabled | Qt::ItemIsSelectable;
+    const int flat = flatRow(index);
+    if (flat < 0 || static_cast<std::size_t>(flat) >= rows_.size()) {
+        return flags;
+    }
+    const QtRow& row = rows_[static_cast<std::size_t>(flat)];
+    // Table 99's `/Locked`: "[t]he state of a locked group cannot be changed through the user
+    // interface of an interactive PDF processor." The check box stays visible and shows the
+    // document's own answer; what it loses is `ItemIsUserCheckable`, which is Qt's own way of
+    // saying the state is not a person's to change.
+    if (row.action == 2 && index.column() == 0 && !row.locked) {
+        flags |= Qt::ItemIsUserCheckable;
+    }
+    return flags;
+}
+
+// ---------------------------------------------------------------------------------------------
+// ChromeOverlay
+// ---------------------------------------------------------------------------------------------
+
+ChromeOverlay::ChromeOverlay(QWidget* parent) : QWidget(parent)
+{
+    setAttribute(Qt::WA_TransparentForMouseEvents, true);
+    setAttribute(Qt::WA_NoSystemBackground, true);
+    setAttribute(Qt::WA_TranslucentBackground, true);
+}
+
+void ChromeOverlay::setShapes(QVector<QtQuad> selection, QVector<QtQuad> focus, qreal scale)
+{
+    selection_ = std::move(selection);
+    focus_ = std::move(focus);
+    scale_ = scale > 0.0 ? scale : 1.0;
+    update();
+}
+
+void ChromeOverlay::paintEvent(QPaintEvent*)
+{
+    if (selection_.isEmpty() && focus_.isEmpty()) {
+        return;
+    }
+    QPainter painter(this);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+
+    // `doc/ui-boundary.md`: "[e]mitting them as quads and points lets a native host draw selection
+    // in **macOS's selection colour, KDE's accent, the Windows highlight brush**".
+    //
+    // **On Qt that sentence is literally satisfiable, and on GTK4 it was not.** ADR 0244 had to
+    // record that GTK 4.22 exposes no accent colour to application code at all and settle for the
+    // theme's foreground. `QPalette::Accent` has existed since Qt 6.6 and is the desktop's own —
+    // KDE writes it from the colour scheme — and `QPalette::Highlight` is the selection brush
+    // beside it. Both are asked for here, which is the argument for chrome crossing as geometry
+    // paying off rather than being defended. ADR 0246.
+    const QPalette& colours = palette();
+    QColor selection = colours.color(QPalette::Highlight);
+    selection.setAlphaF(0.35f);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(selection);
+    for (const QtQuad& quad : selection_) {
+        painter.drawPath(pathOf(quad, scale_));
+    }
+
+    // §12.5.1: an annotation with the input focus. What a focus ring looks like is the platform's,
+    // which is why this crosses as one quadrilateral and not as pixels.
+    painter.setBrush(Qt::NoBrush);
+    painter.setPen(QPen(colours.color(QPalette::Accent), 2.0));
+    for (const QtQuad& quad : focus_) {
+        painter.drawPath(pathOf(quad, scale_));
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// PageArea
+// ---------------------------------------------------------------------------------------------
+
+PageArea::PageArea(QWidget* parent) : QWidget(parent), chrome_(new ChromeOverlay(this))
+{
+    setMouseTracking(true);
+    setAutoFillBackground(true);
+    setFocusPolicy(Qt::StrongFocus);
+}
+
+void PageArea::setFrame(QImage image, QPointF origin)
+{
+    image_ = std::move(image);
+    origin_ = origin;
+    update();
+}
+
+void PageArea::paintEvent(QPaintEvent*)
+{
+    if (image_.isNull()) {
+        return;
+    }
+    QPainter painter(this);
+    painter.drawImage(origin_, image_);
+}
+
+void PageArea::resizeEvent(QResizeEvent* event)
+{
+    QWidget::resizeEvent(event);
+    chrome_->setGeometry(rect());
+    chrome_->raise();
+    const qreal scale = devicePixelRatioF();
+    const int width = static_cast<int>(qRound(event->size().width() * scale));
+    const int height = static_cast<int>(qRound(event->size().height() * scale));
+    if (width <= 0 || height <= 0) {
+        return;
+    }
+    Q_EMIT resizedTo(static_cast<unsigned int>(width), static_cast<unsigned int>(height),
+                     static_cast<float>(scale));
+}
+
+void PageArea::report(const QPointF& at, unsigned char action)
+{
+    const qreal scale = devicePixelRatioF();
+    Q_EMIT pointerAt(static_cast<float>(at.x() * scale), static_cast<float>(at.y() * scale), action);
+}
+
+void PageArea::mousePressEvent(QMouseEvent* event)
+{
+    pressed_ = true;
+    report(event->position(), 1);
+}
+
+void PageArea::mouseMoveEvent(QMouseEvent* event)
+{
+    // §12.5.5's three appearances follow the pointer, and §12.5.6.19's `/H` with them — which is
+    // why a move with no button down is a command and not only a cursor question.
+    report(event->position(), pressed_ ? 2 : 0);
+}
+
+void PageArea::mouseReleaseEvent(QMouseEvent* event)
+{
+    pressed_ = false;
+    report(event->position(), 3);
+}
+
+// ---------------------------------------------------------------------------------------------
+// MainWindow
+// ---------------------------------------------------------------------------------------------
+
+MainWindow::MainWindow(rust::Box<Host> host)
+    : host_(std::move(host)), tabs_(new QTabWidget), page_(new PageArea), status_(new QLabel)
+{
+    const rust::Vec<std::int32_t> size = host_->window_size();
+    resize(size.size() >= 2 ? size[0] : 1000, size.size() >= 2 ? size[1] : 1100);
+    setWindowTitle(text(host_->title()));
+
+    static const char* const kTabs[3] = {"Outline", "Layers", "Files"};
+    for (unsigned char which = 0; which < 3; ++which) {
+        trees_[which] = buildTree(which);
+        tabs_->addTab(trees_[which], QString::fromLatin1(kTabs[which]));
+    }
+
+    auto* split = new QSplitter(Qt::Horizontal);
+    split->addWidget(tabs_);
+    split->addWidget(page_);
+    split->setStretchFactor(1, 1);
+    split->setSizes({300, 700});
+    setCentralWidget(split);
+
+    status_->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    statusBar()->addWidget(status_, 1);
+
+    auto* bar = addToolBar(QStringLiteral("Navigate"));
+    bar->setMovable(false);
+    static const struct
+    {
+        const char* label;
+        unsigned char command;
+    } kButtons[] = {{"‹", 0}, {"›", 1}, {"−", 2}, {"+", 3}, {"Fit", 4}};
+    for (const auto& button : kButtons) {
+        QAction* action = bar->addAction(QString::fromUtf8(button.label));
+        const unsigned char what = button.command;
+        connect(action, &QAction::triggered, this, [this, what] {
+            if (busy_) {
+                return;
+            }
+            Busy guard(busy_);
+            host_->command(what);
+            applyUpdates();
+        });
+    }
+
+    // Said out loud rather than assumed, because it is the one place `doc/ui-boundary.md`'s
+    // argument for chrome crossing as geometry can be *checked*: the two colours below are the
+    // desktop's own, and ADR 0244 had to record that GTK4 would part with neither.
+    {
+        const QPalette& colours = palette();
+        const QString said = QStringLiteral("chrome in the platform's colours: selection %1 "
+                                            "(QPalette::Highlight), focus ring %2 (QPalette::Accent)")
+                                 .arg(colours.color(QPalette::Highlight).name(),
+                                      colours.color(QPalette::Accent).name());
+        const QByteArray utf8 = said.toUtf8();
+        host_->note(rust::Str(utf8.constData(), static_cast<std::size_t>(utf8.size())));
+    }
+
+    connect(page_, &PageArea::resizedTo, this, [this](unsigned int width, unsigned int height, float scale) {
+        if (busy_) {
+            return;
+        }
+        Busy guard(busy_);
+        host_->resized(width, height, scale);
+        applyUpdates();
+    });
+    connect(page_, &PageArea::pointerAt, this, [this](float x, float y, unsigned char action) {
+        if (busy_) {
+            return;
+        }
+        Busy guard(busy_);
+        host_->pointer(x, y, action);
+        applyUpdates();
+    });
+}
+
+QTreeView* MainWindow::buildTree(unsigned char which)
+{
+    auto* view = new QTreeView;
+    auto* model = new PanelModel(view);
+    models_[which] = model;
+    view->setModel(model);
+    view->setUniformRowHeights(true);
+    view->header()->setStretchLastSection(true);
+
+    // §12.3.3: "[c]licking the text of any visible item activates the item". `clicked` rather than
+    // `activated`, because `activated` is a double click under most styles and the clause says a
+    // click.
+    connect(view, &QTreeView::clicked, this, [this, which, model](const QModelIndex& index) {
+        if (busy_) {
+            return;
+        }
+        Busy guard(busy_);
+        const int flat = model->flatRow(index);
+        if (flat >= 0) {
+            host_->activate_row(which, static_cast<std::size_t>(flat));
+        }
+        applyUpdates();
+    });
+    connect(model, &PanelModel::switched, this, [this, which](int flat, bool on) {
+        if (busy_) {
+            return;
+        }
+        Busy guard(busy_);
+        host_->toggle_row(which, static_cast<std::size_t>(flat), on);
+        applyUpdates();
+    });
+    return view;
+}
+
+void MainWindow::keyPressEvent(QKeyEvent* event)
+{
+    if (busy_) {
+        QMainWindow::keyPressEvent(event);
+        return;
+    }
+    Busy guard(busy_);
+    host_->key(static_cast<unsigned int>(event->key()));
+    applyUpdates();
+}
+
+void MainWindow::applyUpdates()
+{
+    const QtUpdate update = host_->take_update();
+    if (update.panels) {
+        rebuildPanels();
+    }
+    if (update.controls) {
+        rebuildControls();
+    }
+    if (update.frame) {
+        showFrame();
+        placeControls();
+    }
+    if (update.chrome) {
+        QVector<QtQuad> selection;
+        for (const QtQuad& quad : host_->selection()) {
+            selection.push_back(quad);
+        }
+        QVector<QtQuad> focus;
+        for (const QtQuad& quad : host_->focus()) {
+            focus.push_back(quad);
+        }
+        page_->chrome()->setShapes(std::move(selection), std::move(focus), page_->devicePixelRatioF());
+    }
+    if (update.title) {
+        setWindowTitle(text(host_->title()));
+    }
+    if (update.status) {
+        status_->setText(text(host_->status()));
+    }
+    if (update.password) {
+        // Queued rather than called: `QDialog::exec` runs a nested event loop, and starting one
+        // from inside a handler that is holding the host would be exactly the nesting `busy_`
+        // exists to refuse. This lets the current handler unwind first.
+        QTimer::singleShot(0, this, [this] { askForAPassword(); });
+    }
+}
+
+void MainWindow::showFrame()
+{
+    const QtFrame frame = host_->frame();
+    if (!frame.present || frame.width == 0 || frame.height == 0) {
+        return;
+    }
+    const rust::Slice<const std::uint8_t> pixels = host_->frame_pixels();
+    const qsizetype stride = static_cast<qsizetype>(frame.width) * 4;
+    if (static_cast<qsizetype>(pixels.size()) < stride * static_cast<qsizetype>(frame.height)) {
+        // The Rust side checks this too, in `page::describe`. Checked twice deliberately: this is
+        // the one number that decides how many bytes are read out of somebody else's allocation.
+        return;
+    }
+
+    // Tier 1's whole cost, in the one place it is paid. `Raster` is row-major RGBA with straight
+    // alpha and no padding, which is `QImage::Format_RGBA8888` exactly — so this is a `memcpy`
+    // and no conversion, the same crossing `viewer-gtk` makes into a `gdk::MemoryTexture`.
+    // `QImage::copy` is what performs it: the constructor above only wraps the borrowed slice.
+    QElapsedTimer clock;
+    clock.start();
+    const QImage borrowed(pixels.data(), static_cast<int>(frame.width), static_cast<int>(frame.height),
+                          static_cast<int>(stride), QImage::Format_RGBA8888);
+    QImage owned = borrowed.copy();
+    const qint64 nanos = clock.nsecsElapsed();
+    const qreal scale = page_->devicePixelRatioF();
+    owned.setDevicePixelRatio(scale);
+    page_->setFrame(std::move(owned), QPointF(frame.origin_x / scale, frame.origin_y / scale));
+    host_->painted(static_cast<std::size_t>(stride) * static_cast<std::size_t>(frame.height),
+                   static_cast<std::uint64_t>(nanos));
+}
+
+void MainWindow::rebuildPanels()
+{
+    // Timed, because it is on the launch path and it is the one thing Qt's model made *eager*:
+    // `GtkTreeListModel` pulls a subtree when a person opens it, `QAbstractItemModel` must answer
+    // for every node at any moment, so a document whose outline is a thousand items builds a
+    // thousand nodes before the first frame. `CLAUDE.md` makes that a number to keep rather than a
+    // decision to defend. ADR 0246.
+    QElapsedTimer clock;
+    clock.start();
+    int built = 0;
+    for (unsigned char which = 0; which < 3; ++which) {
+        const rust::Vec<QtRow> rows = host_->rows(which);
+        models_[which]->setRows(rows);
+        // §12.3.3 gives an outline item's `/Count` a sign for it — "[i]f the outline item is open,
+        // Count is the sum of the number of visible descendent outline items" — so a tree that
+        // opened everything, or nothing, would be discarding a statement the file made.
+        const int limit = static_cast<int>(rows.size()) < kExpansionLimit
+                              ? static_cast<int>(rows.size())
+                              : kExpansionLimit;
+        for (int flat = 0; flat < limit; ++flat) {
+            if (rows[static_cast<std::size_t>(flat)].expanded) {
+                trees_[which]->setExpanded(models_[which]->indexOfFlatRow(flat), true);
+            }
+        }
+        trees_[which]->resizeColumnToContents(0);
+        built += static_cast<int>(rows.size());
+    }
+    const QString said = QStringLiteral("%1 tree row(s) into %2 model(s) in %3 µs")
+                             .arg(built)
+                             .arg(3)
+                             .arg(clock.nsecsElapsed() / 1000);
+    const QByteArray utf8 = said.toUtf8();
+    host_->note(rust::Str(utf8.constData(), static_cast<std::size_t>(utf8.size())));
+}
+
+void MainWindow::rebuildControls()
+{
+    for (QWidget* control : controls_) {
+        control->deleteLater();
+    }
+    controls_.clear();
+
+    const rust::Vec<QtControl> wanted = host_->controls();
+    for (std::size_t index = 0; index < wanted.size(); ++index) {
+        const QtControl& control = wanted[index];
+        QWidget* widget = nullptr;
+        switch (control.kind) {
+        case 0: { // §12.7.5.3's single-line text field
+            auto* entry = new QLineEdit(page_);
+            if (control.max_len >= 0) {
+                entry->setMaxLength(control.max_len);
+            }
+            // `textEdited` rather than `textChanged`: Qt emits the first only for what a person
+            // typed, so writing the field's own value back cannot look like a second keystroke.
+            // That is one flag `viewer-gtk` needs and this host does not — GTK4's `Entry` has no
+            // signal that distinguishes the two.
+            connect(entry, &QLineEdit::textEdited, this, [this, index](const QString& typed) {
+                if (busy_) {
+                    return;
+                }
+                Busy guard(busy_);
+                const QByteArray utf8 = typed.toUtf8();
+                host_->set_control(index, rust::Str(utf8.constData(), static_cast<std::size_t>(utf8.size())));
+                applyUpdates();
+            });
+            widget = entry;
+            break;
+        }
+        case 1: { // Table 231 bit 13: "the field may contain multiple lines of text"
+            auto* entry = new QPlainTextEdit(page_);
+            connect(entry, &QPlainTextEdit::textChanged, this, [this, index, entry] {
+                if (busy_ || writing_) {
+                    return;
+                }
+                Busy guard(busy_);
+                const QByteArray utf8 = entry->toPlainText().toUtf8();
+                host_->set_control(index, rust::Str(utf8.constData(), static_cast<std::size_t>(utf8.size())));
+                applyUpdates();
+            });
+            widget = entry;
+            break;
+        }
+        case 2: { // Table 231 bit 14: "a secure password that should not be echoed visibly"
+            // Qt's answer is an echo mode on the ordinary entry where GTK4 has a control of its
+            // own. Either way it is the platform's own secure entry, which is what the flag asks
+            // for — and it is the one control whose value this host never writes back, because
+            // `Answer::Field` answers a password field with bullets (ADR 0244 finding 3).
+            auto* entry = new QLineEdit(page_);
+            entry->setEchoMode(QLineEdit::Password);
+            if (control.max_len >= 0) {
+                entry->setMaxLength(control.max_len);
+            }
+            connect(entry, &QLineEdit::textEdited, this, [this, index](const QString& typed) {
+                if (busy_) {
+                    return;
+                }
+                Busy guard(busy_);
+                const QByteArray utf8 = typed.toUtf8();
+                host_->set_control(index, rust::Str(utf8.constData(), static_cast<std::size_t>(utf8.size())));
+                applyUpdates();
+            });
+            widget = entry;
+            break;
+        }
+        case 3:   // §12.7.5.2.3's check box
+        case 4: { // §12.7.5.2.4's radio button
+            QAbstractButton* button = control.kind == 3 ? static_cast<QAbstractButton*>(new QCheckBox(page_))
+                                                        : static_cast<QAbstractButton*>(new QRadioButton(page_));
+            button->setParent(page_);
+            // Qt would put every radio button of one parent into one exclusive group, which is not
+            // §12.7.5.2.4's grouping: a PDF's set is the widgets of one *field*, and two fields'
+            // buttons on one page are two sets. So exclusivity is off and the clause's own rule —
+            // `/V` names the on state, Table 229 bit 15 decides what a second click does — is
+            // enforced where it belongs, on the Rust side.
+            button->setAutoExclusive(false);
+            connect(button, &QAbstractButton::toggled, this, [this, index](bool on) {
+                if (busy_ || writing_) {
+                    return;
+                }
+                Busy guard(busy_);
+                host_->toggle_control(index, on);
+                applyUpdates();
+            });
+            widget = button;
+            break;
+        }
+        case 5: { // §12.7.5.2.2's push button, "without retaining a permanent value"
+            auto* button = new QPushButton(page_);
+            button->setText(text(control.tooltip));
+            connect(button, &QPushButton::clicked, this, [this, index] {
+                if (busy_) {
+                    return;
+                }
+                Busy guard(busy_);
+                host_->activate_control(index);
+                applyUpdates();
+            });
+            widget = button;
+            break;
+        }
+        case 6: { // Table 233 bit 18 set: a combo box
+            auto* combo = new QComboBox(page_);
+            for (const rust::String& option : host_->control_options(index)) {
+                combo->addItem(text(option));
+            }
+            // Bit 19: "the combo box shall include an editable text box as well as a drop-down
+            // list". **Qt can obey this and GTK4 could not** — `GtkDropDown` is not editable, so
+            // `viewer-gtk` carries the flag and reports it. That is the one place the two hosts
+            // differ in what they can do rather than in how they spell it.
+            combo->setEditable(control.editable);
+            connect(combo, &QComboBox::currentTextChanged, this, [this, index](const QString& chosen) {
+                if (busy_ || writing_) {
+                    return;
+                }
+                Busy guard(busy_);
+                const QByteArray utf8 = chosen.toUtf8();
+                host_->set_control(index, rust::Str(utf8.constData(), static_cast<std::size_t>(utf8.size())));
+                applyUpdates();
+            });
+            widget = combo;
+            break;
+        }
+        case 7: { // Table 233 bit 18 clear: a list box
+            auto* list = new QListWidget(page_);
+            for (const rust::String& option : host_->control_options(index)) {
+                list->addItem(text(option));
+            }
+            // Table 233 bit 22 permits several items at once and `Edit::SetField` carries one
+            // value, so this host offers one and the Rust side says so — the same answer
+            // `viewer-gtk` gives, which is what makes it a finding about the boundary rather than
+            // about a toolkit.
+            list->setSelectionMode(QAbstractItemView::SingleSelection);
+            connect(list, &QListWidget::currentTextChanged, this, [this, index](const QString& chosen) {
+                if (busy_ || writing_ || chosen.isEmpty()) {
+                    return;
+                }
+                Busy guard(busy_);
+                const QByteArray utf8 = chosen.toUtf8();
+                host_->set_control(index, rust::Str(utf8.constData(), static_cast<std::size_t>(utf8.size())));
+                applyUpdates();
+            });
+            widget = list;
+            break;
+        }
+        default:
+            // §12.7.5.5's signature and Table 226's absent `/FT` never reach here — the Rust side
+            // places no control for either — and a number this host does not know is said rather
+            // than drawn as something else.
+            host_->note("a control kind this window has no widget for was skipped");
+            break;
+        }
+        if (widget == nullptr) {
+            continue;
+        }
+        // Table 227 bit 1: "the field shall not be modified by the user". The platform's own way
+        // of saying so, rather than a refusal after the fact.
+        widget->setEnabled(!control.read_only);
+        if (!control.tooltip.empty()) {
+            widget->setToolTip(text(control.tooltip));
+        }
+        widget->show();
+        controls_.push_back(widget);
+    }
+    host_->note("controls rebuilt");
+}
+
+void MainWindow::placeControls()
+{
+    const rust::Vec<QtControl> wanted = host_->controls();
+    if (wanted.size() != controls_.size()) {
+        return;
+    }
+    const qreal scale = page_->devicePixelRatioF() > 0.0 ? page_->devicePixelRatioF() : 1.0;
+    // ADR 0244's second finding, measured again on a second toolkit. A `/Rect` is whatever the
+    // document says; a platform control has a *minimum* size its style decides, so a control whose
+    // minimum exceeds its rectangle covers the page around it. Counting it here is what turns "a
+    // Qt entry is about N pixels tall" into a number that can be set beside GTK's.
+    int wider = 0;
+    int taller = 0;
+    int worstWidth = 0;
+    int atWidth = 0;
+    int worstHeight = 0;
+    int atHeight = 0;
+    writing_ = true;
+    for (std::size_t index = 0; index < wanted.size(); ++index) {
+        const QtControl& control = wanted[index];
+        QWidget* widget = controls_[index];
+        const int askedWidth = qRound(control.width / scale);
+        const int askedHeight = qRound(control.height / scale);
+        const QSize least = widget->minimumSizeHint();
+        if (least.width() > askedWidth) {
+            ++wider;
+            if (least.width() - askedWidth > worstWidth) {
+                worstWidth = least.width() - askedWidth;
+                atWidth = askedWidth;
+            }
+        }
+        if (least.height() > askedHeight) {
+            ++taller;
+            if (least.height() - askedHeight > worstHeight) {
+                worstHeight = least.height() - askedHeight;
+                atHeight = askedHeight;
+            }
+        }
+        widget->setGeometry(QRect(qRound(control.x / scale), qRound(control.y / scale),
+                                  askedWidth, askedHeight));
+        // ADR 0201: a host keeps the *point* it clicked and never the text, because §12.7.5.3's
+        // truncation means the field can take less than was typed — so the control shows what the
+        // field took. The password entry is the exception and is deliberately absent from this
+        // switch: `Answer::Field` answers that one with bullets rather than with characters.
+        const QString value = text(control.value);
+        switch (control.kind) {
+        case 0:
+            if (auto* entry = qobject_cast<QLineEdit*>(widget); entry != nullptr && entry->text() != value) {
+                entry->setText(value);
+            }
+            break;
+        case 1:
+            if (auto* entry = qobject_cast<QPlainTextEdit*>(widget);
+                entry != nullptr && entry->toPlainText() != value) {
+                entry->setPlainText(value);
+            }
+            break;
+        case 3:
+        case 4:
+            if (auto* button = qobject_cast<QAbstractButton*>(widget); button != nullptr) {
+                button->setChecked(control.on);
+            }
+            break;
+        case 6:
+            if (auto* combo = qobject_cast<QComboBox*>(widget); combo != nullptr) {
+                const rust::Vec<std::uint32_t> chosen = host_->control_selection(index);
+                if (!chosen.empty()) {
+                    combo->setCurrentIndex(static_cast<int>(chosen[0]));
+                }
+            }
+            break;
+        case 7:
+            if (auto* list = qobject_cast<QListWidget*>(widget); list != nullptr) {
+                const rust::Vec<std::uint32_t> chosen = host_->control_selection(index);
+                if (!chosen.empty()) {
+                    list->setCurrentRow(static_cast<int>(chosen[0]));
+                }
+            }
+            break;
+        default:
+            break;
+        }
+    }
+    writing_ = false;
+    if (!wanted.empty()) {
+        const QString said =
+            QStringLiteral("%1 of %2 control(s) wider than their /Rect (worst +%3 on %4 px), "
+                           "%5 taller (worst +%6 on %7 px)")
+                .arg(wider)
+                .arg(static_cast<int>(wanted.size()))
+                .arg(worstWidth)
+                .arg(atWidth)
+                .arg(taller)
+                .arg(worstHeight)
+                .arg(atHeight);
+        const QByteArray utf8 = said.toUtf8();
+        host_->note(rust::Str(utf8.constData(), static_cast<std::size_t>(utf8.size())));
+    }
+}
+
+void MainWindow::askForAPassword()
+{
+    if (busy_) {
+        return;
+    }
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("Password"));
+    dialog.setModal(true);
+    auto* column = new QVBoxLayout(&dialog);
+    column->addWidget(new QLabel(QStringLiteral("This document is encrypted (§7.6.4.1)."), &dialog));
+    auto* entry = new QLineEdit(&dialog);
+    entry->setEchoMode(QLineEdit::Password);
+    column->addWidget(entry);
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    column->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    connect(entry, &QLineEdit::returnPressed, &dialog, &QDialog::accept);
+    entry->setFocus();
+
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+    const QByteArray utf8 = entry->text().toUtf8();
+    Busy guard(busy_);
+    host_->supply_password(rust::Str(utf8.constData(), static_cast<std::size_t>(utf8.size())));
+    applyUpdates();
+}
+
+// ---------------------------------------------------------------------------------------------
+// The entry point
+// ---------------------------------------------------------------------------------------------
+
+std::int32_t run_qt_host(rust::Box<Host> host, std::int32_t quit_after)
+{
+    // Qt wants an argument vector it can keep for the life of the application, and this host's own
+    // arguments were read in Rust — so it is handed a program name and nothing else, which is the
+    // same answer `pdf-viewer-gtk` gives GTK (`run_with_args::<&str>(&[])`).
+    static char program[] = "pdf-viewer-qt";
+    static char* argv[] = {program, nullptr};
+    static int argc = 1;
+    QApplication app(argc, argv);
+
+    MainWindow window(std::move(host));
+    window.show();
+    if (quit_after > 0) {
+        QTimer::singleShot(quit_after, &app, &QCoreApplication::quit);
+    }
+    return QApplication::exec();
+}
+
+} // namespace pdf_viewer_qt

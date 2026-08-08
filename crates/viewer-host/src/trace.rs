@@ -11,7 +11,7 @@ use std::time::Instant;
 /// What a `--trace` line is about.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Topic {
-    /// The launch timeline: arguments, GTK's own start-up, the document, the first frame.
+    /// The launch timeline: arguments, the toolkit's own start-up, the document, the first frame.
     Launch,
     /// One line per frame, with what rasterising it cost.
     Frames,

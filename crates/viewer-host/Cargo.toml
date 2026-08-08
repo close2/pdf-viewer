@@ -1,0 +1,21 @@
+[package]
+name = "viewer-host"
+description = "The half of a native host that is not the toolkit: three answers as one row shape, a field as a control, §12.7.6.4's file policy, and a launch timeline."
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# The boundary these mappings consume. Nothing else in this manifest is a host's.
+viewer-core.workspace = true
+# §12.7.5's `Control`, §7.9.4's date behind an attachment's `/ModDate`, and §12.3.3's outline.
+pdf-model.workspace = true
+# §12.5.6.5's link targets and §8.11's groups are named by object identity.
+pdf-syntax.workspace = true
+# Every refusal in this crate is a typed error, as everywhere else in the tree.
+thiserror.workspace = true
+
+[lints]
+workspace = true

@@ -21,6 +21,10 @@ render-cpu.workspace = true
 pdf-model.workspace = true
 # §12.5.6.5's link targets and §8.11's groups are named by object identity.
 pdf-syntax.workspace = true
+# The half of a native host that is not the toolkit: the three panel answers as one row
+# shape, §12.7.5's field as the control it is, §12.7.6.4's file policy and the launch
+# timeline. Four of this crate's own modules until the second host wanted all four (ADR 0246).
+viewer-host.workspace = true
 # The toolkit, and the whole point of the crate. See ADR 0244 for the decision, the
 # licence position and what confines it to this crate.
 gtk4.workspace = true

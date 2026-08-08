@@ -19,7 +19,7 @@ features no file exercises.
 ```sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets      # must be silent of lints
-cargo nextest run --workspace               # 1435 tests, 10 ignored
+cargo nextest run --workspace               # 1454 tests, 10 ignored
 cargo test --workspace --doc                # the one doctest nextest does not run
 cargo build --profile gates -p pdf-sandbox --bins   # trap 10: Cargo will not do this for you
 cargo test  --profile gates -p pdf-model      --test corpus          -- --ignored --nocapture
@@ -47,8 +47,8 @@ here:
 - **`cargo nextest` is a user-local install** — `cargo install cargo-nextest --locked`, or the
   prebuilt from `https://get.nexte.st/latest/linux` into `~/.cargo/bin`. Without it,
   `cargo test --workspace` is exactly the same gate at three times the wall clock, and that is
-  what CI runs. `nextest` skips doctests, which is why the line after it is there: 1435 + 1 = the
-  **1436** `cargo test --workspace` reports. (This line said 1314 until the
+  what CI runs. `nextest` skips doctests, which is why the line after it is there: 1454 + 1 = the
+  **1455** `cargo test --workspace` reports. (This line said 1314 until the
   three-hundred-and-eighty-eighth, which counted the tree with `nextest list` before and after its
   own seven and found the number two behind — the count is the gate's and not this file's. It said
   **1398** until the four-hundred-and-second, which added six tests to a gate that printed 1410:
@@ -60,7 +60,8 @@ here:
   instead — 9 skipped to **10** — which is the one the line beside it had never been checked
   against. The four-hundred-and-eighth added **ten**, a whole new host crate's, and this line was
   not behind for the fourth round running; the four-hundred-and-ninth added **five** and it was not
-  behind for the fifth.)
+  behind for the fifth; the four-hundred-and-tenth added **nineteen**, a second host crate's, and it
+  was not behind for the sixth.)
 - **`pdfref-hayro` is the oracle's fourth reading and nothing built it.** It is a *program*, found
   beside the running test binary, and its absence costs no verdict — `Reference::Hayro` never
   votes — but it is what a person looks at on a page the three references cannot settle. Until
@@ -117,11 +118,12 @@ at.** So at the end of every round, copy what a person would run into the projec
 
 ```sh
 cargo build --release --bin pdf-viewer --bin pdf-sandbox-worker --bin pdf-view-worker \
-                     --bin pdf-viewer-gtk
+                     --bin pdf-viewer-gtk --bin pdf-viewer-qt
 install -Dm755 /home/AI/cargo-target/pdf-viewer/release/pdf-viewer          target/pdf-viewer
 install -Dm755 /home/AI/cargo-target/pdf-viewer/release/pdf-sandbox-worker  target/pdf-sandbox-worker
 install -Dm755 /home/AI/cargo-target/pdf-viewer/release/pdf-view-worker     target/pdf-view-worker
 install -Dm755 /home/AI/cargo-target/pdf-viewer/release/pdf-viewer-gtk      target/pdf-viewer-gtk
+install -Dm755 /home/AI/cargo-target/pdf-viewer/release/pdf-viewer-qt       target/pdf-viewer-qt
 ```
 
 **One invocation, not three**, since the three-hundred-and-eighty-fifth: each of these is a whole-graph
@@ -131,9 +133,9 @@ another — **109.7 s to 79.3 s**, measured both ways after touching one file in
 these are what a person runs and what every launch measurement is taken from, and `--profile gates`
 above exists so that the *gates* stop paying for it.
 
-**Four, not three, since the four-hundred-and-eighth** — `pdf-viewer-gtk` is the GTK4 host and it
-is a program a person runs, so it belongs in the same invocation and for the same reason as the other
-three (ADR 0244). This section named two for three rounds after the third arrived, which the
+**Five, not three, since the four-hundred-and-tenth** — `pdf-viewer-gtk` is the GTK4 host
+(ADR 0244) and `pdf-viewer-qt` is the Qt 6 one (ADR 0246), and each is a program a person runs, so
+they belong in the same invocation and for the same reason as the other three. This section named two for three rounds after the third arrived, which the
 three-hundred-and-eighty-third flagged and the three-hundred-and-eighty-fourth fixed. All three
 beside each other: `pdf_sandbox::WORKER_PROGRAM` is a separate executable the viewer spawns for
 JBIG2 and JPEG 2000, and a viewer that cannot find it refuses those images rather than falling

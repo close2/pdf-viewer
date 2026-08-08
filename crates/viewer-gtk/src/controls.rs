@@ -19,7 +19,7 @@ use gtk4::prelude::*;
 use pdf_syntax::ObjectId;
 use viewer_core::{FormField, FormWidget};
 
-use crate::form::{ControlKind, control_kind};
+use viewer_host::form::{ControlKind, control_kind};
 
 /// What a person did to a control, in the vocabulary the viewer takes.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -112,6 +112,32 @@ a native host depending on the desktop being installed is the point of a native 
 `viewer-accessibility` Linux-only in its own manifest — `glib-sys`'s build script wants a
 cross-compiling `pkg-config` and there would be no GTK 4 development files for the target anyway.
 
+**And in the four-hundred-and-tenth, `cxx` 1.0.199 and `cxx-qt-build` 0.9.1 — a *C++ bridge*,
+which is a second first for this record.** `doc/todo/30`'s order put Qt second precisely because it
+costs one, and this is what the one costs. **23 packages** arrive, and **three of them reach a
+shipped binary**: `cxx`, `cxxbridge-macro` and `link-cplusplus`. The other twenty are build-time
+only — `cxx-qt-build`, `cxx-gen`, `qt-build-utils`, `clang-format`, `which`, `codespan-reporting`
+and the rest — and appear in no `cargo tree -e normal`. Every one of the 23 is MIT, Apache-2.0, or
+Unlicense-or-MIT, all already on `deny.toml`'s allow list, so the answer to "what may I do with a
+build of this?" is unchanged again; `cargo deny check` is clean on all four checks with **no new
+exception**.
+
+Four things about it belong here rather than in ADR 0246. **It is confined to one crate**: `cxx`
+and `cxx-qt-build` are named by `crates/viewer-qt`'s manifest and by no other, nothing that touches
+PDF bytes gains either, and `viewer-ui`'s, `viewer-gtk`'s and `viewer-confined`'s graphs are what
+they were. **`cxx-qt` itself was declined**, which is the part worth recording as a decision: the
+crate that makes a Rust type into a `QObject` is built for QML and links two initialisers a Widgets
+host never calls, and only the *build* half — finding Qt through `qmake6`, running `moc`, linking
+QtCore/QtGui/QtWidgets — is wanted, and it is available on its own. **It costs one hand-written
+`unsafe` token**, the `unsafe extern "C++"` block header, which is `cxx`'s way of asking the author
+to assert that the C++ declared there exists and is safe to call; `viewer-qt` holds
+`#![deny(unsafe_code)]` with one exemption on `mod bridge`, and `tests/unsafe_position.rs` asserts
+the file and the token and that no other crate in the tree lifts the denial. **And it is linked
+against the platform's own Qt** rather than vendored, for the reason `viewer-gtk` links against the
+platform's GTK: that is what a native host is, and it is why `viewer-qt` is excluded from the three
+cross-target checks — `cc-rs` wants `lib.exe` for a Windows target and there would be no Qt 6
+development files there anyway.
+
 **Provenance is a principle-4 question**, and the tree has one precedent — `pdf-spec`'s Arlington
 tables, built by `build.rs` from a pinned submodule. Vendored data arrives the same way: a
 checked-in tool, a pinned upstream revision recorded beside the bytes, the licence file verbatim

@@ -29,7 +29,9 @@ viewer-core = { path = "crates/viewer-core", version = "0.1.0" }
 render-quorra = { path = "crates/render-quorra", version = "0.1.0" }
 viewer-accessibility = { path = "crates/viewer-accessibility", version = "0.1.0" }
 viewer-confined = { path = "crates/viewer-confined", version = "0.1.0" }
+viewer-host = { path = "crates/viewer-host", version = "0.1.0" }
 viewer-gtk = { path = "crates/viewer-gtk", version = "0.1.0" }
+viewer-qt = { path = "crates/viewer-qt", version = "0.1.0" }
 
 # External on purpose: the document renderer doc/RENDER_LIBRARY.md commissioned,
 # developed against that brief in its own repository and wired in here at its final
@@ -128,10 +130,13 @@ softbuffer = { version = "0.4.8", default-features = false, features = [
 # bridge — which is why `doc/todo/30`'s order puts GTK4 first and Qt second.
 #
 # **Confined to `crates/viewer-gtk` and nowhere else.** Nothing under `crates/` that
-# touches PDF bytes may name it, and `viewer-gtk` depends on no other host crate, so the
-# toolkit reaches exactly one manifest. `viewer-gtk` itself keeps `#![forbid(unsafe_code)]`:
-# the binding's `unsafe` is inside `gtk4-sys` and `glib`, and a host written against the
-# safe layer needs none of its own. That is the property `cxx-qt` will not have.
+# touches PDF bytes may name it, and the one crate `viewer-gtk` depends on that is also a
+# host's — `viewer-host`, the toolkit-free half both native hosts share since the
+# four-hundred-and-tenth session — names no toolkit at all, so `gtk4` reaches exactly one
+# manifest. `viewer-gtk` itself keeps `#![forbid(unsafe_code)]`: the binding's `unsafe` is
+# inside `gtk4-sys` and `glib`, and a host written against the safe layer needs none of its
+# own. That is the property `cxx` does not have, and ADR 0246 records exactly what it costs
+# instead: one hand-written `unsafe` token in `viewer-qt`, with a test on its position.
 #
 # What it costs, measured rather than asserted, is in ADR 0244: a link against the system
 # GTK 4, GLib, Pango, cairo and graphene, and about 40 crates of bindings. It is dynamically
@@ -143,6 +148,25 @@ softbuffer = { version = "0.4.8", default-features = false, features = [
 # deprecated in that release (`GtkTreeView`, `GtkComboBoxText`), which would compile with a
 # deprecation warning and this workspace turns warnings into errors.
 gtk4 = { version = "0.11.4", features = ["v4_10"] }
+
+# The second native host's bridge, and the only C++ in this tree. `doc/todo/30`'s order put Qt
+# second precisely because it costs one: `cxx` generates the `extern "C"` shims that carry
+# messages between Rust and a C++ Qt Widgets application, and `cxx-qt-build` is what finds Qt
+# through `qmake6`, runs `moc` over the host's own headers and links the Qt modules.
+#
+# **Confined to `crates/viewer-qt` and nowhere else**, exactly as `gtk4` is confined to
+# `crates/viewer-gtk`: nothing under `crates/` that touches PDF bytes names either, and every
+# such crate keeps `#![forbid(unsafe_code)]`. That attribute is the one thing this host cannot
+# have and `viewer-gtk` can — `#[cxx::bridge]` expands to `unsafe` blocks and `extern "C"`
+# declarations, so the crate root is `#![deny(unsafe_code)]` with the exemption on the one
+# generated module. ADR 0246 argues it and `no_unsafe_outside_the_bridge` enforces it.
+#
+# `cxx-qt` itself — the crate that makes a Rust type into a `QObject` — is deliberately *not*
+# here. A Qt Widgets host subclasses `QAbstractItemModel` and `QWidget` in C++, where moc can
+# see them; taking `cxx-qt` as well would add a QML-shaped runtime and two more initialisers to
+# the link for nothing this host uses. ADR 0246.
+cxx = "1.0.199"
+cxx-qt-build = "0.9.1"
 
 # Fonts. Memory-safe replacement for FreeType; covers OpenType/TrueType/CFF.
 # Type1 and Type3 are handled in `pdf-font` because skrifa does not cover them.

@@ -30,6 +30,17 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # The two native hosts bind two platforms, and a platform's development files are a
+      # package manager's job rather than a Rust target's. `cargo clippy --workspace` builds
+      # `viewer-gtk` and `viewer-qt`, so both toolkits have to be here — GTK 4 for the first
+      # (ADR 0244), and Qt 6 plus a C++ toolchain for the second, whose `build.rs` finds Qt
+      # through `qmake6` and runs `moc` (ADR 0246). This step is what the two `-p` cross-target
+      # checks in `doc/verify.md` deliberately do *not* need, because neither names these crates.
+      - name: The two native hosts' toolkits
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev qt6-base-dev qt6-base-dev-tools
+
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets
 
@@ -78,6 +89,11 @@ jobs:
 
       - name: Reference renderers for the comparison harness
         run: sudo apt-get install -y poppler-utils mupdf-tools ghostscript
+
+      # As in the `check` job: `cargo test --workspace` builds both native hosts, and each binds
+      # its platform's development files. ADRs 0244 and 0246.
+      - name: The two native hosts' toolkits
+        run: sudo apt-get install -y libgtk-4-dev qt6-base-dev qt6-base-dev-tools
 
       # `cargo test --workspace`, and not the `cargo nextest` a local round runs since the
       # three-hundred-and-eighty-fifth session. They are the same 1309 tests; nextest's advantage

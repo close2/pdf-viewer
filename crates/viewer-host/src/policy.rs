@@ -11,8 +11,8 @@
 //!
 //! **§7.6.4.1** — an encrypted document asks for a password. The clause requires a processor to
 //! try the empty user password and then to ask; asking is a window, and a window is a host's.
-//! `viewer_core::Event::PasswordRequired` is where that arrives and `src/host.rs` is what puts a
-//! [`gtk4::PasswordEntry`] in front of it.
+//! `viewer_core::Event::PasswordRequired` is where that arrives and each host's own window is
+//! what puts the platform's secure entry in front of it.
 
 use std::path::{Component, Path, PathBuf};
 

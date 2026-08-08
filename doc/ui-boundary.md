@@ -1,7 +1,10 @@
 # The UI boundary — `viewer-core`, its vocabulary, and the three pixel tiers
 
-Status: **built** — four consumers on it, one of them a *native toolkit* since the
-four-hundred-and-eighth session (`crates/viewer-gtk`, ADR 0244), and one behind a confinement.
+Status: **built, and shaken out** — five consumers on it, **two of them native toolkits**: GTK4
+since the four-hundred-and-eighth session (`crates/viewer-gtk`, ADR 0244) and Qt 6 through a C++
+bridge since the four-hundred-and-tenth (`crates/viewer-qt`, ADR 0246). One is behind a
+confinement. `doc/todo/30`'s condition on the C ABI — *"do not freeze a C ABI until two Rust
+consumers have shaken the API out"* — **is met, and neither host added a message**.
 Read by: anybody writing a host, adding a `Command`, `Event` or `Query`, or asking what the
 crate boundary permits. `doc/HANDOVER.md` §0 is the pointer to this file, and ADRs 0116 to 0121
 are the argument.
@@ -35,14 +38,26 @@ hundred-and-thirtieth session to permit the writing that implies.
 
 #### What exists
 
-Four consumers: `viewer-ui`'s `pdf-viewer.rs` (winit + vello, tier 2),
+Five consumers: `viewer-ui`'s `pdf-viewer.rs` (winit + vello, tier 2),
 `viewer-core/tests/headless.rs` (no display at all, tier 1), `viewer-confined`'s `pdf-view-worker`
-(a process with no filesystem, tier 1) and, since the four-hundred-and-eighth,
-**`viewer-gtk`'s `pdf-viewer-gtk` — a real GTK4 application, tier 1** (ADR 0244). The first two
-could not prove the interface alone — one is a toolkit, the other is not a program — and the fourth
-is what `doc/todo/30` calls the proof the answers are enough for *somebody else's widgets*: a
-`GtkListView` over §12.3.3's outline, a `GtkEntry` over §12.7.5.3's text field, a `GtkCheckButton`
-over §12.7.5.2.3's check box, and a whole native host that needed **no new message**.
+(a process with no filesystem, tier 1), **`viewer-gtk`'s `pdf-viewer-gtk` — a real GTK4
+application, tier 1** (ADR 0244) and **`viewer-qt`'s `pdf-viewer-qt` — a real Qt 6 Widgets
+application with a C++ bridge, tier 1** (ADR 0246). The first two could not prove the interface
+alone — one is a toolkit, the other is not a program — and the last two are what `doc/todo/30`
+calls the proof the answers are enough for *somebody else's widgets*: a `GtkListView` and a
+`QTreeView` over §12.3.3's outline, a `GtkEntry` and a `QLineEdit` over §12.7.5.3's text field, a
+`GtkCheckButton` and a `Qt::CheckStateRole` over §12.7.5.2.3's check box, and **two whole native
+hosts that between them needed no new message**.
+
+**What the second host cost, and where.** Not the vocabulary: it cost one word in a crate root.
+`#[cxx::bridge]` expands to `unsafe` and a `forbid` cannot be lifted, so `viewer-qt` holds
+`#![deny(unsafe_code)]` with one exemption on `mod bridge` and **one hand-written `unsafe` token**
+— the `unsafe extern "C++"` header, which is `cxx` asking the author to assert that the C++
+declared there exists and is safe to call. `cpp/host.h` declares one function and names no Qt type,
+and `tests/unsafe_position.rs` asserts the file, the token, and that no other crate in the tree
+lifts the denial. `doc/todo/30`'s "`viewer-ffi` is the only crate permitted `unsafe`" was a rule
+about promises a reviewer has to check, and one promise in one place with a test on it is what
+keeps it (ADR 0246).
 
 ```
 host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)  ──Event──▶  host
@@ -175,8 +190,12 @@ things a variant carried one of, the variant changes and every consumer fails to
 what nothing being `#[non_exhaustive]` is *for*.
 
 So what is left of §0 is **hosts**, and each has a file: [30](todo/30-a-native-host.md), whose
-first of three landed in the four-hundred-and-eighth and whose remainder is Qt and then
-`viewer-ffi`, [31](todo/31-accessibility-host.md) the four edges the AccessKit
+first two of three landed in the four-hundred-and-eighth and the four-hundred-and-tenth and whose
+remainder is `viewer-ffi` — with three amendments to take before the ABI freezes, all three of one
+shape: `pdf_render::RasterFormat` is `#[non_exhaustive]` and crosses this boundary,
+`Answer::Outline` borrows where its two siblings are owned, and `Answer::Field` answers a password
+field with bullets that nothing says cannot be read back. A Rust host writes one line it should not
+have to; a C consumer cannot fail to compile — [31](todo/31-accessibility-host.md) the four edges the AccessKit
 bridge does not yet cover — a `TH` cell's axis, a `Form` element's control role, AT-SPI's `Text`
 interface and the actions a client may request — and
 [32](todo/32-presentation-player.md) a presentation player. **Ctrl + wheel zooming landed in the
@@ -207,15 +226,25 @@ is set in the same Helvetica on a machine with no fonts installed.
 - `viewer-render` (new, optional) — a default worker a host may use instead of writing one.
 - `viewer-gpu` (new, later) — tier 2. The only crate that may name `raw-window-handle`, `wgpu` or
   `vello` in its API.
-- `viewer-ffi` (new, last) — the C ABI, and the only crate in the tree permitted `unsafe`.
+- `viewer-ffi` (new, last) — the C ABI, and the only crate that will hand-write `unsafe` at any
+  scale. **Its condition is met** and `doc/todo/30` names the three amendments to take first.
 - `viewer-accessibility` — **exists** since the three-hundred-and-seventy-sixth. §14.7's tree onto
   AccessKit, and the only crate permitted to name `accesskit_unix` and therefore an async runtime.
   Depends on `viewer-core`, `pdf-model` and `accesskit`; nothing depends on it but `viewer-ui`.
 - `viewer-ui` — consumer #1 since session 132, and a tier-2 host.
-- `viewer-gtk` — **exists** since the four-hundred-and-eighth, and the only crate in the tree that
-  names a toolkit. GTK4 through `gtk4-rs`, tier 1, `#![forbid(unsafe_code)]` held. Depends on
-  `viewer-core`, `pdf-render`, `render-cpu`, `pdf-model` and `pdf-syntax`; nothing depends on it.
-  ADR 0244.
+- `viewer-host` — **exists** since the four-hundred-and-tenth, and it is what a second host
+  discovered: the three panel answers as one row shape, §12.7.5's field as the control it is,
+  §12.7.6.4's file policy and the launch timeline. Toolkit-free, depended on by both native hosts,
+  and deliberately *not* in `viewer-core` — a mapping from three answers into one row shape is a
+  convenience for whoever draws a tree, not a statement about a document. ADR 0246.
+- `viewer-gtk` — **exists** since the four-hundred-and-eighth. GTK4 through `gtk4-rs`, tier 1,
+  `#![forbid(unsafe_code)]` held; its whole public interface is `Host` and `HostError`, because
+  four of its eight modules turned out not to be GTK's. Depends on `viewer-core`, `viewer-host`,
+  `pdf-render`, `render-cpu`, `pdf-model` and `pdf-syntax`; nothing depends on it. ADR 0244.
+- `viewer-qt` — **exists** since the four-hundred-and-tenth, and it is the only C++ in the tree.
+  Qt 6 Widgets through `cxx` and `cxx-qt-build`, tier 1, `#![deny(unsafe_code)]` with one exemption
+  and one hand-written token. **C++ owns the host** for the life of `QApplication::exec`, which is
+  the ownership inverted from `viewer-gtk` and why this one needs no `RefCell`. ADR 0246.
 - `pdf-model` — has the text layer (ADR 0118). The edit log lives in `viewer-core` and reaches
   interpretation through `ViewState`, which was already the log §12.6.4's actions write to — so
   `interpret` did not need a third input after all, and rule 1 holds without one.
@@ -248,15 +277,29 @@ is set in the same Helvetica on a machine with no fonts installed.
 construction rather than by discipline. **This paragraph used to add "and it is not a compromise
 here, because `CLAUDE.md` makes the CPU backend the startup path", and that reason is gone**: the
 project owner decided in the two-hundred-and-seventy-third session that page one goes to the
-graphics device, so tier 1 is a portability choice and not a startup one. **And the first native
-host had no choice about it**: GTK4 gives a widget no native surface for tier 2 and hands out no
-device for tier 3, so tier 1 is what its public API admits and nothing else (ADR 0244) — with the
-copy *measured* through a real toolkit rather than estimated, `Raster` being `GDK_MEMORY_R8G8B8A8`
-exactly so that there is no conversion at all and 2.69 MB reaches a `gdk::MemoryTexture` in about
-**0.8 ms**, ≈3.2 GB/s. Cost, with a number: 1920×1080 RGBA is 8.3 MB,
-so full-window repaint at 60 fps is ~500 MB/s of memcpy — a few percent of a core, and only
-during smooth scroll. `TargetSpec::transform` already carries "any tile offset", so tiled repaint
-is the first lever if it matters.
+graphics device, so tier 1 is a portability choice and not a startup one. **And neither native
+host had a choice about it**, for two different reasons — which is what makes the agreement worth
+something. GTK4 gives a widget no native surface for tier 2 and hands out no device for tier 3, so
+tier 1 is what its public API admits and nothing else (ADR 0244). Qt *has* `QOpenGLWidget` and
+`QVulkanWindow`, and neither is the comparable host — they are different widgets with different
+rules about being composited inside a `QSplitter` beside a sidebar — while `QRhi`, which owns the
+device Qt draws through, is a private module a release may change without notice (ADR 0246).
+
+**The copy is now measured on both, cold and warm, rather than estimated.** `Raster` is
+`GDK_MEMORY_R8G8B8A8` and `QImage::Format_RGBA8888` *exactly*, so there is no conversion at all in
+either direction:
+
+| | first frame's copy, median of five | steady state, after a page turn |
+|---|---|---|
+| `gdk::MemoryTexture`, 2 687 100 B | 748 µs — 3.6 GB/s | **234 µs — 11.5 GB/s** |
+| `QImage`, 2 765 244 B | 1078 µs — 2.6 GB/s | **231 µs — 12.0 GB/s** |
+
+**ADR 0244's ≈3.2 GB/s was a first-frame number**, and the steady state is three to four times
+faster on both toolkits; the two agree to within 4%, which is what "only a `memcpy`" predicts and is
+what one host could not have said. Cost, with a number: 1920×1080 RGBA is 8.3 MB, so full-window
+repaint at 60 fps is ~500 MB/s of memcpy — a few percent of a core even at the *cold* rate, and only
+during smooth scroll. `TargetSpec::transform` already carries "any tile offset", so tiled repaint is
+the first lever if it matters.
 
 **Interactive chrome crosses as geometry, not pixels.** Selection highlights, an in-progress
 annotation rubber-band, resize handles, a caret — these change at pointer speed and must not
@@ -265,14 +308,19 @@ force a page re-render. Emitting them as quads and points lets a native host dra
 and focus ring. That is most of what makes an embedded view feel native and is unreachable if we
 hand over finished pixels. It also means a slow render never blocks feedback.
 
-**And the first native host found that the *colour* is not always available to ask for.** GTK 4.22
-exposes no accent colour to application code at all — there is no symbol containing `accent` in
-`gtk4-sys`, and `@accent_bg_color` is a CSS name libadwaita defines. What a widget can be asked for
-is `gtk_widget_get_color`, the theme's own foreground, which follows a light or dark theme without
-the program knowing which is on, and that is what `viewer-gtk` draws the selection fill and
-§12.5.1's ring in. **This sharpens the argument rather than weakening it**: handing over finished
-pixels would have made even that impossible, and which colour a platform will part with is a fact
-about each platform rather than about this boundary.
+**And the two native hosts found that the *colour* is a fact about each platform.** GTK 4.22 exposes
+no accent colour to application code at all — there is no symbol containing `accent` in `gtk4-sys`,
+and `@accent_bg_color` is a CSS name libadwaita defines — so `viewer-gtk` draws the selection fill
+and §12.5.1's ring in `gtk_widget_get_color`, the theme's own foreground, which follows a light or
+dark theme without the program knowing which is on. **Qt has both**: `QPalette::Highlight` and,
+since Qt 6.6, `QPalette::Accent`, which KDE writes from the colour scheme. `viewer-qt` says which it
+used and the pixel proves it — selection drawn in `#3daee9`, sampled back out of the window as
+`srgb(187,227,248)`, which is that colour at the overlay's 0.35 alpha over white.
+
+**So the sentence above is satisfiable on one of the two platforms and not on the other, and that
+sharpens the argument rather than weakening it**: handing over finished pixels would have made even
+GTK's answer impossible, and which colour a platform will part with is a fact about each platform
+rather than about this boundary (ADRs 0244, 0246).
 
 | | crosses as | changes at | drawn by |
 |---|---|---|---|

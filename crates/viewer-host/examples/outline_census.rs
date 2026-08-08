@@ -1,10 +1,10 @@
 //! How many rows §12.3.3's outline becomes, and how many the document asks to be open.
 //!
 //! Not a gate: a count a round quoted, kept runnable so the next round can check it rather than
-//! believe it. `cargo run -p viewer-gtk --example outline_census -- <file.pdf>`.
+//! believe it. `cargo run -p viewer-host --example outline_census -- <file.pdf>`.
 
 use viewer_core::{Answer, Command, DocumentId, Query, Viewer};
-use viewer_gtk::{PanelRow, outline_rows};
+use viewer_host::{PanelRow, outline_rows};
 
 /// Every row, depth first.
 fn flatten<'a>(rows: &'a [PanelRow], into: &mut Vec<&'a PanelRow>) {

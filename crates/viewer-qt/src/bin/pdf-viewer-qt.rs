@@ -1,24 +1,22 @@
-//! The GTK4 viewer: `pdf-viewer-gtk [--trace[=topics]] <file.pdf[#fragment]>`.
+//! The Qt 6 viewer: `pdf-viewer-qt [--trace[=topics]] <file.pdf[#fragment]>`.
 //!
-//! A second program beside `pdf-viewer`, and deliberately not a flag on it: the two differ in
-//! their *toolkit* and in nothing else, which is the claim `viewer-core` exists to make and which
-//! a single binary linking both would stop making.
+//! A third program beside `pdf-viewer` and `pdf-viewer-gtk`, and deliberately not a flag on
+//! either: the three differ in their *toolkit* and in nothing else, which is the claim
+//! `viewer-core` exists to make and which a single binary linking all three would stop making.
 //!
 //! `CLAUDE.md` makes the launch path a measured thing, so `--trace=launch` prints the same shape
-//! of timeline `pdf-viewer` does: arguments read, window built, first allocation, document
-//! opened, first frame on the screen.
+//! of timeline the other two do: arguments read, window built, first resize, document opened,
+//! first frame on the screen — in `viewer-host`'s one format, so that the two native hosts'
+//! timelines can be read side by side.
 
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
 use std::path::PathBuf;
 use std::time::Instant;
 
 use pdf_model::view::WidgetAppearances;
-
-use gtk4::prelude::*;
-use gtk4::{gio, glib};
-use viewer_gtk::Host;
 use viewer_host::{Topic, Trace, parse_topics};
+use viewer_qt::Host;
 
 /// What the command line asked for.
 #[derive(Debug)]
@@ -32,6 +30,13 @@ struct Arguments {
     topics: u8,
     /// Who draws §12.7's widgets, per `--draw-widget-appearances`.
     widget_appearances: WidgetAppearances,
+    /// How many milliseconds to run for before quitting, or zero to run until closed.
+    ///
+    /// A window under `Xvfb` has nobody to close it, and a test that killed the process could not
+    /// tell a clean exit from a crash. `viewer-gtk` has no equivalent and is stopped with a
+    /// signal; this is the better of the two and is the one thing this host has that the other
+    /// does not.
+    quit_after: i32,
 }
 
 /// Reads the command line, or says what is wrong with it.
@@ -40,6 +45,7 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
     let mut fragment = None;
     let mut topics = 0;
     let mut widget_appearances = WidgetAppearances::Delegated;
+    let mut quit_after = 0;
     for word in words {
         if word == "--draw-widget-appearances" {
             widget_appearances = WidgetAppearances::Drawn;
@@ -48,6 +54,10 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
         } else if let Some(list) = word.strip_prefix("--trace=") {
             topics = parse_topics(list)
                 .map_err(|unknown| format!("--trace: {unknown} names no topic"))?;
+        } else if let Some(millis) = word.strip_prefix("--quit-after=") {
+            quit_after = millis
+                .parse::<i32>()
+                .map_err(|_| format!("--quit-after: {millis} is not a millisecond count"))?;
         } else if word.starts_with("--") {
             return Err(format!("{word} is not an option this program has"));
         } else if path.is_some() {
@@ -55,7 +65,7 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
         } else {
             // Annex O: the fragment is the text after `#` in the URI the bytes came from. A path
             // is not a URI, but a path with a `#` in it is how a person types one on a command
-            // line, and `pdf-viewer` reads it the same way.
+            // line, and the other two hosts read it the same way.
             match word.split_once('#') {
                 Some((before, after)) => {
                     path = Some(PathBuf::from(before));
@@ -66,23 +76,26 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
         }
     }
     let path = path.ok_or_else(|| {
-        "usage: pdf-viewer-gtk [--trace[=topics]] [--draw-widget-appearances] <file.pdf>".to_owned()
+        "usage: pdf-viewer-qt [--trace[=topics]] [--draw-widget-appearances] \
+         [--quit-after=<ms>] <file.pdf>"
+            .to_owned()
     })?;
     Ok(Arguments {
         path,
         fragment,
         topics,
         widget_appearances,
+        quit_after,
     })
 }
 
-fn main() -> glib::ExitCode {
+fn main() -> std::process::ExitCode {
     let began = Instant::now();
     let arguments = match arguments(std::env::args().skip(1)) {
         Ok(arguments) => arguments,
         Err(complaint) => {
             eprintln!("{complaint}");
-            return glib::ExitCode::FAILURE;
+            return std::process::ExitCode::FAILURE;
         }
     };
     let trace = if arguments.topics == 0 {
@@ -92,40 +105,28 @@ fn main() -> glib::ExitCode {
     };
     trace.say(Topic::Launch, format_args!("arguments read"));
 
-    // `NON_UNIQUE` because this is a document viewer and two documents are two windows; without
-    // it a second invocation would hand its file to the first process and exit, which is a
-    // decision about how a desktop works rather than about how a PDF is read.
-    let app = gtk4::Application::new(Some("org.pdfviewer.gtk"), gio::ApplicationFlags::NON_UNIQUE);
-    let failed = std::rc::Rc::new(std::cell::Cell::new(false));
-    let watched = std::rc::Rc::clone(&failed);
-    // Every callback in the host holds itself *weakly*, so something has to hold it strongly for
-    // as long as the application runs; this is that something.
-    let held: std::cell::RefCell<Vec<std::rc::Rc<std::cell::RefCell<Host>>>> =
-        std::cell::RefCell::new(Vec::new());
-    app.connect_activate(move |app| {
-        trace.say(Topic::Launch, format_args!("GTK ready"));
-        match Host::open(
-            app,
-            &arguments.path,
-            arguments.fragment.clone(),
-            arguments.widget_appearances,
-            trace,
-        ) {
-            Ok(host) => held.borrow_mut().push(host),
-            Err(error) => {
-                eprintln!("{error}");
-                watched.set(true);
-                app.quit();
-            }
+    let host = match Host::open(
+        &arguments.path,
+        arguments.fragment,
+        arguments.widget_appearances,
+        trace,
+    ) {
+        Ok(host) => host,
+        Err(error) => {
+            eprintln!("{error}");
+            return std::process::ExitCode::FAILURE;
         }
-    });
-    // GTK's own argument parsing is deliberately not given ours: `--trace` is this program's and
-    // a document is a path rather than a GTK option.
-    let code = app.run_with_args::<&str>(&[]);
-    if failed.get() {
-        return glib::ExitCode::FAILURE;
+    };
+    trace.say(
+        Topic::Launch,
+        format_args!("host ready, handing Qt the loop"),
+    );
+    let code = viewer_qt::run(host, arguments.quit_after);
+    if code == 0 {
+        std::process::ExitCode::SUCCESS
+    } else {
+        std::process::ExitCode::FAILURE
     }
-    code
 }
 
 #[cfg(test)]
@@ -152,9 +153,9 @@ mod tests {
 
     /// §6.3.2.2's default is the standard's, and this host's default is the other one.
     ///
-    /// Worth a test rather than a comment because it is the one place `pdf-viewer-gtk` and
-    /// `pdf-viewer` disagree about what a page is, and the flag that undoes it is what ADR 0245's
-    /// two photographs were taken with.
+    /// The same test `pdf-viewer-gtk` carries, because the two hosts must agree about it: a native
+    /// form host places a control over every widget, so leaving the appearance underneath would
+    /// be the duplication ADR 0244 photographed and ADR 0245 removed.
     #[test]
     fn the_widgets_are_delegated_unless_the_flag_asks_for_them() {
         use pdf_model::view::WidgetAppearances;
@@ -164,6 +165,13 @@ mod tests {
             arguments(["--draw-widget-appearances".to_owned(), "x.pdf".to_owned()].into_iter())
                 .expect("a document");
         assert_eq!(asked.widget_appearances, WidgetAppearances::Drawn);
+    }
+
+    #[test]
+    fn a_quit_after_that_is_not_a_number_is_refused() {
+        let complaint = arguments(["--quit-after=soon".to_owned(), "x.pdf".to_owned()].into_iter())
+            .expect_err("a millisecond count is a number");
+        assert!(complaint.contains("soon"), "{complaint}");
     }
 
     #[test]

@@ -32,11 +32,15 @@ RUSTFLAGS="-D warnings" cargo check --target x86_64-pc-windows-msvc -p viewer-ui
   # build script needs a C toolchain for the target and this machine has neither MSVC nor macOS's.
   # The CI runners do, which is why the `platforms` job builds the binaries and these two check
   # what a benchmark does not reach.
-  # **`viewer-gtk` is deliberately in none of these**, and asking for it says why: `glib-sys`'s
-  # build script needs a cross-compiling `pkg-config` wrapper, and the target would need GTK 4's
-  # own development files, which is a platform package manager's job rather than a Rust target's.
-  # A host binds a platform and is checked on it — the same rule that makes `viewer-accessibility`
-  # Linux-only in its own manifest (ADRs 0214, 0244).
+  # **The two native hosts are deliberately in none of these**, and asking for either says why:
+  # `glib-sys`'s build script needs a cross-compiling `pkg-config` wrapper, and `viewer-qt`'s
+  # `cc-rs` wants `lib.exe`. Both targets would also need the toolkit's own development files,
+  # which is a platform package manager's job rather than a Rust target's. A host binds a platform
+  # and is checked on it — the same rule that makes `viewer-accessibility` Linux-only in its own
+  # manifest (ADRs 0214, 0244, 0246). What that costs on *this* machine is the other half of the
+  # same rule: `cargo clippy --workspace` and `cargo test --workspace` build both hosts, so GTK 4's
+  # and Qt 6's development files have to be installed to run the gates at all. CI installs
+  # `libgtk-4-dev`, `qt6-base-dev` and `qt6-base-dev-tools` for exactly that reason.
 # And the Windows *read path* runs here, which is the only way to test it from Linux: the two
 # implementations are chosen by `#[cfg(unix)]` / `#[cfg(not(unix))]`, so rewriting those two
 # attributes compiles the thread-and-channel one on this machine. ADR 0194 has the recipe; all 19

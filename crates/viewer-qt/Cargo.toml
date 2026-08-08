@@ -1,0 +1,41 @@
+[package]
+name = "viewer-qt"
+description = "A Qt 6 Widgets host for viewer-core: the second native-toolkit consumer of the UI boundary, and the one with a C++ bridge."
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# The boundary this crate exists to consume. Nothing from a toolkit appears in its API,
+# which is what makes this crate possible at all.
+viewer-core.workspace = true
+# `Raster` and `TargetSpec` cross the boundary, so a host names them.
+pdf-render.workspace = true
+# Tier 1: the host rasterises. `render-cpu` is what does it here, and ADR 0246 says why a
+# Qt Widgets host has no other tier available to it either.
+render-cpu.workspace = true
+# §6.3.2.2's `WidgetAppearances`, and §12.7.5's `Control` behind `viewer-host`'s decision.
+pdf-model.workspace = true
+# §12.5.6.5's link targets and §8.11's groups are named by object identity.
+pdf-syntax.workspace = true
+# The half of a native host that is not the toolkit, shared with `viewer-gtk`: the three
+# panel answers as one row shape, §12.7.5's field as the control it is, §12.7.6.4's file
+# policy and the launch timeline (ADR 0246).
+viewer-host.workspace = true
+# The bridge. `cxx` generates the `extern "C"` shims that carry messages between this crate
+# and the C++ under `cpp/`; it is the reason this crate cannot hold `#![forbid(unsafe_code)]`
+# and holds `#![deny(unsafe_code)]` with one exemption instead. ADR 0246.
+cxx.workspace = true
+# Every refusal in this crate is a typed error, as everywhere else in the tree.
+thiserror.workspace = true
+
+[build-dependencies]
+# Finds Qt 6 through `qmake6`, runs `moc` over `cpp/window.h`, compiles the C++ and links
+# QtCore, QtGui and QtWidgets. It is `cxx-qt`'s build half, taken without `cxx-qt` itself —
+# see the workspace manifest and ADR 0246 for why the runtime crate is not here.
+cxx-qt-build.workspace = true
+
+[lints]
+workspace = true

@@ -135,8 +135,8 @@ outline at 88 KB, which is a fiftieth of that page (ADR 0223). **The window does
 deliberately: `viewer-ui` is a tier-2 host and this boundary is tier 1, so putting it there is a
 change of tier and a decision with a number attached rather than a switch. ADR 0218, `doc/todo/34`.
 
-**And since the four-hundred-and-eighth there is a fourth consumer, and it is somebody else's
-toolkit.** `crates/viewer-gtk`'s `pdf-viewer-gtk` is a real GTK4 application on the same boundary:
+**And since the four-hundred-and-eighth there is a fourth consumer, and since the
+four-hundred-and-tenth a fifth — both of them somebody else's toolkit.** `crates/viewer-gtk`'s `pdf-viewer-gtk` is a real GTK4 application on the same boundary:
 §12.3.3's outline, §8.11.4.3's layers and §7.11.4's files in a `GtkListView` over a
 `GtkTreeListModel`, §12.7's fields as a `GtkEntry`, a `GtkPasswordEntry`, a `GtkCheckButton`, a
 `GtkDropDown` and a `GtkListView` placed over the page, the selection and §12.5.1's focus ring drawn
@@ -151,6 +151,28 @@ than a prediction. ADR 0244, `doc/todo/30`. **That one was taken in the four-hun
 (ADR 0245): `Command::Delegate` is §6.3.2.2's "unless otherwise instructed", `pdf-viewer-gtk` sends
 it by default, and what the picture then exposed is the *scale* — 11 of 76 controls on
 `160F-2019.pdf` are wider than the `/Rect` they cover and all 76 are taller.
+
+**And the four-hundred-and-tenth built the second of the two, which is the one that costs a C++
+bridge.** `crates/viewer-qt`'s `pdf-viewer-qt` is a real Qt 6 Widgets application on the same
+boundary — the three panel answers in a `QTreeView` over a `QAbstractItemModel`, §12.7's fields as a
+`QLineEdit`, a `QCheckBox`, a `QComboBox` and a `QListWidget`, the selection drawn in
+`QPalette::Highlight` and both host decisions — and **it needed no new message either**. That was
+`doc/todo/30`'s condition on the C ABI (*"do not freeze a C ABI until two Rust consumers have shaken
+the API out"*), so **the ABI may now be frozen**, with three amendments named first:
+`pdf_render::RasterFormat` is `#[non_exhaustive]` and crosses the boundary, `Answer::Outline`
+borrows where its two siblings are owned, and `Answer::Field` answers a password field with bullets
+nothing says cannot be read back. A Rust host writes one line it should not have to; a C consumer
+cannot fail to compile.
+
+Three things came with it. **`crates/viewer-host`**, because the second host wanted four of
+`viewer-gtk`'s eight modules unchanged — the panel rows, the control decision, §12.7.6.4's file
+policy and the launch timeline named no GTK type, and `viewer-gtk`'s whole public interface is now
+`Host` and `HostError`. **One hand-written `unsafe` token in the tree**, the `unsafe extern "C++"`
+header `cxx` requires, under `#![deny(unsafe_code)]` with one exemption on `mod bridge` and
+`tests/unsafe_position.rs` asserting its position and that no other crate lifts the denial. And
+**the tier-1 copy measured on both toolkits, cold and warm**: 234 µs and 231 µs in the steady state
+on 2.7 MB, ≈11.5 and ≈12.0 GB/s, which corrects ADR 0244's ≈3.2 GB/s as a first-frame number.
+ADR 0246, `doc/todo/30`.
 
 **And since the three-hundred-and-seventy-seventh it can tell a person that a signed document
 changed after it was signed, and since the three-hundred-and-ninety-second whether its signature
@@ -268,6 +290,24 @@ in the table (tests 1430 → **1435**, citations 5758 → **5812**, quotations 5
 §2 and claimed: **the window under `Xvfb`**, twice over one binary, which is where the change is
 visible at all.
 
+**And the four-hundred-and-tenth ran it with two new crates in the workspace and every line below
+reproduced except three counts.** It built `crates/viewer-qt` — the Qt 6 host, a C++ bridge and a
+`build.rs` that runs `moc` — and `crates/viewer-host`, which is four modules *moved* out of
+`viewer-gtk` rather than written; nothing that touches a page changed, so the test count moved by
+its nineteen (1435 → **1454**) and the citations by 70 (5812 → **5882**), while the quotations stayed
+at 557 and the corpus's 974 with 65 incomplete, the oracle's 1794 pages, quorra's, the text gate's
+99.2% (24043/24243 words), the dates, the XMP and the JPEG 2000 lines are what the table says.
+`doc/todo/00`'s step 7 is **not owed** and no raster can have changed: the whole diff under
+`crates/` is one new directory, one moved directory and their two manifests. Four things beyond §2
+were run and are claimed: **`cargo deny check`** — *advisories ok, bans ok, licenses ok, sources ok*
+with `cxx`'s 23 packages in the graph and no new exception — **all three cross-target checks**,
+which pass unmoved because they name their packages with `-p` and `viewer-qt` is excluded for the
+same reason `viewer-gtk` is (asking for it says `failed to find tool "lib.exe"`), **the window under
+`Xvfb`**, which is this round's whole point, and **both hosts' copies timed side by side**, which is
+what corrected ADR 0244's ≈3.2 GB/s into a first-frame number. **Not run and therefore not
+claimed**: the twelve fuzz targets, which have nothing to catch here — no parser, no decoder and no
+document code changed.
+
 **And the four-hundred-and-eighth ran the whole sequence with a new crate in the workspace, and
 every line below reproduced except three counts.** It built `crates/viewer-gtk`, the GTK4 host — a
 new crate, a new binary and a new *dependency*, and nothing that touches a page — so the test count
@@ -298,7 +338,7 @@ names in the same order as the three-hundred-and-ninety-seventh's. ADR 0242.
 
 | gate | what it printed | where |
 |---|---|---|
-| tests | `1435 tests run: 1435 passed, 10 skipped` — the tenth skip is the four-hundred-and-seventh session's `the_fixed_bounds_against_the_references_own_spread`, which derives the oracle's own bounds and is run explicitly — and `cargo test --workspace --doc` **1 passed** beside it, so `cargo test --workspace` reports **1436**. `clippy --workspace --all-targets` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`; `fmt --all --check` clean | `cargo nextest run --workspace`, **32.6 s** |
+| tests | `1454 tests run: 1454 passed, 10 skipped` — the tenth skip is the four-hundred-and-seventh session's `the_fixed_bounds_against_the_references_own_spread`, which derives the oracle's own bounds and is run explicitly — and `cargo test --workspace --doc` **1 passed** beside it, so `cargo test --workspace` reports **1455**. `clippy --workspace --all-targets` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`; `fmt --all --check` clean | `cargo nextest run --workspace`, **39.9 s** |
 | corpus (974 pdf.js documents, page one) | `974 documents in 5.9s: 0 unopenable, 8 locked, 2 encrypted beyond us, 5 pageless, **65 incomplete**, 0 slow` | `tests/corpus.rs`, **5.9 s** |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | `1794 pages (1693 we call complete, 101 incomplete)`; **905 agree / 863 of them complete**, **68 contradicted / 66 complete**, **786 ambiguous / 753 complete**, our geometry 1/0, reference geometry 2/2, not comparable 14/9, no render 18/0 — and **the undiagnosed ambiguous list printed empty**, which is the ratchet holding. Nothing moved in the four-hundred-and-sixth — it changed only what the gate *prints* about a contradicted page (ADR 0242) — nor in the four-hundred-and-seventh, which added a second `#[ignore]`d test to the same file that re-derives the bounds this gate judges by (ADR 0243) — and the run now ends with a second ranking, `contradicted, and furthest from the nearest reference`, headed by `bitmap-symbol-context-reuse.pdf` at 28.91 nearest | `tests/oracle.rs`, **41.1 s** |
 | text (vs `pdftotext`, same 974) | `overall 99.2% (24043/24243 words), 25 below 90%`, with 24 skipped and 62 incomplete and not gated | `tests/text_extraction.rs`, **30.1 s** |
@@ -306,7 +346,7 @@ names in the same order as the three-hundred-and-ninety-seventh's. ADR 0242.
 | dates | `1545 date strings in 974 documents: **1514 conform** to §7.9.4 (97.99%), 31 do not, over 22 distinct strings` | `tests/dates.rs`, **0.9 s** |
 | **§14.3.2's XMP** (same 974) | `319 documents carry §14.3.2's stream: **318 read, 1 refused**, 3191 properties between them, 106 state dc:title` — the refusal is a fuzzed file whose stream does not decode at all | `tests/xmp.rs`, **0.4 s** |
 | **JPEG 2000 vs ISO/IEC 15444-5's reference software** | 30 corpus codestreams: **14 byte-identical, 13 differing, 3 not comparable**, and no remaining difference exceeds one level. `doc/JPEG2000_FEEDBACK.md` §§7–8 has the two defects behind that | `tests/jpeg2000.rs`, **13.8 s** |
-| conformance | **5812 citations**, all naming clauses the standard has; **557 quotations**, all verbatim; **213** distinct tables cited by this tree and **250** named in the ledger's notes; **875 ledger rows** (400 implemented, 252 partial, 19 reported, 83 inapplicable, 8 writer-side, 113 out-of-scope) | `cargo test -p conformance`, **2.7 s** |
+| conformance | **5882 citations**, all naming clauses the standard has; **557 quotations**, all verbatim; **213** distinct tables cited by this tree and **250** named in the ledger's notes; **875 ledger rows** (400 implemented, 252 partial, 19 reported, 83 inapplicable, 8 writer-side, 113 out-of-scope) | `cargo test -p conformance`, **2.7 s** |
 | **the round itself** | **not measured as one span this round**, and the honest number is what the gates themselves printed: **154 s** of test execution summed from the ten lines above (25.7 + 4.2 + 46.9 + 30.1 + 34.1 + 0.6 + 0.3 + 9.9 + 2.0), with each gate's incremental build on top and each run separately rather than back to back. `doc/todo/02` records **268 s** for §2 *and* §5's binaries together, from 608 s until the three-hundred-and-eighty-fifth measured every step (ADR 0222); the three-hundred-and-ninety-seventh read 287 s off file timestamps for §2 alone | ADR 0222, `doc/todo/43` |
 
 **Two things beyond §2 were run in the three-hundred-and-ninety-eighth and are claimed**: the
@@ -564,6 +604,7 @@ where a page turn goes, and the four items priced and refused. Still open, each 
 ```sh
 cargo run --release -p viewer-ui  --bin pdf-viewer     -- doc/PDF20_AN001-BPC.pdf
 cargo run --release -p viewer-gtk --bin pdf-viewer-gtk -- doc/PDF20_AN001-BPC.pdf   # the GTK4 host
+cargo run --release -p viewer-qt  --bin pdf-viewer-qt  -- doc/PDF20_AN001-BPC.pdf   # the Qt 6 host
 ```
 
 **[`doc/running-the-viewer.md`](running-the-viewer.md)** is the rest and is all of it: every flag
