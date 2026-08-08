@@ -1,12 +1,14 @@
 # Carry an image *and its sampling intent* to the backends
 
 Status: **the vocabulary is built and one of the three consumers is on it** (session 370, ADR
-0210). Two remain, and neither is blocked by the display list any more.
+0210). Two remain. Neither is blocked by the display list, and — since session 396 — neither is
+blocked by a missing API either: the JPEG 2000 one is blocked on **one revision reaching the
+fork this workspace pins**, and the edits that follow it are listed below.
 Priority: 24
 Corpus: 1 document on the corpus gate (`issue19517.pdf`); the rest is one backend's
 Clauses: §7.4.9, §8.7.4.5.3, §8.9.6.3, §10.7.4
 Code: `crates/pdf-render/src/paint.rs` (`ImageSource`, `Grid`, `ImageAtDeviceScale`),
-`crates/pdf-model/src/image.rs`, all three backends
+`crates/pdf-model/src/image.rs`, `crates/pdf-sandbox/src/decode.rs`, all three backends
 
 ## What the vocabulary is
 
@@ -34,30 +36,78 @@ reference consensus**. The corpus's incomplete list went 73 → 72 and no corpus
 
 ## Still owed
 
-- **JPEG 2000 at a reduced resolution level** — `issue19517.pdf`, 212 megapixels, refused for
-  wanting gigabytes. §7.4.9's NOTE 2 makes the resolution progression the format's own answer and
-  the decoder can be asked for a level. What was missing on *this* side of the sandbox is built:
-  `Grid::for_placement` is the number to hand across, and `ImageAtDeviceScale` is where a
-  `JPXDecode` stream would sit. What is missing now is an API on `hayro-jpeg2000` — a decode that
-  can be told where to stop — and **that is a branch rather than a blocker**: `tmp/hayro` is a
-  checkout of the whole workspace with the owner's fork as `origin` and the maintainer's as
-  `upstream`, and the owner's standing offer is to push a branch and open the pull request, with
-  this tree depending on the fork meanwhile. `doc/JPEG2000_FEEDBACK.md` §9 is the route and §8 is
-  the precedent — a defect found here was fixed there and is what this tree pins today.
-- **A sampled shading on `render-gpu`**, and **this entry said "on the GPU backends" and was
-  wrong about the one that ships**. `render-quorra` draws a sampled grid — `sampled_fill` uploads
-  it as a raster and clips it to the path — and `render-cpu` evaluates it; only the Vello backend
-  refuses, through `brush_for`'s `UnsupportedPaint`, because a grid is not a brush any gradient
-  can express. So this is one backend's gap rather than a clause's, and no page on the quorra
-  corpus gate is refused for it.
+### JPEG 2000 at a reduced resolution level — one revision away, and what follows it
 
-  What is left of the item is the *shape*: §8.7.4.5.3's type 1 shading reduces to a grid standing
-  in for a function of two variables, and `pdf-render` fixes that grid at a
-  resolution — `FUNCTION_GRID`, 128 — before any device has been asked. That is the same
-  interpret-time resolution decision `ImageSource` removed for a mask, one command over, on
-  `Paint::Shading` rather than on `Command::Image`. Nothing in ADR 0210 prejudges what it looks
-  like; what it settles is that "a raster plus the intent to resolve it at the device" is
-  expressible without the interpreter learning the scale.
+`issue19517.pdf`, 12608×16806 in four channels, 847 million samples, refused for wanting
+gigabytes. §7.4.9 NOTE 3 addresses the answer to this program by name: "[v]iewing and printing
+applications can gain performance benefits by using the resolution progression."
+
+**This entry said the blocker was "an API on `hayro-jpeg2000` — a decode that can be told where to
+stop", and that was false since 10 December 2025.** `DecodeSettings::target_resolution` is in the
+revision this workspace already pins. Session 396 found what the real cost was, and it is
+measured in ADR 0233: asking for a reduced level skipped the bit-planes and the wavelet but still
+reserved a coefficient for every sample of the **full**-resolution image — one allocation of
+3.4 GB for this file however small a raster was asked for. Resident size never showed it; address
+space did, and address space is what `pdf_sandbox::lockdown`'s gigabyte bounds.
+
+**The fix is written, measured and committed on a branch that cannot be pushed from here**:
+`close2/hayro`, `feat/reduced-resolution-allocates-less`, commit `1dc833f7`, in `tmp/hayro`. All
+183 of the crate's own asset tests are byte-identical to snapshots from unpatched `main`.
+`doc/JPEG2000_FEEDBACK.md` §10 is what the owner reads before pushing it.
+
+**Step 0, and it is not ours**: the owner pushes that branch and opens the pull request; the
+workspace manifest's `rev` for `hayro-jpeg2000` moves to it. Until then nothing below may be
+committed, because against `2a1abd14` every one of these edits turns an accurate refusal into a
+worker killed by `RLIMIT_AS`.
+
+Then, in order, and each of them verified against a `[patch]` build in session 396:
+
+1. **`pdf-sandbox`'s `jpx` steps down resolution levels until `MAX_SAMPLES` is met.** Parse with
+   `target_resolution: None`, and while the sample count is over the bound re-parse asking for
+   half of what came back, refusing if the size stops shrinking. About twenty lines. The bound
+   itself was corrected to 2^26 in session 396 and is now measured rather than estimated — see
+   its own documentation.
+2. **The raster's grid travels with it.** `samples_of` and `decode_jpx` return the grid the codec
+   produced rather than letting `decode_parts` assume the dictionary's, and the `Image` is built
+   at it. Every other codec returns the dictionary's grid unchanged, so this is one extra pair on
+   five return values.
+3. **§7.4.9's "Width and Height shall match the corresponding width and height values in the JPEG
+   2000 data" needs the *full* size to check against**, which a reduced decode no longer returns.
+   Either `pdf_sandbox::Raster` carries the codestream's own stated grid beside the raster's — the
+   honest fix, and it keeps the check — or the check moves into the worker, which is where the
+   codestream's header is read. Session 396's experiment relaxed it to `<=` to get a number and
+   **that is not the committable form**.
+4. **`soft_mask_entry` is told the base raster's real grid**, not the dictionary's, so that
+   `combined_grid` decides on the two rasters that exist. With the base at 3152×4202 and this
+   file's 12608×16806 `/SMask`, that is what routes the mask to §10.7.4's device-scale path
+   instead of an eager 848 MB combination — no change to the mask machinery, which already
+   handles it.
+
+What that buys, measured against the patched build (ADR 0233): page one goes from **0 commands
+and one reported image** to **1 command and nothing reported**, drawing a raster of 3152×4202 that
+agrees with `poppler`. It costs 5.6 s and 2.5 GB peak across the process tree, which is a number
+to reduce and not a reason to leave the page blank.
+
+**A cheaper alternative exists and is written down rather than taken** (ADR 0233's "Alternatives
+considered"): decide the reduction at interpret time from the memory budget alone, with no device
+in it. Simpler, keeps the display list a pure function of the file, and on *this* document would
+produce a raster finer than any screen. If the fork's push is slow, that is the half to build.
+
+### A sampled shading on `render-gpu`
+
+**This entry said "on the GPU backends" and was wrong about the one that ships**. `render-quorra`
+draws a sampled grid — `sampled_fill` uploads it as a raster and clips it to the path — and
+`render-cpu` evaluates it; only the Vello backend refuses, through `brush_for`'s
+`UnsupportedPaint`, because a grid is not a brush any gradient can express. So this is one
+backend's gap rather than a clause's, and no page on the quorra corpus gate is refused for it.
+
+What is left of the item is the *shape*: §8.7.4.5.3's type 1 shading reduces to a grid standing
+in for a function of two variables, and `pdf-render` fixes that grid at a
+resolution — `FUNCTION_GRID`, 128 — before any device has been asked. That is the same
+interpret-time resolution decision `ImageSource` removed for a mask, one command over, on
+`Paint::Shading` rather than on `Command::Image`. Nothing in ADR 0210 prejudges what it looks
+like; what it settles is that "a raster plus the intent to resolve it at the device" is
+expressible without the interpreter learning the scale.
 
 And a fourth claimant this file did not have: **§8.9.6.3's explicit mask**, whose own ledger row
 carries the same "the true answer is a composite at device resolution" sentence the soft mask's

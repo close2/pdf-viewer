@@ -47,20 +47,35 @@ const MAX_PIXELS: u64 = 1 << 28;
 
 /// Largest continuous-tone image this will produce, in *samples* — pixels times channels.
 ///
-/// Samples rather than pixels, because a JPEG 2000 decoder's working set scales with both.
-/// It holds each component as `f32` while the wavelet runs and then writes an eight-bit
-/// interleaved copy, so roughly five bytes per sample; 2^27 samples is therefore around
-/// 670 megabytes, which leaves headroom inside the gigabyte for the codestream, the
-/// code-block buffers and the allocator's own slack.
+/// Samples rather than pixels, because a JPEG 2000 decoder's working set scales with both:
+/// the decoder holds every component's coefficients as `f32` through the wavelet, the
+/// synthesised samples as `f32` beside them, two more buffers for the transform itself, and
+/// then an eight-bit interleaved copy.
+///
+/// **This said "roughly five bytes per sample" and 2^27 until the three-hundred-and-ninety-sixth
+/// session, and the estimate was wrong by a factor of two in the direction that matters** — the
+/// bound exists to refuse cheaply *before* the address-space limit has to end the process the
+/// expensive way, and at 2^27 it admitted an image that ends it. Measured rather than estimated,
+/// on codestreams built for the purpose and decoded through the same crate this worker uses:
+///
+/// | codestream | samples | peak address space | inside [`crate::lockdown`]'s gigabyte |
+/// |---|---|---|---|
+/// | 4096×4096, four channels | 2^26 | 600 MB | yes |
+/// | 6690×6690, three channels | 2^27 + 50 572 | 1253 MB | **no — the allocation fails** |
+///
+/// So the cost is nine to thirteen bytes a sample rather than five, and 2^26 is the bound with
+/// the measurement behind it: 600 MB leaves the rest of the gigabyte for the codestream, the
+/// code-block buffers and the allocator's slack. No corpus codestream is between the two — the
+/// largest that decodes is 2.4 million samples — so this narrows a bound nothing reaches rather
+/// than refusing anything that was drawing.
 ///
 /// This bound is *reached* by real files, and that is worth knowing rather than hiding.
-/// `issue19517.pdf` carries a 12608×16806 scan — 212 megapixels in three components, 636
-/// million samples, several gigabytes to decode at full resolution — for a page that will
-/// be drawn about four megapixels. Refusing it here reports one undrawn image; the proper
-/// answer is JPEG 2000's own, which is to decode a reduced resolution level, and that needs
-/// the scale a page is about to be drawn at to reach this crate. See the note on
-/// `target_resolution` below.
-const MAX_SAMPLES: u64 = 1 << 27;
+/// `issue19517.pdf` carries a 12608×16806 scan — 212 megapixels in four channels, 847 million
+/// samples, ten gigabytes to decode at full resolution — for a page that will be drawn about
+/// four megapixels. Refusing it here reports one undrawn image; the proper answer is JPEG
+/// 2000's own, which is to decode a reduced resolution level. See the note on
+/// `target_resolution` below for what that is waiting on.
+const MAX_SAMPLES: u64 = 1 << 26;
 
 /// Decodes a JBIG2 image, in the embedded organisation PDF requires.
 ///
@@ -356,9 +371,22 @@ pub(crate) fn jpx(data: &[u8], indices: bool) -> Result<Raster, String> {
         // Nothing repaired here is a *colour* decision — those all leave as `Unknown` and
         // are decided against §7.4.9 by the caller.
         strict: false,
-        // Full resolution. Decoding a reduced level is the obvious lever for a thumbnail
-        // grid later, and it is deliberately not pulled now: it would need the display
-        // list to carry the scale a page is about to be drawn at, which it does not.
+        // Full resolution, and **this comment used to say the lever did not exist on either
+        // side of it**. Both halves of that were out of date by the
+        // three-hundred-and-ninety-sixth session: `hayro_jpeg2000::DecodeSettings` has carried
+        // this field since December 2025, and the display list has carried the device grid
+        // since ADR 0210 — `pdf_render::Grid::for_placement` is the number and
+        // `ImageSource::AtDeviceScale` is where a `JPXDecode` stream would sit.
+        //
+        // What it is waiting on is measured and named: asking for a reduced level makes the
+        // decoder skip the bit-planes and the wavelet synthesis of the levels above it, but
+        // until `close2/hayro`'s `feat/reduced-resolution-allocates-less` it still reserved a
+        // coefficient for every sample of the *full*-resolution image — one allocation of
+        // 3.4 GB for `issue19517.pdf` however small a raster was asked for, which
+        // [`crate::lockdown`]'s gigabyte turns into a dead worker rather than a picture.
+        // Setting this before that revision is in the fork this workspace pins would trade a
+        // cheap, accurate refusal for a process abort. `doc/todo/24` and ADR 0233 carry the
+        // rest, including what `pdf-model` owes once it is.
         target_resolution: None,
     };
 

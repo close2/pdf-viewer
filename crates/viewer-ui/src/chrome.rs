@@ -129,8 +129,8 @@ const MISSING_EDGE: f32 = 0.06;
 
 /// The fonts this program draws its own text with.
 ///
-/// Four faces rather than one because §12.3.3's Table 152 gives an outline item a `/F` whose two
-/// low bits are italic and bold — "[a] set of flags specifying style characteristics for
+/// Four faces rather than one because §12.3.3's Table 151 gives an outline item a `/F` whose two
+/// low bits are Table 152's italic and bold — "[a] set of flags specifying style characteristics for
 /// displaying the outline item's text" — so a document that asks for bold gets bold. Loaded once
 /// and held: `LoadedFont` caches its own outlines, and re-deriving Liberation Sans' glyphs per
 /// frame would be the one avoidable cost on a path that runs at pointer speed.

@@ -199,6 +199,15 @@ hayro-jbig2 = { version = "0.3.0", default-features = false, features = ["std"] 
 # `close2/hayro` `2a1abd14`, offered upstream. Against ISO/IEC 15444-5's reference software the
 # worst sample error over the corpus falls from **87 levels to 1**, and 3.4 M differing samples
 # to 5 900. Go back to crates.io the moment a release carries both; `deny.toml` says the same.
+#
+# **A third fix is written and this `rev` is what it is waiting for.** `close2/hayro` branch
+# `feat/reduced-resolution-allocates-less`, commit `1dc833f7`, is committed in `tmp/hayro` and
+# has not been pushed: a decode asked for a reduced resolution level still reserved a
+# coefficient for every sample of the full-resolution image, which is 3.4 GB of address space
+# for `issue19517.pdf` however small a raster is wanted and a dead worker inside
+# `pdf_sandbox::lockdown`'s gigabyte. Moving this `rev` to it is step 0 of `doc/todo/24`, and
+# nothing in `pdf-sandbox` may ask for a reduced level before it moves. ADR 0233 and
+# `doc/JPEG2000_FEEDBACK.md` §10 have the measurements.
 hayro-jpeg2000 = { git = "https://github.com/close2/hayro", rev = "2a1abd14fbb09fbe0d34e2d4efbf25884f2eb21b", version = "0.4.0", default-features = false, features = ["std"] }
 
 # Cryptography, for ISO 32000-2 §7.6's standard security handler. Five primitives, all

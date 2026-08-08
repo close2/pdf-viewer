@@ -1319,7 +1319,7 @@ fn qualified_name(document: &Document, dict: &Dictionary, prefix: &str) -> Strin
 /// Whether pressing this annotation changes what is drawn.
 ///
 /// Two clauses can make it so, and a caller has to ask about both. Table 170's `/D` is the
-/// appearance §12.5.5 shows while a button is down, and Table 192's `/H` is the highlighting
+/// appearance §12.5.5 shows while a button is down, and Table 191's `/H` is the highlighting
 /// mode §12.5.6.19 states for the same moment — and `/H`'s default is `I`, so an annotation that
 /// states *neither* entry still inverts.
 ///

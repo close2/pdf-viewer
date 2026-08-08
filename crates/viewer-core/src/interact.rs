@@ -153,7 +153,7 @@ pub(crate) fn activate_object(open: &mut Open, id: ObjectId) -> Outcome {
             })
         });
     // §12.4.3's thread is the third thing a host can hand this, and it states neither `/A` nor
-    // `/Dest`: a thread dictionary is Table 158's `/F`, `/I` and nothing that names a place. So
+    // `/Dest`: a thread dictionary is Table 162's `/F`, `/I` and nothing that names a place. So
     // what activating one means has to be *composed* — and §12.6.4.7 has already composed it, as
     // the action a file writes to do the same job. Turning the object into that action's own
     // `ThreadTarget::Object` reuses `Request::Thread` whole, down to Table 163's `/R` framing the
@@ -181,7 +181,7 @@ pub(crate) fn activate_object(open: &mut Open, id: ObjectId) -> Outcome {
 
 /// Whether a dictionary is one of §12.4.3's article threads.
 ///
-/// Table 158 gives a thread dictionary an optional `/Type /Thread` and a **required** `/F`, "[a]n
+/// Table 162 gives a thread dictionary an optional `/Type /Thread` and a **required** `/F`, "[a]n
 /// indirect reference to the first bead in the thread", so the entry that must be there is the one
 /// to test and the one that may be there is the one to accept. A bead is not mistaken for a thread
 /// by either: Table 163 names a bead's own first entry `/T`, pointing the other way.

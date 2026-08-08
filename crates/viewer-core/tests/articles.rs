@@ -26,7 +26,7 @@ use viewer_core::{Answer, Command, DocumentId, Event, PageTarget, Query, Viewer}
 /// The document this file drives: two pages, one thread, three beads.
 ///
 /// §12.4.3's own EXAMPLE shape — a story that starts on page one and continues on page two — with
-/// Table 158's `/F` and `/I` and Table 163's `/T`, `/N`, `/V`, `/P` and `/R` spelled in full. The
+/// Table 162's `/F` and `/I` and Table 163's `/T`, `/N`, `/V`, `/P` and `/R` spelled in full. The
 /// ring is closed at both ends, which the clause requires and which is what makes a thread walk
 /// stop by returning rather than by running out.
 fn two_page_thread() -> Vec<u8> {
@@ -83,7 +83,7 @@ fn the_threads_a_document_states_are_answered_with_their_titles() {
         panic!("Query::Articles answers with a list");
     };
     assert_eq!(threads.len(), 1);
-    // Table 158's `/I` is §14.3.3's Table 349 by another name, and `/Title` is what a list shows.
+    // Table 162's `/I` is §14.3.3's Table 349 by another name, and `/Title` is what a list shows.
     assert_eq!(threads[0].title.as_deref(), Some("Man Bites Dog"));
     assert_eq!(
         threads[0].beads.len(),

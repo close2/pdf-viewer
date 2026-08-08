@@ -318,3 +318,95 @@ Two things that do not change: the fix must be right for *hayro's* users and not
 viewer — a maintainer is being asked to carry it — and this tree's own gates decide whether it
 helped, because `tests/jpeg2000.rs` compares against ISO/IEC 15444-5's reference software rather
 than against either implementation's opinion.
+
+---
+
+## 10. A reduced-resolution decode still allocated the full-resolution image — **found here, fix on a branch**
+
+**Written 2026-08-08 in the three-hundred-and-ninety-sixth session**, and this is the section the
+project owner pushes: the branch below is committed in `tmp/hayro` and cannot be pushed from here.
+
+```text
+branch   feat/reduced-resolution-allocates-less
+commit   1dc833f7e87dd6849a358d74af3586d7955e1e03
+parent   2a1abd14   (§8's fix, this fork's main, what this tree pins)
+title    hayro-jpeg2000: Size the coefficient buffer by the resolution asked for
+```
+
+### What this tree was looking for, and what it found instead
+
+ISO 32000-2 §7.4.9 NOTE 3 tells a viewer to use the resolution progression on a densely sampled
+image, and `issue19517.pdf` is one: 12608×16806 in four channels, 847 million samples, drawn on a
+page a screen shows at about four megapixels. This tree had that item written down as *blocked on
+an API `hayro-jpeg2000` does not have*.
+
+**It has had the API since `1dfc6e2f` (10 December 2025)** — `DecodeSettings::target_resolution` —
+and the claim was three sessions' worth of stale in three separate places here. That is a finding
+about this repository rather than about the crate, and it is recorded as one (ADR 0233).
+
+What the crate *did* have was a defect one layer down. `build_decompositions` sized
+`storage.coefficients` from the component tile's own rectangle — the full-resolution image —
+whatever level the caller had asked for. The bit-planes above the cut are not decoded and their
+decompositions are not synthesised, so the reduction bought **time and no memory**: every one of
+these decodes began with a single allocation of 3 390 240 768 bytes.
+
+Resident size never shows it. The buffer is `calloc`'d and the pages belonging to the levels that
+are never decoded are never touched, so what it costs is *address space* — which is what
+`RLIMIT_AS`, a 32-bit target and a `no_std` fixed arena all bound.
+
+### Measured, on `issue19517.pdf`'s codestream through `Image::decode`
+
+| `target_resolution` | raster | peak address space before | after |
+|---|---|---|---|
+| 788×1051 | 788×1051 | 3336 MB | **115 MB** |
+| 1576×2101 | 1576×2101 | 3424 MB | **241 MB** |
+| 3152×4202 | 3152×4202 | 3775 MB | **743 MB** |
+| 6304×8403 | 6304×8403 | 5176 MB | 2751 MB |
+| none | 12608×16806 | 10 784 MB | 10 784 MB |
+
+Under a 1 GiB `RLIMIT_AS`, **none** of the first four completed before the change and the first
+three complete after it. Full resolution is unchanged to the byte, which it must be: with nothing
+skipped, the highest kept level *is* the component tile.
+
+### The fix, and the one thing it must not do
+
+The sub-bands of resolution levels 0 to *r* partition the rectangle of resolution level *r*
+(B-15), so the highest level that will be decoded states exactly how many coefficients the levels
+below it need. The levels above it get an empty range.
+
+**Their code-blocks are still built.** A packet header is what says how long its body is and a
+tile-part's packets are read in sequence; in LRCP order the packets of the skipped levels are
+interleaved with the ones that are kept, so they have to be read *past* rather than not described.
+Only their coefficients are unwanted. `build_decompositions`'s existing assertion that the
+coefficient counter meets the buffer length is what checks the partition, on every decode.
+
+### What was run
+
+- **`cargo test -p hayro-jpeg2000` — all 183 assets of `manifest_serenity` and `manifest_openjpeg`
+  PASS**, against snapshots generated from unpatched `main` and then compared with the branch
+  applied. Byte-identical output, including `serenity/large_target_resolution`.
+- `test_jpeg2000_standard_example_b4`, Annex B.4's worked example, passes.
+- `cargo fmt --check` clean; `cargo clippy -p hayro-jpeg2000 --all-targets` adds no warning (the
+  four `unnecessary_sort_by` are pre-existing and in other files).
+- This tree's own instrument, `crates/pdf-model/tests/jpeg2000.rs` — the 30 corpus codestreams
+  against `opj_decompress` — is unmoved: 14 byte-identical, 13 differing, 3 not comparable, no
+  difference above one level. None of those thirty is decoded at a reduced level, which is exactly
+  why that gate says the change is inert where it should be.
+
+### What this tree does with it
+
+**Nothing yet, and deliberately.** The workspace pins `2a1abd14`, and against that revision asking
+for a reduced level would allocate 3.4 GB inside a worker with a gigabyte of address space — a
+process abort where there is currently an accurate refusal. A `path` dependency into `tmp/` cannot
+be committed. So `pdf-sandbox` still passes `target_resolution: None`, the comment beside it now
+says why in one sentence, and `doc/todo/24` states the four edits that follow the moment the fork
+carries `1dc833f7`.
+
+### One thing noticed and *not* offered, recorded so it is not rediscovered
+
+`target_resolution` picks the finest resolution level whose dimensions are **at least** the
+request, so a raster can come back up to twice the requested size per axis — four times the
+samples. That is the right rounding for fidelity and the wrong one for a memory budget, and there
+is no way to ask for the other. It is bounded and this tree can reduce on its own side, so it is
+not worth a second knob in the same pull request; it is written here because the next reader will
+otherwise find it again.
