@@ -1,10 +1,12 @@
 # The UI boundary — `viewer-core`, its vocabulary, and the three pixel tiers
 
-Status: **built, and shaken out** — five consumers on it, **two of them native toolkits**: GTK4
-since the four-hundred-and-eighth session (`crates/viewer-gtk`, ADR 0244) and Qt 6 through a C++
-bridge since the four-hundred-and-tenth (`crates/viewer-qt`, ADR 0246). One is behind a
-confinement. `doc/todo/30`'s condition on the C ABI — *"do not freeze a C ABI until two Rust
-consumers have shaken the API out"* — **is met, and neither host added a message**.
+Status: **built, shaken out, and frozen** — six consumers on it, **three of them hosts somebody
+else's widgets sit on**: GTK4 since the four-hundred-and-eighth session (`crates/viewer-gtk`, ADR
+0244), Qt 6 through a C++ bridge since the four-hundred-and-tenth (`crates/viewer-qt`, ADR 0246),
+and **a C ABI since the four-hundred-and-eleventh** (`crates/viewer-ffi`, ADR 0247). One is behind
+a confinement. `doc/todo/30`'s condition — *"do not freeze a C ABI until two Rust consumers have
+shaken the API out"* — was met, the three amendments it named were taken, and **no host added a
+message, three running**.
 Read by: anybody writing a host, adding a `Command`, `Event` or `Query`, or asking what the
 crate boundary permits. `doc/HANDOVER.md` §0 is the pointer to this file, and ADRs 0116 to 0121
 are the argument.
@@ -38,26 +40,34 @@ hundred-and-thirtieth session to permit the writing that implies.
 
 #### What exists
 
-Five consumers: `viewer-ui`'s `pdf-viewer.rs` (winit + vello, tier 2),
+Six consumers: `viewer-ui`'s `pdf-viewer.rs` (winit + vello, tier 2),
 `viewer-core/tests/headless.rs` (no display at all, tier 1), `viewer-confined`'s `pdf-view-worker`
 (a process with no filesystem, tier 1), **`viewer-gtk`'s `pdf-viewer-gtk` — a real GTK4
 application, tier 1** (ADR 0244) and **`viewer-qt`'s `pdf-viewer-qt` — a real Qt 6 Widgets
-application with a C++ bridge, tier 1** (ADR 0246). The first two could not prove the interface
-alone — one is a toolkit, the other is not a program — and the last two are what `doc/todo/30`
-calls the proof the answers are enough for *somebody else's widgets*: a `GtkListView` and a
-`QTreeView` over §12.3.3's outline, a `GtkEntry` and a `QLineEdit` over §12.7.5.3's text field, a
-`GtkCheckButton` and a `Qt::CheckStateRole` over §12.7.5.2.3's check box, and **two whole native
-hosts that between them needed no new message**.
+application with a C++ bridge, tier 1** (ADR 0246) and **`viewer-ffi`'s C ABI — 39 entry points, a
+hand-written header and a C program that drives it, tier 1** (ADR 0247). The first two could not
+prove the interface alone — one is a toolkit, the other is not a program — and the last three are
+what `doc/todo/30` calls the proof the answers are enough for *somebody else's widgets*: a
+`GtkListView` and a `QTreeView` over §12.3.3's outline, a `GtkEntry` and a `QLineEdit` over
+§12.7.5.3's text field, a `GtkCheckButton` and a `Qt::CheckStateRole` over §12.7.5.2.3's check box,
+and **three whole hosts that between them needed no new message**.
 
 **What the second host cost, and where.** Not the vocabulary: it cost one word in a crate root.
 `#[cxx::bridge]` expands to `unsafe` and a `forbid` cannot be lifted, so `viewer-qt` holds
 `#![deny(unsafe_code)]` with one exemption on `mod bridge` and **one hand-written `unsafe` token**
 — the `unsafe extern "C++"` header, which is `cxx` asking the author to assert that the C++
 declared there exists and is safe to call. `cpp/host.h` declares one function and names no Qt type,
-and `tests/unsafe_position.rs` asserts the file, the token, and that no other crate in the tree
-lifts the denial. `doc/todo/30`'s "`viewer-ffi` is the only crate permitted `unsafe`" was a rule
-about promises a reviewer has to check, and one promise in one place with a test on it is what
-keeps it (ADR 0246).
+and `tests/unsafe_position.rs` asserts the file, the token, and — since the
+four-hundred-and-eleventh — that **exactly two** crates in the tree lift the denial.
+`doc/todo/30`'s "`viewer-ffi` is the only crate permitted `unsafe`" was a rule about promises a
+reviewer has to check, and two promises in two places with a test on each is what keeps it (ADRs
+0246, 0247).
+
+**What the third host cost.** Not the vocabulary either, and not a word in a crate root: it cost
+the three amendments below and nothing else. `viewer-ffi/src/abi.rs` holds one lint lift, 39
+`#[unsafe(no_mangle)]` attributes and 35 signatures, and **no `unsafe` block anywhere in the
+crate**; its own test asserts that and that every crate touching PDF bytes still *forbids* the
+permission (ADR 0247).
 
 ```
 host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)  ──Event──▶  host
@@ -108,7 +118,13 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
   chrome off the rendering path.
 - **Nothing is `#[non_exhaustive]`**, deliberately: it forces a catch-all arm on every host, and
   a catch-all arm is where a message added later goes to be ignored in silence. A new `Event`
-  should fail to compile in every consumer.
+  should fail to compile in every consumer. **The rule reaches types this crate does not declare**,
+  which the two native hosts found and the third settled: `pdf_render::RasterFormat` crosses inside
+  `Rendered::Raster` and `Answer::Frame`, was `#[non_exhaustive]`, and cost four consumers a
+  catch-all apiece — so it is not, since ADR 0247. **And a C consumer cannot fail to compile at
+  all**, which is what `viewer-ffi` exists to answer rather than to pretend away: every event kind
+  has a name and a one-sentence description whatever the caller knows about it, and the *count* of
+  kinds is what a C caller checks against its header at startup.
 - **This crate interprets; the host rasterises.** `NeedsRender` carries an `Arc<DisplayList>` and
   a `TargetSpec`, so a zoom or a scroll re-rasterises *without re-interpreting* — asserted by
   pointer equality of the list in `zooming_rasterises_again_without_interpreting_again`.
@@ -187,15 +203,22 @@ session after it was added, because the fuller reading of §12.3.3 made it a pat
 reason and neither adding a message: `Command::Zoom` gained the viewport point to hold still
 (ADR 0166) and `Answer::Field` gained §14.9.3's second name (ADR 0167) — where a host needs two
 things a variant carried one of, the variant changes and every consumer fails to compile, which is
-what nothing being `#[non_exhaustive]` is *for*.
+what nothing being `#[non_exhaustive]` is *for*. **`Answer::Field` changed shape a second time in
+the four-hundred-and-eleventh**, for that rule's own reason and with a bug behind it: its value is
+`Option<pdf_model::view::ShownValue>` now, the characters beside Table 231 bit 14's `obscured`, and
+what the compiler failure found was `viewer-ui` writing a password field's bullets back as its next
+value on every keystroke. `Answer::Fields` carries the same type, so a host cannot learn the
+exception from one question and miss it in the other (ADR 0247).
 
 So what is left of §0 is **hosts**, and each has a file: [30](todo/30-a-native-host.md), whose
-first two of three landed in the four-hundred-and-eighth and the four-hundred-and-tenth and whose
-remainder is `viewer-ffi` — with three amendments to take before the ABI freezes, all three of one
-shape: `pdf_render::RasterFormat` is `#[non_exhaustive]` and crosses this boundary,
-`Answer::Outline` borrows where its two siblings are owned, and `Answer::Field` answers a password
-field with bullets that nothing says cannot be read back. A Rust host writes one line it should not
-have to; a C consumer cannot fail to compile — [31](todo/31-accessibility-host.md) the four edges the AccessKit
+three landed in the four-hundred-and-eighth, the four-hundred-and-tenth and the
+four-hundred-and-eleventh, and whose remainder is *surface* rather than architecture. **The three
+amendments the ABI waited on are taken** (ADR 0247): `RasterFormat` is no longer
+`#[non_exhaustive]`, `Answer::Outline` is owned like its two siblings, and `Answer::Field` carries
+`pdf_model::view::ShownValue` — the characters *and* whether Table 231 bit 14 replaced them — because
+the third of those was not a doc sentence but a bug `viewer-ui` had been shipping: it read a
+password field's value back after every keystroke and sent the bullets as the next value —
+[31](todo/31-accessibility-host.md) the four edges the AccessKit
 bridge does not yet cover — a `TH` cell's axis, a `Form` element's control role, AT-SPI's `Text`
 interface and the actions a client may request — and
 [32](todo/32-presentation-player.md) a presentation player. **Ctrl + wheel zooming landed in the
@@ -226,8 +249,15 @@ is set in the same Helvetica on a machine with no fonts installed.
 - `viewer-render` (new, optional) — a default worker a host may use instead of writing one.
 - `viewer-gpu` (new, later) — tier 2. The only crate that may name `raw-window-handle`, `wgpu` or
   `vello` in its API.
-- `viewer-ffi` (new, last) — the C ABI, and the only crate that will hand-write `unsafe` at any
-  scale. **Its condition is met** and `doc/todo/30` names the three amendments to take first.
+- `viewer-ffi` — **exists** since the four-hundred-and-eleventh, and it is the last host
+  `doc/todo/30` names. 39 `extern "C"` entry points, a hand-written `include/pdf_viewer.h`, and
+  `c/open_a_page.c` which a test compiles with `-Werror` and runs. Commands are functions rather
+  than a tagged union (a union's size is part of an ABI; a symbol is not); events and answers
+  arrive owned so no borrow of the viewer crosses; a render request is an opaque handle a caller
+  may move to a thread of its own; and a frame is copied into a buffer the caller owns. Depends on
+  `viewer-core`, `viewer-host`, `pdf-render`, `pdf-model`, `pdf-syntax` and `render-cpu` — the last
+  only so that a caller has something to draw a display list with. Cross-compiles to both the
+  Windows and macOS targets, unlike either toolkit host. ADR 0247.
 - `viewer-accessibility` — **exists** since the three-hundred-and-seventy-sixth. §14.7's tree onto
   AccessKit, and the only crate permitted to name `accesskit_unix` and therefore an async runtime.
   Depends on `viewer-core`, `pdf-model` and `accesskit`; nothing depends on it but `viewer-ui`.

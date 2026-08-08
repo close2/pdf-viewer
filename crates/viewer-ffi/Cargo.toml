@@ -1,0 +1,36 @@
+[package]
+name = "viewer-ffi"
+description = "The C ABI over viewer-core's vocabulary: commands as functions, events and answers as owned batches, and one pixel format that cannot change without breaking a build."
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# Three, and each has a caller. `cdylib` is what a C program links against and what a
+# `dlopen` reaches; `staticlib` is what an application embedding the viewer wants, because a
+# PDF viewer inside somebody else's binary is the case `doc/todo/30` is for; `rlib` is what
+# this crate's own tests and the workspace's `--all-targets` build.
+[lib]
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+# The vocabulary this crate is a C spelling of. Nothing here re-decides anything it says.
+viewer-core.workspace = true
+# `Raster`, `RasterFormat` and `TargetSpec`: what a frame is, on both sides of the boundary.
+pdf-render.workspace = true
+# The rasteriser a C caller is handed for `NeedsRender`, because a display list is not a thing
+# to put in a header. See the crate documentation on why this crate holds one at all.
+render-cpu.workspace = true
+# §12.3.3's outline items, which `Answer::Outline` now hands over owned (ADR 0247).
+pdf-model.workspace = true
+# §12.5.6.5's targets and §8.11's groups are named by object identity, and `Command::Activate`
+# takes one — the same two numbers §7.3.10 makes an indirect reference.
+pdf-syntax.workspace = true
+# The three panel answers as one row shape, shared with the other two native hosts rather than
+# written a third time. ADR 0246 decision 3: a native host on this boundary is mostly not
+# toolkit code, and a C host is a native host.
+viewer-host.workspace = true
+
+[lints]
+workspace = true

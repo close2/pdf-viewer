@@ -31,7 +31,10 @@ fn saved(name: &str, field: &str, value: &str) -> Option<Document> {
     let mut view = ViewState::of(&document);
     let applied = view.set_field(&document, field, Some(value));
     assert!(applied > 0, "{name}: {field} is a field this document has");
-    let out = view.save(&document).expect("the fixture can be written");
+    let out = view
+        .save(&document)
+        .expect("the fixture can be written")
+        .bytes;
     Some(Document::open(out).expect("what was written can be read"))
 }
 
@@ -229,7 +232,7 @@ fn a_markup_a_person_added_is_written_and_attached_to_its_page() {
             &[[100.0, 700.0, 300.0, 700.0, 100.0, 690.0, 300.0, 690.0]],
         )
         .expect("one quadrilateral is something to mark up");
-    let out = view.save(&document).expect("the fixture can be written");
+    let out = view.save(&document).expect("it can be written").bytes;
     assert!(
         out.starts_with(&bytes),
         "§7.5.6 appends: the producer's bytes are untouched underneath"
@@ -362,7 +365,10 @@ fn a_free_text_annotation_carries_the_font_its_default_appearance_names() {
             [0.7, 0.1, 0.1],
         )
         .expect("a rectangle with area is something to write in");
-    let out = view.save(&document).expect("the fixture can be written");
+    let out = view
+        .save(&document)
+        .expect("the fixture can be written")
+        .bytes;
     assert!(
         out.starts_with(&bytes),
         "§7.5.6 appends: the producer's bytes are untouched underneath"
@@ -471,7 +477,10 @@ fn a_documents_own_default_font_is_not_replaced() {
         [0.0, 0.0, 0.0],
     )
     .expect("a rectangle with area is something to write in");
-    let out = view.save(&document).expect("the fixture can be written");
+    let out = view
+        .save(&document)
+        .expect("the fixture can be written")
+        .bytes;
     let saved = Document::open(out).expect("what was written can be read");
     assert_eq!(
         format!("{:?}", saved.get(form)),

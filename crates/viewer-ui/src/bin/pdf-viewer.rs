@@ -1257,12 +1257,14 @@ struct App {
     about: About,
     /// §12.3.3's outline and §7.11.4's embedded files, taken once when the document opened.
     ///
-    /// Copied out of the queries rather than asked for per frame, and not for speed:
-    /// `Answer::Outline` borrows the viewer, and a panel that is about to send it a command
-    /// cannot be holding a borrow of it. Both are properties of an immutable document that no
-    /// edit reaches, so a copy taken at open cannot go stale — which is exactly not true of
-    /// §8.11's layers, whose whole point is that a click changes them, so those are asked for
-    /// every time.
+    /// Copied out of the queries rather than asked for per frame, and not for speed: both are
+    /// properties of an immutable document that no edit reaches, so a copy taken at open cannot
+    /// go stale — which is exactly not true of §8.11's layers, whose whole point is that a click
+    /// changes them, so those are asked for every time.
+    ///
+    /// (This note read "`Answer::Outline` borrows the viewer, and a panel that is about to send
+    /// it a command cannot be holding a borrow of it" until ADR 0247 made that answer owned. The
+    /// reason above is the one that survives, and it is the one that was always the stronger.)
     outline: pdf_model::outline::Outline,
     /// §7.11.4's embedded files, likewise.
     attachments: Vec<pdf_model::attachment::Attachment>,
@@ -1766,13 +1768,12 @@ impl App {
 
     /// Takes the lists a document cannot change, once, when it opens.
     ///
-    /// §12.3.3's outline, §7.11.4's embedded files and §12.4.3's article threads. `Answer::Outline` borrows the viewer, so
-    /// what the panel holds is a copy — see the fields' own note — and both are properties of an
-    /// immutable document, so a copy cannot go stale. §8.11's layers are *not* here for exactly
-    /// that reason.
+    /// §12.3.3's outline, §7.11.4's embedded files and §12.4.3's article threads — all three
+    /// properties of an immutable document, so what the panel holds is a copy that cannot go
+    /// stale. §8.11's layers are *not* here for exactly that reason.
     fn gather(&mut self) {
         if let Answer::Outline(outline) = self.viewer.query(Query::Outline) {
-            self.outline = outline.clone();
+            self.outline = outline;
         }
         if let Answer::Attachments(files) = self.viewer.query(Query::Attachments) {
             self.attachments = files;
@@ -2070,6 +2071,24 @@ impl App {
             return;
         }
         self.typing = match self.viewer.query(Query::FieldAt(at)) {
+            // Table 231 bit 14, refused rather than mishandled — and it was mishandled until the
+            // four-hundred-and-eleventh session, which is what ADR 0247's third amendment made
+            // visible. This host reads a field's value back after every keystroke (ADR 0201) and a
+            // password field answers with bullets, so what it sent as the next value was those
+            // bullets with a character appended. Refusing is trap 5: `viewer-gtk` and `viewer-qt`
+            // type into a `GtkPasswordEntry` and a `QLineEdit` in `Password` echo mode, which are
+            // the platform's own secure controls, and this host draws its own page and has none.
+            Answer::Field {
+                name,
+                value: Some(shown),
+            } if shown.obscured => {
+                println!(
+                    "note: {} is a Table 231 bit 14 password field, which this host does not type \
+                     into: its value answers as bullets and cannot be read back (ADR 0247)",
+                    name.shown()
+                );
+                None
+            }
             Answer::Field {
                 name,
                 value: Some(value),
@@ -2084,7 +2103,7 @@ impl App {
                 // start every time.
                 let caret = match self.viewer.query(Query::Offset { at, point: at }) {
                     Answer::Offset(offset) => offset,
-                    _ => value.len(),
+                    _ => value.text.len(),
                 };
                 Some(Typing::at_offset(Target::Field, at, caret))
             }
@@ -2269,6 +2288,10 @@ impl App {
         // places the appearance *on* that rectangle and `Query::Focus` answers with it.
         let at = ((quad[0] + quad[4]) * 0.5, (quad[1] + quad[5]) * 0.5);
         self.typing = match self.viewer.query(Query::FieldAt(at)) {
+            // The same refusal a click makes, for the same reason — see `aim_at_field`.
+            Answer::Field {
+                value: Some(shown), ..
+            } if shown.obscured => None,
             Answer::Field {
                 name,
                 value: Some(value),
@@ -2277,7 +2300,7 @@ impl App {
                 // The end of the value, and here that is not a fallback: a tab press names no
                 // point inside the value, so there is nothing for `Query::Offset` to measure and
                 // the end is the place ADR 0211 chose for a walk that arrives without one.
-                Some(Typing::at_offset(Target::Field, at, value.len()))
+                Some(Typing::at_offset(Target::Field, at, value.text.len()))
             }
             _ => None,
         };
@@ -2483,9 +2506,16 @@ impl App {
     fn aimed(&self, typing: Typing) -> Option<(String, Aim)> {
         match typing.target {
             Target::Field => match self.viewer.query(Query::FieldAt(typing.at)) {
-                Answer::Field { name, value } => {
-                    Some((value.unwrap_or_default(), Aim::Field(name.qualified)))
-                }
+                // A value that is Table 231 bit 14's echo is not a value to append to, which is
+                // why `aim_at_field` never puts the keyboard here; this is the same refusal one
+                // step later, so that the two cannot come apart. ADR 0247.
+                Answer::Field {
+                    value: Some(shown), ..
+                } if shown.obscured => None,
+                Answer::Field { name, value } => Some((
+                    value.map_or_else(String::new, |shown| shown.text),
+                    Aim::Field(name.qualified),
+                )),
                 _ => None,
             },
             Target::FreeText(annotation) => {
@@ -3069,10 +3099,9 @@ impl App {
     /// underneath that — and what is this host's is the three things only a host knows: what the
     /// window is called, which page is showing, and what the page could not draw.
     ///
-    /// **Everything is copied before the bridge is touched.** `Query::Reports` and
-    /// `Answer::Outline` borrow the viewer, and the bridge is a field of the same struct; owning
-    /// the answers first is what lets both be reached in one function without the borrow checker
-    /// having to be argued with.
+    /// **Everything is copied before the bridge is touched.** `Query::Reports` borrows the
+    /// viewer, and the bridge is a field of the same struct; owning the answer first is what lets
+    /// both be reached in one function without the borrow checker having to be argued with.
     ///
     /// Does nothing until [`App::accessibility`] exists, which is after the first present.
     fn speak(&mut self) {

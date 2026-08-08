@@ -1488,7 +1488,10 @@ fn a_click_finds_the_field_it_landed_on() {
     // An empty text field answers with an empty string rather than with nothing: `None` is
     // reserved for a field whose value is not text at all, and a host deciding where to send the
     // keyboard needs those to be two answers. 147 of the corpus's first-page widgets are this.
-    assert_eq!(value.as_deref(), Some(""));
+    assert_eq!(value.as_ref().map(|shown| shown.text.as_str()), Some(""));
+    // And Table 231 bit 14 is clear on it, so the string above *is* the field's characters and a
+    // host may write it back — ADR 0247's third amendment, from the answering side.
+    assert_eq!(value.map(|shown| shown.obscured), Some(false));
     // This form states no `/TU`, so §14.9.3's alternative is absent and the name a user
     // interface shows is the field's own — which is the case the clause's "if present" covers.
     assert_eq!(name.alternative, None);
@@ -1538,7 +1541,8 @@ fn a_page_states_its_whole_form_as_controls_a_host_can_build() {
     assert_eq!(first.name.qualified, "firstName");
     assert_eq!(first.partial, "firstName");
     assert_eq!(first.name.shown(), "First name");
-    assert_eq!(first.value.as_deref(), Some("Lucía"));
+    let shown = first.value.as_ref().expect("a text field states a value");
+    assert_eq!(shown.text, "Lucía");
     assert!(!first.read_only && !first.required);
     let Control::Text(text) = &first.control else {
         panic!("{:?}", first.control)
@@ -1626,6 +1630,77 @@ fn a_page_states_its_whole_form_as_controls_a_host_can_build() {
         panic!("the middle of a widget's quadrilateral is that widget");
     };
     assert_eq!(name.qualified, "javaScript");
+}
+
+/// §12.7.5.3's Table 231 bit 14, from the answering side: a value that is not the value says so.
+///
+/// > If set, the field is intended for entering a secure password that should not be echoed
+/// > visibly to the screen. Characters typed from the keyboard shall instead be echoed in some
+/// > unreadable form, such as asterisks or bullet characters.
+///
+/// **The corpus has exactly one of these** — `issue19389.pdf`, 1 widget over 974 documents, which
+/// `examples/field_flag_census` counts — and until the four-hundred-and-eleventh session nothing
+/// on this boundary said that its value was the echo rather than the characters. What that cost is
+/// ADR 0247: `viewer-ui` obeyed ADR 0201's read-the-value-back rule and therefore sent the bullets
+/// as the field's next value on every keystroke. The two answers that carry a value both carry the
+/// flag now, and this asserts them against each other on the one document that has one.
+#[test]
+fn a_password_fields_value_says_that_it_is_not_the_fields_characters() {
+    let Some(bytes) = corpus_bytes("issue19389.pdf") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password: None,
+            fragment: None,
+        })
+        .for_each(drop);
+    let Answer::Fields(fields) = viewer.query(Query::Fields) else {
+        panic!("this form has fields on page one");
+    };
+    let secret = fields
+        .iter()
+        .find(|field| matches!(&field.control, Control::Text(text) if text.password))
+        .expect("issue19389.pdf states Table 231 bit 14 on one widget");
+    // A person has typed into it, so the value is theirs rather than the file's — which is the
+    // case that matters, because it is the one a host would write back.
+    viewer
+        .handle(Command::Edit(Edit::SetField {
+            field: secret.name.qualified.clone(),
+            value: Some("hunter2".to_owned()),
+        }))
+        .for_each(drop);
+
+    let Answer::Fields(after) = viewer.query(Query::Fields) else {
+        panic!("this form has fields on page one");
+    };
+    let secret = after
+        .iter()
+        .find(|field| field.name.qualified == secret.name.qualified)
+        .expect("the field is still there");
+    let shown = secret.value.as_ref().expect("a text field states a value");
+    assert!(shown.obscured, "the flag did not cross with the value");
+    assert_ne!(shown.text, "hunter2", "the characters crossed");
+    assert_eq!(shown.text.chars().count(), 7, "one echo per character");
+
+    // And `Query::FieldAt` answers the same way, because the two must not be learnable apart: a
+    // host that read the exception off one question and missed it on the other would ship the bug
+    // either way round.
+    let widget = secret.widgets.first().expect("the field has a widget");
+    let at = (
+        (widget.quad[0] + widget.quad[4]) * 0.5,
+        (widget.quad[1] + widget.quad[5]) * 0.5,
+    );
+    let Answer::Field { value, .. } = viewer.query(Query::FieldAt(at)) else {
+        panic!("the widget is at its own centre");
+    };
+    let point = value.expect("a text field states a value");
+    assert!(point.obscured);
+    assert_eq!(point.text, shown.text);
 }
 
 /// And a host can now *check a box*, which it could not before (§12.7.5.2.3).
@@ -3986,8 +4061,8 @@ fn the_reader_can_turn_a_documents_restrictions_off() {
     let reopened = pdf_syntax::Document::open(bytes.clone()).expect("what was written is a PDF");
     let names = pdf_model::view::ViewState::of(&reopened);
     assert_eq!(
-        names.field_value(&reopened, "name").as_deref(),
-        Some("typed"),
+        names.field_value(&reopened, "name").map(|shown| shown.text),
+        Some("typed".to_owned()),
         "the value a person typed is in the file that came back"
     );
 

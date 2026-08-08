@@ -48,13 +48,6 @@ pub enum SoftwareError {
     /// from failing to present.
     #[error("the window has no extent")]
     NoExtent,
-    /// A raster in a pixel layout this path does not composite.
-    ///
-    /// [`RasterFormat`] is `#[non_exhaustive]`, so a second layout can arrive without this file
-    /// changing. Refusing it is the only honest answer: compositing bytes under the wrong
-    /// interpretation would put a plausible-looking wrong page on the screen.
-    #[error("a {0:?} raster: the software path composites Rgba8 only")]
-    Format(RasterFormat),
     /// The raster offered is not the size the surface was configured for.
     ///
     /// A defect in this host rather than a fact about the machine — the page is rasterised at
@@ -176,11 +169,14 @@ fn pixels(raster: &Raster) -> usize {
 /// # Errors
 ///
 /// [`SoftwareError::Overlay`] where an overlay would not rasterise, which is a defect in this
-/// host's own chrome rather than anything about the document, and [`SoftwareError::Format`] for a
-/// pixel layout this composition does not know.
+/// host's own chrome rather than anything about the document.
 pub fn compose(page: &Raster, overlays: &[&DisplayList]) -> Result<Raster, SoftwareError> {
-    if page.format != RasterFormat::Rgba8 {
-        return Err(SoftwareError::Format(page.format));
+    // Exhaustive, and that is what ADR 0247 bought: this function's arithmetic is written for
+    // four straight-alpha bytes per pixel, and a second `RasterFormat` now fails to compile here
+    // rather than being refused at runtime. Both operands are checked because both are rasters —
+    // the page from the worker and each overlay from `CpuRasterizer` below.
+    match page.format {
+        RasterFormat::Rgba8 => {}
     }
     let mut composed = page.clone();
     for list in overlays {
@@ -195,8 +191,8 @@ pub fn compose(page: &Raster, overlays: &[&DisplayList]) -> Result<Raster, Softw
         let over = CpuRasterizer::new()
             .with_background(Color::TRANSPARENT)
             .rasterize(list, spec)?;
-        if over.format != RasterFormat::Rgba8 {
-            return Err(SoftwareError::Format(over.format));
+        match over.format {
+            RasterFormat::Rgba8 => {}
         }
         source_over(&mut composed, &over);
     }

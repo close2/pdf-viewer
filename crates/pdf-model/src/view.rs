@@ -1043,8 +1043,15 @@ impl ViewState {
     /// what it had typed would diverge from the field on the first character past the edge. A host
     /// that reads this back after every keystroke cannot: the value it appends to is the value the
     /// document has.
+    ///
+    /// **And the string may not be the field's characters**, which is what the second half of the
+    /// answer is for. Table 231 bit 14 — *"[c]haracters typed from the keyboard shall instead be
+    /// echoed in some unreadable form, such as asterisks or bullet characters"* — makes a password
+    /// field answer with bullets, and a host obeying the paragraph above would then write those
+    /// bullets back as the next value. [`ShownValue::obscured`] is `true` for exactly that string,
+    /// so the exception is something a caller reads rather than something it has to know. ADR 0247.
     #[must_use]
-    pub fn field_value(&self, document: &Document, name: &str) -> Option<String> {
+    pub fn field_value(&self, document: &Document, name: &str) -> Option<ShownValue> {
         let table = widgets_by_field_name(document);
         let widget = table.get(name)?.first().copied()?;
         let object = document.get(widget);
@@ -1185,6 +1192,23 @@ impl ViewState {
     /// reader that ignores the flag shows the value the field had before. Every reader this
     /// project compares against honours it.
     ///
+    /// # What is deliberately **not** written
+    ///
+    /// A value typed into a Table 231 bit 14 password field, and [`Written::withheld`] names every
+    /// field it happened to. §12.7.5.3's own words, under that bit:
+    ///
+    /// > NOTE To protect password confidentiality, it is imperative that PDF processors never
+    /// > store the value of the text field in the PDF file if this flag is set.
+    ///
+    /// A NOTE is informative and this one is obeyed anyway, because the alternative is this
+    /// program writing a person's password into a file in clear text — and it did, until the
+    /// four-hundred-and-eleventh session found the sentence while reading the clause ADR 0247's
+    /// third amendment names. **Neither half of the edit is written**, which is what keeps the
+    /// file consistent with itself: the producer's `/V` and the producer's `/AP` stay as they
+    /// were and go on agreeing, where writing the appearance without the value would leave a
+    /// widget drawing something §12.7.2 says its `/V` should decide. What a person typed lives in
+    /// this log until the document is closed and nowhere else.
+    ///
     /// # Errors
     ///
     /// [`pdf_syntax::write::UpdateError`], which names every document this refuses: one whose
@@ -1192,13 +1216,23 @@ impl ViewState {
     /// to what is written, and one whose trailer is missing what §7.5.5 requires. An *encrypted*
     /// document is no longer among them: §7.6.2's ciphers run on the way out, so the `/V` this
     /// writes reaches the file in the form the document's own key expects.
-    pub fn save(&self, document: &Document) -> Result<Vec<u8>, pdf_syntax::write::UpdateError> {
+    pub fn save(&self, document: &Document) -> Result<Written, pdf_syntax::write::UpdateError> {
         let mut update = Update::beside(document);
+        let mut withheld = Vec::new();
         self.write_additions(document, &mut update);
         for (widget, value) in self.edits() {
             let Some(dict) = document.get(widget).as_dict().cloned() else {
                 continue;
             };
+            // Table 231 bit 14's NOTE, above. The same reading that makes `field_value` answer
+            // with bullets is what decides it, so a field whose value a host is not allowed to
+            // read back is a field whose value this does not store — one predicate, not two.
+            if crate::appearance::field_text_value(document, &dict, FieldValue::Edited(value))
+                .is_some_and(|shown| shown.obscured)
+            {
+                withheld.push(field_name_of(document, widget));
+                continue;
+            }
             // §12.7.4.1's `/V` is inheritable, so the field that *holds* the value may be an
             // ancestor of the widget — and writing it onto the widget would leave the ancestor's
             // stale value inherited by the field's other widgets. The value goes where the
@@ -1238,7 +1272,10 @@ impl ViewState {
         {
             update.put(id, Object::Dictionary(catalog));
         }
-        pdf_syntax::write::incremental_update(document, &update.replacements)
+        let bytes = pdf_syntax::write::incremental_update(document, &update.replacements)?;
+        withheld.sort_unstable();
+        withheld.dedup();
+        Ok(Written { bytes, withheld })
     }
 
     /// Writes every annotation a person added, and attaches each to its page.
@@ -2175,6 +2212,71 @@ fn rectangle_covers(document: &Document, annotation: &Dictionary, x: f64, y: f64
         return false;
     };
     x >= x0.min(x1) && x <= x0.max(x1) && y >= y0.min(y1) && y <= y0.max(y1)
+}
+
+/// A saved document, and what this program declined to put in it.
+///
+/// Two values rather than bytes alone because the second is not an error and must not be silent:
+/// a save that quietly dropped what a person typed would be their work lost without a word, and
+/// this one drops exactly one thing on purpose. See [`ViewState::save`] for the clause.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Written {
+    /// The whole file: the document as it was opened, with §7.5.6's update appended.
+    pub bytes: Vec<u8>,
+    /// §12.7.4.2's qualified name of every field whose typed value was **not** stored.
+    ///
+    /// Table 231 bit 14's NOTE, quoted in full on [`ViewState::save`]. Empty for every document
+    /// with no password field in it, which is every document in this project's corpus.
+    pub withheld: Vec<String>,
+}
+
+/// §12.7.4.2's qualified name of the field a widget belongs to, or the widget's own object.
+///
+/// A save is not a hot path and this walks the field tree to invert it, which is the honest way
+/// to answer a question the edit log does not hold: the log is keyed by *widget*, because
+/// §12.7.4.1 shares one value among a field's widgets and a replay has to reach each of them.
+/// The fallback names the object rather than saying nothing, because a note a person cannot act
+/// on is worse than a number they can look up.
+fn field_name_of(document: &Document, widget: ObjectId) -> String {
+    widgets_by_field_name(document)
+        .into_iter()
+        .find(|(_, widgets)| widgets.contains(&widget))
+        .map_or_else(
+            || format!("the field of object {}", widget.number),
+            |(name, _)| name,
+        )
+}
+
+/// What a field says now, and whether saying it was Table 231 bit 14's substitution.
+///
+/// **One value carrying both, deliberately.** The flag is not a second reading of the field: it is
+/// a statement about *this string*, and a caller that had to ask a separate question could get an
+/// answer that disagreed with the characters it is holding. That is the defect ADR 0247's third
+/// amendment closes — a value that is not the value, in a type that does not say so, with the
+/// exception discoverable only by reading two doc comments and noticing they interact.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShownValue {
+    /// The characters, or the bullets standing in for them.
+    ///
+    /// `""` is a field with nothing in it. Whether the field has a text value *at all* is the
+    /// `Option` around this struct, not a property of it: a button selects an appearance and a
+    /// signature holds a dictionary, and neither answers with a [`ShownValue`].
+    pub text: String,
+    /// Whether [`Self::text`] is Table 231 bit 14's echo rather than the field's own characters.
+    ///
+    /// ISO 32000-2 §12.7.5.3, Table 231, bit position 14:
+    ///
+    /// > If set, the field is intended for entering a secure password that should not be echoed
+    /// > visibly to the screen. Characters typed from the keyboard shall instead be echoed in some
+    /// > unreadable form, such as asterisks or bullet characters.
+    ///
+    /// **What a host does with it**: it does not write [`Self::text`] back into its control. ADR
+    /// 0201 has a host read a field's value back after every keystroke, because §12.7.5.3's
+    /// `DoNotScroll` means the field can take less than was typed; doing that here would replace
+    /// what a person typed with a row of bullets and send *those* as the next value. A native
+    /// password control draws its own echo from the characters it holds, so there is nothing it
+    /// needs this string for.
+    pub obscured: bool,
 }
 
 /// What a form field is called: the name that identifies it, and the name to show a person.

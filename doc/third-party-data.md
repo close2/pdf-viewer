@@ -132,7 +132,10 @@ QtCore/QtGui/QtWidgets — is wanted, and it is available on its own. **It costs
 `unsafe` token**, the `unsafe extern "C++"` block header, which is `cxx`'s way of asking the author
 to assert that the C++ declared there exists and is safe to call; `viewer-qt` holds
 `#![deny(unsafe_code)]` with one exemption on `mod bridge`, and `tests/unsafe_position.rs` asserts
-the file and the token and that no other crate in the tree lifts the denial. **And it is linked
+the file and the token and — since the four-hundred-and-eleventh, when `viewer-ffi` arrived and the
+test was amended rather than loosened — that **exactly two** crates in the tree lift the denial
+(ADR 0247). The second took **no** dependency at all: its header is hand-written, so there is no
+`cbindgen` in this record and nothing new in `deny.toml`. **And it is linked
 against the platform's own Qt** rather than vendored, for the reason `viewer-gtk` links against the
 platform's GTK: that is what a native host is, and it is why `viewer-qt` is excluded from the three
 cross-target checks — `cc-rs` wants `lib.exe` for a Windows target and there would be no Qt 6

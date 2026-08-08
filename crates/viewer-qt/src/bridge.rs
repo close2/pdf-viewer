@@ -117,6 +117,15 @@ pub mod ffi {
         annotation: u32,
         /// The value the field now holds, for the controls that show one.
         value: String,
+        /// Whether `value` is Table 231 bit 14's echo rather than the field's own characters.
+        ///
+        /// `pdf_model::view::ShownValue::obscured`, carried across so that the C++ can refuse to
+        /// write it back. ADR 0201 has a host write the field's value into its control after every
+        /// keystroke; doing that for a password field would replace what a person typed with a row
+        /// of bullets. The C++ used to leave the password entry out of the write-back switch,
+        /// which was this host inferring from a control's kind what the answer now states
+        /// (ADR 0247).
+        obscured: bool,
         /// Table 227 bit 1: whether the field may be modified.
         read_only: bool,
         /// For a check box or a radio button: whether it is on.

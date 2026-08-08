@@ -81,13 +81,22 @@ every widget of the field, shortest wins. **260 corpus widgets over 8 documents 
 `examples/field_flag_census` measured in that round and which makes it the most-stated of every
 type-specific flag in Tables 229, 231 and 233; four of the twenty have no witness at all.
 
-### What it left owed: a host cannot read back what was accepted
+### ~~What it left owed: a host cannot read back what was accepted~~ — **closed, twice over**
 
-`Query::FieldAt` answers with §14.9.3's two names and **no value**, so a host with a text box of its
-own has no way to learn that a field took less than it sent. Nothing is wrong today — `viewer-ui`
-sends no `Edit::SetField` at all — and it becomes wrong the moment a host types. The fix is the
-familiar shape from ADRs 0166 and 0167: where a host needs a thing a variant does not carry, the
-variant changes and every consumer fails to compile.
+This section read *"`Query::FieldAt` answers with §14.9.3's two names and **no value**… nothing is
+wrong today, because `viewer-ui` sends no `Edit::SetField` at all"* and was stale in both halves:
+`viewer-ui` has typed into fields since the three-hundred-and-forty-ninth (ADR 0201) and
+`Answer::Field` has carried the value for as long. Found by `doc/todo/02` §4's third sweep in the
+four-hundred-and-eleventh, which is exactly the shape that sweep hunts — a note whose stated reason
+is a capability the tree acquired sixty sessions ago.
+
+**And the round that found it closed the second half too**, which is why this is worth keeping as a
+paragraph rather than deleting. The value a host reads back is not always the field's characters:
+Table 231 bit 14 answers with bullets, so a host obeying the read-back rule sent the bullets as the
+next value — and `viewer-ui` did. `Answer::Field`'s value is `Option<pdf_model::view::ShownValue>`
+now, the characters beside `obscured`, from the one reading that produces either; the fix followed
+the familiar shape from ADRs 0166 and 0167, and every consumer failed to compile until it said what
+it does. ADR 0247.
 
 **And a caret is the other half**, which is `33`'s: a truncation is what this looks like to a host
 that sends whole values, and *nothing happening as you type* is what the clause describes.

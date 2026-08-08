@@ -71,14 +71,16 @@ pub struct FormField {
     ///
     /// The same answer [`crate::view::ViewState::field_value`] gives and with the same two
     /// meanings: `None` is a field whose value is not text — a button selects an appearance, a
-    /// signature holds a dictionary — and `Some("")` is a text field with nothing in it. A
-    /// password field answers with Table 231 bit 14's bullets rather than with its characters.
+    /// signature holds a dictionary — and an empty [`crate::view::ShownValue::text`] is a text
+    /// field with nothing in it. A password field answers with Table 231 bit 14's bullets rather
+    /// than with its characters, and [`crate::view::ShownValue::obscured`] is what says so — see
+    /// that field for what a host owes it (ADR 0247).
     ///
     /// **Already through §12.7.5.3's truncation.** A field carrying Table 231 bit 24's
     /// `DoNotScroll` takes only as much of a value as fits its rectangle, so this is what the
     /// document holds rather than what a host last sent — which is the whole reason ADR 0201 has a
     /// host read a value back instead of keeping its own.
-    pub value: Option<String>,
+    pub value: Option<crate::view::ShownValue>,
     /// Table 227 bit 1: "an interactive PDF processor shall not allow a user to change the value
     /// of the field".
     ///
@@ -780,7 +782,10 @@ mod tests {
         assert_eq!(field.name.shown(), "Where to send it");
         assert!(field.required, "Table 227 bit 2");
         assert!(!field.read_only);
-        assert_eq!(field.value.as_deref(), Some("Elm Street"));
+        assert_eq!(
+            field.value.as_ref().map(|shown| shown.text.as_str()),
+            Some("Elm Street")
+        );
         let Control::Text(text) = &field.control else {
             panic!("{:?}", field.control)
         };

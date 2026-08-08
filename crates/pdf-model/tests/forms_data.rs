@@ -536,7 +536,10 @@ fn a_save_beyond_the_granted_usage_rights_withdraws_the_signature() {
     let granted = Document::open(form_with_usage_rights("/FillIn")).expect("a valid PDF");
     let mut view = ViewState::of(&granted);
     assert_eq!(view.set_field(&granted, "name", Some("typed")), 1);
-    let saved = view.save(&granted).expect("the fixture can be updated");
+    let saved = view
+        .save(&granted)
+        .expect("the fixture can be updated")
+        .bytes;
     let reopened = Document::open(saved).expect("what was written is a PDF");
     assert!(
         pdf_model::signature::permissions(&reopened)
@@ -548,7 +551,10 @@ fn a_save_beyond_the_granted_usage_rights_withdraws_the_signature() {
     let withheld = Document::open(form_with_usage_rights("/Import")).expect("a valid PDF");
     let mut view = ViewState::of(&withheld);
     assert_eq!(view.set_field(&withheld, "name", Some("typed")), 1);
-    let saved = view.save(&withheld).expect("the fixture can be updated");
+    let saved = view
+        .save(&withheld)
+        .expect("the fixture can be updated")
+        .bytes;
     let reopened = Document::open(saved).expect("what was written is a PDF");
     assert!(
         pdf_model::signature::permissions(&reopened)

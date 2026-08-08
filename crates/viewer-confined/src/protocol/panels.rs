@@ -47,7 +47,7 @@ use pdf_model::metadata::{Information, Trapped};
 use pdf_model::outline::{Item as OutlineItem, Outline};
 use pdf_model::page::Boundary;
 use pdf_model::thumbnail::Thumbnail;
-use pdf_model::view::FieldName;
+use pdf_model::view::{FieldName, ShownValue};
 use pdf_model::viewer_preferences::{
     Direction, Duplex, Opening, PageLayout, PageMode, PrintScaling, ViewerPreferences,
 };
@@ -1495,6 +1495,36 @@ pub(super) fn decode_accessibility(
 /// `pdf-model` or `viewer-core` has to fail to compile rather than stop crossing, and a control
 /// that lost its `/MaxLen` on the confined path would be a form a host built differently
 /// depending on which side of the pipe it was on.
+/// §12.7.4.3's value, with Table 231 bit 14's answer to whether it *is* the value.
+///
+/// One function for both places a field's value crosses — [`viewer_core::Answer::Field`] and this
+/// module's `Fields` — so that the two cannot come to disagree about the flag. ADR 0247.
+pub(super) fn encode_shown(writer: &mut Writer, value: Option<&ShownValue>) {
+    match value {
+        Some(shown) => {
+            writer.bool(true).str(&shown.text).bool(shown.obscured);
+        }
+        None => {
+            writer.bool(false);
+        }
+    }
+}
+
+/// Reads one back.
+///
+/// # Errors
+///
+/// [`ProtocolError::Truncated`] where the message ends inside it.
+pub(super) fn decode_shown(reader: &mut Reader<'_>) -> Result<Option<ShownValue>, ProtocolError> {
+    if !reader.bool("whether a field has a text value")? {
+        return Ok(None);
+    }
+    Ok(Some(ShownValue {
+        text: reader.string("a field's value")?,
+        obscured: reader.bool("whether a field's value is Table 231 bit 14's echo")?,
+    }))
+}
+
 pub(super) fn encode_fields(writer: &mut Writer, fields: &[FormField]) {
     writer.usize(fields.len());
     for field in fields {
@@ -1511,11 +1541,9 @@ pub(super) fn encode_fields(writer: &mut Writer, fields: &[FormField]) {
         writer
             .str(&name.qualified)
             .option_str(name.alternative.as_deref())
-            .str(partial)
-            .option_str(value.as_deref())
-            .bool(*read_only)
-            .bool(*required)
-            .bool(*no_export);
+            .str(partial);
+        encode_shown(writer, value.as_ref());
+        writer.bool(*read_only).bool(*required).bool(*no_export);
         encode_control(writer, control);
         writer.usize(widgets.len());
         for widget in widgets {
@@ -1544,7 +1572,7 @@ pub(super) fn decode_fields(reader: &mut Reader<'_>) -> Result<Vec<FormField>, P
                 alternative: reader.option_string("a field's alternative name")?,
             },
             partial: reader.string("a field's partial name")?,
-            value: reader.option_string("a field's value")?,
+            value: decode_shown(reader)?,
             read_only: reader.bool("a field's ReadOnly flag")?,
             required: reader.bool("a field's Required flag")?,
             no_export: reader.bool("a field's NoExport flag")?,

@@ -39,7 +39,7 @@ mod panels;
 ///
 /// A host and a worker from different builds must not talk to each other, and the cheapest
 /// place to find that out is the first thing either says.
-const MAGIC: &[u8; 8] = b"PDFVCF02";
+const MAGIC: &[u8; 8] = b"PDFVCF03";
 
 /// Length of the worker's greeting: the magic, the Landlock level, the address-space limit, and
 /// whether system calls are filtered — the same three facts `pdf_sandbox`'s own worker reports,
@@ -1980,8 +1980,8 @@ pub(crate) fn encode_answer(answer: &Answer<'_>) -> Result<Vec<u8>, Uncarried> {
             writer
                 .u8(k::FIELD)
                 .str(&name.qualified)
-                .option_str(name.alternative.as_deref())
-                .option_str(value.as_deref());
+                .option_str(name.alternative.as_deref());
+            panels::encode_shown(&mut writer, value.as_ref());
         }
         Answer::Caret { from, to } => {
             writer.u8(k::CARET).point(*from).point(*to);
@@ -2021,18 +2021,12 @@ pub(crate) fn encode_answer(answer: &Answer<'_>) -> Result<Vec<u8>, Uncarried> {
             // page and the host is handed pixels, which is the whole of `doc/ui-boundary.md`'s
             // tier 1. `RasterFormat` is written out rather than assumed, because a second
             // format would otherwise be read as the first.
+            // Exhaustive since ADR 0247: `RasterFormat` is no longer `#[non_exhaustive]`, so a
+            // second pixel layout fails to compile here and has to be given a wire byte
+            // deliberately. The *reading* side keeps its refusal, because a byte arriving from
+            // the confined process is a claim rather than a variant.
             let format = match frame.raster.format {
                 RasterFormat::Rgba8 => 0,
-                // `RasterFormat` is `#[non_exhaustive]`, so a second layout can arrive without
-                // this crate being rebuilt against it. Refusing is the honest answer: a raster
-                // whose bytes mean something this build cannot name must not cross as though it
-                // were RGBA.
-                _ => {
-                    return Err(Uncarried {
-                        message: "Answer::Frame",
-                        reason: "the raster is in a pixel layout this build does not name",
-                    });
-                }
             };
             writer
                 .u8(k::FRAME)
@@ -2151,7 +2145,7 @@ pub(crate) fn decode_answer(bytes: &[u8]) -> Result<Reply, ProtocolError> {
         k::FIELD => Reply::Field {
             qualified: reader.string("a field's qualified name")?,
             alternative: reader.option_string("a field's alternative name")?,
-            value: reader.option_string("a field's value")?,
+            value: panels::decode_shown(&mut reader)?,
         },
         k::CARET => Reply::Caret {
             from: reader.point("a caret")?,
@@ -2794,7 +2788,7 @@ mod tests {
 
         // §12.3.3.
         let outline = a_populated_outline();
-        let Reply::Outline(read) = round_trip(&Answer::Outline(&outline)) else {
+        let Reply::Outline(read) = round_trip(&Answer::Outline(outline.clone())) else {
             panic!("an outline comes back as one");
         };
         assert_eq!(read, outline, "an outline changed on the way through");
@@ -3155,7 +3149,10 @@ mod tests {
             },
             partial: name.to_owned(),
             control,
-            value: Some(format!("{name}'s value")),
+            value: Some(pdf_model::view::ShownValue {
+                text: format!("{name}'s value"),
+                obscured: false,
+            }),
             read_only: true,
             required: true,
             no_export: true,

@@ -75,7 +75,7 @@ fn the_outline_becomes_a_tree_whose_every_row_names_an_object_to_activate() {
     let Answer::Outline(outline) = viewer.query(Query::Outline) else {
         panic!("the note has a §12.3.3 outline");
     };
-    let rows = outline_rows(outline);
+    let rows = outline_rows(&outline);
     let flat = flattened(&rows);
     assert!(
         flat.len() >= 5,

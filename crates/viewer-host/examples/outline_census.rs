@@ -44,11 +44,22 @@ fn main() -> std::process::ExitCode {
             fragment: None,
         })
         .for_each(drop);
+    // Five, and the median reported, for the reason ADR 0222 gives about every wall clock in this
+    // tree: one run of anything on this machine moves by more than the quantity being measured.
+    let mut asking: Vec<u128> = Vec::with_capacity(5);
+    for _ in 0..5u8 {
+        let began = std::time::Instant::now();
+        let answer = viewer.query(Query::Outline);
+        let taken = began.elapsed().as_nanos();
+        drop(answer);
+        asking.push(taken);
+    }
+    asking.sort_unstable();
     let Answer::Outline(outline) = viewer.query(Query::Outline) else {
         println!("{path}: no §12.3.3 outline");
         return std::process::ExitCode::SUCCESS;
     };
-    let rows = outline_rows(outline);
+    let rows = outline_rows(&outline);
     let mut flat = Vec::new();
     flatten(&rows, &mut flat);
     println!(
@@ -56,6 +67,12 @@ fn main() -> std::process::ExitCode {
         rows.len(),
         flat.len(),
         visible(&rows)
+    );
+    // What ADR 0247's second amendment costs, on this document, in this build: `Query::Outline`
+    // clones the tree rather than lending it, so the whole of the answer is here.
+    println!(
+        "{path}: Query::Outline answers in {} ns, median of five ({asking:?})",
+        asking[2]
     );
     std::process::ExitCode::SUCCESS
 }

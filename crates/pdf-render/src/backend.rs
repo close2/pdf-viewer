@@ -4,8 +4,22 @@ use crate::display_list::DisplayList;
 use crate::geom::Transform;
 
 /// Pixel layout of a [`Raster`].
+///
+/// **Deliberately not `#[non_exhaustive]`, and it was until the four-hundred-and-eleventh
+/// session.** A [`Raster`] is what `viewer-core` hands a host inside `Rendered::Raster` and
+/// `Answer::Frame`, so this enum is part of that crate's vocabulary whichever crate declares it —
+/// and `doc/ui-boundary.md` states the rule for that vocabulary in one sentence: *"a new `Event`
+/// should fail to compile in every consumer"*. `#[non_exhaustive]` bought the opposite. It forced
+/// a catch-all arm on `viewer-gtk`, on `viewer-qt`, on `viewer-ui`'s software path and on
+/// `viewer-confined`'s wire format, each of which had to refuse an unknown layout at *runtime* —
+/// the best a Rust consumer can do, and no help at all to a C consumer, which cannot fail to
+/// compile in anybody.
+///
+/// What it costs is stated rather than hidden: adding a second pixel layout here is a breaking
+/// change for every consumer of `pdf-render`, and that is the intended price. A raster's bytes
+/// mean something, and a consumer that has not been told what they mean must not composite them.
+/// ADR 0247.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum RasterFormat {
     /// Four bytes per pixel: red, green, blue, alpha, with straight alpha.
     ///

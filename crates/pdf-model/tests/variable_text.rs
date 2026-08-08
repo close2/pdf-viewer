@@ -357,6 +357,52 @@ fn a_password_field_does_not_echo_its_value() {
     );
 }
 
+/// §12.7.5.3's Table 231 bit 14, second sentence: what a person types is not written to the file.
+///
+/// > NOTE To protect password confidentiality, it is imperative that PDF processors never store
+/// > the value of the text field in the PDF file if this flag is set.
+///
+/// A NOTE is informative and this one is obeyed anyway, because the alternative is a person's
+/// password in somebody's file in clear text. The proof is taken **from the saved bytes**: the
+/// same edit on the same fixture with and without the flag, read back through a second
+/// `Document`, so what is asserted is what a next reader sees rather than what this program
+/// intended. `withheld` names the field, because the refusal has to be one a host can say.
+#[test]
+fn a_password_fields_typed_value_is_not_written_into_the_file() {
+    let typed = "hunter2";
+    for (flags, kept) in [("", true), ("/Ff 8192", false)] {
+        let document =
+            Document::open(text_field("", "", flags)).expect("the fixture is a valid PDF");
+        let mut view = pdf_model::view::ViewState::of(&document);
+        assert_eq!(
+            view.set_field(&document, "field", Some(typed)),
+            1,
+            "the fixture has one widget for the field"
+        );
+        let written = view.save(&document).expect("the fixture can be written");
+        // **Searched for in the bytes**, not read back through `field_value`: that answer is
+        // Table 231 bit 14's bullets for a password field whether or not the characters reached
+        // the file, so an assertion on it would pass while the secret sat in the update. The
+        // fixture is unencrypted, so a `/V` that was written is there to be found.
+        let present = written
+            .bytes
+            .windows(typed.len())
+            .any(|run| run == typed.as_bytes());
+        assert_eq!(present, kept, "flags {flags:?}: the characters in the file");
+        let reopened = Document::open(written.bytes).expect("what was written is a PDF");
+        let read_back = pdf_model::view::ViewState::of(&reopened)
+            .field_value(&reopened, "field")
+            .expect("a text field states a value");
+        if kept {
+            assert_eq!(read_back.text, typed, "an ordinary field keeps its value");
+            assert!(written.withheld.is_empty(), "{:?}", written.withheld);
+        } else {
+            assert!(read_back.text.is_empty(), "{:?}", read_back.text);
+            assert_eq!(written.withheld, vec!["field".to_owned()]);
+        }
+    }
+}
+
 /// The `/DA` string's colour operators reach the text (§12.7.4.3, Table 228).
 ///
 /// > The default appearance string ( DA ) contains any graphics state or text state operators

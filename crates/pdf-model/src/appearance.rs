@@ -2480,7 +2480,8 @@ fn laid_out_in(
 /// of the four statements about a value is current (`value`), read through §12.7.4.1's `/Parent`
 /// chain and decoded from §7.9.2.2's text string type — and for a password field it is the bullets
 /// Table 231 bit 14 requires be echoed instead, because a host may not be handed a secret it is
-/// only allowed to draw as asterisks.
+/// only allowed to draw as asterisks. **[`ShownValue::obscured`] says which of the two it is**,
+/// beside the string rather than in a doc comment about it (ADR 0247).
 ///
 /// **`None` and `Some("")` are different answers and the difference is the point.** `None` is a
 /// field whose value is not text at all — §12.7.5.2's buttons select an appearance, §12.7.5.5's
@@ -2493,7 +2494,7 @@ pub(crate) fn field_text_value(
     document: &Document,
     annotation: &Dictionary,
     value: FieldValue<'_>,
-) -> Option<String> {
+) -> Option<crate::view::ShownValue> {
     let field = Field::read(document, annotation, value);
     if field.too_deep {
         return None;
@@ -2510,9 +2511,15 @@ pub(crate) fn field_text_value(
         .and_then(|value| variable_text::value_text(document, value))
         .unwrap_or_default();
     if field.flags & FLAG_PASSWORD == 0 {
-        Some(text)
+        Some(crate::view::ShownValue {
+            text,
+            obscured: false,
+        })
     } else {
-        Some("\u{2022}".repeat(text.chars().count()))
+        Some(crate::view::ShownValue {
+            text: "\u{2022}".repeat(text.chars().count()),
+            obscured: true,
+        })
     }
 }
 

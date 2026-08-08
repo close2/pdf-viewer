@@ -299,6 +299,14 @@ pub enum Query<'a> {
 ///
 /// Borrowed where the viewer already holds the answer and owned where it has to build one, so
 /// that asking a question at pointer speed does not allocate at pointer speed.
+///
+/// **Which questions are asked at pointer speed decides that, and the three panel answers are
+/// not among them.** [`Answer::Outline`] borrowed until the four-hundred-and-eleventh session
+/// while [`Answer::Layers`] and [`Answer::Attachments`] were owned, and every one of the five
+/// consumers cloned it: a panel outlives the query that filled it, in a `GtkTreeListModel`, in a
+/// `QAbstractItemModel`, in `viewer-ui`'s own sidebar and across `viewer-confined`'s pipe. The
+/// borrow saved nobody an allocation and cost a `viewer-ui`-shaped asymmetry that a C header
+/// would have had to explain. ADR 0247.
 #[derive(Debug)]
 pub enum Answer<'a> {
     /// There is nothing to answer with: no document is focused, or the question named a page
@@ -322,7 +330,9 @@ pub enum Answer<'a> {
     /// Where the page sits and how large it is drawn.
     Geometry(PageGeometry),
     /// §12.3.3's outline items, in the order the document's linked list holds them.
-    Outline(&'a pdf_model::outline::Outline),
+    ///
+    /// Owned, like its two siblings — see the note on this enum for what the borrow cost.
+    Outline(pdf_model::outline::Outline),
     /// §8.11.4.3's layers, in `/Order`.
     Layers(Vec<Layer>),
     /// §7.11.4's embedded files.
@@ -386,7 +396,17 @@ pub enum Answer<'a> {
         ///
         /// A password field answers with Table 231 bit 14's bullets rather than with its
         /// characters: a host is allowed to draw them and not to know them.
-        value: Option<String>,
+        /// [`pdf_model::view::ShownValue::obscured`] is what says which of the two this is, and a
+        /// host obeying ADR 0201's read-back rule **must** consult it — writing bullets back into
+        /// a password control would send those bullets as the next value.
+        ///
+        /// **This carried a bare `Option<String>` until the four-hundred-and-eleventh session**,
+        /// and the exception was discoverable only by reading this comment beside
+        /// `Control::Text`'s `password` and noticing that the two interact. Both native hosts
+        /// found it; a C consumer reading only the rule would have shipped the bug. The variant
+        /// changed shape rather than gaining a sentence, which is what nothing here being
+        /// `#[non_exhaustive]` is for. ADR 0247.
+        value: Option<pdf_model::view::ShownValue>,
     },
     /// §12.7's fields on the page being shown, each with its widgets placed on the screen.
     Fields(Vec<FormField>),
@@ -564,9 +584,11 @@ pub struct FormField {
     pub control: pdf_model::form::Control,
     /// What the field says now, where §12.7.4.3 lays a text value out for it.
     ///
-    /// The same string [`Answer::Field`]'s value carries, with the same two meanings and already
-    /// through §12.7.5.3's truncation.
-    pub value: Option<String>,
+    /// The same value [`Answer::Field`] carries, with the same two meanings, already through
+    /// §12.7.5.3's truncation, and carrying Table 231 bit 14's answer to *"is this the field's
+    /// characters"* in [`pdf_model::view::ShownValue::obscured`] — one type in both answers, so a
+    /// host cannot learn the exception from one question and miss it in the other (ADR 0247).
+    pub value: Option<pdf_model::view::ShownValue>,
     /// Table 227 bit 1: the document forbidding a person to change this field's value.
     pub read_only: bool,
     /// Table 227 bit 2: §12.7.6.2 requires a value at export.

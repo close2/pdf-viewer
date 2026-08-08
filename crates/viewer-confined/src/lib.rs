@@ -422,7 +422,11 @@ pub enum Reply {
         /// Table 226's `/TU`, where the field states one.
         alternative: Option<String>,
         /// The value as §12.7.4.3 would lay it out, or `None` where it is not text.
-        value: Option<String>,
+        ///
+        /// Carries Table 231 bit 14's `obscured` beside the characters, because
+        /// [`viewer_core::Answer::Field`] does and a reply that dropped it would be a host on
+        /// this side of the pipe learning less than a host on the other (ADR 0247).
+        value: Option<pdf_model::view::ShownValue>,
     },
     /// Where the caret is, in device pixels of the viewport.
     Caret {

@@ -32,6 +32,11 @@ RUSTFLAGS="-D warnings" cargo check --target x86_64-pc-windows-msvc -p viewer-ui
   # build script needs a C toolchain for the target and this machine has neither MSVC nor macOS's.
   # The CI runners do, which is why the `platforms` job builds the binaries and these two check
   # what a benchmark does not reach.
+RUSTFLAGS="-D warnings" cargo check --target x86_64-pc-windows-msvc -p viewer-ffi --all-targets
+RUSTFLAGS="-D warnings" cargo check --target aarch64-apple-darwin  -p viewer-ffi --all-targets
+  # **The C ABI cross-compiles and the two toolkit hosts do not**, which is worth a line rather than
+  # a shrug: a C ABI over a pure-Rust core binds no platform, and that is most of the point of
+  # having one. Both of these pass; added in the four-hundred-and-eleventh (ADR 0247).
   # **The two native hosts are deliberately in none of these**, and asking for either says why:
   # `glib-sys`'s build script needs a cross-compiling `pkg-config` wrapper, and `viewer-qt`'s
   # `cc-rs` wants `lib.exe`. Both targets would also need the toolkit's own development files,

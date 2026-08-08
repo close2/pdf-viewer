@@ -816,8 +816,12 @@ void MainWindow::placeControls()
                                   askedWidth, askedHeight));
         // ADR 0201: a host keeps the *point* it clicked and never the text, because §12.7.5.3's
         // truncation means the field can take less than was typed — so the control shows what the
-        // field took. The password entry is the exception and is deliberately absent from this
-        // switch: `Answer::Field` answers that one with bullets rather than with characters.
+        // field took. `obscured` is the exception, and since ADR 0247 it is the *answer* that says
+        // so rather than this switch leaving the password entry out: Table 231 bit 14's field
+        // answers with bullets, and writing those back would send them as the next value.
+        if (control.obscured) {
+            continue;
+        }
         const QString value = text(control.value);
         switch (control.kind) {
         case 0:

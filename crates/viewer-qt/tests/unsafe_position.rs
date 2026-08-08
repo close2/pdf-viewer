@@ -155,13 +155,20 @@ fn the_exemption_is_one_line_and_it_is_the_bridge() {
     assert_eq!(next_item, "mod bridge;", "the exemption names the bridge");
 }
 
-/// And no *other* crate in the workspace gained the permission alongside it.
+/// And no crate the workspace does not name gained the permission alongside it.
 ///
 /// `doc/todo/30`'s rule is about the tree rather than about one crate, so the check that matters
-/// is the one that would notice a second exemption appearing somewhere else. `viewer-ffi` will be
-/// the second when it arrives, and this test is where that has to be written down.
+/// is the one that would notice a third exemption appearing somewhere else. This test said
+/// `viewer-ffi` "will be the second when it arrives, and this test is where that has to be
+/// written down"; it arrived in the four-hundred-and-eleventh session (ADR 0247), so the list has
+/// **two** names on it, each with a test of its own on where its `unsafe` sits — this file, and
+/// `crates/viewer-ffi/tests/unsafe_position.rs`, which additionally asserts that every crate
+/// touching PDF bytes still *forbids* the permission.
+///
+/// A third name appearing here is a change to a rule the project owner stated, and it belongs in
+/// an ADR rather than in a commit that widens this list.
 #[test]
-fn this_is_the_only_crate_in_the_tree_that_lifts_the_denial() {
+fn only_the_two_named_crates_in_the_tree_lift_the_denial() {
     let crates = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let Ok(entries) = std::fs::read_dir(&crates) else {
         println!("skipped: the crates directory is not readable from here");
@@ -195,7 +202,7 @@ fn this_is_the_only_crate_in_the_tree_that_lifts_the_denial() {
     lifting.dedup();
     assert_eq!(
         lifting,
-        vec!["viewer-qt".to_owned()],
-        "only the crate with the C++ bridge lifts it"
+        vec!["viewer-ffi".to_owned(), "viewer-qt".to_owned()],
+        "only the C ABI and the crate with the C++ bridge lift it"
     );
 }

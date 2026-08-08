@@ -4281,6 +4281,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "viewer-ffi"
+version = "0.1.0"
+dependencies = [
+ "pdf-model",
+ "pdf-render",
+ "pdf-syntax",
+ "render-cpu",
+ "viewer-core",
+ "viewer-host",
+]
+
+[[package]]
 name = "viewer-gtk"
 version = "0.1.0"
 dependencies = [

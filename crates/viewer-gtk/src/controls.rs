@@ -151,7 +151,11 @@ fn entry(
     suppress: &Rc<Cell<bool>>,
     change: &Rc<dyn Fn(FieldChange)>,
 ) -> gtk4::Widget {
-    let value = field.value.clone().unwrap_or_default();
+    let value = field
+        .value
+        .as_ref()
+        .map(|shown| shown.text.clone())
+        .unwrap_or_default();
     let name = field.name.qualified.clone();
     if multiline {
         // Table 231 bit 13: "the field may contain multiple lines of text". A `GtkEntry` cannot
@@ -185,7 +189,8 @@ fn entry(
         // about the boundary rather than about GTK: `Answer::Field` answers a password field with
         // Table 231 bit 14's bullets rather than with its characters, so writing the answer into
         // the control would replace what a person typed with a row of dots and send *those* as
-        // the next value. ADR 0244 records it.
+        // the next value. ADR 0244 found it; since ADR 0247 `write_back` refuses it on the
+        // answer's own `ShownValue::obscured` rather than on this control's kind.
         let secure = gtk4::PasswordEntry::new();
         secure.set_show_peek_icon(true);
         let name = field.name.qualified.clone();

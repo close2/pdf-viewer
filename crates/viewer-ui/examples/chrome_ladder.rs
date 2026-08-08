@@ -94,7 +94,7 @@ fn main() {
     let mut sidebar = Sidebar::default();
     sidebar.show(Tab::Contents);
     let outline = match viewer.query(Query::Outline) {
-        Answer::Outline(outline) => outline.clone(),
+        Answer::Outline(outline) => outline,
         _ => pdf_model::outline::Outline::default(),
     };
     let layers: Vec<Layer> = match viewer.query(Query::Layers) {

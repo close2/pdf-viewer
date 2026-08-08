@@ -158,7 +158,7 @@ boundary — the three panel answers in a `QTreeView` over a `QAbstractItemModel
 `QLineEdit`, a `QCheckBox`, a `QComboBox` and a `QListWidget`, the selection drawn in
 `QPalette::Highlight` and both host decisions — and **it needed no new message either**. That was
 `doc/todo/30`'s condition on the C ABI (*"do not freeze a C ABI until two Rust consumers have shaken
-the API out"*), so **the ABI may now be frozen**, with three amendments named first:
+the API out"*), so **the ABI could be frozen**, with three amendments named first:
 `pdf_render::RasterFormat` is `#[non_exhaustive]` and crosses the boundary, `Answer::Outline`
 borrows where its two siblings are owned, and `Answer::Field` answers a password field with bullets
 nothing says cannot be read back. A Rust host writes one line it should not have to; a C consumer
@@ -173,6 +173,33 @@ header `cxx` requires, under `#![deny(unsafe_code)]` with one exemption on `mod 
 **the tier-1 copy measured on both toolkits, cold and warm**: 234 µs and 231 µs in the steady state
 on 2.7 MB, ≈11.5 and ≈12.0 GB/s, which corrects ADR 0244's ≈3.2 GB/s as a first-frame number.
 ADR 0246, `doc/todo/30`.
+
+**And the four-hundred-and-eleventh built the third and last host, which is the one that cannot
+fail to compile.** `crates/viewer-ffi` is a C ABI over the same vocabulary: 39 `extern "C"` entry
+points, a hand-written `include/pdf_viewer.h`, and `c/open_a_page.c`, which a test compiles with
+`gcc -Wall -Wextra -Werror` and runs — it opens a document, prints every event, draws the first page
+through the round trip, turns to the second, reads §12.3.3's outline and copies the pixels out.
+**It needed no new message either**, three hosts running. Four shapes decide it, each because C
+takes something away that Rust gave: **commands are functions**, because a union's size is part of
+an ABI and a symbol is not, so a command added later costs a compiled caller nothing; **events and
+answers arrive owned in a batch the caller frees**, so no borrow of the viewer crosses and
+re-entrancy stops being a rule anybody keeps; **a render request is an opaque handle** the caller
+may move to its own thread, because a display list is clauses 8 and 9 in a data structure and a
+frame comes back by copy into the caller's own buffer; and **a variant added later is named,
+described and counted** — every event answers a one-sentence description whatever its kind, and
+`pdfv_abi_check` turns "fails to compile in every consumer" into "fails to start, once, naming the
+number that moved", which is weaker and is the strongest thing C admits. Read off the run:
+`PDF20_AN001-BPC.pdf` opens in 4.4 ms and its first page is drawn and handed back at 12.3 ms;
+`ISO_32000-2_sponsored_EC3.pdf` at 63.1 and 76.3 ms with 1023 pages and a 988-row outline.
+
+**The three amendments came first and one of them was a bug.** `Answer::Field`'s password value was
+supposed to be "one sentence in a doc comment"; it is now `Option<pdf_model::view::ShownValue>` —
+the characters beside Table 231 bit 14's `obscured` — because `viewer-ui` read a password field's
+value back after every keystroke (ADR 0201) and sent the bullets as the next value. Reading the
+clause for it found a second sentence nobody had read: **this program wrote a person's typed
+password into the file it saved**, against that table's own NOTE, and no longer does — `save` writes
+neither the value nor the appearance for such a field and reports each one it withheld. ADR 0247,
+`doc/todo/30`.
 
 **And since the three-hundred-and-seventy-seventh it can tell a person that a signed document
 changed after it was signed, and since the three-hundred-and-ninety-second whether its signature
@@ -338,7 +365,7 @@ names in the same order as the three-hundred-and-ninety-seventh's. ADR 0242.
 
 | gate | what it printed | where |
 |---|---|---|
-| tests | `1454 tests run: 1454 passed, 10 skipped` — the tenth skip is the four-hundred-and-seventh session's `the_fixed_bounds_against_the_references_own_spread`, which derives the oracle's own bounds and is run explicitly — and `cargo test --workspace --doc` **1 passed** beside it, so `cargo test --workspace` reports **1455**. `clippy --workspace --all-targets` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`; `fmt --all --check` clean | `cargo nextest run --workspace`, **39.9 s** |
+| tests | `1473 tests run: 1473 passed, 10 skipped` — the tenth skip is the four-hundred-and-seventh session's `the_fixed_bounds_against_the_references_own_spread`, which derives the oracle's own bounds and is run explicitly — and `cargo test --workspace --doc` **1 passed** beside it, so `cargo test --workspace` reports **1474**. The four-hundred-and-eleventh added **nineteen**: seventeen in `crates/viewer-ffi`, one of which compiles a C program with `gcc -Werror` and runs it; one in `pdf-model` that searches saved bytes for a password that must not be in them; and one in `viewer-core` on the corpus's single Table 231 bit 14 widget. `clippy --workspace --all-targets` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`; `fmt --all --check` clean | `cargo nextest run --workspace`, **37.1 s** |
 | corpus (974 pdf.js documents, page one) | `974 documents in 5.9s: 0 unopenable, 8 locked, 2 encrypted beyond us, 5 pageless, **65 incomplete**, 0 slow` | `tests/corpus.rs`, **5.9 s** |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | `1794 pages (1693 we call complete, 101 incomplete)`; **905 agree / 863 of them complete**, **68 contradicted / 66 complete**, **786 ambiguous / 753 complete**, our geometry 1/0, reference geometry 2/2, not comparable 14/9, no render 18/0 — and **the undiagnosed ambiguous list printed empty**, which is the ratchet holding. Nothing moved in the four-hundred-and-sixth — it changed only what the gate *prints* about a contradicted page (ADR 0242) — nor in the four-hundred-and-seventh, which added a second `#[ignore]`d test to the same file that re-derives the bounds this gate judges by (ADR 0243) — and the run now ends with a second ranking, `contradicted, and furthest from the nearest reference`, headed by `bitmap-symbol-context-reuse.pdf` at 28.91 nearest | `tests/oracle.rs`, **41.1 s** |
 | text (vs `pdftotext`, same 974) | `overall 99.2% (24043/24243 words), 25 below 90%`, with 24 skipped and 62 incomplete and not gated | `tests/text_extraction.rs`, **30.1 s** |
@@ -346,7 +373,7 @@ names in the same order as the three-hundred-and-ninety-seventh's. ADR 0242.
 | dates | `1545 date strings in 974 documents: **1514 conform** to §7.9.4 (97.99%), 31 do not, over 22 distinct strings` | `tests/dates.rs`, **0.9 s** |
 | **§14.3.2's XMP** (same 974) | `319 documents carry §14.3.2's stream: **318 read, 1 refused**, 3191 properties between them, 106 state dc:title` — the refusal is a fuzzed file whose stream does not decode at all | `tests/xmp.rs`, **0.4 s** |
 | **JPEG 2000 vs ISO/IEC 15444-5's reference software** | 30 corpus codestreams: **14 byte-identical, 13 differing, 3 not comparable**, and no remaining difference exceeds one level. `doc/JPEG2000_FEEDBACK.md` §§7–8 has the two defects behind that | `tests/jpeg2000.rs`, **13.8 s** |
-| conformance | **5882 citations**, all naming clauses the standard has; **557 quotations**, all verbatim; **213** distinct tables cited by this tree and **250** named in the ledger's notes; **875 ledger rows** (400 implemented, 252 partial, 19 reported, 83 inapplicable, 8 writer-side, 113 out-of-scope) | `cargo test -p conformance`, **2.7 s** |
+| conformance | **5913 citations**, all naming clauses the standard has; **561 quotations**, all verbatim; **213** distinct tables cited by this tree and **250** named in the ledger's notes; **875 ledger rows** (400 implemented, 252 partial, 19 reported, 83 inapplicable, 8 writer-side, 113 out-of-scope) — the statuses are unmoved this round; §12.3.3, §12.7.4.3 and §12.7.5.3 gained notes | `cargo test -p conformance`, **3.0 s** |
 | **the round itself** | **not measured as one span this round**, and the honest number is what the gates themselves printed: **154 s** of test execution summed from the ten lines above (25.7 + 4.2 + 46.9 + 30.1 + 34.1 + 0.6 + 0.3 + 9.9 + 2.0), with each gate's incremental build on top and each run separately rather than back to back. `doc/todo/02` records **268 s** for §2 *and* §5's binaries together, from 608 s until the three-hundred-and-eighty-fifth measured every step (ADR 0222); the three-hundred-and-ninety-seventh read 287 s off file timestamps for §2 alone | ADR 0222, `doc/todo/43` |
 
 **Two things beyond §2 were run in the three-hundred-and-ninety-eighth and are claimed**: the
@@ -543,14 +570,14 @@ thirty-one sessions (0115). None was `silent`, none was `reported`, and no gate 
 last. Three were found by reading the clause beside the code; the fourth by measuring something
 else.
 
-### 0. The UI boundary — built, with four consumers on it and a native host among them
+### 0. The UI boundary — built, with six consumers on it and three native hosts among them
 
 **[`doc/ui-boundary.md`](ui-boundary.md)** — the vocabulary (`Command`, `Event`, `Query` →
 `Answer`), why each message exists, the five rules, the three pixel tiers, the text layer, the edit
 log, and what is still owed. ADRs 0116 to 0121, and ADR 0244 for what the first *native* host found
-in it. What is left of it is *hosts*:
-[30](todo/30-a-native-host.md), whose GTK4 half is done and whose remainder is Qt and then
-`viewer-ffi`,
+in it, and ADR 0247 for what the *third* found. What is left of it is *hosts*:
+[30](todo/30-a-native-host.md), whose three are all built and whose remainder is surface — the C
+ABI's 39 entry points are not the whole vocabulary, and every missing one is a symbol,
 [31](todo/31-accessibility-host.md) the four edges the AccessKit bridge does not cover,
 [32](todo/32-presentation-player.md) the presentation player's remaining five styles, and
 [33](todo/33-annotation-editing.md) editing a free text annotation the *file* states.

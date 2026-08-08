@@ -375,7 +375,7 @@ fn every_panel_answer_crosses_a_real_document_unchanged() {
             here.query(Query::Outline),
         ) {
             (Reply::Outline(crossed), Answer::Outline(ours)) => {
-                assert_eq!(&crossed, ours, "{name}: an outline changed on the way over");
+                assert_eq!(crossed, ours, "{name}: an outline changed on the way over");
             }
             (Reply::None, Answer::None) => {}
             (crossed, ours) => panic!("{name}: an outline came back as {crossed:?} for {ours:?}"),

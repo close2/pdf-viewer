@@ -26,18 +26,6 @@ pub(crate) enum PixelError {
         /// Its height.
         height: u32,
     },
-    /// The raster is in a pixel format this host has no GDK format for.
-    ///
-    /// **Unreachable today and typed anyway**, because [`pdf_render::RasterFormat`] is
-    /// `#[non_exhaustive]` — which is the one place a type crossing this boundary breaks
-    /// `viewer_core`'s own rule that "[a] new [`viewer_core::Event`] should fail to compile in
-    /// every consumer". A second format added there would compile here and would have to be
-    /// caught at runtime, which is exactly what the rule exists to prevent. ADR 0244.
-    #[error("a raster in {format} has no GDK memory format")]
-    UnknownFormat {
-        /// The format, as `pdf_render` spells it.
-        format: String,
-    },
     /// The raster holds fewer bytes than its own dimensions call for.
     #[error("a raster of {width}x{height} needs {need} bytes and holds {have}")]
     Short {
@@ -54,15 +42,12 @@ pub(crate) enum PixelError {
 
 /// The viewer's pixels, as a paintable.
 pub(crate) fn texture(raster: &Raster) -> Result<gdk::MemoryTexture, PixelError> {
-    // `RasterFormat` is `#[non_exhaustive]`, so this arm cannot be exhaustive and a second
-    // format would arrive here rather than failing to compile. Trap 5: it is refused by name.
+    // Exhaustive, and that is what ADR 0247 bought: `RasterFormat` is no longer
+    // `#[non_exhaustive]`, so a second pixel layout added to `pdf-render` fails to compile *here*
+    // — beside the `GDK_MEMORY_R8G8B8A8` this function goes on to name — rather than arriving at
+    // runtime as a refusal. This arm is the whole of the check that used to be a catch-all.
     match raster.format {
         RasterFormat::Rgba8 => {}
-        other => {
-            return Err(PixelError::UnknownFormat {
-                format: format!("{other:?}"),
-            });
-        }
     }
     let (Ok(width), Ok(height)) = (i32::try_from(raster.width), i32::try_from(raster.height))
     else {

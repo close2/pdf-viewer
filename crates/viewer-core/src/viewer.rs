@@ -153,7 +153,13 @@ impl Viewer {
             Query::PageGeometry(index) => self
                 .geometry(open, index)
                 .map_or(Answer::None, Answer::Geometry),
-            Query::Outline => Answer::Outline(&open.outline),
+            // Cloned rather than lent, since ADR 0247: every consumer cloned it anyway, because a
+            // panel outlives the query that filled it. Measured by
+            // `viewer-host --example outline_census`, median of five: ISO 32000-2's own outline
+            // is 988 items and the whole answer takes **80.7 µs**; the five-page application
+            // note's fourteen take **481 ns**. Against ADR 0246's 3.66 ms to build the three
+            // panel models those 988 rows go into, the clone is 2% of what a host does with it.
+            Query::Outline => Answer::Outline(open.outline.clone()),
             Query::Layers => Answer::Layers(layers(open)),
             Query::Attachments => {
                 Answer::Attachments(pdf_model::attachment::attachments(&open.document))
@@ -189,6 +195,9 @@ impl Viewer {
                     // The value is the *view*'s and the names are the document's, which is why
                     // they are gathered here rather than inside `field_at`: `pdf_model::view`'s
                     // walk knows the widget and this knows what has been typed into it.
+                    // The characters and whether they *are* the characters, from one reading:
+                    // a host that asked twice could be told the string is the field's own after
+                    // being handed the bullets. ADR 0247.
                     let value = open.view.field_value(&open.document, &name.qualified);
                     Answer::Field { name, value }
                 }),
@@ -770,10 +779,28 @@ impl Viewer {
         let Some(id) = self.focused else { return };
         let Some(open) = self.focused() else { return };
         match open.view.save(&open.document) {
-            Ok(bytes) => events.push(Event::Saved {
-                document: id,
-                bytes,
-            }),
+            Ok(written) => {
+                // Table 231 bit 14's NOTE, said out loud. `pdf_model::view::ViewState::save`
+                // declines to store a password field's value and this is the only channel that
+                // can tell a person their typing did not reach the file — a save that quietly
+                // dropped it would be exactly the silence trap 5 exists against. Not `Refused`:
+                // that one is for what a *document* asserts over its reader, and this is a rule
+                // this program keeps on the person's own behalf.
+                for field in written.withheld {
+                    events.push(Event::Reported {
+                        document: id,
+                        page: None,
+                        notes: vec![format!(
+                            "{field} is a password field, so what was typed into it was not \
+                             written to the file (ISO 32000-2 Table 231, bit 14)"
+                        )],
+                    });
+                }
+                events.push(Event::Saved {
+                    document: id,
+                    bytes: written.bytes,
+                });
+            }
             // Trap 5 on the one path where a *file* can refuse to be written: a save that
             // quietly did nothing is a person's work lost without a word.
             Err(error) => events.push(Event::Reported {

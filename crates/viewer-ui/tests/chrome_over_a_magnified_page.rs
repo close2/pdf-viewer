@@ -176,7 +176,7 @@ fn sidebar(viewer: &Viewer) -> (pdf_render::DisplayList, u32) {
     let mut sidebar = Sidebar::default();
     sidebar.show(Tab::Contents);
     let outline = match viewer.query(Query::Outline) {
-        Answer::Outline(outline) => outline.clone(),
+        Answer::Outline(outline) => outline,
         _ => pdf_model::outline::Outline::default(),
     };
     let information = pdf_model::metadata::Information::default();

@@ -19,7 +19,7 @@ features no file exercises.
 ```sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets      # must be silent of lints
-cargo nextest run --workspace               # 1454 tests, 10 ignored
+cargo nextest run --workspace               # 1473 tests, 10 ignored
 cargo test --workspace --doc                # the one doctest nextest does not run
 cargo build --profile gates -p pdf-sandbox --bins   # trap 10: Cargo will not do this for you
 cargo test  --profile gates -p pdf-model      --test corpus          -- --ignored --nocapture
@@ -61,7 +61,14 @@ here:
   against. The four-hundred-and-eighth added **ten**, a whole new host crate's, and this line was
   not behind for the fourth round running; the four-hundred-and-ninth added **five** and it was not
   behind for the fifth; the four-hundred-and-tenth added **nineteen**, a second host crate's, and it
-  was not behind for the sixth.)
+  was not behind for the sixth; the four-hundred-and-eleventh added **nineteen** — a third host
+  crate's seventeen and two more — and it was not behind for the seventh.)
+- **One of those eighteen runs a C compiler**, and it is the only gate in this sequence that does.
+  `viewer-ffi::a_c_program_drives_the_abi` builds `crates/viewer-ffi/c/open_a_page.c` against the
+  crate's own header with `-Wall -Wextra -Werror`, links it against the `cdylib` — which it asks
+  cargo to build, because `cargo test` does not — and runs it on a document. It **skips** where
+  there is no `cc` or `gcc`, printing why: a machine without a C compiler cannot run it, and
+  failing there would make the gate a coin toss. CI has one, so on CI it is not a skip.
 - **`pdfref-hayro` is the oracle's fourth reading and nothing built it.** It is a *program*, found
   beside the running test binary, and its absence costs no verdict — `Reference::Hayro` never
   votes — but it is what a person looks at on a page the three references cannot settle. Until
@@ -124,6 +131,8 @@ install -Dm755 /home/AI/cargo-target/pdf-viewer/release/pdf-sandbox-worker  targ
 install -Dm755 /home/AI/cargo-target/pdf-viewer/release/pdf-view-worker     target/pdf-view-worker
 install -Dm755 /home/AI/cargo-target/pdf-viewer/release/pdf-viewer-gtk      target/pdf-viewer-gtk
 install -Dm755 /home/AI/cargo-target/pdf-viewer/release/pdf-viewer-qt       target/pdf-viewer-qt
+cargo build --release -p viewer-ffi          # a library, so not in the invocation above
+install -Dm755 /home/AI/cargo-target/pdf-viewer/release/libviewer_ffi.so   target/libviewer_ffi.so
 ```
 
 **One invocation, not three**, since the three-hundred-and-eighty-fifth: each of these is a whole-graph
@@ -132,6 +141,12 @@ another — **109.7 s to 79.3 s**, measured both ways after touching one file in
 `--release` here is deliberate and is the one place in a round that still pays for `lto = "fat"`:
 these are what a person runs and what every launch measurement is taken from, and `--profile gates`
 above exists so that the *gates* stop paying for it.
+
+**And one library since the four-hundred-and-eleventh**, which is the exception that proves what
+this section is for: `libviewer_ffi.so` is not something a person *runs*, and it is here because it
+is what a person *links against* — a C program with `include/pdf_viewer.h` and no `-L` pointing at
+`/home/AI` is the only way somebody outside this tree can try the ABI at all. It is a separate
+`cargo build` because it is a library and the invocation above names binaries.
 
 **Five, not three, since the four-hundred-and-tenth** — `pdf-viewer-gtk` is the GTK4 host
 (ADR 0244) and `pdf-viewer-qt` is the Qt 6 one (ADR 0246), and each is a program a person runs, so

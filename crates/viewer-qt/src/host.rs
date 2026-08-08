@@ -427,7 +427,11 @@ impl Host {
                 kind,
                 field: placed.key.0.clone(),
                 annotation: widget.annotation.number,
-                value: field.value.clone().unwrap_or_default(),
+                value: field
+                    .value
+                    .as_ref()
+                    .map_or_else(String::new, |shown| shown.text.clone()),
+                obscured: field.value.as_ref().is_some_and(|shown| shown.obscured),
                 read_only: field.read_only,
                 on: widget.on || (on_by_value(&placed.kind) && widget.on_state.is_none()),
                 max_len,
@@ -734,7 +738,7 @@ impl Host {
     /// Builds the three trees from the three answers.
     fn build_panels(&mut self) {
         let outline = match self.viewer.query(Query::Outline) {
-            Answer::Outline(outline) => viewer_host::panel::outline_rows(outline),
+            Answer::Outline(outline) => viewer_host::panel::outline_rows(&outline),
             _ => Vec::new(),
         };
         let layers = match self.viewer.query(Query::Layers) {

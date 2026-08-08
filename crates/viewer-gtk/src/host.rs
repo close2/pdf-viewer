@@ -531,7 +531,7 @@ impl Host {
                 );
                 placed.widget.set_size_request(asked_width, asked_height);
                 fit.record(&placed.widget, asked_width, asked_height);
-                write_back(placed, field.value.as_deref());
+                write_back(placed, field.value.as_ref());
             }
         }
         self.suppress.set(false);
@@ -556,7 +556,7 @@ impl Host {
     /// Builds the three trees from the three answers.
     fn build_panels(&mut self) {
         let outline = match self.viewer.query(Query::Outline) {
-            Answer::Outline(outline) => panel::outline_rows(outline),
+            Answer::Outline(outline) => panel::outline_rows(&outline),
             _ => Vec::new(),
         };
         let layers = match self.viewer.query(Query::Layers) {
@@ -793,18 +793,25 @@ fn fill(slot: &gtk4::Box, rows: &[panel::PanelRow], act: &Rc<dyn Fn(&RowAction)>
 ///
 /// ADR 0201: a host keeps the *point* it clicked and never the text, because §12.7.5.3's
 /// truncation means the field can take less than was typed. So the control shows what the field
-/// took — except for the one control that cannot, which is the password entry: `Answer::Field`
-/// answers that one with Table 231 bit 14's bullets rather than with its characters, so writing
-/// the answer back would replace what a person typed with a row of dots.
-fn write_back(placed: &Placed, value: Option<&str>) {
-    let Some(value) = value else {
+/// took — except where the answer says the string is not the field's characters, which is Table
+/// 231 bit 14's password field: writing that back would replace what a person typed with a row of
+/// dots and send those as the next value.
+///
+/// **The refusal is on the answer rather than on the control**, since ADR 0247. It used to be the
+/// `password: false` in the pattern below, which is this host inferring from the control's kind
+/// what the answer now states; `ShownValue::obscured` is the statement, and a control kind that
+/// stopped agreeing with it would have been a silent bug in exactly the place this one was found.
+fn write_back(placed: &Placed, value: Option<&pdf_model::view::ShownValue>) {
+    let Some(shown) = value else {
         return;
     };
+    if shown.obscured {
+        return;
+    }
+    let value = shown.text.as_str();
     match &placed.kind {
         viewer_host::form::ControlKind::Entry {
-            multiline: false,
-            password: false,
-            ..
+            multiline: false, ..
         } => {
             if let Some(entry) = placed.widget.downcast_ref::<gtk4::Entry>()
                 && entry.text() != value

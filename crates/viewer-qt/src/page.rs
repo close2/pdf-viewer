@@ -21,23 +21,6 @@ use pdf_render::{Raster, RasterFormat};
 /// window that shows the previous page and says nothing.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum PixelError {
-    /// The raster is in a pixel format this host has no `QImage::Format` for.
-    ///
-    /// **Unreachable today and typed anyway**, because [`pdf_render::RasterFormat`] is
-    /// `#[non_exhaustive]` — which is the one place a type crossing this boundary breaks
-    /// `viewer_core`'s own rule that "[a] new [`viewer_core::Event`] should fail to compile in
-    /// every consumer". A second format added there would compile here and would have to be
-    /// caught at runtime.
-    ///
-    /// **The second host makes this worse rather than the same**, which is ADR 0246's finding:
-    /// the catch-all arm is now written twice, and a third consumer writes it a third time. It is
-    /// the one thing `doc/todo/30` should settle before the C ABI freezes, because a C ABI cannot
-    /// fail to compile in anybody.
-    #[error("a raster in {format} has no QImage format")]
-    UnknownFormat {
-        /// The format, as `pdf_render` spells it.
-        format: String,
-    },
     /// The raster holds fewer bytes than its own dimensions call for.
     ///
     /// Checked here rather than trusted, because the `QImage` the C++ side builds reads
@@ -63,15 +46,12 @@ pub(crate) enum PixelError {
 ///
 /// [`PixelError`], one variant per condition above.
 pub(crate) fn describe(raster: &Raster) -> Result<(u32, u32), PixelError> {
-    // `RasterFormat` is `#[non_exhaustive]`, so this arm cannot be exhaustive and a second format
-    // would arrive here rather than failing to compile. Trap 5: it is refused by name.
+    // Exhaustive, and that is what ADR 0247 bought: `RasterFormat` is no longer
+    // `#[non_exhaustive]`, so a second pixel layout added to `pdf-render` fails to compile *here*
+    // — beside the `QImage::Format_RGBA8888` the C++ side names — rather than arriving at runtime
+    // as a refusal. This arm is the whole of the check that used to be a catch-all.
     match raster.format {
         RasterFormat::Rgba8 => {}
-        other => {
-            return Err(PixelError::UnknownFormat {
-                format: format!("{other:?}"),
-            });
-        }
     }
     let need = usize::try_from(raster.width)
         .ok()
