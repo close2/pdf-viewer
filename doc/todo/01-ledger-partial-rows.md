@@ -703,3 +703,26 @@ for `another_document`. It stays a sweep, and it is cheap: one run is under a se
   are cryptographic validation needing a trust store, 5 need a second file or a network, 3 are
   icon clauses whose own verb is *should*, and the rest name a device or a user control this
   program does not have.
+
+## A tenth, and it is not a sweep — it is the gate that already runs, with a hole in it
+
+Found in the three-hundred-and-ninety-first session by writing a comment and watching the gate
+refuse it *inconsistently*: `QUORRA_FEEDBACK.md section 13` is the spelling this tree uses and the
+draft had written `§13` twice, once with a `doc/` in front of it and once without. Only one was
+refused.
+
+`tools/conformance`'s `another_document` decides a `§` belongs to some other document when the word
+in front of it is an upper-case stem with a `.md` suffix. `doc/` is not upper case. So **a citation
+written with a path passed the arm for the whole of its life** — eight in the tree, six of them
+naming `QUORRA_FEEDBACK.md`, which is the document the arm's own comment cites as the case it
+exists to catch. All eight were being checked against ISO 32000-2's clauses and passing by landing
+on one, which is the exact failure its message describes.
+
+One `rsplit('/')` and a test, plus eight rewrites. The citation count went 5095 → 5133, of which
+**minus eight** is this correction.
+
+**What it adds to the eight above is a target rather than a technique**: they read the ledger's
+prose and the tree's comments, and this one read a *checker*. A predicate about how a string is
+spelled is a test of how the author spelled it, and the way to find the next one is to write the
+thing the gate is meant to catch and check that it *is* caught — in every spelling a person would
+plausibly use.

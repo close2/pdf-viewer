@@ -7,7 +7,7 @@
 //! because a working surface was the only path pixels took to the screen. A driver that faults
 //! while it is being loaded therefore took the process down under `--cpu` exactly as it did
 //! without it, which is what the project owner hit on a Windows machine with Intel graphics
-//! (`doc/QUORRA_FEEDBACK.md` §12, and ADR 0221 for this half of it).
+//! (`doc/QUORRA_FEEDBACK.md` section 12, and ADR 0221 for this half of it).
 //!
 //! So there are two ways a frame reaches the window, and this is the second. It is deliberately
 //! the smaller of the two in every way — one full-window buffer, one source-over per overlay, one

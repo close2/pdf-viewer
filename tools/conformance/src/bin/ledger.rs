@@ -51,7 +51,7 @@ project owing in silence, and the requirement having no meaning for a screen.
 decided not to build it wrote the report; what ships is the gap inside a feature that is
 already there, and only reading the clause finds one.
 
-See doc/PLAN.md §5a for the design, and tools/conformance for the checker that reads this.";
+See doc/PLAN.md section 5a for the design, and tools/conformance for the checker that reads this.";
 
 fn main() -> ExitCode {
     let root = conformance::workspace_root();

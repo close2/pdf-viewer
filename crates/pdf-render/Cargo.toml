@@ -8,6 +8,11 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+# One loop takes it: `Image::area_averaged`, which is a pure function of disjoint blocks of
+# source samples and was 13% of a page-turn session on a scanned document (ADR 0228). The
+# crate is already in `pdf-model`, `render-cpu` and `viewer-confined`, so this adds no
+# dependency to the tree and no thread to a process that did not already have the pool.
+rayon.workspace = true
 thiserror.workspace = true
 
 [lints]

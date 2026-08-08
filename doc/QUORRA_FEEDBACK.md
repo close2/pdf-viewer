@@ -27,6 +27,14 @@ the `--backend vulkan|dx12|metal|gl` it said it would not add until it could be 
 the winding texture's size was what survived the frame. Re-verified at `2531f447`: `zoom_ladder`
 is identical to the digit at every rung and `viewer-ui`'s own overlay gate is green.
 
+**§13 is the newest, is a request for an *instrument* rather than for speed, and is open.** A page
+turn of the project owner's own 30 MB document is 45% `encode` — host processor time, the only one
+of `Device::render`'s three phases that tracks the scene's command count, fitting **3.86 µs a
+command plus 3.84 ms**. That phase is now the largest and is itself unsplit, so §13 asks for the
+same subdivision one level down that the existing three already won the argument for. It also
+retracts something this side printed: our `elsewhere` row subtracts a timestamp-query duration from
+a host wall clock, so it is a bound rather than a measurement, and the output says so now.
+
 **§8 was answered at `7d5dafb` and §9 is still open.** Both were requests rather than defects,
 and both exist because the project owner's decision that page one goes to the graphics device put
 your bring-up on this viewer's critical path. §8 asked for a field split and an entry point and
@@ -928,3 +936,92 @@ under DX12 is a hypothesis about somebody else's driver and this side has not te
 certain is that until `2531f447` the question could not be asked. Our side's half — that `--cpu`
 now opens no driver at all — **is** demonstrated, on Linux, with `strace`: 56 shared objects and
 three Vulkan libraries before, 17 and none after.
+
+---
+
+## 13. Half a page turn is `encode`, and it is CPU — **open, and it is a request for an instrument before it is a request for speed**
+
+**New, 2026-08-08, from this viewer's three-hundred-and-ninety-first session.** It is not a defect
+and nothing here is wrong; it is a measurement, taken because the project owner's own document felt
+slow and this side finally built a trace that can say *which stage* a frame went into (our ADR
+0227). What the trace found is that four fifths of a frame is inside `Device::render` and half of
+*that* is `encode` — which is host processor time, not the device's.
+
+### The measurement
+
+`NorthAmerican.30MB.pdf`, 65 pages, 30 MB, the project owner's own file. 38 page turns driven by
+`xdotool` under `Xvfb` at 800×1000, `pdf-viewer --trace=frames`, release build. **The adapter is
+`llvmpipe`, so every absolute number below is this machine's software rasteriser and the
+`execute` row in particular says nothing about a GPU.** What survives that caveat is `encode`,
+which is the same host code on any adapter, and the *shape* of what depends on what.
+
+Per frame, over the 38 frames that draw a real page (388 to 3675 scene commands, 78 to 793
+resource uploads). `r(cmd)` is the correlation with the scene's command count and the fit is a
+least-squares line through it:
+
+| phase | min | median | max | sum | r(cmd) | fit |
+|---|---|---|---|---|---|---|
+| `device` whole | 6.91 | 25.65 | 86.44 | **963.5** | +0.35 | 5.45 µs/cmd + 12.88 ms |
+| — `encode` | 1.42 | 13.52 | 32.18 | **481.2** | **+0.58** | **3.86 µs/cmd + 3.84 ms** |
+| — `upload` | 0.50 | 3.09 | 19.17 | 137.1 | +0.19 | 0.75 µs/cmd + 1.89 ms |
+| — `execute` | 2.89 | 4.65 | 15.24 | 194.0 | +0.12 | 0.26 µs/cmd + 4.50 ms |
+| — elsewhere | 1.09 | 3.16 | 20.71 | 151.3 | +0.15 | 0.58 µs/cmd + 2.66 ms |
+
+Against a whole session of **1074 ms** of frames, of which this host's own work — every query it
+asks, the display lists it translates into a `Scene`, the resources it hands over, the transients
+it releases — is **71 ms**.
+
+**So `encode` is 45% of a page turn and it is the only phase that tracks the scene's size.**
+`upload` follows the uploads instead (r = +0.76 against them), which is exactly what it should do;
+`execute` is nearly flat, which on this adapter says more about `llvmpipe`'s own floor than about
+anything else.
+
+### What we can and cannot see into
+
+Plainly, because it decides what this section is worth:
+
+- **We can see** the three durations `Frame::timings` reports, the `TimingProvenance` beside
+  `execute`, and the counters — commands, culled commands, bytes transferred. Those are read
+  rather than manufactured, which is what made this table possible at all, and they are the
+  reason this report exists rather than a guess.
+- **We cannot see anything inside `encode`.** Whether those 3.86 µs a command are path
+  flattening, bind-group churn, buffer writes, sorting, or `wgpu`'s own command recording is
+  invisible from here, and profiling it from this side would be profiling a build of yours we did
+  not configure.
+- **We have ruled out our own end of it**, which is why this is not a report about our numbers.
+  The same session found and fixed the one thing on this side that was large — a per-source-sample
+  image reduction, which took our `scene` stage from 210 ms of the session to 71 (our ADR 0228) —
+  and the `device` figures did not move at all: 994/1022/1015 ms before against 999/1026/1005
+  after, three runs each. `encode` is 469/486/484 before and 480/490/483 after. It is independent
+  of everything we changed.
+- **We are not asking you to work around a scene we rebuild.** This host builds a fresh
+  `quorra_scene::Scene` every frame, so nothing inside `encode` *can* be reused across frames, and
+  that is ours to change rather than yours. The per-command figure is worth your knowing anyway,
+  because it is what a retained scene would have to beat.
+
+### The ask
+
+**One instrument, in the shape you already chose.** `Frame::timings` splits `Device::render` into
+three phases and that split is what turned "the frame is slow" into this table. `encode` is now
+the largest of the three and is itself unsplit, so the same question repeats one level down: a
+subdivision of it — however coarse, two or three parts — would say whether 3.86 µs a command is
+geometry, binding or recording. **An instrument before an optimisation**, and it is the same
+argument your three phases already won.
+
+**And a second thing, which is about arithmetic rather than speed.** Our summary prints an
+`elsewhere` row — `device` minus your three phases — to name the swapchain acquire, the present
+and the timestamp readback rather than leave an unnamed remainder. It is 151 ms of 963 here, 16%,
+and **we no longer believe it is a duration of anything**: where `execute` comes from timestamp
+queries it is the *adapter's* clock, and subtracting it from our host-side wall clock around
+`Device::render` leaves whatever the two disagree by mixed in with the three things we meant to
+name. So we have downgraded our own row to a bound and said so in the output. Two ways out, and
+either would do:
+
+- report the acquire and the present as phases of their own, leaving a remainder small enough that
+  nobody has to trust it; or
+- say which clock each phase is on, so a caller knows the three are not summable with a host
+  timer.
+
+**We are not asking for the wait to be removed.** `Device::render` blocking on the device before it
+returns is what makes `execute` reportable at all, and this side depends on that: it is the reason
+our trace can say a frame's cost without introducing a fence of its own.

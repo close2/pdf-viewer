@@ -282,7 +282,16 @@ fn another_document(before: &str) -> Option<String> {
     // (QUORRA_FEEDBACK.md section 2's own citation did); this arm turns it into
     // a named finding, whose message teaches the "FILE.md section N" spelling
     // the tree writes for every document that is not the standard.
+    //
+    // **The directory in front of the name is dropped first, and until the
+    // three-hundred-and-ninety-first session it was not** — `doc/` is not upper
+    // case, so a citation written with a path passed this arm for the whole of its
+    // life. There were eight in the tree and six of them named QUORRA_FEEDBACK.md,
+    // which is the very document the paragraph above cites as the case this exists
+    // to catch. A stem test that a lower-case path defeats is a test of how the
+    // author spelled the path.
     let file = number.trim_matches(['(', '"', '`', ')', ',', ';']);
+    let file = file.rsplit('/').next().unwrap_or(file);
     if let Some(stem) = file.strip_suffix(".md")
         && !stem.is_empty()
         && stem.chars().all(|character| {
@@ -579,6 +588,26 @@ mod tests {
                 .first()
                 .map(|foreign| foreign.document.as_str()),
             Some("RENDER_LIBRARY.md")
+        );
+    }
+
+    /// The directory in front of the file name does not excuse it.
+    ///
+    /// This is the same finding as the test above and it is separate because the arm above
+    /// missed it for the whole of its life: the stem is checked for upper case, and `doc/` is
+    /// not upper case, so every citation written with a path passed. Seven of the eight in the
+    /// tree named `QUORRA_FEEDBACK.md`, which is the document the arm's own comment cites as
+    /// the case it exists to catch.
+    #[test]
+    fn a_path_in_front_of_a_project_documents_name_does_not_excuse_it() {
+        let source = format!("{DOC} the shape doc/QUORRA_FEEDBACK.md {SECTION}12 asked for\n");
+        let scan = scan(&source);
+        assert!(scan.citations.is_empty(), "{:?}", scan.citations);
+        assert_eq!(
+            scan.foreign
+                .first()
+                .map(|foreign| foreign.document.as_str()),
+            Some("QUORRA_FEEDBACK.md")
         );
     }
 }

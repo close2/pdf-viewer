@@ -2349,6 +2349,7 @@ dependencies = [
 name = "pdf-render"
 version = "0.1.0"
 dependencies = [
+ "rayon",
  "thiserror 2.0.19",
 ]
 

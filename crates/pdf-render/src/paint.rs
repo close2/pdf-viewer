@@ -3,7 +3,29 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
+use rayon::prelude::*;
+
 use crate::geom::Transform;
+
+/// Source samples above which [`Image::area_averaged`] divides its output rows across
+/// rayon's pool rather than walking them.
+///
+/// Measured rather than chosen — `examples/area_bench`, best of 100 runs a size, with the
+/// mean beside it because a division's overhead shows up there first:
+///
+/// | source samples | serial | divided regardless |
+/// |---|---|---|
+/// | 64×64 = 4 096 | **0.008 ms** (mean 0.010) | 0.012 (0.031) |
+/// | 128×128 = 16 384 | 0.052 (0.054) | **0.026** (0.043) |
+/// | **256×256 = 65 536** | 0.207 (0.216) | **0.035** (0.065) |
+/// | 512×512 = 262 144 | 0.459 (0.522) | **0.088** (0.149) |
+///
+/// The crossover is between the first two rows and the floor is set at the *third*, which is
+/// deliberate: a floor belongs where the division starts being worth having rather than where
+/// it starts being faster. Below 65 536 samples the whole reduction costs a fifth of a
+/// millisecond, and the threads would be woken inside `render-cpu`'s strips — where the pool
+/// is already saturated and this benchmark cannot see it.
+const PARALLEL_FLOOR: u64 = 65_536;
 
 /// A colour in device RGB with straight (non-premultiplied) alpha.
 ///
@@ -510,10 +532,37 @@ impl Image {
     /// oracle for the GPU one, and a resampling decision made twice is a decision the two can
     /// disagree about. This produces new samples, so both backends draw the same raster and
     /// their own filters then do the same residual, sub-two-fold work.
+    ///
+    /// # What it costs, and what was done about it
+    ///
+    /// One source sample is read once, so the work is the *source's* size and not the
+    /// reduced one — which is why a page with one 388-command photograph on it cost sixteen
+    /// times the display-list translation of a 3675-command page of text (ADR 0228). Two
+    /// things follow, and both are measured by `examples/area_bench`, best of 100 runs, with
+    /// the column-band hoisting shown on its own so the division is not credited with it:
+    ///
+    /// | 3× reduction of | before | hoisted only | and divided |
+    /// |---|---|---|---|
+    /// | 1374×1374 | 4.57 ms | 3.50 ms | **0.65 ms** |
+    /// | 2100×1448 | 7.34 ms | 5.99 ms | **0.86 ms** |
+    /// | 2700×3450 | 22.39 ms | 19.81 ms | **2.93 ms** |
+    ///
+    /// The output is byte-identical — the example asserts it on every case it times — because
+    /// neither change alters an arithmetic step. What they cost in readability is one `Vec` of
+    /// column bands and one branch on a threshold, and the branch is the price of not paying
+    /// rayon's split on an image too small to repay it.
     #[must_use]
     pub fn area_averaged(&self, placement: Transform) -> Option<Self> {
+        // Consistency is asked **before** the reduction rather than beside it, and that
+        // ordering is load-bearing: `Self::reduction` clamps a ratio into `1.0 ..= width`,
+        // and `f32::clamp` panics outright when its minimum exceeds its maximum — which a
+        // zero-width image makes it do. `is_consistent` is what rules that out, and the two
+        // callers that asked it first were the only reason this was not reachable.
+        if !self.is_consistent() {
+            return None;
+        }
         let (kx, ky) = self.reduction(placement);
-        if (kx <= 1 && ky <= 1) || !self.is_consistent() {
+        if kx <= 1 && ky <= 1 {
             return None;
         }
 
@@ -528,19 +577,40 @@ impl Image {
         // and are wrong in a way that shows: `512 / 5` leaves a two-sample block occupying a
         // whole output cell, which squeezes the image into 99.4% of the unit square and moved
         // `firefox_logo.pdf` *further* from three references than no filtering at all.
-        let columns = Bands::new(self.width, width);
         let rows = Bands::new(self.height, height);
 
-        let mut data: Vec<u8> = Vec::with_capacity(
-            (width as usize)
-                .saturating_mul(height as usize)
-                .saturating_mul(4),
-        );
-        for out_y in 0..height {
-            let (y0, y1) = rows.at(out_y);
-            for out_x in 0..width {
-                let (x0, x1) = columns.at(out_x);
-                data.extend_from_slice(&self.average_block(x0, y0, x1, y1));
+        // Every output row asks for the same column bands, and `Bands::at` is two 64-bit
+        // divisions — so asking once per *row* rather than once per cell takes 4.57 ms to
+        // 3.50 ms on a 1374×1374 image reduced threefold, and 7.34 to 5.99 on a 2100×1448
+        // (`examples/area_bench`, best of 100). The whole cost is one `Vec` the width of the
+        // reduced image.
+        let columns = Bands::new(self.width, width);
+        let spans: Vec<(u32, u32)> = (0..width).map(|out_x| columns.at(out_x)).collect();
+
+        // `row_bytes` cannot be zero, which is what the two `chunks_exact_mut` below need:
+        // `is_consistent` has already refused a zero dimension, and `Self::reduction` clamps
+        // each factor to at most that dimension, so `div_ceil` of it is at least one. The
+        // buffer is a whole number of rows, so neither call drops a remainder either.
+        let row_bytes = (width as usize).saturating_mul(4);
+        let mut data: Vec<u8> = vec![0; row_bytes.saturating_mul(height as usize)];
+        // A row's cells are a pure function of disjoint blocks of the source, so which
+        // thread computes which row cannot change any byte of the answer — the same
+        // property that made `pdf-model`'s colour conversion divisible (ADR 0147) and that
+        // a rasterisation deliberately does not have (ADR 0138). [`PARALLEL_FLOOR`] carries
+        // the crossover and the argument for putting the threshold above it.
+        let fill = |out_y: usize, row: &mut [u8]| {
+            let (y0, y1) = rows.at(u32::try_from(out_y).unwrap_or(u32::MAX));
+            for (cell, &(x0, x1)) in row.chunks_exact_mut(4).zip(&spans) {
+                cell.copy_from_slice(&self.average_block(x0, y0, x1, y1));
+            }
+        };
+        if u64::from(self.width).saturating_mul(u64::from(self.height)) >= PARALLEL_FLOOR {
+            data.par_chunks_exact_mut(row_bytes)
+                .enumerate()
+                .for_each(|(out_y, row)| fill(out_y, row));
+        } else {
+            for (out_y, row) in data.chunks_exact_mut(row_bytes).enumerate() {
+                fill(out_y, row);
             }
         }
 
@@ -1070,6 +1140,84 @@ mod resampling {
             (4, 4),
             "the 16-sample axis reduces and the 4-sample one does not"
         );
+    }
+
+    /// An image with no samples answers `None` rather than panicking inside `f32::clamp`.
+    ///
+    /// `Image::reduction` clamps a ratio into `1.0 ..= width`, and `f32::clamp` panics when
+    /// its minimum exceeds its maximum — which a zero-width image makes it do. Until session
+    /// 391 the reduction was computed *before* `is_consistent`, so the only thing standing
+    /// between a public method and that panic was that two of its three callers happened to
+    /// ask the question first; `render-quorra`'s did not. The order is now the other way
+    /// round and this is the guard on it.
+    #[test]
+    fn an_image_with_no_samples_is_not_reduced_and_does_not_panic() {
+        for (width, height) in [(0u32, 0u32), (0, 8), (8, 0)] {
+            let source = Image {
+                width,
+                height,
+                data: Vec::new().into(),
+                interpolate: false,
+            };
+            assert!(
+                source.area_averaged(Transform::scale(4.0, 4.0)).is_none(),
+                "{width}x{height}"
+            );
+        }
+    }
+
+    /// Dividing the rows across threads is the same arithmetic, so it is the same bytes.
+    ///
+    /// The reduction runs serially below `PARALLEL_FLOOR` and in parallel above it, and the
+    /// two paths must be indistinguishable in their output — which is the whole argument for
+    /// dividing it at all (ADR 0228). This straddles the floor at a size where the shape of
+    /// the source is the same on both sides of it, so a difference could only be the split.
+    #[test]
+    fn the_divided_reduction_answers_what_the_serial_one_does() {
+        let sample = |x: u32, y: u32, channel: u32| {
+            u8::try_from((x.wrapping_mul(7) ^ y.wrapping_mul(13) ^ channel.wrapping_mul(29)) % 251)
+                .unwrap_or(0)
+        };
+        let build = |side: u32| {
+            let mut data = Vec::new();
+            for y in 0..side {
+                for x in 0..side {
+                    for channel in 0..4 {
+                        data.push(sample(x, y, channel));
+                    }
+                }
+            }
+            Image {
+                width: side,
+                height: side,
+                data: data.into(),
+                interpolate: false,
+            }
+        };
+        // 192² = 36 864 samples is under the floor and 384² = 147 456 is over it, and both
+        // reduce three-fold onto a grid whose bands are exactly three samples wide — so the
+        // second's cells are the first's arithmetic repeated, cell for cell.
+        let small = build(192);
+        let large = build(384);
+        let reduced_small = small
+            .area_averaged(Transform::scale(64.0, 64.0))
+            .expect("a three-fold reduction, serially");
+        let reduced_large = large
+            .area_averaged(Transform::scale(128.0, 128.0))
+            .expect("a three-fold reduction, divided");
+        assert_eq!((reduced_small.width, reduced_small.height), (64, 64));
+        assert_eq!((reduced_large.width, reduced_large.height), (128, 128));
+        for out_y in 0..64usize {
+            for out_x in 0..64usize {
+                let at = (out_y * 64 + out_x) * 4;
+                let same = (out_y * 128 + out_x) * 4;
+                assert_eq!(
+                    reduced_small.data[at..at + 4],
+                    reduced_large.data[same..same + 4],
+                    "cell ({out_x}, {out_y})"
+                );
+            }
+        }
     }
 
     /// A degenerate transform asks for no reduction rather than for a division by zero.

@@ -477,7 +477,11 @@ const SUMMARY_ROWS: [(&str, StageOf); 10] = [
     // What is inside `Device::render` and outside the three phases it names: acquiring the
     // swapchain texture, presenting it, and reading the timestamp queries back. Printed as its
     // own row rather than left for a reader to subtract, because an unnamed remainder is where
-    // a cost hides — and on this machine it is a quarter of the frame.
+    // a cost hides — and on this machine it is a sixth of the frame.
+    //
+    // **A bound rather than a duration**, and the summary says so: where `execute` came from the
+    // adapter's timestamp queries this subtracts a device clock from a host one, so the
+    // remainder also carries whatever the two disagree by (ADR 0228, `QUORRA_FEEDBACK.md` section 13).
     ("  elsewhere", |frame| {
         frame.gpu.device.saturating_sub(
             frame
@@ -645,6 +649,22 @@ impl FrameLog {
                 }
             ),
         );
+        // **Said out loud because the row is arithmetic on two clocks** (ADR 0228). `elsewhere`
+        // is `device` minus the three phases quorra names, and where `execute` came from
+        // timestamp queries it is a *device* duration being subtracted from a *host* wall clock:
+        // the host's wait for a submitted frame is not the GPU's own measure of the passes in
+        // it, so the remainder carries whatever the two clocks disagree by as well as the
+        // acquire, the present and the readback. It is a bound on the unnamed cost rather than a
+        // measurement of it, and it is quorra's to subdivide — `doc/QUORRA_FEEDBACK.md` section 13.
+        if measured {
+            trace.more(
+                Topic::Frames,
+                format_args!(
+                    "elsewhere is device minus the three phases, so it also carries whatever \
+                     the host's clock and the adapter's disagree by — a bound, not a duration"
+                ),
+            );
+        }
     }
 }
 
@@ -979,7 +999,7 @@ fn main() {
     // **And the graphics instance on a second thread**, since the two-hundred-and-eighty-eighth:
     // a `wgpu::Instance` is the driver loader, it needs no window either, and quorra measured it
     // at roughly 80% of what bringing a device up blocks for (their ADR 0014, answering
-    // `doc/QUORRA_FEEDBACK.md` §8.2). Its own thread rather than the document's, and the
+    // `doc/QUORRA_FEEDBACK.md` section 8.2). Its own thread rather than the document's, and the
     // difference is not style: the device *needs* the instance and does not need the document, so
     // the instance is joined before the presenter is built and the document after it — one thread
     // for both would make the first join wait for the second's work.
@@ -2586,12 +2606,14 @@ impl App {
     /// screen reader that is probably not there. What it costs after the first frame is one
     /// comparison per frame, because the structure of a page does not change when it is scrolled.
     ///
-    /// **What it costs on a *page turn* is 2.0 ms on average and 3.9 at worst**, measured in the
-    /// three-hundred-and-ninetieth session over 40 frames of a 65-page document — and where
-    /// [`viewer_accessibility::Bridge::shortfall`] answers `Some`, all of it is spent building a
-    /// tree that platform has nowhere to publish. That is a defect and it is written down in
-    /// `doc/todo/45` rather than patched here: the decision belongs in the crate that knows
-    /// whether it has an adapter, and `doc/todo/31` is going to give the other two platforms one.
+    /// **It cost 2.0 ms on average and 3.9 at worst on every page turn, and the three-hundred-
+    /// and-ninety-first session found out where** (ADR 0228). Not §14.7's tree: `Query::
+    /// AccessibilityTree` is 0.13 to 0.25 ms on this document and the whole of [`App::speak`]
+    /// — both queries, the tree built and the bridge given it — is 0.17 to 0.33. It was
+    /// [`App::place_window`], at **1.8 to 3.2 ms**, which is two synchronous X11 round trips for
+    /// a window position that **does not change when a page turns**. So it is asked where it can
+    /// change — when the bridge comes up, when the window moves, and when it is resized — and
+    /// the page turn is left with the query that is actually about the page.
     fn attend(&mut self) {
         if self.accessibility.is_none() {
             self.accessibility = Some(viewer_accessibility::Bridge::new());
@@ -2610,6 +2632,9 @@ impl App {
                 }
             };
             self.trace.say(Topic::Access, format_args!("{said}"));
+            // The one place a page turn used to pay for this: a bridge that has just come up has
+            // never been told where the window is, and this is the frame that knows there is one.
+            self.place_window();
         }
         let Some((width, height, _)) = self.window() else {
             return;
@@ -2621,7 +2646,6 @@ impl App {
             return;
         }
         self.spoken = Some((page, width, height));
-        self.place_window();
         self.speak();
     }
 
@@ -2631,11 +2655,23 @@ impl App {
     /// so the adapter adds the window's position. Under Wayland an application cannot learn its
     /// own position and winit says so by refusing the call; there is nothing to be done about
     /// that here and nothing is claimed instead.
+    ///
+    /// **Called when the answer can have changed and not otherwise**: when the bridge comes up,
+    /// on `WindowEvent::Moved` and on `WindowEvent::Resized`. It used to be called on every page
+    /// turn, where the two winit calls below are two synchronous X11 round trips — 1.8 to 3.2 ms
+    /// — for a number a page turn cannot move (ADR 0228).
     #[expect(
         clippy::cast_precision_loss,
         reason = "a window's position and size in device pixels; f32 is exact to 2^24"
     )]
     fn place_window(&mut self) {
+        // Asked of the crate that has the adapter rather than decided here, because the answer
+        // is about AT-SPI's screen coordinates rather than about having a bridge at all — see
+        // `Bridge::wants_window_bounds`, which is where the two part company when `doc/todo/31`
+        // wires the Windows and macOS adapters in.
+        if !viewer_accessibility::Bridge::wants_window_bounds() || self.accessibility.is_none() {
+            return;
+        }
         let Some(state) = self.state.as_ref() else {
             return;
         };
@@ -3551,7 +3587,14 @@ impl ApplicationHandler for App {
                     height: size.height.max(1),
                     scale,
                 });
+                // A resize moves the *inner* rectangle inside the outer one, so AT-SPI's screen
+                // coordinates change with it. This and `Moved` are the two events that can move
+                // them; a page turn is not one, which is what took it off that path (ADR 0228).
+                self.place_window();
             }
+
+            // See `Resized`: the window's place on the screen is asked for where it can change.
+            WindowEvent::Moved(_) => self.place_window(),
 
             WindowEvent::MouseWheel { delta, .. } => self.wheel(delta),
 

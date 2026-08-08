@@ -45,7 +45,7 @@ const WINDOW: (u32, u32) = (900, 1100);
 ///
 /// The same constant `pdf-viewer.rs` uses, restated rather than shared because a binary's
 /// constant is not an API — and a ladder that does not switch lanes is not measuring what a
-/// person sees past 1000% (`doc/QUORRA_FEEDBACK.md` §11).
+/// person sees past 1000% (`doc/QUORRA_FEEDBACK.md` section 11).
 const GPU_COVERAGE_MAGNIFICATION: f32 = 10.0;
 
 /// How close two frames' panels have to be to be called the same.
@@ -146,7 +146,7 @@ fn main() {
     // person's window is; a device per rung is a device with no history. If the ladder is clean
     // on the second and not on the first, whatever goes wrong is *state carried between frames*
     // rather than anything about the magnification — which is the same control
-    // `doc/QUORRA_FEEDBACK.md` §11 used on the page's own glyphs, and finding the same answer
+    // `doc/QUORRA_FEEDBACK.md` section 11 used on the page's own glyphs, and finding the same answer
     // here is what says the two are one defect.
     for fresh in [false, true] {
         println!();

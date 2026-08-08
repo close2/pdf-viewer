@@ -17,7 +17,7 @@
 //! ```
 //!
 //! and compare processes, not lines. `overlap` asks the other question — whether the instance's
-//! creation can be hidden behind the document's, which is `doc/QUORRA_FEEDBACK.md` §8.
+//! creation can be hidden behind the document's, which is `doc/QUORRA_FEEDBACK.md` section 8.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, missing_docs)]
 
 use std::time::Instant;
@@ -44,7 +44,7 @@ fn document_work() -> usize {
 
 /// Does the instance's creation overlap the work a launch does before it has a window?
 ///
-/// The question `doc/QUORRA_FEEDBACK.md` §8 asks, measured rather than argued: an instance needs
+/// The question `doc/QUORRA_FEEDBACK.md` section 8 asks, measured rather than argued: an instance needs
 /// no window and no surface, so a host that could create one on a thread of its own would pay
 /// `max(instance, document)` instead of `instance + document`. It cannot today —
 /// `Device::for_surface` creates the instance itself — so this measures what that would be worth

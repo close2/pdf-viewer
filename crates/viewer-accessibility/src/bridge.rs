@@ -170,6 +170,26 @@ impl Bridge {
         }
     }
 
+    /// Whether this build has an adapter that needs to be told where the window is.
+    ///
+    /// **A separate question from [`Self::shortfall`], and the reason is that the two will stop
+    /// agreeing.** AT-SPI reports a node's bounds in *screen* coordinates, so an X11 host has to
+    /// hand `accesskit_unix` the window's own place before any node is where it says it is.
+    /// AccessKit's Windows and macOS adapters take a window *handle* and let the platform do
+    /// that arithmetic, so when `doc/todo/31` wires them in, `shortfall` will answer `None` there
+    /// while this still answers `false`. A host that had asked "is there a bridge" would then
+    /// start paying for a position nobody wants.
+    ///
+    /// **What it is worth**: the two calls a host makes to satisfy this — winit's
+    /// `outer_position` and `inner_position` — are **synchronous X11 round trips**, measured at
+    /// **1.8 to 3.2 ms together** on this machine over twenty page turns (ADR 0228). That was
+    /// being paid on every page turn, on every platform, including the two where the result was
+    /// dropped by the `#[cfg]` in [`Self::placed`].
+    #[must_use]
+    pub const fn wants_window_bounds() -> bool {
+        cfg!(target_os = "linux")
+    }
+
     /// Publishes a page.
     ///
     /// Stores the tree for a client that attaches later, and gives it to the platform now if one
@@ -229,5 +249,27 @@ fn rect(bounds: (f32, f32, f32, f32)) -> accesskit::Rect {
         y0: f64::from(bounds.1),
         x1: f64::from(bounds.2),
         y1: f64::from(bounds.3),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Bridge;
+
+    /// A build with no adapter has nowhere to put a window's place on the screen.
+    ///
+    /// The two questions are separate on purpose — see [`Bridge::wants_window_bounds`] — and
+    /// they are separate in one direction only: an adapter may not need the bounds, but the
+    /// absence of an adapter certainly does not need them. A host pays two synchronous X11
+    /// round trips to answer this, so the implication is worth a guard rather than a comment:
+    /// `doc/todo/31` will make `shortfall` answer `None` on two more platforms, and if
+    /// `wants_window_bounds` were ever written as its negation this would be the thing that
+    /// noticed.
+    #[test]
+    fn a_build_with_no_bridge_wants_no_window_bounds() {
+        assert!(
+            Bridge::shortfall().is_none() || !Bridge::wants_window_bounds(),
+            "a platform with no adapter asked to be told where the window is"
+        );
     }
 }

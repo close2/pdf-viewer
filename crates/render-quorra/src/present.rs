@@ -127,7 +127,7 @@ impl QuorraPresenter {
     /// `wgpu::Instance::new` and gives every millisecond of it back in `request_adapter`, so the
     /// total is unchanged. What it is for is a machine with two driver stacks and one of them
     /// broken — the project owner's Windows machine, whose Intel Vulkan driver crashed while
-    /// wgpu's hub order was choosing Vulkan over DX12 (`doc/QUORRA_FEEDBACK.md` §12).
+    /// wgpu's hub order was choosing Vulkan over DX12 (`doc/QUORRA_FEEDBACK.md` section 12).
     ///
     /// Naming a set this machine cannot supply is not an error here; it becomes
     /// [`quorra_gpu::DeviceError::NoAdapter`] with an **empty** `available` list at
