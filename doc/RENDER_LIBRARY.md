@@ -94,7 +94,7 @@ that four times (trap 2 in `doc/HANDOVER.md`).
 
 Concretely, the four things a general vector API usually lacks and we need:
 
-- a fill whose compositing is **Porter-Duff Source modulated by coverage** (§4.1);
+- a fill whose compositing is **Porter-Duff Source modulated by coverage**, and **Destination-Out and Plus** beside it for the elements whose shape that modulation cannot read (§4.1);
 - a soft mask that is a *rendered group* reduced by a stated rule, not an alpha texture (§4.2);
 - all sixteen of ISO 32000-2 §11.3.5's blend modes, the four non-separable ones included (§4.3);
 - a group that composites onto **transparency** and is then painted once (§4.4).
@@ -285,6 +285,23 @@ become free with it.
 The scene we test it with has a **diagonal edge** on purpose: the two backends reach the clause
 through different arithmetic and they are not the same arithmetic at fractional coverage, so a
 scene of axis-aligned rectangles would agree while being wrong.
+
+**And coverage is not always the shape, which this section understated until our
+three-hundred-and-ninety-seventh session.** §11.6.4.2 gives an object's shape from its geometry
+alone, while §11.6.4.3's soft mask and §11.6.4.4's constant alpha are *opacity* — so a knockout
+element under a mask has shape 1 inside its path and opacity ½, and a nested group has the shape of
+everything it marks whatever alpha it is painted at. In premultiplied form the clause's two stages
+are `P' = (1 − f) × P + S`, `f` the shape and `S` the object, and a coverage-modulated Source reads
+`f` off the alpha of `S`.
+
+**So the second half of what we need is two more Porter-Duff operators: Destination-Out and
+Plus.** With those a caller states the shape as a second mark — the object with every source of
+opacity removed — and draws the clause in two steps, needing no shape channel from you. Both are
+safe where `Copy` is not, and for the same reason the paragraph above gives: at zero contribution
+`DestOut` leaves the destination exactly and `Plus` adds nothing, so neither reaches outside the
+mark. **Source-over as the second step is not the clause** — it weights the backdrop by
+`1 − f × opacity` a second time, which is 32 of 255 at a half-covered pixel under a half-opaque
+mark.
 
 ### 4.2 Soft masks, evaluated on the device (§11.5, §11.6.5.1)
 

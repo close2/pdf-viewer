@@ -64,18 +64,18 @@ project decided on purpose: `colors.pdf` pages 1 and 2 left the unexplained list
 are *not* fixed, because §10.7.4 asks for the hard edge and this tree anti-aliases
 (`CONTRADICTED_ANTIALIASED_EDGES`, and `doc/todo/_scan-conversion.md`).
 
-**The 70 incomplete documents** — **this paragraph said 73 for four rounds after the three-hundred-and-eighty-third took it to 70, and the three-hundred-and-eighty-seventh counted them off the gate rather than off this file** — 73 until that round's second residue of §11.5.3 landed (ADR 0220), 72 until the three-hundred-and-eightieth, whose one new report is a `/DeviceN` shading inside a `/DeviceGray` luminosity mask group (ADR 0217), 74 until the three-hundred-and-fourteenth and 76 until the two-hundred-and-eighty-second, where a `Tf` naming
+**The 67 incomplete documents** — 70 until the three-hundred-and-ninety-seventh, which stated a knockout element's shape apart from its alpha and took `knockout_nested.pdf`, `knockout_nested_group_alpha.pdf` and `knockout_smask.pdf` off the list with nothing joining (ADR 0234); **this paragraph said 73 for four rounds after the three-hundred-and-eighty-third took it to 70, and the three-hundred-and-eighty-seventh counted them off the gate rather than off this file** — 73 until that round's second residue of §11.5.3 landed (ADR 0220), 72 until the three-hundred-and-eightieth, whose one new report is a `/DeviceN` shading inside a `/DeviceGray` luminosity mask group (ADR 0217), 74 until the three-hundred-and-fourteenth and 76 until the two-hundred-and-eighty-second, where a `Tf` naming
 `/Helvetica` with an empty resource dictionary stopped meaning nothing, because §9.6.2.2 says those
 fourteen names name something every processor has (ADR 0183). **The split below was counted off
 the gate's own output in the three-hundred-and-eighty-seventh** and is by report kind, which is
 what the gate prints: **29 fonts** (fewest since session 6 — session 156's `CMap`s took 15 off this
-list — of which 4 report a font program that draws nothing, ADR 0157), **13 transparency** (11 a
+list — of which 4 report a font program that draws nothing, ADR 0157), **10 transparency** (8 a
 group, 2 `CompositedInParts`), **10 operator soup** (`BT` without `ET`, `BDC` without `EMC`, fuzzed
 streams), **7 malformed images**, **6 annotations** — Table 179's line endings took one in the
 three-hundred-and-fourteenth (ADR 0192) — **3 a budget reached**, **2 an undecodable content
 stream** and **1 a shading**. `doc/todo/23` says what each of the transparency populations now
-owes, and its own count is the 11 groups: 19 before the three-hundred-and-eightieth, 14 after it,
-and ADR 0220 took the three that close it to 11. Session 59's reading of
+owes, and its own count is the 8 documents: 19 before the three-hundred-and-eightieth,
+14 after it, ADR 0220 took the three that close it to 11, and ADR 0234 took four more. Session 59's reading of
 the corpus's own issue trackers says most of the font half is glyph rasterisation on files chosen
 for having hard fonts, which session 68 then measured on one.
 

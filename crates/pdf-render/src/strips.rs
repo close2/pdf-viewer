@@ -232,6 +232,12 @@ fn segments(
             // straight, and its samples are read at absolute device positions.
             Command::Image { .. } => {}
             Command::Group { commands, .. } => segments(list, commands, to_device, rows, seen),
+            // Both halves mark, and both are drawn: the shape empties the rows the object
+            // then paints, so a strip boundary has to be legal for each.
+            Command::Shaped { object, shape } => {
+                segments(list, std::slice::from_ref(object), to_device, rows, seen);
+                segments(list, std::slice::from_ref(shape), to_device, rows, seen);
+            }
         }
     }
 }

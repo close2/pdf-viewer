@@ -167,6 +167,20 @@ impl<'a> Encoder<'a> {
                     })?;
                     walked?;
                 }
+                // §11.4.6's element whose shape is stated apart from its alpha. The
+                // scene's `Compose` has SrcOver and Src, and neither expresses
+                // `(1 − shape) × backdrop + object`: `Src` reads the shape off the
+                // coverage, which is what this element exists to say it is not. Two
+                // operators would do it — Porter-Duff Destination-Out and Plus — which
+                // is `doc/QUORRA_FEEDBACK.md`'s entry rather than something to
+                // approximate here.
+                Command::Shaped { .. } => {
+                    return Err(QuorraRasterError::Unsupported(
+                        "a knockout element whose shape is not its coverage: quorra's \
+                         Compose has no Destination-Out and no Plus (ISO 32000-2 §11.4.6)"
+                            .to_owned(),
+                    ));
+                }
                 // `Command` is non-exhaustive: a variant added upstream must fail
                 // loudly here, never fall through as a hole in the page.
                 other => {

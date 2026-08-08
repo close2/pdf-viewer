@@ -40,12 +40,12 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 | [13](13-the-transfer-function.md) | §10.5's `/TR` decides what a screen shows, and this tree ignores it — the ledger's first `silent` row since session 35, and a question for the owner | 1 draws wrong |
 | [21](21-font-substitution.md) | `Identity` orderings; a font reported as a whole; per-character fallback, with no witness left | 40 |
 | [22](22-variable-text-edges.md) | §12.7.4.3's remaining edges: a `/DA` font `/DR` lacks, a list box, a value a host cannot read back — and a field's baseline reading Table 120 with a weaker guard than ADR 0216's | 3 |
-| [23](23-transparency-departures.md) | §11.4 and §11.6.6, each reported where it can change a pixel — **§11.5.3's population is closed**, its device branch in ADR 0217 and both residues in ADR 0220 | 11 |
+| [23](23-transparency-departures.md) | §11.4 and §11.6.6, each reported where it can change a pixel — **§11.5.3's population is closed** (ADRs 0217, 0220) and **§11.4.6's shape is closed** (ADR 0234), leaving §11.4.4's NOTE 5 residue and §11.6.6's blending space for a painted group | 8 |
 | [24](24-image-sampling-intent.md) | Carry an image *and its sampling intent* to the backends — **the vocabulary is built and the mask is on it** (ADR 0210); JPEG 2000's resolution level is written, measured and waiting on one push to `close2/hayro` (ADR 0233), and `render-gpu`'s sampled shading is the rest | 1 |
 | [25](25-view-dependent-annotations.md) | `/FixedPrint`, which waits on a printing path | 15 |
 | [26](26-icons-a-clause-only-recommends.md) | `Stamp`'s icon, whose standard names are legends rather than symbols | 1 |
 | [27](27-the-interfaces-own-font.md) | The interface's own font: a character it cannot set is a box now; what is open is *coverage* | 74 |
-| [28](28-a-catalogue-that-draws-nothing.md) | A catalogue that drew nothing: the YCCK image is decoded and §11.5.3's masks are finished (ADRs 0217, 0220); §11.4.7 is what is left, and one run over the file is now a check rather than a question | 0, and that is the point |
+| [28](28-a-catalogue-that-draws-nothing.md) | A catalogue that drew nothing: the YCCK image is decoded, §11.5.3's masks are finished (ADRs 0217, 0220) and §11.4.6's knockout draws (ADR 0234); §11.4.7 and §11.4.4's NOTE 5 are what is left, and one run over the file is now a check rather than a question | 0, and that is the point |
 | [30](30-a-native-host.md) | GTK4, then Qt, then `viewer-ffi` | — |
 | [31](31-accessibility-host.md) | AccessKit over `Query::AccessibilityTree` — **built and read back off a real AT-SPI bus** (ADR 0214); a `TH`'s axis, a `Form`'s control role, the `Text` interface and actions are what is left | — |
 | [32](32-presentation-player.md) | **Seven of Table 164's twelve styles are drawn** (ADR 0230); `Blinds`, `Glitter`, `Dissolve` and `Fly` are reported by name, and §12.4.4.2's states have no control | — |

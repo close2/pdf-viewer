@@ -284,6 +284,94 @@ pub fn knockout_group() -> DisplayList {
     list
 }
 
+/// A knockout group whose elements state their shapes apart from their alpha (§11.4.6).
+///
+/// [`knockout_group`] is the case where an element's shape *is* the coverage it is drawn
+/// with. This is the other one, and the clause names it:
+///
+/// > The existence of the knockout feature is the main reason for maintaining a separate
+/// > shape value rather than only a single alpha that combines shape and opacity.
+///
+/// Each pair here is an opaque red rectangle with a **nested group** over it, painted at half
+/// alpha. §11.4.6 knocks the red out within the *group's* shape — the union of its elements'
+/// shapes, which is 1 wherever the group marks — and then adds the group's half-opaque
+/// result, so the overlap shows half blue over the page's green backdrop. A backend that read
+/// the shape off the alpha would knock out only half of the red and produce a purple band; a
+/// backend that composited the second stage with source-over rather than addition would
+/// produce a quarter of the red instead of none.
+///
+/// The second pair's group holds a wedge, for [`knockout_group`]'s reason: the two backends
+/// reach the pair of operators through different libraries, and an axis-aligned scene would
+/// hold them to the easy half.
+#[must_use]
+pub fn knockout_stated_shape() -> DisplayList {
+    let mut list = DisplayList::new(A4);
+
+    // The page behind the group, so that "the red is gone" is a colour rather than nothing.
+    list.push(Command::Fill {
+        path: Arc::new(rect(40.0, 100.0, 555.0, 750.0)),
+        transform: Transform::IDENTITY,
+        fill_rule: FillRule::NonZero,
+        paint: Paint::Solid(GREEN),
+        clip: None,
+        mask: None,
+        blend: BlendMode::Normal,
+    });
+
+    let fill = |path: Path, paint| Command::Fill {
+        path: Arc::new(path),
+        transform: Transform::IDENTITY,
+        fill_rule: FillRule::NonZero,
+        paint: Paint::Solid(paint),
+        clip: None,
+        mask: None,
+        blend: BlendMode::Normal,
+    };
+    // A group of one opaque mark, painted at `alpha`, beside the shape it knocks out with:
+    // the same mark at full opacity, which is §11.6.4.2's shape of the group's element and
+    // therefore of the group.
+    let shaped = |path: Path, alpha: f32| Command::Shaped {
+        object: Box::new(Command::Group {
+            commands: vec![fill(path.clone(), BLUE)],
+            alpha,
+            clip: None,
+            mask: None,
+            blend: BlendMode::Normal,
+            knockout: false,
+        }),
+        shape: Box::new(Command::Group {
+            commands: vec![fill(path, Color::WHITE)],
+            alpha: 1.0,
+            clip: None,
+            mask: None,
+            blend: BlendMode::Normal,
+            knockout: false,
+        }),
+    };
+
+    let mut wedge = Path::new();
+    wedge.push(PathCommand::MoveTo(Point::new(160.0, 200.0)));
+    wedge.push(PathCommand::LineTo(Point::new(410.0, 200.0)));
+    wedge.push(PathCommand::LineTo(Point::new(410.0, 430.0)));
+    wedge.push(PathCommand::Close);
+
+    list.push(Command::Group {
+        commands: vec![
+            fill(rect(60.0, 450.0, 310.0, 700.0), RED),
+            shaped(rect(160.0, 550.0, 410.0, 730.0), 0.5),
+            fill(rect(60.0, 130.0, 310.0, 380.0), RED),
+            shaped(wedge, 0.5),
+        ],
+        alpha: 1.0,
+        clip: None,
+        mask: None,
+        blend: BlendMode::Normal,
+        knockout: true,
+    });
+
+    list
+}
+
 /// All sixteen of §11.3.5's blend modes, each over the same backdrop.
 ///
 /// # Why this scene exists, and what it can catch that nothing else could

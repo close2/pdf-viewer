@@ -201,6 +201,18 @@ the page's own scale is their scan conversion of five-point type and ours is alr
 That is the alarm doing what it is for: a page arriving in the negative tail with an explanation
 rather than a shrug.
 
+**Re-run before and after in the three-hundred-and-ninety-seventh**, the round that stated a
+knockout element's shape apart from its alpha (ADR 0234), and **every line of all 786 is identical
+— the numbers and the labels both**. Head `issue16038.pdf` −5.758, then `issue12295.pdf` −1.712,
+`checkbox_no_appearance.pdf` −1.200, `issue14297.pdf` −1.146 and `issue7821.pdf` −1.000; twenty at
+or past −1 and sixteen of them incomplete, as in the two runs before it. **That is the expected
+result and the reason is a property of this instrument rather than of the round**: the sweep's
+population is the ambiguous bucket, and every page that round moved was *contradicted* before it
+and *agrees* after it. A page moving between those two states cannot be seen here at all — so
+"nothing moved" is the sweep saying nothing stopped being drawn, not the sweep failing to notice.
+The *before* half was taken by stashing the round and re-running the gate, because each oracle run
+overwrites the artefacts the sweep reads.
+
 **Three lines on the *positive* side did move, and they are the round**: `issue13520.pdf` +3.804 →
 +2.554, `bug1703683_page2_reduced.pdf` +0.142 → +0.141 and `issue12798_page1_reduced.pdf` in the
 fourth decimal at +0.068. Every one of the three is a mask group whose raster this round redirected,

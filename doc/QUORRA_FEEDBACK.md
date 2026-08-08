@@ -1025,3 +1025,70 @@ either would do:
 **We are not asking for the wait to be removed.** `Device::render` blocking on the device before it
 returns is what makes `execute` reportable at all, and this side depends on that: it is the reason
 our trace can say a frame's cost without introducing a fence of its own.
+
+## 14. §11.4.6's shape is not always the coverage, and `Compose` has no way to say so — **open, and it is a defect this side used to share**
+
+Written 2026-08-08, at the end of this viewer's three-hundred-and-ninety-seventh session.
+
+`quorra_scene::Compose` carries the argument for its own existence, and this side agrees with every
+word of it: a general 2D vector library cannot be patched into clause 11, `Compose::Src` is
+"Porter-Duff Source, **modulated by coverage**", and the scene that tests it has a diagonal edge on
+purpose. That is exactly right for the half of §11.4.6 where an element's shape *is* its coverage.
+
+**It is the wrong answer for the other half, and the clause says so in one sentence:**
+
+> The existence of the knockout feature is the main reason for maintaining a separate shape value
+> rather than only a single alpha that combines shape and opacity.
+
+§11.6.4.2 gives an object's shape from its geometry alone; §11.6.4.3's soft mask and §11.6.4.4's
+constant alpha are *opacity*. So a knockout element under a soft mask has shape 1 inside its path
+and opacity ½, and a nested group has the shape of everything it marks whatever alpha it is painted
+at — and in neither case is the alpha a rasteriser draws with the shape the clause weights the
+backdrop by. `Compose::Src` reads the shape off that alpha, which is the assumption these elements
+contradict.
+
+### What this side did
+
+`pdf_render::Command::Shaped` states the two apart: the object, and the same object with every
+source of opacity removed, whose drawn alpha *is* §11.6.4.2's shape. §11.4.6's two stages then
+come to one line per pixel in premultiplied form — `P' = (1 − f) × P + S` — which both of this
+viewer's own backends draw as two marks: **Porter-Duff Destination-Out with the shape, then Plus
+with the object**. `tiny-skia` has both as per-draw modes; Vello has neither as a parameter and
+reaches them through two layers, and the two backends agree to the channel on a scene with a
+diagonal edge inside the group.
+
+Note the second operator, because it is the part that is easy to get wrong: **source-over in the
+second stage is not the clause**. It weights the backdrop a second time, by `1 − shape × opacity`,
+where §11.4.6 weights it by `1 − shape` alone. The two agree wherever the object is opaque or the
+shape is 0 or 1, so the difference is an antialiased edge under a translucent object — and it is
+**32 of 255** at a half-covered pixel under a half-opaque mark, which is what this side's own
+fixture pins. (Our Vello backend still carries exactly that residue for the *coverage* case, where
+it draws the element straight into the scene rather than in a layer; it is documented and bounded
+there, and the two-mark form above is what removes it.)
+
+### What the corpus says
+
+Four documents. `knockout_smask.pdf`, `knockout_nested.pdf`, `knockout_nested_group_alpha.pdf` and
+`knockout_inner_backdrop.pdf` all state a knockout group one of whose elements is a nested group or
+carries a soft mask. **All four used to be counted as agreeing in §0's gate**, and that agreement
+was two backends making the same wrong assumption: both read the shape off the alpha. They are now
+`refused` by name, which is a gain rather than a regression — `957 pages compared: 916 agree, 36
+differ, 5 refused, 17 not comparable`, against 920/36/1/17 before.
+
+### The ask
+
+**Two Porter-Duff operators on `Compose`: `DestOut` and `Plus`.** Both are safe where `Copy` is
+not, and for the reason `Compose`'s own doc comment gives: at zero coverage `DestOut` leaves the
+destination exactly and `Plus` adds nothing, so neither can erase outside a shape the way a
+bounding-box composite does. With those two, a caller writes §11.4.6's second stage in two marks
+and needs nothing else — no shape channel, no second raster.
+
+An alternative shape, if it fits the scene vocabulary better: a per-element *shape* alongside the
+paint, so that one mark carries both quantities and the library does the weighting. This side has
+no preference; the two operators are simply the smaller change, and they are what our own two
+backends turned out to need.
+
+**What is not asked for**: nothing about the existing `Compose::Src`. It is right, this viewer
+still emits it for every knockout element whose shape is its coverage — including every one of
+§9.3.8's text objects, which is where the volume is — and the two-mark form is strictly more
+expensive.

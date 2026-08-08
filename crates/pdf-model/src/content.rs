@@ -1128,24 +1128,164 @@ fn command_bounds(command: &Command) -> Option<Rect> {
 /// - **No nested group.** A group's result reaches the backends as a raster, so its shape
 ///   would be its alpha by construction — the same conflation one level down.
 ///
-/// Anything this refuses keeps the report it has always had, which is the honest half: the
-/// page is drawn as an ordinary group and says so.
+/// What is left is [`stated_shape`], which states the shape separately for the elements
+/// this refuses, and a report for the elements *that* refuses.
 fn knockout_shape_is_coverage(commands: &[Command]) -> bool {
-    commands.iter().all(|command| {
-        if command.mask().is_some() {
-            return false;
-        }
-        match command {
-            Command::Fill { paint, .. } | Command::Stroke { paint, .. } => match paint {
-                Paint::Solid(_) => true,
-                Paint::Shading(shading) => shading.is_opaque(),
-                // `Paint` is non-exhaustive; a paint whose shape is unknown is refused,
-                // which leaves the report standing.
-                _ => false,
-            },
-            Command::Image { image, .. } => image.is_opaque(),
+    commands.iter().all(element_shape_is_coverage)
+}
+
+/// Whether one element's shape is the coverage a rasteriser draws it with.
+///
+/// The three conditions are [`knockout_shape_is_coverage`]'s, asked of one command.
+fn element_shape_is_coverage(command: &Command) -> bool {
+    if command.mask().is_some() {
+        return false;
+    }
+    match command {
+        // A *constant* alpha is unambiguously opacity, so the coverage a rasteriser draws
+        // this with is still the shape — which is why a translucent solid is here.
+        Command::Fill { paint, .. } | Command::Stroke { paint, .. } => match paint {
+            Paint::Solid(_) => true,
+            Paint::Shading(shading) => shading.is_opaque(),
+            // `Paint` is non-exhaustive; a paint whose shape is unknown is refused,
+            // which leaves the report standing.
             _ => false,
+        },
+        Command::Image { image, .. } => image.is_opaque(),
+        _ => false,
+    }
+}
+
+/// §11.6.4.2's shape of one element, as a command whose alpha *is* that shape.
+///
+/// The clause gives the shape from the object's geometry and nothing else — for a path
+///
+/// > the shape shall always be 1.0 inside and 0.0 outside the path
+///
+/// — while §11.6.4.3's soft mask and §11.6.4.4's constant are opacity. So a shape command is
+/// the element with those two removed: an opaque paint in place of a translucent one, no soft
+/// mask, and the blend mode dropped because §11.4.6 leaves a knockout element nothing to
+/// blend against. The clip stays: a clip constrains a shape as much as it constrains a mark.
+///
+/// `None` where this renderer cannot separate the two, which is where the report stands:
+///
+/// - **A shading that is not opaque.** §11.6.4.2 constrains such an object's shape by "the
+///   objects that define the pattern", and this tree folds §11.6.4.4's constant alpha into
+///   the shading's own colours (`Shading::with_alpha`), so a translucent colour and an
+///   unpainted region are the same number by the time a command holds them.
+/// - **An image whose samples are not opaque.** Its alpha is §11.6.5.2's `/SMask`, which is
+///   opacity, or §8.9.6.2's stencil and §8.9.6.3's explicit mask, which are shape — and one
+///   RGBA raster cannot say which.
+///
+/// A [`Command::Shaped`] answers with the shape it already carries: an inner knockout group's
+/// elements arrive stated.
+fn stated_shape(command: &Command) -> Option<Command> {
+    match command {
+        Command::Fill {
+            path,
+            transform,
+            fill_rule,
+            paint,
+            clip,
+            ..
+        } => Some(Command::Fill {
+            path: Arc::clone(path),
+            transform: *transform,
+            fill_rule: *fill_rule,
+            paint: opaque_paint(paint)?,
+            clip: *clip,
+            mask: None,
+            blend: BlendMode::Normal,
+        }),
+        Command::Stroke {
+            path,
+            transform,
+            stroke,
+            paint,
+            clip,
+            ..
+        } => Some(Command::Stroke {
+            path: Arc::clone(path),
+            transform: *transform,
+            stroke: stroke.clone(),
+            paint: opaque_paint(paint)?,
+            clip: *clip,
+            mask: None,
+            blend: BlendMode::Normal,
+        }),
+        Command::Image {
+            image,
+            transform,
+            clip,
+            ..
+        } => image.is_opaque().then(|| Command::Image {
+            image: image.clone(),
+            transform: *transform,
+            alpha: 1.0,
+            clip: *clip,
+            mask: None,
+            blend: BlendMode::Normal,
+        }),
+        // A group's shape is the union of its elements', which is what drawing their shapes
+        // onto transparency accumulates. **Knockout or not makes no difference to a shape**
+        // and that is arithmetic rather than a simplification: §11.4.6 accumulates
+        // `(1 − f) × F + f`, §11.4.4 accumulates `Union(F, f) = F + f − F × f`, and the two
+        // expressions are equal.
+        Command::Group { commands, clip, .. } => Some(Command::Group {
+            commands: commands.iter().map(stated_shape).collect::<Option<_>>()?,
+            alpha: 1.0,
+            clip: *clip,
+            mask: None,
+            blend: BlendMode::Normal,
+            knockout: false,
+        }),
+        Command::Shaped { shape, .. } => Some((**shape).clone()),
+        _ => None,
+    }
+}
+
+/// A paint that marks where its argument marks, at full opacity, or `None` where the two
+/// cannot be told apart. See [`stated_shape`].
+fn opaque_paint(paint: &Paint) -> Option<Paint> {
+    match paint {
+        Paint::Solid(_) => Some(Paint::Solid(Color::WHITE)),
+        Paint::Shading(shading) => shading.is_opaque().then(|| Paint::Shading(shading.clone())),
+        _ => None,
+    }
+}
+
+/// A knockout group's elements, each carrying the shape it knocks out with (§11.4.6).
+///
+/// `None` where one element's shape cannot be stated, which leaves the whole group an
+/// ordinary one with the report [`Interpreter::note_group_structure`] gives it —
+/// per group rather than per element, because the model the clause states is the group's.
+fn knockout_elements(commands: &[Command]) -> Option<Vec<Command>> {
+    commands
+        .iter()
+        .map(|command| {
+            if element_shape_is_coverage(command) || matches!(command, Command::Shaped { .. }) {
+                return Some(command.clone());
+            }
+            Some(Command::Shaped {
+                object: Box::new(command.clone()),
+                shape: Box::new(stated_shape(command)?),
+            })
+        })
+        .collect()
+}
+
+/// The first element of a knockout group whose shape this renderer cannot state, named for
+/// the report. See [`stated_shape`] for why each is refused.
+fn unstatable_shape(commands: &[Command]) -> Option<&'static str> {
+    commands.iter().find_map(|command| {
+        if element_shape_is_coverage(command) || stated_shape(command).is_some() {
+            return None;
         }
+        Some(match command {
+            Command::Image { .. } => "an image whose samples state either shape or opacity",
+            Command::Fill { .. } | Command::Stroke { .. } => "a shading that is not opaque",
+            _ => "an element this renderer cannot describe the shape of",
+        })
     })
 }
 
@@ -1388,6 +1528,7 @@ pub fn interpret_with(
         soft_mask_depth: 0,
         uncoloured: false,
         inside_knockout: false,
+        alpha_is_shape: false,
         compositing: Compositing::Device,
     };
 
@@ -1704,6 +1845,14 @@ fn base_transform(page: &Page) -> Transform {
 }
 
 /// Interpreter state for one page.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "four independent facts about the run in progress — whether the page is being \
+              interpreted for a view, whether an uncoloured pattern's cell is running, whether \
+              a knockout group encloses the content, and whether §11.6.4.3's /AIS has been \
+              seen. They are not a configuration a caller passes and grouping them would put \
+              four unrelated questions behind one name"
+)]
 struct Interpreter<'a> {
     document: &'a Document,
     list: DisplayList,
@@ -1837,6 +1986,14 @@ struct Interpreter<'a> {
     /// into a knockout parent would stop being *one* element of that parent and become several,
     /// which is precisely what §11.4.6 makes different.
     inside_knockout: bool,
+    /// Whether §11.6.4.3's `/AIS` has been set true anywhere on this page.
+    ///
+    /// While it is, a mask and the alpha constants are *shape* rather than opacity, and
+    /// [`stated_shape`] — which builds a knockout element's shape by removing exactly those
+    /// two — states the wrong quantity. Every knockout group is therefore refused by name
+    /// while this is set. Monotone on purpose; the comment beside the entry in
+    /// [`Interpreter::apply_ext_gstate`] says why, and no corpus document states it.
+    alpha_is_shape: bool,
     /// What the content being run is painting into, which decides what a colour becomes.
     compositing: Compositing,
 }
@@ -2845,7 +3002,7 @@ impl Interpreter<'_> {
                 // and the blend mode that would have been applied to each portion: they are
                 // on the elements, and the group composites once at 1.0 under Normal.
                 let parts = self.list.split_off_commands(mark);
-                if knockout_is_drawable(&parts) {
+                if knockout_is_drawable(&parts) && !self.alpha_is_shape {
                     self.list.push(Command::Group {
                         commands: parts,
                         alpha: 1.0,
@@ -3073,14 +3230,30 @@ impl Interpreter<'_> {
             state.text.knockout = knockout;
         }
 
+        // §11.6.4.3's `/AIS`, Table 57's "alpha source flag": whether the soft mask and
+        // §11.6.4.4's two constants state shape or opacity.
+        //
+        // > This is a boolean flag, set with the AIS ("alpha is shape") entry in a graphics
+        // > state parameter dictionary (8.4.5, "Graphics state parameter dictionaries"): true
+        // > if the soft mask contains shape values, false for opacity.
+        //
+        // Alpha is the product `α = f × q` (§11.3.7.1), so which of the two a value is called
+        // changes nothing anywhere the product is all that is used — and until ADR 0234 that
+        // was everywhere this tree draws, because §11.4.6's groups were reported. It is not
+        // now: `stated_shape` builds a knockout element's shape by *removing* the mask and the
+        // constant, which is the clause under `/AIS false` and is exactly wrong under true.
+        //
+        // So the flag is read, and a knockout group is refused while it is set. It is
+        // deliberately never cleared: the value that matters is whether any element of a
+        // knockout group was painted under it, and that is a question about the graphics
+        // state's history rather than its value. **No corpus document states the entry at
+        // all**, so the over-approximation costs no page — checked over all 974.
+        if matches!(self.document.get_key(dict, "AIS"), Object::Boolean(true)) {
+            self.alpha_is_shape = true;
+        }
+
         // §11.6.4.3's soft mask: an independent source of shape or opacity, defined by a
         // transparency group and applied to every object painted while it is in force.
-        // Table 57's `/AIS` decides whether its values are shape or opacity, and is
-        // deliberately not read: this renderer carries one alpha per pixel, where §11.3.7.1
-        // makes alpha the product `α = f × q` of the two — so a mask value multiplies the
-        // same alpha whichever of the two it is called. The distinction is visible only to a
-        // model that keeps shape and opacity apart, and the places that would need it —
-        // knockout and non-isolated groups — are reported as departures already.
         match crate::soft_mask::entry(self.document, dict) {
             crate::soft_mask::SoftMaskEntry::None => state.soft_mask = None,
             crate::soft_mask::SoftMaskEntry::Mask(request) => {
@@ -3582,9 +3755,24 @@ impl Interpreter<'_> {
         // is composited in and removed again exactly, so it cancels. Where an element
         // blends it does not, and that group is the one `note_group_structure` already
         // names — so it keeps both reports rather than gaining a second departure.
-        let knockout = group.knockout
-            && knockout_shape_is_coverage(&commands)
-            && (group.isolated || !any_command(&commands, &command_blends));
+        //
+        // Where an element's shape is *not* its coverage the display list states the two
+        // separately, which is `Command::Shaped` and ADR 0234. The coverage case is left
+        // alone rather than folded into it: it is the same arithmetic in one draw instead
+        // of two, and it is what §9.3.8's text objects are made of.
+        let mut commands = commands;
+        let mut knockout = false;
+        if group.knockout
+            && !self.alpha_is_shape
+            && (group.isolated || !any_command(&commands, &command_blends))
+        {
+            if knockout_shape_is_coverage(&commands) {
+                knockout = true;
+            } else if let Some(elements) = knockout_elements(&commands) {
+                commands = elements;
+                knockout = true;
+            }
+        }
         self.note_group_departures(group, &commands, knockout);
         // §11.6.6's final compositing: the group's shape "shall then be painted into the
         // parent group or page, using the group's accumulated colour and opacity at each
@@ -3699,11 +3887,25 @@ impl Interpreter<'_> {
         // and the same shape as §9.3.8's for a text object.
         // Since the seventy-first session the display list can carry the rule itself, for
         // the groups whose elements have a shape a rasteriser can draw — see
-        // [`knockout_shape_is_coverage`], which is what `knockout_drawn` answers. What is
-        // left here is the population that condition refuses.
+        // [`knockout_shape_is_coverage`] — and since ADR 0234 for those whose shape it can
+        // *state*, see [`stated_shape`]. `knockout_drawn` answers both. What is left here
+        // is the population they refuse, and the report says which of the two refused it:
+        // a report that names its condition is worth more than one that names its clause,
+        // and this one had named neither.
         if group.knockout && !knockout_drawn && knockout_can_show(commands) {
+            // Ordered by how precisely each condition is known, not by how it is tested:
+            // the first names an element, the second names this group, and the third is
+            // page-scoped and over-approximates. More than one can hold, and the most
+            // precise true statement is the one worth printing.
+            let refusal = if let Some(element) = unstatable_shape(commands) {
+                element
+            } else if !group.isolated && any_command(commands, &command_blends) {
+                "non-isolated, and an element blends with the backdrop it excludes"
+            } else {
+                "/AIS makes the mask and the alpha constants a shape (§11.6.4.3)"
+            };
             self.note(Unsupported::TransparencyGroup {
-                detail: "knockout, and an element composites over another".to_owned(),
+                detail: format!("knockout, and an element composites over another ({refusal})"),
             });
         }
     }
@@ -5502,7 +5704,7 @@ impl Interpreter<'_> {
         if knockout_owed || !text.combined.is_empty() {
             let glyphs = text.composited.len();
             let elements = self.list.split_off_commands(text.start);
-            if knockout_owed && knockout_is_drawable(&elements) {
+            if knockout_owed && knockout_is_drawable(&elements) && !self.alpha_is_shape {
                 self.list.push(Command::Group {
                     commands: elements,
                     alpha: 1.0,
@@ -5624,7 +5826,7 @@ impl Interpreter<'_> {
                     .take(to.saturating_sub(from).saturating_sub(1)),
             );
             index = to;
-            if knockout_is_drawable(&parts) {
+            if knockout_is_drawable(&parts) && !self.alpha_is_shape {
                 self.list.push(Command::Group {
                     commands: parts,
                     alpha: 1.0,

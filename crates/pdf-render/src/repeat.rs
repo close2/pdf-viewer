@@ -168,7 +168,9 @@ pub fn repeated_subpaths(
         | Command::Stroke {
             path, transform, ..
         } => (path, *transform),
-        Command::Image { .. } | Command::Group { .. } => return None,
+        // A shaped element states one mark twice, and folding half of it would leave the
+        // two describing different regions — see `Command::path_mut`.
+        Command::Image { .. } | Command::Group { .. } | Command::Shaped { .. } => return None,
     };
     let step = (tiles.step.0.abs(), tiles.step.1.abs());
     if !step.0.is_finite() || !step.1.is_finite() || step.0 <= 0.0 || step.1 <= 0.0 {
@@ -418,9 +420,10 @@ fn rebuild(path: &Path, subpaths: &[Mapped], kept: &[usize]) -> Path {
 fn mark_bounds(command: &Command, path: &Path, to_pattern: Transform) -> Option<Rect> {
     match command {
         Command::Stroke { stroke, .. } => stroked_bounds(path, stroke, to_pattern),
-        Command::Fill { .. } | Command::Image { .. } | Command::Group { .. } => {
-            path.bounds(to_pattern)
-        }
+        Command::Fill { .. }
+        | Command::Image { .. }
+        | Command::Group { .. }
+        | Command::Shaped { .. } => path.bounds(to_pattern),
     }
 }
 

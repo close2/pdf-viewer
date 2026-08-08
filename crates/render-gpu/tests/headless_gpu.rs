@@ -211,6 +211,32 @@ fn cpu_and_gpu_agree_on_a_knockout_group() {
     );
 }
 
+/// §11.4.6's *stated* shape is the same pair of operators on both backends.
+///
+/// The scene above leaves every element's shape equal to its coverage, which is the half of
+/// the clause a single Porter-Duff Source expresses. This one states the shape separately —
+/// `Command::Shaped` — so each backend draws the clause's two stages as two marks:
+/// Destination-Out with the shape, then addition of the object. `tiny-skia` sets both as
+/// per-draw modes; Vello has neither as a parameter and reaches them through two layers. Trap
+/// 2 again: where one backend states a rule directly and the other builds it, the built one
+/// needs a scene at the fractional coverage where the two constructions differ, which is what
+/// the scene's wedge is for.
+#[test]
+fn cpu_and_gpu_agree_on_a_knockout_group_that_states_its_shape() {
+    let list = test_scenes::knockout_stated_shape();
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+
+    let cpu = CpuRasterizer::new()
+        .rasterize(&list, target)
+        .expect("supported");
+    let gpu = gpu().rasterize(&list, target).expect("supported");
+
+    assert_within_tolerance(
+        "knockout group with a stated shape",
+        raster_compare::compare(&cpu, &gpu).expect("same size"),
+    );
+}
+
 /// Every one of §11.3.5's sixteen blend modes is the same function on both backends, to
 /// the channel.
 ///

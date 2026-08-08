@@ -15,11 +15,14 @@
 //! needs it — a group's shape is what it painted, clipped by the group's bounding box — and
 //! it is a requirement of every form either way.
 //!
-//! What is *not* implemented is reported rather than tested here: §11.4.6's knockout
-//! groups, a non-isolated group whose elements blend, and a group blending colour space
-//! that is not the device's. The conditions those reports fire on are pinned below,
-//! because a report that names a page where the output cannot differ costs that page its
-//! place in the oracle's comparison (see `doc/HANDOVER.md`, trap 11).
+//! §11.4.6's knockout is drawn rather than reported — with the element's shape stated apart
+//! from its alpha where the two differ (ADR 0234) — and the tests below measure it against
+//! the clause's own two-stage arithmetic at the pixel. What is still *not* implemented is
+//! reported: a non-isolated group whose elements blend, a group blending colour space that is
+//! not the device's, and the knockout elements whose shape one alpha channel cannot be
+//! separated from. The conditions those reports fire on are pinned below, because a report
+//! that names a page where the output cannot differ costs that page its place in the oracle's
+//! comparison (see `doc/HANDOVER.md`, trap 11).
 
 #![expect(
     clippy::expect_used,
@@ -43,17 +46,26 @@ fn fixture(group: &str, bbox: &str, form: &str, page: &str) -> Vec<u8> {
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
          /Resources << /ExtGState << /GS << /ca 0.5 /CA 0.5 >> /GB << /BM /Multiply >> \
-         /GM << /SMask << /S /Luminosity /G 6 0 R >> >> >> \
-         /XObject << /Fm 5 0 R >> >> /Contents 4 0 R >>\nendobj\n\
+         /GM << /SMask << /S /Luminosity /G 6 0 R >> >> \
+         /GA << /AIS true /SMask << /S /Luminosity /G 6 0 R >> >> >> \
+         /Shading << /Sh 8 0 R >> \
+         /XObject << /Fm 5 0 R /In 7 0 R >> >> /Contents 4 0 R >>\nendobj\n\
          4 0 obj\n<< /Length {} >>\nstream\n{page}\nendstream\nendobj\n\
          5 0 obj\n<< /Type /XObject /Subtype /Form /BBox {bbox} {group} /Length {} >>\n\
          stream\n{form}\nendstream\nendobj\n\
          6 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] \
          /Group << /S /Transparency /CS /DeviceGray >> /Length {} >>\n\
-         stream\n{MASK}\nendstream\nendobj\n",
+         stream\n{MASK}\nendstream\nendobj\n\
+         7 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] \
+         /Group << /S /Transparency /I true >> /Length {} >>\n\
+         stream\n{INNER}\nendstream\nendobj\n\
+         8 0 obj\n<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [0 0 100 0] \
+         /Extend [true true] /Function << /FunctionType 2 /Domain [0 1] \
+         /C0 [0 0 1] /C1 [0 0 1] /N 1 >> >>\nendobj\n",
         page.len() + 1,
         form.len() + 1,
-        MASK.len() + 1
+        MASK.len() + 1,
+        INNER.len() + 1
     );
 
     let mut out = String::from("%PDF-1.7\n");
@@ -103,6 +115,12 @@ fn pixel(interpretation: &pdf_model::Interpretation, x: u32, y: u32) -> [u8; 4] 
 /// A grey wedge rather than a constant, so that a mask applied where none was intended
 /// changes the picture: §11.6.5.1 makes the mask value the group's luminosity.
 const MASK: &str = "0.5 g 0 0 100 100 re f";
+
+/// The isolated transparency group object 7 holds, drawn by the `/In` name.
+///
+/// One opaque blue square, so that a group used as an *element* of a knockout group has a
+/// shape — the union of its elements' — that is plainly not the alpha it is painted at.
+const INNER: &str = "0 0 1 rg 30 30 50 50 re f";
 
 /// Two overlapping opaque red squares, drawn inside the form.
 ///
@@ -371,18 +389,20 @@ fn a_filled_and_stroked_path_is_one_object() {
     assert_eq!(pixel(&painted, 50, 50), [255, 127, 127, 255]);
 }
 
-/// §11.4.6's knockout is reported where a rasteriser cannot draw an element's *shape*.
+/// §11.4.6's knockout is reported where this renderer cannot *state* an element's shape.
 ///
 /// The clause states the reason itself:
 ///
 /// > The existence of the knockout feature is the main reason for maintaining a separate
 /// > shape value rather than only a single alpha that combines shape and opacity.
 ///
-/// A raster of premultiplied samples has one alpha and no shape, so knockout reaches the
-/// display list only where the two coincide — every element's transparency being an opacity
-/// rather than a shape. A soft mask is §11.6.4.1's opacity applied here as coverage, an
-/// image's own alpha may be either §8.9.6.2's stencil or §11.6.5.2's `/SMask`, and a nested
-/// group arrives as a raster. Those keep the report; the rest is drawn.
+/// A raster of premultiplied samples has one alpha and no shape, so knockout used to reach
+/// the display list only where the two coincide. Since ADR 0234 it also reaches it where the
+/// shape can be stated *beside* the object — a soft mask and a constant alpha are
+/// §11.6.4.3's and §11.6.4.4's opacity, so the shape is the mark without them, and a group's
+/// is the union of its elements'. What is left is where one alpha genuinely carries both:
+/// an image's samples, which may be §8.9.6.2's stencil or §11.6.5.2's `/SMask`, and a shading
+/// whose colours already carry §11.6.4.4's constant.
 ///
 /// The second half of the condition is older and still stands: where the upper of two
 /// elements is opaque and blends Normal it overwrites the lower one under either model, and
@@ -428,13 +448,120 @@ fn a_knockout_group_reports_only_where_the_two_models_differ() {
         "a group that is not a knockout group is drawn as it asks to be"
     );
     assert!(
-        reported(
+        !reported(
             knockout,
             "1 0 0 rg 10 10 50 50 re f /GM gs 0 0 1 rg 30 30 50 50 re f"
         )
         .contains("knockout"),
-        "an element under a soft mask has an opacity this backend applies as a shape"
+        "a soft mask is opacity, so the element's shape is its path and is stated"
     );
+    assert!(
+        !reported(knockout, "1 0 0 rg 10 10 50 50 re f /GS gs /In Do").contains("knockout"),
+        "a nested group's shape is the union of its elements' and is stated"
+    );
+    // A shading painted under `/GS gs` carries the constant alpha in its own colours
+    // (`Shading::with_alpha`), where an unpainted region would carry the same number.
+    let refusal = reported(
+        knockout,
+        "1 0 0 rg 10 10 50 50 re f /GS gs q 30 30 50 50 re W n /Sh sh Q",
+    );
+    assert!(
+        refusal.contains("knockout") && refusal.contains("shading that is not opaque"),
+        "a translucent shading keeps the report, and the report names why: {refusal}"
+    );
+}
+
+/// §11.6.4.3's `/AIS` inverts what a knockout element's shape is, and is refused by name.
+///
+/// > This is a boolean flag, set with the AIS ("alpha is shape") entry in a graphics state
+/// > parameter dictionary (8.4.5, "Graphics state parameter dictionaries"): true if the soft
+/// > mask contains shape values, false for opacity.
+///
+/// Under `false` — the default, and what `stated_shape` builds — the mask and the two alpha
+/// constants are opacity, so an element's shape is its mark without them. Under `true` they
+/// are the shape, and removing them states exactly the wrong quantity. This is the one place
+/// in this renderer where the flag can change a pixel at all, because §11.3.7.1 makes alpha
+/// the product `f × q` everywhere else.
+///
+/// **Nine of the corpus's 974 documents state `/AIS true`**, against a ledger row that said
+/// none did, and the flag costs no page: the corpus's incomplete list is the same 67 with it
+/// and without it.
+#[test]
+fn alpha_is_shape_refuses_the_knockout_it_would_invert() {
+    let knockout = "/Group << /S /Transparency /I true /K true >>";
+    let reported = |form: &str| {
+        format!(
+            "{:?}",
+            interpret(fixture(knockout, "[0 0 100 100]", form, "/Fm Do")).unsupported
+        )
+    };
+    let under_ais = reported("1 0 0 rg 10 10 50 50 re f /GA gs 0 0 1 rg 30 30 50 50 re f");
+    assert!(
+        under_ais.contains("knockout") && under_ais.contains("/AIS"),
+        "the report names the entry that inverts the two quantities: {under_ais}"
+    );
+    // The same content under a mask that does *not* set the flag is drawn, which is what
+    // says the refusal is about `/AIS` rather than about the mask.
+    assert!(
+        !reported("1 0 0 rg 10 10 50 50 re f /GM gs 0 0 1 rg 30 30 50 50 re f")
+            .contains("knockout")
+    );
+}
+
+/// §11.4.6's arithmetic, at the pixel, for an element whose shape is not its coverage.
+///
+/// # What is measured, and against what
+///
+/// The clause's own two stages. Composite the object with the group's initial backdrop
+/// "disregarding the object's shape and using a source shape value of 1.0 everywhere", then
+/// take a "weighted average of this result with the object's immediate backdrop, using the
+/// source shape as the weighting factor". On the transparent backdrop of §11.4.5's isolated
+/// group that is `P' = (1 − f) × P + S` in premultiplied form, `f` the shape and `S` the
+/// object's premultiplied colour.
+///
+/// Both fixtures paint an opaque **red** square and then a **blue** one over it whose shape
+/// is 1 and whose opacity is a half — once by a `/Luminosity` soft mask of a 0.5 grey, once
+/// by a nested group painted under `ca 0.5`. So in the overlap `f = 1`: the red is knocked
+/// out entirely and the group holds blue at alpha ½, which over the white page is
+/// `(127, 127, 255)`.
+///
+/// **The number the old route drew is 127 of 255 away**, and it is the reason the fixture is
+/// worth the words: with the shape read off the alpha the blue composites *over* the red at
+/// a half, giving `(127, 0, 127)` — a purple band where the clause asks for a pale blue one.
+/// Putting the old route back makes both assertions fail on the green channel.
+#[test]
+fn a_stated_shape_knocks_the_element_under_it_out_entirely() {
+    let knockout = "/Group << /S /Transparency /I true /K true >>";
+    // Page (40, 40) is inside both squares; device row 100 − 40 = 60.
+    let masked = interpret(fixture(
+        knockout,
+        "[0 0 100 100]",
+        "1 0 0 rg 10 10 50 50 re f /GM gs 0 0 1 rg 30 30 50 50 re f",
+        "/Fm Do",
+    ));
+    assert!(masked.is_complete(), "{:?}", masked.unsupported);
+    assert_eq!(
+        pixel(&masked, 40, 60),
+        [127, 127, 255, 255],
+        "the mask is opacity, so the shape knocks the red out whole"
+    );
+    // Outside the blue square the red is untouched, which is what says the knockout is
+    // confined to a shape rather than applied to the group.
+    assert_eq!(pixel(&masked, 20, 80), [255, 0, 0, 255]);
+
+    let nested = interpret(fixture(
+        knockout,
+        "[0 0 100 100]",
+        "1 0 0 rg 10 10 50 50 re f /GS gs /In Do",
+        "/Fm Do",
+    ));
+    assert!(nested.is_complete(), "{:?}", nested.unsupported);
+    assert_eq!(
+        pixel(&nested, 40, 60),
+        [127, 127, 255, 255],
+        "a nested group's shape is where it marks, not the alpha it is painted at"
+    );
+    assert_eq!(pixel(&nested, 20, 80), [255, 0, 0, 255]);
 }
 
 /// §11.4.4's NOTE 5: a non-isolated group whose result composites trivially is not built.
@@ -529,4 +656,47 @@ fn a_non_isolated_group_reports_only_when_an_element_blends() {
         .contains("non-isolated"),
         "an isolated group is what this composites, blend modes and all"
     );
+}
+
+/// The second of §11.4.6's two stages is an *addition*, and one pixel says so.
+///
+/// The clause's stage b) is a "weighted average of this result with the object's immediate
+/// backdrop, using the source shape as the weighting factor" — the shape weights the
+/// backdrop and the object arrives whole. Drawing the object with ordinary source-over after
+/// emptying the shape would weight the backdrop a second time, by `1 − shape × opacity`,
+/// which is right only where the object is opaque or its shape is 0 or 1. Every other test
+/// here has a shape of 1 in the overlap and cannot see the difference.
+///
+/// So this one puts a **half-covered** pixel under a **half-opaque** object. The blue
+/// rectangle starts at page x = 10.5, so device column 10 has shape `f = ½`; the `/GM` soft
+/// mask is a 0.5 grey, so its opacity is `q = ½`. Over an opaque red page inside an isolated
+/// knockout group, §11.4.6 gives, premultiplied,
+///
+/// ```text
+/// P' = (1 − f) × P + f × q × blue = ½ × (1, 0, 0; 1) + ¼ × (0, 0, 1; 1)
+///    = (0.5, 0, 0.25; 0.75)
+/// ```
+///
+/// and compositing that onto the white page adds `1 − 0.75` of white to each component:
+/// `(0.75, 0.25, 0.5)`, which is **(191, 64, 128)**. Source-over in the second stage gives
+/// `(191, 96, 160)` instead — 32 of 255 on two channels — and that is what this fails with
+/// when `Compose::Add` is changed to over.
+#[test]
+fn the_object_is_added_to_the_backdrop_the_shape_left_behind() {
+    let painted = interpret(fixture(
+        "/Group << /S /Transparency /I true /K true >>",
+        "[0 0 100 100]",
+        "1 0 0 rg 0 0 100 100 re f /GM gs 0 0 1 rg 10.5 10 50 50 re f",
+        "/Fm Do",
+    ));
+    assert!(painted.is_complete(), "{:?}", painted.unsupported);
+    assert_eq!(
+        pixel(&painted, 10, 60),
+        [191, 64, 128, 255],
+        "half a shape keeps half the backdrop and the object is added to it"
+    );
+    // The columns either side, which are the two ends of the same formula: shape 0 keeps the
+    // red whole, and shape 1 replaces it with the half-opaque blue.
+    assert_eq!(pixel(&painted, 9, 60), [255, 0, 0, 255]);
+    assert_eq!(pixel(&painted, 11, 60), [127, 127, 255, 255]);
 }

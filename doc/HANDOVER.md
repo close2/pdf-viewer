@@ -175,29 +175,30 @@ read and walked by no control.
 
 ### The gates, today
 
-**Every number in this table was printed by the gate beside it in the three-hundred-and-ninety-sixth
+**Every number in this table was printed by the gate beside it in the three-hundred-and-ninety-seventh
 session**, which ran the whole of `doc/todo/02-every-round.md` §2 and read each figure off the
 output. Nothing in it is arithmetic performed here — that has been wrong twice — and nothing in it
 is carried forward from a previous round.
 
 | gate | what it printed | where |
 |---|---|---|
-| tests | `1371 tests run: 1371 passed, 9 skipped`, and `cargo test --workspace --doc` **1 passed** beside it, so `cargo test --workspace` reports **1372**. `clippy --workspace --all-targets` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`; `fmt --all --check` clean | `cargo nextest run --workspace`, **36.7 s** |
-| corpus (974 pdf.js documents, page one) | `974 documents in 7.0s: 0 unopenable, 8 locked, 2 encrypted beyond us, 5 pageless, **70 incomplete**, 0 slow` | `tests/corpus.rs`, **7.0 s** |
-| oracle (1794 pages vs poppler, mupdf, ghostscript) | `1794 pages (1688 we call complete, 106 incomplete)`; **899 agree / 859 of them complete**, **74 contradicted / 67 complete**, **786 ambiguous / 751 complete**, our geometry 1/0, reference geometry 2/2, not comparable 14/9, no render 18/0 — and **the undiagnosed ambiguous list printed empty**, which is the ratchet holding | `tests/oracle.rs`, **59.4 s** |
-| text (vs `pdftotext`, same 974) | `overall 99.2% (24043/24243 words), 25 below 90%`, with 24 skipped and 67 incomplete and not gated | `tests/text_extraction.rs`, **32.3 s** |
-| **quorra vs the CPU oracle** (974 documents, page one, same display list) | `957 pages compared: **920 agree, 36 differ, 1 refused, 17 not comparable**` — the one refusal is `bug1721218_reduced.pdf`, whose coverage outgrows a 16384×16384 scratch image | `render-quorra/tests/corpus.rs`, **51.8 s** |
+| tests | `1376 tests run: 1376 passed, 9 skipped`, and `cargo test --workspace --doc` **1 passed** beside it, so `cargo test --workspace` reports **1377**. `clippy --workspace --all-targets` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`; `fmt --all --check` clean | `cargo nextest run --workspace`, **34.0 s** |
+| corpus (974 pdf.js documents, page one) | `974 documents in 5.0s: 0 unopenable, 8 locked, 2 encrypted beyond us, 5 pageless, **67 incomplete**, 0 slow` | `tests/corpus.rs`, **5.0 s** |
+| oracle (1794 pages vs poppler, mupdf, ghostscript) | `1794 pages (1691 we call complete, 103 incomplete)`; **904 agree / 862 of them complete**, **69 contradicted / 67 complete**, **786 ambiguous / 751 complete**, our geometry 1/0, reference geometry 2/2, not comparable 14/9, no render 18/0 — and **the undiagnosed ambiguous list printed empty**, which is the ratchet holding | `tests/oracle.rs`, **43.9 s** |
+| text (vs `pdftotext`, same 974) | `overall 99.2% (24043/24243 words), 25 below 90%`, with 24 skipped and 64 incomplete and not gated | `tests/text_extraction.rs`, **31.9 s** |
+| **quorra vs the CPU oracle** (974 documents, page one, same display list) | `957 pages compared: **916 agree, 36 differ, 5 refused, 17 not comparable**` — one refusal is `bug1721218_reduced.pdf`, whose coverage outgrows a 16384×16384 scratch image, and **four are new and are a gain**: §11.4.6's stated shape needs two Porter-Duff operators quorra's `Compose` does not have, and those four pages used to *agree* about a picture both backends drew wrongly (ADR 0234, `QUORRA_FEEDBACK.md` section 14) | `render-quorra/tests/corpus.rs`, **49.4 s** |
 | dates | `1545 date strings in 974 documents: **1514 conform** to §7.9.4 (97.99%), 31 do not, over 22 distinct strings` | `tests/dates.rs`, **0.9 s** |
 | **§14.3.2's XMP** (same 974) | `319 documents carry §14.3.2's stream: **318 read, 1 refused**, 3191 properties between them, 106 state dc:title` — the refusal is a fuzzed file whose stream does not decode at all | `tests/xmp.rs`, **0.4 s** |
-| **JPEG 2000 vs ISO/IEC 15444-5's reference software** | 30 corpus codestreams: **14 byte-identical, 13 differing, 3 not comparable**, and no remaining difference exceeds one level. `doc/JPEG2000_FEEDBACK.md` §§7–8 has the two defects behind that | `tests/jpeg2000.rs`, **14.3 s** |
-| conformance | **5215 citations**, all naming clauses the standard has; **520 quotations**, all verbatim; **206** distinct tables cited by this tree and **247** named in the ledger's notes; **875 ledger rows** | `cargo test -p conformance`, **2.9 s** |
-| **the round itself** | **214 s** for §2's gates alone on 24 cores, warm. `doc/todo/02` records **268 s** for §2 *and* §5's binaries together, from 608 s until the three-hundred-and-eighty-fifth measured every step (ADR 0222); §5 was not timed this round | ADR 0222, `doc/todo/43` |
+| **JPEG 2000 vs ISO/IEC 15444-5's reference software** | 30 corpus codestreams: **14 byte-identical, 13 differing, 3 not comparable**, and no remaining difference exceeds one level. `doc/JPEG2000_FEEDBACK.md` §§7–8 has the two defects behind that | `tests/jpeg2000.rs`, **13.8 s** |
+| conformance | **5276 citations**, all naming clauses the standard has; **527 quotations**, all verbatim; **206** distinct tables cited by this tree and **247** named in the ledger's notes; **875 ledger rows** | `cargo test -p conformance`, **2.6 s** |
+| **the round itself** | **287 s** between the first gate's output and the last, on 24 cores, warm — the span of §2 excluding `fmt`'s own duration at the head of it, which is the one honest number a file-timestamp reading gives. `doc/todo/02` records **268 s** for §2 *and* §5's binaries together, from 608 s until the three-hundred-and-eighty-fifth measured every step (ADR 0222); §5 was not timed this round | ADR 0222, `doc/todo/43` |
 
 **Not re-run and therefore not claimed**: the twelve fuzz targets, `cargo deny`, the two
-cross-target checks and the window under `Xvfb`. The three-hundred-and-ninety-sixth changed one
-constant in `pdf-sandbox` and a handful of comments — no parser, no decoder, no rasteriser, no
-dependency — so there is nothing for any of them to have caught; that is a reason not to run them,
-not evidence that they pass. `doc/verify.md` is what each of them is and when a round owes it.
+cross-target checks and the window under `Xvfb`. The three-hundred-and-ninety-seventh changed the
+display list, the interpreter's group construction and all three rasteriser backends — no parser, no
+decoder, no dependency — so the fuzzers and `cargo deny` have nothing to catch that the workspace
+suite and the three corpus-scale gates do not; that is a reason not to run them, not evidence that
+they pass. `doc/verify.md` is what each of them is and when a round owes it.
 
 Counts are **ratcheted**: they may only improve, except where a rise is a new report and is
 written down as one (trap 5). The 14 specification PDFs in `doc/` — including ISO 32000-2 itself,
@@ -243,7 +244,7 @@ the 974 documents' first pages it affects.
 | A fill under an eighth of a device pixel; a tiling cell's two halves; a hairline at the raster's edge — **two of the three are `render-cpu`'s alone since the three-hundred-and-forty-fourth session**, and the graphics device draws every shape they lose to within 2% of its area | 4 | [todo 11](todo/11-shapes-that-still-disappear.md) |
 | A substitute that cannot be addressed; **24 codes over 8 documents that reach no glyph in silence**; a per-character fallback, owed with no witness | 40 | [todo 21](todo/21-font-substitution.md) |
 | A `/DA` font `/DR` does not define **and cannot be spelled** (Arabic, one document); a composite `/DA`, a list box, `/DS`, `/RV` | 3 | [todo 22](todo/22-variable-text-edges.md) |
-| Transparency departures (§11.4, §11.6.6) — **§11.5.3's population closed in the three-hundred-and-eighty-third** (ADRs 0217, 0220), leaving two reports with no corpus member | 11 | [todo 23](todo/23-transparency-departures.md) |
+| Transparency departures (§11.4.4, §11.6.6) — **§11.5.3's population closed in the three-hundred-and-eighty-third** (ADRs 0217, 0220) and **§11.4.6's shape in the three-hundred-and-ninety-seventh** (ADR 0234), which took five oracle pages from contradicted to agreeing. What stands is a group's *buffer* rather than a command's vocabulary: NOTE 5's backdrop removal, and a painted group's blending space. Four reports with no corpus member sit inside the two closed ones, `/AIS` among them | 8 | [todo 23](todo/23-transparency-departures.md) |
 | JPEG 2000 at a reduced resolution level — **written, measured and waiting on one push**: the decoder's API was never missing (it has had `target_resolution` since December 2025) and the real cost was an allocation sized from the full-resolution image, fixed on `close2/hayro`'s `feat/reduced-resolution-allocates-less` (`1dc833f7`, ADR 0233). Nothing on this path is committed here, because against the pinned revision the same code trades a refusal for a dead worker; a sampled shading on `render-gpu` alone. **The mask at a grid the bound refuses is closed** (ADR 0210) | 1 | [todo 24](todo/24-image-sampling-intent.md) |
 | `/FixedPrint`, which waits on a printing path | 15 | [todo 25](todo/25-view-dependent-annotations.md) |
 | An icon for `Stamp`, whose standard names are legends rather than symbols | 1 | [todo 26](todo/26-icons-a-clause-only-recommends.md) |

@@ -684,19 +684,23 @@ fn encode(
         }
         reconcile_layers(scene, list, &mut open, &wanted, to_device)?;
 
+        // §11.4.6's two stages, for an element whose shape the display list states apart
+        // from its alpha. Handled before the mask layer below rather than beside the other
+        // commands, because the object carries the mask and the recursion applies it: doing
+        // it here as well would multiply the mask into the object twice, which is the very
+        // thing §11.6.4.3's NOTE 2 warns a *file* against.
+        if let Command::Shaped { object, shape } = command {
+            encode_shaped(scene, list, (object, shape), spec)?;
+            continue;
+        }
+
         // §11.6.4.3's soft mask applies to one object at a time, so the object is isolated
         // in a layer of its own and the mask's alpha then multiplied into it. Opened before
         // the command and closed after, both inside the clip layers, because a clip and a
         // mask intersect and the order two coverages multiply in does not matter.
         let masked = command.mask();
         if masked.is_some() {
-            scene.push_layer(
-                peniko::Fill::NonZero,
-                peniko::BlendMode::new(peniko::Mix::Normal, peniko::Compose::SrcOver),
-                1.0,
-                kurbo::Affine::IDENTITY,
-                &device_rect(spec.target),
-            );
+            open_layer(scene, spec.target, peniko::Compose::SrcOver);
         }
 
         match command {
@@ -778,6 +782,67 @@ fn encode(
     }
 
     Ok(())
+}
+
+/// Encodes §11.4.6's two stages for an element that states its shape (`Command::Shaped`).
+///
+/// The clause's second stage is a weighted average of the object's composite with the
+/// element's immediate backdrop, "using the source shape as the weighting factor", which on
+/// the transparent initial backdrop a group is built on comes to `P' = (1 − f) × P + S` in
+/// premultiplied form — the backdrop scaled by one minus the shape, plus the object.
+///
+/// Both operators are safe where Vello's layers are not: `Compose::Copy` writes the source
+/// over the layer's whole bounding box and so erases outside the shape (see [`knock_out`]),
+/// while `DestOut` leaves the destination exactly where the layer contributes nothing and
+/// `Plus` adds nothing there. The sum of the two draws is bounded by 1 at every pixel — the
+/// backdrop keeps `1 − f` and the object brings `f × opacity` — so `Plus`'s saturation never
+/// engages and the pair is the clause's arithmetic rather than an approximation of it.
+///
+/// Outside a knockout group the shape is unused, so the object is encoded alone.
+///
+/// # Errors
+///
+/// As [`encode`].
+fn encode_shaped(
+    scene: &mut vello::Scene,
+    list: &DisplayList,
+    (object, shape): (&Command, &Command),
+    spec: Spec<'_>,
+) -> Result<(), GpuRasterError> {
+    // Inside either layer an element draws ordinarily: the compositing operator is the
+    // layer's, and the element's own is §11.4.5's over.
+    let inside = Spec {
+        compose: Compose::Over,
+        ..spec
+    };
+    if spec.compose != Compose::Knockout {
+        return encode(scene, list, std::slice::from_ref(object), inside);
+    }
+    open_layer(scene, spec.target, peniko::Compose::DestOut);
+    let erased = encode(scene, list, std::slice::from_ref(shape), inside);
+    scene.pop_layer();
+    erased?;
+    open_layer(scene, spec.target, peniko::Compose::Plus);
+    let added = encode(scene, list, std::slice::from_ref(object), inside);
+    scene.pop_layer();
+    added
+}
+
+/// Opens a layer over the whole target, whose contents composite by `compose`.
+///
+/// Vello has no per-draw compositing operator, so every operator this backend needs beyond
+/// source-over is a layer: §11.6.4.3's mask multiplied in, and §11.4.6's two stages. The
+/// shape is the whole target rather than the mark's, because an operator that changes the
+/// destination where the source contributes nothing would then be confined to a box, which
+/// is the defect [`knock_out`] records.
+fn open_layer(scene: &mut vello::Scene, target: TargetSpec, compose: peniko::Compose) {
+    scene.push_layer(
+        peniko::Fill::NonZero,
+        peniko::BlendMode::new(peniko::Mix::Normal, compose),
+        1.0,
+        kurbo::Affine::IDENTITY,
+        &device_rect(target),
+    );
 }
 
 /// Encodes one transparency group as a Vello layer (§11.4.1).
@@ -863,13 +928,7 @@ fn apply_mask(
     spec: Spec<'_>,
     id: pdf_render::SoftMaskId,
 ) -> Result<(), GpuRasterError> {
-    scene.push_layer(
-        peniko::Fill::NonZero,
-        peniko::BlendMode::new(peniko::Mix::Normal, peniko::Compose::DestIn),
-        1.0,
-        kurbo::Affine::IDENTITY,
-        &device_rect(spec.target),
-    );
+    open_layer(scene, spec.target, peniko::Compose::DestIn);
     scene.draw_image(spec.masks.get(id)?, kurbo::Affine::IDENTITY);
     scene.pop_layer();
     Ok(())

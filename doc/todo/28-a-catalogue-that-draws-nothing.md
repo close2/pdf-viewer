@@ -4,7 +4,10 @@ Status: **the image is decoded and the catalogue draws, since the three-hundred-
 session** (ADR 0203). **Item 2 is finished**: its clause was taken in the three-hundred-and-eightieth
 (ADR 0217) and both of the residues that left behind were paid in the three-hundred-and-eighty-third
 (ADR 0220), so a mask group in this file now composites in the quantity §11.5.3 states whatever it
-is painted with. Item 3 is `doc/todo/23`'s and stays open, with this document as its witness. Measured in the
+is painted with. **Half of item 3 is finished too**: the two §11.4.4 NOTE 5 groups this file prints
+are still owed, but §11.4.6's shape closed in the three-hundred-and-ninety-seventh (ADR 0234), so a
+knockout group here whose element is a nested group or carries a soft mask now draws. What is left of
+item 3 is `doc/todo/23`'s, with this document as its witness. Measured in the
 three-hundred-and-thirty-sixth, from a document the project owner opened and the notes it printed.
 Priority: 28
 Corpus: **0** — and that is the point. This is a real document from outside the pdf.js corpus, and
@@ -78,7 +81,7 @@ The same document prints the four populations `doc/todo/23` names, on one page:
 catalogue in CMYK, which is the case where compositing in the wrong space is visible rather than
 theoretical.
 
-**The first of the three is finished, in two rounds.** The three-hundred-and-eightieth paints a
+**The first of the three is finished, in two rounds, and the third is finished in one more.** The three-hundred-and-eightieth paints a
 `/Luminosity` mask group whose blending space is subtractive in the ink §10.4.2.3 weighs and
 composites it there (ADR 0217); the three-hundred-and-eighty-third scales that channel so the
 clause's `min` can wait for the compositing, and carries an image's samples and a shading's ramp
@@ -87,12 +90,21 @@ deleted from the tree, so **the expected result of a run over this file is that 
 gone** — and that is now a check rather than a question. Two things would still be printed and
 neither has a corpus member: a `Lab` mask group, and a blend mode inside a `/DeviceCMYK` one.
 
+**And the two §11.4.4 NOTE 5 lines are expected to remain while the knockout ones are not.** ADR
+0234 states a knockout element's shape apart from its alpha, so a group here whose element is a
+nested group or carries a soft mask draws rather than reporting — which is a *check* rather than a
+question, exactly as the twelve above became one. Two things would still be printed and both are
+this file's own: §11.4.4's non-isolated pair, and §11.6.4.3's `/AIS` if this producer sets it, which
+now refuses a knockout group by name. The catalogue is CMYK commercial work, which is where a
+producer is most likely to set it.
+
 **The measurement nobody in this tree can take is still worth taking**, because the file is the
 owner's and the pdf.js corpus's mask groups turned out to be grey artwork over ordinary backdrops
 almost without exception. A commercial catalogue in CMYK is where a registration-black backdrop and
 a CMYK image inside a mask are most likely to be, and it is the only witness this project has for
-whether the fixtures measured the real case. The other two, §11.4.7's `/DeviceCMYK` blending space
-and §11.4.4's NOTE 5, are untouched and stand exactly as below.
+whether the fixtures measured the real case. The other one, §11.4.7's `/DeviceCMYK` blending space,
+is untouched and stands exactly as below; §11.4.4's NOTE 5 is untouched too and is now the only
+structural departure this file's groups are expected to print.
 
 ## 3. §7.7.2's `TwoColumnRight`, said once and correctly
 

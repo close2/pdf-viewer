@@ -488,6 +488,26 @@ impl CpuRasterizer {
                 self.build_soft_mask(list, id, surface, masks, depth)?;
             }
 
+            // §11.4.6's two stages, for an element whose shape the display list states
+            // separately: empty `1 − shape` of what is under it, then add the object.
+            // Outside a knockout group the shape is unused — §11.4.4 reaches it only
+            // through shape × opacity — so the object is drawn alone, which is what
+            // `Command::Shaped` guarantees a backend may do.
+            if let Command::Shaped { object, shape } = command {
+                if compose == Compose::Knockout {
+                    let shape = std::slice::from_ref(&**shape);
+                    self.encode(pixmap, list, shape, surface, masks, depth, Compose::Erase)?;
+                }
+                let object = std::slice::from_ref(&**object);
+                let after = if compose == Compose::Knockout {
+                    Compose::Add
+                } else {
+                    compose
+                };
+                self.encode(pixmap, list, object, surface, masks, depth, after)?;
+                continue;
+            }
+
             // A group is the one command that needs the mask cache mutably *while* it
             // draws, so it cannot hold a clip mask borrowed from it across the recursion.
             // It therefore resolves its own clip, twice, either side of its elements.
@@ -499,11 +519,12 @@ impl CpuRasterizer {
                 ..
             } = command
             {
-                // A group inside a knockout group would have to be composited by its
-                // *shape*, which reaches this backend as one alpha channel and so cannot be
-                // told from its opacity. `pdf-model` does not build that display list — see
-                // `Command::Group`'s `knockout` — and erroring is what keeps the assumption
-                // from becoming a silent approximation if it ever does.
+                // A group whose shape is needed arrives as one half of a `Command::Shaped`,
+                // where the enclosing compose is `Erase` or `Add`. A *bare* group under
+                // knockout would have to be composited by its shape and has none stated, so
+                // it is refused rather than approximated — `pdf-model` does not build that
+                // display list, and erroring is what keeps the assumption from becoming a
+                // silence if it ever does.
                 if compose == Compose::Knockout {
                     return Err(CpuRasterError::UnsupportedCommand(
                         "a group inside a knockout group has a shape this backend cannot \
@@ -525,6 +546,7 @@ impl CpuRasterizer {
                         } else {
                             Compose::Over
                         },
+                        into: compose,
                     },
                     surface,
                     masks,
@@ -652,7 +674,10 @@ impl CpuRasterizer {
 
         let paint = tiny_skia::PixmapPaint {
             opacity: group.alpha.clamp(0.0, 1.0),
-            blend_mode: convert::blend_mode(group.blend),
+            // `Compose::mode` reads the group's own blend where the group composites
+            // ordinarily, and §11.4.6's operator where it is half of a shaped element —
+            // whose blend mode the clause leaves nothing to blend against.
+            blend_mode: group.into.mode(group.blend),
             // The buffer is drawn at 1:1 with no transform, so no sample is ever
             // interpolated and the quality setting cannot change a pixel.
             quality: tiny_skia::FilterQuality::Nearest,
@@ -671,7 +696,7 @@ impl CpuRasterizer {
         // them by the same two steps a command does: the group's clip, alpha and offset
         // are applied onto transparency, and the result is composited by `blend`. The
         // extra buffer is the price of the mode, not of every group.
-        if let Some(mode) = blend::NonSeparable::of(group.blend) {
+        if let Some(mode) = group.into.non_separable(group.blend) {
             let mut layer = tiny_skia::Pixmap::new(surface.width(), band.height).ok_or(
                 CpuRasterError::Allocation {
                     width: surface.width(),
@@ -1024,12 +1049,30 @@ impl CpuRasterizer {
 /// An element's *own* blend mode disappears under knockout, and that is the clause rather
 /// than a shortcut: its backdrop is transparent, and §11.3.6's formula with αb = 0 is the
 /// source colour whatever the blend function is.
+///
+/// # The two halves of a [`Command::Shaped`] element
+///
+/// Where the shape is *not* the coverage the display list states it separately, and the
+/// clause's two stages become two draws: [`Self::Erase`] scales the accumulated result by
+/// `1 − shape`, then [`Self::Add`] adds the element. In premultiplied form that is
+/// `P' = (1 − f) × P + S` exactly — see [`Command::Shaped`] — where the one-step
+/// [`Self::Knockout`] form is the same line with `f` read off the coverage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Compose {
     /// §11.4.5: an element paints over the group's accumulated result.
     Over,
     /// §11.4.6: an element replaces it within its own coverage.
     Knockout,
+    /// §11.4.6's second stage, weighting the immediate backdrop by `1 − shape`.
+    Erase,
+    /// §11.4.6's second stage, adding the object the first stage composited.
+    ///
+    /// Addition rather than source-over, and the difference is the whole point of the pair:
+    /// source-over would weight the backdrop by `1 − shape × opacity` a second time, which
+    /// is right only where the object is opaque or its shape is 0 or 1. What the two draws
+    /// leave behind is disjoint — `1 − f` of the backdrop and `f × opacity` of the object —
+    /// so the sum cannot exceed 1 and `Plus`'s saturation never engages.
+    Add,
 }
 
 impl Compose {
@@ -1038,6 +1081,8 @@ impl Compose {
         match self {
             Self::Over => convert::blend_mode(blend),
             Self::Knockout => tiny_skia::BlendMode::Source,
+            Self::Erase => tiny_skia::BlendMode::DestinationOut,
+            Self::Add => tiny_skia::BlendMode::Plus,
         }
     }
 
@@ -1047,7 +1092,7 @@ impl Compose {
     fn non_separable(self, blend: pdf_render::BlendMode) -> Option<blend::NonSeparable> {
         match self {
             Self::Over => blend::NonSeparable::of(blend),
-            Self::Knockout => None,
+            Self::Knockout | Self::Erase | Self::Add => None,
         }
     }
 }
@@ -1065,6 +1110,11 @@ struct Group<'a> {
     mask: Option<SoftMaskId>,
     /// How this group's own elements combine with each other (§11.4.6).
     compose: Compose,
+    /// How the finished group combines with what it is drawn onto.
+    ///
+    /// [`Compose::Over`] everywhere except the two halves of a [`Command::Shaped`], where a
+    /// group is one element of a knockout group and §11.4.6's two stages are two draws.
+    into: Compose,
 }
 
 /// Where and how an image is placed.

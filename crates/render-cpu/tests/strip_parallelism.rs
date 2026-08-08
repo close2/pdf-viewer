@@ -60,12 +60,16 @@ fn drawn(list: &DisplayList, target: TargetSpec, strips: u32) -> Vec<u8> {
 /// Every scene, at every division, drawn identically to the serial render.
 #[test]
 fn a_page_drawn_in_strips_is_the_page_drawn_whole() {
-    let scenes: [(&str, DisplayList); 6] = [
+    let scenes: [(&str, DisplayList); 7] = [
         ("basic", test_scenes::basic()),
         ("curves", test_scenes::curves()),
         ("diagonal_stroke", test_scenes::diagonal_stroke()),
         ("transparency_group", test_scenes::transparency_group()),
         ("knockout_group", test_scenes::knockout_group()),
+        (
+            "knockout_stated_shape",
+            test_scenes::knockout_stated_shape(),
+        ),
         ("soft_mask", test_scenes::soft_mask()),
     ];
 

@@ -192,23 +192,83 @@ pub enum Command {
         /// The backdrop this command composites onto is transparent, so compositing an
         /// element with it yields the element itself — and the group's accumulated result
         /// is then "replaced by only a fraction of the result", the fraction being the
-        /// element's *shape*. For a rasteriser that fraction is the coverage the element is
-        /// drawn with, so a knockout element is Porter-Duff Source modulated by coverage,
-        /// and its own blend mode has a transparent backdrop to blend against and therefore
-        /// no effect.
+        /// element's *shape*. For a rasteriser that fraction is usually the coverage the
+        /// element is drawn with, so such an element is Porter-Duff Source modulated by
+        /// coverage, and its own blend mode has a transparent backdrop to blend against and
+        /// therefore no effect.
         ///
         /// # What a backend may assume, and who guarantees it
         ///
-        /// The clause is explicit that shape and opacity are different quantities — "[t]he
-        /// existence of the knockout feature is the main reason for maintaining a separate
-        /// shape value" — and a raster of premultiplied
-        /// samples carries only the one. So `pdf-model` sets this **only** where every
-        /// element's shape is its coverage: no element carries a soft mask, no image or
-        /// shading contributes per-sample alpha, and no element is itself a group.
-        /// Everything else keeps the report §11.4.6 has had since ADR 0026. A backend
-        /// therefore implements one rule — draw each element with Source rather than over —
-        /// and needs no shape channel to be right.
+        /// The clause is explicit that shape and opacity are different quantities:
+        ///
+        /// > The existence of the knockout feature is the main reason for maintaining a
+        /// > separate shape value rather than only a single alpha that combines shape and
+        /// > opacity.
+        ///
+        /// A raster of premultiplied samples carries only the one, so an element whose
+        /// shape is *not* its coverage arrives as [`Command::Shaped`], which states the two
+        /// separately. Every other element of a knockout group has a shape a backend can
+        /// read off the coverage it draws with, and `pdf-model` guarantees that: it emits
+        /// this flag only where every element is one or the other, and reports the groups
+        /// where a shape cannot be stated at all.
         knockout: bool,
+    },
+    /// An object of a knockout group whose shape is not the coverage it is drawn with
+    /// (ISO 32000-2 §11.4.6, §11.6.4.2).
+    ///
+    /// # Why the display list says this twice
+    ///
+    /// §11.6.4.2 gives an object's *shape* from its geometry alone — for a path "the shape
+    /// shall always be 1.0 inside and 0.0 outside the path" — while a soft mask and the
+    /// constant alpha are *opacity*, §11.6.4.3 and §11.6.4.4. §11.6.4.3:
+    ///
+    /// > The mask may serve as a source of either shape … or opacity … values, depending on
+    /// > the setting of the alpha source parameter in the graphics state (see 8.4,
+    /// > "Graphics state").
+    ///
+    /// Everywhere except §11.4.6 the two quantities are only ever multiplied together, and
+    /// one alpha channel per pixel carries the product exactly. A knockout group is where
+    /// they are used apart: §11.4.6's first stage composites the object with the group's
+    /// initial backdrop
+    ///
+    /// > disregarding the object's shape and using a source shape value of 1.0 everywhere
+    ///
+    /// and its second stage takes a
+    ///
+    /// > weighted average of this result with the object's immediate backdrop, using the
+    /// > source shape as the weighting factor
+    ///
+    /// — so the shape weights the *backdrop* while shape × opacity weights the object.
+    ///
+    /// # The two steps a backend draws, and why they are exactly the clause
+    ///
+    /// Onto the transparent initial backdrop a group is built on, §11.4.6's two stages come
+    /// to one line per pixel in premultiplied form: with the accumulated result `P`, the
+    /// object's shape `f` and its premultiplied colour `S` (which already carries
+    /// `f × opacity`),
+    ///
+    /// ```text
+    /// P' = (1 − f) × P + S
+    /// ```
+    ///
+    /// which a backend draws as **Porter-Duff Destination-Out with [`Self::shape`], then
+    /// Plus with [`Self::object`]** — the first factor and the second term, in that order.
+    /// Ordinary source-over would multiply the backdrop term by `(1 − f × opacity)` as
+    /// well, which is right only where the object is opaque or its shape is 0 or 1.
+    ///
+    /// # What is guaranteed
+    ///
+    /// This command appears only as a direct element of a [`Self::Group`] whose `knockout`
+    /// is set. Outside one the shape is unused — §11.4.4's non-knockout formulas reach it
+    /// only through `shape × opacity` — so a backend may draw `object` alone there.
+    Shaped {
+        /// The object, drawn exactly as it would be anywhere else.
+        object: Box<Command>,
+        /// The same object with every source of *opacity* removed, so that the alpha a
+        /// backend draws it with is §11.6.4.2's shape.
+        ///
+        /// A backend reads the coverage and alpha this marks and ignores its colour.
+        shape: Box<Command>,
     },
     /// Draws the outline of a path.
     Stroke {
@@ -238,6 +298,9 @@ impl Command {
             | Self::Stroke { clip, .. }
             | Self::Image { clip, .. }
             | Self::Group { clip, .. } => *clip,
+            // A shaped element's two halves carry the same clip — a clip constrains a
+            // shape as much as it constrains a mark — so the object answers for both.
+            Self::Shaped { object, .. } => object.clip(),
         }
     }
 
@@ -253,6 +316,11 @@ impl Command {
             | Self::Stroke { clip: at, .. }
             | Self::Image { clip: at, .. }
             | Self::Group { clip: at, .. } => *at = clip,
+            // Both halves, or the shape would knock out an area the object no longer marks.
+            Self::Shaped { object, shape } => {
+                object.set_clip(clip);
+                shape.set_clip(clip);
+            }
         }
     }
 
@@ -265,6 +333,7 @@ impl Command {
         match self {
             Self::Fill { path, .. } | Self::Stroke { path, .. } => Some(path),
             Self::Image { .. } | Self::Group { .. } => None,
+            Self::Shaped { object, .. } => object.path(),
         }
     }
 
@@ -277,10 +346,19 @@ impl Command {
     /// tiling they both describe is an edit to the path of a command already emitted
     /// (§8.7.3.1, §11.6.2 — see [`crate::repeat`]). Doing it by editing the command is what
     /// saves running the cell's content stream a second time to find out.
+    #[expect(
+        clippy::match_same_arms,
+        reason = "the two `None`s are different answers: an image and a group have no path \
+                  to hand out, and a shaped element has one it withholds"
+    )]
     pub fn path_mut(&mut self) -> Option<&mut Arc<Path>> {
         match self {
             Self::Fill { path, .. } | Self::Stroke { path, .. } => Some(path),
             Self::Image { .. } | Self::Group { .. } => None,
+            // **Not** the object's, although [`Self::path`] reads it: this hands out a
+            // geometry to *replace*, and replacing the object's without its shape's would
+            // leave the pair describing two different marks. A shaped element is left whole.
+            Self::Shaped { .. } => None,
         }
     }
 
@@ -338,6 +416,9 @@ impl Command {
                 Some(bounds)
             }
             Self::Group { .. } => None,
+            // The shape is the object with its opacity taken off, so the two mark the same
+            // region and the object's bound holds for both.
+            Self::Shaped { object, .. } => object.device_bounds(to_device),
         }
     }
 
@@ -352,6 +433,9 @@ impl Command {
             | Self::Stroke { blend, .. }
             | Self::Image { blend, .. }
             | Self::Group { blend, .. } => *blend,
+            // §11.4.6 leaves a knockout element's own mode nothing to blend against, but
+            // the object states it and this reports what the object says.
+            Self::Shaped { object, .. } => object.blend(),
         }
     }
 
@@ -369,6 +453,9 @@ impl Command {
             | Self::Stroke { mask, .. }
             | Self::Image { mask, .. }
             | Self::Group { mask, .. } => *mask,
+            // The object's. The shape carries none by construction: §11.6.4.3's mask is
+            // opacity, which is exactly what a shape has had removed.
+            Self::Shaped { object, .. } => object.mask(),
         }
     }
 }

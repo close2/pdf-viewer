@@ -113,6 +113,30 @@ fn cpu_and_quorra_agree_on_knockout_groups() {
     );
 }
 
+/// §11.4.6's element whose shape is stated apart from its alpha is refused **by name**.
+///
+/// `quorra_scene::Compose` offers source-over and coverage-modulated source, and the second
+/// is precisely the assumption this element exists to contradict: it reads the shape off the
+/// coverage. Writing `(1 − shape) × backdrop + object` needs Porter-Duff Destination-Out and
+/// Plus, which the scene vocabulary does not have — so the backend says so and draws nothing,
+/// rather than drawing the page the coverage-modulated form would give.
+///
+/// This is a *test of the refusal*, not of a defect: it fails if the refusal ever becomes
+/// silent, and it is what `doc/QUORRA_FEEDBACK.md`'s entry is measured against.
+#[test]
+fn quorra_refuses_a_knockout_element_that_states_its_shape() {
+    let list = test_scenes::knockout_stated_shape();
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("target fits the budget");
+    let refusal = quorra()
+        .rasterize(&list, target)
+        .expect_err("quorra has no Destination-Out and no Plus")
+        .to_string();
+    assert!(
+        refusal.contains("§11.4.6") && refusal.contains("shape"),
+        "the refusal names the clause and what it needs: {refusal}"
+    );
+}
+
 #[test]
 fn cpu_and_quorra_agree_on_all_sixteen_blend_modes() {
     // Release only, for the reason `cpu_and_gpu_agree_on_every_blend_mode` records:

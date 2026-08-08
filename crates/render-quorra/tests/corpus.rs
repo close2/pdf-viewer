@@ -103,7 +103,23 @@ const MIN_STRUCTURAL_SIMILARITY: f64 = 0.99;
 /// its mesh shading has no visible raster, pdf.js's issue #17848 traced that to a defective
 /// document, and the backend now draws nothing for it exactly as this viewer's own two
 /// backends always have.
-const REFUSED: [&str; 1] = ["bug1721218_reduced.pdf"];
+///
+/// **Four joined it in the three-hundred-and-ninety-seventh, and every one of them is a page
+/// this backend used to draw *wrongly*.** ADR 0234 states §11.4.6's shape apart from the alpha
+/// for the elements where the two differ, and `quorra_scene::Compose` has source-over and
+/// coverage-modulated source — the second of which *is* the assumption the new element exists
+/// to contradict. So these four pages used to be drawn by reading the shape off the alpha, which
+/// agreed with a CPU backend doing the same thing; now the display list says what the clause
+/// says and the backend says it cannot draw it. A refusal that replaces an agreement about a
+/// wrong picture is a gain, and it is `doc/QUORRA_FEEDBACK.md` section 14's entry: two Porter-Duff
+/// operators, Destination-Out and Plus.
+const REFUSED: [&str; 5] = [
+    "bug1721218_reduced.pdf",
+    "knockout_inner_backdrop.pdf",
+    "knockout_nested.pdf",
+    "knockout_nested_group_alpha.pdf",
+    "knockout_smask.pdf",
+];
 
 /// Pages where the two rasterisers differ only at the **edges** of what they draw.
 ///

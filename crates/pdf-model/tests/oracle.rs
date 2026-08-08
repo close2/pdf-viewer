@@ -727,8 +727,15 @@ const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 0] = [];
 ///
 /// The seventy-first session implemented §11.4.6 for the elements whose shape a rasteriser
 /// can draw, and page 2 came from mean 5.07 to 3.08 without leaving the contradicted list —
-/// it still holds what that condition refuses. Page 1 of the same document became a page we
+/// it still held what that condition refuses. Page 1 of the same document became a page we
 /// draw completely and its mean fell 4.19 to 3.20.
+///
+/// **Both pages left it in the three-hundred-and-ninety-seventh**, when the display list
+/// started stating a knockout element's shape apart from its alpha (ADR 0234): page 2 at mean
+/// 3.20 and page 3 at 4.02 stopped being contradicted and now agree, and so did
+/// `knockout_nested.pdf` at 8.19, `knockout_nested_group_alpha.pdf` at 6.42 and
+/// `knockout_smask.pdf` at 8.06. Five for six on this list's name failing to diagnose a
+/// member, and the diagnosis was in the clause both times.
 /// # Six arrived in the hundred-and-forty-eighth session, and the reason is the whole point
 ///
 /// The standard 14 font programs are compiled into the binary now (ADR 0133), so `/Helvetica`,
@@ -4671,13 +4678,15 @@ const AMBIGUOUS_OURS_ON_THE_LIMIT: [&str; 3] = [
 /// renderers give one answer to §11.4.6 and two give another, which is a clause with two readings
 /// rather than a page with a defect.
 ///
-/// **And this page reports nothing**, which is worth saying because five of the corpus's documents
-/// report exactly this clause: `doc/todo/23`'s first population is "a knockout element whose shape
-/// is not its coverage", and `knockout_blend_multiply.pdf`, `knockout_inner_backdrop.pdf`,
-/// `knockout_nested.pdf` and this file's own **page 2** are on the incomplete list for it. Page 1's
-/// knockout groups are ones this tree composites without reaching that condition, so the page is
-/// judged rather than excused — and the judgement is that we are inside the references' own
-/// spread on the only quadrants that separate them.
+/// **And this page reports nothing**, which used to be worth saying because five of the corpus's
+/// documents reported exactly this clause. `doc/todo/23`'s first population was "a knockout element
+/// whose shape is not its coverage" and it is **closed** as of ADR 0234, so of the pages this
+/// paragraph named only `knockout_blend_multiply.pdf` and `knockout_inner_backdrop.pdf` still
+/// report — for §11.4.4's non-isolated residue rather than for a shape — and page 2 of this file
+/// agrees with the consensus now. Page 1's knockout groups were always ones this tree composites
+/// without reaching that condition, so the page is judged rather than excused, and **the numbers
+/// above are unmoved to a hundredth**: it is the group the five-renderer split is about, and no
+/// element of it states a shape.
 const AMBIGUOUS_KNOCKOUT_GROUP: [&str; 1] = ["knockout_groups_test.pdf page 1"];
 
 /// Ambiguous, and the whole of the difference is four horizontal rules.
