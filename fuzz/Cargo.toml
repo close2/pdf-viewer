@@ -109,3 +109,10 @@ path = "fuzz_targets/confined_wire.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "x509"
+path = "fuzz_targets/x509.rs"
+test = false
+doc = false
+bench = false

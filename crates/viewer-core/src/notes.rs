@@ -140,14 +140,18 @@ pub(crate) fn refusal(
 
 /// §12.8's signatures: what a program with no trust store can honestly say about one.
 ///
-/// **A signature asks three questions and this program answers one of them** (ADR 0215), so the
-/// hardest part of this function is keeping them apart in the words it uses. It says who signed,
-/// why, whether the range they signed runs to the end of the file (§12.8.1), and — since the
-/// three-hundred-and-seventy-seventh session — **whether the bytes that range names still hash to
-/// the digest the signature records**. It does not say whether the signature verifies against the
-/// signer's public key, or whether that signer is anyone to trust: the first needs a certificate
-/// and the second a trust store and a network, which is §7.6.5's refusal one clause over (ADR
-/// 0031). None of these sentences contains the word *valid*, and that is the point of them.
+/// **A signature asks three questions and this program answers two of them** (ADR 0215, ADR 0229),
+/// so the hardest part of this function is keeping them apart in the words it uses. It says who
+/// signed, why, whether the range they signed runs to the end of the file (§12.8.1), whether the
+/// bytes that range names still hash to the digest the signature records, and — since the
+/// three-hundred-and-ninety-second session — **whether the signature verifies under the public key
+/// in the certificate the file itself carries** (§12.8.3.3.1).
+///
+/// What it still does not say is whether that certificate belongs to anyone worth believing, or
+/// whether it had been revoked: that needs a certificate store and a network, which is §7.6.5's
+/// refusal one clause over (ADR 0031). **None of these sentences contains the word *valid*, and
+/// that is the point of them** — a certificate that arrived in the same file as the signature it
+/// verifies proves the two are consistent with each other and nothing about who made either.
 fn signatures(document: &Document, notes: &mut Vec<String>) {
     let signatures = every_signature(document);
     if signatures.is_empty() {
@@ -159,16 +163,18 @@ fn signatures(document: &Document, notes: &mut Vec<String>) {
     }
     permissions(document, notes);
     // The three questions, named, in the order §12.8.1 states them. This paragraph is what stops
-    // the sentence above it being read as "the signature is good": a digest that matches is
-    // evidence about the *bytes*, and the recorded digest sits beside the signature rather than
-    // inside it, so whoever changed the document could have changed it too. What they could not
-    // do is make the signature over it verify, and that is the question this program leaves open.
+    // the sentences above it being read as "the signature is good". Two of them are answered and
+    // the third is the one that decides whether a signature means anything about a *person*: a
+    // key that verifies is a key, and this program has nothing to say about whose.
     notes.push(
-        "of the three questions a signature asks, this program answers one: whether the document \
-         changed since it was signed (§12.8.1's digest, recomputed above). It does not check the \
-         signature against the signer's public key, and it does not know whether the signer is \
-         trusted or had been revoked — it has no certificate store and makes no network request. \
-         So nothing here says a signature is valid"
+        "of the three questions a signature asks, this program answers two: whether the document \
+         changed since it was signed (§12.8.1's digest, recomputed above) and whether the \
+         signature verifies under the public key in the certificate the file itself carries \
+         (§12.8.3.3.1). It does not answer the third — it has no certificate store and makes no \
+         network request, so it does not know whether that certificate belongs to anyone you have \
+         reason to believe, nor whether it had been revoked. A signature that verifies here was \
+         made by whoever holds the key in a certificate that arrived with the document, which is \
+         not the same as a valid signature. Nothing here says valid"
             .to_owned(),
     );
 }
@@ -257,7 +263,7 @@ fn about_one(
                 notes.push("that signature's /ByteRange does not describe this file".to_owned());
             }
         }
-        notes.push(integrity(signature, document));
+        verdicts(signature, document, notes);
         // §12.8.3.4's rules on a PAdES signature that need no certificate to check. Silent for
         // every other `/SubFilter`, which is §12.8.3.4.1's own scope.
         if let Ok(cms) = signature.signed_data() {
@@ -353,14 +359,56 @@ fn permissions(document: &Document, notes: &mut Vec<String>) {
     }
 }
 
-/// One sentence about whether a document changed after it was signed.
+/// What this program can say about one signature: §12.8.1's first two questions, in that order.
 ///
-/// Worded per case rather than by printing an enum, because the difference between the two that
-/// matter is the whole of ADR 0215: a mismatch is a fact about this file and a match is the
-/// absence of one kind of evidence against it.
-fn integrity(signature: &pdf_model::signature::Signature, document: &Document) -> String {
+/// Worded per case rather than by printing an enum, because the differences between the cases are
+/// the whole of ADR 0215 and ADR 0229. Three of them are worth the words:
+///
+/// - a **mismatching** digest is a fact about this file and a **matching** one is the absence of
+///   one kind of evidence against it, because the recorded digest sits beside the signature;
+/// - a signature that **verifies** was made by whoever holds the key in a certificate *the file
+///   itself supplied*, which is a real fact and is not "valid";
+/// - and where the two disagree — a signature that verifies over a digest the bytes no longer
+///   produce — the document is the thing that moved, which neither answer says on its own.
+fn verdicts(
+    signature: &pdf_model::signature::Signature,
+    document: &Document,
+    notes: &mut Vec<String>,
+) {
+    use pdf_model::signature::{Authenticity, Integrity, Signed};
+    let integrity = signature.integrity(document.bytes());
+    let authenticity = signature.authenticity(document.bytes());
+    // **Question 1's answer can come from question 2**, and this is the one place it does. A
+    // `SignerInfo` with no signed attributes signs the content itself, which for a detached
+    // signature is the byte range — so nothing records the digest in the open
+    // (`UnderTheSignersKey`) and the signature verifying *is* the answer. `bug854315.pdf` is the
+    // corpus's witness, and saying both sentences there would be this program reporting a
+    // question it had just answered as unanswerable.
+    let settled_by_the_key = matches!(
+        (&integrity, &authenticity),
+        (
+            Integrity::UnderTheSignersKey,
+            Authenticity::Verified {
+                over: Signed::TheDocumentsBytes,
+                ..
+            } | Authenticity::NotUnderThatKey {
+                over: Signed::TheDocumentsBytes,
+                ..
+            }
+        )
+    );
+    if !settled_by_the_key {
+        notes.push(changed(integrity));
+    }
+    if let Some(said) = verifies(&authenticity, integrity) {
+        notes.push(said);
+    }
+}
+
+/// §12.8.1's first question in words: did the bytes under this signature move?
+fn changed(integrity: pdf_model::signature::Integrity) -> String {
     use pdf_model::signature::Integrity;
-    match signature.integrity(document.bytes()) {
+    match integrity {
         Integrity::Changed { digest } => format!(
             "the bytes that signature covers no longer hash to the {} digest it records — this \
              document was modified after it was signed (§12.8.1)",
@@ -368,13 +416,12 @@ fn integrity(signature: &pdf_model::signature::Signature, document: &Document) -
         ),
         Integrity::Unchanged { digest } => format!(
             "the bytes that signature covers still hash to the {} digest it records, so nothing \
-             changed after signing — who signed is a separate question and is not answered",
+             changed after signing",
             digest.name()
         ),
         Integrity::UnderTheSignersKey => {
-            "that signature records no digest in the open, so whether the document changed \
-             cannot be answered without the signer's public key — which this program has no way \
-             to obtain"
+            "that signature records no digest in the open, so whether the document changed could \
+             only be answered by checking the signature itself"
                 .to_owned()
         }
         Integrity::UnknownDigest => {
@@ -398,9 +445,89 @@ fn integrity(signature: &pdf_model::signature::Signature, document: &Document) -
     }
 }
 
+/// §12.8.1's second question in words, worded against the first one's answer.
+///
+/// `None` where the sentence would repeat what [`changed`] has already said in the same words —
+/// no signature value, no bytes to hash, nothing readable — because a program that says one fact
+/// twice teaches a reader to skim.
+fn verifies(
+    authenticity: &pdf_model::signature::Authenticity,
+    integrity: pdf_model::signature::Integrity,
+) -> Option<String> {
+    use pdf_model::signature::{Authenticity, Integrity, Signed};
+    Some(match authenticity {
+        Authenticity::Verified {
+            key_bits,
+            over: Signed::TheDocumentsBytes,
+            ..
+        } => format!(
+            "and that signature verifies under the {key_bits}-bit RSA key in a certificate the \
+             file itself carries, directly over the bytes its /ByteRange names — so those bytes \
+             are the ones that were signed and nothing has changed since"
+        ),
+        // **The pairing, and the reason this program computes both answers before saying either.**
+        // A signature that verifies over attributes recording a digest the file no longer
+        // produces is not a broken signature; it is a real one whose document was re-saved
+        // underneath it. Four of the corpus's ten are exactly that.
+        Authenticity::Verified { key_bits, .. }
+            if matches!(integrity, Integrity::Changed { .. }) =>
+        {
+            format!(
+                "and that signature does verify under the {key_bits}-bit RSA key in a certificate \
+                 the file itself carries — but what it signs is the digest above, which these \
+                 bytes no longer produce. The signature is a real one and the document under it \
+                 is not the document it was made over"
+            )
+        }
+        Authenticity::Verified { key_bits, .. } => format!(
+            "and that signature verifies under the {key_bits}-bit RSA key in a certificate the \
+             file itself carries, over the attributes that record the digest above (RFC 5652 \
+            section 5.4) — so that digest is the signer's"
+        ),
+        Authenticity::NotUnderThatKey { key_bits, over, .. } => format!(
+            "and that signature does NOT verify under the {key_bits}-bit RSA key in the \
+             certificate the file carries{} — the value, the key and the bytes are not three that \
+             belong together, and nothing here can say which of them moved",
+            if over.binds_the_document() {
+                ", over the bytes its /ByteRange names"
+            } else {
+                ""
+            }
+        ),
+        Authenticity::NoSignerCertificate { certificates } => format!(
+            "and §12.8.3.3.1 requires the signature to carry the signer's X.509 certificate — none \
+             of the {certificates} it carries is the one it names, so there is no key to check it \
+             against"
+        ),
+        Authenticity::CertificateUnreadable(error) => format!(
+            "and the signer's certificate could not be read, so the signature was not checked \
+             against it: {error}"
+        ),
+        Authenticity::KeyNotVerifiable { algorithm } => format!(
+            "and the signer's certificate holds a public key of algorithm {algorithm}, which this \
+             program does not verify: it verifies RSA (PKCS #1 v1.5), and Table 260 names DSA and \
+             ECDSA beside it"
+        ),
+        Authenticity::AlgorithmNotVerifiable { algorithm } => format!(
+            "and that signature states signature algorithm {algorithm}, which this program does \
+             not verify: it verifies RSASSA-PKCS1-v1_5 only"
+        ),
+        Authenticity::Refused(error) => {
+            format!("and that signature was not checked against the signer's key: {error}")
+        }
+        Authenticity::UnknownDigest => "and it names a digest algorithm outside Table 260's six, \
+             so it was not checked against the signer's key either"
+            .to_owned(),
+        Authenticity::NoSignatureValue
+        | Authenticity::RangeNotInThisFile
+        | Authenticity::Unreadable(_) => return None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::about;
+
     use pdf_syntax::Document;
 
     /// Builds a document from object bodies numbered from 1, as `pdf_model::signature`'s tests do.
@@ -457,17 +584,58 @@ mod tests {
             "{said}"
         );
         assert!(
-            said.contains("this program answers one: whether the document changed"),
-            "the three questions are named and only one is claimed: {said}"
+            said.contains("this program answers two: whether the document changed"),
+            "the three questions are named and only two are claimed: {said}"
         );
         assert!(
             said.contains("no certificate store and makes no network request"),
             "{said}"
         );
+        // **The pairing this round added, and the sentence it exists for.** The signature does
+        // verify; the digest it signs is not the one these bytes make. Saying only the first
+        // would be a viewer vouching for a document that had been re-saved under its signature.
         assert!(
-            !said.to_lowercase().contains("signature is valid")
-                || said.contains("nothing here says a signature is valid"),
+            said.contains("does verify under the 2048-bit RSA key"),
+            "{said}"
+        );
+        assert!(
+            said.contains("the document under it is not the document it was made over"),
+            "{said}"
+        );
+        assert!(
+            said.contains("which is not the same as a valid signature. Nothing here says valid"),
             "no sentence here calls a signature valid: {said}"
+        );
+    }
+
+    /// The one corpus document whose *first* question is answered by its second.
+    ///
+    /// `bug854315.pdf`'s `SignerInfo` states no signed attributes, so RFC 5652 signs the content
+    /// itself — the byte range, for a detached signature — and nothing records the document's
+    /// digest in the open. Until this round that was `Integrity::UnderTheSignersKey` and the note
+    /// said the key could not be obtained. It could: §12.8.3.3.1 requires the signature to carry
+    /// it, and this one does.
+    #[test]
+    fn a_signature_over_the_documents_own_bytes_answers_both_questions_at_once() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../doc/pdf.js/test/pdfs/bug854315.pdf");
+        let Ok(bytes) = std::fs::read(&path) else {
+            println!("skipped: the doc/pdf.js submodule is not checked out");
+            return;
+        };
+        let document = Document::open(bytes).expect("a valid file");
+        let said = about(&document).join("\n");
+        assert!(
+            said.contains(
+                "directly over the bytes its /ByteRange names — so those bytes are the ones that \
+                 were signed and nothing has changed since"
+            ),
+            "{said}"
+        );
+        assert!(
+            !said.contains("records no digest in the open"),
+            "the question that could not be answered is answered, so it is not also reported \
+             as unanswerable: {said}"
         );
     }
 

@@ -59,19 +59,47 @@ fuzz_target!(|data: &[u8]| {
     if let Some(digest) = cms.message_digest {
         inside(digest);
     }
-    for oid in cms.signed_attributes.iter().chain(&cms.unsigned_attributes) {
+    for oid in cms
+        .signed_attribute_types
+        .iter()
+        .chain(&cms.unsigned_attribute_types)
+    {
         inside(oid);
     }
+    inside(cms.signature_algorithm);
+    inside(cms.signature);
+    if let Some(attributes) = cms.signed_attributes {
+        inside(attributes);
+    }
+    if let Some((issuer, serial)) = cms.signer_issuer_and_serial {
+        inside(issuer);
+        inside(serial);
+    }
+    if let Some(identifier) = cms.signer_key_identifier {
+        inside(identifier);
+    }
+    // RFC 5652 section 5.4's re-encoding, which is the one thing this module *builds* rather than
+    // borrows: a `SET OF` header in front of the file's own attribute bytes. It may be longer
+    // than its input by that header and by nothing else.
+    if let Some(encoded) = cms.signed_attributes_encoding() {
+        assert!(
+            encoded.len() <= data.len().saturating_add(6),
+            "the signed-attributes re-encoding grew by more than a header"
+        );
+    }
+    let _ = cms.algorithm();
     // `MAX_ATTRIBUTES` is private to `cms`, restated here so the target checks the bound rather
     // than trusting it — and `attributes_truncated` must say so whenever either list is at it.
     const MAX_ATTRIBUTES: usize = 64;
-    assert!(cms.signed_attributes.len() <= MAX_ATTRIBUTES);
-    assert!(cms.unsigned_attributes.len() <= MAX_ATTRIBUTES);
+    assert!(cms.signed_attribute_types.len() <= MAX_ATTRIBUTES);
+    assert!(cms.unsigned_attribute_types.len() <= MAX_ATTRIBUTES);
     assert!(
         cms.attributes_truncated
-            || (cms.signed_attributes.len() < MAX_ATTRIBUTES
-                && cms.unsigned_attributes.len() < MAX_ATTRIBUTES)
+            || (cms.signed_attribute_types.len() < MAX_ATTRIBUTES
+                && cms.unsigned_attribute_types.len() < MAX_ATTRIBUTES)
     );
+    // `MAX_CERTIFICATES` likewise, restated so the bound is checked rather than trusted.
+    assert!(cms.certificates.len() <= 64);
 
     // The two answers a caller asks for, both total over anything that parses.
     if let Some((_, imprint)) = cms.timestamp_imprint() {

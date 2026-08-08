@@ -19,7 +19,7 @@ features no file exercises.
 ```sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets      # must be silent of lints
-cargo nextest run --workspace               # 1337 tests, 9 ignored
+cargo nextest run --workspace               # 1357 tests, 9 ignored
 cargo test --workspace --doc                # the one doctest nextest does not run
 cargo build --profile gates -p pdf-sandbox --bins   # trap 10: Cargo will not do this for you
 cargo test  --profile gates -p pdf-model      --test corpus          -- --ignored --nocapture
@@ -59,8 +59,8 @@ here:
   rather than in front of it, which is worth 7 s: the corpus gate compiles `pdf-model`'s rlib and
   its own test target in one graph, and `-p hayro-compare` on its own has nothing to overlap.
 
-**Eleven fuzz targets, not five** — the handover's list had never included `object` and
-`document`, `sfnt` arrived in the two-hundred-and-forty-first, `xmp` in the two-hundred-and-ninety-fourth, `fragment` in the three-hundred-and-sixty-ninth and **`confined_wire` in the three-hundred-and-eighty-sixth** — the confined viewer's four decoders, whose input is a *process* rather than a document (ADR 0223). A round that touches a parser
+**Twelve fuzz targets, not five** — the handover's list had never included `object` and
+`document`, `sfnt` arrived in the two-hundred-and-forty-first, `xmp` in the two-hundred-and-ninety-fourth, `fragment` in the three-hundred-and-sixty-ninth, **`confined_wire` in the three-hundred-and-eighty-sixth** — the confined viewer's four decoders, whose input is a *process* rather than a document (ADR 0223) — and **`x509` in the three-hundred-and-ninety-second**, the signer's certificate and the RSA arithmetic that runs on the key inside it (ADR 0229), seeded by `fuzz/seed_x509.py`. A round that touches a parser
 runs the one that covers it; a round that touches `pdf-font`'s glyph-table repairs runs `sfnt`
 **with its corpus seeded**, because unseeded it never forms a table directory and tests nothing.
 

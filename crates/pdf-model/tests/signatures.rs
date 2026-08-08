@@ -12,7 +12,7 @@
 use std::path::{Path, PathBuf};
 
 use pdf_model::signature::{
-    Coverage, Integrity, Right, Signature, UsageRights, permissions, signatures,
+    Authenticity, Coverage, Integrity, Right, Signature, UsageRights, permissions, signatures,
 };
 use pdf_syntax::Document;
 
@@ -353,4 +353,158 @@ fn every_corpus_signature_is_asked_whether_its_document_changed() {
         3,
         "{algorithms:?}"
     );
+}
+
+/// Every signature dictionary in the corpus, asked whether it verifies under the signer's key.
+///
+/// **This is the three-hundred-and-ninety-second session's measurement** (ADR 0229), and it is
+/// §12.8.1's second question. It is printed beside the first because neither answer means much
+/// alone and the pairing is the whole point: `Signed` records, per signature, whether verifying it
+/// binds the document directly or only through the digest question 1 compares.
+///
+/// **All ten verify, and four of them are the interesting ones.** `issue6127.pdf`,
+/// `poppler-395-0-fuzzed.pdf` and both of `xfa_filled_imm1344e.pdf`'s signatures answer `Changed`
+/// to question 1 and `Verified` to question 2 — an authentic signature over attributes that record
+/// a digest the file's own bytes no longer produce. That is a stronger statement than either
+/// answer alone: these are not broken signatures, they are real signatures whose documents were
+/// re-saved out from under them.
+///
+/// And `bug854315.pdf` is the one question 2 answers *for* question 1. Its `SignerInfo` states no
+/// signed attributes, so RFC 5652 signs the content itself — which for a detached signature is the
+/// byte range — and `Integrity::UnderTheSignersKey` was this program saying so. The key it needed
+/// was in the file all along.
+#[test]
+fn every_corpus_signature_is_asked_whether_it_verifies() {
+    let Some(files) = corpus() else {
+        println!("skipped: the doc/pdf.js submodule is not checked out");
+        return;
+    };
+
+    let mut lines = Vec::new();
+    let mut verified = Vec::new();
+    let mut failed = Vec::new();
+    let mut other = Vec::new();
+    let mut binds_the_document = 0usize;
+    let mut widths = std::collections::BTreeMap::<usize, usize>::new();
+    let mut discriminates = 0usize;
+    // What answering question 2 costs, summed over the ten. It is not a gate — a wall clock on a
+    // shared machine is not one — but it is the number a reader wants, because this is the first
+    // thing in the tree that runs a modular exponentiation on the document's own thread.
+    let mut elapsed = std::time::Duration::ZERO;
+    for path in &files {
+        let Ok(bytes) = std::fs::read(path) else {
+            continue;
+        };
+        let Ok(document) = Document::open(bytes) else {
+            continue;
+        };
+        let file = document.bytes().clone();
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        for signature in &every_signature(&document) {
+            let started = std::time::Instant::now();
+            let authenticity = signature.authenticity(&file);
+            elapsed = elapsed.saturating_add(started.elapsed());
+            match &authenticity {
+                Authenticity::Verified { key_bits, over, .. } => {
+                    verified.push(format!("{name} ({key_bits}-bit, over {over:?})"));
+                    *widths.entry(*key_bits).or_default() += 1;
+                    if over.binds_the_document() {
+                        binds_the_document = binds_the_document.saturating_add(1);
+                    }
+                    // **The instrument has to be able to say no.** A measurement over ten
+                    // documents that all pass is exactly the shape a verifier stuck at `true`
+                    // would produce, so each one is asked again with one bit of its signature
+                    // value turned over. ADR 0229.
+                    if !flipped(signature).authenticity(&file).eq(&authenticity) {
+                        discriminates = discriminates.saturating_add(1);
+                    }
+                }
+                Authenticity::NotUnderThatKey { key_bits, .. } => {
+                    failed.push(format!("{name} ({key_bits}-bit)"));
+                }
+                rest => other.push(format!("{name}: {rest:?}")),
+            }
+            lines.push(format!(
+                "  {name}: {:?} / {:?}",
+                signature.integrity(&file),
+                authenticity
+            ));
+        }
+    }
+
+    lines.sort();
+    println!("question 2 over the corpus's ten signature dictionaries:");
+    for line in &lines {
+        println!("{line}");
+    }
+    verified.sort();
+    failed.sort();
+    other.sort();
+    println!(
+        "  verifies under the signer's certificate: {}",
+        verified.len()
+    );
+    for entry in &verified {
+        println!("    {entry}");
+    }
+    println!("  does NOT verify:              {failed:?}");
+    println!("  question 2 not answered:      {other:?}");
+    println!("  key widths:                   {widths:?}");
+    println!("  of those, verifying binds the document's own bytes: {binds_the_document}");
+    println!("  and with one bit of the signature turned over, no longer verify: {discriminates}");
+    println!(
+        "  all ten answered in {:.3} ms of processor time between them",
+        elapsed.as_secs_f64() * 1000.0
+    );
+
+    assert_eq!(lines.len(), 10, "signature dictionaries");
+    assert_eq!(
+        verified.len(),
+        10,
+        "signatures verifying under the key in a certificate the file itself carries"
+    );
+    assert!(
+        failed.is_empty(),
+        "signatures that do not verify: {failed:?}"
+    );
+    assert!(other.is_empty(), "question 2 unanswered: {other:?}");
+    assert_eq!(
+        discriminates, 10,
+        "every one of them stops verifying when one bit of it is changed"
+    );
+    // `bug854315.pdf`, the one whose signature is over the document's bytes directly.
+    assert_eq!(
+        binds_the_document, 1,
+        "signatures with no signed attributes"
+    );
+    // Table 260 caps RSA at 4096 bits and the corpus spans three of the sizes it names.
+    assert_eq!(widths.get(&1024).copied().unwrap_or_default(), 3);
+    assert_eq!(widths.get(&2048).copied().unwrap_or_default(), 6);
+    assert_eq!(widths.get(&4096).copied().unwrap_or_default(), 1);
+}
+
+/// The same signature with one bit of its `/Contents` turned over.
+///
+/// The last octet rather than the first: `/Contents` may carry §12.8.3.3.1's zero padding after
+/// the CMS object, and changing a padding byte would leave the signature value itself intact —
+/// which is a mutation the verifier is *right* to ignore, and would make this check pass for the
+/// wrong reason. The byte chosen is inside the signature, found by walking to the `SignerInfo`'s
+/// own value through the reader this crate ships.
+fn flipped(signature: &Signature) -> Signature {
+    let mut out = signature.clone();
+    let at = signature
+        .signed_data()
+        .ok()
+        .filter(|cms| !cms.signature.is_empty())
+        .and_then(|cms| {
+            signature
+                .contents
+                .windows(cms.signature.len())
+                .position(|window| window == cms.signature)
+        })
+        .unwrap_or(0);
+    if let Some(byte) = out.contents.get_mut(at) {
+        *byte ^= 0x01;
+    }
+    out
 }

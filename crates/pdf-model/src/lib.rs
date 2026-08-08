@@ -60,6 +60,7 @@ pub mod optional_content;
 pub mod outline;
 pub mod page;
 pub mod page_label;
+pub mod pkcs1;
 pub mod popup;
 pub mod requirements;
 pub mod restriction;
@@ -74,6 +75,7 @@ pub mod uri;
 mod variable_text;
 pub mod view;
 pub mod viewer_preferences;
+pub mod x509;
 pub mod xmp;
 
 pub use content::{Interpretation, Unsupported, interpret};

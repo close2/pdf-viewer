@@ -14,23 +14,29 @@
 //! 1. **Has the document changed since it was signed?** A digest over §12.8.1's `/ByteRange`,
 //!    compared with the digest the signature value records. No certificate, no trust decision and
 //!    no network — the file and a hash function. [`Signature::integrity`] **answers this**.
-//! 2. **Is the signature cryptographically valid for the signer's public key?** That needs the
-//!    key out of an X.509 certificate and an RSA or ECDSA verification. **Not answered**, and
-//!    named as unanswered rather than skipped: [`Integrity::UnderTheSignersKey`] is the case where
-//!    it is the *only* thing that could answer question 1 as well.
+//! 2. **Does the signature verify under the signer's public key?** That needs the key out of an
+//!    X.509 certificate ([`crate::x509`]) and an RSA verification ([`crate::pkcs1`]).
+//!    [`Signature::authenticity`] **answers this** where the key is RSA, which is Table 260's
+//!    first of three algorithm families; the other two are named by their object identifiers.
 //! 3. **Is the signer trusted, and had the certificate been revoked?** A trust store and a
 //!    network (§12.8.3.4.6's CRLs and OCSP). **Not answered**, and reported.
 //!
-//! ADR 0215 is the argument, and the separation is the point of it: the whole clause used to be
-//! refused on question 3's infrastructure, which questions 1 and 2 do not need.
+//! ADR 0215 separated the three and answered the first; ADR 0229 answered the second. The
+//! separation is the point of both: the whole clause used to be refused on question 3's
+//! infrastructure, which questions 1 and 2 do not need.
 //!
-//! # What a matching digest proves
+//! # What each answer proves, which is not the same thing
 //!
-//! **Less than a mismatching one, and the difference decides how this is worded.** The recorded
-//! digest sits *beside* the signature: whoever changes the document can change it to match, and
-//! what they cannot do is make the signature over it verify. So a difference proves the bytes
-//! moved after signing — §12.8.1 says exactly that — while agreement proves only that nothing
-//! changed carelessly. Neither is "the signature is valid", and nothing here ever says so.
+//! **A matching digest proves less than a mismatching one.** The recorded digest sits *beside* the
+//! signature: whoever changes the document can change it to match, and what they cannot do is make
+//! the signature over it verify. So a difference proves the bytes moved after signing — §12.8.1
+//! says exactly that — while agreement alone proves only that nothing changed carelessly.
+//!
+//! **A verified signature proves the signature and the certificate belong together, and the
+//! certificate arrived in the same file.** §12.8.3.3.1 requires the signer's certificate to be in
+//! the signature value, so verifying against it is a self-consistency check — a real one, and the
+//! thing a forger who edits the document cannot produce, but not a statement that the signer is
+//! anybody. Nothing here is called `Valid` and nothing this program prints uses the word.
 //!
 //! # What is here
 //!
@@ -51,10 +57,14 @@
 //! perfectly honest later revision.
 //!
 //! [`Signature::integrity`] is the digest, over [`crate::cms`]'s reading of §12.8.3.3's signature
-//! value. [`Signature::pades_departures`] is §12.8.3.4's structural requirements on a `PAdES`
-//! signature, which are checkable without cryptography and which no corpus document exercises.
+//! value; [`Signature::authenticity`] is the verification, over [`crate::x509`]'s reading of the
+//! certificate that value carries. [`Signature::pades_departures`] is §12.8.3.4's structural
+//! requirements on a `PAdES` signature, which are checkable without cryptography and which no
+//! corpus document exercises.
 
-use crate::cms::{self, CmsError, Digest, SignedData};
+use crate::cms::{self, CmsError, Digest, SignatureAlgorithm, SignedData};
+use crate::pkcs1::{self, Pkcs1Error};
+use crate::x509::{self, X509Error};
 use pdf_syntax::{Dictionary, Document, Object};
 
 /// Most signatures read from one document.
@@ -71,6 +81,12 @@ const MAX_SIGNATURES: usize = 1024;
 /// whole rather than read to the bound, so a truncated range never reaches the arithmetic:
 /// [`Signature::coverage`] answers [`Coverage::Malformed`] and a person is told.
 const MAX_BYTE_RANGE_PAIRS: usize = 64;
+
+/// Most certificates read out of one `/Cert` entry.
+///
+/// A certification path of more than sixty-four certificates is not one; this bounds an
+/// allocation whose size would otherwise come out of the file.
+const MAX_CHAIN: usize = 64;
 
 /// One signature dictionary. Table 255.
 #[derive(Clone, PartialEq, Eq)]
@@ -103,9 +119,17 @@ pub struct Signature {
     ///
     /// Table 255 makes it "(Required when `SubFilter` is adbe.x509.rsa\_sha1)" and §12.8.3.4.2
     /// makes it forbidden for a `PAdES` signature — "[t]he signature dictionary shall not contain a
-    /// Cert entry" — so its *presence* is the fact worth keeping, and the chain itself is X.509
-    /// and a trust decision this program does not make.
+    /// Cert entry" — so its *presence* is a fact in its own right, separate from what it holds:
+    /// a `/Cert` stating an empty array breaks §12.8.3.4.2 and yields no certificate.
     pub certificate_chain: bool,
+    /// `/Cert`'s certificates, in the order the entry states them.
+    ///
+    /// Table 255: "[a]n array of byte strings that shall represent the X.509 certificate chain
+    /// used when signing and verifying signatures that use public-key cryptography, or a byte
+    /// string if the chain has only one entry." The first is the signer's — the table says so:
+    /// "[t]he signing certificate shall appear first in the array". This is the only place a
+    /// §12.8.3.2 signature's key can come from, because a PKCS #1 value carries no certificate.
+    pub chain: Vec<Vec<u8>>,
     /// `/Name`, "[t]he name of the person or authority signing the document".
     pub name: Option<String>,
     /// `/M`, the time of signing, as the §7.9.4 date string the file wrote.
@@ -196,6 +220,123 @@ pub enum Integrity {
     Unreadable(CmsError),
 }
 
+/// What a signature's bytes were computed over — which decides what verifying one *proves*.
+///
+/// RFC 5652 section 5.4 makes this a two-way fork and §12.8.3 adds a third case, and the three do not
+/// bind the document equally. This is the difference between a signature that answers question 1
+/// on its own and one that answers it only through the digest question 1 compares.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Signed {
+    /// The signer's signed attributes, re-encoded as RFC 5652 section 5.4's `SET OF`.
+    ///
+    /// One of those attributes is `message-digest`, which is the digest
+    /// [`Signature::integrity`] compares — so a verified signature puts the *recorded digest*
+    /// under the signer's key, and the document follows only if that digest also matches. The two
+    /// answers together are what settles anything; either alone does not.
+    SignedAttributes,
+    /// The encapsulated content, where the signer states no signed attributes and the CMS object
+    /// carries one.
+    ///
+    /// For `adbe.pkcs7.sha1` that content *is* the document's digest — §12.8.3.3.1: "[t]he SHA-1
+    /// digest of the document's byte range shall be encapsulated in the CMS `SignedData` field" —
+    /// so the same pairing applies as above.
+    EncapsulatedContent,
+    /// The bytes `/ByteRange` names, directly.
+    ///
+    /// RFC 5652 signs the content itself when there are no signed attributes, and for a detached
+    /// signature that content is the document. **This is the case where question 2 answers
+    /// question 1 as well**: nothing sits between the signer's key and the file's bytes, so a
+    /// signature that verifies proves the bytes did not move and one that does not proves nothing
+    /// about which of the two changed. §12.8.3.2's `adbe.x509.rsa_sha1` reaches it too, by a
+    /// different route: its `/Contents` is the PKCS #1 signature over the byte range with no CMS
+    /// structure at all.
+    TheDocumentsBytes,
+}
+
+impl Signed {
+    /// Whether verifying a signature over this settles [`Signature::integrity`] as well.
+    #[must_use]
+    pub fn binds_the_document(self) -> bool {
+        matches!(self, Self::TheDocumentsBytes)
+    }
+}
+
+/// The answer to the second of a signature's three questions: **does it verify under the key in
+/// the certificate the file carries?**
+///
+/// §12.8.3.3.1 states both the requirement and, exactly, what this can be worth:
+///
+/// > At minimum the CMS object shall include the signer's X.509 signing certificate. This
+/// > certificate shall be used to verify the signature value in Contents .
+///
+/// **That certificate came out of the same file as the signature.** So [`Self::Verified`] says
+/// the signature was made by whoever holds the private key matching a certificate the file
+/// itself supplied — self-consistency, and a real fact: it is what a forger who edits the
+/// document cannot produce. What it is *not* is a statement that the signer is anybody. That is
+/// question 3, needs a certificate store and a network, and this program answers none of it.
+///
+/// No variant is called `Valid`, for the same reason no variant of [`Integrity`] is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Authenticity {
+    /// The signature verifies under the key in the signer's certificate.
+    Verified {
+        /// The digest algorithm the signature named, and this one recomputed with.
+        digest: Digest,
+        /// The key's width in bits, which is the number Table 260 puts a ceiling on.
+        key_bits: usize,
+        /// What the signature was computed over, which decides what this proves.
+        over: Signed,
+    },
+    /// It does not.
+    ///
+    /// Decisive in one direction only, and the direction is the opposite of [`Integrity`]'s: a
+    /// signature that fails to verify says the value, the key or the signed bytes are not the
+    /// three that were put together at signing time, and does not say which.
+    NotUnderThatKey {
+        /// The digest algorithm the signature named.
+        digest: Digest,
+        /// The key's width in bits.
+        key_bits: usize,
+        /// What the signature was computed over.
+        over: Signed,
+    },
+    /// No certificate in the file matches the signer the signature names.
+    ///
+    /// §12.8.3.3.1's "at minimum" requirement unmet, or met by a certificate for a different
+    /// signer. The count is carried because "none at all" and "three, none of them the signer's"
+    /// are different statements about a file.
+    NoSignerCertificate {
+        /// How many certificates the file offered.
+        certificates: usize,
+    },
+    /// The signer's certificate would not parse.
+    CertificateUnreadable(X509Error),
+    /// The certificate's public key is not RSA, named by the identifier it states.
+    ///
+    /// Table 260 also names DSA and ECDSA, so this is a gap in this program rather than a defect
+    /// in the file — which is why the algorithm is carried out to a person by its number.
+    KeyNotVerifiable {
+        /// The algorithm's object identifier as dotted decimal, or its octets in hexadecimal
+        /// where the encoding is not a well-formed identifier.
+        algorithm: String,
+    },
+    /// The signature algorithm is not RSASSA-PKCS1-v1_5, named the same way.
+    AlgorithmNotVerifiable {
+        /// The algorithm's object identifier as dotted decimal.
+        algorithm: String,
+    },
+    /// The key or the signature is outside [`crate::pkcs1`]'s budgets, or is not shaped like RSA.
+    Refused(Pkcs1Error),
+    /// The signature states a digest algorithm outside Table 260's and Table 256's six.
+    UnknownDigest,
+    /// The dictionary states no `/Contents`.
+    NoSignatureValue,
+    /// The `/ByteRange` does not name bytes of this file, so there was nothing to hash.
+    RangeNotInThisFile,
+    /// The signature value could not be read as §12.8.3.3's CMS object.
+    Unreadable(CmsError),
+}
+
 /// A requirement §12.8.3.4 places on a `PAdES` signature that a file does not meet.
 ///
 /// Every one of these is checkable with no cryptography at all, which is why they are here: the
@@ -245,6 +386,10 @@ impl std::fmt::Debug for Signature {
             .field("byte_range", &self.byte_range)
             .field("contents", &format_args!("{} bytes", self.contents.len()))
             .field("certificate_chain", &self.certificate_chain)
+            .field(
+                "chain",
+                &format_args!("{} certificate(s)", self.chain.len()),
+            )
             .field("name", &self.name)
             .field("signed_at", &self.signed_at)
             .field("location", &self.location)
@@ -420,6 +565,158 @@ impl Signature {
         }
     }
 
+    /// **Does this signature verify under the key in the certificate the file carries?**
+    ///
+    /// The second of §12.8.1's three questions, and the one this program gained in the
+    /// three-hundred-and-ninety-second session. What it does, in order:
+    ///
+    /// 1. finds the signer's certificate — by RFC 5652's `issuerAndSerialNumber` or its
+    ///    `subjectKeyIdentifier`, among the certificates the CMS object carries, or in Table 255's
+    ///    `/Cert` for a §12.8.3.2 signature, which carries no CMS object at all;
+    /// 2. reads its `subjectPublicKeyInfo` ([`crate::x509`]);
+    /// 3. digests whatever RFC 5652 section 5.4 says the signature is over ([`Signed`]);
+    /// 4. verifies with RFC 8017 section 8.2.2's encode-and-compare ([`crate::pkcs1`]).
+    ///
+    /// Read [`Authenticity`] before reading a result. [`Authenticity::Verified`] is not "valid":
+    /// the certificate it verified against arrived in the same file as the signature.
+    #[must_use]
+    pub fn authenticity(&self, file: &[u8]) -> Authenticity {
+        if self.contents.is_empty() {
+            return Authenticity::NoSignatureValue;
+        }
+        let Some(signed) = self.signed_bytes(file) else {
+            return Authenticity::RangeNotInThisFile;
+        };
+        // §12.8.3.2: "For signing PDF files using PKCS #1, the only value of SubFilter that should
+        // be used is adbe.x509.rsa_sha1 … The certificate chain of the signer shall be stored in
+        // the Cert entry." So there is no CMS object to read: `/Contents` is the signature and
+        // `/Cert` is the key.
+        if self.sub_filter.as_deref() == Some("adbe.x509.rsa_sha1") {
+            return self.pkcs1_authenticity(&signed);
+        }
+        let cms = match self.signed_data() {
+            Ok(cms) => cms,
+            Err(error) => return Authenticity::Unreadable(error),
+        };
+        if !matches!(cms.algorithm(), SignatureAlgorithm::RsaPkcs1V15) {
+            return Authenticity::AlgorithmNotVerifiable {
+                algorithm: name(cms.signature_algorithm),
+            };
+        }
+        let Some(certificate) = signer_certificate(&cms) else {
+            return Authenticity::NoSignerCertificate {
+                certificates: cms.certificates.len(),
+            };
+        };
+        let certificate = match x509::read(certificate) {
+            Ok(certificate) => certificate,
+            Err(error) => return Authenticity::CertificateUnreadable(error),
+        };
+        let x509::PublicKey::Rsa(key) = certificate.public_key else {
+            let x509::PublicKey::Unverifiable { algorithm } = certificate.public_key else {
+                return Authenticity::NoSignerCertificate {
+                    certificates: cms.certificates.len(),
+                };
+            };
+            return Authenticity::KeyNotVerifiable {
+                algorithm: name(algorithm),
+            };
+        };
+        let Some(digest) = cms.digest else {
+            return Authenticity::UnknownDigest;
+        };
+        // RFC 5652 section 5.4 decides what is hashed, and [`Signed`] documents what each one proves.
+        let attributes = cms.signed_attributes_encoding();
+        let (over, computed) = match (&attributes, cms.encapsulated) {
+            (Some(attributes), _) => (
+                Signed::SignedAttributes,
+                digest.compute(&[attributes.as_slice()]),
+            ),
+            (None, Some(content)) => (Signed::EncapsulatedContent, digest.compute(&[content])),
+            (None, None) => (Signed::TheDocumentsBytes, digest.compute(&signed)),
+        };
+        let key_bits = key.bits();
+        match pkcs1::verify(key, cms.signature, digest, &computed) {
+            Ok(true) => Authenticity::Verified {
+                digest,
+                key_bits,
+                over,
+            },
+            Ok(false) => Authenticity::NotUnderThatKey {
+                digest,
+                key_bits,
+                over,
+            },
+            Err(error) => Authenticity::Refused(error),
+        }
+    }
+
+    /// §12.8.3.2's signature: a PKCS #1 value over the byte range, with `/Cert`'s first entry.
+    ///
+    /// **The digest algorithm is not stated anywhere a reader can see it.** Table 260 permits all
+    /// five of its digests for this `/SubFilter` while §12.8.3.2 names only SHA-1, and the
+    /// identifier that settles it is inside the block, under the key. So each of the six is tried,
+    /// which RFC 8017 section 8.2.2's whole-block comparison makes safe: six comparisons against
+    /// fixed-length strings admit no forgery one does not.
+    fn pkcs1_authenticity(&self, signed: &[&[u8]]) -> Authenticity {
+        let Some(bytes) = self.chain.first() else {
+            return Authenticity::NoSignerCertificate {
+                certificates: self.chain.len(),
+            };
+        };
+        let certificate = match x509::parse(bytes) {
+            Ok(certificate) => certificate,
+            Err(error) => return Authenticity::CertificateUnreadable(error),
+        };
+        let x509::PublicKey::Rsa(key) = certificate.public_key else {
+            let x509::PublicKey::Unverifiable { algorithm } = certificate.public_key else {
+                return Authenticity::NoSignerCertificate {
+                    certificates: self.chain.len(),
+                };
+            };
+            return Authenticity::KeyNotVerifiable {
+                algorithm: name(algorithm),
+            };
+        };
+        // §12.8.3.3.1 has a producer pad `/Contents` with zeros to fill the space allocated for
+        // it, and a PKCS #1 signature is exactly as long as the modulus, so the padding is dropped
+        // by taking that many octets rather than by trimming zeros — which would also eat a
+        // signature's own trailing zero.
+        let length = key.modulus.len().saturating_sub(
+            key.modulus
+                .iter()
+                .take_while(|&&byte| byte == 0)
+                .count()
+                .min(key.modulus.len()),
+        );
+        let value = self.contents.get(..length).unwrap_or(&self.contents);
+        let key_bits = key.bits();
+        let mut refusal = None;
+        for digest in Digest::ALL {
+            match pkcs1::verify(key, value, digest, &digest.compute(signed)) {
+                Ok(true) => {
+                    return Authenticity::Verified {
+                        digest,
+                        key_bits,
+                        over: Signed::TheDocumentsBytes,
+                    };
+                }
+                Ok(false) => {}
+                Err(error) => refusal = Some(error),
+            }
+        }
+        refusal.map_or(
+            // §12.8.3.2 names SHA-1 for this `/SubFilter`, so that is the algorithm to report
+            // having failed with when none of the six matched.
+            Authenticity::NotUnderThatKey {
+                digest: Digest::Sha1,
+                key_bits,
+                over: Signed::TheDocumentsBytes,
+            },
+            Authenticity::Refused,
+        )
+    }
+
     /// §12.8.3.4's structural requirements on a `PAdES` signature, checked against this file.
     ///
     /// Empty where the signature meets them all, and empty for a signature that is not one:
@@ -461,6 +758,40 @@ impl Signature {
         }
         out
     }
+}
+
+/// The certificate a `SignerInfo` names, among the ones the CMS object carries.
+///
+/// RFC 5652's `SignerIdentifier` is a choice of two, and both are honoured: the issuer-and-serial
+/// pair that every corpus signature uses, and the `subjectKeyIdentifier` that a version 3
+/// `SignerInfo` may use instead. A signature naming neither, or naming one no certificate answers
+/// to, yields `None` — deliberately rather than falling back to "the only certificate present",
+/// which would verify against a key the signature never claimed.
+fn signer_certificate<'a>(cms: &SignedData<'a>) -> Option<crate::der::Value<'a>> {
+    if let Some((issuer, serial)) = cms.signer_issuer_and_serial {
+        return cms.certificates.iter().copied().find(|entry| {
+            x509::read(*entry).is_ok_and(|certificate| certificate.is_named_by(issuer, serial))
+        });
+    }
+    let wanted = cms.signer_key_identifier?;
+    cms.certificates.iter().copied().find(|entry| {
+        x509::read(*entry).is_ok_and(|certificate| certificate.key_identifier == Some(wanted))
+    })
+}
+
+/// An object identifier as a person reads it, falling back to its octets.
+///
+/// [`x509::dotted`] refuses an encoding that is not a well-formed identifier, and a report that
+/// dropped the algorithm entirely would say less than the file does — so the hexadecimal is what
+/// is shown then, marked as such.
+fn name(oid: &[u8]) -> String {
+    use std::fmt::Write as _;
+    x509::dotted(oid).unwrap_or_else(|| {
+        oid.iter().fold(String::from("0x"), |mut out, byte| {
+            let _ = write!(out, "{byte:02x}");
+            out
+        })
+    })
 }
 
 /// §12.8.6's permissions dictionary. Table 263.
@@ -755,6 +1086,7 @@ pub fn read(document: &Document, dict: &Dictionary) -> Option<Signature> {
             _ => Vec::new(),
         },
         certificate_chain: dict.get("Cert").is_some(),
+        chain: chain(document, dict),
         name: text("Name"),
         signed_at: text("M"),
         location: text("Location"),
@@ -927,6 +1259,26 @@ fn byte_range(document: &Document, dict: &Dictionary) -> Vec<(u64, u64)> {
         .collect()
 }
 
+/// Table 255's `/Cert`, "a byte string if the chain has only one entry" or an array of them.
+///
+/// Bounded at [`MAX_CHAIN`] rather than by the array's own length, which is the rule everywhere
+/// else in this module: an allocation sized by a number in the file is the shape `CLAUDE.md`
+/// principle 3 forbids.
+fn chain(document: &Document, dict: &Dictionary) -> Vec<Vec<u8>> {
+    match document.get_key(dict, "Cert") {
+        Object::String(bytes) => vec![bytes.to_vec()],
+        Object::Array(entries) => entries
+            .iter()
+            .take(MAX_CHAIN)
+            .filter_map(|entry| match document.resolve(entry) {
+                Object::String(bytes) => Some(bytes.to_vec()),
+                _ => None,
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
 /// Table 255's `/Changes`, "an array of three integers".
 fn changes(document: &Document, dict: &Dictionary) -> Option<[i64; 3]> {
     let changes = document.get_key(dict, "Changes");
@@ -949,10 +1301,14 @@ fn changes(document: &Document, dict: &Dictionary) -> Option<[i64; 3]> {
 /// map keyed by "the base-16-encoded (uppercase) SHA-1 digest of the signature to which it
 /// applies".
 ///
-/// So this counts them and stops. Parsing a certificate is X.509 and a trust decision, which is
-/// [`Signature`]'s refusal; counting them says the one thing a person might want from a program
-/// that cannot validate — **whether the document carries what a validator would need**, which is
-/// the whole point of §12.8.4's "long term validation".
+/// So this counts them and stops. **This paragraph used to say "[p]arsing a certificate is X.509
+/// and a trust decision", and the three-hundred-and-ninety-second session made the first half of
+/// that false**: [`crate::x509`] parses one. What has not changed is the second half and it is the
+/// one that decides this row — a certificate here would be read to *validate a certification path*,
+/// which is question 3, and reading the bytes is the smallest part of that. Counting them says the
+/// one thing a person might want from a program that cannot validate — **whether the document
+/// carries what a validator would need**, which is the whole point of §12.8.4's "long term
+/// validation".
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct SecurityStore {
     /// How many certificates `/Certs` holds.
@@ -1155,10 +1511,11 @@ fn census(document: &Document) -> Vec<(String, i64)> {
 #[cfg(test)]
 mod tests {
     use super::{
-        Coverage, Integrity, Modification, PadesDeparture, legal, permissions, security_store,
-        signatures,
+        Authenticity, Coverage, Integrity, Modification, PadesDeparture, Signature, Signed, legal,
+        permissions, security_store, signatures,
     };
     use crate::cms::{Digest, fixtures};
+    use crate::x509::fixtures::{CERTIFICATE, EC_CERTIFICATE, PKCS1_SIGNATURE, hex};
     use pdf_syntax::Document;
 
     /// Builds a document from object bodies numbered from 1.
@@ -1426,7 +1783,7 @@ mod tests {
     }
 
     /// The signature of the document, and the file it came from.
-    fn only_signature(bytes: &[u8]) -> (Document, super::Signature) {
+    fn only_signature(bytes: &[u8]) -> (Document, Signature) {
         let document = Document::open(bytes.to_vec()).expect("a valid file");
         let found = signatures(&document);
         let [signature] = found.as_slice() else {
@@ -1557,6 +1914,112 @@ mod tests {
             signature.integrity(document.bytes()),
             Integrity::UnderTheSignersKey
         );
+    }
+
+    /// The whole of question 2, on the one signature format no corpus document uses.
+    ///
+    /// §12.8.3.2's `adbe.x509.rsa_sha1` has no CMS object at all: `/Contents` is the PKCS #1
+    /// signature over the byte range and `/Cert` is where the certificate lives. So this is the
+    /// one case a [`Signature`] can be assembled for directly, over bytes chosen here — which is
+    /// also the one place a *positive* verification is testable without a private key in the
+    /// tree. The key, the certificate and the signature are `pkcs1`'s and `x509`'s test vector.
+    #[test]
+    fn a_pkcs1_signature_verifies_against_the_certificate_in_its_cert_entry() {
+        let file = b"the signed bytes";
+        let signature = pkcs1_signature(file.len() as u64, hex(CERTIFICATE));
+        assert_eq!(
+            signature.authenticity(file),
+            Authenticity::Verified {
+                digest: Digest::Sha256,
+                key_bits: 2048,
+                over: Signed::TheDocumentsBytes,
+            },
+            "and the digest is found by trying the six, because nothing states it"
+        );
+        // §12.8.3.2's signature is over the document's own bytes, so question 2 settles question
+        // 1 here: change one byte of the file and the same signature stops verifying.
+        assert_eq!(
+            signature.authenticity(b"the signed byteS"),
+            Authenticity::NotUnderThatKey {
+                digest: Digest::Sha1,
+                key_bits: 2048,
+                over: Signed::TheDocumentsBytes,
+            }
+        );
+        assert!(
+            Signed::TheDocumentsBytes.binds_the_document(),
+            "which is what this variant is for"
+        );
+    }
+
+    /// A key this program cannot verify is named by its number, not skipped and not guessed at.
+    ///
+    /// Table 260 names ECDSA beside RSA — "ECDSA Algorithm Support ( defined by Internet RFC 5480
+    /// )" — and this program implements one of the two. The certificate is a real P-256 one, so
+    /// what is exercised is `x509`'s reading of a `subjectPublicKeyInfo` whose algorithm is not
+    /// `rsaEncryption` rather than a hand-made shape.
+    #[test]
+    fn a_key_this_program_cannot_verify_is_named_by_its_object_identifier() {
+        let file = b"the signed bytes";
+        let signature = pkcs1_signature(file.len() as u64, hex(EC_CERTIFICATE));
+        assert_eq!(
+            signature.authenticity(file),
+            Authenticity::KeyNotVerifiable {
+                algorithm: "1.2.840.10045.2.1".to_owned(),
+            },
+            "id-ecPublicKey, printed rather than named"
+        );
+    }
+
+    /// A `/Cert` with nothing in it is §12.8.3.2's requirement unmet, and says so.
+    #[test]
+    fn a_pkcs1_signature_with_no_certificate_has_no_key_to_verify_against() {
+        let file = b"the signed bytes";
+        let mut signature = pkcs1_signature(file.len() as u64, Vec::new());
+        signature.chain = Vec::new();
+        assert_eq!(
+            signature.authenticity(file),
+            Authenticity::NoSignerCertificate { certificates: 0 }
+        );
+    }
+
+    /// A signature algorithm outside RFC 8017's PKCS #1 v1.5 identifiers is named, not attempted.
+    ///
+    /// The fixture's `signatureAlgorithm` is SHA-256's own identifier, which is not a public-key
+    /// algorithm at all — so this is the shape a producer writing `id-RSASSA-PSS`, DSA or ECDSA
+    /// would reach, and what a person is told is the number the file states.
+    #[test]
+    fn a_signature_algorithm_this_program_does_not_verify_is_named() {
+        let bytes = signed_document("adbe.pkcs7.detached", "", Digest::Sha256, |digest| {
+            fixtures::detached(digest)
+        });
+        let (document, signature) = only_signature(&bytes);
+        assert_eq!(
+            signature.authenticity(document.bytes()),
+            Authenticity::AlgorithmNotVerifiable {
+                algorithm: "2.16.840.1.101.3.4.2.1".to_owned(),
+            }
+        );
+    }
+
+    /// A §12.8.3.2 signature over the whole of `file`, with `certificate` in its `/Cert`.
+    fn pkcs1_signature(length: u64, certificate: Vec<u8>) -> Signature {
+        Signature {
+            timestamp: false,
+            handler: Some("Adobe.PPKLite".to_owned()),
+            sub_filter: Some("adbe.x509.rsa_sha1".to_owned()),
+            byte_range: vec![(0, length)],
+            contents: hex(PKCS1_SIGNATURE),
+            certificate_chain: true,
+            chain: vec![certificate],
+            name: None,
+            signed_at: None,
+            location: None,
+            reason: None,
+            contact: None,
+            changes: None,
+            certification: false,
+        }
     }
 
     /// §12.8.5's document timestamp commits to the same digest in RFC 3161's `TSTInfo`.

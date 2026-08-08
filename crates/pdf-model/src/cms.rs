@@ -21,18 +21,23 @@
 //! unsigned attributes — with the contents of `message-digest` (RFC 5652's
 //! `id-messageDigest`), which is the digest of the signed content.
 //!
-//! Everything else in RFC 5652 is deliberately not read: the certificates are X.509 and a trust
-//! decision, and the signature value itself needs the signer's public key. Both are named at
-//! runtime rather than skipped in silence — see [`crate::signature::Integrity`].
+//! **This paragraph used to end "[e]verything else in RFC 5652 is deliberately not read: the
+//! certificates are X.509 and a trust decision, and the signature value itself needs the signer's
+//! public key", and the three-hundred-and-ninety-second session made both halves obsolete.** The
+//! certificates are handed over as values for [`crate::x509`] to read, and the signer's signature
+//! algorithm, signature value and identifier are read here so that
+//! [`crate::signature::Signature::authenticity`] can verify one. What is still not read is
+//! anything a *trust* decision would need: no `crls`, no certification path, no validity dates.
 //!
 //! # What a matching digest proves, and what it does not
 //!
-//! **A mismatch is decisive and a match is not.** The digest sits beside the signature rather than
-//! inside it, so anyone who alters the document can alter the recorded digest to match — what they
-//! cannot do is make the *signature* over that digest verify, and checking that is the question
-//! this module does not answer. So a difference proves the document changed after signing, which
-//! is exactly what §12.8.1 says it indicates, and agreement proves only that nothing changed
-//! carelessly. The wording the program uses to a person keeps the two apart.
+//! **A mismatch is decisive and a match is not, on its own.** The digest sits beside the signature
+//! rather than inside it, so anyone who alters the document can alter the recorded digest to match
+//! — what they cannot do is make the *signature* over that digest verify. Checking that is
+//! [`crate::signature::Signature::authenticity`]'s job, and the two answers are worth more
+//! together than either is alone: four of the corpus's ten signatures verify over a digest their
+//! documents no longer produce, which says the file was re-saved under a real signature. The
+//! wording the program uses to a person keeps the two apart.
 
 use crate::der::{DerError, INTEGER, OCTET_STRING, Reader, SEQUENCE, SET, Value};
 
@@ -43,6 +48,14 @@ use crate::der::{DerError, INTEGER, OCTET_STRING, Reader, SEQUENCE, SET, Value};
 /// signature with more than sixty-four has stopped being one this reader has anything to say
 /// about; the ones past the bound are dropped and [`SignedData::attributes_truncated`] says so.
 const MAX_ATTRIBUTES: usize = 64;
+
+/// How many certificates are kept out of a `SignedData`.
+///
+/// §12.8.3.3.1 requires one — "[a]t minimum the CMS object shall include the signer's X.509
+/// signing certificate" — and permits a whole chain beside it. This bounds the one `Vec` a file's
+/// contents size in this module; a signature carrying more has a certificate past the bound
+/// ignored, which makes the signer *unmatched* rather than wrongly matched.
+const MAX_CERTIFICATES: usize = 64;
 
 /// RFC 5652's `id-signedData`, `1.2.840.113549.1.7.2`.
 const ID_SIGNED_DATA: &[u8] = &[0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x02];
@@ -68,6 +81,57 @@ pub const ID_CT_TST_INFO: &[u8] = &[
 /// > security(1) 8}
 pub const ADBE_REVOCATION_INFO_ARCHIVAL: &[u8] =
     &[0x2A, 0x86, 0x48, 0x86, 0xF7, 0x2F, 0x01, 0x01, 0x08];
+
+/// An X.501 `Name`'s encoding and a serial number's, which is how RFC 5652 names a certificate.
+pub type IssuerAndSerial<'a> = (&'a [u8], &'a [u8]);
+
+/// The public-key algorithm a `SignerInfo` says its signature was made with.
+///
+/// Table 260 names three families for a PDF signature — "RSA Algorithm Support", "DSA Algorithm
+/// Support" and "ECDSA Algorithm Support ( defined by Internet RFC 5480 )" — and this program
+/// verifies the first. The other two reach a person as the object identifier the file states,
+/// which is why the unrecognised arm carries it rather than dropping it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SignatureAlgorithm<'a> {
+    /// RSASSA-PKCS1-v1_5 — `rsaEncryption` or one of the `<hash>WithRSAEncryption` identifiers of
+    /// RFC 8017's `pkcs-1` arc, which name the same padding and differ only in the digest that
+    /// `digestAlgorithm` states anyway.
+    ///
+    /// `id-RSASSA-PSS` is deliberately **not** here: it is the same arc and a different padding,
+    /// so treating it as this one would verify the wrong construction. It arrives as
+    /// [`Self::Unrecognised`].
+    RsaPkcs1V15,
+    /// Anything else, as the identifier the file wrote.
+    Unrecognised(&'a [u8]),
+}
+
+impl<'a> SignatureAlgorithm<'a> {
+    /// What an `AlgorithmIdentifier`'s object identifier names.
+    ///
+    /// The RSA identifiers are enumerated rather than matched by their arc, because
+    /// `1.2.840.113549.1.1.10` is in the same arc and is RSASSA-PSS — a different padding, which a
+    /// prefix test would silently verify as PKCS #1 v1.5.
+    #[must_use]
+    pub fn from_oid(oid: &'a [u8]) -> Self {
+        match oid {
+            // `pkcs-1` is 1.2.840.113549.1.1; the last octet is `rsaEncryption` (1) and the
+            // `<hash>WithRSAEncryption` identifiers for MD2 (2), MD5 (4), SHA-1 (5), SHA-256 (11),
+            // SHA-384 (12), SHA-512 (13) and SHA-224 (14).
+            [
+                0x2A,
+                0x86,
+                0x48,
+                0x86,
+                0xF7,
+                0x0D,
+                0x01,
+                0x01,
+                1 | 2 | 4 | 5 | 11 | 12 | 13 | 14,
+            ] => Self::RsaPkcs1V15,
+            other => Self::Unrecognised(other),
+        }
+    }
+}
 
 /// The digest algorithms Table 260 and Table 256 name, and nothing else.
 ///
@@ -112,6 +176,40 @@ impl Digest {
             _ => None,
         }
     }
+
+    /// The encoded object identifier of this algorithm — [`Self::from_oid`] the other way round.
+    ///
+    /// Needed because RFC 8017 section 9.2's `DigestInfo` puts the algorithm identifier *inside* the
+    /// block a PKCS #1 v1.5 signature commits to, so verifying one means writing the identifier
+    /// out again. The two functions are deliberately one pair of constants read in two directions:
+    /// a second table would be a second thing to keep right.
+    #[must_use]
+    pub fn oid(self) -> &'static [u8] {
+        match self {
+            Self::Md5 => &[0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x02, 0x05],
+            Self::Sha1 => &[0x2B, 0x0E, 0x03, 0x02, 0x1A],
+            Self::Sha256 => &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01],
+            Self::Sha384 => &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x02],
+            Self::Sha512 => &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03],
+            Self::Ripemd160 => &[0x2B, 0x24, 0x03, 0x02, 0x01],
+        }
+    }
+
+    /// Every algorithm Table 260 and Table 256 name, for a caller that must try each in turn.
+    ///
+    /// §12.8.3.2's `adbe.x509.rsa_sha1` records no digest algorithm anywhere a reader can see it —
+    /// the identifier is inside the PKCS #1 block, under the key — so the only way to learn which
+    /// of the six a signature used is to build the block for each and compare. That is safe
+    /// precisely because RFC 8017 section 8.2.2 compares whole blocks: six comparisons of a fixed-length
+    /// string admit no more forgeries than one.
+    pub const ALL: [Self; 6] = [
+        Self::Md5,
+        Self::Sha1,
+        Self::Sha256,
+        Self::Sha384,
+        Self::Sha512,
+        Self::Ripemd160,
+    ];
 
     /// The algorithm's name, in the spelling Table 260 uses.
     #[must_use]
@@ -198,24 +296,49 @@ pub struct SignedData<'a> {
     /// the CMS `SignedData` field with `ContentInfo` of type Data" — and for a document timestamp,
     /// where it is RFC 3161's `TSTInfo`.
     pub encapsulated: Option<&'a [u8]>,
-    /// How many entries the `certificates [0] IMPLICIT` member holds.
+    /// The entries of the `certificates [0] IMPLICIT` member, unparsed.
     ///
-    /// Counted and not parsed: §12.8.3.3.1 says "[a]t minimum the CMS object shall include the
-    /// signer's X.509 signing certificate", so zero is a file failing that requirement and a
-    /// number is what a program without a trust store can say about the rest.
-    pub certificates: usize,
+    /// §12.8.3.3.1: "[a]t minimum the CMS object shall include the signer's X.509 signing
+    /// certificate. This certificate shall be used to verify the signature value in Contents ."
+    /// So an empty list is a file failing that requirement, and [`crate::x509::read`] is what
+    /// turns one of these into a key. **This was a `usize` until the three-hundred-and-ninety-
+    /// second session**, which was every fact a program that could not verify a signature had.
+    pub certificates: Vec<Value<'a>>,
     /// How many `SignerInfo`s the `signerInfos SET OF` holds.
     pub signers: usize,
     /// The first signer's `digestAlgorithm`, where this program knows the algorithm.
     pub digest: Option<Digest>,
     /// That algorithm's object identifier, whether or not it is one of the six.
     pub digest_algorithm: &'a [u8],
+    /// The first signer's `signatureAlgorithm`, as its encoded object identifier.
+    ///
+    /// RFC 5652 makes this the algorithm "used by the signer", and [`SignatureAlgorithm`] is what
+    /// this program does with it. Kept whether or not it is recognised, so that a signature this
+    /// program cannot verify can still say by what number it declines.
+    pub signature_algorithm: &'a [u8],
+    /// The first signer's `signature`, the octets that verification is over.
+    pub signature: &'a [u8],
+    /// The contents of the first signer's `signedAttrs [0] IMPLICIT`, where it states one.
+    ///
+    /// The *contents*, because RFC 5652 section 5.4 does not sign the bytes as they appear: "[a]
+    /// separate encoding of the signedAttrs field is performed for message digest calculation.
+    /// The IMPLICIT [0] tag in the signedAttrs is not used for the DER encoding, rather an
+    /// EXPLICIT SET OF tag is used." [`SignedData::signed_attributes_encoding`] is that
+    /// re-encoding.
+    pub signed_attributes: Option<&'a [u8]>,
+    /// The first signer's `sid`, where it is RFC 5652's `issuerAndSerialNumber`.
+    ///
+    /// The issuer `Name`'s contents and the serial number's, in that order — the pair a
+    /// certificate is matched against by [`crate::x509::Certificate::is_named_by`].
+    pub signer_issuer_and_serial: Option<IssuerAndSerial<'a>>,
+    /// The first signer's `sid`, where it is instead `subjectKeyIdentifier [0]`.
+    pub signer_key_identifier: Option<&'a [u8]>,
     /// The first signer's `message-digest` signed attribute — the digest of the signed content.
     pub message_digest: Option<&'a [u8]>,
     /// The object identifiers of the first signer's signed attributes, in the file's order.
-    pub signed_attributes: Vec<&'a [u8]>,
+    pub signed_attribute_types: Vec<&'a [u8]>,
     /// The same for its unsigned attributes.
-    pub unsigned_attributes: Vec<&'a [u8]>,
+    pub unsigned_attribute_types: Vec<&'a [u8]>,
     /// Whether either list stopped at [`MAX_ATTRIBUTES`] rather than at the file's end.
     pub attributes_truncated: bool,
 }
@@ -224,13 +347,58 @@ impl<'a> SignedData<'a> {
     /// Whether the first signer states an attribute with this identifier.
     #[must_use]
     pub fn has_signed_attribute(&self, oid: &[u8]) -> bool {
-        self.signed_attributes.contains(&oid)
+        self.signed_attribute_types.contains(&oid)
     }
 
     /// Whether the first signer states an *unsigned* attribute with this identifier.
     #[must_use]
     pub fn has_unsigned_attribute(&self, oid: &[u8]) -> bool {
-        self.unsigned_attributes.contains(&oid)
+        self.unsigned_attribute_types.contains(&oid)
+    }
+
+    /// The bytes RFC 5652 section 5.4 says a signature over signed attributes is computed over.
+    ///
+    /// That clause requires "[t]he IMPLICIT [0] tag in the signedAttrs" not to be used for the DER
+    /// encoding, "rather an EXPLICIT SET OF tag is used" — and it says which bytes go into the
+    /// digest: "the DER encoding of the EXPLICIT SET OF tag, rather than of the IMPLICIT [0] tag,
+    /// MUST be included in the message digest calculation along with the length and content octets
+    /// of the `SignedAttributes` value."
+    ///
+    /// So the attributes are re-tagged as a `SET OF` — X.690's `31` in place of the `A0` the file
+    /// wrote — with a definite length. The contents are the file's own bytes and are not
+    /// re-ordered: DER requires a `SET OF`'s members to be sorted already, and re-sorting them
+    /// here would change what a *non*-conforming producer signed and turn a verifiable signature
+    /// into a failing one.
+    ///
+    /// `None` where the signer states no signed attributes, which RFC 5652 permits and which means
+    /// the signature is over the content itself instead.
+    #[must_use]
+    pub fn signed_attributes_encoding(&self) -> Option<Vec<u8>> {
+        let contents = self.signed_attributes?;
+        let mut out = Vec::with_capacity(contents.len().saturating_add(6));
+        out.push(SET);
+        // X.690 clause 8.1.3: the short form below 128 octets, otherwise the long form with as
+        // many length octets as the value needs. A signed-attributes set is a few hundred bytes.
+        if contents.len() < 128 {
+            out.push(u8::try_from(contents.len()).unwrap_or(0));
+        } else {
+            let length = contents.len().to_be_bytes();
+            let significant = length
+                .iter()
+                .position(|&byte| byte != 0)
+                .unwrap_or(length.len().saturating_sub(1));
+            let octets = length.get(significant..).unwrap_or(&[]);
+            out.push(0x80 | u8::try_from(octets.len()).unwrap_or(0));
+            out.extend_from_slice(octets);
+        }
+        out.extend_from_slice(contents);
+        Some(out)
+    }
+
+    /// The signer's public-key algorithm, as [`SignatureAlgorithm`] reads it.
+    #[must_use]
+    pub fn algorithm(&self) -> SignatureAlgorithm<'a> {
+        SignatureAlgorithm::from_oid(self.signature_algorithm)
     }
 
     /// The digest RFC 3161's `TSTInfo` commits to, where this is a timestamp token.
@@ -311,7 +479,7 @@ fn read_signed_data(signed: Value<'_>) -> Result<SignedData<'_>, CmsError> {
     let mut members = signed.children()?;
     let mut content_type: &[u8] = &[];
     let mut encapsulated = None;
-    let mut certificates = 0usize;
+    let mut certificates = Vec::new();
     let mut signer_infos = None;
     while let Some(member) = members.next_value()? {
         if member.identifier == SEQUENCE && content_type.is_empty() {
@@ -333,8 +501,11 @@ fn read_signed_data(signed: Value<'_>) -> Result<SignedData<'_>, CmsError> {
             }
         } else if member.is_context(0) {
             let mut entries = member.children()?;
-            while entries.next_value()?.is_some() {
-                certificates = certificates.saturating_add(1);
+            while let Some(entry) = entries.next_value()? {
+                if certificates.len() >= MAX_CERTIFICATES {
+                    break;
+                }
+                certificates.push(entry);
             }
         } else if member.identifier == SET {
             signer_infos = Some(member);
@@ -363,9 +534,14 @@ fn read_signed_data(signed: Value<'_>) -> Result<SignedData<'_>, CmsError> {
         signers,
         digest: Digest::from_oid(parsed.digest_algorithm),
         digest_algorithm: parsed.digest_algorithm,
-        message_digest: parsed.message_digest,
+        signature_algorithm: parsed.signature_algorithm,
+        signature: parsed.signature,
         signed_attributes: parsed.signed_attributes,
-        unsigned_attributes: parsed.unsigned_attributes,
+        signer_issuer_and_serial: parsed.issuer_and_serial,
+        signer_key_identifier: parsed.key_identifier,
+        message_digest: parsed.message_digest,
+        signed_attribute_types: parsed.signed_attribute_types,
+        unsigned_attribute_types: parsed.unsigned_attribute_types,
         attributes_truncated: parsed.truncated,
     })
 }
@@ -373,9 +549,14 @@ fn read_signed_data(signed: Value<'_>) -> Result<SignedData<'_>, CmsError> {
 /// The parts of one `SignerInfo` this program reads.
 struct Signer<'a> {
     digest_algorithm: &'a [u8],
+    signature_algorithm: &'a [u8],
+    signature: &'a [u8],
+    signed_attributes: Option<&'a [u8]>,
+    issuer_and_serial: Option<IssuerAndSerial<'a>>,
+    key_identifier: Option<&'a [u8]>,
     message_digest: Option<&'a [u8]>,
-    signed_attributes: Vec<&'a [u8]>,
-    unsigned_attributes: Vec<&'a [u8]>,
+    signed_attribute_types: Vec<&'a [u8]>,
+    unsigned_attribute_types: Vec<&'a [u8]>,
     truncated: bool,
 }
 
@@ -386,7 +567,8 @@ struct Signer<'a> {
 /// `SEQUENCE`s when the signer is identified by issuer and serial number, which is the ordinary
 /// case and every one of the corpus's. So the digest algorithm is the third member — the shape
 /// that a first attempt at this module got wrong, reading `sid` as the algorithm and finding no
-/// digest at all.
+/// digest at all. The two members after it are found the same way, with the one optional member
+/// between them distinguished by its tag rather than by counting.
 fn read_signer_info(info: Value<'_>) -> Result<Signer<'_>, CmsError> {
     let mut members = info.children()?;
     let Some(version) = members.next_value()? else {
@@ -395,7 +577,7 @@ fn read_signer_info(info: Value<'_>) -> Result<Signer<'_>, CmsError> {
     if version.identifier != INTEGER {
         return Err(CmsError::MalformedSignedData);
     }
-    let Some(_sid) = members.next_value()? else {
+    let Some(sid) = members.next_value()? else {
         return Err(CmsError::MalformedSignedData);
     };
     let Some(algorithm) = members.next_value()? else {
@@ -409,51 +591,106 @@ fn read_signer_info(info: Value<'_>) -> Result<Signer<'_>, CmsError> {
     };
     let mut signer = Signer {
         digest_algorithm,
+        signature_algorithm: &[],
+        signature: &[],
+        signed_attributes: None,
+        issuer_and_serial: read_signer_identifier(sid)?,
+        key_identifier: sid.is_context(0).then_some(sid.contents),
         message_digest: None,
-        signed_attributes: Vec::new(),
-        unsigned_attributes: Vec::new(),
+        signed_attribute_types: Vec::new(),
+        unsigned_attribute_types: Vec::new(),
         truncated: false,
     };
+    // The three members that follow, in RFC 5652's order: an optional `[0]`, then the signature
+    // algorithm and the signature, then an optional `[1]`.
+    let mut next = members.next_value()?;
+    if let Some(member) = next
+        && member.is_context(0)
+    {
+        signer.signed_attributes = Some(member.contents);
+        read_attributes(member, true, &mut signer)?;
+        next = members.next_value()?;
+    }
+    if let Some(member) = next
+        && let Some(oid) = member.children()?.next_value()?
+        && let Some(identifier) = oid.object_identifier()
+    {
+        signer.signature_algorithm = identifier;
+    }
+    if let Some(member) = members.next_value()?
+        && member.identifier == OCTET_STRING
+    {
+        signer.signature = member.contents;
+    }
     while let Some(member) = members.next_value()? {
-        // `[0]` is signedAttrs and `[1]` unsignedAttrs; both are `SET OF Attribute`, and the
-        // IMPLICIT tag replaces the SET's own.
-        let is_signed = member.is_context(0);
-        if !is_signed && !member.is_context(1) {
-            continue;
-        }
-        let mut attributes = member.children()?;
-        let mut names = Vec::new();
-        while let Some(attribute) = attributes.next_value()? {
-            if names.len() >= MAX_ATTRIBUTES {
-                signer.truncated = true;
-                break;
-            }
-            let mut parts = attribute.children()?;
-            let Some(kind) = parts.next_value()? else {
-                continue;
-            };
-            let Some(kind) = kind.object_identifier() else {
-                continue;
-            };
-            names.push(kind);
-            if is_signed && kind == ID_MESSAGE_DIGEST {
-                // `AttributeValue ::= ANY`, in a `SET OF` of one: the digest is the octets of the
-                // single value inside.
-                if let Some(values) = parts.next_value()?
-                    && let Some(octets) = values.children()?.next_value()?
-                    && octets.identifier == OCTET_STRING
-                {
-                    signer.message_digest = Some(octets.contents);
-                }
-            }
-        }
-        if is_signed {
-            signer.signed_attributes = names;
-        } else {
-            signer.unsigned_attributes = names;
+        if member.is_context(1) {
+            read_attributes(member, false, &mut signer)?;
         }
     }
     Ok(signer)
+}
+
+/// `SignerIdentifier ::= CHOICE { issuerAndSerialNumber IssuerAndSerialNumber,
+/// subjectKeyIdentifier [0] SubjectKeyIdentifier }`, in its first spelling.
+///
+/// `IssuerAndSerialNumber ::= SEQUENCE { issuer Name, serialNumber CertificateSerialNumber }`, and
+/// both members are handed back as the contents the file wrote so that
+/// [`crate::x509::Certificate::is_named_by`] compares encodings rather than decoding a name.
+fn read_signer_identifier(sid: Value<'_>) -> Result<Option<IssuerAndSerial<'_>>, CmsError> {
+    if sid.identifier != SEQUENCE {
+        return Ok(None);
+    }
+    let mut parts = sid.children()?;
+    let (Some(issuer), Some(serial)) = (parts.next_value()?, parts.next_value()?) else {
+        return Ok(None);
+    };
+    if serial.identifier != INTEGER {
+        return Ok(None);
+    }
+    Ok(Some((issuer.contents, serial.contents)))
+}
+
+/// One `SET OF Attribute`, recording every identifier and the `message-digest`'s value.
+///
+/// `[0]` is `signedAttrs` and `[1]` is `unsignedAttrs`; both are `SET OF Attribute`, and the
+/// IMPLICIT tag replaces the SET's own.
+fn read_attributes<'a>(
+    member: Value<'a>,
+    is_signed: bool,
+    signer: &mut Signer<'a>,
+) -> Result<(), CmsError> {
+    let mut attributes = member.children()?;
+    let mut names = Vec::new();
+    while let Some(attribute) = attributes.next_value()? {
+        if names.len() >= MAX_ATTRIBUTES {
+            signer.truncated = true;
+            break;
+        }
+        let mut parts = attribute.children()?;
+        let Some(kind) = parts.next_value()? else {
+            continue;
+        };
+        let Some(kind) = kind.object_identifier() else {
+            continue;
+        };
+        names.push(kind);
+        if is_signed && kind == ID_MESSAGE_DIGEST {
+            // `AttributeValue ::= ANY`, in a `SET OF` of one: the digest is the octets of the
+            // single value inside.
+            if let Some(values) = parts.next_value()?
+                && let Some(octets) = values.children()?.next_value()?
+                && octets.identifier == OCTET_STRING
+            {
+                signer.message_digest = Some(octets.contents);
+            }
+        }
+    }
+    if is_signed {
+        signer.signed_attribute_types = names;
+    } else {
+        signer.unsigned_attribute_types = names;
+    }
+    Ok(())
 }
 
 /// Hand-built signature values, shared with `signature.rs`'s tests.
@@ -647,7 +884,7 @@ mod tests {
         assert_eq!(cms.content_type, ID_DATA, "§12.8.3.4.3 (a)'s id-data");
         assert_eq!(cms.encapsulated, None, "detached: no encapsulated content");
         assert_eq!(cms.signers, 1, "§12.8.3.4.3 (d)'s one SignerInfo");
-        assert_eq!(cms.certificates, 2);
+        assert_eq!(cms.certificates.len(), 2);
         assert!(cms.has_signed_attribute(ID_MESSAGE_DIGEST));
         assert!(cms.has_signed_attribute(ID_SIGNING_TIME));
         assert!(!cms.has_unsigned_attribute(ID_MESSAGE_DIGEST));
