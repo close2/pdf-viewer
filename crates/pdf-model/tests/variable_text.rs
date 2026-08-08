@@ -98,6 +98,23 @@ fn draw(bytes: Vec<u8>) -> (Vec<String>, pdf_render::Raster) {
     (reports, raster)
 }
 
+/// Rasterises one page against a viewer state a person has changed.
+///
+/// [`draw`] with the state the document opens in; this one is what a test about §12.7.5.2.3's
+/// `/V` needs, because the whole question is what the picture does when a value is replaced.
+fn draw_with(
+    document: &Document,
+    page: &pdf_model::Page,
+    view: &pdf_model::view::ViewState,
+) -> pdf_render::Raster {
+    let list = pdf_model::content::interpret_with(document, page, view).display_list;
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+    CpuRasterizer::new()
+        .with_background(pdf_render::Color::TRANSPARENT)
+        .rasterize(&list, target)
+        .expect("supported")
+}
+
 /// Every column, in PDF x, that any glyph reached.
 fn inked_columns(raster: &pdf_render::Raster) -> Vec<u32> {
     (0..raster.width)
@@ -516,6 +533,69 @@ fn a_check_box_shows_its_caption_only_when_it_is_on() {
         inked_columns(&off).is_empty(),
         "a box that is off must show nothing"
     );
+}
+
+/// A person checking a box changes what the page draws (§12.7.5.2.3).
+///
+/// > The value of the V key shall also be the value of the AS key. If they are not equal, then the
+/// > value of the AS key shall be used instead of the V key to determine which appearance to use.
+///
+/// **A `shall` this tree obeyed only backwards until the three-hundred-and-ninety-eighth
+/// session.** The file's `/AS` decided, always — so a reader that changed `/V` left `/AS` behind
+/// and the widget went on drawing the state it was saved in. The sentence binds both entries
+/// together, and the processor that changes one is the one that has to carry the other; ADR 0235
+/// records the reading.
+///
+/// Two fixtures, because the two halves of the clause meet the value by different routes: a box
+/// with an `/AP` state subdictionary picks a stream by name, and one with none has
+/// `crate::appearance` construct Table 192's `/CA` caption. Both were wrong and both are checked
+/// here.
+#[test]
+fn checking_a_box_draws_the_state_the_new_value_names() {
+    let stored = pdf_with_appearance(
+        "",
+        "<< /Type /Annot /Subtype /Widget /Rect [20 40 60 70] /F 4 /FT /Btn \
+         /T (box) /V /Off /AS /Off /AP << /N << /Yes 6 0 R >> >> >>",
+        "0 0 1 rg 0 0 20 20 re f",
+    );
+    let constructed = pdf_with(
+        "",
+        "<< /Type /Annot /Subtype /Widget /Rect [20 40 60 70] /F 4 /FT /Btn \
+         /T (box) /V /Off /AS /Off /MK << /CA (4) >> /DA (/Helv 12 Tf 0 g) >>",
+    );
+    for (what, bytes) in [
+        ("a stored /AP state", stored),
+        ("a /CA caption", constructed),
+    ] {
+        let document = Document::open(bytes).expect("the fixture is a valid PDF");
+        let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+        let mut view = pdf_model::view::ViewState::of(&document);
+        let before = draw_with(&document, &page, &view);
+        assert!(
+            inked_columns(&before).is_empty(),
+            "{what}: the box starts off and shows nothing"
+        );
+
+        // What a host sends: the name §12.7.5.2.3 makes `/V`, which `pdf_model::form` answers
+        // with as the widget's on state. Nothing else in the file could tell it that string.
+        assert_eq!(
+            view.set_field(&document, "box", Some("Yes")),
+            1,
+            "{what}: one widget takes the value"
+        );
+        let after = draw_with(&document, &page, &view);
+        assert!(
+            !inked_columns(&after).is_empty(),
+            "{what}: a checked box shows its on state"
+        );
+
+        // And back off again, which is the same rule with §12.7.5.2.4's default in it.
+        assert_eq!(view.set_field(&document, "box", Some("Off")), 1);
+        assert!(
+            inked_columns(&draw_with(&document, &page, &view)).is_empty(),
+            "{what}: unchecking it takes the mark away"
+        );
+    }
 }
 
 /// A check box that is on with no `/AP` and no caption states a tick and shows none.

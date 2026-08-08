@@ -176,6 +176,7 @@ impl Viewer {
                     let value = open.view.field_value(&open.document, &name.qualified);
                     Answer::Field { name, value }
                 }),
+            Query::Fields => Answer::Fields(self.form_fields(open)),
             Query::Caret { at, offset } => self
                 .caret(open, at, offset)
                 .map_or(Answer::None, |(from, to)| Answer::Caret { from, to }),
@@ -987,6 +988,51 @@ impl Viewer {
                     text: popup.text,
                     modified: popup.modified,
                     colour: popup.colour,
+                })
+            })
+            .collect()
+    }
+
+    /// §12.7's fields with a widget on the page being shown, placed on the screen.
+    ///
+    /// The description is `pdf_model::form`'s and the arithmetic is [`Self::device_quad`]'s, which
+    /// is the same split [`Self::popup_windows`] makes: what a field is belongs to the crate that
+    /// reads documents, and where it lands on a screen is this view's. A widget whose rectangle
+    /// cannot be placed — no page is interpreted, or the magnification is not yet known — is left
+    /// out rather than given a guessed quadrilateral, and a field left with no widget at all is
+    /// left out with them, because a control with nowhere to go is not one a host can place.
+    fn form_fields(&self, open: &Open) -> Vec<crate::FormField> {
+        let Some(page) = open.shown_page() else {
+            return Vec::new();
+        };
+        pdf_model::form::fields(&open.document, page, &open.view)
+            .into_iter()
+            .filter_map(|field| {
+                let widgets: Vec<crate::FormWidget> = field
+                    .widgets
+                    .into_iter()
+                    .filter_map(|widget| {
+                        Some(crate::FormWidget {
+                            annotation: widget.annotation,
+                            quad: self.device_quad(open, widget.rect)?,
+                            on_state: widget.on_state,
+                            export: widget.export,
+                            on: widget.on,
+                        })
+                    })
+                    .collect();
+                if widgets.is_empty() {
+                    return None;
+                }
+                Some(crate::FormField {
+                    name: field.name,
+                    partial: field.partial,
+                    control: field.control,
+                    value: field.value,
+                    read_only: field.read_only,
+                    required: field.required,
+                    no_export: field.no_export,
+                    widgets,
                 })
             })
             .collect()

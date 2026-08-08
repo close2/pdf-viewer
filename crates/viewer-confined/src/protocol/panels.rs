@@ -42,17 +42,19 @@ use pdf_model::collection::{
     Navigator, Sort, Split, SplitDirection, Value as CollectionValue, View as CollectionView,
 };
 use pdf_model::destination::{Destination, Target, View};
+use pdf_model::form::{Choice, ChoiceControl, Control, TextControl};
 use pdf_model::metadata::{Information, Trapped};
 use pdf_model::outline::{Item as OutlineItem, Outline};
 use pdf_model::page::Boundary;
 use pdf_model::thumbnail::Thumbnail;
+use pdf_model::view::FieldName;
 use pdf_model::viewer_preferences::{
     Direction, Duplex, Opening, PageLayout, PageMode, PrintScaling, ViewerPreferences,
 };
 use pdf_model::xmp::{Name as XmpName, Value as XmpValue, Xmp, XmpError};
 use pdf_render::{Color, Image};
 use pdf_syntax::{Name, Object};
-use viewer_core::{AccessibilityNode, Layer, PopupWindow};
+use viewer_core::{AccessibilityNode, FormField, FormWidget, Layer, PopupWindow};
 
 use super::{ProtocolError, Reader, Uncarried, Writer};
 use crate::Attachment;
@@ -1484,6 +1486,235 @@ pub(super) fn decode_accessibility(
             quads: super::read_quads(reader, "a node's shapes")?,
         })
     })
+}
+
+/// §12.7's form fields on the page being shown, with their widgets placed.
+///
+/// The twelfth answer, and the one `doc/todo/37` called the gap. Every field of every type is
+/// named in a destructuring pattern for this module's stated reason: a field added in
+/// `pdf-model` or `viewer-core` has to fail to compile rather than stop crossing, and a control
+/// that lost its `/MaxLen` on the confined path would be a form a host built differently
+/// depending on which side of the pipe it was on.
+pub(super) fn encode_fields(writer: &mut Writer, fields: &[FormField]) {
+    writer.usize(fields.len());
+    for field in fields {
+        let FormField {
+            name,
+            partial,
+            control,
+            value,
+            read_only,
+            required,
+            no_export,
+            widgets,
+        } = field;
+        writer
+            .str(&name.qualified)
+            .option_str(name.alternative.as_deref())
+            .str(partial)
+            .option_str(value.as_deref())
+            .bool(*read_only)
+            .bool(*required)
+            .bool(*no_export);
+        encode_control(writer, control);
+        writer.usize(widgets.len());
+        for widget in widgets {
+            let FormWidget {
+                annotation,
+                quad,
+                on_state,
+                export,
+                on,
+            } = widget;
+            writer.object(*annotation).quad(*quad);
+            writer
+                .option_str(on_state.as_deref())
+                .option_str(export.as_deref())
+                .bool(*on);
+        }
+    }
+}
+
+/// Reads them back.
+pub(super) fn decode_fields(reader: &mut Reader<'_>) -> Result<Vec<FormField>, ProtocolError> {
+    reader.list("a form field list", |reader| {
+        Ok(FormField {
+            name: FieldName {
+                qualified: reader.string("a field's qualified name")?,
+                alternative: reader.option_string("a field's alternative name")?,
+            },
+            partial: reader.string("a field's partial name")?,
+            value: reader.option_string("a field's value")?,
+            read_only: reader.bool("a field's ReadOnly flag")?,
+            required: reader.bool("a field's Required flag")?,
+            no_export: reader.bool("a field's NoExport flag")?,
+            control: decode_control(reader)?,
+            widgets: reader.list("a field's widgets", |reader| {
+                Ok(FormWidget {
+                    annotation: reader.object("a widget")?,
+                    quad: reader.quad("a widget's rectangle")?,
+                    on_state: reader.option_string("a widget's on state")?,
+                    export: reader.option_string("a widget's export value")?,
+                    on: reader.bool("a widget's state")?,
+                })
+            })?,
+        })
+    })
+}
+
+/// Which of §12.7.5's types the field is, and its own table's flags.
+fn encode_control(writer: &mut Writer, control: &Control) {
+    match control {
+        Control::PushButton => {
+            writer.u8(control_kind::PUSH_BUTTON);
+        }
+        Control::CheckBox { on } => {
+            writer.u8(control_kind::CHECK_BOX).bool(*on);
+        }
+        Control::RadioButton {
+            on,
+            no_toggle_to_off,
+            in_unison,
+        } => {
+            writer
+                .u8(control_kind::RADIO_BUTTON)
+                .bool(*on)
+                .bool(*no_toggle_to_off)
+                .bool(*in_unison);
+        }
+        Control::Text(text) => {
+            let TextControl {
+                multiline,
+                password,
+                file_select,
+                do_not_spell_check,
+                do_not_scroll,
+                comb,
+                max_len,
+                rich_text,
+            } = text;
+            writer
+                .u8(control_kind::TEXT)
+                .bool(*multiline)
+                .bool(*password)
+                .bool(*file_select)
+                .bool(*do_not_spell_check)
+                .bool(*do_not_scroll)
+                .bool(*rich_text);
+            encode_count(writer, *comb);
+            encode_count(writer, *max_len);
+        }
+        Control::Choice(choice) => {
+            let ChoiceControl {
+                combo,
+                editable,
+                multi_select,
+                do_not_spell_check,
+                commit_on_selection,
+                options,
+                selected,
+                top,
+            } = choice;
+            writer
+                .u8(control_kind::CHOICE)
+                .bool(*combo)
+                .bool(*editable)
+                .bool(*multi_select)
+                .bool(*do_not_spell_check)
+                .bool(*commit_on_selection)
+                .usize(*top);
+            writer.usize(options.len());
+            for option in options {
+                let Choice { export, label } = option;
+                writer.option_str(export.as_deref()).str(label);
+            }
+            writer.usize(selected.len());
+            for index in selected {
+                writer.usize(*index);
+            }
+        }
+        Control::Signature => {
+            writer.u8(control_kind::SIGNATURE);
+        }
+        Control::Unstated => {
+            writer.u8(control_kind::UNSTATED);
+        }
+    }
+}
+
+/// Reads one back.
+fn decode_control(reader: &mut Reader<'_>) -> Result<Control, ProtocolError> {
+    let what = "a form control";
+    Ok(match reader.u8(what)? {
+        control_kind::PUSH_BUTTON => Control::PushButton,
+        control_kind::CHECK_BOX => Control::CheckBox {
+            on: reader.bool("a check box's state")?,
+        },
+        control_kind::RADIO_BUTTON => Control::RadioButton {
+            on: reader.bool("a radio set's state")?,
+            no_toggle_to_off: reader.bool("a radio set's NoToggleToOff flag")?,
+            in_unison: reader.bool("a radio set's RadiosInUnison flag")?,
+        },
+        control_kind::TEXT => Control::Text(TextControl {
+            multiline: reader.bool("a text field's Multiline flag")?,
+            password: reader.bool("a text field's Password flag")?,
+            file_select: reader.bool("a text field's FileSelect flag")?,
+            do_not_spell_check: reader.bool("a text field's DoNotSpellCheck flag")?,
+            do_not_scroll: reader.bool("a text field's DoNotScroll flag")?,
+            rich_text: reader.bool("a text field's RichText flag")?,
+            comb: decode_count(reader, "a comb field's cell count")?,
+            max_len: decode_count(reader, "a text field's /MaxLen")?,
+        }),
+        control_kind::CHOICE => Control::Choice(ChoiceControl {
+            combo: reader.bool("a choice field's Combo flag")?,
+            editable: reader.bool("a choice field's Edit flag")?,
+            multi_select: reader.bool("a choice field's MultiSelect flag")?,
+            do_not_spell_check: reader.bool("a choice field's DoNotSpellCheck flag")?,
+            commit_on_selection: reader.bool("a choice field's CommitOnSelChange flag")?,
+            top: reader.usize("a list box's /TI")?,
+            options: reader.list("a choice field's /Opt", |reader| {
+                Ok(Choice {
+                    export: reader.option_string("an option's export value")?,
+                    label: reader.string("an option's label")?,
+                })
+            })?,
+            selected: reader.list("a choice field's selection", |reader| {
+                reader.usize("a selected option")
+            })?,
+        }),
+        control_kind::SIGNATURE => Control::Signature,
+        control_kind::UNSTATED => Control::Unstated,
+        value => return Err(unrecognised(what, value)),
+    })
+}
+
+/// An optional count, as a flag and a fixed-width number.
+///
+/// `Option<u32>` rather than `Option<usize>`, because Table 232's `/MaxLen` and Table 231 bit 25's
+/// cell count are what the file states and both are bounded by the entry's own type. A flag beside
+/// a fixed-width number rather than a length prefix keeps the absent case one byte and the present
+/// case five, with no arithmetic on either side.
+fn encode_count(writer: &mut Writer, count: Option<u32>) {
+    writer.bool(count.is_some()).u32(count.unwrap_or_default());
+}
+
+/// Reads one back.
+fn decode_count(reader: &mut Reader<'_>, what: &'static str) -> Result<Option<u32>, ProtocolError> {
+    let stated = reader.bool(what)?;
+    let count = reader.u32(what)?;
+    Ok(stated.then_some(count))
+}
+
+/// [`Control`]'s discriminants: §12.7.5's four types, with buttons split as §12.7.5.2 splits them.
+mod control_kind {
+    pub(super) const PUSH_BUTTON: u8 = 1;
+    pub(super) const CHECK_BOX: u8 = 2;
+    pub(super) const RADIO_BUTTON: u8 = 3;
+    pub(super) const TEXT: u8 = 4;
+    pub(super) const CHOICE: u8 = 5;
+    pub(super) const SIGNATURE: u8 = 6;
+    /// Table 226 makes `/FT` required and this is a field that states none.
+    pub(super) const UNSTATED: u8 = 7;
 }
 
 /// A discriminant this build does not define.

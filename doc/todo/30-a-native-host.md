@@ -34,6 +34,12 @@ and tier 1. Neither can prove the interface alone — one is a toolkit, the othe
 - **a platform tree view over `Query::Outline`, `Query::Layers` and `Query::Attachments`**,
   rather than `viewer_ui::chrome`'s own drawn sidebar. The chrome exists to prove the queries
   answer enough; a native host is the proof they answer enough for somebody else's widgets.
+- **real controls over `Query::Fields`** — a `GtkEntry` for a text field, a `GtkComboBoxText` for
+  §12.7.5.4's combo box, a `GtkCheckButton` for a check box — which became possible in the
+  three-hundred-and-ninety-eighth session and did not exist when this file was written (ADR 0235,
+  `doc/todo/37`). The one thing such a host still cannot ask for is the page drawn *without* the
+  widget appearances underneath its controls; `doc/todo/37` owns that decision and it is the first
+  thing a real native host will want.
 - **interactive chrome drawn in the platform's own colours.** Selection highlights, an
   in-progress rubber band, a caret, a focus ring — these cross as geometry rather than pixels
   precisely so a host can draw them in macOS's selection colour, KDE's accent, the Windows

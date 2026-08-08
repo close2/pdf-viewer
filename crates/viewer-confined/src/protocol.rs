@@ -1531,6 +1531,9 @@ mod query_kind {
     // the three-hundred-and-eighty-eighth session. ADR 0225.
     pub(super) const OFFSET: u8 = 26;
     pub(super) const FIELD_SELECTION: u8 = 27;
+    // §12.7's form fields, carried since the three-hundred-and-ninety-eighth session: the sixth of
+    // `doc/todo/37`'s chrome populations and the last to cross. ADR 0235.
+    pub(super) const FIELDS: u8 = 28;
 }
 
 /// Encodes one question.
@@ -1632,6 +1635,9 @@ pub(crate) fn encode_query(query: Query<'_>) -> Result<Vec<u8>, Uncarried> {
         Query::Popups => {
             writer.u8(k::POPUPS);
         }
+        Query::Fields => {
+            writer.u8(k::FIELDS);
+        }
         Query::AccessibilityTree => {
             writer.u8(k::ACCESSIBILITY_TREE);
         }
@@ -1689,6 +1695,7 @@ pub(crate) enum PlainQuery {
     Opening,
     Preferences,
     Popups,
+    Fields,
     AccessibilityTree,
 }
 
@@ -1725,6 +1732,7 @@ impl OwnedQuery {
                 PlainQuery::Opening => Query::Opening,
                 PlainQuery::Preferences => Query::Preferences,
                 PlainQuery::Popups => Query::Popups,
+                PlainQuery::Fields => Query::Fields,
                 PlainQuery::AccessibilityTree => Query::AccessibilityTree,
             },
         }
@@ -1781,6 +1789,7 @@ pub(crate) fn decode_query(bytes: &[u8]) -> Result<OwnedQuery, ProtocolError> {
         k::OPENING => OwnedQuery::Plain(PlainQuery::Opening),
         k::PREFERENCES => OwnedQuery::Plain(PlainQuery::Preferences),
         k::POPUPS => OwnedQuery::Plain(PlainQuery::Popups),
+        k::FIELDS => OwnedQuery::Plain(PlainQuery::Fields),
         k::ACCESSIBILITY_TREE => OwnedQuery::Plain(PlainQuery::AccessibilityTree),
         value => {
             return Err(ProtocolError::Unrecognised {
@@ -1826,6 +1835,8 @@ mod answer_kind {
     // session. ADR 0225.
     pub(super) const OFFSET: u8 = 27;
     pub(super) const FIELD_SELECTION: u8 = 28;
+    // §12.7's form fields, the twelfth answer a panel — or a native form — is made of. ADR 0235.
+    pub(super) const FIELDS: u8 = 29;
 }
 
 /// Encodes one answer.
@@ -1993,6 +2004,10 @@ pub(crate) fn encode_answer(answer: &Answer<'_>) -> Result<Vec<u8>, Uncarried> {
             writer.u8(k::POPUPS);
             panels::encode_popups(&mut writer, popups);
         }
+        Answer::Fields(fields) => {
+            writer.u8(k::FIELDS);
+            panels::encode_fields(&mut writer, fields);
+        }
         Answer::Properties {
             information,
             metadata,
@@ -2140,6 +2155,7 @@ pub(crate) fn decode_answer(bytes: &[u8]) -> Result<Reply, ProtocolError> {
         k::OPENING => Reply::Opening(panels::decode_opening(&mut reader)?),
         k::PREFERENCES => Reply::Preferences(Box::new(panels::decode_preferences(&mut reader)?)),
         k::POPUPS => Reply::Popups(panels::decode_popups(&mut reader)?),
+        k::FIELDS => Reply::Fields(panels::decode_fields(&mut reader)?),
         k::ACCESSIBILITY => Reply::Accessibility(panels::decode_accessibility(&mut reader)?),
         value => {
             return Err(ProtocolError::Unrecognised {
@@ -2441,7 +2457,7 @@ mod tests {
     /// Every question `viewer-core` states, encoded and read back.
     ///
     /// **The list used to have two halves** — what crossed and what was refused by name — and the
-    /// second half is empty since the three-hundred-and-eighty-sixth session. All twenty-five are
+    /// second half is empty since the three-hundred-and-eighty-sixth session. All twenty-eight are
     /// here, written out rather than generated, so that a question added to `viewer-core` makes
     /// `encode_query`'s match fail to compile and somebody then notices there is no round trip
     /// for it.
@@ -2484,9 +2500,10 @@ mod tests {
             Query::Opening,
             Query::Preferences,
             Query::Popups,
+            Query::Fields,
             Query::AccessibilityTree,
         ];
-        assert_eq!(carried.len(), 27, "every question `viewer-core` states");
+        assert_eq!(carried.len(), 28, "every question `viewer-core` states");
         for query in carried {
             let encoded = encode_query(query).unwrap();
             let read = decode_query(&encoded).unwrap();
@@ -2991,6 +3008,117 @@ mod tests {
             panic!("a structure tree comes back as one");
         };
         assert_eq!(read, nodes);
+
+        // §12.7, and one of every control §12.7.5 defines: a host on this boundary builds the
+        // same form as one off it or it builds a different program.
+        let fields = a_populated_form();
+        let Reply::Fields(read) = round_trip(&Answer::Fields(fields.clone())) else {
+            panic!("form fields come back as form fields");
+        };
+        assert_eq!(read, fields);
+    }
+
+    /// One field per control §12.7.5 defines, with no default among them.
+    ///
+    /// Seven, because §12.7.5.2 splits its own type three ways and Table 226 lets a file state no
+    /// `/FT` at all. Every flag is the opposite of the standard's default, every `Option` is
+    /// `Some` and every list has more than one element — see the note on
+    /// [`a_populated_outline`]: a round trip over defaults would pass with an encoder that wrote
+    /// nothing.
+    fn a_populated_form() -> Vec<viewer_core::FormField> {
+        use pdf_model::form::{Choice, ChoiceControl, Control, TextControl};
+        use pdf_model::view::FieldName;
+        use viewer_core::{FormField, FormWidget};
+
+        let widget = |serial: u16, on_state: Option<&str>, export: Option<&str>| FormWidget {
+            annotation: ObjectId::new(u32::from(serial), 0),
+            quad: [
+                f32::from(serial),
+                1.0,
+                2.0,
+                3.0,
+                4.0,
+                5.0,
+                6.0,
+                f32::from(serial),
+            ],
+            on_state: on_state.map(str::to_owned),
+            export: export.map(str::to_owned),
+            on: on_state.is_some(),
+        };
+        let field = |name: &str, control: Control, widgets: Vec<FormWidget>| FormField {
+            name: FieldName {
+                qualified: format!("outer.{name}"),
+                alternative: Some(format!("the {name}")),
+            },
+            partial: name.to_owned(),
+            control,
+            value: Some(format!("{name}'s value")),
+            read_only: true,
+            required: true,
+            no_export: true,
+            widgets,
+        };
+
+        vec![
+            field(
+                "text",
+                Control::Text(TextControl {
+                    multiline: true,
+                    password: true,
+                    file_select: true,
+                    do_not_spell_check: true,
+                    do_not_scroll: true,
+                    comb: Some(9),
+                    max_len: Some(12),
+                    rich_text: true,
+                }),
+                vec![widget(40, None, None), widget(41, None, None)],
+            ),
+            field(
+                "choice",
+                Control::Choice(ChoiceControl {
+                    combo: true,
+                    editable: true,
+                    multi_select: true,
+                    do_not_spell_check: true,
+                    commit_on_selection: true,
+                    options: vec![
+                        Choice {
+                            export: Some("r".to_owned()),
+                            label: "Red".to_owned(),
+                        },
+                        Choice {
+                            export: None,
+                            label: "Blue".to_owned(),
+                        },
+                    ],
+                    selected: vec![0, 1],
+                    top: 1,
+                }),
+                vec![widget(42, None, None)],
+            ),
+            field(
+                "box",
+                Control::CheckBox { on: true },
+                vec![widget(43, Some("Yes"), Some("yes"))],
+            ),
+            field(
+                "radio",
+                Control::RadioButton {
+                    on: true,
+                    no_toggle_to_off: true,
+                    in_unison: true,
+                },
+                vec![
+                    widget(44, Some("visa"), Some("Visa")),
+                    widget(45, None, None),
+                ],
+            ),
+            field("push", Control::PushButton, vec![widget(46, None, None)]),
+            field("sign", Control::Signature, vec![widget(47, None, None)]),
+            field("odd", Control::Unstated, vec![widget(48, None, None)]),
+        ]
     }
 
     /// Encodes an answer and reads it back, failing loudly rather than returning a `Result`.
@@ -3112,6 +3240,7 @@ mod tests {
                 ("opening", Query::Opening),
                 ("preferences", Query::Preferences),
                 ("popups", Query::Popups),
+                ("fields", Query::Fields),
                 ("structure", Query::AccessibilityTree),
             ] {
                 let answer = viewer.query(query);

@@ -1797,7 +1797,7 @@ impl FieldName {
 /// ancestor of it. That field is the widget's own dictionary where §12.5.6.19's merge applies,
 /// and its `/Parent` where the widget is a kid with no `/T` — which is the same distinction
 /// `walk` makes one level up, from the other end.
-fn alternative_name(document: &Document, widget: ObjectId) -> Option<String> {
+pub(crate) fn alternative_name(document: &Document, widget: ObjectId) -> Option<String> {
     let mut node = widget;
     let mut seen = BTreeSet::new();
     for _ in 0..MAX_FIELD_DEPTH {

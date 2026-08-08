@@ -607,6 +607,104 @@ fn an_attachment_is_listed_here_and_checked_against_what_the_worker_extracted() 
     }
 }
 
+/// §12.7's form, read across the boundary and filled in through it.
+///
+/// **The twelfth answer, and the one that decides whether a confined host can be a form at all.**
+/// The eleven panel answers crossed in the three-hundred-and-eighty-sixth session; a form field
+/// did not, so a host on this side could place a native tree, a native popover and a native
+/// attachment list and then had to take its text fields, its check boxes and its combo boxes as
+/// pixels off the raster. ADR 0235.
+///
+/// Two properties, and they are separate. **The description crosses unchanged** — every control,
+/// every flag, every option and every quadrilateral, compared against the same document read in
+/// this process, which is what `every_panel_answer_crosses_a_real_document_unchanged` does for the
+/// other eleven. **And an edit built from it works**: the on-state name the confined process
+/// answered with is sent back through the same pipe, and the page it draws afterwards is a
+/// different page.
+#[test]
+fn a_form_crosses_the_boundary_and_can_be_filled_in_through_it() {
+    let Some(bytes) = corpus_bytes("issue17492.pdf") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+
+    let mut confined = Confined::start().expect("a confined viewer starts");
+    confined
+        .handle(&Command::Resize {
+            width: VIEWPORT.0,
+            height: VIEWPORT.1,
+            scale: 1.0,
+        })
+        .expect("a resize crosses");
+    confined
+        .handle(&Command::Open {
+            id: DOCUMENT,
+            bytes: bytes.clone(),
+            password: None,
+            fragment: None,
+        })
+        .expect("an open crosses");
+
+    let mut here = Viewer::new(VIEWPORT.0, VIEWPORT.1, 1.0);
+    for _ in here.handle(Command::Open {
+        id: DOCUMENT,
+        bytes,
+        password: None,
+        fragment: None,
+    }) {}
+
+    let Reply::Fields(crossed) = confined.query(Query::Fields).expect("a form crosses") else {
+        panic!("this document's first page states twelve fields");
+    };
+    let Answer::Fields(ours) = here.query(Query::Fields) else {
+        panic!("and it states them here too");
+    };
+    assert_eq!(crossed.len(), 12, "§12.7.5's controls, all but a signature");
+    assert_eq!(
+        crossed, ours,
+        "a form changed on the way over: every control, flag, option and quadrilateral"
+    );
+
+    // And the edit a host builds out of it. §12.7.5.2.3 keys the appearance dictionary by state
+    // and the name is the file's own invention, so this string exists on this side of the pipe
+    // only because the answer above carried it.
+    let field = crossed
+        .iter()
+        .find(|field| field.name.qualified == "typeScript")
+        .expect("a check box");
+    let state = field.widgets[0]
+        .on_state
+        .clone()
+        .expect("§12.7.5.2.3's on state");
+    confined
+        .handle(&Command::Edit(viewer_core::Edit::SetField {
+            field: field.name.qualified.clone(),
+            value: Some(state),
+        }))
+        .expect("an edit crosses");
+
+    let Reply::Fields(after) = confined
+        .query(Query::Fields)
+        .expect("the form crosses again")
+    else {
+        panic!("the page still states a form");
+    };
+    let checked = after
+        .iter()
+        .find(|field| field.name.qualified == "typeScript")
+        .expect("the same check box");
+    assert_eq!(
+        checked.control,
+        pdf_model::form::Control::CheckBox { on: true },
+        "the box the host checked is checked"
+    );
+    assert!(checked.widgets[0].on);
+    assert!(
+        matches!(confined.query(Query::Dirty), Ok(Reply::Dirty(true))),
+        "and the document knows it was edited"
+    );
+}
+
 /// A document whose images need a codec `pdf-sandbox` would ordinarily confine separately.
 ///
 /// The confined viewer cannot spawn anything — the filter has no `execve` — so it decodes its

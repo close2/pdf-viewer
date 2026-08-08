@@ -72,6 +72,8 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
   `Reported { document, page: Option<usize>, notes }` — the `None` page is what the *document*
   says about itself (§12.11, §12.8, §7.11.4), said before any page is drawn.
 - `Query` → `Answer`: `PageCount`, `CurrentPage`, `PageGeometry`, `LinkAt`, `FieldAt`,
+  **`Fields`** — §12.7's whole form on the page being shown, as controls a host builds itself
+  (ADR 0235) —
   **`Caret { at, offset }`** (§12.7.4.3's layout, ADR 0211), **`Offset { at, point }`** — that
   question's inverse — and **`FieldSelection { at, from, to }`**, the shapes over a range of a
   field's value (ADR 0225),
@@ -115,9 +117,22 @@ host has already read back and the edit is the `Edit::SetField` a keystroke alre
 [todo 33](todo/33-annotation-editing.md) still owes is free text and a host that sends the markup
 command from a drag.
 
+**And a *form* since the three-hundred-and-ninety-eighth** (ADR 0235). `Query::Fields` answers with
+every field that has a widget on the page being shown — §12.7.5's type, the flags of Tables 227, 229,
+231 and 233 that decide what kind of control it is, Table 234's items and selection, Table 232's
+`/MaxLen`, and the appearance-state name §12.7.5.2.3 makes a check box's value — so a host builds a
+real `QLineEdit`, a real combo box and a real check box instead of taking a form as pixels off the
+raster. `doc/todo/37` is the audit that found it the last of six chrome populations not to cross, and
+the round that closed it found something the audit had not: **a check box could not be checked at
+all**, because §12.7.5.2.3's "[t]he value of the V key shall also be the value of the AS key" binds
+the processor that changes `/V` and this tree read only the sentence after it. What §0 still owes
+here is a page drawn *without* its widget appearances, which is a change to `interpret` and a round
+of its own.
+
 **The vocabulary is complete**, and ten sessions of building on it added five messages rather than
-changing any — eight now, with `Query::Caret` in the three-hundred-and-seventy-first and
-`Query::Offset` and `Query::FieldSelection` in the three-hundred-and-eighty-eighth, and it is the
+changing any — nine now, with `Query::Caret` in the three-hundred-and-seventy-first,
+`Query::Offset` and `Query::FieldSelection` in the three-hundred-and-eighty-eighth and
+`Query::Fields` in the three-hundred-and-ninety-eighth, and it is the
 same rule those five followed: a *question* a host cannot answer for itself, never a second way to
 say something it can — `Command::Activate`, `Command::Extract`, `Event::Extracted`, `Query::Opening`,
 `Query::Properties`, each because a *clause* needed a channel — with one variant **removed** the

@@ -1,12 +1,13 @@
 # What a native host would not draw itself, and whether the API lets it delegate
 
-Status: **audited in the three-hundred-and-fifty-seventh session, at the project owner's request.**
-Five of six populations already cross as data; **form fields are the gap** and this file is what
-closing it means.
+Status: **six of six populations cross as data** since the three-hundred-and-ninety-eighth session
+(ADR 0235). What is left is one decision the audit named and did not take: a page rendered
+*without* its widget appearances.
 Priority: 37 — capability, and a prerequisite for `doc/todo/30`'s hosts being any good
 Clauses: §12.5.6.14 (popups), §12.7.4 and §12.7.5 (fields), §12.3.3, §12.3.4, §8.11.4.3, §7.11.4,
 §14.3.3, §12.5.1
-Code: `crates/viewer-core/src/query.rs`, `crates/viewer-ui/src/chrome.rs`
+Code: `crates/viewer-core/src/query.rs`, `crates/pdf-model/src/form.rs`,
+`crates/viewer-ui/src/chrome.rs`
 
 ## Why it was asked
 
@@ -28,7 +29,7 @@ So the question is not whether `viewer-ui` draws these — it does, and that is 
 *is* — but whether a host that wanted to use a `QTreeView`, an `NSPopover` or a `GtkText` could,
 without reaching into `viewer-ui` or re-deriving anything.
 
-## The audit: five of six are clean
+## The audit, and the sixth population closing it
 
 | what `viewer-ui` draws | what a native host would use instead | crosses as |
 |---|---|---|
@@ -37,43 +38,62 @@ without reaching into `viewer-ui` or re-deriving anything.
 | §12.3.4's thumbnails | an icon view | `Query::Thumbnail(index)` → a decoded `Image`, one page at a time |
 | a text selection | the platform's highlight brush | `Query::Selection` → quads in device pixels |
 | §12.5.1's focus ring | the platform's focus ring | `Query::Focus` → one quad |
-| **§12.7's form fields** | a real `QLineEdit` / `NSTextField` / `GtkEntry` | **nothing** |
+| **§12.7's form fields** | a real `QLineEdit` / `NSTextField` / `GtkEntry` | **`Query::Fields`** → `FormField { name, partial, control, value, read_only, required, no_export, widgets }` |
 
-**The popup case the owner named is already clear-cut**, and its own doc comment says so: "a
-window belongs to the host's platform. What this crate owns is which windows are open, where the
-page puts them and what the document says goes in them; what a title bar looks like is the host's,
-and a native one would draw a real window rather than a rectangle." `Query::Popups` answers **only
-the open ones**, in `/Annots` order, with the quad already through the centring, the magnification,
-the crop box's origin and §7.7.3.3's rotation — which is exactly the arithmetic ADR 0118 found
-wrong for seventy-five sessions and which no host should repeat.
+**The popup case the owner named is clear-cut**, and its own doc comment says so: "a window belongs
+to the host's platform. What this crate owns is which windows are open, where the page puts them and
+what the document says goes in them; what a title bar looks like is the host's, and a native one
+would draw a real window rather than a rectangle." `Query::Popups` answers **only the open ones**, in
+`/Annots` order, with the quad already through the centring, the magnification, the crop box's origin
+and §7.7.3.3's rotation — which is exactly the arithmetic ADR 0118 found wrong for seventy-five
+sessions and which no host should repeat.
 
-## The gap: a page's form fields
+## The form, which closed in the three-hundred-and-ninety-eighth session
 
-`Query::FieldAt((x, y))` answers for **one point**. A native host does not have a point; it has a
-page, and it wants to put a widget over every field on it before anybody clicks. There is no query
-that enumerates them.
+`Query::Fields` answers for the page being shown, in `/Annots` order, with everything this file said
+such a query has to carry:
 
-What such a query has to carry, and each has a clause behind it:
+- the field's **identity** — §12.7.4.2's fully qualified name, which `Edit::SetField` addresses —
+  and Table 226's `/T` beside it, because a label wants the field's own name rather than its
+  ancestry;
+- the **name to show** — Table 226's `/TU`, §14.9.3's `shall`, through the `FieldName` ADR 0167
+  built;
+- each widget's **quadrilateral**, in device pixels, in the same form `Selected::quads`,
+  `Answer::Focus` and `PopupWindow::quad` take — one arithmetic, one place;
+- **what kind of control it is** — `pdf_model::form::Control`, §12.7.5's four types with buttons
+  split the three ways §12.7.5.2 splits them, plus Table 231's six flags, Table 233's five, Table
+  229's two, Table 232's `/MaxLen` and the comb's cell count;
+- the **value**, as `Answer::Field` already carried it since ADR 0201, already through §12.7.5.3's
+  truncation;
+- **Table 234's `/Opt`, `/TI` and `/I`**, so a combo box and a list box have their items and their
+  selection;
+- **Table 227's three flags**, so a host builds a read-only control and marks a required field;
+- and the thing the audit did not know it was missing: **the appearance-state name that turns each
+  widget on**, because §12.7.5.2.3 makes a check box's value a name the file invented and no host
+  could guess it.
 
-- **the field's identity** — §12.7.4.2's fully qualified name, which is what `Edit::SetField`
-  addresses;
-- **the name to show** — Table 226's `/TU`, because §14.9.3 makes showing it a `shall` and ADR
-  0167 is the round that learned one string cannot be both;
-- **the quadrilateral**, in device pixels, in the same form `Selected::quads`, `Answer::Focus` and
-  `PopupWindow::quad` take — one arithmetic, one place;
-- **what kind of control it is** — §12.7.5's four types plus the flags that change the control
-  rather than the drawing: Table 231's `Multiline` (a text view, not a line), `Password` (a secure
-  entry), `Comb` and `MaxLen` (a fixed-cell entry), `DoNotScroll` (ADR 0197's acceptance limit),
-  Table 233's `Combo` and `Edit` (a combo box, editable or not), Table 227's `ReadOnly`;
-- **the value**, as `Answer::Field` already carries it since ADR 0201, with `None` for a field
-  whose value is not text and `Some("")` for an empty one;
-- **§12.7.5.4's `/Opt`**, because a combo box or list box needs its items and nothing answers with
-  them today.
+Reading the clause for that last one found that **a check box could not be checked at all** — the
+page went on drawing the state the file was saved in, on both the stored and the constructed path.
+ADR 0235 has the numbers and the fix. `viewer-ui` toggles a box and a radio button from a click as of
+the same round, which is the first thing in this tree that gives a button field a value.
 
-**And the page must then not draw them.** A host placing native widgets needs the page rendered
-*without* the widget appearances, or it gets both. That is a second decision and probably a flag on
-the render request rather than a query — §12.5.5's appearance streams are page content, and leaving
-them out is a departure a host asks for rather than one this crate takes.
+## What is left, and it is one decision
+
+**A page rendered without its widget appearances.** A host placing native controls over the page gets
+both pictures unless it can ask for one without them. This is a second decision and a larger one:
+§12.5.5's appearance streams are page content, and leaving them out changes `interpret`, on which the
+oracle's 1794-page comparison rests. It is probably a flag on the render request rather than a query
+— a departure a host *asks for* rather than one this crate takes — and it wants its own round.
+
+Two smaller things, both named rather than left to be found:
+
+- **Table 229 bit 26's `RadiosInUnison` crosses and is not obeyed.** Turning on every button of a
+  set that shares an on state is a decision for whatever handles the press, and this tree's own host
+  has the flag rather than the behaviour.
+- **§12.7.5.4's list box still draws nothing on the page**, and says so. The clause states which
+  items are selected and states no highlight, so `variable_text` refuses it. A host with the items
+  and the selection can now draw a real list — which is the point — but a page with a list box on it
+  is still light, and the report is what says so.
 
 ## What is deliberately not here
 
@@ -81,10 +101,5 @@ them out is a departure a host asks for rather than one this crate takes.
   rest are page content by §12.5.2 — "the annotations shall be drawn in the order in which they
   appear in the array" — and a native host has no widget for a highlight. Those stay in the page.
 - **A caret.** `doc/todo/33` owns it, and a host with a native text field gets the platform's caret
-  for free — which is an argument for doing this before that one.
-
-## Order
-
-After `doc/todo/30`'s first host exists, not before: the shape of this query is a guess until
-something real tries to place a widget with it, and ADR 0166 and 0167 are two rounds' evidence that
-a message's shape is settled by the second consumer rather than by the first.
+  for free — which was an argument for doing this before that one, and the caret went first anyway
+  (ADRs 0211, 0225).

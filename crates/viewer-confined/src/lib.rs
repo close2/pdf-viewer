@@ -340,6 +340,12 @@ pub enum Reply {
     Preferences(Box<pdf_model::viewer_preferences::ViewerPreferences>),
     /// §12.5.6.14's open popup windows, in the `/Annots` array's order.
     Popups(Vec<viewer_core::PopupWindow>),
+    /// §12.7's form fields with a widget on the page being shown, in `/Annots` order.
+    ///
+    /// The twelfth answer a host builds an interface out of, and the one that makes a *form*
+    /// possible on this boundary: without it a confined host could place native controls over
+    /// every other kind of chrome and would have had to take fields as pixels. ADR 0235.
+    Fields(Vec<viewer_core::FormField>),
     /// §14.7's structure for the page being shown, in §14.8.2.5's logical order, parent-first.
     Accessibility(Vec<viewer_core::AccessibilityNode>),
 }

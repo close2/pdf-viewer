@@ -54,6 +54,7 @@ use std::io::Write as _;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use pdf_model::form::Control;
 use pdf_render::{
     BlendMode, Color, Command as DrawCommand, FillRule, Image, Paint, Path, PathCommand, Point,
     Raster, Rasterizer as _, Rect, Size, TargetSpec, Transform,
@@ -1449,6 +1450,23 @@ fn whole(width: u32, height: u32) -> Point {
     Point::new(width as f32, height as f32)
 }
 
+/// Whether a quadrilateral this crate was handed covers a point in the viewport.
+///
+/// The **bounding box** of the four corners, and that is exact rather than an approximation for
+/// the shape this is asked about: `viewer_core` builds a widget's quadrilateral out of Table 166's
+/// `/Rect`, which "shall be two opposite corners" of an upright rectangle, through §7.7.3.3's
+/// `/Rotate` — and that entry's value "shall be a multiple of 90", so the rectangle is still
+/// upright on the screen. A quadrilateral this test would get wrong is one no page can state.
+fn covers(quad: [f32; 8], (x, y): (f32, f32)) -> bool {
+    let xs = [quad[0], quad[2], quad[4], quad[6]];
+    let ys = [quad[1], quad[3], quad[5], quad[7]];
+    let bound = |values: [f32; 4]| {
+        values.iter().copied().fold(f32::INFINITY, f32::min)
+            ..=values.iter().copied().fold(f32::NEG_INFINITY, f32::max)
+    };
+    bound(xs).contains(&x) && bound(ys).contains(&y)
+}
+
 /// The nearest character boundary at or before `offset`, clamped to the value's length.
 ///
 /// A caret is a place *between* characters, and the value it indexes changes under it: a field
@@ -2016,6 +2034,97 @@ impl App {
         if was && self.typing.is_none() {
             println!("note: the keyboard is back on the page");
         }
+    }
+
+    /// §12.7.5.2's two toggling kinds, clicked.
+    ///
+    /// **What `Query::Fields` made possible and nothing else could.** `Edit::SetField` takes a
+    /// string, and for a check box or a radio button the only strings that mean anything are the
+    /// names Table 170's appearance dictionary is keyed by — §12.7.5.2.3 makes `/V` "a name object
+    /// representing the check box's appearance state, which shall be used to select the
+    /// appropriate appearance from the appearance dictionary" — and those names are the file's own
+    /// invention. This host had no way to learn one, so it could type into a form and not tick a
+    /// box in it. `FormWidget::on_state` is the name to send. ADR 0235.
+    ///
+    /// Which widget: `Query::FieldAt` is the hit test, because it is the model's own and because a
+    /// second one here could disagree with it; the quadrilaterals then say *which of the field's
+    /// widgets* the point was in, which is the question §12.7.5.2.4's set makes real — "at most
+    /// one button in a set may be on at any given time", and the one that goes on is the one under
+    /// the pointer.
+    ///
+    /// What to send: §12.7.5.2.4 states the rule for turning one off, and it is a flag rather than
+    /// a convention — "[i]f set, exactly one radio button shall be selected at all times; selecting
+    /// the currently selected button has no effect. If clear, clicking the selected button
+    /// deselects it, leaving no button selected."
+    ///
+    /// Table 227 bit 1 is checked here as well as in the core, and neither is redundant: the core
+    /// refuses the edit, and a host that sent it anyway would be a program that looks broken
+    /// rather than one that obeys the document.
+    fn toggle_button(&mut self) {
+        let at = self.on_page(self.cursor);
+        let Answer::Field {
+            name, value: None, ..
+        } = self.viewer.query(Query::FieldAt(at))
+        else {
+            // A field whose value is text is one to type into, which `aim_at_field` has already
+            // decided about; no field at all is a press on the page.
+            return;
+        };
+        let qualified = name.qualified.clone();
+        let Answer::Fields(fields) = self.viewer.query(Query::Fields) else {
+            return;
+        };
+        let Some(field) = fields
+            .iter()
+            .find(|field| field.name.qualified == qualified)
+        else {
+            return;
+        };
+        let no_toggle_to_off = match field.control {
+            Control::CheckBox { .. } => false,
+            Control::RadioButton {
+                no_toggle_to_off, ..
+            } => no_toggle_to_off,
+            // §12.7.5.2.2's push-button "retains no permanent value", a signature field's is a
+            // dictionary, and neither is a control a click gives a value to.
+            _ => return,
+        };
+        if field.read_only {
+            println!("note: the field {} is read-only (Table 227)", name.shown());
+            return;
+        }
+        // The *last* widget covering the point, because §12.5.2 draws them in `/Annots` order and
+        // the one on top is the one under the pointer — the same rule `pdf_model::view::field_at`
+        // applies one level down.
+        let Some(widget) = field
+            .widgets
+            .iter()
+            .rev()
+            .find(|widget| covers(widget.quad, at))
+        else {
+            return;
+        };
+        let value = if widget.on {
+            if no_toggle_to_off {
+                return;
+            }
+            // §12.7.5.2.3 names the off state; §12.7.5.2.4 gives it as the default value.
+            "Off".to_owned()
+        } else {
+            let Some(state) = widget.on_state.clone() else {
+                println!(
+                    "note: the field {} states no appearance for an on state (§12.7.5.2.3)",
+                    name.shown()
+                );
+                return;
+            };
+            state
+        };
+        println!("note: setting the field {} to {value}", name.shown());
+        self.dispatch(Command::Edit(Edit::SetField {
+            field: qualified,
+            value: Some(value),
+        }));
     }
 
     /// Aims the keyboard at whatever §12.5.1's tab walk just landed on, where it takes text.
@@ -3911,6 +4020,10 @@ impl ApplicationHandler for App {
                 // has no opinion about chrome by construction (rule 5).
                 if element == ElementState::Pressed {
                     self.aim_at_field();
+                    // And §12.7.5.2's other kind of press, which takes no keyboard: a click on a
+                    // check box or a radio button is what *gives* it a value. Nothing happens
+                    // where the press was not on one.
+                    self.toggle_button();
                 }
                 self.dragging = element == ElementState::Pressed;
                 self.dispatch(Command::Pointer {

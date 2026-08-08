@@ -749,7 +749,7 @@ fn decided(
         String::from_utf8_lossy(&subtype).into_owned()
     };
     let stated_rect = rectangle(document, annotation, "Rect");
-    let stored = match stored_appearance(document, annotation, view.appearance) {
+    let stored = match stored_appearance(document, annotation, view) {
         Normal::Stream(stream) => stream,
         Normal::Absent => {
             // With no stored stream there is nothing whose own box could stand in for a missing
@@ -961,16 +961,22 @@ enum Normal {
 /// defined in the appearance dictionary" — so displaying nothing there is the specified
 /// answer rather than a shortfall.
 ///
-/// `showing` is which of the three the pointer's position asks for (`crate::view::Appearance`).
-/// Table 170 requires only `/N` and makes `/R` and `/D` optional, so an annotation with no
-/// entry for the state it is in has stated no special appearance for it and shows its normal
-/// one — which is also what §12.5.3's *printing* path asks for, since "this appearance is
-/// also used for printing the annotation".
+/// `view.appearance` is which of the three the pointer's position asks for
+/// (`crate::view::Appearance`). Table 170 requires only `/N` and makes `/R` and `/D` optional, so
+/// an annotation with no entry for the state it is in has stated no special appearance for it and
+/// shows its normal one — which is also what §12.5.3's *printing* path asks for, since "this
+/// appearance is also used for printing the annotation".
+///
+/// **`view.value` is the second half of the choice, since the three-hundred-and-ninety-eighth
+/// session.** §12.7.5.2.3 requires `/V` and `/AS` to agree, and a viewer that changes the first is
+/// what has to carry the second: see `crate::appearance::appearance_state`, which answers `None`
+/// for everything but a check box or radio button whose value this reader replaced.
 fn stored_appearance(
     document: &Document,
     annotation: &Dictionary,
-    showing: crate::view::Appearance,
+    view: crate::view::AnnotationView<'_>,
 ) -> Normal {
+    let showing = view.appearance;
     let appearances = document.get_key(annotation, "AP");
     let Some(appearances) = appearances.as_dict() else {
         return Normal::Absent;
@@ -992,11 +998,16 @@ fn stored_appearance(
         return Normal::Absent;
     };
 
-    let selected = document.get_key(annotation, "AS");
+    let selected =
+        crate::appearance::appearance_state(document, annotation, view.value).or_else(|| {
+            document
+                .get_key(annotation, "AS")
+                .as_name()
+                .map(|name| name.as_bytes().to_vec())
+        });
     let resolved = selected
-        .as_name()
-        .and_then(|name| states.get(&String::from_utf8_lossy(name.as_bytes())))
-        .map(|state| document.resolve(state));
+        .and_then(|name| states.get(&String::from_utf8_lossy(&name)).cloned())
+        .map(|state| document.resolve(&state));
     match resolved.as_ref().and_then(|state| state.as_stream()) {
         Some(stream) => Normal::Stream(Arc::clone(stream)),
         None => Normal::StateNotDefined,
@@ -1016,7 +1027,7 @@ pub(crate) fn stored_frame(
     annotation: &Dictionary,
     view: crate::view::AnnotationView<'_>,
 ) -> Option<([f32; 4], Transform)> {
-    let Normal::Stream(stored) = stored_appearance(document, annotation, view.appearance) else {
+    let Normal::Stream(stored) = stored_appearance(document, annotation, view) else {
         return None;
     };
     let matrix = matrix(document, &stored.dict);

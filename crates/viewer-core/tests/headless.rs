@@ -18,6 +18,7 @@
 
 use std::path::{Path, PathBuf};
 
+use pdf_model::form::Control;
 use pdf_render::Rasterizer;
 use render_cpu::CpuRasterizer;
 use viewer_core::{
@@ -1496,6 +1497,237 @@ fn a_click_finds_the_field_it_landed_on() {
         viewer.query(Query::FieldAt((2.0, 2.0))),
         Answer::None
     ));
+}
+
+/// §12.7's whole form on a page, as a host that draws it in native controls needs it.
+///
+/// **The sixth chrome population, and the one `doc/todo/37` audited as missing.** Five already
+/// crossed as data — §12.3.3's outline, §8.11.4.3's layers, §7.11.4's files, §12.3.5's collection,
+/// §12.5.6.14's popups — and a form field did not, so a native host could draw everything else in
+/// a `QTreeView` or an `NSPopover` and then had to take its fields as pixels off the raster.
+/// `Query::FieldAt` answers for one *point*, which is what a click has; this answers for the page,
+/// which is what a host placing controls has. ADR 0235.
+///
+/// `issue17492.pdf` is the fixture because its first page states one of nearly every control
+/// §12.7.5 defines: two text fields with Table 232's `/MaxLen`, an editable combo box, a
+/// non-editable one, a multi-select list box with Table 234's export/label pairs, four check boxes
+/// and a §12.7.5.2.4 radio set of four widgets under one field.
+#[test]
+fn a_page_states_its_whole_form_as_controls_a_host_can_build() {
+    let Some(bytes) = corpus_bytes("issue17492.pdf") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password: None,
+            fragment: None,
+        })
+        .for_each(drop);
+    let Answer::Fields(fields) = viewer.query(Query::Fields) else {
+        panic!("the page has a form");
+    };
+    assert_eq!(fields.len(), 12, "{:?}", named(&fields));
+
+    // §12.7.5.3, with Table 232's `/MaxLen` and §14.9.3's `/TU` beside it.
+    let first = &fields[0];
+    assert_eq!(first.name.qualified, "firstName");
+    assert_eq!(first.partial, "firstName");
+    assert_eq!(first.name.shown(), "First name");
+    assert_eq!(first.value.as_deref(), Some("Lucía"));
+    assert!(!first.read_only && !first.required);
+    let Control::Text(text) = &first.control else {
+        panic!("{:?}", first.control)
+    };
+    assert_eq!(text.max_len, Some(40));
+    assert!(!text.multiline && !text.password && text.comb.is_none());
+
+    // §12.7.5.4, both of Table 233's forms: an editable combo box and a multi-select list box
+    // whose `/Opt` states export/label pairs.
+    let Some(country) = find(&fields, "country") else {
+        panic!("{:?}", named(&fields))
+    };
+    let Control::Choice(combo) = &country.control else {
+        panic!("{:?}", country.control)
+    };
+    assert!(combo.combo && combo.editable && !combo.multi_select);
+    assert_eq!(combo.options.len(), 28);
+    assert_eq!(combo.options[26].label, "Spain");
+    assert_eq!(
+        combo.selected,
+        vec![26],
+        "§12.7.5.4: `/V` names the item, and it is the twenty-seventh"
+    );
+
+    let Some(databases) = find(&fields, "databases") else {
+        panic!("{:?}", named(&fields))
+    };
+    let Control::Choice(list) = &databases.control else {
+        panic!("{:?}", databases.control)
+    };
+    assert!(!list.combo && list.multi_select);
+    assert_eq!(list.options[0].label, "Oracle");
+    assert_eq!(
+        list.options[0].export.as_deref(),
+        Some("oracle"),
+        "Table 234's pair: \"the option's export value and the text that shall be displayed\""
+    );
+    assert!(
+        list.selected.is_empty(),
+        "the field states no `/V`, and \"the default value of V is null\""
+    );
+
+    // §12.7.5.2.4: one field, four widgets, a state name apiece, and one of them on.
+    let Some(education) = find(&fields, "educationLevel") else {
+        panic!("{:?}", named(&fields))
+    };
+    assert_eq!(
+        education.control,
+        Control::RadioButton {
+            on: true,
+            no_toggle_to_off: true,
+            in_unison: false,
+        }
+    );
+    assert_eq!(education.widgets.len(), 4);
+    let states: Vec<&str> = education
+        .widgets
+        .iter()
+        .filter_map(|widget| widget.on_state.as_deref())
+        .collect();
+    assert_eq!(
+        states,
+        [
+            "highSchool",
+            "associateDegree",
+            "bachelorDegree",
+            "masterDegree"
+        ]
+    );
+    let on: Vec<bool> = education.widgets.iter().map(|widget| widget.on).collect();
+    assert_eq!(on, [false, false, true, false], "the third is checked");
+
+    // The quadrilaterals are in the viewport's device pixels, like every other shape this crate
+    // hands over — checked against the one question that already took a point: a click inside a
+    // widget's quad finds that widget's field.
+    let Some(java) = find(&fields, "javaScript") else {
+        panic!("{:?}", named(&fields))
+    };
+    let quad = java.widgets[0].quad;
+    let centre = (
+        f32::midpoint(quad[0], quad[4]),
+        f32::midpoint(quad[1], quad[5]),
+    );
+    let Answer::Field { name, .. } = viewer.query(Query::FieldAt(centre)) else {
+        panic!("the middle of a widget's quadrilateral is that widget");
+    };
+    assert_eq!(name.qualified, "javaScript");
+}
+
+/// And a host can now *check a box*, which it could not before (§12.7.5.2.3).
+///
+/// The demonstration this round owes. [`Edit::SetField`] takes a string, and for a check box the
+/// only strings that mean anything are the names Table 170's appearance dictionary is keyed by —
+/// the file's own invention, `/Yes` here and `/1`, `/On` or Table 230's positional `/0` elsewhere.
+/// A host had no way to learn one. `FormWidget::on_state` is that name, and the page draws the
+/// state it selects: two halves of one round, because either without the other is a host that
+/// knows what to send and cannot see it work, or one that could see it and cannot know.
+#[test]
+fn a_host_can_check_a_box_with_the_name_the_page_gave_it() {
+    let Some(bytes) = corpus_bytes("issue17492.pdf") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    let events: Vec<_> = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password: None,
+            fragment: None,
+        })
+        .collect();
+    let before = request(&events).clone();
+
+    let Answer::Fields(fields) = viewer.query(Query::Fields) else {
+        panic!("the page has a form");
+    };
+    let Some(field) = find(&fields, "typeScript") else {
+        panic!("{:?}", named(&fields))
+    };
+    assert_eq!(field.control, Control::CheckBox { on: false });
+    let state = field.widgets[0]
+        .on_state
+        .clone()
+        .expect("§12.7.5.2.3 keys the appearance dictionary by state, and this box states one");
+    assert_eq!(state, "Yes");
+
+    let events: Vec<_> = viewer
+        .handle(Command::Edit(Edit::SetField {
+            field: field.name.qualified.clone(),
+            value: Some(state),
+        }))
+        .collect();
+    let after = request(&events).clone();
+    assert!(
+        !std::sync::Arc::ptr_eq(&before.list, &after.list),
+        "a checked box is a page drawn again"
+    );
+
+    let Answer::Fields(fields) = viewer.query(Query::Fields) else {
+        panic!("the page still has a form");
+    };
+    let Some(field) = find(&fields, "typeScript") else {
+        panic!("{:?}", named(&fields))
+    };
+    assert_eq!(field.control, Control::CheckBox { on: true });
+    assert!(field.widgets[0].on);
+
+    // And the state's own appearance stream is what the page now draws, which is the half of
+    // §12.7.5.2.3 nothing obeyed until this round: this widget's `/AP /N` states `Yes` and no
+    // `Off` at all, so the on state adds a stream where the off state has none.
+    //
+    // **The display list and not the ink**, deliberately: the tick is `(5)` in ZapfDingbats and
+    // whether this machine has a face for it is trap 8's question rather than the clause's.
+    // `pdf-model`'s `checking_a_box_draws_the_state_the_new_value_names` is where the pixels are
+    // asserted, on fixtures built to make the mark visible whatever is installed.
+    let cleared: Vec<_> = viewer
+        .handle(Command::Edit(Edit::SetField {
+            field: "typeScript".to_owned(),
+            // §12.7.5.2.3 names the off state and §12.7.5.2.4 gives it as the default.
+            value: Some("Off".to_owned()),
+        }))
+        .collect();
+    let off = request(&cleared);
+    assert_eq!(
+        after.list.commands().len(),
+        before.list.commands().len() + 1,
+        "the checked box draws one thing the unchecked one does not"
+    );
+    assert_eq!(
+        off.list.commands().len(),
+        before.list.commands().len(),
+        "and unchecking it takes that thing away again"
+    );
+}
+
+/// The field of that fully qualified name, where the page states one.
+fn find<'a>(
+    fields: &'a [viewer_core::FormField],
+    name: &str,
+) -> Option<&'a viewer_core::FormField> {
+    fields.iter().find(|field| field.name.qualified == name)
+}
+
+/// Every field's qualified name, for a failure that has to say what was there instead.
+fn named(fields: &[viewer_core::FormField]) -> Vec<&str> {
+    fields
+        .iter()
+        .map(|field| field.name.qualified.as_str())
+        .collect()
 }
 
 /// §14.9.3's alternative field name, which a user interface is told to show in place of the real

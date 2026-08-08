@@ -124,11 +124,13 @@ the one this process draws, a page turn, a magnification, a JBIG2 document decod
 confinement — and a confined process that cannot open a file, cannot open a socket and cannot start
 a program, each asked of the kernel rather than of the source. It costs 1.1 ms to start and confine
 a worker and about twice as long to put a page in a host's hands, most of that difference being
-4.1 MB of pixels down a pipe. **All twenty-five questions cross since the three-hundred-and-eighty-sixth**,
+4.1 MB of pixels down a pipe. **All twenty-eight questions cross**: twenty-five since the three-hundred-and-eighty-sixth,
 including the eleven a panel is made of — an outline, a layer order, an attachment list, a
 collection, article threads, a thumbnail, §14.3.3's properties with §14.3.2's packet beside them,
 Table 29's opening pair, Table 147, popups and §14.7's structure — so a host on this boundary has
-the sidebar's data and `examples/confined_panels` prints it. The largest of them is ISO 32000-2's
+the sidebar's data and `examples/confined_panels` prints it; and **§12.7's whole form since the
+three-hundred-and-ninety-eighth**, which is a twelfth panel encoding and the thing that lets a
+confined host build native controls rather than take a form as pixels (ADR 0235). The largest of them is ISO 32000-2's
 outline at 88 KB, which is a fiftieth of that page (ADR 0223). **The window does not use it**,
 deliberately: `viewer-ui` is a tier-2 host and this boundary is tier 1, so putting it there is a
 change of tier and a decision with a number attached rather than a switch. ADR 0218, `doc/todo/34`.
@@ -175,28 +177,38 @@ read and walked by no control.
 
 ### The gates, today
 
-**Every number in this table was printed by the gate beside it in the three-hundred-and-ninety-seventh
+**Every number in this table was printed by the gate beside it in the three-hundred-and-ninety-eighth
 session**, which ran the whole of `doc/todo/02-every-round.md` §2 and read each figure off the
 output. Nothing in it is arithmetic performed here — that has been wrong twice — and nothing in it
 is carried forward from a previous round.
 
 | gate | what it printed | where |
 |---|---|---|
-| tests | `1376 tests run: 1376 passed, 9 skipped`, and `cargo test --workspace --doc` **1 passed** beside it, so `cargo test --workspace` reports **1377**. `clippy --workspace --all-targets` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`; `fmt --all --check` clean | `cargo nextest run --workspace`, **34.0 s** |
-| corpus (974 pdf.js documents, page one) | `974 documents in 5.0s: 0 unopenable, 8 locked, 2 encrypted beyond us, 5 pageless, **67 incomplete**, 0 slow` | `tests/corpus.rs`, **5.0 s** |
-| oracle (1794 pages vs poppler, mupdf, ghostscript) | `1794 pages (1691 we call complete, 103 incomplete)`; **904 agree / 862 of them complete**, **69 contradicted / 67 complete**, **786 ambiguous / 751 complete**, our geometry 1/0, reference geometry 2/2, not comparable 14/9, no render 18/0 — and **the undiagnosed ambiguous list printed empty**, which is the ratchet holding | `tests/oracle.rs`, **43.9 s** |
+| tests | `1387 tests run: 1387 passed, 9 skipped`, and `cargo test --workspace --doc` **1 passed** beside it, so `cargo test --workspace` reports **1388**. `clippy --workspace --all-targets` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`; `fmt --all --check` clean | `cargo nextest run --workspace`, **25.7 s** |
+| corpus (974 pdf.js documents, page one) | `974 documents in 4.2s: 0 unopenable, 8 locked, 2 encrypted beyond us, 5 pageless, **67 incomplete**, 0 slow` | `tests/corpus.rs`, **4.2 s** |
+| oracle (1794 pages vs poppler, mupdf, ghostscript) | `1794 pages (1691 we call complete, 103 incomplete)`; **904 agree / 862 of them complete**, **69 contradicted / 67 complete**, **786 ambiguous / 751 complete**, our geometry 1/0, reference geometry 2/2, not comparable 14/9, no render 18/0 — and **the undiagnosed ambiguous list printed empty**, which is the ratchet holding | `tests/oracle.rs`, **46.9 s** |
 | text (vs `pdftotext`, same 974) | `overall 99.2% (24043/24243 words), 25 below 90%`, with 24 skipped and 64 incomplete and not gated | `tests/text_extraction.rs`, **31.9 s** |
-| **quorra vs the CPU oracle** (974 documents, page one, same display list) | `957 pages compared: **916 agree, 36 differ, 5 refused, 17 not comparable**` — one refusal is `bug1721218_reduced.pdf`, whose coverage outgrows a 16384×16384 scratch image, and **four are new and are a gain**: §11.4.6's stated shape needs two Porter-Duff operators quorra's `Compose` does not have, and those four pages used to *agree* about a picture both backends drew wrongly (ADR 0234, `QUORRA_FEEDBACK.md` section 14) | `render-quorra/tests/corpus.rs`, **49.4 s** |
+| **quorra vs the CPU oracle** (974 documents, page one, same display list) | `957 pages compared in 34.0s: **916 agree, 36 differ, 5 refused, 17 not comparable**` — one refusal is `bug1721218_reduced.pdf`, whose coverage outgrows a 16384×16384 scratch image, and **four differ because of §11.4.6**: its stated shape needs two Porter-Duff operators quorra's `Compose` does not have, and those four pages used to *agree* about a picture both backends drew wrongly (ADR 0234, `QUORRA_FEEDBACK.md` section 14) | `render-quorra/tests/corpus.rs`, **34.1 s** |
 | dates | `1545 date strings in 974 documents: **1514 conform** to §7.9.4 (97.99%), 31 do not, over 22 distinct strings` | `tests/dates.rs`, **0.9 s** |
 | **§14.3.2's XMP** (same 974) | `319 documents carry §14.3.2's stream: **318 read, 1 refused**, 3191 properties between them, 106 state dc:title` — the refusal is a fuzzed file whose stream does not decode at all | `tests/xmp.rs`, **0.4 s** |
 | **JPEG 2000 vs ISO/IEC 15444-5's reference software** | 30 corpus codestreams: **14 byte-identical, 13 differing, 3 not comparable**, and no remaining difference exceeds one level. `doc/JPEG2000_FEEDBACK.md` §§7–8 has the two defects behind that | `tests/jpeg2000.rs`, **13.8 s** |
-| conformance | **5276 citations**, all naming clauses the standard has; **527 quotations**, all verbatim; **206** distinct tables cited by this tree and **247** named in the ledger's notes; **875 ledger rows** | `cargo test -p conformance`, **2.6 s** |
-| **the round itself** | **287 s** between the first gate's output and the last, on 24 cores, warm — the span of §2 excluding `fmt`'s own duration at the head of it, which is the one honest number a file-timestamp reading gives. `doc/todo/02` records **268 s** for §2 *and* §5's binaries together, from 608 s until the three-hundred-and-eighty-fifth measured every step (ADR 0222); §5 was not timed this round | ADR 0222, `doc/todo/43` |
+| conformance | **5416 citations**, all naming clauses the standard has; **534 quotations**, all verbatim; **208** distinct tables cited by this tree and **248** named in the ledger's notes; **875 ledger rows** (400 implemented, 252 partial, 19 reported, 83 inapplicable, 8 writer-side, 113 out-of-scope) | `cargo test -p conformance`, **2.0 s** |
+| **the round itself** | **not measured as one span this round**, and the honest number is what the gates themselves printed: **154 s** of test execution summed from the ten lines above (25.7 + 4.2 + 46.9 + 30.1 + 34.1 + 0.6 + 0.3 + 9.9 + 2.0), with each gate's incremental build on top and each run separately rather than back to back. `doc/todo/02` records **268 s** for §2 *and* §5's binaries together, from 608 s until the three-hundred-and-eighty-fifth measured every step (ADR 0222); the three-hundred-and-ninety-seventh read 287 s off file timestamps for §2 alone | ADR 0222, `doc/todo/43` |
 
-**Not re-run and therefore not claimed**: the twelve fuzz targets, `cargo deny`, the two
-cross-target checks and the window under `Xvfb`. The three-hundred-and-ninety-seventh changed the
-display list, the interpreter's group construction and all three rasteriser backends — no parser, no
-decoder, no dependency — so the fuzzers and `cargo deny` have nothing to catch that the workspace
+**Two things beyond §2 were run in the three-hundred-and-ninety-eighth and are claimed**: the
+`confined_wire` fuzz target, because the round added a decoder to the confined transport —
+**13 942 159 runs in 181 s, clean** — and the **window under `Xvfb`**, because the round's whole
+point is something a host does with a pointer. A click at the check box's own centre printed
+`note: setting the field typeScript to Yes` and `note: this document has unsaved changes`, and a
+second click printed `note: setting the field typeScript to Off`; ADR 0126's recipe, with the window
+name taken from §12.2's `/DisplayDocTitle` (`PDF Form Example — page 1 of 1`) rather than from the
+file.
+
+**Not re-run and therefore not claimed**: the other eleven fuzz targets, `cargo deny` and the two
+cross-target checks. The three-hundred-and-ninety-eighth added a
+*description* of §12.7's fields and one appearance-state selection — no document parser, no decoder,
+no dependency, and nothing on any gate's path, since no gate sets a field's value — so those
+have nothing to catch that the workspace
 suite and the three corpus-scale gates do not; that is a reason not to run them, not evidence that
 they pass. `doc/verify.md` is what each of them is and when a round owes it.
 

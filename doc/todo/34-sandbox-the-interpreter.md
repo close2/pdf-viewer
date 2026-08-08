@@ -1,8 +1,9 @@
 # Confine the interpreter and the rasteriser
 
 Status: **built, answers every question, and not yet where a person would meet it.** The confined
-process exists, draws real pages (ADR 0218) and carries all twenty-five questions since the
-three-hundred-and-eighty-sixth (ADR 0223); what is left is that the window does not use it and a
+process exists, draws real pages (ADR 0218) and carries all twenty-eight questions — twenty-five
+since the three-hundred-and-eighty-sixth (ADR 0223) and §12.7's form since the
+three-hundred-and-ninety-eighth (ADR 0235); what is left is that the window does not use it and a
 hostile document has no cancel.
 Priority: 34
 Clauses: —, this is `CLAUDE.md` principle 3
@@ -26,6 +27,9 @@ answering `None` because everything was enforced. `examples/confined_page` is wh
 
 `protocol/panels.rs`: the eleven answers a panel is made of, encoded field for field, with a round
 trip apiece and a comparison against the same answer read in this process on three real documents.
+**Twelve since the three-hundred-and-ninety-eighth**, the twelfth being §12.7's form — compared the
+same way, on `issue17492.pdf`, and with an edit built out of what crossed sent back through the same
+pipe (ADR 0235).
 `examples/confined_panels` prints a sidebar's worth of a document out of the confinement. The
 transport's stand-in test became `fuzz/fuzz_targets/confined_wire.rs`, clean at 44 723 045 runs.
 ADR 0223 has the argument, the measurements and what it refuses.

@@ -104,5 +104,7 @@ pub use command::{
     Selection, Zoom,
 };
 pub use event::{Event, RenderRequest};
-pub use query::{Answer, FrameView, Layer, PageGeometry, PopupWindow, Query, Selected};
+pub use query::{
+    Answer, FormField, FormWidget, FrameView, Layer, PageGeometry, PopupWindow, Query, Selected,
+};
 pub use viewer::{DocumentId, RenderToken, Viewer};

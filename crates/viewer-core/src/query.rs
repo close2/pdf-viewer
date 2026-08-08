@@ -88,6 +88,32 @@ pub enum Query<'a> {
     /// Two names come back: [`pdf_model::view::FieldName::qualified`] addresses the field and
     /// [`pdf_model::view::FieldName::shown`] is what §14.9.3 requires a user interface to show.
     FieldAt((f32, f32)),
+    /// §12.7's form fields with a widget on the page being shown, as a host would *be* them.
+    ///
+    /// **The sixth chrome population, and the one that did not cross until the
+    /// three-hundred-and-ninety-eighth session.** §12.3.3's outline, §8.11.4.3's layers,
+    /// §7.11.4's files, §12.3.5's collection, §12.5.6.14's popups and §12.3.4's thumbnails all
+    /// answer as data so that a native host can draw them in a `QTreeView`, an `NSPopover` or its
+    /// own icon view. A form field has the strongest claim of the six — a text field *is* a
+    /// `QLineEdit` — and until this query a host could only take it as pixels off the raster.
+    ///
+    /// [`Query::FieldAt`] answers for one *point*, which is what a click has. A host placing
+    /// controls has a page and needs every field on it before anybody clicks, with enough to build
+    /// the control: §12.7.5's four types, the flags of Tables 227, 229, 231 and 233 that decide
+    /// what kind of control it is, Table 234's `/Opt` items, Table 232's `/MaxLen` and its comb
+    /// count, and the on-state name §12.7.5.2.3 makes a check box's value.
+    ///
+    /// The quadrilaterals are in device pixels of the viewport, the same form
+    /// [`Selected::quads`], [`Answer::Focus`] and [`PopupWindow::quad`] take — one arithmetic in
+    /// one place, which is what ADR 0118 is about.
+    ///
+    /// **Not at pointer speed.** This walks §12.7.4.1's field tree, so a host asks it when a page
+    /// appears and after an edit, exactly as it asks [`Query::Properties`] when a document opens.
+    /// A click still asks [`Query::FieldAt`].
+    ///
+    /// An empty list for a document with no `/AcroForm` and for a page with no widget on it, which
+    /// is most pages of most documents.
+    Fields,
     /// Where the caret sits in the field at a point, given how far into the value it is.
     ///
     /// The other half of typing, and the same shape [`Query::Focus`] takes: **the standard states
@@ -343,6 +369,8 @@ pub enum Answer<'a> {
         /// characters: a host is allowed to draw them and not to know them.
         value: Option<String>,
     },
+    /// §12.7's fields on the page being shown, each with its widgets placed on the screen.
+    Fields(Vec<FormField>),
     /// Where the caret is, in device pixels of the viewport.
     ///
     /// Two points and not a rectangle, because a caret has no width: how thick a text cursor is
@@ -491,6 +519,55 @@ pub struct PopupWindow {
     pub modified: Option<String>,
     /// Table 166's `/C`: "[t]he title bar of the annotation's popup window".
     pub colour: Option<pdf_render::Color>,
+}
+
+/// One of §12.7's form fields, with its widgets placed on the screen.
+///
+/// **Everything but the geometry is `pdf_model::form`'s**, which is deliberate and is the same
+/// division [`PopupWindow`] makes: what a field *is* — its type, its flags, its items, its value —
+/// is a fact about the document and belongs to the crate that reads documents; where its widgets
+/// land on a screen is a fact about this view and belongs here. A host that wanted the rectangles
+/// in the page's own units asks `pdf_model::form::fields` directly.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FormField {
+    /// The two names §14.9.3 makes a processor distinguish, as [`Answer::Field`] carries them.
+    pub name: pdf_model::view::FieldName,
+    /// Table 226's `/T`, the partial name.
+    pub partial: String,
+    /// Which of §12.7.5's four types, with the flags that decide what control a host builds.
+    pub control: pdf_model::form::Control,
+    /// What the field says now, where §12.7.4.3 lays a text value out for it.
+    ///
+    /// The same string [`Answer::Field`]'s value carries, with the same two meanings and already
+    /// through §12.7.5.3's truncation.
+    pub value: Option<String>,
+    /// Table 227 bit 1: the document forbidding a person to change this field's value.
+    pub read_only: bool,
+    /// Table 227 bit 2: §12.7.6.2 requires a value at export.
+    pub required: bool,
+    /// Table 227 bit 3: §12.7.6.2 may not export this field.
+    pub no_export: bool,
+    /// The widgets of this field on the page being shown, in `/Annots` order.
+    pub widgets: Vec<FormWidget>,
+}
+
+/// One widget annotation of a [`FormField`], on the screen.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FormWidget {
+    /// The annotation, which is what [`crate::Command::Activate`] and [`Answer::Focus`] name.
+    pub annotation: ObjectId,
+    /// Its `/Rect` on the screen, `[x0, y0, … x3, y3]`, y downwards — the same form
+    /// [`Answer::Focus`], [`PopupWindow::quad`] and [`Selected::quads`] take.
+    pub quad: [f32; 8],
+    /// The appearance state that turns this widget on, for §12.7.5.2's two toggling kinds.
+    ///
+    /// What a host sends as [`crate::Edit::SetField`]'s value to check the box: §12.7.5.2.3 makes
+    /// `/V` select among Table 170's states by name, and the names are the file's own.
+    pub on_state: Option<String>,
+    /// Table 230's `/Opt` entry for this widget: what §12.7.6.2 would export for it.
+    pub export: Option<String>,
+    /// Whether this widget is currently in its on state.
+    pub on: bool,
 }
 
 /// One entry of §8.11.4.3's `/Order`, as a layer panel would show it.

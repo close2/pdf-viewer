@@ -43,6 +43,7 @@ pub mod der;
 pub mod destination;
 pub mod document_part;
 pub mod file_spec;
+pub mod form;
 pub mod forms_data;
 pub mod fragment;
 pub mod function;

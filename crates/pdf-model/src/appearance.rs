@@ -1527,10 +1527,13 @@ fn perpendicular(start: [f32; 2], end: [f32; 2]) -> Option<[f32; 2]> {
 /// value, a choice field's selection, a button's caption — laid out by
 /// [`crate::variable_text`].
 ///
-/// Table 192's `/R` is read nowhere yet and is the one entry a glyph makes load-bearing: it
-/// rotates the widget's *contents* inside `/Rect`, which a background filling that rectangle
-/// cannot see but a line of text can. It is reported where a widget both states one and has
-/// text to put in it.
+/// Table 192's `/R` is the one entry a glyph makes load-bearing: it rotates the widget's
+/// *contents* inside `/Rect`, which a background filling that rectangle cannot see but a line of
+/// text can. **This comment said it was "read nowhere yet" and had been false since the
+/// hundred-and-fifth session**, which is where [`Rotation`] arrived and where §12.5.6.19's ledger
+/// row has said it is read and applied ever since; found by `doc/todo/02` §4's sweep run over
+/// `crates/` as that section asks. What is refused rather than applied is a value the table
+/// forbids — "[t]he value shall be a multiple of 90" — and that is named rather than rounded.
 fn widget(
     document: &Document,
     annotation: &Dictionary,
@@ -2279,25 +2282,67 @@ fn inset(rect: [f32; 4], by: f32) -> [f32; 4] {
     [rect[0] + x, rect[1] + y, rect[2] - x, rect[3] - y]
 }
 
-/// Table 227 bit 13: "the field may contain multiple lines of text".
+/// Table 227 bit 1: "an interactive PDF processor shall not allow a user to change the value of
+/// the field".
+pub(crate) const FLAG_READ_ONLY: i64 = 1;
+/// Table 227 bit 2: "the field shall have a value at the time it is exported by a submit-form
+/// action".
+pub(crate) const FLAG_REQUIRED: i64 = 1 << 1;
+/// Table 227 bit 3: "the field shall not be exported by a submit-form action".
+pub(crate) const FLAG_NO_EXPORT: i64 = 1 << 2;
+/// Table 231 bit 13: "the field may contain multiple lines of text".
+///
+/// **This constant's comment said Table 227 until the three-hundred-and-ninety-eighth session.**
+/// That table is the three flags above and stops at bit 3; bit 13 is §12.7.5.3's, and the
+/// difference is not cosmetic — a reader looking the sentence up in the cited table would not
+/// find it. Found by `doc/todo/02` §4's ninth sweep, run over `crates/` as that section asks.
 const FLAG_MULTILINE: i64 = 1 << 12;
 /// Table 231 bit 14: the field "is intended for entering a secure password".
 const FLAG_PASSWORD: i64 = 1 << 13;
+/// Table 229 bit 15: "(Radio buttons only) If set, exactly one radio button shall be selected at
+/// all times".
+pub(crate) const FLAG_NO_TOGGLE_TO_OFF: i64 = 1 << 14;
+/// Table 229 bit 16: "If set, the field is a set of radio buttons; if clear, the field is a check
+/// box."
+pub(crate) const FLAG_RADIO: i64 = 1 << 15;
 /// Table 229 bit 17: "If set, the field is a push-button that does not retain a permanent
 /// value."
 const FLAG_PUSHBUTTON: i64 = 1 << 16;
 /// Table 233 bit 18: "If set, the field is a combo box; if clear, the field is a list box."
 const FLAG_COMBO: i64 = 1 << 17;
+/// Table 233 bit 19: "If set, the combo box shall include an editable text box as well as a
+/// drop-down list".
+pub(crate) const FLAG_EDIT: i64 = 1 << 18;
+/// Table 231 bit 21: "If set, the text entered in the field represents the pathname of a file
+/// whose contents shall be submitted as the value of the field."
+pub(crate) const FLAG_FILE_SELECT: i64 = 1 << 20;
+/// Table 233 bit 22: "If set, more than one of the field's option items may be selected
+/// simultaneously".
+pub(crate) const FLAG_MULTI_SELECT: i64 = 1 << 21;
+/// Table 231 bit 23 and Table 233 bit 23: "text entered in the field shall not be spell-checked".
+pub(crate) const FLAG_DO_NOT_SPELL_CHECK: i64 = 1 << 22;
 /// Table 231 bit 24: "If set, the field shall not scroll … to accommodate more text than fits
 /// within its annotation rectangle."
 const FLAG_DO_NOT_SCROLL: i64 = 1 << 23;
 /// Table 231 bit 25: the field "shall be automatically divided into as many equally spaced
 /// positions, or combs, as the value of `MaxLen`".
 const FLAG_COMB: i64 = 1 << 24;
+/// Table 231 bit 26: "the value of this field shall be a rich text string".
+pub(crate) const FLAG_RICH_TEXT: i64 = 1 << 25;
+/// Table 229 bit 26: "a group of radio buttons within a radio button field that use the same value
+/// for the on state will turn on and off in unison".
+///
+/// **The same bit as [`FLAG_RICH_TEXT`], and deliberately two constants.** §12.7.4.1 makes `/Ff`
+/// one flag word whose upper bits are read against the field's *type*, so bit 26 means one thing
+/// on a `Btn` and another on a `Tx`; naming it once would make a reader believe the two were
+/// related, which is the mistake the wrong table citation above is a smaller version of.
+pub(crate) const FLAG_RADIOS_IN_UNISON: i64 = 1 << 25;
+/// Table 233 bit 27: "the new value shall be committed as soon as a selection is made".
+pub(crate) const FLAG_COMMIT_ON_SELECTION: i64 = 1 << 26;
 
 /// The four field types §12.7.5.1 lists, with the flags that subdivide them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum FieldKind {
+pub(crate) enum FieldKind {
     /// `Btn` (§12.7.5.2). `toggling` separates the two kinds that have an on state — a check
     /// box and a radio button — from a push-button, which has none.
     Button { toggling: bool },
@@ -2310,17 +2355,17 @@ enum FieldKind {
 }
 
 /// A widget's field, read through §12.7.4.1's inheritance.
-struct Field {
-    kind: Option<FieldKind>,
+pub(crate) struct Field {
+    pub(crate) kind: Option<FieldKind>,
     /// Table 227's `/Ff`.
-    flags: i64,
+    pub(crate) flags: i64,
     /// Table 226's `/V`.
-    value: Option<Object>,
+    pub(crate) value: Option<Object>,
     /// The widget and its ancestors, nearest first, for the inheritable entries of Table 228
     /// that are read later.
-    ancestry: Vec<Dictionary>,
+    pub(crate) ancestry: Vec<Dictionary>,
     /// Whether the `/Parent` chain ran past [`MAX_FIELD_ANCESTRY`].
-    too_deep: bool,
+    pub(crate) too_deep: bool,
     /// Whether the value above is the file's own `/V`, or something that replaced it.
     ///
     /// Two clauses replace it and both have the same consequence for a check box, which is why
@@ -2340,7 +2385,11 @@ impl Field {
     ///
     /// One walk rather than one per entry, because the chain is the same for all of them and
     /// [`MAX_FIELD_ANCESTRY`] should bound the work once rather than once per key.
-    fn read(document: &Document, annotation: &Dictionary, source: FieldValue<'_>) -> Self {
+    pub(crate) fn read(
+        document: &Document,
+        annotation: &Dictionary,
+        source: FieldValue<'_>,
+    ) -> Self {
         let mut field = Self {
             kind: None,
             flags: 0,
@@ -2456,17 +2505,13 @@ impl Field {
     /// which is a widget with no appearance dictionary, since Table 166 requires `/AS` whenever
     /// there is one. Either way `Off` is the off state, which §12.7.5.2.3 names and
     /// §12.7.5.2.4 gives as the default.
-    fn is_on(&self, document: &Document, annotation: &Dictionary) -> bool {
+    pub(crate) fn is_on(&self, document: &Document, annotation: &Dictionary) -> bool {
         // §12.7.6.3 and §12.7.8 again: once the value has been replaced, the file's `/AS`
         // describes the state the widget was *saved* in, which is exactly what was replaced. So
         // such a widget answers from its new value alone, and a check box whose replacement is
         // unstated is off — which §12.7.5.2.4 gives as the default anyway.
         if self.overridden {
-            return self
-                .value
-                .as_ref()
-                .and_then(Object::as_name)
-                .is_some_and(|name| name.as_bytes() != b"Off");
+            return self.replacement_state(document, annotation) != OFF;
         }
         let state = document.get_key(annotation, "AS");
         let name = state
@@ -2478,8 +2523,129 @@ impl Field {
                     .and_then(Object::as_name)
                     .map(|name| name.as_bytes().to_vec())
             });
-        name.is_some_and(|name| name != b"Off")
+        name.is_some_and(|name| name != OFF)
     }
+
+    /// Which of Table 170's appearance states a value **this reader replaced** puts this widget
+    /// in.
+    ///
+    /// The other half of [`Field::is_on`]'s first branch, and the same clause read forwards
+    /// instead of backwards. §12.7.5.2.3 states the invariant:
+    ///
+    /// > The value of the V key shall also be the value of the AS key.
+    ///
+    /// That sentence binds a *file*, and until the three-hundred-and-ninety-eighth session this
+    /// tree read only its second half — the file's `/AS` decided, always. So a person who checked
+    /// a box changed `/V` and nothing changed `/AS`, and the widget went on drawing the state it
+    /// was saved in. The reader is now the one that changed `/V`, so the reader is what has to
+    /// carry `/AS` with it.
+    ///
+    /// Two rules, one from each button subclause:
+    ///
+    /// - the name is the replaced value's, spelled as a name or as §7.9.2.2's text string —
+    ///   [`crate::view::ViewState::set_field`] encodes what a host sends as the latter, and
+    ///   Table 230 spells a button's export values as text strings for the same reason;
+    /// - a widget whose `/AP` states no stream under that name is one of the *other* buttons of a
+    ///   §12.7.5.2.4 set — "[t]he parent field's V entry holds a name object corresponding to the
+    ///   appearance state of whichever child field is currently in the on state" — so it is off.
+    ///   Applied only where the file states a state subdictionary to check against, because a
+    ///   widget with no `/AP` at all has no states for the value to miss.
+    fn replacement_state(&self, document: &Document, annotation: &Dictionary) -> Vec<u8> {
+        let named = match self.value.as_ref() {
+            Some(Object::Name(name)) => name.as_bytes().to_vec(),
+            Some(Object::String(bytes)) => pdf_syntax::text_string(bytes).into_bytes(),
+            // §12.7.5.2.4 gives `Off` as the default, and a value a reset or a clear removed is a
+            // widget with no value at all.
+            _ => return OFF.to_vec(),
+        };
+        let appearances = document.get_key(annotation, "AP");
+        let states = appearances
+            .as_dict()
+            .map(|appearances| document.get_key(appearances, "N"));
+        match states.as_ref().and_then(Object::as_dict) {
+            Some(states) if states.get(&String::from_utf8_lossy(&named)).is_none() => OFF.to_vec(),
+            _ => named,
+        }
+    }
+}
+
+impl Field {
+    /// Whether the **field's** value names an on state, whichever of the four statements about it
+    /// is current.
+    ///
+    /// [`Field::is_on`] is the same question asked of one *widget*, and the two differ exactly
+    /// where §12.7.5.2.4's set does: "[t]he parent field's V entry holds a name object
+    /// corresponding to the appearance state of whichever child field is currently in the on
+    /// state", so the field is on when any of its buttons is and only the widget's own states say
+    /// which. A value a host sent arrives as §7.9.2.2's text string rather than as a name, which
+    /// is why both spellings are read — see [`Field::replacement_state`].
+    pub(crate) fn value_is_on(&self) -> bool {
+        match self.value.as_ref() {
+            Some(Object::Name(name)) => name.as_bytes() != OFF,
+            Some(Object::String(bytes)) => pdf_syntax::text_string(bytes).as_bytes() != OFF,
+            // "the default value for this entry is Off" (§12.7.5.2.4).
+            _ => false,
+        }
+    }
+
+    /// Table 231 bit 13, which decides whether §12.7.4.3's layout may wrap.
+    pub(crate) fn is_multiline(&self) -> bool {
+        self.flags & FLAG_MULTILINE != 0
+    }
+
+    /// Table 231 bit 14, which decides whether the value may be shown at all.
+    pub(crate) fn is_password(&self) -> bool {
+        self.flags & FLAG_PASSWORD != 0
+    }
+
+    /// Table 231 bit 24, which decides whether more text is accepted once the field is full.
+    pub(crate) fn does_not_scroll(&self) -> bool {
+        self.flags & FLAG_DO_NOT_SCROLL != 0
+    }
+
+    /// Table 231 bit 25's cell count, where the bit is one the table permits.
+    ///
+    /// [`Field::text_shape`] is the same question asked for the *layout*, and this is it asked for
+    /// a host's control — one reading of the table's condition on bit 25, so that a description
+    /// and a drawing cannot disagree about whether a field is a comb.
+    pub(crate) fn comb_cells(&self, document: &Document, annotation: &Dictionary) -> Option<u32> {
+        match self.text_shape(document, annotation) {
+            Shape::Comb(cells) => Some(cells),
+            Shape::SingleLine | Shape::Multiline => None,
+        }
+    }
+}
+
+/// The off state, which §12.7.5.2.4 also gives as a toggling button's default value.
+///
+/// ISO 32000-2 §12.7.5.2.3:
+///
+/// > The appearance for the off state is optional but, if present, shall be stored in the
+/// > appearance dictionary under the name Off .
+pub(crate) const OFF: &[u8] = b"Off";
+
+/// Which of Table 170's states an annotation shows, where **this reader** replaced its value.
+///
+/// `None` means the file's `/AS` decides, which is every annotation in a document nothing has been
+/// done to and every widget that is not one of §12.7.5.2's two toggling kinds — a text field's
+/// value is laid out rather than selected among, and a push-button holds no value at all
+/// (§12.7.5.2.2). `Some(name)` is the state §12.7.5.2.3 says the new value selects.
+///
+/// Narrow on purpose: this is the one place a *viewer's* state is allowed to displace an entry the
+/// file wrote, so it applies to the one field type whose appearance the value chooses.
+pub(crate) fn appearance_state(
+    document: &Document,
+    annotation: &Dictionary,
+    value: FieldValue<'_>,
+) -> Option<Vec<u8>> {
+    if matches!(value, FieldValue::Stored) {
+        return None;
+    }
+    let field = Field::read(document, annotation, value);
+    if !matches!(field.kind, Some(FieldKind::Button { toggling: true })) {
+        return None;
+    }
+    Some(field.replacement_state(document, annotation))
 }
 
 impl FieldKind {
