@@ -39,7 +39,11 @@ reference consensus**. The corpus's incomplete list went 73 → 72 and no corpus
   the decoder can be asked for a level. What was missing on *this* side of the sandbox is built:
   `Grid::for_placement` is the number to hand across, and `ImageAtDeviceScale` is where a
   `JPXDecode` stream would sit. What is missing now is an API on `hayro-jpeg2000` — a decode that
-  can be told where to stop — which is `doc/JPEG2000_FEEDBACK.md`'s to ask for.
+  can be told where to stop — and **that is a branch rather than a blocker**: `tmp/hayro` is a
+  checkout of the whole workspace with the owner's fork as `origin` and the maintainer's as
+  `upstream`, and the owner's standing offer is to push a branch and open the pull request, with
+  this tree depending on the fork meanwhile. `doc/JPEG2000_FEEDBACK.md` §9 is the route and §8 is
+  the precedent — a defect found here was fixed there and is what this tree pins today.
 - **A sampled shading on `render-gpu`**, and **this entry said "on the GPU backends" and was
   wrong about the one that ships**. `render-quorra` draws a sampled grid — `sampled_fill` uploads
   it as a raster and clips it to the path — and `render-cpu` evaluates it; only the Vello backend

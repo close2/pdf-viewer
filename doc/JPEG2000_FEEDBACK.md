@@ -289,3 +289,32 @@ Offered as a pull request from `close2/hayro`, branch
 precision ladder becomes the right instrument rather than more reading: a difference that shrinks
 as both sides move to `f64` is arithmetic, and one that does not is a third defect. Nobody has run
 that.
+
+---
+
+## 9. How a fix gets offered, and where the checkout is
+
+**Recorded on 2026-08-08 by the project owner**, because §8 used this route and did not say where it
+runs.
+
+`tmp/hayro` is a working checkout of the whole `hayro` workspace — `hayro-jpeg2000`, `hayro-jbig2`,
+`hayro-interpret`, `hayro-syntax` and the rest — with two remotes already wired:
+
+```text
+origin    https://github.com/close2/hayro.git     the project owner's fork
+upstream  https://github.com/LaurenzV/hayro.git   the maintainer's
+```
+
+It sits at `2a1abd14`, which is §8's own fix and the revision this tree pins.
+
+**The route, and it is the owner's standing offer:** a change goes on a **new branch** in that
+checkout; the owner pushes it to `origin` and opens the pull request; this tree then depends on the
+fork until the maintainers take it. That is exactly how §8 was closed, and it means a defect found
+here in any hayro crate is fixable rather than only reportable — which changes what may be written
+in a todo file. **"Blocked on an API `hayro-jpeg2000` does not have" is no longer a blocker, it is a
+branch** (`doc/todo/24`'s reduced-resolution decode is the standing example).
+
+Two things that do not change: the fix must be right for *hayro's* users and not only for this
+viewer — a maintainer is being asked to carry it — and this tree's own gates decide whether it
+helped, because `tests/jpeg2000.rs` compares against ISO/IEC 15444-5's reference software rather
+than against either implementation's opinion.
