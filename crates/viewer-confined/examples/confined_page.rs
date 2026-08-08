@@ -26,6 +26,45 @@ use std::time::Instant;
 use viewer_confined::{Confined, Reply};
 use viewer_core::{Command, DocumentId, Event, PageTarget, Query};
 
+/// A valid one-page document padded to about `ballast` bytes with a stream nothing refers to.
+///
+/// The point is a document whose *size* is the ISO specification's and whose *cost* is nothing,
+/// so that what is timed is the pipe. Object 4 is never reached from the catalogue, so the reader
+/// never inflates it or even looks at it: it reads the cross-reference table, the catalogue, the
+/// page tree and a page with no contents.
+fn ballasted(ballast: usize) -> Vec<u8> {
+    let objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>".to_vec(),
+        {
+            let mut stream = format!("<< /Length {ballast} >>\nstream\n").into_bytes();
+            stream.resize(stream.len().saturating_add(ballast), b'0');
+            stream.extend_from_slice(b"\nendstream");
+            stream
+        },
+    ];
+
+    let mut bytes: Vec<u8> = b"%PDF-1.7\n".to_vec();
+    let mut offsets: Vec<usize> = Vec::new();
+    for (index, object) in objects.iter().enumerate() {
+        offsets.push(bytes.len());
+        bytes.extend_from_slice(format!("{} 0 obj\n", index.saturating_add(1)).as_bytes());
+        bytes.extend_from_slice(object);
+        bytes.extend_from_slice(b"\nendobj\n");
+    }
+    let table = bytes.len();
+    let size = objects.len().saturating_add(1);
+    bytes.extend_from_slice(format!("xref\n0 {size}\n0000000000 65535 f \n").as_bytes());
+    for offset in &offsets {
+        bytes.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    bytes.extend_from_slice(
+        format!("trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{table}\n%%EOF\n").as_bytes(),
+    );
+    bytes
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "one straight line of measurement, and splitting it would put the numbers in one \
@@ -43,7 +82,8 @@ fn main() {
     let out = arguments.next();
 
     let bytes = std::fs::read(&path).expect("the document is readable");
-    println!("{path}: {} bytes", bytes.len());
+    let bytes_len = bytes.len();
+    println!("{path}: {bytes_len} bytes");
 
     let started = Instant::now();
     let mut confined = Confined::start().expect("a confined viewer starts");
@@ -120,40 +160,76 @@ fn main() {
     let ink = raster.data.chunks_exact(4).filter(|p| p[0] < 200).count();
     println!("  {ink} dark pixels");
 
-    // The same work in this process, so that what the confinement costs is a difference rather
-    // than a number on its own. Two things are folded into it and both are named in ADR 0218: the
-    // pipe, and the one rasterising thread a confined process is held to.
-    let bytes = std::fs::read(&path).expect("the document is readable");
-    let at = Instant::now();
-    let mut viewer = viewer_core::Viewer::new(900, 1200, 1.0);
-    let mut rasterizer = render_cpu::CpuRasterizer::new();
-    let mut pending = vec![Command::Open {
-        id: DocumentId(1),
-        bytes,
-        password: None,
-        fragment: None,
-    }];
-    if page > 1 {
-        pending.push(Command::GoTo(PageTarget::Index(page.saturating_sub(1))));
+    // **The document crossing, with nothing on the other side to interpret.**
+    //
+    // `doc/todo/34`'s item 5 asks what the pipe costs, and the open above cannot say: it is the
+    // pipe, the interpretation and the render together. So this sends the same number of bytes in
+    // a document that is *valid and empty* — a one-page catalogue plus one stream nothing refers
+    // to — which the confined side reads whole, parses in microseconds and draws blank. The
+    // difference between the two lines below is the bytes; what is left in the second is the
+    // frame, the process and the blank page.
+    for (id, ballast) in [(2u64, bytes_len), (3, 0)] {
+        let at = Instant::now();
+        confined
+            .handle(&Command::Open {
+                id: DocumentId(id),
+                bytes: ballasted(ballast),
+                password: None,
+                fragment: None,
+            })
+            .expect("an open crosses");
+        println!(
+            "{ballast} bytes of ballast crossed and drew blank in {:.3} ms",
+            at.elapsed().as_secs_f64() * 1e3
+        );
     }
-    while let Some(command) = pending.pop() {
-        for event in viewer.handle(command) {
-            if let Event::NeedsRender(request) = event {
-                use pdf_render::Rasterizer as _;
-                let raster = rasterizer
-                    .rasterize(&request.list, request.target)
-                    .expect("the CPU backend draws this page");
-                pending.push(Command::RenderReady {
-                    token: request.token,
-                    rendered: viewer_core::Rendered::Raster(raster),
-                });
+
+    // The same work in this process, so that what the confinement costs is a difference rather
+    // than a number on its own. **Twice**, because two things are folded into that difference and
+    // ADR 0218 names both: the pipe, and the one rasterising thread a confined process is held
+    // to. One strip isolates the second — it is what the worker does — so the gap between the two
+    // lines is `doc/todo/34`'s item 4 and the gap to the confined figure above is its item 5.
+    for strips in [1, 0] {
+        let bytes = std::fs::read(&path).expect("the document is readable");
+        let at = Instant::now();
+        let mut viewer = viewer_core::Viewer::new(900, 1200, 1.0);
+        let mut rasterizer = render_cpu::CpuRasterizer::new();
+        if strips > 0 {
+            rasterizer = rasterizer.with_strips(strips);
+        }
+        let mut pending = vec![Command::Open {
+            id: DocumentId(1),
+            bytes,
+            password: None,
+            fragment: None,
+        }];
+        if page > 1 {
+            pending.push(Command::GoTo(PageTarget::Index(page.saturating_sub(1))));
+        }
+        while let Some(command) = pending.pop() {
+            for event in viewer.handle(command) {
+                if let Event::NeedsRender(request) = event {
+                    use pdf_render::Rasterizer as _;
+                    let raster = rasterizer
+                        .rasterize(&request.list, request.target)
+                        .expect("the CPU backend draws this page");
+                    pending.push(Command::RenderReady {
+                        token: request.token,
+                        rendered: viewer_core::Rendered::Raster(raster),
+                    });
+                }
             }
         }
+        let how = if strips > 0 {
+            "on one strip, as the worker does"
+        } else {
+            "on every core"
+        };
+        println!(
+            "unconfined, in this process, {how}: {:.3} ms",
+            at.elapsed().as_secs_f64() * 1e3
+        );
     }
-    println!(
-        "unconfined, in this process, on every core: {:.3} ms",
-        at.elapsed().as_secs_f64() * 1e3
-    );
 
     if let Some(out) = out {
         let file = std::fs::File::create(&out).expect("the output is writable");

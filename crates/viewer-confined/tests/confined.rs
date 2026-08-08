@@ -19,10 +19,11 @@
 )]
 
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use pdf_render::Rasterizer as _;
 use render_cpu::CpuRasterizer;
-use viewer_confined::{Confined, Reply};
+use viewer_confined::{Canceller, Confined, ConfinedError, Reply};
 use viewer_core::{Answer, Command, DocumentId, Event, PageTarget, Query, Rendered, Viewer, Zoom};
 
 /// A document committed in `doc/`, which every checkout has.
@@ -824,9 +825,179 @@ fn a_document_with_a_sandboxed_codec_draws_inside_the_confinement() {
     );
 }
 
+/// The hostile document, shared with `examples/confined_cancel`.
+#[path = "support/amplification.rs"]
+mod amplification;
+
+/// How long the hostile document is given to *not* finish before it is cancelled.
+///
+/// The assertion is one-sided on purpose: this says the work had not finished, which is what
+/// makes the cancel that follows a cancel of something. It is two seconds against a page that
+/// takes tens, so a machine under load moves it in the safe direction.
+const UNFINISHED: Duration = Duration::from_secs(2);
+
+/// How long the host waits for its thread back after cancelling.
+///
+/// Generous — the cancel is a signal and the read unblocks with the pipe, which is microseconds —
+/// because what this test is about is the difference between *bounded* and *unbounded*, and a
+/// tight bound here would make it a test of the scheduler.
+const AFTER_CANCEL: Duration = Duration::from_secs(30);
+
+/// What the thread that opened the hostile document has to say when it comes back.
+///
+/// Strings and flags rather than the values themselves, because this crosses a channel and what
+/// the assertions need is what happened rather than the events that did not arrive.
+#[derive(Debug)]
+struct Outcome {
+    /// Whether the open ended in [`ConfinedError::Cancelled`].
+    open_cancelled: bool,
+    /// What it ended in, in its own words, for a failure to print.
+    open: String,
+    /// What [`Confined::is_cancelled`] said afterwards.
+    flag: bool,
+    /// Whether a question asked after the cancel was refused the same way, without a pipe error.
+    later_cancelled: bool,
+}
+
+/// **The cancel, end to end: a document that will not finish, and a host that takes control
+/// back.**
+///
+/// Three things are asserted and they are separate claims. The work **had not finished** after
+/// [`UNFINISHED`], which is what makes this a cancel of something rather than a race with a fast
+/// page. The host thread **came back**, with [`ConfinedError::Cancelled`] rather than a worker
+/// that died of something — the distinction a host prints. And the viewer is **finished**: the
+/// flag says so and a later question is refused without going near the pipe, because the worker
+/// and the document it held are gone. ADR 0241 argues why that last one is the price of a cancel
+/// a hostile document cannot decline.
+#[test]
+fn a_document_that_will_not_finish_is_cancelled_and_the_host_gets_its_thread_back() {
+    let bytes = amplification::document(amplification::LEVELS, amplification::BRANCH);
+    assert!(
+        bytes.len() < 2048,
+        "the point is the amplification: {} bytes",
+        bytes.len()
+    );
+
+    let canceller = Canceller::new();
+    let mut confined = Confined::start_with(&canceller).expect("a confined viewer starts");
+    confined
+        .handle(&Command::Resize {
+            width: VIEWPORT.0,
+            height: VIEWPORT.1,
+            scale: 1.0,
+        })
+        .expect("a resize crosses");
+
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let opening = std::thread::spawn(move || {
+        let opened = confined.handle(&Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password: None,
+            fragment: None,
+        });
+        let outcome = Outcome {
+            open_cancelled: matches!(opened, Err(ConfinedError::Cancelled)),
+            open: match opened {
+                Ok(events) => format!("{events:?}"),
+                Err(error) => error.to_string(),
+            },
+            flag: confined.is_cancelled(),
+            later_cancelled: matches!(
+                confined.query(Query::PageCount),
+                Err(ConfinedError::Cancelled)
+            ),
+        };
+        // The receiver outlives this thread — it is on the stack of the test that spawned it —
+        // so a send that fails means the test has already failed for another reason.
+        let _ = sender.send(outcome);
+    });
+
+    assert!(
+        receiver.recv_timeout(UNFINISHED).is_err(),
+        "the hostile document finished in {UNFINISHED:?}, so this test cancels nothing"
+    );
+
+    let at = Instant::now();
+    canceller.cancel();
+    let outcome = receiver
+        .recv_timeout(AFTER_CANCEL)
+        .expect("the host gets its thread back after a cancel");
+    let took = at.elapsed();
+    opening.join().expect("the opening thread ends");
+
+    assert!(
+        outcome.open_cancelled,
+        "the open came back as {:?} rather than a cancel",
+        outcome.open
+    );
+    assert!(outcome.flag, "and the viewer says it was cancelled");
+    assert!(
+        outcome.later_cancelled,
+        "a question asked afterwards is refused the same way"
+    );
+    assert!(
+        took < AFTER_CANCEL,
+        "the cancel took {took:?}, which is not taking control back"
+    );
+}
+
+/// A canceller that fires before there is a worker starts nothing at all.
+///
+/// The hole [`Confined::canceller`] cannot close by itself: `Confined::start` blocks reading the
+/// worker's greeting, and a handle taken from the value it returns does not exist while it is
+/// blocked. So a canceller can be made first, and this is what it does when it is used first.
+#[test]
+fn a_cancel_before_the_worker_starts_starts_no_worker() {
+    let canceller = Canceller::new();
+    canceller.cancel();
+    assert!(canceller.is_cancelled());
+    assert!(
+        matches!(
+            Confined::start_with(&canceller),
+            Err(ConfinedError::Cancelled)
+        ),
+        "a cancelled canceller spawns nothing"
+    );
+}
+
+/// A cancel between two commands is the same answer as one during a page.
+///
+/// Not a special case in the caller's code, which is the property worth pinning: a host that
+/// cancels while nothing is happening gets [`ConfinedError::Cancelled`] from the next call rather
+/// than a broken pipe about a process that is gone.
+#[test]
+fn a_cancelled_viewer_refuses_the_next_command_without_touching_the_pipe() {
+    let (mut confined, _events) = opened();
+    let canceller = confined.canceller();
+    assert!(!canceller.is_cancelled());
+    assert!(matches!(
+        confined.query(Query::PageCount),
+        Ok(Reply::Count(5))
+    ));
+
+    canceller.cancel();
+    // Twice, because a cancel that has already happened must not become a different answer.
+    canceller.cancel();
+
+    assert!(confined.is_cancelled());
+    assert!(matches!(
+        confined.handle(&Command::GoTo(PageTarget::Next)),
+        Err(ConfinedError::Cancelled)
+    ));
+    assert!(matches!(
+        confined.query(Query::PageCount),
+        Err(ConfinedError::Cancelled)
+    ));
+}
+
 /// Names the probe a re-executed test binary should run.
 #[cfg(target_os = "linux")]
 const PROBE_VARIABLE: &str = "PDF_CONFINED_TEST_PROBE";
+
+/// The probe that asks whether the allocator's arena question can be answered in advance.
+#[cfg(target_os = "linux")]
+const WARM: &str = "warm";
 
 /// Exit code from a probe whose forbidden operation was refused.
 #[cfg(target_os = "linux")]
@@ -904,6 +1075,100 @@ fn a_confined_interpreter_can_still_draw_a_page() {
     );
 }
 
+/// **The measurement `doc/todo/34`'s item 4 asked for, kept runnable.**
+///
+/// The confined worker rasterises on one thread because `glibc`'s allocator sizes its arena count
+/// from `__get_nprocs`, which reads `/sys/devices/system/cpu/online` — an `openat` the filter
+/// kills for, on a thread's first allocation (ADR 0218 section 2). One of the two candidate answers is to
+/// build the pool *before* seccomp with a `start_handler` that allocates, so that the question is
+/// asked while it can still be answered; and `doc/todo/34` says of it that "it rests on the
+/// allocator not asking again later, which is a claim about `glibc` internals — write it down as
+/// one, or measure it".
+///
+/// **This measures it**, and it is a *precondition* rather than the arrangement this crate ships:
+/// [`viewer_confined::confine`] still builds a one-thread pool after the confinement, because a
+/// pool warmed first has the seccomp filter (it is installed with `TSYNC`) and **not** the
+/// Landlock domain, which `landlock_restrict_self` gives only to the calling thread and its
+/// future children. Closing that needs an entry point `pdf-sandbox` does not have. ADR 0241.
+///
+/// What the probe does: 24 threads warmed before the filter, the filter, a real page drawn on 24
+/// strips, and then twenty rounds of four-mebibyte allocations broadcast to every one of them —
+/// because the question is asked on a *later* allocation, not the first. `strace` counts 25
+/// `clone3` before the filter, none after, and no `openat` at all after it.
+#[test]
+#[cfg(target_os = "linux")]
+fn an_allocator_warmed_before_the_filter_does_not_ask_the_kernel_again() {
+    let status = run_probe(WARM);
+    assert_eq!(
+        status.code(),
+        Some(DREW),
+        "a pool warmed before the confinement could not draw behind it: {status:?} — if this is \
+         SIGSYS, the allocator asked again and `doc/todo/34`'s first candidate is dead"
+    );
+}
+
+/// The `warm` probe's body: a thread pool warmed *before* the confinement, then the work.
+///
+/// Separate from [`confined_probe`]'s match because it has to run before
+/// [`viewer_confined::confine`] rather than after it, and the order is the whole subject. Never
+/// returns.
+#[cfg(target_os = "linux")]
+fn warm_then_confine(bytes: Vec<u8>) -> ! {
+    // The confined process cannot spawn a decoder, exactly as `worker::confine` arranges.
+    pdf_sandbox::set_isolation(pdf_sandbox::Isolation::InProcess);
+
+    // Asked here for the same reason `worker::confine` asks it here: it reads `/proc/self/cgroup`.
+    let threads = std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(threads)
+        .start_handler(|_| allocate())
+        .build_global()
+        .expect("a thread pool");
+    // `build_global` is not enough on its own to be sure every thread has run its handler, so
+    // every thread is made to do something before the filter goes on.
+    rayon::broadcast(|_| allocate());
+
+    let confinement = pdf_sandbox::lockdown::apply_for(pdf_sandbox::lockdown::Profile::Interpreter)
+        .expect("a probe that cannot confine itself proves nothing");
+    assert!(confinement.is_enforced(), "{confinement:?}");
+
+    let mut viewer = Viewer::new(VIEWPORT.0, VIEWPORT.1, 1.0);
+    let mut rasterizer =
+        CpuRasterizer::new().with_strips(u32::try_from(threads).unwrap_or(u32::MAX));
+    let mut drew = false;
+    for event in viewer.handle(Command::Open {
+        id: DOCUMENT,
+        bytes,
+        password: None,
+        fragment: None,
+    }) {
+        if let Event::NeedsRender(request) = event
+            && rasterizer.rasterize(&request.list, request.target).is_ok()
+        {
+            drew = true;
+        }
+    }
+
+    // And then far more allocation than the page needed, on every thread, because `arena_get2`
+    // asks `__get_nprocs` only once `narenas > mp_.arena_test` — so a page that happened not to
+    // cross that threshold would prove nothing.
+    for _ in 0..20 {
+        rayon::broadcast(|_| {
+            let more: Vec<u8> = vec![3u8; 4 << 20];
+            std::hint::black_box(more.len());
+        });
+    }
+
+    std::process::exit(if drew { DREW } else { REFUSED });
+}
+
+/// One allocation large enough that the allocator has to go to the operating system for it.
+#[cfg(target_os = "linux")]
+fn allocate() {
+    let warm: Vec<u8> = vec![7u8; 1 << 20];
+    std::hint::black_box(warm.len());
+}
+
 /// Whether a probe was stopped rather than served.
 ///
 /// Two outcomes count. `SIGSYS` is the seccomp filter firing, which is what happens when the
@@ -946,6 +1211,11 @@ fn confined_probe() {
     // Read before the confinement, because a confined process has no filesystem — which is the
     // whole reason a document reaches the real worker as bytes in a command.
     let bytes = specification_bytes();
+
+    // The one probe that must run *before* `confine()`, because what it is about is the order.
+    if probe == WARM {
+        warm_then_confine(bytes);
+    }
 
     let (_confinement, strips) =
         viewer_confined::confine().expect("a probe that cannot confine itself proves nothing");

@@ -51,6 +51,15 @@
 //! prove it: the host writes the bytes, "which is also what lets a confined process with none
 //! still produce a saved file".
 //!
+//! # What bounds a hostile document
+//!
+//! Not a deadline, and not the confined process's cooperation. A page's cost is bounded by the
+//! document *and* the magnification together, so any fixed number refuses work a viewer permits;
+//! and a check the interpreter polls is a check a document decides when to reach. What is here
+//! instead is [`Canceller`] — a handle another thread holds, whose `cancel` ends the worker with
+//! a signal it cannot decline — beside the address-space ceiling the confinement already
+//! installs. ADR 0241 argues both halves.
+//!
 //! # What this is not, yet
 //!
 //! It is not on the viewer's launch path and nothing in `viewer-ui` uses it — deliberately, so
@@ -146,6 +155,8 @@ pub mod wire {
 use std::io::{Read as _, Write as _};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, ChildStdout, Command as OsCommand, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use pdf_render::Raster;
 use pdf_sandbox::lockdown::Confinement;
@@ -214,6 +225,156 @@ pub enum ConfinedError {
         /// The worker's own sentence.
         detail: String,
     },
+    /// A [`Canceller`] ended the worker, so this viewer has nothing left to ask.
+    ///
+    /// Distinct from [`Self::WorkerDied`] on purpose: a worker that died is a fault to report,
+    /// and a worker the host itself ended is not. Once this is returned it is what every later
+    /// call returns — the worker is gone, and with it the document, so there is nothing to
+    /// resume. A host that wants to go on starts another one.
+    #[error("the confined viewer was cancelled, and its worker ended with it")]
+    Cancelled,
+}
+
+/// What a host holds so that it can end a confined viewer from another thread.
+///
+/// # Why a cancel is a kill, and not a message
+///
+/// **The confined process is running a hostile document; a cancel it has to agree to is a cancel
+/// the document can decline.** A cooperative cancel — a flag the interpreter polls, a message a
+/// second thread inside the confinement reads — bounds only the work that reaches a check. A
+/// content stream that expands into a hundred million marks, a form nested to its depth limit and
+/// branching at every level, a filter chain that inflates for a minute: each of those reaches the
+/// next check when it reaches it, and "when it reaches it" is the number the attacker chooses.
+/// So the only cancel worth the name is the one the kernel enforces, and that is `SIGKILL`.
+///
+/// What follows from that is a cost rather than a caveat, and it is in the type: the worker's
+/// document, its edits and its frame go when it does. [`ConfinedError::Cancelled`] is what every
+/// later call returns, and a host that wants to carry on starts a new [`Confined`].
+///
+/// # What it does *not* replace
+///
+/// Not a deadline. A page's cost is bounded by the document and the magnification together, so
+/// any fixed number refuses work a viewer permits; what is offered here is the *ability* to
+/// decide, on whatever grounds a host has — a person pressing escape, a wall clock the host owns,
+/// a second document becoming the one in front. `Confined` deliberately imposes none of them.
+///
+/// # Shape
+///
+/// Cheap to clone, and every clone cancels the same worker. It may be made *before* the worker
+/// is — [`Canceller::new`] then [`Confined::start_with`] — because [`Confined::start`] itself
+/// blocks reading the worker's greeting, and a blocking call whose canceller does not exist yet
+/// is exactly the hole this exists to close.
+#[derive(Debug, Clone)]
+pub struct Canceller(Arc<Cancellation>);
+
+impl Canceller {
+    /// A canceller for a worker that has not been started yet.
+    ///
+    /// Hand it to [`Confined::start_with`]. Cancelling one that never gets a worker is not an
+    /// error: it makes that `start_with` fail with [`ConfinedError::Cancelled`] instead of
+    /// spawning anything.
+    #[must_use]
+    pub fn new() -> Self {
+        Self(Arc::new(Cancellation {
+            cancelled: AtomicBool::new(false),
+            worker: Mutex::new(None),
+        }))
+    }
+
+    /// Ends the worker, now.
+    ///
+    /// Idempotent, callable from any thread, and it never blocks on the work being cancelled —
+    /// only on the brief moment [`Confined`] spends reaping a worker that has already gone.
+    /// Returns as soon as the signal is delivered; the host thread learns of it where it was
+    /// blocked, as [`ConfinedError::Cancelled`].
+    pub fn cancel(&self) {
+        self.0.cancel();
+    }
+
+    /// Whether [`Self::cancel`] has been called.
+    #[must_use]
+    pub fn is_cancelled(&self) -> bool {
+        self.0.is_cancelled()
+    }
+}
+
+impl Default for Canceller {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// The worker handle and the cancelled flag, shared by a [`Confined`] and its [`Canceller`]s.
+///
+/// The child lives here rather than in [`Confined`] for one reason: `Child::kill` needs `&mut`,
+/// and the thread that would call it is not the thread that owns the [`Confined`] — it is the
+/// one that is *not* blocked in a read. A mutex is what lets both reach it without this crate
+/// reaching for a raw process identifier and a signal, which would cost the `unsafe` it forbids.
+#[derive(Debug)]
+struct Cancellation {
+    /// Set once by [`Canceller::cancel`] and never cleared.
+    cancelled: AtomicBool,
+    /// The worker, from the moment it is spawned until it has been waited for.
+    worker: Mutex<Option<Child>>,
+}
+
+impl Cancellation {
+    /// Takes the lock, recovering it from a panic rather than propagating one.
+    ///
+    /// Nothing under this lock can panic — it holds a `Child` and calls `kill`, `wait` and
+    /// `try_wait` on it — so a poisoned lock would mean a panic somewhere that cannot poison it.
+    /// Recovering the guard is therefore the honest reading, and it is spelled out rather than
+    /// hidden behind an `unwrap` this workspace forbids.
+    fn worker(&self) -> std::sync::MutexGuard<'_, Option<Child>> {
+        self.worker.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Whether a cancel has been asked for.
+    fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::SeqCst)
+    }
+
+    /// Marks the viewer cancelled and ends its worker if there is one.
+    fn cancel(&self) {
+        self.cancelled.store(true, Ordering::SeqCst);
+        self.kill();
+    }
+
+    /// Signals the worker, if one is still held here.
+    fn kill(&self) {
+        if let Some(child) = self.worker().as_mut() {
+            // A worker that has already gone is the outcome asked for, so a failure here is not
+            // one: `kill` on a child that has exited is `ESRCH` and means the same thing.
+            let _ = child.kill();
+        }
+    }
+
+    /// Waits for the worker and says how it ended, leaving nothing behind to wait for twice.
+    ///
+    /// Called only where the worker's output has closed or it has been signalled, so the wait is
+    /// the moment it takes a dead process to be reaped rather than the length of a render. That
+    /// matters because the lock is held across it, and [`Self::kill`] wants the same lock.
+    fn reap(&self) -> String {
+        let mut worker = self.worker();
+        match worker.take() {
+            Some(mut child) => match child.wait() {
+                Ok(status) => describe_exit(status),
+                Err(error) => format!("and its status could not be read: {error}"),
+            },
+            None => "and it had already been waited for".to_owned(),
+        }
+    }
+
+    /// Whether the worker has ended, without waiting for it to.
+    fn ended(&self) -> Option<String> {
+        let mut worker = self.worker();
+        let child = worker.as_mut()?;
+        match child.try_wait() {
+            Ok(Some(status)) => Some(describe_exit(status)),
+            Ok(None) => None,
+            Err(error) => Some(format!("and its status could not be read: {error}")),
+        }
+    }
 }
 
 /// The answer to a [`Query`], owned.
@@ -413,9 +574,12 @@ impl Attachment {
 ///
 /// Dropping this closes the worker's input, which is how it learns to leave; the process is
 /// waited for rather than left behind.
+///
+/// **Every call here blocks for as long as the document takes**, and that is deliberate — see
+/// [`Canceller`] for why a page has no deadline and what a host holds instead.
 #[derive(Debug)]
 pub struct Confined {
-    child: Child,
+    cancellation: Arc<Cancellation>,
     to_worker: ChildStdin,
     from_worker: ChildStdout,
     confinement: Confinement,
@@ -427,12 +591,35 @@ impl Confined {
     /// The greeting is what the worker reached, not what it asked for: a kernel can refuse what a
     /// build offers, so [`Self::confinement`] is a report rather than a promise.
     ///
+    /// This blocks until the worker has confined itself and said so. Use [`Self::start_with`]
+    /// where a host wants to be able to give up on that too.
+    ///
     /// # Errors
     ///
     /// See [`ConfinedError`]. A worker that cannot confine itself never sends a greeting, so it
     /// arrives here as [`ConfinedError::WorkerDied`] — never as a viewer that quietly runs
     /// unconfined.
     pub fn start() -> Result<Self, ConfinedError> {
+        Self::start_with(&Canceller::new())
+    }
+
+    /// Starts a confined viewer that the given [`Canceller`] can end, including while it starts.
+    ///
+    /// The canceller is armed before the worker is spawned, which closes the one gap
+    /// [`Self::canceller`] cannot: `start` blocks reading the greeting, and a handle obtained from
+    /// the value `start` returns does not exist while it is blocked.
+    ///
+    /// # Errors
+    ///
+    /// See [`ConfinedError`], and [`ConfinedError::Cancelled`] where the canceller fired — before
+    /// the spawn, in which case nothing was started, or during the greeting, in which case what
+    /// was started has been ended and waited for.
+    pub fn start_with(canceller: &Canceller) -> Result<Self, ConfinedError> {
+        let cancellation = Arc::clone(&canceller.0);
+        if cancellation.is_cancelled() {
+            return Err(ConfinedError::Cancelled);
+        }
+
         let program = worker_program()?;
         let mut child = OsCommand::new(&program)
             .stdin(Stdio::piped())
@@ -445,10 +632,19 @@ impl Confined {
 
         let (Some(to_worker), Some(from_worker)) = (child.stdin.take(), child.stdout.take()) else {
             let _ = child.kill();
+            let _ = child.wait();
             return Err(ConfinedError::Spawn(std::io::Error::other(
                 "the worker was started without pipes",
             )));
         };
+
+        // Published before the blocking read below, so that a cancel arriving during the greeting
+        // has something to signal — and re-checked after publishing, because one arriving between
+        // the check above and this line would otherwise have found an empty slot and been lost.
+        *cancellation.worker() = Some(child);
+        if cancellation.is_cancelled() {
+            cancellation.kill();
+        }
 
         // Read before anything is constructed, so that the confinement this holds is the one the
         // worker reported rather than a value that stood in for it: until the greeting arrives,
@@ -461,19 +657,36 @@ impl Confined {
             Err(_) => None,
         };
         let Some(confinement) = confinement else {
-            let detail = match child.wait() {
-                Ok(status) => describe_exit(status),
-                Err(error) => format!("and its status could not be read: {error}"),
-            };
-            return Err(ConfinedError::WorkerDied { detail });
+            let detail = cancellation.reap();
+            return Err(if cancellation.is_cancelled() {
+                ConfinedError::Cancelled
+            } else {
+                ConfinedError::WorkerDied { detail }
+            });
         };
 
         Ok(Self {
-            child,
+            cancellation,
             to_worker,
             from_worker,
             confinement,
         })
+    }
+
+    /// A handle another thread can end this viewer with.
+    ///
+    /// Cheap, and any number of them may exist. See [`Canceller`] for why the only cancel this
+    /// offers is one the confined process cannot decline.
+    #[must_use]
+    pub fn canceller(&self) -> Canceller {
+        Canceller(Arc::clone(&self.cancellation))
+    }
+
+    /// Whether this viewer has been cancelled, in which case every call returns
+    /// [`ConfinedError::Cancelled`].
+    #[must_use]
+    pub fn is_cancelled(&self) -> bool {
+        self.cancellation.is_cancelled()
     }
 
     /// What confinement the worker reached.
@@ -496,6 +709,7 @@ impl Confined {
     /// See [`ConfinedError`]. [`ConfinedError::Uncarried`] for
     /// [`viewer_core::Command::RenderReady`], which the confined process answers itself.
     pub fn handle(&mut self, command: &Command) -> Result<Vec<Event>, ConfinedError> {
+        self.still_running()?;
         let payload = protocol::encode_command(command)?;
         self.write_frame(protocol::FRAME_COMMAND, &payload)?;
         let (kind, payload) = self.read_frame()?;
@@ -515,6 +729,7 @@ impl Confined {
     /// raster in a second pixel layout, a §7.11.6 collection value outside Table 47's three
     /// kinds, or a metadata failure `pdf_model::xmp` grew after this build. Each says which.
     pub fn query(&mut self, query: Query<'_>) -> Result<Reply, ConfinedError> {
+        self.still_running()?;
         let payload = protocol::encode_query(query)?;
         self.write_frame(protocol::FRAME_QUERY, &payload)?;
         let (kind, payload) = self.read_frame()?;
@@ -526,10 +741,18 @@ impl Confined {
     }
 
     /// Writes one frame and flushes it.
+    ///
+    /// **Header and payload in two calls, never concatenated.** A `Command::Open` payload is the
+    /// whole document — 19.2 MB for `doc/ISO_32000-2_sponsored_EC3.pdf` — and putting nine bytes
+    /// in front of it by building a third buffer cost a whole pass over it plus the page faults
+    /// for a fresh allocation that size. The pipe itself moves those bytes in about 4 ms;
+    /// everything around it cost ten times that, which is what ADR 0241 measured and what this
+    /// takes a quarter of back.
     fn write_frame(&mut self, kind: u8, payload: &[u8]) -> Result<(), ConfinedError> {
-        let framed = protocol::frame(kind, payload);
+        let header = protocol::header(kind, payload.len());
         self.to_worker
-            .write_all(&framed)
+            .write_all(&header)
+            .and_then(|()| self.to_worker.write_all(payload))
             .and_then(|()| self.to_worker.flush())
             .map_err(|error| self.explain(error))
     }
@@ -550,10 +773,9 @@ impl Confined {
     /// **There is no deadline here, and that is a decision rather than an omission.** A decode
     /// has a budget because one image's cost is bounded by its own dimensions;
     /// interpreting and rasterising a page is bounded by the document *and* the magnification,
-    /// so a fixed number would refuse work a viewer permits. What bounds a hostile document is
-    /// therefore the address-space ceiling and the host's ability to kill the process, and what
-    /// is missing is a cancel the host can send — which needs a host with a second thread.
-    /// `doc/todo/34` records it.
+    /// so a fixed number would refuse work a viewer permits. What a host has instead is a
+    /// [`Canceller`], which ends the worker from another thread — and ending it is what makes
+    /// the read below return, because the pipe's other end closes with the process.
     fn read_exactly(&mut self, buffer: &mut [u8]) -> Result<(), ConfinedError> {
         match self.from_worker.read_exact(buffer) {
             Ok(()) => Ok(()),
@@ -564,29 +786,38 @@ impl Confined {
         }
     }
 
+    /// Refuses a call on a viewer whose worker the host has already ended.
+    ///
+    /// Checked before anything is written, so that a cancel arriving between two commands is the
+    /// same answer as one arriving during a render rather than a pipe error about a dead process.
+    fn still_running(&self) -> Result<(), ConfinedError> {
+        if self.cancellation.is_cancelled() {
+            return Err(ConfinedError::Cancelled);
+        }
+        Ok(())
+    }
+
     /// Waits for a worker whose output has closed, and says how it ended.
     ///
     /// Blocking, for the reason `pdf_sandbox`'s own version gives: a status sampled the instant a
     /// pipe closes is usually not there yet, and a diagnosis that depends on scheduling is worse
     /// than none because it is believed.
     fn died(&mut self) -> ConfinedError {
-        let detail = match self.child.wait() {
-            Ok(status) => describe_exit(status),
-            Err(error) => format!("and its status could not be read: {error}"),
-        };
+        let detail = self.cancellation.reap();
+        if self.cancellation.is_cancelled() {
+            return ConfinedError::Cancelled;
+        }
         ConfinedError::WorkerDied { detail }
     }
 
     /// Turns a pipe failure into the reason the worker is gone, when it is.
     fn explain(&mut self, error: std::io::Error) -> ConfinedError {
-        match self.child.try_wait() {
-            Ok(Some(status)) => ConfinedError::WorkerDied {
-                detail: describe_exit(status),
-            },
-            Ok(None) => ConfinedError::Connection(error),
-            Err(wait_error) => ConfinedError::WorkerDied {
-                detail: format!("and its status could not be read: {wait_error}"),
-            },
+        if self.cancellation.is_cancelled() {
+            return ConfinedError::Cancelled;
+        }
+        match self.cancellation.ended() {
+            Some(detail) => ConfinedError::WorkerDied { detail },
+            None => ConfinedError::Connection(error),
         }
     }
 }
@@ -597,9 +828,13 @@ impl Drop for Confined {
     /// Killed rather than asked: the worker leaves when its input closes, which dropping the
     /// pipe does — but a worker in the middle of a render would not notice for as long as that
     /// render takes, and a host that has dropped its handle is not waiting for one.
+    ///
+    /// This is [`Canceller::cancel`] without the flag, and it is the same one mechanism: dropping
+    /// a `Confined` is a host giving up on the work, which is what a cancel is. The [`Canceller`]s
+    /// that outlive it find an empty slot and do nothing.
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        self.cancellation.kill();
+        let _ = self.cancellation.reap();
     }
 }
 

@@ -1,10 +1,10 @@
 # Confine the interpreter and the rasteriser
 
-Status: **built, answers every question, and not yet where a person would meet it.** The confined
-process exists, draws real pages (ADR 0218) and carries all twenty-eight questions — twenty-five
-since the three-hundred-and-eighty-sixth (ADR 0223) and §12.7's form since the
-three-hundred-and-ninety-eighth (ADR 0235); what is left is that the window does not use it and a
-hostile document has no cancel.
+Status: **built, answers every question, stoppable, and not yet where a person would meet it.** The
+confined process exists, draws real pages (ADR 0218) and carries all twenty-eight questions —
+twenty-five since the three-hundred-and-eighty-sixth (ADR 0223) and §12.7's form since the
+three-hundred-and-ninety-eighth (ADR 0235); a hostile document has a cancel since the
+four-hundred-and-fourth (ADR 0241). What is left is that the window does not use it.
 Priority: 34
 Clauses: —, this is `CLAUDE.md` principle 3
 Code: `crates/viewer-confined`, `crates/pdf-sandbox/src/lockdown.rs`
@@ -21,7 +21,9 @@ four system calls longer.
 What the tests establish, on this kernel: a page byte-identical to the one drawn in process; a page
 turn and a magnification; a JBIG2 document decoded *inside* the confinement; a confined process that
 cannot open a file, cannot open a socket and cannot start a program; and `Confinement::shortfall`
-answering `None` because everything was enforced. `examples/confined_page` is what a person runs.
+answering `None` because everything was enforced. **Since the four-hundred-and-fourth**: a document
+that will not finish, cancelled from another thread, and a warmed allocator that never asks the
+kernel again. `examples/confined_page` and `examples/confined_cancel` are what a person runs.
 
 ## What the three-hundred-and-eighty-sixth session added
 
@@ -31,7 +33,9 @@ trip apiece and a comparison against the same answer read in this process on thr
 same way, on `issue17492.pdf`, and with an edit built out of what crossed sent back through the same
 pipe (ADR 0235).
 `examples/confined_panels` prints a sidebar's worth of a document out of the confinement. The
-transport's stand-in test became `fuzz/fuzz_targets/confined_wire.rs`, clean at 44 723 045 runs.
+transport's stand-in test became `fuzz/fuzz_targets/confined_wire.rs`, clean at 44 723 045 runs,
+and clean again at **13 175 908 runs in 241 s** in the four-hundred-and-fourth, which changed how
+a frame header is written and therefore owed it.
 ADR 0223 has the argument, the measurements and what it refuses.
 
 ## What is left, in the order it matters
@@ -67,39 +71,98 @@ device, by the owner's decision. Two ways out, and neither has been argued:
 
 Until one of them is settled, the confined path is for hosts that want pixels.
 
-### 3. A hostile document has no deadline, and the reason a decode's would be wrong
+### 3. ~~A hostile document has no deadline~~ — closed in the four-hundred-and-fourth session
 
-`Confined::read_exactly` blocks. A decode has a 30-second budget because one image's cost is
-bounded by its own dimensions; a page's is bounded by the document *and* the magnification, so any
-fixed number refuses work a viewer permits. What bounds a hostile document today is the
-address-space ceiling and the host's ability to kill the process. What is missing is a **cancel**,
-which needs a host with a second thread — and that is a shape decision about this crate's API, not
-a constant.
+`Canceller` is the answer and **a cancel is a kill** (ADR 0241): the confined process is
+interpreting a hostile document, so a cancel it has to *agree* to is a cancel the document can
+decline, and the only one worth the name is the one the kernel enforces. `Canceller::cancel` ends
+the worker from any thread, whichever call the host was blocked in returns
+`ConfinedError::Cancelled`, and `Confined::start_with` takes a canceller made before there is a
+worker — because `start` blocks on the greeting too, which is what `doc/todo/01`'s fifth sweep found
+when it was run over this crate's own surface.
 
-### 4. One rasterising thread, and the two candidate answers
+Demonstrated on a **1567-byte** document that draws for **44.2 s**: the host's thread comes back in
+**0.83–1.97 ms** over six runs. `tests/confined.rs` and `examples/confined_cancel`.
 
-ADR 0218 §2: `glibc`'s allocator sizes its arena count from `__get_nprocs()`, which reads
+**What is still not here is a deadline, and deliberately.** A page's cost is bounded by the
+document and the magnification together, so a fixed number refuses work a viewer permits. What a
+host has is the ability to decide, on its own grounds.
+
+### 4. One rasterising thread — repriced, and the `glibc` claim is now measured
+
+ADR 0218 section 2: `glibc`'s allocator sizes its arena count from `__get_nprocs()`, which reads
 `/sys/devices/system/cpu/online`, so a thread's first allocation in a many-threaded confined
-process is an `openat` the filter kills for. The two ways to get the cores back:
+process is an `openat` the filter kills for.
+
+**What it is worth was wrong by an order of magnitude, and the reason is which page it was measured
+on.** This entry said "about 1 ms of the 7 ms this page takes". `pdf-model`'s `strip_spans`, run in
+the four-hundred-and-fourth session (ADR 0241 section 6):
+
+| page | 1 strip | best | strips the geometry grants |
+|---|---|---|---|
+| `PDF20_AN001-BPC.pdf` p1 at 1× | 2.2 ms | 1.3 ms | **2**, whatever is asked |
+| the same at 2× | 8.2 ms | 5.8 ms | **2** |
+| ISO 32000-2 p101 at 1× (3007 commands) | **19.9 ms** | **7.2 ms** | 8, and 11 at 16 asked |
+| the same at 2× | **31.0 ms** | **12.7 ms** | 15 at 16 asked |
+
+So it is a millisecond on a sparse page — where ADR 0139's constrained split grants two strips and
+no thread count can beat that — and **twelve of twenty milliseconds** on a dense one. A page turn
+pays this every time, which puts it above item 5 for interactivity.
+
+The two ways to get the cores back:
 
 - **Per-thread Landlock plus an allocator warm-up.** Build the pool *before* seccomp with a
-  `start_handler` that puts each worker in its own Landlock domain and allocates once, so the
-  arena question is asked and answered while `openat` still returns `EACCES`. It rests on the
-  allocator not asking again later, which is a claim about `glibc` internals — write it down as
-  one, or measure it.
+  `start_handler` that puts each worker in its own Landlock domain and allocates once.
+  **The allocator half is measured and it holds**: `tests/confined.rs`'s
+  `an_allocator_warmed_before_the_filter_does_not_ask_the_kernel_again` warms 24 threads, confines,
+  draws a page on 24 strips and then broadcasts twenty rounds of 4 MiB allocations to every thread;
+  `strace` counts 25 `clone3` before the filter, none after, and **no `openat` after it at all**.
+  What is left is the Landlock half, and it is concrete: `pdf-sandbox` has no entry point that
+  applies Landlock alone to the calling thread, so a `start_handler` cannot put its worker in the
+  domain. Until it has one, a warmed pool has the seccomp filter (installed with `TSYNC`) and not
+  the depth layer, which is what ADR 0218 rejected and still rejects.
 - **An allocator that does not consult the filesystem.** Every candidate this project has looked
   at contains `unsafe`, which is a separate decision.
 
-Neither is free, and the thing that makes them worth doing is a measurement: one thread costs about
-1 ms of the 7 ms this page takes.
+### 5. The document crosses as bytes — and the pipe is a tenth of what it was blamed for
 
-### 5. The document crosses as bytes, and could cross as a descriptor
+This entry said 19.2 MB of ISO 32000-2 down a pipe "is most of the 67 ms that document takes to
+reach its first page", and proposed a `memfd` or an `SCM_RIGHTS` descriptor. The first half is
+right and the reason was wrong (ADR 0241 section 5). Measured with `examples/confined_page`'s new
+**ballast** line — a valid one-page document padded to exactly the real one's length with a stream
+nothing refers to, so that what is timed is the transport and nothing else:
 
-19.2 MB of ISO 32000-2 goes down a pipe once, and it is most of the 67 ms that document takes to
-reach its first page. A `memfd` or an `SCM_RIGHTS` descriptor the confined side maps read-only
-would remove the copy — and `pdf_syntax::Document` already takes bytes it does not own the
-lifetime of. It needs `unsafe` for the mapping or a crate that has it, so it is a decision rather
-than an optimisation.
+| | |
+|---|---|
+| ISO 32000-2 opened, interpreted and drawn, confined | 65–108 ms |
+| **19.2 MB of ballast, crossed and drawn blank** | **41–66 ms** |
+| 0 bytes of ballast | 1.2–2.3 ms |
+| the same 19.2 MB through a bare pipe (`dd \| dd`) | **3.7, 4.9, 5.5 ms** |
+
+**The kernel's pipe is four milliseconds of it.** The rest is five passes over the document on our
+side: the encoder's buffer, a header put in front of it by building a third buffer, the two the
+pipe makes, the worker's frame allocation and `decode_command`'s copy into `Command::Open`.
+
+**One of those was free to remove and is gone**: both ends write the nine-byte header and the
+payload in two calls instead of concatenating. Nine runs each way — the 4.1 MB raster falls from
+4.32/5.64 ms (min/median) to **3.23/3.74**, seven of nine "after" samples below the "before"
+minimum; the 19.2 MB open moved by less than its spread and is not claimed.
+
+**The mapping is still a decision and now a sharper one.** `memmap2::Mmap::map`,
+`memmap2::MmapOptions::map_copy_read_only` and `rustix::mm::mmap` are all `pub unsafe fn` —
+soundly, since a mapping's bytes can change under the reader — while `rustix::fs::memfd_create` is
+safe. So *making and writing* a `memfd` needs no `unsafe` and *mapping* one does, and
+`viewer-confined` is `#![forbid(unsafe_code)]` and holds a whole document. No dependency hides it
+behind a safe signature; the construction that would justify one is a **sealed** `memfd`
+(`F_SEAL_WRITE | F_SEAL_SHRINK | F_SEAL_GROW`), which would be a new crate in this workspace that
+seals, passes, maps and hands out `&[u8]` and parses nothing — and whether such a crate falls under
+principle 3's rule is the question to answer out loud rather than assume.
+
+And getting the descriptor across has its own cost. The document arrives *after* the spawn, so an
+inherited descriptor means one worker per document; the runtime alternative, `SCM_RIGHTS`, needs
+`socketpair`, `sendmsg` and `recvmsg` on the interpreter's allow-list, and
+`a_confined_interpreter_cannot_reach_the_network` is the test that would have to be weakened to get
+them. Three system calls for latency is the wrong direction.
 
 ## Two things that stayed true and are worth keeping
 

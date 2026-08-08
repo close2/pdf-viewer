@@ -194,6 +194,14 @@ it is worth stating — the entries it implemented cannot change a mark on any o
 before the work by `examples/push_button_census` (ADR 0239), so the instrument that answers this
 round is the ledger and not the corpus.
 
+**And the four-hundred-and-fourth**, which added a cancel to the confined viewer and changed how
+both ends of that pipe write a frame header (ADR 0241). The whole sequence ran and **every line
+below reproduced except the test and citation counts** — its four tests and one citation. The
+transport change is the one worth saying that about: the header is the same nine bytes in the same
+order, written in a separate call rather than in front of a copy of the payload, so the wire format
+did not move and no gate could see it. What *did* move is a measurement no gate takes — 4.1 MB of
+raster crossing the pipe, 5.64 → 3.74 ms median over nine runs each way.
+
 **And the four-hundred-and-third, which changed what a form field's baseline is read from and is
 the strongest instance of this yet.** It ran the sequence twice, before and after, and diffed the
 *output* rather than the summaries: the oracle's 1794 verdict lines are identical but for its two
@@ -205,7 +213,7 @@ it (ADR 0240).
 
 | gate | what it printed | where |
 |---|---|---|
-| tests | `1414 tests run: 1414 passed, 9 skipped`, and `cargo test --workspace --doc` **1 passed** beside it, so `cargo test --workspace` reports **1415**. `clippy --workspace --all-targets` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`; `fmt --all --check` clean | `cargo nextest run --workspace`, **38.7 s** |
+| tests | `1418 tests run: 1418 passed, 9 skipped`, and `cargo test --workspace --doc` **1 passed** beside it, so `cargo test --workspace` reports **1419**. `clippy --workspace --all-targets` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`; `fmt --all --check` clean | `cargo nextest run --workspace`, **38.7 s** |
 | corpus (974 pdf.js documents, page one) | `974 documents in 4.3s: 0 unopenable, 8 locked, 2 encrypted beyond us, 5 pageless, **65 incomplete**, 0 slow` | `tests/corpus.rs`, **4.3 s** |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | `1794 pages (1693 we call complete, 101 incomplete)`; **904 agree / 862 of them complete**, **69 contradicted / 67 complete**, **786 ambiguous / 753 complete**, our geometry 1/0, reference geometry 2/2, not comparable 14/9, no render 18/0 — and **the undiagnosed ambiguous list printed empty**, which is the ratchet holding. The two pages that became *complete* in the four-hundredth session both landed ambiguous and both have a group with a two-ladder diagnosis (ADR 0237) | `tests/oracle.rs`, **47.2 s** |
 | text (vs `pdftotext`, same 974) | `overall 99.2% (24043/24243 words), 25 below 90%`, with 24 skipped and 62 incomplete and not gated | `tests/text_extraction.rs`, **30.1 s** |
@@ -213,7 +221,7 @@ it (ADR 0240).
 | dates | `1545 date strings in 974 documents: **1514 conform** to §7.9.4 (97.99%), 31 do not, over 22 distinct strings` | `tests/dates.rs`, **0.9 s** |
 | **§14.3.2's XMP** (same 974) | `319 documents carry §14.3.2's stream: **318 read, 1 refused**, 3191 properties between them, 106 state dc:title` — the refusal is a fuzzed file whose stream does not decode at all | `tests/xmp.rs`, **0.4 s** |
 | **JPEG 2000 vs ISO/IEC 15444-5's reference software** | 30 corpus codestreams: **14 byte-identical, 13 differing, 3 not comparable**, and no remaining difference exceeds one level. `doc/JPEG2000_FEEDBACK.md` §§7–8 has the two defects behind that | `tests/jpeg2000.rs`, **13.8 s** |
-| conformance | **5638 citations**, all naming clauses the standard has; **549 quotations**, all verbatim; **212** distinct tables cited by this tree and **250** named in the ledger's notes; **875 ledger rows** (400 implemented, 252 partial, 19 reported, 83 inapplicable, 8 writer-side, 113 out-of-scope) | `cargo test -p conformance`, **3.0 s** |
+| conformance | **5639 citations**, all naming clauses the standard has; **549 quotations**, all verbatim; **212** distinct tables cited by this tree and **250** named in the ledger's notes; **875 ledger rows** (400 implemented, 252 partial, 19 reported, 83 inapplicable, 8 writer-side, 113 out-of-scope) | `cargo test -p conformance`, **3.0 s** |
 | **the round itself** | **not measured as one span this round**, and the honest number is what the gates themselves printed: **154 s** of test execution summed from the ten lines above (25.7 + 4.2 + 46.9 + 30.1 + 34.1 + 0.6 + 0.3 + 9.9 + 2.0), with each gate's incremental build on top and each run separately rather than back to back. `doc/todo/02` records **268 s** for §2 *and* §5's binaries together, from 608 s until the three-hundred-and-eighty-fifth measured every step (ADR 0222); the three-hundred-and-ninety-seventh read 287 s off file timestamps for §2 alone | ADR 0222, `doc/todo/43` |
 
 **Two things beyond §2 were run in the three-hundred-and-ninety-eighth and are claimed**: the
@@ -225,8 +233,14 @@ second click printed `note: setting the field typeScript to Off`; ADR 0126's rec
 name taken from §12.2's `/DisplayDocTitle` (`PDF Form Example — page 1 of 1`) rather than from the
 file.
 
-**Not re-run and therefore not claimed**: the other eleven fuzz targets, `cargo deny` and the two
-cross-target checks. The three-hundred-and-ninety-eighth added a
+**The four-hundred-and-fourth ran two of the same instruments**, because it changed how both ends of
+the confined transport write a frame header: `confined_wire`, **13 175 908 runs in 241 s, clean**, and
+`cargo deny` — *advisories ok, bans ok, licenses ok, sources ok*. **Not the two cross-target
+checks**, and the reason is that nothing moved for them to see: no manifest changed and no
+dependency was added, which is the round's own finding about item 5 rather than an oversight.
+
+**Not re-run in either round and therefore not claimed**: the other eleven fuzz targets, and (in
+the three-hundred-and-ninety-eighth) `cargo deny` and the two cross-target checks. That round added a
 *description* of §12.7's fields and one appearance-state selection — no document parser, no decoder,
 no dependency, and nothing on any gate's path, since no gate sets a field's value — so those
 have nothing to catch that the workspace

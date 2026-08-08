@@ -126,7 +126,12 @@ pub fn serve() -> Result<(), std::io::Error> {
     let mut rasterizer = CpuRasterizer::new().with_strips(strips);
 
     while let Some((kind, payload)) = read_frame(&mut input)? {
-        let response = answer(&mut viewer, &mut rasterizer, kind, &payload);
+        // Header and payload in two calls rather than one concatenated buffer: a raster is 4.1 MB
+        // and a saved file is a document, so putting nine bytes in front of either by copying it
+        // is a pass over megabytes that buys nothing. The host writes the same way (`write_frame`),
+        // and ADR 0241 has what the two of them were costing.
+        let (kind, response) = answer(&mut viewer, &mut rasterizer, kind, &payload);
+        output.write_all(&protocol::header(kind, response.len()))?;
         output.write_all(&response)?;
         output.flush()?;
     }
@@ -151,7 +156,7 @@ fn read_frame(input: &mut impl Read) -> Result<Option<(u8, Vec<u8>)>, std::io::E
     Ok(Some((kind, payload)))
 }
 
-/// Answers one frame.
+/// Answers one frame, as the kind to write and the payload to write after it.
 ///
 /// A refusal is a *response* and not an error, for the reason `pdf_sandbox::worker` gives: a host
 /// that asked for something this does not carry keeps its worker, and only a broken pipe ends
@@ -161,7 +166,7 @@ fn answer(
     rasterizer: &mut CpuRasterizer,
     kind: u8,
     payload: &[u8],
-) -> Vec<u8> {
+) -> (u8, Vec<u8>) {
     match kind {
         protocol::FRAME_COMMAND => match protocol::decode_command(payload) {
             Ok(command) => perform(viewer, rasterizer, command),
@@ -169,7 +174,7 @@ fn answer(
         },
         protocol::FRAME_QUERY => match protocol::decode_query(payload) {
             Ok(query) => match protocol::encode_answer(&viewer.query(query.as_query())) {
-                Ok(encoded) => protocol::frame(protocol::FRAME_ANSWER, &encoded),
+                Ok(encoded) => (protocol::FRAME_ANSWER, encoded),
                 Err(uncarried) => refuse(&uncarried.to_string()),
             },
             Err(error) => refuse(&error.to_string()),
@@ -180,7 +185,7 @@ fn answer(
 }
 
 /// Performs one command, drawing whatever it asked for.
-fn perform(viewer: &mut Viewer, rasterizer: &mut CpuRasterizer, command: Command) -> Vec<u8> {
+fn perform(viewer: &mut Viewer, rasterizer: &mut CpuRasterizer, command: Command) -> (u8, Vec<u8>) {
     let mut outgoing = Vec::new();
     let mut pending: Vec<Command> = vec![command];
 
@@ -209,12 +214,12 @@ fn perform(viewer: &mut Viewer, rasterizer: &mut CpuRasterizer, command: Command
     }
 
     match protocol::encode_events(&outgoing) {
-        Ok(encoded) => protocol::frame(protocol::FRAME_EVENTS, &encoded),
+        Ok(encoded) => (protocol::FRAME_EVENTS, encoded),
         Err(uncarried) => refuse(&uncarried.to_string()),
     }
 }
 
 /// A refusal frame carrying one sentence.
-fn refuse(detail: &str) -> Vec<u8> {
-    protocol::frame(protocol::FRAME_REFUSAL, detail.as_bytes())
+fn refuse(detail: &str) -> (u8, Vec<u8>) {
+    (protocol::FRAME_REFUSAL, detail.as_bytes().to_vec())
 }

@@ -601,11 +601,29 @@ impl<'a> Reader<'a> {
     }
 }
 
-/// Prefixes a payload with its kind and length.
+/// A payload's kind and length, to be written in front of it.
+///
+/// **Nine bytes, written separately from the payload rather than in front of a copy of it.** A
+/// document is 19.2 MB and a raster is 4.1 MB, so a `frame` that concatenated would be one whole
+/// extra pass over the largest thing this transport carries — and the pipe's own cost for those
+/// bytes is about a tenth of what the copies around it cost (ADR 0241). Two `write_all` calls on
+/// a pipe are two system calls; the concatenation was megabytes of memory traffic and the page
+/// faults to go with it.
+pub(crate) fn header(kind: u8, length: usize) -> [u8; FRAME_HEADER_LEN] {
+    let mut out = [0u8; FRAME_HEADER_LEN];
+    out[0] = kind;
+    out[1..].copy_from_slice(&as_u64(length).to_be_bytes());
+    out
+}
+
+/// Prefixes a payload with its kind and length, in one buffer.
+///
+/// [`header`] is what the two ends actually write. This is for the tests below, which want a whole
+/// frame as a value in order to take it apart again.
+#[cfg(test)]
 pub(crate) fn frame(kind: u8, payload: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(payload.len().saturating_add(FRAME_HEADER_LEN));
-    out.push(kind);
-    out.extend_from_slice(&as_u64(payload.len()).to_be_bytes());
+    out.extend_from_slice(&header(kind, payload.len()));
     out.extend_from_slice(payload);
     out
 }
