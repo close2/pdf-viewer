@@ -559,7 +559,12 @@ impl CpuRasterizer {
             // clip handling; a per-arm lookup would be a place for them to diverge.
             // The clip admits no row of the target, so nothing this command draws can
             // survive it.
-            let Some((band, clip)) = masks.effective(list, command.clip(), command.mask())? else {
+            let Some(Admitted {
+                band,
+                mask: clip,
+                admits,
+            }) = masks.effective(list, command.clip(), command.mask())?
+            else {
                 continue;
             };
 
@@ -582,7 +587,13 @@ impl CpuRasterizer {
                         height: band.height,
                     },
                 )?;
-                self.draw(&mut layer.as_mut(), command, to_device, clip, compose)?;
+                self.draw(
+                    &mut layer.as_mut(),
+                    command,
+                    to_device,
+                    (clip, admits),
+                    compose,
+                )?;
                 let mut rows = band
                     .rows(pixmap, surface)
                     .ok_or(CpuRasterError::Allocation {
@@ -600,7 +611,7 @@ impl CpuRasterizer {
                     height: band.height,
                 })?;
 
-            self.draw(&mut rows, command, to_device, clip, compose)?;
+            self.draw(&mut rows, command, to_device, (clip, admits), compose)?;
         }
         Ok(())
     }
@@ -638,7 +649,7 @@ impl CpuRasterizer {
 
         // The band is taken first so that a group whose clip admits no row costs nothing at
         // all — not even the buffer.
-        let Some((band, _)) = masks.effective(list, group.clip, group.mask)? else {
+        let Some(Admitted { band, .. }) = masks.effective(list, group.clip, group.mask)? else {
             return Ok(());
         };
 
@@ -668,7 +679,8 @@ impl CpuRasterizer {
         // Resolved again rather than held across the recursion: the elements' own clips
         // share this cache and may have evicted the entry, and a rebuilt mask is the mask
         // that was dropped — see `a_rebuilt_mask_is_the_mask_that_was_evicted`.
-        let Some((_, clip)) = masks.effective(list, group.clip, group.mask)? else {
+        let Some(Admitted { mask: clip, .. }) = masks.effective(list, group.clip, group.mask)?
+        else {
             return Ok(());
         };
 
@@ -836,9 +848,11 @@ impl CpuRasterizer {
         paint: &Paint,
         blend: tiny_skia::BlendMode,
         to_device: ToDevice,
-        clip: Option<&tiny_skia::Mask>,
+        (clip, admits): (Option<&tiny_skia::Mask>, Option<tiny_skia::Rect>),
     ) -> Result<(), CpuRasterError> {
         let at = to_device.of(transform);
+        let cropped = crop_to_mask(source, transform, to_device, admits);
+        let source = cropped.as_ref().unwrap_or(source);
         let path = convert::path(source).ok_or(CpuRasterError::InvalidPath)?;
 
         // A mesh carries a colour per triangle corner, which no shader can express, so it is
@@ -969,7 +983,7 @@ impl CpuRasterizer {
         pixmap: &mut tiny_skia::PixmapMut<'_>,
         command: &Command,
         to_device: ToDevice,
-        clip: Option<&tiny_skia::Mask>,
+        (clip, admits): (Option<&tiny_skia::Mask>, Option<tiny_skia::Rect>),
         compose: Compose,
     ) -> Result<(), CpuRasterError> {
         match command {
@@ -988,7 +1002,7 @@ impl CpuRasterizer {
                     paint,
                     compose.mode(*blend),
                     to_device,
-                    clip,
+                    (clip, admits),
                 )?;
             }
             Command::Stroke {
@@ -1566,6 +1580,46 @@ impl ToDevice {
     }
 }
 
+/// The rectangle a fill should be drawn as instead, where its mask leaves room for less.
+///
+/// A rectangle wider than its mask can mark is drawn as the part that can be marked. `sh`
+/// states one such fill per shading — ISO 32000-2 §8.7.4.2's Table 76 bounds the operator by
+/// the current clipping path and by nothing else, so a display list carries the whole page —
+/// and a rasteriser evaluates its shader over the *path's* spans and multiplies the mask in
+/// afterwards, so the columns the mask rejects cost full price. The same table says the cost
+/// out loud — an unbounded shading paints "across the entire clipping region, which may be
+/// time-consuming" — which is the sentence this answers.
+///
+/// **The benchmark that justifies it**: `bug1721218_reduced.pdf`, the corpus's worst page,
+/// states 3490 of those fills, and this is the difference between 10.4 M shaded pixels per
+/// render and 85 608. Twenty renders through `examples/callgrind_rasterise` go **38.45 G
+/// instructions to 20.03 G**, of which `tiny_skia::pipeline::lowp::gradient` alone is 15.78 G
+/// to 0.58 G, and the page's own ink is unchanged to the byte. ADR 0236.
+///
+/// **What it costs in readability** is this function and one indirection at the call site. What
+/// it costs a page it cannot help is one rectangle-containment test per clipped fill, which is
+/// [`pdf_render::cropped_rectangle`]'s first line and is why the memoised hull is what it asks
+/// for; the specification's own pages measure unchanged.
+///
+/// The exactness argument, and what a caller owes, are on [`pdf_render::cropped_rectangle`].
+/// What is supplied here is the rectangle [`MaskCache::build`] measured, with the pixel of
+/// margin [`Band::covering`] takes for the same reason — and `admits` is `None` wherever no
+/// rectangle bounds the mask, which is every unclipped command and every bare soft mask.
+fn crop_to_mask(
+    source: &Path,
+    transform: Transform,
+    to_device: ToDevice,
+    admits: Option<tiny_skia::Rect>,
+) -> Option<Path> {
+    pdf_render::cropped_rectangle(
+        source,
+        // The page's own device grid, which is the one `admits` is stated on: the band's row
+        // offset is `ToDevice`'s to apply and belongs to neither of them.
+        transform.then(to_device.page),
+        convert::from_skia_rect(admits?),
+    )
+}
+
 /// Whether a command's own extent lies wholly above or below `surface`'s rows.
 ///
 /// A group answers `false`: its elements carry the extents and each is asked in turn.
@@ -1656,10 +1710,34 @@ struct Shape {
     fill_rule: tiny_skia::FillRule,
 }
 
-/// A built clip mask and the band it covers.
+/// A built clip mask, the band it covers, and the device rectangle it can mark within.
 struct Built {
     mask: tiny_skia::Mask,
     band: Band,
+    /// Device rectangle outside which this mask is zero, or `None` where nothing bounds it.
+    ///
+    /// The band already says which *rows* the mask can mark, and a surface is a run of whole
+    /// rows, so the columns had nowhere to be recorded until a caller wanted them. One does:
+    /// [`pdf_render::cropped_rectangle`] shrinks a rectangular fill to the part of it that can
+    /// survive, and this is what tells it where that part is. Outset and rounded outward
+    /// exactly as [`Band::covering`] treats the rows, and for the same reason — a clip's bounds
+    /// are composed one way and its mask drawn through another.
+    admits: Option<tiny_skia::Rect>,
+}
+
+/// What a command's clip and soft mask together let it mark.
+///
+/// Three answers to one question, which is why they travel together: which rows of the surface
+/// are worth drawing into, what coverage multiplies the command there, and — since the surface
+/// is a run of whole rows and the band cannot say it — which columns.
+#[derive(Debug, Clone, Copy)]
+struct Admitted<'a> {
+    /// Rows of the surface the command may mark.
+    band: Band,
+    /// The coverage it is drawn through, or `None` where nothing masks it.
+    mask: Option<&'a tiny_skia::Mask>,
+    /// Device rectangle outside which `mask` is zero, or `None` where nothing bounds it.
+    admits: Option<tiny_skia::Rect>,
 }
 
 /// What a cached mask was built from.
@@ -1689,7 +1767,7 @@ enum Key {
 /// use and kept.
 ///
 /// The cache is bounded, which the memoisation alone is not. A document names as many
-/// distinct clips as it likes — the corpus's worst holds 3576 on one page — so keeping
+/// distinct clips as it likes — the corpus's worst holds 3554 on one page — so keeping
 /// every mask is a memory-exhaustion vector: before this bound and before [`Band`],
 /// that page held 1.7 GB of page-sized masks. Dropping an entry costs a rebuild and
 /// nothing else, so eviction can be crude, and it is: entries go in build order,
@@ -1720,16 +1798,24 @@ struct MaskCache {
 /// Largest total size of the masks a [`MaskCache`] holds, in bytes.
 ///
 /// Sized against the corpus rather than guessed. `bug1721218_reduced.pdf` is the heaviest
-/// first page in the 974-document pdf.js corpus, and it never evicts: **3608 chains built
-/// per render of one 612×792 page, peaking at 27.9 MB against this 32 MB** — measured in the
-/// hundred-and-thirteenth session by counting admissions, evictions and peak bytes, where an
-/// earlier version of this comment said "3576 distinct clips" and "25.5 MB" and called the
-/// margin headroom. **It is 13%.** The next document heavier than this one will evict, and
-/// will be served correctly at the price of rebuilding a mask it comes back to.
+/// first page in the 974-document pdf.js corpus, and it never evicts: **3554 clip masks built
+/// per render of one 612×792 page, peaking at 12.31 MB against this 32 MB** — 10.85 MB of clip
+/// masks, 1.45 MB of soft masks, and three clip × soft-mask products alive at the peak.
 ///
-/// The number is not raised on that evidence, because nothing has been measured to be paying
-/// for it; it is recorded so that a session which finds a document evicting knows the margin
-/// was already thin rather than that something regressed.
+/// **That figure said 27.9 MB and a margin of 13% until the three-hundred-and-ninety-ninth
+/// session, which measured it again and found 12.31.** The 27.9 was taken in the
+/// hundred-and-thirteenth and was true then; ADR 0132 arrived in the hundred-and-forty-seventh
+/// and made [`DisplayList::add_clip`] return an existing identifier for an identical region,
+/// which is a change to how many masks this cache is asked for. **A margin recorded as thin is
+/// a claim that decays like any other**, and the reason to re-take it rather than inherit it is
+/// [`doc/todo/40`](../../../doc/todo/40-mask-chain-crop.md), whose stated blocker was that this
+/// page had no room for its intermediate clips. It has 19.7 MB of room, and they cost 9.4.
+///
+/// The number is not lowered on that evidence, because nothing has been measured to be paying
+/// for it; it is recorded so that a session which finds a document evicting knows what the
+/// margin was.
+///
+/// [`DisplayList::add_clip`]: pdf_render::DisplayList::add_clip
 const MASK_BUDGET: usize = 32 << 20;
 
 impl MaskCache {
@@ -1751,11 +1837,11 @@ impl MaskCache {
         }
     }
 
-    /// Returns the mask a command with this clip and this soft mask draws through.
+    /// Returns what a command with this clip and this soft mask may mark.
     ///
     /// `None` means nothing this command draws can survive, which is not the same as
-    /// drawing unmasked; `Some((band, None))` is the unmasked case, where the band is the
-    /// whole target.
+    /// drawing unmasked; an [`Admitted`] whose `mask` is `None` is the unmasked case, where
+    /// the band is the whole target.
     ///
     /// A soft mask must already have been evaluated by
     /// [`CpuRasterizer::build_soft_mask`] — building one means rendering a command list,
@@ -1770,13 +1856,25 @@ impl MaskCache {
         list: &DisplayList,
         clip: Option<ClipId>,
         mask: Option<SoftMaskId>,
-    ) -> Result<Option<(Band, Option<&tiny_skia::Mask>)>, CpuRasterError> {
+    ) -> Result<Option<Admitted<'_>>, CpuRasterError> {
         match (clip, mask) {
-            (None, None) => Ok(Some((self.surface.rows, None))),
-            (Some(clip), None) => Ok(self.get(list, clip)?.map(|(band, mask)| (band, Some(mask)))),
+            (None, None) => Ok(Some(Admitted {
+                band: self.surface.rows,
+                mask: None,
+                admits: None,
+            })),
+            (Some(clip), None) => Ok(self.get(list, clip)?.map(|built| Admitted {
+                band: built.band,
+                mask: Some(&built.mask),
+                admits: built.admits,
+            })),
             (None, Some(mask)) => {
                 let entry = self.soft_mask(mask)?;
-                Ok(Some((entry.band, Some(&entry.mask))))
+                Ok(Some(Admitted {
+                    band: entry.band,
+                    mask: Some(&entry.mask),
+                    admits: entry.admits,
+                }))
             }
             (Some(clip), Some(mask)) => {
                 self.combine(list, clip, mask)?;
@@ -1785,7 +1883,11 @@ impl MaskCache {
                     .get(&Key::Both(clip, mask))
                     .ok_or(CpuRasterError::UnknownClip(clip))?
                     .as_ref();
-                Ok(entry.map(|built| (built.band, Some(&built.mask))))
+                Ok(entry.map(|built| Admitted {
+                    band: built.band,
+                    mask: Some(&built.mask),
+                    admits: built.admits,
+                }))
             }
         }
     }
@@ -1815,6 +1917,9 @@ impl MaskCache {
         };
 
         let band = clipped.band;
+        // The product is zero wherever the clip is, so the clip's rectangle bounds it too; a
+        // soft mask has a value everywhere (§11.6.5.1) and bounds nothing on its own.
+        let admits = clipped.admits;
         let mut product = clipped.mask.clone();
         let width = self.surface.width() as usize;
         // The soft mask covers the whole surface and the clip a band of it, both counted in
@@ -1840,6 +1945,7 @@ impl MaskCache {
             Some(Built {
                 mask: product,
                 band,
+                admits,
             }),
         );
         Ok(())
@@ -1879,7 +1985,16 @@ impl MaskCache {
             .soft_bytes
             .saturating_add(band.mask_bytes(self.surface.width()));
         self.soft_order.push_back(id);
-        self.built.insert(Key::Soft(id), Some(Built { mask, band }));
+        self.built.insert(
+            Key::Soft(id),
+            Some(Built {
+                mask,
+                band,
+                // A mask has a value everywhere — §11.6.5.1 gives one outside its group's
+                // bounding box — so no rectangle bounds where it is non-zero.
+                admits: None,
+            }),
+        );
 
         while self.soft_bytes > self.budget && self.soft_order.len() > 1 {
             let Some(oldest) = self.soft_order.pop_front() else {
@@ -1893,15 +2008,12 @@ impl MaskCache {
         }
     }
 
-    /// Returns the mask for `id` and the band it covers, building it if needed.
+    /// Returns the mask for `id`, the band it covers and the rectangle it marks within,
+    /// building it if needed.
     ///
     /// `None` means the clip admits no row of the target: the caller must draw
     /// nothing at all, which is not the same as drawing unclipped.
-    fn get(
-        &mut self,
-        list: &DisplayList,
-        id: ClipId,
-    ) -> Result<Option<(Band, &tiny_skia::Mask)>, CpuRasterError> {
+    fn get(&mut self, list: &DisplayList, id: ClipId) -> Result<Option<&Built>, CpuRasterError> {
         if !self.built.contains_key(&Key::Clip(id)) {
             let chain = Self::resolve_chain(list, id)?;
             let built = self.build(list, id, &chain)?;
@@ -1910,12 +2022,11 @@ impl MaskCache {
 
         // Absence here would mean `admit` dropped the entry it had just stored, which
         // it does not do; reporting it beats drawing an unclipped page if it ever did.
-        let entry = self
+        Ok(self
             .built
             .get(&Key::Clip(id))
             .ok_or(CpuRasterError::UnknownClip(id))?
-            .as_ref();
-        Ok(entry.map(|built| (built.band, &built.mask)))
+            .as_ref())
     }
 
     /// Walks parent links from `id` to the root, returning the chain root-first.
@@ -1951,19 +2062,28 @@ impl MaskCache {
     /// keeping because it names a real optimisation nobody has taken.** It said "a parent
     /// covers a different band from its child, so a parent's mask cannot be reused as a
     /// starting point" — but the band comes from the running *intersection* of the chain's
-    /// bounds, so a child's band is always contained in its parent's, and a mask value at a
-    /// given device row does not depend on which band holds that row (`band.offset()` is a
-    /// translation). A parent's rows for the child's band are therefore exactly the prefix's
-    /// contribution, and a chain could be one crop plus one `intersect_path` instead of a
-    /// fill plus depth-minus-one intersects.
+    /// bounds, so a child's band is always contained in its parent's. A parent's rows for the
+    /// child's band would then be the prefix's contribution, and a chain could be one crop plus
+    /// one `intersect_path` instead of a fill plus depth-minus-one intersects.
     ///
-    /// What stops it is memory rather than correctness, measured in the hundred-and-thirteenth
-    /// session: on `bug1721218_reduced.pdf` the chains average four deep, so it would be worth
-    /// most of `MaskCache::get`'s **24.3%** of that page — but it requires *every intermediate*
-    /// clip to be cached, and intermediates have larger bands than the leaves now cached. The
-    /// page already peaks at 27.9 MB against [`MASK_BUDGET`]'s 32 MB, so the change as stated
-    /// trades a rebuild-free cache for an evicting one. Taking it means sizing the budget from
-    /// a measurement of the intermediates first.
+    /// **Three things about that were re-derived in the three-hundred-and-ninety-ninth session
+    /// and all three moved**, which is why the item is still open and why it is
+    /// [`doc/todo/40`](../../../doc/todo/40-mask-chain-crop.md) rather than a line here:
+    ///
+    /// - **It is worth about 17% of the page and not "most of `MaskCache::get`'s 24.3%".**
+    ///   Intermediates are barely shared: 3551 leaf clips on `bug1721218_reduced.pdf` reach
+    ///   through **7066 distinct nodes**, so building each node once replaces 3551 fills and
+    ///   10 702 intersects with 7065 intersects and as many crops — 42% of this function.
+    /// - **It is not blocked on memory.** That was the stated blocker, on a peak of 27.9 MB
+    ///   against [`MASK_BUDGET`]; the peak is **12.31 MB** and the intermediates cost 9.4.
+    /// - **It is not obviously pixel-exact, and the sentence above is where that hides.** A
+    ///   mask value at a given device row *does* depend on which band holds it, because
+    ///   [`ToDevice`] composes the band's first row into the translation and ADR 0219 measures
+    ///   what shifting a whole number of rows does to `y·sy + ty` — fewer than one pixel in ten
+    ///   thousand, none by more than one supersample, but not nothing. A parent's mask rows are
+    ///   therefore *nearly* the prefix's contribution for the child's band, and this backend is
+    ///   the oracle. Taking the item means either building intermediates in the child's band or
+    ///   proving the difference away.
     fn build(
         &self,
         list: &DisplayList,
@@ -2027,6 +2147,24 @@ impl MaskCache {
             // Nothing in the chain could be measured, so nothing bounds the band.
             None => self.surface.rows,
         };
+        // The columns, kept for the same reason the rows are and treated the same way: a whole
+        // pixel of margin before rounding outward, because `bounds` composes the clip's
+        // transform with the page's while the mask below composes the band's in as well, and
+        // the two agree to within rounding rather than exactly. See [`Band::covering`].
+        //
+        // A rectangle covering the whole surface is recorded as `None`, which is not tidiness:
+        // it is what keeps [`crop_to_mask`] off a page that has nothing to gain. The commonest
+        // clip in the corpus is a page-wide rectangle — the specification's own page 6 wraps
+        // 303 text runs in one, which `DisplayList::add_clip` folds into a single identifier
+        // (ADR 0132) — and answering here costs one containment test per chain *built* where
+        // answering in the fill would cost one per fill drawn. Measured: page 6's rasterisation
+        // is 4 004.7 M without the crop and 4 021.7 M with it asked per fill, which is the
+        // whole of the +0.42%.
+        let admits = bounds
+            .and_then(|bounds| bounds.outset(1.0, 1.0))
+            .and_then(|bounds| bounds.round_out())
+            .map(|rounded| rounded.to_rect())
+            .filter(|admits| !self.covers_the_surface(*admits));
 
         let to_band = self.surface.to_device(band);
         let mut mask = tiny_skia::Mask::new(self.surface.width(), band.height).ok_or(
@@ -2051,7 +2189,33 @@ impl MaskCache {
             );
         }
 
-        Ok(Some(Built { mask, band }))
+        Ok(Some(Built { mask, band, admits }))
+    }
+
+    /// Whether a device rectangle reaches every pixel of this surface.
+    ///
+    /// Measured on the *page's* grid, which is where a clip's bounds are computed and where
+    /// this surface's own rows are counted, so a strip asks the question of the same numbers
+    /// the whole page asks.
+    fn covers_the_surface(&self, rect: tiny_skia::Rect) -> bool {
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "rasterize rejects a target larger than MAX_EXTENT = 2^24, and every \
+                      integer below that is exact in f32"
+        )]
+        let (top, bottom) = (
+            self.surface.rows.top as f32,
+            self.surface
+                .rows
+                .top
+                .saturating_add(self.surface.rows.height) as f32,
+        );
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "as above, for the width this surface spans"
+        )]
+        let right = self.surface.width() as f32;
+        rect.left() <= 0.0 && rect.top() <= top && rect.right() >= right && rect.bottom() >= bottom
     }
 
     /// Stores an entry and evicts oldest-first until the budget is met.
@@ -2159,7 +2323,7 @@ mod tests {
         let before = generous
             .get(&list, first)
             .expect("builds")
-            .map(|(band, mask)| (band, mask.data().to_vec()));
+            .map(|built| (built.band, built.admits, built.mask.data().to_vec()));
 
         let mut tight = MaskCache::new(Surface::whole(target), true, MASK_BUDGET);
         tight.budget = 1;
@@ -2169,7 +2333,7 @@ mod tests {
         let after = tight
             .get(&list, first)
             .expect("rebuilds")
-            .map(|(band, mask)| (band, mask.data().to_vec()));
+            .map(|built| (built.band, built.admits, built.mask.data().to_vec()));
 
         assert!(before.is_some(), "the clip covers rows of the target");
         assert_eq!(before, after, "a rebuilt mask differs from the original");

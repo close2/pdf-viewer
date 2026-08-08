@@ -52,6 +52,13 @@ cargo run --release -p render-quorra --example zoom_ladder -- [file.pdf] [page] 
 cargo run --release -p viewer-ui --example chrome_ladder -- [file.pdf] [page] [out-dir]
   # the window's *whole frame* offscreen — page and chrome in one scene, which no gate does —
   # with a device per rung beside one device, which is what separates state from magnification
+cargo run --release -p pdf-model --example clip_chain_census -- [file.pdf] [page]
+  # what a page's clip chains and shading fills cost a rasteriser to *build*: how many chain steps
+  # it performs today against how many distinct clip nodes there are (the two are equal only where
+  # nothing is shared), the mask bytes both ways against `MASK_BUDGET`, and how many of a shading
+  # fill's pixels its clip can admit. Written for `doc/todo/40`, and what it answered was
+  # `doc/todo/40`'s neighbour: 3490 `sh` operators shading 10.4 M pixels a render to keep 85 608
+  # (ADR 0236). A profile cannot see either number — it counts commands, not what a command covers
 cargo run --release -p pdf-model --example field_flag_census -- doc/pdf.js/test/pdfs/*.pdf
   # which of §12.7's twenty field flags any real document states (ADR 0197)
 cargo run --release -p pdf-model --example presentation_census -- doc/pdf.js/test/pdfs/*.pdf doc/*.pdf

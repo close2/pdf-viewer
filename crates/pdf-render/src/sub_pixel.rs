@@ -304,7 +304,7 @@ fn flat(min: Point, max: Point) -> bool {
 /// Four distinct corners of the subpath's own bounding box, joined by segments each of which
 /// moves along one axis, is a traversal of that box's perimeter and nothing else — a bowtie is
 /// excluded by the second condition and a shape that doubles back by the first.
-fn is_axis_aligned_rectangle(commands: &[PathCommand], min: Point, max: Point) -> bool {
+pub(crate) fn is_axis_aligned_rectangle(commands: &[PathCommand], min: Point, max: Point) -> bool {
     if !(min.x < max.x && min.y < max.y) {
         return false;
     }

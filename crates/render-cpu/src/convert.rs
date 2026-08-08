@@ -5,7 +5,8 @@
 //! the file that changes.
 
 use pdf_render::{
-    BlendMode, Color, FillRule, LineCap, LineJoin, Path, PathCommand, Point, Stroke, Transform,
+    BlendMode, Color, FillRule, LineCap, LineJoin, Path, PathCommand, Point, Rect, Stroke,
+    Transform,
 };
 
 /// Converts a PDF matrix to a `tiny-skia` transform.
@@ -16,6 +17,17 @@ use pdf_render::{
 /// transposition here would misplace every stroke and glyph on the page.
 pub(crate) fn transform(t: Transform) -> tiny_skia::Transform {
     tiny_skia::Transform::from_row(t.a, t.b, t.c, t.d, t.e, t.f)
+}
+
+/// Converts a rectangle, which the two crates spell the same way.
+///
+/// `tiny-skia` keeps a rectangle normalised by construction and this crate says a normalised
+/// one has `min <= max`, so the corners map across as they stand.
+pub(crate) fn from_skia_rect(r: tiny_skia::Rect) -> Rect {
+    Rect::from_corners(
+        Point::new(r.left(), r.top()),
+        Point::new(r.right(), r.bottom()),
+    )
 }
 
 /// Converts a path, returning `None` if `tiny-skia` rejects it.

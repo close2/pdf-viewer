@@ -1705,9 +1705,9 @@ note = "Table 75's `/PatternType`, `/Shading` and `/Matrix` are read, and the cl
 clause = "8.7.4.2"
 title = "Shading operator"
 status = "implemented"
-code = ["crates/pdf-model/src/content.rs"]
-test = ["crates/pdf-model/tests/shadings.rs::an_axial_shading_runs_from_its_first_colour_to_its_second"]
-note = "`sh` \"applies the corresponding gradient fill directly to current user space\" and \"works without reference to the current colour in the graphics state\", so it is drawn as a fill of the page rectangle whose paint is the shading, with the shading's transform being the current one. §11.6.4.4's non-stroking alpha applies to it as to any other non-stroking painting operation."
+code = ["crates/pdf-model/src/content.rs", "crates/pdf-render/src/crop.rs", "crates/render-cpu/src/lib.rs"]
+test = ["crates/pdf-model/tests/shadings.rs::an_axial_shading_runs_from_its_first_colour_to_its_second", "crates/pdf-render/src/crop.rs::a_page_sized_rectangle_is_cropped_to_the_room_the_mask_leaves"]
+note = "`sh` \"applies the corresponding gradient fill directly to current user space\" and \"works without reference to the current colour in the graphics state\", so it is drawn as a fill of the page rectangle whose paint is the shading, with the shading's transform being the current one. §11.6.4.4's non-stroking alpha applies to it as to any other non-stroking painting operation. **Table 76's last sentence is a performance warning and it was earned** — an unbounded shading \"paints the shading's gradient fill across the entire clipping region, which may be time-consuming\" — and the three-hundred-and-ninety-ninth session measured what it costs a rasteriser that takes the clipping region as a *mask*: the shader runs over the page-sized path and the mask multiplies afterwards, so `bug1721218_reduced.pdf`'s 3490 `sh` operators shaded 10.4 M pixels per render to keep 85 608. `pdf_render::cropped_rectangle` narrows a rectangular fill to the rectangle its mask can mark, which is the clipping region the table names, and the page halves with its ink unchanged to the byte (ADR 0236). Across the corpus's first pages, 49 documents carry a shading fill and **99.7% of their shaded pixels lie outside the clip**."
 
 [[clause]]
 clause = "8.7.4.3"

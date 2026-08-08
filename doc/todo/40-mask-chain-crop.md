@@ -1,30 +1,76 @@
 # A clip chain as one crop and one intersect
 
-Status: priced, blocked on a measurement.
+Status: **priced, and unblocked** — the measurement the file was waiting for was taken in the
+three-hundred-and-ninety-ninth session (ADR 0236), and it moved every number here.
 Priority: 40
 Corpus: 1 document (the worst page in the corpus, by a wide margin)
 Code: `crates/render-cpu/src/lib.rs`, `MaskCache::build`
 
 `bug1721218_reduced.pdf` is the corpus's worst page: 144.05 G instructions → 54.05 G when a ramp
-stopped carrying 256 stops for a linear function (ADR 0068) → **43.13 G** when the built shading
-was cached per object (ADR 0069), re-measured unchanged in session 113. What is left, in order:
+stopped carrying 256 stops for a linear function (ADR 0068) → 43.13 G when the built shading was
+cached per object (ADR 0069) → **20.03 G** when a rectangular fill stopped being drawn wider than
+its mask can mark (ADR 0236). Those are twenty renders through `examples/callgrind_rasterise`.
+
+**The item this file was written for was never the largest thing on the page**, and the profile it
+quoted said so: `gradient` was 36.6% and the two mask lines 24.34%, and the file added the two mask
+lines together and left the first one alone. What that line was is `sh` — 3490 of them, each a
+page-sized rectangle under a clip that admits about 24 pixels — and cropping the rectangle halved
+the page. What is left, in order, after the crop:
 
 ```text
-tiny_skia::pipeline::lowp::gradient  36.6%
-Mask::intersect_path                  8.1%
-build_soft_mask                       8.0%
-fill_path_impl                        6.4%
+build_soft_mask                      17.1%
+Mask::intersect_path                  8.3%
+fill_path_impl                        7.7%
 calloc                                4.5%
+gradient                              2.9%
 ```
 
-**The two mask lines are one item**: `MaskCache::get` is 24.34% of the page over 3608 chains, with
-no eviction and no duplication worth removing (ADR 0103 — the obvious savings were counted and
-refused).
+`MaskCache::get` is now **41.5%** of the page, inclusive, and is its largest cost. The item is
+still this: **a child's band is inside its parent's**, so a chain could be one crop and one
+intersect instead of a fill and three.
 
-The shortcut nobody has taken is written in `MaskCache::build`'s own comment: **a child's band is
-inside its parent's**, so a chain could be one crop and one intersect instead of a fill and three.
+## What the measurement said, against what this file used to say
 
-**It starts with a measurement, not with code.** It needs the intermediate clips cached, and the
-page is already at 87% of `MASK_BUDGET` — so the first question is what those intermediates cost
-in memory, and whether the budget has room for them. A change that saves 20% of one page and
-trips the budget on another is not a win.
+`crates/pdf-model/examples/clip_chain_census.rs` counts the clip tree; one temporary counter in
+`MaskCache::admit` measured the peak.
+
+| this file said | it is |
+|---|---|
+| worth "most of `MaskCache::get`'s 24.34%" | **42% of that function**, so ~3.5 G of the page's 20.03 G, **17%** |
+| blocked: "the page is already at 87% of `MASK_BUDGET`" (27.9 MB of 32) | **not blocked**: the peak is **12.31 MB**, and the intermediates cost **+9.4 MB** |
+
+The sharing is what decides the first, and it is poor: **3551 leaf clips reach through 7066
+distinct nodes**, 1.99 nodes per leaf against chains 4.01 deep. The depth histogram says why — one
+node at depth 1, one at depth 2, then **3494 at depth 3 and 3518 at depth 4**, so the chains share
+their first two ancestors and nothing below. Building each node once replaces 3551 fills and 10 702
+intersects with 7065 intersects and as many band-sized copies; at the profile's 29 472 instructions
+an `intersect_path` and 13 102 a `Mask::fill_path`, that is 361.9 M per render against 208.2 M plus
+the copies.
+
+The memory figure was true when it was taken (session 113) and stopped being true in session 147,
+when ADR 0132 made `DisplayList::add_clip` return one identifier for an identical region.
+
+## What is *not* settled, and is the reason this is still a file
+
+**The justification in `MaskCache::build`'s comment is the sentence ADR 0219 refuted.** It says a
+mask value at a given device row does not depend on which band holds that row, "`band.offset()` is
+a translation". `ToDevice` composes the band's first row into the translation **last**, and ADR 0219
+measured what shifting `ty` by a whole number of rows does to `y·sy + ty`: fewer than one pixel in
+ten thousand, none by more than one supersample. A parent's mask rows are therefore *nearly* the
+prefix's contribution for the child's band, and this backend is the correctness oracle.
+
+So taking the item means one of:
+
+- building each intermediate in the **child's** band, which is not a cache — each chain would want
+  its own copy of every ancestor — unless the crop is followed by a re-fill, which is the cost back;
+- proving the difference away, which ADR 0219 says no arrangement of this crate's arithmetic
+  closes;
+- or taking it, measuring it against the oracle, and recording whatever it moves as a departure.
+
+The third is the honest one and the round that takes it should say so before it starts.
+
+## The other half, which is not this file's
+
+`render-quorra` is handed the same display list and encodes the same 3490 page-sized rectangles.
+`pdf_render::cropped_rectangle` is in the shared crate so that it can call it; nobody has.
+`doc/QUORRA_FEEDBACK.md` is where that belongs.

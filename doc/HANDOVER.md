@@ -182,9 +182,14 @@ session**, which ran the whole of `doc/todo/02-every-round.md` §2 and read each
 output. Nothing in it is arithmetic performed here — that has been wrong twice — and nothing in it
 is carried forward from a previous round.
 
+**The three-hundred-and-ninety-ninth ran the whole sequence again and every line reproduced
+character for character except the test count**, which its own seven tests moved. That is the
+strongest thing it has to say about a change to the correctness oracle's rasteriser that halved the
+corpus's worst page (ADR 0236).
+
 | gate | what it printed | where |
 |---|---|---|
-| tests | `1387 tests run: 1387 passed, 9 skipped`, and `cargo test --workspace --doc` **1 passed** beside it, so `cargo test --workspace` reports **1388**. `clippy --workspace --all-targets` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`; `fmt --all --check` clean | `cargo nextest run --workspace`, **25.7 s** |
+| tests | `1394 tests run: 1394 passed, 9 skipped`, and `cargo test --workspace --doc` **1 passed** beside it, so `cargo test --workspace` reports **1395**. `clippy --workspace --all-targets` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`; `fmt --all --check` clean | `cargo nextest run --workspace`, **25.7 s** |
 | corpus (974 pdf.js documents, page one) | `974 documents in 4.2s: 0 unopenable, 8 locked, 2 encrypted beyond us, 5 pageless, **67 incomplete**, 0 slow` | `tests/corpus.rs`, **4.2 s** |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | `1794 pages (1691 we call complete, 103 incomplete)`; **904 agree / 862 of them complete**, **69 contradicted / 67 complete**, **786 ambiguous / 751 complete**, our geometry 1/0, reference geometry 2/2, not comparable 14/9, no render 18/0 — and **the undiagnosed ambiguous list printed empty**, which is the ratchet holding | `tests/oracle.rs`, **46.9 s** |
 | text (vs `pdftotext`, same 974) | `overall 99.2% (24043/24243 words), 25 below 90%`, with 24 skipped and 64 incomplete and not gated | `tests/text_extraction.rs`, **31.9 s** |

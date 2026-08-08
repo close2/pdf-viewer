@@ -23,6 +23,7 @@
 
 pub mod backend;
 pub mod collapsed;
+pub mod crop;
 pub mod degenerate;
 pub mod display_list;
 pub mod geom;
@@ -39,6 +40,7 @@ pub use backend::{
     impose_on_medium,
 };
 pub use collapsed::{CollapsedFill, split_collapsed_fill};
+pub use crop::cropped_rectangle;
 pub use degenerate::{
     DegenerateStroke, ZERO_DASH, dash_mark, dashes_showing_direction, split_dash_marks,
     split_degenerate,

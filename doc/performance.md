@@ -78,7 +78,7 @@ that reproduces each, and the same document now carries what closed them:
 *anisotropic* transform being given one scalar device width, which is exact for a similarity and
 exactly wrong for a shear. Four documents left the list.
 
-**Where it stands: 914 agree, 42 differ, 1 refused** — and 27 of the 42 are the glyph
+**Where it stood when this section was written: 914 agree, 42 differ, 1 refused** — and 27 of the 42 are the glyph
 antialiasing floor, which shrinks as the page grows (17 pages differ at 2×, 16 at 4×). It was
 913/43 until the three-hundred-and-sixty-eighth session: `issue4260_reduced.pdf` returned to
 `agrees` the moment a §10.7.4 mark became a whole device pixel row instead of a band at the
@@ -135,8 +135,10 @@ swapchain state that did not ask for a reconfigure. Written up in `doc/QUORRA_FE
 for a host that needs to say so itself. Re-measured by restoring this tree's own defect locally and
 running the original report's recipe: a refused present costs **6 ms instead of 1.008 s**, nothing
 reports `Timeout`, and the drag keeps updating. A page the device refuses for the other reason —
-`bug1721218_reduced.pdf`, whose coverage outgrows a 16384 × 16384 scratch image — comes back on the
-processor in 1.68 s and the window zooms, scrolls and opens its sidebar afterwards.
+`bug1721218_reduced.pdf`, whose coverage outgrows a 16384 × 16384 scratch image — came back on the
+processor in 1.68 s and the window zoomed, scrolled and opened its sidebar afterwards. That page's
+rasterisation halved in the three-hundred-and-ninety-ninth (ADR 0236) and the 1.68 s has not been
+re-taken; the refusal is quorra's and is unchanged.
 
 ### 4. Performance
 
@@ -242,6 +244,8 @@ exact, and `with_strips` plus `strip_parallelism.rs` is the standing guard.
 | `tracemonkey.pdf` at 2× | 33.5 ms | **15.8 ms** | 4 |
 | `bug1721218_reduced.pdf` | 105 ms | 105 ms | 1 — no legal cut |
 
+The last row is a **session 155 measurement of a page that halved in the three-hundred-and-ninety-ninth** (ADR 0236); what it still says is the thing it was taken for, that this page grants no legal cut and is therefore drawn serially — which is why its own before/after is quoted as a counter and not as a clock.
+
 **Two things nobody planned were most of the work, and both are traps one level up.** A serial
 per-pixel pass bounds a parallel render: `impose_on_medium` was **7.8 ms of a 17 ms page**, all of
 it eight integer divisions per transparent pixel, and §11.4.7's isolated page group makes most of a
@@ -292,12 +296,30 @@ twice is 58% of *that* page's inflation and 2.6% of the corpus's. **Price an ite
 not on the page the profiler happens to open.**
 
 **The worst page**, `bug1721218_reduced.pdf`: 144.05 G instructions → 54.05 G when a ramp stopped
-carrying 256 stops for a linear function (ADR 0068) → **43.13 G** when the built shading was
-cached per object (ADR 0069), re-measured unchanged in session 113. What is left, in order:
-`tiny_skia::pipeline::lowp::gradient` 36.6%, `Mask::intersect_path` 8.1%, `build_soft_mask` 8.0%,
-`fill_path_impl` 6.4%, `calloc` 4.5%. **The two mask lines are one item**: `MaskCache::get` is
-24.34% of the page, 3608 chains, no eviction and no duplication worth removing (ADR 0103). The
-shortcut nobody has taken is [todo 40](todo/40-mask-chain-crop.md).
+carrying 256 stops for a linear function (ADR 0068) → 43.13 G when the built shading was cached per
+object (ADR 0069) → **20.03 G** in the three-hundred-and-ninety-ninth session, when a rectangular
+fill stopped being drawn wider than its mask can mark (ADR 0236). Twenty renders through
+`examples/callgrind_rasterise`, A/B in one sitting: **38 453.3 M → 20 030.7 M**, the page's own PNG
+byte-identical and the ink sum of twenty rasters equal to the digit.
+
+**What that page is made of is what nobody had asked for a hundred sessions.** `pdfimages -list`
+names no image; the content stream holds **3490 `sh` operators** against 479 `f`, each a whole-page
+rectangle under a clip that admits about 24 pixels — §8.7.4.2's Table 76 bounds the operator by the
+clipping path and by nothing else, and a rasteriser shades the *path's* spans and multiplies the
+mask in afterwards. So 10.4 M pixels were shaded per render to keep 85 608, and
+`tiny_skia::pipeline::lowp::gradient` went **15 783.8 M (41.05%) → 578.9 M (2.89%)**. The two
+reference pages measure unchanged in the same sitting: ISO 32000-2 page 6 4 004.7 M → 4 007.7 M and
+page 101 5 531.7 M → 5 523.1 M. It is not one document's shape: over the corpus's first pages, 49
+carry a shading fill and **99.7% of their shaded pixels lie outside the clip**.
+
+What is left, in order, on the halved page: `build_soft_mask` 17.1%, `Mask::intersect_path` 8.3%,
+`fill_path_impl` 7.7%, `calloc` 4.5%, `gradient` 2.9%. **The two mask lines are one item**:
+`MaskCache::get` is now **41.5%** of the page — 3554 chains built, no eviction and no duplication
+worth removing (ADR 0103) — and is its largest cost. [todo 40](todo/40-mask-chain-crop.md) is that
+item and the same round re-derived it: worth **42% of that function** rather than most of it
+(3551 leaves through 7066 distinct nodes, so the sharing is 1.99 to a leaf), **not blocked on
+memory** (the peak is 12.31 MB against `MASK_BUDGET`'s 32, where the file said 27.9), and resting
+on a claim ADR 0219 refuted — that a mask value does not depend on which band holds its row.
 
 **A page turn on the largest document was 380 ms and is 9 ms** (session 141, ADR 0124). §12.3.3's
 `section_at` resolved every outline item's destination with `Pages::index_of`, which is a *search*
@@ -472,8 +494,10 @@ summary now says so.
 **Still open, each priced and each with a file**: carrying an image *and its sampling intent* to
 the backends, which is one `pdf-render` change unblocking three refusals
 ([todo 24](todo/24-image-sampling-intent.md)); a clip chain as one crop and one intersect on the
-corpus's worst page ([todo 40](todo/40-mask-chain-crop.md)); and a decoded-stream cache, measured
-at 0.7% of interpretation and deliberately not taken ([todo 41](todo/41-decoded-stream-cache.md)).
+corpus's worst page ([todo 40](todo/40-mask-chain-crop.md)), which the
+three-hundred-and-ninety-ninth session unblocked and re-priced rather than took; and a
+decoded-stream cache, measured at 0.7% of interpretation and deliberately not taken
+([todo 41](todo/41-decoded-stream-cache.md)).
 
 Two fixes worth carrying as patterns: unpacking JPEG output cost 6.89 G until two paired
 `chunks_exact` iterators took it to 1.25 G — **the safety habits this project enforces everywhere

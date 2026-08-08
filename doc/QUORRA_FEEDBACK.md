@@ -1092,3 +1092,41 @@ backends turned out to need.
 still emits it for every knockout element whose shape is its coverage — including every one of
 §9.3.8's text objects, which is where the volume is — and the two-mark form is strictly more
 expensive.
+
+## 15. A gradient the scene will paint across a page, to keep a few dozen pixels of it — **open, and it is this side's finding rather than a defect of yours**
+
+Reported for completeness rather than as a bug: **the same page costs your backend the same thing,
+and the fix this side took lives in a crate you can call.**
+
+`bug1721218_reduced.pdf` — the one page in our corpus your device refuses on coverage, so you have
+seen it — draws an illustration as **3490 `sh` operators**. ISO 32000-2 §8.7.4.2's Table 76 bounds
+that operator by the current clipping path and by nothing else:
+
+> Paint the shape and colour shading described by a shading dictionary, subject to the current
+> clipping path.
+
+so a display list has nowhere to put the geometry except the page rectangle, and each of those 3490
+rectangles arrives under a clip admitting about **24 pixels**. Our CPU rasteriser shaded 10.4 M
+pixels a render to keep 85 608 — a ratio of 122 — and simply cropping the rectangle to the region
+the clip mask can mark took twenty renders of that page from **38.45 G instructions to 20.03 G**,
+byte-identical output. ADR 0236.
+
+**Nothing about the display list changed**, so your side is unaffected and our cross-backend gate
+is unmoved at 916/36/5/17. But the scene you are handed still carries 3490 page-sized rectangles,
+and `encode` is already 45% of a page turn on your side (§13 above). Whether that costs you
+anything depends on how your coverage lane bounds a clipped fill, which we cannot see from here —
+if it already intersects a fill's extent with its clip's before rasterising, there is nothing to do
+and this section can be closed as *already handled*.
+
+If it does not, the geometry is `pdf_render::cropped_rectangle`, which is in the crate both our
+backends share precisely so that either can call it. What it needs from a caller is three
+guarantees, and they are on the function: the mask is zero outside the rectangle handed in, that
+rectangle carries a pixel of margin, and it is at least two device pixels across. It declines
+curves (a clipped cubic is re-parameterised and its coverage is not the same — our ADR 0139
+measured 2480–2744 differing bytes) and declines a transform that would not keep a rectangle one.
+
+**What would be more useful than us calling it for you**: knowing whether your scene vocabulary can
+express "this fill is bounded by this rectangle" at all, since a clip in a scene is usually a layer
+rather than a bound. If it can, a host could state the bound instead of shrinking the geometry, and
+that is the better shape — it keeps the producer's rectangle in the scene and lets the rasteriser
+decide what to do with it.
