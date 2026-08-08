@@ -67,6 +67,46 @@ be a statement about the consensus pair rather than about the page, and both of 
 that — which is the argument for the closed form: it is the one number derived from no reference
 at all.
 
+### 3b. The contradicted list has a ranking, and its lines report the right renderer
+
+**Both arrived in the four-hundred-and-sixth session and neither moved a verdict** (ADR 0242). The
+gate's per-page line for a contradicted page was measured against whichever reference had the largest
+tile, which need not be one the verdict rests on, and printed beside a bound derived from the pair
+that does; and it printed **three** of `Tolerance::accepts`' **four** bounds, the differing fraction
+appearing as our number with nothing to compare it to.
+
+Both had consequences legible in the gate's own output before a line was changed:
+
+- **Thirty of the sixty-eight contradicted pages printed a line on which every visible number was
+  inside the printed bound.** `issue7580.pdf` is the plainest — mean 2.93 of 5.00, worst tile 7.10 of
+  40.00, ssim 0.9734 of 0.9000 — and `differing 6.15%` against a 5.00% nothing printed.
+- **`smask_luminosity_oob_transfer.pdf` printed 27.02 against a bound of 1.11.** The 27.02 is
+  `poppler`, which is not in the consensus and sits 34 to 36 of 255 from all four other renderers on
+  that page while they sit within 1.7 of each other; our distance from the pair that decides it is
+  **1.25**. `CONTRADICTED_MASK_QUANTISATION` had to state its own numbers because the gate's were
+  somebody else's.
+
+**Forty-three of the sixty-eight now report a different comparison, none of them passes every bound,
+and thirty-eight fail on exactly one — the differing fraction.** The largest thing that moved is a
+diagnosis: `CONTRADICTED_GLYPH_EDGES` had opened since the seventy-fifth session with "[e]ach fails
+**only** on mean absolute difference — 5.4 to 6.4 against a bound of 5.00", and every number in that
+sentence was `ghostscript`'s on 21 pages that all read "poppler and mupdf agree". Against the pair
+that decides them the means are 1.01 to 2.57 of 5.00 and **all 21 fail on the differing fraction and
+nothing else**. The group's diagnosis is *strengthened* by the correction, because a count of channels
+that moved at all is precisely what a sub-pixel phase shift produces and an average is precisely what
+it does not.
+
+**And the list is ranked, for the first time in four hundred sessions.** `rank_the_contradicted`
+prints the ten pages furthest from their *nearest* reference, the instrument the ambiguous bucket has
+had since the hundred-and-seventy-sixth. In bounds the head is the JBIG2 pages; taken in levels of
+255 by hand it is `bug847420.pdf` at 8.65 from the nearest of four renderers that agree among
+themselves to 4.64, twice as far as anything on the list that is not a link border. That page was
+re-derived in the same session and is `CONTRADICTED_SUBSTITUTED_FONT`'s name for once: `/Widths` are
+honoured to **1420 device columns against both references' 1419** at 8×, and what differs is the face,
+3.6% lighter at every scale. §9.5 NOTE 5 is the clause that leaves it open — "some details of font
+naming, font substitution, and glyph selection are implementation-dependent" — and the group had
+argued from it for four hundred sessions without citing it.
+
 **Two cautions the contradicted list earned.** A page may be contradicted for a reason other than
 the one its group names — **eight for eight, so far, on the group being wrong**, the newest being
 `issue4304.pdf` in the four-hundred-and-fifth session, which sat in `CONTRADICTED_SUBSTITUTED_FONT`

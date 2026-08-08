@@ -201,6 +201,24 @@ the page's own scale is their scan conversion of five-point type and ours is alr
 That is the alarm doing what it is for: a page arriving in the negative tail with an explanation
 rather than a shrug.
 
+**Re-run once in the four-hundred-and-sixth, and it was not owed**, which is worth a line because
+the round that ran it changed no rendering code at all: its whole diff under `crates/` is
+`tests/oracle.rs`, so our rasters are byte-identical by construction and a before/after pair would
+have compared a file with itself. Run anyway, over all 786, on this file's own recipe (`-alpha off
+-channel R -colorspace Gray`): **twenty at or past −1 and sixteen of them documents this tree calls
+incomplete**, head `issue16038.pdf` −5.758, then `issue12295.pdf` −1.712, `checkbox_no_appearance.pdf`
+−1.200 [incomplete], `issue14297.pdf` −1.146 and `issue7821.pdf` −1.000 — **the same five names, in
+the same order, to the thousandth, as the three-hundred-and-ninety-seventh's run**, which is the
+ninth consecutive time the alarm has held. On the complete documents the four at or past −1 are all
+diagnosed and nothing else passes −0.536.
+
+**And one entry on the positive side is a lesson rather than a finding.** `issue13520.pdf` reads
++0.695 where the three-hundred-and-ninety-seventh recorded +2.554. This round did not move it —
+nothing this round could move a pixel — so it moved somewhere in the eight rounds between, none of
+which re-ran this sweep. The positive side is where a round that changes what gets drawn shows up,
+and it only shows up if somebody runs it: **a round that changes drawing and skips step 7 does not
+leave the number unchanged, it leaves it unwatched.**
+
 **Re-run before and after in the four-hundred-and-fifth**, the round that made a substituted
 standard-14 font's third width source reachable (§9.6.2.1), over all 786 and with the corpus's
 incomplete list labelled inside the loop. **Every one of the 786 lines is byte-identical**, numbers

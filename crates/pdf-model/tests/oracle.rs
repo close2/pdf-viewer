@@ -489,7 +489,7 @@ const CONTRADICTED_IMAGE_RESAMPLING: [&str; 0] = [];
 /// `0.75`. The closed form is `(223, 99, 80)`; we produce `(223, 100, 81)`, `mupdf`
 /// `(222, 98, 79)` and `ghostscript` `(223, 99, 79)`. Everybody is within a level of the
 /// arithmetic and of each other, and because `mupdf` and `ghostscript` are within one level
-/// of *each other*, the bound derived from them is a mean of 1.11 — which our mean of 2.02
+/// of *each other*, the bound derived from them is a mean of 1.11 — which our mean of 1.25
 /// exceeds.
 ///
 /// The level comes from the mask being quantised: `tiny_skia::Mask` holds one byte per pixel
@@ -500,6 +500,22 @@ const CONTRADICTED_IMAGE_RESAMPLING: [&str; 0] = [];
 /// It is listed rather than chased because the alternative is a mask raster of floats, which
 /// costs four times the memory of every mask on every page to move a page-wide difference of
 /// one level. Worth revisiting only if a page is ever contradicted by *more* than that.
+///
+/// # The gate printed 27.02 here and the entry had to state its own numbers
+///
+/// Until the four-hundred-and-sixth session this page's line read `ours at worst mean 27.02
+/// worst tile 27.84 differing 72.71% ssim 0.9239` beside a bound of 1.11 — a page that looks
+/// ruined, on an entry arguing that everybody is within a level. **The 27.02 is `poppler`,
+/// which is not in the consensus and is the outlier here**: measured over the artefacts, ours
+/// sits 1.66 of 255 from `mupdf`, 1.06 from `ghostscript` and 0.50 from `hayro`, while
+/// `poppler` sits 34.0 to 36.0 from all four of us. Four renderers within 1.7 of each other and
+/// one 35 away is not a page anybody should read a 27 off, and nothing said so.
+///
+/// The line now reports the comparison the verdict rests on: **mean 1.25 against a bound of
+/// 1.11**, with worst tile 1.47 of 5.04, differing 0.20% of 1.00% and structural similarity
+/// 0.9998 of 0.9900. One bound of four, missed by 0.14 of a level — which is what a mask
+/// quantised to a byte costs, stated by the gate instead of by this paragraph. (The 2.02 this
+/// entry used to quote was measured by hand in the sessions before the gate could say it.)
 const CONTRADICTED_MASK_QUANTISATION: [&str; 1] = ["smask_luminosity_oob_transfer.pdf page 1"];
 
 /// Contradicted, and **we are the ones who are right**: a visibility expression.
@@ -625,6 +641,29 @@ const CONTRADICTED_REFERENCES_DREW_NOTHING: [&str; 2] = [
 /// So one reference has a gap, one is answering a different question, and a viewer is a screen —
 /// where bit 6, `NoView`, is the flag with a say, and it is clear on all three pages. Listed
 /// rather than chased.
+///
+/// # The Print-flag half was checked on one page of the three, and now on all three
+///
+/// The argument above rests on Table 167's bit 3 being clear, and the `/F 4` experiment that
+/// established it was run on `file_url_link.pdf` alone. The four-hundred-and-sixth session read
+/// the other two files, which are 905 and 1 014 bytes: **all three annotation dictionaries
+/// carry `/Border [0 0 1]`, a `/C`, and no `/F` entry at all**, so Table 167's flags are the
+/// default of 0 on every one of them and bit 3 is clear on every one of them. `issue7115.pdf`
+/// writes its `/Rect` as four *indirect references* — `[7 0 R 8 0 R 9 0 R 10 0 R]`, which is
+/// what pdf.js issue 7115 is about — and the border lands where `poppler` puts it, so §7.3.10's
+/// resolution reaches inside the array here.
+///
+/// # And the ranking says this group is the *other* shape, which is worth naming
+///
+/// `rank_the_contradicted` prints our distance from the nearest reference beside our distance
+/// from the furthest. In levels of 255 these three sit at **5.39, 5.81 and 5.91 from the
+/// nearest**, with the four references spread over **8.46, 9.55 and 9.60 among themselves** —
+/// the references disagreeing by more than we differ from any of them. That is exactly what a
+/// page looks like where the consensus is two renderers *declining* to draw a mark, and it is
+/// the opposite of the shape that accuses us. It is also the size the mark predicts:
+/// `file_url_link.pdf`'s border is a 175 × 30 rectangle on a 200 × 50 page, whose perimeter at
+/// one unit is 410 of 10 000 pixels going from white to `/C [0 1 0]`, which is 6.97 of 255 —
+/// against a measured 5.81 to 9.92.
 const CONTRADICTED_LINK_BORDER: [&str; 3] = [
     "file_url_link.pdf page 1",
     "issue14802.pdf page 1",
@@ -893,6 +932,58 @@ const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 0] = [];
 /// `NimbusRoman` 250, `NimbusSans` 278, `NimbusMonoPS` 600, `LiberationMono` 600, each of them
 /// its own `space` — which is why four renderers agree. The clause is what decides; that they
 /// agree is how we know the clause was read the same way.
+///
+/// # The clause this group has been arguing from without naming, since the sixth session
+///
+/// Every paragraph above turns on substitution being the standard's to leave open, and no
+/// entry here ever cited the sentence that leaves it. §9.5 NOTE 5:
+///
+/// > However, some details of font naming, font substitution, and glyph selection are
+/// > implementation-dependent and can vary among different PDF processors and operating system
+/// > environments.
+///
+/// That is `doc/todo/00`'s shape 3 — the clause puts the answer beyond itself and says so —
+/// and it is why a page here is *listed* rather than chased. Its sentence before says which
+/// files it is talking about, and it is this list exactly:
+///
+/// > If a PDF file refers to font programs that are not embedded, the results depend on the
+/// > availability of fonts in the PDF processor's environment.
+///
+/// What neither sentence leaves open is the *advances*: §9.6.2.1's Table 109 states where those
+/// come from whatever face is chosen, which is the measurement below and the half of such a
+/// page this tree can still be held to.
+///
+/// # `bug847420.pdf` page 1, measured in the four-hundred-and-sixth, and it is the group's name
+///
+/// It is the head of the contradicted list ranked in *levels* — 8.65 of 255 from the nearest of
+/// four renderers that agree among themselves to 4.64, twice as far as any page on the list
+/// that is not a link border — and nothing had ranked that list at all until
+/// `rank_the_contradicted`. 200 × 50 points, one line: `/BaseFont /Arial,Italic`, a `/TrueType`
+/// dictionary with no `/FontFile`, `/Flags 96` (Nonsymbolic and Italic), `/ItalicAngle -120`
+/// and a full `/Widths`. Mozilla bug 847420 is *Text that should be italicized*, and it is:
+/// five renderers draw it sloped, so the `,Italic` half is nobody's difference.
+///
+/// **The advances are the document's and are exact.** At 8× — ours through `render_at`,
+/// `poppler` through `pdftoppm -cropbox -r 576`, `mutool draw -r 576` — the line's ink spans
+/// **1420** device columns for us and **1419** for both references, over a 1600-column raster.
+/// One part in 1420 across thirty glyphs is `/Widths` honoured, which is Table 109's
+/// requirement and the half of the page the clause does decide.
+///
+/// **What differs is the face, and it differs by weight rather than by placement.** The ink
+/// ladder is ours 12.955 → 12.824 from 1× to 8× against `poppler` 13.224 → **13.306** and
+/// `mupdf` 13.324 → **13.311**: two references converging to 0.005 of each other and ours 0.48
+/// of 255 below them, 3.6% less ink at every scale. A scan-conversion difference shrinks with
+/// the pixels and this one does not. The 8× crops show it directly — ours is a narrower oblique
+/// with a tailed `a`, theirs a wider one — because `Request::derive` folds `/BaseFont` to
+/// `arialitalic`, `names_a_standard_font` accepts `arial` as a metric clone of Helvetica, and
+/// the compiled-in face answers where `fontconfig` answers for them. **This is ADR 0133's
+/// stated trade being visible on one page**, and §9.5 NOTE 5 is why it is not a defect.
+///
+/// It is also *not* `CONTRADICTED_GLYPH_EDGES`, and the bounds now say which: that group's 21
+/// pages fail on the differing fraction and nothing else, while this one fails **three of the
+/// four** — mean 8.45 of 5.00, differing 9.15% of 8.09%, structural similarity 0.8582 of
+/// 0.9000, with only the worst tile inside. A different face and a different sub-pixel phase
+/// are different measurements, and one page of each is what shows it.
 const CONTRADICTED_SUBSTITUTED_FONT: [&str; 17] = [
     "bad-PageLabels.pdf page 1",
     "bug847420.pdf page 1",
@@ -916,11 +1007,43 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 17] = [
 /// Pages that are almost entirely glyph edges, where our *ink* matches the consensus.
 ///
 /// Eight pages, measured in the seventy-fifth session, and they are one population rather than
-/// eight questions. Each fails **only** on mean absolute difference — 5.4 to 6.4 against a bound
-/// of 5.00 — while every other measure passes with room: worst tile 13.7 to 22.1 against 40, and
-/// structural similarity 0.904 to 0.946 against 0.900. Structural similarity is the bound that
-/// "does the work on text" (`pdfref::Tolerance`), and it says the same shapes are in the same
-/// places.
+/// eight questions. Structural similarity is the bound that "does the work on text"
+/// (`pdfref::Tolerance`), and it says the same shapes are in the same places.
+///
+/// # This entry named the wrong bound for three hundred and thirty sessions
+///
+/// It opened "[e]ach fails **only** on mean absolute difference — 5.4 to 6.4 against a bound of
+/// 5.00 — while every other measure passes with room: worst tile 13.7 to 22.1 against 40, and
+/// structural similarity 0.904 to 0.946 against 0.900." **Every number in that sentence was
+/// `ghostscript`'s, and `ghostscript` is in the consensus on none of these 21 pages** — all of
+/// them read "poppler and mupdf agree". The gate's own line was measuring us against whichever
+/// reference had the largest tile, which need not be one the verdict rests on, and printing it
+/// beside a bound derived from the pair that does; `measurements` is where that was corrected
+/// in the four-hundred-and-sixth session, and this group is the largest thing it moved.
+///
+/// Against the pair that decides them, all 21 look like this:
+///
+/// | | across the 21 | its bound |
+/// |---|---|---|
+/// | mean | 1.01 to 2.57 | 5.00 |
+/// | worst tile | 2.67 to 9.53 | 40.00 |
+/// | structural similarity | 0.9655 to 0.9981 | 0.9000 |
+/// | **differing fraction** | **1.00× to 1.56× its own page bound** | 5.00% to 8.75% |
+///
+/// **Every one of the 21 fails on exactly one bound and it is the differing fraction**, which
+/// `Tolerance::accepts` has always checked and which nothing printed until that session. The
+/// mean — the measure this entry was built on — is a fifth to a half of its bound on every page.
+///
+/// **The diagnosis survives and gets sharper, which is why the correction is worth more than
+/// the error.** `differing_fraction` counts channels that moved *at all*; `mean_error` weighs
+/// how far. A glyph drawn at a different sub-pixel phase moves every pixel of every outline by
+/// a little, which is a large count and a small average — so this population failing the count
+/// and nothing else is the arithmetic form of "the ink is right and its placement inside the
+/// pixel is not". The ink table below was already saying it; the bound was saying it too and
+/// was not being read.
+///
+/// `franz_2.pdf` is the same shape one group over and is this file's tightest instance of it:
+/// **5.01% against 5.00%**, one part in five hundred.
 ///
 /// The measurement that turns that into a diagnosis is the *ink*: the mean luminance of the whole
 /// page, which counts how much was painted without caring where. Over the oracle's own artefacts:
@@ -7097,10 +7220,12 @@ fn verdict_of(triangulation: &pdfref::Triangulation, outvoted: Option<&str>) -> 
             Verdict::Contradicted(format!(
                 "{} agree, we differ: {}{note}",
                 names.join(" and "),
-                measurements(triangulation)
+                measurements(triangulation, Some(agreeing))
             ))
         }
-        Outcome::Ambiguous => Verdict::Ambiguous(format!("{}{note}", measurements(triangulation))),
+        Outcome::Ambiguous => {
+            Verdict::Ambiguous(format!("{}{note}", measurements(triangulation, None)))
+        }
         Outcome::NotEnoughReferences { available } => {
             Verdict::NotComparable(format!("{available} reference(s)"))
         }
@@ -7132,18 +7257,65 @@ fn require_the_sandbox() {
 /// and the bound is what carries that distinction — it is derived from this page's own
 /// consensus. Printing the references' raw spread instead would mislead, because the pair
 /// that sets the bound is the *consensus* pair, not the widest.
-fn measurements(triangulation: &pdfref::Triangulation) -> String {
-    let worst = triangulation.ours.iter().map(|(_, c)| c).fold(
-        None::<&raster_compare::Comparison>,
-        |worst, c| match worst {
-            Some(previous) if previous.worst_tile_error >= c.worst_tile_error => Some(previous),
-            _ => Some(c),
-        },
-    );
+///
+/// # This line printed three of four bounds and measured against the wrong renderer, for 400 sessions
+///
+/// [`Tolerance::accepts`] applies **four** bounds and this line printed three: the differing
+/// fraction was printed as our number with no bound beside it. It is not a spare — it is what
+/// decides many of these verdicts, and the consequence was legible in the gate's own output.
+/// **Thirty of the four-hundred-and-fifth session's 68 contradicted pages printed a line on
+/// which every visible number was inside the printed bound**, which reads as a page failing for
+/// no stated reason. `issue7580.pdf` is the plainest: mean 2.93 of 5.00, worst tile 7.10 of
+/// 40.00, ssim 0.9734 of 0.9000, all comfortable — and `differing 6.15%` against a bound of
+/// 5.00% that nothing printed.
+///
+/// The second half is worse and is why `decided_by` exists. The fold ran over **every**
+/// reference while the bound beside it is the *consensus* pair's, so a page could be reported
+/// against a renderer that takes no part in the verdict.
+/// `smask_luminosity_oob_transfer.pdf` is the witness: the consensus is `mupdf` and
+/// `ghostscript`, our distance from them is 2.02 against a bound of 1.11, and the line printed
+/// **27.02** — `poppler`, which on that page sits 36 of 255 from all four other renderers and
+/// is not in the consensus at all. `CONTRADICTED_MASK_QUANTISATION` had to state its own
+/// numbers because the gate's were another renderer's.
+///
+/// So on a [`Outcome::Regression`] the fold runs over the consensus, and picks the comparison
+/// **furthest outside the bound** rather than the one with the largest tile — which makes the
+/// printed line the failure, always. On an [`Outcome::Ambiguous`] page there is no consensus
+/// and no failure to name, so the old rule is kept exactly: the reference we look least like,
+/// over all of them.
+fn measurements(triangulation: &pdfref::Triangulation, decided_by: Option<&[Reference]>) -> String {
     let bounds = &triangulation.judged_by;
+    let worst = match decided_by {
+        // The verdict rests on these comparisons and on no others, so rank them by how far
+        // outside the bound they are — over all four of `Tolerance::accepts`' measures.
+        Some(consensus) => triangulation
+            .ours
+            .iter()
+            .filter(|(reference, _)| consensus.contains(reference))
+            .map(|(_, c)| c)
+            .fold(
+                None::<&raster_compare::Comparison>,
+                |worst, c| match worst {
+                    Some(previous) if outside_by(previous, bounds) >= outside_by(c, bounds) => {
+                        Some(previous)
+                    }
+                    _ => Some(c),
+                },
+            ),
+        None => triangulation.ours.iter().map(|(_, c)| c).fold(
+            None::<&raster_compare::Comparison>,
+            |worst, c| match worst {
+                Some(previous) if previous.worst_tile_error >= c.worst_tile_error => Some(previous),
+                _ => Some(c),
+            },
+        ),
+    };
     let applied = format!(
-        "bound mean {:.2} worst tile {:.2} ssim {:.4}",
-        bounds.max_mean, bounds.max_worst_tile, bounds.min_structural_similarity
+        "bound mean {:.2} worst tile {:.2} differing {:.2}% ssim {:.4}",
+        bounds.max_mean,
+        bounds.max_worst_tile,
+        bounds.max_differing_fraction * 100.0,
+        bounds.min_structural_similarity
     );
     worst.map_or_else(
         || format!("nothing measured; {applied}"),
@@ -7157,6 +7329,26 @@ fn measurements(triangulation: &pdfref::Triangulation) -> String {
             )
         },
     )
+}
+
+/// How far one comparison sits outside the bounds applied to it, as a multiple of each.
+///
+/// The largest of the four ratios [`Tolerance::accepts`] checks, so that a comparison failing
+/// on the differing fraction alone ranks beside one failing on mean error. Above 1.0 means the
+/// comparison was rejected, which is the property [`measurements`] relies on: the comparison
+/// with the largest ratio among the consensus is a failing one whenever the verdict is a
+/// contradiction.
+///
+/// [`Distance::of`] deliberately keeps a *three*-measure ratio and is not folded into this one.
+/// Its numbers are quoted in a hundred entries of this file and in `doc/todo/00`, and a page's
+/// recorded "0.16 from the nearest reference" has to stay the number that was recorded.
+fn outside_by(comparison: &raster_compare::Comparison, bounds: &Tolerance) -> f64 {
+    let mean = comparison.mean_error / bounds.max_mean;
+    let tile = comparison.worst_tile_error / bounds.max_worst_tile;
+    let differing = comparison.differing_fraction / bounds.max_differing_fraction;
+    let structural =
+        (1.0 - comparison.structural_similarity) / (1.0 - bounds.min_structural_similarity);
+    mean.max(tile).max(differing).max(structural)
 }
 
 /// The gate.
@@ -7430,6 +7622,61 @@ fn report(results: &[Examined], elapsed: std::time::Duration, cache: &Cache) {
     summary("no render", &|e| matches!(e.verdict, Verdict::NoRender(_)));
 
     rank_the_undiagnosed(results);
+    rank_the_contradicted(results);
+}
+
+/// The ten contradicted pages we sit furthest from *every* reference on.
+///
+/// The ambiguous bucket has had a ranking since the hundred-and-seventy-sixth session and the
+/// contradicted list, which is four hundred sessions older, has never had one — it was ordered
+/// by nothing, and a round picking a page off it picked by eye. [`Distance`] is computed for
+/// every page already, so this costs one sort.
+///
+/// It is the same instrument and it answers the same question, which `doc/todo/00`'s step 1
+/// states: **where the two numbers are close we are alone, and where they are far apart the
+/// references are the ones disagreeing.** On the contradicted list the second shape has a
+/// specific and common cause worth naming — a page whose two agreeing references agree by
+/// both declining to draw something. `CONTRADICTED_LINK_BORDER`'s three pages sit at 5.4 to
+/// 5.9 of 255 from their nearest reference while the references' own spread is 8.5 to 9.6,
+/// because `mupdf` constructs no appearance for a link and `ghostscript` is answering a
+/// question about printing; the number that accuses us is small and the one beside it is the
+/// group's whole argument.
+///
+/// # Two rankings, and the difference between them is not a defect in either
+///
+/// [`Distance`] is in **bounds**, which is what makes a page comparable with one held to a
+/// different tolerance class, and it is the unit every "0.16 from the nearest reference" in
+/// this file is written in. The four-hundred-and-sixth session also built the same ranking in
+/// **levels of 255**, by hand, off the artefacts — and the two put different pages first,
+/// which is worth knowing before either is read as *the* order.
+///
+/// In levels the head is `bug847420.pdf` at 8.65 from the nearest of four renderers that agree
+/// among themselves to 4.64: twice as far as any page on the list that is not a link border.
+/// In bounds it is nowhere near the head, because a text page is held to a mean of 5.00 where
+/// a vector page is held to 1.00, and the seven JBIG2 pages take the top instead at 2.45 to
+/// 28.91 — `poppler` reporting *Too many symbols in JBIG2 symbol dictionary* on a page whose
+/// tolerance class is the strict one. **Bounds ask "is this page outside what its own
+/// references allow"; levels ask "how much of the page is different."** Both are printed
+/// elsewhere and only the first can be ranked across the whole list, which is why it is the
+/// one here.
+fn rank_the_contradicted(results: &[Examined]) {
+    let mut ranked: Vec<(&Examined, Distance)> = results
+        .iter()
+        .filter(|e| e.complete && matches!(e.verdict, Verdict::Contradicted(_)))
+        .filter_map(|e| e.distance.map(|d| (e, d)))
+        .collect();
+    ranked.sort_by(|(_, a), (_, b)| {
+        b.nearest
+            .partial_cmp(&a.nearest)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    println!("\n  contradicted, and furthest from the nearest reference:");
+    for (examined, distance) in ranked.iter().take(10) {
+        println!(
+            "    {:>6.2} nearest {:>7.2} furthest  {}",
+            distance.nearest, distance.furthest, examined.name
+        );
+    }
 }
 
 /// The ten ambiguous pages we sit furthest from *every* reference on.
