@@ -57,11 +57,15 @@ them**:
 **Every item below is a function to add to the C ABI, a widget to place, or a clause to obey.** No
 new message, and no new decision about the boundary.
 
-- **The ABI is 39 entry points and not the whole vocabulary**, and the four-hundred-and-twelfth is
-  the round that showed what that costs rather than predicting it: `Edit::SetField`'s value changed
-  shape, five Rust consumers failed to compile, and this crate did not notice because
-  `Command::Edit` is on the list below. `PDFV_EVENT_KIND_COUNT` was **15** before and after. What a
-  C caller cannot do yet:
+- **The ABI is 43 entry points and not the whole vocabulary**, and two rounds have now shown what
+  that costs rather than predicting it. The four-hundred-and-twelfth: `Edit::SetField`'s value
+  changed shape, five Rust consumers failed to compile, and this crate did not notice because
+  `Command::Edit` is on the list below — `PDFV_EVENT_KIND_COUNT` **15** before and after. The
+  four-hundred-and-fourteenth is the other half: a document-wide search added a *kind*, so the count
+  moved **15 → 16** and an old caller's `pdfv_abi_check` refuses at startup naming the number rather
+  than meeting a message it has no arm for. Four entry points came with it — `pdfv_find_start`,
+  `pdfv_find_continue`, `pdfv_find_stop`, `pdfv_event_searched` (ADR 0250). What a C caller cannot
+  do yet:
   `Command::Pointer` and `Command::Select` (and therefore selection, the caret and §12.5.6.6's
   drag), `Query::Fields` and `Command::Edit` (the form), `Command::Save` and `Command::Extract`
   (and the `Saved`/`Extracted` events' bytes, which want a byte-buffer accessor rather than a
@@ -112,8 +116,8 @@ Adding `egui` buys a widget set for a large dependency and no architectural proo
 
 `doc/todo/30` used to say `viewer-ffi` would be "the **only** crate in the tree permitted `unsafe`".
 Two crates lift `deny(unsafe_code)` and no more: `viewer-qt`, for `#[cxx::bridge]`'s expansion, with
-**one** hand-written token; and `viewer-ffi`, whose `src/abi.rs` holds one lint lift, 39
-`#[unsafe(no_mangle)]` attributes and 35 signatures, and **no `unsafe` block at all**. Each has a
+**one** hand-written token; and `viewer-ffi`, whose `src/abi.rs` holds one lint lift, 43
+`#[unsafe(no_mangle)]` attributes and 39 signatures, and **no `unsafe` block at all**. Each has a
 test that reads its own sources back, and `viewer-ffi`'s additionally asserts that `pdf-syntax`,
 `pdf-model`, `pdf-font`, `pdf-render`, `render-cpu`, `viewer-core` and `viewer-host` still hold
 `#![forbid(unsafe_code)]` — the compiler-enforced rule this file promised would survive, checked

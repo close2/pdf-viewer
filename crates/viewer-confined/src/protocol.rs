@@ -27,8 +27,8 @@ use pdf_render::{Point, Raster, RasterFormat, Rect, Size};
 use pdf_sandbox::lockdown::{Confinement, LandlockLevel, SystemCalls};
 use pdf_syntax::{Name, ObjectId};
 use viewer_core::{
-    Answer, Command, DocumentId, Edit, Event, FocusMove, PageGeometry, PageTarget, PointerAction,
-    Purpose, Query, RestrictionLevel, Selection, Zoom,
+    Answer, Command, DocumentId, Edit, Event, Find, FindDirection, FocusMove, Found, PageGeometry,
+    PageTarget, PointerAction, Purpose, Query, RestrictionLevel, Selection, Zoom,
 };
 
 use crate::Reply;
@@ -722,6 +722,7 @@ mod command_kind {
     pub(super) const POINTER: u8 = 19;
     pub(super) const SUPPLY: u8 = 20;
     pub(super) const DELEGATE: u8 = 21;
+    pub(super) const FIND: u8 = 22;
 }
 
 /// Encodes one command.
@@ -821,6 +822,23 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
                 Selection::All => 0,
                 Selection::None => 1,
             });
+        }
+        Command::Find(find) => {
+            writer.u8(k::FIND);
+            match find {
+                Find::Start { needle, direction } => {
+                    writer.u8(0).str(needle).u8(match direction {
+                        FindDirection::Forward => 0,
+                        FindDirection::Backward => 1,
+                    });
+                }
+                Find::Continue => {
+                    writer.u8(1);
+                }
+                Find::Stop => {
+                    writer.u8(2);
+                }
+            }
         }
         Command::Focused(move_) => {
             writer.u8(k::FOCUSED).u8(match move_ {
@@ -940,6 +958,29 @@ pub(crate) fn decode_command(bytes: &[u8]) -> Result<Command, ProtocolError> {
             name: reader.string("an attachment's name")?,
         },
         k::SAVE => Command::Save,
+        k::FIND => Command::Find(match reader.u8("a find step")? {
+            0 => Find::Start {
+                needle: reader.string("a search string")?,
+                direction: match reader.u8("a search direction")? {
+                    0 => FindDirection::Forward,
+                    1 => FindDirection::Backward,
+                    other => {
+                        return Err(ProtocolError::Unrecognised {
+                            what: "a search direction",
+                            value: other.into(),
+                        });
+                    }
+                },
+            },
+            1 => Find::Continue,
+            2 => Find::Stop,
+            other => {
+                return Err(ProtocolError::Unrecognised {
+                    what: "a find step",
+                    value: other.into(),
+                });
+            }
+        }),
         k::SELECT => Command::Select(match reader.u8("a selection")? {
             0 => Selection::All,
             1 => Selection::None,
@@ -1226,6 +1267,7 @@ mod event_kind {
     pub(super) const EXTRACTED: u8 = 12;
     pub(super) const REFUSED: u8 = 13;
     pub(super) const REPORTED: u8 = 14;
+    pub(super) const SEARCHED: u8 = 15;
 }
 
 /// Encodes one event.
@@ -1303,6 +1345,27 @@ pub(crate) fn encode_event(event: &Event) -> Result<Vec<u8>, Uncarried> {
         Event::Dirty { document, dirty } => {
             writer.u8(k::DIRTY).document(*document).bool(*dirty);
         }
+        Event::Searched {
+            document,
+            found,
+            remaining,
+            wrapped,
+        } => {
+            writer.u8(k::SEARCHED).document(*document);
+            match found {
+                Some(found) => {
+                    writer
+                        .u8(1)
+                        .usize(found.page)
+                        .usize(found.range.0)
+                        .usize(found.range.1);
+                }
+                None => {
+                    writer.u8(0);
+                }
+            }
+            writer.usize(*remaining).bool(*wrapped);
+        }
         Event::Saved { document, bytes } => {
             writer.u8(k::SAVED).document(*document).bytes(bytes);
         }
@@ -1364,6 +1427,10 @@ pub(crate) fn encode_event(event: &Event) -> Result<Vec<u8>, Uncarried> {
 ///
 /// [`ProtocolError`] where a field is truncated, a discriminant is not one this build defines,
 /// or bytes are left over.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one arm per variant of a `viewer-core` enum, and the count is that enum's. Splitting it would put half the vocabulary in another function and lose the property the whole module rests on: the compiler naming the variant nobody handled"
+)]
 pub(crate) fn decode_event(bytes: &[u8]) -> Result<Event, ProtocolError> {
     use event_kind as k;
 
@@ -1413,6 +1480,27 @@ pub(crate) fn decode_event(bytes: &[u8]) -> Result<Event, ProtocolError> {
         k::TRANSITION => Event::Transition {
             document: reader.document(what)?,
             transition: decode_transition(&mut reader)?,
+        },
+        k::SEARCHED => Event::Searched {
+            document: reader.document("a document")?,
+            found: match reader.u8("whether a search found anything")? {
+                0 => None,
+                1 => Some(Found {
+                    page: reader.usize("a page index")?,
+                    range: (
+                        reader.usize("a match's first offset")?,
+                        reader.usize("a match's last offset")?,
+                    ),
+                }),
+                other => {
+                    return Err(ProtocolError::Unrecognised {
+                        what: "a search result",
+                        value: other.into(),
+                    });
+                }
+            },
+            remaining: reader.usize("how many pages are left to search")?,
+            wrapped: reader.bool("whether the search wrapped")?,
         },
         k::DIRTY => Event::Dirty {
             document: reader.document(what)?,
@@ -2418,6 +2506,19 @@ mod tests {
             Command::Save,
             Command::Select(Selection::All),
             Command::Select(Selection::None),
+            // Annex O's `search` and a find bar's *next*, since the four-hundred-and-fourteenth:
+            // all three steps and both directions, because a confined host has to be able to
+            // drive a search exactly as an unconfined one does (ADR 0250).
+            Command::Find(Find::Start {
+                needle: "transparency group".to_owned(),
+                direction: FindDirection::Forward,
+            }),
+            Command::Find(Find::Start {
+                needle: String::new(),
+                direction: FindDirection::Backward,
+            }),
+            Command::Find(Find::Continue),
+            Command::Find(Find::Stop),
             Command::Focused(FocusMove::Next),
             Command::Focused(FocusMove::Previous),
             Command::Focused(FocusMove::None),
@@ -2451,6 +2552,11 @@ mod tests {
     }
 
     /// Every event that crosses, encoded and read back.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "test code: one fixture per variant of a `viewer-core` enum, and the count is \
+                  that enum's"
+    )]
     #[test]
     fn every_carried_event_round_trips() {
         let document = DocumentId(2);
@@ -2476,6 +2582,21 @@ mod tests {
                 min: Point::new(0.0, 1.0),
                 max: Point::new(2.0, 3.0),
             }),
+            Event::Searched {
+                document,
+                found: Some(Found {
+                    page: 7,
+                    range: (12, 30),
+                }),
+                remaining: 0,
+                wrapped: true,
+            },
+            Event::Searched {
+                document,
+                found: None,
+                remaining: 1022,
+                wrapped: false,
+            },
             Event::OpenUri {
                 document,
                 uri: "https://example.invalid/".to_owned(),

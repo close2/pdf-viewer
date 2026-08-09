@@ -179,6 +179,24 @@ pub enum Command {
     ///
     /// A drag is [`Self::Pointer`]'s business; this is what a menu item or a keystroke asks for.
     Select(Selection),
+    /// Take one step of a search across the whole document.
+    ///
+    /// **The document-wide half of a text search, and a command rather than a question for two
+    /// reasons.** [`crate::Query::Find`] answers for the page being shown, from a readback that
+    /// is already there, and that is what a highlight over the screen needs. Annex O asks the
+    /// other one — Table Annex O.4's `search`, "[o]pen the document and search for one or more
+    /// words, **selecting the first matching word in the document**" — and answering it means
+    /// interpreting pages that are not on the screen and then *changing the view*: the page it
+    /// lands on is shown and the occurrence becomes the selection, which is the annex's own verb.
+    /// A `&self` query could do neither.
+    ///
+    /// **One page per step**, and the count still to read comes back on
+    /// [`crate::Event::Searched`]. Rule 4 forbids blocking and rule 3 leaves this crate no clock
+    /// to spend a time budget with, so the unit of work is the smallest honest one and the host
+    /// decides how many it takes before it repaints — the same division that makes
+    /// [`crate::Event::NeedsRender`] a request rather than a finished page. On ISO 32000-2's own
+    /// 1023 pages a whole sweep is 5.84 s, which is what a host would otherwise have blocked for.
+    Find(Find),
     /// §12.5.1: move the input focus to the next or previous annotation on the page.
     ///
     /// > Interactive PDF processors may permit the user to navigate through the annotations on a
@@ -453,6 +471,55 @@ pub enum Selection {
     All,
     /// Nothing.
     None,
+}
+
+/// What a step of [`Command::Find`] is doing.
+///
+/// Three verbs rather than one, because "look for this string" and "keep looking" and "stop
+/// looking" are three different things a find bar does and a host that had to infer which from
+/// the string alone could not tell a re-typed needle from a request for the next occurrence.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Find {
+    /// Look for a string, beginning at what is selected now, and take the first step.
+    ///
+    /// Sent again for every *next* and *previous*: the search starts from the current selection,
+    /// so a second `Start` with the same string finds the occurrence after the one it is on.
+    /// Whatever search was in progress is abandoned.
+    Start {
+        /// What to look for. Case is folded and a space matches whatever separated the words on
+        /// the page — see [`crate::Query::Find`], which uses the same rule so that the page's
+        /// highlights and the document's search cannot disagree.
+        needle: String,
+        /// Which way through the document.
+        direction: FindDirection,
+    },
+    /// Read one more page of the search already in progress.
+    ///
+    /// What a host pumps until [`crate::Event::Searched`] says nothing is remaining. Nothing at
+    /// all when no search is in progress, which is the right answer for a host that pumped once
+    /// too often.
+    Continue,
+    /// Forget the search in progress.
+    ///
+    /// What closing a find bar sends. It does not clear the selection: what is selected is a
+    /// separate statement and [`Command::Select`] is how a host clears it.
+    Stop,
+}
+
+/// Which way through the document a [`Command::Find`] reads.
+///
+/// **Wrapping is this crate's choice and not the standard's**, which describes no find bar at
+/// all: a search that runs off the end comes round to the beginning and stops where it started,
+/// so every occurrence is reachable from anywhere and none is reported twice.
+/// [`crate::Event::Searched`] says when it has wrapped, because a host that wants to tell a
+/// person cannot work it out. Annex O's `search` does **not** wrap — it wants "the first matching
+/// word in the document", so it begins at the beginning and stops at the end.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FindDirection {
+    /// Down the document from where the selection is.
+    Forward,
+    /// Up it.
+    Backward,
 }
 
 /// Which way [`Command::Focused`] moves through §12.5.1's order.

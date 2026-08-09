@@ -310,16 +310,17 @@ impl Parameter {
     ///
     /// `None` means it is carried out. **A claim about this tree rather than about the standard**,
     /// in the shape [`crate::requirements::Kind::unmet`] already uses: a sentence rather than a
-    /// boolean, one reason per arm, and it decays — a session that gives this program a
-    /// document-wide search has to come back and change `Search`.
+    /// boolean, one reason per arm, and it decays — which it did in the four-hundred-and-fourteenth
+    /// session, when `Search` came off this list. It read "this program has no document-wide
+    /// search", and `viewer_core::Command::Find` is one.
     ///
-    /// The four that are refused are refused for three different reasons, and the difference
+    /// The three that are refused are refused for two different reasons, and the difference
     /// matters more than the count. `Fdf` and `EmbeddedFile` want something from outside the
     /// document, which principle 3 does not let the part of this program that reads PDFs have.
-    /// `Search` wants a capability nothing has built. `Highlight` wants a *concept* this program
-    /// does not have: what it can highlight is a range of a page's text, and a rectangle measured
-    /// from the corner of the page is not one — naming that is the honest answer, and drawing
-    /// something rectangular near it would be inventing a feature and calling it the annex's.
+    /// `Highlight` wants a *concept* this program does not have: what it can highlight is a range
+    /// of a page's text, and a rectangle measured from the corner of the page is not one — naming
+    /// that is the honest answer, and drawing something rectangular near it would be inventing a
+    /// feature and calling it the annex's.
     #[must_use]
     pub fn unhonoured(&self) -> Option<&'static str> {
         Some(match self {
@@ -329,7 +330,8 @@ impl Parameter {
             | Self::Comment(_)
             | Self::Zoom { .. }
             | Self::View(_)
-            | Self::ViewRect { .. } => return None,
+            | Self::ViewRect { .. }
+            | Self::Search(_) => return None,
             Self::EmbeddedFile(_) => {
                 "opening an embedded file is the host's decision, and every parameter after this \
                  one applies to that file rather than to this document"
@@ -337,7 +339,6 @@ impl Parameter {
             Self::Highlight { .. } => {
                 "this program highlights a range of a page's text, and a rectangle is not one"
             }
-            Self::Search(_) => "this program has no document-wide search",
             Self::Fdf(_) => "fetching a URI is the host's, and no host supplies one yet",
         })
     }
@@ -839,10 +840,14 @@ mod tests {
         assert_eq!(parse("search=\"\"").parameters, Vec::new());
     }
 
-    /// Seven of the eleven are carried out and four are named, and the four are named *here* so
+    /// Eight of the eleven are carried out and three are named, and the three are named *here* so
     /// that a host reporting them needs no list of its own.
+    ///
+    /// **`search` moved sides in the four-hundred-and-fourteenth session** — this test read
+    /// "seven" and "four" until `viewer_core::Command::Find` made the eighth true — which is what
+    /// [`Parameter::unhonoured`]'s own comment says it is for.
     #[test]
-    fn the_four_this_program_cannot_carry_out_name_themselves() {
+    fn the_three_this_program_cannot_carry_out_name_themselves() {
         let read = parse(
             "page=1&nameddest=a&structelem=b&comment=c&zoom=100&view=Fit&viewrect=0,0,1,1\
              &ef=d&highlight=0,1,2,3&search=x&fdf=f.fdf",
@@ -863,7 +868,8 @@ mod tests {
                 "comment",
                 "zoom",
                 "view",
-                "viewrect"
+                "viewrect",
+                "search"
             ]
         );
         assert_eq!(
@@ -871,7 +877,7 @@ mod tests {
                 .iter()
                 .map(|parameter| parameter.name())
                 .collect::<Vec<_>>(),
-            ["ef", "highlight", "search", "fdf"]
+            ["ef", "highlight", "fdf"]
         );
         assert!(refused.iter().all(|parameter| {
             parameter

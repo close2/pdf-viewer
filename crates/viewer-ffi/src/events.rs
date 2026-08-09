@@ -14,6 +14,27 @@ use viewer_core::{Event, RenderRequest};
 use crate::kinds::EventKind;
 use crate::status::Status;
 
+/// What a step of a document-wide search reported, flattened for C.
+///
+/// The Rust event carries an `Option`, which C has not got, so `found` is what says whether
+/// `page`, `from` and `to` mean anything — the same shape `pdfv_frame_info` already uses for a
+/// frame that is not there.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Searched {
+    /// Whether this step found an occurrence.
+    pub found: bool,
+    /// The zero-based page it is on, where `found`.
+    pub page: usize,
+    /// The first byte of the page's readback it covers, where `found`.
+    pub from: usize,
+    /// One past the last, where `found`.
+    pub to: usize,
+    /// How many pages are still to be read before the search has an answer.
+    pub remaining: usize,
+    /// Whether the scan came round to the beginning of the document.
+    pub wrapped: bool,
+}
+
 /// Everything one command produced.
 #[derive(Debug)]
 pub struct Events {
@@ -112,6 +133,24 @@ impl Events {
                 }
             }
             Event::Saved { bytes, .. } => format!("the saved file is {} byte(s)", bytes.len()),
+            Event::Searched {
+                found,
+                remaining,
+                wrapped,
+                ..
+            } => match found {
+                Some(found) => format!(
+                    "a search found an occurrence on page {}{}",
+                    found.page.saturating_add(1),
+                    if *wrapped {
+                        ", after coming round to the beginning"
+                    } else {
+                        ""
+                    }
+                ),
+                None if *remaining == 0 => "a search found nothing in the document".to_owned(),
+                None => format!("a search has {remaining} page(s) left to read"),
+            },
             Event::Extracted { name, bytes, .. } => {
                 format!("the embedded file {name:?} is {} byte(s)", bytes.len())
             }
@@ -146,6 +185,34 @@ impl Events {
     pub fn page_changed(&self, index: usize) -> Result<(usize, usize), Status> {
         match self.events.get(index).ok_or(Status::OutOfRange)? {
             Event::PageChanged { index, of, .. } => Ok((*index, *of)),
+            _ => Err(Status::WrongKind),
+        }
+    }
+
+    /// [`Event::Searched`]: what a step of a document-wide search found, and what is left.
+    ///
+    /// Four numbers rather than a struct, because C has no `Option`: `found` says whether the
+    /// first two mean anything, `remaining` says whether to pump again, and the page and the
+    /// range are the occurrence — which is by then the selection.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::OutOfRange`] or [`Status::WrongKind`], as [`Self::opened`].
+    pub fn searched(&self, index: usize) -> Result<Searched, Status> {
+        match self.events.get(index).ok_or(Status::OutOfRange)? {
+            Event::Searched {
+                found,
+                remaining,
+                wrapped,
+                ..
+            } => Ok(Searched {
+                found: found.is_some(),
+                page: found.map_or(0, |found| found.page),
+                from: found.map_or(0, |found| found.range.0),
+                to: found.map_or(0, |found| found.range.1),
+                remaining: *remaining,
+                wrapped: *wrapped,
+            }),
             _ => Err(Status::WrongKind),
         }
     }

@@ -271,6 +271,58 @@ int main(int argc, char **argv)
         printf("outline: %s\n", pdfv_status_message(read));
     }
 
+    /* Annex O's `search`, driven the way a C find bar drives it: start, then pump one page at a
+     * time until the library says nothing is remaining. The loop has a bound because a caller
+     * that trusted `remaining` to reach zero would hang on a library that had a bug. */
+    pdfv_events *searching = NULL;
+    if (!check("pdfv_find_start", pdfv_find_start(viewer, "black point", 0, &searching))) {
+        pdfv_viewer_free(viewer);
+        return 1;
+    }
+    size_t steps = 1;
+    int32_t hit = 0;
+    size_t at_page = 0;
+    size_t from = 0;
+    size_t to = 0;
+    size_t left = 0;
+    int32_t wrapped = 0;
+    for (;;) {
+        int32_t status = PDFV_WRONG_KIND;
+        for (size_t index = 0; index < pdfv_events_len(searching); ++index) {
+            int32_t asked_about = pdfv_event_searched(searching, index, &hit, &at_page, &from, &to,
+                                                      &left, &wrapped);
+            if (asked_about == PDFV_OK) {
+                status = PDFV_OK;
+            }
+        }
+        pdfv_events_free(searching);
+        searching = NULL;
+        if (status != PDFV_OK) {
+            fprintf(stderr, "a find step said nothing about the search\n");
+            pdfv_viewer_free(viewer);
+            return 1;
+        }
+        if (hit || left == 0 || steps > 4096) {
+            break;
+        }
+        if (!check("pdfv_find_continue", pdfv_find_continue(viewer, &searching))) {
+            pdfv_viewer_free(viewer);
+            return 1;
+        }
+        ++steps;
+    }
+    if (hit) {
+        printf("search: found on page %zu, bytes %zu..%zu, after %zu step(s)\n", at_page + 1, from,
+               to, steps);
+    } else {
+        printf("search: nothing in the document, after %zu step(s)\n", steps);
+    }
+    pdfv_events *stopped = NULL;
+    (void)pdfv_find_stop(viewer, &stopped);
+    pdfv_events_free(stopped);
+    (void)pdfv_current_page(viewer, &page, &of);
+    printf("after the search: page %zu of %zu\n", page + 1, of);
+
     /* A page turn, and the page that comes back must be the one turned to. */
     pdfv_events *turned = NULL;
     if (!check("pdfv_go_to_page", pdfv_go_to_page(viewer, PDFV_PAGE_NEXT, 0, &turned))) {

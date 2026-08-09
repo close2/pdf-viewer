@@ -117,12 +117,13 @@ fn every_unsafe_token_in_this_crate_is_in_one_file_and_is_one_of_three_forms() {
         "an `unsafe` of a form this crate does not use: {blocks:?}"
     );
     assert_eq!(lift, 1, "the module lifts `unsafe_op_in_unsafe_fn` once");
-    // 39 exported entry points, of which 33 take a pointer and are therefore `unsafe fn`, plus
+    // 43 exported entry points, of which 37 take a pointer and are therefore `unsafe fn`, plus
     // the two `unsafe fn` helpers they share. The numbers are here so that a function added
     // without a line in `include/pdf_viewer.h` fails a test rather than becoming a symbol nobody
-    // has declared — `header_and_library_agree.rs` is the other half of that.
-    assert_eq!(no_mangle, 39, "one `#[unsafe(no_mangle)]` per entry point");
-    assert_eq!(signatures, 35, "33 `unsafe` entry points and two helpers");
+    // has declared — `header_and_library_agree.rs` is the other half of that. Four arrived in the
+    // four-hundred-and-fourteenth session, for Annex O's `search`: three verbs and one accessor.
+    assert_eq!(no_mangle, 43, "one `#[unsafe(no_mangle)]` per entry point");
+    assert_eq!(signatures, 39, "37 `unsafe` entry points and two helpers");
 }
 
 #[test]

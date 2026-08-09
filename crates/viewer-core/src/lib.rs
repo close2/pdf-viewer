@@ -93,6 +93,7 @@ mod notes;
 mod open;
 mod query;
 mod report;
+mod search;
 mod select;
 mod viewer;
 
@@ -100,10 +101,10 @@ pub mod transition;
 
 pub use accessibility::AccessibilityNode;
 pub use command::{
-    Command, Edit, FocusMove, PageTarget, PointerAction, Purpose, Rendered, RestrictionLevel,
-    Selection, Zoom,
+    Command, Edit, Find, FindDirection, FocusMove, PageTarget, PointerAction, Purpose, Rendered,
+    RestrictionLevel, Selection, Zoom,
 };
-pub use event::{Event, RenderRequest};
+pub use event::{Event, Found, RenderRequest};
 /// What [`Edit::SetField`] puts into a field: §12.7.5.3's characters, §12.7.5.4's chosen options,
 /// or nothing.
 ///

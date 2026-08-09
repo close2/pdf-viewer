@@ -28,8 +28,8 @@ use pdf_model::view::WidgetAppearances;
 use pdf_render::Rasterizer;
 use render_cpu::CpuRasterizer;
 use viewer_core::{
-    Answer, Command, DocumentId, Edit, Entered, Event, FormField, PageTarget, PointerAction, Query,
-    Rendered, Selection, Viewer, Zoom,
+    Answer, Command, DocumentId, Edit, Entered, Event, Find, FindDirection, FormField, PageTarget,
+    PointerAction, Query, Rendered, Selection, Viewer, Zoom,
 };
 
 use crate::controls::{FieldChange, Placed};
@@ -71,6 +71,13 @@ pub enum HostError {
 struct Chrome {
     /// §12.5.6.10's target: what is selected, in device pixels of the viewport.
     selection: Vec<[f32; 8]>,
+    /// Every occurrence of the find bar's string on this page, in the same pixels.
+    ///
+    /// Beside the selection rather than folded into it, because the two say different things and
+    /// a person needs both at once: these are *where else* the word is and the selection is
+    /// *which one you are on*. Drawn first and fainter, so the current occurrence reads as the
+    /// one the platform's own selection colour is over.
+    matches: Vec<[f32; 8]>,
     /// §12.5.1's ring, in the same pixels.
     focus: Option<[f32; 8]>,
     /// Device pixels per logical pixel, because GTK draws in logical ones.
@@ -96,6 +103,10 @@ struct Ui {
     files_slot: gtk4::Box,
     /// Trap 5's channel reaching a person: what the page could not draw, and what was refused.
     status: gtk4::Label,
+    /// The find bar, which is a real [`gtk4::SearchBar`] and not a rectangle this host draws.
+    find: gtk4::SearchBar,
+    /// The string in it.
+    find_entry: gtk4::SearchEntry,
 }
 
 /// One document, one window, and the loop between them.
@@ -137,6 +148,15 @@ pub struct Host {
     placed: Vec<Placed>,
     /// Whether the first frame has been reported, so that the launch line is printed once.
     presented: bool,
+    /// What the find bar is looking for, kept because the *page's* highlights are asked for on
+    /// every repaint while the document-wide search is a plan inside `viewer-core`.
+    needle: String,
+    /// How many pages a search still has to read, which is what puts a `Find::Continue` on the
+    /// idle queue after each repaint. Zero when nothing is being searched for.
+    ///
+    /// A count rather than a flag because it is also what the status line says: a person watching
+    /// a thousand-page document wants to see it come down.
+    pages_left: usize,
     /// §6.3.2.2: who draws §12.7's widgets — this host's controls, or the document's own pictures.
     ///
     /// [`WidgetAppearances::Delegated`] unless the command line asked otherwise, because this host
@@ -210,6 +230,8 @@ impl Host {
                 caption: String::new(),
                 placed: Vec::new(),
                 presented: false,
+                needle: String::new(),
+                pages_left: 0,
                 widget_appearances,
             })
         }))
@@ -296,6 +318,7 @@ impl Host {
             }
         }
         self.refresh();
+        self.pump_search();
     }
 
     /// Does what one event asks.
@@ -395,6 +418,12 @@ impl Host {
                 self.dirty = dirty;
                 self.retitle();
             }
+            Event::Searched {
+                found,
+                remaining,
+                wrapped,
+                ..
+            } => self.searched(found, remaining, wrapped),
             Event::Reported { notes, .. } => self.say(&notes.join("; ")),
             // `CLAUDE.md`: a document's restrictions are the reader's to set, and it shall always
             // be possible to turn them off. This host says which one applied and how to turn it
@@ -467,9 +496,21 @@ impl Host {
             Answer::Focus { quad, .. } => Some(quad),
             _ => None,
         };
+        // Every occurrence on the page being shown. Asked on every repaint because it is a query
+        // over a readback that already exists — `Query::Find` is this page and `Command::Find` is
+        // the document, and only the second one costs anything.
+        let matches = if self.needle.is_empty() {
+            Vec::new()
+        } else {
+            match self.viewer.query(Query::Find(&self.needle)) {
+                Answer::Found(occurrences) => occurrences.into_iter().flatten().collect(),
+                _ => Vec::new(),
+            }
+        };
         {
             let mut chrome = self.chrome.borrow_mut();
             chrome.selection = selection;
+            chrome.matches = matches;
             chrome.focus = focus;
             chrome.scale = f64::from(self.scale);
         }
@@ -739,6 +780,10 @@ impl Host {
                 zoom: Zoom::FitPage,
                 at: None,
             }),
+            // The find bar is revealed by a key this host binds rather than by
+            // `gtk_search_bar_set_key_capture_widget`, which forwards *every* letter to the entry
+            // and would take `a`, `s`, `z` and `y` away from the bindings below.
+            gtk4::gdk::Key::f | gtk4::gdk::Key::slash => self.ui.find.set_search_mode(true),
             gtk4::gdk::Key::a => self.dispatch(Command::Select(Selection::All)),
             gtk4::gdk::Key::Escape => self.dispatch(Command::Select(Selection::None)),
             gtk4::gdk::Key::s => self.dispatch(Command::Save),
@@ -746,6 +791,80 @@ impl Host {
             gtk4::gdk::Key::y => self.dispatch(Command::Redo),
             _ => {}
         }
+    }
+
+    /// A step of the search reported. Says what it found, and how much is left to read.
+    fn searched(&mut self, found: Option<viewer_core::Found>, remaining: usize, wrapped: bool) {
+        self.pages_left = remaining;
+        match found {
+            Some(found) => self.say(&format!(
+                "found {:?} on page {}{}",
+                self.needle,
+                found.page.saturating_add(1),
+                if wrapped { " (wrapped)" } else { "" }
+            )),
+            None if remaining == 0 => {
+                self.say(&format!("{:?} is not in this document", self.needle));
+            }
+            None => self.say(&format!(
+                "searching for {:?}: {remaining} page(s) left",
+                self.needle
+            )),
+        }
+    }
+
+    /// The find bar's string changed: highlight what is on this page, and look no further.
+    ///
+    /// Deliberately **not** a `Command::Find` per keystroke. Typing changes what is highlighted on
+    /// the page — which is a query over a readback that already exists — and a search across the
+    /// document is what pressing Enter asks for. A host that started one on every character would
+    /// be interpreting pages while a person was still deciding what to look for.
+    fn retype(&mut self, needle: String) {
+        self.needle = needle;
+        self.refresh();
+    }
+
+    /// Enter, Ctrl+G and Ctrl+Shift+G: the next occurrence anywhere in the document.
+    fn find(&mut self, backward: bool) {
+        if self.needle.is_empty() {
+            return;
+        }
+        let needle = self.needle.clone();
+        self.dispatch(Command::Find(Find::Start {
+            needle,
+            direction: if backward {
+                FindDirection::Backward
+            } else {
+                FindDirection::Forward
+            },
+        }));
+    }
+
+    /// The bar was revealed or closed. Closing it forgets the plan and the highlights.
+    fn find_bar_shown(&mut self, shown: bool) {
+        if shown {
+            self.ui.find_entry.grab_focus();
+            return;
+        }
+        self.needle.clear();
+        self.pages_left = 0;
+        self.dispatch(Command::Find(Find::Stop));
+    }
+
+    /// One more page of the search, scheduled on GTK's idle queue.
+    ///
+    /// **The whole reason a step is one page.** `viewer-core` has no thread to read a thousand
+    /// pages on (rule 4) and this host must not block the main loop for the 5.84 s that would
+    /// cost, so each step is posted back through `glib::idle_add_local_once`: the window keeps
+    /// repainting, the status line counts down, and the search finishes when it finishes.
+    fn pump_search(&mut self) {
+        if self.pages_left == 0 {
+            return;
+        }
+        let me = self.me.clone();
+        glib::idle_add_local_once(move || {
+            with(&me, |host| host.dispatch(Command::Find(Find::Continue)));
+        });
     }
 
     /// The pointer, in logical pixels of the overlay.
@@ -1003,13 +1122,64 @@ fn build_window(
     status.set_margin_top(3);
     status.set_margin_bottom(3);
 
+    // The find bar, and it is somebody else's widget: a `GtkSearchBar` with a `GtkSearchEntry`
+    // in it, so Ctrl+F, Escape, the clear icon and Ctrl+G all behave the way they do in every
+    // other GTK application. Nothing about it is drawn by this program — which is
+    // `doc/ui-boundary.md`'s whole argument, applied to a find bar: what crosses from the core is
+    // the geometry of the matches and the vocabulary of the search, and the *bar* is the
+    // platform's.
+    let find_entry = gtk4::SearchEntry::new();
+    find_entry.set_hexpand(true);
+    find_entry.set_placeholder_text(Some("Find in document"));
+    let find = gtk4::SearchBar::new();
+    find.set_child(Some(&find_entry));
+    find.connect_entry(&find_entry);
+    find.set_show_close_button(true);
+
     let column = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    column.append(&find);
     column.append(&split);
     column.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
     column.append(&status);
     split.set_vexpand(true);
     window.set_child(Some(&column));
     window.set_titlebar(Some(&header(me)));
+
+    // Three signals, and each is a different question a find bar answers. Typing changes what is
+    // highlighted *on this page*, which is a query and costs nothing; activating asks the core for
+    // the next occurrence anywhere; and `GtkSearchEntry`'s own next/previous — Ctrl+G and
+    // Ctrl+Shift+G — are the same command in each direction.
+    let listener = me.clone();
+    find_entry.connect_search_changed(move |entry| {
+        let typed = entry.text().to_string();
+        with(&listener, |host| host.retype(typed));
+    });
+    let listener = me.clone();
+    find_entry.connect_activate(move |_| {
+        with(&listener, |host| host.find(false));
+    });
+    let listener = me.clone();
+    find_entry.connect_next_match(move |_| {
+        with(&listener, |host| host.find(false));
+    });
+    let listener = me.clone();
+    find_entry.connect_previous_match(move |_| {
+        with(&listener, |host| host.find(true));
+    });
+    let listener = me.clone();
+    find.connect_search_mode_enabled_notify(move |bar| {
+        // **On the idle queue, not here.** This signal fires *synchronously* from
+        // `set_search_mode`, which `Host::key` calls while it is holding the host's `RefCell` —
+        // so calling in would find it borrowed and `with` would print "the host was busy and an
+        // action was dropped", which is what the first run under `Xvfb` printed. Deferring lets
+        // the key handler unwind first, and is the same move `viewer-qt` makes with
+        // `QTimer::singleShot` for `QDialog::exec`.
+        let shown = bar.is_search_mode();
+        let listener = listener.clone();
+        glib::idle_add_local_once(move || {
+            with(&listener, |host| host.find_bar_shown(shown));
+        });
+    });
 
     listen(&window, &overlay, &chrome, me);
 
@@ -1024,6 +1194,8 @@ fn build_window(
         layers_slot,
         files_slot,
         status,
+        find,
+        find_entry,
     }
 }
 
@@ -1130,6 +1302,22 @@ fn draw_chrome(
     } else {
         1.0
     };
+    if !chrome.matches.is_empty() {
+        // Fainter than the selection and in the same colour, which is this platform's answer to
+        // "what does a match look like": GTK exposes no accent colour to application code, so
+        // there is nothing else honest to draw it in. The alpha is what distinguishes *a* match
+        // from *the* match a person is on.
+        cr.set_source_rgba(
+            f64::from(colour.red()),
+            f64::from(colour.green()),
+            f64::from(colour.blue()),
+            0.12,
+        );
+        for quad in &chrome.matches {
+            trace_quad(cr, *quad, scale);
+        }
+        cr.fill()?;
+    }
     if !chrome.selection.is_empty() {
         cr.set_source_rgba(
             f64::from(colour.red()),

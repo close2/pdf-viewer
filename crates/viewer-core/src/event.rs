@@ -185,6 +185,52 @@ pub enum Event {
         /// One sentence per distinct thing, already worded for a person.
         notes: Vec<String>,
     },
+    /// A step of [`crate::Command::Find`] read one page, and what it found there.
+    ///
+    /// **The only event a host has to pump.** A search's answer is not known until the pages have
+    /// been read and this crate has neither a thread nor a clock to read them with (rules 3 and
+    /// 4), so a step reads one page and says how many are left; a host sends
+    /// [`crate::Find::Continue`] until `remaining` is zero, at whatever rate its own repaint
+    /// allows.
+    ///
+    /// Three answers, and a host needs all three: `found` set is the occurrence, which is by then
+    /// the selection and on the page being shown; `found` empty with `remaining` above zero is a
+    /// search still going; and `found` empty with `remaining` zero is a document that does not
+    /// contain the string.
+    Searched {
+        /// Which document.
+        document: DocumentId,
+        /// Where the occurrence is, or `None` where this step found none.
+        found: Option<Found>,
+        /// How many pages are still to be read before the search has an answer.
+        ///
+        /// What a progress indicator counts down, and what says whether to pump again.
+        remaining: usize,
+        /// Whether the scan has passed the end of the document and come round to the beginning.
+        ///
+        /// A fact only this crate holds — a host knows neither where the search began nor which
+        /// pages it has read — and the one every find bar puts into words.
+        /// [`crate::Command::Find`] started from Annex O's `search` never wraps, so this is
+        /// always `false` for it.
+        wrapped: bool,
+    },
+}
+
+/// Where a [`crate::Command::Find`] landed.
+///
+/// The page and the range, and deliberately not the shapes: the occurrence is now the selection,
+/// so [`crate::Query::Selection`] answers with the quadrilaterals over it in the host's own
+/// colour, exactly as it does for a drag. A find bar draws every occurrence on the page from
+/// [`crate::Query::Find`] and lets the selection mark which one is current, which is why this
+/// carries no second kind of highlight.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Found {
+    /// Which page it is on, zero-based. The page being shown by the time this arrives.
+    pub page: usize,
+    /// The byte range of that page's readback it covers — [`crate::Query::Selection`]'s offsets.
+    ///
+    /// Half-open, `from` first. The same string [`crate::Selected::text`] is a slice of.
+    pub range: (usize, usize),
 }
 
 /// A page, resolved to drawing commands, and the resolution to draw it at.

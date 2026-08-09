@@ -9,7 +9,12 @@ shaken the API out"* — was met, the three amendments it named were taken, and 
 message, three running**. **One variant changed shape in the four-hundred-and-twelfth**, which is
 the other mechanism and not the same thing: `Edit::SetField`'s value became
 `pdf_model::view::Entered` so that §12.7.5.4's list box could say which of Table 234's options are
-selected (ADR 0248).
+selected (ADR 0248). **And the four-hundred-and-fourteenth added a `Command` *and* an `Event`, the
+first `Event` since the vocabulary was frozen**: `Command::Find` and `Event::Searched` are Annex O's
+document-wide `search`, which `Query::Find` is not — that one answers for the page showing, out of a
+readback that exists, and this one interprets pages nobody is looking at. Six consumers failed to
+compile and `PDFV_EVENT_KIND_COUNT` moved 15 → **16** for the first time, which is what a C caller's
+`pdfv_abi_check` is for (ADR 0250).
 Read by: anybody writing a host, adding a `Command`, `Event` or `Query`, or asking what the
 crate boundary permits. `doc/HANDOVER.md` §0 is the pointer to this file, and ADRs 0116 to 0121
 are the argument.
@@ -47,7 +52,7 @@ Six consumers: `viewer-ui`'s `pdf-viewer.rs` (winit + vello, tier 2),
 `viewer-core/tests/headless.rs` (no display at all, tier 1), `viewer-confined`'s `pdf-view-worker`
 (a process with no filesystem, tier 1), **`viewer-gtk`'s `pdf-viewer-gtk` — a real GTK4
 application, tier 1** (ADR 0244) and **`viewer-qt`'s `pdf-viewer-qt` — a real Qt 6 Widgets
-application with a C++ bridge, tier 1** (ADR 0246) and **`viewer-ffi`'s C ABI — 39 entry points, a
+application with a C++ bridge, tier 1** (ADR 0246) and **`viewer-ffi`'s C ABI — 43 entry points, a
 hand-written header and a C program that drives it, tier 1** (ADR 0247). The first two could not
 prove the interface alone — one is a toolkit, the other is not a program — and the last three are
 what `doc/todo/30` calls the proof the answers are enough for *somebody else's widgets*: a
@@ -67,8 +72,8 @@ reviewer has to check, and two promises in two places with a test on each is wha
 0246, 0247).
 
 **What the third host cost.** Not the vocabulary either, and not a word in a crate root: it cost
-the three amendments below and nothing else. `viewer-ffi/src/abi.rs` holds one lint lift, 39
-`#[unsafe(no_mangle)]` attributes and 35 signatures, and **no `unsafe` block anywhere in the
+the three amendments below and nothing else. `viewer-ffi/src/abi.rs` holds one lint lift, 43
+`#[unsafe(no_mangle)]` attributes and 39 signatures, and **no `unsafe` block anywhere in the
 crate**; its own test asserts that and that every crate touching PDF bytes still *forbids* the
 permission (ADR 0247).
 
@@ -86,7 +91,9 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
   `GoTo(PageTarget)`, `Zoom`, `Scroll`, `SetGroup`, **`Activate(ObjectId)`**, `Pointer { at, action }`,
   `Select`, **`Focused(FocusMove)`** (§12.5.1's tab key), `Edit(Edit)` — four of them now, with
   §12.5.6.6's `FreeText` and `SetFreeText` beside `SetField` and `Markup` (ADR 0238) —
-  `Undo`, `Redo`, `Save`, **`Extract { name }`**,
+  `Undo`, `Redo`, `Save`, **`Extract { name }`**, **`Find(Find)`** — Annex O's `search` and a find
+  bar's *next*, one page per step because rule 4 forbids blocking and rule 3 leaves no clock to
+  budget with; 5.84 s is what a 1023-page sweep costs and no host may be blocked for it (ADR 0250) —
   `Supply { purpose, bytes }`, **`Restrict(RestrictionLevel)`**, `Tick { millis }`, `RenderReady { token, rendered }`.
   **`Restrict` is the one policy value in the crate**, and rule 2 is the whole reason it exists:
   how much of what a document asserts over its reader this program obeys is the *reader's*,
@@ -100,6 +107,9 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
 - `Event`: `Opened`, `OpenFailed`, **`PasswordRequired`**, `Closed`, `PageChanged`,
   `NeedsRender(RenderRequest)`, `Damage(Rect)`, `OpenUri`, `NeedsFile`, `Transition`, `Dirty`,
   `Saved { bytes }`, **`Extracted { name, bytes }`**,
+  **`Searched { document, found, remaining, wrapped }`** — one step of a document-wide search, and
+  the only event a host has to *pump*: `remaining` above zero means send `Find::Continue` again,
+  which is the same division `NeedsRender` makes and forced by the same two rules (ADR 0250) —
   **`Refused { document, operation, notes }`** — an operation this reader declined *on the
   document's instructions*, and deliberately not `Reported`: that one says what the **document**
   could not do, and this says what the reader's own policy did. It carries the operation so that
@@ -255,12 +265,13 @@ is set in the same Helvetica on a machine with no fonts installed.
 - `viewer-core` — the state machine. **Exists**; depends on `pdf-model`, `pdf-render` and
   `pdf-syntax` and nothing else. Owns the open-document set, page/zoom/scroll, links and
   §12.6's actions, the selection, the edit log and the render scheduler's *bookkeeping* (not its
-  threads). Still owes search and a navigation history.
+  threads). **Search landed in the four-hundred-and-fourteenth** — `Command::Find`, one page per
+  step (ADR 0250) — so what this line still owes is a navigation history.
 - `viewer-render` (new, optional) — a default worker a host may use instead of writing one.
 - `viewer-gpu` (new, later) — tier 2. The only crate that may name `raw-window-handle`, `wgpu` or
   `vello` in its API.
 - `viewer-ffi` — **exists** since the four-hundred-and-eleventh, and it is the last host
-  `doc/todo/30` names. 39 `extern "C"` entry points, a hand-written `include/pdf_viewer.h`, and
+  `doc/todo/30` names. 43 `extern "C"` entry points, a hand-written `include/pdf_viewer.h`, and
   `c/open_a_page.c` which a test compiles with `-Werror` and runs. Commands are functions rather
   than a tagged union (a union's size is part of an ABI; a symbol is not); events and answers
   arrive owned so no borrow of the viewer crosses; a render request is an opaque handle a caller
@@ -380,7 +391,12 @@ cost written down.
 
 **Search is the layer's third consumer** since the hundred-and-fortieth session: `Query::Find`
 answers with the same shapes `Query::Selection` does, case-insensitively, and cost one function
-because the geometry was already there. **§14.8.2.5's *logical* order is the layer's fourth consumer** since the
+because the geometry was already there. **And it reached a program at last in the
+four-hundred-and-fourteenth**, three of them: a find bar drawn by `viewer-ui`, a `GtkSearchBar` and a
+`QToolBar`, each drawing the matches under the selection in its own colours. What the round found on
+the way is the *scope*: `Query::Find` is the page and Annex O wants the document, so `Command::Find`
+is the second question rather than the first one looped, and a match highlight needed no new answer
+because it is the same kind of thing as a selection highlight (ADR 0250). **§14.8.2.5's *logical* order is the layer's fourth consumer** since the
 two-hundred-and-ninety-sixth session: a selection is taken in content order — which is what its
 shapes are in — so `Tree::logical_range` maps a *range* of the readback through the structure
 tree's order and `Query::LogicalSelection` is what a host asks when a person presses copy. It

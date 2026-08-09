@@ -4526,3 +4526,183 @@ fn a_host_can_ask_for_the_page_without_the_widgets_it_draws_itself() {
         "the same page, command for command"
     );
 }
+
+/// Annex O's `search` across a whole document, one page per step, and back round to the start.
+///
+/// ISO 32000-2, Table Annex O.4: "Open the document and search for one or more words, selecting
+/// the first matching word in the document." Every expectation here is *derived* rather than
+/// written down: the page the search lands on is checked against `pdf_model`'s own readback of
+/// every page, so this test would fail if the search reported a page the word is not on and would
+/// equally fail if it skipped an earlier one that has it.
+#[test]
+fn a_search_reads_the_document_one_page_at_a_time_and_lands_on_the_first_occurrence() {
+    let needle = "compensation";
+    // The independent answer: which pages hold the word, from the same readback the viewer's own
+    // `Query::Find` is over but reached without going through the viewer at all.
+    let document = pdf_syntax::Document::open(specification_bytes()).expect("the note opens");
+    let pages = pdf_model::Pages::new(&document);
+    let view = pdf_model::view::ViewState::of(&document);
+    let holding: Vec<usize> = (0..PAGES)
+        .filter(|index| {
+            pages.get(*index).is_some_and(|page| {
+                pdf_model::content::interpret_with(&document, &page, &view)
+                    .text
+                    .to_lowercase()
+                    .contains(needle)
+            })
+        })
+        .collect();
+    assert!(
+        holding.len() >= 2,
+        "the fixture must hold the word on more than one page: {holding:?}"
+    );
+
+    let (mut viewer, _) = opened(800, 1000);
+    let mut steps = 0_usize;
+    let found = run_search(&mut viewer, needle, false, &mut steps);
+    let (page, range) = found.expect("the word is in this document");
+    assert_eq!(page, holding[0], "the first page that holds it");
+    assert_eq!(
+        steps,
+        holding[0].saturating_add(1),
+        "one step per page read, and no page read twice"
+    );
+
+    // "[S]electing the first matching word": the occurrence *is* the selection, which is what a
+    // host draws its highlight from and what makes the annex's own verb mean something here.
+    let Answer::Selected(selected) = viewer.query(Query::Selection) else {
+        panic!("the occurrence is selected");
+    };
+    assert_eq!(selected.text.to_lowercase(), needle);
+    assert!(
+        !selected.quads.is_empty(),
+        "and it has shapes to draw over it"
+    );
+
+    // Every occurrence on the page being shown, which is the other question and the cheap one.
+    let Answer::Found(occurrences) = viewer.query(Query::Find(needle)) else {
+        panic!("Query::Find answers for the page being shown");
+    };
+    assert!(
+        !occurrences.is_empty(),
+        "the page the search landed on holds the word"
+    );
+
+    // Next: forward from the selection, which must be a later occurrence and never this one.
+    let mut steps = 0_usize;
+    let (next, next_range) =
+        run_search(&mut viewer, needle, false, &mut steps).expect("there is another");
+    assert!(
+        (next, next_range) != (page, range),
+        "a second search from the selection moves off it"
+    );
+}
+
+/// A word that is in no page of the document is reported as absent, after every page was read.
+#[test]
+fn a_search_for_a_word_the_document_does_not_hold_reads_every_page_and_says_so() {
+    let (mut viewer, _) = opened(800, 1000);
+    let mut steps = 0_usize;
+    let found = run_search(&mut viewer, "quinquagesima", false, &mut steps);
+    assert_eq!(found, None, "no such word");
+    // A wrapping search reads every page once and the page it began on twice — the half after the
+    // starting point on the way out, the half before it on the way round.
+    assert_eq!(
+        steps,
+        PAGES.saturating_add(1),
+        "the whole plan, and no more"
+    );
+}
+
+/// A search with nothing to look for answers at once rather than leaving a host pumping.
+#[test]
+fn an_empty_search_is_answered_rather_than_left_running() {
+    let (mut viewer, _) = opened(800, 1000);
+    let events: Vec<Event> = viewer
+        .handle(Command::Find(viewer_core::Find::Start {
+            needle: String::new(),
+            direction: viewer_core::FindDirection::Forward,
+        }))
+        .collect();
+    let searched: Vec<&Event> = events
+        .iter()
+        .filter(|event| matches!(event, Event::Searched { .. }))
+        .collect();
+    assert_eq!(searched.len(), 1, "one answer: {events:?}");
+    assert!(
+        matches!(
+            searched[0],
+            Event::Searched {
+                found: None,
+                remaining: 0,
+                ..
+            }
+        ),
+        "{searched:?}"
+    );
+    // And `Find::Continue` with nothing in progress says nothing at all, which is the right
+    // answer for a host that pumped once too often.
+    let after: Vec<Event> = viewer
+        .handle(Command::Find(viewer_core::Find::Continue))
+        .collect();
+    assert!(
+        !after
+            .iter()
+            .any(|event| matches!(event, Event::Searched { .. })),
+        "{after:?}"
+    );
+}
+
+/// Drives a search to its answer the way a host does, counting the steps it took.
+fn run_search(
+    viewer: &mut Viewer,
+    needle: &str,
+    backward: bool,
+    steps: &mut usize,
+) -> Option<(usize, (usize, usize))> {
+    let mut events: Vec<Event> = viewer
+        .handle(Command::Find(viewer_core::Find::Start {
+            needle: needle.to_owned(),
+            direction: if backward {
+                viewer_core::FindDirection::Backward
+            } else {
+                viewer_core::FindDirection::Forward
+            },
+        }))
+        .collect();
+    loop {
+        *steps = steps.saturating_add(1);
+        let mut remaining = 0;
+        let mut answer = None;
+        let mut asked: Vec<viewer_core::RenderRequest> = Vec::new();
+        for event in &events {
+            match event {
+                Event::Searched {
+                    found,
+                    remaining: left,
+                    ..
+                } => {
+                    remaining = *left;
+                    answer = *found;
+                }
+                // A search that turns the page asks for the page, exactly as a page turn does —
+                // and a host that did not answer would leave the occurrence unselected, because
+                // the selection waits for the page it is a range of.
+                Event::NeedsRender(request) => asked.push(request.clone()),
+                _ => {}
+            }
+        }
+        for request in &asked {
+            let _ = serve(viewer, request);
+        }
+        if let Some(found) = answer {
+            return Some((found.page, found.range));
+        }
+        if remaining == 0 {
+            return None;
+        }
+        events = viewer
+            .handle(Command::Find(viewer_core::Find::Continue))
+            .collect();
+    }
+}

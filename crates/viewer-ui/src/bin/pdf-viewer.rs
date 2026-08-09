@@ -63,10 +63,11 @@ use pdf_syntax::ObjectId;
 use render_cpu::CpuRasterizer;
 use render_quorra::{PresentFrame, QuorraPresenter};
 use viewer_core::{
-    Answer, Command, DocumentId, Edit, Entered, Event, FocusMove, PageTarget, PointerAction,
-    Purpose, Query, RenderRequest, Rendered, RestrictionLevel, Selection, Viewer, Zoom,
+    Answer, Command, DocumentId, Edit, Entered, Event, Find, FindDirection, FocusMove, PageTarget,
+    PointerAction, Purpose, Query, RenderRequest, Rendered, RestrictionLevel, Selection, Viewer,
+    Zoom,
 };
-use viewer_ui::chrome::{About, Chrome, Content, Hit, Sidebar, Tab};
+use viewer_ui::chrome::{About, Chrome, Content, FindBar, Hit, Sidebar, Tab};
 use viewer_ui::software::SoftwareSurface;
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, MouseButton, WindowEvent};
@@ -1054,6 +1055,8 @@ fn main() {
         chrome,
         panel: Sidebar::default(),
         about: About::default(),
+        find: FindBar::default(),
+        pages_left: 0,
         outline: pdf_model::outline::Outline::default(),
         attachments: Vec::new(),
         articles: Vec::new(),
@@ -1255,6 +1258,15 @@ struct App {
     panel: Sidebar,
     /// `/NOTICE`, over the page, which is the About panel the owner asked for.
     about: About,
+    /// The find bar, and what a search has said. Opened with `/`.
+    find: FindBar,
+    /// How many pages the search in progress still has to read, zero when there is none.
+    ///
+    /// What makes the next frame ask for another step: `viewer-core` reads one page per
+    /// `Find::Continue` and this host pumps them from its own event loop, so the window keeps
+    /// drawing while a thousand-page document is searched. A count rather than a flag because it
+    /// is also what the bar says.
+    pages_left: usize,
     /// §12.3.3's outline and §7.11.4's embedded files, taken once when the document opened.
     ///
     /// Copied out of the queries rather than asked for per frame, and not for speed: both are
@@ -1920,6 +1932,16 @@ impl App {
         }
         let scale = self.window().map_or(1.0, |(_, _, scale)| scale);
         Some(self.about.draw(chrome, NOTICE, width, height, scale))
+    }
+
+    /// The find bar, where it is open.
+    ///
+    /// Across the whole window rather than only the page area, which is where both native hosts
+    /// put theirs: a search is about the document and not about the page pane.
+    fn find_list(&self, width: u32) -> Option<pdf_render::DisplayList> {
+        let chrome = self.chrome.as_ref()?;
+        let scale = self.window().map_or(1.0, |(_, _, scale)| scale);
+        self.find.draw(chrome, width, scale)
     }
 
     /// §8.11.4.3's `/Order`, asked for fresh.
@@ -2928,7 +2950,91 @@ impl App {
                 }
             }
             Event::Refused { notes, .. } => Self::say_refused(&notes),
+            Event::Searched {
+                found,
+                remaining,
+                wrapped,
+                ..
+            } => self.searched(found, remaining, wrapped),
         }
+    }
+
+    /// A step of the search reported: what it found, and how much is left to read.
+    ///
+    /// The sentence goes into the bar rather than only onto stdout, because a person watching a
+    /// thousand-page document being read is the reason a step is one page.
+    fn searched(&mut self, found: Option<viewer_core::Found>, remaining: usize, wrapped: bool) {
+        self.pages_left = remaining;
+        self.find.note = match found {
+            Some(found) => format!(
+                "page {}{}",
+                found.page.saturating_add(1),
+                if wrapped { ", wrapped" } else { "" }
+            ),
+            None if remaining == 0 => "not in this document".to_owned(),
+            None => format!("{remaining} page(s) left"),
+        };
+        if found.is_some() || remaining == 0 {
+            println!(
+                "note: search for {:?} — {}",
+                self.find.needle, self.find.note
+            );
+        }
+        // **Not on every step**, and the number is measured rather than chosen. A redraw here is a
+        // whole window presented, and under `Xvfb` with lavapipe that is about 13 ms — so
+        // repainting once per page made a 1023-page sweep **19.25 s** of presenting a bar whose
+        // text changes by one digit. Once every 16 steps, plus the step that answers, is
+        // **6.19 s** for the same sweep, with a progress count a person still sees moving. ADR
+        // 0250 has the measurement; the cost in readability is this comment.
+        if found.is_some() || remaining == 0 || remaining.is_multiple_of(SEARCH_REDRAW) {
+            self.redraw();
+        }
+    }
+
+    /// A key press while the find bar is open. Answers whether the bar took it.
+    ///
+    /// Every printable key is a character of the string, which is what makes this the first
+    /// branch in the key handler rather than the last. Enter is *next* and shift-Enter is
+    /// *previous* — one keystroke for each direction, which is what every find bar has —
+    /// and Escape closes the bar and forgets the plan.
+    fn find_key(&mut self, key: &Key<&str>) -> bool {
+        match key {
+            Key::Named(NamedKey::Escape) => {
+                self.find.toggle();
+                self.pages_left = 0;
+                self.dispatch(Command::Find(Find::Stop));
+            }
+            Key::Named(NamedKey::Enter) => {
+                if self.find.needle.is_empty() {
+                    return true;
+                }
+                let needle = self.find.needle.clone();
+                let direction = if self.shift {
+                    FindDirection::Backward
+                } else {
+                    FindDirection::Forward
+                };
+                self.dispatch(Command::Find(Find::Start { needle, direction }));
+            }
+            Key::Named(NamedKey::Backspace) => {
+                self.find.backspace();
+                self.find.note.clear();
+            }
+            Key::Named(NamedKey::Space) => {
+                self.find.typed(" ");
+                self.find.note.clear();
+            }
+            Key::Character(text) if !text.is_empty() => {
+                self.find.typed(text);
+                self.find.note.clear();
+            }
+            // A key with no character and no meaning here — an arrow, a function key. Taken
+            // anyway: while the bar has the keyboard, letting one through to turn the page would
+            // move the document out from under the search a person is typing.
+            _ => {}
+        }
+        self.redraw();
+        true
     }
 
     /// §7.5.6's update, written beside the document rather than over it.
@@ -3293,6 +3399,30 @@ impl App {
             format_args!("SELECTION quads {}", quads.len()),
         );
         highlight_list(&quads, width, height)
+    }
+
+    /// Every occurrence of the find bar's string on the page being shown.
+    ///
+    /// Asked on every frame while the bar is open, because it is a query over a readback that
+    /// already exists — `Query::Find` is this page and `Command::Find` is the document, and only
+    /// the second interprets anything. Drawn *under* the selection, so that the occurrence a
+    /// person is on reads as the one the selection colour is over.
+    fn matches_list(&self, edge: f32, width: u32, height: u32) -> Option<pdf_render::DisplayList> {
+        if !self.find.shown || self.find.needle.is_empty() {
+            return None;
+        }
+        let Answer::Found(occurrences) = self.viewer.query(Query::Find(&self.find.needle)) else {
+            return None;
+        };
+        let mut quads: Vec<[f32; 8]> = occurrences.into_iter().flatten().collect();
+        // Device pixels of the *page's* viewport, which begins where the panel ends — the same
+        // one addition `selection_list` makes.
+        for quad in &mut quads {
+            for x in quad.iter_mut().step_by(2) {
+                *x += edge;
+            }
+        }
+        match_list(&quads, width, height)
     }
 
     /// §12.5.6.14's popup windows, over the page and under the sidebar.
@@ -4058,6 +4188,15 @@ impl ApplicationHandler for App {
     /// `/Dur` stated in seconds. A transition in flight polls, because it *is* an animation and
     /// every frame it can draw is one a person sees.
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // One page of the search, once per turn round the loop. This is where the choice in
+        // `viewer_core::search` is paid for on this host: the core reads one page per command and
+        // has no thread to read a thousand on, so the loop that would otherwise be idle drives it
+        // and the window keeps drawing while it does.
+        if self.pages_left > 0 {
+            self.dispatch(Command::Find(Find::Continue));
+            event_loop.set_control_flow(ControlFlow::Poll);
+            return;
+        }
         let Some(presentation) = self.presentation.as_mut() else {
             event_loop.set_control_flow(ControlFlow::Wait);
             return;
@@ -4193,6 +4332,23 @@ impl ApplicationHandler for App {
                 // three-hundred-and-eighty-eighth, which is the reason `keys_reach_the_field`
                 // now presses one of them at a field rather than trusting the order.
                 if self.typing.is_some() && self.typed(&logical_key.as_ref()) {
+                    return;
+                }
+                // **The find bar takes every key while it is open**, for the reason the field
+                // above does and in the same place: a `/` typed into a search string is a
+                // slash, and answering `o`, `p` or `c` first would be the defect ADR 0201 found
+                // twice already. Opening it is a key this host answers itself — whether a bar is
+                // on the screen is chrome, and `viewer-core` has no opinion about chrome (rule 5).
+                if self.find.shown && self.find_key(&logical_key.as_ref()) {
+                    return;
+                }
+                if matches!(logical_key.as_ref(), Key::Character("/")) {
+                    let shown = self.find.toggle();
+                    if !shown {
+                        self.pages_left = 0;
+                        self.dispatch(Command::Find(Find::Stop));
+                    }
+                    self.redraw();
                     return;
                 }
                 // The two keys this program answers itself rather than by sending a command:
@@ -4513,6 +4669,7 @@ fn describe_command(command: &Command) -> String {
                 .as_ref()
                 .map_or_else(|| "declined".to_owned(), |b| format!("{} bytes", b.len()))
         ),
+        Command::Find(find) => format!("find {find:?}"),
         Command::RenderReady { token, .. } => format!("render ready {token:?}"),
     }
 }
@@ -4548,6 +4705,12 @@ fn describe_event(event: &Event) -> String {
         Event::Refused {
             operation, notes, ..
         } => format!("refused {}: {}", operation.as_str(), notes.join("; ")),
+        Event::Searched {
+            found, remaining, ..
+        } => match found {
+            Some(found) => format!("searched: page {}, {:?}", found.page, found.range),
+            None => format!("searched: nothing yet, {remaining} page(s) left"),
+        },
     }
 }
 
@@ -4615,6 +4778,54 @@ fn highlight_list(quads: &[[f32; 8]], width: u32, height: u32) -> Option<pdf_ren
     Some(list)
 }
 
+/// The shapes over every occurrence of a search string, in the window's own pixels.
+///
+/// A paler yellow than [`highlight_list`]'s blue selection and multiplied over the page for the
+/// same reason: the glyphs underneath have to stay readable. **The colour is a choice** — the
+/// standard describes no find bar and says nothing about what a match looks like — and it is
+/// chosen to be a different *hue* from the selection rather than a different weight of it, so
+/// that "where else the word is" and "which one you are on" cannot be confused at a glance. The
+/// two native hosts made the other choice, one hue at two alphas, because a platform hands them a
+/// selection colour and no second one; this host has no theme to ask and so may pick both.
+fn match_list(quads: &[[f32; 8]], width: u32, height: u32) -> Option<pdf_render::DisplayList> {
+    if quads.is_empty() {
+        return None;
+    }
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "window dimensions are far below f32's exact integer range"
+    )]
+    let mut list = pdf_render::DisplayList::new(Size::new(width as f32, height as f32));
+    let mut path = Path::new();
+    for quad in quads {
+        for (index, corner) in quad.chunks_exact(2).enumerate() {
+            let point = Point::new(corner[0], corner[1]);
+            path.push(if index == 0 {
+                PathCommand::MoveTo(point)
+            } else {
+                PathCommand::LineTo(point)
+            });
+        }
+        path.push(PathCommand::Close);
+    }
+    list.push(DrawCommand::Fill {
+        path: Arc::new(path),
+        transform: Transform::IDENTITY,
+        fill_rule: FillRule::NonZero,
+        paint: Paint::Solid(Color::rgb(1.0, 0.87, 0.35)),
+        clip: None,
+        mask: None,
+        blend: BlendMode::Multiply,
+    });
+    Some(list)
+}
+
+/// How many steps of a search go by between repaints of the find bar's progress count.
+///
+/// A choice with a measurement behind it — see [`App::searched`], which is where the two numbers
+/// are — and it belongs to this host alone: a native host repaints when its toolkit says to.
+const SEARCH_REDRAW: usize = 16;
+
 /// The colour §12.5.1's focus ring is drawn in.
 ///
 /// A choice, and the only one available: the clause says nothing about showing a focus and this
@@ -4662,6 +4873,8 @@ const FREE_TEXT_INK: [f32; 3] = [0.7, 0.1, 0.1];
 /// call: each of these is built for this frame and dropped after it.
 #[derive(Default)]
 struct Overlays {
+    /// Every occurrence of the find bar's string on this page, under the selection.
+    matches: Option<pdf_render::DisplayList>,
     /// What is selected on the page, which belongs to the page and so is under everything else.
     selection: Option<pdf_render::DisplayList>,
     /// What is selected inside a form field (ADR 0225).
@@ -4674,6 +4887,8 @@ struct Overlays {
     popups: Option<pdf_render::DisplayList>,
     /// The sidebar, where it is shown.
     panel: Option<pdf_render::DisplayList>,
+    /// The find bar, over the sidebar and under the modal card.
+    find: Option<pdf_render::DisplayList>,
     /// `/NOTICE`, where it is shown. **Last, so it is on top**: it is a modal card and the
     /// sidebar is behind it.
     about: Option<pdf_render::DisplayList>,
@@ -4683,12 +4898,14 @@ impl Overlays {
     /// Builds every one of them for this frame.
     fn of(app: &App, edge: f32, width: u32, height: u32) -> Self {
         Self {
+            matches: app.matches_list(edge, width, height),
             selection: app.selection_list(edge, width, height),
             field_selection: app.field_selection_list(edge, width, height),
             focus: app.focus_list(edge, width, height),
             caret: app.caret_list(edge, width, height),
             popups: app.popup_list(edge, width, height),
             panel: app.panel_list(height),
+            find: app.find_list(width),
             about: app.about_list(width, height),
         }
     }
@@ -4697,12 +4914,14 @@ impl Overlays {
     /// then the sidebar, then the modal card on top — the order the Vello host drew them in.
     fn lists(&self) -> Vec<&pdf_render::DisplayList> {
         [
+            self.matches.as_ref(),
             self.selection.as_ref(),
             self.field_selection.as_ref(),
             self.focus.as_ref(),
             self.caret.as_ref(),
             self.popups.as_ref(),
             self.panel.as_ref(),
+            self.find.as_ref(),
             self.about.as_ref(),
         ]
         .into_iter()

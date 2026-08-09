@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 
 use pdf_render::Rasterizer;
 use render_cpu::CpuRasterizer;
-use viewer_core::{Answer, Command, DocumentId, Event, Query, Rendered, Viewer};
+use viewer_core::{Answer, Command, DocumentId, Event, Find, Query, Rendered, Viewer};
 
 /// The document these tests open.
 const DOCUMENT: DocumentId = DocumentId(1);
@@ -356,4 +356,91 @@ fn no_fragment_changes_nothing() {
         .collect();
     assert_eq!(page(&viewer), 0);
     assert_eq!(notes(&events), Vec::<String>::new());
+}
+
+/// Table Annex O.4's `search`, carried out across the whole document. ISO 32000-2 §O.2.2:
+///
+/// > Open the document and search for one or more words, selecting the first matching word in the
+/// > document.
+///
+/// **Started when the document opens and finished by the host**, which is the same division
+/// `Event::NeedsRender` makes and is forced by the same two rules: this crate has no thread to
+/// read a thousand pages on and nothing may block. So `Command::Open` answers with a
+/// `Event::Searched` naming how many pages are to be read, and the host pumps `Find::Continue`.
+///
+/// The expected page is *derived* rather than written down: it is checked against `pdf_model`'s
+/// own readback of every page of the same file.
+#[test]
+fn a_search_parameter_selects_the_first_matching_word_in_the_document() {
+    let path: PathBuf = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc/PDF20_AN001-BPC.pdf");
+    let bytes = std::fs::read(&path).expect("the application note is committed in doc/");
+    let needle = "compensation";
+
+    let document = pdf_syntax::Document::open(bytes.clone()).expect("the note opens");
+    let pages = pdf_model::Pages::new(&document);
+    let view = pdf_model::view::ViewState::of(&document);
+    let first = (0..pages.len())
+        .find(|index| {
+            pages.get(*index).is_some_and(|page| {
+                pdf_model::content::interpret_with(&document, &page, &view)
+                    .text
+                    .to_lowercase()
+                    .contains(needle)
+            })
+        })
+        .expect("the note is about black point compensation");
+
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    let mut events: Vec<Event> = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password: None,
+            fragment: Some(format!("search=%22{needle}%22")),
+        })
+        .collect();
+    // The note says the search is running rather than that it was refused, which is the sentence
+    // `Parameter::unhonoured` used to produce for this parameter.
+    let notes = notes(&events);
+    assert!(
+        notes.iter().any(|note| note.contains("which is running")),
+        "{notes:?}"
+    );
+
+    let mut steps = 0_usize;
+    let landed = loop {
+        settle(&mut viewer, &events);
+        steps = steps.saturating_add(1);
+        let mut remaining = 0;
+        let mut found = None;
+        for event in &events {
+            if let Event::Searched {
+                found: at,
+                remaining: left,
+                wrapped,
+                ..
+            } = event
+            {
+                assert!(!wrapped, "the annex's search does not wrap");
+                remaining = *left;
+                found = *at;
+            }
+        }
+        if let Some(found) = found {
+            break Some(found);
+        }
+        assert!(remaining > 0, "the word is in this document");
+        events = viewer.handle(Command::Find(Find::Continue)).collect();
+    };
+    let landed = landed.expect("an occurrence");
+    assert_eq!(landed.page, first, "the first page that holds the word");
+    assert_eq!(page(&viewer), first, "and that page is the one being shown");
+    // One step for the open and one per page read after it.
+    assert_eq!(steps, first.saturating_add(2), "{steps} step(s)");
+
+    settle(&mut viewer, &events);
+    let Answer::Selected(selected) = viewer.query(Query::Selection) else {
+        panic!("the annex says the word is selected");
+    };
+    assert_eq!(selected.text.to_lowercase(), needle);
 }

@@ -47,6 +47,8 @@ pub enum EventKind {
     Refused = 13,
     /// [`viewer_core::Event::Reported`].
     Reported = 14,
+    /// [`viewer_core::Event::Searched`].
+    Searched = 15,
 }
 
 impl EventKind {
@@ -55,7 +57,7 @@ impl EventKind {
     /// **The number a C caller checks its header against**, which is the whole of what this ABI
     /// can offer in place of a build failure. It is written out rather than counted by a macro so
     /// that adding a variant is a line a person writes beside the variant, in the same commit.
-    pub const COUNT: u32 = 15;
+    pub const COUNT: u32 = 16;
 
     /// Which kind an event is.
     ///
@@ -80,6 +82,7 @@ impl EventKind {
             Event::Extracted { .. } => Self::Extracted,
             Event::Refused { .. } => Self::Refused,
             Event::Reported { .. } => Self::Reported,
+            Event::Searched { .. } => Self::Searched,
         }
     }
 
@@ -106,6 +109,7 @@ impl EventKind {
             Self::Extracted => "Extracted\0",
             Self::Refused => "Refused\0",
             Self::Reported => "Reported\0",
+            Self::Searched => "Searched\0",
         }
     }
 
@@ -132,6 +136,7 @@ impl EventKind {
             12 => Self::Extracted,
             13 => Self::Refused,
             14 => Self::Reported,
+            15 => Self::Searched,
             _ => return None,
         })
     }

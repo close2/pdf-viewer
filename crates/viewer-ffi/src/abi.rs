@@ -388,6 +388,70 @@ pub unsafe extern "C" fn pdfv_scroll(
     Status::Ok.code()
 }
 
+/// Annex O's `search`: begins a document-wide search and takes its first step.
+///
+/// `needle` is NUL-terminated UTF-8. `backward` non-zero searches up the document. The search
+/// starts from what is selected, so calling this again with the same string is *next*.
+///
+/// **A step reads one page**, and the caller pumps [`pdfv_find_continue`] until
+/// [`pdfv_event_searched`] reports `remaining` of zero. That is not a courtesy: a sweep of ISO
+/// 32000-2's own 1023 pages is 5.84 s, and this ABI does not block a caller's event loop for it.
+///
+/// # Safety
+///
+/// See the module documentation. `needle` must point at a NUL-terminated string.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_find_start(
+    viewer: *mut Session,
+    needle: *const c_char,
+    backward: c_int,
+    events: *mut *mut Events,
+) -> c_int {
+    let (Some(viewer), Some(events), false) = (viewer.as_mut(), events.as_mut(), needle.is_null())
+    else {
+        return Status::NullArgument.code();
+    };
+    let Ok(Some(needle)) = owned_text(needle) else {
+        return Status::NotUtf8.code();
+    };
+    *events = Box::into_raw(Box::new(viewer.find_start(needle, backward != 0)));
+    Status::Ok.code()
+}
+
+/// Reads one more page of the search in progress.
+///
+/// Nothing at all when there is none, which is the right answer for a caller that pumped once too
+/// often.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_find_continue(
+    viewer: *mut Session,
+    events: *mut *mut Events,
+) -> c_int {
+    let (Some(viewer), Some(events)) = (viewer.as_mut(), events.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    *events = Box::into_raw(Box::new(viewer.find_continue()));
+    Status::Ok.code()
+}
+
+/// Forgets the search in progress. What closing a find bar sends.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_find_stop(viewer: *mut Session, events: *mut *mut Events) -> c_int {
+    let (Some(viewer), Some(events)) = (viewer.as_mut(), events.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    *events = Box::into_raw(Box::new(viewer.find_stop()));
+    Status::Ok.code()
+}
+
 /// §12.3.3: activates an object the caller is showing outside the page — an outline row.
 ///
 /// The two numbers are §7.3.10's indirect reference, which `pdfv_outline_object` answered with.
@@ -597,6 +661,54 @@ pub unsafe extern "C" fn pdfv_event_page_changed(
             }
             if let Some(of) = of.as_mut() {
                 *of = count;
+            }
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// [`viewer_core::Event::Searched`]: what a step of a document-wide search found.
+///
+/// Every out-parameter may be null. `found` is what says whether `page`, `from` and `to` mean
+/// anything; `remaining` is what says whether to call [`pdfv_find_continue`] again.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_event_searched(
+    events: *const Events,
+    index: usize,
+    found: *mut c_int,
+    page: *mut usize,
+    from: *mut usize,
+    to: *mut usize,
+    remaining: *mut usize,
+    wrapped: *mut c_int,
+) -> c_int {
+    let Some(events) = events.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    match events.searched(index) {
+        Ok(searched) => {
+            if let Some(found) = found.as_mut() {
+                *found = c_int::from(searched.found);
+            }
+            if let Some(page) = page.as_mut() {
+                *page = searched.page;
+            }
+            if let Some(from) = from.as_mut() {
+                *from = searched.from;
+            }
+            if let Some(to) = to.as_mut() {
+                *to = searched.to;
+            }
+            if let Some(remaining) = remaining.as_mut() {
+                *remaining = searched.remaining;
+            }
+            if let Some(wrapped) = wrapped.as_mut() {
+                *wrapped = c_int::from(searched.wrapped);
             }
             Status::Ok.code()
         }

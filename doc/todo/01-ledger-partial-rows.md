@@ -1098,8 +1098,24 @@ with the standard; a misquotation shares most of them, and the difference is one
 
 ## What is still owed, named
 
-- **`Query::Find` reaches no program.** Every occurrence of a string on the page, answered in the
-  same shapes a selection is drawn from, and no host asks. Found by the fifth sweep in the
-  four-hundred-and-thirteenth.
+- ~~**`Query::Find` reaches no program.**~~ **Closed in the four-hundred-and-fourteenth**: three
+  hosts ask it — `viewer-ui` draws its own find bar, `viewer-gtk` a `GtkSearchBar` and `viewer-qt` a
+  `QToolBar` — and the round that reached for it found the clause waiting behind it. Annex O's
+  `search` needed a *document*-wide search that `Query::Find` is not, so `Command::Find`,
+  `Event::Searched` and `viewer_core::search` arrived with the bar and the fragment parameter came
+  off `Parameter::unhonoured`'s list. ADR 0250. **What the sweep got right is worth keeping**: it
+  named the gap without fixing it, and the next round did not have to find it again.
 - **~118 `partial` rows** not yet re-read against the code, of 252 — 14 more went in the
   four-hundred-and-thirteenth.
+
+### The ninth sweep, run over the two families the four-hundred-and-fourteenth touched
+
+Annex O's five rows and §14.7's fourteen, every `Table NNN` in them checked against the entries ISO
+32000-2 actually puts in that table. **Nothing wrong**, which is the first clean run this sweep has
+had and is worth recording as a result rather than as a silence: `Table Annex O.3` is the PDF object
+identifiers and `Table Annex O.4` the open parameters, as both rows say; Table 354's ten entries
+include `/PronunciationLexicon` and `/AF`, which §14.7.2's "unread" list names and which a 9 000-byte
+window on the Markdown does *not* reach — the table is split across two header rows in the
+conversion, so a check that read only the first block would have reported two false positives. The
+instrument's own reach is part of the sweep, and this is the second time the Markdown's shape has
+been the thing to watch after the four-hundred-and-thirteenth's broken words.

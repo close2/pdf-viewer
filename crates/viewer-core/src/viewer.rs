@@ -10,9 +10,10 @@ use pdf_render::{DisplayList, Point, Rect, TargetSpec, Transform};
 use pdf_syntax::{ObjectId, SyntaxError};
 
 use crate::command::{
-    Command, PageTarget, PointerAction, Purpose, Rendered, Selection as CommandSelection, Zoom,
+    Command, Find, FindDirection, PageTarget, PointerAction, Purpose, Rendered,
+    Selection as CommandSelection, Zoom,
 };
-use crate::event::{Event, RenderRequest};
+use crate::event::{Event, Found, RenderRequest};
 use crate::interact;
 use crate::open::{Frame, Interpreted, Open, Pending};
 use crate::query::{Answer, FrameView, Layer, PageGeometry, PopupWindow, Query, Selected};
@@ -354,6 +355,7 @@ impl Viewer {
                 };
                 events.push(damage(viewport));
             }
+            Command::Find(find) => self.find(find, events),
             Command::Focused(move_to) => self.move_focus(move_to, events),
             Command::SetGroup { group, on } => {
                 let Some(open) = self.focused_mut() else {
@@ -415,6 +417,23 @@ impl Viewer {
                 // that is an action rather than a destination is still not *performed*; that is
                 // §12.6.4's row and not this one's, and it changes nothing about this ordering.
                 self.page_events(id, None, events);
+                // Annex O's `search`, if the fragment asked for one. The plan is made and no page
+                // has been read: this event is what tells a host there is something to pump, and
+                // it is the same division `Event::NeedsRender` makes — a unit of work handed over
+                // rather than done on the launch path.
+                if let Some(remaining) = self
+                    .documents
+                    .get(&id)
+                    .and_then(|open| open.searching.as_ref())
+                    .map(|searching| searching.remaining)
+                {
+                    events.push(Event::Searched {
+                        document: id,
+                        found: None,
+                        remaining,
+                        wrapped: false,
+                    });
+                }
             }
             // §7.6.4.1's prompt, and the reason this is not an `OpenFailed`: a document that
             // wants a password is not a document this program cannot read.
@@ -986,6 +1005,132 @@ impl Viewer {
                 dirty: open.dirty(),
             });
         }
+    }
+
+    /// Annex O's `search`, and a find bar's *next*: one page of a document-wide search.
+    ///
+    /// The three verbs of [`Find`] fall into two: `Stop` throws the plan away, and the other two
+    /// end in exactly one step being taken — `Start` after making a new plan, `Continue` against
+    /// the one already there. A `Continue` with nothing in progress does nothing and says
+    /// nothing, which is the right answer for a host that pumped once too often.
+    fn find(&mut self, find: Find, events: &mut Vec<Event>) {
+        let Some(id) = self.focused else {
+            return;
+        };
+        match find {
+            Find::Stop => {
+                if let Some(open) = self.focused_mut() {
+                    open.searching = None;
+                }
+                return;
+            }
+            Find::Start { needle, direction } => {
+                let Some(open) = self.focused_mut() else {
+                    return;
+                };
+                // Where the *next* one is after. The far end of what is selected in the
+                // direction of travel, so a search started while sitting on an occurrence moves
+                // off it rather than finding it again — and with nothing selected, the whole
+                // page in that direction. `usize::MAX` going backwards is the end of any
+                // readback there could be, which is what "before nothing in particular" means.
+                let from = match direction {
+                    FindDirection::Forward => open
+                        .selection
+                        .map_or(0, |(anchor, focus)| anchor.max(focus)),
+                    FindDirection::Backward => open
+                        .selection
+                        .map_or(usize::MAX, |(anchor, focus)| anchor.min(focus)),
+                };
+                let pages = open.page_count;
+                open.searching = crate::search::Searching::new(
+                    vec![needle],
+                    direction,
+                    (open.page_index, from),
+                    pages,
+                    true,
+                );
+                if open.searching.is_none() {
+                    // An empty string, or a document with no pages: there is no answer to give,
+                    // and a host waiting for one has to be told so rather than left pumping.
+                    events.push(Event::Searched {
+                        document: id,
+                        found: None,
+                        remaining: 0,
+                        wrapped: false,
+                    });
+                    return;
+                }
+            }
+            Find::Continue => {}
+        }
+        self.find_step(id, events);
+    }
+
+    /// Reads the one page the search is on, and says what it found there.
+    ///
+    /// Split from [`Self::find`] because the borrow is: interpreting a page needs `&Open` and
+    /// stepping the plan needs `&mut`, and doing both in one function would mean holding the
+    /// first across the second.
+    fn find_step(&mut self, id: DocumentId, events: &mut Vec<Event>) {
+        let Some(page) = self
+            .documents
+            .get(&id)
+            .and_then(|open| open.searching.as_ref())
+            .filter(|searching| !searching.is_done())
+            .map(crate::search::Searching::page)
+        else {
+            return;
+        };
+        // The whole cost of a step, and the reason a step is one page: `interpret` is the
+        // expensive half of this program, measured at 5.7 ms a page over ISO 32000-2's 1023.
+        // The readback is thrown away afterwards — see `crate::search`'s note on caching.
+        let text = self
+            .documents
+            .get(&id)
+            .and_then(|open| crate::open::interpret(open, page))
+            .map(|(interpretation, _, _)| interpretation.text);
+        let Some(open) = self.documents.get_mut(&id) else {
+            return;
+        };
+        let Some(searching) = open.searching.as_mut() else {
+            return;
+        };
+        // A page this program cannot interpret is stepped over rather than treated as a page with
+        // no text on it: the reports for it are the render path's business, and a search that
+        // stopped at the first damaged page would be a worse answer than one that did not.
+        let found = if let Some(text) = text.as_deref() {
+            searching.step(text)
+        } else {
+            searching.skip();
+            None
+        };
+        let (remaining, wrapped) = (searching.remaining, searching.wrapped);
+        let Some(range) = found else {
+            if remaining == 0 {
+                open.searching = None;
+            }
+            events.push(Event::Searched {
+                document: id,
+                found: None,
+                remaining,
+                wrapped,
+            });
+            return;
+        };
+        open.searching = None;
+        // "[S]electing the first matching word in the document" — the annex's own verb, and this
+        // crate has exactly one thing that means: the range a host draws its selection over. It
+        // waits for the page because the turn below ends the selection that was on the old one.
+        open.pending_selection = Some(range);
+        let viewport = self.viewport;
+        self.act(Command::GoTo(PageTarget::Index(page)), events);
+        events.push(Event::Searched {
+            document: id,
+            found: Some(Found { page, range }),
+            remaining: 0,
+            wrapped,
+        });
+        events.push(damage(viewport));
     }
 
     /// Every occurrence of `needle` on the page being shown, as shapes in device pixels.
@@ -1570,6 +1715,12 @@ impl Viewer {
             if turned {
                 open.selection = None;
             }
+        }
+        // …unless a search put one there for this very page, which is the one range made *after*
+        // the turn rather than before it, and outside the block above because a search that lands
+        // on the page already showing interprets nothing. See `Open::pending_selection`.
+        if let Some(range) = open.pending_selection.take() {
+            open.selection = Some(range);
         }
         let Some(interpreted) = open.interpreted.as_ref() else {
             return;

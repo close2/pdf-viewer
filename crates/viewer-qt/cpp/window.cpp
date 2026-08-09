@@ -268,9 +268,11 @@ ChromeOverlay::ChromeOverlay(QWidget* parent) : QWidget(parent)
     setAttribute(Qt::WA_TranslucentBackground, true);
 }
 
-void ChromeOverlay::setShapes(QVector<QtQuad> selection, QVector<QtQuad> focus, qreal scale)
+void ChromeOverlay::setShapes(QVector<QtQuad> selection, QVector<QtQuad> matches,
+                              QVector<QtQuad> focus, qreal scale)
 {
     selection_ = std::move(selection);
+    matches_ = std::move(matches);
     focus_ = std::move(focus);
     scale_ = scale > 0.0 ? scale : 1.0;
     update();
@@ -278,7 +280,7 @@ void ChromeOverlay::setShapes(QVector<QtQuad> selection, QVector<QtQuad> focus, 
 
 void ChromeOverlay::paintEvent(QPaintEvent*)
 {
-    if (selection_.isEmpty() && focus_.isEmpty()) {
+    if (selection_.isEmpty() && matches_.isEmpty() && focus_.isEmpty()) {
         return;
     }
     QPainter painter(this);
@@ -294,9 +296,21 @@ void ChromeOverlay::paintEvent(QPaintEvent*)
     // beside it. Both are asked for here, which is the argument for chrome crossing as geometry
     // paying off rather than being defended. ADR 0246.
     const QPalette& colours = palette();
+    painter.setPen(Qt::NoPen);
+
+    // Every other occurrence of the find bar's string, under the selection and fainter. The
+    // standard says nothing whatever about what a match looks like, so this is a choice: the same
+    // platform colour at a third of the alpha, so that "where else the word is" and "which one you
+    // are on" are the same hue and never the same weight.
+    QColor other = colours.color(QPalette::Highlight);
+    other.setAlphaF(0.12f);
+    painter.setBrush(other);
+    for (const QtQuad& quad : matches_) {
+        painter.drawPath(pathOf(quad, scale_));
+    }
+
     QColor selection = colours.color(QPalette::Highlight);
     selection.setAlphaF(0.35f);
-    painter.setPen(Qt::NoPen);
     painter.setBrush(selection);
     for (const QtQuad& quad : selection_) {
         painter.drawPath(pathOf(quad, scale_));
@@ -438,6 +452,8 @@ MainWindow::MainWindow(rust::Box<Host> host)
         host_->note(rust::Str(utf8.constData(), static_cast<std::size_t>(utf8.size())));
     }
 
+    buildFindBar();
+
     connect(page_, &PageArea::resizedTo, this, [this](unsigned int width, unsigned int height, float scale) {
         if (busy_) {
             return;
@@ -490,6 +506,89 @@ QTreeView* MainWindow::buildTree(unsigned char which)
     return view;
 }
 
+// The find bar, and every widget in it is Qt's: a `QLineEdit` with a clear button, two actions
+// with the platform's own shortcuts, and a `QToolBar` that hides. Nothing here is drawn by this
+// program — `doc/ui-boundary.md`'s rule applied to a find bar, which is that the geometry of the
+// matches crosses and the *bar* belongs to the desktop.
+void MainWindow::buildFindBar()
+{
+    find_ = addToolBar(QStringLiteral("Find"));
+    find_->setMovable(false);
+    find_->hide();
+
+    needle_ = new QLineEdit(find_);
+    needle_->setClearButtonEnabled(true);
+    needle_->setPlaceholderText(QStringLiteral("Find in document"));
+    needle_->setMaximumWidth(360);
+    find_->addWidget(needle_);
+
+    auto step = [this](bool backward) {
+        if (busy_) {
+            return;
+        }
+        Busy guard(busy_);
+        host_->find(backward);
+        applyUpdates();
+    };
+    QAction* previous = find_->addAction(QStringLiteral("Previous"));
+    previous->setShortcut(QKeySequence::FindPrevious);
+    connect(previous, &QAction::triggered, this, [step] { step(true); });
+    QAction* next = find_->addAction(QStringLiteral("Next"));
+    next->setShortcut(QKeySequence::FindNext);
+    connect(next, &QAction::triggered, this, [step] { step(false); });
+
+    // Typing highlights this page and searches nothing, which is the split `Query::Find` and
+    // `Command::Find` make: one is free and one interprets pages.
+    connect(needle_, &QLineEdit::textEdited, this, [this](const QString& typed) {
+        if (busy_) {
+            return;
+        }
+        Busy guard(busy_);
+        const QByteArray utf8 = typed.toUtf8();
+        host_->retype(rust::Str(utf8.constData(), static_cast<std::size_t>(utf8.size())));
+        applyUpdates();
+    });
+    connect(needle_, &QLineEdit::returnPressed, this, [step] { step(false); });
+
+    auto* open = new QAction(this);
+    open->setShortcuts({QKeySequence::Find, QKeySequence(Qt::Key_Slash)});
+    connect(open, &QAction::triggered, this, [this] {
+        find_->show();
+        needle_->setFocus();
+        needle_->selectAll();
+    });
+    addAction(open);
+
+    auto* close = new QAction(this);
+    close->setShortcut(QKeySequence(Qt::Key_Escape));
+    connect(close, &QAction::triggered, this, [this] {
+        if (!find_->isVisible() || busy_) {
+            return;
+        }
+        find_->hide();
+        needle_->clear();
+        Busy guard(busy_);
+        host_->find_stop();
+        applyUpdates();
+    });
+    addAction(close);
+}
+
+void MainWindow::pumpSearch()
+{
+    if (!host_->searching()) {
+        return;
+    }
+    QTimer::singleShot(0, this, [this] {
+        if (busy_) {
+            return;
+        }
+        Busy guard(busy_);
+        host_->find_continue();
+        applyUpdates();
+    });
+}
+
 void MainWindow::keyPressEvent(QKeyEvent* event)
 {
     if (busy_) {
@@ -519,11 +618,16 @@ void MainWindow::applyUpdates()
         for (const QtQuad& quad : host_->selection()) {
             selection.push_back(quad);
         }
+        QVector<QtQuad> matches;
+        for (const QtQuad& quad : host_->matches()) {
+            matches.push_back(quad);
+        }
         QVector<QtQuad> focus;
         for (const QtQuad& quad : host_->focus()) {
             focus.push_back(quad);
         }
-        page_->chrome()->setShapes(std::move(selection), std::move(focus), page_->devicePixelRatioF());
+        page_->chrome()->setShapes(std::move(selection), std::move(matches), std::move(focus),
+                                   page_->devicePixelRatioF());
     }
     if (update.title) {
         setWindowTitle(text(host_->title()));
@@ -531,6 +635,7 @@ void MainWindow::applyUpdates()
     if (update.status) {
         status_->setText(text(host_->status()));
     }
+    pumpSearch();
     if (update.password) {
         // Queued rather than called: `QDialog::exec` runs a nested event loop, and starting one
         // from inside a handler that is holding the host would be exactly the nesting `busy_`

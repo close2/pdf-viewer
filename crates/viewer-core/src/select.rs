@@ -128,6 +128,22 @@ fn joins(run: [f32; 8], quad: [f32; 8]) -> bool {
 /// Overlapping matches are not reported: after a match the scan continues past it, so "aa" in
 /// "aaa" is one match rather than two. That is what a person pressing *next* expects.
 ///
+/// **A space in the needle matches whatever separated the words on the page**, which is the
+/// second judgement and the one with a derivation rather than a convention behind it. Neither
+/// space nor line break is in the file: `content.rs`'s `separate_text` *infers* both from where
+/// §9.4.4's text rendering matrix put the next glyph — "[a] content stream has no notion of words
+/// or lines; it has positions" — so a phrase matched against a literal `' '` would be matched
+/// against this crate's own inference, and "transparency group" broken across a line would not be
+/// found on a page that plainly says it. One or more whitespace characters therefore satisfy one
+/// or more spaces in the needle. A single word is unaffected, which is why the case-folding test
+/// below still reads the same.
+///
+/// **Whole-word matching is deliberately not done**, and the reason is the same sentence from the
+/// other side: `tests/text_extraction.rs` compares words with all whitespace *removed* because
+/// "[w]ord boundaries are deliberately not compared, because a content stream does not record
+/// them". A reader that required a boundary would be requiring one this tree reconstructs by
+/// heuristic, so "the" finds the one inside "theme" — which is also what every find bar does.
+///
 /// The ranges index [`pdf_model::Interpretation::text`], so [`quads_for`] turns each into the
 /// shapes to draw over it — which is why search cost nothing beyond this function.
 pub(crate) fn find(text: &str, needle: &str) -> Vec<(usize, usize)> {
@@ -159,26 +175,46 @@ pub(crate) fn find(text: &str, needle: &str) -> Vec<(usize, usize)> {
 }
 
 /// The byte length of a case-insensitive match at the start of `text`, if there is one.
+///
+/// Whitespace is the one place the two sides are not compared character for character: a run of
+/// it in the needle stands for a run of it in the text, for the reason [`find`] states.
 fn matches_at(text: &str, needle: &[char]) -> Option<usize> {
-    let mut wanted = needle.iter();
+    let mut wanted = needle.iter().copied().peekable();
+    let mut characters = text.chars().peekable();
     let mut length = 0_usize;
-    for character in text.chars() {
-        let mut lowered = character.to_lowercase();
-        loop {
-            match (lowered.next(), wanted.clone().next()) {
-                (Some(have), Some(want)) if have == *want => {
+    loop {
+        if wanted.peek().is_some_and(|want| want.is_whitespace()) {
+            let mut separated = false;
+            while let Some(character) = characters.peek().copied().filter(|c| c.is_whitespace()) {
+                characters.next();
+                length = length.saturating_add(character.len_utf8());
+                separated = true;
+            }
+            if !separated {
+                return None;
+            }
+            while wanted.peek().is_some_and(|want| want.is_whitespace()) {
+                wanted.next();
+            }
+            if wanted.peek().is_none() {
+                return Some(length);
+            }
+            continue;
+        }
+        let character = characters.next()?;
+        for have in character.to_lowercase() {
+            match wanted.peek() {
+                Some(want) if *want == have => {
                     wanted.next();
                 }
-                (Some(_), _) => return None,
-                (None, _) => break,
+                _ => return None,
             }
         }
         length = length.saturating_add(character.len_utf8());
-        if wanted.clone().next().is_none() {
+        if wanted.peek().is_none() {
             return Some(length);
         }
     }
-    None
 }
 
 #[cfg(test)]
@@ -259,5 +295,32 @@ mod tests {
         assert_eq!(found.len(), 1);
         let (from, to) = found[0];
         assert_eq!(&text[from..to], "then", "the range indexes the original");
+    }
+
+    /// A phrase whose words the page put on two lines is still that phrase.
+    ///
+    /// The readback's separators are `content.rs`'s *inference* from where §9.4.4's matrix put
+    /// the next glyph — a newline across the line and a space along it — so a needle's space has
+    /// to stand for either, or a search would be querying this crate's line-breaking rather than
+    /// the page. The last case is the guard on the other side: a space in the needle still
+    /// requires a separator, so two words run together are not two words.
+    #[test]
+    fn a_needles_space_matches_whatever_separated_the_words_on_the_page() {
+        let text = "the transparency\ngroup and the transparency group";
+        let found = find(text, "transparency group");
+        assert_eq!(found.len(), 2, "both, one of them across a line: {found:?}");
+        assert_eq!(&text[found[0].0..found[0].1], "transparency\ngroup");
+        assert_eq!(&text[found[1].0..found[1].1], "transparency group");
+
+        assert_eq!(
+            find("a  b", "a b").len(),
+            1,
+            "a run of spaces is one separator"
+        );
+        assert_eq!(
+            find("ab", "a b"),
+            vec![],
+            "and a separator is still required"
+        );
     }
 }

@@ -190,6 +190,22 @@ pub(crate) struct Open {
     /// a selection dragged backwards is a selection, and which end moves is the difference
     /// between extending it and starting again.
     pub(crate) selection: Option<(usize, usize)>,
+    /// A selection to make once the page it names has been interpreted.
+    ///
+    /// **Only a search sets this**, and it exists because the two rules about a selection and a
+    /// page turn are both right and disagree here: a range is into *one page's* readback, so
+    /// `settle` ends a selection when the page turns, and a search's occurrence is a range into
+    /// the page it is turning **to**. The one is a stale statement and the other is the point of
+    /// the command, and the difference is which side of the turn it was made on — which is what
+    /// this field records. The same shape [`Self::pending_views`] uses for §12.3.2.1's
+    /// magnification, and for the same reason: it waits for the page.
+    pub(crate) pending_selection: Option<(usize, usize)>,
+    /// The document-wide search in progress, if one is.
+    ///
+    /// Kept beside the selection rather than inside it because a search is a *plan* — which pages
+    /// are still to be read, and from where — while the selection is the one occurrence it has
+    /// arrived at. `None` between searches, which is every moment nobody is looking for anything.
+    pub(crate) searching: Option<crate::search::Searching>,
     /// Which of §12.5.6.14's popup windows a person has opened or closed, by annotation.
     ///
     /// **The file states only the first frame.** Table 186's `/Open` is "[a] flag specifying
@@ -380,6 +396,8 @@ impl Open {
             log: Vec::new(),
             cursor: 0,
             selection: None,
+            pending_selection: None,
+            searching: None,
             popups: BTreeMap::new(),
         }
     }
@@ -837,11 +855,53 @@ impl Open {
                     rect: [x, y - height, x + width, y],
                 });
             }
-            // The four [`Parameter::unhonoured`] names never reach here.
-            Parameter::EmbeddedFile(_)
-            | Parameter::Highlight { .. }
-            | Parameter::Search(_)
-            | Parameter::Fdf(_) => {}
+            // Table Annex O.4: "Open the document and search for one or more words, selecting the
+            // first matching word in the document."
+            //
+            // **Started here and finished by the host**, which is the same division every other
+            // unit of work in this crate takes: `Event::NeedsRender` is a page this crate has
+            // interpreted and not drawn, and this is a search it has planned and not run. The
+            // alternative would be reading up to 1023 pages before `Command::Open` returns —
+            // 5.84 s on the standard's own file, on the launch path, which `CLAUDE.md`'s startup
+            // rules forbid outright.
+            //
+            // "In the document", so it begins at the first page and does not wrap: a match before
+            // where the fragment's other parameters left the view is still the first one in the
+            // document, and stopping at the end is what makes "first" mean anything.
+            Parameter::Search(words) => {
+                let needles: Vec<String> = words
+                    .iter()
+                    // Lossy for the reason [`text`] is: the annex gives its byte strings no
+                    // character encoding, and a needle is compared against a readback that is
+                    // already Unicode. A word whose bytes are not UTF-8 searches for what a
+                    // person would see if they typed it.
+                    .map(|word| String::from_utf8_lossy(word).into_owned())
+                    .collect();
+                let spelt = needles.join(" ");
+                match crate::search::Searching::new(
+                    needles,
+                    crate::command::FindDirection::Forward,
+                    (0, 0),
+                    self.page_count,
+                    false,
+                ) {
+                    Some(searching) => {
+                        notes.push(format!(
+                            "this URI's fragment asks for a search for `{spelt}`, which is \
+                             running: {} page(s) to read",
+                            searching.remaining
+                        ));
+                        self.searching = Some(searching);
+                    }
+                    None => notes.push(format!(
+                        "this URI's fragment asks for a search for `{spelt}`, which names nothing \
+                         to look for in a document of {} page(s)",
+                        self.page_count
+                    )),
+                }
+            }
+            // The three [`Parameter::unhonoured`] names never reach here.
+            Parameter::EmbeddedFile(_) | Parameter::Highlight { .. } | Parameter::Fdf(_) => {}
         }
     }
 

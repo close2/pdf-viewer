@@ -176,7 +176,7 @@ card from inside a field until that session, which is the third instance of the 
 links and performs the eleven §12.6 actions this program can, and on a markup annotation it **opens the popup window §12.5.6.14 gives it** — a card over the page with Table 172's `/T` in its title bar, Table 166's `/C` behind that and `/Contents` under it, closed again by a second click (ADR 0191) — printing every refusal — including
 §12.7.6.4's import, which reads an FDF file **beside the open document** and nowhere else. A
 locked document is asked for its password at the terminal (§7.6.4.1), three times, with an empty
-line to give up. **`h` marks up what is selected** with §12.5.6.10's highlight and **`k`** with its strikeout, and the mark is written into the file by `s` — §7.5.6's update, with the appearance stream this program draws beside it, so another reader shows the same marks (ADR 0196). **`f` arms the next drag to draw §12.5.6.6's free text annotation**, and what is drawn takes the keyboard at once: the caret is in the box, the arrow keys and Backspace work there exactly as they work in a field, Escape gives the keyboard back to the page, and a later click inside the box picks it up again. That subtype's text *is* the annotation, so an empty one draws nothing and only the caret says it is there (ADR 0238). **A signed document says whether its own bytes moved and whether its signature verifies**: for
+line to give up. **`h` marks up what is selected** with §12.5.6.10's highlight and **`k`** with its strikeout, and the mark is written into the file by `s` — §7.5.6's update, with the appearance stream this program draws beside it, so another reader shows the same marks (ADR 0196). **`f` arms the next drag to draw §12.5.6.6's free text annotation**, and what is drawn takes the keyboard at once: the caret is in the box, the arrow keys and Backspace work there exactly as they work in a field, Escape gives the keyboard back to the page, and a later click inside the box picks it up again. That subtype's text *is* the annotation, so an empty one draws nothing and only the caret says it is there (ADR 0238). **`/` opens the find bar**, and while it is open it takes every key: what is typed highlights every occurrence on the page being shown at once, **Enter** goes to the next occurrence *anywhere in the document* and **shift-Enter** to the previous, and **Escape** closes it. The bar says which page the occurrence is on, or counts down the pages still to read — a search reads one page per turn of the event loop, because interpreting all 1023 pages of ISO 32000-2 is 5.84 s and nothing in this program blocks for it (ADR 0250). Annex O's `#search=%22word%22` starts the same search as the document opens, which is what the standard's "selecting the first matching word in the document" asks for. **A signed document says whether its own bytes moved and whether its signature verifies**: for
 every signature, who signed it, what its range covers, whether the bytes that range names still hash
 to the digest the signature records (ADR 0215), and — since the three-hundred-and-ninety-second —
 whether the signature verifies under the RSA key in a certificate **the file itself carries** (ADR
@@ -233,6 +233,12 @@ line format, `--draw-widget-appearances` — and binds the same keys, so the two
 by side and differ only in their toolkit. **One flag is its own**: `--quit-after=<ms>` closes the
 window by itself, because a window under `Xvfb` has nobody to close it and a test that killed the
 process could not tell a clean exit from a crash.
+
+Both native hosts bind `/` and Ctrl+F to their toolkit's own find bar — a `GtkSearchBar` with a
+`GtkSearchEntry` and a `QToolBar` with a `QLineEdit` and Previous/Next actions — and draw every
+occurrence on the page under the selection, in the platform's colour at a lower alpha. Nothing about
+either bar is drawn by this project, which is `doc/ui-boundary.md`'s rule applied to a find bar: the
+geometry of the matches crosses and the furniture is the desktop's (ADR 0250).
 
 What it shows that the GTK host cannot: the selection and §12.5.1's focus ring in the *desktop's*
 colours — `QPalette::Highlight` and `QPalette::Accent`, which GTK 4.22 exposes no equivalent of at

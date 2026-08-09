@@ -95,9 +95,15 @@
 //! [`viewer_core::Entered`], so that §12.7.5.4's list box can say which of Table 234's options are
 //! selected (ADR 0248) — and every Rust consumer failed to compile while this crate did not,
 //! because `Command::Edit` is one of the verbs `doc/todo/30` records as still absent from the 39
-//! entry points. `PDFV_EVENT_KIND_COUNT` is **15** before and after, which is the number a C
+//! entry points. `PDFV_EVENT_KIND_COUNT` was **15** before and after, which is the number a C
 //! caller's `pdfv_abi_check` compares and the reason it is a *number* rather than a promise: a
 //! round that had moved it would have had the caller say so at startup.
+//!
+//! **The four-hundred-and-fourteenth moved it, to 16**, which is the other half of the same
+//! demonstration: `viewer_core::Event::Searched` is a new *kind*, so an old caller's
+//! `pdfv_abi_check` refuses at startup rather than dropping a message it has no arm for. Three
+//! entry points came with it — `pdfv_find_start`, `pdfv_find_continue`, `pdfv_find_stop` — and one
+//! accessor, `pdfv_event_searched` (ADR 0250).
 //!
 //! # Errors, because a C caller cannot see a `Result`
 //!
@@ -133,7 +139,7 @@ mod panels;
 mod session;
 mod status;
 
-pub use events::Events;
+pub use events::{Events, Searched};
 pub use kinds::{EventKind, PageTargetKind, PixelFormat, ZoomKind};
 pub use panels::Outline;
 pub use session::{FrameInfo, Session, rasterise};

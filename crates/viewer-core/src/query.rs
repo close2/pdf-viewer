@@ -233,6 +233,13 @@ pub enum Query<'a> {
     /// Case-insensitive, over the same readback [`Query::Selection`] answers with — which is why
     /// search cost this crate one function: the text layer built for selection is the same
     /// artefact, and §14.9's accessibility consumer will be the third.
+    ///
+    /// **This page, and [`crate::Command::Find`] is the document.** The two are one search asked
+    /// twice and the split is a cost rather than a taxonomy: this question answers from a readback
+    /// that already exists, in microseconds, so a find bar may ask it on every repaint; the other
+    /// has to *interpret* pages nobody is looking at, at 5.7 ms apiece, so it is a command that
+    /// takes one step at a time. A find bar wants both — every match on the screen from here, and
+    /// the next one anywhere from there — and neither is the other's approximation.
     Find(&'a str),
     /// §14.8.2.5's logical content order for what is selected, where the page states one.
     ///

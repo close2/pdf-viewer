@@ -12,7 +12,8 @@ use pdf_render::Rasterizer as _;
 use pdf_render::{Raster, RasterFormat};
 use render_cpu::CpuRasterizer;
 use viewer_core::{
-    Answer, Command, DocumentId, Event, PageTarget, Query, RenderRequest, Rendered, Viewer, Zoom,
+    Answer, Command, DocumentId, Event, Find, FindDirection, PageTarget, Query, RenderRequest,
+    Rendered, Viewer, Zoom,
 };
 
 use crate::events::Events;
@@ -111,6 +112,40 @@ impl Session {
     #[must_use]
     pub fn scroll(&mut self, dx: f32, dy: f32) -> Events {
         self.handle(Command::Scroll { dx, dy })
+    }
+
+    /// Annex O's `search`, and a find bar's *next*: one step of a document-wide search.
+    ///
+    /// Three calls rather than one, because [`viewer_core::Find`] is three verbs and a `bool` for
+    /// each would be a caller's puzzle. This one starts, or starts again from what is selected;
+    /// [`Self::find_continue`] reads one more page; [`Self::find_stop`] forgets the plan.
+    ///
+    /// A step reads **one page**, so a caller pumps `find_continue` until
+    /// `pdfv_event_searched` reports nothing remaining — the same loop it already runs for
+    /// [`viewer_core::Event::NeedsRender`], and for the same reason: this ABI is not allowed to
+    /// block a caller's event loop for the 5.84 s a thousand-page sweep costs.
+    #[must_use]
+    pub fn find_start(&mut self, needle: String, backward: bool) -> Events {
+        self.handle(Command::Find(Find::Start {
+            needle,
+            direction: if backward {
+                FindDirection::Backward
+            } else {
+                FindDirection::Forward
+            },
+        }))
+    }
+
+    /// Reads one more page of the search in progress.
+    #[must_use]
+    pub fn find_continue(&mut self) -> Events {
+        self.handle(Command::Find(Find::Continue))
+    }
+
+    /// Forgets the search in progress. What closing a find bar sends.
+    #[must_use]
+    pub fn find_stop(&mut self) -> Events {
+        self.handle(Command::Find(Find::Stop))
     }
 
     /// §12.3.3: activates an object the caller is showing outside the page — an outline row.

@@ -50,7 +50,7 @@ extern "C" {
  * This is what stands in for the Rust rule that a new message fails to compile in every consumer.
  * It cannot fail a build, so it fails a startup instead, once, naming the number that moved.
  */
-#define PDFV_EVENT_KIND_COUNT 15u
+#define PDFV_EVENT_KIND_COUNT 16u
 
 /* What an entry point returns. `PDFV_OK` is zero; everything else is a refusal. */
 #define PDFV_OK                 0
@@ -193,6 +193,18 @@ int32_t pdfv_zoom(pdfv_viewer *viewer, uint32_t zoom, float scale, pdfv_events *
 /* Positive `dy` moves the content up, which is what a wheel scrolling down does. */
 int32_t pdfv_scroll(pdfv_viewer *viewer, float dx, float dy, pdfv_events **events);
 
+/*
+ * Annex O's `search`, and a find bar's next/previous. `needle` is NUL-terminated UTF-8.
+ *
+ * ONE PAGE PER STEP: pdfv_find_start takes the first, then pump pdfv_find_continue until
+ * pdfv_event_searched reports `remaining` of zero. A sweep of ISO 32000-2's own 1023 pages is
+ * 5.84 s, and this library does not block your event loop for it.
+ */
+int32_t pdfv_find_start(pdfv_viewer *viewer, const char *needle, int32_t backward,
+                        pdfv_events **events);
+int32_t pdfv_find_continue(pdfv_viewer *viewer, pdfv_events **events);
+int32_t pdfv_find_stop(pdfv_viewer *viewer, pdfv_events **events);
+
 /* §12.3.3: activates an object shown outside the page — an outline row. */
 int32_t pdfv_activate(pdfv_viewer *viewer, uint32_t number, uint16_t generation,
                       pdfv_events **events);
@@ -225,6 +237,13 @@ int32_t pdfv_event_opened(const pdfv_events *events, size_t index, uint64_t *doc
                           size_t *pages);
 int32_t pdfv_event_page_changed(const pdfv_events *events, size_t index, size_t *page,
                                 size_t *of);
+/*
+ * A step of a document-wide search. `found` says whether `page`, `from` and `to` mean anything;
+ * `remaining` says whether to call pdfv_find_continue again. `from` and `to` are byte offsets
+ * into the page's readback, which is by then also the selection.
+ */
+int32_t pdfv_event_searched(const pdfv_events *events, size_t index, int32_t *found, size_t *page,
+                            size_t *from, size_t *to, size_t *remaining, int32_t *wrapped);
 /* An owning handle: hand it back, or release it with pdfv_render_request_free. */
 int32_t pdfv_event_render_request(const pdfv_events *events, size_t index,
                                   pdfv_render_request **request);

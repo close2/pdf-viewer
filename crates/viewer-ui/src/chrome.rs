@@ -1800,6 +1800,169 @@ impl About {
     }
 }
 
+/// How tall the find bar is, in logical pixels.
+///
+/// **A choice, and every number below it is one**: the standard describes no find bar, so this is
+/// this host's furniture in the same sense §12.5.6.14's popup window furniture is (ADR 0250). A
+/// native host draws a `GtkSearchBar` or a `QToolBar` and never sees any of these.
+const FIND_HEIGHT: f32 = 30.0;
+
+/// The find bar's paper.
+const FIND_BACKGROUND: Color = Color {
+    r: 0.16,
+    g: 0.16,
+    b: 0.18,
+    a: 0.96,
+};
+
+/// The box the typed string sits in.
+const FIND_FIELD: Color = Color {
+    r: 0.10,
+    g: 0.10,
+    b: 0.11,
+    a: 1.0,
+};
+
+/// The caret after the typed string, and the text itself.
+const FIND_INK: Color = Color {
+    r: 0.93,
+    g: 0.93,
+    b: 0.95,
+    a: 1.0,
+};
+
+/// The sentence to the right of the box: how many pages are left, or what was found.
+const FIND_NOTE: Color = Color {
+    r: 0.66,
+    g: 0.68,
+    b: 0.72,
+    a: 1.0,
+};
+
+/// The find bar this host draws for itself.
+///
+/// **The counterpart of `viewer-gtk`'s `GtkSearchBar` and `viewer-qt`'s `QToolBar`, and the reason
+/// it looks nothing like either is the point.** What crosses `viewer-core`'s boundary is the
+/// vocabulary of a search — `Command::Find`, `Event::Searched` — and the *geometry* of the
+/// matches; what a bar looks like is the host's, and this host has no toolkit to ask. So it draws
+/// one in `pdf-font`'s compiled-in Helvetica, at an identity transform, exactly as the sidebar and
+/// the About card are drawn. ADR 0250, and `doc/ui-boundary.md` is the rule.
+#[derive(Debug, Default)]
+pub struct FindBar {
+    /// Whether the bar is over the page.
+    pub shown: bool,
+    /// What has been typed into it.
+    pub needle: String,
+    /// What the last [`viewer_core::Event::Searched`] said, already worded.
+    pub note: String,
+}
+
+impl FindBar {
+    /// Shows the bar, or hides it and forgets what was typed.
+    ///
+    /// Answers whether it is now shown, because closing it is what sends
+    /// [`viewer_core::Find::Stop`] and the caller is the one holding the viewer.
+    pub fn toggle(&mut self) -> bool {
+        self.shown = !self.shown;
+        if !self.shown {
+            self.needle.clear();
+            self.note.clear();
+        }
+        self.shown
+    }
+
+    /// Adds what a key press typed. Answers whether anything changed.
+    pub fn typed(&mut self, text: &str) -> bool {
+        let before = self.needle.len();
+        self.needle.push_str(text);
+        self.needle.len() != before
+    }
+
+    /// Removes the last character. Answers whether anything changed.
+    pub fn backspace(&mut self) -> bool {
+        self.needle.pop().is_some()
+    }
+
+    /// The bar, in device pixels of the window.
+    ///
+    /// At the top, across the whole width including the sidebar's — a find bar is about the
+    /// document rather than about the page area, which is where both native hosts put theirs
+    /// (a `GtkSearchBar` above the pane, a `QToolBar` under the title).
+    #[must_use]
+    pub fn draw(&self, chrome: &Chrome, width: u32, scale: f32) -> Option<DisplayList> {
+        if !self.shown {
+            return None;
+        }
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a window's width in pixels, which is thousands"
+        )]
+        let wide = width as f32;
+        let tall = FIND_HEIGHT * scale;
+        let mut list = DisplayList::new(pdf_render::Size {
+            width: wide,
+            height: tall,
+        });
+        rectangle(&mut list, (0.0, 0.0, wide, tall), FIND_BACKGROUND);
+        rectangle(&mut list, (0.0, tall - scale, wide, scale), EDGE);
+
+        let size = TEXT_SIZE * scale;
+        let baseline = f32::midpoint(tall, size * 0.72);
+        let label = "Find:";
+        let mut x = 10.0 * scale;
+        x = chrome.text(
+            &mut list,
+            label,
+            (x, baseline),
+            size,
+            Style::default(),
+            FIND_NOTE,
+        );
+        x += 8.0 * scale;
+
+        // The box is as wide as a third of the window, so that a phrase has room and the note to
+        // its right still has some.
+        let field = (wide / 3.0).max(120.0 * scale);
+        rectangle(
+            &mut list,
+            (x, 4.0 * scale, field, tall - 8.0 * scale),
+            FIND_FIELD,
+        );
+        let after = chrome.text(
+            &mut list,
+            &self.needle,
+            (x + 6.0 * scale, baseline),
+            size,
+            Style::default(),
+            FIND_INK,
+        );
+        // A caret, because a box with a string in it and nothing after it does not look like a
+        // place a person is typing. One rectangle: this host has no blink and needs none — ADR
+        // 0211 says what a caret *looks* like is the host's, and this is the whole of that.
+        rectangle(
+            &mut list,
+            (
+                after + scale,
+                7.0 * scale,
+                scale.max(1.0),
+                tall - 14.0 * scale,
+            ),
+            FIND_INK,
+        );
+        if !self.note.is_empty() {
+            chrome.text(
+                &mut list,
+                &self.note,
+                (x + field + 10.0 * scale, baseline),
+                size,
+                Style::default(),
+                FIND_NOTE,
+            );
+        }
+        Some(list)
+    }
+}
+
 /// How tall a popup window's title bar is, as a multiple of the text size.
 ///
 /// §12.5.6.14 says a popup "displays text in a popup window" and describes no furniture at all,

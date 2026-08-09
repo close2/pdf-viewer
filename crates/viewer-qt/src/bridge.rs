@@ -243,6 +243,18 @@ pub mod ffi {
         fn selection(self: &Host) -> Vec<QtQuad>;
         /// §12.5.1's focus ring: one quadrilateral, or none.
         fn focus(self: &Host) -> Vec<QtQuad>;
+        /// Every occurrence of the find bar's string on the page being shown.
+        fn matches(self: &Host) -> Vec<QtQuad>;
+        /// The find bar's string changed. Highlights this page; searches nothing.
+        fn retype(self: &mut Host, needle: &str);
+        /// The next occurrence anywhere in the document, or the previous one.
+        fn find(self: &mut Host, backward: bool);
+        /// One more page of the search in progress. Called from a zero-delay timer.
+        fn find_continue(self: &mut Host);
+        /// The find bar was closed: forget the plan and the highlights.
+        fn find_stop(self: &mut Host);
+        /// Whether the search still has pages to read, which is what the timer pumps on.
+        fn searching(self: &Host) -> bool;
         /// What the title bar should say.
         fn title(self: &Host) -> String;
         /// The most recent sentence for a person.

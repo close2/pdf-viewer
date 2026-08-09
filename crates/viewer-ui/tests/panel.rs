@@ -1013,3 +1013,84 @@ fn a_note_this_interfaces_font_cannot_set_says_so() {
         "the sentence about what could not be set is drawn"
     );
 }
+
+/// The find bar draws what was typed into it, and a hidden one draws nothing.
+///
+/// Trap 1's rule again, and it is the reason this test exists rather than an assertion about a
+/// command count: a bar whose glyph fill was deleted would still push a background rectangle and
+/// still hold a display list of the right length. The columns are split at the label so that the
+/// *string* is counted rather than the word "Find:" — deleting `Chrome::text`'s glyph fill fails
+/// the second assertion, and deleting the background fails neither, which is what makes them two.
+#[test]
+fn the_find_bar_draws_what_was_typed_into_it() {
+    let chrome = match Chrome::new() {
+        Ok(chrome) => chrome,
+        Err(error) => panic!("the fourteen are compiled in: {error}"),
+    };
+    let mut bar = viewer_ui::chrome::FindBar::default();
+    assert!(
+        bar.draw(&chrome, WIDTH, 1.0).is_none(),
+        "a bar nobody opened is not on the screen"
+    );
+
+    assert!(bar.toggle(), "and one that was opened is");
+    let empty = bar.draw(&chrome, WIDTH, 1.0).expect("the bar is shown");
+    // **Light ink on a dark bar, so the panel's own counter is the wrong way round here.** The
+    // sidebar is white paper with black glyphs and [`ink`] counts dark pixels; a find bar is dark
+    // furniture with pale text, so what is counted is the *pale* pixels. Saying that out loud is
+    // cheaper than making the bar white to suit a test.
+    let furniture = pale(&empty);
+    assert!(
+        furniture > 0,
+        "the bar draws its caret and label: {furniture}"
+    );
+
+    assert!(bar.typed("transparency"), "the keys reach the string");
+    let typed = bar.draw(&chrome, WIDTH, 1.0).expect("the bar is shown");
+    assert!(
+        pale(&typed) > furniture,
+        "twelve glyphs of ink more than an empty box"
+    );
+
+    // And the note the last `Event::Searched` produced, which is to the right of the box.
+    bar.note = "3 page(s) left".to_owned();
+    let noted = bar.draw(&chrome, WIDTH, 1.0).expect("the bar is shown");
+    assert!(pale(&noted) > pale(&typed), "the sentence is drawn too");
+
+    assert!(bar.backspace(), "and the string can be shortened");
+    assert!(!bar.toggle(), "closing it says so");
+    assert!(
+        bar.needle.is_empty() && bar.note.is_empty(),
+        "and forgets what was typed"
+    );
+    assert!(bar.draw(&chrome, WIDTH, 1.0).is_none());
+}
+
+/// How many pale pixels a display list draws in the top 30 rows — [`ink`]'s inverse.
+///
+/// The threshold is 120 rather than [`ink`]'s 180 because the bar's own paper is 41 and its ink
+/// 237, and every glyph edge lands between them: measured, the brightest pixel an empty bar
+/// produces is 199, so a threshold above that would count nothing at all and one at the paper
+/// would count the whole bar.
+fn pale(bar: &pdf_render::DisplayList) -> usize {
+    let raster = CpuRasterizer::new()
+        .rasterize(
+            bar,
+            TargetSpec {
+                width: WIDTH,
+                height: 30,
+                transform: Transform::IDENTITY,
+            },
+        )
+        .expect("the bar is paths and nothing else");
+    let mut light = 0;
+    for y in 0..30_u32 {
+        for x in 0..WIDTH {
+            let at = ((y * WIDTH + x) * 4) as usize;
+            if raster.data.get(at).is_some_and(|red| *red > 120) {
+                light += 1;
+            }
+        }
+    }
+    light
+}

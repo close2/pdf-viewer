@@ -19,7 +19,9 @@
 #include "viewer-qt/src/bridge.cxx.h"
 
 class QLabel;
+class QLineEdit;
 class QTabWidget;
+class QToolBar;
 class QTreeView;
 
 namespace pdf_viewer_qt {
@@ -94,13 +96,19 @@ public:
     explicit ChromeOverlay(QWidget* parent);
 
     /// What to draw, in device pixels of the viewport.
-    void setShapes(QVector<QtQuad> selection, QVector<QtQuad> focus, qreal scale);
+    ///
+    /// `matches` is every occurrence of the find bar's string on this page and `selection` is the
+    /// one a person is on — two lists rather than one, because they say different things and are
+    /// drawn in different weights of the same platform colour.
+    void setShapes(QVector<QtQuad> selection, QVector<QtQuad> matches, QVector<QtQuad> focus,
+                   qreal scale);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
 
 private:
     QVector<QtQuad> selection_;
+    QVector<QtQuad> matches_;
     QVector<QtQuad> focus_;
     qreal scale_ = 1.0;
 };
@@ -167,6 +175,14 @@ private:
     void rebuildPanels();
     /// §7.6.4.1's prompt, in a window of the platform's own.
     void askForAPassword();
+    /// Builds the find bar: a real `QLineEdit` and two buttons in a `QToolBar`.
+    void buildFindBar();
+    /// Posts one step of the search on a zero-delay timer, for as long as pages remain.
+    ///
+    /// Annex O's `search` and a find bar's *next* read one page per step, because `viewer-core`
+    /// has no thread to read a thousand of them on. Pumping through the event loop rather than in
+    /// a loop here is what keeps the window painting while a 1023-page document is searched.
+    void pumpSearch();
     /// One tree, built once and filled thereafter.
     QTreeView* buildTree(unsigned char which);
 
@@ -182,6 +198,10 @@ private:
     PanelModel* models_[3];
     PageArea* page_;
     QLabel* status_;
+    /// The find bar, hidden until Ctrl+F or `/`.
+    QToolBar* find_;
+    /// The string in it.
+    QLineEdit* needle_;
     std::vector<QWidget*> controls_;
     /// Set while this window is writing values into its own controls, so that the write is not
     /// mistaken for a person typing. The same flag `viewer-gtk` calls `suppress`.

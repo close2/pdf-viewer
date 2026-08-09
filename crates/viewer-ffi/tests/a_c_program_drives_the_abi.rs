@@ -132,14 +132,21 @@ fn a_c_program_opens_a_document_turns_a_page_asks_a_query_and_gets_pixels() {
 
     // The numbers it printed, checked here rather than in the C, so that a change to the ABI that
     // still *runs* cannot pass by printing something else. The application note is five pages,
-    // its outline is fourteen rows, and its second page draws.
+    // its outline is fourteen rows, its third page is where a search for "black point" lands, and
+    // the page after it draws.
     for expected in [
-        "abi 1 (header 1), 15 event kind(s) (header 15)",
+        "abi 1 (header 1), 16 event kind(s) (header 16)",
         "Opened says document 1 has 5 page(s)",
         "page 1 of 5 (5 page(s) in the document)",
         "outline: 14 row(s)",
-        "after the turn: page 2 of 5, drawn in ",
-        "frame: page 2, 708x1000, format 0, 2832000 byte(s)",
+        // Annex O's `search`, pumped one page at a time by the C loop. Three steps for three
+        // pages — the phrase is not on the first two — and the view moves to the page the
+        // occurrence is on, which is the annex's "selecting the first matching word in the
+        // document" as far as a C caller can see it.
+        "search: found on page 3, bytes 63..74, after 3 step(s)",
+        "after the search: page 3 of 5",
+        "after the turn: page 4 of 5, drawn in ",
+        "frame: page 4, 708x1000, format 0, 2832000 byte(s)",
         "ok",
     ] {
         assert!(
@@ -163,7 +170,7 @@ fn a_c_program_opens_a_document_turns_a_page_asks_a_query_and_gets_pixels() {
     // page, because the viewer has no clock (rule 3).
     for measured in [
         "first page drawn and handed back at ",
-        "after the turn: page 2 of 5, drawn in ",
+        "after the turn: page 4 of 5, drawn in ",
     ] {
         assert!(
             said.contains(measured),
