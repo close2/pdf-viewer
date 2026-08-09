@@ -201,15 +201,31 @@ impl Type3Font {
         self.font_matrix
     }
 
-    /// The resources a glyph description's operators name.
+    /// The resources a glyph description's operators name, in the order §7.8.3 searches.
     ///
-    /// §9.6.4 step d): they "shall be looked up in the Resources entry of the Type 3 font
-    /// dictionary. If any glyph descriptions refer to named resources but this dictionary is
-    /// absent, the names shall be looked up in the resource dictionary of the page on which
-    /// the font is used" — which is the fallback the caller supplies.
+    /// **Errata Collection 3 rewrote this rule and added a step in front of it** — Issue #128,
+    /// `/State` `Review` `Completed`, on §7.8.3 and on §9.6.4 together, and invisible to
+    /// `doc/md/` because the sponsored copy records EC3 as review markup that the conversion
+    /// dropped (ADR 0252, ADR 0253). §9.6.4's step d) used to read "shall be looked up in the
+    /// Resources entry of the Type 3 font dictionary. If any glyph descriptions refer to named
+    /// resources but this dictionary is absent, the names shall be looked up in the resource
+    /// dictionary of the page on which the font is used", and it now points at §7.8.3, which
+    /// states a four-step search: the glyph description content **stream's own dictionary**
+    /// first, then the Type 3 font dictionary that held the `/CharProcs` entry, and only if
+    /// neither states one, the page and what the page inherits (§7.7.3.4).
+    ///
+    /// So `glyph` is the first step and it is the one this tree did not have — a glyph
+    /// description that carried its own `/Resources` was read against the font's or the page's,
+    /// which is a different dictionary whenever the two disagree. The last two steps arrive
+    /// together in `page`, because the caller's resource dictionary is already the inherited
+    /// one.
     #[must_use]
-    pub fn resources<'a>(&'a self, page: &'a Dictionary) -> &'a Dictionary {
-        self.resources.as_ref().unwrap_or(page)
+    pub fn resources<'a>(
+        &'a self,
+        glyph: Option<&'a Dictionary>,
+        page: &'a Dictionary,
+    ) -> &'a Dictionary {
+        glyph.or(self.resources.as_ref()).unwrap_or(page)
     }
 
     /// Appends what a character code means, reporting whether anything was found.

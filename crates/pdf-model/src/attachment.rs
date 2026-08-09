@@ -60,10 +60,17 @@ const MAX_ATTACHMENTS: usize = 4096;
 pub struct Attachment {
     /// The name the `/EmbeddedFiles` tree filed it under, or the file specification's own name.
     ///
-    /// §7.11.4.1 says the tree "shall map name strings to file specifications", and that before
-    /// PDF 1.6 "it was necessary to identify document-level embedded files by the name string
-    /// provided in the name dictionary". So the tree's key is a name and not necessarily a file
-    /// name, which is why [`Self::file_name`] is a separate answer.
+    /// §7.11.4.1 makes the `/EmbeddedFiles` tree map name strings to file specifications, and
+    /// says that before PDF 1.6 "it was necessary to identify document-level embedded files by
+    /// the name string provided in the name dictionary". So the tree's key is a name and not
+    /// necessarily a file name, which is why [`Self::file_name`] is a separate answer.
+    ///
+    /// The first half was a quotation — "shall map name strings to file specifications" — until
+    /// the four-hundred-and-eighteenth session. Errata Collection 3 replaces the two bullets it
+    /// came from outright (Issue #481, `/State` `Review` `Completed`), and the replacement says
+    /// the same thing about this tree while adding §7.11.2's `/RF` beside `/EF` as the second
+    /// place an embedded file stream may be specified. Nothing here changes: the tree is walked
+    /// for its keys either way.
     pub name: String,
     /// Table 43's `/UF`, or `/F` where the file states no Unicode form.
     ///
@@ -77,10 +84,18 @@ pub struct Attachment {
     pub description: Option<String>,
     /// Table 44's `/Subtype`: the embedded file's MIME media type, as the file spells it.
     ///
-    /// Kept as written. The clause makes it a *name* whose value "shall conform to the MIME
-    /// media type names defined in Internet RFC 2046, with the provision that characters not
-    /// permitted in names shall use the 2-character hexadecimal code format" — so `#2F` for the
-    /// solidus is already undone by the name lexer, and what is left is the media type.
+    /// Kept as written. The clause makes it a *name* whose value is a MIME media type spelled so
+    /// that a PDF name can carry it — `#2F` for the solidus, which the name lexer has already
+    /// undone by the time this is read, leaving the media type.
+    ///
+    /// **Errata Collection 3 narrows what a producer may put here** (Issue #155, `/State`
+    /// `Review` `Completed`), and this comment quoted the retired half until the
+    /// four-hundred-and-eighteenth session: "the MIME media type names defined in Internet RFC
+    /// 2046, with the provision that characters not permitted in names" becomes a subset of
+    /// RFC 2046 section 2 — the top-level type and its description separated by a solidus, with no
+    /// `;`, `=`, `#`, parameters or sub-parameters. Every requirement in it is on the writer,
+    /// and a reader that answered only the types the amended clause permits would drop the
+    /// value of every file written before it, so this still keeps what the document wrote.
     pub media_type: Option<String>,
     /// Table 45's `/Size`: "the size of the uncompressed embedded file, in bytes".
     ///

@@ -137,22 +137,28 @@ fn check(notes: &[Note]) -> Result<(), spec_errata::Error> {
             note.section.as_deref().unwrap_or("(no section)")
         );
     }
-    let landings =
+    let mut landings =
         spec_errata::landings(notes, &[PathBuf::from("crates"), PathBuf::from("tools")])?;
+    landings.extend(spec_errata::ledger_landings(
+        notes,
+        &PathBuf::from("doc/conformance/ledger.toml"),
+    )?);
     let (cited, elsewhere): (Vec<_>, Vec<_>) = landings
         .iter()
         .partition(|landing| spec_errata::Landing::in_clause(landing));
     println!(
-        "\n{} rustdoc quotation(s) quote text struck out of the clause they cite",
-        cited.len()
+        "\n{} quotation(s) quote text struck out of the clause they cite{}",
+        cited.len(),
+        by_kind(&cited)
     );
     for landing in &cited {
         print_landing(landing);
     }
     println!(
-        "\n{} more match a passage struck out of another clause — a repeated phrase rather than a \
-         finding, until somebody reads one",
-        elsewhere.len()
+        "\n{} more match a passage struck out of another clause{} — a repeated phrase rather than \
+         a finding, until somebody reads one",
+        elsewhere.len(),
+        by_kind(&elsewhere)
     );
     for landing in &elsewhere {
         print_landing(landing);
@@ -160,10 +166,24 @@ fn check(notes: &[Note]) -> Result<(), spec_errata::Error> {
     Ok(())
 }
 
+/// The three populations' shares of a list of landings, since only one of them has a gate.
+fn by_kind(landings: &[&spec_errata::Landing]) -> String {
+    let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
+    for landing in landings {
+        let count = counts.entry(landing.kind.as_str()).or_default();
+        *count = count.saturating_add(1);
+    }
+    if counts.is_empty() {
+        return String::new();
+    }
+    format!(" ({})", joined(&counts))
+}
+
 /// One landing, with the erratum's own words beside the quotation's.
 fn print_landing(landing: &spec_errata::Landing) {
     println!(
-        "  {}:{} §{} — {} p.{} {} [{}]",
+        "  [{}] {}:{} §{} — {} p.{} {} [{}]",
+        landing.kind.as_str(),
         landing.file.display(),
         landing.line,
         landing.clause.as_deref().unwrap_or("?"),
@@ -178,6 +198,7 @@ fn print_landing(landing: &spec_errata::Landing) {
             .collect::<Vec<&str>>()
             .join(", ")
     );
+    println!("      quoted: {}", landing.quotation);
     if let Some(covered) = landing.note.covered.as_deref() {
         println!("      struck: {covered}");
     }

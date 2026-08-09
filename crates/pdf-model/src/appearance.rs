@@ -3302,6 +3302,10 @@ struct Border {
 /// the Border entry is ignored" — and §12.5.4 supplies the default the two share. Public to the
 /// crate for §12.5.6.19's `/H /O`, which strokes that border and has no colour of its own to
 /// read.
+///
+/// Errata Collection 3 sharpens that sentence to "shall be ignored" (Issue #287, `/State`
+/// `Review` `Completed`), which is the precedence this reads either way; the quotation stays as
+/// `doc/md/` has it, because the amended words are not in the copy the gate checks (ADR 0252).
 pub(crate) fn border_width(document: &Document, annotation: &Dictionary) -> f32 {
     let width = if let Some(style) = document.get_key(annotation, "BS").as_dict() {
         Border::from_style_dictionary(document, style).0
@@ -3348,7 +3352,9 @@ impl Border {
         ];
 
         // Table 166: "If an annotation dictionary includes the BS entry, then the Border entry
-        // is ignored." §12.5.4 supplies the default width the two of them share.
+        // is ignored." §12.5.4 supplies the default width the two of them share. Errata
+        // Collection 3 makes it "shall be ignored" (Issue #287) — the same precedence, stated
+        // as a requirement.
         let (width, style, dash) = if let Some(style) = document.get_key(annotation, "BS").as_dict()
         {
             Self::from_style_dictionary(document, style)

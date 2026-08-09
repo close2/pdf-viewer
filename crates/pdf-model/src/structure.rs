@@ -1321,10 +1321,17 @@ pub const DEFAULT_STANDARD_NAMESPACE: &str = "http://iso.org/pdf/ssn";
 /// role mapped into one.
 pub const STANDARD_NAMESPACE_2_0: &str = "http://iso.org/pdf2/ssn";
 
-/// §14.8.6.3's one domain-specific namespace: `MathML` 3.0.
+/// §14.8.6.3's one domain-specific namespace: `MathML`.
 ///
 /// "`MathML` is the only domain-specific namespace defined in PDF 2.0", and the clause exempts
 /// it from role mapping — a namespace named here "[does] not require a `RoleMapNS` entry".
+///
+/// **Without a version, since the four-hundred-and-eighteenth session.** `doc/md/` says
+/// "`MathML` 3.0" throughout the clause and Errata Collection 3 takes the version out of every
+/// one of them (Issue #72, `/State` `Review` `Completed`), because the normative reference it
+/// pointed at is itself replaced — §2's "Mathematical Markup Language (`MathML`) Version 3.0"
+/// becomes "`MathML` Core" (Issue #719). The namespace URI is unchanged, which is what this
+/// constant is; what changed is that naming an edition here would now be naming the wrong one.
 pub const MATHML_NAMESPACE: &str = "http://www.w3.org/1998/Math/MathML";
 
 /// §14.7.4.2's namespace dictionary. Table 356.

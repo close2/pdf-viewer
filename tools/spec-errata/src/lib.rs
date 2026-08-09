@@ -60,6 +60,9 @@ pub enum Error {
     /// The source tree could not be walked for quotations.
     #[error("walking {0}: {1}")]
     Sources(PathBuf, std::io::Error),
+    /// The conformance ledger could not be read.
+    #[error("reading the ledger: {0}")]
+    Ledger(#[from] conformance::ledger::LedgerError),
 }
 
 /// What §12.5.6.2 makes one annotation *to* the others around it.
@@ -294,16 +297,51 @@ pub fn read(path: &Path) -> Result<Vec<Note>, Error> {
     Ok(notes)
 }
 
-/// A rustdoc quotation that quotes text an erratum struck out.
+/// Which of this project's three populations of quotation a landing is in.
+///
+/// **They are three because only one of them is checked by anything**, and the round that
+/// swept the other two found a stale quotation in each. `tools/conformance` verifies every
+/// [`Self::Blockquote`] against `doc/md/` and reads neither of the others: ADR 0249 measured
+/// the ledger's at 977 spans and decided against a gate, and the four-hundred-and-eighteenth
+/// session found the third — a pair of quotation marks inside ordinary rustdoc prose, which
+/// `CLAUDE.md`'s "[q]uotation marks mean verbatim" binds exactly as hard and which the
+/// blockquote scanner walks straight past.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Quoted {
+    /// A rustdoc `> ` blockquote — the one population a gate verifies.
+    Blockquote,
+    /// A pair of quotation marks inside rustdoc prose.
+    Prose,
+    /// A pair of quotation marks inside a `doc/conformance/ledger.toml` note.
+    LedgerNote,
+}
+
+impl Quoted {
+    /// The word this kind prints as.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Blockquote => "blockquote",
+            Self::Prose => "prose",
+            Self::LedgerNote => "ledger",
+        }
+    }
+}
+
+/// A quotation this project wrote that overlaps text an erratum struck out.
 #[derive(Debug, Clone)]
 pub struct Landing {
-    /// The source file the quotation is in.
+    /// The file the quotation is in.
     pub file: PathBuf,
     /// Its line.
     pub line: usize,
-    /// The clause it is attributed to, where the doc comment states one.
+    /// Which population it belongs to.
+    pub kind: Quoted,
+    /// The clause it is attributed to, where the quotation states one.
     pub clause: Option<String>,
-    /// The note whose struck text it contains.
+    /// The quotation's own words, as this tree wrote them.
+    pub quotation: String,
+    /// The note whose struck text it overlaps.
     pub note: Note,
 }
 
@@ -346,40 +384,202 @@ impl Landing {
     }
 }
 
-/// Every rustdoc quotation under `roots` that contains text one of `notes` struck out.
-///
-/// The comparison is [`conformance::quote::normalise`]'s, which is the one the gate uses, so a
-/// quotation that passes the gate and lands here is quoting retired text by the gate's own
-/// standard of what quoting is.
-///
-/// # Errors
-///
-/// [`Error::Sources`] where a root cannot be walked, [`Error::Unreadable`] where a source file
-/// under it cannot be read.
-pub fn landings(notes: &[Note], roots: &[PathBuf]) -> Result<Vec<Landing>, Error> {
-    let struck: Vec<(&Note, String)> = notes
+/// The struck passages long enough to compare a quotation against, squeezed once.
+fn retired(notes: &[Note]) -> Vec<(&Note, String)> {
+    notes
         .iter()
         .filter(|note| note.retires_text())
         .filter_map(|note| {
             let covered = note.covered.as_deref()?;
             (covered.split_whitespace().count() >= MIN_WORDS).then(|| (note, squeezed(covered)))
         })
-        .collect();
+        .collect()
+}
+
+/// Whether a quotation and a struck passage share text, whichever of the two is longer.
+///
+/// **Containment has to run both ways and did not until the four-hundred-and-eighteenth
+/// session.** A rustdoc blockquote is usually a *whole* sentence and the struck passage is a
+/// clause of it, so `quotation ⊇ struck` is the case the first instrument was built for. A
+/// ledger note quotes the other way round — five words lifted out of a paragraph — and so does
+/// half of the prose, so a one-directional test sees none of them. `attachment.rs`'s
+/// `/Subtype` quotation and the §14.6 ledger row were both found by hand for exactly that
+/// reason.
+///
+/// The shorter side still has to be [`MIN_WORDS`] long, which is what keeps a four-word
+/// coincidence from being reported as a quotation of a paragraph.
+fn overlaps(quotation: &str, quotation_squeezed: &str, passage: &str) -> bool {
+    if quotation_squeezed.len() >= passage.len() {
+        quotation_squeezed.contains(passage)
+    } else {
+        quotation.split_whitespace().count() >= MIN_WORDS && passage.contains(quotation_squeezed)
+    }
+}
+
+/// The double-quoted spans of a piece of prose, in the order they appear.
+///
+/// `CLAUDE.md` makes a pair of quotation marks a claim to be verbatim — "[a]nything less than
+/// verbatim is prose *without* quotation marks" — so a `"` … `"` in a ledger note or a doc
+/// comment is a quotation whether or not any gate reads it. Odd-numbered marks close nothing
+/// and the trailing fragment is dropped.
+///
+/// Single quotes are deliberately not collected: the ledger uses them for quotations too, and
+/// an apostrophe would make every possessive in a note into an opening mark.
+#[must_use]
+pub fn quoted_spans(text: &str) -> Vec<String> {
+    text.split('"')
+        .skip(1)
+        .step_by(2)
+        .filter(|span| span.split_whitespace().count() >= MIN_WORDS)
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Every quotation under `roots` — blockquote or prose — that overlaps text one of `notes`
+/// struck out.
+///
+/// The comparison is [`squeezed`]'s, which is [`conformance::quote::normalise`] with the
+/// spaces taken out, so a quotation that passes the gate and lands here is quoting retired
+/// text by the gate's own standard of what quoting is.
+///
+/// # Errors
+///
+/// [`Error::Sources`] where a root cannot be walked, [`Error::Unreadable`] where a source file
+/// under it cannot be read.
+pub fn landings(notes: &[Note], roots: &[PathBuf]) -> Result<Vec<Landing>, Error> {
+    let struck = retired(notes);
     let sources = conformance::citation::rust_sources(roots)
         .map_err(|error| Error::Sources(roots.first().cloned().unwrap_or_default(), error))?;
     let mut found = Vec::new();
     for file in sources {
         let source = std::fs::read_to_string(&file)
             .map_err(|error| Error::Unreadable(file.clone(), error))?;
-        for quotation in conformance::citation::scan(&source).quotations {
-            let text = squeezed(&quotation.text);
+        let scan = conformance::citation::scan(&source);
+        let mut quotations: Vec<(usize, Quoted, Option<String>, String)> = scan
+            .quotations
+            .iter()
+            .map(|quotation| {
+                (
+                    quotation.line,
+                    Quoted::Blockquote,
+                    quotation.clause.as_ref().map(ToString::to_string),
+                    quotation.text.clone(),
+                )
+            })
+            .collect();
+        for (line, span) in prose_quotations(&source) {
+            // The clause a *blockquote* is attributed to is the nearest citation before it in
+            // the same comment; prose gets the same rule with the comment boundary dropped,
+            // because a `"` … `"` sits inside a sentence rather than under a heading. It is a
+            // sort order either way — see `Landing::in_clause`.
+            let clause = scan
+                .citations
+                .iter()
+                .rfind(|citation| citation.line <= line)
+                .map(|citation| citation.number.to_string());
+            quotations.push((line, Quoted::Prose, clause, span));
+        }
+        for (line, kind, clause, text) in quotations {
+            let compared = squeezed(&text);
             for (note, passage) in &struck {
-                if text.contains(passage.as_str()) {
+                if overlaps(&text, &compared, passage) {
                     found.push(Landing {
                         file: file.clone(),
-                        line: quotation.line,
-                        clause: quotation.clause.as_ref().map(ToString::to_string),
+                        line,
+                        kind,
+                        clause: clause.clone(),
+                        quotation: text.clone(),
                         note: (*note).clone(),
+                    });
+                }
+            }
+        }
+    }
+    Ok(found)
+}
+
+/// The quoted spans inside a Rust file's doc comments, with the line each block starts on.
+///
+/// Doc comments only: a `"` in ordinary code is a string literal and a `"` in a `//` comment is
+/// not making `CLAUDE.md`'s claim. A blockquote line is skipped, because [`landings`] already
+/// has those from the gate's own scanner and reporting one twice would double every count.
+///
+/// **A run of doc-comment lines is joined before the marks are counted, and that is the whole
+/// difficulty.** A quotation long enough to be worth checking is longer than the 96 columns
+/// this tree wraps at, so its opening `"` and its closing one are on different lines and a
+/// line-at-a-time reader sees two unmatched marks and reports nothing. The first version of
+/// this function was line-at-a-time and missed `attachment.rs`'s `/Subtype` quotation, which
+/// had already been found by hand — an instrument that cannot see what a person found by
+/// reading is not an instrument.
+fn prose_quotations(source: &str) -> Vec<(usize, String)> {
+    let mut found = Vec::new();
+    let mut block: Vec<&str> = Vec::new();
+    let mut start = 0_usize;
+    let flush = |block: &mut Vec<&str>, start: usize, found: &mut Vec<(usize, String)>| {
+        if !block.is_empty() {
+            for span in quoted_spans(&block.join(" ")) {
+                found.push((start, span));
+            }
+            block.clear();
+        }
+    };
+    for (index, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+        let body = trimmed
+            .strip_prefix("///")
+            .or_else(|| trimmed.strip_prefix("//!"));
+        match body {
+            // A blockquote line ends the prose block rather than merely being skipped: the
+            // quotation before it and the one after it are two quotations, and joining them
+            // across would invent a span the file does not contain.
+            Some(body) if !body.trim_start().starts_with('>') => {
+                if block.is_empty() {
+                    start = index.saturating_add(1);
+                }
+                block.push(body);
+            }
+            _ => flush(&mut block, start, &mut found),
+        }
+    }
+    flush(&mut block, start, &mut found);
+    found
+}
+
+/// Every quotation in the conformance ledger's notes that overlaps struck-out text.
+///
+/// **The population ADR 0249 measured and left unchecked**: 977 double-quoted spans, verified
+/// by nothing, in a file whose whole purpose is to say what this tree does about the standard.
+/// That ADR decided against a gate and priced the alternative — a syntax saying which
+/// quotations are the standard's — and neither decision is revisited here. This asks the one
+/// question that needs no syntax, because the erratum supplies the other side of it: does a
+/// note quote a sentence that is no longer in the standard?
+///
+/// The row's own `clause` is the attribution, which makes [`Landing::in_clause`] sharper here
+/// than it is over `crates/` — a ledger row states its clause as data rather than as a section
+/// mark a scanner has to find in the prose above the quotation.
+///
+/// # Errors
+///
+/// [`Error::Ledger`] where the ledger cannot be read or parsed.
+pub fn ledger_landings(notes: &[Note], ledger: &Path) -> Result<Vec<Landing>, Error> {
+    let struck = retired(notes);
+    let rows = conformance::ledger::Ledger::read(ledger)?;
+    let mut found = Vec::new();
+    for row in &rows.rows {
+        let Some(note) = row.note.as_deref() else {
+            continue;
+        };
+        for span in quoted_spans(note) {
+            let compared = squeezed(&span);
+            for (erratum, passage) in &struck {
+                if overlaps(&span, &compared, passage) {
+                    found.push(Landing {
+                        file: ledger.to_owned(),
+                        line: row.line,
+                        kind: Quoted::LedgerNote,
+                        clause: Some(row.clause.to_string()),
+                        quotation: span.clone(),
+                        note: (*erratum).clone(),
                     });
                 }
             }
@@ -392,6 +592,14 @@ pub fn landings(notes: &[Note], roots: &[PathBuf]) -> Result<Vec<Landing>, Error
 ///
 /// The measurement behind the argument: a passage in this list is one an erratum retired and
 /// `doc/md/` presents as the standard's current text. Answers the file it was found in.
+///
+/// **One shape of false positive is known and cannot be removed from here**, found while
+/// reading the list in the four-hundred-and-eighteenth session: where the standard prints a
+/// sentence *twice* and the erratum deletes one copy, the surviving copy is the standard's
+/// current text and this reports it as retired. §7.5.4's "[e]ach cross-reference subsection
+/// shall contain entries for a contiguous range of object numbers" is the witness — the
+/// conversion carries it twice on one line, and Issue #113 strikes one of the two. Nothing in
+/// an annotation says which copy it covers, so the reader settles it and the tool cannot.
 ///
 /// # Errors
 ///

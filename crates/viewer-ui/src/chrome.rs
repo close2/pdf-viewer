@@ -21,10 +21,13 @@
 //!
 //! A [`pdf_render::DisplayList`] and [`pdf_font::LoadedFont::standard`], which means the panel
 //! goes to whichever backend drew the page and looks the same on a machine with no fonts
-//! installed. That is not a trick: §9.6.2.2 says the fourteen "shall be available to the PDF
-//! processor", and since the hundred-and-forty-eighth session they are available as bytes in the
-//! binary (ADR 0133), so an interface drawn in Helvetica is drawn in the same Helvetica
-//! everywhere.
+//! installed. That is not a trick: Table 109 lets a document name one of §9.6.2.2's fourteen
+//! and say nothing else about it, so a processor has to have them to draw a page at all, and
+//! since the hundred-and-forty-eighth session they are available as bytes in the binary
+//! (ADR 0133) — so an interface drawn in Helvetica is drawn in the same Helvetica everywhere.
+//! (This paragraph quoted §9.6.2.2's "shall be available to the PDF processor" until the
+//! four-hundred-and-eighteenth session; Errata Collection 3 struck that sentence outright, and
+//! [`pdf_font::standard`] carries the reading that replaces it.)
 //!
 //! # Coordinates
 //!

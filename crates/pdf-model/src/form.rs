@@ -161,8 +161,15 @@ pub enum Control {
     /// §12.7.5.2.2: "a purely interactive control that responds immediately to user input without
     /// retaining a permanent value".
     ///
-    /// Table 229 bit 17. The clause continues that "it shall not use the V and DV entries", which
-    /// is why nothing about a value is carried here.
+    /// Table 229 bit 17. Nothing about a value is carried here because the clause's own
+    /// definition says there is none to carry — a control that responds "without retaining a
+    /// permanent value" has nothing for `/V` to hold.
+    ///
+    /// **The sentence that said so outright is gone**: Errata Collection 3 strikes "Because
+    /// this type of retains no permanent value, it shall not use the V and DV entries in the
+    /// field dictionary" with no replacement (Issue #386, `/State` `Review` `Completed`), and
+    /// this comment quoted it until the four-hundred-and-eighteenth session. What survives is
+    /// the definition above, which is the reason the struck sentence gave for itself.
     PushButton,
     /// §12.7.5.2.3: a control that "toggles between two states, on and off".
     CheckBox {

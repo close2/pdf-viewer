@@ -202,6 +202,9 @@ impl Date {
     ///
     /// The clause's own answer for a date that states no zone: "[i]f no UT information is
     /// specified, the relationship of the specified time to UT shall be considered to be GMT."
+    /// Errata Collection 3 replaces that sentence with one saying the same thing in `/Offset`'s
+    /// own units, and this module's header carries both — the quotation stays because it is what
+    /// `doc/md/` holds, and the arithmetic below is unchanged by the amendment.
     #[must_use]
     pub fn instant(&self) -> i64 {
         let days = days_from_civil(self.year, self.month, self.day);

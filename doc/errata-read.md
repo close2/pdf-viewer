@@ -1,18 +1,20 @@
 # Errata Collection 3, read against this tree
 
-What `tools/spec-errata check` named, and what each passage turned out to be. Written in the
-four-hundred-and-seventeenth session so that nobody reads them twice. ADR 0252 built the tool;
-ADR 0253 is this reading.
+What `tools/spec-errata check` named, and what each passage turned out to be. Begun in the
+four-hundred-and-seventeenth session so that nobody reads them twice and finished in the
+four-hundred-and-eighteenth. ADR 0252 built the tool; ADR 0253 and ADR 0254 are the two readings.
 
-**The list read here is `check`'s output as it stood before this session**: 79 lines, 65 distinct
-passages, of which the four-hundred-and-sixteenth session had already read three. So 62 distinct
-passages — 76 of the 79 lines — are new below, and they are the whole of the round's task.
+**All 120 distinct passages `check` names now carry a verdict.** The three tables below are the
+order they were read in rather than three kinds of thing: **the 79 lines / 65 distinct passages**
+`check` printed before its comparison was corrected; **three more** that the correction made visible
+and that `Landing::in_clause` had filed under a neighbouring clause; and **the other 54**, read a
+round later. `check` prints 151 lines for those 120, because an erratum stated in two annotation
+objects prints twice.
 
-**The same session widened the instrument and the list is now 151 lines.** Two of the four findings below, and one further stale quotation, came from passages that only became visible then — they are in the *second* table rather than the first. The comparison was
+**The instrument was corrected once, between the first table and the third.** Its comparison was
 whitespace-sensitive and both sides are extractions of the same glyphs by different programs, so a
-passage one of them writes `inthe` and the other writes `in the` was called absent. 55 further
-distinct passages became visible, and they are **not** read below — they are the next step, listed
-at the foot of this file.
+passage one writes `inthe` and the other writes `in the` was called absent; dropping the spaces took
+the count from 79 lines to 151 (ADR 0253).
 
 ## What the `/State` annotations turned out to be
 
@@ -36,7 +38,7 @@ Five notes reported as "Accepted, Unmarked" and the second word is **not** a sec
 Table 174 states two state models and `Unmarked` is the *Marked* model's default. `spec-errata`
 now prints `StateModel/State` so that the two cannot be confused again.
 
-## The 79, by clause
+## The first 79 lines, by clause
 
 Verdicts: **implements** — the tree carries out the retired rule; **quotes** — a comment or ledger
 note quotes retired text; **cites** — the clause is cited and the erratum changes nothing it
@@ -103,7 +105,7 @@ objects prints twice. The multiplicities below sum to the 79.
 | Annex H.3 | 922, 923 | #402, #563 | untouched | ×3 lines, two errata. Annex H says *informative* on its own title line; both errata are inside examples. |
 | ISO/TS 32001 §5.1.4 | 10 | #404 | untouched | SHAKE256's fixed OID gives way to RFC 8702's algorithm identifiers. No SHA-3 or SHAKE anywhere in the tree; an unknown digest OID is reported rather than guessed. |
 
-## Not on the 79: three the corrected comparison found, and all three are findings
+## Not on the first 79: three the corrected comparison found, and all three are findings
 
 Each is a passage whose two extractions space a word differently, so the whitespace-sensitive
 containment test called it absent. Each also lands on a page whose *outline* section is the next
@@ -116,7 +118,7 @@ and not a verdict.
 | §9.6.2.2 Standard 14 fonts | 330 | §9.6.2.3 | #47, #48 | **quotes** | The clause's `shall` struck and its neighbour demoted to an informative NOTE. Three doc comments called it this program's warrant for the compiled-in fourteen. **Fixed.** |
 | §14.8.6.1 Namespaces | 809 | §14.8.6.2 | #151 | quotes | The default-namespace sentence is replaced by one that states the order — the default applies *after* the role map has been applied transitively. `Tree::role` is that walk already. **Quotation annotated.** |
 
-## The findings, and what was done
+## The findings of the four-hundred-and-seventeenth session, and what was done
 
 1. **§12.5.2, Issue #23 and #34 with #56 — `/BM` was being ignored on a stored appearance stream.**
    Not on `check`'s list at all: the strikeout's text joins two words and the whitespace-sensitive
@@ -145,20 +147,150 @@ and not a verdict.
    trade one contradiction for another. No corpus document states `/Alternates`.
 5. **The instrument under-reported by 72.** See ADR 0253.
 
+## The other 54, read in the four-hundred-and-eighteenth session
+
+`check` names **151 lines, 120 distinct passages**. Sixty-three of the 120 carry a verdict in the
+table above; three more of them are in the second table (§12.5.2 at p.485, §9.6.2.2 at p.330,
+§14.8.6.1 at p.809), which the page-straddle put under a neighbouring clause. **The remaining 54
+are here**, same discipline, one line apiece. ADR 0254 is the round.
+
+| clause | p. | issue | verdict | what it turned out to be |
+|---|---|---|---|---|
+| §2 Normative references | 21 | #719 | cites | The MathML 3.0 reference becomes **MathML Core**. `structure.rs`'s `MATHML_NAMESPACE` and §14.8.6.3's ledger row both said "MathML 3.0" — the URI does not move and the edition is now the wrong thing to name. Corrected. |
+| §3 Terms | 23 | #149 | untouched | "cross-reference table" is redefined as the data derived from *all* sections and streams, with a NOTE saying the colloquial use is wrong. Nothing here names the term normatively. |
+| §7.2.3 Character set | 36 | #193 | untouched | A NOTE about representing a non-encrypted file in printable ASCII. `lexer.rs`'s byte classes are the clause's other half and are untouched. |
+| §7.5.4 Cross-reference table | 71 | #113 | **false positive** | "Each cross-reference subsection shall contain entries for a contiguous range of object numbers." — and `doc/md/` carries that sentence **twice on one line**, because the standard prints it twice. The erratum deletes one copy; the rule stands, and `xref.rs`'s `realigned` still rests on it. See the note on the instrument below. |
+| §7.5.4 | 71 | #147 | untouched | NOTE 3's closing sentence, that an update's subsections can never have object number zero, struck; "positive" becomes "non-negative". A NOTE, and `xref.rs` records a free entry rather than reasoning about the number. |
+| §7.5.5 File trailer | 73 | #149 | cites | `/Size`'s definition is inverted: the "1 greater than the highest object number" sentence becomes the rule and the entry count becomes NOTE 1. §7.5.5's row already treats `/Size` as a claim to be departed from, on 68 corpus documents. |
+| §7.5.6 Incremental updates | 75 | #341 | untouched | An advantage-of-updates NOTE loses its OLE and HTTP examples. |
+| §7.5.8.4 Compatibility | 83 | #146 | cites | `/XRefStm`'s offset loses "in the decoded stream" exactly as §7.5.5's `startxref` did (#101, read in the 417th). `xref::read_at` reads the offset from the file's start either way, which is what the amended sentence says. |
+| §7.6.4.3.3 Algorithm 2.A | 96 | #53 | untouched | A NOTE moved and repointed at §7.6.4.4. |
+| §7.6.4.4.1 Algorithm 2.B | 97 | #325 | cites | **The erratum vindicates the code.** Step a)'s "64 repetitions of the sequence: input password, K, the 48-byte user key" is replaced by an explicit K0 — password ‖ K ‖ user key for the owner, password ‖ K otherwise — then K1 = 64 × K0. `crypt.rs::hash_2b` builds exactly that, with `extra` empty on the user path. |
+| §7.8.3 Resource dictionaries | 127 | #9 | cites | "(or is an element of an array that is the value of that entry)" struck from the page-`/Contents` bullet. A `/Contents` array is one stream by §7.8.2 and is read as one here. |
+| §7.8.3 | 127 | #128 | **implements** | The Type 3 glyph bullet becomes a **four-step search order** whose first step this tree did not have. See the findings below. |
+| §7.9.2.1 General | 130 | #322 | cites | Table 39's type names are rewritten — "string" gains "may be further qualified", `/Number` becomes "numeric object", the tree types are named as data structures. §7.9.2.1's own body sentence, which the ledger row quotes, is **not** struck. |
+| §7.9.2.2.1 | 131 | #96 | untouched | An EXAMPLE's Cyrillic bytes, spelled as `\213` and `<FEFF…>` instead of as question marks the conversion produced anyway. |
+| §7.9.2.4 Byte string | 132 | #96 | untouched | NOTE 5 on UTF-16BE against UCS-2 deleted. Nothing here has a `wchar_t`. |
+| §7.11.4.1 General | 153 | #155 | quotes | `/Subtype`'s MIME type is narrowed to RFC 2046 §2's top-level type and description, with no parameters and no `;`, `=` or `#`. Every word of it binds a producer. `attachment.rs` quoted the retired sentence — corrected, and the value is still kept as the document wrote it. |
+| §7.12.6 URL | 158 | #239 | cites | `/ExtensionRevision`'s "shall be a monotonically increasing sequence" becomes "should increase". Nothing here compares two revisions. |
+| §8.4.5 ExtGState | 180 | #371 | cites | Table 58's `/FL` loses the 0-to-100 range, which moves into §10.7.2 (below). The permission this tree exercises is in neither half. |
+| §8.4.5 | 182 | #360 | cites | `/UseBlackPtComp` loses "The default value is: Default." — an entry whose stated default already said "up to the PDF processor". `BlackPoint::Default` compensating is this processor's determination either way, and `content.rs` says so. |
+| §8.6.5.5 ICCBased | 206 | #181 | cites | The other half of the erratum read at p.207: the table becomes one of ICC *profile header* versions. |
+| §8.6.6.5 DeviceN | 221 | #309 | untouched | The `/Colorants` restriction to non-`NChannel` spaces is struck. `/Attributes` is unread; nothing in the tree names `NChannel`. |
+| §8.9.6.1 | 280 | #79 | **implements** | The second mark of §8.9.5.4's rewrite, carrying the amended step c) and the new step e). Finding 4 above, still declined for the reason stated there. |
+| §8.9.6.3 Explicit masking | 281 | #333 | untouched | A cross-reference repointed from §9.6.5.3 to §9.6.4, and "need almost always be used" softened to "is normally used", in a NOTE about stencil masks and glyph bitmaps. |
+| Table 74 `CS`/`cs` | 285 | #19 | cites | **The erratum vindicates the code.** "The names DeviceGray, DeviceRGB, DeviceCMYK and Pattern always identify the corresponding colour spaces directly" becomes "either directly **or via a default colour space** (see 8.6.5.6)" — which `colour.rs` has done since the twenty-fifth session, remapping through `/DefaultGray`, `/DefaultRGB` and `/DefaultCMYK`. |
+| §9.6.2.1 General | 329 | #106 | cites | "; shall be an indirect reference" again. |
+| §9.6.4 Type 3 fonts | 333 | #128 | **implements** | Table 110's `/Resources` row is rewritten and loses the page fallback it stated. Same finding as §7.8.3's. |
+| §9.6.4 | 334 | #128 | **implements**, quotes | Step d) is replaced by a pointer to §7.8.3. `type3.rs::resources` quoted the retired two-place rule and implemented it. **Fixed.** |
+| §9.8.1 General | 358 | #11 | cites | Table 120's `/FontName` gains a Type 3 case: it matches the font dictionary's `/Name` for a Type 3 font and `/BaseFont` for every other. A writer's rule; `collection.rs` matches `/FontName` against a TrueType collection's PostScript names, which the surviving half describes. |
+| §10.6.5.6 Type 5 halftones | 396 | #311 | untouched | §10.6 is inapplicable on the standard's own condition (`CLAUDE.md`). |
+| §10.7.2 Flatness | 397 | #371 | cites | "It shall be a positive number" gains the 0-to-100 range and the meaning of 0, moved here from Table 58. The permission this row rests on — "PDF processors may choose to ignore any flatness tolerance" — is untouched, and `i` is still matched and discarded. |
+| §12.5.2 Annotation dictionaries | 483 | #287 | quotes | "[i]f an annotation dictionary includes the BS entry, then the Border entry **is** ignored" becomes "**shall be** ignored". `appearance.rs` quotes it in two places; the precedence it implements is the same one. Annotated. |
+| §12.5.6.21 Screen | 513 | #42 | cites | "If AP is not present, the screen annotation shall not have a default visual appearance and shall not be printed" struck. §12.5.6.18's row already refuses an appearance-less screen annotation *and reports it*, which is a stated choice rather than a rule this clause supplied. |
+| §12.5.6.24 Projection | 520 | #42 | untouched | The rule forbidding an `/AP` on a zero-area projection annotation struck. Nothing enforced it. |
+| §12.7.4.1 General | 546 | #313 | cites | **The erratum vindicates the code.** "a field dictionary may also be an annotation dictionary" becomes "a **Widget** annotation dictionary (see 12.5.6.19)", which is the only merge `appearance.rs` performs. |
+| §12.7.4.3 Variable text | 549 | #393 | untouched | An EXAMPLE cross-reference repointed at the example above it. |
+| §12.7.5.5 Signature fields | 561 | #158 | cites | `/DigestMethod`'s DSA-and-SHA-1 sentence becomes "[s]ome signature mechanisms require a specific digest function … the value of this entry shall be ignored". `/SV` is unread; the ledger says why. |
+| §13.2.7.2.2, §13.5, §13.6.4.4, §13.6.4.7, §13.7.2.2.4 | 648–718 | #449, #481, #38, #156, #145 | untouched | ×5. Clause 13 is out of scope by `CLAUDE.md`'s closed list. |
+| §14.5 Page-piece | 734 | #691 | untouched | "such as MD5 (described in Internet RFC 1321)" struck from a NOTE about detecting a changed page. The row is `inapplicable` and names no digest. |
+| §14.6.1 General | 735 | #334 | **quotes** | **NOTE 3 is deleted outright** — the one saying a marked-content tag has "no relationship to Tagged PDF … and thus is not rolemapped" — and the paragraph beside it now expects a tag *not* defined in an ISO publication or in §14.7 to use a second-class name. §14.6's ledger row gave that NOTE as its reason for reading no tag's meaning. **Fixed**: the status stands and the reason is now the gap in §14.7 and §14.8. |
+| §14.6.1 | 735 | #303 | untouched | NOTE 1, on a marked-content sequence being complete graphics objects rather than bytes, struck; an EDITOR NOTE says the notes will be renumbered. |
+| §14.8.4.4 Grouping | 772 | #141 | untouched | "Part is the semantic equivalent of Div." is replaced by a NOTE saying the opposite — a `Part`'s grouping *has* semantic value where a `Div`'s does not. `structure.rs` carries both types by name and interprets neither. |
+| §14.8.4.7.2 | 778 | #84 | untouched | `Strong`'s EXAMPLE 3 gloss: "the content that the user is intended to read first" becomes "is more important". |
+| §14.8.4.7.2 | 779 | #133 | cites | §14.8.4.7.3's link element is relaxed — one content item rather than two, "one or more link annotations", and the condition that their `/A`, `/Dest` and `/PA` match is struck. Recorded in the §14.8.4.7.2 row beside #437's enclosure reframing, which this round also settled. Nothing here validates an element's children. |
+| §14.8.6.3 Other namespaces | 810 | #72, #719 | quotes | The MathML sentence loses its version, gains a requirement that the `math` element enclose the formula under `Formula`, and requires the namespace on every MathML type *and attribute*. The row and `structure.rs` said "MathML 3.0" — corrected; the enclosure requirement is unchecked and now recorded. |
+| §14.12.4.2 DPart metadata | 852 | #290 | cites | Table 409's `/Metadata` is **withdrawn**: "XMP metadata streams shall not be used in DPart dictionaries", with a NOTE that it was allowed in earlier editions of PDF 2.0. `document_part` reads `/Start` and `/DParts` and no metadata at all. |
+| §14.13.2 Embedded associated files | 853 | #568 | cites | The designation is rewritten: an object's `/AF` is an array of file specifications carrying `/AFRelationship`, and a marked-content sequence "shall use an AF marked content tag (see 14.13.5)". That is the same division session 417's `/MCAF` finding rests on, from the other side. |
+| Annex E.2 | 893 | #340 | cites | Third-class names: the `XX` prefix survives, "[i]t is not necessary to register" becomes "cannot be registered". The row's own sentence is unaffected. |
+| Annex F.3.5 | 900 | #389 | untouched | A cross-reference repointed from F.3.4 to F.3.7. |
+| Annex H.7.5 | 939 | #402 | untouched | An XMP example replaced by an ellipsis. Annex H says *informative* on its own title line. |
+
+## What the reading found about the instrument itself
+
+**A struck passage `doc/md/` still carries is not always a retired one.** §7.5.4's #113 is the
+witness and it is the first false positive this list has produced: the conversion carries "[e]ach
+cross-reference subsection shall contain entries for a contiguous range of object numbers" **twice
+on one line**, because the standard prints it twice, and the erratum deletes one copy. Nothing in
+the annotation says which of the two it covers, so `still_in_conversion` cannot tell a
+de-duplication from a retirement and the reader has to. `xref.rs::realigned` rests on that sentence
+and keeps it.
+
+**And `check`'s two questions have different populations.** Three of the errata acted on this round
+— §7.11.4.1's #481, §12.7.5.2.2's #386, §14.8.2.2.2's #484 — are **not** on the 151, because
+`doc/md/` spells those passages differently enough that the containment test misses them, and they
+were found by the *other* half of the check: a quotation in this tree that overlaps struck text.
+Neither list contains the other.
+
+## The ledger's 977 spans, and a third population nobody had counted
+
+ADR 0249 established that `cargo test -p conformance` verifies rustdoc blockquotes and nothing in
+`ledger.toml`, whose notes hold **977 double-quoted spans**. This round swept them — against the
+errata rather than against the standard, which needs no new syntax in the ledger because the
+erratum supplies the other side of the comparison — and found a **third** population on the way:
+a pair of quotation marks inside ordinary rustdoc *prose*, which `CLAUDE.md` binds exactly as hard
+as a blockquote and which the gate's blockquote scanner walks straight past.
+
+| population | in-clause landings | elsewhere | stale quotations found |
+|---|---|---|---|
+| rustdoc blockquotes — the one population with a gate | 8 | 10 | **1** |
+| rustdoc prose | 11 | 28 | **6** |
+| `ledger.toml` notes | 11 | 10 | **4** |
+
+Eleven stale quotations, and **four of them are in the "elsewhere" bucket** — the one `check` prints
+under "a repeated phrase rather than a finding". `Landing::in_clause` compares the clause a
+quotation cites against the clause the *outline* puts the erratum's page in, and a clause heading
+that straddles a page break puts a real landing in the wrong list; ADR 0253 found three that way and
+this round found four more. The bucket is a sort order, not a verdict, for the third round running.
+
+Every in-clause landing that is not a defect is a *correction* quoting the wording it retired, which
+is `doc/todo/01`'s known false-positive shape and the same one its first four sweeps produce.
+
+## The findings of the four-hundred-and-eighteenth session
+
+1. **§7.8.3 and §9.6.4, Issue #128 — a Type 3 glyph description's own `/Resources` was never
+   read.** The 2020 clause named two places for a glyph description's resources, the Type 3 font
+   dictionary and then the page, and `Type3Font::resources` implemented exactly that. EC3 replaces
+   §9.6.4's step d) with a pointer to §7.8.3 and gives §7.8.3 a four-step search: "1. the stream
+   dictionary of that glyph description content stream; 2. the parent Type 3 font dictionary that
+   contained the CharProcs entry", then the page and what the page inherits. **The first step was
+   missing**, so a glyph stream stating its own `/Resources` was read against somebody else's
+   dictionary — silently, since a resource name that resolves to nothing draws nothing. **Fixed**,
+   with `tests/type3.rs::a_glyph_description_finds_the_resources_its_own_stream_names` built so
+   that only the new step can answer it. Table 110's `/Resources` row loses its page fallback in
+   the same erratum, and that fallback survives as §7.8.3's steps 3 and 4.
+2. **§14.6, Issue #334 — the ledger's reason for reading no tag's meaning was a deleted NOTE.**
+   Corrected; the status does not move and the reason is now §14.7's and §14.8's unimplemented
+   semantics.
+3. **Six prose quotations of sentences EC3 struck**, none of which any gate can see:
+   `viewer-ui/src/chrome.rs` and `pdf-font/src/lib.rs` on §9.6.2.1's and §9.6.2.2's standard-14
+   `shall`s — the two the four-hundred-and-seventeenth session missed while correcting three
+   others — `attachment.rs` twice on §7.11.4.1 (#481 and #155), `form.rs` on §12.7.5.2.2's struck
+   "it shall not use the V and DV entries" (#386), and `type3.rs` on the rule behind finding 1.
+4. **Four quotations in three ledger notes**: §7.6.3 (#542's rewritten AES sentence), §7.8.3
+   (#128's fourth bullet *and* §9.6.2.2's struck `shall`, which is two), §14.6 (finding 2).
+5. **One blockquote whose sentence is now informative**: `tests/accessibility.rs` on §14.8.2.2.2,
+   which #484 splits into a NOTE 2 with its two `shall`s softened to "is". The blockquote stays
+   verbatim, because `doc/md/` is what the gate verifies against; what the test rests on is the
+   surviving normative half.
+
+Four of session 417's five owed items are also settled — §7.3.10's grammar, §7.5.6's multi-update
+version reduction, §14.8.4.7.2's enclosure reframing and §14.6.1's Figure 9 — each as a documented
+choice in the row or the comment that owns it, rather than as code.
+
 ## Owed
 
-- **The 55 newly visible distinct passages**, which no session has read. `spec-errata check` names
-  them; among them are §7.2.3, §7.8.3, §8.4.5, §8.6.6.5, §8.9.6.3, §12.5.6.19, §12.7.4.3, §14.5,
-  §14.8.6.2 and Annex F.3.5.
-- **§8.9.5.4** (finding 4), with the carets' own words in the ledger row and the doc comment.
-- **§7.3.10's grammar**: the lexer accepts `+5 0 obj` and `007 0 obj`, which EC3 makes malformed
-  rather than merely undescribed. A reader's tolerance, but an undocumented one.
-- **§7.5.6's multi-update case**: `version::document` reads the newest catalog's `/Version` only,
-  so an update that *lowers* it lowers the document's version. EC3 forbids that outright.
-- **§14.8.4.7.2's framing** in `structure.rs` and the ledger: `Annot` and `Form` *enclose* rather
-  than *associate*, and a `Form` may enclose the widget with no content at all.
-- **§14.6.1's Figure 9** in `variable_text.rs`'s `PERMITTED` list: marked-content operators are now
-  admitted inside a text object, so a `/DA` carrying one is dropped on a stale reading. Harmless —
-  a bracket round nothing marks nothing — but silent.
-- **The ledger's 977 quoted spans**, which `spec-errata` still does not scan: it reads rustdoc
-  blockquotes, and this session found two of the ledger's stale quotations by hand.
+- **§8.9.5.4** (finding 4), which is still the one clause this tree knowingly implements a retired
+  version of. Unchanged and for the reason stated: the amended step a) reads as terminal and would
+  leave the amended d) unreachable, so a rewrite trades one contradiction for another.
+- **§14.8.6.3's enclosure requirement**: EC3 requires a `math` element to sit under a `Formula`
+  structure element and every MathML type *and attribute* to state the namespace. `Tree::role`
+  checks neither.
+- **The 51 landings in the "struck out of another clause" bucket.** All of them were looked at this
+  round and none is a finding — they are the "; shall be an indirect reference" family, four-word
+  coincidences, and this round's own corrections quoting what they retired — but the bucket is a
+  sort order and not a verdict, and it grows every time a correction is written.
+- **The ledger's single-quoted spans.** `quoted_spans` collects `"` … `"` only, because an
+  apostrophe would make every possessive an opening mark. §12.7.5.2.2's stale quotation was in
+  single quotes and was found through `form.rs`'s copy of the same sentence rather than by the
+  sweep, which is a coverage gap with a known cause and no cheap fix.

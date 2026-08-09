@@ -4698,10 +4698,13 @@ mod missing_width_tests {
 
 /// The third source of a simple font's advances: the program this processor actually draws.
 ///
-/// ISO 32000-2 §9.6.2.1's closing paragraph obliges a processor to supply glyph widths for
-/// the standard 14 when the dictionary omits them, and §9.6.2.2 lets it do that with "their
-/// font metrics and suitable substitution fonts". Adobe's published metrics name only the
-/// standard character set, so a `/Differences` reaching any other glyph — `.notdef` is the
+/// ISO 32000-2 Table 109 lets a standard-14 dictionary omit `/Widths` altogether, so a
+/// processor that means to draw the page has to supply the advances itself — and the metrics
+/// and the substitution face are the two things it can supply them from. (This paragraph rested
+/// on §9.6.2.1's closing `shall` and on §9.6.2.2's "their font metrics and suitable substitution
+/// fonts" until the four-hundred-and-eighteenth session; Errata Collection 3 struck both, and
+/// [`crate::standard`] carries the reading that replaces them.) Adobe's published metrics name
+/// only the standard character set, so a `/Differences` reaching any other glyph — `.notdef` is the
 /// one every Type 1 program is required to have (§9.6.5.2) — is answered by the program.
 ///
 /// `issue4304.pdf` is the corpus's witness and the oracle held it by name for a hundred and

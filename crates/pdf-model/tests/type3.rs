@@ -400,6 +400,71 @@ fn text_shown_inside_a_glyph_description_is_not_read_back() {
     );
 }
 
+/// A glyph description's *own* `/Resources` is searched before the font's and the page's.
+///
+/// **§7.8.3's first step, and Errata Collection 3 is what put it there** — Issue #128,
+/// `/State` `Review` `Completed`, which replaces §9.6.4's two-place rule ("the Resources entry
+/// of the Type 3 font dictionary … otherwise … the resource dictionary of the page") with a
+/// pointer to §7.8.3 and a four-step search whose first step is "the stream dictionary of that
+/// glyph description content stream". `doc/md/` carries neither, because the sponsored copy
+/// states EC3 as review markup and the conversion dropped it (ADR 0252, ADR 0253).
+///
+/// The fixture is built so that only the new step can answer: the square's description says
+/// `/X1 Do`, the *glyph stream* names `/X1`, and neither the font dictionary nor the page's
+/// resources mention it at all. Under the retired rule the name resolves to nothing and the
+/// square is a missing resource; under the amended one it draws.
+#[test]
+fn a_glyph_description_finds_the_resources_its_own_stream_names() {
+    let square = "1000 0 0 0 750 750 d1\n/X1 Do";
+    let bytes = String::from_utf8(
+        Fixture {
+            square,
+            ..Fixture::default()
+        }
+        .build(),
+    )
+    .expect("the fixture is ASCII");
+
+    // The glyph stream's dictionary gains the `/Resources` §7.8.3 now looks in first, and the
+    // form XObject it names is appended as a tenth object.
+    let stream_dictionary = format!("8 0 obj\n<< /Length {} >>", square.len() + 1);
+    assert!(
+        bytes.contains(&stream_dictionary),
+        "the fixture's square glyph is object 8 and its length is its own"
+    );
+    let form = "0 0 300 300 re f";
+    let bytes = bytes
+        .replace(
+            &stream_dictionary,
+            &format!(
+                "8 0 obj\n<< /Length {} /Resources << /XObject << /X1 10 0 R >> >> >>",
+                square.len() + 1
+            ),
+        )
+        .replace(
+            "endobj\nxref\n",
+            &format!(
+                "endobj\n10 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 750 750] \
+                 /Length {} >>\nstream\n{form}\nendstream\nendobj\nxref\n",
+                form.len() + 1
+            ),
+        );
+
+    let document = Document::open(rebuilt(&bytes)).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let interpretation = pdf_model::interpret(&document, &page);
+    assert!(
+        interpretation.is_complete(),
+        "the glyph's own resources name /X1, so nothing is missing: {:?}",
+        interpretation.unsupported
+    );
+    assert_eq!(
+        fill_origins(&interpretation).len(),
+        2,
+        "the square is now drawn by the form XObject and the triangle by its own path"
+    );
+}
+
 /// Rebuilds a fixture's cross-reference table after a string replacement changed its offsets.
 fn rebuilt(source: &str) -> Vec<u8> {
     let body: String = source

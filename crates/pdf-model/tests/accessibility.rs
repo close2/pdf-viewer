@@ -441,6 +441,13 @@ fn the_same_strings_outside_the_tag_are_not_reversed() {
 /// > EXAMPLE 1 shall be used to identify a generic artifact; the form indicated in EXAMPLE 2
 /// > shall be used for those artifacts that have an associated property list.
 ///
+/// **That sentence is informative under Errata Collection 3** — Issue #484, `/State` `Review`
+/// `Completed`, which splits the paragraph and makes this half a NOTE 2 with its two `shall`s
+/// softened to "is". The blockquote is kept verbatim because it is what `doc/md/` carries and
+/// what the conformance gate verifies against (ADR 0252); what changes is its force, and the
+/// requirement this test actually rests on is the surviving normative half — Table 363 states
+/// the property list's entries, and both forms remain the two the clause shows.
+///
 /// The first artifact here is a running head with Table 363's `/Type /Pagination`, a
 /// `/Subtype /Header` and an `/Attached [/Top]`; the second is the generic `BMC` form. **Both
 /// stay in the text**: the clause leaves what to do with an artifact to the consumer, so this

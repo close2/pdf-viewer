@@ -6146,11 +6146,22 @@ impl Interpreter<'_> {
         let mut inner = state.clone();
         inner.transform = font.font_matrix().then(text_rendering);
 
+        // §7.8.3's first step for a glyph description, which Errata Collection 3 put in front
+        // of §9.6.4's own rule (Issue #128): "the stream dictionary of that glyph description
+        // content stream". Resolved here rather than in `Type3Font` because the font holds the
+        // `/CharProcs` dictionary and not the decoded streams — a glyph is read when it is
+        // drawn — and cloned only where the stream states one, which is the rare case.
+        let stated = self
+            .document
+            .get_key(&glyph.dict, "Resources")
+            .as_dict()
+            .cloned();
+
         let saved_uncoloured = self.uncoloured;
         self.glyph_depth = self.glyph_depth.saturating_add(1);
         self.run(
             &data,
-            font.resources(resources),
+            font.resources(stated.as_ref(), resources),
             &inner,
             form_depth.saturating_add(1),
         );

@@ -1473,6 +1473,16 @@ struct DefaultAppearance {
 /// unbalanced one inside the stream written here would leak into the rest of the page.
 /// Text-positioning and text-showing operators are excluded because this module supplies them:
 /// a `Tj` in a `/DA` would draw the string twice.
+///
+/// **Marked content is admitted inside a text object and is not on this list**, which is a
+/// documented choice rather than an oversight. Errata Collection 3 strikes §14.6.1's "[t]hey may
+/// not occur within a graphics object" (Issue #335) and states outright that a marked-content
+/// sequence may appear "within a text object", so Figure 9 no longer excludes `BMC`, `BDC`,
+/// `EMC`, `MP` and `DP` from where a `/DA` runs — and this list drops them, silently, on the
+/// older reading. What is lost is nothing: this module replays a `/DA`'s operators into the
+/// appearance stream it builds, and a bracket round the text it draws marks a sequence nothing
+/// downstream of here reads. Admitting them would have to carry the nesting as well, because an
+/// unbalanced `BDC` would leak into the rest of the stream exactly as `q` would.
 const PERMITTED: [&[u8]; 27] = [
     b"Tc", b"Tw", b"Tz", b"TL", b"Tr", b"Ts", b"CS", b"cs", b"SC", b"SCN", b"sc", b"scn", b"G",
     b"g", b"RG", b"rg", b"K", b"k", b"w", b"J", b"j", b"M", b"d", b"ri", b"i", b"gs", b"Tf",

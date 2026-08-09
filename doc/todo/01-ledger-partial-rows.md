@@ -1085,6 +1085,20 @@ conversion of the PDF breaks words across lines — `text-tospeech`, `hierarch y
 does not repair those either, which is why two blockquotes written *in this round* failed the gate
 until they were shortened.
 
+**A twelfth sweep since the four-hundred-and-eighteenth, and it lives in `tools/spec-errata`
+rather than here**: the same 977 spans against *Errata Collection 3* instead of against `doc/md/`.
+It needs none of the syntax ADR 0249 priced, because the erratum supplies the other side of the
+comparison — a span matching a sentence an erratum struck out is the standard's by construction,
+whatever else the ledger quotes. First run: **21 ledger landings, 4 stale quotations in 3 rows**
+(§7.6.3, §7.8.3 twice, §14.6), the rest being corrections quoting the wording they retired, which is
+this file's own fourth-sweep shape. It also found a **third population of quotation**, which neither
+this file nor ADR 0249 had counted: a pair of quotation marks inside ordinary rustdoc *prose*, which
+`CLAUDE.md` binds exactly as hard as a blockquote and which the gate's `> ` scanner walks past —
+39 landings, **6 stale quotations**, the worst of the three. `spec-errata check` is where
+it runs; ADR 0254 is why it is not here and not a gate. Its one known gap: `quoted_spans` collects
+double quotes only, because an apostrophe would make every possessive an opening mark, and
+§12.7.5.2.2's stale quotation was in single quotes.
+
 **And the sweep found a defect in the file rather than in a claim**: 17 rows carried **72
 double-escaped quotation marks**, `\\\"` in the TOML, which decodes to a literal backslash before
 the quote — so 36 quotations rendered with stray backslashes. Fourteen of the seventeen are the §8.4

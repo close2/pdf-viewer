@@ -19,7 +19,7 @@ features no file exercises.
 ```sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets      # must be silent of lints
-cargo nextest run --workspace               # 1495 tests, 10 ignored
+cargo nextest run --workspace               # 1498 tests, 10 ignored
 cargo test --workspace --doc                # the one doctest nextest does not run
 cargo build --profile gates -p pdf-sandbox --bins   # trap 10: Cargo will not do this for you
 cargo test  --profile gates -p pdf-model      --test corpus          -- --ignored --nocapture
@@ -73,7 +73,11 @@ here:
   `/DeviceCMYK` costs — and it was not behind for the eleventh; the four-hundred-and-sixteenth
   added **two** — both in the new `tools/spec-errata`, for which of Table 172's `/RT` values makes
   an annotation a reply and for a strikeout that covers no glyph — and it was not behind for the
-  twelfth.)
+  twelfth. **The four-hundred-and-eighteenth added one** — §7.8.3's first step for a Type 3 glyph's
+  resources — **and the gate printed 1498, so the line was two behind**, which is the first time in
+  seven rounds it has been. Where the two came from was not chased; what the run shows is the rule's
+  precondition rather than the rule: this line is current only for a round that *ran* the gate and
+  copied its number, and a round that writes the number without running it writes last time's.)
 - **One of those eighteen runs a C compiler**, and it is the only gate in this sequence that does.
   `viewer-ffi::a_c_program_drives_the_abi` builds `crates/viewer-ffi/c/open_a_page.c` against the
   crate's own header with `-Wall -Wextra -Werror`, links it against the `cdylib` — which it asks
@@ -134,6 +138,14 @@ notes hold 977 quoted spans. Report only the misses that match the standard for 
 and then diverge — a claim this project invented shares no words with it and a misquotation shares
 most of them — and the first run found six. ADR 0249, and it is not a gate for a reason the ADR
 prices.
+
+**A twelfth since the four-hundred-and-eighteenth, and it is not run from here** — it is
+`cargo run --release -p spec-errata -- check doc/*.pdf`, seven seconds, and it asks the same 977
+spans a *different* question: does one of them quote a sentence Errata Collection 3 struck out? That
+needs none of ADR 0249's syntax, because the erratum supplies the other side. Its first run found four
+stale quotations in three ledger rows and, beside them, six more in a population nobody had counted
+at all — quotation marks inside ordinary rustdoc prose, which `CLAUDE.md` binds exactly as hard as a
+blockquote and which the gate's `> ` scanner walks straight past. ADR 0254.
 
 **And run all four greps over `crates/` as well as over `ledger.toml`.** The ledger has a gate and the
 source does not, which is why the two-hundred-and-twenty-first session found four claims in the
