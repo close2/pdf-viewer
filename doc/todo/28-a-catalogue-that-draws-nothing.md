@@ -9,7 +9,12 @@ three-hundred-and-ninety-seventh (ADR 0234) and §11.4.4's non-isolated group in
 (ADR 0237), so **the two NOTE 5 lines this file prints are expected to be gone** — which is now a
 check rather than a question, the third time this file has turned one into the other. What is left
 of item 3 is §11.4.7's `/DeviceCMYK` blending space, which is `doc/todo/23`'s one standing
-population with this document as its witness. Measured in the three-hundred-and-thirty-sixth, from a
+population with this document as its witness — **and §11.4.7 turned out to be the right clause for
+a reason nobody had checked**: the four-hundred-and-fifteenth session found that a group's own
+`/CS` takes effect only where the group is isolated, so it is the *page* group that decides, and
+the entry was read nowhere in this tree until that session (ADR 0251). Whether this catalogue's
+four reports were groups or its page is therefore a question the owner's run answers and no gate
+here can. Measured in the three-hundred-and-thirty-sixth, from a
 document the project owner opened and the notes it printed.
 Priority: 28
 Corpus: **0** — and that is the point. This is a real document from outside the pdf.js corpus, and
@@ -75,7 +80,9 @@ The same document prints the four populations `doc/todo/23` names, on one page:
 
 - a soft mask's group composited in device RGB and its luminosity taken there, rather than in the
   blending colour space its `/CS` names (§11.6.6) — **twelve times**;
-- a blending colour space of `/DeviceCMYK` (§11.4.7) — **four times**;
+- a blending colour space of `/DeviceCMYK` (§11.4.7) — **four times**, and the wording of those
+  four reports has changed: what the viewer prints now names the *page* group where the page states
+  one and the group where an isolated group states its own, which is the distinction ADR 0251 drew;
 - non-isolated, and an element blends with the backdrop it excludes (§11.4.4's NOTE 5) — **twice**.
 
 `doc/todo/23` counted these over the pdf.js corpus at 19 documents and said the first question is
@@ -130,5 +137,13 @@ the layout, the scroll and the page-turn arithmetic to change together.
 3. **The groups.** §11.4.7's `/DeviceCMYK` blending space, which is the same change one level out.
    The structural half of this item — §11.4.6's knockout shape and §11.4.4's non-isolated backdrop —
    was paid in the three-hundred-and-ninety-seventh and four-hundredth sessions (ADRs 0234, 0237),
-   so what is owed here is a colour space and nothing else.
+   so what is owed here is a colour space and nothing else. **It is priced now, and the price is a
+   four-component raster per group**: compositing in `DeviceCMYK` and converting once differs from
+   converting first and compositing on the device by up to 48 of 255, because this tree's conversion
+   is multilinear over the ink cube rather than affine, and 51.5 of 255 at half of registration
+   black over paper. ADR 0251 has the 300 000-case measurement. **What the run over this file would
+   add is the one thing the corpus cannot**: a commercial CMYK catalogue is where a registration
+   black *is*, so the closed form's worst case is this document's ordinary case, and the four
+   reports are expected to name §11.4.7 now rather than §11.6.6 — or to have moved to the page,
+   which is the same finding read from the other side.
 4. Nothing else. The layout note is a statement about this host, and the file is otherwise read.

@@ -919,3 +919,233 @@ fn a_non_isolated_group_inside_another_keeps_the_backdrop_alpha_it_composites_on
         "an isolated group's element multiplies against nothing and keeps its blue"
     );
 }
+
+/// A one-page fixture whose *page* states a `/Group`, with one form group inside it.
+///
+/// §11.4.7 makes the page group the root of §11.6.6's inheritance, and no other fixture in
+/// this file states one — so until this existed there was no way to write a test about the
+/// space a page composites in at all.
+///
+/// `page_group` is the page dictionary's `/Group` entry, written whole so a test can leave it
+/// out; `form_group` is the form's; `form` is what the form draws and `page` what the page
+/// draws around it.
+fn page_group_fixture(page_group: &str, form_group: &str, form: &str, page: &str) -> Vec<u8> {
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] {page_group} \
+         /Resources << /ExtGState << /GS << /ca 0.5 /CA 0.5 >> >> \
+         /XObject << /Fm 5 0 R >> >> /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{page}\nendstream\nendobj\n\
+         5 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] {form_group} \
+         /Resources << /ExtGState << /GS << /ca 0.5 /CA 0.5 >> >> \
+         /XObject << /In 6 0 R >> >> /Length {} >>\n\
+         stream\n{form}\nendstream\nendobj\n\
+         6 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] \
+         /Group << /S /Transparency /CS /DeviceCMYK >> \
+         /Resources << /ExtGState << /GS << /ca 0.5 >> >> >> /Length {} >>\n\
+         stream\n{NESTED}\nendstream\nendobj\n",
+        page.len() + 1,
+        form.len() + 1,
+        NESTED.len() + 1
+    );
+
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len() + 1;
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// The nested non-isolated group object 6 holds, which restates `/DeviceCMYK`.
+///
+/// Two half-opaque fills, so that whatever space is in force is a space something composites
+/// in: the report every test below reads is conditioned on that.
+const NESTED: &str = "/GS gs 0 0 0 1 k 0 0 60 60 re f 1 1 0 0 k 40 40 60 60 re f";
+
+/// §11.6.6's inheritance and §11.4.7's root of it, which decide *which* space is departed from.
+///
+/// The entry is not read where the file writes it. §11.6.6 gives a group's `/CS` effect "[f]or
+/// isolated groups" and then says of the rest:
+///
+/// > For non-isolated groups, or if no group colour space is specified, the group colour space
+/// > shall be inherited from the parent group or page.
+///
+/// and §11.7.2 repeats it — "[n]on-isolated groups shall inherit their colour space from the
+/// nearest ancestor isolated parent group". So the six cases below are one clause read in one
+/// direction, and until the four-hundred-and-fifteenth session this tree reported the declared
+/// entry: a non-isolated `/DeviceCMYK` group was named on a page that composites in RGB, and a
+/// page group of `/DeviceCMYK` — which decides every mark on the page — was not named at all.
+#[test]
+fn the_blending_space_is_the_one_in_force_rather_than_the_one_declared() {
+    let reported = |page_group: &str, form_group: &str| {
+        let page = "/GS gs 1 0 0 RG 0 0 1 rg 10 10 50 50 re B /Fm Do";
+        let form = "/GS gs 0 1 0 rg 20 20 50 50 re f /In Do";
+        format!(
+            "{:?}",
+            interpret(page_group_fixture(page_group, form_group, form, page)).unsupported
+        )
+    };
+    let page_cmyk = "/Group << /S /Transparency /CS /DeviceCMYK >>";
+    let group = |entry: &str| format!("/Group << /S /Transparency {entry} >>");
+
+    // A non-isolated group naming `/DeviceCMYK` on a page that states no group at all. The
+    // clause hands the space to the parent, and the parent is §11.4.7's page group, whose
+    // space "is inherited from the native colour space of the actual, assumed or simulated
+    // output device" — this device's three components. Nothing departs.
+    let inherited = reported("", &group("/CS /DeviceCMYK"));
+    assert!(
+        !inherited.contains("blending colour space"),
+        "a non-isolated group's own /CS is not the space anything composites in: {inherited}"
+    );
+
+    // The same group with `/I true`, which is the first bullet's condition.
+    let isolated = reported("", &group("/I true /CS /DeviceCMYK"));
+    assert!(
+        isolated.contains("blending colour space /DeviceCMYK"),
+        "an isolated group's /CS is the space its elements composite in: {isolated}"
+    );
+
+    // §11.4.7's page group, which decides the whole page and which this tree read nothing of
+    // before. The form here is the *same* non-isolated one that reported nothing above.
+    let page_level = reported(page_cmyk, &group(""));
+    assert!(
+        page_level.contains("the page group's blending colour space /DeviceCMYK (§11.4.7)"),
+        "a page group's /CS is the default blending space for the page: {page_level}"
+    );
+
+    // And it is reported once, at the point the file introduces it, rather than again at every
+    // group that inherits it — the fixture nests three groups inside that page.
+    assert_eq!(
+        page_level.matches("blending colour space").count(),
+        1,
+        "one departure named where it is introduced: {page_level}"
+    );
+
+    // An isolated group *replaces* the inherited space, which the first bullet says outright:
+    // its elements are converted to the group's space, not to the page's. So an RGB group
+    // inside a `/DeviceCMYK` page reports the page and not itself — and the nested
+    // `/DeviceCMYK` group inside *it* is non-isolated, so it inherits the RGB one.
+    let replaced = reported(page_cmyk, &group("/I true /CS /DeviceRGB"));
+    assert_eq!(
+        replaced.matches("blending colour space").count(),
+        1,
+        "an isolated RGB group inside a CMYK page departs only above itself: {replaced}"
+    );
+
+    // A page group of `/DeviceRGB` is what this tree already composites in, so it is not a
+    // departure — the entry being *present* is not the condition.
+    let rgb_page = reported("/Group << /S /Transparency /CS /DeviceRGB >>", &group(""));
+    assert!(
+        !rgb_page.contains("blending colour space"),
+        "a page group naming the device's own components asks for what happens: {rgb_page}"
+    );
+
+    // And the page-level report is conditioned on something compositing, for the reason every
+    // other report in this file is: an opaque Normal paint carries its colour through
+    // unchanged whatever space it is carried through, so a page of them is the same page.
+    let opaque = format!(
+        "{:?}",
+        interpret(page_group_fixture(
+            page_cmyk,
+            &group(""),
+            "0 1 0 rg 20 20 50 50 re f",
+            "0 0 1 rg 10 10 50 50 re f",
+        ))
+        .unsupported
+    );
+    assert!(
+        !opaque.contains("blending colour space"),
+        "nothing composites, so the space cannot change a pixel: {opaque}"
+    );
+}
+
+/// What compositing in `/DeviceCMYK` costs, against compositing in the device's components.
+///
+/// This is the arithmetic behind the report above, and it is why the report is a report rather
+/// than a construction. §11.3.3 composites two colours as a weighted average and §11.3.6 says
+/// so — "the compositing formula collapses to a simple weighted average of the backdrop and
+/// source colours" under `Normal` — so doing it in the blending space and converting once at
+/// the end agrees with converting first and compositing in the device's components **exactly
+/// when the conversion is affine over the colours involved**, and only then.
+///
+/// This tree's `DeviceCMYK` conversion is multilinear over the ink cube (ADRs 0009, 0042),
+/// which is not affine: the interpolation carries products of the four inks. The two orders of
+/// operation therefore differ, and the fixture below is the simplest case there is — a
+/// half-opaque registration black over paper, which is 51.5 of 255 apart. That number is what
+/// makes §11.6.6's blending space a second raster format rather than a colour conversion, and
+/// ADR 0251 has the 300 000-case measurement it is the head of.
+#[test]
+fn compositing_in_cmyk_is_not_compositing_in_the_device_and_this_is_the_gap() {
+    use pdf_model::colour::ColourSpace;
+
+    // §11.3.3 under `Normal`, over an opaque backdrop: `Cr = (1 − as) × Cb + as × Cs`.
+    let mix = |backdrop: &[f32], source: &[f32], alpha: f32| -> Vec<f32> {
+        backdrop
+            .iter()
+            .zip(source)
+            .map(|(b, s)| (1.0 - alpha) * b + alpha * s)
+            .collect()
+    };
+    let rgb = |values: &[f32]| {
+        let colour = ColourSpace::Cmyk.to_rgb(values);
+        [colour.r, colour.g, colour.b]
+    };
+
+    let paper = [0.0, 0.0, 0.0, 0.0];
+    let registration = [1.0, 1.0, 1.0, 1.0];
+
+    // §11.6.6's order: composite in the blending space, convert the result once.
+    let in_cmyk = rgb(&mix(&paper, &registration, 0.5));
+    // This tree's order: convert each colour, composite on the device's components.
+    let in_device = mix(&rgb(&paper), &rgb(&registration), 0.5);
+
+    let gap = in_cmyk
+        .iter()
+        .zip(&in_device)
+        .map(|(a, b)| (a - b).abs())
+        .fold(0.0_f32, f32::max);
+    assert!(
+        gap * 255.0 > 51.0,
+        "half of registration black over paper is {in_cmyk:?} in CMYK and {in_device:?} on \
+         the device, {:.1} of 255 apart",
+        gap * 255.0
+    );
+
+    // And the direction is not an accident: compositing in ink makes the half-covered pixel
+    // *darker* than mixing the two converted colours, because half the ink of registration
+    // black is still most of the way to black.
+    assert!(
+        in_cmyk[0] < in_device[0] && in_cmyk[1] < in_device[1] && in_cmyk[2] < in_device[2],
+        "compositing in ink is darker: {in_cmyk:?} against {in_device:?}"
+    );
+
+    // Where the conversion *is* affine the two orders agree, which is the other half of the
+    // claim and is what ADR 0220 relied on one clause over: a `DeviceGray` colour taken into
+    // CMYK moves along one edge of the cube, and multilinear interpolation is affine on an
+    // edge.
+    let dark = [0.0, 0.0, 0.0, 0.8];
+    let light = [0.0, 0.0, 0.0, 0.2];
+    let along_the_edge = rgb(&mix(&dark, &light, 0.5));
+    let converted_first = mix(&rgb(&dark), &rgb(&light), 0.5);
+    for (a, b) in along_the_edge.iter().zip(&converted_first) {
+        assert!(
+            (a - b).abs() * 255.0 < 0.5,
+            "on one edge of the ink cube the two orders agree: {along_the_edge:?} against \
+             {converted_first:?}"
+        );
+    }
+}

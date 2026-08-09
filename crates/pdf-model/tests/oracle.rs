@@ -4509,7 +4509,15 @@ const AMBIGUOUS_MASKED_BLUR: [&str; 1] = ["issue19634.pdf page 1"];
 /// agreeing rather than two renderers being close. `mupdf` is flat too, 0.14 below both, and
 /// `ghostscript` 0.11 above: five answers spanning a quarter of a level on a photograph, which is
 /// what `AMBIGUOUS_DEVICE_CMYK_CONVERSION` says about any page whose colour rests on a press.
-const AMBIGUOUS_SUBTRACTIVE_MASK_GROUP: [&str; 1] = ["bug1703683_page2_reduced.pdf page 1"];
+/// **The page left this bucket again in the four-hundred-and-fifteenth session, and the reason
+/// is one entry nothing had read.** Its page dictionary states
+/// `/Group << /S /Transparency /CS /DeviceCMYK >>`, which §11.4.7 makes "the default blending
+/// colour space for each page" — so every mark on it composites in ink and this tree composites
+/// in the device's three components. The page reports that by name now and is no longer judged.
+/// The measurement above stands as what was found while it was, and it is *consistent* with the
+/// report rather than superseded by it: a photograph whose five renderers span a quarter of a
+/// level is exactly the page where a colour-space departure is small and real.
+const AMBIGUOUS_SUBTRACTIVE_MASK_GROUP: [&str; 0] = [];
 
 /// Ambiguous, and Table 87 defines the premultiplication and nothing else.
 ///
@@ -4569,7 +4577,12 @@ const AMBIGUOUS_MATTE_WITHOUT_A_SOFT_MASK_IMAGE: [&str; 1] = ["jpx_smaskindata.p
 /// worst-tile bound measured over glyph edges is tighter than five renderers' scan conversion
 /// of 6-point type, which is `AMBIGUOUS_GLYPH_SCAN_CONVERSION`'s subject wearing this file's
 /// name.
-const AMBIGUOUS_NON_ISOLATED_POSTER: [&str; 1] = ["issue12798_page1_reduced.pdf page 1"];
+/// **And it left this bucket in the four-hundred-and-fifteenth session for the same reason
+/// `AMBIGUOUS_SUBTRACTIVE_MASK_GROUP` did**: its page dictionary states a
+/// `/Group << /S /Transparency /CS /DeviceCMYK >>`, §11.4.7 makes that the page's default
+/// blending colour space, and this tree composites in the device's three components. Three
+/// ladders 0.0030 apart were never the whole story about a poster printed in ink.
+const AMBIGUOUS_NON_ISOLATED_POSTER: [&str; 0] = [];
 
 /// Ambiguous, and the five renderers span **3.65 of 255** on a 209 x 90 illustration.
 ///
@@ -4599,7 +4612,15 @@ const AMBIGUOUS_NON_ISOLATED_POSTER: [&str; 1] = ["issue12798_page1_reduced.pdf 
 /// stack of `Screen` blends under luminosity masks, which is §11.6.6's blending space —
 /// `doc/todo/23`'s standing item — rather than a mark anybody is missing. This tree reports
 /// nothing on the page and `open_one` finds all ten commands.
-const AMBIGUOUS_STACKED_SCREEN_UNDER_MASKS: [&str; 1] = ["issue13520.pdf page 1"];
+/// **And that last sentence turned out to name the entry rather than the mechanism, which the
+/// four-hundred-and-fifteenth session found by reading it.** The page's blending space is not
+/// §11.6.6's at all: its *page* dictionary states `/Group << /S /Transparency /CS /DeviceCMYK >>`
+/// and §11.4.7 makes that the default for everything on the page, groups and top-level marks
+/// alike. Every group inside it is non-isolated and inherits it. So the five readings of a stack
+/// of `Screen` blends are five readings of `Screen` **in ink**, the page reports it by name now,
+/// and it is no longer judged here. The hypothesis in the paragraph above was right about the
+/// clause family and wrong about which clause, which is trap 1's shape one directory over.
+const AMBIGUOUS_STACKED_SCREEN_UNDER_MASKS: [&str; 0] = [];
 
 /// Ambiguous, and three pages where every renderer paints more than the geometry.
 ///
@@ -5092,6 +5113,15 @@ const AMBIGUOUS_TABLE_RULE_EDGES: [&str; 3] = [
 /// cannot tell convergence from drift, and two say when neither has converged. Ours sits in the
 /// middle of the five at 21.62 and nothing here can rank them. That is a page for a heatmap and
 /// a later session, and it is listed rather than explained.
+///
+/// **And "a later session" came in the four-hundred-and-fifteenth, which answered it without a
+/// heatmap.** `personwithdog.pdf`'s page dictionary states
+/// `/Group << /S /Transparency /CS /DeviceCMYK >>`, and §11.4.7 makes that the default blending
+/// colour space for everything on the page. This tree composites in the device's three
+/// components, so the page reports it by name now and has left this group; the row above stands
+/// as what the ladders said while it was here, and the two references being 0.89 apart where
+/// they agree to a hundredth elsewhere reads differently once the page is known to be printed
+/// in ink.
 /// # A fourth in the three-hundred-and-fifth, where ours lands *between* the two limits
 ///
 /// `pdfjs_wikipedia.pdf` page 1 — a Wikipedia article printed to PDF, all text and rules:
@@ -5108,11 +5138,10 @@ const AMBIGUOUS_TABLE_RULE_EDGES: [&str; 3] = [
 /// limit, which is inside it. `ghostscript` is **20.62 against 23.93**, 3.2 of 255 above all four
 /// of the others at the page's own scale, and it is the whole reason the verdict is `ambiguous`:
 /// trap 12's arithmetic with one reference far enough out to drag the consensus apart.
-const AMBIGUOUS_NEAREST_THE_GEOMETRY: [&str; 4] = [
+const AMBIGUOUS_NEAREST_THE_GEOMETRY: [&str; 3] = [
     "pdfjs_wikipedia.pdf page 1",
     "issue7339_reduced.pdf page 1",
     "issue21570.pdf page 1",
-    "personwithdog.pdf page 1",
 ];
 
 /// Ambiguous, and the word spaces **were** drawn as marks — fixed in the two-hundred-and-
@@ -5706,7 +5735,49 @@ const AMBIGUOUS_CONSTRUCTED_WIDGET: [&str; 1] = ["bug1844576.pdf page 1"];
 /// `AMBIGUOUS_GLYPH_SCAN_CONVERSION`'s subject and is measured alone on page **6** of the same
 /// document — 456 commands, no image at all, two ladders agreeing to 0.0055 of 255 and ours
 /// climbing onto the limit to within 0.025.
-const AMBIGUOUS_ICC_MATRIX_PROFILE: [&str; 1] = ["issue19971.pdf page 5"];
+/// # A second in the four-hundred-and-fifteenth, and it arrived by a *report* being withdrawn
+///
+/// `issue14200.pdf` page 1 is one command: a 918 x 427 `FlateDecode` photograph of a kitchen
+/// display in `[/ICCBased 13 0 R]` with `/N 3` and `/Intent /RelativeColorimetric`, placed at
+/// 220.3 x 102.5 points on a 425 x 239 page, with an `/SMask` image beside it. It was never
+/// judged before this round because the form it sits in carries
+/// `/Group << /S /Transparency /CS /DeviceCMYK >>` and this tree read that as the blending space
+/// — but the group states no `/I`, and §11.6.6 gives a non-isolated group no colour space of its
+/// own. The page states no `/Group` either, so nothing on it composites anywhere but the device's
+/// components and the report was false.
+///
+/// ```text
+///                 72 dpi   288 dpi   576 dpi
+/// poppler        12.5109   12.3841   12.5137
+/// mupdf          12.5293   12.4036   12.5115
+/// ours (1x/4x/8x)12.2911   12.3540   12.3575
+/// ```
+///
+/// The dip at 288 dpi is both references passing through the resolution where the image is drawn
+/// **1:1** — 918 samples onto 881 device pixels — so the ladder is measuring resampling rather
+/// than edges, and only the outer rungs are worth reading. At 576 dpi the two references agree to
+/// **0.0022 of 255** and ours is flat 0.154 below them, having moved 0.0035 between 4x and 8x.
+///
+/// **A flat offset is a colour**, and the per-channel means say it is a uniform one:
+///
+/// ```text
+///             R          G          B
+/// ours    244.992    242.153    240.570
+/// poppler 244.844    241.995    240.407
+/// mupdf   244.842    241.998    240.414       (all at 576 dpi, -alpha off)
+/// ```
+///
+/// +0.148, +0.157, +0.160 on the three channels against `poppler` and the same against `mupdf`,
+/// where the two references are 0.007 apart from each other. The profile is a 3144-byte `mntrRGB`
+/// with `rXYZ`/`gXYZ`/`bXYZ` and one shared 1024-point `curv` — the same matrix-shaper form as
+/// above, evaluated by `pdf_model::icc` here and by `lcms` in both references, which is trap 9's
+/// shared data seen from the other side.
+///
+/// At the page's own scale ours is a further 0.066 below its own limit, and that part is the
+/// image reduction — 918 samples onto 220 device pixels, `AMBIGUOUS_IMAGE_REDUCTION`'s subject
+/// and ADR 0025's stated departure. Two mechanisms, both already named, and neither of them the
+/// transparency group the page spent this project's history being reported for.
+const AMBIGUOUS_ICC_MATRIX_PROFILE: [&str; 2] = ["issue19971.pdf page 5", "issue14200.pdf page 1"];
 
 /// Ambiguous, and **the picture is the whole finding**: one reference decoded the image wrongly.
 ///

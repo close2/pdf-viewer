@@ -1057,6 +1057,100 @@ fn command_composites(command: &Command) -> bool {
     }
 }
 
+/// Names a colour space if compositing in it is not compositing on the device's components.
+///
+/// This tree composites on the three components of the device raster, so the spaces that ask
+/// for what already happens are the three-component RGB ones: `/DeviceRGB`, `CalRGB`, and an
+/// ICC profile of three components, each of which this tree already resolves *to* device RGB
+/// one colour at a time. Those are a colorimetric difference this renderer takes page-wide and
+/// records as a choice.
+///
+/// What is named is a space whose components are not those: `/DeviceGray`, `/DeviceCMYK`,
+/// `Separation` and `DeviceN` blend a different number of components, and `Lab` blends three
+/// that are not a linear map of these. §11.3.4 is why that is a difference rather than a
+/// notation:
+///
+/// > The result of the computation thus depends on the colour space in which the colours are
+/// > represented.
+///
+/// Honouring one means compositing in its own components and converting once at the end, which
+/// is a second raster format rather than a colour conversion — ADR 0251 measures how far apart
+/// the two orders of operation are, and it is up to 48 of 255 for `/DeviceCMYK`.
+///
+/// `None` for an absent entry as well as for an RGB one, which is why a caller deciding
+/// §11.6.6's inheritance tests the entry's presence itself rather than reading it off this.
+fn space_departure(document: &Document, entry: &Object) -> Option<String> {
+    let object = document.resolve(entry);
+    if matches!(object, Object::Null) {
+        return None;
+    }
+    // Named before it is parsed, because what a report has to say is what the file
+    // asked for, and a space this crate cannot read has no other description.
+    let described = match &object {
+        Object::Name(name) => format!("/{}", String::from_utf8_lossy(name.as_bytes())),
+        _ => "an array-formed space".to_owned(),
+    };
+    match ColourSpace::parse(document, &object, &Dictionary::new()) {
+        Some(ColourSpace::Rgb | ColourSpace::CalRgb { .. }) => None,
+        Some(ColourSpace::Icc { profile }) if profile.channels() == 3 => None,
+        _ => Some(described),
+    }
+}
+
+/// The blending colour space §11.4.7 gives a page, named where it is one this tree departs from.
+///
+/// The root of the inheritance §11.6.6 states, and §11.4.7 says where its space comes from:
+///
+/// > That initial colour space shall serve as the default blending colour space for each page,
+/// > unless the page explicitly specifies an alternative default by means of its page
+/// > dictionary containing a Group key that contains a CS key whose value represents a
+/// > different colour space from the initial blending colour space.
+///
+/// The initial one "is inherited from the native colour space of the actual, assumed or
+/// simulated output device", which for this processor is the device raster's three components.
+/// So a page that states nothing composites in what this tree composites in, and a page that
+/// states a `/Group /CS` is judged by [`space_departure`] — and that entry decides the whole
+/// page, because §11.4.7 also says "[a]ll page-level compositing shall be done in the default
+/// blending colour space of the page".
+fn page_blending_space(document: &Document, page: &Page) -> Option<String> {
+    let attributes = document.get_key(&page.dict, "Group");
+    let attributes = attributes.as_dict()?;
+    // §8.10.3 Table 94's `/S`, the same required entry a form's group carries.
+    if document.get_key(attributes, "S").as_name()?.as_bytes() != b"Transparency" {
+        return None;
+    }
+    space_departure(document, &document.get_key(attributes, "CS"))
+}
+
+/// The blending colour space in force *inside* a group, given the one in force outside it.
+///
+/// §11.6.6 states the two cases, and the second is the one this tree used to ignore:
+///
+/// > For isolated groups, if a group colour space ( CS ) is specified in the group attributes
+/// > dictionary, all painting operators shall convert source colours in a colour space (that
+/// > are not equivalent to the group colour space) to the group colour space before compositing
+/// > objects into the group.
+///
+/// > For non-isolated groups, or if no group colour space is specified, the group colour space
+/// > shall be inherited from the parent group or page.
+///
+/// §11.7.2 says it a second time and gives the reason — "the use of an explicit colour space in
+/// a non-isolated group would require converting colours from the backdrop's colour space to
+/// that of the group in order to perform the compositing computations" — so a `/CS` on a
+/// non-isolated group is not the space anything composites in, and reporting it as one is
+/// reporting a departure that is not there.
+fn group_blending(
+    document: &Document,
+    group: &TransparencyGroup,
+    inherited: Option<&str>,
+) -> Option<String> {
+    let entry = document.resolve(&group.colour_space);
+    if !group.isolated || matches!(entry, Object::Null) {
+        return inherited.map(str::to_owned);
+    }
+    space_departure(document, &entry)
+}
+
 /// Where a command marks the page, as a box containing its ink.
 ///
 /// A superset rather than a tight fit — control points rather than curve extremes, and a
@@ -1545,6 +1639,7 @@ pub fn interpret_with(
         inside_knockout: false,
         alpha_is_shape: false,
         compositing: Compositing::Device,
+        blending: page_blending_space(document, page),
     };
 
     for issue in issues {
@@ -1580,6 +1675,9 @@ pub fn interpret_with(
     // §12.5: an annotation is drawn *over* the page content, and in `/Annots` order, so
     // this pass follows the content stream rather than being folded into it.
     interpreter.draw_annotations(page, base, view_clip);
+    // Asked once the page is complete, because the condition is about the whole of it: an
+    // annotation composites into the page group exactly as the content stream's marks do.
+    interpreter.note_page_blending_space();
 
     // A font that drew *nothing* of what it was asked to show. Two ways to get there and one
     // condition: §9.10.2 gave the codes characters and the substitute face has none of them,
@@ -2016,6 +2114,16 @@ struct Interpreter<'a> {
     alpha_is_shape: bool,
     /// What the content being run is painting into, which decides what a colour becomes.
     compositing: Compositing,
+    /// The blending colour space in force here, named where this tree does not composite in it.
+    ///
+    /// §11.3.4 makes the space part of the model rather than a property of the output — "[t]he
+    /// result of the computation thus depends on the colour space in which the colours are
+    /// represented" — and two clauses decide which one is in force at any point. §11.4.7 roots
+    /// it at the page group and §11.6.6 inherits it down the group stack, taking a group's own
+    /// `/CS` only where that group is isolated. `None` is a space whose components are the
+    /// three the device raster already holds, which is what this tree composites in; `Some`
+    /// names one that is not, and is what gets reported where it is introduced.
+    blending: Option<String>,
 }
 
 impl Interpreter<'_> {
@@ -3378,7 +3486,16 @@ impl Interpreter<'_> {
         // may name a different space, so this is saved and restored like `uncoloured` rather
         // than set once.
         let saved_compositing = std::mem::replace(&mut self.compositing, request.compositing);
+        // And §11.6.6's blending space stops being a departure in here, which is ADR 0220's
+        // finding rather than a simplification: a mask group whose space is subtractive is
+        // painted in the ink §10.4.2.3 weighs, that weighting is linear in the components, and
+        // a linear functional of a convex combination is the convex combination of the
+        // functional. So the compositing this tree performs inside such a group *is* the
+        // compositing the clause asks for, and the one thing that is not — a blend function,
+        // which is not affine — is `note_blended_luminosity`'s report and not this one.
+        let saved_blending = self.blending.take();
         self.run(&content, &resources, &inner, 0);
+        self.blending = saved_blending;
         self.compositing = saved_compositing;
         self.uncoloured = saved_uncoloured;
         self.soft_mask_depth = self.soft_mask_depth.saturating_sub(1);
@@ -3709,7 +3826,21 @@ impl Interpreter<'_> {
         let mark = self.list.command_count();
         let enclosing_knockout = self.inside_knockout;
         self.inside_knockout = enclosing_knockout || group.knockout;
+        // §11.6.6's group colour space, which the elements composite in and which
+        // [`group_blending`] resolves against §11.7.2's inheritance rule. Saved and restored
+        // rather than set once, because a group is a scope: what is in force after the `Do` is
+        // what was in force before it.
+        let entered = group_blending(self.document, group, self.blending.as_deref());
+        // A group *introduces* a departure only where the space it composites in is not the
+        // one its parent was already composited in. Where it inherits, or where it restates
+        // the space it inherited, the parent's report is the report — one departure named at
+        // the point the file introduces it, rather than once per group that lives inside it.
+        let introduced = (entered != self.blending)
+            .then(|| entered.clone())
+            .flatten();
+        let outside = std::mem::replace(&mut self.blending, entered);
         self.run(content, resources, &inner, form_depth.saturating_add(1));
+        self.blending = outside;
         self.inside_knockout = enclosing_knockout;
         let commands = self.list.split_off_commands(mark);
         if commands.is_empty() {
@@ -3752,15 +3883,11 @@ impl Interpreter<'_> {
             && outer.blend == BlendMode::Normal
             && outer.soft_mask.is_none()
         {
-            // The `/CS` question survives flattening and is asked separately: compositing still
-            // happens on the device's components, whatever space the group named.
-            if let Some(name) = self.group_space_departure(&group.colour_space)
-                && any_command(&commands, &command_composites)
-            {
-                self.note(Unsupported::TransparencyGroup {
-                    detail: format!("blending colour space {name}"),
-                });
-            }
+            // No `/CS` question here, and that is §11.6.6 rather than an omission: this branch
+            // is reached only where the group is non-isolated, and a non-isolated group's own
+            // `/CS` is not the space anything composites in — "the group colour space shall be
+            // inherited from the parent group or page". Whatever it inherited is already
+            // reported where it was introduced, and this branch does not change it.
             for command in commands {
                 self.list.push(command);
             }
@@ -3827,7 +3954,7 @@ impl Interpreter<'_> {
             || enclosing_knockout
             || outer.blend != BlendMode::Normal
             || !any_command(&commands, &command_blends);
-        self.note_group_departures(group, &commands, knockout, isolated);
+        self.note_group_departures(group, &commands, knockout, isolated, introduced.as_deref());
         // §11.6.6's final compositing: the group's shape "shall then be painted into the
         // parent group or page, using the group's accumulated colour and opacity at each
         // point" — under the state in force at `Do`, which is where `ca` and `/BM` were left
@@ -3873,6 +4000,35 @@ impl Interpreter<'_> {
         })
     }
 
+    /// Reports §11.4.7's page group where its blending space is not the device's.
+    ///
+    /// > All page-level compositing shall be done in the default blending colour space of the
+    /// > page, and the entire result shall then, if the colour spaces are not equivalent, be
+    /// > converted to the native colour space of the output device before being composited
+    /// > with the context-dependent backdrop.
+    ///
+    /// This tree does the two in the other order — every colour converted to the device's
+    /// components as it is set, and the compositing done there — which is the same picture
+    /// only where the conversion is affine over the colours involved, and this tree's
+    /// `DeviceCMYK` conversion is multilinear over the ink cube (ADRs 0009, 0042) and is not.
+    /// ADR 0251 has the measurement: up to 48 of 255 over 300 000 random pairs, and 51.5 at a
+    /// half-opaque registration black over paper.
+    ///
+    /// Conditioned on something compositing, for [`Interpreter::note_group_departures`]'
+    /// reason: an opaque `Normal` paint carries its colour through whatever space it is
+    /// carried through, so a page of them is the same page in either.
+    fn note_page_blending_space(&mut self) {
+        let Some(name) = self.blending.clone() else {
+            return;
+        };
+        if !any_command(self.list.commands(), &command_composites) {
+            return;
+        }
+        self.note(Unsupported::TransparencyGroup {
+            detail: format!("the page group's blending colour space {name} (§11.4.7)"),
+        });
+    }
+
     /// Reports the parts of §11.4 this group asks for and does not get.
     ///
     /// A group is composited here under its own constant alpha and blend mode, onto the
@@ -3886,6 +4042,7 @@ impl Interpreter<'_> {
         commands: &[Command],
         knockout_drawn: bool,
         isolated_drawn: bool,
+        introduced: Option<&str>,
     ) {
         self.note_group_structure(group, commands, knockout_drawn, isolated_drawn);
 
@@ -3895,7 +4052,13 @@ impl Interpreter<'_> {
         // happens on the device's RGB components, so a group asking for any other space is
         // blended with different arithmetic — visible only where something composites at
         // all, since an opaque Normal paint carries its colour through unchanged.
-        if let Some(name) = self.group_space_departure(&group.colour_space)
+        //
+        // `introduced` is `run_transparency_group`'s answer to *which* space, after
+        // §11.6.6's inheritance and §11.7.2's rule about a non-isolated group. A group that
+        // inherits a departing space is drawn no better and no worse than the page or group
+        // that introduced it, and that one carries the report.
+        if let Some(name) = introduced
+            && self.compositing == Compositing::Device
             && any_command(commands, &command_composites)
         {
             self.note(Unsupported::TransparencyGroup {
@@ -3973,39 +4136,6 @@ impl Interpreter<'_> {
             self.note(Unsupported::TransparencyGroup {
                 detail: format!("knockout, and an element composites over another ({refusal})"),
             });
-        }
-    }
-
-    /// Names a group's `/CS` if compositing in it would differ from compositing in RGB.
-    ///
-    /// Compositing here happens on the three components of the device raster. §11.6.6 makes
-    /// an absent `/CS` inherit the parent's space, and §11.4.7 leaves the page group's to the
-    /// processor — so the spaces that ask for what already happens are the three-component
-    /// RGB ones: `/DeviceRGB`, `CalRGB`, and an ICC profile of three components, each of
-    /// which this tree already resolves *to* device RGB one colour at a time. Those are a
-    /// colorimetric difference this renderer takes page-wide and records as a choice.
-    ///
-    /// What is reported is a space whose components are not those: `/DeviceGray`,
-    /// `/DeviceCMYK`, `Separation` and `DeviceN` blend a different number of components, and
-    /// `Lab` blends three that are not a linear map of these. Honouring any of them means
-    /// compositing the group in its own components and converting once at the end, which is a
-    /// second raster format rather than a colour conversion — which is why it is reported
-    /// rather than approximated.
-    fn group_space_departure(&mut self, entry: &Object) -> Option<String> {
-        let object = self.document.resolve(entry);
-        if matches!(object, Object::Null) {
-            return None;
-        }
-        // Named before it is parsed, because what a report has to say is what the file
-        // asked for, and a space this crate cannot read has no other description.
-        let described = match &object {
-            Object::Name(name) => format!("/{}", String::from_utf8_lossy(name.as_bytes())),
-            _ => "an array-formed space".to_owned(),
-        };
-        match ColourSpace::parse(self.document, &object, &Dictionary::new()) {
-            Some(ColourSpace::Rgb | ColourSpace::CalRgb { .. }) => None,
-            Some(ColourSpace::Icc { profile }) if profile.channels() == 3 => None,
-            _ => Some(described),
         }
     }
 
