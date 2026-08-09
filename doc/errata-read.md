@@ -278,6 +278,63 @@ Four of session 417's five owed items are also settled — §7.3.10's grammar, �
 version reduction, §14.8.4.7.2's enclosure reframing and §14.6.1's Figure 9 — each as a documented
 choice in the row or the comment that owns it, rather than as code.
 
+## The fourth and fifth populations, swept in the four-hundred-and-nineteenth session
+
+Two more things `check` could not see, both found by walking into one of them rather than by
+looking. ADR 0255 has the argument; this is the list.
+
+**A quotation inside an ordinary `//` comment.** `prose_quotations` read `///` and `//!` only, and
+its own doc comment gave the reason: "a `\"` in a `//` comment is not making `CLAUDE.md`'s claim".
+That is a claim about `CLAUDE.md` which `CLAUDE.md` contradicts — it asks for the clause "in its
+doc comment, its module comment, **or the comment above the block**" and states "[q]uotation marks
+mean verbatim" of quotations rather than of doc comments. The first `//` comment read under the new
+rule was stale. Thirteen landings, **two of them findings**:
+
+1. **§7.8.3, Issue #128 — `content.rs`'s `draw_appearance` quoted the struck fourth bullet.** "All
+   resources that are referenced from those forms and fonts shall be inherited from the resource
+   dictionary of the page on which they are used" is retired into NOTE 3, which *reports* the rule
+   of earlier versions rather than stating it — and NOTE 3 is the wider of the two, naming an
+   annotation appearance stream where the bullet named only forms and Type 3 fonts. The behaviour
+   does not move; its warrant becomes a documented choice about pre-2.0 and malformed files. This
+   is the erratum the round walked into: it was reading §7.8.3 for `Do`.
+2. **§8.9.7, Issue #19 — `inline_image.rs` quoted NOTE 3 without the half EC3 adds.** The device
+   space names "never refer to resources in the ColorSpace subdictionary; they always identify the
+   corresponding colour spaces either directly or via a default colour space (see 8.6.5.6
+   \"Default colour spaces\")". No code moved: `ColourSpace::parse` has asked `/DefaultGray`,
+   `/DefaultRGB` and `/DefaultCMYK` before answering with a device space all along, so the sentence
+   was behind the code rather than in front of it.
+
+The other eleven are already annotated in place by sessions 417 and 418 — `view.rs` on #468,
+`crypt.rs` on #24, `appearance.rs` on #287, `optional_content.rs` on #225 — or are the
+"; shall be an indirect reference" family.
+
+**A quotation with an ellipsis in it.** `overlaps` compared a quotation whole, so a quotation of
+*parts* of one sentence matched only where the struck passage was shorter than it. `CLAUDE.md`'s
+own convention writes `…` for an elision, so this was blind to exactly the quotations a careful
+writer produces. Split at the ellipsis it finds eight more landings, **four of them findings**:
+
+3. **§9.6.2.2 and §9.6.2.1, Issue #47 and #48 — `tests/oracle.rs`, twice.** The
+   four-hundred-and-eighteenth session corrected this quotation in three files and recorded that it
+   had missed two others; this is one of them, and the sweep found it rather than a person.
+   `CONTRADICTED_SUBSTITUTED_FONT` rested the compiled-in standard 14 on "[t]hese fonts … shall be
+   available to the PDF processor", struck outright, and `CONTRADICTED_ZERO_WIDTH_SPACES` rested
+   `standard_metrics` on §9.6.2.1's "PDF processors shall provide glyph widths and font descriptor
+   data …", replaced by a cross-reference. Both now cite Table 109's permission and §6.3.2.2's
+   requirement, which is the stronger warrant `pdf_font::standard` already carries.
+4. **§12.7.5.2.2, Issue #386 — `appearance.rs` and `pdf-viewer.rs`.** The same struck sentence
+   session 418 corrected in `form.rs` and in the ledger, in two more places. What survives is the
+   definition — a control that responds "without retaining a permanent value".
+5. **§7.6.4.3.4, Issue #325 — `crypt.rs`'s `hash_2b`.** Step (a) is rewritten into a two-case
+   definition of a string `K0`. The concatenation is unchanged; the quotation was retired.
+6. **§7.9.2.2.1, Issue #96 — `text_string.rs`.** The example is rewritten so that byte 8B is
+   written `\213` rather than as a character the printed page could not show. The fact the test
+   asserts is untouched.
+
+**One false positive, and it is what set the rule.** Splitting at the ellipsis and asking whether
+*any* segment matched reported `image.rs`'s §11.6.5.2 comment against a sentence about `/BaseFont`,
+on the four words "the same as the". `overlaps` now asks for one segment quoting the passage whole
+**or** every segment inside it, which keeps `structure.rs`'s long blockquote and drops this.
+
 ## Owed
 
 - **§8.9.5.4** (finding 4), which is still the one clause this tree knowingly implements a retired
@@ -294,3 +351,9 @@ choice in the row or the comment that owns it, rather than as code.
   apostrophe would make every possessive an opening mark. §12.7.5.2.2's stale quotation was in
   single quotes and was found through `form.rs`'s copy of the same sentence rather than by the
   sweep, which is a coverage gap with a known cause and no cheap fix.
+- **The remaining populations nothing reads at all**, now that four are read: a quotation in a
+  Markdown file under `doc/`, and a quotation of a *table cell* rather than of prose. The first is
+  the larger — this file, `doc/HANDOVER.md`, `doc/todo/` and the ADRs quote the standard
+  constantly and no instrument compares any of it. Counting it is a round's work and is not owed
+  until somebody has a reason to think it is wrong; the reason the four unchecked populations were
+  each swept is that the first sweep of each found something.

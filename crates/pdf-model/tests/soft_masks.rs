@@ -229,22 +229,41 @@ fn a_transfer_function_maps_every_mask_value_including_the_one_outside_the_box()
 /// and would mask everything away, since black has no luminosity. `/BC` is deliberately
 /// present and deliberately irrelevant: Table 142 says it "shall be consulted only if the
 /// subtype S is Luminosity".
+///
+/// **The fixture did not have those two alphas until the four-hundred-and-nineteenth
+/// session.** It named `/GA` and `/GB` in a group whose `/Resources` defined neither, so both
+/// fills were opaque, both halves masked identically at 1.0, and the test asserted the same
+/// number twice about a difference that was not in the file — with a comment inside it saying
+/// so and a doc comment above it saying the opposite. Nothing could see that: the interpreter
+/// answered a `gs` naming an undefined `/ExtGState` in silence, which is what this round made
+/// loud (ADR 0255), and the assertion this test exists for was the one it was not making.
 #[test]
 fn an_alpha_mask_reads_the_groups_alpha_and_ignores_its_colour() {
-    let raster = render(page(
+    let raster = render(page_with_group_resources(
+        "/DeviceGray",
         "/SMask << /Type /Mask /S /Alpha /G 6 0 R /BC [1] >>",
         "q /GS gs 0 g 0 0 40 40 re f Q",
+        "<< /ExtGState << /GA 7 0 R /GB 8 0 R >> >>",
         "/GA gs 0 g 0 0 10 40 re f /GB gs 0 g 10 0 10 40 re f",
+        &[
+            b"7 0 obj\n<< /Type /ExtGState /ca 0.25 >>\nendobj\n".to_vec(),
+            b"8 0 obj\n<< /Type /ExtGState /ca 0.75 >>\nendobj\n".to_vec(),
+        ],
     ));
 
-    // The group's own `/ExtGState`s are not in its resources, so both fills are opaque and
-    // the mask is 1.0 inside the box: what this asserts is that the *colour* was ignored.
+    // §11.5.2: the mask value is the group's alpha, so black painted through it leaves
+    // 255 × (1 − α) of the white behind it. Both fills are the same colour, so a derivation
+    // reading colour or luminosity would give one number for both.
     near(
         level(&raster, 5, 20),
-        0,
-        "an opaque black gives a mask of 1",
+        191,
+        "a group alpha of 0.25 leaves three quarters of the white",
     );
-    near(level(&raster, 15, 20), 0, "and so does the second one");
+    near(
+        level(&raster, 15, 20),
+        64,
+        "and 0.75 leaves a quarter of it, from the same black",
+    );
     near(
         level(&raster, 30, 20),
         255,

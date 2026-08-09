@@ -274,11 +274,20 @@ fn expand_names(document: &Document, dict: &mut Dictionary, resources: &Dictiona
 
     if let Some(space) = dict.get("ColorSpace").cloned() {
         let expanded = match space {
-            // §8.9.7 NOTE 3: "The names DeviceGray, DeviceRGB, and DeviceCMYK (as well as
-            // their abbreviations G, RGB, and CMYK) always identify the corresponding colour
-            // spaces directly; they never refer to resources in the ColorSpace
-            // subdictionary." Any other name does — which is the whole reason this function
-            // needs the resources at all.
+            // §8.9.7 NOTE 3, as Errata Collection 3 rewrites it (Issue #19, `/State` `Review`
+            // `Completed`): the names `DeviceGray`, `DeviceRGB` and `DeviceCMYK` and their
+            // abbreviations `G`, `RGB` and `CMYK` "never refer to resources in the ColorSpace
+            // subdictionary; they always identify the corresponding colour spaces either
+            // directly or via a default colour space (see 8.6.5.6 "Default colour spaces")".
+            // Any other name does refer to the subdictionary — which is the whole reason this
+            // function needs the resources at all.
+            //
+            // **This comment quoted the unamended NOTE until the four-hundred-and-nineteenth
+            // session**, whose sweep of a fourth population of quotation reached `//` comments
+            // for the first time (ADR 0255). The amendment costs no code: the expanded name is
+            // parsed by `ColourSpace::parse`, which asks `/DefaultGray`, `/DefaultRGB` and
+            // `/DefaultCMYK` before it answers with a device space — so the half the erratum
+            // adds was already true here, and only the sentence was out of date.
             Object::Name(name) => match expand_device_space(&name) {
                 Some(device) => Object::Name(device),
                 None => document

@@ -173,6 +173,37 @@ pub enum Unsupported {
         /// What the group asked for.
         detail: String,
     },
+    /// A name a content stream used that §7.8.3's current resource dictionary does not define.
+    ///
+    /// > A content stream's named resources shall be defined by a resource dictionary, which
+    /// > shall enumerate the named resources needed by the operators in the content stream and
+    /// > the names by which they can be referred to.
+    ///
+    /// So this is a **malformed file** rather than an unimplemented clause, and it is here for
+    /// the reason trap 5 gives: the page draws less than the producer asked for, and nothing
+    /// about the result says which. It is reported by *category* rather than by what the
+    /// resource would have been, because a name the file never defines has no subtype, no
+    /// dictionary and no size — all that can be said is which of Table 34's subdictionaries was
+    /// asked and what it answered.
+    ///
+    /// A resource whose *definition* is unusable is a different report and stays where it is:
+    /// `Font` names a font program that would not parse, `Image` an image whose samples are
+    /// malformed, `Shading` a shading that could not be built. This is the case one step
+    /// earlier, where there is nothing to try.
+    MissingResource {
+        /// Table 34's resource category the name was looked up in.
+        ///
+        /// `XObject`, `Pattern` or `ExtGState` — the three of Table 34's eight that reach the
+        /// page through [`Interpreter::resource`]. The other five already say it in their own
+        /// words: `Font` reports "no /Font resource named /F1", `Shading` reports "/Sh0 is not
+        /// in /Shading", `ColorSpace` reports the space by name, `ProcSet` is deprecated in
+        /// PDF 2.0 and names nothing that can be drawn, and a `Properties` list that is missing
+        /// costs no mark at all — it leaves a marked-content section with no `/ActualText`,
+        /// `/Alt` or optional-content group, and the section's own operators still draw.
+        category: &'static str,
+        /// The name, as the content stream wrote it, and what the lookup found instead.
+        detail: String,
+    },
     /// Optional content whose visibility could not be decided, so it was drawn.
     ///
     /// ISO 32000-2 §8.11. Only a visibility expression nested past the interpreter's bound
@@ -2133,6 +2164,32 @@ impl Interpreter<'_> {
         self.unsupported.insert(item.clone(), item);
     }
 
+    /// Reports a name §7.8.3's current resource dictionary does not define, if it costs a mark.
+    ///
+    /// **The condition is where the honesty is** (trap 11). Content inside a marked-content
+    /// section this configuration hides marks nothing whatever the name resolves to, so a
+    /// report there would cost the oracle a judged page for a difference no raster can hold —
+    /// and `paint_shading` already skips a hidden `sh` "including the report a shading we
+    /// cannot build would otherwise make". §8.11.3.1 is the clause: an invisible object "shall
+    /// be skipped, as if there were no `Do` operator to invoke it", and a `Do` that was never
+    /// invoked cannot have failed.
+    ///
+    /// Two neighbouring cases reach nothing here and are worth naming, because a report that
+    /// fires where nothing was lost is worse than the silence it replaces. An `XObject` a
+    /// resource dictionary *defines* and no content stream draws never reaches `Do` at all; and
+    /// a name a form uses that only the page defines is not this — §7.8.3 hands such a form the
+    /// page's dictionary whole, so the lookup that happens is the one the clause describes and
+    /// its failure is a failure of both dictionaries at once.
+    fn note_missing_resource(&mut self, category: &'static str, name: &str, issue: &str) {
+        if self.is_hidden() {
+            return;
+        }
+        self.note(Unsupported::MissingResource {
+            category,
+            detail: format!("/{name} {issue}"),
+        });
+    }
+
     /// Converts a colour for whatever is being composited into.
     ///
     /// [`convert`] carries the arithmetic. This exists so that the interpreter's own
@@ -3207,10 +3264,22 @@ impl Interpreter<'_> {
         let Some(name) = name_at(operands, 0) else {
             return;
         };
+        // Table 56 makes `gs`'s operand "the name of a graphics state parameter dictionary in
+        // the ExtGState subdictionary of the current resource dictionary", and where the
+        // subdictionary has no such key every parameter it would have set stays at whatever the
+        // last one left — an alpha, a blend mode, a soft mask, a dash pattern. That is a
+        // *wrong* graphics state rather than a missing mark, which is the harder of the two to
+        // see on a page and the better reason to say so.
         let Some(dict) = self.resource(resources, "ExtGState", &name) else {
+            self.note_missing_resource("ExtGState", &name, "is not in /ExtGState");
             return;
         };
-        let Some(dict) = dict.as_dict() else { return };
+        // §8.4.5 makes the value "a graphics state parameter dictionary whose contents specify
+        // the values of one or more graphics state parameters"; anything else specifies none.
+        let Some(dict) = dict.as_dict() else {
+            self.note_missing_resource("ExtGState", &name, "is not a dictionary");
+            return;
+        };
 
         if let Some(alpha) = self.document.get_key(dict, "ca").as_number() {
             state.fill_alpha = clamp_unit(alpha);
@@ -3668,6 +3737,24 @@ impl Interpreter<'_> {
     }
 
     /// Draws an `XObject`: a form is interpreted inline, an image is reported.
+    ///
+    /// §8.8.1's Table 86 states two requirements on what `Do`'s operand finds, and a file that
+    /// breaks either draws nothing where the producer asked for a mark:
+    ///
+    /// > Paint the specified XObject . The operand name shall appear as a key in the XObject
+    /// > subdictionary of the current resource dictionary (see 7.8.3, "Resource
+    /// > dictionaries"). The associated value shall be a stream whose Type entry, if present,
+    /// > is XObject .
+    ///
+    /// **Both were silent until the four-hundred-and-nineteenth session**, which is trap 5's
+    /// shape: a missing *font* has said "no /Font resource named /F1" since the interpreter
+    /// had fonts, and `sh` has said "/Sh0 is not in /Shading", so a page that names an
+    /// undefined `XObject` was the one resource category out of the three whose absence
+    /// looked exactly like a page the producer meant to leave sparse. §7.8.3 makes the file
+    /// wrong rather than this reader — "[a] content stream's named resources shall be defined
+    /// by a resource dictionary, which shall enumerate the named resources needed by the
+    /// operators in the content stream" — and this tree's rule for a malformed file is to draw
+    /// what can be drawn and say what could not.
     fn draw_xobject(
         &mut self,
         operands: &[Object],
@@ -3676,12 +3763,20 @@ impl Interpreter<'_> {
         form_depth: usize,
     ) {
         let Some(name) = name_at(operands, 0) else {
+            // Table 86's operand column is `name`, so a `Do` with anything else — or with
+            // nothing — is not a `Do` at all. Reported by operator rather than by resource,
+            // because there is no name to say was undefined.
+            self.note(Unsupported::Operator {
+                operator: "Do with no name operand".to_owned(),
+            });
             return;
         };
         let Some(object) = self.resource(resources, "XObject", &name) else {
+            self.note_missing_resource("XObject", &name, "is not in /XObject");
             return;
         };
         let Some(stream) = object.as_stream().cloned() else {
+            self.note_missing_resource("XObject", &name, "is not a stream");
             return;
         };
 
@@ -3769,6 +3864,17 @@ impl Interpreter<'_> {
             inner.clip = Some(clip);
         }
 
+        // A form that omits `/Resources` is looked up in its parent's, which §7.8.3's NOTE 3
+        // reports of earlier versions of PDF and Table 93 now makes "Sometimes required" rather
+        // than "Optional but strongly recommended" (Errata Collection 3, Issues #128 and #292).
+        // **The fallback is on the entry's absence and not on a name's**: a form that states a
+        // `/Resources` has stated which names it uses, so a name that dictionary omits is
+        // reported by `draw_xobject` above rather than looked up a second time here. Both
+        // readings are choices about a malformed file — the standard defines neither — and this
+        // one is the same choice `font` makes for `Tf`, which matters because the alternative
+        // is what session 127 had to undo: a page's `/Fm0` and a form's `/Fm0` are two objects
+        // as often as they are one, and reaching past the dictionary that names them is how a
+        // reader draws the wrong one and says nothing.
         let form_resources = self
             .document
             .get_key(&stream.dict, "Resources")
@@ -5245,11 +5351,25 @@ impl Interpreter<'_> {
         };
         state.clip = clip;
 
-        // §7.8.3: an appearance stream is a form `XObject` (§12.5.5), and a form written
-        // before PDF 1.2 may omit `/Resources` — "All resources that are referenced from
-        // those forms and fonts shall be inherited from the resource dictionary of the page
-        // on which they are used." An empty dictionary instead loses every named font and
-        // image the appearance draws with.
+        // §7.8.3: an appearance stream is a form `XObject` (§12.5.5), and one written before
+        // PDF 1.2 may omit `/Resources` altogether, in which case the page's dictionary is
+        // what its names are looked up in. An empty dictionary instead loses every named font
+        // and image the appearance draws with.
+        //
+        // **This comment used to quote a sentence that is no longer in the standard**, and the
+        // four-hundred-and-nineteenth session found it while reading this clause for `Do`.
+        // Errata Collection 3 Issue #128 strikes §7.8.3's bullet — "All resources that are
+        // referenced from those forms and fonts shall be inherited from the resource dictionary
+        // of the page on which they are used" — and replaces it with NOTE 3, which is
+        // informative and reports the rule rather than stating it: "PDF files written obeying
+        // earlier versions of PDF may have omitted the Resources entry in form XObjects, Type 3
+        // glyph descriptions or annotation appearance streams used on a page. Those earlier
+        // versions state that resources that were referenced from those content streams can be
+        // inherited from the resource dictionary of the page on which they are used." The
+        // behaviour is unchanged and is now a *choice* about malformed and pre-2.0 files rather
+        // than a `shall` — and NOTE 3 is the wider of the two, since it names an annotation
+        // appearance stream where the struck bullet named only forms and Type 3 fonts, which is
+        // exactly the case this line is. ADR 0255.
         let resources = match &appearance.content {
             crate::annotation::Content::Stored(stream) => self
                 .document
@@ -6410,6 +6530,17 @@ impl Interpreter<'_> {
     }
 
     /// Resolves a pattern name, for `scn` in a `/Pattern` colour space.
+    ///
+    /// §8.7.3.2 makes the operand a name into Table 34's `/Pattern` subdictionary:
+    ///
+    /// > This name shall be the key of an entry in the Pattern subdictionary of the current
+    /// > resource dictionary (see 7.8.3, "Resource dictionaries"), whose value shall be the
+    /// > stream object representing the pattern.
+    ///
+    /// A name that finds nothing there leaves the paint at §8.6.8's initial value for a
+    /// `Pattern` space — "a pattern object that causes nothing to be painted" — so every
+    /// subsequent fill and stroke in that space marks the page with nothing. That is why the
+    /// miss is reported rather than left to look like a producer's transparent figure.
     fn pattern(
         &mut self,
         name: &str,
@@ -6418,11 +6549,21 @@ impl Interpreter<'_> {
         state: &GraphicsState,
         fill: bool,
     ) -> Option<PatternPaint> {
-        let object = self.resource(resources, "Pattern", name)?;
+        let Some(object) = self.resource(resources, "Pattern", name) else {
+            self.note_missing_resource("Pattern", name, "is not in /Pattern");
+            return None;
+        };
         let dict = match &object {
             Object::Dictionary(dict) => dict.clone(),
             Object::Stream(stream) => stream.dict.clone(),
-            _ => return None,
+            // §8.7.3.2's "value shall be the stream object representing the pattern" for a
+            // tiling one, Table 75's dictionary for a shading one — so a `/Pattern` entry that
+            // is neither is a pattern with no definition, which is the same failure as a name
+            // the subdictionary omits arriving one step later.
+            _ => {
+                self.note_missing_resource("Pattern", name, "is not a dictionary or a stream");
+                return None;
+            }
         };
 
         match self.document.get_key(&dict, "PatternType").as_integer() {

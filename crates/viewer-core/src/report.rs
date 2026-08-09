@@ -50,6 +50,12 @@ pub(crate) fn describe(item: &Unsupported) -> String {
         Unsupported::TransparencyGroup { detail } => {
             format!("a transparency group was drawn as an isolated one: {detail}")
         }
+        // The one report whose subject is the *file* rather than this program, which is why it
+        // is worded as a statement about the document: §7.8.3 obliges a content stream's
+        // resource dictionary to define every name its operators use, and this one did not.
+        Unsupported::MissingResource { category, detail } => {
+            format!("the document names a /{category} resource it does not define: {detail}")
+        }
         Unsupported::OptionalContent { detail } => {
             format!(
                 "optional content was drawn because its visibility could not be decided: {detail}"

@@ -261,9 +261,14 @@ mod tests {
     /// is U+2030 PER MILLE SIGN.
     ///
     /// The clause and the table are independent statements of the same fact, which is what
-    /// makes this worth asserting: the example writes the string as `text‰` and says "the
-    /// character … after the 'text' is represented by the hex code 8B", while Table D.3's own
-    /// row for 139 gives U+2030. Two sources, one answer.
+    /// makes this worth asserting: the example writes a string whose fifth byte is hex 8B, and
+    /// Table D.3's own row for 139 gives U+2030. Two sources, one answer.
+    ///
+    /// **The sentence that said so is struck** — Errata Collection 3 rewrites the example so
+    /// that the byte is written as the octal escape `\213` rather than as a character the
+    /// printed page could not show, and strikes the prose around it (Issue #96, `/State`
+    /// `Review` `Completed`). The fact is untouched and the quotation was retired text until
+    /// the four-hundred-and-nineteenth session.
     #[test]
     fn a_string_with_no_prefix_is_pdfdocencoded() {
         assert_eq!(text_string(b"text\x8b"), "text‰");

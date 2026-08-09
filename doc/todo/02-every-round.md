@@ -19,7 +19,7 @@ features no file exercises.
 ```sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets      # must be silent of lints
-cargo nextest run --workspace               # 1498 tests, 10 ignored
+cargo nextest run --workspace               # 1506 tests, 10 ignored
 cargo test --workspace --doc                # the one doctest nextest does not run
 cargo build --profile gates -p pdf-sandbox --bins   # trap 10: Cargo will not do this for you
 cargo test  --profile gates -p pdf-model      --test corpus          -- --ignored --nocapture
@@ -47,8 +47,8 @@ here:
 - **`cargo nextest` is a user-local install** — `cargo install cargo-nextest --locked`, or the
   prebuilt from `https://get.nexte.st/latest/linux` into `~/.cargo/bin`. Without it,
   `cargo test --workspace` is exactly the same gate at three times the wall clock, and that is
-  what CI runs. `nextest` skips doctests, which is why the line after it is there: 1495 + 1 = the
-  **1496** `cargo test --workspace` reports. (This line said 1314 until the
+  what CI runs. `nextest` skips doctests, which is why the line after it is there: 1503 + 1 = the
+  **1504** `cargo test --workspace` reports. (This line said 1314 until the
   three-hundred-and-eighty-eighth, which counted the tree with `nextest list` before and after its
   own seven and found the number two behind — the count is the gate's and not this file's. It said
   **1398** until the four-hundred-and-second, which added six tests to a gate that printed 1410:
@@ -77,7 +77,10 @@ here:
   resources — **and the gate printed 1498, so the line was two behind**, which is the first time in
   seven rounds it has been. Where the two came from was not chased; what the run shows is the rule's
   precondition rather than the rule: this line is current only for a round that *ran* the gate and
-  copied its number, and a round that writes the number without running it writes last time's.)
+  copied its number, and a round that writes the number without running it writes last time's. **The
+  four-hundred-and-nineteenth added eight** — a whole `pdf-model/tests/missing_resources.rs` for a
+  name §7.8.3's resource dictionary does not define — **and the gate printed 1506, so this line was
+  not behind**, which is what happens when the round before it copies the gate's own number.)
 - **One of those eighteen runs a C compiler**, and it is the only gate in this sequence that does.
   `viewer-ffi::a_c_program_drives_the_abi` builds `crates/viewer-ffi/c/open_a_page.c` against the
   crate's own header with `-Wall -Wextra -Werror`, links it against the `cdylib` — which it asks

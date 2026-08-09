@@ -678,8 +678,17 @@ fn authenticate_r6(
 
 /// §7.6.4.3.4, Algorithm 2.B: the iterated hash of revision 6.
 ///
-/// `extra` is the 48-byte `/U` string, which the clause includes "only … when checking the
-/// owner password or creating the owner key"; it is empty for the user password.
+/// `extra` is the 48-byte `/U` string, which step (a) includes when checking the owner password
+/// or creating the owner key and not otherwise; it is empty for the user password.
+///
+/// **The step was rewritten and says the same thing.** Errata Collection 3 strikes "Make a new
+/// string, K1, consisting of 64 repetitions of the sequence: input password, K, the 48-byte
+/// user key. The 48 byte user key is only used when checking the owner password or creating the
+/// owner key." and replaces it with a two-case definition of a string `K0` — the input password,
+/// `K` and the user key for the owner, the input password and `K` otherwise — with `K1` then 64
+/// repetitions of `K0` (Issue #325, `/State` `Review` `Accepted`). The concatenation this
+/// function builds is unchanged; the quotation above it was struck text until the
+/// four-hundred-and-nineteenth session.
 fn hash_2b(password: &[u8], salt: &[u8], extra: &[u8]) -> Vec<u8> {
     let mut k = {
         let mut hash = sha2::Sha256::new();

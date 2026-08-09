@@ -527,8 +527,13 @@ fn with_default_resources(document: &Document, mut resources: Dictionary) -> Dic
 /// flag.** §12.7.4.3's subject is a field "that may contain text whose value is not known until
 /// viewing time", and three of the four field types have no such text:
 ///
-/// - a push-button "retains no permanent value … it shall not use the V and DV entries"
-///   (§12.7.5.2.2);
+/// - a push-button is "a purely interactive control that responds immediately to user input
+///   without retaining a permanent value" (§12.7.5.2.2), so there is nothing for `/V` to hold —
+///   **this line quoted the sentence that said so outright until the four-hundred-and-nineteenth
+///   session**, and Errata Collection 3 strikes "Because this type of retains no permanent
+///   value, it shall not use the V and DV entries in the field dictionary" with no replacement
+///   (Issue #386, `/State` `Review` `Completed`), leaving the definition it drew its reason
+///   from;
 /// - a check box's and a radio button's states each "shall be defined by an appearance stream in
 ///   the appearance dictionary of the field's widget annotation" (§12.7.5.2.3, §12.7.5.2.4), and
 ///   the value selects among them rather than describing them;

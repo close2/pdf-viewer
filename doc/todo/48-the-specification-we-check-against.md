@@ -73,6 +73,11 @@ defect in the standard. ADR 0252 has the argument.
 3. **The ledger's single-quoted spans.** `quoted_spans` collects `"` … `"` only, because an
    apostrophe would make every possessive an opening mark; §12.7.5.2.2's stale quotation was in
    single quotes and was found through the source rather than by the sweep.
+3a. **Quotations of the standard in Markdown**, named in the four-hundred-and-nineteenth and
+   uncounted: `doc/errata-read.md`, `doc/HANDOVER.md`, `doc/todo/` and the 255 ADRs quote the
+   standard constantly and no instrument compares a word of it. It is named here rather than done
+   because the reason to expect something in it is inductive — each of the five populations swept so
+   far produced a finding on its first run — and because it is the largest of them.
 4. **The disagreement sweep** (the old step 3), unchanged: compare our extraction against `doc/md/`
    and report every span where they differ. The annotations were one loss of four; three others are
    recorded in this file's history and none has been swept for.
@@ -90,7 +95,12 @@ correctness one, and this item drops into the notes.**
 
 **That test has been run three times and the item passes it every time.** Three clauses were
 implemented differently — §12.5.2's `/BM`, §14.13.5's `/MCAF` and §7.8.3's Type 3 glyph resources —
-and a fourth, §8.9.5.4, still is. So the item stays where it is.
+and a fourth, §8.9.5.4, still is. So the item stays where it is. **The four-hundred-and-nineteenth
+ran it a fourth time and it passed again**, this time from the other direction: reading §7.8.3 for
+an unrelated clause found `content.rs` quoting the struck fourth bullet, which found two holes in
+the instrument — a `"` inside an ordinary `//` comment and a quotation with an ellipsis in it — and
+six more stale quotations behind them (ADR 0255). One of the six, §8.9.7's NOTE 3, is a clause whose
+*code* was already right and whose comment was two years behind it.
 
 The replacement condition, for whoever picks it up: **the reading half is done and the correctness
 question it was asked to answer is answered.** What is left is items 1 to 3 above, which are two
@@ -98,4 +108,4 @@ named clauses and one known gap in a sweep, plus the two steps this file has car
 written. If items 1 to 3 close and nothing new arrives, what remains is a documentation debt with a
 known size and it belongs in the notes. The rates are worth carrying: 66 passages gave two findings,
 the next 54 gave one, and the *quotation* sweep — a different question over the same errata — gave
-nine in one round.
+nine in one round and six in the next, over two populations nobody had counted.

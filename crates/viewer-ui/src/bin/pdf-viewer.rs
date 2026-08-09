@@ -2315,8 +2315,11 @@ impl App {
             Control::RadioButton {
                 no_toggle_to_off, ..
             } => no_toggle_to_off,
-            // §12.7.5.2.2's push-button "retains no permanent value", a signature field's is a
-            // dictionary, and neither is a control a click gives a value to.
+            // §12.7.5.2.2's push-button responds to input "without retaining a permanent value",
+            // a signature field's is a dictionary, and neither is a control a click gives a
+            // value to. (This line quoted "retains no permanent value" until the
+            // four-hundred-and-nineteenth session; Errata Collection 3 strikes the sentence that
+            // phrase is from — Issue #386 — and the definition above is what survives.)
             _ => return,
         };
         if field.read_only {

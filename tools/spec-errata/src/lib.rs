@@ -297,21 +297,32 @@ pub fn read(path: &Path) -> Result<Vec<Note>, Error> {
     Ok(notes)
 }
 
-/// Which of this project's three populations of quotation a landing is in.
+/// Which of this project's four populations of quotation a landing is in.
 ///
-/// **They are three because only one of them is checked by anything**, and the round that
-/// swept the other two found a stale quotation in each. `tools/conformance` verifies every
-/// [`Self::Blockquote`] against `doc/md/` and reads neither of the others: ADR 0249 measured
-/// the ledger's at 977 spans and decided against a gate, and the four-hundred-and-eighteenth
-/// session found the third — a pair of quotation marks inside ordinary rustdoc prose, which
+/// **They are four because only one of them is checked by anything**, and every round that
+/// swept one of the others found a stale quotation in it. `tools/conformance` verifies every
+/// [`Self::Blockquote`] against `doc/md/` and reads none of the rest: ADR 0249 measured the
+/// ledger's at 977 spans and decided against a gate, the four-hundred-and-eighteenth session
+/// found the third — a pair of quotation marks inside ordinary rustdoc prose, which
 /// `CLAUDE.md`'s "[q]uotation marks mean verbatim" binds exactly as hard and which the
-/// blockquote scanner walks straight past.
+/// blockquote scanner walks straight past — and **the four-hundred-and-nineteenth found the
+/// fourth by walking into it**: a quotation inside an ordinary `//` comment in a function body.
+///
+/// That one was not missed but *excluded*, and the sentence excluding it is the finding. This
+/// function's own documentation used to read "a `\"` in a `//` comment is not making
+/// `CLAUDE.md`'s claim", which is a claim about `CLAUDE.md` that `CLAUDE.md` contradicts: it
+/// asks for the clause "in its doc comment, its module comment, **or the comment above the
+/// block**", and states "[q]uotation marks mean verbatim" of quotations rather than of doc
+/// comments. The first one read under the new rule was `content.rs`'s §7.8.3 fallback, quoting
+/// a bullet Errata Collection 3 struck out (ADR 0255).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Quoted {
     /// A rustdoc `> ` blockquote — the one population a gate verifies.
     Blockquote,
     /// A pair of quotation marks inside rustdoc prose.
     Prose,
+    /// A pair of quotation marks inside an ordinary `//` comment.
+    Comment,
     /// A pair of quotation marks inside a `doc/conformance/ledger.toml` note.
     LedgerNote,
 }
@@ -323,6 +334,7 @@ impl Quoted {
         match self {
             Self::Blockquote => "blockquote",
             Self::Prose => "prose",
+            Self::Comment => "comment",
             Self::LedgerNote => "ledger",
         }
     }
@@ -408,12 +420,57 @@ fn retired(notes: &[Note]) -> Vec<(&Note, String)> {
 ///
 /// The shorter side still has to be [`MIN_WORDS`] long, which is what keeps a four-word
 /// coincidence from being reported as a quotation of a paragraph.
-fn overlaps(quotation: &str, quotation_squeezed: &str, passage: &str) -> bool {
-    if quotation_squeezed.len() >= passage.len() {
-        quotation_squeezed.contains(passage)
-    } else {
-        quotation.split_whitespace().count() >= MIN_WORDS && passage.contains(quotation_squeezed)
+///
+/// **And it is asked once per elided segment**, which the four-hundred-and-nineteenth session
+/// added after finding a quotation by hand that this test could not reach: `appearance.rs`'s
+/// "retains no permanent value … it shall not use the V and DV entries" is two spans of a
+/// sentence Errata Collection 3 struck out, and neither the whole nor the passage contains the
+/// other because the `…` stands for eleven words in between. An elision is `CLAUDE.md`'s own
+/// convention for quoting part of a sentence, so an instrument that only compares whole
+/// quotations is blind to exactly the quotations a careful writer produces.
+fn overlaps(quotation: &str, passage: &str) -> bool {
+    let segments = elided(quotation);
+    if segments.is_empty() {
+        let squeezed = squeezed(quotation);
+        return if squeezed.len() >= passage.len() {
+            squeezed.contains(passage)
+        } else {
+            quotation.split_whitespace().count() >= MIN_WORDS && passage.contains(&squeezed)
+        };
     }
+    // Two ways for an elided quotation to be about one passage, and the second is why it is
+    // not simply `any`. **Either one segment quotes the struck passage whole** — the case a
+    // long blockquote with an elision elsewhere in it makes — **or the passage contains every
+    // segment**, which is what a quotation lifted in pieces out of one sentence looks like.
+    // Asking `any` in the second direction reported `image.rs`'s §11.6.5.2 comment against a
+    // sentence about `/BaseFont`, on the four words "the same as the": a threshold of
+    // [`MIN_WORDS`] is a weak filter once a quotation may arrive in pieces, and requiring all
+    // the pieces is what restores it.
+    segments
+        .iter()
+        .any(|segment| squeezed(segment).contains(passage))
+        || segments
+            .iter()
+            .all(|segment| passage.contains(&squeezed(segment)))
+}
+
+/// A quotation's segments, split at the ellipses that stand for what it left out, or nothing
+/// at all where it has none.
+///
+/// Both spellings this tree writes: the character `…` and three full stops. A segment shorter
+/// than [`MIN_WORDS`] is dropped rather than compared, for the reason [`overlaps`] drops one —
+/// "[t]hese fonts" and "otherwise" say nothing about which sentence they came from.
+fn elided(quotation: &str) -> Vec<String> {
+    let replaced = quotation.replace("...", "…");
+    if !replaced.contains('…') {
+        return Vec::new();
+    }
+    replaced
+        .split('…')
+        .map(str::trim)
+        .filter(|segment| segment.split_whitespace().count() >= MIN_WORDS)
+        .map(str::to_owned)
+        .collect()
 }
 
 /// The double-quoted spans of a piece of prose, in the order they appear.
@@ -467,7 +524,7 @@ pub fn landings(notes: &[Note], roots: &[PathBuf]) -> Result<Vec<Landing>, Error
                 )
             })
             .collect();
-        for (line, span) in prose_quotations(&source) {
+        for (line, kind, span) in prose_quotations(&source) {
             // The clause a *blockquote* is attributed to is the nearest citation before it in
             // the same comment; prose gets the same rule with the comment boundary dropped,
             // because a `"` … `"` sits inside a sentence rather than under a heading. It is a
@@ -477,12 +534,11 @@ pub fn landings(notes: &[Note], roots: &[PathBuf]) -> Result<Vec<Landing>, Error
                 .iter()
                 .rfind(|citation| citation.line <= line)
                 .map(|citation| citation.number.to_string());
-            quotations.push((line, Quoted::Prose, clause, span));
+            quotations.push((line, kind, clause, span));
         }
         for (line, kind, clause, text) in quotations {
-            let compared = squeezed(&text);
             for (note, passage) in &struck {
-                if overlaps(&text, &compared, passage) {
+                if overlaps(&text, passage) {
                     found.push(Landing {
                         file: file.clone(),
                         line,
@@ -498,50 +554,72 @@ pub fn landings(notes: &[Note], roots: &[PathBuf]) -> Result<Vec<Landing>, Error
     Ok(found)
 }
 
-/// The quoted spans inside a Rust file's doc comments, with the line each block starts on.
+/// The quoted spans inside a Rust file's comments, with the line each block starts on and
+/// which of the two comment populations it is in.
 ///
-/// Doc comments only: a `"` in ordinary code is a string literal and a `"` in a `//` comment is
-/// not making `CLAUDE.md`'s claim. A blockquote line is skipped, because [`landings`] already
-/// has those from the gate's own scanner and reporting one twice would double every count.
+/// Comments only, doc and ordinary alike: a `"` in ordinary *code* is a string literal and
+/// makes no claim, and a line that begins with `//` after trimming cannot be one. A blockquote
+/// line is skipped, because [`landings`] already has those from the gate's own scanner and
+/// reporting one twice would double every count.
 ///
-/// **A run of doc-comment lines is joined before the marks are counted, and that is the whole
+/// **A run of comment lines is joined before the marks are counted, and that is the whole
 /// difficulty.** A quotation long enough to be worth checking is longer than the 96 columns
 /// this tree wraps at, so its opening `"` and its closing one are on different lines and a
 /// line-at-a-time reader sees two unmatched marks and reports nothing. The first version of
 /// this function was line-at-a-time and missed `attachment.rs`'s `/Subtype` quotation, which
 /// had already been found by hand — an instrument that cannot see what a person found by
 /// reading is not an instrument.
-fn prose_quotations(source: &str) -> Vec<(usize, String)> {
+///
+/// **A run mixing the two kinds is split at the change**, because `///` above `//` is a doc
+/// comment above a statement rather than one paragraph, and joining them would invent a span
+/// no file contains — the same reason a blockquote line ends a block.
+fn prose_quotations(source: &str) -> Vec<(usize, Quoted, String)> {
     let mut found = Vec::new();
     let mut block: Vec<&str> = Vec::new();
+    let mut kind = Quoted::Prose;
     let mut start = 0_usize;
-    let flush = |block: &mut Vec<&str>, start: usize, found: &mut Vec<(usize, String)>| {
+    let flush = |block: &mut Vec<&str>,
+                 kind: Quoted,
+                 start: usize,
+                 found: &mut Vec<(usize, Quoted, String)>| {
         if !block.is_empty() {
             for span in quoted_spans(&block.join(" ")) {
-                found.push((start, span));
+                found.push((start, kind, span));
             }
             block.clear();
         }
     };
     for (index, line) in source.lines().enumerate() {
         let trimmed = line.trim_start();
+        // `///` and `//!` before `//`, since both start with it.
         let body = trimmed
             .strip_prefix("///")
-            .or_else(|| trimmed.strip_prefix("//!"));
+            .or_else(|| trimmed.strip_prefix("//!"))
+            .map(|body| (Quoted::Prose, body))
+            .or_else(|| {
+                trimmed
+                    .strip_prefix("//")
+                    .map(|body| (Quoted::Comment, body))
+            });
         match body {
-            // A blockquote line ends the prose block rather than merely being skipped: the
-            // quotation before it and the one after it are two quotations, and joining them
-            // across would invent a span the file does not contain.
-            Some(body) if !body.trim_start().starts_with('>') => {
+            // A blockquote line ends the block rather than merely being skipped: the quotation
+            // before it and the one after it are two quotations, and joining them across would
+            // invent a span the file does not contain.
+            Some((of, body)) if !body.trim_start().starts_with('>') => {
                 if block.is_empty() {
                     start = index.saturating_add(1);
+                    kind = of;
+                } else if of != kind {
+                    flush(&mut block, kind, start, &mut found);
+                    start = index.saturating_add(1);
+                    kind = of;
                 }
                 block.push(body);
             }
-            _ => flush(&mut block, start, &mut found),
+            _ => flush(&mut block, kind, start, &mut found),
         }
     }
-    flush(&mut block, start, &mut found);
+    flush(&mut block, kind, start, &mut found);
     found
 }
 
@@ -570,9 +648,8 @@ pub fn ledger_landings(notes: &[Note], ledger: &Path) -> Result<Vec<Landing>, Er
             continue;
         };
         for span in quoted_spans(note) {
-            let compared = squeezed(&span);
             for (erratum, passage) in &struck {
-                if overlaps(&span, &compared, passage) {
+                if overlaps(&span, passage) {
                     found.push(Landing {
                         file: ledger.to_owned(),
                         line: row.line,

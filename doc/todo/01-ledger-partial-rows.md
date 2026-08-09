@@ -1099,6 +1099,30 @@ it runs; ADR 0254 is why it is not here and not a gate. Its one known gap: `quot
 double quotes only, because an apostrophe would make every possessive an opening mark, and
 §12.7.5.2.2's stale quotation was in single quotes.
 
+**The four-hundred-and-nineteenth ran it again and found a fourth and a fifth population**, both by
+walking into one of them while reading §7.8.3 for an unrelated clause:
+
+- **A quotation inside an ordinary `//` comment.** The scanner read `///` and `//!` only, and its own
+  doc comment gave the reason — "a `\"` in a `//` comment is not making `CLAUDE.md`'s claim" — which
+  is a claim about `CLAUDE.md` that `CLAUDE.md` contradicts twice over: it asks for the clause "in
+  its doc comment, its module comment, **or the comment above the block**", and binds quotation
+  marks rather than doc comments. **13 landings, 2 stale quotations** (§7.8.3's struck fourth bullet
+  in `content.rs`, §8.9.7's NOTE 3 in `inline_image.rs`).
+- **A quotation with an ellipsis in it.** `overlaps` compared a quotation whole, so a quotation of
+  *parts* of one sentence could only match a struck passage shorter than itself — blind to exactly
+  the shape `CLAUDE.md`'s own `…` convention produces. **8 landings, 4 stale quotations**, two of
+  which are the two files the round before recorded itself as having missed.
+
+**One false positive set the rule**, and it is the same lesson the twelfth sweep learned about
+noise: asking whether *any* elided segment matched reported a §11.6.5.2 comment against a sentence
+about `/BaseFont` on the four words "the same as the". The test is now one segment quoting the
+passage whole **or** every segment inside it. ADR 0255.
+
+**A sixth population is named and not counted**: every quotation of the standard in `doc/*.md`, in
+`doc/todo/`, in `doc/HANDOVER.md` and in the 255 ADRs. Nothing reads any of it. The reason to expect
+something there is the only reason any of these five was swept — each of the first sweeps found
+something.
+
 **And the sweep found a defect in the file rather than in a claim**: 17 rows carried **72
 double-escaped quotation marks**, `\\\"` in the TOML, which decodes to a literal backslash before
 the quote — so 36 quotations rendered with stray backslashes. Fourteen of the seventeen are the §8.4

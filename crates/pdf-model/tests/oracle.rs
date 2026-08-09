@@ -845,9 +845,19 @@ const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 0] = [];
 /// the six: the compiled-in face agrees with the consensus where the machine's did not.
 ///
 /// **This is the trade written down**: five contradicted pages net, against a page that renders
-/// the same on every machine — which is what §9.6.2.2 means by "[t]hese fonts … shall be available to
-/// the PDF processor", and what `CLAUDE.md`'s principle 5 means by not treating agreement with
-/// other renderers as the definition of right.
+/// the same on every machine — which is what §6.3.2.2 asks of a rendering processor by way of
+/// Table 109's permission, and what `CLAUDE.md`'s principle 5 means by not treating agreement
+/// with other renderers as the definition of right.
+///
+/// **This sentence cited §9.6.2.2's "These fonts, or their font metrics and suitable
+/// substitution fonts, shall be available to the PDF processor" until the
+/// four-hundred-and-nineteenth session**, and Errata Collection 3 strikes that outright while
+/// turning the paragraph above it into an informative NOTE (Issue #47 and #48, `/State`
+/// `Review` `Completed`). The four-hundred-and-eighteenth corrected the same quotation in three
+/// files and named two it had missed; this is one of them, found when the sweep learned to
+/// split a quotation at its own ellipsis. `pdf_font::standard` carries the warrant that
+/// survives, and it is the stronger one — a requirement on what is drawn rather than a sentence
+/// about what a processor happens to have.
 ///
 /// # Two more in the hundred-and-fifty-sixth, and the sentence written about them was false
 ///
@@ -910,9 +920,15 @@ const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 0] = [];
 ///
 /// # Where the 0 came from, and it is a reader this tree has and did not use
 ///
-/// §9.6.2.1's closing paragraph puts the obligation on the processor — "PDF processors shall
-/// provide glyph widths and font descriptor data for those standard fonts … when the entries
-/// are absent" — and `pdf_font::standard_metrics` is that provision. Adobe's published metrics
+/// §9.6.2.1's closing paragraph used to put the obligation on the processor in so many words —
+/// "For compatibility reasons PDF processors shall provide glyph widths and font descriptor
+/// data for those standard fonts for use in processing PDF files when the entries are absent" —
+/// and Errata Collection 3 strikes the whole sentence, leaving a cross-reference to §9.6.2.2 in
+/// its place (Issue #47 and #48, `/State` `Review` `Completed`; corrected here in the
+/// four-hundred-and-nineteenth session). What is left standing is Table 109's permission to
+/// omit the four entries and §6.3.2.2's requirement to render the page, which between them make
+/// the provision the processor's whatever the struck sentence said; and
+/// `pdf_font::standard_metrics` is it. Adobe's published metrics
 /// name only the standard character set and no `.notdef`, which is consistent with §9.6.5.2
 /// leaving that glyph to the designer, so `simple_widths` fell through to its third source:
 /// the advance the substitute program itself states, which Table 109 requires to agree with
