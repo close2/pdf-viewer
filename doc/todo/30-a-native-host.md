@@ -26,8 +26,14 @@ vocabulary and the three pixel tiers).
    a C ABI until two Rust consumers have shaken the API out"* was met, and the three amendments the
    two hosts named were taken before a line of the ABI was written.
 
-**The vocabulary needed no new message for a third host running.** Eleven messages in eleven rounds
-of hosts; three whole hosts, one of them in another language, have added none between them.
+**The vocabulary needed no new message for a third host running**, and it still needs none: eleven
+messages in eleven rounds of hosts, and three whole hosts — one of them in another language — added
+no *message* between them. **What they did find was a variant carrying too little**, which is a
+different thing and has its own mechanism: `Edit::SetField`'s value changed shape in the
+four-hundred-and-twelfth so that §12.7.5.4's list box could say which items are selected (ADR 0248),
+and every consumer failed to compile until it said what it does. A message added is a channel that
+did not exist; a variant changed is a channel that was too narrow, and only the second is something
+`#[non_exhaustive]` would have hidden.
 
 ## What the three amendments cost, because it was not what this file predicted
 
@@ -51,7 +57,11 @@ them**:
 **Every item below is a function to add to the C ABI, a widget to place, or a clause to obey.** No
 new message, and no new decision about the boundary.
 
-- **The ABI is 39 entry points and not the whole vocabulary.** What a C caller cannot do yet:
+- **The ABI is 39 entry points and not the whole vocabulary**, and the four-hundred-and-twelfth is
+  the round that showed what that costs rather than predicting it: `Edit::SetField`'s value changed
+  shape, five Rust consumers failed to compile, and this crate did not notice because
+  `Command::Edit` is on the list below. `PDFV_EVENT_KIND_COUNT` was **15** before and after. What a
+  C caller cannot do yet:
   `Command::Pointer` and `Command::Select` (and therefore selection, the caret and §12.5.6.6's
   drag), `Query::Fields` and `Command::Edit` (the form), `Command::Save` and `Command::Extract`
   (and the `Saved`/`Extracted` events' bytes, which want a byte-buffer accessor rather than a
@@ -71,12 +81,15 @@ new message, and no new decision about the boundary.
 - **Table 229 bit 26's `RadiosInUnison` crosses and is not obeyed** (from `doc/todo/37`). Turning on
   every button of a set that shares an on state is a decision for whatever handles the press, and
   all the hosts have the flag rather than the behaviour.
-- **§12.7.5.4's list box is the one place the boundary genuinely limits a host**, and the second
-  host established it. `viewer-qt` asks `QListWidget` for `SingleSelection` *deliberately*, because
-  `Edit::SetField` carries one value while Table 233 bit 22 permits several. Offering the control
-  and sending one of what a person chose would be worse than not offering it. **This is a
-  message-shaped gap — the only one three hosts found** — and it is the one thing on this list that
-  would change `viewer-core`.
+- ~~**§12.7.5.4's list box is the one place the boundary genuinely limits a host.**~~ **Closed in
+  the four-hundred-and-twelfth** (ADR 0248), and it was the only thing on this list that changed
+  `viewer-core`. `Edit::SetField`'s value is `pdf_model::view::Entered` now — characters,
+  §12.7.5.4's chosen options by index, or a clear — so `viewer-gtk` builds a `GtkMultiSelection` and
+  `viewer-qt` an `ExtendedSelection` where Table 233 bit 22 is set, and each writes `/V` in both the
+  shapes the clause states with Table 234's `/I` beside it. Driven under `Xvfb` on `issue17492.pdf`
+  in both hosts, which wrote **byte-identical** files. The variant changed and every consumer failed
+  to compile, which is the shape ADRs 0166, 0167 and 0247 established and the fourth time it has
+  been used.
 - **§12.7.5.4's list box still draws nothing on the page**, and says so: the clause states which
   items are selected and states no highlight, so `variable_text` refuses it. A host with the items
   and the selection draws a real list — which is the point — but a page with a list box on it is

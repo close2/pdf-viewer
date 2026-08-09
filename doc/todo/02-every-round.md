@@ -19,7 +19,7 @@ features no file exercises.
 ```sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets      # must be silent of lints
-cargo nextest run --workspace               # 1473 tests, 10 ignored
+cargo nextest run --workspace               # 1481 tests, 10 ignored
 cargo test --workspace --doc                # the one doctest nextest does not run
 cargo build --profile gates -p pdf-sandbox --bins   # trap 10: Cargo will not do this for you
 cargo test  --profile gates -p pdf-model      --test corpus          -- --ignored --nocapture
@@ -62,7 +62,9 @@ here:
   not behind for the fourth round running; the four-hundred-and-ninth added **five** and it was not
   behind for the fifth; the four-hundred-and-tenth added **nineteen**, a second host crate's, and it
   was not behind for the sixth; the four-hundred-and-eleventh added **nineteen** — a third host
-  crate's seventeen and two more — and it was not behind for the seventh.)
+  crate's seventeen and two more — and it was not behind for the seventh; the four-hundred-and-twelfth
+  added **eight** — five in `pdf-model` for §12.7.5.4's two `/V` shapes and Table 234's `/I`, one
+  apiece in `viewer-core`, `viewer-confined` and `viewer-qt` — and it was not behind for the eighth.)
 - **One of those eighteen runs a C compiler**, and it is the only gate in this sequence that does.
   `viewer-ffi::a_c_program_drives_the_abi` builds `crates/viewer-ffi/c/open_a_page.c` against the
   crate's own header with `-Wall -Wextra -Werror`, links it against the `cdylib` — which it asks

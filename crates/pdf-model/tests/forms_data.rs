@@ -19,6 +19,7 @@
 use std::fmt::Write as _;
 
 use pdf_model::forms_data::FormsData;
+use pdf_model::view::Entered;
 use pdf_model::view::ViewState;
 use pdf_syntax::Document;
 
@@ -453,7 +454,10 @@ fn a_read_only_field_refuses_a_person_and_not_an_import() {
     let document = Document::open(read_only_form()).expect("the fixture is a valid PDF");
     let mut view = ViewState::of(&document);
 
-    assert_eq!(view.set_field(&document, "name", Some("typed")), 0);
+    assert_eq!(
+        view.set_field(&document, "name", &Entered::Text("typed".to_owned())),
+        0
+    );
     let (after, _) = drawn(&document, &view);
     assert!(!after.contains("typed"), "{after:?}");
     assert!(
@@ -535,7 +539,10 @@ fn form_with_usage_rights(form_rights: &str) -> Vec<u8> {
 fn a_save_beyond_the_granted_usage_rights_withdraws_the_signature() {
     let granted = Document::open(form_with_usage_rights("/FillIn")).expect("a valid PDF");
     let mut view = ViewState::of(&granted);
-    assert_eq!(view.set_field(&granted, "name", Some("typed")), 1);
+    assert_eq!(
+        view.set_field(&granted, "name", &Entered::Text("typed".to_owned())),
+        1
+    );
     let saved = view
         .save(&granted)
         .expect("the fixture can be updated")
@@ -550,7 +557,10 @@ fn a_save_beyond_the_granted_usage_rights_withdraws_the_signature() {
 
     let withheld = Document::open(form_with_usage_rights("/Import")).expect("a valid PDF");
     let mut view = ViewState::of(&withheld);
-    assert_eq!(view.set_field(&withheld, "name", Some("typed")), 1);
+    assert_eq!(
+        view.set_field(&withheld, "name", &Entered::Text("typed".to_owned())),
+        1
+    );
     let saved = view
         .save(&withheld)
         .expect("the fixture can be updated")
@@ -631,7 +641,10 @@ fn a_certified_document_states_which_operation_its_author_forbade() {
     // And `pdf-model` itself no longer refuses: the value goes in, because whether to obey the
     // document is not a question this crate is entitled to answer.
     let mut view = ViewState::of(&final_document);
-    assert_eq!(view.set_field(&final_document, "name", Some("typed")), 1);
+    assert_eq!(
+        view.set_field(&final_document, "name", &Entered::Text("typed".to_owned())),
+        1
+    );
     let (after, _) = drawn(&final_document, &view);
     assert!(after.contains("typed"), "{after:?}");
 }

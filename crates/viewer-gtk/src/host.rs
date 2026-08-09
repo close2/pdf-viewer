@@ -28,7 +28,7 @@ use pdf_model::view::WidgetAppearances;
 use pdf_render::Rasterizer;
 use render_cpu::CpuRasterizer;
 use viewer_core::{
-    Answer, Command, DocumentId, Edit, Event, FormField, PageTarget, PointerAction, Query,
+    Answer, Command, DocumentId, Edit, Entered, Event, FormField, PageTarget, PointerAction, Query,
     Rendered, Selection, Viewer, Zoom,
 };
 
@@ -544,6 +544,14 @@ impl Host {
         Rc::new(move |change| {
             with(&me, |host| match change {
                 FieldChange::Set { field, value } => {
+                    if let Entered::Chosen(chosen) = &value {
+                        host.trace.say(
+                            Topic::Panel,
+                            format_args!(
+                                "{field}: option(s) {chosen:?} of Table 234's /Opt selected"
+                            ),
+                        );
+                    }
                     host.dispatch(Command::Edit(Edit::SetField { field, value }));
                 }
                 FieldChange::Activate(annotation) => {

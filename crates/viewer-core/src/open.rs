@@ -215,8 +215,8 @@ pub(crate) enum Done {
     SetField {
         /// §12.7.4.2's name.
         field: String,
-        /// The value, or nothing.
-        value: Option<String>,
+        /// The value: characters, §12.7.5.4's chosen options, or nothing.
+        value: pdf_model::view::Entered,
     },
     /// §12.5.6.10's markup, over quadrilaterals in **default user space**.
     Markup {
@@ -499,7 +499,7 @@ impl Open {
         for edit in log.iter().take(self.cursor) {
             match edit {
                 Done::SetField { field, value } => {
-                    self.view.set_field(&self.document, field, value.as_deref());
+                    self.view.set_field(&self.document, field, value);
                 }
                 Done::Markup {
                     page,

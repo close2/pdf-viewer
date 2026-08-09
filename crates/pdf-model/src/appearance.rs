@@ -2549,7 +2549,14 @@ pub(crate) fn accepted_prefix(
     annotation: &Dictionary,
     value: &str,
 ) -> Option<usize> {
-    let field = Field::read(document, annotation, FieldValue::Edited(None));
+    let field = Field::read(
+        document,
+        annotation,
+        FieldValue::Edited {
+            value: None,
+            indices: None,
+        },
+    );
     if field.too_deep
         || field.kind != Some(FieldKind::Text)
         || field.flags & FLAG_DO_NOT_SCROLL == 0
@@ -2927,16 +2934,18 @@ impl Field {
         let mut field = Self {
             kind: None,
             flags: 0,
-            // §12.7.8.3.2's "replace" is done here and not by a walk: an imported value comes
-            // from another file, so there is nothing in this document's `/Parent` chain to read
-            // it from, and an FDF field stating no `/V` leaves the widget with no value at all.
+            // Both of the values that come from outside this document's `/Parent` chain, and
+            // neither is walked for: §12.7.8.3.2's "replace" puts another file's value here, and
+            // an FDF field stating no `/V` leaves the widget with no value at all; what a person
+            // entered arrives already in the object type Table 226's `/V` takes — §7.9.2.2's text
+            // string for characters and for §12.7.5.2's state names, an array of them where
+            // §12.7.5.4's field has several items selected.
+            // `crate::view::ViewState::set_field` builds the second, once, so that this and the
+            // file a save writes cannot disagree about what was chosen.
             value: match source {
-                FieldValue::Imported { value, .. } => value.cloned(),
-                // What a person typed, encoded as §7.9.2.2's text string type — which is what
-                // Table 226 makes `/V` for a text field, and so what §12.7.4.3 lays out.
-                FieldValue::Edited(text) => text.map(|text| {
-                    Object::String(pdf_syntax::text_string::encode_text_string(text).into())
-                }),
+                FieldValue::Imported { value, .. } | FieldValue::Edited { value, .. } => {
+                    value.cloned()
+                }
                 FieldValue::Stored | FieldValue::Default => None,
             },
             ancestry: Vec::new(),
@@ -2953,7 +2962,7 @@ impl Field {
             FieldValue::Default => Some("DV"),
             // Both come from outside the file, so there is nothing in this document's `/Parent`
             // chain to read them from and an absent value is an absent value.
-            FieldValue::Imported { .. } | FieldValue::Edited(_) => None,
+            FieldValue::Imported { .. } | FieldValue::Edited { .. } => None,
         };
         let mut current = annotation.clone();
         let mut flags = None;
@@ -2989,7 +2998,7 @@ impl Field {
                     }
                     // Typing into a field changes its value and not its flags: §12.7.8's is the
                     // one statement about a value that carries Table 249's `/Ff` beside it.
-                    FieldValue::Stored | FieldValue::Default | FieldValue::Edited(_) => {
+                    FieldValue::Stored | FieldValue::Default | FieldValue::Edited { .. } => {
                         flags.unwrap_or_default()
                     }
                 };

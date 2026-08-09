@@ -63,8 +63,8 @@ use pdf_syntax::ObjectId;
 use render_cpu::CpuRasterizer;
 use render_quorra::{PresentFrame, QuorraPresenter};
 use viewer_core::{
-    Answer, Command, DocumentId, Edit, Event, FocusMove, PageTarget, PointerAction, Purpose, Query,
-    RenderRequest, Rendered, RestrictionLevel, Selection, Viewer, Zoom,
+    Answer, Command, DocumentId, Edit, Entered, Event, FocusMove, PageTarget, PointerAction,
+    Purpose, Query, RenderRequest, Rendered, RestrictionLevel, Selection, Viewer, Zoom,
 };
 use viewer_ui::chrome::{About, Chrome, Content, Hit, Sidebar, Tab};
 use viewer_ui::software::SoftwareSurface;
@@ -2263,7 +2263,7 @@ impl App {
         println!("note: setting the field {} to {value}", name.shown());
         self.dispatch(Command::Edit(Edit::SetField {
             field: qualified,
-            value: Some(value),
+            value: Entered::Text(value),
         }));
     }
 
@@ -2474,7 +2474,7 @@ impl App {
         self.dispatch(Command::Edit(match aim {
             Aim::Field(field) => Edit::SetField {
                 field,
-                value: Some(next),
+                value: Entered::Text(next),
             },
             Aim::FreeText(annotation) => Edit::SetFreeText {
                 annotation,

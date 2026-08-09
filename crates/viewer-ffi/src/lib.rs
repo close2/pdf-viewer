@@ -89,6 +89,16 @@
 //! boundary's most expensive kind of change. `pdfv_abi_version` is what a caller checks before
 //! believing either of them.
 //!
+//! **And a change to a variant's *shape* that this ABI does not expose costs it nothing at all**,
+//! which the four-hundred-and-twelfth session is the first round to demonstrate rather than
+//! predict. `viewer_core::Edit::SetField`'s value stopped being one string and became
+//! [`viewer_core::Entered`], so that §12.7.5.4's list box can say which of Table 234's options are
+//! selected (ADR 0248) — and every Rust consumer failed to compile while this crate did not,
+//! because `Command::Edit` is one of the verbs `doc/todo/30` records as still absent from the 39
+//! entry points. `PDFV_EVENT_KIND_COUNT` is **15** before and after, which is the number a C
+//! caller's `pdfv_abi_check` compares and the reason it is a *number* rather than a promise: a
+//! round that had moved it would have had the caller say so at startup.
+//!
 //! # Errors, because a C caller cannot see a `Result`
 //!
 //! Every fallible entry point returns [`Status`] as an `int32_t`, and every out-parameter is

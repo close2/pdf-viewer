@@ -104,6 +104,13 @@ pub use command::{
     Selection, Zoom,
 };
 pub use event::{Event, RenderRequest};
+/// What [`Edit::SetField`] puts into a field: §12.7.5.3's characters, §12.7.5.4's chosen options,
+/// or nothing.
+///
+/// Re-exported for the reason [`pdf_model::view::Markup`] is named directly in [`Edit::Markup`]:
+/// it is a statement about a *document's* field rather than about a view, so it belongs to the
+/// crate that reads documents — and a host should not have to name that crate to send an edit.
+pub use pdf_model::view::Entered;
 pub use query::{
     Answer, FormField, FormWidget, FrameView, Layer, PageGeometry, PopupWindow, Query, Selected,
 };

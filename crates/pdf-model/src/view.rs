@@ -96,10 +96,10 @@ pub struct ViewState {
     /// immutable, so an edit is a log beside the file and never a change to it, and
     /// interpretation stays a pure function of the bytes and this state.
     ///
-    /// `None` against a widget is a value a person *cleared*, which is a different thing from
-    /// a widget nobody has touched: the first shows an empty field and the second shows the
-    /// file's own `/V`.
-    edited: BTreeMap<ObjectId, Option<String>>,
+    /// An entry whose [`Entry::value`] is `None` is a value a person *cleared*, which is a
+    /// different thing from a widget nobody has touched: the first shows an empty field and the
+    /// second shows the file's own `/V`.
+    edited: BTreeMap<ObjectId, Entry>,
     /// Which annotation the pointer is over or pressing, if any (§12.5.5).
     ///
     /// One annotation rather than a set, because a pointer is in one place. `None` is what
@@ -291,9 +291,24 @@ pub enum FieldValue<'a> {
     /// §12.7.4: a value a person entered, which replaces every other statement about it.
     ///
     /// Last because it is latest: the file's `/V`, a reset's `/DV` and an import's value are all
-    /// statements made before somebody typed. `None` is a field a person *cleared*, which shows
-    /// nothing — a different thing from [`Self::Stored`], which shows the file's own value.
-    Edited(Option<&'a str>),
+    /// statements made before somebody typed. A `value` of `None` is a field a person *cleared*,
+    /// which shows nothing — a different thing from [`Self::Stored`], which shows the file's own
+    /// value.
+    Edited {
+        /// Table 226's `/V` as the edit leaves it, already in the object type the entry takes.
+        ///
+        /// A string for text and for §12.7.5.2's appearance-state names, and **an array of
+        /// strings** where §12.7.5.4's choice field has several items selected — the clause's own
+        /// two shapes, resolved once by [`ViewState::set_field`] so that the appearance and the
+        /// file cannot disagree about what was entered.
+        value: Option<&'a Object>,
+        /// Table 234's `/I`, where the edit chose among §12.7.5.4's options.
+        ///
+        /// Zero-based indices into `/Opt`, ascending. `None` is an edit that named no options —
+        /// text typed into a field, a button's state, or a clear — and it is what says the entry
+        /// must not survive into the file beside the new `/V`.
+        indices: Option<&'a [usize]>,
+    },
     /// §12.7.8: a value from an FDF file, which replaces `/V` (§12.7.8.3.2).
     Imported {
         /// Table 249's `/V`.
@@ -309,6 +324,62 @@ pub enum FieldValue<'a> {
         /// multiline, comb and password bits each change §12.7.4.3's layout of the same string.
         flags: crate::forms_data::FlagChange,
     },
+}
+
+/// What a person put into one field, as [`ViewState::set_field`] takes it.
+///
+/// Three variants, because §12.7.5 gives a field's value three shapes and a host has to be able to
+/// say all three. Two of them were `Option<String>` until the four-hundred-and-twelfth session, and
+/// the third is why that stopped being enough: Table 233 bit 22 — *"(PDF 1.4) If set, more than one
+/// of the field's option items may be selected simultaneously; if clear, at most one item shall be
+/// selected"* — lets §12.7.5.4's list box hold several items at once, and one string cannot say
+/// which several. ADR 0248.
+///
+/// **A selection is named by index and not by label**, which is the decision worth stating. The
+/// clause makes `/V` hold the *labels* — "the name string is the second of the two array elements"
+/// — so labels are what reaches the file; but two of Table 234's `/Opt` entries may carry the same
+/// name string, and a host that answered with labels could not say which of them a person clicked.
+/// [`crate::form::ChoiceControl::selected`] already answers in indices, so a host reads and writes
+/// the same coordinate.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum Entered {
+    /// The field is cleared: §12.7.6.3's own words for a value that is gone are "its V entry shall
+    /// be removed", and this is what a person emptying a field asks for.
+    ///
+    /// A different state from never having touched the field, which shows Table 226's `/V`.
+    #[default]
+    Cleared,
+    /// Characters, as §7.9.2.2's text string.
+    ///
+    /// §12.7.5.3's text field, §12.7.5.4's editable combo box — Table 233 bit 19 lets one "include
+    /// an editable text box as well as a drop-down list", so its value need not be one of the
+    /// options at all — and §12.7.5.2's two toggling buttons, whose value is the appearance-state
+    /// name [`crate::form::Widget::on_state`] hands over.
+    Text(String),
+    /// §12.7.5.4: which of Table 234's `/Opt` entries are selected, as zero-based indices into it.
+    ///
+    /// An empty list means no item is selected, which §12.7.5.4 makes the same state as
+    /// [`Self::Cleared`]: "[t]he default value of V is null , indicating that no item is currently
+    /// selected."
+    ///
+    /// An index past the end of `/Opt` names nothing and is dropped, and more than one index on a
+    /// field whose `MultiSelect` flag is clear is cut to the first — Table 233 bit 22's "at most
+    /// one item shall be selected" binds this program because this program is what selects.
+    Chosen(Vec<usize>),
+}
+
+/// One widget's edit, resolved against the document into what Table 226's `/V` will say.
+///
+/// Resolved once, at [`ViewState::set_field`], rather than at each of the three places that read it
+/// — the appearance, the description a host reads back, and the file a save writes. §12.7.5.4's
+/// mapping from an index to a label needs the field's `/Opt`, and doing it three times would be
+/// three chances for a picture and a file to disagree about what a person chose.
+#[derive(Debug, Clone, PartialEq)]
+struct Entry {
+    /// Table 226's `/V`, or `None` for a field that was cleared.
+    value: Option<Object>,
+    /// Table 234's `/I`, where the edit chose among §12.7.5.4's options.
+    indices: Option<Vec<usize>>,
 }
 
 /// What one import of one FDF file did to this document.
@@ -545,7 +616,7 @@ impl ViewState {
             hidden_by_action: self.annotation_hidden(annotation),
             appearance: self.appearance_for(annotation),
             value: if let Some(edit) = self.edited.get(&annotation) {
-                FieldValue::Edited(edit.as_deref())
+                edit.as_field_value()
             } else if let Some(import) = self.imported.get(&annotation) {
                 FieldValue::Imported {
                     value: import.value.as_ref(),
@@ -958,12 +1029,38 @@ impl ViewState {
     /// name table is the same §12.7.4.2 walk §12.6.4.11's hide action, §12.7.6.3's reset and
     /// §12.7.8's import all use, so all four agree about what a field is called.
     ///
-    /// `None` clears the field, which is not the same as never having touched it: the first
-    /// shows nothing and the second shows Table 226's `/V`.
+    /// [`Entered::Cleared`] clears the field, which is not the same as never having touched it:
+    /// the first shows nothing and the second shows Table 226's `/V`.
     ///
     /// Returns how many widgets took the value. Zero means the document has no field of that
-    /// name — a caller's mistake rather than a document's — or that every widget of it is
-    /// Table 227's `ReadOnly`, which is the document refusing.
+    /// name — a caller's mistake rather than a document's — that every widget of it is Table 227's
+    /// `ReadOnly`, which is the document refusing, or that [`Entered::Chosen`] named §12.7.5.4's
+    /// options on a field that is not one of §12.7.5.4's, which is a caller's mistake again.
+    ///
+    /// # What §12.7.5.4's two value shapes cost, and where they are decided
+    ///
+    /// [`Entered::Chosen`] names Table 234's `/Opt` entries by index and the clause states what
+    /// `/V` then says:
+    ///
+    /// > If the field does not allow multiple selection -that is, if the MultiSelect flag ( PDF
+    /// > 1.4 ) is not set -or if multiple selection is supported but only one item is currently
+    /// > selected, V is a text string representing the selected item, as given in the field
+    /// > dictionary's Opt array. If multiple items are selected, V is an array of such strings.
+    /// > (For items represented in the Opt array by a two-element array, the name string is the
+    /// > second of the two array elements.)
+    ///
+    /// So one index becomes a string, several become an array of strings, and none becomes no `/V`
+    /// at all — "[t]he default value of V is null , indicating that no item is currently selected."
+    /// That resolution happens **here**, once, because it needs the field's own `/Opt` and because
+    /// the appearance, the description a host reads back and the file a save writes must not each
+    /// do it separately. Table 234's `/I` is kept beside the value for the same reason: the entry
+    /// is the indices, and deriving them again from labels that may repeat is exactly the tie `/I`
+    /// exists for.
+    ///
+    /// Table 233 bit 22 is obeyed rather than carried — "if clear, at most one item shall be
+    /// selected" — by taking the first index in `/Opt` order, which is the same shape ADR 0197
+    /// gave Table 231 bit 24: this program is what selects, so the `shall` binds it, and cutting
+    /// what will not fit keeps the control usable where refusing the whole edit would not.
     ///
     /// # What this does **not** consult, and where it went
     ///
@@ -995,7 +1092,7 @@ impl ViewState {
     /// overflowed one widget's rectangle while fitting another's would be a field that is full
     /// and not full at once, and the reading that keeps every widget showing the whole value is
     /// the one that keeps the clause's sentence true of the field.
-    pub fn set_field(&mut self, document: &Document, name: &str, value: Option<&str>) -> usize {
+    pub fn set_field(&mut self, document: &Document, name: &str, value: &Entered) -> usize {
         let table = widgets_by_field_name(document);
         let Some(widgets) = table.get(name) else {
             return 0;
@@ -1009,14 +1106,33 @@ impl ViewState {
             .copied()
             .filter(|widget| !is_read_only(document, *widget))
             .collect();
-        let value = value.map(|value| accepted(document, &taking, value));
+        let entry = match value {
+            Entered::Cleared => Entry {
+                value: None,
+                indices: None,
+            },
+            Entered::Text(text) => Entry {
+                // §7.9.2.2's text string, which is what Table 226 makes `/V` for a text field and
+                // so what §12.7.4.3 lays out. Encoded once, here, rather than again at the save:
+                // the appearance and the file then carry the same bytes by construction.
+                value: Some(Object::String(
+                    pdf_syntax::text_string::encode_text_string(&accepted(document, &taking, text))
+                        .into(),
+                )),
+                indices: None,
+            },
+            Entered::Chosen(indices) => match chosen(document, taking.first().copied(), indices) {
+                Some(entry) => entry,
+                None => return 0,
+            },
+        };
         let mut applied = 0_usize;
         for widget in &taking {
             // The four statements about a value answer one question, so a widget belongs to
             // exactly one of them: what a person typed is the latest of the four.
             self.reset.remove(widget);
             self.imported.remove(widget);
-            self.edited.insert(*widget, value.clone());
+            self.edited.insert(*widget, entry.clone());
             applied = applied.saturating_add(1);
         }
         applied
@@ -1220,14 +1336,16 @@ impl ViewState {
         let mut update = Update::beside(document);
         let mut withheld = Vec::new();
         self.write_additions(document, &mut update);
-        for (widget, value) in self.edits() {
+        for (widget, entered) in &self.edited {
+            let widget = *widget;
             let Some(dict) = document.get(widget).as_dict().cloned() else {
                 continue;
             };
+            let value = entered.as_field_value();
             // Table 231 bit 14's NOTE, above. The same reading that makes `field_value` answer
             // with bullets is what decides it, so a field whose value a host is not allowed to
             // read back is a field whose value this does not store — one predicate, not two.
-            if crate::appearance::field_text_value(document, &dict, FieldValue::Edited(value))
+            if crate::appearance::field_text_value(document, &dict, value)
                 .is_some_and(|shown| shown.obscured)
             {
                 withheld.push(field_name_of(document, widget));
@@ -1238,20 +1356,44 @@ impl ViewState {
             // stale value inherited by the field's other widgets. The value goes where the
             // document already keeps one, or on the widget where the document keeps none.
             let (id, mut field) = holder(document, widget, dict.clone());
-            match value {
-                Some(text) => {
-                    field.insert(
-                        Name::new(&b"V"[..]),
-                        Object::String(pdf_syntax::text_string::encode_text_string(text).into()),
-                    );
+            match entered.value.as_ref() {
+                // Already the object §12.7.5.4 and §12.7.5.3 say `/V` is — a string, or an array
+                // of strings for several selected items — because `set_field` resolved it against
+                // the field's own `/Opt`. Encoding it a second time here is how the file and the
+                // appearance would come to disagree.
+                Some(object) => {
+                    field.insert(Name::new(&b"V"[..]), object.clone());
                 }
                 // §12.7.6.3's own words for a value that is gone: "its V entry shall be removed".
                 None => {
                     field.remove("V");
                 }
             }
+            // Table 234's `/I` "shall be used ... when the value of the choice field is an array",
+            // and it is written for a single selection too, because it is the only entry that says
+            // *which* `/Opt` element was chosen where two of them carry the same name string. An
+            // edit that named no options takes it out: an `/I` left standing beside a `/V` it does
+            // not describe is a file contradicting itself, and §12.7.5.4's tie-break would then be
+            // arbitrating a disagreement this program wrote.
+            match entered.indices.as_ref() {
+                Some(indices) => {
+                    // "sorted in ascending order", which `set_field` established, and every index
+                    // is a position in the `/Opt` array it bounded them by — so what is converted
+                    // here is a `Vec` position and the filter drops nothing on any target this
+                    // builds for.
+                    let entries: Vec<Object> = indices
+                        .iter()
+                        .filter_map(|index| i64::try_from(*index).ok())
+                        .map(Object::Integer)
+                        .collect();
+                    field.insert(Name::new(&b"I"[..]), Object::Array(entries));
+                }
+                None => {
+                    field.remove("I");
+                }
+            }
             update.put(id, Object::Dictionary(field));
-            update.write_appearance(document, widget, &dict, FieldValue::Edited(value));
+            update.write_appearance(document, widget, &dict, value);
         }
         if !update.is_empty()
             && let Some((id, mut form)) = interactive_form(document)
@@ -1354,13 +1496,15 @@ impl ViewState {
         self.edited.clear();
     }
 
-    /// Every field a person has typed into, by widget, in object order.
+    /// Every field a person has typed into or chosen among, by widget, in object order.
     ///
-    /// What a save writes and what a host asks to know whether there is anything to save.
-    pub fn edits(&self) -> impl Iterator<Item = (ObjectId, Option<&str>)> {
+    /// What a host asks to know whether there is anything to save. The value is the statement
+    /// [`ViewState::annotation`] would answer with, which is the one the appearance is drawn from
+    /// — so a caller looking at this and a caller looking at the page are looking at one reading.
+    pub fn edits(&self) -> impl Iterator<Item = (ObjectId, FieldValue<'_>)> {
         self.edited
             .iter()
-            .map(|(widget, value)| (*widget, value.as_deref()))
+            .map(|(widget, entered)| (*widget, entered.as_field_value()))
     }
 
     /// Adds §12.7.8.3.3's template pages, resolved through §12.7.7's name trees.
@@ -2119,6 +2263,78 @@ fn withdrawn_usage_rights(document: &Document) -> Option<(ObjectId, Dictionary)>
 ///
 /// The shortest prefix any of them accepts, and the whole value where none of them constrains
 /// it — `crate::appearance::accepted_prefix` answers `None` for a widget the flag does not bind.
+/// §12.7.5.4's selection, turned into the `/V` and the `/I` the clause says it is.
+///
+/// `None` where the field is not one of §12.7.5.4's — an index into Table 234's `/Opt` names
+/// nothing there, and Table 230's entry of the same name is a *button's* export values, so
+/// resolving against it would write an export value where §12.7.5.2.3 wants an appearance-state
+/// name. A caller that sends [`Entered::Chosen`] to a text field or a check box has made a mistake
+/// this refuses rather than reinterprets.
+///
+/// The widget is any one of the field's: §12.7.4.1 makes `/Opt`, `/Ff` and the value the *field's*,
+/// so every widget of it walks to the same ancestry.
+fn chosen(document: &Document, widget: Option<ObjectId>, indices: &[usize]) -> Option<Entry> {
+    let object = document.get(widget?);
+    let annotation = object.as_dict()?;
+    let field = crate::appearance::Field::read(document, annotation, FieldValue::Stored);
+    if !matches!(
+        field.kind,
+        Some(crate::appearance::FieldKind::Choice { .. })
+    ) {
+        return None;
+    }
+    let options = crate::form::options(document, &field);
+    let mut wanted: Vec<usize> = indices
+        .iter()
+        .copied()
+        // An index past the end of `/Opt` names no option, and Table 234 makes the array the whole
+        // list of them: "[i]f this entry is not present, no choices should be presented to the
+        // user".
+        .filter(|index| *index < options.len())
+        .collect();
+    wanted.sort_unstable();
+    wanted.dedup();
+    // Table 233 bit 22: "if clear, at most one item shall be selected".
+    if field.flags & crate::appearance::FLAG_MULTI_SELECT == 0 {
+        wanted.truncate(1);
+    }
+    let labels: Vec<Object> = wanted
+        .iter()
+        .filter_map(|index| options.get(*index))
+        .map(|option| {
+            Object::String(pdf_syntax::text_string::encode_text_string(&option.label).into())
+        })
+        .collect();
+    Some(match labels.len() {
+        // "The default value of V is null , indicating that no item is currently selected."
+        0 => Entry {
+            value: None,
+            indices: None,
+        },
+        // "V is a text string representing the selected item, as given in the field dictionary's
+        // Opt array."
+        1 => Entry {
+            value: labels.into_iter().next(),
+            indices: Some(wanted),
+        },
+        // "If multiple items are selected, V is an array of such strings."
+        _ => Entry {
+            value: Some(Object::Array(labels)),
+            indices: Some(wanted),
+        },
+    })
+}
+
+impl Entry {
+    /// This entry as the statement about a value the appearance path reads.
+    fn as_field_value(&self) -> FieldValue<'_> {
+        FieldValue::Edited {
+            value: self.value.as_ref(),
+            indices: self.indices.as_deref(),
+        }
+    }
+}
+
 fn accepted(document: &Document, widgets: &[ObjectId], value: &str) -> String {
     let mut limit = value.len();
     for widget in widgets {

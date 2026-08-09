@@ -22,7 +22,7 @@
 
 use pdf_model::navigation::{Dimension, Direction, Motion, Style, Transition};
 use pdf_model::restriction::Operation;
-use pdf_model::view::{Markup, WidgetAppearances};
+use pdf_model::view::{Entered, Markup, WidgetAppearances};
 use pdf_render::{Point, Raster, RasterFormat, Rect, Size};
 use pdf_sandbox::lockdown::{Confinement, LandlockLevel, SystemCalls};
 use pdf_syntax::{Name, ObjectId};
@@ -1099,8 +1099,24 @@ fn decode_zoom(reader: &mut Reader<'_>) -> Result<Zoom, ProtocolError> {
 
 fn encode_edit(writer: &mut Writer, edit: &Edit) {
     match edit {
+        // §12.7.5.4's three shapes, carried since the four-hundred-and-twelfth session: this was
+        // one optional string until Table 233 bit 22's list box needed several. ADR 0248.
         Edit::SetField { field, value } => {
-            writer.u8(0).str(field).option_str(value.as_deref());
+            writer.u8(0).str(field);
+            match value {
+                Entered::Cleared => {
+                    writer.u8(0);
+                }
+                Entered::Text(text) => {
+                    writer.u8(1).str(text);
+                }
+                Entered::Chosen(indices) => {
+                    writer.u8(2).usize(indices.len());
+                    for index in indices {
+                        writer.usize(*index);
+                    }
+                }
+            }
         }
         Edit::Markup { kind, colour } => {
             writer
@@ -1136,7 +1152,22 @@ fn decode_edit(reader: &mut Reader<'_>) -> Result<Edit, ProtocolError> {
     Ok(match reader.u8(what)? {
         0 => Edit::SetField {
             field: reader.string("a field name")?,
-            value: reader.option_string("a field value")?,
+            value: {
+                let what = "a field value";
+                match reader.u8(what)? {
+                    0 => Entered::Cleared,
+                    1 => Entered::Text(reader.string(what)?),
+                    2 => Entered::Chosen(
+                        reader.list("a chosen option", |reader| reader.usize("a chosen option"))?,
+                    ),
+                    value => {
+                        return Err(ProtocolError::Unrecognised {
+                            what,
+                            value: u32::from(value),
+                        });
+                    }
+                }
+            },
         },
         1 => Edit::Markup {
             kind: match reader.u8("a markup kind")? {
@@ -2347,11 +2378,22 @@ mod tests {
             Command::Restrict(RestrictionLevel::On),
             Command::Edit(Edit::SetField {
                 field: "A.NOM".to_owned(),
-                value: Some("typed".to_owned()),
+                value: Entered::Text("typed".to_owned()),
             }),
             Command::Edit(Edit::SetField {
                 field: "A.NOM".to_owned(),
-                value: None,
+                value: Entered::Cleared,
+            }),
+            // §12.7.5.4's list box, since the four-hundred-and-twelfth: Table 233 bit 22 permits
+            // several items at once, and all three of `Entered`'s shapes cross so that a confined
+            // host has no less than an unconfined one (ADR 0248).
+            Command::Edit(Edit::SetField {
+                field: "A.NOM".to_owned(),
+                value: Entered::Chosen(Vec::new()),
+            }),
+            Command::Edit(Edit::SetField {
+                field: "A.NOM".to_owned(),
+                value: Entered::Chosen(vec![0, 2, 5]),
             }),
             Command::Edit(Edit::Markup {
                 kind: Markup::Squiggly,

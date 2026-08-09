@@ -17,7 +17,7 @@ use std::rc::Rc;
 
 use gtk4::prelude::*;
 use pdf_syntax::ObjectId;
-use viewer_core::{FormField, FormWidget};
+use viewer_core::{Entered, FormField, FormWidget};
 
 use viewer_host::form::{ControlKind, control_kind};
 
@@ -28,8 +28,8 @@ pub(crate) enum FieldChange {
     Set {
         /// The qualified name.
         field: String,
-        /// The new value, or nothing to clear it.
-        value: Option<String>,
+        /// The new value: characters, §12.7.5.4's chosen options, or nothing to clear it.
+        value: Entered,
     },
     /// [`viewer_core::Command::Activate`] on a widget, which is what a push button is for.
     Activate(ObjectId),
@@ -172,7 +172,7 @@ fn entry(
             let text = buffer.text(&start, &end, false).to_string();
             change(FieldChange::Set {
                 field: name.clone(),
-                value: Some(text),
+                value: Entered::Text(text),
             });
         });
         let scroller = gtk4::ScrolledWindow::new();
@@ -202,7 +202,7 @@ fn entry(
             }
             change(FieldChange::Set {
                 field: name.clone(),
-                value: Some(secure.text().to_string()),
+                value: Entered::Text(secure.text().to_string()),
             });
         });
         return secure.upcast();
@@ -224,7 +224,7 @@ fn entry(
         }
         change(FieldChange::Set {
             field: name.clone(),
-            value: Some(entry.text().to_string()),
+            value: Entered::Text(entry.text().to_string()),
         });
     });
     entry.upcast()
@@ -268,7 +268,7 @@ fn toggle(
         };
         change(FieldChange::Set {
             field: name.clone(),
-            value: Some(value),
+            value: Entered::Text(value),
         });
     });
     button.upcast()
@@ -283,6 +283,19 @@ fn push(field: &FormField, widget: &FormWidget, change: &Rc<dyn Fn(FieldChange)>
     let change = Rc::clone(change);
     button.connect_clicked(move |_| change(FieldChange::Activate(annotation)));
     button.upcast()
+}
+
+/// Which of a selection model's items are selected, as indices into Table 234's `/Opt`.
+///
+/// Asked position by position rather than through `GtkBitset`, because the two selection models
+/// this host builds answer the same way and the list is as long as `/Opt` — 10 list-box widgets
+/// over 8 corpus documents, and no `/Opt` in any of them is long enough for the difference to be
+/// measurable.
+fn chosen(selection: &gtk4::SelectionModel) -> Vec<usize> {
+    (0..selection.n_items())
+        .filter(|position| selection.is_selected(*position))
+        .filter_map(|position| usize::try_from(position).ok())
+        .collect()
 }
 
 /// §12.7.5.4's combo box, which Table 233 bit 18 distinguishes from a list.
@@ -300,7 +313,7 @@ fn combo(
         None => drop.set_selected(gtk4::INVALID_LIST_POSITION),
     }
     let name = field.name.qualified.clone();
-    let options: Vec<String> = options.to_vec();
+    let count = options.len();
     let suppress = Rc::clone(suppress);
     let change = Rc::clone(change);
     drop.connect_selected_notify(move |drop| {
@@ -310,14 +323,17 @@ fn combo(
         let Ok(index) = usize::try_from(drop.selected()) else {
             return;
         };
-        let Some(label) = options.get(index) else {
+        if index >= count {
             return;
-        };
-        // §12.7.5.4: "the name string is the second of the two array elements", and `/V` names
-        // that string rather than the export value.
+        }
+        // §12.7.5.4's item, named by its position in Table 234's `/Opt` rather than by the label
+        // `/V` will hold. The clause makes the label the value — "the name string is the second of
+        // the two array elements" — and the position is what says *which* label, where two entries
+        // carry the same one. `GtkDropDown` is not editable, so this control has no other value to
+        // send; Table 233 bit 19's editable combo box is the case this host reports and Qt obeys.
         change(FieldChange::Set {
             field: name.clone(),
-            value: Some(label.clone()),
+            value: Entered::Chosen(vec![index]),
         });
     });
     drop.upcast()
@@ -329,6 +345,12 @@ fn combo(
 /// highlight, so `variable_text` refuses it. A host with the items and the selection can now draw
 /// a real list — which is the point". This is that list, and it is the one control here that adds
 /// something the page does not already show.
+///
+/// **And since the four-hundred-and-twelfth session it obeys Table 233 bit 22 rather than
+/// reporting it.** The bit — "(PDF 1.4) If set, more than one of the field's option items may be
+/// selected simultaneously; if clear, at most one item shall be selected" — decides which of GTK's
+/// two selection models this is, and the model is the whole difference: `viewer_core::Edit` carries
+/// a set of indices now, so a `GtkMultiSelection`'s answer has somewhere to go. ADR 0248.
 fn list(
     field: &FormField,
     options: &[String],
@@ -339,15 +361,23 @@ fn list(
 ) -> gtk4::Widget {
     let shown: Vec<&str> = options.iter().map(String::as_str).collect();
     let strings = gtk4::StringList::new(&shown);
-    let selection = gtk4::SingleSelection::new(Some(strings));
-    selection.set_autoselect(false);
-    selection.set_can_unselect(true);
-    match selected
-        .first()
-        .and_then(|index| u32::try_from(*index).ok())
-    {
-        Some(index) => selection.set_selected(index),
-        None => selection.set_selected(gtk4::INVALID_LIST_POSITION),
+    let selection: gtk4::SelectionModel = if multi {
+        gtk4::MultiSelection::new(Some(strings)).upcast()
+    } else {
+        let one = gtk4::SingleSelection::new(Some(strings));
+        // "at most one item shall be selected", and a list box whose value is null has none —
+        // which `GtkSingleSelection` only permits when told both of these.
+        one.set_autoselect(false);
+        one.set_can_unselect(true);
+        one.upcast()
+    };
+    selection.unselect_all();
+    for (nth, index) in selected.iter().enumerate() {
+        if let Ok(index) = u32::try_from(*index) {
+            // The first call clears whatever the model started with and the rest add to it, which
+            // is one code path for both models: a single selection has exactly one iteration.
+            selection.select_item(index, nth == 0);
+        }
     }
     let factory = gtk4::SignalListItemFactory::new();
     factory.connect_bind(|_, item| {
@@ -365,34 +395,19 @@ fn list(
     });
     let view = gtk4::ListView::new(Some(selection.clone()), Some(factory));
     let name = field.name.qualified.clone();
-    let options: Vec<String> = options.to_vec();
     let suppress = Rc::clone(suppress);
     let change = Rc::clone(change);
-    selection.connect_selected_notify(move |selection| {
+    selection.connect_selection_changed(move |selection, _, _| {
         if suppress.get() {
             return;
         }
-        let Ok(index) = usize::try_from(selection.selected()) else {
-            return;
-        };
-        let Some(label) = options.get(index) else {
-            return;
-        };
+        // Read out of the model rather than accumulated from the signal's range: the signal says
+        // *which positions changed*, and what the edit needs is what is selected now.
         change(FieldChange::Set {
             field: name.clone(),
-            value: Some(label.clone()),
+            value: Entered::Chosen(chosen(selection)),
         });
     });
-    if multi {
-        // Table 233 bit 22 permits several items at once and `Edit::SetField` carries one value,
-        // so this host selects one and says so rather than pretending. The clause is not refused
-        // here — it is a host that has not built the control for it.
-        eprintln!(
-            "note: the field {} allows several selections (Table 233 bit 22) and this host \
-             offers one",
-            field.name.shown()
-        );
-    }
     let scroller = gtk4::ScrolledWindow::new();
     scroller.set_child(Some(&view));
     scroller.upcast()

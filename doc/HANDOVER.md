@@ -201,6 +201,28 @@ password into the file it saved**, against that table's own NOTE, and no longer 
 neither the value nor the appearance for such a field and reports each one it withheld. ADR 0247,
 `doc/todo/30`.
 
+**And the four-hundred-and-twelfth closed the one gap three hosts found, without adding a message.**
+`doc/todo/30` had recorded §12.7.5.4's list box as *"the one place the boundary genuinely limits a
+host"*: Table 233 bit 22 says "more than one of the field's option items may be selected
+simultaneously", `Edit::SetField` carried one string, and GTK4, Qt and the headless harness had each
+asked for *single* selection deliberately rather than send one of what a person chose. **The reading
+half was already complete** — `ChoiceControl` has carried Table 234's `/Opt`, the selection as
+indices and bit 22 itself since ADR 0235 — so the gap was one direction wide, and the fix is the
+shape ADRs 0166, 0167 and 0247 established rather than a new channel: `Edit::SetField`'s value is
+`pdf_model::view::Entered` now (`Cleared`, `Text`, `Chosen(Vec<usize>)`), and every consumer failed
+to compile until it said what it does. **A selection is named by index rather than by label**,
+because `/V` holds labels and two `/Opt` entries may carry the same one — which is exactly the
+ambiguity Table 234's `/I` exists for — and the resolution to a label happens **once**, in
+`ViewState::set_field`, so the appearance and the file cannot disagree. Both shapes of `/V` are
+written (a string for one item, an array for several, removed for none) with `/I` ascending beside a
+selection and **removed** where the new value is not one. Bit 22 is *obeyed*: a selection sent to a
+single-select field is cut to its first index, ADR 0197's shape. **The C ABI did not move and that is
+the finding** — `Command::Edit` is not among its 39 entry points, so `PDFV_EVENT_KIND_COUNT` is 15
+before and after. Driven under `Xvfb` on `issue17492.pdf`, one of the corpus's **4** bit-22 widgets:
+two rows selected at once in each toolkit's own highlight, and **both hosts wrote byte-identical
+71 524-byte files** carrying `/V [ (Oracle) (DB2) ]` and `/I [ 0 2 ]` over the producer's 70 166
+bytes intact. ADR 0248, `doc/todo/30`, `doc/todo/22`.
+
 **And since the three-hundred-and-seventy-seventh it can tell a person that a signed document
 changed after it was signed, and since the three-hundred-and-ninety-second whether its signature
 verifies.** §12.8.1 divides verifying a signature into three questions and only the third needs the
@@ -352,6 +374,20 @@ fields, a field typed into, an attachment extracted and §7.6.4.1's password pro
 encrypted document. **Not run and therefore not claimed**: the twelve fuzz targets, which have
 nothing to catch here — no parser, no decoder and no document code changed.
 
+**And the four-hundred-and-twelfth ran the whole sequence with one variant's shape changed across
+six consumers, and every line below reproduced except three counts.** It changed
+`viewer_core::Edit::SetField`'s value and touched `pdf-model`'s view state, the confined transport
+and all three hosts — so the test count moved by its eight (1473 → **1481**), the citations by 52
+(5913 → **5965**) and the quotations by four (561 → **565**), while the corpus's 974 with 65
+incomplete, the oracle's 905/68/786 **line for line**, quorra's 912/36/9/17, the text gate's 99.2%
+(24043/24243 words), the dates, the XMP and the JPEG 2000 lines are what the table says.
+`doc/todo/00`'s step 7 is **not owed**: nothing in the interpreter or the rasteriser changed, and no
+gate sets a field's value, so no gate can reach the code this round wrote. Two things beyond §2 were
+run and are claimed: **the `confined_wire` fuzz target**, because the transport's decoder gained a
+case — 13 632 129 executions in 181 s, no crash — and **both hosts under `Xvfb`**, which is where the
+change is visible at all. **Not run and therefore not claimed**: the other eleven fuzz targets, which
+have nothing to catch here, and `cargo deny`, because no dependency moved.
+
 **And the four-hundred-and-sixth, which moved no verdict and forty-three lines.** It worked the
 contradicted list and found the defect in the *instrument*: a contradicted page's line was measured
 against whichever reference had the largest tile — which need not be one the verdict rests on — and
@@ -365,7 +401,7 @@ names in the same order as the three-hundred-and-ninety-seventh's. ADR 0242.
 
 | gate | what it printed | where |
 |---|---|---|
-| tests | `1473 tests run: 1473 passed, 10 skipped` — the tenth skip is the four-hundred-and-seventh session's `the_fixed_bounds_against_the_references_own_spread`, which derives the oracle's own bounds and is run explicitly — and `cargo test --workspace --doc` **1 passed** beside it, so `cargo test --workspace` reports **1474**. The four-hundred-and-eleventh added **nineteen**: seventeen in `crates/viewer-ffi`, one of which compiles a C program with `gcc -Werror` and runs it; one in `pdf-model` that searches saved bytes for a password that must not be in them; and one in `viewer-core` on the corpus's single Table 231 bit 14 widget. `clippy --workspace --all-targets` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`; `fmt --all --check` clean | `cargo nextest run --workspace`, **37.1 s** |
+| tests | `1481 tests run: 1481 passed, 10 skipped` — the tenth skip is the four-hundred-and-seventh session's `the_fixed_bounds_against_the_references_own_spread`, which derives the oracle's own bounds and is run explicitly — and `cargo test --workspace --doc` **1 passed** beside it, so `cargo test --workspace` reports **1482**. The four-hundred-and-twelfth added **eight**: five in `pdf-model` for §12.7.5.4's two shapes of `/V` and Table 234's `/I`, and one apiece in `viewer-core`, `viewer-confined` and `viewer-qt` for the same clause read from a host. `clippy --workspace --all-targets` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`; `fmt --all --check` clean | `cargo nextest run --workspace`, **37.1 s** |
 | corpus (974 pdf.js documents, page one) | `974 documents in 5.9s: 0 unopenable, 8 locked, 2 encrypted beyond us, 5 pageless, **65 incomplete**, 0 slow` | `tests/corpus.rs`, **5.9 s** |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | `1794 pages (1693 we call complete, 101 incomplete)`; **905 agree / 863 of them complete**, **68 contradicted / 66 complete**, **786 ambiguous / 753 complete**, our geometry 1/0, reference geometry 2/2, not comparable 14/9, no render 18/0 — and **the undiagnosed ambiguous list printed empty**, which is the ratchet holding. Nothing moved in the four-hundred-and-sixth — it changed only what the gate *prints* about a contradicted page (ADR 0242) — nor in the four-hundred-and-seventh, which added a second `#[ignore]`d test to the same file that re-derives the bounds this gate judges by (ADR 0243) — and the run now ends with a second ranking, `contradicted, and furthest from the nearest reference`, headed by `bitmap-symbol-context-reuse.pdf` at 28.91 nearest | `tests/oracle.rs`, **41.1 s** |
 | text (vs `pdftotext`, same 974) | `overall 99.2% (24043/24243 words), 25 below 90%`, with 24 skipped and 62 incomplete and not gated | `tests/text_extraction.rs`, **30.1 s** |
@@ -373,7 +409,7 @@ names in the same order as the three-hundred-and-ninety-seventh's. ADR 0242.
 | dates | `1545 date strings in 974 documents: **1514 conform** to §7.9.4 (97.99%), 31 do not, over 22 distinct strings` | `tests/dates.rs`, **0.9 s** |
 | **§14.3.2's XMP** (same 974) | `319 documents carry §14.3.2's stream: **318 read, 1 refused**, 3191 properties between them, 106 state dc:title` — the refusal is a fuzzed file whose stream does not decode at all | `tests/xmp.rs`, **0.4 s** |
 | **JPEG 2000 vs ISO/IEC 15444-5's reference software** | 30 corpus codestreams: **14 byte-identical, 13 differing, 3 not comparable**, and no remaining difference exceeds one level. `doc/JPEG2000_FEEDBACK.md` §§7–8 has the two defects behind that | `tests/jpeg2000.rs`, **13.8 s** |
-| conformance | **5913 citations**, all naming clauses the standard has; **561 quotations**, all verbatim; **213** distinct tables cited by this tree and **250** named in the ledger's notes; **875 ledger rows** (400 implemented, 252 partial, 19 reported, 83 inapplicable, 8 writer-side, 113 out-of-scope) — the statuses are unmoved this round; §12.3.3, §12.7.4.3 and §12.7.5.3 gained notes | `cargo test -p conformance`, **3.0 s** |
+| conformance | **5965 citations**, all naming clauses the standard has; **565 quotations**, all verbatim; **213** distinct tables cited by this tree and **250** named in the ledger's notes; **875 ledger rows** (400 implemented, 252 partial, 19 reported, 83 inapplicable, 8 writer-side, 113 out-of-scope) — the statuses are unmoved this round; §12.7.4.1 and §12.7.5.4 gained notes, and §12.7.4.1 lost a paraphrase that was wearing a quotation's single quotes | `cargo test -p conformance`, **2.2 s** |
 | **the round itself** | **not measured as one span this round**, and the honest number is what the gates themselves printed: **154 s** of test execution summed from the ten lines above (25.7 + 4.2 + 46.9 + 30.1 + 34.1 + 0.6 + 0.3 + 9.9 + 2.0), with each gate's incremental build on top and each run separately rather than back to back. `doc/todo/02` records **268 s** for §2 *and* §5's binaries together, from 608 s until the three-hundred-and-eighty-fifth measured every step (ADR 0222); the three-hundred-and-ninety-seventh read 287 s off file timestamps for §2 alone | ADR 0222, `doc/todo/43` |
 
 **Two things beyond §2 were run in the three-hundred-and-ninety-eighth and are claimed**: the

@@ -6,7 +6,10 @@ else's widgets sit on**: GTK4 since the four-hundred-and-eighth session (`crates
 and **a C ABI since the four-hundred-and-eleventh** (`crates/viewer-ffi`, ADR 0247). One is behind
 a confinement. `doc/todo/30`'s condition — *"do not freeze a C ABI until two Rust consumers have
 shaken the API out"* — was met, the three amendments it named were taken, and **no host added a
-message, three running**.
+message, three running**. **One variant changed shape in the four-hundred-and-twelfth**, which is
+the other mechanism and not the same thing: `Edit::SetField`'s value became
+`pdf_model::view::Entered` so that §12.7.5.4's list box could say which of Table 234's options are
+selected (ADR 0248).
 Read by: anybody writing a host, adding a `Command`, `Event` or `Query`, or asking what the
 crate boundary permits. `doc/HANDOVER.md` §0 is the pointer to this file, and ADRs 0116 to 0121
 are the argument.
@@ -203,7 +206,14 @@ session after it was added, because the fuller reading of §12.3.3 made it a pat
 reason and neither adding a message: `Command::Zoom` gained the viewport point to hold still
 (ADR 0166) and `Answer::Field` gained §14.9.3's second name (ADR 0167) — where a host needs two
 things a variant carried one of, the variant changes and every consumer fails to compile, which is
-what nothing being `#[non_exhaustive]` is *for*. **`Answer::Field` changed shape a second time in
+what nothing being `#[non_exhaustive]` is *for*. **`Edit::SetField` changed shape in the
+four-hundred-and-twelfth**, on that rule and with three hosts behind it: its value is
+`pdf_model::view::Entered` — characters, §12.7.5.4's chosen options as indices into Table 234's
+`/Opt`, or a clear — because Table 233 bit 22 lets a list box hold several items and one string
+could not say which. GTK4, Qt and the headless harness had each asked their control for single
+selection *deliberately*, which is what a message-shaped gap looks like when three people find it
+independently. Six consumers failed to compile; the C ABI did not, because `Command::Edit` is not
+among its 39 entry points, and `PDFV_EVENT_KIND_COUNT` stayed 15 (ADR 0248). **`Answer::Field` changed shape a second time in
 the four-hundred-and-eleventh**, for that rule's own reason and with a bug behind it: its value is
 `Option<pdf_model::view::ShownValue>` now, the characters beside Table 231 bit 14's `obscured`, and
 what the compiler failure found was `viewer-ui` writing a password field's bullets back as its next

@@ -315,13 +315,21 @@ pub enum Edit {
     /// "a field's value" is the field's: typing into one of them changes all of them.
     /// [`crate::Query::FieldAt`] is where a host gets the name from a point.
     ///
-    /// `None` clears the field, which is what a person deleting the contents of one does and is
-    /// a different state from never having touched it.
+    /// [`pdf_model::view::Entered::Cleared`] clears the field, which is what a person deleting the
+    /// contents of one does and is a different state from never having touched it.
+    ///
+    /// **The value used to be `Option<String>`, and §12.7.5.4's list box is what changed it** in
+    /// the four-hundred-and-twelfth session. Table 233 bit 22 — "(PDF 1.4) If set, more than one of
+    /// the field's option items may be selected simultaneously" — lets a choice field hold several
+    /// items at once, and one string could not say which several. Three hosts built a list box over
+    /// [`crate::Query::Fields`] and all three asked their toolkit for single selection *because of
+    /// this variant*; the shape ADRs 0166, 0167 and 0247 established is that the variant changes
+    /// and every consumer fails to compile until it says what it does. ADR 0248.
     SetField {
         /// §12.7.4.2's fully qualified name.
         field: String,
-        /// The new value, or nothing.
-        value: Option<String>,
+        /// The new value: characters, §12.7.5.4's chosen options, or nothing.
+        value: pdf_model::view::Entered,
     },
     /// §12.5.6.10: mark up **what is selected**, in one of the clause's four ways.
     ///

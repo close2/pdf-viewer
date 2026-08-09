@@ -12,6 +12,7 @@
               pass by doing nothing"
 )]
 
+use pdf_model::view::Entered;
 use pdf_model::view::ViewState;
 use pdf_syntax::object::ObjectId;
 use pdf_syntax::{Document, Object};
@@ -29,7 +30,7 @@ fn saved(name: &str, field: &str, value: &str) -> Option<Document> {
     let bytes = corpus(name)?;
     let document = Document::open(bytes).expect("the fixture opens");
     let mut view = ViewState::of(&document);
-    let applied = view.set_field(&document, field, Some(value));
+    let applied = view.set_field(&document, field, &Entered::Text(value.to_owned()));
     assert!(applied > 0, "{name}: {field} is a field this document has");
     let out = view
         .save(&document)
@@ -487,4 +488,228 @@ fn a_documents_own_default_font_is_not_replaced() {
         format!("{before:?}"),
         "the form dictionary is untouched where /DR already names the font"
     );
+}
+
+/// A one-page document with the choice field the caller spells.
+///
+/// The `/Opt` array is Table 234's second form throughout — "an array consisting of two text
+/// strings: the option's export value and the text that shall be displayed as the name of the
+/// option" — because that is the form that makes the export value and the label two different
+/// strings, and §12.7.5.4 says only the second reaches `/V`.
+fn choice_document(flags: i64, entries: &str) -> Document {
+    let objects = format!(
+        "1 0 obj << /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] >> >> endobj\n\
+         2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n\
+         3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 400 400] /Annots [4 0 R] >> endobj\n\
+         4 0 obj << /Type /Annot /Subtype /Widget /Rect [10 20 210 120] /FT /Ch /T (databases) \
+         /Ff {flags} /DA (/Helv 9 Tf 0 g) {entries} \
+         /Opt [[(oracle) (Oracle)] [(sqlServer) (SQL Server)] [(db2) (DB2)] [(pg) (PostgreSQL)]] \
+         >> endobj\n"
+    );
+    Document::open(assembled(&objects)).expect("the fixture parses")
+}
+
+/// A fixture with §7.5.4's cross-reference table actually written.
+///
+/// Not a nicety: `pdf_syntax::write::incremental_update` refuses a document whose table it had to
+/// rebuild by scanning (`UpdateError::Recovered`), because §7.5.6's update is defined against the
+/// offsets the *file* states and this program may not invent them.
+fn assembled(objects: &str) -> Vec<u8> {
+    use std::fmt::Write as _;
+
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in objects.split_inclusive("endobj\n") {
+        if !object.contains(" 0 obj") {
+            continue;
+        }
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// Table 233 bit 22 set, and what §12.7.5.4 then says `/V` and Table 234's `/I` are.
+///
+/// > If multiple items are selected, V is an array of such strings.
+#[test]
+fn several_selected_items_are_written_as_an_array_and_an_index_list() {
+    // Bit 22 is 1 << 21.
+    let document = choice_document(1 << 21, "");
+    let mut view = ViewState::of(&document);
+    assert_eq!(
+        view.set_field(&document, "databases", &Entered::Chosen(vec![2, 0])),
+        1,
+        "one widget takes it"
+    );
+
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let described = pdf_model::form::fields(&document, &page, &view);
+    let pdf_model::form::Control::Choice(choice) = &described[0].control else {
+        panic!("{:?}", described[0].control)
+    };
+    assert_eq!(
+        choice.selected,
+        vec![0, 2],
+        "ascending, whatever order the host clicked in"
+    );
+
+    let out = view.save(&document).expect("the fixture writes").bytes;
+    let saved = Document::open(out).expect("what was written can be read");
+    let field = ObjectId {
+        number: 4,
+        generation: 0,
+    };
+    let value = entry(&saved, field, "V");
+    let items = value.as_array().expect("/V is an array for several items");
+    let labels: Vec<String> = items
+        .iter()
+        .filter_map(|item| item.as_string().map(pdf_syntax::text_string))
+        .collect();
+    assert_eq!(
+        labels,
+        vec!["Oracle".to_owned(), "DB2".to_owned()],
+        "the name string is the second of the two array elements"
+    );
+    let indices = entry(&saved, field, "I");
+    let indices: Vec<i64> = indices
+        .as_array()
+        .expect("Table 234's /I")
+        .iter()
+        .filter_map(Object::as_integer)
+        .collect();
+    assert_eq!(indices, vec![0, 2], "sorted in ascending order");
+
+    // And the file says the same thing to a reader that has never seen this session: `/V` and
+    // `/I` agree, so §12.7.5.4's tie-break has nothing to arbitrate.
+    let reopened = ViewState::of(&saved);
+    let page = pdf_model::Pages::new(&saved).get(0).expect("page one");
+    let described = pdf_model::form::fields(&saved, &page, &reopened);
+    let pdf_model::form::Control::Choice(choice) = &described[0].control else {
+        panic!("{:?}", described[0].control)
+    };
+    assert_eq!(choice.selected, vec![0, 2]);
+}
+
+/// Table 233 bit 22 clear: "if clear, at most one item shall be selected".
+#[test]
+fn a_single_select_choice_field_takes_the_first_of_what_was_chosen() {
+    let document = choice_document(0, "");
+    let mut view = ViewState::of(&document);
+    assert_eq!(
+        view.set_field(&document, "databases", &Entered::Chosen(vec![1, 3])),
+        1
+    );
+    let out = view.save(&document).expect("the fixture writes").bytes;
+    let saved = Document::open(out).expect("what was written can be read");
+    let field = ObjectId {
+        number: 4,
+        generation: 0,
+    };
+    // "V is a text string representing the selected item", not an array of one.
+    let value = entry(&saved, field, "V");
+    assert_eq!(
+        value.as_string().map(pdf_syntax::text_string),
+        Some("SQL Server".to_owned()),
+        "{value:?}"
+    );
+    let indices: Vec<i64> = entry(&saved, field, "I")
+        .as_array()
+        .expect("Table 234's /I")
+        .iter()
+        .filter_map(Object::as_integer)
+        .collect();
+    assert_eq!(indices, vec![1]);
+}
+
+/// An index past the end of Table 234's `/Opt` names no option, and none left is no selection.
+///
+/// ISO 32000-2 §12.7.5.4:
+///
+/// > The default value of V is null , indicating that no item is currently selected.
+#[test]
+fn a_selection_of_nothing_removes_both_entries() {
+    // The file states a selection of its own, so what is being tested is a *removal*.
+    let document = choice_document(1 << 21, "/V [(Oracle) (DB2)] /I [0 2]");
+    let mut view = ViewState::of(&document);
+    assert_eq!(
+        view.set_field(&document, "databases", &Entered::Chosen(vec![9])),
+        1,
+        "the edit applies; it is the index that names nothing"
+    );
+    let out = view.save(&document).expect("the fixture writes").bytes;
+    let saved = Document::open(out).expect("what was written can be read");
+    let field = ObjectId {
+        number: 4,
+        generation: 0,
+    };
+    assert_eq!(entry(&saved, field, "V"), Object::Null, "V is removed");
+    assert_eq!(entry(&saved, field, "I"), Object::Null, "and so is /I");
+}
+
+/// A `/I` the file states does not survive a value that is not a selection.
+///
+/// Table 234 defines the entry against `/Opt` positions, and §12.7.5.4 makes the value decide
+/// where they disagree — so leaving a stale one beside a new `/V` would write a file whose two
+/// entries describe different selections and rely on the reader's tie-break to hide it.
+#[test]
+fn typing_into_a_combo_box_takes_the_stated_index_list_out() {
+    // Bit 18 (Combo) and bit 19 (Edit): "the user can type a value other than the predefined
+    // choices".
+    let document = choice_document((1 << 17) | (1 << 18), "/V (DB2) /I [2]");
+    let mut view = ViewState::of(&document);
+    assert_eq!(
+        view.set_field(
+            &document,
+            "databases",
+            &Entered::Text("something else".to_owned())
+        ),
+        1
+    );
+    let out = view.save(&document).expect("the fixture writes").bytes;
+    let saved = Document::open(out).expect("what was written can be read");
+    let field = ObjectId {
+        number: 4,
+        generation: 0,
+    };
+    assert_eq!(
+        entry(&saved, field, "V")
+            .as_string()
+            .map(pdf_syntax::text_string),
+        Some("something else".to_owned())
+    );
+    assert_eq!(entry(&saved, field, "I"), Object::Null);
+}
+
+/// [`Entered::Chosen`] on a field that is not §12.7.5.4's is refused rather than reinterpreted.
+///
+/// Table 230's `/Opt` is a *button's* export values and carries the same key, so resolving an
+/// index against it would write an export value where §12.7.5.2.3 wants an appearance-state name.
+#[test]
+fn choosing_an_option_of_a_text_field_applies_to_nothing() {
+    let objects = "1 0 obj << /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] >> >> \
+                   endobj\n\
+                   2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n\
+                   3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 400 400] /Annots [4 0 R] \
+                   >> endobj\n\
+                   4 0 obj << /Type /Annot /Subtype /Widget /Rect [10 20 210 60] /FT /Tx \
+                   /T (address) /Opt [(one) (two)] >> endobj\n";
+    let document = Document::open(assembled(objects)).expect("the fixture parses");
+    let mut view = ViewState::of(&document);
+    assert_eq!(
+        view.set_field(&document, "address", &Entered::Chosen(vec![0])),
+        0
+    );
+    assert_eq!(view.edits().count(), 0, "and nothing is logged");
 }

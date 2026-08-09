@@ -680,7 +680,7 @@ fn a_form_crosses_the_boundary_and_can_be_filled_in_through_it() {
     confined
         .handle(&Command::Edit(viewer_core::Edit::SetField {
             field: field.name.qualified.clone(),
-            value: Some(state),
+            value: pdf_model::view::Entered::Text(state),
         }))
         .expect("an edit crosses");
 
@@ -704,6 +704,63 @@ fn a_form_crosses_the_boundary_and_can_be_filled_in_through_it() {
         matches!(confined.query(Query::Dirty), Ok(Reply::Dirty(true))),
         "and the document knows it was edited"
     );
+}
+
+/// §12.7.5.4: a confined host selects several items of a list box, and the file says so.
+///
+/// The transport's half of ADR 0248. `Edit::SetField` carries a *set* of Table 234 `/Opt` indices
+/// now, so the wire format carries all three of `Entered`'s shapes — and a confined host that could
+/// select one item where an unconfined one selects three would be ADR 0178's failure with a
+/// clause's name on it.
+#[test]
+fn a_confined_host_selects_several_items_of_a_list_box() {
+    let Some(bytes) = corpus_bytes("issue17492.pdf") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    let mut confined = Confined::start().expect("the worker starts");
+    confined
+        .handle(&Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password: None,
+            fragment: None,
+        })
+        .expect("an open crosses");
+
+    let Reply::Fields(crossed) = confined.query(Query::Fields).expect("a form crosses") else {
+        panic!("this document's first page states a form");
+    };
+    let field = crossed
+        .iter()
+        .find(|field| field.name.qualified == "databases")
+        .expect("Table 233 bit 22's list box");
+    let pdf_model::form::Control::Choice(choice) = &field.control else {
+        panic!("{:?}", field.control)
+    };
+    assert!(choice.multi_select, "Table 233 bit 22 crossed");
+
+    confined
+        .handle(&Command::Edit(viewer_core::Edit::SetField {
+            field: field.name.qualified.clone(),
+            value: pdf_model::view::Entered::Chosen(vec![0, 2]),
+        }))
+        .expect("a selection crosses");
+
+    let Reply::Fields(after) = confined
+        .query(Query::Fields)
+        .expect("the form crosses again")
+    else {
+        panic!("the page still states a form");
+    };
+    let chosen = after
+        .iter()
+        .find(|field| field.name.qualified == "databases")
+        .expect("the same list box");
+    let pdf_model::form::Control::Choice(choice) = &chosen.control else {
+        panic!("{:?}", chosen.control)
+    };
+    assert_eq!(choice.selected, vec![0, 2], "both, ascending");
 }
 
 /// §12.5.6.6: a confined host draws a text box, types in it, and saves the file.

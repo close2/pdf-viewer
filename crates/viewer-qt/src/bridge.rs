@@ -202,8 +202,16 @@ pub mod ffi {
         fn activate_row(self: &mut Host, tree: u8, index: usize);
         /// §8.11.4.3's switch on row `index` of tree `tree` was moved.
         fn toggle_row(self: &mut Host, tree: u8, index: usize, on: bool);
-        /// A control's value was typed into or chosen.
+        /// A control's value was typed into.
         fn set_control(self: &mut Host, index: usize, value: &str);
+        /// §12.7.5.4: which of Table 234's `/Opt` entries are selected now, by index.
+        ///
+        /// Separate from `set_control` for the reason Table 233 bit 22 gives: "more than one of
+        /// the field's option items may be selected simultaneously", so what a `QListWidget` has
+        /// to say is a *set* and a string cannot carry one. Indices rather than labels because
+        /// two of `/Opt`'s entries may carry the same name string and only the position says
+        /// which was clicked (ADR 0248).
+        fn choose_control(self: &mut Host, index: usize, chosen: &[u32]);
         /// §12.7.5.2.3's check box or §12.7.5.2.4's radio button was clicked.
         ///
         /// Separate from `set_control` because the *value* is a name the file invented and only

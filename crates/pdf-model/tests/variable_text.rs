@@ -21,6 +21,7 @@
 
 use std::fmt::Write as _;
 
+use pdf_model::view::Entered;
 use pdf_render::{Rasterizer, TargetSpec};
 use pdf_syntax::Document;
 use render_cpu::CpuRasterizer;
@@ -375,7 +376,7 @@ fn a_password_fields_typed_value_is_not_written_into_the_file() {
             Document::open(text_field("", "", flags)).expect("the fixture is a valid PDF");
         let mut view = pdf_model::view::ViewState::of(&document);
         assert_eq!(
-            view.set_field(&document, "field", Some(typed)),
+            view.set_field(&document, "field", &Entered::Text(typed.to_owned())),
             1,
             "the fixture has one widget for the field"
         );
@@ -648,7 +649,7 @@ fn checking_a_box_draws_the_state_the_new_value_names() {
         // What a host sends: the name §12.7.5.2.3 makes `/V`, which `pdf_model::form` answers
         // with as the widget's on state. Nothing else in the file could tell it that string.
         assert_eq!(
-            view.set_field(&document, "box", Some("Yes")),
+            view.set_field(&document, "box", &Entered::Text("Yes".to_owned())),
             1,
             "{what}: one widget takes the value"
         );
@@ -659,7 +660,10 @@ fn checking_a_box_draws_the_state_the_new_value_names() {
         );
 
         // And back off again, which is the same rule with §12.7.5.2.4's default in it.
-        assert_eq!(view.set_field(&document, "box", Some("Off")), 1);
+        assert_eq!(
+            view.set_field(&document, "box", &Entered::Text("Off".to_owned())),
+            1
+        );
         assert!(
             inked_columns(&draw_with(&document, &page, &view)).is_empty(),
             "{what}: unchecking it takes the mark away"
@@ -1034,7 +1038,7 @@ fn a_combo_box_draws_its_value_and_a_list_box_says_it_cannot() {
 fn typed(bytes: Vec<u8>, value: &str) -> (usize, String) {
     let document = Document::open(bytes).expect("the fixture is a valid PDF");
     let mut view = pdf_model::view::ViewState::of(&document);
-    let applied = view.set_field(&document, "field", Some(value));
+    let applied = view.set_field(&document, "field", &Entered::Text(value.to_owned()));
     let page = pdf_model::Pages::new(&document).get(0).expect("page one");
     let interpretation = pdf_model::content::interpret_with(&document, &page, &view);
     (applied, interpretation.text.clone())

@@ -23,7 +23,7 @@ use pdf_model::view::WidgetAppearances;
 use pdf_render::Rasterizer;
 use render_cpu::CpuRasterizer;
 use viewer_core::{
-    Answer, Command, DocumentId, Edit, Event, FocusMove, PageTarget, PointerAction, Query,
+    Answer, Command, DocumentId, Edit, Entered, Event, FocusMove, PageTarget, PointerAction, Query,
     Rendered, RestrictionLevel, Selection, Viewer, Zoom,
 };
 
@@ -1065,7 +1065,7 @@ fn a_field_is_typed_into_undone_and_redone() {
     let events: Vec<_> = viewer
         .handle(Command::Edit(Edit::SetField {
             field: field.to_owned(),
-            value: Some("Ada Lovelace".to_owned()),
+            value: Entered::Text("Ada Lovelace".to_owned()),
         }))
         .collect();
     assert!(
@@ -1178,7 +1178,7 @@ fn a_caret_says_where_the_next_character_goes() {
     viewer
         .handle(Command::Edit(Edit::SetField {
             field: "Text1".to_owned(),
-            value: Some("Ada".to_owned()),
+            value: Entered::Text("Ada".to_owned()),
         }))
         .for_each(drop);
     let (start, _) = caret(&viewer, 0).expect("the field still has a caret");
@@ -1253,7 +1253,7 @@ fn a_point_inside_a_value_names_the_byte_it_is_nearest() {
     viewer
         .handle(Command::Edit(Edit::SetField {
             field: "Text1".to_owned(),
-            value: Some("Ada Lovelace".to_owned()),
+            value: Entered::Text("Ada Lovelace".to_owned()),
         }))
         .for_each(drop);
 
@@ -1671,7 +1671,7 @@ fn a_password_fields_value_says_that_it_is_not_the_fields_characters() {
     viewer
         .handle(Command::Edit(Edit::SetField {
             field: secret.name.qualified.clone(),
-            value: Some("hunter2".to_owned()),
+            value: Entered::Text("hunter2".to_owned()),
         }))
         .for_each(drop);
 
@@ -1744,7 +1744,7 @@ fn a_host_can_check_a_box_with_the_name_the_page_gave_it() {
     let events: Vec<_> = viewer
         .handle(Command::Edit(Edit::SetField {
             field: field.name.qualified.clone(),
-            value: Some(state),
+            value: Entered::Text(state),
         }))
         .collect();
     let after = request(&events).clone();
@@ -1774,7 +1774,7 @@ fn a_host_can_check_a_box_with_the_name_the_page_gave_it() {
         .handle(Command::Edit(Edit::SetField {
             field: "typeScript".to_owned(),
             // §12.7.5.2.3 names the off state and §12.7.5.2.4 gives it as the default.
-            value: Some("Off".to_owned()),
+            value: Entered::Text("Off".to_owned()),
         }))
         .collect();
     let off = request(&cleared);
@@ -1787,6 +1787,108 @@ fn a_host_can_check_a_box_with_the_name_the_page_gave_it() {
         off.list.commands().len(),
         before.list.commands().len(),
         "and unchecking it takes that thing away again"
+    );
+}
+
+/// §12.7.5.4's list box, several items at once, saved and read back (Table 233 bit 22).
+///
+/// **The one message-shaped gap three hosts found**, and the round that closed it. Sessions 408,
+/// 410 and 411 each built a list box over [`Query::Fields`] and each asked its toolkit for single
+/// selection, because `Edit::SetField` carried one string while the bit permits several:
+///
+/// > (PDF 1.4) If set, more than one of the field's option items may be selected simultaneously;
+/// > if clear, at most one item shall be selected.
+///
+/// `issue17492.pdf`'s `databases` is one of the corpus's **4** widgets that set it, over 4
+/// documents. Its `/Opt` is Table 234's two-element form throughout, so the export values and the
+/// labels are different strings and §12.7.5.4 decides which reach `/V`: "the name string is the
+/// second of the two array elements". ADR 0248.
+#[test]
+fn a_host_can_select_several_items_of_a_list_box_and_save_them() {
+    let Some(bytes) = corpus_bytes("issue17492.pdf") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    let _events: Vec<_> = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password: None,
+            fragment: None,
+        })
+        .collect();
+
+    let Answer::Fields(fields) = viewer.query(Query::Fields) else {
+        panic!("the page has a form");
+    };
+    let Some(field) = find(&fields, "databases") else {
+        panic!("{:?}", named(&fields))
+    };
+    let Control::Choice(choice) = &field.control else {
+        panic!("{:?}", field.control)
+    };
+    assert!(choice.multi_select, "Table 233 bit 22");
+    assert!(!choice.combo, "bit 18 clear: a list box");
+    let labels: Vec<&str> = choice
+        .options
+        .iter()
+        .map(|option| option.label.as_str())
+        .collect();
+    assert_eq!(labels, ["Oracle", "SQL Server", "DB2", " PostgreSQL"]);
+
+    let _events: Vec<_> = viewer
+        .handle(Command::Edit(Edit::SetField {
+            field: field.name.qualified.clone(),
+            value: Entered::Chosen(vec![2, 0]),
+        }))
+        .collect();
+
+    let Answer::Fields(fields) = viewer.query(Query::Fields) else {
+        panic!("the page still has a form");
+    };
+    let Some(field) = find(&fields, "databases") else {
+        panic!("{:?}", named(&fields))
+    };
+    let Control::Choice(choice) = &field.control else {
+        panic!("{:?}", field.control)
+    };
+    assert_eq!(
+        choice.selected,
+        vec![0, 2],
+        "ascending, whatever order they were clicked in"
+    );
+
+    // And §7.5.6's update says the same thing to a reader that has never seen this session.
+    let events: Vec<_> = viewer.handle(Command::Save).collect();
+    let Some(Event::Saved { bytes, .. }) = events
+        .iter()
+        .find(|event| matches!(event, Event::Saved { .. }))
+    else {
+        panic!("{events:?}")
+    };
+    let mut again = Viewer::new(800, 1000, 1.0);
+    let _events: Vec<_> = again
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: bytes.clone(),
+            password: None,
+            fragment: None,
+        })
+        .collect();
+    let Answer::Fields(fields) = again.query(Query::Fields) else {
+        panic!("the saved document has a form");
+    };
+    let Some(field) = find(&fields, "databases") else {
+        panic!("{:?}", named(&fields))
+    };
+    let Control::Choice(choice) = &field.control else {
+        panic!("{:?}", field.control)
+    };
+    assert_eq!(
+        choice.selected,
+        vec![0, 2],
+        "the selection survives the file it was written into"
     );
 }
 
@@ -1882,7 +1984,7 @@ fn a_saved_document_carries_the_edit_and_the_file_under_it() {
     viewer
         .handle(Command::Edit(Edit::SetField {
             field: "Text1".to_owned(),
-            value: Some("Ada Lovelace".to_owned()),
+            value: Entered::Text("Ada Lovelace".to_owned()),
         }))
         .for_each(drop);
 
@@ -3972,7 +4074,7 @@ fn a_restricted_operation_is_refused_with_a_reason() {
     let events: Vec<_> = viewer
         .handle(Command::Edit(Edit::SetField {
             field: "name".to_owned(),
-            value: Some("typed".to_owned()),
+            value: Entered::Text("typed".to_owned()),
         }))
         .collect();
 
@@ -4016,7 +4118,7 @@ fn a_restricted_operation_is_refused_with_a_reason() {
     let events: Vec<_> = permitted
         .handle(Command::Edit(Edit::SetField {
             field: "name".to_owned(),
-            value: Some("typed".to_owned()),
+            value: Entered::Text("typed".to_owned()),
         }))
         .collect();
     assert!(
@@ -4040,7 +4142,7 @@ fn the_reader_can_turn_a_documents_restrictions_off() {
     let events: Vec<_> = viewer
         .handle(Command::Edit(Edit::SetField {
             field: "name".to_owned(),
-            value: Some("typed".to_owned()),
+            value: Entered::Text("typed".to_owned()),
         }))
         .collect();
     assert!(

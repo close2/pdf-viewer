@@ -5,6 +5,8 @@
 #include "window.h"
 
 #include <chrono>
+#include <cstdint>
+#include <vector>
 
 #include <QAction>
 #include <QApplication>
@@ -718,13 +720,21 @@ void MainWindow::rebuildControls()
             // `viewer-gtk` carries the flag and reports it. That is the one place the two hosts
             // differ in what they can do rather than in how they spell it.
             combo->setEditable(control.editable);
-            connect(combo, &QComboBox::currentTextChanged, this, [this, index](const QString& chosen) {
+            connect(combo, &QComboBox::currentTextChanged, this, [this, index, combo](const QString& chosen) {
                 if (busy_ || writing_) {
                     return;
                 }
                 Busy guard(busy_);
-                const QByteArray utf8 = chosen.toUtf8();
-                host_->set_control(index, rust::Str(utf8.constData(), static_cast<std::size_t>(utf8.size())));
+                // An editable combo box's text need not be one of Table 234's options at all —
+                // bit 19 lets "the user … type a value other than the predefined choices" — so
+                // that one sends characters and a plain drop-down sends the position it picked.
+                if (combo->isEditable() || combo->currentIndex() < 0) {
+                    const QByteArray utf8 = chosen.toUtf8();
+                    host_->set_control(index, rust::Str(utf8.constData(), static_cast<std::size_t>(utf8.size())));
+                } else {
+                    const std::uint32_t one = static_cast<std::uint32_t>(combo->currentIndex());
+                    host_->choose_control(index, rust::Slice<const std::uint32_t>(&one, 1));
+                }
                 applyUpdates();
             });
             widget = combo;
@@ -735,18 +745,28 @@ void MainWindow::rebuildControls()
             for (const rust::String& option : host_->control_options(index)) {
                 list->addItem(text(option));
             }
-            // Table 233 bit 22 permits several items at once and `Edit::SetField` carries one
-            // value, so this host offers one and the Rust side says so — the same answer
-            // `viewer-gtk` gives, which is what makes it a finding about the boundary rather than
-            // about a toolkit.
-            list->setSelectionMode(QAbstractItemView::SingleSelection);
-            connect(list, &QListWidget::currentTextChanged, this, [this, index](const QString& chosen) {
-                if (busy_ || writing_ || chosen.isEmpty()) {
+            // Table 233 bit 22: "(PDF 1.4) If set, more than one of the field's option items may
+            // be selected simultaneously; if clear, at most one item shall be selected." This host
+            // asked for SingleSelection either way until the four-hundred-and-twelfth session,
+            // because `Edit::SetField` carried one value; the vocabulary carries a set now, so the
+            // flag decides the selection mode and the clause is obeyed rather than reported
+            // (ADR 0248).
+            list->setSelectionMode(control.multi ? QAbstractItemView::ExtendedSelection
+                                                 : QAbstractItemView::SingleSelection);
+            connect(list, &QListWidget::itemSelectionChanged, this, [this, index, list] {
+                if (busy_ || writing_) {
                     return;
                 }
                 Busy guard(busy_);
-                const QByteArray utf8 = chosen.toUtf8();
-                host_->set_control(index, rust::Str(utf8.constData(), static_cast<std::size_t>(utf8.size())));
+                // The rows themselves, ascending, which is the order Table 234's `/I` wants and
+                // the order `QListWidget::selectedIndexes` does not promise.
+                std::vector<std::uint32_t> chosen;
+                for (int row = 0; row < list->count(); ++row) {
+                    if (list->item(row)->isSelected()) {
+                        chosen.push_back(static_cast<std::uint32_t>(row));
+                    }
+                }
+                host_->choose_control(index, rust::Slice<const std::uint32_t>(chosen.data(), chosen.size()));
                 applyUpdates();
             });
             widget = list;
@@ -852,8 +872,20 @@ void MainWindow::placeControls()
         case 7:
             if (auto* list = qobject_cast<QListWidget*>(widget); list != nullptr) {
                 const rust::Vec<std::uint32_t> chosen = host_->control_selection(index);
-                if (!chosen.empty()) {
-                    list->setCurrentRow(static_cast<int>(chosen[0]));
+                // Every selected row and not just the first: Table 233 bit 22's field may hold
+                // several, so writing back one would silently drop what a person had chosen the
+                // moment anything else redrew the controls.
+                std::vector<bool> wantSelected(static_cast<std::size_t>(list->count()), false);
+                for (const std::uint32_t row : chosen) {
+                    if (static_cast<int>(row) < list->count()) {
+                        wantSelected[static_cast<std::size_t>(row)] = true;
+                    }
+                }
+                for (int row = 0; row < list->count(); ++row) {
+                    const bool want = wantSelected[static_cast<std::size_t>(row)];
+                    if (list->item(row)->isSelected() != want) {
+                        list->item(row)->setSelected(want);
+                    }
                 }
             }
             break;

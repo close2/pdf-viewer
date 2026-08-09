@@ -600,7 +600,7 @@ fn control(document: &Document, field: &Field, annotation: &Dictionary) -> Contr
 }
 
 /// Table 234's `/Opt`, in both the forms the table gives an element.
-fn options(document: &Document, field: &Field) -> Vec<Choice> {
+pub(crate) fn options(document: &Document, field: &Field) -> Vec<Choice> {
     let Some(stated) = field
         .ancestry
         .iter()

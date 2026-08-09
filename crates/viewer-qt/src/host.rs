@@ -27,7 +27,7 @@ use pdf_model::view::WidgetAppearances;
 use pdf_render::Rasterizer;
 use render_cpu::CpuRasterizer;
 use viewer_core::{
-    Answer, Command, DocumentId, Edit, Event, FormField, PageTarget, PointerAction, Query,
+    Answer, Command, DocumentId, Edit, Entered, Event, FormField, PageTarget, PointerAction, Query,
     Rendered, Viewer, Zoom,
 };
 use viewer_host::form::{ControlKind, control_kind};
@@ -286,7 +286,7 @@ impl Host {
         }
     }
 
-    /// A control's value was typed into or chosen.
+    /// A control's value was typed into.
     pub(crate) fn set_control(&mut self, index: usize, value: &str) {
         let Some(placed) = self.placed.get(index) else {
             return;
@@ -294,7 +294,31 @@ impl Host {
         let field = placed.key.0.clone();
         self.dispatch(Command::Edit(Edit::SetField {
             field,
-            value: Some(value.to_owned()),
+            value: Entered::Text(value.to_owned()),
+        }));
+    }
+
+    /// §12.7.5.4: which of Table 234's `/Opt` entries are selected now.
+    ///
+    /// An empty set is a field with nothing chosen, which the clause makes a real state — "[t]he
+    /// default value of V is null , indicating that no item is currently selected" — and not a
+    /// reason to send nothing.
+    pub(crate) fn choose_control(&mut self, index: usize, chosen: &[u32]) {
+        let Some(placed) = self.placed.get(index) else {
+            return;
+        };
+        let field = placed.key.0.clone();
+        let chosen: Vec<usize> = chosen
+            .iter()
+            .filter_map(|index| usize::try_from(*index).ok())
+            .collect();
+        self.trace.say(
+            Topic::Panel,
+            format_args!("{field}: option(s) {chosen:?} of Table 234's /Opt selected"),
+        );
+        self.dispatch(Command::Edit(Edit::SetField {
+            field,
+            value: Entered::Chosen(chosen),
         }));
     }
 
@@ -325,7 +349,7 @@ impl Host {
         };
         self.dispatch(Command::Edit(Edit::SetField {
             field,
-            value: Some(value),
+            value: Entered::Text(value),
         }));
     }
 
@@ -1118,6 +1142,39 @@ mod tests {
         assert!(controls.iter().all(|control| !control.field.is_empty()));
         // And every kind is one the C++ side has a widget for: 8 kinds, 0 to 7.
         assert!(controls.iter().all(|control| control.kind < 8));
+    }
+
+    /// §12.7.5.4: what a `QListWidget` in `ExtendedSelection` has to say, and where it goes.
+    ///
+    /// The C++ collects the selected rows ascending and hands them over as a slice; this is the
+    /// Rust half of that, driven without Qt because ADR 0246's rule is that no Qt type appears in
+    /// this file. Table 233 bit 22 is what makes the mode `ExtendedSelection` at all (ADR 0248).
+    #[test]
+    fn several_items_of_a_list_box_are_chosen_and_read_back() {
+        let Some(path) = corpus("issue17492.pdf") else {
+            println!("skipped: the doc/pdf.js submodule is not checked out");
+            return;
+        };
+        let mut host = opened(&path);
+        let Some(index) = host
+            .controls()
+            .iter()
+            .position(|control| control.field == "databases")
+        else {
+            panic!("Table 233 bit 22's list box has a control")
+        };
+        // 7 is the list box, and `multi` is the flag the C++ turns into a selection mode.
+        assert_eq!(host.controls()[index].kind, 7);
+        assert!(host.controls()[index].multi, "Table 233 bit 22");
+        assert_eq!(host.control_options(index).len(), 4);
+
+        host.choose_control(index, &[0, 2]);
+        assert_eq!(
+            host.control_selection(index),
+            vec![0_u32, 2],
+            "both, which is what a single value could not have said"
+        );
+        assert!(host.dirty, "and the document knows it was edited");
     }
 
     /// A frame the viewer is holding crosses as its own dimensions and a borrowed slice.

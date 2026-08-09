@@ -72,6 +72,15 @@ host the items in the array's order (ADR 0235).
 **Revisit it with a document in front of you**, not on principle: a list box whose file states no
 appearance stream is the case the choice was made without, and there is none in 974 files.
 
+**The refusal stands and the *host* half is finished**, since the four-hundred-and-twelfth (ADR
+0248). The page still draws nothing for a list box, for exactly the reason above; what changed is
+the other direction, which this file never owed and `doc/todo/30` did. A host can now say which
+items a person selected — Table 233 bit 22 sets **4** of the corpus's widgets, over 4 documents —
+because `Edit::SetField` carries a set of Table 234 `/Opt` indices instead of one string. §12.7.5.4's
+two shapes of `/V` and Table 234's `/I` are both written. So the clause's `shall`s are discharged
+everywhere except the one place it states nothing, which is what a refusal with an argument behind
+it should end up looking like.
+
 ## ~~Table 231 bit 24's `DoNotScroll`~~ — **done in the three-hundred-and-thirty-eighth session**
 
 ADR 0197. `LaidOut::overflows` answers whether the value needs more room than the box gives, on the
