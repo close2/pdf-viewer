@@ -510,6 +510,16 @@ fn as_integer(value: u64) -> i64 {
 ///
 /// Searched from the end rather than parsed from a fixed position, because a file with trailing
 /// bytes after `%%EOF` is common and the clause's "last line" is then not the last line.
+///
+/// **Errata Collection 3 has edited that sentence in three places and the quotation above is the
+/// 2020 text**, because the sponsored copy records EC3 as annotations and `doc/md/` dropped every
+/// annotation in all fourteen documents — found in the four-hundred-and-sixteenth session by
+/// `tools/spec-errata`, ADR 0252. Issue #101, `/State` `Completed`: "in the decoded stream" is
+/// struck out, "section" replaces "stream" at the end, and the sentence gains "or the beginning
+/// of the previous cross-reference stream (see 7.5.8, "Cross-reference streams")". The last of
+/// those is the one with teeth — the offset may name a cross-reference *stream* rather than the
+/// `xref` keyword — and `xref::read_at` has read both since long before this was noticed, which
+/// is the argument for keeping the note rather than a reason not to write it down.
 fn startxref(bytes: &[u8]) -> Option<usize> {
     let tail_from = bytes.len().saturating_sub(2048);
     let tail = bytes.get(tail_from..)?;

@@ -25,6 +25,7 @@ render-gpu = { path = "crates/render-gpu", version = "0.1.0" }
 raster-compare = { path = "crates/raster-compare", version = "0.1.0" }
 test-scenes = { path = "crates/test-scenes", version = "0.1.0" }
 pdfref = { path = "tools/pdfref", version = "0.1.0" }
+conformance = { path = "tools/conformance", version = "0.1.0" }
 viewer-core = { path = "crates/viewer-core", version = "0.1.0" }
 render-quorra = { path = "crates/render-quorra", version = "0.1.0" }
 viewer-accessibility = { path = "crates/viewer-accessibility", version = "0.1.0" }

@@ -19,7 +19,7 @@ features no file exercises.
 ```sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets      # must be silent of lints
-cargo nextest run --workspace               # 1493 tests, 10 ignored
+cargo nextest run --workspace               # 1495 tests, 10 ignored
 cargo test --workspace --doc                # the one doctest nextest does not run
 cargo build --profile gates -p pdf-sandbox --bins   # trap 10: Cargo will not do this for you
 cargo test  --profile gates -p pdf-model      --test corpus          -- --ignored --nocapture
@@ -47,8 +47,8 @@ here:
 - **`cargo nextest` is a user-local install** — `cargo install cargo-nextest --locked`, or the
   prebuilt from `https://get.nexte.st/latest/linux` into `~/.cargo/bin`. Without it,
   `cargo test --workspace` is exactly the same gate at three times the wall clock, and that is
-  what CI runs. `nextest` skips doctests, which is why the line after it is there: 1454 + 1 = the
-  **1455** `cargo test --workspace` reports. (This line said 1314 until the
+  what CI runs. `nextest` skips doctests, which is why the line after it is there: 1495 + 1 = the
+  **1496** `cargo test --workspace` reports. (This line said 1314 until the
   three-hundred-and-eighty-eighth, which counted the tree with `nextest list` before and after its
   own seven and found the number two behind — the count is the gate's and not this file's. It said
   **1398** until the four-hundred-and-second, which added six tests to a gate that printed 1410:
@@ -70,7 +70,10 @@ here:
   module, three in its headless harness, one apiece in `select`, `viewer-ui`'s panel test and
   `viewer-core`'s fragment tests — and it was not behind for the tenth; the four-hundred-and-fifteenth added **two** — both in
   `pdf-model`'s `transparency_groups`, for §11.6.6's inheritance and for what compositing in
-  `/DeviceCMYK` costs — and it was not behind for the eleventh.)
+  `/DeviceCMYK` costs — and it was not behind for the eleventh; the four-hundred-and-sixteenth
+  added **two** — both in the new `tools/spec-errata`, for which of Table 172's `/RT` values makes
+  an annotation a reply and for a strikeout that covers no glyph — and it was not behind for the
+  twelfth.)
 - **One of those eighteen runs a C compiler**, and it is the only gate in this sequence that does.
   `viewer-ffi::a_c_program_drives_the_abi` builds `crates/viewer-ffi/c/open_a_page.c` against the
   crate's own header with `-Wall -Wextra -Werror`, links it against the `cdylib` — which it asks

@@ -38,6 +38,35 @@
 //! able to say "as written" rather than inventing a zone the producer did not claim — but
 //! [`Date::instant`], which is what an ordering is built on, takes the clause's answer.
 //!
+//! # Errata Collection 3 has struck out the last two sentences of that quotation
+//!
+//! **And nothing in this tree could see it until the four-hundred-and-sixteenth session**, which
+//! is the point of the finding rather than a detail of it. The sponsored copy records EC3 as
+//! *annotations* — a `StrikeOut` over the retired words, a `Caret` carrying the replacement — and
+//! the Markdown conversion the conformance gate checks quotations against dropped every
+//! annotation in all fourteen documents. So the body text above is the unamended 2020 text, the
+//! gate verifies it happily, and the standard says something else. `tools/spec-errata` is what
+//! reads the annotations back; ADR 0252 is the argument, and `doc/todo/48` carries the other 37
+//! passages it found.
+//!
+//! Issue #251, on page 133, `/State` `Completed` — Table 174's "[t]he change has been completed":
+//!
+//! - "If no UT information is specified, the relationship of the specified time to UT shall be
+//!   considered to be GMT" is struck, and the caret beside it reads "the missing timezone offset
+//!   shall be assumed to be the same as Greenwich Mean Time's timezone offset (+0'00)". **Nothing
+//!   here changes**: both sentences make an absent offset zero, which is what [`Date::instant`]
+//!   does, and the replacement says it in the units [`Self::offset`] is stored in.
+//! - "Regardless of whether the time zone is specified, the rest of the date shall be specified in
+//!   local time." is struck **with no replacement**. That sentence is quoted below on [`Date`]
+//!   itself, so what it was carrying has to be re-derived rather than assumed: the grammar does
+//!   it. `O HH'mm` is an offset *from* the other fields, and an offset from a value already in UT
+//!   would be an offset from nothing — so the fields are local time because the field that
+//!   converts them exists, not because a sentence said so. The parse is unchanged either way,
+//!   since it stores what the file wrote.
+//!
+//! Both quotations above are the annotations' own text, read out of the PDF rather than out of
+//! `doc/md/`, which is why neither is a rustdoc blockquote: the gate could not check one.
+//!
 //! # Why an ordering exists at all
 //!
 //! §12.3.5.1's Table 156 collection sort may name a field whose `/Subtype` is `D`, and a portable
@@ -62,9 +91,10 @@
 
 /// ISO 32000-2 §7.9.4's date, parsed.
 ///
-/// Every field is the file's own, in the local time the clause says the rest of the date is
-/// stated in: "[r]egardless of whether the time zone is specified, the rest of the date shall be
-/// specified in local time."
+/// Every field is the file's own, in local time — which the 2020 text said outright and Errata
+/// Collection 3 struck out (Issue #251; see the module documentation). What carries it now is the
+/// grammar rather than a sentence: `O HH'mm` offsets the other fields, so those fields are the
+/// local ones.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Date {
     /// `YYYY`, the one field the clause makes required.

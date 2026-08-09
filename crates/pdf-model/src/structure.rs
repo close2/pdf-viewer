@@ -1368,6 +1368,14 @@ impl Namespace {
 ///
 /// which is why this holds the dictionary rather than a map: the attribute names are whatever
 /// the owner defines, and the two entries that are *not* attributes are named by the clause.
+///
+/// **Errata Collection 3 replaces "conforming product that owns" with "owner of"**, so the clause
+/// now reads "identifying the owner of the attribute information" (Issue #354, `/State`
+/// `Completed`). Nothing here moves — the entry, its type and what it identifies are unchanged,
+/// and the paragraph above already says *owner* — but the quotation is the 2020 text and says so
+/// rather than pretending otherwise. The sponsored copy records EC3 as annotations and `doc/md/`
+/// dropped every annotation in all fourteen documents; `tools/spec-errata` is what reads them
+/// back, ADR 0252.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AttributeObject {
     /// Table 360's `/O`: who owns these attributes.

@@ -93,6 +93,19 @@ cargo run --release -p pdf-model --example luminosity_mask_census -- doc/pdf.js/
   # what a §11.5.3 mask group is painted *with*, against what its /CS declares — 87 groups on
   # this corpus, 39 blending in /DeviceCMYK and 36 in /DeviceGray, and not one setting a `k`
   # colour, which is what turned a report's condition into the departure itself (ADR 0217)
+cargo run --release -p pdf-model --example spec_annotation_census -- doc/*.pdf
+  # what the fourteen specification PDFs' annotations are, which is what the Markdown conversion
+  # under doc/md/ dropped: 12 545 annotations, 11 462 of them in ISO 32000-2, and in three of the
+  # documents they are the *errata* — 434 strikeouts over 4038 words (ADR 0252). Also what §14.7
+  # gives, and the number that bounds it: `Tree::walk` stops at 65 536 items and that tree is larger
+cargo run --release -p spec-errata -- census doc/*.pdf   # the same counts by subtype and §12.5.6.2 role
+cargo run --release -p spec-errata -- emit   doc/*.pdf > doc/errata.md   # gitignored: it is the spec
+cargo run --release -p spec-errata -- check  doc/*.pdf
+  # the two questions that follow: how many struck passages doc/md/ still presents as current text
+  # (79), and which rustdoc quotations quote a passage struck out of the clause they cite (3, all
+  # fixed in the four-hundred-and-sixteenth). **Never a gate**: the conformance checker has to keep
+  # comparing quotations against a conversion this project did not make, and this parses fourteen
+  # PDFs in 6.4 s. ADR 0252
 cargo run --release -p render-gpu --example frame_split -- [file.pdf] [page] [scale]
   # where a GPU frame's time goes: encoding, the whole frame, and the same target drawn from a
   # list of one rectangle. doc/RENDER_LIBRARY.md §6.1

@@ -3751,6 +3751,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "spec-errata"
+version = "0.1.0"
+dependencies = [
+ "conformance",
+ "pdf-model",
+ "pdf-render",
+ "pdf-syntax",
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "spirv"
 version = "0.4.0+sdk-1.4.341.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

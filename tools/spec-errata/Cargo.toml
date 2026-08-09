@@ -1,0 +1,24 @@
+[package]
+name = "spec-errata"
+description = "Emits the errata the Markdown conversion of the specifications dropped, and reports the quotations that land on retired text."
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# `pdf-model` is the API this reads the documents with — the point of the tool is that the
+# annotations `doc/md/` lost are ones this tree already reads. `conformance` is here for its
+# quotation scanner and its `normalise`, so that "does a doc comment quote retired text" is
+# asked with exactly the comparison the gate uses. It is a one-way dependency: `conformance`
+# does not and must not depend on this, because nothing this project generates may become what
+# the gate checks the standard against (doc/todo/48, ADR 0252).
+[dependencies]
+conformance.workspace = true
+pdf-model.workspace = true
+pdf-render.workspace = true
+pdf-syntax.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

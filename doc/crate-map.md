@@ -28,4 +28,5 @@ says what each crate is responsible for and which decision sits in it.
 | `test-scenes` | Shared fixtures | Holds the same page as a display list *and* as PDF bytes |
 | `tools/pdfref` | Reference-comparison harness | Triangulation rule lives here; `cache.rs` keys on the invocation itself (ADR 0020) |
 | `tools/conformance` | Citation checker and ledger | Depends on nothing but `thiserror`. The one crate the citation scan skips — its own comments cite clauses that do not exist, deliberately |
+| `tools/spec-errata` | Reads the errata `doc/md/` dropped, and the quotations that land on them | Depends on `conformance` and never the other way: the gate must keep checking quotations against a conversion this project did not make (ADR 0252). Not a gate, not a test |
 | `tools/hayro-compare` | Drives `hayro` for the oracle's fourth panel and for speed | Nothing ships it |

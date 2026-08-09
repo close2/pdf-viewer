@@ -24,6 +24,12 @@ github-token.txt
 /doc/*.pdf
 /doc/md/
 
+# What `tools/spec-errata` emits from those PDFs: the annotations the conversion dropped, which
+# are the errata themselves. Derived from the same documents under the same licence, so it goes
+# under the same rule — and it is regenerated in six seconds, so nothing is lost by not carrying
+# it (ADR 0252).
+/doc/errata.md
+
 # Claude Code local settings (per-user, not shared).
 .claude/settings.local.json
 
