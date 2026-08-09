@@ -2,9 +2,10 @@
 //!
 //! **Toolkit-free on purpose**, for the reason `panel.rs` gives: this is the decision, and each
 //! host's own `controls` module is what builds the widget. The decision is the interesting half —
-//! it is exactly the question `doc/todo/37` asked, "could a host that wanted a real `GtkEntry`
-//! build one without reaching into `viewer-ui` or re-deriving anything", and the answer is this
-//! function. Two hosts have now built widgets from it and neither wanted it changed.
+//! it is exactly the question ADR 0235's audit asked — could a host that wanted a real
+//! `GtkEntry` build one without reaching into `viewer-ui` or re-deriving anything — and the
+//! answer is this function. Two hosts have now built widgets from it and neither wanted it
+//! changed.
 //!
 //! `pdf_model::form`'s own module comment states the target: "[a] text field is a `QLineEdit`, an
 //! `NSTextField`, a `GtkEntry`; a choice field is a combo box against a list". Two of those three

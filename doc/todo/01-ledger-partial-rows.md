@@ -1,16 +1,18 @@
 # Read the ledger's `partial` rows against the code
 
-Status: **standing task.** ~123 of the **252** rows have not been re-read — 29 went in the
+Status: **standing task.** ~118 of the **252** rows have not been re-read — 29 went in the
 three-hundred-and-seventy-fifth, 16 in the three-hundred-and-eighty-seventh, 11 in the
-three-hundred-and-ninety-fourth and 9 in the four-hundred-and-second, against a population that grew
-by 12 in between. **The ninth sweep is the first to check that a citation names the *right* table**,
+three-hundred-and-ninety-fourth, 9 in the four-hundred-and-second and 14 in the
+four-hundred-and-thirteenth, against a population that grew by 12 in between. **The ninth sweep is the first to check that a citation names the *right* table**,
 and its first run corrected nine ledger rows and nine source comments — a whole block of §12.5.6's
 annotation tables and a whole block of §14.8.5's attribute tables, every one of them ISO 32000-1's
 number for something else. **Its second run, seven rounds later, found two more and one of them was
 in the round before's own work; its third, eight rounds after that, found three and all three were
-in the *source*, beside ledger rows that had been corrected without them.** **The tenth sweep, at
-the bottom, is new in the four-hundred-and-second** — it compares a parent row's stated *count* of
-its children with what the children say — and it paid twice on its first run.
+in the *source*, beside ledger rows that had been corrected without them.** **The tenth sweep is new in the four-hundred-and-second** — it compares a parent row's stated
+*count* of its children with what the children say — and it paid twice on its first run and again on
+its second. **The eleventh is new in the four-hundred-and-thirteenth**: it reads the ledger's
+*quotation marks*, which no gate in this project has ever done, and its first run found six
+misquotations of the standard (ADR 0249).
 Priority: 01 — the population with no gate, and it has paid on every session that touched it
 Code: `doc/conformance/ledger.toml`, checked by `cargo test -p conformance`
 
@@ -935,3 +937,169 @@ Two things about that number, and the second is the finding.
   designed rather than a null result: the sweep exists because a capability can reach the crate
   implementing a clause and never reach a program, and a whole new program needing no new entry
   point is the strongest available evidence that the entry points are the answers.
+
+## All ten run again in the four-hundred-and-thirteenth, an **eleventh** built, and the fifth sweep run over **eight** host crates
+
+Ten rounds with no full sweep, and the tree grew four host crates in them: `viewer-gtk` (408),
+`viewer-host` and `viewer-qt` (410), `viewer-ffi` (411), beside `Command::Delegate` (409),
+`RasterFormat` losing `#[non_exhaustive]` and `Answer::Field` gaining a `ShownValue` (411), and
+`Edit::SetField` carrying §12.7.5.4's selection as indices (412). Over `ledger.toml` and over
+`crates/`:
+
+- **Expired blockers (sweep 1)**: 6 over the ledger and 41 over `crates/`. Four of the ledger's are
+  the quoted retired wording inside a correction (§11.3.7.2, §11.6.4.3, §11.7.4.4, §12.5.3);
+  §12.10.2's wait on §12.10.3 is real; §7.7.2's is past tense. **One source hit was live and it is
+  below**: `viewer-gtk/src/controls.rs` said this host "cannot" ask for a page without its widget
+  appearances, three rounds after it could.
+- **Entries claimed unread (sweep 2)**: 19, every one the known one-short-key-three-clauses
+  population or a list checked in an earlier run. §8.11.4.3's `/Configs` was re-checked rather than
+  believed and is true — the only thing in the tree that names it is `examples/oc_usage_census`, and
+  the sweep is right that an example is not a reader.
+- **Capability reasons (sweep 3)**: 18 over the ledger and 68 over `crates/`, and every source hit
+  was a true statement about a boundary a crate keeps. Two of the ledger's are the quoted retired
+  wording inside a correction.
+- **Retired claim (sweep 4)**, run over the nouns ten rounds gave the tree — `native host`, `GTK`,
+  `Qt`, `C ABI`, `Delegate`, `list box`, `RasterFormat`, `ShownValue`, `cancel`, `memfd`,
+  `bare CFF`, `consensus`. Clean over the ledger: §12.7.5.4's row was corrected by the round that
+  read Table 234, §12.5.5's and §12.7.4.2's name `Command::Delegate` as the thing that arrived, and
+  no row still says a list is drawn by nothing.
+- **Arithmetic (sweep 6)**: two hits, §7.9.2 and §O, both of which this file already records as read
+  and kept. Clean, for the sixth run running.
+- **`inapplicable` (sweep 7)**: 72 of 83 rows name vocabulary the source names, on a looser
+  stop-list than earlier runs, and none was wrong. §14.8.5.5, §14.8.5.7 and §14.8.5.8 were re-read
+  because their rare words (`PrintField`, `Decimal`, `Pagination`) come back every run, and all
+  three carry the three-hundred-and-eighty-seventh's table-number corrections intact.
+- **Citations (sweep 8)**: **it paid, and on a whole block.** `doc/todo/37` was deleted by the
+  four-hundred-and-ninth session — the round that closed its last item — and **seven citations to it
+  survived**: §12.7's ledger row and six comments in `viewer-confined`, `viewer-gtk` and
+  `viewer-host`. This is the first run of this sweep to find a *live* claim behind a dead pointer
+  rather than a dead claim: `controls.rs`'s said the GTK host "cannot" ask for a page drawn without
+  its widget appearances, and `Command::Delegate` is what `Host::open` has sent since the round that
+  deleted the file. **The pointer and the claim died in the same commit and only the pointer is
+  greppable**, which is what this sweep is for. §8.9.6.1's two hits are the known false positive.
+  One thing the run is worth recording for: **the sweep's own file globbing has to know where a file
+  lives** — an `examples/foo` under `crates/<crate>/examples/` read as dead until the glob was
+  fixed, which the three-hundred-and-ninety-fourth already recorded and which cost a second run
+  here.
+- **Table numbers (sweep 9)**: 73 suspects after the parser was taught that two of the standard's
+  446 table headings carry a Markdown `##` — **and five defects, all five in the source, and two of
+  them inside a function whose own doc comment had been corrected for the same thing one round
+  before.**
+
+### The five wrong numbers, and the first three are one entry
+
+`/H` is **Table 191**'s, on the widget annotation, and **Table 176**'s, on the link. Table 192 is the
+`/MK` appearance characteristics dictionary and states no `/H` at all. §12.5.6.19's ledger row was
+corrected in the three-hundred-and-eighty-seventh; `annotation.rs`'s `highlight` doc comment in the
+four-hundred-and-second; **and three more places in the same file were left**: the `Highlight`
+enum's own doc comment above it, and *twice inside `highlight`'s body* — the comment naming the two
+tables that define the entry, and the comment on the `_ =>` arm that takes the default. Five places,
+one entry, three rounds. **The round that corrects a comment does not read the function under it.**
+
+- `pdf-model/src/view.rs` — `mark_up`'s doc comment put `/QuadPoints` in **Table 179**, the line
+  ending styles, and then in **Table 166**, which states it for no annotation. It is **Table 182**'s,
+  the text markup annotations'. The three-hundred-and-eighty-seventh corrected this file's *other*
+  `/QuadPoints` sentence and `viewer-core/src/open.rs`'s, and left these two.
+- `pdf-font/src/lib.rs` — "§9.6.2's Table 109 names `/MissingWidth`". Table 109 is the Type 1 font
+  dictionary and has no such entry; `/MissingWidth` is **Table 120**'s, on the font descriptor —
+  which is what the three lines of code under the comment read it off.
+- `pdf-model/src/requirements.rs` — "Table 43's `/Schema` and each file's Table 44 collection item
+  dictionary", **two wrong numbers in one sentence**: `/Schema` is Table **153**'s, on the collection
+  dictionary, and the collection item dictionary is Table **46**. 43 is the file specification and 44
+  is the additional entries in an embedded file stream.
+- `pdf-model/tests/actions.rs` — "Table 166's `/A` beats Table 197's `/AA /U`", **and 166 was itself
+  a correction**: the three-hundred-and-eighty-seventh changed it from 197 to 166, and Table 166's
+  nineteen entries do not include `/A`. There is no `/A` common to all annotations; the test's own
+  annotation is a `/Link`, so it is **Table 176**'s. *A wrong number replaced by another wrong
+  number* is what a 5:1 noise ratio costs when a run is read to the end without the table beside it,
+  and it is the first time this file has recorded one.
+
+### The tenth sweep paid again, and its finding is the second-longest-lived this file has
+
+**§12.7.6 and §12.7.6.1 both said "the other two are refused by name" — reset performed, submission
+and import refused — and the import has been *performed* since the hundred-and-thirty-second
+session.** The sentence was written in the ninety-seventh, so it stood for **280 sessions**, behind
+only §12.5.6.19's 364.
+
+Three rows held the right answer the whole time and none of them is the two above: §12.7.6.4's own
+row opens "[r]ead and performed" and names `Request::Import`, `Event::NeedsFile` and
+`ViewState::import`; §12.6's row has counted import-data among the ten of Table 201's twenty types
+performed since the three-hundred-and-ninety-fourth; and §12.7.6.4's status is `partial` rather than
+the `reported` its parent claims for it. **The sixth sweep cannot see this** — §12.7.6.2 is
+`reported` for a good reason, so the family never qualifies — and the fourth cannot either, because
+no round ever *retired* the sentence anywhere. What finds it is reading a parent's prose against the
+rows below it, which is the tenth sweep's whole subject and its second pair of hits in two runs.
+
+### The fifth sweep over **eight** host crates, and the delta is again zero
+
+`viewer-core`, `viewer-ui`, `viewer-accessibility`, `viewer-confined`, plus `viewer-gtk`,
+`viewer-qt`, `viewer-ffi` and `viewer-host`. **327 `pub fn`s in `pdf-model` (249 distinct names), 86
+named by none of the original four and 85 named by none of the eight** — so **four whole new host
+programs, one of them in C, take exactly one name off the list**: `ViewState::widget_appearances`,
+which is session 409's own work. The four-hundred-and-eighth measured the same delta at zero for one
+new host; four of them make it one.
+
+**And the sweep was run a second way, over `viewer-core`'s own vocabulary rather than over
+`pdf-model`'s functions**, because "who calls it" has a second layer now that a host is not
+`viewer-ui`: every variant of `Command`, `Query`, `Answer`, `Event` and `Edit`, against each of the
+six crates that speak it. `Event` is unanimous — all fifteen named by all four programs — and the
+finding is in `Query`:
+
+- **`Query::Find` and `Query::LogicalSelection` are named by no program at all.** The only things in
+  the tree that name either are `viewer-core`'s own headless test and `viewer-confined`'s transport,
+  which is a pipe rather than a host. So this viewer has a text search implemented, tested and
+  reachable, and **nothing a person can press**; and §14.8.2.5's logical content order, whose ledger
+  row reads `implemented` on the strength of the query, had no consumer.
+- **The second of the two is closed in this round**: `viewer-ui` copies the page selection on `c`,
+  asking `Query::LogicalSelection` first and saying which of the two orders it got.
+  `Query::Find` is left open and is named here so that the next round does not have to find it
+  again — a find bar is a feature and not a sweep's business, and **a correction recorded in a todo
+  file is not a correction**, so it is written down as owed rather than as done.
+
+### An eleventh sweep, and it is the first to read the ledger's *quotation marks*
+
+The four-hundred-and-twelfth found a note quoting Table 227 bit 1 in single quotes with wording the
+standard does not use, and observed that `tools/conformance` verifies every rustdoc blockquote in
+`crates/` — 567 of them — and nothing whatever in `ledger.toml`. ADR 0249 is the decision and the
+numbers; the sweep is thirty lines and it is **the discriminator rather than the match** that makes
+it usable:
+
+**977** double-quoted spans of four words or more in the ledger's notes; **560** occur verbatim in
+some document under `doc/md/`; **417** occur in none. A gate cannot be built on 417, because almost
+all of them quote something that is not the standard and the ledger has no syntax that says so — a
+row's own retired wording, `CLAUDE.md`, a report this program prints, another implementation. So the
+sweep reports only the misses that **match the standard for at least five words and at least half
+the quotation, and then diverge**: 12 of them, and **6 were defects**.
+
+- **"an array of character codes and glyph names"**, in §9.6.5, §9.6.5.1 and §12.7.4.3. Table 112's
+  own word is **character** names, and in a font clause the two are not interchangeable.
+- **§8.4.4 quoted §10.7.2 as "a PDF processor may ignore this parameter"** — a sentence ISO 32000-2
+  does not contain — while §10.7.2's own row carries the real one. Two rows, one permission, and the
+  seventh failure shape inside a quotation.
+- **§8.3.2.4** dropped "(initial)" out of the middle of a quotation; **§7.9.3** elided a
+  cross-reference without an ellipsis.
+
+The other six suspects are all the same false positive and it is about the instrument: the Markdown
+conversion of the PDF breaks words across lines — `text-tospeech`, `hierarch y`, `T h`,
+`implementationdependent` — so a quotation that is exactly right cannot be found. `quote::normalise`
+does not repair those either, which is why two blockquotes written *in this round* failed the gate
+until they were shortened.
+
+**And the sweep found a defect in the file rather than in a claim**: 17 rows carried **72
+double-escaped quotation marks**, `\\\"` in the TOML, which decodes to a literal backslash before
+the quote — so 36 quotations rendered with stray backslashes. Fourteen of the seventeen are the §8.4
+family, written in one sitting, which is the ninth sweep's block signature applied to punctuation.
+Repaired, and checked by round-tripping the file through `cargo run -p conformance --bin ledger`
+rather than by reading it.
+
+**What it adds to the method**: when a sweep's raw output is too noisy to act on, the move is not a
+tighter grep but a *measure of how close the miss is*. A claim this project invented shares no words
+with the standard; a misquotation shares most of them, and the difference is one binary search.
+
+## What is still owed, named
+
+- **`Query::Find` reaches no program.** Every occurrence of a string on the page, answered in the
+  same shapes a selection is drawn from, and no host asks. Found by the fifth sweep in the
+  four-hundred-and-thirteenth.
+- **~118 `partial` rows** not yet re-read against the code, of 252 — 14 more went in the
+  four-hundred-and-thirteenth.

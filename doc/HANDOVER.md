@@ -388,6 +388,20 @@ case — 13 632 129 executions in 181 s, no crash — and **both hosts under `Xv
 change is visible at all. **Not run and therefore not claimed**: the other eleven fuzz targets, which
 have nothing to catch here, and `cargo deny`, because no dependency moved.
 
+**And the four-hundred-and-thirteenth ran the whole sequence and every gate reproduced except the
+three counts its own work moved** — tests 1481 → **1482**, citations 5965 → **5974**, quotations
+565 → **567**. It was a sweep round: eleven sweeps over `ledger.toml` and over `crates/`, fourteen
+ledger rows and eleven source comments corrected, and one behaviour added (`viewer-ui` copies the
+page selection on `c`, asking §14.8.2.5's logical order first). The corpus's 974 with 65 incomplete,
+the oracle's 905/68/786 **line for line** with the undiagnosed list empty, the text gate's 99.2%
+(24043/24243), the dates, the XMP and the JPEG 2000 lines are what the table says. **Quorra was run
+four times** rather than once, because a stale log from a previous session was momentarily read as a
+new verdict — 912/36/9/17 every time, on `RADV STRIX1`. `doc/todo/00`'s step 7 is **not owed**:
+nothing in the interpreter or the rasteriser changed and no gate presses a key. **Not run and
+therefore not claimed**: the twelve fuzz targets, which have nothing to catch — no parser, no
+decoder and no document code changed — `cargo deny`, because no dependency moved, and the window
+under `Xvfb`, because the one thing to see there is a `println!`. ADR 0249.
+
 **And the four-hundred-and-sixth, which moved no verdict and forty-three lines.** It worked the
 contradicted list and found the defect in the *instrument*: a contradicted page's line was measured
 against whichever reference had the largest tile — which need not be one the verdict rests on — and
@@ -401,7 +415,7 @@ names in the same order as the three-hundred-and-ninety-seventh's. ADR 0242.
 
 | gate | what it printed | where |
 |---|---|---|
-| tests | `1481 tests run: 1481 passed, 10 skipped` — the tenth skip is the four-hundred-and-seventh session's `the_fixed_bounds_against_the_references_own_spread`, which derives the oracle's own bounds and is run explicitly — and `cargo test --workspace --doc` **1 passed** beside it, so `cargo test --workspace` reports **1482**. The four-hundred-and-twelfth added **eight**: five in `pdf-model` for §12.7.5.4's two shapes of `/V` and Table 234's `/I`, and one apiece in `viewer-core`, `viewer-confined` and `viewer-qt` for the same clause read from a host. `clippy --workspace --all-targets` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`; `fmt --all --check` clean | `cargo nextest run --workspace`, **37.1 s** |
+| tests | `1482 tests run: 1482 passed, 10 skipped` — the tenth skip is the four-hundred-and-seventh session's `the_fixed_bounds_against_the_references_own_spread`, which derives the oracle's own bounds and is run explicitly — and `cargo test --workspace --doc` **1 passed** beside it, so `cargo test --workspace` reports **1483**. The four-hundred-and-twelfth added **eight**: five in `pdf-model` for §12.7.5.4's two shapes of `/V` and Table 234's `/I`, and one apiece in `viewer-core`, `viewer-confined` and `viewer-qt` for the same clause read from a host. The four-hundred-and-thirteenth added **one**, in `viewer-ui`, for which of §14.8.2.5's two orders a copy takes. `clippy --workspace --all-targets` silent under `pedantic` + `unwrap_used`/`panic`/`arithmetic_side_effects`; `fmt --all --check` clean | `cargo nextest run --workspace`, **30.7 s** |
 | corpus (974 pdf.js documents, page one) | `974 documents in 5.9s: 0 unopenable, 8 locked, 2 encrypted beyond us, 5 pageless, **65 incomplete**, 0 slow` | `tests/corpus.rs`, **5.9 s** |
 | oracle (1794 pages vs poppler, mupdf, ghostscript) | `1794 pages (1693 we call complete, 101 incomplete)`; **905 agree / 863 of them complete**, **68 contradicted / 66 complete**, **786 ambiguous / 753 complete**, our geometry 1/0, reference geometry 2/2, not comparable 14/9, no render 18/0 — and **the undiagnosed ambiguous list printed empty**, which is the ratchet holding. Nothing moved in the four-hundred-and-sixth — it changed only what the gate *prints* about a contradicted page (ADR 0242) — nor in the four-hundred-and-seventh, which added a second `#[ignore]`d test to the same file that re-derives the bounds this gate judges by (ADR 0243) — and the run now ends with a second ranking, `contradicted, and furthest from the nearest reference`, headed by `bitmap-symbol-context-reuse.pdf` at 28.91 nearest | `tests/oracle.rs`, **41.1 s** |
 | text (vs `pdftotext`, same 974) | `overall 99.2% (24043/24243 words), 25 below 90%`, with 24 skipped and 62 incomplete and not gated | `tests/text_extraction.rs`, **30.1 s** |
@@ -409,7 +423,7 @@ names in the same order as the three-hundred-and-ninety-seventh's. ADR 0242.
 | dates | `1545 date strings in 974 documents: **1514 conform** to §7.9.4 (97.99%), 31 do not, over 22 distinct strings` | `tests/dates.rs`, **0.9 s** |
 | **§14.3.2's XMP** (same 974) | `319 documents carry §14.3.2's stream: **318 read, 1 refused**, 3191 properties between them, 106 state dc:title` — the refusal is a fuzzed file whose stream does not decode at all | `tests/xmp.rs`, **0.4 s** |
 | **JPEG 2000 vs ISO/IEC 15444-5's reference software** | 30 corpus codestreams: **14 byte-identical, 13 differing, 3 not comparable**, and no remaining difference exceeds one level. `doc/JPEG2000_FEEDBACK.md` §§7–8 has the two defects behind that | `tests/jpeg2000.rs`, **13.8 s** |
-| conformance | **5965 citations**, all naming clauses the standard has; **565 quotations**, all verbatim; **213** distinct tables cited by this tree and **250** named in the ledger's notes; **875 ledger rows** (400 implemented, 252 partial, 19 reported, 83 inapplicable, 8 writer-side, 113 out-of-scope) — the statuses are unmoved this round; §12.7.4.1 and §12.7.5.4 gained notes, and §12.7.4.1 lost a paraphrase that was wearing a quotation's single quotes | `cargo test -p conformance`, **2.2 s** |
+| conformance | **5974 citations**, all naming clauses the standard has; **567 quotations**, all verbatim; **213** distinct tables cited by this tree and **250** named in the ledger's notes; **875 ledger rows** (400 implemented, 252 partial, 19 reported, 83 inapplicable, 8 writer-side, 113 out-of-scope) — the statuses are unmoved in the four-hundred-and-thirteenth as well, which corrected fourteen rows' *prose* and no row's claim about what is executed. **What that gate does not cover is now measured**: the 567 are every rustdoc blockquote in `crates/`, and the ledger's own notes hold **977** quoted spans that nothing has ever checked, 417 of which occur in no document under `doc/md/`. ADR 0249 decides that as a sweep rather than a gate and says what a gate would cost | `cargo test -p conformance`, **2.2 s** |
 | **the round itself** | **not measured as one span this round**, and the honest number is what the gates themselves printed: **154 s** of test execution summed from the ten lines above (25.7 + 4.2 + 46.9 + 30.1 + 34.1 + 0.6 + 0.3 + 9.9 + 2.0), with each gate's incremental build on top and each run separately rather than back to back. `doc/todo/02` records **268 s** for §2 *and* §5's binaries together, from 608 s until the three-hundred-and-eighty-fifth measured every step (ADR 0222); the three-hundred-and-ninety-seventh read 287 s off file timestamps for §2 alone | ADR 0222, `doc/todo/43` |
 
 **Two things beyond §2 were run in the three-hundred-and-ninety-eighth and are claimed**: the

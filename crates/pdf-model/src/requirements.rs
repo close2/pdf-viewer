@@ -262,8 +262,11 @@ impl Kind {
             // Table 275 asks for two things and both are here: "displaying the embedded files
             // referenced from the document's collection dictionary (12.3.5, "Collections") along
             // with any associated metadata", which is `Query::Collection` and the columns
-            // `viewer_ui::chrome` builds from Table 43's `/Schema` and each file's Table 44
-            // collection item dictionary; and "that the user can extract or otherwise view the
+            // `viewer_ui::chrome` builds from Table 153's `/Schema` and each file's Table 46
+            // collection item dictionary — both numbers were wrong until the
+            // four-hundred-and-thirteenth session, 43 being the file specification dictionary
+            // and 44 the additional entries in an embedded file stream, which is
+            // `doc/todo/01`'s ninth sweep finding two in one sentence; and "that the user can extract or otherwise view the
             // contents of each item in the collection", which is `Command::Extract` — a
             // collection's items *are* the `/EmbeddedFiles` tree's entries, which is the key that
             // command takes.

@@ -1626,7 +1626,7 @@ mod query_kind {
     pub(super) const OFFSET: u8 = 26;
     pub(super) const FIELD_SELECTION: u8 = 27;
     // §12.7's form fields, carried since the three-hundred-and-ninety-eighth session: the sixth of
-    // `doc/todo/37`'s chrome populations and the last to cross. ADR 0235.
+    // ADR 0235's six chrome populations and the last to cross.
     pub(super) const FIELDS: u8 = 28;
     // §12.5.6.6's annotation at a point, carried since the four-hundred-and-first session: the way
     // in to typing on the one markup subtype whose text is the annotation. ADR 0238.

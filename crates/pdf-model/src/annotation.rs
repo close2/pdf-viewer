@@ -222,9 +222,16 @@ pub(crate) enum Mark {
     },
 }
 
-/// Table 176's and Table 192's `/H`: what a press does to an annotation.
+/// Table 176's and Table 191's `/H`: what a press does to an annotation.
 ///
 /// Table 176 says the same of a link, with four modes rather than five and the same default.
+/// (**The second number said 192 until the four-hundred-and-thirteenth session**, which is the
+/// `/MK` appearance characteristics dictionary and states no `/H` at all; the widget
+/// annotation's own entry is Table 191's. It is the third place in this tree to carry that
+/// exact pair — §12.5.6.19's ledger row was corrected in the three-hundred-and-eighty-seventh
+/// and `highlight`'s doc comment below in the four-hundred-and-second — and two more of them
+/// were inside `highlight`'s own body, which the round that corrected the comment above it did
+/// not read. Five places, one entry, three rounds: `doc/todo/01`'s ninth sweep's own subject.)
 /// ISO 32000-2 §12.5.6.19, of a widget:
 ///
 /// > The annotation's highlighting mode , the visual effect that shall be used when the mouse
@@ -266,7 +273,7 @@ pub(crate) enum Highlight {
 /// every one of the four annotations stating both states `/H P` — so the argument has to.
 pub(crate) fn highlight(document: &Document, annotation: &Dictionary, has_down: bool) -> Highlight {
     // **Two tables define `/H` and no others do**: Table 176's, on a link annotation (§12.5.6.5),
-    // and Table 192's, on a widget (§12.5.6.19). Both give it the default `I`, and a default
+    // and Table 191's, on a widget (§12.5.6.19). Both give it the default `I`, and a default
     // belongs to the entry rather than to annotations in general — so a subtype whose clause
     // states no `/H` has no highlighting mode to default, and a press on it draws no mark.
     //
@@ -293,7 +300,7 @@ pub(crate) fn highlight(document: &Document, annotation: &Dictionary, has_down: 
         b"O" => Highlight::Outline,
         // T is "[s]ame as P (which is preferred)".
         b"P" | b"T" => Highlight::Push,
-        // I, and anything Table 192 does not define: the clause's own default for an entry
+        // I, and anything Table 191 does not define: the clause's own default for an entry
         // whose value it does not recognise is the default value, which is I.
         _ => Highlight::Invert,
     }

@@ -665,18 +665,24 @@ impl ViewState {
 
     /// Adds one of §12.5.6.10's text markup annotations over a run of quadrilaterals.
     ///
-    /// The quadrilaterals are in **default user space**, which is what Table 179's
+    /// The quadrilaterals are in **default user space**, which is what Table 182's
     /// `/QuadPoints` is defined in — a caller holding a selection in the display list's own
     /// coordinates maps them back through `crate::content::page_transform`'s inverse. Each is
     /// `[x0, y0, … x3, y3]`, and the order does not matter: `crate::appearance`'s reader sorts
     /// the four corners by where they fall along the text's own direction, because the clause's
     /// "counterclockwise" has two readings and producers use both.
     ///
+    /// (**Both numbers said something else until the four-hundred-and-thirteenth session**:
+    /// the first was Table 179, which is the line ending styles, and the second put
+    /// `/QuadPoints` in Table 166, which states it for no annotation. The three-hundred-and-
+    /// eighty-seventh corrected this file's *other* `/QuadPoints` sentence and
+    /// `viewer-core/src/open.rs`'s, and left these two. `doc/todo/01`'s ninth sweep.)
+    ///
     /// Returns the object the annotation will be written under, or `None` where there is
     /// nothing to mark up.
     ///
-    /// **What is written and what is left out.** Table 166's `/Subtype`, `/Rect`, `/C` and
-    /// `/QuadPoints`, plus `/F 4`. The `/Rect` is the quadrilaterals' bounding box, which is
+    /// **What is written and what is left out.** Table 166's `/Subtype`, `/Rect` and `/C`,
+    /// Table 182's `/QuadPoints`, plus `/F 4`. The `/Rect` is the quadrilaterals' bounding box, which is
     /// §12.5.2's "the annotation shall be positioned by its `/Rect`" and what every reader clips
     /// the appearance to. `/F 4` is Table 167's `Print` bit and it is **a choice**: the flag's
     /// own default is "never print the annotation", and a person who marks up a document to send

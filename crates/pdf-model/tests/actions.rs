@@ -286,7 +286,14 @@ fn an_annotations_trigger_events_perform_their_actions() {
     );
 }
 
-/// §12.6.3's one precedence rule: Table 166's `/A` beats Table 197's `/AA /U`.
+/// §12.6.3's one precedence rule: Table 176's `/A` beats Table 197's `/AA /U`.
+///
+/// The annotation below is a link, so 176 is the table that gives it an `/A`; Table 191 states
+/// the same entry for a widget, and there is no `/A` common to all annotations. (**This line
+/// said "Table 166's" from the three-hundred-and-eighty-seventh session to the
+/// four-hundred-and-thirteenth**, and 166 was itself a correction of 197 — a wrong number
+/// replaced by another wrong number, which is what `doc/todo/01`'s ninth sweep costs when a run
+/// with a 5:1 noise ratio is read to the end without the table beside it.)
 ///
 /// > For backward compatibility, the A entry in an annotation dictionary, if present, takes
 /// > precedence over this entry

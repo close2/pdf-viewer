@@ -2185,8 +2185,12 @@ fn vertical_extent(document: &Document, descriptor: Option<&Dictionary>) -> (f32
 
 /// The width of every code the font dictionary's `/Widths` does not cover.
 ///
-/// §9.6.2's Table 109 names `/MissingWidth` for exactly that, and Table 120 gives it a
-/// default; see [`DEFAULT_WIDTH`], which is the whole subject.
+/// §9.8.3's Table 120 names `/MissingWidth` for exactly that, on the *font descriptor* this
+/// function is handed, and gives it a default; see [`DEFAULT_WIDTH`], which is the whole
+/// subject. (**This sentence said "§9.6.2's Table 109" until the four-hundred-and-thirteenth
+/// session**, and Table 109 is the Type 1 font dictionary — `/Widths`, `/FirstChar`,
+/// `/LastChar` and no `/MissingWidth` anywhere in it. `doc/todo/01`'s ninth sweep, and the
+/// code below had the right answer all along: it reads the entry off `descriptor`.)
 fn missing_width(document: &Document, descriptor: Option<&Dictionary>) -> f32 {
     descriptor
         .map(|descriptor| document.get_key(descriptor, "MissingWidth"))

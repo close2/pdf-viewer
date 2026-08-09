@@ -19,7 +19,7 @@ features no file exercises.
 ```sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets      # must be silent of lints
-cargo nextest run --workspace               # 1481 tests, 10 ignored
+cargo nextest run --workspace               # 1482 tests, 10 ignored
 cargo test --workspace --doc                # the one doctest nextest does not run
 cargo build --profile gates -p pdf-sandbox --bins   # trap 10: Cargo will not do this for you
 cargo test  --profile gates -p pdf-model      --test corpus          -- --ignored --nocapture
@@ -64,7 +64,9 @@ here:
   was not behind for the sixth; the four-hundred-and-eleventh added **nineteen** — a third host
   crate's seventeen and two more — and it was not behind for the seventh; the four-hundred-and-twelfth
   added **eight** — five in `pdf-model` for §12.7.5.4's two `/V` shapes and Table 234's `/I`, one
-  apiece in `viewer-core`, `viewer-confined` and `viewer-qt` — and it was not behind for the eighth.)
+  apiece in `viewer-core`, `viewer-confined` and `viewer-qt` — and it was not behind for the eighth;
+  the four-hundred-and-thirteenth added **one**, in `viewer-ui`, and it was not behind for the
+  ninth.)
 - **One of those eighteen runs a C compiler**, and it is the only gate in this sequence that does.
   `viewer-ffi::a_c_program_drives_the_abi` builds `crates/viewer-ffi/c/open_a_page.c` against the
   crate's own header with `-Wall -Wextra -Werror`, links it against the `cdylib` — which it asks
@@ -97,7 +99,7 @@ how this project has been wrong four times.
 
 ## 4. Sweep, after a round that adds a verb
 
-**Four** greps, one piece of arithmetic and four more that are neither, twenty lines of Python apiece, each of which has paid on its first run: a
+**Four** greps, two pieces of arithmetic and five more that are neither, twenty lines of Python apiece, each of which has paid on its first run: a
 note whose stated blocker has expired ("while §X does not exist", "needs §Y"), a note claiming an
 entry is unread where the tree reads it, a note whose reason is a *capability* — "this program
 has no ___", "no panel", "which this is not" — and the string a correction retired, grepped over
@@ -106,12 +108,25 @@ every *other* row. The third found a `shall` binding for fifty-six sessions; the
 
 **The arithmetic one needs no round to justify it**: print every ledger row that is `partial`, `reported` or `unreviewed` while every one of its direct children is settled. Its first run found five and four were wrong, three of them in a shape no grep can see — the note corrected and the status left behind.
 
-**Nine now, and the ninth checks a *number* rather than a claim**: every `Table NNN`'s `/Key`
+**Eleven now, and the ninth checks a *number* rather than a claim**: every `Table NNN`'s `/Key`
 citation, against the entries ISO 32000-2 actually puts in that table. `tools/conformance` verifies
 a cited table *exists* and prints its title; a number that exists and names the wrong table reads
 exactly like a right one, and it arrives in **blocks** — a run of consecutive rows written in one
 sitting against the older standard. Its first run, in the three-hundred-and-eighty-seventh,
-corrected nine ledger rows and five source comments. It is not a gate and `doc/todo/01` says why.
+corrected nine ledger rows and five source comments; its fourth, in the four-hundred-and-thirteenth,
+found five more and **one of them was a correction that had replaced a wrong number with another
+wrong number**. It is not a gate and `doc/todo/01` says why.
+
+**The tenth is arithmetic on a parent's *prose*** — "three of the twenty" against what the rows
+below it say — and it has paid on both of its runs; the four-hundred-and-thirteenth's was §12.7.6,
+wrong for 280 sessions.
+
+**The eleventh reads the ledger's own quotation marks**, which no gate in this project does: the
+checker verifies every rustdoc blockquote in `crates/` and nothing at all in `ledger.toml`, whose
+notes hold 977 quoted spans. Report only the misses that match the standard for at least five words
+and then diverge — a claim this project invented shares no words with it and a misquotation shares
+most of them — and the first run found six. ADR 0249, and it is not a gate for a reason the ADR
+prices.
 
 **And run all four greps over `crates/` as well as over `ledger.toml`.** The ledger has a gate and the
 source does not, which is why the two-hundred-and-twenty-first session found four claims in the

@@ -6,11 +6,14 @@
 //! for a check box". The combo box is a [`gtk4::DropDown`] here rather than a `GtkComboBoxText`,
 //! which GTK deprecated in 4.10.
 //!
-//! **What this host cannot do, and it is `doc/todo/37`'s open decision**: ask for the page drawn
-//! *without* the widget appearances underneath these controls. §12.5.5's appearance streams are
-//! page content, so the entry sits on top of the picture of an entry and a person sees the field
-//! twice. That is the largest thing the boundary turned out to be missing and ADR 0244 records
-//! what it costs.
+//! **What this host could not do until the four-hundred-and-ninth session**: ask for the page
+//! drawn *without* the widget appearances underneath these controls. §12.5.5's appearance streams
+//! are page content, so the entry sat on top of the picture of an entry and a person saw the
+//! field twice — the largest thing the boundary turned out to be missing (ADR 0244), and closed
+//! by [`viewer_core::Command::Delegate`], which [`crate::Host`] sends on every open (ADR 0245).
+//! (**This paragraph said the host "cannot do" it for three rounds after it could**, and it
+//! pointed at a `doc/todo/37` the round that closed it deleted: `doc/todo/01`'s eighth sweep
+//! found the dead pointer and its first and third found the claim behind it.)
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -341,9 +344,9 @@ fn combo(
 
 /// §12.7.5.4's list box, which the page draws nothing for.
 ///
-/// `doc/todo/37`'s second smaller item: the clause "states which items are selected and states no
-/// highlight, so `variable_text` refuses it. A host with the items and the selection can now draw
-/// a real list — which is the point". This is that list, and it is the one control here that adds
+/// ADR 0235's second smaller item: the clause states which items are selected and states no
+/// highlight, so `variable_text` refuses it. A host with the items and the selection can draw a
+/// real list — which is the point. This is that list, and it is the one control here that adds
 /// something the page does not already show.
 ///
 /// **And since the four-hundred-and-twelfth session it obeys Table 233 bit 22 rather than

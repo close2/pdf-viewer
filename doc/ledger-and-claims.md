@@ -4,7 +4,8 @@ Status: **standing** — the counts live in `doc/HANDOVER.md`; the failure modes
 Read by: whoever is about to write or correct a ledger row, or to believe one.
 
 `doc/PLAN.md` §5a owns the ledger's format, statuses and checker; `doc/todo/01-ledger-partial-rows.md`
-owns the nine sweeps and what each run found. What is here is the part that is about *claims* —
+owns the eleven sweeps and what each run found — the eleventh is new in the
+four-hundred-and-thirteenth and is the first that reads a row's *quotation marks* (ADR 0249). What is here is the part that is about *claims* —
 the seven shapes a row goes wrong in, and the four times this project's own ledger has been wrong.
 It was `doc/HANDOVER.md`'s "The ledger" and its section 2 until the three-hundred-and-ninety-fifth
 moved it.
