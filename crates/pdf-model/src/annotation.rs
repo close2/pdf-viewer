@@ -17,20 +17,26 @@
 //!
 //! # A stored appearance is self-contained
 //!
-//! §12.5.2's closing sentence — quoted in full in [`crate::appearance`] — has a reader "ignore
-//! the values of the C, IC, Border, BS, BE, BM, CA, ca, H, DA, Q, DS, LE, LL, LLE, and Sy
-//! keys" when an appearance dictionary is present, and Table 166 says of `/CA` and `/ca` that
-//! each "shall not be used if the annotation has an appearance stream ... in that case, the
-//! appearance stream shall specify any transparency". So the opacity and blend mode below are
-//! read for a *constructed* appearance and left at their defaults for a stored one.
+//! §12.5.2's closing sentence — quoted in full in [`crate::appearance`], as Errata Collection 3
+//! leaves it — has a reader "ignore the values of the C, IC, Border, BS, BE, CA, ca, H, DA, Q,
+//! DS, LE, LL, MK, LLE, and Sy keys" when an appearance dictionary is present, and Table 166
+//! says of `/CA` and `/ca` that each "shall not be used if the annotation has an appearance
+//! stream ... in that case, the appearance stream shall specify any transparency". So the two
+//! opacities below are read for a *constructed* appearance and left at their defaults for a
+//! stored one.
 //!
 //! §12.5.5 states the opposite in one sentence — the appearance's group "shall be composited
 //! ... using the values of the BM, ca and CA entries in the annotation dictionary" — and this
-//! tree followed that reading until the twenty-first session. Two statements against one, and
-//! the two explain themselves: the entries are what an appearance is *regenerated* from, and a
-//! stream that carries its own `/ExtGState` would otherwise have the same opacity applied
-//! twice. `highlight.pdf` is exactly that file: `/CA 0.8` on the annotation, `ca 0.8` inside
-//! the stream.
+//! tree followed that reading until the twenty-first session. Two statements against one for
+//! the opacities, and the two explain themselves: the entries are what an appearance is
+//! *regenerated* from, and a stream that carries its own `/ExtGState` would otherwise have the
+//! same opacity applied twice. `highlight.pdf` is exactly that file: `/CA 0.8` on the
+//! annotation, `ca 0.8` inside the stream.
+//!
+//! **`/BM` is no longer one of the three, and that is an erratum rather than a re-reading.** EC3
+//! struck it out of §12.5.2's list, leaving §12.5.5 and Table 166's own `/BM` row agreeing that
+//! the blend mode applies whenever the annotation is painted onto the page — see [`blend_mode`],
+//! which both paths now use.
 
 use pdf_render::{Transform, geom::Point};
 use std::sync::Arc;
@@ -861,12 +867,13 @@ fn decided(
         appearance: Box::new(Appearance {
             transform: placement(bbox, matrix, rect),
             bbox: Some(bbox),
-            // §12.5.2 and Table 166: a stored stream states its own transparency, so the
-            // annotation's `/ca`, `/CA` and `/BM` are not applied to it — and a regenerated
-            // one is still that stream, with one region of its marks rewritten.
+            // §12.5.2 and Table 166: a stored stream states its own *transparency*, so the
+            // annotation's `/ca` and `/CA` are not applied to it — and a regenerated one is
+            // still that stream, with one region of its marks rewritten. `/BM` is the entry
+            // that is *not* like those two; see [`blend_mode`].
             fill_alpha: 1.0,
             stroke_alpha: 1.0,
-            blend: None,
+            blend: blend_mode(document, annotation),
             content,
         }),
         owed,
@@ -925,10 +932,7 @@ fn construct(
                 .or(stroke_alpha)
                 .unwrap_or(1.0),
             stroke_alpha: stroke_alpha.unwrap_or(1.0),
-            blend: document
-                .get_key(annotation, "BM")
-                .as_name()
-                .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned()),
+            blend: blend_mode(document, annotation),
             content: Content::Constructed {
                 bytes: content,
                 resources: constructed.resources,
@@ -936,6 +940,37 @@ fn construct(
         }),
         owed,
     }
+}
+
+/// Table 166's `/BM`, which applies to a stored appearance as much as to a constructed one.
+///
+/// **The one annotation entry that is not like `/CA` and `/ca`**, and the reason is worth the
+/// paragraph because this tree read it the other way for four hundred sessions. Table 166 states
+/// each of the two opacities as the value "[w]hen regenerating the annotation's appearance
+/// stream" and adds outright that it "shall not be used if the annotation has an appearance
+/// stream". §12.5.2 states `/BM` with no such condition:
+///
+/// > (Optional; PDF 2.0) The blend mode that shall be used when painting the annotation onto the
+/// > page (see 11.3.5, "Blend Mode" and 11.6.3, "Specifying Blending Colour Space and Blend
+/// > Mode"). If this key is not present, blending shall take place using the Normal blend mode.
+///
+/// Painting the annotation onto the page is what happens to a stored stream too. §12.5.5 says
+/// the same from its own side — the appearance's group "shall be composited ... using the values
+/// of the BM, ca and CA entries in the annotation dictionary" — and the only sentence against
+/// either was §12.5.2's list of entries a reader ignores.
+///
+/// **Errata Collection 3 struck `BM` out of that list** (Issue #23 and #34, `/State` `Review`
+/// `Completed`), so the sentence now reads "When rendering the appearance dictionary, a PDF
+/// reader shall ignore the values of the C, IC, Border, BS, BE, CA, ca, H, DA, Q, DS, LE, LL,
+/// MK, LLE, and Sy keys" — `CA` and `ca` kept, `BM` gone, `MK` added. `doc/md/` carries the
+/// unamended sentence because the sponsored copy records EC3 as annotations and the conversion
+/// dropped every one of them (ADR 0252, ADR 0253). Nothing now contradicts Table 166's `/BM`
+/// row, so it is read on both paths.
+fn blend_mode(document: &Document, annotation: &Dictionary) -> Option<String> {
+    document
+        .get_key(annotation, "BM")
+        .as_name()
+        .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned())
 }
 
 /// Reads one of Table 166's opacity entries, clamped to the range it states.

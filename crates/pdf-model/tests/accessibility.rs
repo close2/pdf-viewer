@@ -529,3 +529,29 @@ fn an_af_tagged_section_associates_a_file_with_what_it_draws() {
         drawn.text
     );
 }
+
+/// The same section written the way Errata Collection 3 names the property list's key.
+///
+/// Issue #374 puts "a dictionary with an MCAF entry defining" in front of §14.13.5's sentence
+/// about the property list, so a file conforming to the amended clause writes `/MCAF` where this
+/// tree read `/AF` — and read nothing, silently, until the four-hundred-and-seventeenth session
+/// (ADR 0253). The tag stays `AF`; only the key inside the named resource moves.
+#[test]
+fn an_af_tagged_section_reads_the_property_lists_mcaf_key() {
+    let drawn = interpret(
+        "BT /F1 12 Tf 10 50 Td (x squared) Tj ET \
+         /AF /AFile BDC BT /F1 12 Tf 10 20 Td (equation) Tj ET EMC",
+        "",
+        "30 0 obj\n<< /MCAF [32 0 R] >>\nendobj\n\
+         32 0 obj\n<< /Type /Filespec /F (equation.xml) /AFRelationship /Supplement \
+         /EF << /F 31 0 R >> >>\nendobj\n\
+         31 0 obj\n<< /Type /EmbeddedFile /Subtype /application#2Fmathml+xml /Length 7 >>\n\
+         stream\n<math/>\nendstream\nendobj\n",
+        "",
+    );
+
+    let [(_, file)] = drawn.associated_files.as_slice() else {
+        panic!("one associated file, got {:?}", drawn.associated_files);
+    };
+    assert_eq!(file.name, "equation.xml");
+}

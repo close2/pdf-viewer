@@ -360,10 +360,21 @@ impl Tree {
 
     /// The namespace name an element is in, §14.8.6.1's default where it states none.
     ///
+    /// The clause's 2020 sentence — which `doc/md/` still carries, and which the conformance gate
+    /// therefore still verifies — read
+    ///
     /// > When a namespace is not explicitly specified for a given structure element or
     /// > attribute, it shall be assumed to be within this default standard structure namespace.
     ///
-    /// which is [`DEFAULT_STANDARD_NAMESPACE`]. An element that states a `/NS` whose dictionary
+    /// **Errata Collection 3 replaced it** (Issue #151, `/State` `Review` `Completed`; ADR 0253)
+    /// with one that says where in the process the assumption is made: an element with no stated
+    /// namespace is placed in the default standard structure namespace *after* any role map has
+    /// been applied transitively, and the type it ends at shall be one the default namespace
+    /// defines. [`Self::role`] is that walk and has been since it was written — it follows
+    /// `/RoleMap` name by name to a fixed point — so the erratum names the order this code
+    /// already has rather than changing it.
+    ///
+    /// The namespace is [`DEFAULT_STANDARD_NAMESPACE`]. An element that states a `/NS` whose dictionary
     /// has no `/NS` string of its own has named a namespace this reader cannot identify, and
     /// answers `None` rather than the default — Table 356 makes the entry required, so the
     /// alternative would be to report a document's broken namespace as the standard one.

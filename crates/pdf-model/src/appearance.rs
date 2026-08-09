@@ -12,13 +12,35 @@
 //!
 //! # The same keys, two roles
 //!
-//! §12.5.2 closes with the rule that decides this module's whole shape:
+//! §12.5.2 closes with the rule that decides this module's whole shape. `doc/md/` still carries
+//! the 2020 sentence, which read
 //!
 //! > A PDF reader shall render the appearance dictionary without regard to any other keys and
 //! > values in the annotation dictionary and shall ignore the values of the C, IC, Border, BS,
 //! > BE, BM, CA, ca, H, DA, Q, DS, LE, LL, LLE, and Sy keys.
 //!
-//! A stored appearance stream is self-contained and these entries mean nothing to it; an
+//! # Errata Collection 3 has rewritten that sentence, and the blockquote above is the old one
+//!
+//! It stays because it is what the conformance gate's copy of the standard contains: the
+//! sponsored copy records EC3 as review markup and the Markdown conversion dropped every
+//! annotation in all fourteen documents (ADR 0252, ADR 0253). Three marks on page 485 change it,
+//! all `/State` `Review` `Completed` — two strikeouts under Issue #23 and #34 and a caret under
+//! Issue #56 — and with them applied the clause reads "When rendering the appearance dictionary,
+//! a PDF reader shall ignore the values of the C, IC, Border, BS, BE, CA, ca, H, DA, Q, DS, LE,
+//! LL, MK, LLE, and Sy keys."
+//!
+//! Three things moved, and each matters here:
+//!
+//! - **The blanket clause is gone.** "[W]ithout regard to any other keys and values in the
+//!   annotation dictionary" was the sentence's principle; what is left is a list, so an entry's
+//!   absence from it no longer means a reader may consult it *by default* — but neither does the
+//!   sentence forbid every entry it does not name.
+//! - **`BM` left the list**, which [`crate::annotation::blend_mode`] is the consequence of.
+//! - **`MK` joined it**, so a widget's appearance characteristics are for *constructing* a stream
+//!   and never for painting over a stored one — which is what [`widget`] already does, since
+//!   `/MK` is read on no path a stored appearance reaches.
+//!
+//! A stored appearance stream is self-contained and the listed entries mean nothing to it; an
 //! annotation without one is drawn *from* them. Table 166 says the same of `/CA` and `/ca` from
 //! the other side — each is the opacity "when regenerating the annotation's appearance stream",
 //! and "shall not be used if the annotation has an appearance stream ... in that case, the

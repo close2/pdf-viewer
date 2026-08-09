@@ -68,8 +68,17 @@ const PAD: [u8; 32] = [
 
 /// The AES block size, in bytes.
 ///
-/// §7.6.3.1 fixes it: "the length of the data when encrypted is rounded up to a multiple
-/// of the block size, which is fixed to always be 16 bytes".
+/// §7.6.3.1 fixes it at sixteen, and Errata Collection 3 rewrote the sentence that does so —
+/// Issue #542, `/State` `Review` `Accepted`, invisible to `doc/md/` because the conversion
+/// dropped the sponsored copy's markup (ADR 0252, ADR 0253). The 2020 wording rounded the
+/// ciphertext "up to a multiple of the block size, which is fixed to always be 16 bytes"; the
+/// amended wording adds the case that decides [`aes_cbc_encrypt`]'s arithmetic — the length is
+/// rounded up "except in the case where the length of the data is an exact multiple of the
+/// block size, in which case it is increased to the next higher multiple of the block size" —
+/// and moves the sixteen into a sentence of its own. That is PKCS#7's whole-extra-block pad,
+/// which this file has always written and always stripped: it was derivable before the erratum
+/// from the surviving sentence two paragraphs below, "the pad is present when M is evenly
+/// divisible by 16; it contains 16 bytes of 0x10".
 const AES_BLOCK: usize = 16;
 
 /// How one crypt filter transforms data — ISO 32000-2 §7.6.6 Table 25's `/CFM`.
@@ -1134,8 +1143,12 @@ struct PermsBlock {
 /// file offers.
 fn perms_block(key: &[u8], perms: &[u8]) -> Option<PermsBlock> {
     let mut block = <[u8; AES_BLOCK]>::try_from(perms.get(..AES_BLOCK)?).ok()?;
-    // "AES-256 in ECB mode with an initialization vector of zero" over one block, which is
-    // one application of the block cipher and so needs no mode at all.
+    // Algorithm 13 step (a): AES-256 in ECB mode over one block, which is one application of
+    // the block cipher and so needs no mode at all. The clause used to say "with an
+    // initialization vector of zero" here, and Errata Collection 3 struck that phrase out of
+    // all three of its ECB occurrences — Issue #24, `/State` `Review` `Completed` — for exactly
+    // the reason written on this line before the erratum could be read (ADR 0253). The CBC
+    // occurrences in Algorithm 2.A keep it, which is why `key_from_encrypted` still quotes it.
     let cipher = Aes256::new_from_slice(key).ok()?;
     cipher.decrypt_block((&mut block).into());
 

@@ -517,6 +517,18 @@ impl DeveloperExtension {
     /// Both `/BaseVersion` and `/ExtensionLevel` are required, and together they are the whole
     /// statement: an extension dictionary without them names no extension, and a reader that
     /// invented a level would be claiming to know which of a developer's extensions this is.
+    ///
+    /// **`/URL` is required too since Errata Collection 3** — Issue #732, `/State` `Review`
+    /// `Accepted`, which replaces Table 49's "Optional; PDF 2.0; shall be a direct object if
+    /// present" with "Required" and adds that the URL "should be unique for each extension".
+    /// `doc/md/` still shows it optional (ADR 0252, ADR 0253). It is **deliberately not** made a
+    /// third condition here, and the asymmetry with the other two is the argument: the first two
+    /// are the extension's identity, so a dictionary missing one has said nothing this reader can
+    /// report; the URL is where a human goes to read about it, so a dictionary missing it has
+    /// still said which extension is in the file. Refusing it would lose that for a `shall` whose
+    /// whole force is on the producer. The fixture at the foot of this module writes an extension
+    /// with no `/URL` for exactly this case, and it is now a malformed file rather than a sparse
+    /// one.
     fn read(document: &Document, dict: &Dictionary) -> Option<Self> {
         let base = document.get_key(dict, "BaseVersion");
         let base_version = String::from_utf8_lossy(base.as_name()?.as_bytes()).into_owned();

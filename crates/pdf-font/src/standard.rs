@@ -1,9 +1,24 @@
 //! The standard 14 font programs, compiled into the binary.
 //!
-//! ISO 32000-2 §9.6.2.2 names fourteen fonts a document may use without carrying them:
+//! ISO 32000-2 §9.6.2.2 names fourteen fonts a document may use without carrying them, and
+//! Table 109 is where that permission binds: `/FirstChar`, `/LastChar`, `/Widths` and
+//! `/FontDescriptor` are "(Required; optional in PDF 1.0-1.7 for the standard 14 fonts)". A file
+//! may therefore state a Type 1 font by name alone, and a processor with no metrics of its own
+//! cannot lay one line of it out.
 //!
-//! > These fonts, or their font metrics and suitable substitution fonts, shall be available to
-//! > the PDF processor.
+//! **The clause used to say so in a `shall` and no longer does.** Errata Collection 3 (Issue #47
+//! and #48, `/State` `Review` `Completed`) strikes §9.6.2.2's "These fonts, or their font
+//! metrics and suitable substitution fonts, shall be available to the PDF processor." outright,
+//! turns the paragraph above it into an informative NOTE, and softens that paragraph's own
+//! "shall have" to "are required to have"; §9.6.2.1's "For compatibility reasons PDF processors
+//! shall provide glyph widths and font descriptor data for those standard fonts" goes the same
+//! way, replaced by a cross-reference. `doc/md/` carries none of that, because the sponsored
+//! copy records EC3 as review markup and the conversion dropped it (ADR 0252, ADR 0253).
+//!
+//! So what this module answers to is now §6.3.2.2's requirement on a rendering processor — the
+//! page contents "as defined in this document" — by way of a Table 109 permission that has not
+//! moved. That is a *better* justification than the one it replaced, because it does not depend
+//! on a sentence about what a processor happens to have.
 //!
 //! [`crate::standard_metrics`] is the "font metrics" half and has been here since the thirtieth
 //! session. This is the other half — the programs themselves — and until the

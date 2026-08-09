@@ -226,9 +226,12 @@ impl OptionalContent {
             })
             .collect();
 
-        // "An array consisting of one or more arrays, each of which represents a collection
-        // of optional content groups whose states shall be intended to follow a radio button
-        // paradigm." An entry that is not an array of arrays states no collection.
+        // Table 99: an array of one or more arrays, each inner one a collection of optional
+        // content groups "whose states shall be intended to follow a radio button paradigm".
+        // An entry that is not an array of arrays states no collection. (The row read ", each
+        // of which represents a collection" until Errata Collection 3 — Issue #225, `/State`
+        // `Review` `Completed` — which also adds "None of the inner array elements shall be an
+        // empty array."; an empty one is dropped below, which excludes nothing either way.)
         let radio_buttons = document
             .get_key(&configuration, "RBGroups")
             .as_array()

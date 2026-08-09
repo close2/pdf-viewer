@@ -414,10 +414,11 @@ impl LoadedFont {
     ///
     /// A viewer draws text of its own — an outline panel's titles, a layer's `/Name`, an About
     /// box — and none of it comes from a content stream, so there is no font dictionary to load
-    /// and no document to load it from. What there *is* is the clause's own guarantee:
-    ///
-    /// > These fonts, or their font metrics and suitable substitution fonts, shall be available
-    /// > to the PDF processor.
+    /// and no document to load it from. What there *is* is §9.6.2.2's fourteen names, which
+    /// Table 109 lets a file use without carrying the font — and which Errata Collection 3 has
+    /// turned from a `shall` on a processor into an informative NOTE (Issue #47 and #48, `/State`
+    /// `Review` `Completed`; see [`crate::standard`] for what moved and ADR 0253 for why
+    /// `doc/md/` cannot show it).
     ///
     /// Since the hundred-and-forty-eighth session that availability is a fact about the binary
     /// rather than about the machine ([`crate::standard`], ADR 0133), which is what makes this

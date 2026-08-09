@@ -46,8 +46,9 @@
 //! the Markdown conversion the conformance gate checks quotations against dropped every
 //! annotation in all fourteen documents. So the body text above is the unamended 2020 text, the
 //! gate verifies it happily, and the standard says something else. `tools/spec-errata` is what
-//! reads the annotations back; ADR 0252 is the argument, and `doc/todo/48` carries the other 37
-//! passages it found.
+//! reads the annotations back; ADR 0252 is the argument, and `doc/todo/48` carries the other 150
+//! passages it found — 37 when this line was written, because the checker's comparison could not
+//! see a passage the two extractions space differently (ADR 0253).
 //!
 //! Issue #251, on page 133, `/State` `Completed` — Table 174's "[t]he change has been completed":
 //!

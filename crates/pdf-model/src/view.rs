@@ -1375,9 +1375,13 @@ impl ViewState {
                     field.remove("V");
                 }
             }
-            // Table 234's `/I` "shall be used ... when the value of the choice field is an array",
-            // and it is written for a single selection too, because it is the only entry that says
-            // *which* `/Opt` element was chosen where two of them carry the same name string. An
+            // Table 234's `/I` is written for a single selection too, because it is the only
+            // entry that says *which* `/Opt` element was chosen where two of them carry the same
+            // name string. This line used to justify that with the entry's own "shall be used ...
+            // when the value of the choice field is an array" and to read as a stretch of it;
+            // Errata Collection 3 struck that trigger out and opened the row to choice fields at
+            // large rather than to multiple-selection ones — Issue #468, `/State` `Review`
+            // `Accepted`, unreadable from `doc/md/` until ADR 0253. The stretch was the rule. An
             // edit that named no options takes it out: an `/I` left standing beside a `/V` it does
             // not describe is a file contradicting itself, and §12.7.5.4's tie-break would then be
             // arbitrating a disagreement this program wrote.

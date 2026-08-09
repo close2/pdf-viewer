@@ -318,8 +318,14 @@ impl<'a> Lexer<'a> {
                                     _ => break,
                                 }
                             }
-                            // Values above 255 are undefined; truncating to the low byte
-                            // is what other implementations do.
+                            // §7.3.4.2 states the truncation itself — "[h]igh-order overflow
+                            // shall be ignored" — so the low byte is the clause's answer and
+                            // not a convention. This comment said the opposite, and cited
+                            // other implementations for a rule the standard prints; the
+                            // four-hundred-and-seventeenth session found it while reading
+                            // Errata Collection 3's Issue #494, which retitles the escape
+                            // "[b]yte with value ddd in octal" and confirms the same reading
+                            // from the other side.
                             out.push(u8::try_from(value & 0xff).unwrap_or(0));
                         }
                         // Any other escaped character stands for itself.

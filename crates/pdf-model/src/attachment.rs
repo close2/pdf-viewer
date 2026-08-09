@@ -242,7 +242,42 @@ impl Relationship {
 /// has no filesystem to lift.
 #[must_use]
 pub fn associated(document: &Document, dict: &Dictionary) -> Vec<Attachment> {
-    let array = document.get_key(dict, "AF");
+    associated_under(document, dict, "AF")
+}
+
+/// §14.13.5's `/AF` on a *marked-content section*, whose property list names the array differently.
+///
+/// **The one `/AF` site whose key is not `AF`, and it took an erratum to say so.** §14.13.5's 2020
+/// sentence never named the property list's key at all — it said only that the property list
+/// "shall specify an array of file specification dictionaries", and §14.13.10's EXAMPLE 3 writes
+/// `/AF /NamedAF BDC` without showing what `/NamedAF` resolves to. So `AF` was an inference from
+/// the tag operand, and it is the inference this tree made.
+///
+/// Errata Collection 3 states the key: Issue #374, `/State` `Review` `Completed`, whose caret puts
+/// "a dictionary with an MCAF entry defining" in front of that sentence and makes the following
+/// one read "[t]he named resource in the Property List … shall specify this dictionary", against
+/// "Table 409a - Property list entries for associated files". `doc/md/` has neither the caret nor
+/// the table (ADR 0252, ADR 0253), so `MCAF` cannot be verified against this project's copy of the
+/// standard and is taken from the annotation itself.
+///
+/// Both keys are read, `MCAF` first. That is not indecision: the erratum names `MCAF` and no text
+/// available here says `AF` is now wrong there, so a file written to either reading is understood
+/// and none is silently dropped — which is what the previous behaviour did to a conforming PDF 2.0
+/// file. Table 409a is what would settle whether `AF` should be refused; when it can be read, this
+/// is the function that narrows.
+#[must_use]
+pub fn associated_in_property_list(document: &Document, dict: &Dictionary) -> Vec<Attachment> {
+    let mcaf = associated_under(document, dict, "MCAF");
+    if mcaf.is_empty() {
+        associated_under(document, dict, "AF")
+    } else {
+        mcaf
+    }
+}
+
+/// The array under one key, read as §14.13's file specifications.
+fn associated_under(document: &Document, dict: &Dictionary, key: &str) -> Vec<Attachment> {
+    let array = document.get_key(dict, key);
     let Some(items) = array.as_array() else {
         return Vec::new();
     };

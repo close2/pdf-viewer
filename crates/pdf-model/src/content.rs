@@ -1775,13 +1775,15 @@ enum FontKey {
 /// `shall`; nothing here invents a font for it, and the report stands.
 ///
 /// The exception is the fourteen names §9.6.2.2 lists, because for those the standard states what
-/// the name means and states that this program has it:
-///
-/// > These fonts, or their font metrics and suitable substitution fonts, shall be available to
-/// > the PDF processor.
+/// the name means: Table 109 makes `/FirstChar`, `/LastChar`, `/Widths` and `/FontDescriptor`
+/// "(Required; optional in PDF 1.0-1.7 for the standard 14 fonts)", so a file may name one and
+/// say nothing else about it. The clause used to add that the fonts "shall be available to the
+/// PDF processor", and Errata Collection 3 struck that sentence and made its neighbour a NOTE
+/// (Issue #47 and #48; [`pdf_font::standard`] carries the reading and ADR 0253 the reason
+/// `doc/md/` cannot show it) — which leaves the permission where the work is anyway.
 ///
 /// So a stream whose `Tf` says `/Helvetica` with an empty resource dictionary has named something
-/// a conforming processor is required to have, and drawing it from the compiled-in fourteen
+/// the standard permits it to name and nothing else, and drawing it from the compiled-in fourteen
 /// (ADR 0133) is a better reading of that stream than drawing nothing. `issue17492.pdf` is the
 /// witness: a text widget's stored appearance stream carries `/Resources <<>>` and sets its text
 /// in `/Helvetica 12 Tf`, `mupdf` and `ghostscript` draw the three lines, `poppler` refuses with
@@ -2829,10 +2831,15 @@ impl Interpreter<'_> {
                     // a content stream by enclosing those sections between the marked-content
                     // operators BDC and EMC … with a marked-content tag of AF." NOTE 2 is why
                     // this is on `BDC` alone: "[t]he BMC operator does not take properties and
-                    // therefore cannot be used with the AF key."
+                    // therefore cannot be used with the AF key." The *tag* is `AF`; the key
+                    // inside the property list is `/MCAF` since Errata Collection 3, and the
+                    // two are not the same word by accident — see
+                    // `attachment::associated_in_property_list`.
                     let associated = if tag.as_deref() == Some("AF") {
                         self.property_list(resources, operands.get(1))
-                            .map(|list| crate::attachment::associated(self.document, &list))
+                            .map(|list| {
+                                crate::attachment::associated_in_property_list(self.document, &list)
+                            })
                             .unwrap_or_default()
                     } else {
                         Vec::new()
@@ -4603,6 +4610,30 @@ impl Interpreter<'_> {
     /// and so is not reported. No corpus document carries an `/Alternates` entry at all —
     /// measured over all 964 openable ones — so every rule here rests on the clause and on the
     /// tests beside it.
+    ///
+    /// # Errata Collection 3 rewrites this algorithm, and settles the contradiction the other way
+    ///
+    /// Issue #79, `/State` `Review` `Completed`. Every blockquote above is struck out, so the
+    /// argument they support is an argument about text the standard no longer has — and the
+    /// amended steps disagree with this function in three places. Their words, from the carets
+    /// (ADR 0253; `doc/md/` shows none of it):
+    ///
+    /// - "Alternates that have no OC entry shall not be shown." **This function selects exactly
+    ///   those**, on the reading that the retired selection sentence would otherwise name a case
+    ///   it had excluded. The erratum deletes the selection sentence instead, which is the same
+    ///   repair made from the other end.
+    /// - "Furthermore if the image dictionary that forms the value of the Image key of the
+    ///   selected alternate contains an OC entry, then that OC in the image dictionary shall not
+    ///   be examined." The "Further" sentence read above is **inverted**: Table 87's `/OC` on the
+    ///   alternate's own image is now to be ignored rather than processed.
+    /// - A new step: "If steps c and d above do not identify an alternate to be rendered then the
+    ///   base image shall be rendered." So the fall-through is the **base image**, not nothing.
+    ///
+    /// This is left as it stands rather than half-corrected, because the amended clause's step
+    /// ordering has its own question — the amended a) ends "then nothing shall be shown", which
+    /// reads as terminal and would leave d)'s alternate selection unreachable for a hidden base —
+    /// and a rewrite that guessed at it would replace one contradiction with another. `doc/todo/48`
+    /// carries it with the erratum's own text. Nothing on any corpus page moves either way.
     fn alternate_image(
         &mut self,
         base: &Dictionary,

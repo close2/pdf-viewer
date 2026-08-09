@@ -142,16 +142,24 @@ pub struct Note {
     pub covered: Option<String>,
     /// Table 172's `/CreationDate`, which says when the erratum was raised.
     pub created: Option<String>,
-    /// Table 174's states, as the replies to this annotation assert them.
+    /// Table 174's states, as the replies to this annotation assert them, each with its model.
     ///
     /// **The difference between a proposed change and an agreed one**, and the instrument is
-    /// worthless without it: §12.5.6.4 puts the state in a *separate* annotation — "[t]he state
+    /// worthless without it: §12.5.6.3 puts the state in a *separate* annotation — "[t]he state
     /// is not specified in the annotation itself but in a separate text annotation that refers to
     /// the original annotation by means of its IRT ("in reply to") entry" — so an erratum read on
     /// its own says nothing about whether anybody accepted it. Table 174's Review model spells
     /// the answers out: `Accepted` is "[t]he user agrees with the change", `Rejected` is "[t]he
     /// user disagrees with the change", `Cancelled` is "[t]he change has been cancelled" and
     /// `Completed` is "[t]he change has been completed".
+    ///
+    /// **The model is carried beside the state, because Table 174 states two of them and only one
+    /// of them is a verdict.** `Marked`'s two values say whether a reviewer ticked the note off;
+    /// `Review`'s five say what they decided. The four-hundred-and-seventeenth session read five
+    /// errata reported as "Accepted, Unmarked" and had to open the file to find that the second
+    /// word was the *Marked* model's default rather than a second opinion — so each entry is
+    /// `StateModel/State`, which Table 175 makes always available: `/StateModel` is "[r]equired
+    /// if State is present".
     ///
     /// Empty where nothing replied, which Table 174 makes mean `None` — "[t]he user has indicated
     /// nothing about the change (the default)" — and not `Accepted`.
@@ -181,6 +189,32 @@ impl Note {
 /// what separates a finding from a coincidence, and raising it to eight would have hidden two of the three real
 /// ones to hide seven that [`Landing::in_clause`] already separates out.
 pub const MIN_WORDS: usize = 4;
+
+/// The words of a passage with every space taken out, which is how two extractions are compared.
+///
+/// **Not a coarsening for its own sake — the gate's own [`conformance::quote::normalise`] misses
+/// two thirds of the hazard without it.** Both sides of every comparison in this crate are
+/// *extractions of the same glyphs by different programs*: the struck passage comes out of the
+/// PDF through `pdf-model`'s text layer, and `doc/md/` came out of it through a converter nobody
+/// here wrote. Neither can recover a space the file does not state, because PDF positions glyphs
+/// rather than words — §9.4.3's `Tj` is "shown" text and the space between two of its glyphs is
+/// whatever `Tz`, `Tc` and the next `Td` make it. So one extraction writes "in the" where the
+/// other writes "inthe", and a comparison that keeps whitespace calls a passage absent that is
+/// there in full.
+///
+/// Measured in the four-hundred-and-seventeenth session over all fourteen documents:
+/// **79 struck passages found with whitespace kept, 151 with it removed.** One of the 72 the
+/// stricter comparison missed is §12.5.3's, which `ledger.toml` was quoting as live text.
+///
+/// It cannot make a false positive worth reading: a passage of [`MIN_WORDS`] words is twenty-odd
+/// characters, and two different sentences do not agree on twenty characters by having their
+/// spaces in different places. [`Landing::in_clause`] does the separating either way.
+fn squeezed(text: &str) -> String {
+    conformance::quote::normalise(text)
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .collect()
+}
 
 /// Reads every note out of one document.
 ///
@@ -327,8 +361,8 @@ pub fn landings(notes: &[Note], roots: &[PathBuf]) -> Result<Vec<Landing>, Error
         .iter()
         .filter(|note| note.retires_text())
         .filter_map(|note| {
-            let text = conformance::quote::normalise(note.covered.as_deref()?);
-            (text.split_whitespace().count() >= MIN_WORDS).then_some((note, text))
+            let covered = note.covered.as_deref()?;
+            (covered.split_whitespace().count() >= MIN_WORDS).then(|| (note, squeezed(covered)))
         })
         .collect();
     let sources = conformance::citation::rust_sources(roots)
@@ -338,7 +372,7 @@ pub fn landings(notes: &[Note], roots: &[PathBuf]) -> Result<Vec<Landing>, Error
         let source = std::fs::read_to_string(&file)
             .map_err(|error| Error::Unreadable(file.clone(), error))?;
         for quotation in conformance::citation::scan(&source).quotations {
-            let text = conformance::quote::normalise(&quotation.text);
+            let text = squeezed(&quotation.text);
             for (note, passage) in &struck {
                 if text.contains(passage.as_str()) {
                     found.push(Landing {
@@ -371,20 +405,22 @@ pub fn still_in_conversion(notes: &[Note], directory: &Path) -> Result<Vec<Note>
         if path.extension().is_some_and(|extension| extension == "md") {
             let text = std::fs::read_to_string(&path)
                 .map_err(|error| Error::Unreadable(path.clone(), error))?;
-            conversions.push(conformance::quote::normalise(&text));
+            conversions.push(squeezed(&text));
         }
     }
     Ok(notes
         .iter()
         .filter(|note| note.retires_text())
         .filter(|note| {
-            let Some(passage) = note.covered.as_deref().map(conformance::quote::normalise) else {
+            let Some(covered) = note.covered.as_deref() else {
                 return false;
             };
-            passage.split_whitespace().count() >= MIN_WORDS
-                && conversions
+            covered.split_whitespace().count() >= MIN_WORDS && {
+                let passage = squeezed(covered);
+                conversions
                     .iter()
                     .any(|conversion| conversion.contains(passage.as_str()))
+            }
         })
         .cloned()
         .collect())
@@ -474,9 +510,13 @@ fn states_on_this_page(
         let Some(target) = annotation.get("IRT").and_then(Object::as_reference) else {
             continue;
         };
-        let state = text_of(document, annotation, "State");
-        if let Some(state) = state {
-            out.entry(target).or_default().insert(state);
+        // Table 175 makes `/StateModel` "[r]equired if State is present", and Table 174 states
+        // two models whose values a bare `/State` cannot be told apart by.
+        if let Some(state) = text_of(document, annotation, "State") {
+            let model = text_of(document, annotation, "StateModel");
+            out.entry(target)
+                .or_default()
+                .insert(model.map_or_else(|| state.clone(), |model| format!("{model}/{state}")));
         }
     }
     out
@@ -673,6 +713,22 @@ mod tests {
             }
             .retires_text()
         );
+    }
+
+    #[test]
+    fn two_extractions_disagree_about_where_the_spaces_are() {
+        // §12.5.3's erratum, as the two extractions write it: the strikeout's text layer joins
+        // "in the", the Markdown conversion does not, and the passage is the same passage. With
+        // the spaces kept this comparison answers `false` and the hazard goes unreported — which
+        // is what happened to `ledger.toml`'s §12.5.3 note for one session.
+        let struck = "without regard to any other keys and values inthe annotation dictionary";
+        let conversion = "shall render the appearance dictionary without regard to any other \
+                          keys and values in the annotation dictionary and shall ignore";
+        assert!(
+            !conformance::quote::normalise(conversion)
+                .contains(&conformance::quote::normalise(struck))
+        );
+        assert!(squeezed(conversion).contains(&squeezed(struck)));
     }
 
     /// A document from a body, with the trailer and cross-reference table a reader needs.
