@@ -1679,7 +1679,7 @@ fn pack_bits(samples: &[u8], width: u32, height: u32) -> Vec<u8> {
     packed
 }
 
-/// Decodes a baseline JPEG.
+/// Undoes Adobe's APP14 transform 2, turning four YCCK channels into the four CMYK ones.
 ///
 /// # Why the colour space is chosen here rather than left to the decoder
 ///
@@ -1763,6 +1763,9 @@ fn decode_jpeg(data: &[u8], width: u32, height: u32) -> Result<(Vec<u8>, usize),
         .map_err(|e| ImageError::Malformed {
             detail: format!("JPEG headers: {e}"),
         })?;
+    let info = decoder.info().ok_or_else(|| ImageError::Malformed {
+        detail: "JPEG has no frame".to_owned(),
+    })?;
     // **Four components stay four**, whichever of the two ways a codestream spells them.
     //
     // `zune-jpeg`'s default output is RGB, and its own conversions for both four-component inputs
@@ -1774,30 +1777,49 @@ fn decode_jpeg(data: &[u8], width: u32, height: u32) -> Result<(Vec<u8>, usize),
     // first three channels are a luminance-chrominance transform of the other three and the
     // fourth is carried alongside — and asking for `YCCK` out gets the four *raw* channels, which
     // is why the conversion below is here rather than in the decoder.
+    //
+    // **The frame's component count decides this, and the APP14 transform code does not** — which
+    // is what this condition got wrong until the four-hundred-and-thirtieth session. §7.4.8 says
+    // where the number comes from:
+    //
+    // > The values of these parameters, which include the dimensions of the image and the number
+    // > of components per sample, are entirely under the control of the encoder and shall be
+    // > stored in the encoded data.
+    //
+    // and Table 13 states the transform in terms of that number rather than the other way round —
+    // "If the image has four components, CMYK values shall be transformed to YCbCrK before
+    // encoding and from YCbCrK to CMYK after decoding" — so transform 0, "No transformation",
+    // says only that nothing was applied. `zune-jpeg` maps it to `CMYK` at the marker and
+    // *defers* the correction to a three-component `RGB` until it reads the frame, so
+    // `input_colorspace()` is provisional here and `info.components` is not. Asking a
+    // three-component codestream for four components made every such image an
+    // `Unimplemented colorspace mapping from RGB to CMYK` — 21 images over four documents of a
+    // 4000-document web sample, whole photographs lost (ADR 0266).
     let input = decoder.input_colorspace();
-    let four = matches!(
-        input,
-        Some(
-            zune_jpeg::zune_core::colorspace::ColorSpace::CMYK
-                | zune_jpeg::zune_core::colorspace::ColorSpace::YCCK
-        )
-    );
+    let four = info.components == 4
+        && matches!(
+            input,
+            Some(
+                zune_jpeg::zune_core::colorspace::ColorSpace::CMYK
+                    | zune_jpeg::zune_core::colorspace::ColorSpace::YCCK
+            )
+        );
     if let Some(space) = input.filter(|_| four) {
         decoder.set_options(
             zune_jpeg::zune_core::options::DecoderOptions::default().jpeg_set_out_colorspace(space),
         );
     }
 
-    let info = decoder.info().ok_or_else(|| ImageError::Malformed {
-        detail: "JPEG has no frame".to_owned(),
-    })?;
     let components = decoder
         .output_colorspace()
         .map_or(3, |space| space.num_components());
     let mut pixels = decoder.decode().map_err(|e| ImageError::Malformed {
         detail: format!("JPEG data: {e}"),
     })?;
-    if input == Some(zune_jpeg::zune_core::colorspace::ColorSpace::YCCK) {
+    // Gated on `four` for the same reason: a *three*-component frame whose marker says transform 2
+    // is read as `YCbCr` by the decoder, and running the four-channel conversion over three
+    // channels would walk a `chunks_exact_mut(4)` across pixel boundaries rather than refuse.
+    if four && input == Some(zune_jpeg::zune_core::colorspace::ColorSpace::YCCK) {
         ycck_to_cmyk(&mut pixels);
     }
     let count = usize::from(info.width).saturating_mul(usize::from(info.height));

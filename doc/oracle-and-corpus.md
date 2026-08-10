@@ -50,8 +50,27 @@ and *ratchets none of them*.
 | SafeDocs `CC-MAIN-2021-31`, archive `0000`, first 24 | 24 | 22 | 2 | crawled web, no grant — never committed |
 | SafeDocs `CC-MAIN-2021-31`, archive `3500`, first 24 | 24 | 22 | 2 | crawled web, no grant — never committed |
 | **SafeDocs `CC-MAIN-2021-31`, 79 archives `50 + 100k`, first 24 of each** (session 425) | **1896** | **1802** | **86** → 85 | crawled web, no grant — never committed |
+| **SafeDocs `CC-MAIN-2021-31`, 4 whole archives `0100 + 2000k`** (session 430) | **4000** | **3917** → 3923 | **70** → 64 | crawled web, no grant — never committed |
 
-**The last row is the first sample large enough to rank a population, and it does** (ADR 0261).
+**The last row is the first look at the web with §11.4.7's conversion built** (ADR 0266), and what
+it says is about the *residue*. **4000 documents in 53.3 s: 6 unopenable, 3 locked, 2 encrypted
+beyond us, 2 pageless, 70 incomplete, 0 slow**, with 1161 codes reaching no glyph in silence over 33
+documents; **64 incomplete after that session's own two fixes**. The rate is what moved — 86 of 1896
+was 4.5% and 70 of 4000 is **1.75%** — because §11.4.7's population fell 67 → 24 on sessions 426 and
+427's work and nothing else changed between the two samples. Three readings, and the ranking is in
+`doc/todo/03`:
+
+- **Nothing failed to open for a reason that is this tree's, for the second sample running.** All
+  six unopenable documents have no `%PDF-` header in their first kilobyte; the two pageless ones and
+  two of the three undecodable content streams are the crawl truncation ADR 0261 named.
+- **The largest *named* residue is a four-component `ICCBased` page group** — 14 of 4000, every one
+  of them checked with `examples/group_space_census` — where `doc/todo/23` had it at one witness.
+- **Two defects were fixed from it**: a three-component JPEG carrying an Adobe APP14 marker, which
+  lost 21 images over four documents, and a `/Contents` part the file states is empty, which was
+  reported as drawing the page had lost. Neither moves the 974, because no document of the 974 does
+  either thing.
+
+**The row above it is the first sample large enough to rank a population, and it does** (ADR 0261).
 1896 documents in 42.1 s: 4 unopenable, 1 locked, 0 encrypted beyond us, 3 pageless, 86 incomplete,
 0 slow, with 862 codes reaching no glyph in silence over 12 documents. Two readings of it:
 

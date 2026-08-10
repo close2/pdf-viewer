@@ -769,7 +769,7 @@ impl Document {
             return None;
         }
         let filters = self.filter_chain(&stream.dict);
-        if filters.is_empty() {
+        if filters.is_empty() || self.states_no_data(stream) {
             return Some(Arc::clone(&stream.data));
         }
 
@@ -779,6 +779,45 @@ impl Document {
             data = crate::filter::decode_with_parms(filter, &data, parms.as_ref(), self.limits)?;
         }
         Some(data)
+    }
+
+    /// Whether the file *states* that this stream holds nothing, ISO 32000-2 §7.3.8.1.
+    ///
+    /// > A stream shall consist of a dictionary followed by zero or more bytes bracketed between
+    /// > the keywords stream (followed by newline) and endstream :
+    ///
+    /// So an empty stream is conforming, and Table 5's `/Filter` names the filters "that shall be
+    /// applied in processing the stream data found between the keywords stream and endstream ".
+    /// With no data found there, there is nothing for a filter to process and the decoded result
+    /// is the empty sequence — which is *not* the same as a filter refusing its input, and the
+    /// difference is a report a page either does or does not deserve. `FlateDecode` refuses zero
+    /// bytes, because RFC 1950 gives a zlib stream a six-byte floor, so without this a page whose
+    /// producer wrote `<< /Filter /FlateDecode /Length 0 >>` was reported as missing drawing that
+    /// an empty part cannot be missing.
+    ///
+    /// **Both halves of the condition are load-bearing, and the second is the whole argument.**
+    /// A stream *truncated* to nothing also arrives here holding no bytes: [`crate::Parser`]
+    /// recovers a wrong `/Length` by searching for `endstream`, so a file cut off mid-stream
+    /// yields an empty slice as readily as an empty stream does. §7.3.8.2 tells the two apart —
+    ///
+    /// > Every stream dictionary shall have a Length entry that indicates how many bytes of the
+    /// > PDF file are used for the stream's data.
+    ///
+    /// — because a truncation leaves `/Length` stating a number the bytes do not support, and
+    /// "[a]ll of these constraints shall be consistent" is then false. Only a stated zero that the
+    /// bytes agree with is silence the producer asked for. Two documents of the 5944 `SafeDocs`
+    /// members on disk do this and two more are truncations; ADR 0266 names all four.
+    ///
+    /// Deliberately not applied on [`Self::image_stream`]'s path: §7.3.8.2 also says "streams are
+    /// used to represent many objects from whose attributes a length can be inferred", and an
+    /// image's `/Width`, `/Height` and `/BitsPerComponent` infer one, so for an image a stated
+    /// zero contradicts the dictionary rather than agreeing with it.
+    fn states_no_data(&self, stream: &Stream) -> bool {
+        stream.data.is_empty()
+            && self
+                .get_key(&stream.dict, "Length")
+                .as_integer()
+                .is_some_and(|length| length == 0)
     }
 
     /// Returns a stream's data with every filter applied up to a trailing image codec.

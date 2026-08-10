@@ -5,7 +5,7 @@ session, which built the three pieces `doc/test-docs.md` asked for. What is left
 a chunk a round, the way `doc/todo/00` takes a page off the ambiguous ranking.
 Priority: 03 — the standing band, deliberately.
 Corpus: 974 pdf.js documents **plus 108 in three submodules** and whatever `tools/safedocs` has
-been asked for — **1944 as of the four-hundred-and-twenty-fifth**, 81 archives, the manifest below
+been asked for — **5944 as of the four-hundred-and-thirtieth**, 85 archives, the manifest below
 Code: `tools/safedocs`, `doc/corpora/*`, `doc/oracle-and-corpus.md` §2
 
 ## What exists now (ADR 0258)
@@ -70,13 +70,20 @@ The instrument works and every chunk so far has produced a finding. A round's ch
 **somewhere nobody has been**, and `corpus-cache/safedocs/manifest.tsv` is the record of where
 that is.
 
-**Taken so far: 81 archives, 1944 documents, 2.68 GiB transferred — 5.4% of the 50 GB.**
+**Taken so far: 85 archives, 5944 documents, 7.72 GiB transferred — 15.4% of the 50 GB.**
 `0000` and `3500` in the four-hundred-and-twenty-second and -third, 24 members apiece; then in
 the four-hundred-and-twenty-fifth, **`50 + 100k` for k = 0 … 78** — `0050`, `0150`, … `7850` —
 24 members from the head of each, 2731.0 MiB of member ranges and 14.1 MiB of central
-directories, 79 fetches, 0 failures, every CRC-32 matched. **That stride is spent**; the next
-round wants a window the manifest does not hold, and by decision 2 of ADR 0261 it may be any
-shape at all.
+directories, 79 fetches, 0 failures, every CRC-32 matched. **That stride is spent.**
+
+**And in the four-hundred-and-thirtieth, `0100 + 2000k` for k = 0 … 3** — `0100`, `2100`, `4100`,
+`6100`, **every member of each**, which is 4000 documents for **four** directory reads where the
+stride paid 79 for 1896 (ADR 0266). 5409.6 MiB of member ranges and 728.7 KiB of directories,
+5.04 GiB in 438 s, 4 fetches, 0 failures, every CRC-32 matched. The offsets are ≡ 100 (mod 1000),
+which is disjoint from the stride and off the thousand-boundaries where the corpus changes
+directory; **the next round moves the offset** — `0300 + 2000k`, then `0500` — rather than deciding
+again. *Which* archives is immaterial and that is the point: an archive is a hash bucket, so the
+rule exists to stop two rounds fetching one archive twice and for no other reason.
 
 What a chunk owes when it is taken:
 
@@ -85,10 +92,42 @@ What a chunk owes when it is taken:
   population `doc/todo/21` or `23` already names is worth nothing;
 - a **promotion** only where the problem is new and is named in the commit. The budget below.
 
-**The four-hundred-and-twenty-fifth's 1896 new documents, as the baseline to beat:** *1896
-documents in 42.1 s: 4 unopenable, 1 locked, 0 encrypted beyond us, 3 pageless, 86 incomplete,
-0 slow*, with 862 codes reaching no glyph in silence over 12 documents. **85 incomplete after
-that session's own fix.** Two things it is worth knowing before reading the next one:
+**The four-hundred-and-thirtieth's 4000 new documents, and it is a baseline rather than a
+ratchet:** *4000 documents in 53.3 s: 6 unopenable, 3 locked, 2 encrypted beyond us, 2 pageless,
+**70 incomplete**, 0 slow*, with 1161 codes reaching no glyph in silence over 33 documents — **64
+incomplete after that session's own two fixes** (ADR 0266). The rate is what moved: 86 of 1896 was
+4.5% and 70 of 4000 is **1.75%**, because sessions 426 and 427 closed §11.4.7's conversion into the
+page group's blending space and its population fell 67 → 24.
+
+**The residue, ranked by document count** — a document reporting two things is in two rows:
+
+| population | documents | named by |
+|---|---|---|
+| §11.4.7's page-group blending space | **24** | `doc/todo/23`, and see below |
+| a font with no outline for any code the page shows | **14** | `doc/todo/21` §3 |
+| an image | **11** → 7 | five things; 4 were the JPEG fix |
+| **a budget stopped interpretation** | **8** | nothing until now — `MAX_TILES` 4, `MAX_OPERATIONS` 4 |
+| §11.6.6's group in a space of its own | 4 | `doc/todo/23` |
+| §11.4.4, and text-showing operators skipped | 3 apiece | `doc/todo/23`, `doc/todo/21` |
+| a `/Contents` part that would not decode | 3 → 2 | 1 was the empty-stream fix, 2 are truncations |
+| six singletons | 1 apiece | §7.8.3, §11.4.6, §9.3.8, a shading, an operator, an annotation |
+
+Two rows are worth taking away from this:
+
+- **All 14 array-formed page groups are four-component `ICCBased` spaces**, checked with
+  `examples/group_space_census`. `doc/todo/23` prices that row at 0 corpus documents and 1 web
+  witness; it is **14 of 4000, 0.35%**, the largest single *named* residue in the sample, and it
+  wants an ICC `B2A` transform rather than sixteen corners.
+- **The budget row is a population nobody had named**: 0.2% of the web reaches `MAX_TILES` or
+  `MAX_OPERATIONS`, stable across two samples, and **not one of the eight was slow** — the bound
+  stops the work inside the per-document budget rather than after it. `doc/todo/49` keeps both
+  constants under "not negotiable" and this changes none of that; what is owed is reading *one* of
+  the eight pages to find out whether the bound cost it a mark.
+
+**The four-hundred-and-twenty-fifth's 1896, for comparison:** *1896 documents in 42.1 s: 4
+unopenable, 1 locked, 0 encrypted beyond us, 3 pageless, 86 incomplete, 0 slow*, with 862 codes
+reaching no glyph in silence over 12 documents; 85 after that session's own fix. Two things it is
+worth knowing before reading the next one:
 
 - **Nothing failed to open for a reason that is this tree's.** All seven unusable documents are
   crawl artefacts, opened by hand: four are HTML saved under a `.pdf` name, three are PDFs the
@@ -158,14 +197,18 @@ Applied here it splits, and the split is the useful half:
 
 ### 5. Two things this round diagnosed and did not take
 
-- **A zero-byte stream that names a filter.** `4150022.pdf` — archive `4150`, SHA-256
-  `85ea41fdedc0a195deacd9aedf88df9a0e002bd05015940d1e2351c55a1b9c29` — has a six-part
-  `/Contents` whose fourth object is
-  `<< /Filter /FlateDecode /Length 0 >>`, and `flate` refuses an empty input, so the part is
-  reported `Undecodable`. The report claims the page is missing drawing and an empty part cannot
-  be — but "decode zero bytes to zero bytes" also silences a stream truncated to nothing, and
-  choosing between those two needs the argument rather than the patch. §7.3.8.1 permits "zero or
-  more bytes" between the keywords, so the *stream* is valid and only the filter's input is empty.
+- ~~**A zero-byte stream that names a filter.**~~ **Done in the four-hundred-and-thirtieth**
+  (ADR 0266), and the argument it was waiting for is §7.3.8.2 rather than §7.3.8.1. §7.3.8.1 makes
+  "zero or more bytes" conforming and Table 5 has `/Filter` name what "shall be applied in
+  processing the stream data found between the keywords stream and endstream ", so an empty stream
+  decodes to nothing. What decides the objection — that a stream *truncated* to nothing arrives
+  holding no bytes just the same — is §7.3.8.2: `/Length` "indicates how many bytes of the PDF file
+  are used for the stream's data" and "[a]ll of these constraints shall be consistent", so a
+  truncation states a number the bytes do not support and only a stated zero the bytes agree with
+  is silence the producer asked for. `Document::states_no_data` is both halves, and deliberately
+  not on the image path, where §7.3.8.2's own "many objects from whose attributes a length can be
+  inferred" makes a stated zero a contradiction. Two of 5944 members do it and two more are
+  truncations.
 - ~~**No fuzz target reaches `pdf-model`'s interpreter.**~~ **Done in the
   four-hundred-and-twenty-eighth** (ADR 0264), and both halves of the note above it were wrong.
   **`cargo-fuzz` was installed all along** — `~/.cargo/bin/cargo-fuzz` 0.13.2, dated 26 July,
@@ -176,6 +219,20 @@ Applied here it splits, and the split is the useful half:
   than two, and twelve binaries did not contain the interpreter at all. `page` is the fourteenth
   target: a whole document through `interpret`, seeded from the 1944 SafeDocs documents, the 108
   in `doc/corpora` and the pdf.js submodule's 974 by `fuzz/seed_page.py`.
+
+### 6. What the four-hundred-and-thirtieth diagnosed and did not take
+
+- **Eight documents reach a budget.** `MAX_TILES` on `0100935`, `2100091`, `4100668`, `4100929`
+  and `MAX_OPERATIONS` on `0100034`, `2100236`, `2100253`, `6100352` — 0.2% of the web, and the
+  same rate session 425 saw at one apiece in 1896. **This is a finding about the budget and not a
+  reason to raise one.** What is owed is one page: interpret it with the bound lifted *in a
+  scratch build*, compare the raster, and find out whether the constant costs a mark or stops a
+  bomb. Until somebody does that, neither answer is known and the constants stay where
+  `doc/todo/49` puts them.
+- **Four documents carry an `/SMask` with a `/Matte`** (§11.6.5.3), which is the second-largest
+  image row and has no todo of its own. `0100547`, `2100434`, `4100238`, `6100743`.
+- **The array-formed page groups are all four-component `ICCBased`**, which is `doc/todo/23`'s row
+  and now has a number: 14 of 4000.
 
 ## What not to do
 

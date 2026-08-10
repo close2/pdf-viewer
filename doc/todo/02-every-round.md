@@ -135,9 +135,11 @@ not behind for the tenth.
 **Fourteen fuzz targets since the four-hundred-and-twenty-eighth**, which added **`page`** — a
 whole document through `pdf_model::interpret`, which is clauses 8, 9 and 11 and was reachable by
 **no target at all**: `nm` finds `pdf_model::interpret` in one of the thirteen binaries and it
-calls it on a page with no `/Resources`. Seeded by `fuzz/seed_page.py` from the 1944 SafeDocs
-documents, `doc/corpora`'s 108 and the pdf.js submodule's 974 — **1882 seeds, 28 535 edges against
-the best of the thirteen at 6483** — and it is the fifth target that needs its corpus seeded, for
+calls it on a page with no `/Resources`. Seeded by `fuzz/seed_page.py` from every document on disk — **5944 SafeDocs members since the
+four-hundred-and-thirtieth**, `doc/corpora`'s 108 and the pdf.js submodule's 974, which is **8572
+seeds** where session 428 had 1882 — **28 535 edges against the best of the thirteen at 6483**, and
+**32 671 after that round's 51 324 iterations in 1255 s with 0 crashes, 0 out-of-memory and 0
+timeouts** — and it is the fifth target that needs its corpus seeded, for
 `sfnt`'s reason one layer up (ADR 0264). **And `cargo-fuzz` is installed and always was**; it is in
 `~/.cargo/bin`, which is not on `PATH`, which is what two rounds read as its absence.
 

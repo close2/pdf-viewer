@@ -48,13 +48,21 @@ use pdf_syntax::Document;
 /// Object 4 is a stream and object 5 is a plain dictionary, so a caller can point the entry
 /// at either — or at object 99, which is not written at all.
 fn page_stating(contents: &str) -> Vec<u8> {
+    page_stating_with(contents, "")
+}
+
+/// The same, with one further object — written out in full, `endobj` and all — after object 5.
+///
+/// The zero-length and truncated parts below cannot be expressed by pointing at objects 4 or 5,
+/// because what they are about is the *stream* rather than which object the entry names.
+fn page_stating_with(contents: &str, extra: &str) -> Vec<u8> {
     let body = format!(
         "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 50] \
          /Resources << >> {contents}>>\nendobj\n\
          4 0 obj\n<< /Length 11 >>\nstream\n0 0 10 10 re\nendstream\nendobj\n\
-         5 0 obj\n<< /Type /NotAStream >>\nendobj\n"
+         5 0 obj\n<< /Type /NotAStream >>\nendobj\n{extra}"
     );
 
     let mut out = String::from("%PDF-1.7\n");
@@ -173,6 +181,55 @@ fn the_pdf_association_witness_reports_rather_than_drawing_a_blank_page() {
             index: 0,
             // Object 10, whose dictionary ends `>` where §7.3.7 requires `>>`.
             object: pdf_syntax::ObjectId::new(10, 0),
+        }]
+    );
+}
+
+/// A fifth shape, and the one a 5944-document web sample brought: a part that states a filter
+/// and no bytes.
+///
+/// §7.3.8.1 makes "zero or more bytes" a conforming stream, so `<< /Filter /FlateDecode
+/// /Length 0 >>` is a *valid* part that carries nothing — and Table 5 has `/Filter` name what
+/// "shall be applied in processing the stream data found between the keywords stream and
+/// endstream ", which with no data found is nothing at all. `flate` refuses an empty input,
+/// because RFC 1950 gives a zlib stream a six-byte floor, so this part used to be reported as
+/// drawing this page missed. It cannot be: an empty part draws nothing by construction.
+#[test]
+fn a_part_the_file_states_is_empty_is_not_a_missing_content_stream() {
+    let extra = "6 0 obj\n<< /Filter /FlateDecode /Length 0 >>\nstream\n\nendstream\nendobj\n";
+    let document = Document::open(page_stating_with("/Contents [4 0 R 6 0 R] ", extra))
+        .expect("the fixture opens");
+    let page = pdf_model::Pages::new(&document)
+        .get(0)
+        .expect("the fixture has a page");
+    let (content, issues) = page.content_with_report(&document);
+    assert_eq!(issues, Vec::new(), "an empty part is missing no drawing");
+    assert!(
+        content.starts_with(b"0 0 10 10 re"),
+        "the part that does hold drawing is still there: {content:?}"
+    );
+}
+
+/// The other side of it, and the reason the condition is not "the bytes are empty".
+///
+/// A stream cut off at the `stream` keyword also arrives holding nothing, because `pdf-syntax`
+/// recovers a wrong `/Length` by searching for `endstream`. §7.3.8.2 tells the two apart — the
+/// `/Length` entry "indicates how many bytes of the PDF file are used for the stream's data",
+/// and here it states 4096 that are not there — so this one stays reported. Two `SafeDocs`
+/// documents of each kind are named in ADR 0266.
+#[test]
+fn a_part_truncated_to_nothing_is_still_reported() {
+    let extra = "6 0 obj\n<< /Filter /FlateDecode /Length 4096 >>\nstream\n\nendstream\nendobj\n";
+    let document = Document::open(page_stating_with("/Contents [4 0 R 6 0 R] ", extra))
+        .expect("the fixture opens");
+    let page = pdf_model::Pages::new(&document)
+        .get(0)
+        .expect("the fixture has a page");
+    assert_eq!(
+        page.content_with_report(&document).1,
+        vec![ContentIssue::Undecodable {
+            index: 1,
+            filters: vec!["FlateDecode".to_owned()],
         }]
     );
 }

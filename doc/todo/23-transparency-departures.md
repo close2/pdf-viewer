@@ -14,13 +14,13 @@ Clauses: §11.3.5.3, §11.4.4, §11.6.6, §11.7.5.3, §8.6.5.6, §14.11.5
 Code: `crates/pdf-model/src/content.rs`, `crates/pdf-model/src/colour.rs`,
 `crates/pdf-render/src/blending.rs`, `crates/render-cpu/src/lib.rs`
 
-| | corpus | of 69 web witnesses | what it is |
+| | corpus | web witnesses | what it is |
 |---|---|---|---|
-| **the document names the press its `DeviceCMYK` is** (§8.6.5.6, §14.11.5) | 0 | 7 | **the standing item.** Its four components are not ours, so a *composite* in them is not ours |
-| a group inside the page composites in a different space (§11.6.6) | 3 | 3 | needs a conversion between two spaces at the `Do` |
-| a non-separable blend mode on such a page (§11.3.5.3) | 1 | 1 | the black component has a rule of its own |
-| a four-component `ICCBased` blending space | 0 | 1 | its conversion out is a profile rather than sixteen corners |
-| an `/ExtGState` states `/BG`, `/BG2`, `/UCR` or `/UCR2` (§11.7.5.3) | 0 | 1 | **was silent until the 426th** |
+| **the document names the press its `DeviceCMYK` is** (§8.6.5.6, §14.11.5) | 0 | 7 of 1896, **8 of 4000** | **the standing item.** Its four components are not ours, so a *composite* in them is not ours |
+| a group inside the page composites in a different space (§11.6.6) | 3 | 3 of 1896, **4 of 4000** | needs a conversion between two spaces at the `Do` |
+| a non-separable blend mode on such a page (§11.3.5.3) | 1 | 1 of 1896, **2 of 4000** | the black component has a rule of its own |
+| a four-component `ICCBased` blending space | 0 | **14 of 4000** | its conversion out is a profile rather than sixteen corners — **the largest named residue the web has**, ADR 0266 |
+| an `/ExtGState` states `/BG`, `/BG2`, `/UCR` or `/UCR2` (§11.7.5.3) | 0 | 1 of 1896, 0 of 4000 | **was silent until the 426th** |
 | ~~a conversion *into* the blending space~~ | ~~5~~ → 0 | ~~61~~ → 0 | **closed in the 427th, ADR 0263: a right inverse of the ink cube** |
 | ~~the four components themselves~~ | — | — | **closed in the 426th, ADR 0262: two rasters, no new format** |
 | ~~a non-isolated group NOTE 5 cannot flatten~~ | ~~6~~ → 3 | | **the non-knockout ones closed** in the 400th, ADR 0237; what is left is knockout, below |
