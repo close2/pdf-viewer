@@ -1,3 +1,14 @@
+> **Editor's note, four-hundred-and-twenty-second session.** This file is the project owner's source
+> material and is left as written. Three of its claims were checked against the repositories and the
+> bucket while acting on it, and two did not hold: `openpreserve/format-corpus` has **no `/pdf/`
+> directory** (its PDF material is `pdfCabinetOfHorrors`, `pdf-handbuilt-test-corpus`,
+> `govdocs1-error-pdfs` and `fully-featured-pdf`), and `apache/pdfbox`'s test inputs are reachable far
+> more cheaply than a `--depth 1` clone — a partial sparse checkout is **12 MB of a 118 MB
+> repository**. The SafeDocs figures are about the *issue tracker* corpus; what `tools/safedocs`
+> addresses is `CC-MAIN-2021-31-PDF-UNTRUNCATED`, **7 933 ZIP archives of 1.0 to 3.7 GB**, 7 932 878
+> files, close to 8 TB uncompressed, listed off the bucket rather than recalled. What was decided and
+> what each licence turned out to be is ADR 0258 and `doc/third-party-data.md`.
+
 The **SafeDocs Stressful PDF Corpus is not available as a Git repository**, nor can it be natively hosted on GitHub or GitLab.
 
 The primary limitation is sheer file volume and size. The SafeDocs Issue Tracker corpus alone is over **31 GB** (packaged into six compressed `.tgz` archives), while the untruncated Common Crawl corpus spans **24 TB** (nearly 8 million files). Git's architecture degrades and crashes when tracking thousands of heavy binary files or multi-gigabyte payloads. Instead, DARPA and the PDF Association distribute these corpora via **AWS Open Data** and the **Digital Corpora project** as standard downloadable archives.

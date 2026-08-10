@@ -15,6 +15,16 @@ github-token.txt
 
 # Comparison-harness output: renders, diffs and heatmaps are regenerated on demand.
 /target/pdfref
+
+# Two things, one rule: nothing fetched from somebody else's server is tracked here.
+# `corpus-cache/safedocs/` is what `tools/safedocs` writes — members of the SafeDocs
+# `CC-MAIN-2021-31` archives, taken a byte range at a time, with `manifest.tsv` beside them
+# recording the archive, the member name and the SHA-256 so that any of them can be fetched
+# again exactly. Those files are somebody's web pages under no licence anybody granted, which
+# is the reason this line is a licence position rather than a size one: a file promoted out of
+# here into the tree is a deliberate act with its own argument (ADR 0258,
+# doc/third-party-data.md). The four test corpora that *are* tracked are submodules under
+# doc/corpora/, which carry no bytes into this history at all.
 /corpus-cache
 
 # The specifications this project is written against, and the Markdown conversion of them

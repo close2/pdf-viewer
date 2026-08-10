@@ -141,6 +141,46 @@ platform's GTK: that is what a native host is, and it is why `viewer-qt` is excl
 cross-target checks — `cc-rs` wants `lib.exe` for a Windows target and there would be no Qt 6
 development files there anyway.
 
+**And in the four-hundred-and-twenty-second, three *corpora* — which is a third first for this
+record, because a submodule carries no bytes into this history and the licence question is
+therefore about what may be *promoted* out of one rather than about what may be shipped.** The
+positions, each read off the repository's own licence file rather than off GitHub's guess:
+
+| submodule | licence, as examined | what it permits here |
+|---|---|---|
+| `doc/corpora/pdf20examples` | `LICENSE.md`: "The PDF Association provides these example PDF 2.0 files under the Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0) license." | submodule freely; a file **copied** into this tree would carry attribution and the licence with it, and CC BY-SA 4.0's ShareAlike condition attaches to *Adapted Material* rather than to a Collection, so a verbatim copy beside MIT code does not relicense the code |
+| `doc/corpora/pdf-differences` | `LICENSE`: the Apache License 2.0 in full | submodule and copy freely, with the notice kept |
+| `doc/corpora/pdfbox` | `LICENSE.txt` Apache-2.0, with `NOTICE.txt` beside it | as above, and `NOTICE.txt` is the file §4(d) obliges anyone redistributing to carry — which is why the sparse checkout keeps the repository root rather than the test directory alone |
+
+**Nothing was copied**, so none of those obligations is live: `crates/` holds no `.pdf` at all,
+before this session or after it, and the one witness this round promoted is named by its path
+inside a pinned submodule. That is the cheapest possible answer to a licence question and it is
+worth stating as the rule rather than as an accident.
+
+**`openpreserve/format-corpus` was examined and declined**, and on licence rather than on size.
+GitHub detects none; its `README.md` says "[a]ll items are CC0 licenced **unless otherwise
+stated**", and per-file `.md` sidecars are where such a statement would be — a grant with an
+escape clause is not one this project relies on without reading it, which is ADR 0187's
+discipline. ADR 0258 records what a sparse checkout of its two small PDF directories would cost
+(9.7 MB) for whenever that reading happens.
+
+**And what `tools/safedocs` fetches is under no grant at all**, which is why `.gitignore`'s entry
+for `corpus-cache/` now carries a licence sentence: the `CC-MAIN-2021-31` corpus is eight million
+PDFs crawled from the public web, and Common Crawl's own terms of use govern the *collection*
+rather than the copyright in each document. Cache them, measure them, name them in a bug report;
+do not commit one. ADR 0258's promotion budget exists for the one case where that rule and a
+regression test collide, and it has not yet been reached.
+
+**And one dependency decision that came out *no* twice in one session**, beside the
+three-hundred-and-ninety-second's. `tools/safedocs` reads HTTPS byte ranges and ZIP central
+directories and takes **no package at all**: the transport is `curl` as a subprocess, so there is
+no HTTP client, no TLS stack and no certificate store in this graph (the precedent is
+`tools/pdfref` driving `pdftoppm`, `mutool` and `gs`), and the ZIP reading is 200 lines in tree
+because every ZIP crate reads `Read + Seek`, which over HTTP means writing the range-issuing
+adapter that is most of the work anyway. `flate2` already supplies the raw-deflate decoder *and*
+the CRC-32 the verification needs, and `sha2` was already here for §7.6. `Cargo.lock` did not
+move.
+
 **Provenance is a principle-4 question**, and the tree has one precedent — `pdf-spec`'s Arlington
 tables, built by `build.rs` from a pinned submodule. Vendored data arrives the same way: a
 checked-in tool, a pinned upstream revision recorded beside the bytes, the licence file verbatim

@@ -3484,6 +3484,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
 
 [[package]]
+name = "safedocs"
+version = "0.1.0"
+dependencies = [
+ "flate2",
+ "pdf-model",
+ "pdf-render",
+ "pdf-sandbox",
+ "pdf-syntax",
+ "rayon",
+ "render-cpu",
+ "sha2",
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "same-file"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"

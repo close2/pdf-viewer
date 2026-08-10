@@ -268,20 +268,33 @@ impl Page {
     /// them, which principle 3 of `CLAUDE.md` requires of every layer.
     #[must_use]
     pub fn content_with_report(&self, document: &Document) -> (Vec<u8>, Vec<ContentIssue>) {
-        let contents = document.get_key(&self.dict, "Contents");
-        let parts: Vec<Object> = match contents {
-            Object::Array(items) => items.iter().map(|item| document.resolve(item)).collect(),
-            other => vec![other],
+        // Each part is kept beside the object *as written*, because a `/Contents` the file
+        // does not state and a `/Contents` naming an object this reader could not reach both
+        // resolve to null and are not the same statement — see [`ContentIssue::Unreachable`].
+        let stated = self.dict.get("Contents").cloned().unwrap_or(Object::Null);
+        let parts: Vec<(Object, Object)> = match document.resolve(&stated) {
+            Object::Array(items) => items
+                .iter()
+                .map(|item| (item.clone(), document.resolve(item)))
+                .collect(),
+            other => vec![(stated, other)],
         };
 
         let mut out = Vec::new();
         let mut issues = Vec::new();
-        for (index, part) in parts.iter().enumerate() {
+        for (index, (named, part)) in parts.iter().enumerate() {
             // A `/Contents` that is missing entirely is an empty page, not a defect; one
             // whose entries are not streams is a malformed page and worth saying so.
             let Some(stream) = part.as_stream() else {
-                if !matches!(part, Object::Null) {
-                    issues.push(ContentIssue::NotAStream { index });
+                match (named, part) {
+                    (Object::Reference(object), Object::Null) => {
+                        issues.push(ContentIssue::Unreachable {
+                            index,
+                            object: *object,
+                        });
+                    }
+                    (_, Object::Null) => {}
+                    _ => issues.push(ContentIssue::NotAStream { index }),
                 }
                 continue;
             };
@@ -892,5 +905,26 @@ pub enum ContentIssue {
     NotAStream {
         /// Which part of `/Contents`, counting from zero.
         index: usize,
+    },
+    /// A `/Contents` entry naming an object this reader could not reach.
+    ///
+    /// ISO 32000-2 §7.3.10 makes this *conforming* rather than an error — "[a]n indirect
+    /// reference to an undefined object shall not be considered an error by a PDF processor;
+    /// it shall be treated as a reference to the null object" — and §7.3.9 then makes a null
+    /// value "equivalent to omitting the entry". So the standard permits drawing nothing.
+    /// What it does not permit is drawing nothing *in silence*: a page whose producer named a
+    /// content stream and got a blank page is not the same thing as a page whose producer
+    /// stated no contents, and Table 31's `/Contents` is the entry that tells them apart.
+    ///
+    /// This is ADR 0255's shape one clause over — a name the file never defines, said out
+    /// loud — and its first witness came from outside the pdf.js corpus:
+    /// `pdf-differences`' `UnknownFilter-PageContentStream.pdf`, whose content stream's own
+    /// dictionary ends with one `>` where §7.3.7 requires two, so the object does not parse
+    /// and the page drew nothing and said nothing. `poppler` prints *Illegal character '>'*.
+    Unreachable {
+        /// Which part of `/Contents`, counting from zero.
+        index: usize,
+        /// The object the entry named.
+        object: ObjectId,
     },
 }

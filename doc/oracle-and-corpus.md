@@ -29,6 +29,59 @@ read, and the oracle noticed within one run (ADR 0133). Corpus documents drawing
 sessions 6 to 122, then 91 in the hundred-and-twenty-seventh, where two documents that had been
 drawing the wrong font in silence started saying so, and **76** in the hundred-and-fifty-sixth.
 
+### 2. The corpus is four populations now, and only one of them is ratcheted
+
+**Until the four-hundred-and-twenty-second session this file described one corpus**, the 974
+pdf.js documents, and `CLAUDE.md`'s "Two questions, two denominators" says robustness is measured
+against *the world*. Three more arrived as submodules under `doc/corpora/` and a fourth as a
+fetcher, and none of them is in `doc/todo/02` §2's default sequence — deliberately, because that
+sequence is 268 s and a new corpus earns a place rather than taking one. The instrument is
+`tools/safedocs survey --dir <path>`, which asks the same five questions `tests/corpus.rs` asks
+and *ratchets none of them*.
+
+**The first run is the baseline, and this is it** (ADR 0258):
+
+| population | documents | complete | reported | licence |
+|---|---|---|---|---|
+| `doc/pdf.js/test/pdfs` (the gate) | 974 | — | **70 incomplete** | — |
+| `doc/corpora/pdf20examples` | 7 | **7** | 0 | CC BY-SA 4.0 |
+| `doc/corpora/pdf-differences` | 37 | 30 | 7 | Apache-2.0 |
+| `doc/corpora/pdfbox` (`.../test/resources/input`) | 64 | 63 | 1 | Apache-2.0 |
+| SafeDocs `CC-MAIN-2021-31`, archive `0000`, first 24 | 24 | 22 | 2 | crawled web, no grant — never committed |
+
+`pdfbox` is a **partial, sparse** submodule and `.gitmodules` cannot say so, so the recipe lives
+here:
+
+```sh
+git clone --depth 1 --filter=blob:none --sparse https://github.com/apache/pdfbox.git \
+          doc/corpora/pdfbox
+git -C doc/corpora/pdfbox sparse-checkout set pdfbox/src/test/resources/input
+```
+
+1.9 s and 2.6 s, against 118 MB for the plain `git submodule update --init` that also works.
+
+**What the 132 new documents said, and what it is worth.** Five of `pdf-differences`' seven
+reports are the point of the file — its `UnknownFilter` set encodes one stream apiece with a fake
+`/XXXDecode` and its own `README.md` says which of them a reader should survive — and `pdfbox`'s
+one is `MAX_FORM_DEPTH`. The two SafeDocs reports are §11.4.7's `/DeviceCMYK` page group and
+§11.4.4's non-isolated group, both populations `doc/todo/23` already names, which is why nothing
+was promoted from that fetch. **The one thing that was not already known is the finding**, and it
+was a silence rather than a report: `UnknownFilter-PageContentStream.pdf` came back *complete*
+with zero commands, because its content stream object's dictionary ends with one `>` where §7.3.7
+requires two, and §7.3.10 then makes the reference null and §7.3.9 makes null an absent entry. A
+page whose producer named a content stream and got a blank one is not a page whose producer stated
+none; `ContentIssue::Unreachable` is the difference, and **the pdf.js corpus's own count did not
+move by it**, which is the sharpest available statement of why a second corpus was worth a
+session.
+
+**What the SafeDocs fetcher refuses, and what it does not**, because a population nobody can hold
+is a different kind of instrument: the archive is addressed a member at a time and never as an
+object, nothing transfers without `--download`, and a plan over 32 MiB is refused in bytes **and
+in the `--budget-mb` that would admit it**. The budget has no ceiling and `--all` takes every
+member of an archive, so a whole 1.6 GiB archive on an unmetered connection is one deliberate
+command — the bound is on *accident*, not on the person. Every member is checked against the
+CRC-32 its own archive records. `tools/safedocs/src/lib.rs` and ADR 0258.
+
 ### 3. What the corpus still names
 
 **The oracle's 68 contradicted pages, 66 of them on documents we call complete**, grouped and

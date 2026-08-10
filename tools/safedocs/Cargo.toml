@@ -1,0 +1,30 @@
+[package]
+name = "safedocs"
+description = "Fetches a chunk of the DARPA SafeDocs PDF corpora, one byte range at a time, and runs this tree's corpus gate over it."
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# The readers the survey needs, and nothing else. There is deliberately **no HTTP client and
+# no TLS stack**: the transport is `curl`, run as a subprocess, which is the precedent
+# `tools/pdfref` set for `pdftoppm`, `mutool` and `gs`. A tool that downloads other people's
+# files is not a reason to put a network stack into this workspace's dependency graph.
+#
+# `flate2` supplies both halves of reading a ZIP member: the raw-deflate decoder and the
+# CRC-32 the archive's own central directory records, so verification needs no dependency of
+# its own either. `sha2` is already here for §7.6 and writes the manifest's digests.
+[dependencies]
+pdf-model.workspace = true
+pdf-render.workspace = true
+pdf-sandbox.workspace = true
+pdf-syntax.workspace = true
+render-cpu.workspace = true
+flate2.workspace = true
+rayon.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

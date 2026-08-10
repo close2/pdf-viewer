@@ -19,7 +19,7 @@ features no file exercises.
 ```sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets      # must be silent of lints
-cargo nextest run --workspace               # 1525 tests, 10 skipped
+cargo nextest run --workspace               # 1539 tests, 10 skipped
 cargo test --workspace --doc                # the one doctest nextest does not run
 cargo build --profile gates -p pdf-sandbox --bins   # trap 10: Cargo will not do this for you
 cargo test  --profile gates -p pdf-model      --test corpus          -- --ignored --nocapture
@@ -84,7 +84,12 @@ here:
   printed **1515**; the four-hundred-and-twenty-first added **ten** — four in the new
   `tools/pdf-retrieve`, one in its JSON writer, two in `pdf-model`'s new `retrieval` module, one for
   the structure-tree walk that used to see half of ISO 32000-2 and two more in the tool's own tests —
-  and the gate printed **1525**, so this line was not behind for the third round running.)
+  and the gate printed **1525**, so this line was not behind for the third round running. The
+  four-hundred-and-twenty-second added **fourteen** — six in `pdf-model`'s new `contents_entry.rs`
+  for the four ways Table 31's `/Contents` reaches a blank page, and eight in the new
+  `tools/safedocs` for the archive addressing, the ZIP reading, the two verification checks and
+  the budget that refuses a plan — and the gate printed **1539**, so this line was not behind for
+  the fourth.)
 - **One of those eighteen runs a C compiler**, and it is the only gate in this sequence that does.
   `viewer-ffi::a_c_program_drives_the_abi` builds `crates/viewer-ffi/c/open_a_page.c` against the
   crate's own header with `-Wall -Wextra -Werror`, links it against the `cdylib` — which it asks

@@ -4,3 +4,15 @@
 [submodule "doc/pdf.js"]
 	path = doc/pdf.js
 	url = https://github.com/mozilla/pdf.js.git
+[submodule "doc/corpora/pdf20examples"]
+	path = doc/corpora/pdf20examples
+	url = https://github.com/pdf-association/pdf20examples.git
+	shallow = true
+[submodule "doc/corpora/pdf-differences"]
+	path = doc/corpora/pdf-differences
+	url = https://github.com/pdf-association/pdf-differences.git
+	shallow = true
+[submodule "doc/corpora/pdfbox"]
+	path = doc/corpora/pdfbox
+	url = https://github.com/apache/pdfbox.git
+	shallow = true
