@@ -136,7 +136,18 @@ const MIN_STRUCTURAL_SIMILARITY: f64 = 0.99;
 /// a report rather than an agreement. `doc/QUORRA_FEEDBACK.md` section 17 is the request, and it
 /// is a small one: nothing new in the scene vocabulary, only a way to render one scene into two
 /// targets or to run the pipeline twice and hand back both readbacks.
-const REFUSED: [&str; 10] = [
+///
+/// **An eleventh in the four-hundred-and-twenty-seventh, and it is the same request reaching one
+/// more page rather than a new one.** ADR 0263 gives §11.7.2 its conversion *into* the blending
+/// space, so a page whose colours are not already ink is drawn in ink rather than reported — and
+/// `bug1365930.pdf` is the corpus's one page that states `/CS /DeviceCMYK` and reports *nothing*,
+/// because nothing on it composites. It was never a report and never a disagreement: it drew on
+/// the device's three components and quorra agreed. It now takes §11.4.7's pair of rasters like
+/// the others, for the clause's own reason — "[a]ll page-level compositing shall be done in the
+/// default blending colour space of the page" is not conditioned on two marks overlapping — and
+/// the backend refuses the list by name. Section 17 answers this page along with the tenth.
+const REFUSED: [&str; 11] = [
+    "bug1365930.pdf",
     "bug1721218_reduced.pdf",
     "bug1755507.pdf",
     "issue12798_page1_reduced.pdf",

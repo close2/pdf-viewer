@@ -68,6 +68,11 @@ fn fixture(group: &str, bbox: &str, form: &str, page: &str) -> Vec<u8> {
         INNER.len() + 1
     );
 
+    assemble(&body)
+}
+
+/// Wraps a body of numbered objects in §7.5's header, cross-reference table and trailer.
+fn assemble(body: &str) -> Vec<u8> {
     let mut out = String::from("%PDF-1.7\n");
     let mut offsets = Vec::new();
     for object in body.split_inclusive("endobj\n") {
@@ -86,6 +91,29 @@ fn fixture(group: &str, bbox: &str, form: &str, page: &str) -> Vec<u8> {
         "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
     );
     out.into_bytes()
+}
+
+/// A `/DeviceCMYK` page group on a page whose resources say what its `DeviceCMYK` *is*.
+///
+/// §8.6.5.6's `/DefaultCMYK`, naming a four-component `DeviceN` over an identity tint
+/// transform. Four components and not [`ColourSpace::Cmyk`], which is the condition.
+fn named_press_fixture(content: &str) -> Vec<u8> {
+    let transform = "{ }";
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+         /Group << /S /Transparency /CS /DeviceCMYK >> \
+         /Resources << /ExtGState << /GS << /ca 0.5 /CA 0.5 >> >> \
+         /ColorSpace << /DefaultCMYK [/DeviceN [/C /M /Y /K] /DeviceCMYK 5 0 R] >> >> \
+         /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n\
+         5 0 obj\n<< /FunctionType 4 /Domain [0 1 0 1 0 1 0 1] /Range [0 1 0 1 0 1 0 1] \
+         /Length {} >>\nstream\n{transform}\nendstream\nendobj\n",
+        content.len() + 1,
+        transform.len() + 1
+    );
+    assemble(&body)
 }
 
 /// Interprets a fixture, returning its display list and what it could not draw.
@@ -991,12 +1019,29 @@ const NESTED: &str = "/GS gs 0 0 0 1 k 0 0 60 60 re f 1 1 0 0 k 40 40 60 60 re f
 /// page group of `/DeviceCMYK` — which decides every mark on the page — was not named at all.
 #[test]
 fn the_blending_space_is_the_one_in_force_rather_than_the_one_declared() {
-    let reported = |page_group: &str, form_group: &str| {
-        let page = "/GS gs 1 0 0 RG 0 0 1 rg 10 10 50 50 re B /Fm Do";
+    let probe = |page_group: &str, form_group: &str, page: &str| {
         let form = "/GS gs 0 1 0 rg 20 20 50 50 re f /In Do";
         format!(
             "{:?}",
             interpret(page_group_fixture(page_group, form_group, form, page)).unsupported
+        )
+    };
+    let reported = |page_group: &str, form_group: &str| {
+        probe(
+            page_group,
+            form_group,
+            "/GS gs 1 0 0 RG 0 0 1 rg 10 10 50 50 re B /Fm Do",
+        )
+    };
+    // The same page with §11.3.5.3's `Hue` over it, which is the one thing on this fixture
+    // that keeps a `/DeviceCMYK` page group *undrawable* — and therefore named. Since the
+    // four-hundred-and-twenty-seventh session such a page is drawn (ADR 0263), so the report
+    // stopped being an instrument for "which space is in force" on its own.
+    let named = |page_group: &str, form_group: &str| {
+        probe(
+            page_group,
+            form_group,
+            "/GS gs /GH gs 1 0 0 RG 0 0 1 rg 10 10 50 50 re B /Fm Do",
         )
     };
     let page_cmyk = "/Group << /S /Transparency /CS /DeviceCMYK >>";
@@ -1021,10 +1066,19 @@ fn the_blending_space_is_the_one_in_force_rather_than_the_one_declared() {
 
     // §11.4.7's page group, which decides the whole page and which this tree read nothing of
     // before. The form here is the *same* non-isolated one that reported nothing above.
-    let page_level = reported(page_cmyk, &group(""));
+    let page_level = named(page_cmyk, &group(""));
     assert!(
         page_level.contains("the page group's blending colour space /DeviceCMYK (§11.4.7)"),
         "a page group's /CS is the default blending space for the page: {page_level}"
+    );
+
+    // And with nothing undrawable on it the same page is *drawn* in that space rather than
+    // named, which is what this round changed: the colours it paints are converted into the
+    // space §11.7.2 requires them to be converted into.
+    let page_drawn = reported(page_cmyk, &group(""));
+    assert!(
+        !page_drawn.contains("blending colour space"),
+        "a page whose colours convert into its space is drawn in it: {page_drawn}"
     );
 
     // And it is reported once, at the point the file introduces it, rather than again at every
@@ -1039,7 +1093,7 @@ fn the_blending_space_is_the_one_in_force_rather_than_the_one_declared() {
     // its elements are converted to the group's space, not to the page's. So an RGB group
     // inside a `/DeviceCMYK` page reports the page and not itself — and the nested
     // `/DeviceCMYK` group inside *it* is non-isolated, so it inherits the RGB one.
-    let replaced = reported(page_cmyk, &group("/I true /CS /DeviceRGB"));
+    let replaced = named(page_cmyk, &group("/I true /CS /DeviceRGB"));
     assert_eq!(
         replaced.matches("blending colour space").count(),
         1,
@@ -1206,33 +1260,128 @@ fn a_page_group_in_ink_composites_in_ink() {
     );
 }
 
-/// A colour §11.7.2 would have to convert *into* the blending space keeps the page reported.
+/// A colour §11.7.2 has to convert *into* the blending space is converted, and comes back.
 ///
 /// > If the colour space of a graphics object within the group is not equivalent to the
 /// > group's blending colour space, then it shall be converted to the group's colour space ,
 /// > and all blending and compositing computations shall be done in that space
 ///
-/// §11.7.5.3 names §10.4.2.4 as that conversion, and §10.4.2.1 packages §10.4.2.2 to §10.4.2.5
-/// as what a processor uses *instead of* §10.3 — which is the branch ADRs 0009 and 0042 put
-/// this tree's conversion out of `DeviceCMYK` on. Composing the two moves a colour the clause
-/// never asked to move, so the page is drawn as before and says so. ADR 0262.
+/// §11.7.5.3 puts that conversion on the same branch as the conversion *out*, because it is
+/// the same conversion with a different target:
+///
+/// > Whereas in the opaque imaging model the target space shall always be the native colour
+/// > space of the output device, in the transparent model it may instead be the group colour
+/// > space of a transparency group into which an object is being painted.
+///
+/// So a `DeviceRGB` mark on such a page is separated by a right inverse of the ink cube and
+/// comes back the colour the file states — which is the claim, and the reason the page no
+/// longer reports. ADR 0263. `1 0 0 rg` is the *exception* the same test pins: no mixture of
+/// these inks makes `#FF0000`, so it lands on the red corner, which is the gamut this
+/// blending space has and not an error.
 #[test]
-fn a_colour_from_outside_the_blending_space_is_reported_rather_than_converted_into_it() {
+fn a_colour_from_outside_the_blending_space_is_converted_into_it_and_comes_back() {
     let mixed = interpret(page_group_fixture(
         "/Group << /S /Transparency /CS /DeviceCMYK >>",
         "",
         "",
         "0 0 0 0 k 0 0 100 100 re f\n\
          q /GS gs 1 1 1 1 k 0 0 100 100 re f Q\n\
-         1 0 0 rg 0 0 10 10 re f",
+         0.298 0.686 0.314 rg 0 0 10 10 re f\n\
+         1 0 0 rg 20 0 10 10 re f",
     ));
-    let reported = format!("{:?}", mixed.unsupported);
     assert!(
-        reported.contains("a colour outside it is painted into it"),
-        "the conversion into the space is what is missing: {reported}"
+        !format!("{:?}", mixed.unsupported).contains("blending colour space"),
+        "the page is drawn in the space it states: {:?}",
+        mixed.unsupported
     );
-    // And the red is the red the file states, not the red process inks print for it.
-    assert_eq!(pixel(&mixed, 5, 95)[0..3], [255, 0, 0]);
+
+    // The panel green ADR 0262's picture lost: inside the inks' gamut, so it comes back. The
+    // tolerance is one level and it is two roundings rather than slack — `0.298 0.686 0.314`
+    // is (76.0, 174.9, 80.1) of 255 before anything converts it, and the conversion is exact
+    // to half a level by `ColourSpace::to_cmyk`'s own bound.
+    let green = pixel(&mixed, 5, 95);
+    for (channel, wanted) in green[0..3].iter().zip([76i32, 175, 80]) {
+        let gap = i32::from(*channel) - wanted;
+        assert!(
+            gap.abs() <= 1,
+            "a colour the inks can make survives the round trip: {green:?}"
+        );
+    }
+
+    // And the one that is outside it, on the boundary the corners themselves state.
+    let red = pixel(&mixed, 25, 95);
+    assert_eq!(
+        red[0..3],
+        [237, 28, 36],
+        "pure red is outside the inks' gamut and lands on the red corner"
+    );
+}
+
+/// The old route put back: §10.4.2.4 into ink and this tree's cube out is not the identity.
+///
+/// The numbers this asserts are the ones ADR 0262 refused to ship, and they are asserted here
+/// so that the test above is a difference this round made rather than a number that was
+/// already there. §10.4.2.4 with the nominal functions sends `0.298 0.686 0.314 rg` to
+/// `[0.388, 0, 0.372, 0.314]` and `1 0 0 rg` to `[0, 1, 1, 0]`; taken back through the ink
+/// cube those are a grey-green and the red corner.
+#[test]
+fn the_route_this_round_replaced_moves_a_colour_that_composites_with_nothing() {
+    let classic = |red: f32, green: f32, blue: f32| {
+        let (c, m, y) = (1.0 - red, 1.0 - green, 1.0 - blue);
+        let k = c.min(m).min(y);
+        [c - k, m - k, y - k, k]
+    };
+    let panel = classic(0.298, 0.686, 0.314);
+    let drawn = interpret(page_group_fixture(
+        "",
+        "",
+        "",
+        &format!(
+            "{} {} {} {} k 0 0 100 100 re f",
+            panel[0], panel[1], panel[2], panel[3]
+        ),
+    ));
+    let grey_green = pixel(&drawn, 50, 50);
+    assert_eq!(
+        grey_green[0..3],
+        [113, 158, 122],
+        "§10.4.2.4 followed by the cube is not the identity on the panel green"
+    );
+}
+
+/// A document that says what its `DeviceCMYK` is keeps the page reported.
+///
+/// §8.6.5.6 is unambiguous about the `/DefaultCMYK` entry — "[i]f such an entry is present,
+/// its value shall be used as the colour space for the operation currently being performed" —
+/// and §14.11.5's output intent says the same thing one rank down. So on such a document the
+/// blending space §11.4.7 names is *that* press's four components, and §11.3.4 composites
+/// those rather than the ones `crate::colour`'s assumed process inks stand in with. A colour
+/// still reaches the screen pixel the document asks for, because the conversion in is the
+/// inverse of the conversion out whichever press is assumed; what is wrong is a *composite*,
+/// which is why the page is named rather than drawn. ADR 0263, `doc/todo/23`.
+#[test]
+fn a_document_that_names_its_own_press_is_not_composited_in_ours() {
+    let reported = |fixture: Vec<u8>| format!("{:?}", interpret(fixture).unsupported);
+    let content = "0 0 0 0 k 0 0 100 100 re f\n\
+                   /GS gs 1 1 1 1 k 0 0 100 100 re f";
+    let named = reported(named_press_fixture(content));
+    assert!(
+        named.contains("the document names the press its DeviceCMYK is"),
+        "a page whose DeviceCMYK is the document's own is not composited in ours: {named}"
+    );
+
+    // The same content on a page that names no press is drawn, which is what makes the line
+    // above a condition rather than a constant.
+    let assumed = reported(page_group_fixture(
+        "/Group << /S /Transparency /CS /DeviceCMYK >>",
+        "",
+        "",
+        content,
+    ));
+    assert!(
+        !assumed.contains("blending colour space"),
+        "and a page that leaves the press to us is drawn in it: {assumed}"
+    );
 }
 
 /// §11.3.5.3's non-separable modes give the black component a rule of its own.

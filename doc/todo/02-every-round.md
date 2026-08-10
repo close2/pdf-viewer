@@ -19,7 +19,7 @@ features no file exercises.
 ```sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets      # must be silent of lints
-cargo nextest run --workspace               # 1550 tests, 11 skipped
+cargo nextest run --workspace               # 1561 tests, 11 skipped
 cargo test --workspace --doc                # the one doctest nextest does not run
 cargo build --profile gates -p pdf-sandbox --bins   # trap 10: Cargo will not do this for you
 cargo test  --profile gates -p pdf-model      --test corpus          -- --ignored --nocapture
@@ -102,7 +102,12 @@ here:
 document — **and the gate printed 1544**, so this line was not behind for the sixth. **The
 four-hundred-and-twenty-fifth added six** — a whole `pdf-model/tests/hostile_functions.rs` for
 §7.10.4's k and its nesting, one of them this project's first crasher — **and the gate printed
-1550**, so this line was not behind for the seventh.
+1550**, so this line was not behind for the seventh. The four-hundred-and-twenty-sixth added
+**eight** for §11.4.7's page group drawn in the space it states and the gate printed **1558**; the
+four-hundred-and-twenty-seventh added **three** for the conversion §11.7.2 requires into it — one in
+`pdf-model`'s `colour` for the right inverse of the ink cube, two in `transparency_groups` for a
+colour that comes back and a document that names its own press — **and the gate printed 1561**, so
+this line was not behind for the ninth round running.
 - **One of those eighteen runs a C compiler**, and it is the only gate in this sequence that does.
   `viewer-ffi::a_c_program_drives_the_abi` builds `crates/viewer-ffi/c/open_a_page.c` against the
   crate's own header with `-Wall -Wextra -Werror`, links it against the `cdylib` — which it asks

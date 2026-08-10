@@ -1661,6 +1661,31 @@ pub fn interpret_with(
     interpret_into(document, page, state, Compositing::Device).0
 }
 
+/// Whether this document says what its `DeviceCMYK` *is*, rather than leaving it to us.
+///
+/// Two sources, both of which §8.6.5.6 and §14.11.5 rank above an assumption and both of which
+/// `crate::colour` already honours for a colour on its way to a pixel: the page's own
+/// `/DefaultCMYK`, whose value "shall be used as the colour space for the operation currently
+/// being performed", and an output intent's `/DestOutputProfile`. Asked at the page rather
+/// than at each colour because it is a property of the *space* §11.4.7 names, and the report
+/// it feeds is one per page.
+fn device_cmyk_is_a_named_press(document: &Document, page: &Page) -> bool {
+    if output_intent_space(document).is_some_and(|space| space.components() == 4) {
+        return true;
+    }
+    // `None` cannot happen for a literal device name — `ColourSpace::by_name` falls back on the
+    // device space when a `/DefaultCMYK` will not parse — and it is grouped with the plain
+    // answer rather than with the press because a report nobody can act on is worse than none.
+    !matches!(
+        ColourSpace::parse(
+            document,
+            &Object::Name(Name::new(b"DeviceCMYK".to_vec())),
+            &page.resources,
+        ),
+        Some(ColourSpace::Cmyk) | None
+    )
+}
+
 /// Whether §11.4.7's page group states a blending colour space of `DeviceCMYK`.
 ///
 /// The one departing space whose components this tree carries. An `ICCBased` space of four
@@ -1749,7 +1774,7 @@ fn interpret_into(
         blending: page_blending_space(document, page),
         blending_changed: false,
         black_generation_stated: false,
-        foreign_colour: false,
+        blending_press: device_cmyk_is_a_named_press(document, page),
     };
 
     for issue in issues {
@@ -2249,14 +2274,16 @@ struct Interpreter<'a> {
     /// Whether any `/ExtGState` on this page states Table 57's `/BG`, `/BG2`, `/UCR` or
     /// `/UCR2`, which §11.7.5.3 puts inside §10.4.2.4's conversion into a `DeviceCMYK` group.
     black_generation_stated: bool,
-    /// Whether anything painted on this page had to be converted *into* the blending space.
+    /// Whether the document names a press for `DeviceCMYK` rather than leaving it to us.
     ///
-    /// §11.7.2 requires the conversion and §11.7.5.3 names §10.4.2.4 as the route; this tree's
-    /// conversion *out* of `DeviceCMYK` is not that route's inverse (§10.4.2.1 ranks the two
-    /// branches and ADRs 0009 and 0042 took the higher one), so composing the pair moves a
-    /// colour the clause never asked to move. Recorded rather than done: the page keeps its
-    /// report and is drawn on the device's components. ADR 0262 has the picture.
-    foreign_colour: bool,
+    /// §8.6.5.6's `/DefaultCMYK` and §14.11.5's `/DestOutputProfile` both say what this
+    /// document's ink *is*, and both outrank the assumed process inks `crate::colour`'s
+    /// `CMYK_CORNERS` stands in with (ADR 0009). A colour still reaches the right screen
+    /// pixel — the conversion into the blending space is the inverse of the conversion out of
+    /// it whichever press is assumed — but the four components §11.3.4 composites are then
+    /// this device's ink and not the one the file names, and a composite of two colours is
+    /// not the same in two presses. Reported rather than drawn. ADR 0263.
+    blending_press: bool,
 }
 
 impl Interpreter<'_> {
@@ -2297,34 +2324,7 @@ impl Interpreter<'_> {
     /// shading's ramp all have to reach the raster in the same quantity, and the other two
     /// take the same value through `crate::image` and `crate::shading`.
     fn colour(&mut self, space: &ColourSpace, values: &[f32], black_point: BlackPoint) -> Color {
-        self.note_foreign_colour(space);
         convert(space, values, black_point, self.compositing)
-    }
-
-    /// Records a colour §11.7.2 would have to *convert* into the blending space in force.
-    ///
-    /// > If the colour space of a graphics object within the group is not equivalent to the
-    /// > group's blending colour space, then it shall be converted to the group's colour
-    /// > space , and all blending and compositing computations shall be done in that space
-    ///
-    /// Asked wherever a colour reaches a raster, and answered against
-    /// [`crate::colour::ColourSpace::is_subtractive`]. `self.blending` is `None` both on an
-    /// ordinary page and inside a mask group, which is exactly where the question does not
-    /// arise: a mask group is composited in the quantity §11.5.3 reduces it to (ADR 0220) and
-    /// its colours never reach the page's raster.
-    fn note_foreign_colour(&mut self, space: &ColourSpace) {
-        if self.blending.is_some() && !space.is_subtractive() {
-            self.foreign_colour = true;
-        }
-    }
-
-    /// [`Self::note_foreign_colour`] for a `/ColorSpace` entry that has not been parsed.
-    fn note_foreign_space(&mut self, entry: &Object, resources: &Dictionary) {
-        if self.blending.is_some()
-            && !crate::colour::names_subtractive_components(self.document, entry, resources)
-        {
-            self.foreign_colour = true;
-        }
     }
 
     /// Reports a blend mode inside a mask group whose channel is more than one component.
@@ -4292,13 +4292,15 @@ impl Interpreter<'_> {
 
     /// Why this page cannot be drawn in the blending space it states, or `None` if it can.
     ///
-    /// Three conditions, each of which is a *different* clause asking for something the pair
-    /// of rasters does not carry, and each named rather than folded into the others.
+    /// Four conditions, each of which is a *different* clause asking for something the pair of
+    /// rasters does not carry, and each named rather than folded into the others. The first
+    /// three want a **second colour space** — one the document names, one a group introduces,
+    /// one whose black generation the file states — and only the fourth is about a blend.
     fn blending_undrawable(&self) -> Option<&'static str> {
-        if self.foreign_colour {
+        if self.blending_press {
             return Some(
-                "a colour outside it is painted into it (§11.7.2), and the conversion in \
-                 (§10.4.2.4) is not the inverse of the conversion out (§10.3, ADR 0009)",
+                "the document names the press its DeviceCMYK is (§8.6.5.6 or §14.11.5), and \
+                 §11.3.4 would composite its four components rather than this device's",
             );
         }
         if self.blending_changed {
@@ -5024,17 +5026,6 @@ impl Interpreter<'_> {
         {
             self.stencil_through_a_pattern(stream, name, resources, state);
             return;
-        }
-
-        // §8.9.6.2's stencil paints the *current colour*, which `Interpreter::colour` has
-        // already asked about; every other image carries its own space and this asks about
-        // that one, for `note_foreign_colour`'s reason.
-        if !matches!(
-            self.document.get_key(&stream.dict, "ImageMask"),
-            Object::Boolean(true)
-        ) {
-            let declared = self.document.get_key(&stream.dict, "ColorSpace");
-            self.note_foreign_space(&declared, resources);
         }
 
         // A PDF image occupies the unit square in user space, so the command's transform is
@@ -6681,13 +6672,6 @@ impl Interpreter<'_> {
             self.rect_clip(corners, state.transform, state.clip)
                 .or(state.clip)
         });
-        // §8.7.4.3 Table 78's `/ColorSpace`, asked for `note_foreign_colour`'s reason: a
-        // shading's ramp is colour reaching a raster by a route that is not an operator.
-        let declared = crate::shading::dictionary_of(self.document, &object)
-            .map_or(Object::Null, |dict| {
-                self.document.get_key(&dict, "ColorSpace")
-            });
-        self.note_foreign_space(&declared, resources);
         match self.shadings.build(
             self.document,
             &object,
@@ -6789,11 +6773,6 @@ impl Interpreter<'_> {
         // painted a thousand times states the same one every time.
         let shading_object = dict.get("Shading").cloned().unwrap_or(Object::Null);
 
-        let declared = crate::shading::dictionary_of(self.document, &shading_object)
-            .map_or(Object::Null, |dict| {
-                self.document.get_key(&dict, "ColorSpace")
-            });
-        self.note_foreign_space(&declared, resources);
         match self.shadings.build(
             self.document,
             &shading_object,

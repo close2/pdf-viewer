@@ -4598,7 +4598,23 @@ const AMBIGUOUS_MATTE_WITHOUT_A_SOFT_MASK_IMAGE: [&str; 1] = ["jpx_smaskindata.p
 /// `/Group << /S /Transparency /CS /DeviceCMYK >>`, §11.4.7 makes that the page's default
 /// blending colour space, and this tree composites in the device's three components. Three
 /// ladders 0.0030 apart were never the whole story about a poster printed in ink.
-const AMBIGUOUS_NON_ISOLATED_POSTER: [&str; 0] = [];
+///
+/// **It came back in the four-hundred-and-twenty-seventh, and the ladder above is the
+/// measurement rather than the history.** The page is composited in ink now — §11.4.7's four
+/// components in two rasters (ADR 0262) with §11.7.2's conversion *into* the space as a right
+/// inverse of the one out (ADR 0263) — and re-measured at 72, 288 and 576 dpi it prints
+/// **23.8002, 23.8373 and 23.8438**, which is the row above to the fourth decimal. The band's
+/// own colour is `#E60575` against `poppler`'s `#E60576`, `mupdf`'s `#E60376` and
+/// `ghostscript`'s `#E50275`. That is the round trip's claim shown on a real page: a colour
+/// the assumed inks can make is separated, composited in four components and converted back
+/// to the colour the file states.
+///
+/// What moved is the *tile*, 8.79 → 9.14, and the difference image says where — the outlines
+/// of the two lines of type and the band's top edge, with the band's interior black. Small
+/// white type on a saturated ground is where a half-covered pixel's colour is decided by the
+/// order the conversion and the coverage are applied in, and this tree now applies them in the
+/// order §11.4.7 states.
+const AMBIGUOUS_NON_ISOLATED_POSTER: [&str; 1] = ["issue12798_page1_reduced.pdf page 1"];
 
 /// Ambiguous, and the five renderers span **3.65 of 255** on a 209 x 90 illustration.
 ///

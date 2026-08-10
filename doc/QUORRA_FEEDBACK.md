@@ -1255,3 +1255,13 @@ from *reported* to *refused* — this viewer used to draw it in the wrong space 
 draw it here at all, which is a gain of the same kind as sections 14 and 16. On real files it is
 one page in thirty rather than one in a thousand, so it is the section most likely to matter to
 somebody who is not us.
+
+**And it costs more since the four-hundred-and-twenty-seventh session, which is worth saying
+because the number moved for a reason rather than by drift.** That session gave §11.7.2 its
+conversion *into* the blending space, so a page whose colours are not already ink is drawn in ink
+rather than reported: of a 1944-document sample of the web, 56 pages now take the pair of rasters
+where 7 did. In the corpus the refusal list gains `bug1365930.pdf`, which is the sharpest case for
+this section — that page reports **nothing** and never did, because nothing on it composites, so
+quorra agreed with us about it right up until we started drawing it the way §11.4.7 states. It is
+the first page in this file whose refusal replaces an *agreement about a correct picture* rather
+than one about a wrong one, and the only thing that gets it back is the readback above.

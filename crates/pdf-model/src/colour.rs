@@ -31,6 +31,8 @@
 //! tree without anything looking wrong, and an XYZ matrix copied into a second place would
 //! fail the same way and be just as invisible.
 
+use rayon::iter::{IntoParallelIterator as _, ParallelIterator as _};
+
 use pdf_render::Color;
 use pdf_syntax::{Dictionary, Document, Object};
 
@@ -854,41 +856,6 @@ impl ColourSpace {
         self.to_rgb_at(values, 0, false)
     }
 
-    /// Whether a colour in this space is already in `DeviceCMYK`'s four components.
-    ///
-    /// The question §11.4.7's page group turns on: a colour that is already in the blending
-    /// space is composited in it exactly, and one that is not has to be *converted* into it
-    /// (§11.7.2), which this tree cannot yet do without changing the colour. §11.3.4 is why a
-    /// `Separation` or `DeviceN` answers by its alternate — spot colours "shall not be
-    /// converted to a blending colour space (except in the case where they first revert to
-    /// their alternate colour space)" — and §8.6.6.4's `/None` answers yes because it "shall
-    /// have no effect on the current page", so there is no colour to convert.
-    ///
-    /// A `Pattern` with no underlying space answers yes for the same reason: it carries no
-    /// colour of its own, and the colours its cell paints are asked about one at a time.
-    #[must_use]
-    pub fn is_subtractive(&self) -> bool {
-        self.is_subtractive_at(0)
-    }
-
-    /// [`Self::is_subtractive`], carrying the recursion depth a nested space costs.
-    fn is_subtractive_at(&self, depth: usize) -> bool {
-        if depth > MAX_DEPTH {
-            return false;
-        }
-        match self {
-            Self::Cmyk | Self::NoColourant { .. } => true,
-            Self::Indexed { base, .. } => base.is_subtractive_at(depth.saturating_add(1)),
-            Self::Separation { alternate, .. } => {
-                alternate.is_subtractive_at(depth.saturating_add(1))
-            }
-            Self::Pattern { base } => base
-                .as_ref()
-                .is_none_or(|base| base.is_subtractive_at(depth.saturating_add(1))),
-            _ => false,
-        }
-    }
-
     /// Converts a colour in this space to the four components of `DeviceCMYK`.
     ///
     /// §11.7.2 is what asks for this: "[i]f the colour space of a graphics object within the
@@ -896,29 +863,34 @@ impl ColourSpace {
     /// converted to the group's colour space, and all blending and compositing computations
     /// shall be done in that space".
     ///
-    /// **Which conversion is not left open**, and this is the clause that names it — §11.7.5.3,
-    /// of the black-generation and undercolour-removal functions:
+    /// **Which conversion it is follows the branch this tree is already on**, and §11.7.5.3 is
+    /// the clause that says so:
     ///
-    /// > When painting an elementary object with a DeviceRGB colour directly into a
-    /// > transparency group whose colour space is DeviceCMYK , the functions used shall be the
-    /// > current black-generation and undercolour-removal functions in effect in the graphics
-    /// > state at the time of the painting operation.
+    /// > The rendering intent influences the conversion from a CIE-based colour space to a
+    /// > target colour space, taking into account the target space's colour gamut (the range
+    /// > of colours it can reproduce). Whereas in the opaque imaging model the target space
+    /// > shall always be the native colour space of the output device, in the transparent
+    /// > model it may instead be the group colour space of a transparency group into which an
+    /// > object is being painted.
     ///
-    /// So the route is §10.4.2.4's, whose `BG` and `UCR` are graphics-state parameters this
-    /// tree does not read — Table 57's `/BG`, `/BG2`, `/UCR` and `/UCR2` — and whose default
-    /// the same clause leaves to the processor: "[e]ach device shall be configured with
-    /// default values that are appropriate for that device." The identity is the nominal one
-    /// the clause describes, `k` being "the amount of black that can be removed from the cyan,
-    /// magenta, and yellow components and substituted as a separate black component", and it
-    /// is what `crate::content` reports a departure from where a document states its own.
+    /// So the conversion into a group's space is the *same* conversion as the one onto the
+    /// device, with a different target — which puts it on §10.3's branch, where §10.4.2.1
+    /// ranks it and where ADRs 0009 and 0042 put this tree's conversion out. [`rgb_to_ink`]
+    /// is that conversion: the right inverse of [`cmyk`], so an opaque mark painted into a
+    /// page composited in ink comes back the colour the file states. ADR 0263.
+    ///
+    /// §11.7.5.3's other two bullets are §10.4.2's branch and are not in force here — they say
+    /// *which* black-generation and undercolour-removal functions §10.4.2.4 uses, and a
+    /// document that states its own keeps `crate::content`'s report rather than being drawn
+    /// with them ignored.
     ///
     /// A space that already resolves to `DeviceCMYK` is passed straight through, including a
     /// `Separation` or `DeviceN` whose alternate is one — §11.3.4 requires exactly that:
     /// spot colours "shall not be converted to a blending colour space (except in the case
     /// where they first revert to their alternate colour space)". Everything else goes to RGB
-    /// by this crate's one route and then through §10.4.2.4, which is why an opaque
-    /// `DeviceRGB` mark on such a page is drawn in the ink a press would put down for it
-    /// rather than in the light a monitor emits for it.
+    /// by this crate's one route and then through [`rgb_to_ink`], so a `Lab` or `ICCBased`
+    /// colour reaches ink through sRGB — colorimetric where sRGB holds it, and clipped where
+    /// it does not, which is the same gamut question one space earlier.
     #[must_use]
     pub fn to_cmyk(&self, values: &[f32], black_point: bool) -> [f32; 4] {
         self.to_cmyk_at(values, 0, black_point)
@@ -947,7 +919,7 @@ impl ColourSpace {
             Self::Pattern { base } => base.as_ref().map_or([0.0, 0.0, 0.0, 1.0], |base| {
                 base.to_cmyk_at(values, depth.saturating_add(1), black_point)
             }),
-            _ => rgb_to_cmyk(self.to_rgb_at(values, depth, black_point)),
+            _ => rgb_to_ink(self.to_rgb_at(values, depth, black_point)),
         }
     }
 
@@ -1159,22 +1131,6 @@ fn cmyk(c: f32, m: f32, y: f32, k: f32) -> Color {
     Color::rgb(channel(rgb[0]), channel(rgb[1]), channel(rgb[2]))
 }
 
-/// Whether an object naming a colour space names one whose components are already ink.
-///
-/// [`ColourSpace::is_subtractive`] for an entry that has not been parsed yet — an image's or a
-/// shading's `/ColorSpace` — and **`false` where the entry cannot be read at all**, which is the
-/// safe direction: a page drawn in its blending colour space is drawn wrong by a colour that had
-/// to be converted into it, and reporting one that did not is only a page the oracle does not
-/// judge.
-#[must_use]
-pub fn names_subtractive_components(
-    document: &Document,
-    object: &Object,
-    resources: &Dictionary,
-) -> bool {
-    ColourSpace::parse(document, object, resources).is_some_and(|space| space.is_subtractive())
-}
-
 /// The conversion out of `DeviceCMYK`, as the table a backend is handed.
 ///
 /// §11.4.7 converts a page composited in its blending colour space to the device's *once*, at
@@ -1208,9 +1164,10 @@ pub fn device_cmyk_blending_space() -> pdf_render::BlendingSpace {
 /// With the nominal functions the result is a *right inverse* of §10.4.2.5's classic
 /// conversion back — `1 − min(1, cyan + black)` is `1 − min(1, c)`, which is `red` — so the
 /// standard's own pair round-trips exactly. It is **not** a right inverse of this tree's ink
-/// cube (ADR 0009), and that difference is the whole visible consequence of drawing a page in
-/// its blending space: a `DeviceRGB` red taken into ink and back comes out the red process
-/// inks print rather than the red a monitor emits. ADR 0262 has the measurement.
+/// cube (ADR 0009), which is why §10.4.2's branch cannot be composed with §10.3's; ADR 0262
+/// has the picture of what that costs. What it is used for here is [`rgb_to_ink`]'s starting
+/// point and its black generation, because the nominal `k` this states is the one §10.4.2.4
+/// defines and the one a `/BG` function would be called with.
 fn rgb_to_cmyk(colour: Color) -> [f32; 4] {
     let cyan = 1.0 - channel(colour.r);
     let magenta = 1.0 - channel(colour.g);
@@ -1222,6 +1179,522 @@ fn rgb_to_cmyk(colour: Color) -> [f32; 4] {
         channel(yellow - black),
         channel(black),
     ]
+}
+
+/// How close a separation has to come before it counts as reproducing its colour.
+///
+/// Half a level of an eight-bit channel, which is below what the raster the result is written
+/// into can hold: a residual under this cannot reach a pixel, so continuing to iterate would
+/// buy a number nobody can see.
+const INK_EXACT: f32 = 0.5 / 255.0;
+
+/// How many black generations [`rgb_to_ink`] tries after §10.4.2.4's nominal one.
+///
+/// Twelve, from all the black there is down to none. The nominal generation is tried *first*
+/// and answers most colours on its own: a neutral, and every colour muted enough that the
+/// nominal black leaves the other three inks somewhere to go, is reproduced at that one slice.
+/// Measured over 2000 document-like colours — 45% neutral, 40% muted, 15% saturated — the
+/// whole construction costs **4.67** slices and **9.8** Gauss–Newton steps per distinct
+/// colour, and reproduces 90.3% of them to under half a level with a median of 0.074.
+///
+/// The ladder reaches *above* the nominal black as well as below it, and that is not
+/// symmetry for its own sake: this press's black ink is `#231F20` rather than `#000000`, so a
+/// very dark saturated colour needs **more** black than §10.4.2.4's nominal `k` — which the
+/// clause allows in as many words, a black-generation function being free to "return a larger
+/// value for extra black".
+const INK_LADDER: usize = 12;
+
+/// How many Gauss–Newton steps one slice is allowed.
+const INK_STEPS: usize = 12;
+
+/// How many times a Gauss–Newton step is halved before a slice gives up.
+///
+/// The step is exact for an affine map and the ink cube is not one, so a full step can
+/// overshoot; halving until the squared distance falls is what makes the iteration monotone,
+/// and a slice that cannot improve at all has converged or is against the edge of the unit
+/// cube.
+const INK_BACKTRACKS: usize = 6;
+
+/// The side of the grid [`ink_table`] holds, over sRGB.
+///
+/// 17 × 17 × 17 separations, 78 KB, and the sRGB cube's own corners are grid points — so
+/// paper and `#000000` are looked up rather than interpolated. Chosen by measurement: with
+/// [`INK_POLISH`] after it, the worst gap over 800 random colours of the cube's own image is
+/// **0.50 of 255**, which is `INK_EXACT` itself — the table's answer *is* the search's.
+const INK_TABLE_SIDE: usize = 17;
+
+/// How many Gauss–Newton steps may land the table's answer on the exact separation.
+///
+/// The loop stops as soon as the colour is reproduced, so away from the gamut's boundary this
+/// costs one step and often none at all. The cases that use the rest are the boundary itself,
+/// where the step is against the edge of the unit cube and has to be taken in pieces.
+const INK_POLISH: usize = 6;
+
+/// [`search_ink`] over a grid of sRGB, built once and only where a page asks for it.
+///
+/// The map is a pure function of [`CMYK_CORNERS`], which is a compile-time constant, so this
+/// could in principle be generated data. It is a `OnceLock` instead because it is wanted by
+/// **0.6% of the pdf.js corpus and 3.5% of the documents `SafeDocs` samples from the web** — the
+/// pages §11.4.7 composites in ink — and `CLAUDE.md`'s launch rule is that anything not needed
+/// to show page one is deferred until first use. Building it costs 4913 searches, measured at
+/// **7.5–10.0 ms** across this machine's 24 threads. What it buys is the difference between
+/// 791 ns and 12.5 µs per distinct colour on a page made of them: over the 61 web witnesses of
+/// `doc/todo/23`, searching every colour added **37.3 s** to their page-one renders where the
+/// table adds **1.8 s**.
+fn ink_table() -> &'static [[f32; 4]] {
+    static TABLE: std::sync::OnceLock<Vec<[f32; 4]>> = std::sync::OnceLock::new();
+    TABLE.get_or_init(|| {
+        let side = INK_TABLE_SIDE;
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a grid index below 17 and the side itself, both exact in f32"
+        )]
+        let at = |index: usize| index as f32 / side.saturating_sub(1) as f32;
+        // Rayon, because the entries are independent and this is *latency* rather than
+        // throughput: it is on the path to a page. 61.7 ms serially, 7.5-10.0 ms across 24.
+        (0..side.saturating_mul(side).saturating_mul(side))
+            .into_par_iter()
+            .map(|index| {
+                let blue = index % side;
+                let green = index / side % side;
+                let red = index / side / side % side;
+                search_ink([at(red), at(green), at(blue)])
+            })
+            .collect()
+    })
+}
+
+/// ISO 32000-2 §11.7.2's conversion from sRGB *into* `DeviceCMYK`, on §10.3's branch.
+///
+/// # Why this is not §10.4.2.4
+///
+/// §10.4.2.1 states two branches and ranks them, and [`CMYK_CORNERS`] puts this tree's
+/// conversion *out* of `DeviceCMYK` on the higher one. §11.7.5.3 says the conversion *into* a
+/// group's colour space is the same conversion as the one onto the device with a different
+/// target, so it belongs on the same branch — and composing one branch with the other is not
+/// the identity. Taken through §10.4.2.4 and back through [`cmyk`], `1 0 0 rg` comes back
+/// `#ED1C24` and `0 g` comes back `#231F20`: two marks moved by a conversion the clause asked
+/// for only so that they could be composited, on pages where nothing composites them.
+///
+/// So this is a **right inverse of [`cmyk`]**, which is what §10.3's branch means here — the
+/// ink cube stands in for a press's profile (ADRs 0009, 0042), and converting into the space
+/// it defines is asking which ink that press would lay down to make this colour. [`search_ink`]
+/// is that question answered from nothing; this is it answered from [`ink_table`] and landed
+/// by [`polish_four_inks`], which is the same answer 998 times in 1000 and **16 times faster**
+/// on the colours a document is made of.
+fn rgb_to_ink(colour: Color) -> [f32; 4] {
+    let target = [channel(colour.r), channel(colour.g), channel(colour.b)];
+    polish_four_inks(target, ink_lookup(target))
+}
+
+/// [`ink_table`] read at `target`, trilinearly between the eight grid separations around it.
+fn ink_lookup(target: [f32; 3]) -> [f32; 4] {
+    let table = ink_table();
+    let side = INK_TABLE_SIDE;
+    let last = side.saturating_sub(1);
+    let mut base = [0usize; 3];
+    let mut fraction = [0.0f32; 3];
+    for (axis, (index, offset)) in base.iter_mut().zip(fraction.iter_mut()).enumerate() {
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "the side is 17 and a cell index below it, both exact in f32"
+        )]
+        let scaled = target.get(axis).copied().unwrap_or(0.0) * last as f32;
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "`scaled` is in 0..=16 because `target` is a clamped channel"
+        )]
+        let cell = (scaled as usize).min(last.saturating_sub(1));
+        *index = cell;
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a cell index below 17, exact in f32"
+        )]
+        let low = cell as f32;
+        *offset = (scaled - low).clamp(0.0, 1.0);
+    }
+
+    let mut inks = [0.0f32; 4];
+    for corner in 0..8usize {
+        let mut weight = 1.0f32;
+        let mut index = 0usize;
+        for axis in 0..3usize {
+            let high = corner >> axis & 1 == 1;
+            let offset = fraction.get(axis).copied().unwrap_or(0.0);
+            weight *= if high { offset } else { 1.0 - offset };
+            let step = base
+                .get(axis)
+                .copied()
+                .unwrap_or(0)
+                .saturating_add(usize::from(high));
+            index = index.saturating_mul(side).saturating_add(step.min(last));
+        }
+        let Some(entry) = table.get(index) else {
+            continue;
+        };
+        for (component, held) in inks.iter_mut().zip(entry) {
+            *component = weight.mul_add(*held, *component);
+        }
+    }
+    inks
+}
+
+/// The separation of one sRGB colour, searched for rather than looked up.
+///
+/// # The construction, and where each part comes from
+///
+/// 1. **[`rgb_to_cmyk`] gives the nominal separation**, whose `k` is §10.4.2.4's own: "the
+///    minimum of the intermediate c , m , and y values that have been computed by subtracting
+///    the original red , green , and blue components from 1.0".
+/// 2. **The three chromatic inks are solved** so that [`cmyk`] reproduces the colour at that
+///    black. This is undercolour removal computed rather than stated — §10.4.2.4 asks a `UCR`
+///    function for "the amount to subtract from each of the intermediate c , m , and y values",
+///    and at a known press the amount is not a guess.
+/// 3. **Where no such three exist, another black generation is tried**, down [`INK_LADDER`]
+///    from all the black there is to none, and the first that reproduces the colour is the
+///    most black that does. The clause leaves this to the device — "[t]he correct choice of
+///    black-generation and undercolour-removal functions depends on the characteristics of the
+///    output device. Each device shall be configured with default values that are appropriate
+///    for that device" — and names the freedom exactly: a black-generation function "may
+///    simply return its k operand unchanged, or it may return a larger value for extra black,
+///    a smaller value for less black, or 0.0 for no black at all."
+/// 4. **Where no black generation on the ladder reproduces it**, all four inks are moved
+///    together from the closest rung — [`polish_four_inks`] — which closes a colour whose
+///    feasible band of black falls *between* two rungs. Measured over the cube's own image on
+///    a 6⁴ grid the worst colour this whole search still misses by is **3.12 of 255**, and
+///    every one of them is a dark saturated ink at the gamut's own edge.
+/// 5. **What is left is outside the press's gamut**, and the nearest ink the search found is
+///    used. That is a *choice*, and the clause that makes it a choice rather than an error is
+///    §11.7.5.3: the rendering intent governs the conversion "taking into account the target
+///    space's colour gamut (the range of colours it can reproduce)". Which mapping an intent
+///    selects is ISO 15076-1's, a standard this project does not hold, so the mapping here is
+///    the nearest reachable colour by squared distance in the device's own three components —
+///    recorded in ADR 0263 as a decision, not derived. sRGB's own primaries are the standing
+///    example: no mixture of these inks makes `#FF0000`, and it lands on `#ED1C24`.
+///
+/// A page whose colours are all inside that gamut is therefore drawn exactly as it is drawn
+/// today, with only its *composites* moving, which is the whole of what §11.7.2 asks for.
+fn search_ink(target: [f32; 3]) -> [f32; 4] {
+    let nominal = rgb_to_cmyk(Color::rgb(target[0], target[1], target[2]));
+    let mut warm = [nominal[0], nominal[1], nominal[2]];
+
+    let first = ink_at_black(target, nominal[3], warm);
+    if first.worst < INK_EXACT {
+        return [first.inks[0], first.inks[1], first.inks[2], nominal[3]];
+    }
+    let mut nearest = (first, nominal[3]);
+    warm = first.inks;
+
+    for rung in 0..INK_LADDER {
+        let span = INK_LADDER.saturating_sub(1);
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "the ladder is twelve rungs; both counts are exact in f32"
+        )]
+        let black = span.saturating_sub(rung) as f32 / span as f32;
+        let solved = ink_at_black(target, black, warm);
+        if solved.worst < INK_EXACT {
+            return [solved.inks[0], solved.inks[1], solved.inks[2], black];
+        }
+        if solved.squared < nearest.0.squared {
+            nearest = (solved, black);
+        }
+        warm = solved.inks;
+    }
+
+    let (closest, black) = nearest;
+    polish_four_inks(
+        target,
+        [closest.inks[0], closest.inks[1], closest.inks[2], black],
+    )
+}
+
+/// What one slice of the ladder found: three inks, and how far the colour they make still is.
+#[derive(Clone, Copy)]
+struct Separation {
+    /// Cyan, magenta and yellow, in `0.0..=1.0`.
+    inks: [f32; 3],
+    /// The largest of the three per-component differences, which decides *reproduced*.
+    worst: f32,
+    /// The squared distance, which decides *nearest* between two that are not.
+    squared: f32,
+}
+
+/// The three chromatic inks that come closest to `target` at a fixed `black`.
+///
+/// Gauss–Newton on the trilinear slice, projected onto the unit cube and backtracked so that
+/// the squared distance falls at every step. `start` is the previous rung's answer, which is
+/// why the ladder costs far fewer steps than it has rungs.
+fn ink_at_black(target: [f32; 3], black: f32, start: [f32; 3]) -> Separation {
+    let slice = ink_slice(black);
+    let mut inks = [channel(start[0]), channel(start[1]), channel(start[2])];
+    let mut jacobian = [[0.0f32; 3]; 3];
+    let mut value = multilinear(&slice, &inks, Some(&mut jacobian));
+    let (mut worst, mut squared) = gaps(value, target);
+
+    for _ in 0..INK_STEPS {
+        if worst < INK_EXACT {
+            break;
+        }
+        let right = [
+            value[0] - target[0],
+            value[1] - target[1],
+            value[2] - target[2],
+        ];
+        let Some(step) = solve_three(&jacobian, right) else {
+            break;
+        };
+        let mut scale = 1.0f32;
+        let mut improved = false;
+        for _ in 0..INK_BACKTRACKS {
+            let candidate = [
+                channel(scale.mul_add(-step[0], inks[0])),
+                channel(scale.mul_add(-step[1], inks[1])),
+                channel(scale.mul_add(-step[2], inks[2])),
+            ];
+            let next = multilinear(&slice, &candidate, None);
+            let (next_worst, next_squared) = gaps(next, target);
+            if next_squared < squared {
+                inks = candidate;
+                worst = next_worst;
+                squared = next_squared;
+                improved = true;
+                break;
+            }
+            scale *= 0.5;
+        }
+        if !improved {
+            break;
+        }
+        value = multilinear(&slice, &inks, Some(&mut jacobian));
+    }
+    Separation {
+        inks,
+        worst,
+        squared,
+    }
+}
+
+/// Moves all four inks together, from a starting separation near the answer.
+///
+/// The ladder fixes the black at one of thirteen values and [`ink_table`] at one of its grid
+/// neighbours', so a colour whose feasible band of black falls *between* those is missed by
+/// both. Here the black moves with the other three: the Jacobian is three rows by four
+/// columns, so the step taken is the smallest one that answers — `Jᵀ(JJᵀ)⁻¹r`, the
+/// minimum-norm solution — which keeps the answer near where it started rather than wandering
+/// to some other preimage.
+fn polish_four_inks(target: [f32; 3], start: [f32; 4]) -> [f32; 4] {
+    let corners = cube_corners();
+    let mut inks = [
+        channel(start[0]),
+        channel(start[1]),
+        channel(start[2]),
+        channel(start[3]),
+    ];
+    let mut jacobian = [[0.0f32; 3]; 4];
+    // The value alone first: a separation that already reproduces its colour — which is what
+    // a lookup away from the gamut's boundary is — costs one evaluation and no derivative.
+    let mut value = multilinear(&corners, &inks, None);
+    let (mut worst, mut squared) = gaps(value, target);
+    if worst < INK_EXACT {
+        return inks;
+    }
+    value = multilinear(&corners, &inks, Some(&mut jacobian));
+
+    for _ in 0..INK_POLISH {
+        if worst < INK_EXACT {
+            break;
+        }
+        let right = [
+            value[0] - target[0],
+            value[1] - target[1],
+            value[2] - target[2],
+        ];
+        // `J Jᵀ` is three by three, and its columns are what `solve_three` takes.
+        let mut normal = [[0.0f32; 3]; 3];
+        for (column, out) in normal.iter_mut().enumerate() {
+            for (row, entry) in out.iter_mut().enumerate() {
+                for ink in &jacobian {
+                    *entry = ink
+                        .get(row)
+                        .copied()
+                        .unwrap_or(0.0)
+                        .mul_add(ink.get(column).copied().unwrap_or(0.0), *entry);
+                }
+            }
+        }
+        let Some(multipliers) = solve_three(&normal, right) else {
+            break;
+        };
+        let mut step = [0.0f32; 4];
+        for (ink, component) in jacobian.iter().zip(step.iter_mut()) {
+            for (row, factor) in multipliers.iter().enumerate() {
+                *component = ink
+                    .get(row)
+                    .copied()
+                    .unwrap_or(0.0)
+                    .mul_add(*factor, *component);
+            }
+        }
+        let mut scale = 1.0f32;
+        let mut improved = false;
+        for _ in 0..INK_BACKTRACKS {
+            let mut candidate = [0.0f32; 4];
+            for ((component, was), taken) in candidate.iter_mut().zip(inks).zip(step) {
+                *component = channel(scale.mul_add(-taken, was));
+            }
+            let next = multilinear(&corners, &candidate, None);
+            let (next_worst, next_squared) = gaps(next, target);
+            if next_squared < squared {
+                inks = candidate;
+                worst = next_worst;
+                squared = next_squared;
+                improved = true;
+                break;
+            }
+            scale *= 0.5;
+        }
+        if !improved {
+            break;
+        }
+        value = multilinear(&corners, &inks, Some(&mut jacobian));
+    }
+    inks
+}
+
+/// The largest per-component difference between two colours, and the squared distance.
+fn gaps(value: [f32; 3], target: [f32; 3]) -> (f32, f32) {
+    let mut worst = 0.0f32;
+    let mut squared = 0.0f32;
+    for (component, wanted) in value.iter().zip(target) {
+        let gap = component - wanted;
+        worst = worst.max(gap.abs());
+        squared = gap.mul_add(gap, squared);
+    }
+    (worst, squared)
+}
+
+/// The eight corners of [`CMYK_CORNERS`] at one black, indexed by the bits `c m y`.
+///
+/// [`cmyk`] is multilinear, so it is *linear* along the black axis: fixing `k` leaves a
+/// trilinear map over the other three whose corners are these.
+fn ink_slice(black: f32) -> [[f32; 3]; 8] {
+    let mut slice = [[0.0f32; 3]; 8];
+    for (index, corner) in slice.iter_mut().enumerate() {
+        for (axis, component) in corner.iter_mut().enumerate() {
+            let at = |which: usize| {
+                f32::from(
+                    CMYK_CORNERS
+                        .get(which)
+                        .and_then(|corner| corner.get(axis))
+                        .copied()
+                        .unwrap_or(0),
+                ) / 255.0
+            };
+            let without = at(index);
+            *component = black.mul_add(at(index.saturating_add(8)) - without, without);
+        }
+    }
+    slice
+}
+
+/// A multilinear map's value at `inks`, and optionally its Jacobian as `N` columns.
+///
+/// `corners` holds the map's `2^N` values, indexed by the bits of the ink axes with the first
+/// axis least significant — the shape [`cmyk`] already uses. `jacobian[i]` is the derivative
+/// of the sRGB triple with respect to the `i`th ink, which is the same sum with that axis's
+/// weights replaced by ±1.
+///
+/// **The Jacobian is optional and that is a measured decision**: it is three quarters of the
+/// arithmetic here, and the backtracking inside a Gauss–Newton step needs only the value —
+/// evaluating it there as well took the whole conversion from 6.9 µs to 26.7 µs per colour.
+fn multilinear<const N: usize>(
+    corners: &[[f32; 3]],
+    inks: &[f32; N],
+    mut jacobian: Option<&mut [[f32; 3]; N]>,
+) -> [f32; 3] {
+    if let Some(jacobian) = jacobian.as_deref_mut() {
+        *jacobian = [[0.0f32; 3]; N];
+    }
+    let mut value = [0.0f32; 3];
+    for (index, corner) in corners.iter().enumerate() {
+        let weight_at = |axis: usize| {
+            let ink = inks.get(axis).copied().unwrap_or(0.0);
+            if index >> axis & 1 == 1 {
+                ink
+            } else {
+                1.0 - ink
+            }
+        };
+        let mut weight = 1.0f32;
+        for axis in 0..N {
+            weight *= weight_at(axis);
+        }
+        for (axis, output) in value.iter_mut().enumerate() {
+            *output = weight.mul_add(corner.get(axis).copied().unwrap_or(0.0), *output);
+        }
+        let Some(jacobian) = jacobian.as_deref_mut() else {
+            continue;
+        };
+        for (ink, column) in jacobian.iter_mut().enumerate() {
+            let mut slope = if index >> ink & 1 == 1 {
+                1.0f32
+            } else {
+                -1.0f32
+            };
+            for axis in 0..N {
+                if axis != ink {
+                    slope *= weight_at(axis);
+                }
+            }
+            for (axis, output) in column.iter_mut().enumerate() {
+                *output = slope.mul_add(corner.get(axis).copied().unwrap_or(0.0), *output);
+            }
+        }
+    }
+    value
+}
+
+/// [`CMYK_CORNERS`] as the fractions [`multilinear`] takes.
+fn cube_corners() -> [[f32; 3]; 16] {
+    let mut corners = [[0.0f32; 3]; 16];
+    for (target, source) in corners.iter_mut().zip(CMYK_CORNERS) {
+        for (component, value) in target.iter_mut().zip(source) {
+            *component = f32::from(value) / 255.0;
+        }
+    }
+    corners
+}
+
+/// Solves `columns · x = right` for `x`, or `None` where the three columns are coplanar.
+///
+/// Cramer's rule on three columns, which is the clearest construction at this size and needs
+/// no pivoting to be read: each unknown is the determinant with its own column replaced,
+/// divided by the determinant. A singular system is a point where the map is locally flat in
+/// some direction, and the caller stops there rather than stepping to infinity.
+fn solve_three(columns: &[[f32; 3]; 3], right: [f32; 3]) -> Option<[f32; 3]> {
+    let (a, b, c) = (columns[0], columns[1], columns[2]);
+    let determinant = triple(a, b, c);
+    if determinant.abs() < 1e-9 {
+        return None;
+    }
+    Some([
+        triple(right, b, c) / determinant,
+        triple(a, right, c) / determinant,
+        triple(a, b, right) / determinant,
+    ])
+}
+
+/// The scalar triple product `a · (b × c)`, which is the determinant of the three as columns.
+fn triple(a: [f32; 3], b: [f32; 3], c: [f32; 3]) -> f32 {
+    a[0].mul_add(
+        b[1].mul_add(c[2], -(b[2] * c[1])),
+        a[1].mul_add(
+            b[2].mul_add(c[0], -(b[0] * c[2])),
+            a[2] * b[0].mul_add(c[1], -(b[1] * c[0])),
+        ),
+    )
 }
 
 /// The inverse of the L*a*b* companding function.
@@ -1483,6 +1956,8 @@ fn narrow(value: f64) -> f32 {
 mod tests {
     use pdf_syntax::{Dictionary, Document, Object};
 
+    use pdf_render::Color;
+
     use super::{ColourSpace, InkScale};
 
     /// A space's initial colour is the one ISO 32000-2 §8.6.8 gives it, which is often not
@@ -1598,21 +2073,18 @@ mod tests {
         );
     }
 
-    /// §10.4.2.4's conversion into `DeviceCMYK`, and what it does and does not round-trip.
+    /// §10.4.2.4's conversion into `DeviceCMYK`, and the two things it round-trips through.
     ///
     /// The clause's own two steps with the nominal `BG(k) = k` and `UCR(k) = k`. Three claims,
-    /// each of which decides something ADR 0262 rests on: a colour already in `DeviceCMYK` is
-    /// not converted at all; §10.4.2.5's classic conversion back is the identity on the
-    /// result, which is why the standard's own pair costs an opaque mark nothing; and this
-    /// tree's ink cube is **not**, which is why an opaque `DeviceRGB` mark on a page
-    /// composited in ink is drawn in the ink a press would put down for it.
+    /// each of which decides something ADRs 0262 and 0263 rest on: §10.4.2.5's classic
+    /// conversion back is the identity on the result, which is why the standard's own pair
+    /// costs an opaque mark nothing; this tree's ink cube is **not**, which is why the two
+    /// branches cannot be composed; and the gap is the visible one ADR 0262's picture has —
+    /// `1 0 0 rg` coming back as the red process inks print.
     #[test]
     fn the_conversion_into_ink_round_trips_through_the_classic_formula_and_not_the_cube() {
-        let ink = ColourSpace::Cmyk.to_cmyk(&[0.2, 0.4, 0.6, 0.8], true);
-        assert_eq!(ink, [0.2, 0.4, 0.6, 0.8], "a CMYK colour is already in ink");
-
         // §10.4.2.4 on pure red: c = 0, m = 1, y = 1, k = min = 0.
-        let red = ColourSpace::Rgb.to_cmyk(&[1.0, 0.0, 0.0], true);
+        let red = super::rgb_to_cmyk(Color::rgb(1.0, 0.0, 0.0));
         assert_eq!(red, [0.0, 1.0, 1.0, 0.0]);
         // §10.4.2.5 back: red = 1 − min(1, cyan + black) = 1, green = 1 − 1 = 0, blue = 0.
         let classic = |components: [f32; 4]| {
@@ -1629,18 +2101,118 @@ mod tests {
         );
 
         // §10.4.2.3's grey, which the same conversion has to produce: c = m = y = 0.
-        let grey = ColourSpace::Gray.to_cmyk(&[0.25], true);
+        let grey = super::rgb_to_cmyk(Color::grey(0.25));
         assert_eq!(grey, [0.0, 0.0, 0.0, 0.75]);
         assert_eq!(classic(grey), [0.25, 0.25, 0.25]);
 
-        // And the cube is a different answer, which is the cost this round measured: process
+        // And the cube is a different answer, which is what ADR 0262 refused to ship: process
         // red rather than the red a monitor emits.
         let through_the_cube = ColourSpace::Cmyk.to_rgb(&red);
         assert!(
             (through_the_cube.r - 237.0 / 255.0).abs() < 1e-6
                 && (through_the_cube.g - 28.0 / 255.0).abs() < 1e-6,
-            "pure red taken into ink and back through the cube is the red corner, \
-             {through_the_cube:?}"
+            "pure red taken into ink by §10.4.2.4 and back through the cube is the red \
+             corner, {through_the_cube:?}"
+        );
+    }
+
+    /// [`super::rgb_to_ink`] is a right inverse of [`super::cmyk`], which is ADR 0263's claim.
+    ///
+    /// Three populations, and each says something the others cannot. **The cube's own image**
+    /// is the claim itself: a colour the assumed inks can make comes back to itself, so an
+    /// opaque mark on a page composited in ink is the colour the file states. **Named
+    /// colours** are what a page is mostly made of — paper, black text, greys — and they are
+    /// the ones ADR 0262's picture moved. And **the sRGB primaries** are the honest cost:
+    /// they are outside the press's gamut and come back on its boundary.
+    ///
+    /// The old route is put back in the same test, which is what makes the numbers a
+    /// difference this round made: §10.4.2.4's separation of the same colours, taken back
+    /// through the cube, is 35 levels out on black and 36 on red.
+    #[test]
+    fn the_conversion_into_ink_is_a_right_inverse_of_the_conversion_out() {
+        let round_trip = |colour: Color| {
+            let ink = super::rgb_to_ink(colour);
+            super::cmyk(ink[0], ink[1], ink[2], ink[3])
+        };
+        let gap = |a: Color, b: Color| {
+            255.0
+                * (a.r - b.r)
+                    .abs()
+                    .max((a.g - b.g).abs())
+                    .max((a.b - b.b).abs())
+        };
+
+        // Every colour the cube can make, sampled over its own domain rather than over sRGB:
+        // these have a preimage by construction, so the inverse has to find one.
+        let mut worst: f32 = 0.0;
+        for index in 0..6usize * 6 * 6 * 6 {
+            let at = |axis: u32| {
+                #[expect(clippy::cast_precision_loss, reason = "a digit in 0..6, exact in f32")]
+                let digit = (index / 6usize.pow(axis) % 6) as f32;
+                digit / 5.0
+            };
+            let made = super::cmyk(at(0), at(1), at(2), at(3));
+            worst = worst.max(gap(round_trip(made), made));
+        }
+        assert!(
+            worst < 3.4,
+            "a colour the inks can make comes back to itself: worst {worst} of 255"
+        );
+        // The bound is where it is because that is what the construction reaches, not because
+        // 3.4 is a target. The colours that fall short of half a level are dark saturated inks
+        // whose feasible band of black is narrower than `INK_LADDER`'s rungs, and the second
+        // assertion is the one that prices `ink_table`: searching every colour instead of
+        // reading the table reaches **3.12** where the table reaches 3.32, so a grid of 17
+        // costs two tenths of a level at the gamut's own boundary and nothing anywhere else.
+        assert!(
+            worst > 3.3,
+            "and the bound is the construction's own reach rather than a round number: {worst}"
+        );
+        let mut searched: f32 = 0.0;
+        for index in 0..6usize * 6 * 6 * 6 {
+            let at = |axis: u32| {
+                #[expect(clippy::cast_precision_loss, reason = "a digit in 0..6, exact in f32")]
+                let digit = (index / 6usize.pow(axis) % 6) as f32;
+                digit / 5.0
+            };
+            let made = super::cmyk(at(0), at(1), at(2), at(3));
+            let ink = super::search_ink([made.r, made.g, made.b]);
+            searched = searched.max(gap(super::cmyk(ink[0], ink[1], ink[2], ink[3]), made));
+        }
+        assert!(
+            (3.1..3.2).contains(&searched),
+            "the search alone reaches 3.12 of 255 on the same colours: {searched}"
+        );
+
+        for (name, colour) in [
+            ("paper", Color::rgb(1.0, 1.0, 1.0)),
+            ("black", Color::rgb(0.0, 0.0, 0.0)),
+            ("half grey", Color::grey(0.5)),
+            ("dark grey", Color::grey(0.125)),
+            ("light grey", Color::grey(0.9)),
+        ] {
+            let gap = gap(round_trip(colour), colour);
+            assert!(gap < 1.0, "{name} comes back to itself: {gap} of 255");
+        }
+
+        // §10.4.2.4 on the same two, back through the cube: `0 g` becomes `#231F20`.
+        let classic = |colour: Color| {
+            let ink = super::rgb_to_cmyk(colour);
+            super::cmyk(ink[0], ink[1], ink[2], ink[3])
+        };
+        let black = classic(Color::rgb(0.0, 0.0, 0.0));
+        assert!(
+            (gap(black, Color::rgb(0.0, 0.0, 0.0)) - 35.0).abs() < 0.5,
+            "the route ADR 0262 refused puts black 35 levels out: {black:?}"
+        );
+
+        // And the cost of the choice, which is a gamut and not an error: sRGB's primaries are
+        // outside the press's, so they land on its boundary — pure red at the red corner.
+        let red = round_trip(Color::rgb(1.0, 0.0, 0.0));
+        assert!(
+            (red.r - 237.0 / 255.0).abs() < 2.0 / 255.0
+                && (red.g - 28.0 / 255.0).abs() < 2.0 / 255.0,
+            "pure red is outside the inks' gamut and lands on the red corner: {red:?}"
         );
     }
 
@@ -1722,7 +2294,7 @@ mod tests {
     fn a_cmyk_colours_luminosity_is_not_the_grey_of_its_pixel() {
         let process_black = [0.0, 0.0, 0.0, 1.0];
         let rendered = ColourSpace::Cmyk.to_rgb(&process_black).grey_level();
-        assert_eq!(bytes(pdf_render::Color::grey(rendered)).0, 32);
+        assert_eq!(bytes(Color::grey(rendered)).0, 32);
         assert_eq!(ColourSpace::Cmyk.luminosity(&process_black), 0.0);
 
         // A grey and an RGB colour are the two that do survive, which is what makes the
@@ -1786,7 +2358,7 @@ mod tests {
     }
 
     /// The eight-bit sRGB a colour converts to, for comparing against measured output.
-    fn bytes(colour: pdf_render::Color) -> (u8, u8, u8) {
+    fn bytes(colour: Color) -> (u8, u8, u8) {
         #[expect(
             clippy::cast_possible_truncation,
             clippy::cast_sign_loss,

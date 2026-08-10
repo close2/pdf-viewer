@@ -6,32 +6,51 @@ three-hundred-and-eighty-third (ADR 0220) — **§11.4.6's shape is closed in th
 three-hundred-and-ninety-seventh** (ADR 0234), and **§11.4.4's non-isolated group is drawn since
 the four-hundredth** (ADR 0237). The four-hundred-and-fifteenth found the standing population was
 the wrong one and priced what is left of it (ADR 0251); **the four-hundred-and-twenty-sixth built
-what it priced and found the price was for the wrong half** (ADR 0262).
+what it priced and found the price was for the wrong half** (ADR 0262); **the
+four-hundred-and-twenty-seventh built that other half and closed the standing item** (ADR 0263).
 Priority: 23
-Corpus: 8 documents
-Clauses: §11.4.4, §11.4.7, §11.6.6, §11.7.2, §11.7.5.3
+Corpus: 6 documents
+Clauses: §11.3.5.3, §11.4.4, §11.6.6, §11.7.5.3, §8.6.5.6, §14.11.5
 Code: `crates/pdf-model/src/content.rs`, `crates/pdf-model/src/colour.rs`,
 `crates/pdf-render/src/blending.rs`, `crates/render-cpu/src/lib.rs`
 
 | | corpus | of 69 web witnesses | what it is |
 |---|---|---|---|
-| **a conversion *into* the blending space** (§11.7.2) | 5 | 61 | **the standing item.** §10.4.2.4 is not the inverse of this tree's conversion out |
-| a four-component `ICCBased` blending space | 0 | 6 | its conversion out is a profile rather than sixteen corners |
-| a group inside the page composites in a different space (§11.6.6) | 1 | 3 | needs a conversion between two spaces at the `Do` |
-| a non-separable blend mode on such a page (§11.3.5.3) | 1 | 2 | the black component has a rule of its own |
+| **the document names the press its `DeviceCMYK` is** (§8.6.5.6, §14.11.5) | 0 | 7 | **the standing item.** Its four components are not ours, so a *composite* in them is not ours |
+| a group inside the page composites in a different space (§11.6.6) | 3 | 3 | needs a conversion between two spaces at the `Do` |
+| a non-separable blend mode on such a page (§11.3.5.3) | 1 | 1 | the black component has a rule of its own |
+| a four-component `ICCBased` blending space | 0 | 1 | its conversion out is a profile rather than sixteen corners |
 | an `/ExtGState` states `/BG`, `/BG2`, `/UCR` or `/UCR2` (§11.7.5.3) | 0 | 1 | **was silent until the 426th** |
+| ~~a conversion *into* the blending space~~ | ~~5~~ → 0 | ~~61~~ → 0 | **closed in the 427th, ADR 0263: a right inverse of the ink cube** |
 | ~~the four components themselves~~ | — | — | **closed in the 426th, ADR 0262: two rasters, no new format** |
 | ~~a non-isolated group NOTE 5 cannot flatten~~ | ~~6~~ → 3 | | **the non-knockout ones closed** in the 400th, ADR 0237; what is left is knockout, below |
 | ~~a soft-mask group with such a space~~ | ~~7~~ → 0 | | **closed** in the 380th and 383rd, ADRs 0217 and 0220 |
 | ~~a knockout element whose shape is not its coverage~~ | ~~5~~ → 0 | | **closed** in the 397th, ADR 0234 |
 
 Each remaining one is refused *by name* rather than approximated, and since the four-hundred-and-
-twenty-sixth the name says **which** of the five conditions fired. The eight documents are
-`bug1703683_page2_reduced`, `bug1721218_reduced`, `bug1755507`, `issue12798_page1_reduced`,
-`issue13520` and `issue18032` for the blending space, and `issue18032`,
-`knockout_blend_multiply` and `knockout_inner_backdrop` for what §11.4.4 still refuses — two lists
-overlapping on one file. `personwithdog.pdf` left in the four-hundred-and-twenty-sixth, which drew
-it.
+twenty-sixth the name says **which** of the five conditions fired. The corpus documents are
+`bug1703683_page2_reduced`, `bug1755507` and `issue13520` for §11.6.6, `issue18032` for the
+non-separable blend, and `issue18032`, `knockout_blend_multiply` and `knockout_inner_backdrop` for
+what §11.4.4 still refuses. `personwithdog.pdf` left in the four-hundred-and-twenty-sixth and
+`issue12798_page1_reduced.pdf` and `bug1365930.pdf` in the four-hundred-and-twenty-seventh, which
+drew them.
+
+## The conversion into the space is closed, and it is a right inverse of the press
+
+§11.7.2 requires a colour to be converted *into* the blending space, and §11.7.5.3 says which
+conversion by naming its **target** rather than its algorithm: "in the transparent model it may
+instead be the group colour space of a transparency group into which an object is being painted",
+where the opaque model's target "shall always be the native colour space of the output device". So
+it is the same conversion with a different target, on §10.3's branch by §10.4.2.1's ranking — and
+`colour::rgb_to_ink` is a right inverse of the ink cube, so one page has one colour model and there
+is no boundary between two. §10.4.2.4 keeps the nominal `k` and the search's starting point inside
+it. ADR 0263 has the construction, the gamut choice it costs and the pictures.
+
+**What the residue rows above have in common** is that each needs a *second* space rather than a
+second direction: a press this tree does not model (§8.6.5.6, §14.11.5), a group that introduces
+one (§11.6.6), or a profile instead of sixteen corners. The first of them is the one to take next
+and it is an ICC `B2A` question — a document that names its press wants the conversion into *its*
+four components, which is the inverse of a profile rather than of a cube.
 
 ## The four components were two rasters, and that is closed
 
@@ -48,28 +67,23 @@ medium. `render-gpu` and `render-quorra` refuse the list (`QUORRA_FEEDBACK.md` s
 statement about arithmetic — the ink cube is affine on no face of the cube, 48 of 255 at worst —
 attached to a wrong statement about what carrying four components costs.
 
-## What actually blocks the population, and it is a colour conversion
+## What used to block the population, and what it turned out to be
 
-§11.7.2's second sentence, which this tree had read only for its inheritance rule:
+This section carried §11.7.2's second sentence as the standing blocker for one session:
 
 > If the colour space of a graphics object within the group is not equivalent to the group's
 > blending colour space, then it shall be converted to the group's colour space , and all blending
 > and compositing computations shall be done in that space
 
-§11.7.5.3 names §10.4.2.4 as that conversion, and §10.4.2.1 packages §10.4.2.2 through §10.4.2.5 as
-what a processor uses **instead of** §10.3 — the branch ADRs 0009 and 0042 put this tree's
-conversion *out* of `DeviceCMYK` on. The standard's own pair round-trips exactly; one branch
-composed with the other does not, and ADR 0262 has the picture: a webinar flyer whose green panel
-comes back grey-green and whose `0 g` text comes back the process black `#231F20`, neither of them
-a mark that composites with anything.
-
-**So a page is drawn in its blending space only where every colour painted into it is already in
-that space**, and 61 of the 69 web witnesses are not. What closes them is a conversion into
-`DeviceCMYK` on §10.3's branch — a right inverse of the press ADR 0009 assumes, with gamut mapping
-where no preimage exists, which is a colour-management round of its own and not a transparency one.
-Two measurements to start it from, both taken in the four-hundred-and-twenty-sixth: exempting
-`DeviceGray` alone would take the 62 remaining reports to **43**, and taking §10.4.2.4 as written
-would take them to **10** at the cost of every non-`DeviceCMYK` colour on those pages.
+and recorded that §11.7.5.3 "names §10.4.2.4 as that conversion". **It does not.** The bullets that
+name the black-generation and undercolour-removal functions are §10.4.2's side of §10.4.2.1's fork;
+the paragraph above them chooses a *target* and leaves the algorithm to whichever branch the
+processor is on. Reading that paragraph is the whole of the four-hundred-and-twenty-seventh session,
+and what it licensed was the third of the three routes this file listed — a right inverse of the
+press, with gamut mapping where no preimage exists. The two measurements this section recorded as
+"where the next round will be tempted" were both offers to take a shortcut without a clause, and
+neither was taken: exempting `DeviceGray` would have put black text at `#231F20`, and taking
+§10.4.2.4 as written would have moved every `DeviceCMYK` pixel on every page.
 
 ## How the population was found: the blending space was the wrong four documents
 
@@ -198,13 +212,20 @@ Plus: source-over there is 32 of 255 out at a half-covered pixel under a half-op
    since the seventy-first session. Removing it means a Plus layer per element and the elements are
    §9.3.8's glyphs, so it wants a measurement before it is paid.
 
-## What the four precedents have in common, and why this one is not among them
+## What the five precedents have in common, and what the sixth was instead
 
 `ImageSource` carries a raster the list *names* (ADR 0210), a mask group is painted in the one
 quantity §11.5.3 composites (ADR 0220), a knockout element states its shape beside its colour
-(ADR 0234), and a group names the backdrop its elements composite onto (ADR 0237). In each the
-missing quantity turned out to be sayable in a command — three times as a second command or a second
-raster, once as a flag over an identity nobody had derived. **This one is among them after all**: a
-page's four components are a second *list*, which is the same shape a fifth time, and the paragraph
-that used to stand here said they were a format and were not sayable. What is not sayable in a
-command is the one thing left — a colour conversion, which is not a quantity at all.
+(ADR 0234), a group names the backdrop its elements composite onto (ADR 0237), and a page's four
+components are a second *list* beside the first (ADR 0262). In each the missing quantity turned out
+to be sayable in a command — three times as a second command or a second raster, twice as a flag or
+a field over an identity nobody had derived.
+
+**The sixth was not a quantity at all**, and that is why this paragraph used to end by saying it was
+unsayable: a conversion *into* the blending space is a function rather than a value, and no display
+list can carry one. What it needed was not a command but a **branch decision** — §11.7.5.3 names the
+conversion's target and §10.4.2.1 ranks the algorithms, so the conversion in belongs on whichever
+branch the conversion out is on, and a right inverse of the ink cube is what that branch means here
+(ADR 0263). The residues left in the table above are the same shape one space over: each of them
+needs a *second* colour space this tree does not model, which is again not a quantity a command
+could name.
