@@ -5133,11 +5133,18 @@ const AMBIGUOUS_TABLE_RULE_EDGES: [&str; 3] = [
 /// **And "a later session" came in the four-hundred-and-fifteenth, which answered it without a
 /// heatmap.** `personwithdog.pdf`'s page dictionary states
 /// `/Group << /S /Transparency /CS /DeviceCMYK >>`, and §11.4.7 makes that the default blending
-/// colour space for everything on the page. This tree composites in the device's three
-/// components, so the page reports it by name now and has left this group; the row above stands
-/// as what the ladders said while it was here, and the two references being 0.89 apart where
-/// they agree to a hundredth elsewhere reads differently once the page is known to be printed
-/// in ink.
+/// colour space for everything on the page. This tree composited in the device's three
+/// components, so the page reported it by name and left this group; the row above stands as what
+/// the ladders said while it was here, and the two references being 0.89 apart where they agree
+/// to a hundredth elsewhere reads differently once the page is known to be printed in ink.
+///
+/// **The four-hundred-and-twenty-sixth drew it in ink and the page is back**, with the same
+/// verdict and a ladder that moved by exactly the amount ADR 0262 predicts: ours is **21.620 →
+/// 21.720** at the page's own scale and 21.722 → 21.822 at 576 dpi, +0.100 of 255 at both, and
+/// the direction is the one ADR 0251 derived — half a covering of ink over ink is darker than
+/// the average of the two colours it converts to. Still inside the 21.991 / 21.101 bracket and
+/// still in the middle of the five, so nothing about the ranking changed; what changed is that
+/// the page is no longer reported, which is what puts it back in front of this gate.
 /// # A fourth in the three-hundred-and-fifth, where ours lands *between* the two limits
 ///
 /// `pdfjs_wikipedia.pdf` page 1 — a Wikipedia article printed to PDF, all text and rules:
@@ -5154,10 +5161,11 @@ const AMBIGUOUS_TABLE_RULE_EDGES: [&str; 3] = [
 /// limit, which is inside it. `ghostscript` is **20.62 against 23.93**, 3.2 of 255 above all four
 /// of the others at the page's own scale, and it is the whole reason the verdict is `ambiguous`:
 /// trap 12's arithmetic with one reference far enough out to drag the consensus apart.
-const AMBIGUOUS_NEAREST_THE_GEOMETRY: [&str; 3] = [
+const AMBIGUOUS_NEAREST_THE_GEOMETRY: [&str; 4] = [
     "pdfjs_wikipedia.pdf page 1",
     "issue7339_reduced.pdf page 1",
     "issue21570.pdf page 1",
+    "personwithdog.pdf page 1",
 ];
 
 /// Ambiguous, and the word spaces **were** drawn as marks — fixed in the two-hundred-and-

@@ -22,6 +22,7 @@
 #![forbid(unsafe_code)]
 
 pub mod backend;
+pub mod blending;
 pub mod collapsed;
 pub mod crop;
 pub mod degenerate;
@@ -39,6 +40,7 @@ pub use backend::{
     BackendError, MAX_EXTENT, MAX_GROUP_DEPTH, Raster, RasterFormat, Rasterizer, TargetSpec,
     impose_on_medium,
 };
+pub use blending::{BlendingSpace, resolve as resolve_blending};
 pub use collapsed::{CollapsedFill, split_collapsed_fill};
 pub use crop::cropped_rectangle;
 pub use degenerate::{

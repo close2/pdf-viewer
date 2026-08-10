@@ -833,6 +833,16 @@ impl Rasterizer for GpuRasterizer {
     }
 
     fn rasterize(&mut self, list: &DisplayList, target: TargetSpec) -> Result<Raster, Self::Error> {
+        // §11.4.7's page group in a four-component blending space is drawn twice and the two
+        // rasters put back together (`pdf_render::blending`); a Vello scene renders one, and
+        // this backend has no place to hold the second. Refused by name, which sends the frame
+        // to the CPU backend — the job `CLAUDE.md` keeps that backend for — rather than
+        // painting the page in the complements of cyan, magenta and yellow with no black.
+        if list.blending().is_some() {
+            return Err(GpuRasterError::UnsupportedCommand(
+                "a page composited in a four-component blending colour space (§11.4.7)".to_owned(),
+            ));
+        }
         // Before the scene, because every mask a command names has to exist by the time that
         // command is encoded — and because a mask is a render of its own, at this target.
         let masks = evaluate_soft_masks(

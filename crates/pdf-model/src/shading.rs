@@ -128,7 +128,7 @@ impl Cache {
 }
 
 /// The shading dictionary of an object, whether it is a dictionary or a stream.
-fn dictionary_of(document: &Document, object: &Object) -> Option<Dictionary> {
+pub(crate) fn dictionary_of(document: &Document, object: &Object) -> Option<Dictionary> {
     match document.resolve(object) {
         Object::Dictionary(dict) => Some(dict),
         Object::Stream(stream) => Some(stream.dict.clone()),

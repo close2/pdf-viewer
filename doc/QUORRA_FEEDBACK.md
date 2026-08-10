@@ -1216,3 +1216,42 @@ separable, since the interpolation is between the backdrop and the *elements com
 paint Normal — which is almost all of them, because that is the case the clause itself says needs
 nothing — and a seeded buffer is strictly more expensive. The flag's default is the behaviour
 that exists.
+
+## 17. Four components need two rasters, and one `Scene` renders one — **open, and it is the smallest request in this file**
+
+ISO 32000-2 §11.4.7 puts a colour space under the whole page:
+
+> All page-level compositing shall be done in the default blending colour space of the page, and
+> the entire result shall then, if the colour spaces are not equivalent, be converted to the
+> native colour space of the output device before being composited with the context-dependent
+> backdrop.
+
+3.5% of the PDFs on the web state such a space, all of them `DeviceCMYK` or a four-component ICC
+profile — measured over a 1944-document sample of Common Crawl, where it is the single largest
+correctness gap this viewer has against real files.
+
+**Nothing about the scene vocabulary is wrong for it, and that is why this section is short.**
+§11.3.4 applies the compositing formula per component, so four components are three plus one: the
+page is interpreted twice, once carrying the additive complements of cyan, magenta and yellow and
+once carrying the complement of black, and the two rasters are put back together afterwards by a
+per-pixel conversion that has nothing to do with rasterisation. Every separable blend mode comes
+along unchanged, because it too is per component, and the rasters hold the complements so nothing
+has to be complemented around a blend function.
+
+What this viewer's backend cannot do is *get both rasters*. `Rasterizer::rasterize` hands back one
+`Raster` per call and the two passes are two display lists over one page, so the CPU backend simply
+runs its own pipeline twice into two pixmaps. Through quorra the same thing needs one of:
+
+- a way to render the same viewport twice and read both back within one frame, or
+- two calls whose device state, caches and resources are not thrown away between them.
+
+Either is enough; neither needs a new `Compose`, `GroupSpec` or paint. If the second is already
+true — if calling `render(..., Target::Readback)` twice against one device is simply supported and
+cheap — then say so and this section closes with no change at all, because the refusal is currently
+placed on the display list rather than on anything quorra said.
+
+**What the refusal costs today**: `personwithdog.pdf` is the corpus's one such page and it moved
+from *reported* to *refused* — this viewer used to draw it in the wrong space and now declines to
+draw it here at all, which is a gain of the same kind as sections 14 and 16. On real files it is
+one page in thirty rather than one in a thousand, so it is the section most likely to matter to
+somebody who is not us.

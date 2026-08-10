@@ -69,6 +69,36 @@ pub enum Compositing {
     /// A `/Luminosity` mask group whose blending space §10.4.2.3 sends to grey without
     /// passing through RGB, painted in the ink that clause weighs rather than in colour.
     Luminosity(InkScale),
+    /// A page §11.4.7 composites in `DeviceCMYK`, painted in the half of that space's four
+    /// components this raster carries. See [`Half`] and `pdf_render::blending`.
+    Subtractive(Half),
+}
+
+/// Which of a `DeviceCMYK` blending space's four components one raster carries.
+///
+/// §11.3.3's compositing formula is a vector function applied **per component** — §11.3.4:
+/// "[t]he i th component of the result colour 𝐶𝑟 shall be obtained by applying the
+/// compositing formula to the i th components of the constituent colours" — and §11.3.5.2's
+/// separable blend functions are per component too. So a rasteriser with three channels
+/// composites four components by drawing the page twice, and this says which three it is
+/// drawing.
+///
+/// Both halves are painted in §11.3.4's **additive** form, the complement of the ink, because
+/// that clause requires the blend functions to see additive values:
+///
+/// > When performing blending operations in subtractive colour spaces ( DeviceCMYK , ICCBased
+/// > 'CMYK', Separation , and DeviceN ), the colour component values shall be complemented
+/// > (subtracted from 1.0) before the blend function is applied and the results of the
+/// > function shall then be complemented back before being used.
+///
+/// Storing the complement is that requirement met by construction rather than by an arithmetic
+/// step around every blend.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Half {
+    /// Cyan, magenta and yellow, one per channel.
+    Chromatic,
+    /// The black component, in every channel, so a backend may read any of them.
+    Black,
 }
 
 impl Compositing {
@@ -97,6 +127,17 @@ impl Compositing {
                 a: colour.a,
                 ..Color::grey(scale.grey_of(space, values))
             },
+            Self::Subtractive(half) => {
+                let [cyan, magenta, yellow, black] = space.to_cmyk(values, black_point);
+                let painted = match half {
+                    Half::Chromatic => Color::rgb(1.0 - cyan, 1.0 - magenta, 1.0 - yellow),
+                    Half::Black => Color::grey(1.0 - black),
+                };
+                Color {
+                    a: colour.a,
+                    ..painted
+                }
+            }
         }
     }
 }
@@ -813,6 +854,103 @@ impl ColourSpace {
         self.to_rgb_at(values, 0, false)
     }
 
+    /// Whether a colour in this space is already in `DeviceCMYK`'s four components.
+    ///
+    /// The question §11.4.7's page group turns on: a colour that is already in the blending
+    /// space is composited in it exactly, and one that is not has to be *converted* into it
+    /// (§11.7.2), which this tree cannot yet do without changing the colour. §11.3.4 is why a
+    /// `Separation` or `DeviceN` answers by its alternate — spot colours "shall not be
+    /// converted to a blending colour space (except in the case where they first revert to
+    /// their alternate colour space)" — and §8.6.6.4's `/None` answers yes because it "shall
+    /// have no effect on the current page", so there is no colour to convert.
+    ///
+    /// A `Pattern` with no underlying space answers yes for the same reason: it carries no
+    /// colour of its own, and the colours its cell paints are asked about one at a time.
+    #[must_use]
+    pub fn is_subtractive(&self) -> bool {
+        self.is_subtractive_at(0)
+    }
+
+    /// [`Self::is_subtractive`], carrying the recursion depth a nested space costs.
+    fn is_subtractive_at(&self, depth: usize) -> bool {
+        if depth > MAX_DEPTH {
+            return false;
+        }
+        match self {
+            Self::Cmyk | Self::NoColourant { .. } => true,
+            Self::Indexed { base, .. } => base.is_subtractive_at(depth.saturating_add(1)),
+            Self::Separation { alternate, .. } => {
+                alternate.is_subtractive_at(depth.saturating_add(1))
+            }
+            Self::Pattern { base } => base
+                .as_ref()
+                .is_none_or(|base| base.is_subtractive_at(depth.saturating_add(1))),
+            _ => false,
+        }
+    }
+
+    /// Converts a colour in this space to the four components of `DeviceCMYK`.
+    ///
+    /// §11.7.2 is what asks for this: "[i]f the colour space of a graphics object within the
+    /// group is not equivalent to the group's blending colour space, then it shall be
+    /// converted to the group's colour space, and all blending and compositing computations
+    /// shall be done in that space".
+    ///
+    /// **Which conversion is not left open**, and this is the clause that names it — §11.7.5.3,
+    /// of the black-generation and undercolour-removal functions:
+    ///
+    /// > When painting an elementary object with a DeviceRGB colour directly into a
+    /// > transparency group whose colour space is DeviceCMYK , the functions used shall be the
+    /// > current black-generation and undercolour-removal functions in effect in the graphics
+    /// > state at the time of the painting operation.
+    ///
+    /// So the route is §10.4.2.4's, whose `BG` and `UCR` are graphics-state parameters this
+    /// tree does not read — Table 57's `/BG`, `/BG2`, `/UCR` and `/UCR2` — and whose default
+    /// the same clause leaves to the processor: "[e]ach device shall be configured with
+    /// default values that are appropriate for that device." The identity is the nominal one
+    /// the clause describes, `k` being "the amount of black that can be removed from the cyan,
+    /// magenta, and yellow components and substituted as a separate black component", and it
+    /// is what `crate::content` reports a departure from where a document states its own.
+    ///
+    /// A space that already resolves to `DeviceCMYK` is passed straight through, including a
+    /// `Separation` or `DeviceN` whose alternate is one — §11.3.4 requires exactly that:
+    /// spot colours "shall not be converted to a blending colour space (except in the case
+    /// where they first revert to their alternate colour space)". Everything else goes to RGB
+    /// by this crate's one route and then through §10.4.2.4, which is why an opaque
+    /// `DeviceRGB` mark on such a page is drawn in the ink a press would put down for it
+    /// rather than in the light a monitor emits for it.
+    #[must_use]
+    pub fn to_cmyk(&self, values: &[f32], black_point: bool) -> [f32; 4] {
+        self.to_cmyk_at(values, 0, black_point)
+    }
+
+    /// [`Self::to_cmyk`], carrying the recursion depth a nested space costs.
+    fn to_cmyk_at(&self, values: &[f32], depth: usize, black_point: bool) -> [f32; 4] {
+        if depth > MAX_DEPTH {
+            return [0.0, 0.0, 0.0, 1.0];
+        }
+        let at = |index: usize| channel(values.get(index).copied().unwrap_or(0.0));
+        match self {
+            Self::Cmyk => [at(0), at(1), at(2), at(3)],
+            Self::Indexed { base, .. } => {
+                base.to_cmyk_at(&self.entry_of(values), depth.saturating_add(1), black_point)
+            }
+            Self::Separation {
+                alternate,
+                transform,
+                ..
+            } => alternate.to_cmyk_at(
+                &transform.eval(values),
+                depth.saturating_add(1),
+                black_point,
+            ),
+            Self::Pattern { base } => base.as_ref().map_or([0.0, 0.0, 0.0, 1.0], |base| {
+                base.to_cmyk_at(values, depth.saturating_add(1), black_point)
+            }),
+            _ => rgb_to_cmyk(self.to_rgb_at(values, depth, black_point)),
+        }
+    }
+
     fn to_rgb_at(&self, values: &[f32], depth: usize, black_point: bool) -> Color {
         if depth > MAX_DEPTH {
             return Color::BLACK;
@@ -1019,6 +1157,71 @@ fn cmyk(c: f32, m: f32, y: f32, k: f32) -> Color {
         }
     }
     Color::rgb(channel(rgb[0]), channel(rgb[1]), channel(rgb[2]))
+}
+
+/// Whether an object naming a colour space names one whose components are already ink.
+///
+/// [`ColourSpace::is_subtractive`] for an entry that has not been parsed yet — an image's or a
+/// shading's `/ColorSpace` — and **`false` where the entry cannot be read at all**, which is the
+/// safe direction: a page drawn in its blending colour space is drawn wrong by a colour that had
+/// to be converted into it, and reporting one that did not is only a page the oracle does not
+/// judge.
+#[must_use]
+pub fn names_subtractive_components(
+    document: &Document,
+    object: &Object,
+    resources: &Dictionary,
+) -> bool {
+    ColourSpace::parse(document, object, resources).is_some_and(|space| space.is_subtractive())
+}
+
+/// The conversion out of `DeviceCMYK`, as the table a backend is handed.
+///
+/// §11.4.7 converts a page composited in its blending colour space to the device's *once*, at
+/// the end, and that happens in a backend where no colour space exists (see
+/// [`pdf_render::Color`]). So the table goes down with the display list, and this is the one
+/// place it is built: `a_backends_table_is_this_crates_own_conversion` checks that
+/// interpolating it is [`cmyk`] to the last bit, which is what keeps the "one route from a
+/// colour to the screen" rule in this module's header true of the new route as well.
+#[must_use]
+pub fn device_cmyk_blending_space() -> pdf_render::BlendingSpace {
+    let mut corners = [[0.0f32; 3]; 16];
+    for (target, source) in corners.iter_mut().zip(CMYK_CORNERS) {
+        for (component, value) in target.iter_mut().zip(source) {
+            *component = f32::from(value) / 255.0;
+        }
+    }
+    pdf_render::BlendingSpace { corners }
+}
+
+/// ISO 32000-2 §10.4.2.4's conversion from `DeviceRGB` to `DeviceCMYK`.
+///
+/// The clause's own two steps, with the nominal black-generation and undercolour-removal
+/// functions — `BG(k) = k` and `UCR(k) = k` — which is what [`ColourSpace::to_cmyk`]'s doc
+/// comment records as this device's defaults. The formula, set out here rather than quoted
+/// because the standard prints it in mathematical italics no transcription survives:
+/// `c = 1 − red`, `m = 1 − green`, `y = 1 − blue`, `k = min(c, m, y)`, and then
+/// `cyan = min(1, max(0, c − UCR(k)))` with magenta, yellow and `black = min(1, max(0, BG(k)))`
+/// alongside. The clamps are the clause's: "[i]f a value falls outside this range, the nearest
+/// valid value shall be substituted automatically without error indication."
+///
+/// With the nominal functions the result is a *right inverse* of §10.4.2.5's classic
+/// conversion back — `1 − min(1, cyan + black)` is `1 − min(1, c)`, which is `red` — so the
+/// standard's own pair round-trips exactly. It is **not** a right inverse of this tree's ink
+/// cube (ADR 0009), and that difference is the whole visible consequence of drawing a page in
+/// its blending space: a `DeviceRGB` red taken into ink and back comes out the red process
+/// inks print rather than the red a monitor emits. ADR 0262 has the measurement.
+fn rgb_to_cmyk(colour: Color) -> [f32; 4] {
+    let cyan = 1.0 - channel(colour.r);
+    let magenta = 1.0 - channel(colour.g);
+    let yellow = 1.0 - channel(colour.b);
+    let black = cyan.min(magenta).min(yellow);
+    [
+        channel(cyan - black),
+        channel(magenta - black),
+        channel(yellow - black),
+        channel(black),
+    ]
 }
 
 /// The inverse of the L*a*b* companding function.
@@ -1362,6 +1565,83 @@ mod tests {
         assert_eq!(ColourSpace::Gray.to_rgb(&[0.5]).r, 0.5);
         let rgb = ColourSpace::Rgb.to_rgb(&[0.1, 0.2, 0.3]);
         assert_eq!((rgb.r, rgb.g, rgb.b), (0.1, 0.2, 0.3));
+    }
+
+    /// The table a backend is handed is this crate's own `DeviceCMYK` conversion.
+    ///
+    /// §11.4.7 converts a page composited in its blending space to the device's at the end,
+    /// and that happens in a backend, so the conversion travels as sixteen corners. This is
+    /// what keeps the two from becoming a second `DeviceCMYK` conversion — the failure this
+    /// module's own header records having had once — by checking them against each other over
+    /// the cube rather than at its corners, where a wrong interpolation would still agree.
+    #[test]
+    fn a_backends_table_is_this_crates_own_conversion() {
+        let table = super::device_cmyk_blending_space();
+        let mut worst = 0.0f32;
+        let steps = [0.0, 0.125, 0.375, 0.5, 0.625, 0.875, 1.0];
+        for c in steps {
+            for m in steps {
+                for y in steps {
+                    for k in steps {
+                        let ours = ColourSpace::Cmyk.to_rgb(&[c, m, y, k]);
+                        let theirs = table.convert(c, m, y, k);
+                        for (mine, other) in [ours.r, ours.g, ours.b].into_iter().zip(theirs) {
+                            worst = worst.max((mine - other).abs());
+                        }
+                    }
+                }
+            }
+        }
+        assert!(
+            worst < 1e-6,
+            "the display list's table and `cmyk` are one conversion: worst gap {worst}"
+        );
+    }
+
+    /// §10.4.2.4's conversion into `DeviceCMYK`, and what it does and does not round-trip.
+    ///
+    /// The clause's own two steps with the nominal `BG(k) = k` and `UCR(k) = k`. Three claims,
+    /// each of which decides something ADR 0262 rests on: a colour already in `DeviceCMYK` is
+    /// not converted at all; §10.4.2.5's classic conversion back is the identity on the
+    /// result, which is why the standard's own pair costs an opaque mark nothing; and this
+    /// tree's ink cube is **not**, which is why an opaque `DeviceRGB` mark on a page
+    /// composited in ink is drawn in the ink a press would put down for it.
+    #[test]
+    fn the_conversion_into_ink_round_trips_through_the_classic_formula_and_not_the_cube() {
+        let ink = ColourSpace::Cmyk.to_cmyk(&[0.2, 0.4, 0.6, 0.8], true);
+        assert_eq!(ink, [0.2, 0.4, 0.6, 0.8], "a CMYK colour is already in ink");
+
+        // §10.4.2.4 on pure red: c = 0, m = 1, y = 1, k = min = 0.
+        let red = ColourSpace::Rgb.to_cmyk(&[1.0, 0.0, 0.0], true);
+        assert_eq!(red, [0.0, 1.0, 1.0, 0.0]);
+        // §10.4.2.5 back: red = 1 − min(1, cyan + black) = 1, green = 1 − 1 = 0, blue = 0.
+        let classic = |components: [f32; 4]| {
+            [
+                1.0 - (components[0] + components[3]).min(1.0),
+                1.0 - (components[1] + components[3]).min(1.0),
+                1.0 - (components[2] + components[3]).min(1.0),
+            ]
+        };
+        assert_eq!(
+            classic(red),
+            [1.0, 0.0, 0.0],
+            "the standard's pair is exact"
+        );
+
+        // §10.4.2.3's grey, which the same conversion has to produce: c = m = y = 0.
+        let grey = ColourSpace::Gray.to_cmyk(&[0.25], true);
+        assert_eq!(grey, [0.0, 0.0, 0.0, 0.75]);
+        assert_eq!(classic(grey), [0.25, 0.25, 0.25]);
+
+        // And the cube is a different answer, which is the cost this round measured: process
+        // red rather than the red a monitor emits.
+        let through_the_cube = ColourSpace::Cmyk.to_rgb(&red);
+        assert!(
+            (through_the_cube.r - 237.0 / 255.0).abs() < 1e-6
+                && (through_the_cube.g - 28.0 / 255.0).abs() < 1e-6,
+            "pure red taken into ink and back through the cube is the red corner, \
+             {through_the_cube:?}"
+        );
     }
 
     /// §10.4.2.3's ink and grey level, on the four colours the clause's own formula fixes.

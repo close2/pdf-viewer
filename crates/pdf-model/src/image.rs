@@ -131,9 +131,17 @@ impl ColourSpace {
     /// conversion, memoised by [`Conversion`] or tabulated by [`palette`] as it would be for
     /// any other space. That costs a mask group's images the fast path and nothing else pays
     /// (ADR 0220).
+    ///
+    /// A page §11.4.7 composites in `DeviceCMYK` is the same argument again: a sample becomes
+    /// one half of that space's four components, which is the identity on no device space
+    /// either — a `DeviceRGB` sample goes through §10.4.2.4 and a `DeviceCMYK` one is split
+    /// between the two rasters. So those images take the converting arm as a mask group's do,
+    /// and only a page that states such a space pays for it (ADR 0262).
     fn reduced(space: crate::colour::ColourSpace, into: Compositing) -> Self {
         match (space, into) {
-            (space, Compositing::Luminosity(_)) => Self::Resolved(space),
+            (space, Compositing::Luminosity(_) | Compositing::Subtractive(_)) => {
+                Self::Resolved(space)
+            }
             (crate::colour::ColourSpace::Gray, _) => Self::Gray,
             (crate::colour::ColourSpace::Rgb, _) => Self::Rgb,
             (crate::colour::ColourSpace::Cmyk, _) => Self::Cmyk,

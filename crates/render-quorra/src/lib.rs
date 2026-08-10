@@ -225,6 +225,16 @@ impl Rasterizer for QuorraRasterizer {
     }
 
     fn rasterize(&mut self, list: &DisplayList, target: TargetSpec) -> Result<Raster, Self::Error> {
+        // §11.4.7's page group in a four-component blending space is two rasters put back
+        // together (`pdf_render::blending`), and a `quorra_scene::Scene` renders one. Refused
+        // by name rather than drawn from the chromatic half alone, which would paint the page
+        // in the complements of cyan, magenta and yellow with no black in it at all.
+        // `doc/QUORRA_FEEDBACK.md` section 17.
+        if list.blending().is_some() {
+            return Err(QuorraRasterError::Unsupported(
+                "a page composited in a four-component blending colour space (§11.4.7)".to_owned(),
+            ));
+        }
         self.caches.begin_frame();
         let mut builder = quorra_scene::SceneBuilder::new();
         let mut transient: Vec<ResourceId> = Vec::new();

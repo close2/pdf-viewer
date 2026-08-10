@@ -1621,6 +1621,82 @@ pub fn interpret_with(
     page: &Page,
     state: &crate::view::ViewState,
 ) -> Interpretation {
+    // ISO 32000-2 §11.4.7 puts a colour space under the whole page — "[a]ll page-level
+    // compositing shall be done in the default blending colour space of the page" — and where
+    // that space is `DeviceCMYK` this tree draws the page in it rather than on the device's
+    // three components. §11.3.4 makes the compositing formula per component, so four
+    // components are three plus one: the page is interpreted twice, once carrying cyan,
+    // magenta and yellow and once carrying black, and `pdf_render::blending` puts the two
+    // rasters back together where the clause puts the conversion. ADR 0262.
+    if page_composites_in_cmyk(document, page) {
+        let (chromatic, drawable) = interpret_into(
+            document,
+            page,
+            state,
+            Compositing::Subtractive(crate::colour::Half::Chromatic),
+        );
+        if drawable {
+            let (black, _) = interpret_into(
+                document,
+                page,
+                state,
+                Compositing::Subtractive(crate::colour::Half::Black),
+            );
+            // The two runs differ only in what a colour resolves to, so their geometry is
+            // identical by construction — and this is what checks it, because the halves are
+            // put together per pixel and a command in one and not the other would be
+            // composited against a shape that never drew it. A mismatch falls through to the
+            // device's components and the report, which is the answer that was right before
+            // this round and is still right.
+            let mut chromatic = chromatic;
+            if chromatic.display_list.geometry_digest() == black.display_list.geometry_digest() {
+                chromatic.display_list.set_blending(
+                    crate::colour::device_cmyk_blending_space(),
+                    black.display_list,
+                );
+                return chromatic;
+            }
+        }
+    }
+    interpret_into(document, page, state, Compositing::Device).0
+}
+
+/// Whether §11.4.7's page group states a blending colour space of `DeviceCMYK`.
+///
+/// The one departing space whose components this tree carries. An `ICCBased` space of four
+/// components is §11.4.7's case too and is *not* this: its conversion out is a profile rather
+/// than sixteen corners, so it keeps the report [`Interpreter::note_page_blending_space`]
+/// makes.
+fn page_composites_in_cmyk(document: &Document, page: &Page) -> bool {
+    let attributes = document.get_key(&page.dict, "Group");
+    let Some(attributes) = attributes.as_dict() else {
+        return false;
+    };
+    // §8.10.3 Table 94's `/S`, as [`page_blending_space`] reads it.
+    if document
+        .get_key(attributes, "S")
+        .as_name()
+        .is_none_or(|name| name.as_bytes() != b"Transparency")
+    {
+        return false;
+    }
+    let entry = document.get_key(attributes, "CS");
+    matches!(
+        ColourSpace::parse(document, &entry, &Dictionary::new()),
+        Some(ColourSpace::Cmyk)
+    )
+}
+
+/// One interpretation of a page, into the components `compositing` names.
+///
+/// The second half of the answer is whether the page may be drawn in the blending space it
+/// states — see [`Interpreter::blending_undrawable`], which is what decides it.
+fn interpret_into(
+    document: &Document,
+    page: &Page,
+    state: &crate::view::ViewState,
+    compositing: Compositing,
+) -> (Interpretation, bool) {
     let (content, issues) = page.content_with_report(document);
     let size = displayed_size(page);
     // §6.3.2.2's "unless otherwise instructed", asked once per page and only where a host has
@@ -1669,8 +1745,11 @@ pub fn interpret_with(
         uncoloured: false,
         inside_knockout: false,
         alpha_is_shape: false,
-        compositing: Compositing::Device,
+        compositing,
         blending: page_blending_space(document, page),
+        blending_changed: false,
+        black_generation_stated: false,
+        foreign_colour: false,
     };
 
     for issue in issues {
@@ -1735,7 +1814,8 @@ pub fn interpret_with(
         interpreter.note(Unsupported::Font { detail });
     }
 
-    finished(document, interpreter)
+    let drawable = interpreter.blending_undrawable().is_none();
+    (finished(document, interpreter), drawable)
 }
 
 /// Turns the interpreter's accumulated state into what a caller reads.
@@ -2157,6 +2237,26 @@ struct Interpreter<'a> {
     /// three the device raster already holds, which is what this tree composites in; `Some`
     /// names one that is not, and is what gets reported where it is introduced.
     blending: Option<String>,
+    /// Whether the space in force changed anywhere below the page group.
+    ///
+    /// §11.4.7's page group is drawn in its own space by running the page twice, once per half
+    /// of its four components (`crate::colour::Half`), and that answers the *page*: a group
+    /// inside it that introduces a different space would need its own pair of rasters and a
+    /// conversion between the two spaces at its `Do`. Where one does, the page is drawn on the
+    /// device's components and reported instead — narrowing the page's own condition until it
+    /// stopped firing is the failure this flag exists to avoid.
+    blending_changed: bool,
+    /// Whether any `/ExtGState` on this page states Table 57's `/BG`, `/BG2`, `/UCR` or
+    /// `/UCR2`, which §11.7.5.3 puts inside §10.4.2.4's conversion into a `DeviceCMYK` group.
+    black_generation_stated: bool,
+    /// Whether anything painted on this page had to be converted *into* the blending space.
+    ///
+    /// §11.7.2 requires the conversion and §11.7.5.3 names §10.4.2.4 as the route; this tree's
+    /// conversion *out* of `DeviceCMYK` is not that route's inverse (§10.4.2.1 ranks the two
+    /// branches and ADRs 0009 and 0042 took the higher one), so composing the pair moves a
+    /// colour the clause never asked to move. Recorded rather than done: the page keeps its
+    /// report and is drawn on the device's components. ADR 0262 has the picture.
+    foreign_colour: bool,
 }
 
 impl Interpreter<'_> {
@@ -2197,7 +2297,34 @@ impl Interpreter<'_> {
     /// shading's ramp all have to reach the raster in the same quantity, and the other two
     /// take the same value through `crate::image` and `crate::shading`.
     fn colour(&mut self, space: &ColourSpace, values: &[f32], black_point: BlackPoint) -> Color {
+        self.note_foreign_colour(space);
         convert(space, values, black_point, self.compositing)
+    }
+
+    /// Records a colour §11.7.2 would have to *convert* into the blending space in force.
+    ///
+    /// > If the colour space of a graphics object within the group is not equivalent to the
+    /// > group's blending colour space, then it shall be converted to the group's colour
+    /// > space , and all blending and compositing computations shall be done in that space
+    ///
+    /// Asked wherever a colour reaches a raster, and answered against
+    /// [`crate::colour::ColourSpace::is_subtractive`]. `self.blending` is `None` both on an
+    /// ordinary page and inside a mask group, which is exactly where the question does not
+    /// arise: a mask group is composited in the quantity §11.5.3 reduces it to (ADR 0220) and
+    /// its colours never reach the page's raster.
+    fn note_foreign_colour(&mut self, space: &ColourSpace) {
+        if self.blending.is_some() && !space.is_subtractive() {
+            self.foreign_colour = true;
+        }
+    }
+
+    /// [`Self::note_foreign_colour`] for a `/ColorSpace` entry that has not been parsed.
+    fn note_foreign_space(&mut self, entry: &Object, resources: &Dictionary) {
+        if self.blending.is_some()
+            && !crate::colour::names_subtractive_components(self.document, entry, resources)
+        {
+            self.foreign_colour = true;
+        }
     }
 
     /// Reports a blend mode inside a mask group whose channel is more than one component.
@@ -3281,6 +3408,20 @@ impl Interpreter<'_> {
             return;
         };
 
+        // Table 57's `/BG`, `/BG2`, `/UCR` and `/UCR2`, which this tree does not evaluate.
+        // They matter to exactly one thing it does: §11.7.5.3 makes them the functions
+        // §10.4.2.4 uses "[w]hen painting an elementary object with a DeviceRGB colour
+        // directly into a transparency group whose colour space is DeviceCMYK", which is
+        // every non-subtractive colour on a page §11.4.7 composites in `DeviceCMYK`. A page
+        // that states one is therefore drawn with the wrong black generation and is not drawn
+        // in its blending space at all — the flag is monotone for the page, because the state
+        // they were set in is not the only place they apply.
+        if ["BG", "BG2", "UCR", "UCR2"]
+            .iter()
+            .any(|key| !matches!(self.document.get_key(dict, key), Object::Null))
+        {
+            self.black_generation_stated = true;
+        }
         if let Some(alpha) = self.document.get_key(dict, "ca").as_number() {
             state.fill_alpha = clamp_unit(alpha);
         }
@@ -3951,6 +4092,7 @@ impl Interpreter<'_> {
         let introduced = (entered != self.blending)
             .then(|| entered.clone())
             .flatten();
+        self.blending_changed |= entered != self.blending;
         let outside = std::mem::replace(&mut self.blending, entered);
         self.run(content, resources, &inner, form_depth.saturating_add(1));
         self.blending = outside;
@@ -4120,26 +4262,66 @@ impl Interpreter<'_> {
     /// > converted to the native colour space of the output device before being composited
     /// > with the context-dependent backdrop.
     ///
-    /// This tree does the two in the other order — every colour converted to the device's
-    /// components as it is set, and the compositing done there — which is the same picture
-    /// only where the conversion is affine over the colours involved, and this tree's
-    /// `DeviceCMYK` conversion is multilinear over the ink cube (ADRs 0009, 0042) and is not.
-    /// ADR 0251 has the measurement: up to 48 of 255 over 300 000 random pairs, and 51.5 at a
-    /// half-opaque registration black over paper.
+    /// A `DeviceCMYK` page is drawn in those two orders' *agreeing* form since ADR 0262: the
+    /// page is interpreted twice, once per half of the space's four components, and
+    /// `pdf_render::blending` converts the pair where the clause puts the conversion. This
+    /// fires for what is left — a page whose space this tree cannot carry in four components,
+    /// or one where the four would not answer the question — and only on the pass that
+    /// composites on the device, since the subtractive passes are the ones that do not depart.
     ///
     /// Conditioned on something compositing, for [`Interpreter::note_group_departures`]'
     /// reason: an opaque `Normal` paint carries its colour through whatever space it is
     /// carried through, so a page of them is the same page in either.
     fn note_page_blending_space(&mut self) {
+        if self.compositing != Compositing::Device {
+            return;
+        }
         let Some(name) = self.blending.clone() else {
             return;
         };
         if !any_command(self.list.commands(), &command_composites) {
             return;
         }
+        let because = self
+            .blending_undrawable()
+            .unwrap_or("its four components are not this tree's four: only /DeviceCMYK is carried");
         self.note(Unsupported::TransparencyGroup {
-            detail: format!("the page group's blending colour space {name} (§11.4.7)"),
+            detail: format!("the page group's blending colour space {name} (§11.4.7): {because}"),
         });
+    }
+
+    /// Why this page cannot be drawn in the blending space it states, or `None` if it can.
+    ///
+    /// Three conditions, each of which is a *different* clause asking for something the pair
+    /// of rasters does not carry, and each named rather than folded into the others.
+    fn blending_undrawable(&self) -> Option<&'static str> {
+        if self.foreign_colour {
+            return Some(
+                "a colour outside it is painted into it (§11.7.2), and the conversion in \
+                 (§10.4.2.4) is not the inverse of the conversion out (§10.3, ADR 0009)",
+            );
+        }
+        if self.blending_changed {
+            return Some(
+                "a group inside it composites in a different space (§11.6.6), which needs a \
+                 conversion between the two at its Do",
+            );
+        }
+        if self.black_generation_stated {
+            return Some(
+                "an /ExtGState states Table 57's black generation or undercolour removal, which \
+                 §11.7.5.3 puts inside the conversion into the space",
+            );
+        }
+        if any_command(self.list.commands(), &|command: &Command| {
+            !command.blend().is_separable()
+        }) {
+            return Some(
+                "a non-separable blend mode gives the black component a rule of its own \
+                 (§11.3.5.3), and neither raster has a blend function that states it",
+            );
+        }
+        None
     }
 
     /// Reports the parts of §11.4 this group asks for and does not get.
@@ -4842,6 +5024,17 @@ impl Interpreter<'_> {
         {
             self.stencil_through_a_pattern(stream, name, resources, state);
             return;
+        }
+
+        // §8.9.6.2's stencil paints the *current colour*, which `Interpreter::colour` has
+        // already asked about; every other image carries its own space and this asks about
+        // that one, for `note_foreign_colour`'s reason.
+        if !matches!(
+            self.document.get_key(&stream.dict, "ImageMask"),
+            Object::Boolean(true)
+        ) {
+            let declared = self.document.get_key(&stream.dict, "ColorSpace");
+            self.note_foreign_space(&declared, resources);
         }
 
         // A PDF image occupies the unit square in user space, so the command's transform is
@@ -6488,6 +6681,13 @@ impl Interpreter<'_> {
             self.rect_clip(corners, state.transform, state.clip)
                 .or(state.clip)
         });
+        // §8.7.4.3 Table 78's `/ColorSpace`, asked for `note_foreign_colour`'s reason: a
+        // shading's ramp is colour reaching a raster by a route that is not an operator.
+        let declared = crate::shading::dictionary_of(self.document, &object)
+            .map_or(Object::Null, |dict| {
+                self.document.get_key(&dict, "ColorSpace")
+            });
+        self.note_foreign_space(&declared, resources);
         match self.shadings.build(
             self.document,
             &object,
@@ -6589,6 +6789,11 @@ impl Interpreter<'_> {
         // painted a thousand times states the same one every time.
         let shading_object = dict.get("Shading").cloned().unwrap_or(Object::Null);
 
+        let declared = crate::shading::dictionary_of(self.document, &shading_object)
+            .map_or(Object::Null, |dict| {
+                self.document.get_key(&dict, "ColorSpace")
+            });
+        self.note_foreign_space(&declared, resources);
         match self.shadings.build(
             self.document,
             &shading_object,

@@ -173,6 +173,25 @@ impl Rasterizer for CpuRasterizer {
 
         self.encode_in_strips(&mut pixmap, list, target)?;
 
+        // §11.4.7 puts a colour space under the whole page — "[a]ll page-level compositing
+        // shall be done in the default blending colour space of the page, and the entire
+        // result shall then ... be converted to the native colour space of the output device
+        // before being composited with the context-dependent backdrop". Where that space has
+        // four components the interpreter hands over a second page whose colours carry the
+        // fourth, drawn on the same geometry under the same shapes and opacities, and the two
+        // rasters are put back together here — *before* `impose_on_medium`, which is where
+        // the clause puts the conversion. See `pdf_render::blending`.
+        if let (Some(space), Some(black)) = (list.blending(), list.black()) {
+            let mut ink = tiny_skia::Pixmap::new(target.width, target.height).ok_or(
+                CpuRasterError::Allocation {
+                    width: target.width,
+                    height: target.height,
+                },
+            )?;
+            self.encode_in_strips(&mut ink, black, target)?;
+            pdf_render::resolve_blending(pixmap.data_mut(), ink.data(), space);
+        }
+
         // §11.4.7's page group is isolated, so the medium's colour is composited with the
         // finished page rather than being the backdrop its blend modes saw. Before the
         // conversion below, because `tiny-skia`'s pixels are premultiplied here and that is

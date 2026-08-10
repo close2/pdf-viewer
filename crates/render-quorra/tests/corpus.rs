@@ -126,7 +126,17 @@ const MIN_STRUCTURAL_SIMILARITY: f64 = 0.99;
 /// `issue18032.pdf` — which is the check that the display list gained the construction exactly
 /// where the report left. `doc/QUORRA_FEEDBACK.md` section 16 is the request: a group buffer a
 /// caller can have seeded from the layer beneath it.
-const REFUSED: [&str; 9] = [
+///
+/// **A tenth in the four-hundred-and-twenty-sixth, and it is the third time this has happened
+/// for the third reason.** ADR 0262 draws §11.4.7's page group in the `DeviceCMYK` blending
+/// space it states, by interpreting the page twice — once per half of the space's four
+/// components — and putting the two rasters together at the end. A `quorra_scene::Scene`
+/// renders one, so the backend refuses the list by name; `personwithdog.pdf` is the corpus's
+/// one such page and it used to be *reported* rather than drawn, so this is a refusal replacing
+/// a report rather than an agreement. `doc/QUORRA_FEEDBACK.md` section 17 is the request, and it
+/// is a small one: nothing new in the scene vocabulary, only a way to render one scene into two
+/// targets or to run the pipeline twice and hand back both readbacks.
+const REFUSED: [&str; 10] = [
     "bug1721218_reduced.pdf",
     "bug1755507.pdf",
     "issue12798_page1_reduced.pdf",
@@ -136,6 +146,7 @@ const REFUSED: [&str; 9] = [
     "knockout_nested.pdf",
     "knockout_nested_group_alpha.pdf",
     "knockout_smask.pdf",
+    "personwithdog.pdf",
 ];
 
 /// Pages where the two rasterisers differ only at the **edges** of what they draw.

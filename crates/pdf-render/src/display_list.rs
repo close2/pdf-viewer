@@ -529,6 +529,11 @@ pub struct DisplayList {
     /// the alternative — a map keyed by the clip itself — would store a second copy of every
     /// clipping path. A collision costs one `PartialEq`, which is what decides the answer.
     clip_index: BTreeMap<u64, Vec<ClipId>>,
+    /// §11.4.7's blending colour space, where it is one whose components this list carries in
+    /// two rasters rather than one. See [`DisplayList::set_blending`].
+    blending: Option<crate::blending::BlendingSpace>,
+    /// The same page, drawn in the black component of that space.
+    black: Option<Box<DisplayList>>,
 }
 
 impl DisplayList {
@@ -541,6 +546,82 @@ impl DisplayList {
             clips: Vec::new(),
             soft_masks: Vec::new(),
             clip_index: BTreeMap::new(),
+            blending: None,
+            black: None,
+        }
+    }
+
+    /// States that this page composites in a four-component blending colour space.
+    ///
+    /// ISO 32000-2 §11.4.7: "[a]ll page-level compositing shall be done in the default
+    /// blending colour space of the page". `black` is the same page drawn in the fourth
+    /// component of that space, with identical geometry, shapes and opacities — see
+    /// [`crate::blending`] for why two rasters answer four components, and
+    /// [`DisplayList::geometry_digest`] for what a caller must check before calling this.
+    ///
+    /// A backend that cannot draw a page twice and put the halves together must refuse a list
+    /// whose [`DisplayList::blending`] is `Some`, because the colours it holds are ink and not
+    /// light: drawing the chromatic list alone would paint the page in the complements of
+    /// cyan, magenta and yellow with no black at all.
+    pub fn set_blending(&mut self, space: crate::blending::BlendingSpace, black: DisplayList) {
+        self.blending = Some(space);
+        self.black = Some(Box::new(black));
+    }
+
+    /// The blending colour space this page composites in, where it is not the device's.
+    #[must_use]
+    pub fn blending(&self) -> Option<&crate::blending::BlendingSpace> {
+        self.blending.as_ref()
+    }
+
+    /// The companion list carrying the blending space's fourth component.
+    #[must_use]
+    pub fn black(&self) -> Option<&DisplayList> {
+        self.black.as_deref()
+    }
+
+    /// A digest of everything about this list that is *not* a colour.
+    ///
+    /// The two lists [`DisplayList::set_blending`] pairs are two interpretations of one page
+    /// that differ only in which components of the blending space each colour was resolved
+    /// into, so their geometry, clips, masks, blend modes and nesting are identical by
+    /// construction. This is what checks that they are: the halves are put back together per
+    /// pixel, so a command present in one and absent from the other would be composited
+    /// against a shape that never drew it, and no gate in this tree would see the result as
+    /// anything but a wrong colour.
+    ///
+    /// Deliberately cheap and structural — variants, counts, transforms, identifiers and path
+    /// lengths — rather than a second `PartialEq` with colours masked out: this runs on every
+    /// page that states such a space, and what it is guarding against is a *structural*
+    /// divergence rather than a numerical one.
+    #[must_use]
+    pub fn geometry_digest(&self) -> u64 {
+        let mut hasher = std::hash::DefaultHasher::new();
+        self.clips.len().hash(&mut hasher);
+        self.soft_masks.len().hash(&mut hasher);
+        Self::hash_commands(&self.commands, &mut hasher);
+        hasher.finish()
+    }
+
+    /// [`DisplayList::geometry_digest`] over one level of commands, recursing into groups.
+    fn hash_commands(commands: &[Command], hasher: &mut std::hash::DefaultHasher) {
+        commands.len().hash(hasher);
+        for command in commands {
+            std::mem::discriminant(command).hash(hasher);
+            command.clip().map(ClipId::index).hash(hasher);
+            command.mask().map(SoftMaskId::index).hash(hasher);
+            std::mem::discriminant(&command.blend()).hash(hasher);
+            if let Some(path) = command.path() {
+                path.commands().len().hash(hasher);
+            }
+            match command {
+                Command::Group { commands, .. } => Self::hash_commands(commands, hasher),
+                Command::Shaped { object, shape, .. } => {
+                    Self::hash_commands(std::slice::from_ref(object.as_ref()), hasher);
+                    Self::hash_commands(std::slice::from_ref(shape.as_ref()), hasher);
+                }
+                _ => {}
+            }
         }
     }
 

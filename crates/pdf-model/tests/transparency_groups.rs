@@ -934,7 +934,7 @@ fn page_group_fixture(page_group: &str, form_group: &str, form: &str, page: &str
         "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] {page_group} \
-         /Resources << /ExtGState << /GS << /ca 0.5 /CA 0.5 >> >> \
+         /Resources << /ExtGState << /GS << /ca 0.5 /CA 0.5 >> /GH << /BM /Hue >> >> \
          /XObject << /Fm 5 0 R >> >> /Contents 4 0 R >>\nendobj\n\
          4 0 obj\n<< /Length {} >>\nstream\n{page}\nendstream\nendobj\n\
          5 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] {form_group} \
@@ -1148,4 +1148,113 @@ fn compositing_in_cmyk_is_not_compositing_in_the_device_and_this_is_the_gap() {
              {converted_first:?}"
         );
     }
+}
+
+/// Paper laid down opaque, then half of registration black over it.
+///
+/// The backdrop has to be *painted* rather than left to the medium: §11.4.7 makes the page
+/// group isolated, so an unpainted pixel is transparent and the medium is composited with the
+/// page's result **after** the conversion out of the blending space — where both orders of
+/// operation agree. What tells them apart is a composite that happens inside the page, and
+/// `0 0 0 0 k` is the paper written as ink.
+const INK_OVER_PAPER: &str = "0 0 0 0 k 0 0 100 100 re f\n\
+                              /GS gs 1 1 1 1 k 0 0 100 100 re f";
+
+/// §11.4.7's page group, drawn in the space it names rather than on the device's components.
+///
+/// > All page-level compositing shall be done in the default blending colour space of the
+/// > page, and the entire result shall then, if the colour spaces are not equivalent, be
+/// > converted to the native colour space of the output device before being composited with
+/// > the context-dependent backdrop.
+///
+/// Half of registration black over paper is the fixture ADR 0251 priced this population with:
+/// composited in ink it is `[0.5, 0.5, 0.5, 0.5]`, which is the average of the ink cube's
+/// sixteen corners and **76 of 255** in red; composited on the device it is the average of
+/// black and white, **127.5**. The old route is put back by the second half of the test, which
+/// states no `/CS` at all and gets 127 — so the number this asserts is a difference this round
+/// made rather than a number that was already there.
+#[test]
+fn a_page_group_in_ink_composites_in_ink() {
+    let ink = interpret(page_group_fixture(
+        "/Group << /S /Transparency /CS /DeviceCMYK >>",
+        "",
+        "",
+        INK_OVER_PAPER,
+    ));
+    assert!(
+        !format!("{:?}", ink.unsupported).contains("blending colour space"),
+        "the page is drawn in the space it states: {:?}",
+        ink.unsupported
+    );
+    let drawn = pixel(&ink, 50, 50);
+    assert_eq!(
+        drawn[3], 255,
+        "the paper underneath is opaque, so the pixel is"
+    );
+    assert!(
+        (75..=77).contains(&drawn[0]),
+        "half of registration black over paper is the cube's own average, 76 of 255: {drawn:?}"
+    );
+
+    // The old route, stated by a page that names no blending space: the two colours are
+    // converted first and averaged on the device's components, which is 127.5.
+    let device = interpret(page_group_fixture("", "", "", INK_OVER_PAPER));
+    let plain = pixel(&device, 50, 50);
+    assert!(
+        (127..=128).contains(&plain[0]),
+        "converting first and averaging gives 127.5 of 255: {plain:?}"
+    );
+}
+
+/// A colour §11.7.2 would have to convert *into* the blending space keeps the page reported.
+///
+/// > If the colour space of a graphics object within the group is not equivalent to the
+/// > group's blending colour space, then it shall be converted to the group's colour space ,
+/// > and all blending and compositing computations shall be done in that space
+///
+/// §11.7.5.3 names §10.4.2.4 as that conversion, and §10.4.2.1 packages §10.4.2.2 to §10.4.2.5
+/// as what a processor uses *instead of* §10.3 — which is the branch ADRs 0009 and 0042 put
+/// this tree's conversion out of `DeviceCMYK` on. Composing the two moves a colour the clause
+/// never asked to move, so the page is drawn as before and says so. ADR 0262.
+#[test]
+fn a_colour_from_outside_the_blending_space_is_reported_rather_than_converted_into_it() {
+    let mixed = interpret(page_group_fixture(
+        "/Group << /S /Transparency /CS /DeviceCMYK >>",
+        "",
+        "",
+        "0 0 0 0 k 0 0 100 100 re f\n\
+         q /GS gs 1 1 1 1 k 0 0 100 100 re f Q\n\
+         1 0 0 rg 0 0 10 10 re f",
+    ));
+    let reported = format!("{:?}", mixed.unsupported);
+    assert!(
+        reported.contains("a colour outside it is painted into it"),
+        "the conversion into the space is what is missing: {reported}"
+    );
+    // And the red is the red the file states, not the red process inks print for it.
+    assert_eq!(pixel(&mixed, 5, 95)[0..3], [255, 0, 0]);
+}
+
+/// §11.3.5.3's non-separable modes give the black component a rule of its own.
+///
+/// > For the K component, the result shall be the K component of Cb for the Hue , Saturation ,
+/// > and Color blend modes; it shall be the K component of Cs for the Luminosity blend mode.
+///
+/// Which is a blend function neither raster has: the pair of passes carries three components
+/// in one and the fourth in the other, and each is composited by the backend's own separable
+/// arithmetic. Reported by name rather than drawn with the chromatic rule applied to black.
+#[test]
+fn a_non_separable_blend_keeps_a_page_group_on_the_devices_components() {
+    let blended = interpret(page_group_fixture(
+        "/Group << /S /Transparency /CS /DeviceCMYK >>",
+        "",
+        "",
+        "0 0 0 0 k 0 0 100 100 re f\n\
+         /GH gs 1 1 1 1 k 0 0 100 100 re f",
+    ));
+    let reported = format!("{:?}", blended.unsupported);
+    assert!(
+        reported.contains("non-separable blend mode"),
+        "§11.3.5.3's rule for the black component is what is missing: {reported}"
+    );
 }

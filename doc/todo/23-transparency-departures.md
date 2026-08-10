@@ -4,29 +4,74 @@ Status: each reported where it can change a pixel. **§11.5.3's population is cl
 branch was taken in the three-hundred-and-eightieth session (ADR 0217) and both residues in the
 three-hundred-and-eighty-third (ADR 0220) — **§11.4.6's shape is closed in the
 three-hundred-and-ninety-seventh** (ADR 0234), and **§11.4.4's non-isolated group is drawn since
-the four-hundredth** (ADR 0237). One population stands, plus the residues inside the closed ones.
-**The four-hundred-and-fifteenth session found that the standing one was the wrong population** and
-priced what is left of it against the clause's own arithmetic (ADR 0251).
+the four-hundredth** (ADR 0237). The four-hundred-and-fifteenth found the standing population was
+the wrong one and priced what is left of it (ADR 0251); **the four-hundred-and-twenty-sixth built
+what it priced and found the price was for the wrong half** (ADR 0262).
 Priority: 23
-Corpus: 9 documents
-Clauses: §11.4.4, §11.4.6, §11.4.7, §11.6.6
-Code: `crates/pdf-model/src/content.rs`, `crates/pdf-render/src/display_list.rs`,
-`crates/render-cpu/src/blend.rs`
+Corpus: 8 documents
+Clauses: §11.4.4, §11.4.7, §11.6.6, §11.7.2, §11.7.5.3
+Code: `crates/pdf-model/src/content.rs`, `crates/pdf-model/src/colour.rs`,
+`crates/pdf-render/src/blending.rs`, `crates/render-cpu/src/lib.rs`
 
-| | corpus | what it is |
-|---|---|---|
-| a blending colour space that is not the device's three components, **wherever the file puts it** | 7 | all `/DeviceCMYK`; 1 by §11.6.6's isolated group, 6 by §11.4.7's page group. **Still owed** |
-| ~~a non-isolated group NOTE 5 cannot flatten~~ | ~~6~~ → 3 | **the non-knockout ones closed** in the 400th, ADR 0237; what is left is knockout, below |
-| ~~a soft-mask group with such a space~~ | ~~7~~ → 0 | **closed** in the 380th and 383rd, ADRs 0217 and 0220 |
-| ~~a knockout element whose shape is not its coverage~~ | ~~5~~ → 0 | **closed** in the 397th, ADR 0234 |
+| | corpus | of 69 web witnesses | what it is |
+|---|---|---|---|
+| **a conversion *into* the blending space** (§11.7.2) | 5 | 61 | **the standing item.** §10.4.2.4 is not the inverse of this tree's conversion out |
+| a four-component `ICCBased` blending space | 0 | 6 | its conversion out is a profile rather than sixteen corners |
+| a group inside the page composites in a different space (§11.6.6) | 1 | 3 | needs a conversion between two spaces at the `Do` |
+| a non-separable blend mode on such a page (§11.3.5.3) | 1 | 2 | the black component has a rule of its own |
+| an `/ExtGState` states `/BG`, `/BG2`, `/UCR` or `/UCR2` (§11.7.5.3) | 0 | 1 | **was silent until the 426th** |
+| ~~the four components themselves~~ | — | — | **closed in the 426th, ADR 0262: two rasters, no new format** |
+| ~~a non-isolated group NOTE 5 cannot flatten~~ | ~~6~~ → 3 | | **the non-knockout ones closed** in the 400th, ADR 0237; what is left is knockout, below |
+| ~~a soft-mask group with such a space~~ | ~~7~~ → 0 | | **closed** in the 380th and 383rd, ADRs 0217 and 0220 |
+| ~~a knockout element whose shape is not its coverage~~ | ~~5~~ → 0 | | **closed** in the 397th, ADR 0234 |
 
-Each remaining one is refused *by name* rather than approximated, which is the rule that keeps the
-corpus count honest. The nine documents are `bug1703683_page2_reduced`, `bug1721218_reduced`,
-`bug1755507`, `issue12798_page1_reduced`, `issue13520`, `issue18032` and `personwithdog` for the
-blending space, and `issue18032`, `knockout_blend_multiply` and `knockout_inner_backdrop` for what
-§11.4.4 still refuses — two lists overlapping on one file.
+Each remaining one is refused *by name* rather than approximated, and since the four-hundred-and-
+twenty-sixth the name says **which** of the five conditions fired. The eight documents are
+`bug1703683_page2_reduced`, `bug1721218_reduced`, `bug1755507`, `issue12798_page1_reduced`,
+`issue13520` and `issue18032` for the blending space, and `issue18032`,
+`knockout_blend_multiply` and `knockout_inner_backdrop` for what §11.4.4 still refuses — two lists
+overlapping on one file. `personwithdog.pdf` left in the four-hundred-and-twenty-sixth, which drew
+it.
 
-## The blending space was the wrong four documents, and the reason is a condition nobody applied
+## The four components were two rasters, and that is closed
+
+**§11.3.4 applies the compositing formula per component** — "[t]he i th component of the result
+colour 𝐶𝑟 shall be obtained by applying the compositing formula to the i th components of the
+constituent colours" — so a rasteriser with three channels composites four by drawing the page
+twice with a different three loaded. `Compositing::Subtractive(Half)` is which three; both halves
+carry §11.3.4's additive complements, so the blend functions see what that clause requires without
+anything being complemented around them; `pdf_render::BlendingSpace` carries the conversion out as
+the ink cube's sixteen corners and `blending::resolve` applies it where §11.4.7 does, before the
+medium. `render-gpu` and `render-quorra` refuse the list (`QUORRA_FEEDBACK.md` section 17).
+
+**ADR 0251's "second raster format" is therefore withdrawn as a requirement.** It was a true
+statement about arithmetic — the ink cube is affine on no face of the cube, 48 of 255 at worst —
+attached to a wrong statement about what carrying four components costs.
+
+## What actually blocks the population, and it is a colour conversion
+
+§11.7.2's second sentence, which this tree had read only for its inheritance rule:
+
+> If the colour space of a graphics object within the group is not equivalent to the group's
+> blending colour space, then it shall be converted to the group's colour space , and all blending
+> and compositing computations shall be done in that space
+
+§11.7.5.3 names §10.4.2.4 as that conversion, and §10.4.2.1 packages §10.4.2.2 through §10.4.2.5 as
+what a processor uses **instead of** §10.3 — the branch ADRs 0009 and 0042 put this tree's
+conversion *out* of `DeviceCMYK` on. The standard's own pair round-trips exactly; one branch
+composed with the other does not, and ADR 0262 has the picture: a webinar flyer whose green panel
+comes back grey-green and whose `0 g` text comes back the process black `#231F20`, neither of them
+a mark that composites with anything.
+
+**So a page is drawn in its blending space only where every colour painted into it is already in
+that space**, and 61 of the 69 web witnesses are not. What closes them is a conversion into
+`DeviceCMYK` on §10.3's branch — a right inverse of the press ADR 0009 assumes, with gamut mapping
+where no preimage exists, which is a colour-management round of its own and not a transparency one.
+Two measurements to start it from, both taken in the four-hundred-and-twenty-sixth: exempting
+`DeviceGray` alone would take the 62 remaining reports to **43**, and taking §10.4.2.4 as written
+would take them to **10** at the cost of every non-`DeviceCMYK` colour on those pages.
+
+## How the population was found: the blending space was the wrong four documents
 
 **This file said "4 documents, all `/DeviceCMYK`" for eighteen sessions and three of the four were
 reported for the wrong reason or for no reason at all.** §11.6.6 gives a group's `/CS` effect "[f]or
@@ -49,7 +94,7 @@ anything is printing the *effective* space beside the declared one. 115 of the 9
 page group `/CS`; 7 of those name a space that is not the device's three components; 71 group
 dictionaries declare `/DeviceCMYK` and 96 groups actually composite in it.
 
-## The one that stands, priced against the clause rather than predicted
+## How it was priced in the four-hundred-and-fifteenth, and what survived that pricing
 
 **A second raster format is genuinely required, and ADR 0217 gave the wrong reason for it.** The
 reason was "a painted group's result is three components"; the number of components has nothing to
@@ -74,12 +119,12 @@ over paper is `[76.0, 66.1, 63.9]` in `DeviceCMYK` against `[127.5, 127.5, 127.5
 **51.5 of 255**, and `compositing_in_cmyk_is_not_compositing_in_the_device_and_this_is_the_gap` pins
 it and its control.
 
-**So what is owed is a four-component raster per group**, with §11.3.4's complement-before-and-after
-around every blend function, images and shadings painted into it, and three backends taught the
-format — `quorra_scene::GroupSpec` and Vello's layers are both RGBA. And it is owed to a *decision*
-rather than to the clause, which is where it should be argued next: §10.4.2.1 ranks §10.3's ICC
-route above §10.4.2's "crude approximations", ADRs 0009 and 0042 took the first, and §10.4.2.5's
-ledger row now records that this is what it costs.
+**ADR 0251 concluded from this that a four-component raster was owed**, and the arithmetic above
+is right while that conclusion is not: §11.3.4's per-component formula makes four components two
+rasters, which the four-hundred-and-twenty-sixth built. What the arithmetic still decides is that
+compositing in ink is a *different picture* and worth having — 51.5 of 255 at the fixture, +0.100
+of 255 over the whole of `personwithdog.pdf` — and that §10.4.2.5's classic conversion is not the
+way to get it, because it is 115 of 255 out at the cube's corners.
 
 ## The non-isolated group, and why it fell
 
@@ -159,5 +204,7 @@ Plus: source-over there is 32 of 255 out at a half-covered pixel under a half-op
 quantity §11.5.3 composites (ADR 0220), a knockout element states its shape beside its colour
 (ADR 0234), and a group names the backdrop its elements composite onto (ADR 0237). In each the
 missing quantity turned out to be sayable in a command — three times as a second command or a second
-raster, once as a flag over an identity nobody had derived. A group's own four components are not:
-they are a *format*, and the arithmetic above is what says so rather than an assertion that they are.
+raster, once as a flag over an identity nobody had derived. **This one is among them after all**: a
+page's four components are a second *list*, which is the same shape a fifth time, and the paragraph
+that used to stand here said they were a format and were not sayable. What is not sayable in a
+command is the one thing left — a colour conversion, which is not a quantity at all.
