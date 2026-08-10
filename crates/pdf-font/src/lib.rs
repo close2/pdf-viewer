@@ -390,11 +390,14 @@ pub struct LoadedFont {
     /// never reaches the list at all, and 256 AGL searches is not a cost to pay on the page-one
     /// path for nothing (`CLAUDE.md` principle 2).
     agl_by_code: OnceCell<Box<[Option<String>; 256]>>,
-    /// §9.10.2's last resort: what the *program* calls the glyph a code selected.
+    /// §9.10.2's last resort: what the *program* calls each glyph it defines.
     ///
-    /// One entry per code of a simple font, built once and only for a font that reaches this
-    /// far — see [`LoadedFont::text`], which is the only reader and explains the choice.
-    post_by_code: OnceCell<Box<[Option<char>; 256]>>,
+    /// Keyed by glyph index rather than by character code, which is what lets one table serve
+    /// both routes into it: a simple font arrives by code through `/Encoding`, and a composite
+    /// font by CID through its `CMap` and `/CIDToGIDMap`. Built once and only for a font that
+    /// reaches this far — see [`LoadedFont::text_from_program`], which is the only reader and
+    /// explains the choice the clause permits.
+    program_by_glyph: OnceCell<BTreeMap<u16, char>>,
 }
 
 impl std::fmt::Debug for LoadedFont {
@@ -597,7 +600,7 @@ impl LoadedFont {
             outlines: RefCell::new(BTreeMap::new()),
             codes_by_character: OnceCell::new(),
             agl_by_code: OnceCell::new(),
-            post_by_code: OnceCell::new(),
+            program_by_glyph: OnceCell::new(),
         })
     }
 
@@ -733,7 +736,7 @@ impl LoadedFont {
             outlines: RefCell::new(BTreeMap::new()),
             codes_by_character: OnceCell::new(),
             agl_by_code: OnceCell::new(),
-            post_by_code: OnceCell::new(),
+            program_by_glyph: OnceCell::new(),
         })
     }
 
@@ -844,56 +847,90 @@ impl LoadedFont {
     /// `issue15910.pdf` needs the second, because its `post` is version 2.0 with every name an
     /// empty string — a table that satisfies the format and states nothing.
     ///
-    /// Only for a simple font: a composite one selects by CID through a `CMap`, and §9.10.2's
-    /// third method is the route the clause states for those.
+    /// **A composite font reaches this too, and it did not until the four-hundred-and-twenty-third
+    /// session.** This function used to refuse one outright, on the note that "a composite one
+    /// selects by CID through a `CMap`, and §9.10.2's third method is the route the clause states
+    /// for those" — which reads the clause's third method as though it applied to every composite
+    /// font. It does not, and the clause says so in its own first line:
+    ///
+    /// > If the font is a composite font that uses one of the predefined CMaps listed in
+    /// > "Table 116 -Predefined CJK CMap names" (except Identity -H and Identity -V ) or whose
+    /// > descendant CIDFont uses the Adobe-GB1, Adobe-CNS1, Adobe-Japan1, Adobe-Korea1
+    /// > (deprecated in PDF 2.0 (2020)) or Adobe-KR (added in PDF 2.0 (2020)) character
+    /// > collection
+    ///
+    /// An `Identity-H` font whose descendant is `Adobe-Identity` is excluded by name from the
+    /// third method and cannot use the second, so a `/ToUnicode` that answers nothing leaves
+    /// *every* method failed — which is the precondition of the permission quoted above, and the
+    /// refusal declined it. Three documents in `doc/corpora/pdfbox` are that shape and all three
+    /// read back short or blank while reporting nothing: `PDFBOX-4322-Empty-ToUnicode-reduced.pdf`
+    /// (a `/ToUnicode` that is a copy of the `Identity-H` CID `CMap`, so it holds no `bfchar` or
+    /// `bfrange` at all and §9.10.3 requires those), `PDFBOX-5838-0024320-reduced.pdf` (a
+    /// `/ToUnicode` covering 8 of its 15 codes, reading `H Reeach Pec` for
+    /// `Honors Research Project`) and `sample_fonts_solidconvertor.pdf` (two fonts whose
+    /// `/ToUnicode` is the *name* `/Identity-H`, two whole lines of the page read back as
+    /// nothing).
+    ///
+    /// The route is the same data in the same order, one step longer: the `CMap` gives a CID,
+    /// §9.7.4.2's `/CIDToGIDMap` gives the glyph, and the program then names it. Nothing here is
+    /// a guess about a code — it is the program's statement about a glyph the file's own tables
+    /// selected.
     fn text_from_program(&self, code: Code, out: &mut String) -> bool {
-        if !matches!(self.mapping, CodeMapping::Named(_)) {
-            return false;
-        }
-        let table = self.post_by_code.get_or_init(|| {
-            let mut table = Box::new([None; 256]);
-            let Ok(font) = FontRef::new(&self.data) else {
-                return table;
-            };
-            let Ok(post) = font.post() else {
-                return table;
-            };
-            // The program's own Unicode subtable, inverted. Built once and only where the
-            // `post` table left something unanswered, because it walks every mapping the font
-            // states — a few hundred for a subset, and a few thousand for a full CJK face.
-            let mut by_glyph: Option<BTreeMap<u16, char>> = None;
-            for (code, slot) in table.iter_mut().enumerate() {
-                let Some(glyph) = u32::try_from(code)
-                    .ok()
-                    .and_then(|code| self.glyph_for_selector(code))
-                else {
-                    continue;
-                };
-                *slot = post
-                    .glyph_name(skrifa::raw::types::GlyphId16::new(glyph))
-                    .filter(|name| !name.is_empty())
-                    .and_then(read_fonts::ps::agl::name_to_char)
-                    .or_else(|| {
-                        by_glyph
-                            .get_or_insert_with(|| invert_charmap(&font))
-                            .get(&glyph)
-                            .copied()
-                    });
+        let glyph = match &self.mapping {
+            CodeMapping::Named(_) => self.glyph_for_selector(code.value()),
+            // §9.7.6.3's notdef fallbacks are deliberately not taken here, which is why this
+            // is not `glyph_for`: a code that reached CID 0 drew a substitute, and naming
+            // what the substitute is called would put a character on a page that shows none.
+            CodeMapping::Composite { cmap, .. } => {
+                cmap.cid(code).and_then(|cid| self.glyph_for_selector(cid))
             }
-            table
-        });
-        match usize::try_from(code.value())
-            .ok()
-            .and_then(|code| table.get(code))
-            .copied()
-            .flatten()
-        {
+            // A substitute is reached through what a code *means*, so there is no glyph of
+            // the document's own to ask about.
+            CodeMapping::Substituted { .. } => None,
+        };
+        match glyph.and_then(|glyph| self.program_characters().get(&glyph).copied()) {
             Some(character) => {
                 out.push(character);
                 true
             }
             None => Self::text_from_the_code(code, out),
         }
+    }
+
+    /// What the embedded program calls each glyph it defines, built once.
+    ///
+    /// [`LoadedFont::text_from_program`] states the two sources and their order; this is where
+    /// they are read. The `post` table is applied second so that it overwrites the inverted
+    /// `cmap`, which is that order.
+    ///
+    /// **Both are read at once, where the `cmap` used to be inverted only for a glyph the `post`
+    /// table left unanswered.** The laziness was worth having while only a simple font arrived
+    /// here and its `post` usually answered; a subset embedded for a composite font is normally
+    /// `post` version 3.0, which holds no names at all, so the second source is needed for
+    /// essentially every glyph and deferring it buys a branch rather than a table walk. The walk
+    /// is one pass over the mappings the font states, once per font, and only for a font that
+    /// got this far.
+    fn program_characters(&self) -> &BTreeMap<u16, char> {
+        self.program_by_glyph.get_or_init(|| {
+            let Ok(font) = FontRef::new(&self.data) else {
+                return BTreeMap::new();
+            };
+            let mut by_glyph = invert_charmap(&font);
+            let Ok(post) = font.post() else {
+                return by_glyph;
+            };
+            let glyphs = font.maxp().map_or(0, |maxp| maxp.num_glyphs());
+            for glyph in 0..glyphs {
+                if let Some(character) = post
+                    .glyph_name(skrifa::raw::types::GlyphId16::new(glyph))
+                    .filter(|name| !name.is_empty())
+                    .and_then(read_fonts::ps::agl::name_to_char)
+                {
+                    by_glyph.insert(glyph, character);
+                }
+            }
+            by_glyph
+        })
     }
 
     /// §9.10.2's last resort, once the program has been asked and has said nothing.
@@ -911,7 +948,19 @@ impl LoadedFont {
     /// whose `post` table names nothing and whose `cmap` is a (3, 0) symbolic subtable — inverting
     /// that gives *codes* rather than Unicode, so every method above correctly declines and a page
     /// reading `ABCDEFGHIJKLMNOPQRSTUVWYZ` read back as nothing.
+    ///
+    /// **A code of more than one byte is declined**, and the guard is written down because the
+    /// argument above is entirely about bytes: §9.6.5's encodings are one byte per code, so a
+    /// two-byte code whose *value* happens to be 0x004A is not "the letter J spelled as a byte",
+    /// it is a `CMap`'s two-byte code that no encoding of the standard's has anything to say
+    /// about. Only a simple font could reach here until composite fonts joined
+    /// [`LoadedFont::text_from_program`], which is why this costs nothing today and would have
+    /// been wrong tomorrow — `PDFBOX-4322-Empty-ToUnicode-reduced.pdf` shows `<004a0075…>` and
+    /// would read back `Justin` from the arithmetic rather than from its font.
     fn text_from_the_code(code: Code, out: &mut String) -> bool {
+        if code.length() != 1 {
+            return false;
+        }
         let Ok(byte) = u8::try_from(code.value()) else {
             return false;
         };

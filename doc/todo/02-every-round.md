@@ -19,13 +19,13 @@ features no file exercises.
 ```sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets      # must be silent of lints
-cargo nextest run --workspace               # 1539 tests, 10 skipped
+cargo nextest run --workspace               # 1542 tests, 11 skipped
 cargo test --workspace --doc                # the one doctest nextest does not run
 cargo build --profile gates -p pdf-sandbox --bins   # trap 10: Cargo will not do this for you
 cargo test  --profile gates -p pdf-model      --test corpus          -- --ignored --nocapture
 cargo build --profile gates -p hayro-compare --bin pdfref-hayro      # trap 10 again, see below
 cargo test  --profile gates -p pdf-model      --test oracle          -- --ignored --nocapture
-cargo test  --profile gates -p pdf-model      --test text_extraction -- --ignored --nocapture
+cargo test  --profile gates -p pdf-model      --test text_extraction -- --ignored --nocapture   # two gates
 cargo test  --profile gates -p pdf-model      --test dates           -- --ignored --nocapture
 cargo test  --profile gates -p pdf-model      --test xmp             -- --ignored --nocapture
 cargo test  --profile gates -p pdf-model      --test jpeg2000        -- --nocapture
@@ -89,13 +89,27 @@ here:
   for the four ways Table 31's `/Contents` reaches a blank page, and eight in the new
   `tools/safedocs` for the archive addressing, the ZIP reading, the two verification checks and
   the budget that refuses a plan — and the gate printed **1539**, so this line was not behind for
-  the fourth.)
+  the fourth. The four-hundred-and-twenty-third added **three** — all in `pdf-model`'s
+  `composite_fonts`, for §9.10.2's permission reaching an `Identity-H` font whose `/ToUnicode`
+  covers part of its codes, for the signature appearance that had been on the text gate's
+  undiagnosed list for 357 sessions, and for the two-byte code this tree declines to read as a
+  character — and the gate printed **1542**, so this line was not behind for the fifth. **The
+  second number moved as well**: that session's new `#[ignore]`d gate against `doc/corpora/pdfbox`
+  takes the skips 10 → **11**, which is only the second time that number has been touched since it
+  was written down.)
 - **One of those eighteen runs a C compiler**, and it is the only gate in this sequence that does.
   `viewer-ffi::a_c_program_drives_the_abi` builds `crates/viewer-ffi/c/open_a_page.c` against the
   crate's own header with `-Wall -Wextra -Werror`, links it against the `cdylib` — which it asks
   cargo to build, because `cargo test` does not — and runs it on a document. It **skips** where
   there is no `cc` or `gcc`, printing why: a machine without a C compiler cannot run it, and
   failing there would make the gate a coin toss. CI has one, so on CI it is not a skip.
+- **Line 28 is two gates since the four-hundred-and-twenty-third**, and it gained the second one
+  without gaining a line: `-- --ignored` runs every ignored test in that binary, and
+  `the_text_we_draw_agrees_with_pdfboxs_frozen_extraction` is one. It compares 40 documents against
+  the `PDFTextStripper` output Apache PDFBox checked in beside them — a *frozen* second reference,
+  which cannot drift under this tree the way the machine's poppler can — and it costs **0.4 s**
+  against the pdf.js gate's 31, because its reference is a file rather than 974 `pdftotext`
+  invocations. That is what "earned a place" was supposed to mean. ADR 0259.
 - **`pdfref-hayro` is the oracle's fourth reading and nothing built it.** It is a *program*, found
   beside the running test binary, and its absence costs no verdict — `Reference::Hayro` never
   votes — but it is what a person looks at on a page the three references cannot settle. Until

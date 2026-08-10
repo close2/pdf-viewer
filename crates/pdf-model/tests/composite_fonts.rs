@@ -506,3 +506,84 @@ fn sfnt_table(program: &[u8], tag: [u8; 4]) -> Option<(usize, usize)> {
     }
     None
 }
+
+/// A `doc/corpora/pdfbox` document, or `None` when that submodule is not checked out.
+///
+/// Same rule as [`corpus_document`]: absent is a skip, present-but-wrong is a panic.
+fn pdfbox_document(name: &str) -> Option<Document> {
+    let path: PathBuf = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../doc/corpora/pdfbox/pdfbox/src/test/resources/input")
+        .join(name);
+    let bytes = std::fs::read(path).ok()?;
+    Some(Document::open(bytes).unwrap_or_else(|e| panic!("{name} does not open: {e}")))
+}
+
+/// Page one's readback.
+fn page_one_text(document: &Document, name: &str) -> String {
+    let page = pdf_model::Pages::new(document)
+        .get(0)
+        .unwrap_or_else(|| panic!("{name} has no page one"));
+    pdf_model::interpret(document, &page).text
+}
+
+/// §9.10.2's third method does not apply to `Identity-H`, so its permission has to.
+///
+/// The clause names the exception itself — the third method is for a composite font using one
+/// of Table 116's predefined `CMap`s "(except Identity -H and Identity -V )" or a descendant in
+/// one of five Adobe collections — so an `Identity-H` font whose descendant is `Adobe-Identity`
+/// has only the first method available. When its `/ToUnicode` answers for some of its codes and
+/// not others, every method has failed for the rest and
+/// `pdf_font::LoadedFont::text_from_program` is the choice the clause permits: the `CMap` gives
+/// a CID, §9.7.4.2's `/CIDToGIDMap` gives the glyph, and the program names it.
+///
+/// `PDFBOX-5838-0024320-reduced.pdf` is the sharpest witness in the tree. Its `/ToUnicode` maps
+/// 8 codes of the 15 the page shows, so the page read back `H Reeach Pec` — a string with no
+/// missing-glyph report attached to it, because nothing was missing except the *names*.
+#[test]
+fn an_identity_h_fonts_partial_to_unicode_is_completed_by_the_program() {
+    let Some(document) = pdfbox_document("PDFBOX-5838-0024320-reduced.pdf") else {
+        println!("skipped: doc/corpora/pdfbox is not checked out");
+        return;
+    };
+    let text = page_one_text(&document, "PDFBOX-5838-0024320-reduced.pdf");
+    assert_eq!(text.trim(), "Honors Research Project");
+}
+
+/// The same clause on the pdf.js corpus, where it had been costing two documents in silence.
+///
+/// `issue16553.pdf` is an Okular signature appearance in an `Identity-H` Noto subset; it sat on
+/// `text_extraction.rs`'s named list for 357 sessions as "partial for reasons nobody has
+/// diagnosed further".
+#[test]
+fn an_identity_h_signature_appearance_reads_back_its_name() {
+    let Some(document) = corpus_document("issue16553.pdf") else {
+        return;
+    };
+    let text = page_one_text(&document, "issue16553.pdf");
+    assert!(
+        text.contains("ONDŘEJ MACHULDA"),
+        "the signer's name should be read back, not just drawn: {text:?}"
+    );
+}
+
+/// And the permission stops where the file stops saying things, which is a **choice**.
+///
+/// `PDFBOX-4322-Empty-ToUnicode-reduced.pdf` shows `<004a0075007300740069006e>` in an
+/// `Identity-H` Calibri subset whose `/ToUnicode` is a copy of the `Identity-H` CID `CMap`:
+/// `/CMapType 1`, one `begincidrange`, and not one of the `bfchar` or `bfrange` operators
+/// §9.10.3 requires. The embedded program carries neither a `cmap` table nor a `post` one, so
+/// it names nothing either, and every route the standard describes has failed.
+///
+/// `PDFBox` reads each two-byte code as a Unicode value and returns `Justin`, which is right here
+/// only because this producer numbered its CIDs by code point. This tree declines: §9.6.5's
+/// encodings are one byte per code, so `text_from_the_code`'s argument covers a byte and covers
+/// nothing wider. Held by a test because a silence nobody pinned is a silence somebody fills.
+#[test]
+fn a_two_byte_code_is_not_read_as_a_character_when_nothing_names_it() {
+    let Some(document) = pdfbox_document("PDFBOX-4322-Empty-ToUnicode-reduced.pdf") else {
+        println!("skipped: doc/corpora/pdfbox is not checked out");
+        return;
+    };
+    let text = page_one_text(&document, "PDFBOX-4322-Empty-ToUnicode-reduced.pdf");
+    assert_eq!(text.trim(), "");
+}

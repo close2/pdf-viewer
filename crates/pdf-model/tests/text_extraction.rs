@@ -25,6 +25,19 @@
 //! the comparison strips whitespace from both sides and asks whether the reference's words
 //! still appear. A wrong mapping breaks those substrings immediately; a debatable space
 //! does not.
+//!
+//! # Two references, and one of them is frozen
+//!
+//! `pdftotext` runs at gate time and answers whatever the poppler on this machine answers
+//! today. `doc/corpora/pdfbox` carries the other kind: `*.pdf.txt` and `*.pdf-sorted.txt`
+//! checked in beside 40 of its PDFs, which is Apache `PDFBox`'s own `PDFTextStripper` output
+//! frozen at the commit the submodule pins. A frozen opinion from a second implementation is
+//! a different instrument from a live one — it cannot drift under this tree, and it was
+//! written by people who read §9.10.2 independently.
+//!
+//! `CLAUDE.md`'s principle 5 governs both of them identically: agreement raises confidence
+//! that this tree read the clause correctly, and disagreement is a question to take back to
+//! the standard. Neither is a target.
 
 #![expect(
     clippy::print_stdout,
@@ -389,6 +402,18 @@ fn pdfjs_corpus() -> Vec<PathBuf> {
 /// them draws a picture two independent renderers accept and fails only at naming what it drew.
 /// (`issue16538.pdf` was a fourth until §9.7.5.2's `CMap`s landed; see below.)
 ///
+/// **`issue16553.pdf` was one of that three for three hundred and fifty-seven sessions, and it
+/// was diagnosed by a corpus this tree had never seen.** It and `javauninstall-7r.pdf` left this
+/// list in the four-hundred-and-twenty-third session, and neither was worked on: the gate below
+/// — `doc/corpora/pdfbox`'s frozen extraction — found `PDFBOX-5838-0024320-reduced.pdf` reading
+/// `H Reeach Pec` for `Honors Research Project`, and the clause that fixed that one fixed these
+/// two the same afternoon. All three are `Identity-H` composite fonts whose `/ToUnicode` answers
+/// for some codes or none, and §9.10.2 excludes exactly that shape from its third method by
+/// name, so every method had failed and the permission the clause grants was being declined.
+/// `pdf_font::LoadedFont::text_from_program` carries the reading. **An entry parked as
+/// undiagnosed is not the same as an entry that cannot be diagnosed**, and what moved this one
+/// was a second population rather than a second look.
+///
 /// **Two left this list in the hundred-and-twenty-seventh session and neither was diagnosed
 /// here**: `issue19182.pdf` and `issue19971.pdf` were reading a font the font *cache* had
 /// handed them, keyed by the resource name `/C2_0` or `/F1` rather than by the font's identity,
@@ -442,7 +467,7 @@ fn pdfjs_corpus() -> Vec<PathBuf> {
 /// every Helvetica has that glyph. Held by name because a reference that drops characters cannot
 /// be the numerator, and this is the one entry on this list whose readback is *better* than
 /// `pdftotext`'s rather than worse.
-const TEXT_BELOW_FLOOR: [&str; 25] = [
+const TEXT_BELOW_FLOOR: [&str; 23] = [
     "ArabicCIDTrueType.pdf",
     "bug1865341.pdf",
     "PDFJS-7562-reduced.pdf",
@@ -458,7 +483,6 @@ const TEXT_BELOW_FLOOR: [&str; 25] = [
     "issue12705.pdf",
     "issue13211.pdf",
     "issue14046.pdf",
-    "issue16553.pdf",
     "issue17069.pdf",
     "issue19802.pdf",
     "issue2017r.pdf",
@@ -467,7 +491,6 @@ const TEXT_BELOW_FLOOR: [&str; 25] = [
     "issue5677.pdf",
     "issue5874.pdf",
     "issue9915_reduced.pdf",
-    "javauninstall-7r.pdf",
 ];
 
 /// The floor a complete page's extraction must clear.
@@ -593,4 +616,352 @@ fn the_text_we_draw_agrees_with_an_independent_extractor_across_the_pdfjs_corpus
          TEXT_BELOW_FLOOR: a fixed page must not be able to come back.",
         fixed.len()
     );
+}
+
+/// Where Apache `PDFBox` keeps its test documents and the extraction it expects from them.
+///
+/// A **partial, sparse** submodule — `doc/oracle-and-corpus.md` §2 carries the checkout recipe
+/// because `.gitmodules` cannot express one.
+const PDFBOX_INPUT: &str = "../../doc/corpora/pdfbox/pdfbox/src/test/resources/input";
+
+/// One `PDFBox` document and the text that repository froze beside it.
+struct Frozen {
+    /// The document.
+    path: PathBuf,
+    /// `<name>.pdf.txt`: `PDFTextStripper` with its default ordering, which is the order the
+    /// content stream shows the glyphs in.
+    stripped: String,
+    /// `<name>.pdf-sorted.txt`: the same stripper with `setSortByPosition(true)`, which is
+    /// `PDFBox` performing the layout analysis this crate deliberately does not.
+    ///
+    /// Present for 40 of the 40, and read as a *diagnosis* rather than as a second gate: where
+    /// the two disagree the question is about reading order, which §14.8.2.5.1 puts in the
+    /// structure tree rather than in the content stream.
+    sorted: Option<String>,
+}
+
+/// Reads one of `PDFBox`'s expected-text files, dropping the byte-order mark it begins with.
+///
+/// Every one of the 81 is UTF-8 with a BOM; U+FEFF would otherwise become a word character
+/// on the front of the first word and cost it its match.
+fn frozen_text(path: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(path).ok()?;
+    Some(text.strip_prefix('\u{FEFF}').unwrap_or(&text).to_owned())
+}
+
+/// Every `PDFBox` document that has a frozen extraction beside it.
+///
+/// Returns an empty list where the submodule is not checked out, which is the same one skip
+/// the pdf.js gate above allows. 64 PDFs are checked out and 40 of them carry a `.pdf.txt`;
+/// the other 24 are there for rendering, merging and compression tests, and a document with
+/// no expected text is not this instrument's business.
+fn pdfbox_corpus() -> Vec<Frozen> {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join(PDFBOX_INPUT);
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut documents: Vec<PathBuf> = entries
+        .filter_map(|entry| entry.ok().map(|e| e.path()))
+        .filter(|path| path.extension().is_some_and(|ext| ext == "pdf"))
+        .collect();
+    documents.sort();
+    documents
+        .into_iter()
+        .filter_map(|path| {
+            let name = path.file_name()?.to_string_lossy().into_owned();
+            let beside = |suffix: &str| path.with_file_name(format!("{name}{suffix}"));
+            Some(Frozen {
+                stripped: frozen_text(&beside(".txt"))?,
+                sorted: frozen_text(&beside("-sorted.txt")),
+                path,
+            })
+        })
+        .collect()
+}
+
+/// This tree's readback of a whole document, and whether every page of it drew completely.
+///
+/// Whole document rather than page one, because `PDFBox`'s fixture is a whole document:
+/// `PDFTextStripper` walks every page unless told otherwise, and `cweb.pdf` has 28. Comparing
+/// 28 pages of expectation against one page of readback would score the page count.
+fn whole_document_text(path: &Path) -> Option<(String, bool)> {
+    let bytes = std::fs::read(path).ok()?;
+    let document = Document::open(bytes).ok()?;
+    let pages = pdf_model::Pages::new(&document);
+    let mut text = String::new();
+    let mut complete = true;
+    for index in 0..pages.len() {
+        let Some(page) = pages.get(index) else {
+            complete = false;
+            continue;
+        };
+        let interpretation = pdf_model::interpret(&document, &page);
+        complete &= interpretation.is_complete();
+        text.push_str(&interpretation.text);
+        text.push('\n');
+    }
+    Some((text, complete))
+}
+
+/// Scores one readback against one frozen reference, by [`score_and_completeness`]'s rule.
+fn score_against(ours: &str, reference: &str) -> Score {
+    let haystack = without_spaces(ours);
+    let expected = reference_words(reference);
+
+    let mut wanted: BTreeMap<&str, usize> = BTreeMap::new();
+    for word in &expected {
+        *wanted.entry(word.as_str()).or_default() += 1;
+    }
+
+    let mut matched = 0usize;
+    let mut missing = Vec::new();
+    for (word, wanted) in wanted {
+        let found = haystack.matches(word).count();
+        matched += found.min(wanted);
+        if found < wanted && missing.len() < 8 {
+            missing.push(format!("{word} ({found}/{wanted})"));
+        }
+    }
+    Score {
+        matched,
+        total: expected.len(),
+        missing,
+    }
+}
+
+/// Documents whose every page draws completely and whose readback is still below the floor
+/// against `PDFBox`'s frozen extraction.
+///
+/// Named rather than counted and checked in both directions, exactly as [`TEXT_BELOW_FLOOR`] is:
+/// a document that starts failing fails the gate even if another was fixed the same day.
+///
+/// # What the four are, read in the four-hundred-and-twenty-third session
+///
+/// The first run named five. **One of them was a defect and it is fixed** —
+/// `PDFBOX-5838-0024320-reduced.pdf` read back `H Reeach Pec` where `PDFBox` reads
+/// `Honors Research Project`, because §9.10.2 excludes an `Identity-H` composite font from its
+/// third method *by name* and the permission it grants where every method fails was being
+/// declined; see `pdf_font::LoadedFont::text_from_program`. The four below are differences
+/// rather than defects, and the reading is recorded here because a difference from another
+/// implementation is a question and never a target (`CLAUDE.md`, principle 5).
+///
+/// **`hello3.pdf` and `FC60_Times.pdf` are right-to-left text read back in the order the content
+/// stream shows it, in the forms the file's own `/ToUnicode` names.** `hello3.pdf` draws
+/// `Hello محمد World.`; this tree returns U+FEE3 U+FEA4 U+FEE4 U+FEAA — the same four letters in
+/// their Arabic Presentation Forms-B contextual shapes, in painting order — where `PDFBox` returns
+/// U+0645 U+062D U+0645 U+062F in logical order. `FC60_Times.pdf` is the same twice over, plus
+/// U+FC60, the shadda-with-fatha ligature, where `PDFBox` writes the two marks separately.
+///
+/// Three conventions differ and none of them is about which glyph was drawn:
+///
+/// - **Order.** §14.8.2.5.1 is decisive and this tree is on its own side of it: "[p]age content
+///   order shall be defined by the sequencing of graphics objects within a page's content
+///   stream", while logical content order "shall be defined by a depth-first traversal of the
+///   document's logical structure hierarchy". `Interpretation::text` is the first of those by
+///   construction. `FC60_Times.pdf` has no structure tree at all and `hello3.pdf` has one, and
+///   neither settles this: a traversal of the structure hierarchy orders *content items*, and the
+///   characters here are reversed inside one show string. What `PDFBox` returns is the Unicode
+///   bidirectional algorithm applied to a run it identified as Arabic, which is layout analysis
+///   and not extraction.
+/// - **§14.8.2.5.3 is the tag that would settle it and neither file writes one.** `/ReversedChars`
+///   is how a file says a show string holds its characters backwards, and this tree has obeyed it
+///   since the eighty-third session — grepped for in both documents' bytes and absent from both.
+///   A file that has not used the mechanism the standard provides has not stated the order.
+/// - **Presentation form against base letter** is `fold`'s Latin argument in another script: a
+///   `/ToUnicode` naming U+FEE3 says what the glyph *is* and one naming U+0645 says what it
+///   *reads as*, Unicode records the pair as a compatibility equivalence, and §9.10.2 says how to
+///   learn what a code means and nothing about normalising the answer. It is deliberately **not**
+///   folded here: Arabic Presentation Forms-B is 141 code points against `fold`'s nine Latin
+///   ones, and folding a block this instrument has two witnesses for would be fitting the
+///   instrument to the population.
+///
+/// **`PDFBOX-4322-Empty-ToUnicode-reduced.pdf` and `sample_fonts_solidconvertor.pdf` are the one
+/// place this tree and `PDFBox` make different *choices* under the same permission**, and the
+/// choice is this tree's and is deliberate. Both are `Identity-H` composite fonts whose
+/// `/ToUnicode` is an Identity CID `CMap` rather than a mapping to Unicode — a stream declaring
+/// `/CMapType 1` and one `begincidrange` in the first, the bare name `/Identity-H` in the second
+/// — so §9.10.3 is not satisfied ("[i]t shall use the beginbfchar, endbfchar, beginbfrange, and
+/// endbfrange operators to define the mapping from character codes to Unicode character
+/// sequences expressed in UTF-16BE encoding") and no code maps to anything. Their embedded
+/// programs then say nothing either: neither subset carries a `cmap` **or** a `post` table, which
+/// was checked rather than assumed, so §9.10.2's last resort correctly declines. `PDFBox` reads the
+/// code itself as the Unicode value; its own source calls that "the undocumented case", it is
+/// right on these two files because their producers numbered the CIDs by code point, and it is
+/// mojibake on any file that did not. `text_from_the_code` takes that step for a **one-byte**
+/// code, where §9.6.5's encodings make a byte and a code point the same character, and refuses it
+/// for a two-byte one, where nothing does. A silence this tree can defend is preferred to a guess
+/// it cannot — and the choice is written here rather than left in the shape of a passing gate.
+const PDFBOX_BELOW_FLOOR: [&str; 4] = [
+    "FC60_Times.pdf",
+    "PDFBOX-4322-Empty-ToUnicode-reduced.pdf",
+    "hello3.pdf",
+    "sample_fonts_solidconvertor.pdf",
+];
+
+/// The floor a completely drawn document's extraction must clear against `PDFBox`'s own.
+///
+/// The same 0.90 the pdf.js gate uses and for the same reason: these are 40 documents attached
+/// to a decade of bug reports, and what remains at this level is about what a *word* is rather
+/// than about which glyph was drawn.
+const PDFBOX_FLOOR: f64 = 0.90;
+
+/// One document's two scores, and whether every page of it drew completely.
+struct Scored {
+    /// Against `<name>.pdf.txt`, which is the score the floor applies to.
+    stripped: Score,
+    /// Against `<name>.pdf-sorted.txt`, printed beside it for diagnosis.
+    sorted: Option<Score>,
+    /// Whether every page reported nothing; only those are gated.
+    complete: bool,
+}
+
+/// Reads one document back and scores it against both of `PDFBox`'s frozen texts.
+fn score_frozen(frozen: &Frozen) -> Option<Scored> {
+    let (ours, complete) = whole_document_text(&frozen.path)?;
+    Some(Scored {
+        stripped: score_against(&ours, &frozen.stripped),
+        sorted: frozen
+            .sorted
+            .as_deref()
+            .map(|sorted| score_against(&ours, sorted)),
+        complete,
+    })
+}
+
+/// The text we draw agrees with an extraction a different implementation froze on disk.
+///
+/// The instrument is `text_extraction.rs`'s and the reference is not: `pdftotext` above runs
+/// now, and this runs nothing at all — Apache `PDFBox`'s `PDFTextStripper` output is checked into
+/// the submodule beside the documents it was taken from. It costs no external process, which is
+/// why it is cheap enough to be worth having and is still **not** in `doc/todo/02` §2's default
+/// sequence until it has earned a place there.
+///
+/// `#[ignore]`d because it needs a submodule, like every other corpus test here.
+///
+/// **Only documents every page of which we claim to draw completely are gated**, which is the
+/// denominator rule the pdf.js gate and the oracle both use: a page whose font this tree
+/// refuses draws no glyphs and reads back nothing, and failing it here would score the report
+/// rather than the extraction.
+#[test]
+#[ignore = "needs the doc/corpora/pdfbox submodule"]
+fn the_text_we_draw_agrees_with_pdfboxs_frozen_extraction() {
+    let corpus = pdfbox_corpus();
+    if corpus.is_empty() {
+        println!("doc/corpora/pdfbox is not checked out: skipped");
+        return;
+    }
+
+    let started = Instant::now();
+    let scored: Vec<(String, Option<Scored>)> = corpus
+        .par_iter()
+        .map(|frozen| {
+            let name = frozen
+                .path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
+            (name, score_frozen(frozen))
+        })
+        .collect();
+
+    let (mut skipped, mut incomplete) = (0usize, 0usize);
+    let (mut total_matched, mut total_words) = (0usize, 0usize);
+    let (mut sorted_matched, mut sorted_words) = (0usize, 0usize);
+    let mut below: Vec<String> = Vec::new();
+    let mut ranked: Vec<(f64, String, String)> = Vec::new();
+
+    for (name, result) in &scored {
+        let Some(result) = result else {
+            skipped += 1;
+            continue;
+        };
+        if !result.complete {
+            incomplete += 1;
+            continue;
+        }
+        let score = &result.stripped;
+        total_matched += score.matched;
+        total_words += score.total;
+        if let Some(sorted) = result.sorted.as_ref() {
+            sorted_matched += sorted.matched;
+            sorted_words += sorted.total;
+        }
+        // A document with nothing to find proves nothing either way; the ratio is 1.0 by
+        // definition and listing it would drown the ones that mean something.
+        if score.total == 0 || score.ratio() >= PDFBOX_FLOOR {
+            continue;
+        }
+        below.push(name.clone());
+        ranked.push((score.ratio(), name.clone(), detail(result)));
+    }
+
+    ranked.sort_by(|left, right| left.0.total_cmp(&right.0));
+    for (ratio, name, detail) in &ranked {
+        println!("  {name}: {:.1}% — {detail}", ratio * 100.0);
+    }
+    println!(
+        "{} documents in {:.1}s: {skipped} skipped (unopenable or no pages), {incomplete} \
+         incomplete and not gated; overall {:.1}% ({total_matched}/{total_words} words) against \
+         PDFBox's stream order and {:.1}% ({sorted_matched}/{sorted_words}) against its \
+         position-sorted output, {} below {:.0}%",
+        scored.len(),
+        started.elapsed().as_secs_f64(),
+        percentage(total_matched, total_words),
+        percentage(sorted_matched, sorted_words),
+        below.len(),
+        PDFBOX_FLOOR * 100.0
+    );
+
+    below.sort();
+    let expected: Vec<String> = PDFBOX_BELOW_FLOOR.iter().map(|s| (*s).to_owned()).collect();
+    let newly: Vec<&String> = below.iter().filter(|n| !expected.contains(n)).collect();
+    let fixed: Vec<&String> = expected.iter().filter(|n| !below.contains(n)).collect();
+    assert!(
+        newly.is_empty(),
+        "{} document(s) newly below {:.0}% of the words PDFBox froze: {newly:?}",
+        newly.len(),
+        PDFBOX_FLOOR * 100.0
+    );
+    assert!(
+        fixed.is_empty(),
+        "{} document(s) no longer below the floor: {fixed:?}. Delete them from \
+         PDFBOX_BELOW_FLOOR: a fixed document must not be able to come back.",
+        fixed.len()
+    );
+}
+
+/// A shortfall's line: the words, what the position-sorted reference would have scored, and a
+/// few of the words we did not produce.
+///
+/// The sorted figure is here because it separates the two questions this comparison confuses.
+/// `PDFBox`'s `-sorted.txt` is the same extraction with `setSortByPosition(true)`, so a document
+/// on which the two references disagree is one where *reading order* is at stake and a document
+/// on which they agree is one where it is not — which is worth knowing before reading a
+/// shortfall as a wrong glyph.
+fn detail(scored: &Scored) -> String {
+    format!(
+        "{}/{} words, {} sorted, missing e.g. {:?}",
+        scored.stripped.matched,
+        scored.stripped.total,
+        scored.sorted.as_ref().map_or_else(
+            || "no".to_owned(),
+            |sorted| format!("{:.1}%", sorted.ratio() * 100.0)
+        ),
+        scored.stripped.missing
+    )
+}
+
+/// A matched-over-total as a percentage, with an empty population counting as complete.
+fn percentage(matched: usize, words: usize) -> f64 {
+    if words == 0 {
+        return 100.0;
+    }
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "corpus word counts are far below f64's exact integer limit"
+    )]
+    {
+        matched as f64 / words as f64 * 100.0
+    }
 }

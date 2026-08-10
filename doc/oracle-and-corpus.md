@@ -48,6 +48,7 @@ and *ratchets none of them*.
 | `doc/corpora/pdf-differences` | 37 | 30 | 7 | Apache-2.0 |
 | `doc/corpora/pdfbox` (`.../test/resources/input`) | 64 | 63 | 1 | Apache-2.0 |
 | SafeDocs `CC-MAIN-2021-31`, archive `0000`, first 24 | 24 | 22 | 2 | crawled web, no grant — never committed |
+| SafeDocs `CC-MAIN-2021-31`, archive `3500`, first 24 | 24 | 22 | 2 | crawled web, no grant — never committed |
 
 `pdfbox` is a **partial, sparse** submodule and `.gitmodules` cannot say so, so the recipe lives
 here:
@@ -81,6 +82,41 @@ in the `--budget-mb` that would admit it**. The budget has no ceiling and `--all
 member of an archive, so a whole 1.6 GiB archive on an unmetered connection is one deliberate
 command — the bound is on *accident*, not on the person. Every member is checked against the
 CRC-32 its own archive records. `tools/safedocs/src/lib.rs` and ADR 0258.
+
+### 2a. `pdfbox` carries somebody else's answer as well as their documents, and it is a gate
+
+**Since the four-hundred-and-twenty-third session** (ADR 0259). `doc/corpora/pdfbox`'s
+`input/` directory holds `*.pdf.txt` and `*.pdf-sorted.txt` beside **40** of its 64 PDFs —
+Apache PDFBox's own `PDFTextStripper` output, checked in as a fixture. That is a different
+instrument from `pdftotext`, which runs at gate time and answers whatever this machine's
+poppler answers today: a frozen opinion cannot drift under this tree, and it was written by
+people who read §9.10.2 independently.
+
+`text_extraction.rs::the_text_we_draw_agrees_with_pdfboxs_frozen_extraction`, sharing that
+file's `fold`, `reference_words` and `without_spaces` so that a difference between the two
+references is a difference about the documents rather than about the comparison. Whole
+documents rather than page one, because `PDFTextStripper` walks every page and `cweb.pdf` has
+28. Both of PDFBox's texts are read and only the stream-ordered one gates; the `-sorted`
+figure is printed beside it, because where the two agree, *reading order* is not what a
+shortfall is about.
+
+**It is in `doc/todo/02` §2's sequence with no new line and at 0.4 s.** Line 28 already runs
+every ignored test in that binary, and this one's reference is a file rather than a process —
+the pdf.js gate spends 30 s of its 31 waiting for 974 `pdftotext` invocations.
+
+The first run, which is the baseline: **40 documents, 99.8% (14254/14281 words) against both
+of PDFBox's orders, 5 below the 0.90 floor.** Every one of the five was read before anything
+was ratcheted, and **three of them were one defect** — §9.10.2 excludes an `Identity-H`
+composite font from its third method *by name*, so a `/ToUnicode` that answers for some codes
+or none leaves every method failed, and the permission the clause then grants was being
+declined. Fixed; the pdf.js gate went **23987 → 24003** of `pdftotext`'s 24187 words with **25
+named documents below the floor → 23**, and one of the two that left had been recorded as
+undiagnosed for 357 sessions. The four that remain are named in `PDFBOX_BELOW_FLOOR` with the
+reading beside them: two are right-to-left text in painting order and in presentation forms
+(§14.8.2.5.1, and neither file writes §14.8.2.5.3's `/ReversedChars` — measured over all 108
+new documents), and two are the one place this tree and PDFBox make different **choices** under
+the same permission, where PDFBox reads a two-byte code as a Unicode value and this tree will
+not.
 
 ### 3. What the corpus still names
 

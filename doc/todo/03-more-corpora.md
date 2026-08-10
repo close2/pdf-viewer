@@ -5,7 +5,7 @@ session, which built the three pieces `doc/test-docs.md` asked for. What is left
 a chunk a round, the way `doc/todo/00` takes a page off the ambiguous ranking.
 Priority: 03 — the standing band, deliberately.
 Corpus: 974 pdf.js documents **plus 108 in three submodules** and whatever `tools/safedocs` has
-been asked for
+been asked for — 48 as of the four-hundred-and-twenty-third, archives `0000` and `3500`
 Code: `tools/safedocs`, `doc/corpora/*`, `doc/oracle-and-corpus.md` §2
 
 ## What exists now (ADR 0258)
@@ -23,8 +23,10 @@ Code: `tools/safedocs`, `doc/corpora/*`, `doc/oracle-and-corpus.md` §2
   `safedocs fetch --archive 0042 --all --budget-mb 2048 --download` is the whole archive and is
   the right command on an unmetered connection.
 
-**None of it is in `doc/todo/02` §2's sequence** and none of it should be until it has earned a
-place. `safedocs survey` is a command a round runs on purpose.
+**None of it was in `doc/todo/02` §2's sequence and one thing now is**, having earned the place
+rather than taken it: the `pdfbox` comparison in item 4, at **0.4 s** and inside a line that
+already ran every ignored test of that binary. `safedocs survey` is still a command a round runs
+on purpose, and a *corpus* still earns its place before it takes one.
 
 ## What is left, in the order its value is clearest
 
@@ -33,7 +35,10 @@ place. `safedocs survey` is a command a round runs on purpose.
 The instrument works and the first 24 documents produced one finding. `--archive` names any of
 7 933 archives and `--from` any window inside one, so a round's chunk should be **somewhere
 nobody has been**: the manifest at `corpus-cache/safedocs/manifest.tsv` is the record of where
-that is.
+that is. **Taken so far: `0000` and `3500`, 24 members apiece.** The four-hundred-and-twenty-third's
+chunk was 16.8 MiB for 24 documents, 22 complete, and both of its reports belonged to populations
+`doc/todo/23` and ADR 0255 already name — so nothing was promoted, which is the rule working rather
+than the chunk being empty.
 
 What a chunk owes when it is taken:
 
@@ -73,7 +78,7 @@ Applied here it splits, and the split is the useful half:
 - **A crasher is a different thing** — small, always committable, and `CLAUDE.md` requires one.
   None has been found yet.
 
-### 4. Two more instruments the new populations make possible and nobody has built
+### 4. Two instruments the new populations make possible — one built, one not
 
 - **The oracle over the new corpora.** `tests/oracle.rs` compares against poppler, mupdf and
   ghostscript over the 974; `pdf-differences` exists *because* readers diverge on its files, so
@@ -81,16 +86,26 @@ Applied here it splits, and the split is the useful half:
   three references are least likely to form a consensus. That is a session of its own and it
   needs a decision first: an oracle run over files chosen for disagreement will produce
   `ambiguous` almost everywhere, so the verdict vocabulary may not fit.
-- **`pdfbox`'s own expected text.** Its `input/` directory carries `*.pdf.txt` and
-  `*.pdf-sorted.txt` beside 64 of the PDFs — somebody else's extraction, checked in as a
-  fixture. `tests/text_extraction.rs` measures this tree against `pdftotext` at run time; a
-  second, *frozen* opinion is a different instrument and it is already on disk.
+- **`pdfbox`'s own expected text — done in the four-hundred-and-twenty-third** (ADR 0259).
+  `text_extraction.rs::the_text_we_draw_agrees_with_pdfboxs_frozen_extraction`, **40** documents
+  (that is how many of the 64 carry a `.pdf.txt`, not 64), whole documents rather than page one,
+  both of PDFBox's orders read and the stream-ordered one gating. **0.4 s and no new line in
+  `doc/todo/02` §2**, which already runs every ignored test in that binary. Its first run found
+  five below the floor, three of which were one defect — §9.10.2's permission declined for every
+  `Identity-H` composite font — and the pdf.js gate moved 23987 → 24003 words and 25 → 23 named
+  documents on the fix. The four that remain are named with their reading in `PDFBOX_BELOW_FLOOR`.
+  **What it does not yet do is the other direction**: it measures recall, so a rule that *invented*
+  text would not move it. `examples/readback.rs` is what a person reads for that, and pairing the
+  two automatically is the next thing this instrument is owed.
 
 ## What not to do
 
 - **Do not start a multi-gigabyte download without asking**, and on a metered connection do not
   start one at all. The tool cannot do it by accident and can do it on purpose; which of those a
   session is doing is a question for whoever is paying for the bytes.
-- **Do not add a corpus to the default gate sequence.** Session 385 took that sequence from
-  608 s to 268 s.
+- **Do not add a corpus to the default gate sequence** on the strength of it being interesting.
+  Session 385 took that sequence from 608 s to 268 s. The `pdfbox` comparison is in it because it
+  costs 0.4 s on a binary already being built and needs no external process; an instrument that
+  runs `pdftotext`, `pdftoppm` or `gs` per document is a different proposition and the timing is
+  the argument either way.
 - **Do not commit a SafeDocs file** without reading `doc/third-party-data.md`'s entry for it.
