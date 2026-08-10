@@ -28,6 +28,30 @@ rather than taken it: the `pdfbox` comparison in item 4, at **0.4 s** and inside
 already ran every ignored test of that binary. `safedocs survey` is still a command a round runs
 on purpose, and a *corpus* still earns its place before it takes one.
 
+## The data budget, stated by the owner on 2026-08-10
+
+**Up to 50 GB may be downloaded.** The owner checked their plan and said so outright, which
+replaces the "on mobile, short tests only" constraint the four-hundred-and-twenty-second session
+worked under. Disk is not the limit either: 1.1 TB free on this machine.
+
+**That makes *how* to spend it the question rather than *whether*.** Two facts decide it:
+
+- **SafeDocs' issue-tracker corpus is 31 GB in six archives**, so the whole of it fits inside the
+  budget with room to spare. Taking it all is now possible.
+- **Files inside one archive are correlated** — they come from one neighbourhood of one crawl — so
+  a gigabyte spread across fifty archives is worth more defects than a gigabyte taken from one.
+  `safedocs plan --archive N --from M` addresses any window of any of the 7 933 archives, and
+  `corpus-cache/safedocs/manifest.tsv` records where anybody has been.
+
+So the plan a round should follow is **stratified**: sample widely first and find out what the
+population's failure modes *are*, then go deep where the failures cluster. A round that pulls one
+whole archive because it can has spent 1.6 GB learning about one crawl neighbourhood.
+
+**What the budget does not change**: the promotion rule (20 MB of committed witnesses, then names
+and digests), that these files are crawled web pages under no grant anybody made
+(`doc/third-party-data.md`), and that a new corpus stays out of `doc/todo/02` §2's default sequence
+until it has earned a place.
+
 ## What is left, in the order its value is clearest
 
 ### 1. Take a chunk a round
