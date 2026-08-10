@@ -20,6 +20,8 @@
 //! elements — §12.3.2.3's structure destinations read one element's own entries, and text
 //! extraction asks about the element covering a sequence it is already inside.
 
+use std::collections::BTreeSet;
+
 use pdf_syntax::{Dictionary, Document, Object, ObjectId, tree};
 
 /// The `/StructParents`-keyed map from a marked-content identifier to its structure element.
@@ -134,6 +136,21 @@ const MAX_DEPTH: usize = 64;
 /// large: a table of a thousand cells is one element with a thousand children and is not
 /// malformed.
 const MAX_CHILDREN: usize = 65_536;
+
+/// Most items one [`Tree::walk`] returns, over the whole tree rather than one `/K`.
+///
+/// **This used to be [`MAX_CHILDREN`], and it cut the largest document this project owns to
+/// little over half without saying so** — ISO 32000-2's structure tree is **129 389** items and
+/// a walk stopped at 71 371 of them, which is where session 416's count came from and which
+/// `doc/todo/49`'s item 5 recorded as the wrong bound. A bound that truncates a *valid* file is
+/// measuring this project's patience rather than the file's malice, so it is set from the
+/// largest real tree in reach with room above it, and [`Reading::truncated`] says when it is
+/// reached at all.
+///
+/// One million items is eight times that tree and 40 MB of `(usize, Child)` at this crate's
+/// sizes — measured, `size_of` is 40 — which is the shape of a bound that stops a malformed
+/// file without stopping a large one. The whole 129 389 take **151 ms** to produce.
+const MAX_ELEMENTS: usize = 1 << 20;
 
 /// One child of a structure element, in the four forms §14.7.5.1.1 defines.
 ///
@@ -514,14 +531,21 @@ impl Tree {
     /// Every descendant of the root, depth first, with its depth.
     ///
     /// The order is §14.7.2's own: `/K` is a list, and the tree's order is what §14.8.2 calls
-    /// the document's logical reading order. Bounded by [`MAX_DEPTH`] and by visiting each
-    /// element once, because `/K` and `/P` are references a document controls.
+    /// the document's logical reading order. Bounded by [`MAX_DEPTH`], by [`MAX_ELEMENTS`] and
+    /// by visiting each element once, because `/K` and `/P` are references a document controls.
+    ///
+    /// The bound is *reported* rather than applied in silence — [`Walk::truncated`] — because a
+    /// walk cut short is not the document's logical order and a consumer that cannot tell the
+    /// two apart has been handed a partial reading as a complete one.
     #[must_use]
-    pub fn walk(&self, document: &Document) -> Vec<(usize, Child)> {
-        let mut out = Vec::new();
-        let mut seen: Vec<Dictionary> = Vec::new();
-        self.descend(document, None, 0, &mut out, &mut seen);
-        out
+    pub fn walk(&self, document: &Document) -> Walk {
+        let mut walk = Walk {
+            items: Vec::new(),
+            truncated: false,
+        };
+        let mut seen: BTreeSet<ObjectId> = BTreeSet::new();
+        self.descend(document, None, 0, &mut walk, &mut seen);
+        walk
     }
 
     /// §14.8.5.6's `PrintField` attributes, for a `Form` element of a non-interactive form.
@@ -621,18 +645,23 @@ impl Tree {
     /// where an element has content items of the integer form, and an element that states none
     /// anywhere in its ancestry has left the page unstated rather than said "not this page".
     #[must_use]
-    pub fn logical_order(&self, document: &Document, page: ObjectId) -> Vec<Child> {
-        self.walk(document)
-            .into_iter()
-            .filter_map(|(_, child)| match child {
-                // An element is not a content item; the walk returns both and only the leaves
-                // are ordered content.
-                Child::MarkedContent { page: at, .. } | Child::Object { page: at, .. } => {
-                    at.is_none_or(|at| at == page).then_some(child)
-                }
-                Child::Element(_) => None,
-            })
-            .collect()
+    pub fn logical_order(&self, document: &Document, page: ObjectId) -> Reading<Child> {
+        let walk = self.walk(document);
+        Reading {
+            items: walk
+                .items
+                .into_iter()
+                .filter_map(|(_, child)| match child {
+                    // An element is not a content item; the walk returns both and only the
+                    // leaves are ordered content.
+                    Child::MarkedContent { page: at, .. } | Child::Object { page: at, .. } => {
+                        at.is_none_or(|at| at == page).then_some(child)
+                    }
+                    Child::Element(_) => None,
+                })
+                .collect(),
+            truncated: walk.truncated,
+        }
     }
 
     /// A page's readback, rearranged into §14.8.2.5.1's logical content order.
@@ -651,15 +680,22 @@ impl Tree {
     ///
     /// Equal to `interpretation.text` on a page whose two orders coincide, which the clause
     /// says they *should* — and `tests/logical_order.rs` measures how often they do.
+    ///
+    /// `None` where [`Self::logical_order`] was truncated: a prefix of the tree gives a prefix
+    /// of the page's text, and answering with it would be the one failure a caller cannot see.
     #[must_use]
     pub fn logical_text(
         &self,
         document: &Document,
         page: ObjectId,
         interpretation: &crate::Interpretation,
-    ) -> String {
+    ) -> Option<String> {
+        let order = self.logical_order(document, page);
+        if order.truncated {
+            return None;
+        }
         let mut out = String::new();
-        for item in self.logical_order(document, page) {
+        for item in order.items {
             let Child::MarkedContent { mcid, .. } = item else {
                 continue;
             };
@@ -671,7 +707,7 @@ impl Tree {
                 }
             }
         }
-        out
+        Some(out)
     }
 
     /// A *range* of a page's readback, put into §14.8.2.5's logical content order.
@@ -713,12 +749,18 @@ impl Tree {
         if range.is_empty() {
             return None;
         }
+        let order = self.logical_order(document, page);
+        // A truncated walk cannot establish the coverage this answer's whole design rests on:
+        // "every byte reached" would then mean "every byte the prefix reached".
+        if order.truncated {
+            return None;
+        }
         // Which bytes of the range some sequence in the logical order covers. A `BDC` inside a
         // `BDC` gives two spans over one byte, so this is a set rather than a running total:
         // counting would report full coverage for a range half of which was covered twice.
         let mut covered = vec![false; range.len()];
         let mut out = String::new();
-        for item in self.logical_order(document, page) {
+        for item in order.items {
             let Child::MarkedContent { mcid, .. } = item else {
                 continue;
             };
@@ -747,30 +789,100 @@ impl Tree {
     }
 
     /// One level of [`Self::walk`].
+    ///
+    /// The visited set holds [`ObjectId`]s and not dictionaries, which is what makes a large
+    /// tree walkable at all: a `Vec<Dictionary>` searched linearly is quadratic in the number
+    /// of elements *and* compares whole dictionaries at each step. Measured on ISO 32000-2 in
+    /// the four-hundred-and-twenty-first session: **16.8 s** for the 44 651 elements the old
+    /// bound let it reach, against **151 ms** for all 78 468 with the set. `logical_order`
+    /// walks the whole tree once per page, so that was 16.8 s of every §14.8.2.5 question
+    /// asked of the document this project checks itself against.
+    ///
+    /// An element reached other than through a reference has no identity to remember and is
+    /// always descended into. That loses nothing: a dictionary written inline in its parent's
+    /// `/K` is contained by that parent, so it can be reached once and cannot close a cycle,
+    /// and [`MAX_DEPTH`] bounds it regardless.
     fn descend(
         &self,
         document: &Document,
         element: Option<&Dictionary>,
         depth: usize,
-        out: &mut Vec<(usize, Child)>,
-        seen: &mut Vec<Dictionary>,
+        out: &mut Walk,
+        seen: &mut BTreeSet<ObjectId>,
     ) {
-        if depth >= MAX_DEPTH || out.len() >= MAX_CHILDREN {
+        if depth >= MAX_DEPTH {
             return;
         }
-        for child in self.children(document, element) {
-            let descend_into = match &child {
-                Child::Element(dict) if !seen.contains(dict) => Some(dict.clone()),
+        for (child, id) in self.identified_children(document, element) {
+            if out.items.len() >= MAX_ELEMENTS {
+                out.truncated = true;
+                return;
+            }
+            let descend_into = match (&child, id) {
+                (Child::Element(dict), None) => Some(dict.clone()),
+                (Child::Element(dict), Some(id)) if seen.insert(id) => Some(dict.clone()),
                 _ => None,
             };
-            out.push((depth, child));
+            out.items.push((depth, child));
             if let Some(dict) = descend_into {
-                seen.push(dict.clone());
                 self.descend(document, Some(&dict), depth.saturating_add(1), out, seen);
             }
         }
     }
+
+    /// [`Self::children`], with the object each child was reached through where it was reached
+    /// through one.
+    ///
+    /// The identity is what [`Self::descend`] remembers, and it is deliberately not on
+    /// [`Child`]: an element's *identity* is a fact about how the walk got there rather than
+    /// about what the element is, and every other consumer of `children` wants the four forms
+    /// §14.7.5.1.1 defines and nothing beside them.
+    fn identified_children(
+        &self,
+        document: &Document,
+        element: Option<&Dictionary>,
+    ) -> Vec<(Child, Option<ObjectId>)> {
+        let node = element.unwrap_or(&self.root);
+        let page = node.get("Pg").and_then(Object::as_reference);
+        let kids = document.get_key(node, "K");
+        let mut out = Vec::new();
+        match &kids {
+            Object::Array(items) => {
+                for item in items.iter().take(MAX_CHILDREN) {
+                    if let Some(child) = Self::child(document, item, page) {
+                        out.push((child, item.as_reference()));
+                    }
+                }
+            }
+            _ => {
+                if let Some(child) = Self::child(document, &kids, page) {
+                    out.push((child, node.get("K").and_then(Object::as_reference)));
+                }
+            }
+        }
+        out
+    }
 }
+
+/// A reading of the structure tree, and whether the bound cut it short.
+///
+/// A bare `Vec` cannot say "there was more", and a walk that stops at [`MAX_ELEMENTS`] has
+/// produced a *prefix* of §14.8.2.5's logical order rather than the order itself. Both readings
+/// this crate offers carry the flag, because both are §14.7.2's tree in a different shape and a
+/// consumer of either has the same thing to lose by not knowing.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Reading<T> {
+    /// What was read, in the tree's own order.
+    pub items: Vec<T>,
+    /// Whether [`MAX_ELEMENTS`] stopped the read before the tree ran out.
+    ///
+    /// `false` for every document in reach of this project — ISO 32000-2's tree is the largest
+    /// it owns and is an order of magnitude below the bound.
+    pub truncated: bool,
+}
+
+/// [`Tree::walk`]'s answer: every element and content item, with the depth it was found at.
+pub type Walk = Reading<(usize, Child)>;
 
 /// §14.8.5.6's `PrintField` attributes: what a non-interactive form field *was*. Table 383.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1855,7 +1967,7 @@ mod tests {
 
         // The walk is the same tree in the order `/K` states it, one level deeper for the
         // nested element's own children.
-        let walked = tree.walk(&doc);
+        let walked = tree.walk(&doc).items;
         assert_eq!(
             walked.len(),
             5,
@@ -1884,7 +1996,11 @@ mod tests {
             "<< /Type /StructElem /S /Sect /K [5 0 R] >>",
         ]);
         let tree = Tree::of(&doc).expect("a structure tree root");
-        assert_eq!(tree.walk(&doc).len(), 3, "each element is entered once");
+        assert_eq!(
+            tree.walk(&doc).items.len(),
+            3,
+            "each element is entered once"
+        );
 
         let untagged = document(&[
             "<< /Type /Catalog /Pages 2 0 R >>",

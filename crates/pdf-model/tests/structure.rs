@@ -120,3 +120,55 @@ fn a_page_that_states_a_structural_parent_key_resolves_it() {
     assert_eq!(resolved, 75);
     assert_eq!(with_actual_text, 8);
 }
+
+/// The largest structure tree this project owns is walked whole, and says so.
+///
+/// **This is the regression guard for a bound that lied for five sessions.** `Tree::walk` used
+/// to stop at 65 536 items and return the prefix as though it were the tree; session 416 read
+/// 71 371 items off it and recorded that as ISO 32000-2's size, and `doc/todo/49`'s item 5
+/// recorded the bound as wrong without knowing by how much. It is **129 389**, so a walk of that
+/// document was seeing a little over half of it — and `logical_order` walks the whole tree once
+/// per page, so §14.8.2.5's reading order for any page of the standard this project checks
+/// itself against was a truncated one.
+///
+/// Two assertions, and the second is the one that would have caught it: the count, which is a
+/// fact about the file, and [`pdf_model::structure::Reading::truncated`], which is a fact about
+/// the *reader* and did not exist to be asserted.
+#[test]
+fn the_largest_structure_tree_in_the_tree_is_walked_whole() {
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc/ISO_32000-2_sponsored_EC3.pdf");
+    let bytes = std::fs::read(&path).unwrap_or_else(|error| {
+        panic!("{} is a committed document: {error}", path.display());
+    });
+    let document = Document::open(bytes).expect("ISO 32000-2 opens");
+    let tree = pdf_model::structure::Tree::of(&document).expect("it states a /StructTreeRoot");
+    let walked = tree.walk(&document);
+    println!(
+        "{} items in ISO 32000-2's structure tree",
+        walked.items.len()
+    );
+    assert!(
+        !walked.truncated,
+        "the bound stopped the walk at {} items",
+        walked.items.len()
+    );
+    assert_eq!(walked.items.len(), 129_389);
+
+    // And the reading order of a page of it is answerable at all, which is what a truncated
+    // walk takes away: every content item after the cut belongs to no page as far as the
+    // caller can see.
+    let pages = Pages::new(&document);
+    let page = pages.get(339).expect("page 340 of 1023");
+    let id = page
+        .id
+        .expect("a page reached through the tree is an indirect object");
+    let interpretation = pdf_model::interpret(&document, &page);
+    let logical = tree
+        .logical_text(&document, id, &interpretation)
+        .expect("the walk was not truncated, so the order is the whole one");
+    assert!(
+        logical.contains("Encodings for TrueType fonts"),
+        "the page's logical order carries its own heading"
+    );
+}

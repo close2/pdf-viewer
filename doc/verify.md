@@ -178,6 +178,22 @@ cd fuzz && cargo +nightly fuzz run x509         -- -runs=1000000  # the signer's
   # `openssl req -new -x509`. Clean at 1 000 000 in the three-hundred-and-ninety-second (ADR 0229)
 ```
 
+**Two measurements that are not gates, and each says why in its own header.**
+
+```sh
+# What it would cost to check this project's citations against the PDF instead of `doc/md/`.
+# `doc/todo/48`'s item 5 and `doc/todo/36`'s success condition, with a number instead of a
+# fear: it asks `tools/conformance`'s own two questions of both substrates and prints where
+# they disagree. ~7 s. Its output is counts and clause numbers and no sentence of the
+# standard, which is why the numbers may be written down (ADR 0187, ADR 0257).
+cargo run --profile gates -p pdf-retrieve --example substitution_cost
+
+# Which of this tree's quotations land on text Errata Collection 3 struck out. Not a gate for
+# ADR 0252's reason — the checker must keep comparing against a conversion this project did
+# not make. ~4 s over all fourteen documents. `doc/todo/02` §4's twelfth sweep.
+cargo run --profile gates -p spec-errata -- check doc/*.pdf
+```
+
 **Incomplete pages are compared and printed by the oracle but cannot fail it** — a page we
 already say we cannot draw is expected to differ. **The denominator moves in both directions on
 purpose**: it grows when reports stop firing (46 pages in session 21) and shrinks when a silence

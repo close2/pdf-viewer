@@ -1,104 +1,101 @@
 # Retrieving the standard from the standard, and an API a machine can drive
 
-Status: **stated by the project owner on 2026-08-10.** In their words: *"I do also think, that we
-shouldn't need the specification markdown files any longer (it might be acceptable to keep them, if
-we reference line numbers). Our viewer is now stable enough, that we can trust it. (There should of
-course a test, which extracts some text). (That's like a compiler starting to compile itself; at
-some point you have to trust it)."*
-Priority: 36 — capability. It is the last consumer `viewer-core` was built for and has never had:
+Note from the human after this file had been created: ignore the rest-api!
+
+Status: **the CLI is built and the three joins are closed** — session 421, ADR 0257. What is left is
+one message on the pipe and the substitution itself, both below with their measured sizes.
+Priority: 36 — capability. It was the last consumer `viewer-core` was built for and had never had:
 not a person, not a toolkit, but a program asking a document questions.
 Corpus: —, the first consumer is the fourteen documents under `doc/`
-Code: `crates/viewer-core`, `crates/viewer-ffi`, `tools/spec-errata`, `tools/conformance`
+Code: `tools/pdf-retrieve` (built), `crates/pdf-model/src/retrieval.rs` (built),
+`crates/viewer-core`, `tools/spec-errata`, `tools/conformance`
 
-## What `doc/md/` is actually used for, checked rather than assumed
+## What is built
 
-Two things, and **neither is line numbers**. `conformance::citation::Citation::line` is the
-1-based line *in our own source* where a citation appears; nothing in this tree cites a line of
-`doc/md/`. So the owner's escape clause — "acceptable to keep them, if we reference line numbers" —
-does not apply, and the dependence is narrower than it looks:
+`tools/pdf-retrieve`, a library and a binary, JSON on stdout and nothing else there:
 
-1. **Clause existence.** A citation `ISO 32000-2 §9.6.5.4` is checked against the clause numbers the
-   conversion contains. 6115 citations, 217 tables.
-2. **Verbatim quotation.** 579 rustdoc blockquotes are compared with the conversion's text through
-   `quote::normalise`.
+```sh
+pdf-retrieve <document|outline|sections|page|section> <file.pdf> [<n>|<address>] \
+             [--annotations] [--subtype <Name,Name>] [--no-artifacts] [--logical]
+```
 
-Both are answerable from the PDF directly, and this tree already reads more of it than the
-conversion does: session 416 established that `doc/md/` **drops every annotation**, and sessions 417
-to 419 found some thirty stale quotations because of it, three of them quoting sentences an erratum
-had struck.
+**The three gaps this file named are closed**, each with its argument in ADR 0257:
 
-## The bootstrapping hazard, and the owner's decision on it
+1. **Addressing by section.** `pdf_model::retrieval::sections` turns §12.3.3's outline into one
+   `Section` per item carrying the pages its text occupies — from its own destination to that of the
+   next item which is *not* one of its descendants. All 988 of ISO 32000-2's items resolve in 23 ms;
+   946 carry a clause number. The text is cut at the two headings with the spaces squeezed out of
+   both sides, which is ADR 0253's comparison and for its reason. Two halves of this are **choices**
+   and are documented as choices: that a number is the title's leading token, and where a section
+   ends.
+2. **`Tree::walk`'s bound: fixed, not routed around.** It was worse than this file recorded — 65 536
+   *items* over the whole tree, so session 416's 71 371 was the bound rather than the tree, which is
+   **129 389** — and the walk was quadratic besides, at **16.8 s** for ISO 32000-2. It is 151 ms,
+   bounded at 2²⁰, and `Reading::truncated` says when the bound is reached; `logical_text` (now
+   `Option<String>`) and `logical_range` refuse rather than answer a prefix. `doc/todo/49` item 5.
+3. **Text with annotations.** §12.5.6.10's `/QuadPoints` read back through
+   `pdf_model::retrieval::text_under` — moved out of `spec-errata`, 104 lines, two callers — and an
+   annotation belongs to the section **any of the text it covers is in**, rather than to the pages
+   the section touches. `--subtype` narrows it to the errata.
 
-`doc/todo/48` recorded the objection: a gate that checks our quotations against a copy **we
-generated** puts this project between the specification and the check, and a defect in our extractor
-becomes a defect in the standard we hold ourselves to. The owner has answered it, and the analogy is
-theirs: a compiler that compiles itself. The answer is not to pretend the hazard is absent but to
-keep the two things it needs:
+Demonstration, on the release binary, 66 ms: §9.6.5.4 comes back as pages 339–341, trimmed at both
+headings, 1077 words, and **no erratum touches it**; §12.5.2 comes back with 23 strikeouts and
+carets including the `BM, ` that ADR 0253 found this tree implementing from retired text.
 
-- **A test that extracts text**, which the owner asked for in the same sentence. The tree already
-  has the strongest form of it: `tests/text_extraction.rs` compares against `pdftotext` on 974
-  documents at 99.2%, and the fourteen specification PDFs are at **100% of its words**. That is an
-  *independent* second opinion and it must stay independent — it is what makes trusting our own
-  extraction different from asserting it.
-- **A second opinion where a quotation lands.** If our extraction becomes the thing quotations are
-  checked against, then any span a quotation falls on should still agree with a foreign extractor.
-  That is cheap (it is the same `pdftotext` already in the gate) and it is what stops a silent
-  extractor defect from validating a wrong quotation.
+## The pipe: one message, not a transport
 
-**And one thing changes for the better**: an errata-aware check becomes possible. `tools/spec-errata`
-already reads the strikeouts and their replacement carets; a quotation checked against the PDF
-*with* its errata applied is checked against the current standard, which `doc/md/` cannot do at all.
+`viewer-confined`'s length-prefixed stdio transport carries all twenty-eight questions and is fuzzed
+at 13 M executions, so **no second transport was built and none should be**. What is missing is a
+*vocabulary* entry rather than a channel: `viewer_core::Query` has no "this page's text". The
+readback crosses that boundary only as a `Selection` — which needs a drag — or as §14.9's spoken
+accessibility nodes.
 
-## Is the API good enough? The honest inventory
+The size, so that whoever takes it is not guessing: one `Query` variant and its `Answer`, its two
+`match` arms in `viewer-confined/src/protocol.rs` (both exhaustive, so the compiler names them), and
+one number in `viewer-ffi`'s `PDFV_*_COUNT`. It is left undone deliberately: `viewer-core`'s
+vocabulary is a *person at a window's*, and adding to it is a decision about that boundary rather
+than about this tool. Take it when a host wants a page's text, not because the list looks short.
 
-The question the owner asked. What exists today, all of it reachable from `viewer-core`:
+## The substitution: measured, and deliberately not done here
 
-| want | today |
-|---|---|
-| a page's text | `Interpretation::text`, one `Placed` per character code in `text_layer` |
-| text in reading order | `Tree::logical_range` / `logical_text` (§14.8.2.5) — **truncated on ISO 32000-2**, see below |
-| the outline | `Query::Outline`, owned since session 411, with destinations |
-| the structure tree | `Query::AccessibilityTree` — §14.7 elements, §14.9's spoken form, quadrilaterals |
-| annotations | read completely: §12.5.6's subtypes, `/Contents`, popups, `/RC`, `/State` |
-| search | `Command::Find` (document) and `Query::Find` (page) |
-| a rendered page | `Rendered::Raster`, and `pdfv_render_request_rasterise` from C |
+The success condition this file used to state is that `tools/conformance` stops needing `doc/md/`.
+It now has a number instead of an estimate — `tools/pdf-retrieve/examples/substitution_cost.rs`,
+which asks the gate's own two questions of both substrates:
 
-So the *readers* are there. **Three gaps stand between them and "retrieve a section":**
+| | `doc/md/` | the PDF, through this reader |
+|---|---|---|
+| clause existence, 506 distinct clauses cited | 0 missing | **0 missing**, out of 946 numbered outline items, 23 ms |
+| 582 blockquotes | **582** verbatim | 40 by the gate's own comparison |
+| … with the spaces taken out | | 523 |
+| … and the dashes folded together | | **553** |
+| **left to re-verify by hand** | | **29** |
 
-1. **No addressing by section.** An outline item names a destination; a destination names a page and
-   a point. Nothing turns "§9.6.5.4" into a range of text. The structure tree and the outline both
-   contain the answer and neither is joined to the readback.
-2. **`Tree::walk`'s `MAX_CHILDREN` is 65 536 and ISO 32000-2's structure tree is 71 371 items**
-   (session 416), so logical order sees only the front of the one document this is for.
-   `ParentTree::for_page` is the route that works. This is `doc/todo/49`'s item 5 and it blocks this.
-3. **No text-with-annotations join.** `spec-errata` proves the pieces fit; nothing offers "this
-   section's text, with or without the annotation text attached to it" as one answer.
+So the migration is not 582 spans of work: it is **one comparison decision** — fold spaces and
+dashes, which the errata sweep already argues for — and **29 readings**. Clause existence could move
+today at no cost in verification at all.
 
-## What a round taking this should build, and the shape question
+And the 59 that need the dash fold are a finding about *this tree*: `doc/md/` writes
+`Table 87 -Additional entries` where the standard prints `Table 87 — Additional entries`, so those
+quotations carry the converter's typography. They are the standard's words and not its characters.
 
-The owner asked for *"An API (arguments to call the app with AND/OR pipe/http-rest commands) which
-is suitable for llms to retrieve data (retrieve a page, a section, with/without annotation
-texts…)"*. Three shapes, and they are not equivalent:
+**Doing it is still a separate round**, and the reason is unchanged: session 413 declined a 417-span
+migration for less, and a gate that changes what it compares against on the same day the comparison
+is written has nothing independent left to check it.
 
-- **A CLI with structured output** — subcommands over the existing readers, JSON on stdout. Cheapest,
-  composes with everything, no new surface to secure, and it is what the two in-tree tools
-  (`conformance`, `spec-errata`) already are. **Start here.**
-- **A pipe protocol** — one process, many requests. `viewer-confined` already *is* this: a length-
-  prefixed request/reply transport over stdio carrying all twenty-five questions, fuzzed at 13 M
-  executions. A machine-facing front end over that transport is mostly wiring, and it inherits the
-  confinement for free.
-- **HTTP/REST** — and this one has a principle-3 argument attached. The renderer has no network by
-  design and the confined worker's seccomp filter has no socket call; a listener therefore lives in
-  a *host* process outside the confinement, talking to the worker over the existing pipe. That is
-  buildable and is the right layering, but it is a network service and wants its own security
-  argument (bind address, no filesystem paths from the wire, request bounds). **Do not add a socket
-  to anything inside the sandbox.**
+## The bootstrapping hazard, and what keeps it honest
 
-## What would make this round successful
+The owner's answer to it is a compiler compiling itself, and what that needs is two things this
+round did not touch and the next must not either:
 
-Not "an API exists" but: **`tools/conformance` stops needing `doc/md/`** — clause existence and
-quotation text both answered from the PDF, with the `pdftotext` second opinion retained — and a
-machine can ask for §9.6.5.4's text, with or without its errata annotations, in one call. The
-migration cost is real and is `doc/todo/48`'s: 6115 citations and 579 quotations were verified
-against the conversion's whitespace, and a new substrate moves all of it. Doing the retrieval API
-first and the substitution second is what keeps that cost separable.
+- **`pdf-model/tests/text_extraction.rs`**, which compares this reader's readback against
+  `pdftotext` over 974 documents at 99.2% and over the fourteen specification PDFs at 100% of its
+  words. It is the *foreign* second opinion and it is what makes trusting our extraction different
+  from asserting it.
+- **`pdf-retrieve`'s default answer being that same string, byte for byte.** A test asserts it. Any
+  helpfulness added here — smart quotes, joined hyphens, dropped headers by default — would put this
+  tool between a caller and that measurement, silently.
+
+## What would make this item done
+
+The pipe's one message, and the substitution with its 29 readings. Neither is blocked and both have
+a size. When both land, this file goes.

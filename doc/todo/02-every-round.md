@@ -19,7 +19,7 @@ features no file exercises.
 ```sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets      # must be silent of lints
-cargo nextest run --workspace               # 1506 tests, 10 ignored
+cargo nextest run --workspace               # 1525 tests, 10 skipped
 cargo test --workspace --doc                # the one doctest nextest does not run
 cargo build --profile gates -p pdf-sandbox --bins   # trap 10: Cargo will not do this for you
 cargo test  --profile gates -p pdf-model      --test corpus          -- --ignored --nocapture
@@ -47,8 +47,8 @@ here:
 - **`cargo nextest` is a user-local install** — `cargo install cargo-nextest --locked`, or the
   prebuilt from `https://get.nexte.st/latest/linux` into `~/.cargo/bin`. Without it,
   `cargo test --workspace` is exactly the same gate at three times the wall clock, and that is
-  what CI runs. `nextest` skips doctests, which is why the line after it is there: 1503 + 1 = the
-  **1504** `cargo test --workspace` reports. (This line said 1314 until the
+  what CI runs. `nextest` skips doctests, which is why the line after it is there: 1525 + 1 = the
+  **1526** `cargo test --workspace` reports. (This line said 1314 until the
   three-hundred-and-eighty-eighth, which counted the tree with `nextest list` before and after its
   own seven and found the number two behind — the count is the gate's and not this file's. It said
   **1398** until the four-hundred-and-second, which added six tests to a gate that printed 1410:
@@ -80,7 +80,11 @@ here:
   copied its number, and a round that writes the number without running it writes last time's. **The
   four-hundred-and-nineteenth added eight** — a whole `pdf-model/tests/missing_resources.rs` for a
   name §7.8.3's resource dictionary does not define — **and the gate printed 1506, so this line was
-  not behind**, which is what happens when the round before it copies the gate's own number.)
+  not behind**, which is what happens when the round before it copies the gate's own number. The four-hundred-and-twentieth added **nine** and the gate
+  printed **1515**; the four-hundred-and-twenty-first added **ten** — four in the new
+  `tools/pdf-retrieve`, one in its JSON writer, two in `pdf-model`'s new `retrieval` module, one for
+  the structure-tree walk that used to see half of ISO 32000-2 and two more in the tool's own tests —
+  and the gate printed **1525**, so this line was not behind for the third round running.)
 - **One of those eighteen runs a C compiler**, and it is the only gate in this sequence that does.
   `viewer-ffi::a_c_program_drives_the_abi` builds `crates/viewer-ffi/c/open_a_page.c` against the
   crate's own header with `-Wall -Wextra -Werror`, links it against the `cdylib` — which it asks
@@ -164,12 +168,13 @@ at.** So at the end of every round, copy what a person would run into the projec
 
 ```sh
 cargo build --release --bin pdf-viewer --bin pdf-sandbox-worker --bin pdf-view-worker \
-                     --bin pdf-viewer-gtk --bin pdf-viewer-qt
+                     --bin pdf-viewer-gtk --bin pdf-viewer-qt --bin pdf-retrieve
 install -Dm755 /home/AI/cargo-target/pdf-viewer/release/pdf-viewer          target/pdf-viewer
 install -Dm755 /home/AI/cargo-target/pdf-viewer/release/pdf-sandbox-worker  target/pdf-sandbox-worker
 install -Dm755 /home/AI/cargo-target/pdf-viewer/release/pdf-view-worker     target/pdf-view-worker
 install -Dm755 /home/AI/cargo-target/pdf-viewer/release/pdf-viewer-gtk      target/pdf-viewer-gtk
 install -Dm755 /home/AI/cargo-target/pdf-viewer/release/pdf-viewer-qt       target/pdf-viewer-qt
+install -Dm755 /home/AI/cargo-target/pdf-viewer/release/pdf-retrieve        target/pdf-retrieve
 cargo build --release -p viewer-ffi          # a library, so not in the invocation above
 install -Dm755 /home/AI/cargo-target/pdf-viewer/release/libviewer_ffi.so   target/libviewer_ffi.so
 ```
@@ -187,7 +192,7 @@ is what a person *links against* — a C program with `include/pdf_viewer.h` and
 `/home/AI` is the only way somebody outside this tree can try the ABI at all. It is a separate
 `cargo build` because it is a library and the invocation above names binaries.
 
-**Five, not three, since the four-hundred-and-tenth** — `pdf-viewer-gtk` is the GTK4 host
+**Six since the four-hundred-and-twenty-first**, which added `pdf-retrieve` — not a window but a program a person runs, and the only one whose whole output is text a caller pipes (ADR 0257). **Five, not three, since the four-hundred-and-tenth** — `pdf-viewer-gtk` is the GTK4 host
 (ADR 0244) and `pdf-viewer-qt` is the Qt 6 one (ADR 0246), and each is a program a person runs, so
 they belong in the same invocation and for the same reason as the other three. This section named two for three rounds after the third arrived, which the
 three-hundred-and-eighty-third flagged and the three-hundred-and-eighty-fourth fixed. All three

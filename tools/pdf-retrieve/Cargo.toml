@@ -1,0 +1,28 @@
+[package]
+name = "pdf-retrieve"
+description = "Answers a program's questions about a PDF — a page, a section, its annotations — as JSON on stdout."
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# `pdf-model` is every reader this joins: §12.3.3's outline, §12.3.2's destinations, the page
+# readback and §12.5.6.10's `/QuadPoints`. Nothing else. In particular there is no serialisation
+# dependency: the output is a fixed shape this tool writes, `json.rs` is 120 lines, and a
+# dependency taken to print six kinds of value would be a dependency on the report's *format*
+# rather than on anything hard. See doc/third-party-data.md for the rule that decides these.
+[dependencies]
+pdf-model.workspace = true
+pdf-syntax.workspace = true
+thiserror.workspace = true
+
+# Only the substitution-cost example, which asks `tools/conformance`'s own two questions of
+# both substrates. **One way**: `conformance` does not and must not depend on this, because
+# nothing this project generates may become what the gate checks the standard against
+# (doc/todo/48, ADR 0252).
+[dev-dependencies]
+conformance.workspace = true
+
+[lints]
+workspace = true

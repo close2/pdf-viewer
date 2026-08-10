@@ -32,11 +32,14 @@ The three `_EC3` and `-2022` files record their errata as review markup and appl
 each with a `Caret` carrying the replacement, and 1752 §12.5.6.4 state annotations whose `/State`
 says how far the change got. The body text underneath is unamended.
 
-`/StructTreeRoot` in all fourteen, `/MarkInfo /Marked` in twelve — but `Tree::walk`'s
-`MAX_CHILDREN` bound stops at 65 536 and ISO 32000-2's tree is larger, so `logical_order` and
-everything on it sees only the front of that document. 1021 of its 1023 pages state
-`/StructParents`, so `ParentTree::for_page` is the route that works. Any future substrate goes page
-by page.
+`/StructTreeRoot` in all fourteen, `/MarkInfo /Marked` in twelve. **This paragraph used to end with
+a bound and the bound is gone**: `Tree::walk` stopped at 65 536 items, so the 71 371 recorded here as
+the size of ISO 32000-2's structure tree was the *bound overshooting* rather than the tree, which is
+**129 389**. Session 421 raised it to 2²⁰, made it report through `Reading::truncated`, and found the
+walk quadratic besides — 16.8 s to **151 ms** (ADR 0257). So `logical_order` and everything on it now
+see the whole document, and a substrate built on this need not go page by page; 1021 of its 1023
+pages state `/StructParents`, so `ParentTree::for_page` remains the cheaper route where only one
+page is wanted.
 
 ## What is built
 
@@ -81,9 +84,17 @@ defect in the standard. ADR 0252 has the argument.
 4. **The disagreement sweep** (the old step 3), unchanged: compare our extraction against `doc/md/`
    and report every span where they differ. The annotations were one loss of four; three others are
    recorded in this file's history and none has been swept for.
-5. **Only then** the substrate question (the old step 4), and the migration cost is unchanged: a new
-   conversion moves every line number and every quotation's whitespace, so switching wholesale means
-   re-verifying 6087 citations and 575 quotations. Session 413 declined a 417-span migration.
+5. **Only then** the substrate question (the old step 4) — and **the cost is measured now rather than
+   feared**, by `tools/pdf-retrieve/examples/substitution_cost.rs`, which asks the gate's own two
+   questions of both substrates (session 421, ADR 0257). **Clause existence is free**: all 506
+   distinct clauses this tree cites are among the 946 numbered items of §12.3.3's outline, resolved
+   in 23 ms with nothing interpreted, against `doc/md/`'s 1034 headings. **The quotation half is 29
+   readings**: of 582 blockquotes, 40 are found in this reader's extraction by the gate's own
+   comparison, 523 with the spaces taken out and **553** with the dashes folded together as well,
+   leaving 29. The gap is typography rather than words — `doc/md/` writes `Table 87 -Additional
+   entries` where the standard prints `Table 87 — Additional entries`, so 59 of this tree's
+   quotations carry the converter's dash. **Still a separate round from the API**, for the reason
+   session 413's decision gives.
 
 ## What would make this item wrong
 

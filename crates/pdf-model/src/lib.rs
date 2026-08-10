@@ -65,6 +65,7 @@ pub mod pkcs1;
 pub mod popup;
 pub mod requirements;
 pub mod restriction;
+pub mod retrieval;
 pub mod shading;
 pub mod signature;
 mod soft_mask;

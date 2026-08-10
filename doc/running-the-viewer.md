@@ -6,6 +6,11 @@ what puts the binaries where a person can reach them; `doc/verify.md` is the ins
 
 `doc/HANDOVER.md`'s "Run it" is the pointer to this file.
 
+**One of the six binaries `doc/todo/02` §5 installs is not a viewer at all**: `target/pdf-retrieve`
+answers a *program*'s questions about a document as JSON on stdout — a page, a section addressed by
+its clause number, and the annotations over either — and nothing here applies to it. `doc/todo/36`
+and ADR 0257 are its two files, and `pdf-retrieve` with no arguments prints what it takes.
+
 ```sh
 cargo run --release -p viewer-ui --bin pdf-viewer -- doc/PDF20_AN001-BPC.pdf
 ```

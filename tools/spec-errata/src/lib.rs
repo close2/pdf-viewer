@@ -45,7 +45,6 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use pdf_render::{Point, Transform};
 use pdf_syntax::{Dictionary, Document, Object};
 
 /// What went wrong reading a document, or the tree beside it.
@@ -270,7 +269,7 @@ pub fn read(path: &Path) -> Result<Vec<Note>, Error> {
             {
                 let read = interpretation
                     .get_or_insert_with(|| pdf_model::content::interpret(&document, &page));
-                covered_text(&document, annotation, &page, read)
+                pdf_model::retrieval::text_under(&document, annotation, &page, read)
             } else {
                 None
             };
@@ -805,110 +804,6 @@ fn states_on_this_page(
         }
     }
     out
-}
-
-/// The page's own text under an annotation's `/QuadPoints`.
-///
-/// §12.5.6.10 states the entry "in default user space", and `Interpretation::text_layer` is in
-/// the display list's own coordinates, so the quadrilaterals go through
-/// `content::page_transform` — the map that exists for exactly this direction.
-fn covered_text(
-    document: &Document,
-    annotation: &Dictionary,
-    page: &pdf_model::Page,
-    interpretation: &pdf_model::Interpretation,
-) -> Option<String> {
-    let quads = document.get_key(annotation, "QuadPoints");
-    let numbers: Vec<f32> = quads
-        .as_array()?
-        .iter()
-        .filter_map(|item| document.resolve(item).as_number())
-        .map(|value| {
-            // `as_number` answers an `f64` and the geometry is `f32`; a coordinate outside
-            // `f32`'s range is not a page coordinate, and `as` saturates rather than wrapping.
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "the display list's own precision, and a page coordinate fits it"
-            )]
-            let narrowed = value as f32;
-            narrowed
-        })
-        .filter(|value| value.is_finite())
-        .collect();
-    // "8×n numbers": anything else has stated no quadrilateral.
-    if numbers.is_empty() || !numbers.len().is_multiple_of(8) {
-        return None;
-    }
-    let transform = pdf_model::content::page_transform(page);
-    let mut spans: Vec<std::ops::Range<usize>> = Vec::new();
-    for placed in &interpretation.text_layer {
-        if placed.span.is_empty() {
-            continue;
-        }
-        let Some(centre) = centre(&placed.quad) else {
-            continue;
-        };
-        if numbers
-            .chunks_exact(8)
-            .any(|quad| contains(quad, transform, centre))
-        {
-            spans.push(placed.span.clone());
-        }
-    }
-    spans.sort_by_key(|span| span.start);
-    spans.dedup();
-    let mut out = String::new();
-    for span in spans {
-        if let Some(text) = interpretation.text.get(span) {
-            out.push_str(text);
-        }
-    }
-    (!out.trim().is_empty()).then_some(out)
-}
-
-/// The centre of a glyph's quadrilateral, in the display list's coordinates.
-fn centre(quad: &[f32; 8]) -> Option<Point> {
-    let mut x = 0.0f32;
-    let mut y = 0.0f32;
-    for pair in quad.chunks_exact(2) {
-        x += pair.first()?;
-        y += pair.get(1)?;
-    }
-    Some(Point {
-        x: x / 4.0,
-        y: y / 4.0,
-    })
-}
-
-/// Whether a point of the display list lies in one `/QuadPoints` quadrilateral.
-///
-/// The quadrilateral's corners are mapped rather than the point unmapped, because
-/// `content::page_transform` is the direction this crate has and inverting it would answer `None`
-/// for a degenerate page rather than for a degenerate quadrilateral.
-///
-/// A bounding box rather than the crossing-number rule the clause's counterclockwise order would
-/// want: §12.5.6.10's own NOTE says producers have written these corners "in a different order",
-/// and every quadrilateral in these documents is axis-aligned, so the box is the quadrilateral.
-fn contains(quad: &[f32], transform: Transform, point: Point) -> bool {
-    let mut low = Point {
-        x: f32::MAX,
-        y: f32::MAX,
-    };
-    let mut high = Point {
-        x: f32::MIN,
-        y: f32::MIN,
-    };
-    for pair in quad.chunks_exact(2) {
-        let (Some(x), Some(y)) = (pair.first(), pair.get(1)) else {
-            return false;
-        };
-        let mapped = transform.apply(Point { x: *x, y: *y });
-        low.x = low.x.min(mapped.x);
-        low.y = low.y.min(mapped.y);
-        high.x = high.x.max(mapped.x);
-        high.y = high.y.max(mapped.y);
-    }
-    point.x >= low.x && point.x <= high.x && point.y >= low.y && point.y <= high.y
 }
 
 /// One `/Subtype`-like name entry, as a string.

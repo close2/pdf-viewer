@@ -2851,6 +2851,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "pdf-retrieve"
+version = "0.1.0"
+dependencies = [
+ "conformance",
+ "pdf-model",
+ "pdf-syntax",
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "pdf-sandbox"
 version = "0.1.0"
 dependencies = [
@@ -3756,7 +3766,6 @@ version = "0.1.0"
 dependencies = [
  "conformance",
  "pdf-model",
- "pdf-render",
  "pdf-syntax",
  "thiserror 2.0.19",
 ]

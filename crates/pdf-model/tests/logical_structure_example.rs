@@ -267,7 +267,7 @@ fn the_clauses_worked_example_reads_as_the_structure_it_describes() {
     // continuation and then the second paragraph's two sequences — which is the clause's own
     // point about a logical object extending over more than one page.
     assert_eq!(
-        tree.logical_order(&document, ObjectId::new(101, 1)),
+        tree.logical_order(&document, ObjectId::new(101, 1)).items,
         vec![
             Child::MarkedContent {
                 mcid: 0,
@@ -281,6 +281,7 @@ fn the_clauses_worked_example_reads_as_the_structure_it_describes() {
     );
     assert_eq!(
         tree.logical_order(&document, ObjectId::new(102, 0))
+            .items
             .iter()
             .map(|item| match item {
                 Child::MarkedContent { mcid, .. } => *mcid,
@@ -292,7 +293,9 @@ fn the_clauses_worked_example_reads_as_the_structure_it_describes() {
     );
 
     let interpretation = pdf_model::interpret(&document, &second);
-    let logical = tree.logical_text(&document, ObjectId::new(102, 0), &interpretation);
+    let logical = tree
+        .logical_text(&document, ObjectId::new(102, 0), &interpretation)
+        .expect("the fixture's tree is far below the walk's bound");
     assert!(
         logical.starts_with("This is the very last sentence of the first paragraph."),
         "the second page reads the first paragraph's end first: {logical:?}"

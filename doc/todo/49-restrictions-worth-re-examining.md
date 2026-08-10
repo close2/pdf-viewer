@@ -8,7 +8,9 @@ its habit.
 **Two of the five are settled in the four-hundred-and-twentieth session** (ADR 0256): item 2, the
 readback cache, is built with a bound and eviction, and item 4 is subsumed by it exactly as this
 file predicted. The flag `--cache-text` is **declined**, with the condition that would revive it
-written into its entry below.
+written into its entry below. **A third is settled in the four-hundred-and-twenty-first** (ADR 0257):
+item 5's bound was not only wrong but hiding a quadratic walk, and both are fixed. What is left is
+items 1 and 3, which are one measurement and the API shape that depends on it.
 Priority: 49 — the project's own decisions, the band `43`–`48` already occupy. Nothing here is a
 defect; several entries are cheap wins and one is decided outright by a number the owner supplied.
 Code: `CLAUDE.md`, `doc/ui-boundary.md`, `crates/pdf-syntax/src/document.rs`,
@@ -101,10 +103,17 @@ places: `MASK_BUDGET` (32 MB), the confined worker's address-space ceiling (4 Gi
    a find bar's search no longer re-reads the page the person is looking at. The remaining half —
    the page a search *lands* on being interpreted again to draw it — cannot be subsumed, because
    drawing needs a display list and the cache deliberately holds only the readback.
-5. **`MAX_CHILDREN` 65 536 in `Tree::walk`** — session 416 found ISO 32000-2's structure tree is
-   larger (71 371), so `logical_order` sees only the front of that document. A bound that silently
-   truncates the largest document this project owns is the wrong bound; `ParentTree::for_page` is
-   the route that works and the walk should say so or grow.
+5. ~~**`MAX_CHILDREN` 65 536 in `Tree::walk`**~~ — **done in the four-hundred-and-twenty-first, and
+   it was worse than this entry recorded** (ADR 0257). The bound was on *items over the whole tree*
+   and it overshot, so the 71 371 session 416 wrote down was the bound rather than the tree: it is
+   **129 389**, and `logical_order` walks the whole tree once per page, so §14.8.2.5's reading order
+   for any page of ISO 32000-2 was a prefix. Two things were wrong and both are fixed. The bound is
+   now `MAX_ELEMENTS` at 2²⁰ — eight times that tree — separate from `MAX_CHILDREN`, which stays and
+   bounds one `/K` array; and it **reports**, through `Reading::truncated`, which `logical_text` (now
+   `Option<String>`) and `logical_range` refuse on rather than answering a prefix. **And the walk was
+   quadratic**, its visited set a `Vec<Dictionary>` searched linearly and compared whole: keyed by
+   `ObjectId` it is **16.8 s → 151 ms**. `pdf-model/tests/structure.rs` holds the count and the flag,
+   which is the assertion that did not exist to be made.
 
 **Worth a flag, and the tree already has the idiom** (`--no-sandbox`, `--cpu`, `--backend`,
 `--ignore-restrictions`, `--trace=<topics>`):

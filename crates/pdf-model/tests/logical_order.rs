@@ -109,6 +109,7 @@ fn the_two_orders_of_a_tagged_page_mostly_coincide() {
         }
         annotations_in_the_order = annotations_in_the_order.saturating_add(
             tree.logical_order(&document, id)
+                .items
                 .iter()
                 .filter(|item| matches!(item, pdf_model::structure::Child::Object { .. }))
                 .count(),
@@ -118,6 +119,7 @@ fn the_two_orders_of_a_tagged_page_mostly_coincide() {
         // which is a fact about the *document* rather than a disagreement about order.
         let reached: Vec<i64> = tree
             .logical_order(&document, id)
+            .items
             .iter()
             .filter_map(|item| match item {
                 pdf_model::structure::Child::MarkedContent { mcid, .. } => Some(*mcid),
@@ -133,7 +135,9 @@ fn the_two_orders_of_a_tagged_page_mostly_coincide() {
                 .count(),
         );
 
-        let logical = tree.logical_text(&document, id, &interpretation);
+        let logical = tree
+            .logical_text(&document, id, &interpretation)
+            .expect("no corpus tree comes near the walk's bound");
         // The comparison is on the text the *structure* reaches, in each order: comparing
         // against the whole readback would count every unreached sequence as a difference.
         let mut in_stream_order = String::new();
@@ -279,14 +283,16 @@ fn the_logical_order_reorders_what_the_stream_showed() {
         "one span per /MCID, in the order the sections closed"
     );
 
-    let logical = tree.logical_text(&document, id, &interpretation);
+    let logical = tree
+        .logical_text(&document, id, &interpretation)
+        .expect("a two-item fixture is far below the walk's bound");
     assert_eq!(
         logical.replace(['\n', ' '], ""),
         "firstsecond",
         "the structure states the other order, and a depth-first walk finds it"
     );
     assert_eq!(
-        tree.logical_order(&document, id).len(),
+        tree.logical_order(&document, id).items.len(),
         2,
         "two content items, no elements"
     );

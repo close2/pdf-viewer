@@ -342,7 +342,10 @@ fn structure(document: &Document, annots: &[ObjectId], page_id: ObjectId) -> Vec
         return annots.to_vec();
     };
     let mut out: Vec<ObjectId> = Vec::new();
-    for child in tree.logical_order(document, page_id) {
+    // A truncated reading costs nothing here that the clause does not already permit: an
+    // annotation the tree does not reach falls through to the array order below, "determined in
+    // a manner of the interactive PDF processor's choosing".
+    for child in tree.logical_order(document, page_id).items {
         if let Child::Object { object, .. } = child
             && annots.contains(&object)
             && !out.contains(&object)

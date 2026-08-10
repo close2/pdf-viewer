@@ -237,7 +237,9 @@ impl Structure {
     fn of(document: &Document) -> Self {
         let mark = pdf_model::structure::MarkInfo::read(document);
         let tree = pdf_model::structure::Tree::of(document);
-        let walked = tree.as_ref().map_or(0, |tree| tree.walk(document).len());
+        let walked = tree
+            .as_ref()
+            .map_or(0, |tree| tree.walk(document).items.len());
         let pages = pdf_model::Pages::new(document);
         let mut pages_with_parents = 0_usize;
         for index in 0..pages.len() {
