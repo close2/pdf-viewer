@@ -77,7 +77,7 @@ fuzz_target!(|data: &[u8]| {
     // A digest this target chose. No signature the fuzzer produces is over it, so the only
     // acceptable answers are `Ok(false)` and a named refusal.
     let digest = Digest::Sha256.compute(&[b"a digest nobody signed"]);
-    for signature in [&data[..], &[][..], &vec![0xFF; key.modulus.len()]] {
+    for signature in [data, &[][..], &vec![0xFF; key.modulus.len()]] {
         match pkcs1::verify(key, signature, Digest::Sha256, &digest) {
             Ok(false) => {}
             Ok(true) => panic!("a signature verified against a digest that was never signed"),

@@ -129,12 +129,21 @@ this line was not behind for the ninth round running.
   rather than in front of it, which is worth 7 s: the corpus gate compiles `pdf-model`'s rlib and
   its own test target in one graph, and `-p hayro-compare` on its own has nothing to overlap.
 
+**Fourteen fuzz targets since the four-hundred-and-twenty-eighth**, which added **`page`** — a
+whole document through `pdf_model::interpret`, which is clauses 8, 9 and 11 and was reachable by
+**no target at all**: `nm` finds `pdf_model::interpret` in one of the thirteen binaries and it
+calls it on a page with no `/Resources`. Seeded by `fuzz/seed_page.py` from the 1944 SafeDocs
+documents, `doc/corpora`'s 108 and the pdf.js submodule's 974 — **1882 seeds, 28 535 edges against
+the best of the thirteen at 6483** — and it is the fifth target that needs its corpus seeded, for
+`sfnt`'s reason one layer up (ADR 0264). **And `cargo-fuzz` is installed and always was**; it is in
+`~/.cargo/bin`, which is not on `PATH`, which is what two rounds read as its absence.
+
 **Twelve fuzz targets, not five** — the handover's list had never included `object` and
 `document`, `sfnt` arrived in the two-hundred-and-forty-first, `xmp` in the two-hundred-and-ninety-fourth, `fragment` in the three-hundred-and-sixty-ninth, **`confined_wire` in the three-hundred-and-eighty-sixth** — the confined viewer's four decoders, whose input is a *process* rather than a document (ADR 0223) — and **`x509` in the three-hundred-and-ninety-second**, the signer's certificate and the RSA arithmetic that runs on the key inside it (ADR 0229), seeded by `fuzz/seed_x509.py`. A round that touches a parser
 runs the one that covers it; a round that touches `pdf-font`'s glyph-table repairs runs `sfnt`
 **with its corpus seeded**, because unseeded it never forms a table directory and tests nothing.
 
-`doc/verify.md` has the rest — `cargo deny`, the twelve fuzzers, the two cross-target checks, the
+`doc/verify.md` has the rest — `cargo deny`, the fourteen fuzzers, the two cross-target checks, the
 callgrind counters and the census examples — and says which of them a change needs. **This sentence
 said "the five fuzzers" while the paragraph above it said twelve**, and the three-hundred-and-ninety-fifth
 corrected it while moving the list out of `doc/HANDOVER.md`.

@@ -128,6 +128,17 @@ cargo build --release -p hayro-compare --bins && \
   cargo run --release -p hayro-compare --bin hayro-speed -- doc/pdf.js/test/pdfs/*.pdf   # ~45 min
 cargo run --release -p hayro-compare --bin hayro-speed -- --per-document ...  # one line per file,
   # which is how a renderer that is a *program* rather than a crate is joined to the table (ADR 0136)
+# **`cargo-fuzz` is installed and always has been.** `~/.cargo/bin/cargo-fuzz`, 0.13.2, dated
+# 26 July, beside the `nightly` toolchain it needs. It is **not on `PATH`** in this shell, so
+# `which cargo-fuzz` reports nothing and `cargo fuzz` fails with "no such subcommand" — which is
+# a statement about `PATH` and not about the disk. Sessions 425 and 426 wrote "cargo-fuzz is not
+# installed here" from exactly that check, and left a target unwritten on the strength of it
+# (ADR 0264). Prefix the run: `PATH=$HOME/.cargo/bin:$PATH cargo +nightly fuzz …`.
+#
+# **The fuzz crate is its own workspace, so neither §2 gate sees it.** Two commands do, and
+# neither costs a nightly build:
+rustfmt --edition 2024 --check fuzz/fuzz_targets/*.rs   # `cargo fmt --all` does not reach these
+cd fuzz && cargo clippy --all-targets                   # nor does `clippy --workspace`
 cd fuzz && cargo +nightly fuzz run lexer         -- -runs=50000   # needs nightly
 cd fuzz && cargo +nightly fuzz run cmap          -- -runs=50000   # §9.7's CMap parser
 cd fuzz && cargo +nightly fuzz run crypt         -- -runs=50000   # §7.6's algorithms
@@ -135,6 +146,25 @@ cd fuzz && cargo +nightly fuzz run variable_text -- -runs=50000   # §12.7.4.3's
 cd fuzz && cargo +nightly fuzz run forms_data    -- -runs=50000   # §12.7.8's FDF, §7.9.4's dates
 cd fuzz && cargo +nightly fuzz run object        -- -runs=50000   # §7.3's object grammar
 cd fuzz && cargo +nightly fuzz run document      -- -runs=50000   # §7.5's file structure
+cd fuzz && cargo +nightly fuzz run page -- -runs=50000 -fork=6 -rss_limit_mb=4096 -timeout=60
+  # **clauses 8, 9 and 11** — a whole document through `pdf_model::interpret`, which nothing
+  # reached until the four-hundred-and-twenty-eighth: `nm` finds `pdf_model::interpret` in one of
+  # the other thirteen binaries and it calls it on a page with no `/Resources` (ADR 0264).
+  # **Seed its corpus first**, and from real documents, because libFuzzer will not invent a header,
+  # a page tree, a content stream and a resource dictionary that agree with each other:
+  #   find corpus-cache/safedocs doc/corpora doc/pdf.js/test/pdfs -name '*.pdf' -print0 \
+  #     | xargs -0 python3 fuzz/seed_page.py fuzz/corpus/page
+  # 1882 seeds under the target's own 256 KiB ceiling, `cmin` to 1535, **28 535 edges** against the
+  # best of the other thirteen at 6483. The script prints what the seeds *state* — 100 with a
+  # `/Function`, 58 with a `/Shading`, 62 with a `/Pattern` — because a corpus that states none
+  # seeds nothing about §8.7.4.5.
+  # **It is the slow one, and the flags say why.** Interpreting a page under the sanitiser is
+  # 10–30 execs/s where the other targets are microseconds, so `-fork=6` is what makes 50 000 runs
+  # about an hour instead of most of a day, and `-rss_limit_mb=4096` is the *sanitiser's* ceiling
+  # for a 1500-document corpus held in memory rather than any budget this program states. Expect
+  # `slow-unit-` artefacts and read them in a **release** binary before believing them: the one
+  # libFuzzer called 15 s is 0.8 s in `target/pdf-retrieve`, which is ASan, the debug assertions
+  # and six forks sharing 24 cores.
 cd fuzz && cargo +nightly fuzz run xmp           -- -runs=50000   # §14.3.2's XMP, the tree's
   # only XML. Its corpus is seeded with all 318 packets the pdf.js documents decode to
 cd fuzz && cargo +nightly fuzz run sfnt          -- -runs=50000   # §9.6.3's two glyph-table repairs

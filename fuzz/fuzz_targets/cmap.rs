@@ -29,8 +29,15 @@ fuzz_target!(|data: &[u8]| {
         let code = map.next_code(rest);
         let taken = usize::from(code.length());
         // The clause's own words are "one or more bytes", and a zero here is a hang.
-        assert!(taken >= 1, "a code consumed no bytes at {} left", rest.len());
-        assert!(taken <= 4, "§9.7.6.2 bounds a code at four bytes, got {taken}");
+        assert!(
+            taken >= 1,
+            "a code consumed no bytes at {} left",
+            rest.len()
+        );
+        assert!(
+            taken <= 4,
+            "§9.7.6.2 bounds a code at four bytes, got {taken}"
+        );
 
         // The lookups must be total over anything `next_code` can produce.
         let _ = map.cid(code);

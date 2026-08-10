@@ -45,9 +45,13 @@ fuzz_target!(|bytes: &[u8]| {
         let _ = date.to_string();
         assert!(date.month >= 1 && date.month <= 12, "{date:?}");
         assert!(date.day >= 1 && date.day <= 31, "{date:?}");
-        assert!(date.hour <= 23 && date.minute <= 59 && date.second <= 59, "{date:?}");
         assert!(
-            date.offset.is_none_or(|minutes| minutes.abs() <= 23 * 60 + 59),
+            date.hour <= 23 && date.minute <= 59 && date.second <= 59,
+            "{date:?}"
+        );
+        assert!(
+            date.offset
+                .is_none_or(|minutes| minutes.abs() <= 23 * 60 + 59),
             "{date:?}"
         );
     }

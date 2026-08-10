@@ -381,6 +381,16 @@ back and change `OCInteract`". A warning written where the work is does not fire
 
 ### Measuring
 
+- **A negative answer from a tool is a claim about that tool, not about the world.** `which
+  cargo-fuzz` reports nothing here because `~/.cargo/bin` is not on `PATH`, and two consecutive
+  rounds wrote "`cargo-fuzz` is not installed on this machine" into an ADR and a todo — leaving a
+  fuzz target unwritten — while the binary had been on disk since 26 July and `doc/HANDOVER.md`'s
+  own environment list said how to invoke it. The check that would have cost two more seconds is
+  `ls ~/.cargo/bin`. Session 428, ADR 0264.
+- **Ask the linker what a binary can execute.** `nm <binary> | grep -c <symbol>` answers "could
+  this program ever run that code, under any input" with no fuzzing, no coverage build and no
+  argument — it found that eleven of thirteen fuzz targets did not contain the function that
+  crashed, which is a stronger statement than any of them could have made about *reaching* it.
 - **Wall-clock benchmarks lie under load; count instructions instead.** One change measured as a
   24% regression and an 8.5% improvement twenty minutes apart. **A/B in one sitting**, and measure
   the baseline on this machine rather than trusting a number in this file.

@@ -50,6 +50,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "page"
+path = "fuzz_targets/page.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "cmap"
 path = "fuzz_targets/cmap.rs"
 test = false

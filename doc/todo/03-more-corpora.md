@@ -131,8 +131,9 @@ Applied here it splits, and the split is the useful half:
   archive, the member name and the SHA-256, which is what `manifest.tsv` records.
 - **A crasher is a different thing** — small, always committable, and `CLAUDE.md` requires one.
   **The first one arrived in the four-hundred-and-twenty-fifth**, and it cost the budget nothing
-  either: §7.10.4's `/Functions` naming its own object overflows the stack, and the 720-byte
-  witness is *generated* by `crates/pdf-model/tests/hostile_functions.rs` rather than committed.
+  either: §7.10.4's `/Functions` naming its own object overflows the stack, and the **696-byte**
+  witness is *generated* by `crates/pdf-model/tests/hostile_functions.rs` rather than committed —
+  720 until the four-hundred-and-twenty-eighth asked the fixture's own construction how long it is.
   A crasher a test can write is better than a crasher a test has to store.
 
 ### 4. Two instruments the new populations make possible — one built, one not
@@ -165,12 +166,16 @@ Applied here it splits, and the split is the useful half:
   be — but "decode zero bytes to zero bytes" also silences a stream truncated to nothing, and
   choosing between those two needs the argument rather than the patch. §7.3.8.1 permits "zero or
   more bytes" between the keywords, so the *stream* is valid and only the filter's input is empty.
-- **No fuzz target reaches `pdf-model`'s interpreter.** The crasher above lived there, and of the
-  thirteen targets only two call `pdf_model::interpret`: `confined_wire`, whose input is a process,
-  and `variable_text`, which varies a widget's `/DA` and `/V` inside a page it holds fixed. So no
-  fuzzer in this tree has ever built a shading. A target that fuzzes a whole document *through*
-  `interpret` is owed; it was not written in the four-hundred-and-twenty-fifth because
-  `cargo-fuzz` is not installed on this machine and a target nobody has run is not a target.
+- ~~**No fuzz target reaches `pdf-model`'s interpreter.**~~ **Done in the
+  four-hundred-and-twenty-eighth** (ADR 0264), and both halves of the note above it were wrong.
+  **`cargo-fuzz` was installed all along** — `~/.cargo/bin/cargo-fuzz` 0.13.2, dated 26 July,
+  a fortnight before the round that said otherwise; it is simply not on `PATH`, so `which` reports
+  a false negative and both this note and ADR 0261 were written from one. And **`confined_wire`
+  does not reach `pdf_model::interpret`** either: `nm` finds the symbol in exactly one of the
+  thirteen binaries, `variable_text`, whose page has no `/Resources` — so it was one target rather
+  than two, and twelve binaries did not contain the interpreter at all. `page` is the fourteenth
+  target: a whole document through `interpret`, seeded from the 1944 SafeDocs documents, the 108
+  in `doc/corpora` and the pdf.js submodule's 974 by `fuzz/seed_page.py`.
 
 ## What not to do
 

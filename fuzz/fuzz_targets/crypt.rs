@@ -82,7 +82,9 @@ fuzz_target!(|data: &[u8]| {
             continue;
         };
         let pages = document.get_key(&catalog, "Pages");
-        let Some(pages) = pages.as_dict() else { continue };
+        let Some(pages) = pages.as_dict() else {
+            continue;
+        };
         let kids = document.get_key(pages, "Kids");
         let Some(first) = kids.as_array().and_then(<[_]>::first) else {
             continue;
