@@ -215,6 +215,14 @@ pub(crate) struct Open {
     /// makes for a field's value: the document says what it says, and what a person did is a log
     /// beside it (`CLAUDE.md`'s rule 1).
     pub(crate) popups: BTreeMap<ObjectId, bool>,
+    /// The readback of pages this document has already been read, under a byte budget.
+    ///
+    /// What a document-wide search costs is interpreting pages nobody is looking at, and ADR 0250
+    /// threw each one away as soon as the needle had been compared against it. This keeps them —
+    /// the readback alone, never the display list — so that a second search over the same ground
+    /// is a string comparison rather than a thousand interpretations. `crate::readback::BUDGET`
+    /// is the ceiling and [`Self::stale`] is the one place that empties it.
+    pub(crate) readbacks: crate::readback::Readbacks,
 }
 
 /// One thing a person did, **resolved**, as the log records it.
@@ -399,7 +407,28 @@ impl Open {
             pending_selection: None,
             searching: None,
             popups: BTreeMap::new(),
+            readbacks: crate::readback::Readbacks::default(),
         }
+    }
+
+    /// Drops everything derived from what the page draws, because the view state moved.
+    ///
+    /// The one place that says what "the ink is stale" means, and it means two things now rather
+    /// than one: the display list of the page showing, and the readback of every page a search
+    /// has read. Both are functions of the document *and* [`Self::view`], and §8.11's layer
+    /// switch, §12.7.5's field value, §12.5.5's appearance under the pointer and §6.3.2.2's
+    /// delegated widgets each move the second of those two.
+    ///
+    /// **Every page's readback goes, not the page that changed.** A layer switched or a value
+    /// typed is a change to the *state*, and the state is what every cached page was interpreted
+    /// against; the precise alternative — forgetting only the page an annotation sits on — needs
+    /// an invariant about which page that is, maintained at two call sites, and a search that
+    /// returned different results after this change would be a defect rather than a speed-up.
+    /// The cost is that a layer switch makes the next search cold again, which is written down
+    /// in ADR 0256 as the deliberate half of the trade.
+    pub(crate) fn stale(&mut self) {
+        self.interpreted = None;
+        self.readbacks.clear();
     }
 
     /// How many pages there are now, which §12.7.8.3.3's imported templates may have changed.
@@ -538,8 +567,8 @@ impl Open {
             }
         }
         self.log = log;
-        // The page's ink depends on the values, so the display list is stale.
-        self.interpreted = None;
+        // The page's ink depends on the values, so the display list and every readback are stale.
+        self.stale();
     }
 
     /// Whether anything a person did is unsaved.

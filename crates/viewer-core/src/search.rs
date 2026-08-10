@@ -24,10 +24,17 @@
 //! zero, at whatever rate its own frame budget allows, exactly as it answers
 //! [`crate::Event::NeedsRender`] rather than being handed a finished page.
 //!
-//! Nothing is cached. A `next` that crosses three pages interprets three pages and a second
-//! search over the same ground interprets them again; the alternative is a readback cache with a
-//! byte budget and an invalidation rule for every view-state change that alters what a page
-//! draws, and at 5.7 ms a page nobody has measured a need for it.
+//! # The readback is kept, under a bound, and this module still knows nothing about that
+//!
+//! ADR 0250 declined to keep it — "a readback cache with a byte budget and an invalidation rule
+//! for every view-state change that alters what a page draws" — and the four-hundred-and-twentieth
+//! session built exactly that, because the byte budget it was missing turned out to be a number:
+//! the whole of ISO 32000-2 reads back as 2.66 MB. `crate::readback` is the cache,
+//! `crate::open::Open::stale` is the invalidation rule, and a **repeated** full-document sweep
+//! fell from 5.45 s to 7.27 ms while the first one did not move (ADR 0256).
+//!
+//! What did *not* change is anything here: [`Searching`] is handed a `&str` and has never known
+//! where it came from, which is why the cache cost this module no lines at all.
 
 use crate::command::FindDirection;
 

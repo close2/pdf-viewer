@@ -1,72 +1,93 @@
-# A document-wide search takes 6.19 s on 1023 pages
+# A cold document-wide search is 4.79 s on 1023 pages, and a fifth of it is the page tree
 
 Status: **raised by the project owner on 2026-08-09**, on reading session 414's report:
 *"Is the search implemented single threaded? 6.19s doesn't sound that fast. Can we easily improve
 this? … Any improvement must be reasonable. Improving the search speed is a goal, but not a
 requirement if the cost is too high (for instance in code quality or possibly also memory usage)."*
+**Half answered in the four-hundred-and-twentieth session** (ADR 0256): the *repeated* search is
+750× cheaper and the window's is **0.021 s** against about five seconds, and the *cold* search is
+unchanged. What is left is the cold one, and this file now says where its time goes.
 Priority: 47 — performance, measured, and explicitly **not** a requirement: the owner has priced
 the trade in advance and code quality and memory both outrank the seconds
 Corpus: every document; the cost scales with the *document*, not with the needle
-Code: `crates/viewer-core/src/viewer.rs` (`find_step`), `crates/viewer-core/src/search.rs`,
-`crates/viewer-core/src/open.rs` (`interpret`), `crates/pdf-model/src/content.rs`
+Code: `crates/viewer-core/src/viewer.rs` (`find_step`, `readback`),
+`crates/viewer-core/src/readback.rs`, `crates/pdf-model/src/page.rs` (`Pages::get`),
+`crates/pdf-model/src/content.rs`. `crates/viewer-core/examples/find_cost` is the instrument.
 
-## Yes, single-threaded — and by rule rather than by oversight
+## Where the time goes, measured
 
-`Command::Find` reads **one page per step**; the host pumps `Find::Continue` and
-`Event::Searched { found, remaining, wrapped }` says how many are left. `viewer-core`'s rule 4
-(`doc/ui-boundary.md`) is *"no threads the core was not handed, and no blocking"*, and rule 3 leaves
-it no clock to budget with — which is why the design is a pump and not a loop. ADR 0250 argued that
-shape and it is not the thing to undo casually: it is what lets a host keep its window alive during
-a search, and it is why the confined worker and the C ABI can both drive one.
+`find_cost` drives the pump with no host at all, so the number is the search's. ISO 32000-2, 1023
+pages, `--profile gates`, medians of three:
 
-**Where the 6.19 s goes is not the searching.** `find_step`'s own comment names it: `interpret` is
-the expensive half of this program, measured at **5.7 ms a page** over ISO 32000-2's 1023, and the
-readback it produces is **thrown away** afterwards. The needle comparison is `select::find` over a
-`String` and is not on anybody's list of costs.
+| one cold sweep, split | | |
+|---|---|---|
+| §7.7.3.2's page tree, `Pages::get` once per page | **1.12 s** | **19.6%** |
+| the content stream, `interpret_with` | **4.59 s** | **80.4%** |
+| building the index, `Pages::new` × 1023 | 2.8 ms | 0.05% |
 
-**And the first measurement of it was wrong about its own subject**, which is worth keeping: a
-full-document miss took **19.25 s** until session 414 noticed `viewer-ui` was repainting on every
-step — 1024 windows through `lavapipe` to move a progress digit. Throttled to one step in sixteen it
-was 6.19 s. Before optimising the search, check that the *host* is not the thing being measured.
+And end to end, medians of seven, against the same binary with the cache's budget set to 0:
 
-## The four candidate answers, and what each costs
+| | before | after |
+|---|---|---|
+| first (cold) sweep | 5.51 s | 5.61 s — **unchanged**, inside spreads of 0.16 and 0.32 s |
+| repeated sweep | 5.45 s | **7.27 ms** |
+| in the window (`Xvfb`, lavapipe), first / repeated | ≈4.9 s / ≈4.9 s | **4.79 s / 0.021 s** |
 
-None is free, and the owner's constraint decides between them rather than the seconds do.
+## What was done, and what it settles
 
-1. **Interpret less.** A search needs `Interpretation::text` and nothing else — not the display
-   list, not decoded images, not shadings. If a text-only path is a *narrowing* of the same walk
-   (a flag that stops commands being emitted) it is cheap and safe; if it is a **second extraction
-   path**, it can diverge from what the page draws, and then a search finds words the reader cannot
-   see. **This is the one to measure first**, and the discriminator is whether it can be built
-   without a second traversal to maintain. `examples/readback` already exists and is the instrument.
-2. **Parallelism, which rule 4 puts in the host rather than the core.** A host may pump several
-   searches — but `pdf_syntax::Document` caches behind `RefCell` and **is not `Sync`**, so N threads
-   means N documents, i.e. N parses and N caches. That is memory the owner has named as a possible
-   veto, and it re-reads the file N times. Measure the per-document cost before believing this is a
-   win: `Document::open` is 10–13 ms on 101 318 objects and the caches are what make page 900 cheap.
-3. **A readback cache.** Priced and deliberately absent in ADR 0250, for the memory reason — 2.66 MB
-   of readback for ISO 32000-2, which is not much, but it is per document and unbounded in principle.
-   Cheap to reconsider *with a bound*; the argument to beat is the one already written down.
-4. **Skipping pages cheaply.** Tempting and probably unsound: a content stream's bytes are not the
-   page's characters — a `/ToUnicode` CMap, a composite font's codes and §9.10.2's three methods all
-   stand between them, so a byte scan for the needle would miss text this tree can read. Do not take
-   this one without an argument that survives `doc/todo/21`'s populations.
+**Candidate 3, the readback cache, is built** — `crates/viewer-core/src/readback.rs`, 4 MiB per open
+document, least-recently-used, observable through `Viewer::readback_cache` and
+`pdf-viewer --trace=search`. ADR 0256 has the argument, the invalidation rule and the cost; the
+short of it is that ADR 0250 declined it against a bound nobody had stated, and the owner stated
+one.
 
-## What a round taking this owes
+**Candidate 1, "interpret less", is answered rather than tried**, and the measurement is why: a
+text-only narrowing of the walk could remove at most part of the 80.4%, and the cache removes
+*all* of both halves for every page after the first. What it cannot do is help a *first* search,
+which is the only thing left on this file — and a second extraction path would be the wrong way to
+buy that, for the reason this file has always given: it can diverge from what the page draws, and
+then a search finds words the reader cannot see.
 
-- **Measure before choosing**, and measure the right thing: `find_step` alone, not a host's loop.
-  Session 391's finding is the standing warning — the "2 ms accessibility cost" was two X11 round
-  trips, and the "bimodal scene" was per *sample* rather than per command.
-- **State what each option costs in memory and in lines**, because those are what the owner said may
-  veto it. A 2× speed-up that adds a second text path is probably the wrong trade; a 2× that deletes
-  work is obviously the right one.
-- **Do not undo the pump.** Whatever is done stays a step a host drives; rules 3 and 4 are not
-  negotiable and a blocking search would cost the confined host and the C ABI their responsiveness.
-- **A search that returns different results after the change is a defect, not a speed-up.** The gate
-  is `tests/text_extraction.rs` at 99.2% and the 14 specification PDFs at 100% of `pdftotext`'s
-  words; a text-only path must reproduce both exactly.
+**Candidate 2, parallelism, is `doc/todo/49` item 1** and was left alone by instruction: the blocker
+is `pdf_syntax::Document` being `!Sync` behind `RefCell` caches, which is a measurement round of its
+own.
+
+**Candidate 4, skipping pages by scanning bytes, is still unsound** for the reason it always was.
+
+## What is left: the page tree, and it is not a cache question
+
+**A fifth of a cold search is walking §7.7.3.2's tree from the root, once per page.** `Pages::get`
+descends for every index — 1.10 ms on the thousandth page of ISO 32000-2 — so a sequential sweep is
+the access pattern a tree walk is worst at, and it is the same walk `Open::page` makes on every page
+turn. `Pages::new` is *not* the cost (2.7 µs), so hoisting the index out of `Open::page` buys
+nothing measurable and is not worth the lines.
+
+What would buy something is an index the walk builds as it goes: the first descent to page *n*
+passes every node on the way, and remembering the leaves it saw would make the sweep O(tree) rather
+than O(pages × depth). Two things a round taking this owes:
+
+- **`CLAUDE.md`'s startup rule is on the other side of it.** "No full page-tree walk" on the launch
+  path, and "a 500-page document must open no slower than a 5-page one" — which is a rule this tree
+  measured itself against in session 289 and holds today (1023 pages and 5 pages cost the launch the
+  same 5 ms of join). A *lazy* index filled by walks somebody asked for does not break that; an
+  eager one does, and the difference has to be in the design rather than in the comment.
+- **Measure `find_leaf` before believing the 1.12 s is all descent.** The split above times
+  `Pages::get` whole, and that includes §7.7.3.4's inheritance being applied from the root on every
+  call. Which of the two dominates decides whether the answer is an index of leaves or a cache of
+  resolved `Page`s, and those have very different memory costs — a `Page` holds dictionaries, where
+  a readback is 2.6 KB of text.
+
+## What a round taking this still owes
+
+- **Measure `find_step` alone**, not a host's loop. `find_cost` is the instrument now and prints the
+  split itself with a fourth argument.
+- **The gate is unchanged**: `tests/text_extraction.rs` at 99.2% and the 14 specification PDFs at
+  100% of `pdftotext`'s words, both exactly. A search that returns different results is a defect.
+- **Do not undo the pump.** Rules 3 and 4 are not negotiable.
+- **State what it costs in memory and in lines.**
 
 ## What is explicitly not owed
 
-A match count ("3 of 17"), which needs the whole document read before the first answer. No host has
-asked, and nothing in the vocabulary prevents one doing it.
+A match count ("3 of 17"), which needs the whole document read before the first answer. It is now
+*cheap on a second search and unchanged on a first*, which is a different shape from the one ADR
+0250 declined — but no host has asked, and nothing in the vocabulary prevents one doing it.

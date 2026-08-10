@@ -87,6 +87,16 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
 - `Viewer::handle(&mut self, Command) -> impl Iterator<Item = Event>`, and
   `Viewer::query(&self, Query) -> Answer` beside it. **Selection cannot wait for a render round
   trip**, which is why the second channel is not a command.
+- **And one method that is neither, since the four-hundred-and-twentieth**:
+  `Viewer::readback_cache(DocumentId) -> Option<ReadbackCache>`, which says how much of this
+  document's readback the search cache is holding, against what budget, with hits, misses and
+  evictions. It is an *instrument* rather than a message, and that is the whole reason it is not a
+  `Query`: a `Query` is a question a host asks in order to **draw** something, and six consumers
+  match that enum exhaustively while `viewer-confined` puts every variant on a wire — a cost worth
+  paying for a panel and not for a number no interface displays. It cost no consumer a line.
+  `pdf-viewer --trace=search` is what prints it. The rule this establishes for the next such
+  number: **if a host would draw it, it is a `Query`; if a person would read it, it is a method**
+  (ADR 0256).
 - `Command`: `Open { id, bytes, password, fragment }`, `Close`, `Focus`, `Resize { width, height, scale }`,
   `GoTo(PageTarget)`, `Zoom`, `Scroll`, `SetGroup`, **`Activate(ObjectId)`**, `Pointer { at, action }`,
   `Select`, **`Focused(FocusMove)`** (§12.5.1's tab key), `Edit(Edit)` — four of them now, with

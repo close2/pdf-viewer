@@ -377,6 +377,56 @@ fn a_vertical_cmap_takes_the_second_set_of_metrics() {
     );
 }
 
+/// §9.4.4's combined displacement moves the text matrix down the page, and not across it.
+///
+/// The metrics test above proves the font *states* §9.7.4.3's second set; this proves the
+/// interpreter *applies* them, which is a different clause. ISO 32000-2 §9.4.4:
+///
+/// > After the glyph is painted, the text matrix shall be updated according to the glyph
+/// > displacement and any spacing parameters that apply. First, a combined displacement shall be
+/// > computed, denoted by t x in horizontal writing mode or t y in vertical writing mode (the
+/// > variable corresponding to the other writing mode shall be set to 0)
+///
+/// The observable is the text layer — one entry per character code, each with the quadrilateral
+/// its glyph occupies — so "set to 0" is readable as a fact about where consecutive glyphs of one
+/// string landed: the same column, descending. `vertical.pdf` is the corpus's `Identity-V`
+/// document and the only one that exercises the branch.
+#[test]
+fn a_vertical_font_advances_down_the_page_rather_than_across_it() {
+    let Some(document) = corpus_document("vertical.pdf") else {
+        println!("skipped: the doc/pdf.js submodule is not checked out");
+        return;
+    };
+    let pages = pdf_model::Pages::new(&document);
+    let page = pages.get(0).expect("vertical.pdf has a first page");
+    let interpretation = pdf_model::content::interpret(&document, &page);
+    let placed = &interpretation.text_layer;
+    assert!(
+        placed.len() >= 2,
+        "the page shows a string: {}",
+        placed.len()
+    );
+
+    // The centre of each glyph's quadrilateral, which is what "where it landed" means without
+    // depending on which corner the box starts at.
+    let centre = |quad: &[f32; 8]| {
+        (
+            (quad[0] + quad[2] + quad[4] + quad[6]) / 4.0,
+            (quad[1] + quad[3] + quad[5] + quad[7]) / 4.0,
+        )
+    };
+    let first = centre(&placed[0].quad);
+    let second = centre(&placed[1].quad);
+    assert!(
+        (second.0 - first.0).abs() < 1.0,
+        "t x is 0 in vertical writing mode: {first:?} then {second:?}"
+    );
+    assert!(
+        second.1 < first.1 - 1.0,
+        "and t y carries the next glyph below it in user space: {first:?} then {second:?}"
+    );
+}
+
 /// The descendant `CIDFont` of a Type 0 font, per §9.7.6.1's one-element `/DescendantFonts`.
 fn descendant_of(document: &Document, dict: &Dictionary) -> Option<Dictionary> {
     if document.get_key(dict, "Subtype").as_name()?.as_bytes() != b"Type0" {

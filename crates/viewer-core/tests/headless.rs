@@ -4706,3 +4706,131 @@ fn run_search(
             .collect();
     }
 }
+
+/// A second search over the same ground answers exactly what the first did, out of the cache.
+///
+/// This is the gate `doc/todo/47` names for the four-hundred-and-twentieth session's readback
+/// cache: *"a search that returns different results after the change is a defect, not a
+/// speed-up"*. The proof is in two halves and it needs both:
+///
+/// - the **answers** are compared, for a needle that is in the document and for one that is not;
+/// - the **counters** say the second sweep interpreted nothing, so the second answer was computed
+///   from what the cache held rather than from a fresh interpretation that happened to agree.
+///
+/// `Command::Select(Selection::None)` between the two is what makes them the same question rather
+/// than consecutive ones: a search starts after the far end of what is selected, so a second one
+/// run over a match would find the one after it.
+#[test]
+fn a_second_search_answers_what_the_first_did_without_interpreting_a_page_again() {
+    let (mut viewer, _) = opened(800, 1000);
+    let mut steps = 0_usize;
+    let first = run_search(&mut viewer, "compensation", false, &mut steps);
+    assert!(
+        first.is_some(),
+        "the note is about black point compensation"
+    );
+    let after_first = viewer
+        .readback_cache(DOCUMENT)
+        .expect("the document is open");
+    assert!(after_first.pages > 0, "something was kept: {after_first:?}");
+    assert!(after_first.bytes <= after_first.budget, "{after_first:?}");
+
+    viewer
+        .handle(Command::Select(Selection::None))
+        .for_each(drop);
+    let mut again = 0_usize;
+    let second = run_search(&mut viewer, "compensation", false, &mut again);
+    assert_eq!(second, first, "the same page and the same range");
+    assert_eq!(again, steps, "and it took the same number of steps");
+
+    let after_second = viewer
+        .readback_cache(DOCUMENT)
+        .expect("the document is open");
+    assert_eq!(
+        after_second.misses, after_first.misses,
+        "the second sweep interpreted no page at all: {after_second:?}"
+    );
+    assert!(after_second.hits > after_first.hits, "{after_second:?}");
+    assert_eq!(after_second.evicted, 0, "five pages fit in the budget");
+
+    // A needle that is in no page reads the whole plan, twice, and answers nothing both times.
+    let (mut absent, mut absent_again) = (0_usize, 0_usize);
+    assert_eq!(
+        run_search(&mut viewer, "quinquagesima", false, &mut absent),
+        None
+    );
+    assert_eq!(
+        absent,
+        PAGES.saturating_add(1),
+        "every page and the origin twice"
+    );
+    let before = viewer.readback_cache(DOCUMENT).expect("open").misses;
+    assert_eq!(
+        run_search(&mut viewer, "quinquagesima", false, &mut absent_again),
+        None
+    );
+    assert_eq!(absent_again, absent, "the same plan");
+    assert_eq!(
+        viewer.readback_cache(DOCUMENT).expect("open").misses,
+        before,
+        "and no page was read a second time"
+    );
+}
+
+/// An edit forgets every page's readback, because the readback is a function of the view state.
+///
+/// §12.5.6.10's markup is the cheapest change of that state to make from a test — it goes through
+/// the same `Open::replay` a field edit, an undo and a redo do — and what it pins is the
+/// conservative rule `Open::stale` states: **every** page goes, not the page that changed. A
+/// cache keyed by page alone would answer the next search out of text produced under the state
+/// before the edit, and `settle` immediately putting the page showing back is what leaves exactly
+/// one entry rather than none.
+#[test]
+fn an_edit_forgets_every_page_the_search_had_read() {
+    let (mut viewer, _) = opened(800, 1000);
+    let mut steps = 0_usize;
+    assert_eq!(
+        run_search(&mut viewer, "quinquagesima", false, &mut steps),
+        None
+    );
+    let filled = viewer
+        .readback_cache(DOCUMENT)
+        .expect("the document is open");
+    assert_eq!(filled.pages, PAGES, "the sweep kept all five: {filled:?}");
+
+    viewer
+        .handle(Command::Select(Selection::All))
+        .for_each(drop);
+    viewer
+        .handle(Command::Edit(Edit::Markup {
+            kind: pdf_model::view::Markup::Highlight,
+            colour: [1.0, 1.0, 0.0],
+        }))
+        .for_each(drop);
+    let emptied = viewer
+        .readback_cache(DOCUMENT)
+        .expect("the document is open");
+    assert_eq!(
+        emptied.pages, 1,
+        "the edit forgot them and `settle` put the page showing back: {emptied:?}"
+    );
+    // The tally is not reset: it is what says whether the cache is working, and zeroing it on
+    // every edit would hide the edit rather than report it.
+    assert_eq!(emptied.misses, filled.misses);
+
+    // And the next search reads the other four again rather than answering out of the state
+    // before the edit.
+    let mut after = 0_usize;
+    assert_eq!(
+        run_search(&mut viewer, "quinquagesima", false, &mut after),
+        None
+    );
+    let reread = viewer
+        .readback_cache(DOCUMENT)
+        .expect("the document is open");
+    assert_eq!(
+        reread.misses,
+        filled.misses.saturating_add(4),
+        "four pages interpreted again: {reread:?}"
+    );
+}

@@ -6,7 +6,7 @@
 //! > enumerate the named resources needed by the operators in the content stream and the names
 //! > by which they can be referred to.
 //!
-//! and, of a form XObject, a pattern or an appearance stream, "a PDF writer shall include a
+//! and, of a form `XObject`, a pattern or an appearance stream, "a PDF writer shall include a
 //! Resources entry in the stream's dictionary specifying the resource dictionary which contains
 //! all the resources used by that content stream". So a `Do`, a `gs` or an `scn` whose operand
 //! finds nothing is a *malformed file*, and what this reader owes it is trap 5's rule: draw what
@@ -16,7 +16,7 @@
 //!
 //! Trap 8, and measured rather than assumed. The 974-document corpus reaches these paths on
 //! **three** first pages between them — `issue6541.pdf` (a tiling pattern naming an `/XObject`
-//! only the page defines), `issue8702.pdf` (a form XObject written inside an object stream,
+//! only the page defines), `issue8702.pdf` (a form `XObject` written inside an object stream,
 //! which §7.5.7 forbids from holding a stream, so it is a dictionary with no content) and
 //! `operator_list_cycle.pdf` (a `gs` in a form whose `/Resources` states only a `/Pattern`).
 //! None of the three exercises the condition that decides whether the report is honest — a
@@ -79,7 +79,7 @@ fn reports(catalog_extra: &str, resources: &str, content: &str, extra: &str) -> 
         .collect()
 }
 
-/// A form XObject drawing a square, so that a fixture can tell "drawn" from "not there".
+/// A form `XObject` drawing a square, so that a fixture can tell "drawn" from "not there".
 fn square_form(number: usize) -> String {
     let content = "0 g 20 20 60 60 re f";
     format!(
@@ -89,7 +89,7 @@ fn square_form(number: usize) -> String {
     )
 }
 
-/// Table 86: "The operand name shall appear as a key in the XObject subdictionary".
+/// Table 86: "The operand name shall appear as a key in the `XObject` subdictionary".
 #[test]
 fn a_do_naming_no_xobject_at_all_is_reported() {
     let reported = reports("", "", "/Fm0 Do", "");
@@ -107,7 +107,7 @@ fn a_do_naming_no_xobject_at_all_is_reported() {
 /// Table 86's second requirement: "The associated value shall be a stream".
 ///
 /// `issue8702.pdf`'s shape, and the reason a file can be written this way at all is §7.5.7 —
-/// an object stream holds no streams, so a producer that puts a form XObject in one writes a
+/// an object stream holds no streams, so a producer that puts a form `XObject` in one writes a
 /// dictionary with `/Subtype /Form`, a `/BBox` and a `/Matrix` and no content anywhere.
 #[test]
 fn a_do_whose_value_is_not_a_stream_is_reported() {
@@ -131,7 +131,7 @@ fn a_do_whose_value_is_not_a_stream_is_reported() {
 ///
 /// §7.8.3's NOTE 3 since Errata Collection 3 (Issue #128), which replaced the `shall` this
 /// tree used to quote: "PDF files written obeying earlier versions of PDF may have omitted the
-/// Resources entry in form XObjects, Type 3 glyph descriptions or annotation appearance streams
+/// Resources entry in form `XObject`s, Type 3 glyph descriptions or annotation appearance streams
 /// used on a page. Those earlier versions state that resources that were referenced from those
 /// content streams can be inherited from the resource dictionary of the page on which they are
 /// used."

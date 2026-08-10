@@ -17,6 +17,7 @@ use crate::event::{Event, Found, RenderRequest};
 use crate::interact;
 use crate::open::{Frame, Interpreted, Open, Pending};
 use crate::query::{Answer, FrameView, Layer, PageGeometry, PopupWindow, Query, Selected};
+use crate::readback::ReadbackCache;
 
 /// Pixel budget for one rendered page.
 ///
@@ -128,6 +129,22 @@ impl Viewer {
         self.act(command, &mut events);
         self.settle(&mut events);
         events.into_iter()
+    }
+
+    /// What one open document's readback cache is holding, or `None` for a document that is not
+    /// open.
+    ///
+    /// An instrument rather than a [`Query`], and the difference is what each is for: a `Query`
+    /// is a question a host asks in order to *draw* something, and six consumers plus a wire
+    /// protocol match that enum exhaustively. This answers a question about the program's own
+    /// memory, which no interface displays and which `--trace=search` and
+    /// `viewer-core/examples/find_cost` print. `CLAUDE.md`'s rule about a budget is that it be
+    /// legible as well as bounded, and this is the legible half.
+    #[must_use]
+    pub fn readback_cache(&self, document: DocumentId) -> Option<ReadbackCache> {
+        self.documents
+            .get(&document)
+            .map(|open| open.readbacks.report())
     }
 
     /// Answers a question about the viewer's state without changing any of it.
@@ -364,7 +381,7 @@ impl Viewer {
                 if open.view.set_group(group, on) {
                     // §8.11 decides what is *drawn*, so a switch invalidates the display list
                     // and not merely the pixels.
-                    open.interpreted = None;
+                    open.stale();
                 }
             }
             Command::Pointer { at, action } => self.pointer(at, action, events),
@@ -562,7 +579,7 @@ impl Viewer {
         if open.pointer != wanted {
             open.pointer = wanted;
             open.view.set_pointer(wanted);
-            open.interpreted = None;
+            open.stale();
         }
 
         // Table 197's `/E` and `/X`, in the clause's own order: the cursor leaves one region
@@ -775,7 +792,7 @@ impl Viewer {
             return;
         };
         if outcome.redraw {
-            open.interpreted = None;
+            open.stale();
         }
         // Even a destination naming the page already showing states where to look at it, which
         // is what an outline item pointing at a heading half way down a page is for.
@@ -1066,6 +1083,35 @@ impl Viewer {
         self.find_step(id, events);
     }
 
+    /// A page's readback, out of the cache where it is there and by interpreting it where it
+    /// is not.
+    ///
+    /// **This is the whole cost of a search step.** `interpret` is the expensive half of this
+    /// program — 5.4 ms a page over ISO 32000-2's 1023, of which §7.7.3.2's page tree is 19% and
+    /// the content stream 81% — and until the four-hundred-and-twentieth session every step paid
+    /// it, including for a page a search had read a moment before. `crate::readback` is the
+    /// bound that made keeping it acceptable; a **repeated** full-document sweep of ISO 32000-2
+    /// is 5.45 s without this and 7.27 ms with it, medians of seven runs of
+    /// `viewer-core/examples/find_cost`, and the *first* sweep is unchanged.
+    ///
+    /// `None` is a page this program could not interpret at all, which is not the same as a page
+    /// with no text on it and is not cached: a failure costs nothing to reproduce and caching it
+    /// would put a second meaning into a map whose entries are otherwise readbacks.
+    fn readback(&mut self, id: DocumentId, page: usize) -> Option<Arc<str>> {
+        if let Some(open) = self.documents.get_mut(&id)
+            && let Some(text) = open.readbacks.get(page)
+        {
+            return Some(text);
+        }
+        let open = self.documents.get(&id)?;
+        let (interpretation, _, _) = crate::open::interpret(open, page)?;
+        let text: Arc<str> = Arc::from(interpretation.text);
+        if let Some(open) = self.documents.get_mut(&id) {
+            open.readbacks.put(page, &text);
+        }
+        Some(text)
+    }
+
     /// Reads the one page the search is on, and says what it found there.
     ///
     /// Split from [`Self::find`] because the borrow is: interpreting a page needs `&Open` and
@@ -1081,14 +1127,7 @@ impl Viewer {
         else {
             return;
         };
-        // The whole cost of a step, and the reason a step is one page: `interpret` is the
-        // expensive half of this program, measured at 5.7 ms a page over ISO 32000-2's 1023.
-        // The readback is thrown away afterwards — see `crate::search`'s note on caching.
-        let text = self
-            .documents
-            .get(&id)
-            .and_then(|open| crate::open::interpret(open, page))
-            .map(|(interpretation, _, _)| interpretation.text);
+        let text = self.readback(id, page);
         let Some(open) = self.documents.get_mut(&id) else {
             return;
         };
@@ -1658,7 +1697,7 @@ impl Viewer {
                 .as_ref()
                 .is_some_and(|interpreted| interpreted.view_dependent)
         {
-            open.interpreted = None;
+            open.stale();
         }
 
         // §6.3.2.2's "unless otherwise instructed", carried to whichever document is on screen.
@@ -1666,7 +1705,7 @@ impl Viewer {
         // the page has anything that would notice: a page with no widget on it costs one field
         // walk that answers nothing, and a page with one would be wrong to keep.
         if open.view.set_widget_appearances(self.delegated) {
-            open.interpreted = None;
+            open.stale();
         }
 
         if open
@@ -1694,6 +1733,13 @@ impl Viewer {
                 });
             }
             open.revision = open.revision.saturating_add(1);
+            // The page a person is looking at was just interpreted, so a search that starts here
+            // — which every find bar's does — need not interpret it again. `doc/todo/49`'s fourth
+            // item is exactly this: the same page read for a search and then again to draw it was
+            // two interpretations. One 2.6 KB copy per page turn against 5.4 ms of the thing it
+            // saves.
+            open.readbacks
+                .put(page, &Arc::from(interpretation.text.as_str()));
             open.interpreted = Some(Interpreted {
                 page,
                 list: Arc::new(interpretation.display_list),

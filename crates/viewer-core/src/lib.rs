@@ -92,6 +92,7 @@ mod interact;
 mod notes;
 mod open;
 mod query;
+mod readback;
 mod report;
 mod search;
 mod select;
@@ -115,4 +116,5 @@ pub use pdf_model::view::Entered;
 pub use query::{
     Answer, FormField, FormWidget, FrameView, Layer, PageGeometry, PopupWindow, Query, Selected,
 };
+pub use readback::ReadbackCache;
 pub use viewer::{DocumentId, RenderToken, Viewer};

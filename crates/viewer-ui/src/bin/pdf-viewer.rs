@@ -265,11 +265,13 @@ enum Topic {
     Access,
     /// How many shapes a selection is, which is the number `doc/todo/13` turned on.
     Selection,
+    /// What a document-wide search cost, and what its readback cache is holding afterwards.
+    Search,
 }
 
 impl Topic {
     /// Every topic, in the order `--trace=?` lists them.
-    const ALL: [Self; 7] = [
+    const ALL: [Self; 8] = [
         Self::Launch,
         Self::Frames,
         Self::Events,
@@ -277,6 +279,7 @@ impl Topic {
         Self::Pointer,
         Self::Access,
         Self::Selection,
+        Self::Search,
     ];
 
     /// What a person types after `--trace=`.
@@ -289,6 +292,7 @@ impl Topic {
             Self::Pointer => "pointer",
             Self::Access => "access",
             Self::Selection => "selection",
+            Self::Search => "search",
         }
     }
 
@@ -302,6 +306,7 @@ impl Topic {
             Self::Pointer => 1 << 4,
             Self::Access => 1 << 5,
             Self::Selection => 1 << 6,
+            Self::Search => 1 << 7,
         }
     }
 
@@ -312,7 +317,7 @@ impl Topic {
 }
 
 /// Every topic at once: what a bare `--trace` asks for, and what `all` names.
-const EVERY_TOPIC: u16 = 0x7f;
+const EVERY_TOPIC: u16 = 0xff;
 
 /// Whether to say what is happening, about what, and since when.
 ///
@@ -1057,6 +1062,7 @@ fn main() {
         about: About::default(),
         find: FindBar::default(),
         pages_left: 0,
+        searched_at: None,
         outline: pdf_model::outline::Outline::default(),
         attachments: Vec::new(),
         articles: Vec::new(),
@@ -1267,6 +1273,11 @@ struct App {
     /// drawing while a thousand-page document is searched. A count rather than a flag because it
     /// is also what the bar says.
     pages_left: usize,
+    /// When the find bar's progress count was last repainted, for [`SEARCH_PROGRESS`].
+    ///
+    /// A clock, in a host, which is where `doc/ui-boundary.md` puts one: rule 3 leaves
+    /// `viewer-core` without one precisely so that a host can spend its own.
+    searched_at: Option<std::time::Instant>,
     /// §12.3.3's outline and §7.11.4's embedded files, taken once when the document opened.
     ///
     /// Copied out of the queries rather than asked for per frame, and not for speed: both are
@@ -2982,14 +2993,42 @@ impl App {
                 "note: search for {:?} — {}",
                 self.find.needle, self.find.note
             );
+            // What the search left behind, which is the legible half of `viewer-core`'s readback
+            // budget: a bound nobody can read is a bound nobody can check. Printed at the end of
+            // a search rather than per step, because it changes by one entry a step and the flood
+            // is what `--trace`'s topics exist to avoid (ADR 0227).
+            if let Some(held) = self.viewer.readback_cache(DOCUMENT) {
+                self.trace.say(
+                    Topic::Search,
+                    format_args!(
+                        "search: readback cache holds {} page(s), {} of {} bytes,                          {} hit(s), {} miss(es), {} evicted",
+                        held.pages,
+                        held.bytes,
+                        held.budget,
+                        held.hits,
+                        held.misses,
+                        held.evicted
+                    ),
+                );
+            }
         }
-        // **Not on every step**, and the number is measured rather than chosen. A redraw here is a
-        // whole window presented, and under `Xvfb` with lavapipe that is about 13 ms — so
+        // **Not on every step**, and the interval is measured rather than chosen. A redraw here
+        // is a whole window presented, and under `Xvfb` with lavapipe that is about 13 ms — so
         // repainting once per page made a 1023-page sweep **19.25 s** of presenting a bar whose
-        // text changes by one digit. Once every 16 steps, plus the step that answers, is
-        // **6.19 s** for the same sweep, with a progress count a person still sees moving. ADR
-        // 0250 has the measurement; the cost in readability is this comment.
-        if found.is_some() || remaining == 0 || remaining.is_multiple_of(SEARCH_REDRAW) {
+        // text changes by one digit (ADR 0250). This was once every 16 *steps* until the
+        // four-hundred-and-twentieth session gave `viewer-core` a readback cache and a step
+        // stopped costing 5.7 ms: a repeated sweep of ISO 32000-2 is 7.27 ms of searching, and
+        // 64 presents of a progress count made it **0.51 s** in the window. A step count is a
+        // proxy for time that was calibrated against one step cost; the clock is the thing it was
+        // a proxy for, and it costs the same on a cold sweep and nothing on a warm one (ADR 0256).
+        let due = self
+            .searched_at
+            .is_none_or(|last| last.elapsed() >= SEARCH_PROGRESS);
+        if found.is_some() || remaining == 0 {
+            self.searched_at = None;
+            self.redraw();
+        } else if due {
+            self.searched_at = Some(std::time::Instant::now());
             self.redraw();
         }
     }
@@ -4823,11 +4862,13 @@ fn match_list(quads: &[[f32; 8]], width: u32, height: u32) -> Option<pdf_render:
     Some(list)
 }
 
-/// How many steps of a search go by between repaints of the find bar's progress count.
+/// How long a search goes between repaints of the find bar's progress count.
 ///
-/// A choice with a measurement behind it — see [`App::searched`], which is where the two numbers
-/// are — and it belongs to this host alone: a native host repaints when its toolkit says to.
-const SEARCH_REDRAW: usize = 16;
+/// A choice with a measurement behind it — see [`App::searched`], which is where the numbers are —
+/// and it belongs to this host alone: a native host repaints when its toolkit says to. Ten a
+/// second is above what a person reads a moving count at and below what a present costs here,
+/// so the progress indicator stays a fraction of the search rather than a multiple of it.
+const SEARCH_PROGRESS: std::time::Duration = std::time::Duration::from_millis(100);
 
 /// The colour §12.5.1's focus ring is drawn in.
 ///
@@ -4946,10 +4987,40 @@ fn ask_password(name: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        Backend, DEFAULT_BACKEND, GPU_COVERAGE_MAGNIFICATION, QuorraPresenter, after,
-        backend_names, before, caret_boundary, copied, coverage_for, spawn_instancing, spliced,
+        Backend, DEFAULT_BACKEND, EVERY_TOPIC, GPU_COVERAGE_MAGNIFICATION, QuorraPresenter, Topic,
+        after, backend_names, before, caret_boundary, copied, coverage_for, parse_topics,
+        spawn_instancing, spliced,
     };
     use pdf_render::Transform;
+
+    /// `--trace` with no list means every topic, and "every" is the enum's own answer.
+    ///
+    /// [`EVERY_TOPIC`] is a hand-written bit pattern beside a list a session may extend, and the
+    /// four-hundred-and-twentieth extended it: `search` is the eighth, and a mask left at `0x7f`
+    /// would have made a bare `--trace` silently the seven it used to be. The gate is arithmetic
+    /// rather than a number written twice.
+    #[test]
+    fn a_bare_trace_asks_for_every_topic_there_is() {
+        let every = Topic::ALL
+            .into_iter()
+            .fold(0_u16, |bits, topic| bits | topic.bit());
+        assert_eq!(every, EVERY_TOPIC, "the mask and the list are one thing");
+        assert_eq!(parse_topics(""), Ok(EVERY_TOPIC), "a bare --trace");
+        assert_eq!(parse_topics("all"), Ok(EVERY_TOPIC));
+        for topic in Topic::ALL {
+            assert_eq!(
+                parse_topics(&format!("-{}", topic.name())),
+                Ok(EVERY_TOPIC & !topic.bit()),
+                "everything except {}",
+                topic.name()
+            );
+        }
+        assert_eq!(
+            Topic::ALL.map(Topic::bit).len(),
+            Topic::ALL.len(),
+            "no two topics share a bit"
+        );
+    }
 
     /// The lane follows the magnification, and the page transform a frame is drawn
     /// with is what states it: scale, y flip, translation.

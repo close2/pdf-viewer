@@ -94,6 +94,50 @@ while the median page is dominated by a per-frame floor that does not. Quote the
 the median and say which. The window is not measured here and this gate is deliberately not the
 place to: a presented frame pays no readback.
 
+## What a document-wide search costs, and what a bound on memory bought
+
+**The instrument is `viewer-core/examples/find_cost`**, which drives `Command::Find`'s pump with no
+host at all — nothing rendered, nothing presented — because the first measurement of this feature
+measured a host: 19.25 s of which 13 s was `viewer-ui` putting a whole window on the screen per step
+(ADR 0250). A needle the document does not contain is the worst case and the only one whose cost is
+a property of the document rather than of where the word sits.
+
+**Where a cold search's time goes**, ISO 32000-2's 1023 pages, `--profile gates`, medians of three:
+§7.7.3.2's page tree walked from the root by `Pages::get`, once per page, **1.12 s (19.6%)**; the
+content stream through `interpret_with`, **4.59 s (80.4%)**; building the index itself,
+`Pages::new` × 1023, **2.8 ms**. The readback of the whole document is **2 658 697 bytes**.
+
+**What the readback cache bought**, four-hundred-and-twentieth session, ADR 0256 — medians of seven,
+against the same binary with the budget set to zero so the two differ in the cache and nothing else:
+
+| | before | after |
+|---|---|---|
+| first (cold) sweep, 1024 steps | 5.51 s (5.50 – 5.66) | 5.61 s (5.42 – 5.74) — **unchanged**, inside the spread |
+| repeated sweep | 5.45 s (5.37 – 5.50) | **7.27 ms** (6.13 – 8.16) |
+| peak RSS, one sweep | 209.6 MB | 211.9 MB |
+| peak RSS, two sweeps | 234.0 MB | 211.9 MB |
+| readback held | — | 2 658 697 of 4 194 304 bytes, 0 evicted |
+
+The two RSS rows are worth reading together: a cache costs 2.3 MB on a single sweep and *saves* 22
+on a second, because the second sweep no longer interprets a thousand pages. The budget is 4 MiB per
+open document, `viewer_core::readback::BUDGET`, and `Viewer::readback_cache` is how a person reads
+what it holds — `pdf-viewer --trace=search` prints it when a search ends.
+
+**And in the window**, `Xvfb` at 1100×1200 with lavapipe, timed from the key press to the line the
+search prints, medians of three:
+
+| | `SEARCH_REDRAW` = 16 steps | `SEARCH_PROGRESS` = 100 ms |
+|---|---|---|
+| first search | 4.94 s | **4.79 s** (4.756 – 4.789) |
+| repeated search | 0.51 s | **0.021 s** (0.018 – 0.026) |
+
+A repeated search costing 7.27 ms inside `viewer-core` cost **0.51 s** in the window, and all of the
+difference was the progress count: 1024 ÷ 16 = 64 whole windows presented at about 13 ms each to
+move a digit. That constant was right when ADR 0250 measured it, because a step then cost 5.7 ms —
+**a step count is a proxy for time, calibrated against one step cost**, and when the step cost fell
+by three orders of magnitude the proxy stopped tracking what it stood for. It is a clock now, in the
+host, where `doc/ui-boundary.md`'s rule 3 permits one.
+
 ## What the window itself has been measured at
 
 **This was `doc/HANDOVER.md`'s gate table's `window` row**, moved here whole in the three-hundred-and-ninety-fifth rather than deleted with the rest of that table's narrative: it is not a gate — `Xvfb` and `xdotool` are not build dependencies and a test that skipped silently would be worse than none (`doc/HANDOVER.md`'s Environment has the recipe) — but every figure in it was taken by running the program, and the loop it exercises is the one no gate touches.

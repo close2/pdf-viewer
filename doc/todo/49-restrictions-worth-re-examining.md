@@ -5,6 +5,10 @@ whether that is an over-restrictive *security* decision, which rules could be re
 the code or make the program faster, which are worth putting behind flags, and how much memory a
 viewer may reasonably spend. This file is the audit, with each restriction's warrant separated from
 its habit.
+**Two of the five are settled in the four-hundred-and-twentieth session** (ADR 0256): item 2, the
+readback cache, is built with a bound and eviction, and item 4 is subsumed by it exactly as this
+file predicted. The flag `--cache-text` is **declined**, with the condition that would revive it
+written into its entry below.
 Priority: 49 — the project's own decisions, the band `43`–`48` already occupy. Nothing here is a
 defect; several entries are cheap wins and one is decided outright by a number the owner supplied.
 Code: `CLAUDE.md`, `doc/ui-boundary.md`, `crates/pdf-syntax/src/document.rs`,
@@ -76,13 +80,27 @@ places: `MASK_BUDGET` (32 MB), the confined worker's address-space ceiling (4 Gi
 
 **Relax or re-examine — each of these is habit rather than warrant:**
 
-1. **`Document`'s `!Sync`.** The blocker above. Worth one measurement round.
-2. **The readback cache.** Decided by the owner's bound; needs eviction and a number.
+1. **`Document`'s `!Sync`.** The blocker above. Worth one measurement round. **Still open**, and
+   deliberately untouched by the four-hundred-and-twentieth, which was told to leave it alone.
+2. **The readback cache.** ~~Decided by the owner's bound; needs eviction and a number.~~ **Done in
+   the four-hundred-and-twentieth** (ADR 0256): `crates/viewer-core/src/readback.rs`, 4 MiB per open
+   document, least-recently-used, one constant in one place, and readable through
+   `Viewer::readback_cache` and `pdf-viewer --trace=search`. A repeated document-wide sweep of ISO
+   32000-2 fell from 5.45 s to **7.27 ms** and the window's from about five seconds to **0.021 s**;
+   the *first* search did not move, which is the honest half of the result. It lives beside
+   `interpret` rather than inside it, for the reason the "keep" list above gives: purity is about
+   the answer and not about how fast it is reached, and `pdf-model` gained nothing — not a `&mut`,
+   not an interior mutability, not a lifetime.
 3. **Rule 4's missing half.** The rule permits a handed pool and nothing hands one. If measurement
    says cross-page parallelism is worth it, the API shape is the question, not the permission.
-4. **`viewer-core` re-interprets a page per search step and throws the result away.** Independent of
-   threads: the same page interpreted for a search and then again to draw it is two interpretations.
-   Item 2 subsumes it if the cache is keyed by page.
+   **Still open**, and it waits on item 1.
+4. **`viewer-core` re-interprets a page per search step and throws the result away.** ~~Independent
+   of threads: the same page interpreted for a search and then again to draw it is two
+   interpretations. Item 2 subsumes it if the cache is keyed by page.~~ **Subsumed, as predicted**:
+   the cache *is* keyed by page, and `settle` now puts the page it interpreted to draw into it, so
+   a find bar's search no longer re-reads the page the person is looking at. The remaining half —
+   the page a search *lands* on being interpreted again to draw it — cannot be subsumed, because
+   drawing needs a display list and the cache deliberately holds only the readback.
 5. **`MAX_CHILDREN` 65 536 in `Tree::walk`** — session 416 found ISO 32000-2's structure tree is
    larger (71 371), so `logical_order` sees only the front of that document. A bound that silently
    truncates the largest document this project owns is the wrong bound; `ParentTree::for_page` is
@@ -91,7 +109,15 @@ places: `MASK_BUDGET` (32 MB), the confined worker's address-space ceiling (4 Gi
 **Worth a flag, and the tree already has the idiom** (`--no-sandbox`, `--cpu`, `--backend`,
 `--ignore-restrictions`, `--trace=<topics>`):
 
-- `--cache-text[=MB]` or a general memory budget — the owner's question in flag form.
+- ~~`--cache-text[=MB]` or a general memory budget — the owner's question in flag form.~~
+  **Declined in the four-hundred-and-twentieth, by measurement, and the condition to revive it is
+  stated**: 4 MiB holds the whole readback of ISO 32000-2 — 2.66 MB, the largest document this
+  project owns, against a corpus whose largest is `freeculture.pdf`'s 352 pages — with `evicted` at
+  zero on every run. There is no document in reach whose owner would want to type a number, and the
+  rule three bullets below says what a flag may not be. **Build it when a document arrives whose
+  readback exceeds the budget**, which the report says out loud: LRU under a forward sweep is
+  exactly the pathological case, and a non-zero `evicted` beside a search that is slow twice is the
+  measurement that justifies the knob.
 - `--threads=N`, if item 1 goes anywhere; also the honest place to expose "use one thread" for
   reproducing a bug.
 - **What a flag may not be**: a way to avoid deciding. `CLAUDE.md` principle 1 is that a shortcut is
