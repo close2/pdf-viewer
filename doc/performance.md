@@ -138,6 +138,68 @@ move a digit. That constant was right when ADR 0250 measured it, because a step 
 by three orders of magnitude the proxy stopped tracking what it stood for. It is a clock now, in the
 host, where `doc/ui-boundary.md`'s rule 3 permits one.
 
+## What the object cache does, and what making it `Sync` cost
+
+**Counted rather than guessed, in the four-hundred-and-twenty-fourth session** (ADR 0260), with a
+temporary counter build — one `AtomicU64` per call site inside `pdf_syntax::Document`, not in the
+tree, because a counter on `Document::get` is a counter on the hottest path in the program. ISO
+32000-2, 1023 pages, 101 318 objects:
+
+| | `get` | hits | `load` | `expand` | `resolve` | `get_key` | `decode` |
+|---|---|---|---|---|---|---|---|
+| a page turn (page 2) | 133 | 80 | 53 | 41 | 3 881 | 813 | 17 |
+| a whole cold sweep, per page | **829.3** | **768.9** | 60.4 | 55.8 | 8 710.6 | 4 275.3 | 12.4 |
+| the same sweep again, per page | 829.3 | **829.3** | **0** | **0** | 8 708.4 | 4 272.4 | 11.7 |
+
+Three readings, and two of them were not what the tree assumed. **The object cache answers 92.7% of
+a cold sweep and 100% of a repeat, and that is worth 5.5% of the wall clock** — 6.15 s against
+5.81 s, medians of three — so a sweep's seconds are not in `Document::get`. **`resolve` is called
+ten times as often as `get` and mostly touches no cache**, because most objects are not references;
+only `get` takes a borrow, which puts the borrow count at about **1 070 a page for 6 ms of work**.
+And **`decoded_stream_data` is not memoised at all**: 12 717 calls over one sweep and **11 975 over
+the second sweep of the same document**, which is a filter chain re-run. `document.rs`'s module
+comment claimed otherwise and is corrected; `doc/todo/47` carries the question.
+
+**What `RefCell` → `RwLock` cost**, which is what made a `&Document` shareable between threads:
+
+| | `RefCell` | `RwLock` | |
+|---|---|---|---|
+| `callgrind_interpret`, instructions | 2 208 807 721 | 2 209 269 060 | **+0.021%** |
+| `callgrind_open`, instructions | 78 464 732 | 78 357 201 | **−0.14%** |
+| `find_cost` cold sweep, medians of seven interleaved | 5.69 s (5.61 – 5.91) | 5.78 s (5.54 – 5.90) | inside the spread |
+| launch, `document joined`, twelve samples interleaved | 5.46 ms | 4.95 ms | inside the spread |
+
+The launch's *whole* figure is deliberately not quoted against itself: `EventLoop::new` ran 28 to
+55 ms across those twenty-four launches and **which end of that range a run landed on depended on
+whether it was the first launch after the X server went idle**, not on the binary — reversing the
+order reversed the apparent difference.
+
+## What cross-page parallelism buys, and at what memory
+
+**`pdf-model/examples/parallel_sweep`** reads every page three ways — one thread; N threads over one
+`&Document`; N documents opened from the same bytes, one per worker — inside a pool built with
+exactly N, because `interpret` bands §8.9.5's colour conversion across
+`rayon::current_num_threads()` of its own. All three read the same 2 658 697 bytes at every count.
+Medians of three, 12 cores / 24 threads, background load average about 4 (ADR 0260):
+
+| threads | one | shared | per-thread |
+|---|---|---|---|
+| 1 | 5.97 s | 6.02 s | 6.10 s |
+| 4 | 6.01 s | 1.93 s | 1.98 s |
+| 8 | 6.08 s | 1.59 s | 1.50 s |
+| 24 | 6.11 s | 1.61 s | **1.18 s** |
+
+Repeated on warm caches at 24 threads the order reverses — **shared 1.11 s, per-thread 1.22 s** —
+because a cold shared sweep takes 61 836 exclusive locks and a warm one takes none, while the
+per-thread arrangement re-opens 24 documents. Peak resident, `VmHWM`, two sweeps each: one thread
+**225 MB**, shared **398 MB** at 8 and **625 MB** at 24, per-thread **488 MB** at 8 and **966 MB**
+at 24.
+
+So **cross-page parallelism was never blocked by `!Sync`** — N documents in N threads needs nothing
+from this crate and is the faster of the two here — and a 4× first-search speedup costs 2.8× to
+4.3× the peak memory, against an owner's stated "1 GB is definitely too much". ADR 0260 declines it
+for now and says what would change the answer.
+
 ## What the window itself has been measured at
 
 **This was `doc/HANDOVER.md`'s gate table's `window` row**, moved here whole in the three-hundred-and-ninety-fifth rather than deleted with the rest of that table's narrative: it is not a gate — `Xvfb` and `xdotool` are not build dependencies and a test that skipped silently would be worse than none (`doc/HANDOVER.md`'s Environment has the recipe) — but every figure in it was taken by running the program, and the loop it exercises is the one no gate touches.

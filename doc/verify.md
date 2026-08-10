@@ -112,6 +112,12 @@ cargo run --release -p render-gpu --example frame_split -- [file.pdf] [page] [sc
 valgrind --tool=callgrind --callgrind-out-file=/dev/null \
   target/release/examples/callgrind_open [file.pdf]  # §7.5's xref alone, in instructions rather
   # than in a wall clock that moves by 2× between runs of the same binary. ADR 0180
+cargo run --profile gates -p pdf-model --example parallel_sweep -- [file.pdf] [threads] [one|shared|per-thread]
+  # what reading every page costs on one thread, on N sharing a `&Document`, and on N each opening
+  # their own — every parallel section inside a pool built with exactly N, because `interpret`
+  # bands §8.9.5's colour conversion across `rayon::current_num_threads()` of its own. Two sweeps
+  # apiece, since the two arrangements differ most on the second, and `VmHWM` from
+  # `/proc/self/status` so the memory is the kernel's number rather than ours. ADR 0260
 cargo run --release -p pdf-model     --example open_cost -- [file.pdf]
   # where the *launch path's* document half goes: §7.5's xref, the page tree, §12.3.3's outline,
   # §12.8's signatures, each on its own. ADR 0179, doc/todo/42

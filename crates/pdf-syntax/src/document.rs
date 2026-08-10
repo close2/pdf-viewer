@@ -3,14 +3,21 @@
 //! # Lazy by design
 //!
 //! Opening a document reads the cross-reference information and nothing else. Objects are
-//! parsed when asked for, and decoded streams are cached. That is what makes a 500-page
-//! file open as fast as a 5-page one, which `CLAUDE.md` principle 2 requires — eagerly
-//! walking a page tree of thousands of nodes is the most common reason viewers feel slow
-//! to start.
+//! parsed when asked for and then remembered. That is what makes a 500-page file open as
+//! fast as a 5-page one, which `CLAUDE.md` principle 2 requires — eagerly walking a page
+//! tree of thousands of nodes is the most common reason viewers feel slow to start.
+//!
+//! **This paragraph said "and decoded streams are cached", and that was not true of
+//! ordinary streams**; the four-hundred-and-twenty-fourth session counted the calls and
+//! found [`Document::decoded_stream_data`] running 12 717 times over one sweep of ISO
+//! 32000-2 and 11 975 times over the *second* sweep of the same document, which is a filter
+//! chain re-run rather than a cache read. What is memoised is §7.5.7's object streams,
+//! whose contents are objects. `doc/todo/47` carries the question of whether the rest
+//! should be, which is a question about a byte budget.
 
-use std::cell::RefCell;
-use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Arc;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::sync::{Arc, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::thread::ThreadId;
 
 use crate::crypt::{Encryption, Method, Permissions};
 use crate::error::{SyntaxError, SyntaxResult};
@@ -28,29 +35,47 @@ const MAX_REFERENCE_DEPTH: usize = 64;
 ///
 /// Holds the bytes and resolves objects on demand. Cheap to open and cheap to clone the
 /// underlying bytes, since they are shared.
+///
+/// # Shareable between threads
+///
+/// The five caches below are memoisation behind `RwLock`, which makes a `&Document` usable
+/// from several threads at once. They were `RefCell` until the four-hundred-and-twenty-fourth
+/// session, which measured what the change costs and what it buys, because a lock on the
+/// hottest path in the program is not free by assumption: `get` is asked **829 times a page**
+/// on ISO 32000-2 and answers 92.7% of them from the cache. Single-threaded, the whole swap
+/// is **2 208 807 721 → 2 209 269 060** instructions through `examples/callgrind_interpret`
+/// — 0.021% — and 78 464 732 → 78 357 201 through `examples/callgrind_open`; a cold
+/// document-wide sweep of ISO 32000-2 stays inside its own spread, 5.69 s against 5.78 s over
+/// seven interleaved samples apiece with ranges of 0.30 and 0.36 s.
+///
+/// What that makes possible is a *host's* to use rather than this crate's:
+/// `pdf-model/examples/parallel_sweep` reads all 1023 pages on 24 threads through one
+/// `&Document` in 1.61 s against 6.11, at 625 MB of peak resident memory against 225. ADR 0260
+/// has the tables and says why nothing in `viewer-core` does it yet.
 pub struct Document {
     bytes: Arc<[u8]>,
     xref: XrefTable,
     limits: Limits,
     /// Objects already parsed, so a repeated lookup does not re-parse.
-    cache: RefCell<BTreeMap<u32, Object>>,
+    cache: RwLock<BTreeMap<u32, Object>>,
     /// Object streams already expanded, keyed by the stream's object number.
-    expanded_streams: RefCell<BTreeMap<u32, Arc<BTreeMap<u32, Object>>>>,
-    /// Object numbers currently being loaded, so that a self-referential file cannot
-    /// recurse. See [`Document::get`].
-    loading: RefCell<BTreeSet<u32>>,
+    expanded_streams: RwLock<BTreeMap<u32, Arc<BTreeMap<u32, Object>>>>,
+    /// Object numbers currently being loaded **on each thread**, so that a self-referential
+    /// file cannot recurse. See [`Document::get`], and [`Document::begin_loading`] for why
+    /// the set is per thread rather than per document.
+    loading: RwLock<HashMap<ThreadId, BTreeSet<u32>>>,
     /// Where the file's own object headers are, built the first time an entry is disproved.
     ///
     /// Empty for every document whose table is right about every object it is asked for,
     /// which is all but two of the 974 corpus documents — the scan is linear in the file and
     /// nothing pays for it until something needs it. See [`Document::load_by_header`].
-    headers: RefCell<Option<Arc<XrefTable>>>,
+    headers: RwLock<Option<Arc<XrefTable>>>,
     /// How many object numbers were found by their own header after the table misfiled them.
     ///
     /// Counted rather than merely handled, because a document that needed this is a document
     /// whose cross-reference table is wrong, and a reader that repairs one in silence is a
     /// reader nobody can ask what it repaired. Reported by [`Document::misfiled_objects`].
-    misfiled: RefCell<BTreeSet<u32>>,
+    misfiled: RwLock<BTreeSet<u32>>,
     /// ISO 32000-2 §7.6's security handler, absent when the trailer has no `/Encrypt`.
     ///
     /// > The absence of this entry from the trailer dictionary means that a PDF processor
@@ -71,6 +96,26 @@ impl std::fmt::Debug for Document {
             // both enormous and non-reproducible.
             .finish_non_exhaustive()
     }
+}
+
+/// Reads one of [`Document`]'s caches, past a lock another thread poisoned.
+///
+/// # Why poisoning is ignored here, deliberately
+///
+/// `std`'s `RwLock` marks itself poisoned when a thread panics while holding it, so that the
+/// next caller learns the data may be half-written. That warning is about *invariants across
+/// fields*, and these five locks hold no such invariant: each is a memoisation of something
+/// the file already says, every write is one `insert` into one collection, and a panic
+/// between two of them leaves a map that is merely smaller than it could have been. The
+/// worst a poisoned cache can cost is a re-parse. Propagating a `PoisonError` instead would
+/// turn a panic anywhere in the process into a document that can no longer be read at all.
+fn read<T>(lock: &RwLock<T>) -> RwLockReadGuard<'_, T> {
+    lock.read().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Writes one of [`Document`]'s caches, past a lock another thread poisoned. See [`read`].
+fn write<T>(lock: &RwLock<T>) -> RwLockWriteGuard<'_, T> {
+    lock.write().unwrap_or_else(PoisonError::into_inner)
 }
 
 impl Document {
@@ -169,11 +214,11 @@ impl Document {
             bytes,
             xref,
             limits,
-            cache: RefCell::new(BTreeMap::new()),
-            expanded_streams: RefCell::new(BTreeMap::new()),
-            loading: RefCell::new(BTreeSet::new()),
-            headers: RefCell::new(None),
-            misfiled: RefCell::new(BTreeSet::new()),
+            cache: RwLock::new(BTreeMap::new()),
+            expanded_streams: RwLock::new(BTreeMap::new()),
+            loading: RwLock::new(HashMap::new()),
+            headers: RwLock::new(None),
+            misfiled: RwLock::new(BTreeSet::new()),
             encryption: None,
             encrypt_object: None,
         }
@@ -211,8 +256,8 @@ impl Document {
 
         let encryption =
             Encryption::new(&dict, &id_first, password, &|object| self.resolve(object))?;
-        self.cache.borrow_mut().clear();
-        self.expanded_streams.borrow_mut().clear();
+        write(&self.cache).clear();
+        write(&self.expanded_streams).clear();
         self.encryption = Some(encryption);
         Ok(())
     }
@@ -262,7 +307,7 @@ impl Document {
     /// after the pages that matter have been read.
     #[must_use]
     pub fn misfiled_objects(&self) -> Vec<u32> {
-        self.misfiled.borrow().iter().copied().collect()
+        read(&self.misfiled).iter().copied().collect()
     }
 
     /// Returns the document catalogue.
@@ -295,7 +340,7 @@ impl Document {
     /// cases that matter.
     #[must_use]
     pub fn get(&self, id: ObjectId) -> Object {
-        if let Some(cached) = self.cache.borrow().get(&id.number) {
+        if let Some(cached) = read(&self.cache).get(&id.number) {
             return cached.clone();
         }
 
@@ -304,14 +349,47 @@ impl Document {
         // any of those at the object being loaded, and the resulting recursion is bounded
         // by nothing in the parser, so it is bounded here. Null is what §7.3.10 gives a
         // reference that resolves to nothing, which is what a cycle amounts to.
-        if !self.loading.borrow_mut().insert(id.number) {
+        if !self.begin_loading(id.number) {
             return Object::Null;
         }
         let object = self.load(id).unwrap_or(Object::Null);
-        self.loading.borrow_mut().remove(&id.number);
+        self.end_loading(id.number);
 
-        self.cache.borrow_mut().insert(id.number, object.clone());
+        write(&self.cache).insert(id.number, object.clone());
         object
+    }
+
+    /// Records that this thread has begun loading `number`, or reports a cycle.
+    ///
+    /// # Why the set is per thread
+    ///
+    /// It is a guard on the *call stack*, not on the document: `get` is re-entrant because
+    /// loading an object can need an indirect `/Length`, an indirect `/Filter` or the object
+    /// stream it lives in, and a file may point any of those back at the object being loaded.
+    /// A set shared between threads would answer §7.3.10's null to a second thread merely
+    /// because a first happened to be reading the same object — a wrong answer produced by
+    /// timing, which is the one kind this program must not have. Two threads loading one
+    /// object duplicate the parse instead, and the cache makes that the last time.
+    fn begin_loading(&self, number: u32) -> bool {
+        write(&self.loading)
+            .entry(std::thread::current().id())
+            .or_default()
+            .insert(number)
+    }
+
+    /// Records that this thread has finished loading `number`.
+    ///
+    /// Empties are removed so that the map is bounded by the threads *currently* inside
+    /// [`Self::get`] rather than by every thread that has ever touched the document.
+    fn end_loading(&self, number: u32) {
+        let mut loading = write(&self.loading);
+        let thread = std::thread::current().id();
+        if let Some(numbers) = loading.get_mut(&thread) {
+            numbers.remove(&number);
+            if numbers.is_empty() {
+                loading.remove(&thread);
+            }
+        }
     }
 
     /// Resolves an object if it is a reference, following chains.
@@ -405,17 +483,17 @@ impl Document {
         if found.number != id.number {
             return None;
         }
-        self.misfiled.borrow_mut().insert(id.number);
+        write(&self.misfiled).insert(id.number);
         Some(object)
     }
 
     /// The file's own object headers, scanned once and remembered.
     fn object_headers(&self) -> Arc<XrefTable> {
-        if let Some(headers) = self.headers.borrow().as_ref() {
+        if let Some(headers) = read(&self.headers).as_ref() {
             return Arc::clone(headers);
         }
         let scanned = Arc::new(crate::xref::scan_for_objects(&self.bytes, self.limits));
-        *self.headers.borrow_mut() = Some(Arc::clone(&scanned));
+        *write(&self.headers) = Some(Arc::clone(&scanned));
         scanned
     }
 
@@ -625,7 +703,7 @@ impl Document {
 
     /// Expands an object stream into its contained objects.
     fn expand_object_stream(&self, number: u32) -> Option<Arc<BTreeMap<u32, Object>>> {
-        if let Some(cached) = self.expanded_streams.borrow().get(&number) {
+        if let Some(cached) = read(&self.expanded_streams).get(&number) {
             return Some(Arc::clone(cached));
         }
 
@@ -673,9 +751,7 @@ impl Document {
         }
 
         let expanded = Arc::new(objects);
-        self.expanded_streams
-            .borrow_mut()
-            .insert(number, Arc::clone(&expanded));
+        write(&self.expanded_streams).insert(number, Arc::clone(&expanded));
         Some(expanded)
     }
 
@@ -867,6 +943,70 @@ pub struct ImageStream {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A document that two threads may read at once, which is the point of the `RwLock`s.
+    ///
+    /// A compile-time assertion first, because `Sync` is the property the whole of ADR 0260
+    /// rests on and a stray `Rc` anywhere in the object graph would silently take it away;
+    /// then a real race, because the interesting half is not the marker trait but that eight
+    /// threads asking one document for one object all get the object.
+    #[test]
+    fn a_document_is_readable_from_several_threads_at_once() {
+        const fn assert_shareable<T: Send + Sync>() {}
+        assert_shareable::<Document>();
+
+        let body = b"%PDF-1.7\n\
+                     1 0 obj\n<< /Type /Pages /Kids [] /Count 0 >>\nendobj\n\
+                     2 0 obj\n<< /Type /Catalog /Pages 1 0 R >>\nendobj\n\
+                     trailer\n<< /Root 2 0 R >>\n";
+        let document = Document::open(body.to_vec()).expect("the file is openable");
+        let catalog = document.catalog().expect("the catalogue is reachable");
+
+        std::thread::scope(|scope| {
+            for _ in 0..8 {
+                scope.spawn(|| {
+                    for _ in 0..200 {
+                        let pages = document.get_key(&catalog, "Pages");
+                        assert!(
+                            pages.as_dict().is_some(),
+                            "a thread got {} where the page tree is",
+                            pages.type_name()
+                        );
+                    }
+                });
+            }
+        });
+    }
+
+    /// The recursion guard is a property of a call stack, so it may not be shared.
+    ///
+    /// This is the one hazard the `RefCell` → `RwLock` change could have introduced without
+    /// any test noticing: a document-wide `loading` set would answer §7.3.10's null to the
+    /// second of two threads that happened to ask for one object at one moment, which is a
+    /// wrong answer produced by timing. Held open on one thread and asked from another.
+    #[test]
+    fn the_recursion_guard_is_per_thread_rather_than_per_document() {
+        let document = Document::empty();
+        assert!(document.begin_loading(7), "the first claim on this thread");
+        assert!(
+            !document.begin_loading(7),
+            "a second claim on the same thread is the cycle this guard exists for"
+        );
+
+        let elsewhere = std::thread::scope(|scope| {
+            scope
+                .spawn(|| document.begin_loading(7))
+                .join()
+                .expect("the thread ran")
+        });
+        assert!(
+            elsewhere,
+            "another thread reading object 7 at the same moment must not be told it is a cycle"
+        );
+
+        document.end_loading(7);
+        assert!(document.begin_loading(7), "and the guard is released again");
+    }
 
     /// §7.3.8.1's external stream: the data is elsewhere and the embedded bytes are not it.
     ///

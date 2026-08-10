@@ -19,7 +19,7 @@ features no file exercises.
 ```sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets      # must be silent of lints
-cargo nextest run --workspace               # 1542 tests, 11 skipped
+cargo nextest run --workspace               # 1544 tests, 11 skipped
 cargo test --workspace --doc                # the one doctest nextest does not run
 cargo build --profile gates -p pdf-sandbox --bins   # trap 10: Cargo will not do this for you
 cargo test  --profile gates -p pdf-model      --test corpus          -- --ignored --nocapture
@@ -96,7 +96,10 @@ here:
   character — and the gate printed **1542**, so this line was not behind for the fifth. **The
   second number moved as well**: that session's new `#[ignore]`d gate against `doc/corpora/pdfbox`
   takes the skips 10 → **11**, which is only the second time that number has been touched since it
-  was written down.)
+  was written down.) **The four-hundred-and-twenty-fourth added two** — both in `pdf-syntax`'s
+`document` module, for a document eight threads read at once (with a compile-time assertion that
+`Document: Send + Sync` beside it) and for a recursion guard that is per thread rather than per
+document — **and the gate printed 1544**, so this line was not behind for the sixth.
 - **One of those eighteen runs a C compiler**, and it is the only gate in this sequence that does.
   `viewer-ffi::a_c_program_drives_the_abi` builds `crates/viewer-ffi/c/open_a_page.c` against the
   crate's own header with `-Wall -Wextra -Werror`, links it against the `cdylib` — which it asks

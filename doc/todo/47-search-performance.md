@@ -48,11 +48,35 @@ which is the only thing left on this file — and a second extraction path would
 buy that, for the reason this file has always given: it can diverge from what the page draws, and
 then a search finds words the reader cannot see.
 
-**Candidate 2, parallelism, is `doc/todo/49` item 1** and was left alone by instruction: the blocker
-is `pdf_syntax::Document` being `!Sync` behind `RefCell` caches, which is a measurement round of its
-own.
+**Candidate 2, parallelism, is measured and declined for now** — the four-hundred-and-twenty-fourth
+session, ADR 0260. The blocker this file named was not one: **N documents in N threads needs nothing
+from `pdf-syntax`**, and it reads 1023 pages in **1.18 s against 6.11**. `Document` is `Sync` now
+(0.021% of a page interpretation's instructions, nothing measurable in wall clock) and one
+`&Document` on 24 threads does it in **1.61 s** — but the peak resident memory is **625 MB shared or
+966 MB per-thread against 225**, and the owner's stated bar is that 1 GB is definitely too much. So
+what is open is `doc/todo/49` item 3, the API that hands a pool in, and it is a memory argument
+rather than a lock. `pdf-model/examples/parallel_sweep` is the instrument.
 
 **Candidate 4, skipping pages by scanning bytes, is still unsound** for the reason it always was.
+
+## And a second one, found by counting: nothing memoises a decoded stream
+
+**`Document::decoded_stream_data` runs 12 717 times over one sweep of ISO 32000-2 and 11 975 times
+over the *second* sweep of the same document** (ADR 0260's counter build). That is §7.4's filter
+chain re-run — a flate inflate per content stream, per font program, per image — on a document
+nothing has changed. `document.rs`'s module comment claimed decoded streams were cached and was
+corrected in the same session; what is memoised is §7.5.7's object streams, whose contents are
+objects rather than bytes.
+
+Two things a round taking this owes, and the second is why it was not taken in the round that found
+it:
+
+- **A byte budget, stated in one place, with eviction and a count of what it evicted** — the shape
+  ADR 0256 already built for the readback, and for the same reason: a decompression bomb's decoded
+  form is exactly what a cache would hold.
+- **Measure what it is worth first.** A fully warm *object* cache is worth 5.5% of a sweep, which is
+  the standing warning about this file's whole subject: the obvious cache was not where the seconds
+  were. `interpret_with` is 80.4% of a cold sweep and how much of that is inflate is not known.
 
 ## What is left: the page tree, and it is not a cache question
 

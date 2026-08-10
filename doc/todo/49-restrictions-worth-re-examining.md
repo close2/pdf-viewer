@@ -9,8 +9,10 @@ its habit.
 readback cache, is built with a bound and eviction, and item 4 is subsumed by it exactly as this
 file predicted. The flag `--cache-text` is **declined**, with the condition that would revive it
 written into its entry below. **A third is settled in the four-hundred-and-twenty-first** (ADR 0257):
-item 5's bound was not only wrong but hiding a quadratic walk, and both are fixed. What is left is
-items 1 and 3, which are one measurement and the API shape that depends on it.
+item 5's bound was not only wrong but hiding a quadratic walk, and both are fixed. **Item 1 is
+measured and settled in the four-hundred-and-twenty-fourth** (ADR 0260), and the measurement moved
+item 3 rather than unblocking it: what is left is item 3 alone, and it is now a question about
+memory rather than about a lock.
 Priority: 49 — the project's own decisions, the band `43`–`48` already occupy. Nothing here is a
 defect; several entries are cheap wins and one is decided outright by a number the owner supplied.
 Code: `CLAUDE.md`, `doc/ui-boundary.md`, `crates/pdf-syntax/src/document.rs`,
@@ -36,11 +38,18 @@ rayon — `image.rs` bands §8.9.5's per-sample colour conversion across `rayon:
 `RefCell` and is therefore `!Sync`.** That is an implementation choice, not a principle, and it is
 the actual blocker. Options, none free: `RwLock` or a sharded cache (lock traffic on the hottest
 path in the program), or N documents in N threads (N parses, N caches — the memory the owner named).
-**Measure the lock version before believing either.**
+~~**Measure the lock version before believing either.**~~ **Measured in the
+four-hundred-and-twenty-fourth, and the sentence above is wrong in the one word that matters**: the
+`RefCell`s were not *the* blocker, because **N documents in N threads needs nothing from
+`pdf-syntax` and was available the whole time** — and on this machine it is the faster of the two,
+1.18 s against 1.61 s over 1023 pages on 24 threads. What `!Sync` blocked was the *cheaper* of the
+two in memory, not the faster one. The lock itself costs **0.021%** of a page interpretation's
+instructions and nothing measurable in wall clock, so it shipped; the parallel search did not, at
+625 to 966 MB of peak resident against 225. ADR 0260 has every table.
 
 So: the honest answer is that the search is a pump for the hosts' sake, the work inside a page
-already parallelises, and cross-page parallelism is blocked by a cache design that predates the
-question.
+already parallelises, and cross-page parallelism is not blocked by anything — it is **declined on
+memory**, which is a different sentence and the one the measurement supports.
 
 ## The memory question, and the owner's own number settles one item
 
@@ -82,8 +91,17 @@ places: `MASK_BUDGET` (32 MB), the confined worker's address-space ceiling (4 Gi
 
 **Relax or re-examine — each of these is habit rather than warrant:**
 
-1. **`Document`'s `!Sync`.** The blocker above. Worth one measurement round. **Still open**, and
-   deliberately untouched by the four-hundred-and-twentieth, which was told to leave it alone.
+1. ~~**`Document`'s `!Sync`.** The blocker above. Worth one measurement round.~~ **Done in the
+   four-hundred-and-twenty-fourth** (ADR 0260). The five `RefCell`s are `RwLock`s, `Document` is
+   `Send + Sync` with a compile-time assertion saying so, and the `loading` set is **per thread**
+   rather than per document — the one hazard the swap could have introduced, since a shared set
+   would answer §7.3.10's null to the second of two threads that wanted one object at one moment.
+   Cost: **+0.021%** instructions through `callgrind_interpret` (2 208 807 721 → 2 209 269 060),
+   **−0.14%** through `callgrind_open`, and a cold sweep inside its own spread over seven
+   interleaved samples apiece. What the counter build found on the way is the part worth keeping:
+   `Document::get` is asked **829 times a page** and answers 92.7% of a cold sweep from the cache —
+   **and a fully warm cache is worth 5.5% of the wall clock**, so the object cache is not where a
+   sweep's seconds are.
 2. **The readback cache.** ~~Decided by the owner's bound; needs eviction and a number.~~ **Done in
    the four-hundred-and-twentieth** (ADR 0256): `crates/viewer-core/src/readback.rs`, 4 MiB per open
    document, least-recently-used, one constant in one place, and readable through
@@ -93,9 +111,17 @@ places: `MASK_BUDGET` (32 MB), the confined worker's address-space ceiling (4 Gi
    `interpret` rather than inside it, for the reason the "keep" list above gives: purity is about
    the answer and not about how fast it is reached, and `pdf-model` gained nothing — not a `&mut`,
    not an interior mutability, not a lifetime.
-3. **Rule 4's missing half.** The rule permits a handed pool and nothing hands one. If measurement
-   says cross-page parallelism is worth it, the API shape is the question, not the permission.
-   **Still open**, and it waits on item 1.
+3. **Rule 4's missing half.** The rule permits a handed pool and nothing hands one. **Still open,
+   and item 1 changed what it is about.** It is no longer waiting on a lock — it is waiting on a
+   memory argument. `parallel_sweep` puts a 1023-page sweep at 1.61 s shared or 1.18 s per-thread
+   against 6.11 s on one thread, for **625 MB or 966 MB of peak resident against 225 MB**; the
+   owner's own bar is that 1 GB is definitely too much. A round taking this owes three things:
+   the API that hands a pool in (and whether the core takes a `&ThreadPool` or a
+   `dyn Fn(&dyn Fn())` so that a host with no rayon can supply one), **a bound on how far ahead a
+   search may read**, since a search stops at the first match in document order and N threads
+   reading N pages ahead throw most of it away, and the arrangement chosen with its memory named
+   — shared costs less and stops scaling past eight threads; per-thread costs more and does not.
+   ADR 0260 §4.
 4. **`viewer-core` re-interprets a page per search step and throws the result away.** ~~Independent
    of threads: the same page interpreted for a search and then again to draw it is two
    interpretations. Item 2 subsumes it if the cache is keyed by page.~~ **Subsumed, as predicted**:
@@ -127,8 +153,10 @@ places: `MASK_BUDGET` (32 MB), the confined worker's address-space ceiling (4 Gi
   readback exceeds the budget**, which the report says out loud: LRU under a forward sweep is
   exactly the pathological case, and a non-zero `evicted` beside a search that is slow twice is the
   measurement that justifies the knob.
-- `--threads=N`, if item 1 goes anywhere; also the honest place to expose "use one thread" for
-  reproducing a bug.
+- `--threads=N`, if item 3 goes anywhere; also the honest place to expose "use one thread" for
+  reproducing a bug. **And it is now the flag with a right default to find**: the measurement in ADR
+  0260 says the answer is not "as many as the machine has" — shared stops improving at about eight
+  and the memory keeps climbing to 24.
 - **What a flag may not be**: a way to avoid deciding. `CLAUDE.md` principle 1 is that a shortcut is
   documented as a deliberate decision with its cost, never taken silently — and a knob whose default
   is wrong is a decision deferred onto the user. Every flag here should have a right default and
