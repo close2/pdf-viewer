@@ -141,9 +141,17 @@ pub fn attachment_rows(attachments: &[Attachment]) -> Vec<PanelRow> {
     attachments
         .iter()
         .map(|attachment| PanelRow {
-            // Table 43's `/UF` is the file's own name and the tree's key need not be one —
-            // §7.11.4.1 says the tree "shall map name strings to file specifications" — so the
+            // Table 43's `/UF` is the file's own name and the tree's key need not be one, so the
             // file name is what a person is shown and the key is what the command carries.
+            //
+            // The middle of that sentence was a quotation of §7.11.4.1 — "shall map name strings
+            // to file specifications" — until the four-hundred-and-twenty-ninth session. Errata
+            // Collection 3 replaces the two bullets it came from outright (Issue #481, `/State`
+            // `Review` `Completed`), and the replacement drops the sentence: an `/EmbeddedFiles`
+            // association "is not required unless stated otherwise". What the key is stays what
+            // §7.7.4 makes it, a name string in a name tree, which is why nothing here moves.
+            // `pdf_model::attachment` carries the same correction, made one round after the
+            // erratum was read and three before this copy of it was found (ADR 0254).
             label: attachment
                 .file_name
                 .clone()

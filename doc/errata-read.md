@@ -4,7 +4,7 @@ What `tools/spec-errata check` named, and what each passage turned out to be. Be
 four-hundred-and-seventeenth session so that nobody reads them twice and finished in the
 four-hundred-and-eighteenth. ADR 0252 built the tool; ADR 0253 and ADR 0254 are the two readings.
 
-**All 120 distinct passages `check` names now carry a verdict.** The three tables below are the
+**All 120 distinct passages `check` names now carry a verdict**, and the four-hundred-and-twenty-ninth session re-ran it eleven rounds later and got **the same 151 lines for the same 120 passages**: nothing remains unread and the number is not moving. The three tables below are the
 order they were read in rather than three kinds of thing: **the 79 lines / 65 distinct passages**
 `check` printed before its comparison was corrected; **three more** that the correction made visible
 and that `Landing::in_clause` had filed under a neighbouring clause; and **the other 54**, read a
@@ -357,3 +357,20 @@ on the four words "the same as the". `overlaps` now asks for one segment quoting
   constantly and no instrument compares any of it. Counting it is a round's work and is not owed
   until somebody has a reason to think it is wrong; the reason the four unchecked populations were
   each swept is that the first sweep of each found something.
+
+## Two more copies of one struck sentence, found in the four-hundred-and-twenty-ninth
+
+`check`'s in-clause bucket was 28 landings and every one was an annotation sessions 416–419 wrote in
+place **except** `crates/viewer-host/tests/host_mappings.rs:138`, which still quoted §7.11.4.1's
+"shall map name strings to file specifications" — struck outright by Issue #481 along with the two
+bullets around it. `crates/viewer-host/src/panel.rs:144` quotes the same sentence and was in the
+"elsewhere" bucket, because it cites §12.3.5 and `Landing::in_clause` files a landing by the clause
+the quotation names rather than by the clause the sentence is in. **The bucket is a sort order and
+not a verdict, for the fourth round running.**
+
+`pdf_model::attachment` was corrected for this exact sentence in the four-hundred-and-eighteenth,
+one crate away, and neither copy was swept with it — `doc/todo/01`'s fourth-sweep shape with an
+erratum in place of a session's correction. Both now rest on what survives §7.11.4.1, which is its
+NOTE about pre-PDF-1.6 identification, and on §7.7.4's name tree for what a key is. The corrected
+comment in `panel.rs` quotes the wording it retired, so it will land every run from now on: this
+file's own known false positive, and the reason the "elsewhere" bucket grows.

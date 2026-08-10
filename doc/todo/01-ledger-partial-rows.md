@@ -1,9 +1,11 @@
 # Read the ledger's `partial` rows against the code
 
-Status: **standing task.** ~118 of the **252** rows have not been re-read — 29 went in the
+Status: **standing task.** ~110 of the **250** rows have not been re-read — 29 went in the
 three-hundred-and-seventy-fifth, 16 in the three-hundred-and-eighty-seventh, 11 in the
-three-hundred-and-ninety-fourth, 9 in the four-hundred-and-second and 14 in the
-four-hundred-and-thirteenth, against a population that grew by 12 in between. **The ninth sweep is the first to check that a citation names the *right* table**,
+three-hundred-and-ninety-fourth, 9 in the four-hundred-and-second, 14 in the
+four-hundred-and-thirteenth and **8 in the four-hundred-and-twenty-ninth**, against a population
+that grew by 12 in between and has now fallen by 2. **Thirteen sweeps**, the thirteenth run once
+and declined (ADR 0265). **The ninth sweep is the first to check that a citation names the *right* table**,
 and its first run corrected nine ledger rows and nine source comments — a whole block of §12.5.6's
 annotation tables and a whole block of §14.8.5's attribute tables, every one of them ISO 32000-1's
 number for something else. **Its second run, seven rounds later, found two more and one of them was
@@ -94,7 +96,16 @@ that adds a verb.
 | expired blocker | `while §X does not exist`, `needs §Y`, `until §Z` | session 118; found §9.7.5.2's "a licensing decision" 150 sessions after the decision |
 | entry claimed unread | every `/Key` in a "Not read:" list, grepped against the tree | six of ten lists had a live entry; §7.7.3.3's had eleven of eighteen |
 | capability | `this program has no ___`, `no panel`, `which this is not` | §12.6.3's "this crate has no events", 41 sessions after `Command::Pointer` |
-| **retired claim** | the *string* a correction retired, grepped over every other row | §8.9.6.1 still said "reported rather than applied on 28 corpus documents" fourteen sessions after §11.6.4.3 retired that exact sentence |
+| **retired claim** | the *string* a correction retired, grepped over every other row **and over `doc/adr/`** | §8.9.6.1 still said "reported rather than applied on 28 corpus documents" fourteen sessions after §11.6.4.3 retired that exact sentence |
+
+**`doc/adr/` joined the fourth sweep's targets in the four-hundred-and-twenty-ninth**, and it is the
+only change ADR 0265 makes to this file. An ADR is a dated record whose prose nobody maintains, so
+the general sweeps over it are 64 hits to 2 defects and are declined — but a claim a *later* round
+disproves and leaves standing is a defect wherever it lives, and the round that disproves it amends
+the ADR that made it, in the same commit. ADR 0261 said `confined_wire` reaches `pdf_model::interpret`
+and that `cargo-fuzz` is not installed here; the four-hundred-and-twenty-eighth disproved both with
+`nm` and with `ls ~/.cargo/bin`, and wrote the correction into its own commit message rather than
+into the ADR.
 
 **And a fifth: run all four over the *source tree*, not only over the ledger.** The
 two-hundred-and-twentieth session found `icon.rs`'s module comment blocked on a flag that had
@@ -1157,3 +1168,201 @@ window on the Markdown does *not* reach — the table is split across two header
 conversion, so a check that read only the first block would have reported two false positives. The
 instrument's own reach is part of the sweep, and this is the second time the Markdown's shape has
 been the thing to watch after the four-hundred-and-thirteenth's broken words.
+
+## All twelve run again in the four-hundred-and-twenty-ninth, after **fifteen** rounds with no sweep
+
+The longest gap this file has had, and several of the fifteen were large: find bars in three hosts
+and Annex O's `search` (414), the painted group's space measured (415), **the errata** — `doc/md/`
+presenting struck passages as current text, `tools/spec-errata` built, some thirty stale quotations
+fixed, a Type 3 glyph's own resources, and `Do`/`gs`/`scn` reporting a resource a file never defined
+(416–419) — the readback cache and §9.4.4's vertical writing mode (420), `pdf-retrieve` and a
+quadratic `Tree::walk` (421), three corpora submodules and pdfbox's frozen extraction (422–423),
+`Document` made `Sync` (424), 1944 web documents and the first crasher (425), §11.4.7's page group
+composited and §11.7.2's conversion into it (426–427), and twelve fuzz binaries found not to contain
+the interpreter (428). Over `ledger.toml`, over `crates/`, and — for the first time, because
+`SOURCE_ROOTS` reaches them — over `tools/` and `fuzz/`:
+
+- **Expired blockers (sweep 1)**: 4 over the ledger and 18 over the source roots. Three of the
+  ledger's are the quoted retired wording inside a correction (§11.3.7.2, §11.6.4.3, §11.7.4.4) and
+  §12.10.2's wait on §12.10.3 is real. Every source hit is past tense or true; the one worth
+  *checking* rather than reading is `pdf-sandbox/src/decode.rs`'s wait for `close2/hayro`'s
+  `feat/reduced-resolution-allocates-less`, and `Cargo.toml` pins `2a1abd14` where that branch's
+  commit is `1dc833f7`, so the blocker holds. **A blocker naming a revision is checkable and a
+  blocker naming a clause is not** — worth knowing which kind a hit is before reading it.
+- **Entries claimed unread (sweep 2)**: 19 over the ledger and 25 over the source, every one the
+  known one-short-key-three-clauses population. Two were re-checked rather than believed:
+  §12.5.6.7's `/Measure`, where the only reader in the tree is `measurement.rs` on Table 265's
+  *viewport*, and §8.11.4.3's `/Configs`, unchanged since the four-hundred-and-thirteenth.
+- **Capability reasons (sweep 3)**: 16 over the ledger and 100 over the source, every source hit a
+  true statement about a boundary a crate keeps. §12.5.6.2's `/Subj` was re-checked against
+  `viewer-confined`'s `subject` field, which is Table 349's *document information* and not Table
+  172's — the one-short-key shape wearing a struct field.
+- **Retired claim (sweep 4), run over the nouns fifteen rounds gave the tree** — `find bar`,
+  `search`, `writing mode`, `errata`, `readback`, `retrieval`, `SafeDocs`, `pdfbox`, `page group`,
+  `ink cube`, `fuzz`, `Tree::walk`, `composite font`, `Type 3`. **It paid four times and all four
+  are one mechanism**, which is this sweep's own subject at its largest yet. See below.
+- **Caller sweep (5)**, over eight host crates **and over `tools/` and `fuzz/`**: 335 `pub fn`s in
+  `pdf-model` (257 distinct names), **111 named by none of the eight hosts, 89 named by no host, no
+  tool and no fuzz target**. So **22 names come off the list because a tool or a fuzzer reaches
+  them** — `logical_text`, which this file listed as unread from the two-hundred-and-fifty-third run
+  onward and which `tools/pdf-retrieve` has asked since the four-hundred-and-twenty-first; `verify`,
+  `signed_attributes_encoding` and `timestamp_imprint`; `spans_under` and `text_under`; `scan`,
+  `section` and `sections`. **A tool is a consumer and this sweep could not see one for 176
+  sessions.** The finding is below.
+- **Arithmetic (sweep 6)**: three hits — §7.9.2 and §O, which this file records as read and kept,
+  **and §9.4, which is new**: `partial` above four `implemented` children. Its reason had been
+  retired by its own child nine rounds earlier.
+- **`inapplicable` (sweep 7)**: 71 of 83 rows name vocabulary the source names, on the same loose
+  stop-list as the four-hundred-and-thirteenth's 72, and none was wrong.
+- **Citations (sweep 8)**: 4 hits, **0 defects and a new false-positive shape**. §8.9.6.1's
+  `doc/todo/20` and §12.7's and `viewer-gtk/src/controls.rs`'s `doc/todo/37` are the known shape, a
+  correction quoting the pointer it retired. The fourth is
+  `tools/spec-errata/src/main.rs`'s `doc/errata.md`, and it is **a redirection target rather than a
+  citation** — the file is what `emit >` writes and `.gitignore` names it for the same licence
+  reason as `doc/md/`. A sweep that reads paths cannot see a `>` in front of one.
+- **Table numbers (sweep 9)**: 412 headings parsed, 68 suspects, **3 defects — and two of them are
+  in `tools/`, which this sweep had never reached.** Below.
+- **Parent's stated count (sweep 10)**: 185 counted claims raw, 16 after the count is compared with
+  the family's size and its settled total, **1 defect**: §11.7 states its count of the family twice
+  and the two disagree. Below.
+- **Ledger quotation marks (sweep 11)**: **1028** double-quoted spans of four words or more, 516
+  verbatim in some document under `doc/md/` and 512 in none; 32 that match the standard for five
+  words and then diverge, **3 of them defects**. Below. The other 29 are the two known shapes — an
+  `…` elision, which `CLAUDE.md`'s own convention produces, and the conversion's broken words
+  (`text-tospeech`, `hierarch y`, `T h`, `None ;`).
+- **The errata (sweep 12)**, `cargo run --release -p spec-errata -- check doc/*.pdf`: **151 lines
+  for 120 distinct struck passages, unchanged since the four-hundred-and-eighteenth finished reading
+  them, so nothing remains unread and the number is not moving.** 28 in-clause landings, every one
+  annotated in place **except one**, and a second in the "elsewhere" bucket that is the same
+  sentence. Below.
+
+### The four the fourth sweep found, and they are one mechanism in four rows
+
+**Writing mode 1 and the predefined `CMap`s.** §9.4.4 was moved to `implemented` in the
+four-hundred-and-twentieth after being `partial` for three hundred and eighty-four sessions on a
+sentence that was false from the thirty-sixth; §9.7.5.2's data shipped in the hundred-and-fifty-sixth
+(ADR 0140). Four rows went on describing a tree that had neither:
+
+- **§9.4** — "§9.4.4 stays partial because the vertical branch of the displacement formula has no
+  writing mode 1 to reach it", and the row's own `partial` rested on that clause alone. Now
+  `implemented`; the clause states nothing above its four subclauses and all four are settled.
+- **§9.7** — *both* halves of its `partial` reason were retired: "Table 116's seventy-odd predefined
+  CMaps, refused by name on 15 corpus fonts" and "vertical writing, which is §9.2.4's missing /W2
+  metrics rather than this clause's". §9.2.4's own row opens "[b]oth writing modes, from the
+  thirty-sixth session", two clauses above.
+- **§9.7.5** — "the other predefined names are refused because their data is not in the tree", the
+  third row in this family to carry the sentence §9.7.6's row was corrected for in the
+  two-hundred-and-ninety-eighth. **No earlier sweep could reach it**: the arithmetic that finds a
+  `partial` parent above settled children never looks here, because §9.7.5.4 is `partial` for a
+  reason of its own.
+- **§9.3.7** — "which is trivially true here because only mode 0 exists". Right conclusion, expired
+  argument, in an `implemented` row, which is the population sweeps 1, 2, 3 and 6 all skip.
+
+**And one status the sweeps do not look for at all.** §9.7.5.1 was `partial` above a note that named
+nothing owed — a row breaking the ledger's own definition of the status, which says "the note says
+which are not". Every requirement §9.7.5.1 states is executed and each was already named in the note.
+`implemented`, and the expiry is the same one: the predefined data landing in the hundred-and-fifty-sixth.
+
+**What that adds to the method**: the sixth sweep asks whether a `partial` row's *children* are
+settled. Nothing asks whether a `partial` row's *note* names anything owed at all — and that is
+arithmetic on one row rather than on a family, cheaper than any sweep here, and would have found
+§9.7.5.1 without knowing a thing about fonts. Worth a fourteenth the next time a round has room.
+
+**And the status move cost §9.4 its evidence, which is the gate working.** The row named two whole
+*test files*, tolerated on a `partial` row and refused at zero by `FILE_ONLY_EVIDENCE_CEILING` on an
+`implemented` one, so `cargo test -p conformance` failed the moment the status changed. One named
+test per subclause now. **A ratchet that only bites on a status change is a ratchet that bites when
+a claim gets stronger**, which is when evidence matters most.
+
+### The fifth sweep over `tools/` and `fuzz/`, and the one `pub fn` nothing names
+
+`SOURCE_ROOTS` has been `["crates", "tools", "fuzz"]` since the four-hundred-and-twenty-eighth and
+this sweep had never used it. Running it three ways in one sitting is what makes the number mean
+something: 111 unnamed over the hosts, **89** once the six tools and the fourteen fuzz targets are
+added, so a tool or a fuzzer is the only consumer of 22 names.
+
+**`ViewState::clear_field` is named by nothing in the tree** — no host, no tool, no fuzz target, no
+example and **no test**. It is the operation an undo needs, and its doc comment states the design
+that separates it from `Edit::SetField` with an empty value: "the old value may have been the file's
+own, and re-stating that as an edit would make every later save carry a change nobody made". That
+distinction is invisible until a document is *written*, which is why the absence of a test is the
+part worth acting on rather than the absence of a host.
+`saving.rs::forgetting_an_edit_restores_the_documents_own_value_without_logging_one` asserts both
+halves and the save after them. A consumer is a feature and is left named rather than built, which
+is what this sweep got right about `Query::Find` in the four-hundred-and-thirteenth.
+
+### The three wrong table numbers, and two are in a tool
+
+- **`tools/pdf-retrieve/src/lib.rs`, twice.** `Wanted::subtypes` said an annotation subtype filter
+  compares "Table 164's own names" and `Note::subtype` said "Table 164's `/Subtype`". **Table 164 is
+  the transition dictionary.** The annotation types are **Table 171**'s and the entry is **Table
+  166**'s, "[e]ntries common to all annotation dictionaries" — which the same doc comment cites
+  correctly three lines down for `/Contents`, `/Subj` and `/QuadPoints`. Written in one sitting in
+  the four-hundred-and-twenty-first, which is this sweep's block signature; the *first* run of it
+  over `tools/` found them.
+- **`crates/pdf-model/src/signature.rs`** — "Table 259 also records the older `/UR`". Table 259 is
+  the FieldMDP transform parameters dictionary; `UR ( Deprecated in PDF 2.0 )` is a value of **Table
+  256**'s `/TransformMethod`, and `/UR3` is **Table 263**'s key in the permissions dictionary. The
+  comment had the *distinction* right and the table wrong, which is the shape that survives review.
+
+### The tenth sweep's finding: a row that counts its own family twice
+
+**§11.7 said "[t]wo of its five subclauses are satisfied" and, four sentences later, "four of its
+five subclauses are satisfied".** The nineteenth session re-decided §11.7.4 and appended the second
+count without reading the first — failure shape 6, standing for **410 sessions**, and the longest
+this file has recorded after §12.5.6.19's 364 and §12.7.6's 280. Neither number survives contact
+with the rows below it, which are one `inapplicable`, one `implemented` and three `partial`, each
+naming what it owes.
+
+**And the count was left behind by the two rounds that changed this family most.** The
+four-hundred-and-twenty-sixth read §11.7.2 and §11.7.5.3 as what bounds §11.4.7's page group; the
+four-hundred-and-twenty-seventh carried out the conversion §11.7.5.3 names and took a web sample's
+61 blocked pages to 0. The parent row mentioned neither. **A parent row is not maintained by the
+sessions that implement its members** — this file's fifth failure shape, and the tenth sweep is now
+the third instrument to have found it at family scale.
+
+### The three misquotations, and one of them is a full stop
+
+- **§7.6.4.1** quoted "There is nothing inherent in PDF encryption that enforces the document
+  permissions." The sentence continues "specified in the encryption dictionary", so the quotation
+  ends a sentence the standard does not end — an elision *with a full stop inside the quotation
+  marks*, which reads as complete where an `…` would have read as cut. Restored whole.
+- **§8.4.3.3** quoted "at both ends of open subpaths (and dashes 8.4.3.6)", dropping
+  `, "Line dash pattern"` from inside the parenthesis and "when they are stroked" from the end.
+- **§12.3.3** quoted Table 152's `/Title` as "the text that shall be displayed on the screen for
+  this item" where the standard capitalises. The same row writes `[t]his value`, `[w]hen an item`
+  and `[c]licking` four times over, so the convention was there and one quotation missed it.
+
+**And the sweep found a defect in the file rather than in a claim, for the second time**: §7.3.9's
+row carried a `\\\"` — a double-escaped quotation mark, which decodes to a literal backslash before
+the quote. The four-hundred-and-nineteenth repaired 72 of these in 17 rows and this one survived,
+in a row none of the seventeen was next to. Round-tripped through
+`cargo run -p conformance --bin ledger` rather than read.
+
+### The errata sweep's one finding, and it is the fourth sweep's shape across the errata line
+
+`check` prints **151 lines for 120 distinct passages**, which is exactly what
+`doc/errata-read.md` recorded when the four-hundred-and-eighteenth finished reading them: **nothing
+remains unread, and the number has not moved in eleven rounds.** That is the answer to the lead the
+four-hundred-and-nineteenth left, and it is worth writing down because a passage count that stops
+moving is the only evidence that a population has been read to the end.
+
+The 28 in-clause landings are all annotations sessions 416–419 wrote in place, **except**
+`crates/viewer-host/tests/host_mappings.rs:138`, which quoted §7.11.4.1's "shall map name strings to
+file specifications" — struck outright by Issue #481 with the two bullets around it. And
+`crates/viewer-host/src/panel.rs:144` quotes the *same sentence* and sits in the "elsewhere" bucket
+only because it cites §12.3.5 rather than §7.11.4.1, so `Landing::in_clause` files it away from its
+own finding. **`pdf_model::attachment` was corrected for this exact sentence in the
+four-hundred-and-eighteenth and the two copies of it one crate over were not** — the fourth sweep's
+subject, with an erratum in place of a session's correction. What survives §7.11.4.1 is its NOTE
+about pre-PDF-1.6 identification, and that is what both comments rest on now.
+
+## What is still owed, named
+
+- **~110 `partial` rows** not yet re-read against the code, of 250 — 8 more went in the
+  four-hundred-and-twenty-ninth.
+- **A fourteenth sweep, invented and not built**: print every `partial` row whose note names nothing
+  owed. §9.7.5.1 was one and no existing instrument could see it, because every sweep here reads a
+  row's *reason* and this is a row with none. Twenty lines over `ledger.toml` alone.
+- **`ViewState::clear_field` reaches no program.** Tested now and named here so that the next round
+  does not have to find it again; an undo is a host's feature and not a sweep's business.

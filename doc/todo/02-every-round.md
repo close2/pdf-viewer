@@ -19,7 +19,7 @@ features no file exercises.
 ```sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets      # must be silent of lints
-cargo nextest run --workspace               # 1561 tests, 11 skipped
+cargo nextest run --workspace               # 1562 tests, 11 skipped
 cargo test --workspace --doc                # the one doctest nextest does not run
 cargo build --profile gates -p pdf-sandbox --bins   # trap 10: Cargo will not do this for you
 cargo test  --profile gates -p pdf-model      --test corpus          -- --ignored --nocapture
@@ -107,7 +107,10 @@ four-hundred-and-twenty-fifth added six** — a whole `pdf-model/tests/hostile_f
 four-hundred-and-twenty-seventh added **three** for the conversion §11.7.2 requires into it — one in
 `pdf-model`'s `colour` for the right inverse of the ink cube, two in `transparency_groups` for a
 colour that comes back and a document that names its own press — **and the gate printed 1561**, so
-this line was not behind for the ninth round running.
+this line was not behind for the ninth round running. The four-hundred-and-twenty-ninth added
+**one** — `saving.rs`'s undo, for the one `pub fn` in `pdf-model` that the fifth sweep found named
+by no host, no tool, no fuzz target and no test — **and the gate printed 1562**, so this line was
+not behind for the tenth.
 - **One of those eighteen runs a C compiler**, and it is the only gate in this sequence that does.
   `viewer-ffi::a_c_program_drives_the_abi` builds `crates/viewer-ffi/c/open_a_page.c` against the
   crate's own header with `-Wall -Wextra -Werror`, links it against the `cdylib` — which it asks
@@ -165,7 +168,7 @@ every *other* row. The third found a `shall` binding for fifty-six sessions; the
 
 **The arithmetic one needs no round to justify it**: print every ledger row that is `partial`, `reported` or `unreviewed` while every one of its direct children is settled. Its first run found five and four were wrong, three of them in a shape no grep can see — the note corrected and the status left behind.
 
-**Eleven now, and the ninth checks a *number* rather than a claim**: every `Table NNN`'s `/Key`
+**Thirteen now — twelve run every time and a thirteenth run once and declined (ADR 0265) — and the ninth checks a *number* rather than a claim**: every `Table NNN`'s `/Key`
 citation, against the entries ISO 32000-2 actually puts in that table. `tools/conformance` verifies
 a cited table *exists* and prints its title; a number that exists and names the wrong table reads
 exactly like a right one, and it arrives in **blocks** — a run of consecutive rows written in one
@@ -193,7 +196,7 @@ stale quotations in three ledger rows and, beside them, six more in a population
 at all — quotation marks inside ordinary rustdoc prose, which `CLAUDE.md` binds exactly as hard as a
 blockquote and which the gate's `> ` scanner walks straight past. ADR 0254.
 
-**And run all four greps over `crates/` as well as over `ledger.toml`.** The ledger has a gate and the
+**And run all four greps over `crates/`, `tools/` and `fuzz/` as well as over `ledger.toml`** — `SOURCE_ROOTS` has reached all three since the four-hundred-and-twenty-eighth, and the four-hundred-and-twenty-ninth was the first sweep round to use it: two of that round's three wrong table numbers were in `tools/pdf-retrieve`, and the caller sweep found 22 `pdf-model` functions whose only consumer is a tool. **The fourth grep also runs over `doc/adr/` now**, for the one thing an unmaintained document can get wrong: a claim a later round disproved and left standing. The ledger has a gate and the
 source does not, which is why the two-hundred-and-twenty-first session found four claims in the
 code false for between forty and two hundred sessions — including `pdf-model`'s own crate
 documentation and a doc comment that had *predicted* its own expiry. See

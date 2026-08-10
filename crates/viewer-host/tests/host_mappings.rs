@@ -135,10 +135,15 @@ fn a_layer_row_carries_the_switch_and_a_heading_carries_none() {
 
 #[test]
 fn an_attachment_row_carries_the_key_the_extraction_names_and_shows_the_file_name() {
-    // §7.11.4.1: the tree "shall map name strings to file specifications", and before PDF 1.6 the
-    // key was how a file was identified — so the key need not be a file name. What a person is
-    // shown is Table 43's `/UF`, and what `Command::Extract` carries is the key. Two strings, and
-    // a host that used one for both would be wrong on some document.
+    // §7.11.4.1: the `/EmbeddedFiles` tree maps §7.7.4's name strings to file specifications, and
+    // its NOTE says that before PDF 1.6 "it was necessary to identify document-level embedded
+    // files by the name string provided in the name dictionary" — so the key need not be a file
+    // name. What a person is shown is Table 43's `/UF`, and what `Command::Extract` carries is the
+    // key. Two strings, and a host that used one for both would be wrong on some document.
+    //
+    // The first half was a quotation until the four-hundred-and-twenty-ninth session, of a
+    // sentence Errata Collection 3 struck out with the two bullets around it (Issue #481). The
+    // NOTE quoted here is what survives, and it is the half this test rests on.
     let Some(bytes) = corpus_bytes("attachment.pdf") else {
         eprintln!("skipped: doc/pdf.js is not checked out");
         return;

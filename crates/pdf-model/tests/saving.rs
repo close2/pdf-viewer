@@ -713,3 +713,78 @@ fn choosing_an_option_of_a_text_field_applies_to_nothing() {
     );
     assert_eq!(view.edits().count(), 0, "and nothing is logged");
 }
+
+/// Forgetting an edit leaves the file's own value, and leaves §7.5.6's update with nothing to say.
+///
+/// [`ViewState::clear_field`] is the operation an undo needs, and its doc comment states what
+/// makes it not "set it back to the old value": the old value may be the *file's*, and re-stating
+/// it as an edit would put a change nobody made into every later save. This asserts both halves —
+/// the log is empty and the value read back is the one object 4 states — because the difference
+/// between the two designs is invisible until a document is written.
+///
+/// **Written in the four-hundred-and-twenty-ninth session**, when `doc/todo/01`'s fifth sweep was
+/// run over `tools/` and `fuzz/` for the first time and found this the one `pub fn` in `pdf-model`
+/// that nothing in the tree names at all — no host, no tool, no fuzz target and no test.
+#[test]
+fn forgetting_an_edit_restores_the_documents_own_value_without_logging_one() {
+    let objects = "1 0 obj << /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] >> >> \
+                   endobj\n\
+                   2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n\
+                   3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 400 400] /Annots [4 0 R] \
+                   >> endobj\n\
+                   4 0 obj << /Type /Annot /Subtype /Widget /Rect [10 20 210 60] /FT /Tx \
+                   /T (address) /V (what the producer wrote) /DA (/Helv 12 Tf 0 g) >> endobj\n";
+    let document = Document::open(assembled(objects)).expect("the fixture parses");
+    let mut view = ViewState::of(&document);
+
+    assert_eq!(
+        view.set_field(
+            &document,
+            "address",
+            &Entered::Text("a person typed this".to_owned())
+        ),
+        1,
+        "the fixture has one widget under that name"
+    );
+    assert_eq!(view.edits().count(), 1, "and the edit is logged");
+
+    assert_eq!(
+        view.clear_field(&document, "address"),
+        1,
+        "the same one widget is forgotten, and the count says which"
+    );
+    assert_eq!(
+        view.edits().count(),
+        0,
+        "the log is empty rather than holding the old value"
+    );
+    assert_eq!(
+        view.field_value(&document, "address")
+            .map(|shown| shown.text),
+        Some("what the producer wrote".to_owned()),
+        "what is read back is object 4's own /V, which was never an edit"
+    );
+
+    // The half the log alone cannot show: a save after the undo carries no field object, so a
+    // reader of the written bytes sees the producer's document rather than a value set back to
+    // what it already was.
+    let written = view
+        .save(&document)
+        .expect("the fixture can be written")
+        .bytes;
+    let saved = Document::open(written).expect("what was written can be read");
+    let widget = ObjectId {
+        number: 4,
+        generation: 0,
+    };
+    assert_eq!(
+        entry(&saved, widget, "V")
+            .as_string()
+            .map(pdf_syntax::text_string),
+        Some("what the producer wrote".to_owned())
+    );
+
+    // A name the document does not have is answered with zero rather than with a panic, which is
+    // what lets a host send an undo for a field it has since navigated away from.
+    assert_eq!(view.clear_field(&document, "no such field"), 0);
+}

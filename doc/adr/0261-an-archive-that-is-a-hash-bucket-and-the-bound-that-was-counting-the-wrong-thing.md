@@ -1,7 +1,17 @@
 # ADR 0261 — An archive that is a hash bucket, and a bound that was counting the wrong thing
 
 Date: 2026-08-10 (session 425)
-Status: accepted
+Status: accepted. **Amended by ADR 0264 (session 428) and recorded here in session 429: two
+sentences in "Thirteen fuzz targets and not one of them could have found it" are false.** (1) It
+says only two targets reach `pdf_model::interpret`, "`confined_wire`, whose input is a *process*
+rather than a document, and `variable_text`". `nm` finds `pdf_model::interpret` in **one** of the
+thirteen binaries: `confined_wire` links `viewer_confined::wire`'s four decoders over raw bytes and
+never opens a document, so its parenthesis was the right observation attached to the wrong list.
+(2) It says the gap stays open "because `cargo-fuzz` is not installed on this machine", and
+`cargo-fuzz` has been in `~/.cargo/bin` since 26 July — a directory that is not on `PATH`, which is
+what `which` was reporting. The conclusion the paragraph draws is unaffected and is stronger for
+the correction: no target in the tree had ever constructed a shading. `fuzz/fuzz_targets/page.rs`
+is the fourteenth and closes it.
 
 ## Context
 

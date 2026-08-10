@@ -1136,9 +1136,10 @@ fn usage_rights(document: &Document, signature: &Dictionary) -> Option<UsageRigh
         let Some(reference) = resolved.as_dict() else {
             continue;
         };
-        // "UR" is the transform method's name; `/UR3` is the permissions dictionary's key for
-        // the signature that carries it, and the two are not the same string. Table 259 also
-        // records the older `/UR`, which producers still write.
+        // "UR" is the transform method's name — Table 256's `/TransformMethod`, "( Deprecated in
+        // PDF 2.0 )" — and `/UR3` is Table 263's key in the permissions dictionary for the
+        // signature that carries it. The two are not the same string, and a producer that writes
+        // the permissions key where the method belongs is read rather than refused.
         let is_ur = document
             .get_key(reference, "TransformMethod")
             .as_name()

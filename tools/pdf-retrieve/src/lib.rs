@@ -101,7 +101,7 @@ pub struct Wanted {
     /// A filter rather than a fixed vocabulary, because what an annotation *is to a reader* is
     /// the file's business and not this tool's: the errata in ISO 32000-2 are `StrikeOut` and
     /// `Caret` marks, another document's notes are `Text`, and §12.5.6.5's links are navigation
-    /// that a retrieval consumer usually wants out of the way. Table 164's own names, compared
+    /// that a retrieval consumer usually wants out of the way. Table 171's own names, compared
     /// exactly.
     pub subtypes: Vec<String>,
     /// Drop §14.8.2.2's artifacts — running heads, folios, the licence stamp on every page of a
@@ -139,7 +139,7 @@ impl Wanted {
 pub struct Note {
     /// The zero-based page it is on.
     pub page: usize,
-    /// Table 164's `/Subtype`.
+    /// Table 166's `/Subtype`, whose values Table 171 names.
     pub subtype: String,
     /// `/T`, the text label — "the title of the markup annotation's author" (§12.5.6.2).
     pub title: Option<String>,
