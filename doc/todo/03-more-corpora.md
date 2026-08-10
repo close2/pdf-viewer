@@ -5,7 +5,7 @@ session, which built the three pieces `doc/test-docs.md` asked for. What is left
 a chunk a round, the way `doc/todo/00` takes a page off the ambiguous ranking.
 Priority: 03 — the standing band, deliberately.
 Corpus: 974 pdf.js documents **plus 108 in three submodules** and whatever `tools/safedocs` has
-been asked for — 48 as of the four-hundred-and-twenty-third, archives `0000` and `3500`
+been asked for — **1944 as of the four-hundred-and-twenty-fifth**, 81 archives, the manifest below
 Code: `tools/safedocs`, `doc/corpora/*`, `doc/oracle-and-corpus.md` §2
 
 ## What exists now (ADR 0258)
@@ -34,18 +34,28 @@ on purpose, and a *corpus* still earns its place before it takes one.
 replaces the "on mobile, short tests only" constraint the four-hundred-and-twenty-second session
 worked under. Disk is not the limit either: 1.1 TB free on this machine.
 
-**That makes *how* to spend it the question rather than *whether*.** Two facts decide it:
+**That makes *how* to spend it the question rather than *whether*.** One fact decides it, and it
+is **not** the one this section carried until the four-hundred-and-twenty-fifth session.
 
-- **SafeDocs' issue-tracker corpus is 31 GB in six archives**, so the whole of it fits inside the
-  budget with room to spare. Taking it all is now possible.
-- **Files inside one archive are correlated** — they come from one neighbourhood of one crawl — so
-  a gigabyte spread across fifty archives is worth more defects than a gigabyte taken from one.
-  `safedocs plan --archive N --from M` addresses any window of any of the 7 933 archives, and
-  `corpus-cache/safedocs/manifest.tsv` records where anybody has been.
+**This file used to say that "[f]iles inside one archive are correlated — they come from one
+neighbourhood of one crawl", and prescribed a stratified sample on the strength of it. That is
+false, and the four-hundred-and-twenty-fifth session's stratified sample is what disproved it**
+(ADR 0261). The corpus is the whole crawl **sorted by SHA-256** and cut into 7933 equal pieces: for
+every one of the 1944 members now cached, the file's own number — its rank among all 7 932 878 —
+and its digest read as a fraction of 2²⁵⁶ agree to within **2.6 × 10⁻⁴**, which is the fluctuation
+7 932 878 uniform order statistics have by construction and nothing more. Nothing about a document
+can correlate with its content digest, so:
 
-So the plan a round should follow is **stratified**: sample widely first and find out what the
-population's failure modes *are*, then go deep where the failures cluster. A round that pulls one
-whole archive because it can has spent 1.6 GB learning about one crawl neighbourhood.
+- **An archive is a hash bucket**, and a gigabyte from one archive is the same sample as a gigabyte
+  spread over fifty. Going deep costs nothing in representativeness.
+- **`--from M` addresses an unbiased window of the whole corpus**, not of one crawl neighbourhood.
+- **Spread costs 182 KiB of central directory per archive.** The 79-archive slice paid 14.1 MiB of
+  it, which bought the disproof and would buy nothing a second time.
+
+So the plan a round should follow is **whatever is cheapest among what nobody has taken**:
+`corpus-cache/safedocs/manifest.tsv` is the record of where that is, and one archive fetched whole
+is 1000 documents for one directory read where forty windows cost forty. **SafeDocs' issue-tracker
+corpus is 31 GB in six archives** and fits inside the budget with room to spare.
 
 **What the budget does not change**: the promotion rule (20 MB of committed witnesses, then names
 and digests), that these files are crawled web pages under no grant anybody made
@@ -56,13 +66,17 @@ until it has earned a place.
 
 ### 1. Take a chunk a round
 
-The instrument works and the first 24 documents produced one finding. `--archive` names any of
-7 933 archives and `--from` any window inside one, so a round's chunk should be **somewhere
-nobody has been**: the manifest at `corpus-cache/safedocs/manifest.tsv` is the record of where
-that is. **Taken so far: `0000` and `3500`, 24 members apiece.** The four-hundred-and-twenty-third's
-chunk was 16.8 MiB for 24 documents, 22 complete, and both of its reports belonged to populations
-`doc/todo/23` and ADR 0255 already name — so nothing was promoted, which is the rule working rather
-than the chunk being empty.
+The instrument works and every chunk so far has produced a finding. A round's chunk should be
+**somewhere nobody has been**, and `corpus-cache/safedocs/manifest.tsv` is the record of where
+that is.
+
+**Taken so far: 81 archives, 1944 documents, 2.68 GiB transferred — 5.4% of the 50 GB.**
+`0000` and `3500` in the four-hundred-and-twenty-second and -third, 24 members apiece; then in
+the four-hundred-and-twenty-fifth, **`50 + 100k` for k = 0 … 78** — `0050`, `0150`, … `7850` —
+24 members from the head of each, 2731.0 MiB of member ranges and 14.1 MiB of central
+directories, 79 fetches, 0 failures, every CRC-32 matched. **That stride is spent**; the next
+round wants a window the manifest does not hold, and by decision 2 of ADR 0261 it may be any
+shape at all.
 
 What a chunk owes when it is taken:
 
@@ -70,6 +84,22 @@ What a chunk owes when it is taken:
 - every report read against the population it belongs to, because a second witness for a
   population `doc/todo/21` or `23` already names is worth nothing;
 - a **promotion** only where the problem is new and is named in the commit. The budget below.
+
+**The four-hundred-and-twenty-fifth's 1896 new documents, as the baseline to beat:** *1896
+documents in 42.1 s: 4 unopenable, 1 locked, 0 encrypted beyond us, 3 pageless, 86 incomplete,
+0 slow*, with 862 codes reaching no glyph in silence over 12 documents. **85 incomplete after
+that session's own fix.** Two things it is worth knowing before reading the next one:
+
+- **Nothing failed to open for a reason that is this tree's.** All seven unusable documents are
+  crawl artefacts, opened by hand: four are HTML saved under a `.pdf` name, three are PDFs the
+  origin server truncated at about a kilobyte with a Baidu link-submission script where the body
+  should be.
+- **The failure modes are overwhelmingly already-named ones**, and the number is the result:
+  **67 of the 86 are §11.4.7's page-group blending space**, which is `doc/todo/23` and ADR 0251.
+  That is **3.5% of the web's PDFs against 0.7% of the 974**, and it makes that item the single
+  largest correctness gap this tree has against real files by a factor of six over everything
+  else together. 7 more are `doc/todo/21` §3's font-with-no-outline and 4 are §11.4.4's
+  non-isolated group. The remaining 8 are singletons and are listed in ADR 0261.
 
 ### 2. `openpreserve/format-corpus` is owed a licence reading, not a decision
 
@@ -100,7 +130,10 @@ Applied here it splits, and the split is the useful half:
   web pages under no grant anybody made (`doc/third-party-data.md`). A names-only entry is the
   archive, the member name and the SHA-256, which is what `manifest.tsv` records.
 - **A crasher is a different thing** — small, always committable, and `CLAUDE.md` requires one.
-  None has been found yet.
+  **The first one arrived in the four-hundred-and-twenty-fifth**, and it cost the budget nothing
+  either: §7.10.4's `/Functions` naming its own object overflows the stack, and the 720-byte
+  witness is *generated* by `crates/pdf-model/tests/hostile_functions.rs` rather than committed.
+  A crasher a test can write is better than a crasher a test has to store.
 
 ### 4. Two instruments the new populations make possible — one built, one not
 
@@ -121,6 +154,23 @@ Applied here it splits, and the split is the useful half:
   **What it does not yet do is the other direction**: it measures recall, so a rule that *invented*
   text would not move it. `examples/readback.rs` is what a person reads for that, and pairing the
   two automatically is the next thing this instrument is owed.
+
+### 5. Two things this round diagnosed and did not take
+
+- **A zero-byte stream that names a filter.** `4150022.pdf` — archive `4150`, SHA-256
+  `85ea41fdedc0a195deacd9aedf88df9a0e002bd05015940d1e2351c55a1b9c29` — has a six-part
+  `/Contents` whose fourth object is
+  `<< /Filter /FlateDecode /Length 0 >>`, and `flate` refuses an empty input, so the part is
+  reported `Undecodable`. The report claims the page is missing drawing and an empty part cannot
+  be — but "decode zero bytes to zero bytes" also silences a stream truncated to nothing, and
+  choosing between those two needs the argument rather than the patch. §7.3.8.1 permits "zero or
+  more bytes" between the keywords, so the *stream* is valid and only the filter's input is empty.
+- **No fuzz target reaches `pdf-model`'s interpreter.** The crasher above lived there, and of the
+  thirteen targets only two call `pdf_model::interpret`: `confined_wire`, whose input is a process,
+  and `variable_text`, which varies a widget's `/DA` and `/V` inside a page it holds fixed. So no
+  fuzzer in this tree has ever built a shading. A target that fuzzes a whole document *through*
+  `interpret` is owed; it was not written in the four-hundred-and-twenty-fifth because
+  `cargo-fuzz` is not installed on this machine and a target nobody has run is not a target.
 
 ## What not to do
 

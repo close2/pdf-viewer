@@ -49,6 +49,28 @@ and *ratchets none of them*.
 | `doc/corpora/pdfbox` (`.../test/resources/input`) | 64 | 63 | 1 | Apache-2.0 |
 | SafeDocs `CC-MAIN-2021-31`, archive `0000`, first 24 | 24 | 22 | 2 | crawled web, no grant — never committed |
 | SafeDocs `CC-MAIN-2021-31`, archive `3500`, first 24 | 24 | 22 | 2 | crawled web, no grant — never committed |
+| **SafeDocs `CC-MAIN-2021-31`, 79 archives `50 + 100k`, first 24 of each** (session 425) | **1896** | **1802** | **86** → 85 | crawled web, no grant — never committed |
+
+**The last row is the first sample large enough to rank a population, and it does** (ADR 0261).
+1896 documents in 42.1 s: 4 unopenable, 1 locked, 0 encrypted beyond us, 3 pageless, 86 incomplete,
+0 slow, with 862 codes reaching no glyph in silence over 12 documents. Two readings of it:
+
+- **Nothing failed to open for a reason that is this tree's.** All seven unusable documents were
+  opened by hand and are crawl artefacts — four HTML pages saved under a `.pdf` name, three PDFs
+  the origin server truncated at about a kilobyte.
+- **67 of the 86 reports are §11.4.7's page-group blending space**, `doc/todo/23`'s standing item.
+  That is **3.5% of the web against 0.7% of the 974**, which makes it the largest correctness gap
+  this tree has against real files by a factor of six over everything else together. 7 more are
+  `doc/todo/21` §3, 4 are §11.4.4, and the remaining 8 are singletons. **The count fell 86 → 85 in
+  the same session**, on §7.10.4's k: a real document's four shadings were refused whole because a
+  bound documented as counting a function's components was being applied to its subfunctions, and
+  the same clause's nesting was a stack overflow (`crates/pdf-model/tests/hostile_functions.rs`).
+
+**And the archives are hash buckets, not crawl neighbourhoods.** The corpus is the whole crawl
+sorted by SHA-256 and cut into 7933 equal pieces — over 1944 members a file's number and its digest
+agree to 2.6 × 10⁻⁴, which is the order statistics' own fluctuation — so any window anywhere is an
+unbiased sample of all 7 932 878 and a round may go deep without paying for spread. `doc/todo/03`
+carries the rule that replaced the stratification one.
 
 `pdfbox` is a **partial, sparse** submodule and `.gitmodules` cannot say so, so the recipe lives
 here:

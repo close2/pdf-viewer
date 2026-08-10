@@ -21,11 +21,77 @@ use std::sync::Arc;
 
 use pdf_syntax::{Dictionary, Document, Object};
 
-/// Most values a function may take or return.
+/// Most values a function may take or return — the *dimensionality*, m and n.
 ///
 /// The specification sets no limit. This one bounds what a single evaluation can allocate
 /// and is far above any real function: colour spaces top out at a handful of components.
+///
+/// **It is not a bound on §7.10.4's k**, and applying it to one cost this tree four shadings
+/// in a real document; [`MAX_FUNCTIONS`] is that bound and says why the two are different.
 const MAX_VALUES: usize = 64;
+
+/// How many functions one call into the parser may build, and therefore §7.10.4's largest k.
+///
+/// §7.10.4's Table 41 makes `/Functions` "[a]n array of k , 1-input functions that shall make
+/// up the stitching function" and bounds k **nowhere**: the only value it singles out is the
+/// small one, "[t]he value of k may be 1". A 256-stop gradient is written as k = 255, and
+/// `2750009.pdf` in the `SafeDocs` sample is exactly that — four shadings, 255 subfunctions
+/// apiece, refused whole because [`MAX_VALUES`] was being read as a bound on k when its own
+/// documentation says it bounds a component count. §7.10.4 settles that from the other side
+/// too: a type 3 function's "Domain shall be of size 2 (that is, 𝑚  =  1 )", so the quantity
+/// `MAX_VALUES` bounds is *fixed at one* here while k is free.
+///
+/// So the bound is a resource budget rather than a reading of the clause, which
+/// `CLAUDE.md`'s third principle requires of pathological content. It is a budget for the
+/// whole tree one root builds, not a per-array limit, because a bound on breadth alone
+/// leaves `breadth ^ depth` reachable. 4096 is sixteen times the largest k seen in a real
+/// file, and a `Function` is 120 bytes on this target, so the ceiling is 480 KiB of
+/// functions for one shading — checked by `tests/hostile_functions.rs` rather than recalled.
+const MAX_FUNCTIONS: usize = 4096;
+
+/// How deep §7.10.4's stitching functions nest, on the way in and on the way out.
+///
+/// Nesting is legal — a subfunction may itself be a stitching function — and the standard
+/// bounds it nowhere, so a `/Functions` array naming its own object recurses for ever. That
+/// is not hypothetical: a 720-byte document doing it overflowed the stack of every program
+/// in this tree until the four-hundred-and-twenty-fifth session, and
+/// `tests/hostile_functions.rs` is the regression test `CLAUDE.md` requires of a crasher.
+///
+/// One constant for the build and for [`Function::breakpoints`]' walk, so that the two
+/// cannot disagree about how deep a chain can be.
+const MAX_STITCH_DEPTH: usize = 8;
+
+/// What one call into the parser may spend, shared by every function it builds.
+///
+/// Threaded rather than counted per array: `/Functions` may hold stitching functions, so the
+/// only bound that holds is one on the whole tree.
+struct Budget {
+    /// How many more functions may be built before the tree is refused.
+    remaining: usize,
+    /// How many stitching functions are open above the one being built.
+    depth: usize,
+}
+
+impl Budget {
+    /// A fresh budget for one root.
+    const fn new() -> Self {
+        Self {
+            remaining: MAX_FUNCTIONS,
+            depth: 0,
+        }
+    }
+
+    /// Charges one function to the budget.
+    fn spend(&mut self) -> Result<(), FunctionError> {
+        self.remaining = self
+            .remaining
+            .checked_sub(1)
+            .ok_or_else(|| FunctionError::Malformed {
+                detail: format!("more than {MAX_FUNCTIONS} functions in one chain"),
+            })?;
+        Ok(())
+    }
+}
 
 /// Why a function could not be built.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -98,6 +164,16 @@ impl Function {
     ///
     /// See [`FunctionError`].
     pub fn parse(document: &Document, object: &Object) -> Result<Self, FunctionError> {
+        Self::parse_within(document, object, &mut Budget::new())
+    }
+
+    /// The body of [`Self::parse`], carrying the budget every nested function shares.
+    fn parse_within(
+        document: &Document,
+        object: &Object,
+        budget: &mut Budget,
+    ) -> Result<Self, FunctionError> {
+        budget.spend()?;
         let resolved = document.resolve(object);
         let dict = match &resolved {
             Object::Dictionary(dict) => dict.clone(),
@@ -109,10 +185,12 @@ impl Function {
             }
         };
 
-        let domain = pairs(document, &dict, "Domain").ok_or_else(|| FunctionError::Malformed {
-            detail: "no /Domain".to_owned(),
+        let domain = pairs(document, &dict, "Domain", MAX_VALUES).ok_or_else(|| {
+            FunctionError::Malformed {
+                detail: "no /Domain".to_owned(),
+            }
         })?;
-        let range = pairs(document, &dict, "Range");
+        let range = pairs(document, &dict, "Range", MAX_VALUES);
 
         let kind = document
             .get_key(&dict, "FunctionType")
@@ -130,7 +208,7 @@ impl Function {
                 range.as_deref(),
             )?)),
             2 => Self::parse_exponential(document, &dict)?,
-            3 => Self::parse_stitching(document, &dict, &domain)?,
+            3 => Self::parse_stitching(document, &dict, &domain, budget)?,
             4 => Self::parse_postscript(document, &resolved)?,
             other => return Err(FunctionError::UnsupportedType { kind: other }),
         };
@@ -151,13 +229,17 @@ impl Function {
     ///
     /// See [`FunctionError`].
     pub fn parse_group(document: &Document, object: &Object) -> Result<Vec<Self>, FunctionError> {
+        // One budget for the whole group rather than one per element: the array's own length
+        // is somebody else's number, so a group of a million one-output functions would be
+        // as unbounded as a stitching function naming a million.
+        let mut budget = Budget::new();
         let resolved = document.resolve(object);
         match &resolved {
             Object::Array(items) => items
                 .iter()
-                .map(|item| Self::parse(document, item))
+                .map(|item| Self::parse_within(document, item, &mut budget))
                 .collect(),
-            _ => Ok(vec![Self::parse(document, &resolved)?]),
+            _ => Ok(vec![Self::parse_within(document, &resolved, &mut budget)?]),
         }
     }
 
@@ -181,12 +263,6 @@ impl Function {
     /// is all §7.10.4 defines.
     #[must_use]
     pub fn breakpoints(&self) -> Vec<f32> {
-        /// How deep a chain of stitching functions is followed.
-        ///
-        /// `parse` already bounds the nesting it will build; this is the walk's own guard so
-        /// that the two cannot disagree.
-        const MAX_DEPTH: usize = 8;
-
         fn walk(function: &Function, depth: usize, out: &mut Vec<f32>) {
             let Kind::Stitching {
                 functions,
@@ -196,7 +272,9 @@ impl Function {
             else {
                 return;
             };
-            if depth > MAX_DEPTH {
+            // [`MAX_STITCH_DEPTH`] is the same constant `parse_within` builds to, so the walk
+            // cannot stop short of a chain the parser was willing to construct.
+            if depth > MAX_STITCH_DEPTH {
                 return;
             }
             let (domain_low, domain_high) = function.domain.first().copied().unwrap_or((0.0, 1.0));
@@ -332,8 +410,8 @@ impl Function {
     }
 
     fn parse_exponential(document: &Document, dict: &Dictionary) -> Result<Kind, FunctionError> {
-        let c0 = numbers(document, dict, "C0").unwrap_or_else(|| vec![0.0]);
-        let c1 = numbers(document, dict, "C1").unwrap_or_else(|| vec![1.0]);
+        let c0 = numbers(document, dict, "C0", MAX_VALUES).unwrap_or_else(|| vec![0.0]);
+        let c1 = numbers(document, dict, "C1", MAX_VALUES).unwrap_or_else(|| vec![1.0]);
         if c0.len() != c1.len() || c0.is_empty() || c0.len() > MAX_VALUES {
             return Err(FunctionError::Malformed {
                 detail: format!("/C0 has {} values and /C1 has {}", c0.len(), c1.len()),
@@ -347,23 +425,35 @@ impl Function {
         document: &Document,
         dict: &Dictionary,
         domain: &[(f32, f32)],
+        budget: &mut Budget,
     ) -> Result<Kind, FunctionError> {
+        if budget.depth >= MAX_STITCH_DEPTH {
+            return Err(FunctionError::Malformed {
+                detail: format!("stitching functions nested deeper than {MAX_STITCH_DEPTH}"),
+            });
+        }
         let array = document.get_key(dict, "Functions");
         let items = array.as_array().ok_or_else(|| FunctionError::Malformed {
             detail: "no /Functions".to_owned(),
         })?;
-        if items.len() > MAX_VALUES {
+        if items.len() > budget.remaining {
             return Err(FunctionError::Malformed {
                 detail: format!("{} stitched functions", items.len()),
             });
         }
+        budget.depth = budget.depth.saturating_add(1);
         let functions = items
             .iter()
-            .map(|item| Self::parse(document, item))
-            .collect::<Result<Vec<_>, _>>()?;
+            .map(|item| Self::parse_within(document, item, budget))
+            .collect::<Result<Vec<_>, _>>();
+        budget.depth = budget.depth.saturating_sub(1);
+        let functions = functions?;
 
-        let bounds = numbers(document, dict, "Bounds").unwrap_or_default();
-        let encode = pairs(document, dict, "Encode").unwrap_or_else(|| {
+        // §7.10.4's `/Bounds` holds k − 1 numbers and its `/Encode` 2 × k, so both scale with
+        // the number of subfunctions rather than with a component count — which is why
+        // [`MAX_FUNCTIONS`] is what bounds them here and [`MAX_VALUES`] bounds `/Domain`.
+        let bounds = numbers(document, dict, "Bounds", MAX_FUNCTIONS).unwrap_or_default();
+        let encode = pairs(document, dict, "Encode", MAX_FUNCTIONS).unwrap_or_else(|| {
             // The specification requires /Encode, but a missing one is far better treated
             // as the identity than as a reason to drop the whole shading.
             vec![(0.0, 1.0); functions.len()]
@@ -420,7 +510,7 @@ impl Function {
                     detail: "sample data did not decode".to_owned(),
                 })?;
 
-        let size: Vec<usize> = numbers(document, dict, "Size")
+        let size: Vec<usize> = numbers(document, dict, "Size", MAX_VALUES)
             .ok_or_else(|| FunctionError::Malformed {
                 detail: "no /Size".to_owned(),
             })?
@@ -473,7 +563,7 @@ impl Function {
         }
 
         // `/Decode` maps raw sample values onto output values; its default is `/Range`.
-        let decode = pairs(document, dict, "Decode").unwrap_or_else(|| range.to_vec());
+        let decode = pairs(document, dict, "Decode", MAX_VALUES).unwrap_or_else(|| range.to_vec());
         let max = if bits >= 32 {
             f64::from(u32::MAX)
         } else {
@@ -495,7 +585,7 @@ impl Function {
             samples.push(low + normalised * (high - low));
         }
 
-        let encode = pairs(document, dict, "Encode").unwrap_or_else(|| {
+        let encode = pairs(document, dict, "Encode", MAX_VALUES).unwrap_or_else(|| {
             size.iter()
                 .map(|n| {
                     #[expect(
@@ -629,11 +719,17 @@ impl<'a> BitReader<'a> {
     }
 }
 
-/// Reads an array of numbers.
-fn numbers(document: &Document, dict: &Dictionary, key: &str) -> Option<Vec<f32>> {
+/// Reads an array of at most `most` numbers, or `None` where it holds more.
+///
+/// **The bound is the caller's**, because the arrays here are counted in two different
+/// units: `/Domain`, `/Range`, `/C0`, `/C1` and `/Size` scale with a function's
+/// dimensionality, which [`MAX_VALUES`] bounds, while §7.10.4's `/Bounds` and `/Encode`
+/// scale with its k, which [`MAX_FUNCTIONS`] does. One constant serving both is how four
+/// shadings in a real document came to be refused, so the unit is named at every call site.
+fn numbers(document: &Document, dict: &Dictionary, key: &str, most: usize) -> Option<Vec<f32>> {
     let array = document.get_key(dict, key);
     let items = array.as_array()?;
-    if items.len() > MAX_VALUES.saturating_mul(4) {
+    if items.len() > most {
         return None;
     }
     Some(
@@ -644,9 +740,14 @@ fn numbers(document: &Document, dict: &Dictionary, key: &str) -> Option<Vec<f32>
     )
 }
 
-/// Reads an array of numbers as consecutive low/high pairs.
-fn pairs(document: &Document, dict: &Dictionary, key: &str) -> Option<Vec<(f32, f32)>> {
-    let values = numbers(document, dict, key)?;
+/// Reads an array of at most `most` consecutive low/high pairs.
+fn pairs(
+    document: &Document,
+    dict: &Dictionary,
+    key: &str,
+    most: usize,
+) -> Option<Vec<(f32, f32)>> {
+    let values = numbers(document, dict, key, most.saturating_mul(2))?;
     if values.is_empty() || values.len() % 2 != 0 {
         return None;
     }

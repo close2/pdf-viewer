@@ -937,8 +937,8 @@ clause = "7.10.4"
 title = "Type 3 (stitching) functions"
 status = "implemented"
 code = ["crates/pdf-model/src/function.rs"]
-test = ["crates/pdf-model/src/function.rs::a_nested_stitching_functions_steps_map_to_the_outer_domain", "crates/pdf-model/tests/shadings.rs"]
-note = "Type 3, stitching: `/Functions`, `/Bounds` and `/Encode`, a one-input function assembled from a row of others. The subclause's own edge — a subdomain of zero width, where two bounds coincide — is what a naive implementation divides by."
+test = ["crates/pdf-model/src/function.rs::a_nested_stitching_functions_steps_map_to_the_outer_domain", "crates/pdf-model/tests/shadings.rs", "crates/pdf-model/tests/hostile_functions.rs"]
+note = "Type 3, stitching: `/Functions`, `/Bounds` and `/Encode`, a one-input function assembled from a row of others. The subclause's own edge — a subdomain of zero width, where two bounds coincide — is what a naive implementation divides by. **Table 41 bounds k nowhere** and the only value it singles out is the small one, \"The value of k may be 1\"; until the four-hundred-and-twenty-fifth session this tree bounded k by a constant documented as bounding a function's *dimensionality*, which the same subclause fixes at one here — \"Domain shall be of size 2 (that is, 𝑚  =  1 )\". A 256-stop gradient is k = 255, and one SafeDocs document lost four shadings to it. The bound is now a budget over the whole tree one root builds, and a `/Functions` array naming its own object — which nothing in the standard forbids — is refused by depth rather than followed until the stack is gone."
 
 [[clause]]
 clause = "7.10.5"

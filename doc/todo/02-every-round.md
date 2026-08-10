@@ -19,7 +19,7 @@ features no file exercises.
 ```sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets      # must be silent of lints
-cargo nextest run --workspace               # 1544 tests, 11 skipped
+cargo nextest run --workspace               # 1550 tests, 11 skipped
 cargo test --workspace --doc                # the one doctest nextest does not run
 cargo build --profile gates -p pdf-sandbox --bins   # trap 10: Cargo will not do this for you
 cargo test  --profile gates -p pdf-model      --test corpus          -- --ignored --nocapture
@@ -47,8 +47,8 @@ here:
 - **`cargo nextest` is a user-local install** — `cargo install cargo-nextest --locked`, or the
   prebuilt from `https://get.nexte.st/latest/linux` into `~/.cargo/bin`. Without it,
   `cargo test --workspace` is exactly the same gate at three times the wall clock, and that is
-  what CI runs. `nextest` skips doctests, which is why the line after it is there: 1525 + 1 = the
-  **1526** `cargo test --workspace` reports. (This line said 1314 until the
+  what CI runs. `nextest` skips doctests, which is why the line after it is there: 1550 + 1 = the
+  **1551** `cargo test --workspace` reports. (This line said 1314 until the
   three-hundred-and-eighty-eighth, which counted the tree with `nextest list` before and after its
   own seven and found the number two behind — the count is the gate's and not this file's. It said
   **1398** until the four-hundred-and-second, which added six tests to a gate that printed 1410:
@@ -99,7 +99,10 @@ here:
   was written down.) **The four-hundred-and-twenty-fourth added two** — both in `pdf-syntax`'s
 `document` module, for a document eight threads read at once (with a compile-time assertion that
 `Document: Send + Sync` beside it) and for a recursion guard that is per thread rather than per
-document — **and the gate printed 1544**, so this line was not behind for the sixth.
+document — **and the gate printed 1544**, so this line was not behind for the sixth. **The
+four-hundred-and-twenty-fifth added six** — a whole `pdf-model/tests/hostile_functions.rs` for
+§7.10.4's k and its nesting, one of them this project's first crasher — **and the gate printed
+1550**, so this line was not behind for the seventh.
 - **One of those eighteen runs a C compiler**, and it is the only gate in this sequence that does.
   `viewer-ffi::a_c_program_drives_the_abi` builds `crates/viewer-ffi/c/open_a_page.c` against the
   crate's own header with `-Wall -Wextra -Werror`, links it against the `cdylib` — which it asks
