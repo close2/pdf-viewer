@@ -94,6 +94,79 @@ while the median page is dominated by a per-frame floor that does not. Quote the
 the median and say which. The window is not measured here and this gate is deliberately not the
 place to: a presented frame pays no readback.
 
+## What a soft mask cost, and what naming one constant took off it
+
+**Instrument: `crates/pdf-model/examples/open_one`**, which opens, interprets and rasterises one
+document in a process that can be killed, with per-stage timings — plus scratch counters through
+`render-cpu` for the round that took the measurement (ADR 0271, not committed).
+
+**Where the two slowest documents of a 65 944-document sample of the web spend their time.** Both
+complete; neither reports anything; neither is slow to *parse*:
+
+| | `Document::open` | page one | `interpret` | rasterise | total |
+|---|---|---|---|---|---|
+| `0423548.pdf` (1843 × 5103) | 6.8 ms | 7.8 ms | 2.10 s | **23.3 s** | 25.4 s |
+| `6081357.pdf` (2552 × 1693) | 3.8 ms | 4.5 ms | 0.27 s | **52.3 s** | 52.6 s |
+
+**And inside the raster, in one line.** `build_soft_mask` drew each mask group into a buffer the
+size of the *target* and converted all of it — `Pixmap::take_demultiplied` allocating a second
+target-sized buffer and dividing by the alpha per pixel, then `SoftMask::values` deriving §11.5.3's
+luminosity in floating point per pixel:
+
+| | distinct soft masks | builds | the value pass | pixels | of which wholly transparent |
+|---|---|---|---|---|---|
+| `0423548.pdf` | 89 | 456 | **22.4 s of 25.4** | 1 686 997 422 | 1 662 342 098 — **98.54%** |
+| `6081357.pdf` | **912** | 895 | **51.0 s of 52.6** | 3 866 879 720 | 3 865 478 534 — **99.96%** |
+
+A 4.3-million-pixel page with 912 distinct masks does 912 times the page's own work, and 99.96% of
+it derives the same constant: a mask group covers its `/BBox` and the rest of the buffer is the
+transparency it was allocated as, for which §11.6.5.1's answer is one number. `SoftMask::outside()`
+is that number, computed once. **The two arms of the branch call the same function, so this is
+exact rather than approximate** — and no page of the oracle's 1794 or quorra's 957 moved.
+
+**What it is worth**, three samples each, `[profile.release]`, machine otherwise idle:
+
+| document | before | after | |
+|---|---|---|---|
+| `0423548.pdf` | 25.70 / 25.78 / 25.80 s | **6.61 / 6.70 / 7.26 s** | 3.7× |
+| `6081357.pdf` | 53.61 / 53.75 / 53.78 s | **3.72 / 3.92 / 4.02 s** | **13.6×** |
+
+Spreads of 0.10 and 0.17 s before, 0.65 and 0.30 s after; both differences are two orders of
+magnitude larger than either.
+
+**And the survey's `slow` count is not how to state that**, which three passes over all 145
+archives established: before **2**, after **0**, and a third pass on an idle machine **1** — a
+different document, `1284722.pdf`, which takes **11.13 / 11.14 / 11.23 s alone** and crossed the
+30 s budget only because the survey rasterises 24 documents at once. A per-document wall-clock
+budget measured under a 24-way parallel load is a property of the machine as much as of the file.
+Every other line of the survey is identical before and after: 65 944 documents, 1138 incomplete,
+173 unopenable, 52 pageless, 45 locked, 23 encrypted, budget refusals 48 / 31 / 4 / 1.
+
+**What is left on those two pages, and it is not this.** `0423548.pdf`'s remaining 6.6 s is 2.1 s of
+interpretation and **2.85 s of `initial_backdrop`**, which copies the whole *surface* into a fresh
+buffer for each of its 136 groups, 132 of them non-isolated — **4.3 GB** of buffer allocated and
+copied where the groups' own bands are **82 MB**, a factor of 52. (The surface is a strip rather
+than the whole page here, because the page is drawn in strips; the 4.3 GB is the counter's own
+sum rather than 136 × the page.)
+`6081357.pdf` allocates 31.6 GB of target-sized group buffers for 487 MB of band. The buffer is
+target-sized on purpose (one coordinate system rather than two that have to agree), and taking it
+to the group's own band is `doc/todo/40`'s item, now with a second reason to want it.
+
+**What the four resource bounds cost, over the same 65 944 documents** (ADR 0271, and
+`doc/todo/49` has the reasoning). Every one of the 83 documents they refuse was opened with its
+bound lifted, one process apiece:
+
+| bound | documents | with the bound lifted |
+|---|---|---|
+| `MAX_TILES` 4096 | 48 | all terminate, 0.06–14.2 s, wanting 4104–895 500 tiles |
+| `MAX_OPERATIONS` 4 M | 31 | all terminate, wanting 4.1–53.6 M operators, 0.27–49.9 s |
+| `MAX_FORM_DEPTH` 16 | 4 | **all four are cycles**: lifted to 256, all four reach 256 |
+| `MAX_STATE_DEPTH` 256 | 1 | wants 337, draws in 0.05 s |
+
+and one number that is a property of the loop rather than of any document: with `MAX_TILES` lifted,
+**1 000 000 empty tiles interpret in 889 ms reporting nothing** — 0.89 µs apiece, and `/XStep 0.001`
+over a 600-unit fill states 3.6 × 10¹¹ of them, about four days. None of the four bounds moved.
+
 ## What a document-wide search costs, and what a bound on memory bought
 
 **The instrument is `viewer-core/examples/find_cost`**, which drives `Command::Find`'s pump with no

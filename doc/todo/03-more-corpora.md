@@ -166,7 +166,14 @@ Four things to take away:
   `MAX_STATE_DEPTH` 1 — against 0.2% of 4000 and 0.105% of 1896, so the rate is stable at three
   sizes, and **none of the 84 is one of the two slow documents**. That is session 430's finding
   confirmed with ten times the evidence: the bound stops the work *inside* the per-document budget.
-  `doc/todo/49` keeps the constants where they are.
+  `doc/todo/49` keeps the constants where they are. **All 83 were opened in the
+  four-hundred-and-thirty-fifth** (ADR 0271) — 84 refusals over 83 documents, because `7680183.pdf`
+  reports two — with each bound lifted in a scratch build, one process apiece. None of the four
+  moved, and the reason differs for each: `MAX_FORM_DEPTH`'s four documents are **all cycles**,
+  `MAX_TILES` is the only bound on a loop an *empty* cell makes invisible to `MAX_OPERATIONS`
+  (1 000 000 empty tiles in 889 ms reporting nothing), `MAX_OPERATIONS`' 31 all terminate wanting
+  4.1–53.6 M operators, and `MAX_STATE_DEPTH`'s single witness wants 337 where §C.2's Table C.1
+  prints 28 as the depth a writer could rely on.
 - **Two documents are slow, which this population had never produced, and both are *complete*.**
   `0423548.pdf` (archive `0423`, 9 933 485 bytes, SHA-256
   `0db5152253cc8483dad26ae0c27cba5e54c88e6a941603ca17b27b8a4d487c85`) at **32.9 s** and
@@ -175,8 +182,23 @@ Four things to take away:
   again on their own rather than under 24 threads. They report nothing; they simply take that long
   to draw page one — and this population had never produced a "slow" at all: sessions 425 and 430
   both printed 0, over 1896 and 4000 documents.
-  **Undiagnosed, and it is the next thing this file owes**: a profile of one of the two says whether
-  it is one construct or the size of the file.
+  ~~**Undiagnosed, and it is the next thing this file owes**: a profile of one of the two says whether
+  it is one construct or the size of the file.~~ **Diagnosed in the four-hundred-and-thirty-fifth,
+  and it is one construct** (ADR 0271). Neither is slow to parse — `Document::open` is 6.8 ms and
+  3.8 ms — and both spend the time in `render-cpu`'s `build_soft_mask`, which drew every mask group
+  into a buffer the size of the *target* and then demultiplied and derived a luminosity for all of
+  it. `6081357.pdf` states **912 distinct soft masks** on a 4.3-million-pixel page, so it ran that
+  pass over 3.87 **billion** pixels of which **99.96% were wholly transparent** — the case
+  §11.6.5.1 answers with one constant. Naming that constant took the two to **6.6–7.3 s** and
+  **3.7–4.0 s**, three samples each, with no page of the oracle's 1794 or quorra's 957 moving.
+  **The survey's own `slow` count is not the way to say so, and three passes are why**: before 2,
+  after 0, and a third pass on an idle machine 1 — a *third* document, `1284722.pdf`, which takes
+  **11.13 / 11.14 / 11.23 s alone** and crosses the 30 s budget only under the survey's 24-way
+  load. Every other line of the survey is identical. `1284722.pdf` is 11.1 s of `interpret` for
+  94 596 commands and is the next candidate this population offers. What is still owed on those pages is the *band*:
+  `0423548.pdf`'s remaining seconds are 2.1 of interpretation and 2.85 of `initial_backdrop`,
+  which allocates and copies a whole surface per group — **4.3 GB** across its 136 groups where
+  their bands are **82 MB**. `doc/todo/40`.
 - **Nothing failed to open for a reason that is this tree's, for the third sample running.** 163 of
   the 225 unusable documents have no `%PDF-` header in their first kilobyte, 52 have no first page
   and 5 have an unusable cross-reference table — and all five of those were opened by hand: three

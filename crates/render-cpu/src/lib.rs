@@ -897,7 +897,41 @@ impl CpuRasterizer {
         // Straight alpha, which is what `SoftMask::value` is defined over and what the GPU
         // backend reads back; `tiny-skia` stores premultiplied, so the conversion happens
         // here at the same boundary as every other one in this backend.
-        let values = mask.values(&buffer.take_demultiplied());
+        //
+        // **Per pixel rather than through `Pixmap::take_demultiplied`, and only for a pixel
+        // the group marked.** The buffer covers the whole target while a mask group covers
+        // its own `/BBox`, so most of it is the transparency it was allocated as — and both
+        // halves of the old line ran over all of it: `take_demultiplied` divides three
+        // channels by the alpha, and `SoftMask::values` derives a luminosity in floating
+        // point. For the transparent pixel both answers are constants: the division gives
+        // back the zero it started from, and the derivation gives [`SoftMask::outside`].
+        //
+        // This is exact, not an approximation — the branch's two arms call the same function
+        // on the same pixel — and it is worth stating what it buys, because `CLAUDE.md`
+        // requires an optimisation to carry its number: the two slowest documents of a
+        // 65 944-document sample of the web spend 22.4 s of 25.4 and 51.0 s of 52.6 on this
+        // one line, over rasters that are 98.5% and 99.96% transparent. ADR 0271.
+        //
+        // What it does *not* do is stop the buffer being target-sized; that is `doc/todo/40`.
+        let outside = mask.outside();
+        let values: Vec<u8> = buffer
+            .pixels()
+            .iter()
+            .map(|pixel| {
+                if pixel.alpha() == 0 && pixel.red() == 0 && pixel.green() == 0 && pixel.blue() == 0
+                {
+                    outside
+                } else {
+                    let straight = pixel.demultiply();
+                    mask.value([
+                        straight.red(),
+                        straight.green(),
+                        straight.blue(),
+                        straight.alpha(),
+                    ])
+                }
+            })
+            .collect();
         let built = tiny_skia::Mask::from_vec(
             values,
             tiny_skia::IntSize::from_wh(surface.width(), surface.rows.height).ok_or(
@@ -2767,6 +2801,123 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    /// `build_soft_mask`'s two arms give the same answer for every pixel a buffer can hold.
+    ///
+    /// The function reads a premultiplied buffer and takes [`pdf_render::SoftMask::outside`]
+    /// for the wholly transparent pixel instead of demultiplying it and deriving a value. That
+    /// is only sound if `tiny-skia`'s own `demultiply` sends `[0, 0, 0, 0]` to `[0, 0, 0, 0]`
+    /// — it divides by the alpha, so the answer is a `NaN` that Rust's saturating cast lands on
+    /// zero, which is a fact about the dependency and about the cast rather than about this
+    /// tree. Asserted rather than reasoned about, over every alpha and both mask kinds, because
+    /// what rests on it is 51 s of a 52.6 s page. ADR 0271.
+    #[test]
+    fn the_transparent_pixels_shortcut_is_the_derivation() {
+        use pdf_render::{Color, SoftMask, SoftMaskKind};
+
+        let transparent = tiny_skia::PremultipliedColorU8::from_rgba(0, 0, 0, 0)
+            .expect("all-zero is a valid premultiplied pixel");
+        let straight = transparent.demultiply();
+        assert_eq!(
+            [
+                straight.red(),
+                straight.green(),
+                straight.blue(),
+                straight.alpha()
+            ],
+            [0, 0, 0, 0],
+            "demultiplying transparency must give transparency, or the shortcut changes pixels"
+        );
+
+        for kind in [
+            SoftMaskKind::Alpha,
+            SoftMaskKind::Luminosity {
+                backdrop: Color::rgb(0.0, 0.0, 0.0),
+            },
+            SoftMaskKind::Luminosity {
+                backdrop: Color::rgb(1.0, 0.5, 0.0),
+            },
+        ] {
+            let mask = SoftMask {
+                commands: Vec::new(),
+                kind,
+                transfer: None,
+            };
+            assert_eq!(
+                mask.outside(),
+                mask.value([
+                    straight.red(),
+                    straight.green(),
+                    straight.blue(),
+                    straight.alpha()
+                ])
+            );
+        }
+    }
+
+    /// Every premultiplied pixel a buffer can hold reaches the same value either way.
+    ///
+    /// The test above pins the transparent pixel, which is the one the shortcut *replaces*;
+    /// this one walks the other arm over a spread of alphas and colours to say that nothing
+    /// else moved when `Pixmap::take_demultiplied` stopped being the route. ADR 0271.
+    #[test]
+    fn the_per_pixel_route_agrees_with_the_whole_buffers() {
+        use pdf_render::{Color, SoftMask, SoftMaskKind};
+
+        let mut buffer = tiny_skia::Pixmap::new(16, 16).expect("a 16x16 pixmap");
+        for (index, pixel) in buffer.pixels_mut().iter_mut().enumerate() {
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "index is bounded by 16*16 = 256, so every cast below is exact"
+            )]
+            let alpha = index as u8;
+            // Premultiplied, so no channel may exceed the alpha; `from_rgba` refuses one that
+            // does, which is what keeps this fixture a buffer the backend could have produced.
+            *pixel =
+                tiny_skia::PremultipliedColorU8::from_rgba(alpha / 2, alpha / 3, alpha / 4, alpha)
+                    .expect("no channel exceeds the alpha");
+        }
+
+        for kind in [
+            SoftMaskKind::Alpha,
+            SoftMaskKind::Luminosity {
+                backdrop: Color::rgb(0.2, 0.7, 0.9),
+            },
+        ] {
+            let mask = SoftMask {
+                commands: Vec::new(),
+                kind,
+                transfer: None,
+            };
+            let outside = mask.outside();
+            let per_pixel: Vec<u8> = buffer
+                .pixels()
+                .iter()
+                .map(|pixel| {
+                    if pixel.alpha() == 0
+                        && pixel.red() == 0
+                        && pixel.green() == 0
+                        && pixel.blue() == 0
+                    {
+                        outside
+                    } else {
+                        let straight = pixel.demultiply();
+                        mask.value([
+                            straight.red(),
+                            straight.green(),
+                            straight.blue(),
+                            straight.alpha(),
+                        ])
+                    }
+                })
+                .collect();
+            let whole_buffer = mask.values(&buffer.clone().take_demultiplied());
+            assert_eq!(
+                per_pixel, whole_buffer,
+                "the per-pixel conversion and `take_demultiplied` must agree pixel for pixel"
+            );
         }
     }
 }

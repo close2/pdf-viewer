@@ -19,7 +19,7 @@ features no file exercises.
 ```sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets      # must be silent of lints
-cargo nextest run --workspace               # 1584 tests, 11 skipped
+cargo nextest run --workspace               # 1594 tests, 11 skipped
 cargo test --workspace --doc                # the one doctest nextest does not run
 cargo build --profile gates -p pdf-sandbox --bins   # trap 10: Cargo will not do this for you
 cargo test  --profile gates -p pdf-model      --test corpus          -- --ignored --nocapture
@@ -120,7 +120,14 @@ added four and the gate printed 1572; the four-hundred-and-thirty-third added ei
 printed 1580**, so this line was not behind; the four-hundred-and-thirty-fourth added **four** —
 two in `silent_fonts.rs` for the two halves of the branch that counts a missing glyph and two in
 `pdf-font` for what a wider substitute must satisfy and for the range a dictionary declines to
-state — **and the gate printed 1584**, so this line was not behind for the second round running.
+state — **and the gate printed 1584**, so this line was not behind for the second round running. The
+four-hundred-and-thirty-fifth added **ten** — two in `pdf-render`'s `soft_mask` for the value a mask
+takes outside its group's marks, two in `render-cpu` for the premultiplied route that replaced
+`Pixmap::take_demultiplied`, and six in a new `pdf-model/tests/hostile_budgets.rs` for the four
+interpreter bounds — **and the gate printed 1594**, so this line was not behind for the third. **That
+round wrote 1588 into three files first and had to correct all three**, because it copied the number
+from a run taken *before* its own last six tests existed: the precondition the four-hundred-and-eighteenth
+recorded is not "a round that ran the gate" but a round that ran it **last**, after the final edit.
 - **One of those eighteen runs a C compiler**, and it is the only gate in this sequence that does.
   `viewer-ffi::a_c_program_drives_the_abi` builds `crates/viewer-ffi/c/open_a_page.c` against the
   crate's own header with `-Wall -Wextra -Werror`, links it against the `cdylib` — which it asks

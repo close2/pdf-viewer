@@ -3,8 +3,38 @@
 Status: **priced, and unblocked** — the measurement the file was waiting for was taken in the
 three-hundred-and-ninety-ninth session (ADR 0236), and it moved every number here.
 Priority: 40
-Corpus: 1 document (the worst page in the corpus, by a wide margin)
-Code: `crates/render-cpu/src/lib.rs`, `MaskCache::build`
+Corpus: 1 document (the worst page in the corpus, by a wide margin) — **and two web documents
+since the four-hundred-and-thirty-fifth**, which want the *same* crop for a different buffer
+Code: `crates/render-cpu/src/lib.rs`, `MaskCache::build`, `CpuRasterizer::build_soft_mask`,
+`initial_backdrop`
+
+## A second buffer that is target-sized, and two documents that pay for it
+
+**Added in the four-hundred-and-thirty-fifth** (ADR 0271). A clip mask is built over its own
+band — `MaskCache::build` computes the chain's device bounds and `Band::covering` narrows to
+them — and **a soft mask and a transparency group's buffer are not**: both are allocated at
+`surface.width() × surface.rows.height` on the stated ground that clips are resolved against the
+surface, so one coordinate system beats two that have to agree. That is a real argument and it
+is why this is an item rather than a defect. What it costs, on the two slowest documents of
+65 944 crawled ones:
+
+| | page | groups | buffer allocated | band actually used |
+|---|---|---|---|---|
+| `0423548.pdf` | 1843 × 5103 | 136 (132 non-isolated) | **4.3 GB** | 82 MB — **52×** |
+| `6081357.pdf` | 2552 × 1693 | 1831 (1 non-isolated) | **31.6 GB** | 487 MB — **65×** |
+
+The *arithmetic* over those buffers is gone — `SoftMask::outside` took `6081357.pdf` from 52.6 s
+to 3.9 s without touching the allocation — so what is left is the copying and the clearing:
+`initial_backdrop` is **2.85 s of `0423548.pdf`'s remaining 6.6**, one whole-surface `Source`
+draw per non-isolated group.
+
+**The soft mask's band is not the clip's band, and that is the part to settle first.** A clip
+outside its band admits nothing, so a band-sized mask and "zero elsewhere" are the same thing. A
+soft mask outside its group's marks takes `SoftMask::outside`, which is zero for `/Alpha` and for
+a black `/BC` and is **255 for a white one** — so a band means "constant outside" rather than
+"nothing outside", and `Built` would have to carry the constant beside the band. That is a
+change to what a `MaskCache` entry *is*, which is why it is here and not in ADR 0271.
+
 
 `bug1721218_reduced.pdf` is the corpus's worst page: 144.05 G instructions → 54.05 G when a ramp
 stopped carrying 256 stops for a linear function (ADR 0068) → 43.13 G when the built shading was

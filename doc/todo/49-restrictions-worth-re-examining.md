@@ -85,12 +85,26 @@ places: `MASK_BUDGET` (32 MB), the confined worker's address-space ceiling (4 Gi
   deadline). These are what stand between a decompression bomb and the machine. A "trusted
   document" flag that lifted them is *plausible* but should be argued as a whole, not per constant.
   **What they cost is measured, over 65 944 crawled documents** (ADR 0269): 48 reach `MAX_TILES`,
-  31 `MAX_OPERATIONS`, 4 `MAX_FORM_DEPTH` and 1 `MAX_STATE_DEPTH` — **84, or 0.127% of the web**,
-  against 0.2% of session 430's 4000 and 0.105% of session 425's 1896, so the rate is stable at
-  three sample sizes. **Not one of the 84 is one of the two documents that are slow**, which is
-  the shape of the answer: the bound stops the work inside the per-document budget rather than
-  after it. What is still owed is one of the 84 read with the bound lifted in a scratch build, to
-  find out whether the constant costs a mark or stops a bomb.
+  31 `MAX_OPERATIONS`, 4 `MAX_FORM_DEPTH` and 1 `MAX_STATE_DEPTH` — **84 refusals over 83
+  documents, 0.127% of the web** (the count of *documents* was written as 84 until the
+  four-hundred-and-thirty-fifth session; `7680183.pdf` reports two of them), against 0.2% of
+  session 430's 4000 and 0.105% of session 425's 1896, so the rate is stable at three sample sizes.
+  ~~What is still owed is one of the 84 read with the bound lifted in a scratch build, to
+  find out whether the constant costs a mark or stops a bomb.~~ **Done for all 83 in the
+  four-hundred-and-thirty-fifth** (ADR 0271), one process apiece with the bound lifted, and the
+  answer is different for each of the four:
+
+  | bound | the population, lifted | why it stays |
+  |---|---|---|
+  | `MAX_FORM_DEPTH` 16 | **all four documents are cycles** — lifted to 256, all four reach 256 | the attack it exists for. Unbounded recursion exhausts the *stack*, which the confined worker's 4 GiB ceiling does not see and which Rust turns into an abort rather than a report |
+  | `MAX_TILES` 4096 | all 48 terminate, 0.06–14.2 s, wanting 4104–895 500 tiles; **14 of 48 want under twice the bound** | 1 000 000 *empty* tiles interpret in 889 ms **reporting nothing** — an empty cell executes no operator, so `MAX_OPERATIONS` never sees it and this is the only bound on the loop |
+  | `MAX_OPERATIONS` 4 M | all 31 terminate, wanting 4.1–53.6 M operators, 0.27–49.9 s; the worst peaks at 1.57 GB for 495 marks | **a count is not a cost** — one `sh` paints the page — so no larger number bounds the time either. The cancel does, at 0.83–1.97 ms |
+  | `MAX_STATE_DEPTH` 256 | one document, wanting **337** | ISO 32000-2 §C.2's Table C.1 prints **28** as the depth a writer could rely on. 256 is nine times the standard's own figure and the document wants twelve times it |
+
+  **And the two documents that are slow are still not among them**, which was true before this
+  reading and is the shape of the answer: the bound stops the work inside the per-document budget
+  rather than after it. Both slow documents were diagnosed in the same session and neither was a
+  budget at all — see the new item below.
 - **`Document` immutable and `interpret` a pure function of (document, view state).** This looks
   like a restriction and is actually the foundation of the test strategy: the oracle's 1794-page
   comparison means something only because interpretation is reproducible. A **cache beside** it
@@ -147,6 +161,30 @@ places: `MASK_BUDGET` (32 MB), the confined worker's address-space ceiling (4 Gi
    quadratic**, its visited set a `Vec<Dictionary>` searched linearly and compared whole: keyed by
    `ObjectId` it is **16.8 s → 151 ms**. `pdf-model/tests/structure.rs` holds the count and the flag,
    which is the assertion that did not exist to be made.
+
+## What the census left open: two bounds count the wrong quantity
+
+**Raised by ADR 0271 and not taken there**, because neither is a constant to move — each is a
+change to *what* is bounded, and both need the argument before the code.
+
+- **`MAX_TILES` bounds a count where it means to bound work.** `7680183.pdf` wants 42 282 tiles
+  and takes 14.2 s; `2760154.pdf` wants 765 440 and takes 8.7. So the number that decides admits
+  the expensive document and refuses the cheap one, and raising it would move an arbitrary line
+  rather than a wrong one. What the bound is really for is the *loop* — an empty cell at 0.89 µs
+  a tile is four days at the trip count a file may state — so the shape wanted is a budget over
+  cells replayed *and* operators executed, checked as the loop runs, with the same refusal by
+  name at the end. The empty-cell measurement is the one that says the count cannot simply be
+  dropped in favour of `MAX_OPERATIONS`.
+- **`MAX_OPERATIONS` has the same defect one layer up**, and its population says so: 30 of the 31
+  documents it stops are legitimate drawings wanting 4.1–53.6 M operators, and the thirty-first
+  produces 495 marks from 53.6 M. A count cannot tell them apart because one operator's cost is
+  unbounded. The honest instrument is a *deadline*, which this tree already has in the confined
+  worker (ADR 0241, a kill at 0.83–1.97 ms) — so the question is whether `interpret` should carry
+  one of its own for the unconfined path, and what a host that is not the viewer does with it.
+
+Neither is a defect today: both bounds refuse loudly and both refuse 0.127% of the web. This is
+here so that a round which wants to admit `MAX_TILES`' 48 knows the price is a new mechanism
+rather than a bigger number.
 
 **Worth a flag, and the tree already has the idiom** (`--no-sandbox`, `--cpu`, `--backend`,
 `--ignore-restrictions`, `--trace=<topics>`):

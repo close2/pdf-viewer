@@ -35,7 +35,26 @@ use crate::page::Page;
 /// Deepest nesting of `q`/`Q` that will be tracked.
 ///
 /// Legitimate content nests a few levels. A stream with thousands of unmatched `q`
-/// operators is either broken or hostile, and each level costs a saved state.
+/// operators is either broken or hostile, and each level costs a saved state — the whole
+/// `GraphicsState`, including `Stroke::dash_array`, which a content stream can make large.
+///
+/// **ISO 32000-2 §C.2's Table C.1 is the only place the standard prints a figure for this**,
+/// and it is the reason 256 rather than an argument about what looks generous. The *Nested
+/// objects* row anticipates the bound —
+///
+/// > However PDF processors may implement recursive algorithms which may cause issues for
+/// > excessively nested constructs.
+///
+/// — and its NOTE says how deep a writer could rely on:
+///
+/// > In previous versions of PDF, a maximum depth of graphics state nesting by q and Q
+/// > operators was 28.
+///
+/// Annex C is informative, so neither sentence binds; what they settle is that 256 is nine
+/// times the standard's own figure. **One document of the 65 944 crawled ones surveyed in the
+/// four-hundred-and-thirty-third session reaches this bound and it wants 337** — twelve times
+/// that figure — which is why the four-hundred-and-thirty-fifth left the number alone rather
+/// than moving it to admit one file. ADR 0271, `tests/hostile_budgets.rs`.
 const MAX_STATE_DEPTH: usize = 256;
 
 /// Most operators executed for one page.
@@ -43,6 +62,14 @@ const MAX_STATE_DEPTH: usize = 256;
 /// A content stream is a program, and this bounds how long it may run. Without it a
 /// compressed stream of a few kilobytes can expand into tens of millions of operations —
 /// a decompression bomb aimed at the renderer rather than at memory.
+///
+/// **It is a bound on slowness rather than on exhaustion, and the four-hundred-and-thirty-fifth
+/// session opened the documents that reach it to find that out.** All 31 of 65 944 that do
+/// *terminate* when it is lifted a hundredfold — they want 4.1 to 53.6 million operators and
+/// take 0.27 s to 49.9 s, and they are maps, plans and charts rather than bombs. The bound
+/// stays for the reason a raised one would not help: **a count is not a cost.** One `sh` can
+/// paint the whole page, so no number here bounds the time, and what actually bounds it is the
+/// confined worker's cancel — a kill, at 0.83–1.97 ms (ADR 0241). ADR 0271.
 const MAX_OPERATIONS: usize = 4_000_000;
 
 /// Most operands one operator may take before the rest are refused.
@@ -58,6 +85,16 @@ const MAX_OPERANDS: usize = 8192;
 ///
 /// A form may draw another form, and a form that draws itself is a cycle. The
 /// specification forbids it; files do it anyway.
+///
+/// **Every document on the web that reaches this bound is such a cycle**, which the
+/// four-hundred-and-thirty-fifth session established by lifting it sixteenfold to 256 in a
+/// scratch build and running the four of 65 944 that reported it: all four reached 256 as
+/// well. So this is the one of the four bounds whose population is entirely the attack it
+/// exists for, and it is also the one nothing else could catch — unbounded recursion exhausts
+/// the *stack*, which the confined worker's address-space ceiling does not see and which Rust
+/// turns into an abort rather than into a report. ISO 32000-2 §C.2's Table C.1 lists
+/// `XObject`s beside `q`/`Q` in its *Nested objects* row and leaves the depth to the
+/// processor. ADR 0271.
 const MAX_FORM_DEPTH: usize = 16;
 
 /// Deepest nesting of soft-mask groups.
@@ -6542,6 +6579,22 @@ impl Interpreter<'_> {
         /// A small cell over a large area is an enormous number of tiles, and the content
         /// stream inside each one is unbounded. This is the bound that keeps a pattern
         /// from becoming a decompression bomb with extra steps.
+        ///
+        /// **And it is the only bound on this loop, which the four-hundred-and-thirty-fifth
+        /// session measured rather than assumed.** A cell's content runs through this same
+        /// interpreter, so its operators count against [`MAX_OPERATIONS`] — but an *empty*
+        /// cell executes no operator, and the trip count is then whatever `/XStep` and
+        /// `/YStep` say. With this lifted to 4 194 304, a pattern whose cell is empty ran
+        /// 1 000 000 tiles in **889 ms reporting nothing**: 0.89 µs a tile, and a `/XStep` of
+        /// 0.001 over a 600-unit fill states 3.6 × 10¹¹ of them, which is four days.
+        ///
+        /// The 48 documents of 65 944 that reach it all *terminate* when it is lifted —
+        /// 0.06 s to 14.2 s, wanting 4104 to 895 500 tiles — so the population is legitimate
+        /// hatching rather than an attack, and 14 of the 48 want fewer than twice the bound.
+        /// It is left at 4096 because **the count is the wrong quantity and a larger count is
+        /// no safer**: `7680183.pdf` wants 42 282 tiles and takes 14.2 s while `2760154.pdf`
+        /// wants 765 440 and takes 8.7. A bound on the *work* is what this should become, and
+        /// `doc/todo/49` carries it. ADR 0271, `tests/hostile_budgets.rs`.
         const MAX_TILES: usize = 4096;
 
         // The pattern is anchored to the page, so the question "which cells does this path

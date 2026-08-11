@@ -220,6 +220,27 @@ impl SoftMask {
             .map_or(derived, |transfer| transfer.apply(derived))
     }
 
+    /// The mask value everywhere the group's marks did not reach (§11.6.5.1).
+    ///
+    /// A mask group is drawn onto a *transparent* buffer, so a pixel its `/BBox` does not
+    /// reach — or that it simply never marks — is `[0, 0, 0, 0]`, and [`Self::value`] of that
+    /// pixel is one number for the whole raster. It is what the clause asks for outside the
+    /// box: the transfer function applied to 0.0 for `/Alpha`, and the backdrop's luminosity
+    /// for `/Luminosity`.
+    ///
+    /// **Naming it is a performance decision and it is exact rather than approximate**: a
+    /// backend that recognises the transparent pixel computes this once instead of running the
+    /// derivation per pixel, and the two answers are the same by construction because they are
+    /// the same call. On the two slowest documents in a 65 944-document sample of the web,
+    /// 98.5% and 99.96% of every soft-mask raster is that one pixel — 3.87 billion of them on
+    /// a page holding 4.3 million — because a page with 912 distinct masks evaluates each over
+    /// the whole target. ADR 0271 has the measurement; `doc/todo/40` has the change that would
+    /// stop the buffer being target-sized in the first place, which this does not do.
+    #[must_use]
+    pub fn outside(&self) -> u8 {
+        self.value([0, 0, 0, 0])
+    }
+
     /// Converts a rendered raster of the mask group into one mask value per pixel.
     ///
     /// `pixels` is straight-alpha RGBA8 — [`crate::Raster`]'s documented format, which is
@@ -239,9 +260,16 @@ impl SoftMask {
     /// used it now state the same thing through `value([0, 0, 0, 0])`.
     #[must_use]
     pub fn values(&self, pixels: &[u8]) -> Vec<u8> {
+        let outside = self.outside();
         pixels
             .chunks_exact(4)
-            .map(|pixel| self.value([pixel[0], pixel[1], pixel[2], pixel[3]]))
+            .map(|pixel| {
+                if pixel == [0, 0, 0, 0] {
+                    outside
+                } else {
+                    self.value([pixel[0], pixel[1], pixel[2], pixel[3]])
+                }
+            })
             .collect()
     }
 }
@@ -364,5 +392,61 @@ mod tests {
         let mask = mask(SoftMaskKind::Alpha, None);
         let pixels = [0, 0, 0, 10, 0, 0, 0, 200];
         assert_eq!(mask.values(&pixels), vec![10, 200]);
+    }
+
+    /// [`SoftMask::outside`] is [`SoftMask::value`] of the transparent pixel and nothing else.
+    ///
+    /// The whole warrant for the shortcut in [`SoftMask::values`] and in `render-cpu`'s
+    /// `build_soft_mask` is that the two are the same call, so it is asserted over every kind
+    /// of mask this type has rather than left to be read off the one-line body. ADR 0271.
+    #[test]
+    fn the_outside_value_is_the_transparent_pixels_own() {
+        let mut inverting = [0_u8; 256];
+        for (index, entry) in inverting.iter_mut().enumerate() {
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "255 - index is in 0..=255 for an index of a 256-entry table"
+            )]
+            {
+                *entry = (255 - index) as u8;
+            }
+        }
+        for kind in [
+            SoftMaskKind::Alpha,
+            SoftMaskKind::Luminosity {
+                backdrop: Color::rgb(0.0, 0.0, 0.0),
+            },
+            // §11.6.5.1's `/BC` need not be black, and a non-zero backdrop is the case where
+            // the constant is *not* the zero a clip band would stand for.
+            SoftMaskKind::Luminosity {
+                backdrop: Color::rgb(1.0, 1.0, 1.0),
+            },
+        ] {
+            for transfer in [None, Some(Transfer::from_samples(inverting))] {
+                let mask = mask(kind, transfer);
+                assert_eq!(mask.outside(), mask.value([0, 0, 0, 0]));
+                assert_eq!(
+                    mask.values(&[0, 0, 0, 0, 0, 0, 0, 0]),
+                    vec![mask.value([0, 0, 0, 0]); 2],
+                    "the shortcut may not answer differently from the derivation"
+                );
+            }
+        }
+    }
+
+    /// A `/Luminosity` mask on a white backdrop leaves the unmarked page *unmasked*.
+    ///
+    /// The case that makes [`SoftMask::outside`] worth naming rather than assuming zero:
+    /// §11.5.3's derivation of an all-white backdrop is 255, so "outside the group's marks"
+    /// is not "masked out" and a backend may not treat the two as the same thing.
+    #[test]
+    fn a_white_backdrop_makes_the_outside_opaque() {
+        let mask = mask(
+            SoftMaskKind::Luminosity {
+                backdrop: Color::rgb(1.0, 1.0, 1.0),
+            },
+            None,
+        );
+        assert_eq!(mask.outside(), 255);
     }
 }
