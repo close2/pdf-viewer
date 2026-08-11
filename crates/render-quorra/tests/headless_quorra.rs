@@ -121,11 +121,12 @@ fn cpu_and_quorra_agree_on_knockout_groups() {
 /// Plus — so the backend says so and draws nothing, rather than drawing the page the
 /// coverage-modulated form would give.
 ///
-/// **The two operators exist since `89d7dd77` (quorra's ADR 0025), and this refusal is now
-/// about the translation rather than the vocabulary**: it is the two marks per `Shaped`
-/// command that are unwritten, and half the pair is worse than neither, because `Plus` alone
-/// saturates. `doc/todo/23` carries the work; `doc/QUORRA_FEEDBACK.md` section 14.1 is what
-/// came back.
+/// **The two operators exist since `89d7dd77` (quorra's ADR 0025) and neither can be asked
+/// for where this element occurs**, which the four-hundred-and-thirty-ninth session found by
+/// writing the translation rather than by reading about it —
+/// `quorra_will_not_take_the_pair_where_this_tree_would_hand_it_over` below is the position
+/// itself, stated in the scene vocabulary and refused. `doc/QUORRA_FEEDBACK.md` section 14.2
+/// is the ask that follows.
 ///
 /// This is a *test of the refusal*, not of a defect: it fails if the refusal ever becomes
 /// silent.
@@ -135,11 +136,77 @@ fn quorra_refuses_a_knockout_element_that_states_its_shape() {
     let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("target fits the budget");
     let refusal = quorra()
         .rasterize(&list, target)
-        .expect_err("the two marks §11.4.6's second stage needs are not written here yet")
+        .expect_err("the two marks §11.4.6's second stage needs cannot be asked for")
         .to_string();
     assert!(
         refusal.contains("§11.4.6") && refusal.contains("shape"),
         "the refusal names the clause and what it needs: {refusal}"
+    );
+}
+
+/// The scene vocabulary refuses §11.4.6's pair in the one position this tree would emit it
+/// from — which is what the refusal above is *about*, held here rather than described.
+///
+/// `quorra_scene::Compose::DestOut` and `Plus` arrived at `89d7dd77` with two positions
+/// refused, `BlendNotNormal` and `InsideKnockoutGroup`, recorded on both sides of the
+/// boundary as positions this tree does not emit. The second is the only position it emits
+/// them from: `pdf_render::Command::Shaped` "appears only as a direct element of a
+/// [`Command::Group`] whose `knockout` is set", because outside one §11.4.4's formulas reach
+/// the shape only through shape × opacity and the object may be drawn alone. So the mark that
+/// would carry `DestOut` is by construction inside a knockout group.
+///
+/// This asserts the refusal directly against the builder, with no display list in the way, so
+/// that it is a statement about the vocabulary rather than about this backend. **It fails
+/// when quorra lifts the restriction** — which is the notification the next round wants, and
+/// the reason it is a test rather than a paragraph.
+///
+/// The second half of the obstacle cannot be a test at all and is recorded here instead:
+/// `SceneBuilder::group`, `stroke` and `image` take no `Compose`, and three of the four corpus
+/// pages behind this refusal state a `Shaped` whose two halves are groups. That one is a
+/// missing parameter, so a round that tried it would not compile.
+#[test]
+fn quorra_will_not_take_the_pair_where_this_tree_would_hand_it_over() {
+    let mut builder = quorra_scene::SceneBuilder::new();
+    let spec = quorra_scene::GroupSpec {
+        alpha: 1.0,
+        blend: quorra_scene::BlendMode::Normal,
+        clip: None,
+        knockout: true,
+        mask: None,
+        isolated: true,
+    };
+    let mut staged = Ok(());
+    builder
+        .group(spec, |body| {
+            // The shape half of a `Command::Shaped`: the object with every source of opacity
+            // removed, so the alpha it is drawn with is §11.6.4.2's shape. The outline id is
+            // never resolved — the builder refuses before a device would see it.
+            staged = body.fill(
+                quorra_scene::OutlineId(0),
+                quorra_scene::Affine::IDENTITY,
+                quorra_scene::FillRule::NonZero,
+                quorra_scene::Paint::Solid(quorra_scene::Color::new(1.0, 1.0, 1.0, 1.0)),
+                None,
+                quorra_scene::BlendMode::Normal,
+                quorra_scene::Compose::DestOut,
+                None,
+            );
+            Ok(())
+        })
+        .expect("the knockout group itself is accepted");
+
+    let refusal = staged.expect_err(
+        "Destination-Out inside a knockout group is what §11.4.6's first stage needs here",
+    );
+    assert!(
+        matches!(
+            refusal,
+            quorra_scene::SceneError::StagedComposeUnsupported {
+                compose: quorra_scene::Compose::DestOut,
+                ..
+            }
+        ),
+        "the vocabulary names what it will not take and where: {refusal:?}"
     );
 }
 
@@ -257,6 +324,66 @@ fn a_non_isolated_group_composited_with(blend: pdf_render::BlendMode) -> pdf_ren
         knockout: false,
     });
     list
+}
+
+/// §11.4.7's page in a four-component blending colour space, drawn — two rasters of one page
+/// against one device.
+///
+/// > All page-level compositing shall be done in the default blending colour space of the
+/// > page, and the entire result shall then, if the colour spaces are not equivalent, be
+/// > converted to the native colour space of the output device before being composited with
+/// > the context-dependent backdrop.
+///
+/// §11.3.4 applies the compositing formula per component, so four components are three plus
+/// one and the page is drawn twice with a different three loaded. This test read
+/// `quorra_refuses_a_page_in_a_four_component_blending_space` until the
+/// four-hundred-and-thirty-ninth session: `doc/QUORRA_FEEDBACK.md` section 17 asked whether
+/// two `Target::Readback` renders against one device were possible, the answer at `89d7dd77`
+/// was that they always had been, and this backend now makes them.
+///
+/// # The pixels, not the tolerance
+///
+/// A tolerance says the two backends agree; it does not say they agree with the clause, and
+/// two backends could agree by both drawing the chromatic half alone. So two pixels are
+/// asserted, and [`test_scenes::four_component_page`] says what each is for:
+///
+/// - **half of registration black over paper** is ½ of each of the four inks per component,
+///   which the cube interpolates to (76, 66, 64) — against the (128, 128, 128) that averaging
+///   the two *converted* colours gives, 51 of 255 away;
+/// - **the black component alone** is white in the chromatic raster, so (35, 31, 32) is only
+///   reachable if the second render happened.
+///
+/// `render-cpu`'s `four_component_page.rs` derives both from the clause; this asserts the
+/// same two on the graphics device.
+#[test]
+fn cpu_and_quorra_agree_on_a_four_component_page() {
+    let list = test_scenes::four_component_page();
+    assert_within_tolerance("four-component page", compare("four-component page", &list));
+
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("target fits the budget");
+    let ours = quorra()
+        .rasterize(&list, target)
+        .expect("quorra draws a page whose blending space has four components");
+    let at = |x: u32, y: u32| {
+        let index = ((y * ours.width + x) * 4) as usize;
+        let p = &ours.data[index..index + 4];
+        [p[0], p[1], p[2], p[3]]
+    };
+    let close = |got: [u8; 4], want: [u8; 4]| {
+        got.iter()
+            .zip(want)
+            .all(|(&g, w)| i32::from(g).abs_diff(i32::from(w)) <= 1)
+    };
+    let composited = at(190, 242);
+    assert!(
+        close(composited, [76, 66, 64, 255]),
+        "half registration black over paper composites in ink: {composited:?}"
+    );
+    let black = at(430, 242);
+    assert!(
+        close(black, [35, 31, 32, 255]),
+        "the fourth component was drawn: {black:?}"
+    );
 }
 
 #[test]

@@ -264,6 +264,33 @@ fn the_gpu_refuses_a_non_isolated_group() {
         .expect("the correctness oracle draws what the device refuses");
 }
 
+/// §11.4.7's four-component page is refused **by name** on this backend.
+///
+/// §11.3.4 applies the compositing formula per component, so a page whose blending colour
+/// space has four of them is two rasters over one geometry — and a Vello scene renders one,
+/// with no place in this backend to hold the second. Drawing the chromatic list alone would
+/// paint the page in the complements of cyan, magenta and yellow with no black in it at all,
+/// which is a plausible wrong picture rather than an obvious one, so the frame goes to the
+/// CPU backend instead. `render-quorra` draws it since the four-hundred-and-thirty-ninth
+/// session, on two `Target::Readback` renders against one device; this fails if the refusal
+/// here ever becomes silent.
+#[test]
+fn the_gpu_refuses_a_four_component_page() {
+    let list = test_scenes::four_component_page();
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+    let refusal = gpu()
+        .rasterize(&list, target)
+        .expect_err("a Vello scene renders one raster and this page is two")
+        .to_string();
+    assert!(
+        refusal.contains("§11.4.7") && refusal.contains("four-component"),
+        "the refusal names the clause and what it needs: {refusal}"
+    );
+    CpuRasterizer::new()
+        .rasterize(&list, target)
+        .expect("the correctness oracle draws what the device refuses");
+}
+
 /// Every one of §11.3.5's sixteen blend modes is the same function on both backends, to
 /// the channel.
 ///

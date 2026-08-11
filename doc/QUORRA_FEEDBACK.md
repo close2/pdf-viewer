@@ -37,6 +37,17 @@ whether two rasters of one page were possible and the answer is that they alread
 holds it now, and the refusal that remains is on this side's display list (§17.1). **Three sections
 answered in one release, and what each still owes is ours.**
 
+**And the four-hundred-and-thirty-ninth session did the two halves that were ours, with opposite
+results.** §17's was work and it is done: `render-quorra` renders the two lists as two
+`Target::Readback` frames against one device, three corpus pages left the refused list, and §17 is
+**closed** (§17.2). §14's was written out and **cannot be asked for** — `SceneBuilder::fill`
+refuses a staged operator inside a knockout group, which is the one position
+`pdf_render::Command::Shaped` occurs in, and `SceneBuilder::group` carries no compositing operator
+at all while three of the four pages state a `Shaped` whose halves are *groups*. §14.1 recorded
+both positions as things this side does not emit, on this side's own reading, and it was wrong
+about the first and silent about the second. **§14.2 is the ask that follows**, and it is a
+correction of ours before it is a request of yours.
+
 **§13's instrument arrived in the same release and its other half was decided.** `encode`
 subdivides behind `Options::instrument_encode` into geometry, staging and recording; `"target
 acquire"` and `"present"` are named phases; and `Timings::host_total()` returns the three spans on
@@ -62,12 +73,15 @@ frame allocates ~12 ms that every frame after it reuses, and it is provably not 
 
 **Where it stands, at the page's own scale:**
 
-| | first run | at `2531f447` | now, at `89d7dd77` |
-|---|---|---|---|
-| agree | 900 | 911 | **914** |
-| differ | 50 | 35 — 23 of them the antialiasing floor (§4) | **35**, page for page the same list |
-| refused | 7 | 11 | **8** |
-| median page | 2.64× the CPU backend | 2.05× to 2.33×, run to run | **2.46×** |
+| | first run | at `2531f447` | at `89d7dd77`, session 438 | now, session 439 |
+|---|---|---|---|---|
+| agree | 900 | 911 | 914 | **917** |
+| differ | 50 | 35 — 23 of them the antialiasing floor (§4) | 35 | **35**, page for page the same list |
+| refused | 7 | 11 | 8 | **5** |
+| median page | 2.64× the CPU backend | 2.05× to 2.33×, run to run | 2.46× | **2.37× and 2.35×**, two runs |
+
+The fourth column is one revision of yours and one session of ours: the pin did not move, and the
+three pages are §17.2's.
 
 **The middle column is what this table used to call "now", and reading it beside the first is how
 this document has been wrong.** It said `914 / 42 / 1` for the whole stretch in which sections 14,
@@ -78,9 +92,9 @@ three-hundred-and-eighty-fourth session corrected a stale `913 / 43`, and the
 four-hundred-and-thirty-eighth corrected a stale `914 / 42 / 1`. **The columns are dated now, which
 is the fix for the shape rather than for the instance.**
 
-Eight refusals, by what they are: four are §14's stated shapes, three are §17's four-component
-blending space, and one is `bug1721218_reduced.pdf`'s coverage, which is §15's page and a texture
-capacity rather than a hole in the vocabulary.
+Five refusals, by what they are: four are §14's stated shapes, and one is
+`bug1721218_reduced.pdf`'s coverage, which is §15's page and a texture capacity rather than a hole
+in the vocabulary. §17's three are gone.
 
 The median is a *timing* and moves between runs on one revision — 2.05× and 2.33× were two runs of
 the same gate — so it is a band rather than a figure that moved. quorra's ADR 0022 predicts it
@@ -1058,7 +1072,7 @@ either would do:
 returns is what makes `execute` reportable at all, and this side depends on that: it is the reason
 our trace can say a frame's cost without introducing a fence of its own.
 
-## 14. §11.4.6's shape is not always the coverage, and `Compose` has no way to say so — **answered at `89d7dd77`; the operators exist and this side has not taken them up yet**
+## 14. §11.4.6's shape is not always the coverage, and `Compose` has no way to say so — **the operators arrived at `89d7dd77` and cannot be asked for where this side emits them; §14.2 is the second ask**
 
 Written 2026-08-08, at the end of this viewer's three-hundred-and-ninety-seventh session. **The ask
 below was granted exactly** — `Compose::DestOut` and `Compose::Plus`, quorra's ADR 0025 — and what
@@ -1159,11 +1173,79 @@ two numbers are the same fact.
 
 **What is still open, and it is ours.** `render-quorra` still refuses `Command::Shaped` by name, so
 `knockout_smask.pdf`, `knockout_nested.pdf`, `knockout_nested_group_alpha.pdf` and
-`knockout_inner_backdrop.pdf` are four of the eight names on the corpus gate's refused list. Taking
+`knockout_inner_backdrop.pdf` are four of the names on the corpus gate's refused list. Taking
 them off is two marks per `Shaped` command, and it is `doc/todo/23`'s work rather than a request
 from anybody. **The section stays here rather than being deleted**, because the derivation above is
 what the two implementations checked against each other and it is the reason the operators have the
 weighting they do.
+
+### 14.2 The two marks were written out, and neither can be asked for
+
+Written 2026-08-11 at the end of this viewer's four-hundred-and-thirty-ninth session, which set
+out to write the translation §14.1 called this side's work and found it is not writable at
+`89d7dd77`. **The paragraph above that says "[n]either is anything this side emits" is wrong about
+one of the two positions and silent about a second obstacle**, and both halves of that were this
+side's to check before writing it down.
+
+**The first: the only position this tree emits the pair from is the one the builder refuses.**
+`pdf_render::Command::Shaped` carries its own guarantee, and it is the narrow one on purpose:
+
+> This command appears only as a direct element of a [`Self::Group`] whose `knockout` is set.
+> Outside one the shape is unused — §11.4.4's non-knockout formulas reach it only through
+> `shape × opacity` — so a backend may draw `object` alone there.
+
+That is not an accident of this tree's interpreter; it is §11.4.6 being the only clause that uses
+shape and opacity apart. So the mark carrying `Compose::DestOut` is *by construction* inside a
+knockout group, and `SceneBuilder::check_staged_compose` returns
+`StagedComposeUnsupported { compose: DestOut, reason: InsideKnockoutGroup }`. Run rather than read:
+`render-quorra/tests/headless_quorra.rs::quorra_will_not_take_the_pair_where_this_tree_would_hand_it_over`
+is that call and that error, and it is a test so that it fails the day you lift the restriction.
+
+We understand why the restriction exists — a mark inside a knockout group is already
+erased-and-deposited per element, so `DestOut` there is two erases with different weights and the
+library cannot know a caller meant to replace the pair rather than add to it. **What a `Shaped`
+element wants is exactly that replacement**: erase by the *shape*, then add the object, in place of
+the group's own erase-by-coverage for this one element.
+
+**The second obstacle is a missing parameter rather than a refusal, and it is the larger one.**
+`SceneBuilder::group`, `stroke` and `image` take no `Compose` at all — only `fill` does. Three of
+the four corpus pages behind this refusal, and this tree's own fixture, state a `Shaped` whose two
+halves are **groups**, because §11.6.4.2 makes a nested group's shape the union of its elements':
+
+| document | the object | the shape |
+|---|---|---|
+| `knockout_smask.pdf` | a fill under a soft mask | the same fill, opaque |
+| `knockout_nested.pdf` | a knockout group of one half-opaque fill | a group of one opaque fill |
+| `knockout_nested_group_alpha.pdf` | a group at alpha ½ | the same group at alpha 1 |
+| `knockout_inner_backdrop.pdf` | a group of two `Multiply` fills | a group of two opaque fills |
+
+So even with the first lifted, only `knockout_smask.pdf` becomes expressible.
+
+**What is asked for, smallest first.** Either would be enough on its own to take one page; both are
+needed for all four:
+
+1. **Accept `DestOut` and `Plus` inside a knockout group** — the position §11.4.6 puts them in.
+   The saturation obligation §14.1 records is unchanged and still ours; what a caller is asking for
+   is "this element's erase is by the weight I hand you rather than by the coverage of what I
+   draw".
+2. **A compositing operator on a group mark**, so a whole group can be the source of one staged
+   stage. `GroupSpec` is where a `compose` would sit beside `blend`, and the two stages are then
+   the same group encoded twice, once shape-only under `DestOut` and once as itself under `Plus`.
+
+The alternative §14 offered originally — **a per-element shape channel beside the paint** — would
+answer both at once and is worth reconsidering now rather than then: it needs no operator on a
+group, because a group already accumulates its elements' shapes, and it removes the saturation
+obligation entirely because one mark then carries both quantities. This side has no preference
+between the two designs and would take either; what it can now say that it could not in §14 is
+that the two-operator form does **not** cover the population, and the population is knockout
+groups whose elements are groups, which is what real Illustrator and InDesign artwork produces.
+
+**Nothing here is a defect.** The operators do what their documentation says, and the two refused
+positions are documented on the builder. What went wrong is on this side: §14 derived the pair from
+a fixture whose two halves were groups and then asked for an operator only `fill` could carry, and
+§14.1 asserted a property of this tree's display lists — "[n]either is anything this side emits" —
+without building one. `doc/todo/23` carries the four pages, and the refusal message in
+`render-quorra` now names both obstacles instead of claiming the work is unwritten here.
 
 ## 15. A gradient the scene will paint across a page, to keep a few dozen pixels of it — **open, and it is this side's finding rather than a defect of yours**
 
@@ -1330,7 +1412,7 @@ composited in a four-component blending colour space (§11.4.7)"* — the §11.4
 standing in front of section 17's, and this page was never section 16's alone. Both sides
 predicted it and neither had to guess, because the refusals name their clause.
 
-## 17. Four components need two rasters, and one `Scene` renders one — **answered at `89d7dd77`: it was already true, and a test now holds it**
+## 17. Four components need two rasters, and one `Scene` renders one — **closed**: answered at `89d7dd77` (it was already true), taken up here in session 439
 
 ISO 32000-2 §11.4.7 puts a colour space under the whole page:
 
@@ -1404,3 +1486,37 @@ what it now owes is not a request but work: two `Rasterizer::rasterize` calls ag
 `QuorraRasterizer` and `pdf_render::blending`'s recombination, which the CPU backend already does.
 `doc/todo/23` carries it, and it is the first item this file has handed back to itself rather than
 outward.
+
+### 17.2 What this side did — session 439, and the section closes
+
+`QuorraRasterizer::rasterize` renders `list` and, where `list.blending()` is `Some`, renders
+`list.black()` against the same device before `pdf_render::blending::resolve` puts the two together
+— premultiplied, ahead of the medium, which is where §11.4.7 puts the conversion. The device, the
+resource caches and the per-frame releases are the same on both passes because both go through one
+private `render`, so nothing about drawing a list can depend on which of the two it is.
+
+Everything §17.1 promised held:
+
+- both rasters came back whole, one `Raster` per call;
+- the second pass needed no special handling of any kind — no reset, no re-upload, no warm-up;
+- the three corpus pages this was worth **agree with the CPU oracle**: `personwithdog.pdf` at
+  0.0288 mean and page inks 20.3953 against 20.3659, `bug1365930.pdf` at 0.0093 and 0.8637 against
+  0.8634, `issue12798_page1_reduced.pdf` at 0.0760 and 16.9057 against 16.9117. The gate's refused
+  list falls from eight names to five.
+
+Two numbers this side owes back, because §17 asked for a cost and got one:
+
+- the corpus gate's whole-run rasterisation time through quorra went **8.09 s → 8.51 s** over 957
+  pages, which is three pages drawn twice out of 952 drawn once, plus the recombination pass;
+- the median page ratio came back **2.37×** and **2.35×** on two runs against 2.46×, which is
+  inside the run-to-run band this document already records for that figure and says nothing
+  either way.
+
+A fixture rather than only a corpus: `test_scenes::four_component_page` is a page of four ink marks
+whose expected pixels come from the clause — half of registration black over paper is ½ of each of
+four components, which the ink cube interpolates to (76, 66, 64) against the (128, 128, 128) that
+averaging two *converted* colours gives, and a mark of black ink alone is white in the chromatic
+raster and (35, 31, 32) only if the second pass happened. Both backends draw it to within a level.
+
+**The section is closed.** It asked one question, the answer was yes, and the work it named is
+done.

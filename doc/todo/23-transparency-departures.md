@@ -13,6 +13,11 @@ condition the web has (ADR 0272). **The four-hundred-and-thirty-eighth took the 
 backend rows off this file** (ADR 0274): `render-quorra` draws §11.4.4's non-isolated group, and
 the two rows still on it — §11.4.6's stated shape and §11.4.7's two rasters — stopped being
 requests to somebody else and became work here, because quorra answered both asks at `89d7dd77`.
+**The four-hundred-and-thirty-ninth did one of the two and found the other is still not writable**
+(ADR 0275): §11.4.7's two rasters are drawn through quorra and three corpus pages left the refused
+list, while §11.4.6's two marks cannot be *asked for* at `89d7dd77` — the operators exist and the
+one position this tree emits them from is one of the two the builder refuses. That row stays, with
+its reason corrected and an ask written (`doc/QUORRA_FEEDBACK.md` section 14.2).
 Priority: 23
 Corpus: 6 documents
 Clauses: §11.3.5.3, §11.4.4, §11.6.6, §11.7.5.3, §8.6.5.5, §8.6.5.6, §8.6.5.7, §11.7.2, §14.11.5
@@ -77,14 +82,16 @@ twice with a different three loaded. `Compositing::Subtractive(Half)` is which t
 carry §11.3.4's additive complements, so the blend functions see what that clause requires without
 anything being complemented around them; `pdf_render::BlendingSpace` carries the conversion out as
 the ink cube's sixteen corners and `blending::resolve` applies it where §11.4.7 does, before the
-medium. `render-gpu` and `render-quorra` refuse the list. **`QUORRA_FEEDBACK.md` §17 is answered**
-— two `Target::Readback` renders against one quorra device were always supported, share their
-uploaded resources and cost the second pass no geometry at all, and `89d7dd77` added the test that
-keeps it so. **So `render-quorra`'s refusal is now work rather than a request**: two
-`Rasterizer::rasterize` calls against one `QuorraRasterizer` and `pdf_render::blending`'s
-recombination, which `render-cpu` already does. Three corpus pages — `personwithdog.pdf`,
-`issue12798_page1_reduced.pdf` and `bug1365930.pdf` — and the 3.5% of the web §17 measured are what
-it is worth.
+medium. **`render-quorra` draws it since the four-hundred-and-thirty-ninth** and `render-gpu` still refuses
+the list. `QUORRA_FEEDBACK.md` §17 asked whether two `Target::Readback` renders against one quorra
+device were possible; they always were, they share their uploaded resources and cost the second
+pass no geometry at all, and `89d7dd77` added the test that keeps it so. So the work was here, and
+it is one private `render` used twice with `pdf_render::blending::resolve` between it and the
+medium — the construction `render-cpu` already had. The three corpus pages
+(`personwithdog.pdf`, `issue12798_page1_reduced.pdf`, `bug1365930.pdf`) agree with the CPU oracle
+at 0.0288, 0.0093 and 0.0760 mean, and the 3.5% of the web §17 measured is what it is worth on real
+files. `render-gpu`'s refusal has a test of its own now
+(`headless_gpu.rs::the_gpu_refuses_a_four_component_page`), which it did not before. ADR 0275.
 
 **ADR 0251's "second raster format" is therefore withdrawn as a requirement.** It was a true
 statement about arithmetic — the ink cube is affine on no face of the cube, 48 of 255 at worst —
@@ -228,17 +235,28 @@ Plus: source-over there is 32 of 255 out at a half-covered pixel under a half-op
    corpus documents state it true** (the ledger row said none did), and none of their knockout
    groups is drawn today. Honouring it means composing the mask and the constants into the shape
    instead of into the object, which is a second `stated_shape` rather than a new vocabulary.
-3. **`render-quorra` refuses a `Shaped` element outright, and the reason is now this side's.**
+3. **`render-quorra` refuses a `Shaped` element outright, and at `89d7dd77` it cannot do otherwise.**
    `doc/QUORRA_FEEDBACK.md` §14 asked for Destination-Out and Plus; **both arrived at `89d7dd77`**
    as `Compose::DestOut` and `Compose::Plus` (quorra's ADR 0025), weighted by shape rather than by
-   the paint's alpha, which is what a `Shaped` command's second member already carries. What is
-   unwritten is the translation in `scene.rs`: two marks per command, the first drawn with every
-   source of opacity removed. **It must be written as a pair or not at all** — `Plus` alone
+   the paint's alpha, which is what a `Shaped` command's second member already carries. **The
+   four-hundred-and-thirty-ninth session wrote the translation out and neither mark can be asked
+   for**, for two independent reasons:
+   - `SceneBuilder::fill` refuses a staged operator inside a knockout group
+     (`StagedComposeUnsupported { reason: InsideKnockoutGroup }`), and `Command::Shaped`'s own
+     documentation states that a knockout group is the only place it occurs — so the refused
+     position is the only position. §14.1 recorded that position as one this tree does not emit,
+     which was a claim about this tree's display lists made without building one.
+   - `SceneBuilder::group`, `stroke` and `image` carry no `Compose` at all, and three of the four
+     corpus pages state a `Shaped` whose two halves are **groups** (§11.6.4.2 makes a nested
+     group's shape the union of its elements'). Only `knockout_smask.pdf` is a fill-and-fill pair.
+
+   `doc/QUORRA_FEEDBACK.md` §14.2 asks for the two lifts and re-offers §14's own alternative, a
+   per-element shape channel, which would answer both at once.
+   `headless_quorra.rs::quorra_will_not_take_the_pair_where_this_tree_would_hand_it_over` holds the
+   first against the vocabulary, so this row moves when quorra moves rather than when somebody
+   re-reads a document. **It must still be written as a pair or not at all** — `Plus` alone
    saturates a premultiplied channel past its alpha, and the library states that as the caller's
-   obligation because one mark cannot tell it whether the other is coming. Four corpus pages
-   (`knockout_smask`, `knockout_nested`, `knockout_nested_group_alpha`, `knockout_inner_backdrop`)
-   and the two positions the builder refuses — a mark carrying a blend mode, a mark inside a
-   knockout group — are what a round doing this has to size.
+   obligation because one mark cannot tell it whether the other is coming.
 4. **`render-gpu`'s coverage path keeps its documented residue**: where the shape *is* the coverage
    it still draws the element with source-over after the Destination-Out, which weights the
    backdrop by `1 − f × opacity` a second time. Bounded and stated in `knock_out`'s own comment

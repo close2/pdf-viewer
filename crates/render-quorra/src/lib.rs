@@ -225,16 +225,65 @@ impl Rasterizer for QuorraRasterizer {
     }
 
     fn rasterize(&mut self, list: &DisplayList, target: TargetSpec) -> Result<Raster, Self::Error> {
-        // §11.4.7's page group in a four-component blending space is two rasters put back
-        // together (`pdf_render::blending`), and a `quorra_scene::Scene` renders one. Refused
-        // by name rather than drawn from the chromatic half alone, which would paint the page
-        // in the complements of cyan, magenta and yellow with no black in it at all.
-        // `doc/QUORRA_FEEDBACK.md` section 17.
-        if list.blending().is_some() {
-            return Err(QuorraRasterError::Unsupported(
-                "a page composited in a four-component blending colour space (§11.4.7)".to_owned(),
-            ));
+        let mut data = self.render(list, target)?;
+
+        // ISO 32000-2 §11.4.7 puts a colour space under the whole page — "[a]ll page-level
+        // compositing shall be done in the default blending colour space of the page, and the
+        // entire result shall then ... be converted to the native colour space of the output
+        // device before being composited with the context-dependent backdrop". Where that
+        // space has four components §11.3.4 makes the compositing formula per component, so
+        // the page arrives as *two* lists on the same geometry — the additive complements of
+        // cyan, magenta and yellow, and the complement of black — and this draws the second
+        // one against the same device before `pdf_render::blending` puts the pair back
+        // together. That the second render is whole, shares the first's uploaded resources
+        // and costs no geometry at all is `quorra-gpu/tests/two_rasters.rs`'s claim, and
+        // `doc/QUORRA_FEEDBACK.md` section 17.1 is where it was measured.
+        let four_components = list.blending().zip(list.black());
+        // Both passes are needed premultiplied: `blending::resolve` divides each channel by
+        // the pixel's own alpha to recover the ink, and `impose_on_medium` composites the
+        // medium in the space where that composite is exact. quorra hands back straight
+        // alpha, so the round trip is here — and only where something below needs it, because
+        // it is lossy at a partly transparent pixel.
+        if four_components.is_some() || self.background.a > 0.0 {
+            premultiply(&mut data);
+            if let Some((space, black)) = four_components {
+                let mut ink = self.render(black, target)?;
+                premultiply(&mut ink);
+                pdf_render::resolve_blending(&mut data, &ink, space);
+            }
+            // §11.4.7's page group is isolated, so the medium composites with the *result* —
+            // and after the conversion above, which is where the clause puts it.
+            if self.background.a > 0.0 {
+                pdf_render::impose_on_medium(&mut data, self.background);
+            }
+            demultiply(&mut data);
         }
+
+        Ok(Raster {
+            width: target.width,
+            height: target.height,
+            format: RasterFormat::Rgba8,
+            data,
+        })
+    }
+}
+
+impl QuorraRasterizer {
+    /// One display list through the device, as straight-alpha RGBA8 with no medium under it.
+    ///
+    /// Separate from [`Rasterizer::rasterize`] because §11.4.7's four-component page is two
+    /// lists over one page and both take exactly this path — the same device, the same
+    /// caches, the same per-frame releases — and nothing about drawing one of them may
+    /// depend on which of the two it is.
+    ///
+    /// # Errors
+    ///
+    /// As [`Rasterizer::rasterize`].
+    fn render(
+        &mut self,
+        list: &DisplayList,
+        target: TargetSpec,
+    ) -> Result<Vec<u8>, QuorraRasterError> {
         self.caches.begin_frame();
         let mut builder = quorra_scene::SceneBuilder::new();
         let mut transient: Vec<ResourceId> = Vec::new();
@@ -279,21 +328,7 @@ impl Rasterizer for QuorraRasterizer {
             return Err(error.into());
         }
 
-        // Transparent render, then the medium (§11.4.7: the page group is
-        // isolated, so the medium composites with the *result*) — premultiplied
-        // for the imposition, straight alpha for the Raster, as on every backend.
-        let mut data = frame.into_raster()?.into_pixels();
-        if self.background.a > 0.0 {
-            premultiply(&mut data);
-            pdf_render::impose_on_medium(&mut data, self.background);
-            demultiply(&mut data);
-        }
-        Ok(Raster {
-            width: target.width,
-            height: target.height,
-            format: RasterFormat::Rgba8,
-            data,
-        })
+        Ok(frame.into_raster()?.into_pixels())
     }
 }
 

@@ -437,6 +437,161 @@ pub fn non_isolated_group() -> DisplayList {
     list
 }
 
+/// The sixteen corners of the process-ink cube this tree assumes for `DeviceCMYK`, as sRGB.
+///
+/// The same table `pdf_model::colour`'s `CMYK_CORNERS` holds and for the same reason; it is
+/// copied here because `test-scenes` sits below `pdf-model` and this fixture needs a press
+/// without interpreting a document to get one. The index's bits select which side of each
+/// axis a corner sits on, `c` in the least significant and `k` in the most — which is the
+/// order [`pdf_render::BlendingSpace::new`] documents for its grid.
+#[rustfmt::skip]
+const PROCESS_INKS: [[u8; 3]; 16] = [
+    //  R    G    B      c m y k
+    [255, 255, 255], // 0 0 0 0  paper
+    [  0, 173, 239], // 1 0 0 0  process cyan
+    [236,   0, 140], // 0 1 0 0  process magenta
+    [ 46,  49, 146], // 1 1 0 0  blue
+    [255, 242,   0], // 0 0 1 0  process yellow
+    [  0, 166,  80], // 1 0 1 0  green
+    [237,  28,  36], // 0 1 1 0  red
+    [ 54,  54,  57], // 1 1 1 0  three-colour black
+    [ 35,  31,  32], // 0 0 0 1  process black
+    [  0,  15,  36], // 1 0 0 1
+    [ 36,   0,   0], // 0 1 0 1
+    [  0,   0,   2], // 1 1 0 1
+    [ 28,  26,   0], // 0 0 1 1
+    [  0,  19,   0], // 1 0 1 1
+    [ 34,   0,   0], // 0 1 1 1
+    [  0,   0,   0], // 1 1 1 1  registration
+];
+
+/// A page whose four marks are ink, composited in a four-component blending colour space
+/// (ISO 32000-2 §11.3.4, §11.4.7).
+///
+/// > All page-level compositing shall be done in the default blending colour space of the
+/// > page, and the entire result shall then, if the colour spaces are not equivalent, be
+/// > converted to the native colour space of the output device before being composited with
+/// > the context-dependent backdrop.
+///
+/// and §11.3.4 applies the compositing formula per component:
+///
+/// > The i th component of the result colour 𝐶𝑟 shall be obtained by applying the compositing
+/// > formula to the i th components of the constituent colours
+///
+/// So a rasteriser with three channels composites
+/// four by drawing the page **twice**: once carrying the additive complements of cyan,
+/// magenta and yellow, once carrying the complement of black, with identical geometry,
+/// shapes and opacities. [`pdf_render::blending`] puts the pair back together where the
+/// clause puts the conversion, before the medium.
+///
+/// # What each mark is for
+///
+/// Four marks, in page coordinates, and each answers a different question:
+///
+/// | mark | inks | what it catches |
+/// |---|---|---|
+/// | paper, the whole sheet | none | a backend that leaves the page transparent, where nothing composites at all |
+/// | half registration black, x 80–300, y 500–700 | all four at ½ | the clause itself: per component the pixel is ½ of each ink, and the cube's own average is **(76, 66, 64)**, not the (128, 128, 128) that averaging the two *converted* colours gives |
+/// | process black alone, x 340–520, y 500–700 | k = 1 | a backend that draws the chromatic list and drops the other: this mark is **white** in the chromatic raster and (35, 31, 32) only if the second one was drawn |
+/// | process cyan alone, x 80–300, y 180–380 | c = 1 | the chromatic half, which must survive the recombination unchanged at (0, 173, 239) |
+///
+/// The second row is the arithmetic the fixture exists for, and the third is what tells a
+/// backend that renders one raster from a backend that renders two.
+///
+/// # What each backend does with it
+///
+/// `render-cpu` draws it, and `render-quorra` since the four-hundred-and-thirty-ninth
+/// session: two `Target::Readback` renders against one device, which quorra's own
+/// `two_rasters.rs` holds (`doc/QUORRA_FEEDBACK.md` section 17.1). `render-gpu` refuses the
+/// list by name — a Vello scene renders one raster and the backend has no place to hold the
+/// second — and that refusal is tested against this scene so it cannot become silent.
+///
+/// # Panics
+///
+/// Cannot panic: [`pdf_render::BlendingSpace::new`] returns `None` only for a grid that is
+/// not `side⁴` samples with `side` at least two, and this one is 2⁴ = 16.
+#[must_use]
+#[expect(
+    clippy::expect_used,
+    reason = "sixteen samples is a grid of side two by construction; a Result here would \
+              push an impossible error case onto every caller"
+)]
+pub fn four_component_page() -> DisplayList {
+    /// One ink mark: its rectangle, its four ink components, and the alpha it paints at.
+    struct Mark {
+        rect: (f32, f32, f32, f32),
+        inks: [f32; 4],
+        alpha: f32,
+    }
+
+    let marks = [
+        Mark {
+            rect: (40.0, 100.0, 555.0, 750.0),
+            inks: [0.0, 0.0, 0.0, 0.0],
+            alpha: 1.0,
+        },
+        Mark {
+            rect: (80.0, 500.0, 300.0, 700.0),
+            inks: [1.0, 1.0, 1.0, 1.0],
+            alpha: 0.5,
+        },
+        Mark {
+            rect: (340.0, 500.0, 520.0, 700.0),
+            inks: [0.0, 0.0, 0.0, 1.0],
+            alpha: 1.0,
+        },
+        Mark {
+            rect: (80.0, 180.0, 300.0, 380.0),
+            inks: [1.0, 0.0, 0.0, 0.0],
+            alpha: 1.0,
+        },
+    ];
+
+    // Both halves carry §11.3.4's *additive complements*, so the compositing formula sees
+    // what that clause requires with nothing complemented around it: a component of 1 unit
+    // of ink is a channel of 0. The chromatic list carries cyan, magenta and yellow; the
+    // black list carries the fourth component in all three of its channels, of which
+    // `pdf_render::blending::resolve` reads the first.
+    let half = |chromatic: bool| {
+        let mut list = DisplayList::new(A4);
+        for mark in &marks {
+            let (x0, y0, x1, y1) = mark.rect;
+            let [cyan, magenta, yellow, black] = mark.inks;
+            let channels = if chromatic {
+                [1.0 - cyan, 1.0 - magenta, 1.0 - yellow]
+            } else {
+                [1.0 - black; 3]
+            };
+            list.push(Command::Fill {
+                path: Arc::new(rect(x0, y0, x1, y1)),
+                transform: Transform::IDENTITY,
+                fill_rule: FillRule::NonZero,
+                paint: Paint::Solid(Color {
+                    r: channels[0],
+                    g: channels[1],
+                    b: channels[2],
+                    a: mark.alpha,
+                }),
+                clip: None,
+                mask: None,
+                blend: BlendMode::Normal,
+            });
+        }
+        list
+    };
+
+    let grid: Arc<[[f32; 3]]> = PROCESS_INKS
+        .iter()
+        .map(|corner| corner.map(|channel| f32::from(channel) / 255.0))
+        .collect();
+    let space = pdf_render::BlendingSpace::new(2, grid)
+        .expect("sixteen samples is a grid of side two on four axes");
+
+    let mut chromatic = half(true);
+    chromatic.set_blending(space, half(false));
+    chromatic
+}
+
 /// All sixteen of §11.3.5's blend modes, each over the same backdrop.
 ///
 /// # Why this scene exists, and what it can catch that nothing else could

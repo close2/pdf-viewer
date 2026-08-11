@@ -112,9 +112,17 @@ const MIN_STRUCTURAL_SIMILARITY: f64 = 0.99;
 /// agreed with a CPU backend doing the same thing; now the display list says what the clause
 /// says and the backend says it cannot draw it. A refusal that replaces an agreement about a
 /// wrong picture is a gain, and it is `doc/QUORRA_FEEDBACK.md` section 14's entry: two Porter-Duff
-/// operators, Destination-Out and Plus. **Both arrived at `89d7dd77`** (quorra's ADR 0025), so
-/// these four are no longer waiting on anybody: what is unwritten is the translation here, two
-/// marks per `Shaped` command, and `doc/todo/23` carries it.
+/// operators, Destination-Out and Plus. **Both arrived at `89d7dd77`** (quorra's ADR 0025).
+///
+/// **The four-hundred-and-thirty-ninth session wrote that translation out and found it cannot
+/// be asked for**, which is why they are still here and why the reason each gives has changed
+/// again. `SceneBuilder::fill` refuses a staged operator inside a knockout group, and
+/// `Command::Shaped` occurs nowhere else; `SceneBuilder::group` takes no compositing operator
+/// at all, and three of these four state a `Shaped` whose two halves are *groups*. Section
+/// 14.2 is the ask that follows, and `headless_quorra.rs`'s
+/// `quorra_will_not_take_the_pair_where_this_tree_would_hand_it_over` holds the first half of
+/// it against the vocabulary directly, so this list moves when quorra moves rather than when
+/// somebody re-reads a document.
 ///
 /// **Four joined in the four-hundredth for §11.4.4's non-isolated group, and three of them left
 /// again in the four-hundred-and-thirty-eighth, which is the first time a name on this list has
@@ -125,7 +133,7 @@ const MIN_STRUCTURAL_SIMILARITY: f64 = 0.99;
 /// for one flag; quorra's ADR 0019 is that flag, Table 145's `/I`, together with the composite
 /// back, and this backend now passes it straight through. `bug1755507.pdf`, `issue13520.pdf` and
 /// `issue18032.pdf` **agree with the CPU oracle** — two independent transcriptions of §11.4.4
-/// meeting on Illustrator and InDesign artwork, which is not what the agreement they had before
+/// meeting on Illustrator and `InDesign` artwork, which is not what the agreement they had before
 /// was: that one was two backends substituting the same wrong backdrop.
 ///
 /// **The fourth stayed, and what it says now is the finding.** `issue12798_page1_reduced.pdf`
@@ -160,15 +168,24 @@ const MIN_STRUCTURAL_SIMILARITY: f64 = 0.99;
 /// the others, for the clause's own reason — "[a]ll page-level compositing shall be done in the
 /// default blending colour space of the page" is not conditioned on two marks overlapping — and
 /// the backend refuses the list by name. Section 17 answers this page along with the tenth.
-const REFUSED: [&str; 8] = [
-    "bug1365930.pdf",
+///
+/// **Three left in the four-hundred-and-thirty-ninth, and they are the first names on this list
+/// to leave because the work under them was done here rather than upstream.** Section 17 asked
+/// whether two `Target::Readback` renders against one device were possible; the answer at
+/// `89d7dd77` was that they always had been, and `quorra-gpu/tests/two_rasters.rs` holds it.
+/// So `render-quorra` draws the page twice with a different three of the four components
+/// loaded and `pdf_render::blending` puts the pair back together, which is what `render-cpu`
+/// already did. `personwithdog.pdf`, `bug1365930.pdf` and `issue12798_page1_reduced.pdf` all
+/// **agree with the CPU oracle** — 0.0288, 0.0093 and 0.0760 mean, page inks 20.3953/20.3659,
+/// 0.8637/0.8634 and 16.9057/16.9117 — and the third is the one worth naming twice: ADR 0274
+/// found its §11.4.4 refusal standing in front of this one, so it is the page whose *second*
+/// reason has now gone too.
+const REFUSED: [&str; 5] = [
     "bug1721218_reduced.pdf",
-    "issue12798_page1_reduced.pdf",
     "knockout_inner_backdrop.pdf",
     "knockout_nested.pdf",
     "knockout_nested_group_alpha.pdf",
     "knockout_smask.pdf",
-    "personwithdog.pdf",
 ];
 
 /// Pages where the two rasterisers differ only at the **edges** of what they draw.

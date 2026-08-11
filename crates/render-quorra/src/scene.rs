@@ -189,18 +189,34 @@ impl<'a> Encoder<'a> {
                 // because it reads the shape off the coverage — the assumption this
                 // element exists to contradict.
                 //
-                // **The two operators that say it now exist.** quorra's ADR 0025 gave
-                // `Compose` the `DestOut` and `Plus` this tree asked for in
-                // `doc/QUORRA_FEEDBACK.md` section 14, so what is missing is the
-                // translation here — two marks per command, the shape one drawn with
-                // every source of opacity removed — and not the vocabulary. The refusal
-                // stays until that is written, because half of the pair is worse than
-                // neither: `Plus` alone saturates. `doc/todo/23` carries it.
+                // **The two operators exist and neither can be asked for here**, which the
+                // four-hundred-and-thirty-ninth session established by writing the
+                // translation out and running it rather than by reading. quorra's ADR 0025
+                // gave `Compose` the `DestOut` and `Plus` `doc/QUORRA_FEEDBACK.md` section 14
+                // asked for; the two positions its builder refuses them in were recorded as
+                // things this tree does not emit, and one of them is the *only* position this
+                // tree emits them from:
+                //
+                // - `SceneBuilder::fill` refuses a staged operator inside a knockout group
+                //   (`StagedComposeUnsupported { reason: InsideKnockoutGroup }`), and
+                //   `Command::Shaped` appears nowhere else — its own documentation states
+                //   that as a guarantee, because outside one the shape is unused;
+                // - `SceneBuilder::group`, `stroke` and `image` carry no compositing operator
+                //   at all, and three of the four corpus pages behind this refusal state a
+                //   `Shaped` whose two halves are **groups** (a nested group's shape is the
+                //   union of its elements', §11.6.4.2), so even lifting the first would leave
+                //   them unsayable.
+                //
+                // Section 14.2 is the ask that follows, and `doc/todo/23` carries the page
+                // count. The refusal stays until both are answered, because half of the pair
+                // is worse than neither: `Plus` alone saturates a premultiplied channel past
+                // its alpha, and the library states that as the caller's obligation.
                 Command::Shaped { .. } => {
                     return Err(QuorraRasterError::Unsupported(
-                        "a knockout element whose shape is not its coverage: this backend \
-                         has not yet expanded it into quorra's Destination-Out and Plus \
-                         (ISO 32000-2 §11.4.6)"
+                        "a knockout element whose shape is not its coverage: quorra's \
+                         Destination-Out is refused inside a knockout group, which is the \
+                         only place this element occurs, and a group mark carries no \
+                         compositing operator at all (ISO 32000-2 §11.4.6)"
                             .to_owned(),
                     ));
                 }
