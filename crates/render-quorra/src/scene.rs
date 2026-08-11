@@ -148,21 +148,6 @@ impl<'a> Encoder<'a> {
                     isolated,
                     knockout,
                 } => {
-                    // §11.4.4's non-isolated group composites its elements onto the page
-                    // the group is being painted over, so a backend needs a group buffer
-                    // that starts as a copy of its own backdrop. `quorra_scene`'s
-                    // `GroupSpec` opens one on transparency — §11.4.5's isolated group —
-                    // and nothing in the vocabulary states the other initial backdrop, so
-                    // the group is refused rather than drawn as the isolated one it is
-                    // not. `doc/QUORRA_FEEDBACK.md`'s entry is the request.
-                    if !*isolated {
-                        return Err(QuorraRasterError::Unsupported(
-                            "a non-isolated transparency group: quorra's GroupSpec opens a \
-                             layer on transparency and its elements have to composite onto \
-                             the page behind it (ISO 32000-2 §11.4.4, §11.4.5)"
-                                .to_owned(),
-                        ));
-                    }
                     let Admitted::Chain(clip) = self.clip_chain(builder, *clip)? else {
                         continue; // the clip admits nothing: the group draws nothing
                     };
@@ -173,6 +158,22 @@ impl<'a> Encoder<'a> {
                         clip,
                         knockout: *knockout,
                         mask,
+                        // Table 145's `/I`, straight through. §11.4.5's isolated group is
+                        // what a layer in any rasterising library is; §11.4.4's other
+                        // initial backdrop — "the group's backdrop" — is the one quorra
+                        // gained in its ADR 0019, and the flag is how a scene asks for it.
+                        //
+                        // **The three conditions are not re-checked here, and that is
+                        // deliberate.** `pdf-model` emits `isolated: false` only where the
+                        // group's own blend is Normal, it is not a knockout group and no
+                        // enclosing group is one (ADR 0237, and `Command::Group`'s
+                        // `isolated` states the guarantee); quorra accepts exactly that set
+                        // and refuses the rest at `SceneBuilder::group` as
+                        // `SceneError::NonIsolatedGroupUnsupported`, which arrives below as
+                        // a typed `QuorraRasterError::Scene` naming which condition broke.
+                        // A copy of the condition here would be a second reading of §11.4.4
+                        // free to drift from the one that decides the picture.
+                        isolated: *isolated,
                     };
                     let mut walked = Ok(());
                     builder.group(spec, |body| {
@@ -183,17 +184,23 @@ impl<'a> Encoder<'a> {
                     })?;
                     walked?;
                 }
-                // §11.4.6's element whose shape is stated apart from its alpha. The
-                // scene's `Compose` has SrcOver and Src, and neither expresses
-                // `(1 − shape) × backdrop + object`: `Src` reads the shape off the
-                // coverage, which is what this element exists to say it is not. Two
-                // operators would do it — Porter-Duff Destination-Out and Plus — which
-                // is `doc/QUORRA_FEEDBACK.md`'s entry rather than something to
-                // approximate here.
+                // §11.4.6's element whose shape is stated apart from its alpha:
+                // `(1 − shape) × backdrop + object`, which `Compose::Src` cannot say
+                // because it reads the shape off the coverage — the assumption this
+                // element exists to contradict.
+                //
+                // **The two operators that say it now exist.** quorra's ADR 0025 gave
+                // `Compose` the `DestOut` and `Plus` this tree asked for in
+                // `doc/QUORRA_FEEDBACK.md` section 14, so what is missing is the
+                // translation here — two marks per command, the shape one drawn with
+                // every source of opacity removed — and not the vocabulary. The refusal
+                // stays until that is written, because half of the pair is worse than
+                // neither: `Plus` alone saturates. `doc/todo/23` carries it.
                 Command::Shaped { .. } => {
                     return Err(QuorraRasterError::Unsupported(
-                        "a knockout element whose shape is not its coverage: quorra's \
-                         Compose has no Destination-Out and no Plus (ISO 32000-2 §11.4.6)"
+                        "a knockout element whose shape is not its coverage: this backend \
+                         has not yet expanded it into quorra's Destination-Out and Plus \
+                         (ISO 32000-2 §11.4.6)"
                             .to_owned(),
                     ));
                 }

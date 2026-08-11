@@ -303,6 +303,11 @@ mark. **Source-over as the second step is not the clause** — it weights the ba
 `1 − f × opacity` a second time, which is 32 of 255 at a half-covered pixel under a half-opaque
 mark.
 
+**Both arrived at quorra `89d7dd77`** as `Compose::DestOut` and `Compose::Plus` (its ADR 0025),
+with `DestOut` weighted by the mark's shape rather than by its paint's alpha, which is exactly what
+the second mark above carries. `render-quorra` has not yet expanded `Command::Shaped` into the
+pair, and until it does it refuses the command by name (`doc/todo/23`).
+
 ### 4.2 Soft masks, evaluated on the device (§11.5, §11.6.5.1)
 
 A soft mask is not an alpha texture. It is a **transparency group, rendered at device resolution**,
@@ -364,6 +369,11 @@ source-over. ADR 0237 has the derivation from the clause's own formulas, includi
 advice to keep a second alpha accumulator turns out to be unnecessary. A backend that cannot seed a
 layer from its destination should **refuse the group by name** rather than draw the isolated one;
 ours does that on the GPU and the CPU backend draws the frame.
+
+**quorra can seed it, since `89d7dd77`** — `GroupSpec::isolated` is Table 145's `/I`, and it
+accepts a non-isolated group under exactly the three conditions this tree restricts itself to,
+refusing the rest at the builder with the reason named (ADR 0274). The refusal above is now the
+Vello backend's alone.
 
 ### 4.5 Four decisions that are ours, not yours
 

@@ -296,8 +296,8 @@ has is the *instrument*: no gate here rasterised more than one display list, and
 several into one scene.
 
 **And a fifth, which was a request rather than a defect: §12, a backend a caller can name.**
-Answered at `2531f447`, which is what `Cargo.lock` pins from the three-hundred-and-eighty-fourth
-session — `create_instance_with(backends)` exactly as asked, plus `Device::adapter_names_on`,
+Answered at `2531f447`, which is what `Cargo.lock` pinned from the three-hundred-and-eighty-fourth
+session until the four-hundred-and-thirty-eighth moved it to `89d7dd77` for §11.4.4's flag (ADR 0274) — `create_instance_with(backends)` exactly as asked, plus `Device::adapter_names_on`,
 which closes the trap the parameter would otherwise have opened, and a decision *not* to read
 `WGPU_BACKEND`. `pdf-viewer --backend` is what this tree does with it (ADR 0221). The same pull
 carries `7cbf6e8`: a `Device` now joins its warm-up thread in `Drop`, because a device dropped

@@ -394,12 +394,14 @@ pub fn knockout_stated_shape() -> DisplayList {
 /// whose result composites at 1.0 under Normal is NOTE 5's flattening and needs no group at
 /// all — so this is the smallest scene the construction is *needed* for.
 ///
-/// # Why no backend agreement is asserted on it
+/// # What each backend does with it
 ///
-/// Only `render-cpu` draws this. A Vello layer begins fully transparent and a scene cannot
-/// read what it has drawn so far, so `render-gpu` refuses; `quorra_scene::GroupSpec` opens
-/// its layer the same way, so `render-quorra` refuses too. Both refusals are tested against
-/// this scene, which is what keeps them from becoming silent.
+/// `render-cpu` and `render-quorra` draw it and are held to each other on it
+/// (`headless_quorra.rs`'s `cpu_and_quorra_agree_on_a_non_isolated_group`): quorra's
+/// `GroupSpec` carries Table 145's `/I` since the four-hundred-and-thirty-eighth session, so a
+/// group's buffer can begin as a copy of what is under it. `render-gpu` still refuses — a
+/// Vello layer begins fully transparent and a scene cannot read what it has drawn so far — and
+/// that refusal is tested against this scene, which is what keeps it from becoming silent.
 #[must_use]
 pub fn non_isolated_group() -> DisplayList {
     let mut list = DisplayList::new(A4);

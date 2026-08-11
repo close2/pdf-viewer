@@ -27,7 +27,25 @@ the `--backend vulkan|dx12|metal|gl` it said it would not add until it could be 
 the winding texture's size was what survived the frame. Re-verified at `2531f447`: `zoom_ladder`
 is identical to the digit at every rung and `viewer-ui`'s own overlay gate is green.
 
-**§13 is the newest, is a request for an *instrument* rather than for speed, and is open.** A page
+**§14, §16 and §17 were the newest and all three were answered at `89d7dd77`, which is the release
+`doc/QUORRA_NON_ISOLATED_GROUPS.md` describes.** §16 asked for one flag and got both halves of it —
+`GroupSpec::isolated`, Table 145's `/I`, and a buffer that can begin as a copy of what is under it;
+this side passes it through and three corpus pages left the refused list (§16.1). §14 asked for two
+Porter-Duff operators and got exactly `Compose::DestOut` and `Compose::Plus`; the work that takes
+its four pages off the refused list is now this side's rather than a request (§14.1). §17 asked
+whether two rasters of one page were possible and the answer is that they already were — a test
+holds it now, and the refusal that remains is on this side's display list (§17.1). **Three sections
+answered in one release, and what each still owes is ours.**
+
+**§13's instrument arrived in the same release and its other half was decided.** `encode`
+subdivides behind `Options::instrument_encode` into geometry, staging and recording; `"target
+acquire"` and `"present"` are named phases; and `Timings::host_total()` returns the three spans on
+*this* side's clock, so the `elsewhere` row can stop subtracting an adapter's clock from a host
+measurement. The threading question §13 raised was answered the way this side argued for — quorra
+spawns no threads, and will take a pool rather than make one (its ADR 0023).
+
+**§13 was the newest, is a request for an *instrument* rather than for speed, and its measurement
+half is open.** A page
 turn of the project owner's own 30 MB document is 45% `encode` — host processor time, the only one
 of `Device::render`'s three phases that tracks the scene's command count, fitting **3.86 µs a
 command plus 3.84 ms**. That phase is now the largest and is itself unsplit, so §13 asks for the
@@ -44,18 +62,32 @@ frame allocates ~12 ms that every frame after it reuses, and it is provably not 
 
 **Where it stands, at the page's own scale:**
 
-| | first run | now |
-|---|---|---|
-| agree | 900 | **914** |
-| differ | 50 | **42** — 28 of them the antialiasing floor (§4) |
-| refused | 7 | **1** — and 6 for one day, which is §10 |
-| median page | 2.64× the CPU backend | **2.05× to 2.33×**, run to run |
+| | first run | at `2531f447` | now, at `89d7dd77` |
+|---|---|---|---|
+| agree | 900 | 911 | **914** |
+| differ | 50 | 35 — 23 of them the antialiasing floor (§4) | **35**, page for page the same list |
+| refused | 7 | 11 | **8** |
+| median page | 2.64× the CPU backend | 2.05× to 2.33×, run to run | **2.46×** |
 
-The first three are `2531f447`'s, and the same three the gate has printed since the
-three-hundred-and-sixty-eighth session; **this table said 913 / 43 for sixteen sessions after that
-and was corrected in the three-hundred-and-eighty-fourth**, which is the ledger's own disease one
-document over. The median is a *timing* and moves between runs on one revision — 2.05× and 2.33×
-are two runs of the same gate — so it is quoted as a band rather than as a figure that moved.
+**The middle column is what this table used to call "now", and reading it beside the first is how
+this document has been wrong.** It said `914 / 42 / 1` for the whole stretch in which sections 14,
+16 and 17 were written — three sections whose *entire point* was that pages moved from agreeing to
+refused, which is the number in the third row. A summary table that a section three screens down
+contradicts is the ledger's disease one document over, and this one caught it twice: the
+three-hundred-and-eighty-fourth session corrected a stale `913 / 43`, and the
+four-hundred-and-thirty-eighth corrected a stale `914 / 42 / 1`. **The columns are dated now, which
+is the fix for the shape rather than for the instance.**
+
+Eight refusals, by what they are: four are §14's stated shapes, three are §17's four-component
+blending space, and one is `bug1721218_reduced.pdf`'s coverage, which is §15's page and a texture
+capacity rather than a hole in the vocabulary.
+
+The median is a *timing* and moves between runs on one revision — 2.05× and 2.33× were two runs of
+the same gate — so it is a band rather than a figure that moved. quorra's ADR 0022 predicts it
+should have *fallen* (a dense page's offscreen frame 4.94 → 1.65 ms, of which readback 3.84 → 1.32);
+2.46× is a single run against a two-run band on a machine this one shares, so the honest statement
+is that **this gate cannot resolve that change** and the offscreen ratio is not the instrument to
+look for it with.
 
 ---
 
@@ -1026,9 +1058,12 @@ either would do:
 returns is what makes `execute` reportable at all, and this side depends on that: it is the reason
 our trace can say a frame's cost without introducing a fence of its own.
 
-## 14. §11.4.6's shape is not always the coverage, and `Compose` has no way to say so — **open, and it is a defect this side used to share**
+## 14. §11.4.6's shape is not always the coverage, and `Compose` has no way to say so — **answered at `89d7dd77`; the operators exist and this side has not taken them up yet**
 
-Written 2026-08-08, at the end of this viewer's three-hundred-and-ninety-seventh session.
+Written 2026-08-08, at the end of this viewer's three-hundred-and-ninety-seventh session. **The ask
+below was granted exactly** — `Compose::DestOut` and `Compose::Plus`, quorra's ADR 0025 — and what
+is still open is on *this* side of the boundary rather than that one. [§14.1](#141-what-came-back--89d7dd77)
+says what came back and what it leaves owed.
 
 `quorra_scene::Compose` carries the argument for its own existence, and this side agrees with every
 word of it: a general 2D vector library cannot be patched into clause 11, `Compose::Src` is
@@ -1093,6 +1128,43 @@ still emits it for every knockout element whose shape is its coverage — includ
 §9.3.8's text objects, which is where the volume is — and the two-mark form is strictly more
 expensive.
 
+### 14.1 What came back — `89d7dd77`
+
+**Both operators, by the names asked for, and they were the smaller change on that side too** —
+the pipelines already existed, because quorra's knockout lane *is* those two marks:
+`(Zero, OneMinusSrcAlpha)` through a shape-only fragment entry, then `(One, One)`. What the
+release adds is a way for the scene vocabulary to ask for one of them alone.
+
+Three things about them are worth having in writing:
+
+- **`DestOut` weights by shape, not by the paint's alpha.** quorra's shape entry point returns
+  coverage under the mark's clip and ignores the paint entirely, which is §11.6.4.2's shape — so a
+  caller draws the object with every source of opacity removed and the weight is right. Which is
+  exactly what `pdf_render::Command::Shaped`'s second member already is.
+- **Two positions refuse a staged mark**, as `SceneError::StagedComposeUnsupported { compose, reason }`
+  with `reason` one of `BlendNotNormal` or `InsideKnockoutGroup` — a mark carrying a blend mode is
+  in §11.3.5's implicit one-element group, and a mark inside a knockout group is already
+  erased-and-deposited per element. Neither is anything this side emits.
+- **`Plus` alone saturates, and that obligation is the caller's.** Without the matching `DestOut`
+  in front of it, it drives a premultiplied channel past its alpha, and one mark cannot tell a
+  library whether the other is coming. `Compose::Plus`'s own documentation says so. It is the first
+  item in that vocabulary whose correctness a scene cannot be refused for getting wrong, and the
+  alternative this section offered — a per-element shape channel — is recorded there as the better
+  design if `Plus` is ever wanted for something that is not §11.4.6's second stage.
+
+quorra measured the pair against `P' = (1 − f) × P + S` on a wedge with a diagonal edge: worst
+premultiplied deviation **0.77 of 255**, against **114.95** for the same object drawn source-over.
+This side's own fixture pins the same phenomenon at 32; the size depends on the backdrop, and the
+two numbers are the same fact.
+
+**What is still open, and it is ours.** `render-quorra` still refuses `Command::Shaped` by name, so
+`knockout_smask.pdf`, `knockout_nested.pdf`, `knockout_nested_group_alpha.pdf` and
+`knockout_inner_backdrop.pdf` are four of the eight names on the corpus gate's refused list. Taking
+them off is two marks per `Shaped` command, and it is `doc/todo/23`'s work rather than a request
+from anybody. **The section stays here rather than being deleted**, because the derivation above is
+what the two implementations checked against each other and it is the reason the operators have the
+weighting they do.
+
 ## 15. A gradient the scene will paint across a page, to keep a few dozen pixels of it — **open, and it is this side's finding rather than a defect of yours**
 
 Reported for completeness rather than as a bug: **the same page costs your backend the same thing,
@@ -1131,9 +1203,13 @@ rather than a bound. If it can, a host could state the bound instead of shrinkin
 that is the better shape — it keeps the producer's rectangle in the scene and lets the rasteriser
 decide what to do with it.
 
-## 16. A group's buffer always starts transparent, and §11.4.4 defines the other one — **open, and it is the same shape as section 14**
+## 16. A group's buffer always starts transparent, and §11.4.4 defines the other one — **answered at `89d7dd77`, and verified here**
 
-Written 2026-08-08, at the end of this viewer's four-hundredth session.
+Written 2026-08-08, at the end of this viewer's four-hundredth session. **Answered in full**, and
+the reply is `doc/QUORRA_NON_ISOLATED_GROUPS.md` — both halves of the ask, the seeded buffer *and*
+the composite back, in quorra's ADR 0019. What came back and what this side did with it is
+[§16.1](#161-what-came-back--89d7dd77) below; the ask is kept above it because the derivation is
+what the two sides checked against each other.
 
 `quorra_scene::GroupSpec` opens a layer, draws into it and composites the result once. That is
 ISO 32000-2 §11.4.5's **isolated** group exactly, and it is what every rasterising library
@@ -1217,7 +1293,44 @@ paint Normal — which is almost all of them, because that is the case the claus
 nothing — and a seeded buffer is strictly more expensive. The flag's default is the behaviour
 that exists.
 
-## 17. Four components need two rasters, and one `Scene` renders one — **open, and it is the smallest request in this file**
+### 16.1 What came back — `89d7dd77`
+
+**Exactly the flag, and both halves of it.** `GroupSpec::isolated` is Table 145's `/I`, `true` is
+the behaviour that existed, and the struct stayed exhaustive on purpose so the new entry could not
+compile silently. The buffer *can* begin from the destination — a scissored blit into the layer
+pair the group already had, so there is no new allocation and no change to the frame budget — and
+the composite back is the interpolation this section derived. quorra re-derived it from the
+standard rather than adopting it, and the two transcriptions agree on the number: **5.6 × 10⁻¹⁶**
+worst deviation over 200 000 configurations, from `quorra-gpu/tests/non_isolated_groups.rs` and
+from this side's ADR 0237 independently.
+
+**The conditions are the same three, which is the part worth noticing.** quorra accepts a
+non-isolated group only where the group's own blend is Normal, it is not a knockout group, and no
+enclosing group is one — the set `pdf-model` restricts itself to, derived twice from §11.4.4 and
+arrived at from two directions. Anything else is
+`SceneError::NonIsolatedGroupUnsupported { reason }` at `SceneBuilder::group`, with `reason` one
+of `GroupBlendNotNormal`, `KnockoutGroup`, `InsideKnockoutGroup` — a typed builder refusal, which
+is what this side wanted rather than a silently approximated group.
+
+**What it cost this side**: eleven lines in `render-quorra/src/scene.rs`, all of them deletion of
+the refusal plus `isolated: *isolated`. The three conditions are **not** re-checked here, and that
+is the decision ADR 0274 records: a copy of them would be a second reading of §11.4.4 free to
+drift from the one that decides the picture.
+
+**Measured, at this document's own scale.** The gate went `911 agree, 35 differ, 11 refused, 17
+not comparable` → **`914 agree, 35 differ, 8 refused, 17 not comparable`**. Three of the four
+documents section 16 named — `bug1755507.pdf`, `issue13520.pdf` and `issue18032.pdf` — leave the
+refused list and agree with the CPU oracle; the `differ` list is identical page for page, which is
+the same result the quorra side measured on its own copy of this tree. The pages were *looked at*
+and not only counted: `bug1755507.pdf`'s rounded panel keeps its drop shadow, `issue13520.pdf`'s
+lozenge its rim, and the page inks agree to 0.07 of 255.
+
+**The fourth is the finding.** `issue12798_page1_reduced.pdf` stays refused and now says *"a page
+composited in a four-component blending colour space (§11.4.7)"* — the §11.4.4 refusal had been
+standing in front of section 17's, and this page was never section 16's alone. Both sides
+predicted it and neither had to guess, because the refusals name their clause.
+
+## 17. Four components need two rasters, and one `Scene` renders one — **answered at `89d7dd77`: it was already true, and a test now holds it**
 
 ISO 32000-2 §11.4.7 puts a colour space under the whole page:
 
@@ -1265,3 +1378,29 @@ this section — that page reports **nothing** and never did, because nothing on
 quorra agreed with us about it right up until we started drawing it the way §11.4.7 states. It is
 the first page in this file whose refusal replaces an *agreement about a correct picture* rather
 than one about a wrong one, and the only thing that gets it back is the readback above.
+
+### 17.1 What came back — `89d7dd77`
+
+**The second of the two was already true, and this section's own offer is the one that closes it.**
+It asked: *"If the second is already true — if calling `render(..., Target::Readback)` twice against
+one device is simply supported and cheap — then say so."* It is, and `quorra-gpu/tests/two_rasters.rs`
+now holds it so that it stays true rather than being true by accident:
+
+- both rasters come back whole, one `Raster` per call;
+- resources are **device-scoped**, so the outlines upload once and both passes reference the same
+  `OutlineId`s — the second pass's `bytes_uploaded` is strictly smaller;
+- the glyph key is `(outline, linear part, phase, rule)` and **colour is not in it**, so the pass
+  carrying the complement of black hits every tile the C-M-Y pass rasterised: `encode: geometry`
+  measured at 1.772 ms on pass one and **0.000 ms** on pass two;
+- neither pass changes what the other draws.
+
+Two caveats stated rather than buried: a frame whose tiles overflow the atlas can leave the next
+pass cold (quorra's ADR 0024 narrowed when that happens), and each pass pays its own readback,
+about 1.3 ms at page size — irreducible when both rasters are wanted.
+
+**So nothing on quorra's side blocks `personwithdog.pdf` or `bug1365930.pdf`, and the refusal that
+remains is this side's own.** It sits in `QuorraRasterizer::rasterize`, on `list.blending()`, and
+what it now owes is not a request but work: two `Rasterizer::rasterize` calls against one
+`QuorraRasterizer` and `pdf_render::blending`'s recombination, which the CPU backend already does.
+`doc/todo/23` carries it, and it is the first item this file has handed back to itself rather than
+outward.

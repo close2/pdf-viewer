@@ -118,18 +118,24 @@ fn cpu_and_quorra_agree_on_knockout_groups() {
 /// `quorra_scene::Compose` offers source-over and coverage-modulated source, and the second
 /// is precisely the assumption this element exists to contradict: it reads the shape off the
 /// coverage. Writing `(1 − shape) × backdrop + object` needs Porter-Duff Destination-Out and
-/// Plus, which the scene vocabulary does not have — so the backend says so and draws nothing,
-/// rather than drawing the page the coverage-modulated form would give.
+/// Plus — so the backend says so and draws nothing, rather than drawing the page the
+/// coverage-modulated form would give.
+///
+/// **The two operators exist since `89d7dd77` (quorra's ADR 0025), and this refusal is now
+/// about the translation rather than the vocabulary**: it is the two marks per `Shaped`
+/// command that are unwritten, and half the pair is worse than neither, because `Plus` alone
+/// saturates. `doc/todo/23` carries the work; `doc/QUORRA_FEEDBACK.md` section 14.1 is what
+/// came back.
 ///
 /// This is a *test of the refusal*, not of a defect: it fails if the refusal ever becomes
-/// silent, and it is what `doc/QUORRA_FEEDBACK.md`'s entry is measured against.
+/// silent.
 #[test]
 fn quorra_refuses_a_knockout_element_that_states_its_shape() {
     let list = test_scenes::knockout_stated_shape();
     let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("target fits the budget");
     let refusal = quorra()
         .rasterize(&list, target)
-        .expect_err("quorra has no Destination-Out and no Plus")
+        .expect_err("the two marks §11.4.6's second stage needs are not written here yet")
         .to_string();
     assert!(
         refusal.contains("§11.4.6") && refusal.contains("shape"),
@@ -137,28 +143,120 @@ fn quorra_refuses_a_knockout_element_that_states_its_shape() {
     );
 }
 
-/// §11.4.4's non-isolated group is refused **by name**.
+/// §11.4.4's non-isolated group, drawn — the two backends agree on the *other* initial
+/// backdrop.
 ///
-/// `quorra_scene::GroupSpec` opens its layer on a fully transparent surface — §11.4.5's
-/// initial backdrop — and a non-isolated group's elements have to composite onto the page
-/// behind it instead. Nothing in the scene vocabulary states the second backdrop, so the
-/// backend says so rather than drawing the isolated group it is not.
+/// This test read `quorra_refuses_a_non_isolated_group` until the
+/// four-hundred-and-thirty-eighth session. `GroupSpec` gained Table 145's `/I` (quorra's
+/// ADR 0019, `doc/QUORRA_NON_ISOLATED_GROUPS.md`), so the group's buffer can begin as a copy
+/// of what is under it and the composite back is the interpolation ADR 0237 derived —
+/// `result = (1 − w) × B + w × E(B)`. Two independent transcriptions of the clause, one per
+/// backend, and this scene is where they meet: the element blends `Multiply` against a green
+/// page, which is the only thing §11.4.4's NOTE 2 says the two kinds of group differ about.
 ///
-/// A *test of the refusal*, as `quorra_refuses_a_knockout_element_that_states_its_shape` is:
-/// it fails if the refusal ever becomes silent, and it is what
-/// `doc/QUORRA_FEEDBACK.md`'s entry is measured against.
+/// The refusal it replaces has not gone away — `quorra_refuses_a_non_isolated_group_that_blends`
+/// below holds the set that is still refused.
+///
+/// # The pixel, not the tolerance
+///
+/// A tolerance says the two backends agree; it does not say they agree on the *clause*, and
+/// two backends substituting §11.4.5's transparent backdrop agreed for four hundred sessions.
+/// So the colour inside the group is asserted against the arithmetic. Opaque green page,
+/// opaque blue element under `Multiply`, group alpha ½:
+///
+/// - non-isolated, which is this scene — the element composites onto the backdrop, so
+///   §11.3.5.2's Table 134 gives Multiply as `B(cb, cs) = cb × cs`, here
+///   `(0,1,0) × (0,0,1) = (0,0,0)`, and `result = (1 − ½) × green + ½ × black` is
+///   **`(0, 128, 0)`**;
+/// - isolated, the picture this used to be refused rather than draw — the element blends
+///   against §11.4.5's transparent initial backdrop, and §11.3.6 says what that does to a
+///   blend mode: "[a]n alpha value of αs = 0.0 or αb = 0.0 results in no blend mode effect".
+///   The blue survives whole and the composite is `(0, 128, 128)`.
+///
+/// A byte on one channel apart, and it is the whole of §11.4.4.
 #[test]
-fn quorra_refuses_a_non_isolated_group() {
+fn cpu_and_quorra_agree_on_a_non_isolated_group() {
     let list = test_scenes::non_isolated_group();
+    assert_within_tolerance("non-isolated group", compare("non-isolated group", &list));
+
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("target fits the budget");
+    let ours = quorra()
+        .rasterize(&list, target)
+        .expect("quorra draws a non-isolated group whose composite is Normal");
+    // (300, 400) is inside the group's rectangle, well away from every edge.
+    let at = ((400 * ours.width + 300) * 4) as usize;
+    assert_eq!(
+        &ours.data[at..at + 4],
+        &[0, 128, 0, 255],
+        "the element blended against the page, not against transparency"
+    );
+}
+
+/// A non-isolated group whose *own* blend is not Normal is still refused **by name**.
+///
+/// The cancellation ADR 0237 derives is the composite back under §11.3.3's **Normal** blend
+/// function: the group alpha §11.4.4's Result step divides out is multiplied straight back in,
+/// and nothing else in the pipeline observes it. Under any other blend the group's own colour
+/// is needed, and with it Table 140's group alpha — which a premultiplied raster does not hold
+/// (NOTE 4: "For shape and alpha, backdrop removal can be accomplished by maintaining two sets
+/// of variables to hold the accumulated values."). quorra measures the identity 0.91 of full
+/// scale wrong there and refuses at `SceneBuilder::group`.
+///
+/// `pdf-model` never emits this list — `Command::Group`'s `isolated` states the three
+/// conditions as a guarantee, and `render-cpu` refuses it too — so the display list is built
+/// here by hand. A *test of the refusal*, as
+/// `quorra_refuses_a_knockout_element_that_states_its_shape` is: it fails if the refusal ever
+/// becomes a silently wrong picture.
+#[test]
+fn quorra_refuses_a_non_isolated_group_that_blends() {
+    let list = a_non_isolated_group_composited_with(pdf_render::BlendMode::Multiply);
     let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("target fits the budget");
     let refusal = quorra()
         .rasterize(&list, target)
-        .expect_err("quorra has no group buffer seeded from its backdrop")
+        .expect_err("the cancellation is the Normal composite, and this is not one")
         .to_string();
     assert!(
-        refusal.contains("§11.4.4") && refusal.contains("non-isolated"),
-        "the refusal names the clause and what it needs: {refusal}"
+        refusal.contains("non-isolated") && refusal.contains("Normal"),
+        "the refusal names what it cannot do and why: {refusal}"
     );
+}
+
+/// One non-isolated group over a page, composited under `blend` — the geometry of
+/// [`test_scenes::non_isolated_group`] with the group's own blend mode made a parameter.
+fn a_non_isolated_group_composited_with(blend: pdf_render::BlendMode) -> pdf_render::DisplayList {
+    use std::sync::Arc;
+
+    use pdf_render::{BlendMode, Command, DisplayList, FillRule, Paint, Transform};
+    use test_scenes::{A4, BLUE, GREEN, rect};
+
+    let mut list = DisplayList::new(A4);
+    list.push(Command::Fill {
+        path: Arc::new(rect(40.0, 100.0, 555.0, 750.0)),
+        transform: Transform::IDENTITY,
+        fill_rule: FillRule::NonZero,
+        paint: Paint::Solid(GREEN),
+        clip: None,
+        mask: None,
+        blend: BlendMode::Normal,
+    });
+    list.push(Command::Group {
+        commands: vec![Command::Fill {
+            path: Arc::new(rect(100.0, 200.0, 450.0, 600.0)),
+            transform: Transform::IDENTITY,
+            fill_rule: FillRule::NonZero,
+            paint: Paint::Solid(BLUE),
+            clip: None,
+            mask: None,
+            blend: BlendMode::Multiply,
+        }],
+        alpha: 0.5,
+        clip: None,
+        mask: None,
+        blend,
+        isolated: false,
+        knockout: false,
+    });
+    list
 }
 
 #[test]

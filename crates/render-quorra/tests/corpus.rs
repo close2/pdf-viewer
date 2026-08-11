@@ -112,20 +112,29 @@ const MIN_STRUCTURAL_SIMILARITY: f64 = 0.99;
 /// agreed with a CPU backend doing the same thing; now the display list says what the clause
 /// says and the backend says it cannot draw it. A refusal that replaces an agreement about a
 /// wrong picture is a gain, and it is `doc/QUORRA_FEEDBACK.md` section 14's entry: two Porter-Duff
-/// operators, Destination-Out and Plus.
+/// operators, Destination-Out and Plus. **Both arrived at `89d7dd77`** (quorra's ADR 0025), so
+/// these four are no longer waiting on anybody: what is unwritten is the translation here, two
+/// marks per `Shaped` command, and `doc/todo/23` carries it.
 ///
-/// **Four more in the four-hundredth, and the argument is the same one a second time.** ADR 0237
-/// draws §11.4.4's non-isolated group — its elements composite onto the *page's* own colour rather
-/// than onto §11.4.5's transparency — and `quorra_scene::GroupSpec` opens its layer transparent,
-/// as every rasterising library's does. So the backend refuses, naming the clause. All four used
-/// to be counted as **agreeing**, and that agreement was two backends substituting the same wrong
-/// backdrop: the CPU one draws the clause now and this one says it cannot.
+/// **Four joined in the four-hundredth for §11.4.4's non-isolated group, and three of them left
+/// again in the four-hundred-and-thirty-eighth, which is the first time a name on this list has
+/// left because the request under it was answered.** ADR 0237 draws §11.4.4's non-isolated group
+/// — its elements composite onto the *page's* own colour rather than onto §11.4.5's transparency
+/// — and `quorra_scene::GroupSpec` opened its layer transparent, as every rasterising library's
+/// does, so the backend refused and named the clause. `doc/QUORRA_FEEDBACK.md` section 16 asked
+/// for one flag; quorra's ADR 0019 is that flag, Table 145's `/I`, together with the composite
+/// back, and this backend now passes it straight through. `bug1755507.pdf`, `issue13520.pdf` and
+/// `issue18032.pdf` **agree with the CPU oracle** — two independent transcriptions of §11.4.4
+/// meeting on Illustrator and InDesign artwork, which is not what the agreement they had before
+/// was: that one was two backends substituting the same wrong backdrop.
 ///
-/// The list is exactly the four documents the corpus gate used to report §11.4.4 on and no
-/// longer does — `bug1755507.pdf`, `issue12798_page1_reduced.pdf`, `issue13520.pdf` and
-/// `issue18032.pdf` — which is the check that the display list gained the construction exactly
-/// where the report left. `doc/QUORRA_FEEDBACK.md` section 16 is the request: a group buffer a
-/// caller can have seeded from the layer beneath it.
+/// **The fourth stayed, and what it says now is the finding.** `issue12798_page1_reduced.pdf`
+/// refuses with *"a page composited in a four-component blending colour space (§11.4.7)"* — the
+/// §11.4.4 refusal had been standing in front of a second one, and the page belongs to section 17's
+/// population rather than to section 16's. Which is why a refusal names what it cannot do — a
+/// list that only counted would have reported three closed holes and missed that a fourth
+/// changed its reason. **The ordinals below are the order names *arrived* in and no longer the
+/// order they sit in**: eleven joined this list and eight are on it.
 ///
 /// **A tenth in the four-hundred-and-twenty-sixth, and it is the third time this has happened
 /// for the third reason.** ADR 0262 draws §11.4.7's page group in the `DeviceCMYK` blending
@@ -135,7 +144,12 @@ const MIN_STRUCTURAL_SIMILARITY: f64 = 0.99;
 /// one such page and it used to be *reported* rather than drawn, so this is a refusal replacing
 /// a report rather than an agreement. `doc/QUORRA_FEEDBACK.md` section 17 is the request, and it
 /// is a small one: nothing new in the scene vocabulary, only a way to render one scene into two
-/// targets or to run the pipeline twice and hand back both readbacks.
+/// targets or to run the pipeline twice and hand back both readbacks. **The second of those was
+/// already true**, and `89d7dd77` added the test that keeps it true: two `Target::Readback` renders
+/// against one device come back whole, share their uploaded resources, and the second pays no
+/// geometry at all because quorra's glyph key does not carry colour. So this refusal and the one
+/// below are `render-quorra`'s own work now — two `rasterize` calls and `pdf_render::blending`'s
+/// recombination, which `render-cpu` already does — and `doc/todo/23` carries them.
 ///
 /// **An eleventh in the four-hundred-and-twenty-seventh, and it is the same request reaching one
 /// more page rather than a new one.** ADR 0263 gives §11.7.2 its conversion *into* the blending
@@ -146,13 +160,10 @@ const MIN_STRUCTURAL_SIMILARITY: f64 = 0.99;
 /// the others, for the clause's own reason — "[a]ll page-level compositing shall be done in the
 /// default blending colour space of the page" is not conditioned on two marks overlapping — and
 /// the backend refuses the list by name. Section 17 answers this page along with the tenth.
-const REFUSED: [&str; 11] = [
+const REFUSED: [&str; 8] = [
     "bug1365930.pdf",
     "bug1721218_reduced.pdf",
-    "bug1755507.pdf",
     "issue12798_page1_reduced.pdf",
-    "issue13520.pdf",
-    "issue18032.pdf",
     "knockout_inner_backdrop.pdf",
     "knockout_nested.pdf",
     "knockout_nested_group_alpha.pdf",
