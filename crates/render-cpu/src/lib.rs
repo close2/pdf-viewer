@@ -1377,37 +1377,54 @@ fn page_to_path(transform: Transform) -> Result<Transform, CpuRasterError> {
     })
 }
 
-/// Draws a straight rule thinner than a device pixel as the fill of its own outline, ISO 32000-2
+/// Draws a stroke thinner than a device pixel as a shape this rasteriser can measure, ISO 32000-2
 /// §10.7.4, and reports whether it did.
 ///
 /// The clause's "no shape ever disappears" applies to strokes as well as fills — "[t]his rule
 /// applies both to fill operations and to strokes with non-zero width" — and `tiny-skia` loses a
-/// thin one in a way of its own. Its painter draws a stroke under a pixel wide as a **hairline**
-/// with the paint's opacity scaled by the width, which conserves the ink and approximates the
-/// placement: the mark is smeared symmetrically about the path whatever fraction of a pixel the
-/// path lies at, and a rule within half a pixel of the raster's edge loses the half of its smear
-/// that falls outside. Measured by `render-quorra/examples/sub_pixel_marks` before this function
-/// existed, a 0.1-unit rule at the top edge of a 320-unit page carried **0.0549** of its own 0.1
-/// on this backend where the graphics device carried 0.0980; both now carry 0.0980.
+/// thin one in two ways of its own. Its painter draws a stroke under a pixel wide as a **hairline**
+/// with the paint's opacity scaled by the width, which
 ///
-/// The outline of such a rule is the rectangle its width and length state, and
-/// [`pdf_render::sub_pixel_bands`] draws that exactly — including the part that is off the raster,
-/// which is then clipped away rather than folded back in. So the answer here is to stop asking for
-/// a hairline.
+/// - smears the mark symmetrically about the path whatever fraction of a pixel the path lies at,
+///   so a rule within half a pixel of the raster's edge loses the half that falls outside — 0.0549
+///   of its own 0.1 at the top edge of a 320-unit page, where the graphics device carried 0.0980;
+/// - and lays that mark down **one pixel per step along the line's longer device axis**, so a rule
+///   at `θ` from the nearer axis carries `cos θ` of its area. Measured by
+///   `render-quorra/examples/sub_pixel_marks`: 3.4% short at 15°, 13.4% at 30° and **29.3% at
+///   45°**, at every thickness rather than only near the coverage quantum.
 ///
-/// # What it declines, and why the gate is cheap
+/// The second reads directly against the sentence three along from the one above — "[t]he area
+/// covered by painted pixels shall always be at least as large as the area of the original shape"
+/// — so both are answered here rather than left to the library.
 ///
-/// Building an outline allocates a path where the hairline path allocates nothing, and a page of
-/// technical line work is thousands of sub-pixel strokes. So the questions that cost nothing are
-/// asked first — the width, the dash, the blend mode, the transform, and
-/// [`pdf_render::only_flat_subpaths`], which is one walk over the commands — and the stroker runs
-/// only for a path made of straight axis-aligned rules. Anything else, including a rule whose
-/// round cap ends it with an arc, falls back to the hairline, because
-/// [`pdf_render::sub_pixel_bands`] answers `None` for an outline it cannot measure exactly.
+/// # Two constructions, exact first
 ///
-/// A dashed rule keeps the hairline for a plainer reason: the dashes are dispensed by
-/// `stroke_path` itself, and dashing here would be a second implementation of §8.4.3.6 beside the
-/// one `tiny-skia` already runs. ADR 0226.
+/// [`draw_rule_as_bands`] is ADR 0226's and is exact: the outline of a straight axis-aligned rule
+/// is the rectangle its width and length state, and [`pdf_render::sub_pixel_bands`] draws that at
+/// the coverage its own area implies, including the part that is off the raster, which is then
+/// clipped away rather than folded back in.
+///
+/// [`draw_rule_at_one_pixel`] is the general answer and is ADR 0268's: **the same path stroked one
+/// device pixel wide, with the width it gave up carried in the paint's alpha.** That conserves the
+/// ink exactly at every angle, because widening by a factor and dividing the alpha by it cancel,
+/// and it needs no scan converter of our own — which is what the residual `doc/todo/11` carried
+/// since ADR 0226 was priced at. It is tried second because it is the blunter of the two: a band
+/// one device pixel wide spreads its ink over a pixel where a band of the true width spreads it
+/// over `w`, and at the raster's edge it still loses what falls outside.
+///
+/// Nothing is snapped by either. A 0.1-unit rule draws 0.1 of a row at the fractional position the
+/// document put it, which is the sentence `doc/todo/_scan-conversion.md` demands of anything that
+/// touches the pixel grid; what §10.7.5 would do under `/SA` is multiply the *ink* by
+/// `one_pixel / w` rather than divide the alpha by it.
+///
+/// # What it still declines
+///
+/// The whole rule is conditioned on [`carries_coverage_as_alpha`], which is where its warrant
+/// lives. Beyond that, only a stroke the stroker itself refuses — and the exact construction
+/// declines a great deal more, each case argued in `pdf_render::sub_pixel`'s module comment.
+/// A dashed rule is now taken: the dashes are dispensed by `tiny_skia::Path::dash`, which is the
+/// same function `stroke_path` would have called, rather than by a second implementation of
+/// §8.4.3.6 in this file.
 fn draw_sub_pixel_rule(
     pixmap: &mut tiny_skia::PixmapMut<'_>,
     geometry: (&Path, &tiny_skia::Path),
@@ -1419,19 +1436,40 @@ fn draw_sub_pixel_rule(
     let Some(one_pixel) = pdf_render::thinnest_line(at) else {
         return false;
     };
-    if style.width >= one_pixel
-        || style.dash.is_some()
-        || !carries_coverage_as_alpha(brush)
-        || !at.preserves_axes()
-        || !pdf_render::only_flat_subpaths(geometry.0)
-    {
+    if style.width >= one_pixel || !carries_coverage_as_alpha(brush) {
         return false;
     }
-    // The resolution scale bounds how finely a curve is measured while it is offset. A path of
-    // straight rules has no curve, so this decides nothing here beyond agreeing with what
+    // The resolution scale bounds how finely a curve is measured while it is offset, and is what
     // `stroke_path` would have used had the hairline test not fired.
     let scale = tiny_skia::PathStroker::compute_resolution_scale(&convert::transform(at));
-    let Some(outline) = geometry.1.stroke(style, scale) else {
+    // The cheap questions come first: a path of straight axis-aligned rules is one walk over the
+    // commands, and only such a path can reach the exact construction at all.
+    if style.dash.is_none()
+        && at.preserves_axes()
+        && pdf_render::only_flat_subpaths(geometry.0)
+        && draw_rule_as_bands(pixmap, geometry.1, style, at, scale, brush, clip)
+    {
+        return true;
+    }
+    draw_rule_at_one_pixel(pixmap, geometry.1, style, at, scale, brush, clip)
+}
+
+/// ADR 0226's exact construction: the rule's own outline, at the coverage its area implies.
+///
+/// See [`draw_sub_pixel_rule`], whose first choice this is. Returns `false` — leaving the caller
+/// to the construction below — for an outline [`pdf_render::sub_pixel_bands`] cannot measure
+/// exactly, which is every case its module comment argues: a round cap's arc, two rules meeting in
+/// one pixel row, a subpath that is not a rectangle.
+fn draw_rule_as_bands(
+    pixmap: &mut tiny_skia::PixmapMut<'_>,
+    path: &tiny_skia::Path,
+    style: &tiny_skia::Stroke,
+    at: Transform,
+    scale: f32,
+    brush: &tiny_skia::Paint<'_>,
+    clip: Option<&tiny_skia::Mask>,
+) -> bool {
+    let Some(outline) = path.stroke(style, scale) else {
         return false;
     };
     let Some(bands) = pdf_render::sub_pixel_bands(
@@ -1441,8 +1479,8 @@ fn draw_sub_pixel_rule(
     ) else {
         return false;
     };
-    // Converted before anything is drawn, so a shape the rasteriser rejects leaves the hairline
-    // to draw the whole rule rather than half of it.
+    // Converted before anything is drawn, so a shape the rasteriser rejects leaves the whole rule
+    // to the construction below rather than drawing half of it twice.
     let Some(shapes) = bands
         .iter()
         .map(|band| Some((convert::path(&band.shape)?, band.coverage)))
@@ -1461,6 +1499,76 @@ fn draw_sub_pixel_rule(
             clip,
         );
     }
+    true
+}
+
+/// ADR 0268's general construction: the rule stroked one device pixel wide, at the alpha its own
+/// width implies.
+///
+/// See [`draw_sub_pixel_rule`] for why this is owed and [`pdf_render::substitute_width`] for why
+/// the width is stated from the transform's *smaller* stretch. The two moves are one arithmetic
+/// identity: the substitute's device area is `width / style.width` times the rule's, and the alpha
+/// is `style.width / width`, so the ink is the rule's own area whatever the transform and whatever
+/// the angle.
+///
+/// The dashes are dispensed first, by the same `tiny_skia::Path::dash` that `stroke_path` would
+/// have called, because widening a dashed stroke must not widen its dashes: §8.4.3.6's pattern is
+/// measured along the path and has nothing to do with the width.
+fn draw_rule_at_one_pixel(
+    pixmap: &mut tiny_skia::PixmapMut<'_>,
+    path: &tiny_skia::Path,
+    style: &tiny_skia::Stroke,
+    at: Transform,
+    scale: f32,
+    brush: &tiny_skia::Paint<'_>,
+    clip: Option<&tiny_skia::Mask>,
+) -> bool {
+    let Some(width) = pdf_render::substitute_width(at) else {
+        return false;
+    };
+    // A width above the substitute's is not this rule's business: `draw_sub_pixel_rule` has
+    // already established that the stroke is under one device pixel by §8.4.3.2's reading, and
+    // under an anisotropic transform that leaves the two readings a factor apart.
+    if style.width >= width {
+        return false;
+    }
+    let dashed;
+    let path = match style.dash.as_ref() {
+        None => path,
+        Some(dash) => {
+            let Some(cut) = path.dash(dash, scale) else {
+                return false;
+            };
+            dashed = cut;
+            &dashed
+        }
+    };
+    let mut widened = style.clone();
+    widened.width = width;
+    widened.dash = None;
+    // The identity above is the *body's*: a cap's area goes as the square of the width, so
+    // widening multiplies it by `(width / style.width)²` where the alpha divides it back only
+    // once, and the end is then overstated by that factor. On a long rule nobody could see it;
+    // on `issue12295.pdf`, whose 65 859 sub-pixel strokes are round-capped and 91.8% of them
+    // shorter than one device pixel — median length 0.145 — two round caps at one pixel are
+    // `π/4` of a pixel against a body of 0.145, and the page came out 31% heavier than its own
+    // 8x limit. The substitute is therefore the swept body and nothing else. What that gives up
+    // is the true cap, whose own area is `O(w²)` and which extends the mark by half of a width
+    // this rule has already established is under one pixel.
+    widened.line_cap = tiny_skia::LineCap::Butt;
+    let Some(outline) = path.stroke(&widened, scale) else {
+        return false;
+    };
+    let mut faint = brush.clone();
+    // `width` is a reciprocal of a positive stretch, so it is finite and above zero.
+    faint.shader.apply_opacity(style.width / width);
+    pixmap.fill_path(
+        &outline,
+        &faint,
+        tiny_skia::FillRule::Winding,
+        convert::transform(at),
+        clip,
+    );
     true
 }
 

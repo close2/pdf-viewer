@@ -1,9 +1,10 @@
 # Shapes that still disappear
 
-Status: **items 1 and 3 closed in the three-hundred-and-eighty-ninth session (ADR 0226); item 2 is
-fixed as far as any corpus document exercises it (ADR 0213) and its general case is unwitnessed.**
-What is left of items 1 and 3 is one named limit — a sub-pixel rule that is *diagonal* — and it is
-below.
+Status: **items 1 and 3 closed in the three-hundred-and-eighty-ninth session (ADR 0226) and their
+one named residual — a sub-pixel rule that is *diagonal* — closed in the four-hundred-and-thirty-second
+(ADR 0268); item 2 is fixed as far as any corpus document exercises it (ADR 0213) and its general
+case is unwitnessed.** What is left is one *new* measurement, at the boundary rather than under it,
+and it is below.
 Priority: 11
 Corpus: 3 known witnesses; the general shape of the residual is stated
 Clauses: §10.7.4 — see `_scan-conversion.md`
@@ -17,7 +18,7 @@ Leftovers from the hundred-and-eighty-sixth to -eighth sessions, which closed §
 clip (ADR 0155). All three are the same sentence one step along, and none of them is the
 anti-aliasing departure.
 
-## 1 and 3. A fill, and a stroke, thinner than the rasteriser's coverage quantum — **closed**
+## 1 and 3. A stroke or a fill thinner than the rasteriser's coverage quantum — **closed**
 
 Both were `render-cpu`'s alone, which the three-hundred-and-forty-fourth session measured, and both
 were paid in the three-hundred-and-eighty-ninth. `tiny-skia`'s scan converter supersamples four
@@ -43,26 +44,93 @@ Two consequences worth keeping here:
   `tiny-skia` rounded a rectangle up to a whole row, 11% heavy; `issue8125.pdf` page 1 left the
   oracle's contradicted list because of that half rather than the disappearing half.
 
-### What is left: a sub-pixel rule that is not axis-aligned
+### The residual they left — a rule that is not axis-aligned — **closed, and it was a different defect**
 
-`22060_A1_01_Plans.pdf` page 1 is the corpus's largest page of sub-pixel line work — an A1 drawing
-that is *all* strokes under a pixel wide — and it is **unmoved to four decimals** by the above, on
-both the oracle gate (worst mean 6.09) and the quorra gate (mean 0.7356). Its rules are diagonals
-and polylines, and `pdf_render::sub_pixel` declines them by name: the substitution needs a device
-pixel *line* to stretch a band into, and the run of pixels a slanted band passes through is a
-staircase rather than a rectangle. `pdf_render::collapsed` declines the same case for the same
-reason and has since ADR 0154.
+ADR 0226 named `22060_A1_01_Plans.pdf` as the witness and priced the answer as "a coverage span per
+scanline rather than one rectangle per pixel line, which is a scan converter of our own". The
+four-hundred-and-thirty-second session measured the case instead of inheriting that price and
+**both halves of the sentence were wrong** (ADR 0268):
 
-**What would answer it is a different construction, not an extension of this one**: a coverage span
-per scanline rather than one rectangle per pixel line, which is a scan converter of our own for the
-sub-pixel case. Whether that is worth having is an open question and the honest input to it is that
-`AMBIGUOUS_SUB_PIXEL_LINE_WORK` places us *between* the reference ladders on every page of the
-group where the geometry can be bounded — the departure there is measured and is not a loss.
+- **A diagonal does not disappear, and cannot.** A band lying between two of `tiny-skia`'s sample
+  lines vanishes; a band that is *not parallel* to them crosses one every `1/(4 tan θ)` pixels of
+  its length. A filled sliver 0.05 of a pixel thick reads 9.47 to 10.23 of its own 10 at every angle
+  from 5° to 60°, where the axis-aligned one read **0** before ADR 0226. So a diagonal **fill** is
+  owed nothing and is left alone.
+- **What was failing was the other guarantee**, and only for a stroke: "[t]he area covered by
+  painted pixels shall always be at least as large as the area of the original shape".
+  `tiny-skia`'s hairline lays one pixel down per step along the line's **longer device axis**, so it
+  carried `cos θ` of the rule's area — 3.4% short at 15°, 13.4% at 30° and **29.3% at 45°**, at
+  every thickness under a pixel rather than only near the quantum.
+- **And it needed no scan converter.** §10.7.4's own construction for a mark too thin to measure is
+  a run of *whole pixels*, so the substitute is the same rule stroked one device pixel wide with the
+  width it gave up carried in the paint's alpha — `pdf_render::substitute_width`, and §11.3.7.1's
+  licence is the one ADR 0226 already used. Ink is then the shape's area at every angle.
+- **`22060_A1_01_Plans.pdf` was never the witness.** Its page one is **72 sampled images** with a
+  combined device footprint six times the raster, 24 fills and 40 strokes, of which 26 are
+  sub-pixel and 98% of their length lies within 5° of a device axis — the hairline dropped **0.3%**
+  of it. The page moved +0.06% and that is the correct answer. Its line work is §10.7.4's *image*
+  paragraph and ADR 0025's area averaging; `oracle.rs` and `_scan-conversion.md` said "all strokes
+  under a pixel wide" and have been corrected.
+- **The real witness is `issue11473.pdf`**, whose three diagonal hatch swatches are `0.3985 w`
+  strokes inside a §8.7.3 tiling cell: ink **0.6768 → 0.7566** where the two-ladder limit for the
+  page is 0.752 to 0.760. Ten per cent under the geometry to on it.
+
+## What is left: the rule that is **exactly** one device pixel wide
+
+Found by the same instrument in the same session and **not paid**, because it is a different claim
+from this file's: a mark that is thinner than the document said is not a mark that disappeared, and
+§10.7.4's quantum has nothing to do with it.
+
+`tiny-skia` chooses the hairline for `width <= 1.0` device pixels, so at *exactly* one pixel a
+turned rule still gets it:
+
+```text
+  a 200-unit rule, one device pixel wide, total ink against its own 200
+                    hairline (today)   the fill of the same outline
+    30 degrees            173.20                  199.73
+    45 degrees            141.42                  177.44
+```
+
+**−29.3% at 45°, on every `1 w` stroke at the page's own scale**, which is a large share of every
+technical drawing in the corpus. ADR 0268 stops strictly under one pixel and therefore leaves a
+one-point discontinuity at the boundary — 0.999 of a pixel is filled, 1.000 is a hairline, 1.001 is
+filled again — which is `tiny-skia`'s `<=` rather than anything derived.
+
+Taking it is a round of its own and the reason is blast radius rather than difficulty: the change is
+one comparison, and it moves what **every** page with an ordinary hairline draws, so it owes its own
+before/after over the oracle's 1794 pages and its own instruction count. Two things to settle first:
+
+- **The `0 w` stroke must not follow it.** `Stroke::device_width` promotes a zero width to exactly
+  one device pixel, so the two arrive indistinguishable at the rasteriser, and §10.7.4 exempts one of
+  them by name — "Zero-width strokes may be done in an implementation-defined manner that may
+  include fewer pixels than the rule implies". Telling them apart means reading the document's own
+  width, which `draw_stroke` has and `draw_sub_pixel_rule` is not passed.
+- **The 45° knife edge is `tiny-skia`'s and survives either way.** The plain fill of a
+  one-device-pixel band at exactly 45° reads 177.44 of its own 200, because that converter quantises
+  the band's per-row run to quarter pixels. 177.44 is much better than 141.42 and it is not the
+  geometry.
+
+## And one loss ADR 0268 takes deliberately: the cap it does not draw
+
+The substitute is the stroke's **swept body**, butt-capped, because a cap's area goes as the square
+of the width: widening multiplies it by `width / style.width` more than the alpha divides it back,
+and on `issue12295.pdf` — 65 859 sub-pixel strokes, every one round-capped, 91.8% of them shorter
+than one device pixel, median length **0.145** — keeping the cap put the page 66% over its own 8×
+limit where the body alone puts it 8.9% over.
+
+What is given up is the cap's own area, which is `O(w²)` with `w` under one device pixel. It is not
+nothing in one case: a round-capped subpath *shorter than its own width* is a dot of area `πw²/4`
+and the body it is replaced by is thinner still. §8.5.3.2's exactly-degenerate subpath is already
+taken out and filled as a dot by `pdf_render::split_degenerate`; the nearly-degenerate one is not,
+and that is where this would be answered rather than in `render-cpu`. **No corpus page reports it**:
+`doc/todo/00`'s step-7 sweep over all 786 ambiguous pages moves every entry *up* except
+`issue12295.pdf`'s own, which moves down because the page's geometry is below every reference.
 
 A thin shape that is not a rectangle at all — a sliver of a triangle, a glyph stem — is declined
-deliberately and permanently: its cross-section is not constant along its length, so a single
-coverage across a pixel line would be worse than what the rasteriser already does. ADR 0226 argues
-it, and small text is the case that makes it a rule rather than a caution.
+deliberately and permanently for the *exact* substitution: its cross-section is not constant along
+its length, so a single coverage across a pixel line would be worse than what the rasteriser already
+does. ADR 0226 argues it, and small text is the case that makes it a rule rather than a caution.
+ADR 0268's substitute does not touch a fill at all, so it does not reopen the question.
 
 ## 2. Two marks that abut across a cell's box edge without repeating
 

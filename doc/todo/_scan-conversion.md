@@ -45,8 +45,21 @@ half a pixel of the raster's edge lost half its ink. `pdf_render::sub_pixel_band
 axis-aligned rectangle thinner than a device pixel as the whole pixel line it lies in, at the
 coverage its own area there implies, and a sub-pixel stroke on a straight axis-aligned rule is
 outlined into one first. **The graphics device never had either fault**, so this is the *oracle*
-being brought up to it rather than a rule about scan conversion. A rule that is not axis-aligned is
-declined and `doc/todo/11` carries it. ADR 0226.
+being brought up to it rather than a rule about scan conversion. ADR 0226.
+
+**And since the four-hundred-and-thirty-second, the rule that is not axis-aligned** — which that
+session found was a *different sentence* failing, not the same one. The clause makes two promises
+and a diagonal separates them. "No shape ever disappears" is not at risk: a band between two of
+`tiny-skia`'s sample lines vanishes, and a band that is not parallel to them crosses one every
+`1/(4 tan θ)` pixels of its length, so a filled diagonal sliver 0.05 of a pixel thick reads 9.47 to
+10.23 of its own 10 at every angle. What failed is "[t]he area covered by painted pixels shall
+always be at least as large as the area of the original shape", and only for a **stroke**:
+`tiny-skia`'s hairline lays one pixel down per step along the line's *longer device axis*, so it
+carried `cos θ` of the rule's area — 29.3% short at 45°, at every thickness. The substitute is the
+same rule stroked one device pixel wide with the width it gave up carried in the paint's alpha
+(`pdf_render::substitute_width`), which is §10.7.4's own run of whole pixels and needs no scan
+converter of ours. `issue11473.pdf`'s three diagonal hatch swatches went 0.6768 → 0.7566 against a
+two-ladder limit of 0.752 to 0.760. ADR 0268; the boundary case it leaves is in `doc/todo/11`.
 
 **And since the three-hundred-and-sixty-eighth, *where* that mark goes.** NOTE 1 of the same
 subclause says a filling region "is considered to intersect every pixel through which its boundary
@@ -65,8 +78,12 @@ departure explains and one it does not:
 - `CONTRADICTED_ANTIALIASED_EDGES` — `colors.pdf` pages 1 and 2: every renderer agrees about the
   swatch interiors to the byte and sits on a spectrum of edge softness. The pair the gate votes
   with is the pair nearest the clause, and we are furthest. The departure explains it whole.
-- `AMBIGUOUS_SUB_PIXEL_LINE_WORK` — `22060_A1_01_Plans.pdf`: an A1 drawing that is *all* strokes
-  under a pixel wide, so the departure moves the whole picture. Ink 10.00 ours, 10.27 `hayro`,
+- `AMBIGUOUS_SUB_PIXEL_LINE_WORK` — `22060_A1_01_Plans.pdf`: an A1 drawing whose four floor plans
+  are **72 sampled images**, not strokes, which the four-hundred-and-thirty-second session counted
+  after four sessions of this file calling it "*all* strokes under a pixel wide". Its 26 sub-pixel
+  strokes carry 98% of their length within 5° of a device axis. So the departure that moves this
+  picture is the *image* paragraph's — ADR 0025's area averaging — and not the shape rule's, which
+  is why ADR 0226 could not move it and ADR 0268 moves it by 0.06%. Ink 10.00 ours, 10.27 `hayro`,
   10.59 `ghostscript` against 13.49 `poppler` and 13.75 `mupdf`; mean absolute difference from
   our render 571 for `hayro` against 1478, 1749 and 2091 — closer to the other renderer that
   anti-aliases at true coverage than the closest pair of references are to each other (1081).

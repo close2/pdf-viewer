@@ -30,6 +30,19 @@
 //!   full mark would fight the anti-aliasing departure on ordinary thin shapes, and this section
 //!   is what says whether it does. It reads a step at the boundary if it ever starts to.
 //!
+//! **A fourth since the four-hundred-and-thirty-second, and it is the one ADR 0226 left open**: the
+//! same sliver *turned*, as a fill and as a stroke, at seven angles and six thicknesses. A
+//! diagonal lies in no single row, so its answer is the ink over the whole raster against the
+//! band's own area — and that comparison is what found the defect ADR 0268 answers: `tiny-skia`'s
+//! hairline lays down one pixel per step along the line's *longer* device axis, so it carried
+//! `cos θ` of a turned rule's area, 29.3% short at 45° and at every thickness rather than only
+//! near the quantum.
+//!
+//! The last two thicknesses are the boundary again, one axis over, and **the 1.00 row is a defect
+//! this instrument found and this tree has not paid**: at exactly one device pixel `tiny-skia`
+//! still chooses the hairline, so a 45° rule reads 141.42 of its own 200 where the fill of the
+//! same outline reads 177.44. `doc/todo/11` carries it.
+//!
 //! ```sh
 //! cargo run --release -p render-quorra --example sub_pixel_marks
 //! ```
@@ -121,6 +134,30 @@ fn row_ink(raster: &pdf_render::Raster, row: usize, scale: f32) -> f32 {
         total += f32::from(255 - raster.data[at]) / 255.0;
     }
     total / (to - from) as f32
+}
+
+/// The page the turned slivers are drawn on: square, so that a band of one length fits at every
+/// angle without the page's own aspect deciding which angles are measurable.
+const TURNED: Size = Size {
+    width: 320.0,
+    height: 320.0,
+};
+
+/// Half the length of every turned band, in user units.
+const REACH: f32 = 100.0;
+
+/// Ink carried by the whole raster, in units of one fully covered device pixel.
+///
+/// The measure a mark that is not axis-aligned needs: a diagonal band lies in no single row, so
+/// its answer is the sum over every pixel and is directly comparable with the band's own area in
+/// device pixels.
+fn total_ink(raster: &pdf_render::Raster) -> f32 {
+    raster
+        .data
+        .chunks_exact(4)
+        // The scenes are black on white, so darkness is coverage.
+        .map(|pixel| f32::from(255 - pixel[0]) / 255.0)
+        .sum()
 }
 
 /// Every row with ink in it, and how much.
@@ -217,6 +254,98 @@ fn main() {
                 "  {thickness:>9.2}   {name:<8}  {total:>9.4}   {thickness:>8.2}   {:>6.2}%",
                 100.0 * (total - thickness) / thickness
             );
+        }
+    }
+
+    // 4. The sliver *turned*, which is what ADR 0226 declined and `doc/todo/11` carried. A band of
+    //    fixed length and thickness at seven angles: at 0 and 90 degrees it is the axis-aligned
+    //    case the substitution takes, and every angle between is one it does not. The comparison
+    //    is total ink against the band's own area, because a diagonal lies in no single row.
+    println!();
+    println!(
+        "a turned sliver, {} units long, at scale {scale}",
+        2.0 * REACH
+    );
+    println!("  drawn as   angle   thickness   backend   total ink   its own area   error");
+    for turned in [Turn::Fill, Turn::Stroke] {
+        for degrees in [0.0_f32, 5.0, 15.0, 30.0, 45.0, 60.0, 90.0] {
+            for thickness in [0.05_f32, 0.1, 0.2, 0.5, 1.0, 2.0] {
+                let mut list = DisplayList::new(TURNED);
+                list.push(turned.command(degrees, thickness));
+                let area = 2.0 * REACH * thickness * scale * scale;
+                for (name, raster) in draw(&list, scale) {
+                    let total = total_ink(&raster);
+                    println!(
+                        "  {:<8}   {degrees:>5.0}   {thickness:>9.2}   {name:<8}  {total:>9.4}   \
+                         {area:>12.4}   {:>6.1}%",
+                        turned.label(),
+                        100.0 * (total - area) / area
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// Which of the two operators states the turned band.
+///
+/// Both are drawn because they reach the rasteriser by different routes: a fill hands it the
+/// parallelogram outright, while a stroke under a pixel wide is `tiny-skia`'s hairline case.
+#[derive(Clone, Copy)]
+enum Turn {
+    Fill,
+    Stroke,
+}
+
+impl Turn {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Fill => "fill",
+            Self::Stroke => "stroke",
+        }
+    }
+
+    /// The band of half-length [`REACH`] centred on the page at `degrees` from the x axis.
+    ///
+    /// Butt caps and a mitre join are the defaults, so the stroke's outline is exactly the
+    /// parallelogram the fill states and the two have the same area — `2 * REACH * thickness`.
+    fn command(self, degrees: f32, thickness: f32) -> Command {
+        let (sin, cos) = degrees.to_radians().sin_cos();
+        let (cx, cy) = (TURNED.width / 2.0, TURNED.height / 2.0);
+        let along = Point::new(REACH * cos, REACH * sin);
+        let ends = [
+            Point::new(cx - along.x, cy - along.y),
+            Point::new(cx + along.x, cy + along.y),
+        ];
+        match self {
+            Self::Stroke => {
+                let mut path = Path::new();
+                path.push(PathCommand::MoveTo(ends[0]));
+                path.push(PathCommand::LineTo(ends[1]));
+                stroke(path, thickness)
+            }
+            Self::Fill => {
+                let across = Point::new(-thickness / 2.0 * sin, thickness / 2.0 * cos);
+                let mut path = Path::new();
+                path.push(PathCommand::MoveTo(Point::new(
+                    ends[0].x + across.x,
+                    ends[0].y + across.y,
+                )));
+                path.push(PathCommand::LineTo(Point::new(
+                    ends[1].x + across.x,
+                    ends[1].y + across.y,
+                )));
+                path.push(PathCommand::LineTo(Point::new(
+                    ends[1].x - across.x,
+                    ends[1].y - across.y,
+                )));
+                path.push(PathCommand::LineTo(Point::new(
+                    ends[0].x - across.x,
+                    ends[0].y - across.y,
+                )));
+                path.push(PathCommand::Close);
+                fill(path)
+            }
         }
     }
 }

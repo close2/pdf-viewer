@@ -313,6 +313,28 @@ impl Transform {
         f32::midpoint(sum, discriminant.sqrt()).max(0.0).sqrt()
     }
 
+    /// Returns the smallest factor by which this transform lengthens a vector.
+    ///
+    /// The linear part's *smaller* singular value, and [`Self::max_stretch`]'s companion. Where
+    /// that one answers how wide a stroke of a given width can become — §8.4.3.2's question —
+    /// this one answers how narrow, which is the question a caller asks when it needs a shape
+    /// that is at least one device pixel across **whichever way it runs**:
+    /// [`crate::substitute_width`] is stated as its reciprocal.
+    ///
+    /// For a similarity — which is what a page transform is — the two are equal, and their
+    /// product is `determinant().abs()` for any transform at all.
+    #[must_use]
+    pub fn min_stretch(self) -> f32 {
+        // The same quadratic [`Self::max_stretch`] derives, taking its smaller root. The
+        // clamps are that function's and for its reasons: rounding can put the discriminant a
+        // hair below zero when the roots coincide, and the root itself a hair below zero when
+        // the transform is singular.
+        let sum = self.a * self.a + self.b * self.b + self.c * self.c + self.d * self.d;
+        let determinant = self.determinant();
+        let discriminant = (sum * sum - 4.0 * determinant * determinant).max(0.0);
+        f32::midpoint(sum, -discriminant.sqrt()).max(0.0).sqrt()
+    }
+
     /// Returns the transform that undoes this one.
     ///
     /// `None` when the transform collapses geometry to a line or a point, which has no
@@ -891,6 +913,53 @@ mod invert_tests {
             assert!(
                 worst >= bound * 0.999,
                 "{transform:?}: the bound {bound} is not reached; the worst was {worst}"
+            );
+        }
+    }
+
+    /// `min_stretch` is the smallest factor a vector's length is multiplied by.
+    ///
+    /// The mirror of the test above and checked the same way — the minimum over a fine sweep of
+    /// directions must reach the returned value and never fall below it — because the property
+    /// its caller relies on is the *floor*: a substitute shape stated at `1 / min_stretch` is at
+    /// least one device pixel across whichever way the path runs.
+    #[test]
+    fn min_stretch_floors_every_direction() {
+        let cases = [
+            Transform::scale(3.0, 3.0),
+            Transform::scale(4.0, 0.25),
+            Transform::new(0.866_025_4, 0.5, -0.5, 0.866_025_4, 0.0, 0.0),
+            Transform::new(1.0, 0.0, 2.0, 1.0, 0.0, 0.0),
+            Transform::new(2.0, 0.5, -0.25, 3.0, 10.0, -4.0),
+        ];
+        for transform in cases {
+            let floor = transform.min_stretch();
+            let mut least = f32::INFINITY;
+            for step in 0..3600 {
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "test code: the loop counter is under four thousand, which f32 \
+                              represents exactly"
+                )]
+                let angle = step as f32 * std::f32::consts::TAU / 3600.0;
+                let origin = transform.apply(Point::new(0.0, 0.0));
+                let tip = transform.apply(Point::new(angle.cos(), angle.sin()));
+                least = least.min((tip.x - origin.x).hypot(tip.y - origin.y));
+            }
+            assert!(
+                least >= floor * 0.999,
+                "{transform:?}: a direction stretched by only {least}, below the floor {floor}"
+            );
+            assert!(
+                least <= floor * 1.000_1,
+                "{transform:?}: the floor {floor} is not reached; the least was {least}"
+            );
+            // The two singular values multiply to the determinant, for every transform.
+            let product = floor * transform.max_stretch();
+            assert!(
+                (product - transform.determinant().abs()).abs() < 1e-3 * product.max(1.0),
+                "{transform:?}: {product} against a determinant of {}",
+                transform.determinant()
             );
         }
     }

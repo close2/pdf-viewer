@@ -65,6 +65,20 @@ const RIGHT: f32 = 90.0;
 /// thinnest) or lost to a quantum would.
 const TOLERANCE: f32 = 0.08;
 
+/// The same, for a rule that is not axis-aligned, and it is looser for a reason that is measured.
+///
+/// The turned ladder's worst residual after ADR 0268 is **11.3%**, at exactly 45°, and it is not
+/// this construction's: `tiny-skia` draws the plain fill of a *one-device-pixel* band at 45° at
+/// 177.44 of its own 200 — its scan converter quantises that band's per-row run to quarter pixels
+/// — so the substitute inherits it whole and no rule written here could be held tighter. Away from
+/// that knife edge the worst is 9.5%, at 0.05 of a pixel where an eight-bit raster has one level
+/// to spend.
+///
+/// 14% is therefore what the measurement allows, and it still catches the defect the test exists
+/// for by a factor of two: the hairline it replaced carried `cos θ` of the rule's area, **29.3%
+/// short at 45°** and short at every thickness under a pixel rather than only near the quantum.
+const TURNED_TOLERANCE: f32 = 0.14;
+
 /// A rule of the given thickness, filled.
 fn sliver(thickness: f32) -> DisplayList {
     let mut path = Path::new();
@@ -79,6 +93,48 @@ fn sliver(thickness: f32) -> DisplayList {
         path: Arc::new(path),
         transform: Transform::IDENTITY,
         fill_rule: FillRule::NonZero,
+        paint: Paint::Solid(Color::BLACK),
+        clip: None,
+        mask: None,
+        blend: BlendMode::Normal,
+    });
+    list
+}
+
+/// The square page a turned rule is drawn on, so that one length fits at every angle.
+const TURNED: Size = Size {
+    width: 320.0,
+    height: 320.0,
+};
+
+/// Half the length of every turned rule, in user units.
+const REACH: f32 = 100.0;
+
+/// A rule of the given width at `degrees` from the x axis, centred on [`TURNED`].
+///
+/// Butt caps are `Stroke::default()`'s, so the mark is exactly the parallelogram its width and
+/// length state and its area is `2 * REACH * width` — no cap or join adds to it.
+fn turned_rule(degrees: f32, width: f32) -> DisplayList {
+    let (sin, cos) = degrees.to_radians().sin_cos();
+    let (cx, cy) = (TURNED.width / 2.0, TURNED.height / 2.0);
+    let mut path = Path::new();
+    path.push(PathCommand::MoveTo(Point::new(
+        cx - REACH * cos,
+        cy - REACH * sin,
+    )));
+    path.push(PathCommand::LineTo(Point::new(
+        cx + REACH * cos,
+        cy + REACH * sin,
+    )));
+
+    let mut list = DisplayList::new(TURNED);
+    list.push(Command::Stroke {
+        path: Arc::new(path),
+        transform: Transform::IDENTITY,
+        stroke: Stroke {
+            width,
+            ..Stroke::default()
+        },
         paint: Paint::Solid(Color::BLACK),
         clip: None,
         mask: None,
@@ -123,20 +179,48 @@ fn ink(raster: &pdf_render::Raster) -> f32 {
     total / (to - from) as f32
 }
 
+/// Total ink over the whole raster, in units of one fully covered device pixel.
+///
+/// What a turned rule needs: it lies in no run of rows, so [`ink`]'s normalisation by the mark's
+/// own columns says nothing about it, and the quantity to compare with its area is the sum over
+/// every pixel.
+fn total_ink(raster: &pdf_render::Raster) -> f32 {
+    raster
+        .data
+        .chunks_exact(4)
+        .map(|pixel| f32::from(255 - pixel[0]) / 255.0)
+        .sum()
+}
+
 /// Both backends' ink for one scene, or nothing where this machine has no adapter.
-fn both(list: &DisplayList) -> Option<[(&'static str, f32); 2]> {
-    let target = TargetSpec::for_page(list, 1.0, 1 << 30).expect("a 100 x 320 page");
+///
+/// `measure` is the scene's own reading of its raster: [`ink`] for a mark that lies in one run of
+/// rows, [`total_ink`] for one that does not.
+fn both(
+    list: &DisplayList,
+    measure: fn(&pdf_render::Raster) -> f32,
+) -> Option<[(&'static str, f32); 2]> {
+    let target = TargetSpec::for_page(list, 1.0, 1 << 30).expect("a page of a stated size");
     let mut gpu = QuorraRasterizer::new_headless().ok()?;
     let processor = render_cpu::CpuRasterizer::new()
         .rasterize(list, target)
         .expect("a scene of one mark");
     let device = gpu.rasterize(list, target).expect("a scene of one mark");
-    Some([("processor", ink(&processor)), ("device", ink(&device))])
+    Some([
+        ("processor", measure(&processor)),
+        ("device", measure(&device)),
+    ])
 }
 
 /// What both backends owe a mark: some ink, and the amount its own area implies.
-fn agrees_with_the_area(list: &DisplayList, area: f32, what: &str) {
-    let Some(drawn) = both(list) else {
+fn agrees_with_the_area(
+    list: &DisplayList,
+    measure: fn(&pdf_render::Raster) -> f32,
+    tolerance: f32,
+    area: f32,
+    what: &str,
+) {
+    let Some(drawn) = both(list, measure) else {
         println!("skipped: no adapter on this machine");
         return;
     };
@@ -147,7 +231,7 @@ fn agrees_with_the_area(list: &DisplayList, area: f32, what: &str) {
         );
         let error = (drawn - area).abs() / area;
         assert!(
-            error < TOLERANCE,
+            error < tolerance,
             "{what} drew {drawn:.4} of ink on the {backend}, {:.1}% from its own area of {area} \
              — run `cargo run --release -p render-quorra --example sub_pixel_marks` for both \
              backends' ladders",
@@ -162,6 +246,8 @@ fn a_sliver_thinner_than_a_quantum_carries_its_area_on_both_backends() {
     for thickness in [0.05_f32, 0.1, 0.2, 0.5, 1.0] {
         agrees_with_the_area(
             &sliver(thickness),
+            ink,
+            TOLERANCE,
             thickness,
             &format!("a {thickness}-unit sliver"),
         );
@@ -187,8 +273,35 @@ fn a_sub_pixel_rule_at_the_rasters_edge_keeps_its_ink_on_both_backends() {
     ] {
         agrees_with_the_area(
             &rule(y, 0.1),
+            ink,
+            TOLERANCE,
             0.1,
             &format!("a 0.1-unit rule {where_it_is}"),
         );
+    }
+}
+
+/// A sub-pixel rule that is **not** axis-aligned carries its own area too, at every angle.
+///
+/// The residual ADR 0226 left and `doc/todo/11` carried, and it was never the coverage quantum:
+/// `tiny-skia`'s hairline lays one pixel down per step along the line's *longer* device axis, so
+/// a rule at `θ` from the nearer axis carried `cos θ` of its area — 29.3% short at 45°, at every
+/// thickness under a pixel. ADR 0268 draws such a rule one device pixel wide with the width it
+/// gave up in the paint's alpha, which conserves the ink at every angle.
+///
+/// 0 and 90 degrees are in the list deliberately: they are the axis-aligned case the exact
+/// substitution takes, so the ladder crosses from one construction to the other without a step.
+#[test]
+fn a_turned_sub_pixel_rule_carries_its_area_on_both_backends() {
+    for degrees in [0.0_f32, 5.0, 15.0, 30.0, 45.0, 60.0, 90.0] {
+        for width in [0.05_f32, 0.1, 0.2, 0.5] {
+            agrees_with_the_area(
+                &turned_rule(degrees, width),
+                total_ink,
+                TURNED_TOLERANCE,
+                2.0 * REACH * width,
+                &format!("a {width}-unit rule at {degrees} degrees"),
+            );
+        }
     }
 }

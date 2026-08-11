@@ -90,6 +90,37 @@
 //! The one this module is deliberately silent about is the **stroke** whose outline is not a
 //! rectangle: a round cap ends a rule with an arc, and such a path is declined here and drawn by
 //! whatever the backend would otherwise have done. ADR 0226.
+//!
+//! # The turned rule, and why it needs no scan converter of its own
+//!
+//! Everything above is stated for an axis-aligned rectangle, and until the
+//! four-hundred-and-thirty-second session a sub-pixel *stroke* that was not one kept
+//! `tiny-skia`'s hairline. Measuring what that hairline draws — `sub_pixel_marks`'s fourth
+//! section, a 200-unit band at seven angles — says it is not a placement approximation but a
+//! systematic deficit, and §10.7.4 names the direction it goes in:
+//!
+//! > The area covered by painted pixels shall always be at least as large as the area of the
+//! > original shape.
+//!
+//! The hairline lays down **one pixel per step along the line's longer device axis**, so a band
+//! of length `L` at `θ` from the nearer axis carries `L · cos θ · w` of ink where its area is
+//! `L · w`: 3.4% short at 15°, 13.4% at 30° and **29.3% at 45°**, at every thickness under a
+//! pixel rather than only near the quantum.
+//!
+//! What answers it is [`substitute_width`] and needs none of the machinery above. §10.7.4's own
+//! construction for a shape too thin to measure is a run of *whole pixels* — NOTE 1 and the
+//! EXAMPLE beside it say so for the degenerate case, and [`crate::collapsed`] already draws it —
+//! so the substitute for a turned rule is **the same rule stroked one device pixel wide**, with
+//! the width it gave up carried in the paint's alpha. The ink is then exactly the shape's area
+//! for every angle, because widening by `k` and scaling the alpha by `1/k` cancel; nothing is
+//! snapped, since the band stays centred on the path at the fractional position the document put
+//! it; and at one device pixel the factor is 1, so the construction is the identity at the
+//! boundary where it stops.
+//!
+//! It is *less* exact than the substitution above, which is why that one is still tried first: a
+//! band one pixel wide spreads its ink over a pixel where a band of the true width spreads it over
+//! `w`, and at the raster's edge the half that falls outside is still lost. What it replaces is a
+//! construction that was wrong about the total as well as the placement. ADR 0268.
 
 use crate::collapsed::{Extent, subpath_extents};
 use crate::geom::{Path, PathCommand, Point, Transform};
@@ -171,6 +202,29 @@ pub fn sub_pixel_bands(
         }
     }
     Some(bands)
+}
+
+/// The stroke width, in the path's own space, at which a mark is one whole device pixel across
+/// whichever way the path runs — ISO 32000-2 §10.7.4's substitute for a rule too thin to measure.
+///
+/// The reciprocal of [`Transform::min_stretch`], and the module comment argues why that is the
+/// right one of the two singular values: a substitute narrower than a device pixel anywhere along
+/// its length would be handed back to the quantum this whole module exists to get around. For a
+/// similarity — every page transform — it is [`crate::thinnest_line`] to the last bit, and the two
+/// differ only where the transform stretches the axes by different factors, where this one is the
+/// larger. What that costs is sharpness along the stretched axis and it costs no ink at all: a
+/// caller scales the paint's alpha by `width / substitute_width`, and widening by a factor while
+/// dividing the alpha by it leaves the area exactly where it was.
+///
+/// Returns `None` where the transform is singular or not finite, for [`crate::thinnest_line`]'s
+/// reason: a path collapsed to a point has no space of its own left for a width to be stated in.
+#[must_use]
+pub fn substitute_width(to_device: Transform) -> Option<f32> {
+    let floor = to_device.min_stretch();
+    if !floor.is_finite() || floor <= 0.0 {
+        return None;
+    }
+    Some(1.0 / floor)
 }
 
 /// Whether every subpath of a path has no extent along one axis, so that stroking it produces
@@ -700,6 +754,37 @@ mod tests {
                 FillRule::NonZero
             ),
             None
+        );
+    }
+
+    /// The turned rule's substitute is one device pixel across, and for a page transform that is
+    /// [`crate::thinnest_line`]'s answer exactly.
+    #[test]
+    fn the_substitute_is_one_device_pixel_wide_under_a_similarity() {
+        for scale in [1.0_f32, 0.5, 4.0] {
+            let at = Transform::scale(scale, scale);
+            assert_eq!(
+                super::substitute_width(at),
+                crate::thinnest_line(at),
+                "a similarity stretches every direction alike, so the two readings agree"
+            );
+        }
+        assert_eq!(super::substitute_width(Transform::scale(0.0, 0.0)), None);
+    }
+
+    /// Where the axes are stretched by different factors the substitute takes the *smaller*, so
+    /// that it is a whole pixel across whichever way the rule runs.
+    #[test]
+    fn an_anisotropic_transform_widens_the_substitute_rather_than_narrowing_it() {
+        let at = Transform::scale(4.0, 0.25);
+        let width = super::substitute_width(at).expect("a nonsingular transform");
+        assert!(
+            (width - 4.0).abs() < 1e-4,
+            "the y axis shrinks by four, so a whole pixel there is four path units: {width}"
+        );
+        assert!(
+            width > crate::thinnest_line(at).expect("a nonsingular transform"),
+            "the reading §8.4.3.2 asks for is the narrower of the two"
         );
     }
 

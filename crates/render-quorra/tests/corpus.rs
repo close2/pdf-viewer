@@ -197,7 +197,17 @@ const REFUSED: [&str; 11] = [
 /// quorra drew the area. Once the processor draws the area too there is nothing left for two
 /// rasterisers to distribute differently, which is the same sentence `issue4260_reduced.pdf`
 /// left on.
-const DIFFERS_AT_THE_EDGES: [&str; 24] = [
+///
+/// **And a fourth left in the four-hundred-and-thirty-second, on the same sentence and the other
+/// half of the shape.** `issue12810.pdf` is a 1728 × 2592 drawing whose page one states **34 787
+/// strokes thinner than a device pixel**, 25 406 of them *not* axis-aligned, and 62.6% of their
+/// 173 316 pixels of length lies within 40° to 50° of an axis — which is where `tiny-skia`'s
+/// hairline was at its worst, laying one pixel down per step along the line's *longer* device axis
+/// and so carrying `cos θ` of the rule's area. Weighted by length that was **19.4% of the page's
+/// stroke ink**, and quorra was drawing all of it. Once the processor draws a turned sub-pixel rule
+/// one device pixel wide with the width it gave up in the paint's alpha (ADR 0268), the page's own
+/// ink goes 5.0782 → 5.1550 and the two backends have nothing left to differ about.
+const DIFFERS_AT_THE_EDGES: [&str; 23] = [
     "bug1885505.pdf",
     "bug1992868.pdf",
     "chrome-text-selection-markedContent.pdf",
@@ -205,7 +215,6 @@ const DIFFERS_AT_THE_EDGES: [&str; 24] = [
     "extgstate.pdf",
     "inks_basic.pdf",
     "issue11473.pdf",
-    "issue12810.pdf",
     "issue14415.pdf",
     "issue14438.pdf",
     "issue15012.pdf",

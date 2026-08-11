@@ -2456,10 +2456,20 @@ const AMBIGUOUS_TILING_CELL_CLIP: [&str; 1] = ["issue16038.pdf page 1"];
 /// Ambiguous, and it is a page made almost entirely of sub-pixel line work.
 ///
 /// `22060_A1_01_Plans.pdf` is an A1 architectural drawing rendered onto 842×1191 pixels: four
-/// floor plans, their hatching, their dimension lines and their annotations, nearly all of it
-/// strokes narrower than a device pixel. At 13.32 bounds from the nearest reference it was
-/// second on the undiagnosed ranking, and the whole of the difference is how heavy a line
-/// thinner than a pixel comes out.
+/// floor plans, their hatching, their dimension lines and their annotations. At 13.32 bounds from
+/// the nearest reference it was second on the undiagnosed ranking, and the whole of the difference
+/// is how heavy a line thinner than a pixel comes out.
+///
+/// **This paragraph said "nearly all of it strokes narrower than a device pixel" for
+/// forty-three sessions and the four-hundred-and-thirty-second counted the page instead.** Its
+/// display list is 136 commands: **72 sampled images**, whose combined device footprint is
+/// 1 524 354 px² on a 250 916-pixel raster, 24 fills and 40 strokes. Twenty-six of the strokes are
+/// sub-pixel and **98% of their length lies within 5° of a device axis**, where a hairline's
+/// deficit is 0.3%. So the departure that moves this picture is §10.7.4's *image* paragraph and
+/// ADR 0025's area averaging, not its shape rule — which is why ADR 0226 left it unmoved to four
+/// decimals and ADR 0268 moves it by 0.06%, and why `doc/todo/11` named it as the witness for a
+/// residual it was never a witness to. The clause reading below is unaffected: the file's line
+/// weights are what they are, and every renderer here is drawing the same images.
 ///
 /// # What the clause determines, and it is not in our favour
 ///
@@ -2609,6 +2619,15 @@ const AMBIGUOUS_TILING_CELL_CLIP: [&str; 1] = ["issue16038.pdf page 1"];
 /// which `pdf_render::sub_pixel` declines. The 4× and 8× rungs cannot have moved and were not
 /// re-measured: at those scales a 0.3985-unit stroke is 1.6 and 3.2 device pixels wide, and the
 /// rule applies only under one.
+///
+/// **And this is the page that pays for the four-hundred-and-thirty-second session**, whose
+/// subject is exactly those three diagonal swatches. `tiny-skia`'s hairline lays one pixel down
+/// per step along the line's *longer* device axis, so a rule at 45° carried `cos 45°` of its own
+/// area; ADR 0268 draws such a rule one device pixel wide with the width it gave up in the paint's
+/// alpha. Measured with `examples/render_at` at 1×, the page's ink goes **0.6768 → 0.7566** —
+/// against our own 8× rung of 0.7516 and the two references' 0.7543 and 0.7604, so ten per cent
+/// under the geometry to a twentieth of a level over it. The *grid* swatch does not move, because
+/// it is the one ADR 0226 already took.
 ///
 /// Not `AMBIGUOUS_TILED_STROKES`, though it is one document over: that group is about
 /// `poppler`'s ladder *drifting* on a tiling pattern rather than converging, and here its ladder
@@ -4761,7 +4780,7 @@ const AMBIGUOUS_STACKED_SCREEN_UNDER_MASKS: [&str; 0] = [];
 ///                    limit             ours     hayro    poppler   mupdf    ghostscript
 /// issue12963 p8     5.6177 / 5.6180   5.601    5.841    5.921    5.630    5.488
 /// two_pages p2      1.0448 / 1.0457   1.032    1.029    1.070    1.073    1.063
-/// issue12295 p1     7.4106 / 6.9985   8.792   12.744   11.036   10.504   14.763
+/// issue12295 p1     7.4106 / 6.9985   7.547   12.744   11.036   10.504   14.763
 /// ```
 ///
 /// On the first two the ladders agree to four figures and ours is nearest the geometry — 0.017
@@ -4769,11 +4788,25 @@ const AMBIGUOUS_STACKED_SCREEN_UNDER_MASKS: [&str; 0] = [];
 ///
 /// **`issue12295.pdf` is the extreme of this group's standing subject and is worth its numbers.**
 /// The two ladders themselves are 0.41 apart, so there is no exact limit, but both are near 7
-/// and **all five renderers are above them at the page's own scale** — ours by 1.4, `mupdf` by
-/// 3.1, `poppler` by 3.6, `hayro` by 5.3, `ghostscript` by 7.4. A page whose marks are thin
-/// enough that every renderer paints one to seven levels more than their area is §10.7.4 as
-/// written on five implementations at once, and ADR 0025's departure is why ours is the
-/// smallest of the five overshoots rather than the largest.
+/// and **all five renderers are above them at the page's own scale** — `mupdf` by 3.1, `poppler`
+/// by 3.6, `hayro` by 5.3, `ghostscript` by 7.4. A page whose marks are thin enough that every
+/// renderer paints three to seven levels more than their area is §10.7.4 as written on five
+/// implementations at once, and ADR 0025's departure is why ours is the smallest of the five
+/// overshoots rather than the largest.
+///
+/// **Ours read 8.792 until the four-hundred-and-thirty-second session and now reads 7.547**, 1.4
+/// levels over its own limit to 0.55, which is over half of what separated us from the geometry.
+/// The page states **65 859 strokes thinner than a device pixel**, every one of them round-capped
+/// and 91.8% of them shorter than one device pixel — median length 0.145 — and ADR 0268 draws such
+/// a rule as its swept body one device pixel wide, butt-capped, with the width it gave up in the
+/// paint's alpha. Two round caps at one device pixel would be `π/4` of a pixel against a body of
+/// 0.145, which is the version of that rule this session measured and did not ship. Our own ladder
+/// at 8× is **6.934 before and after**, which is the check rather than a spare number: at that
+/// scale the strokes are no longer sub-pixel and the rule may not touch them.
+///
+/// `doc/todo/00`'s step-7 sweep reads it the other way and its own note already says why: this page
+/// went −1.712 → **−2.956** of our ink minus the lightest reference's, because moving toward a
+/// geometry every reference overpaints is moving away from all of them.
 /// # A fourth, in the two-hundred-and-sixty-eighth, and the tightest limit the bucket has
 ///
 /// `issue12963.pdf` page 7 is page 8's neighbour and says the same thing more exactly: `poppler`
