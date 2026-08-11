@@ -330,11 +330,12 @@ fn permissions_come_from_the_p_entry() {
 
 /// §7.6.6, on the two documents where only an attachment is encrypted.
 ///
-/// Both write `/StmF /Identity /StrF /Identity` with a `StdCF` reached only through `/EFF`,
-/// and neither authenticates against the empty password — nor against any password, by
-/// three independent implementations of Algorithm 2.A. The clause binds the failure to the
-/// data rather than to the file: authorization is needed "before the stream can be
-/// accessed", so the page displays and the attachment does not.
+/// Both write `/StmF /Identity /StrF /Identity` with a `StdCF` the embedded file stream
+/// reaches through its own `/Crypt` specifier, and name the same filter in Table 20's `/EFF`
+/// beside it; and neither authenticates against the empty password — nor against any
+/// password, by three independent implementations of Algorithm 2.A. The clause binds the
+/// failure to the data rather than to the file: authorization is needed "before the stream
+/// can be accessed", so the page displays and the attachment does not.
 #[test]
 fn a_document_whose_attachment_alone_is_encrypted_still_opens() {
     for name in ["encrypted-attachment.pdf", "auth-event-ef-open.pdf"] {
@@ -360,6 +361,111 @@ fn a_document_whose_attachment_alone_is_encrypted_still_opens() {
             );
         }
     }
+}
+
+/// Table 20's `/EFF`, which decides an embedded file stream that names no filter of its own.
+///
+/// ISO 32000-2 §7.6.2, Table 20:
+///
+/// > The name of the crypt filter that shall be used when encrypting embedded file streams
+/// > that do not have their own crypt filter specifier
+///
+/// and, for the case this test's second half pins:
+///
+/// > If this entry is not present, and the embedded file stream does not contain a crypt
+/// > filter specifier, the stream shall be encrypted using the default stream crypt filter
+/// > specified by StmF .
+///
+/// # Why the fixture is a corpus document with an entry deleted
+///
+/// The two files above state both routes to `StdCF` at once — the stream's own `/Crypt`
+/// specifier *and* `/EFF` — so the reader's answer is the same whether or not it reads the
+/// second, and no document in the corpus states `/EFF` alone. Blanking the specifier with
+/// spaces leaves every byte offset in the file where the cross-reference table says it is,
+/// so what is opened is a real producer's document with exactly one entry removed, and the
+/// only thing that can decide its attachment is the entry this test is about.
+///
+/// Both halves of the sentence are asserted, because only the pair distinguishes reading
+/// `/EFF` from refusing every attachment: with `/EFF` the stream takes `StdCF`, whose
+/// AES-256 needs a key this document authenticates nobody for, so §7.6.6 refuses it; with
+/// `/EFF` blanked as well the stream falls back to `/StmF`, which is `/Identity` here, and
+/// the bytes come back exactly as the file wrote them.
+#[test]
+fn an_embedded_file_stream_with_no_crypt_specifier_takes_the_eff_filter() {
+    let Some(original) = corpus_bytes("encrypted-attachment.pdf") else {
+        return;
+    };
+    // The ciphertext object 8 holds, read straight out of the file so that the assertions
+    // below compare against the document's own bytes rather than against a count.
+    let ciphertext = {
+        let at = find(&original, b"8 0 obj")
+            + original[find(&original, b"8 0 obj")..]
+                .windows(7)
+                .position(|window| window == b"stream\n")
+                .expect("object 8 is a stream")
+            + "stream\n".len();
+        original[at..at + 784].to_vec()
+    };
+
+    let without_specifier = blank(
+        &original,
+        b"/Filter [ /Crypt ]\n/DecodeParms [ <<\n/Name /StdCF\n>> ]\n",
+    );
+    let document = Document::open(without_specifier).expect("the body is not encrypted");
+    let stream = document
+        .get(pdf_syntax::ObjectId::new(8, 0))
+        .as_stream()
+        .expect("object 8 is the embedded file stream")
+        .clone();
+    assert!(
+        stream.data.is_empty(),
+        "/EFF names StdCF, whose key this document authenticates nobody for, so §7.6.6 \
+         refuses the stream rather than handing back its ciphertext"
+    );
+
+    let without_either = blank(
+        &blank(
+            &original,
+            b"/Filter [ /Crypt ]\n/DecodeParms [ <<\n/Name /StdCF\n>> ]\n",
+        ),
+        b"/EFF /StdCF\n",
+    );
+    let document = Document::open(without_either).expect("the body is not encrypted");
+    let stream = document
+        .get(pdf_syntax::ObjectId::new(8, 0))
+        .as_stream()
+        .expect("object 8 is the embedded file stream")
+        .clone();
+    assert_eq!(
+        &*stream.data,
+        &ciphertext[..],
+        "with no /EFF the stream takes /StmF, which is /Identity, so its bytes pass through"
+    );
+}
+
+/// The offset of `needle` in `haystack`, which the fixtures above require to exist.
+fn find(haystack: &[u8], needle: &[u8]) -> usize {
+    haystack
+        .windows(needle.len())
+        .position(|window| window == needle)
+        .unwrap_or_else(|| {
+            panic!(
+                "the fixture should contain {}",
+                String::from_utf8_lossy(needle)
+            )
+        })
+}
+
+/// Replaces one occurrence of `entry` with spaces, leaving every byte offset unchanged.
+///
+/// White space between a dictionary's entries is what §7.2.3 makes it, so a blanked entry is
+/// a dictionary that never held it — and the cross-reference table still points at the
+/// objects it did before.
+fn blank(bytes: &[u8], entry: &[u8]) -> Vec<u8> {
+    let at = find(bytes, entry);
+    let mut out = bytes.to_vec();
+    out[at..at + entry.len()].fill(b' ');
+    out
 }
 
 /// A document this reader cannot decrypt says so, rather than drawing noise.

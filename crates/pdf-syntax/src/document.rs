@@ -673,6 +673,14 @@ impl Document {
     /// > All streams in the document, except for cross-reference streams … or streams that
     /// > have a Crypt entry in their Filter array …, shall be decrypted by the security
     /// > handler, using this crypt filter.
+    ///
+    /// An embedded file stream (§7.11.4) is the one kind with a default of its own, Table
+    /// 20's `/EFF`, and the order below is the entry's own: it applies to embedded file
+    /// streams "that do not have their own crypt filter specifier", so the `/Crypt` filter
+    /// is asked first and `/EFF` decides what is left. §7.6.6 puts a related file under the
+    /// same filter — "related files ( RF ) shall use the same crypt filter as the embedded
+    /// file ( EF )" — which holds here by construction, since both are `/Type
+    /// /EmbeddedFile` streams and neither is reached by any other route.
     fn stream_method(&self, encryption: &Encryption, dict: &Dictionary) -> Method {
         let stream_type = self
             .get_key(dict, "Type")
@@ -696,6 +704,10 @@ impl Document {
                 .decode_parms(dict, index)
                 .and_then(|parms| self.get_key(&parms, "Name").as_name().cloned());
             return named.map_or(Method::Identity, |name| encryption.named_method(&name));
+        }
+
+        if stream_type.as_deref() == Some(b"EmbeddedFile") {
+            return encryption.embedded_file_method();
         }
 
         encryption.stream_method()

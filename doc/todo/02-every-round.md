@@ -19,7 +19,7 @@ features no file exercises.
 ```sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets      # must be silent of lints
-cargo nextest run --workspace               # 1614 tests, 11 skipped
+cargo nextest run --workspace               # 1616 tests, 11 skipped
 cargo test --workspace --doc                # the one doctest nextest does not run
 cargo build --profile gates -p pdf-sandbox --bins   # trap 10: Cargo will not do this for you
 cargo test  --profile gates -p pdf-model      --test corpus          -- --ignored --nocapture
@@ -143,7 +143,10 @@ fixture in `transparency_groups` put in either of two places — and printed **1
 four-hundred-and-forty-first added **four and removed one**, a net **three** — three fixtures in
 `transparency_groups` held to §11.3.5.3's own pseudocode, replacing the refusal test they make
 false, and one in `render-cpu`'s `blend` for the identity that closed the row — **and the gate
-printed 1614**, so this line was not behind for the eighth round running.
+printed 1614**, so this line was not behind for the eighth round running. The four-hundred-and-forty-second
+  added **two** — one in `pdf-syntax`'s `encryption` for Table 20's `/EFF` on an embedded file stream
+  and one in `pdf-model`'s `annotations` for §12.5.6.13's `/Path` — **and the gate printed 1616**, so
+  this line was not behind for the ninth.
 - **One of those eighteen runs a C compiler**, and it is the only gate in this sequence that does.
   `viewer-ffi::a_c_program_drives_the_abi` builds `crates/viewer-ffi/c/open_a_page.c` against the
   crate's own header with `-Wall -Wextra -Werror`, links it against the `cdylib` — which it asks

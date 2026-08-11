@@ -1177,7 +1177,14 @@ impl Quad {
 ///
 /// Straight lines, then — the clause offers the choice outright, and a curve fitted through a
 /// digitiser's own samples would be this module inventing smoothing the document did not ask
-/// for. A `/Path` (PDF 2.0) supersedes `/InkList` and carries its own curves.
+/// for.
+///
+/// A `/Path` (PDF 2.0) is drawn in preference to `/InkList`, and **that is a choice rather
+/// than Table 185's rule**: §12.5.6.9's Table 181 makes `/Vertices` "(Required unless a Path
+/// key is present, in which case it shall be ignored)" and Table 185 states no such ordering
+/// for `/InkList`, which it simply marks "(Required)". A file writing both describes one
+/// scribble twice, so the entry that can carry curves wins and the page is not marked twice.
+/// `an_ink_annotations_path_is_drawn_and_outranks_its_ink_list` is where that is recorded.
 fn ink(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Outcome {
     let border = Border::read(document, annotation, annotation, "C")?;
     if !border.strokes() {
@@ -3768,8 +3775,10 @@ fn polyline(stream: &mut Stream, vertices: &[[f32; 2]], closed: bool) {
 /// Table 181: "An array of n arrays, each supplying the operands for a path building operator
 /// (m, l or c). ... The first array shall be of length 2 and specifies the operand of a moveto
 /// operator ... Subsequent arrays of length 2 specify the operands of lineto operators. Arrays
-/// of length 6 specify the operands for curveto operators." A `/Path` supersedes `/Vertices`
-/// and `/InkList`, which the same tables say shall be ignored when it is present.
+/// of length 6 specify the operands for curveto operators." A `/Path` supersedes §12.5.6.9's
+/// `/Vertices`, which Table 181 says "shall be ignored" where it is present — and it is drawn
+/// ahead of §12.5.6.13's `/InkList` too, which **Table 185 does not say**: see [`ink`] for why
+/// that one is this crate's choice rather than a rule.
 fn path(
     document: &Document,
     annotation: &Dictionary,

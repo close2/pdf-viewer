@@ -851,6 +851,62 @@ fn an_ink_annotation_is_stroked_along_its_ink_list() {
     );
 }
 
+/// PDF 2.0's `/Path` on an ink annotation, drawn as the operands Table 185 defines.
+///
+/// ISO 32000-2 §12.5.6.13, Table 185:
+///
+/// > An array of n arrays, each supplying the operands for a path building operator ( m , l
+/// > or c ). … The first array shall be of length 2 and specifies the operand of a moveto
+/// > operator which establishes a current point. Subsequent arrays of length 2 specify the
+/// > operands of lineto operators. Arrays of length 6 specify the operands for curveto
+/// > operators.
+///
+/// # The precedence here is a choice, and Table 185 does not state it
+///
+/// §12.5.6.9's Table 181 makes `/Vertices` "(Required unless a Path key is present, in which
+/// case it shall be ignored)". **Table 185 says no such thing of `/InkList`**: it is
+/// "(Required)" flatly, and `/Path` is "(Optional; PDF 2.0)" beside it, with no sentence
+/// ordering the two. So a file stating both leaves a processor to decide, and this one draws
+/// the `/Path` — the entry that can carry curves, and the same answer §12.5.6.9 is *told* to
+/// give — rather than both, which would put the scribble on the page twice. The second half
+/// of this test is what makes that choice visible rather than assumed.
+#[test]
+fn an_ink_annotations_path_is_drawn_and_outranks_its_ink_list() {
+    // A moveto, a lineto, and a curveto whose four control points are collinear, so the
+    // curve is the straight segment from (50, 20) to (80, 20) and a pixel on it is an
+    // assertion about the operands rather than about a flattening tolerance.
+    let path = "/Path [[20 20] [50 20] [60 20 70 20 80 20]]";
+    let raster = render(pdf_with(
+        &format!(
+            "<< /Type /Annot /Subtype /Ink /Rect [10 10 90 90] /F 4 /C [0 0 0] \
+             /BS << /W 2 >> {path} >>"
+        ),
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+
+    assert!(painted(&raster, 35, 20), "the lineto's segment");
+    assert!(painted(&raster, 70, 20), "the curveto's");
+    assert!(
+        !painted(&raster, 50, 60),
+        "and nothing where no operand goes"
+    );
+
+    let both = render(pdf_with(
+        &format!(
+            "<< /Type /Annot /Subtype /Ink /Rect [10 10 90 90] /F 4 /C [0 0 0] \
+             /BS << /W 2 >> /InkList [[20 80 80 80]] {path} >>"
+        ),
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+    assert!(painted(&both, 35, 20), "the /Path is drawn");
+    assert!(
+        !painted(&both, 50, 80),
+        "and the /InkList beside it is not, which is this crate's choice and not Table 185's rule"
+    );
+}
+
 /// A stored appearance stream states its own transparency; the annotation's `/CA` is ignored.
 ///
 /// Table 166 of `/CA`: it "shall not be used if the annotation has an appearance stream ... in

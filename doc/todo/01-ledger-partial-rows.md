@@ -1,15 +1,20 @@
 # Read the ledger's `partial` rows against the code
 
-Status: **standing task.** ~80 of the **248** rows have not been re-read — 29 went in the
+Status: **standing task.** ~48 of the **244** rows have not been re-read — 29 went in the
 three-hundred-and-seventy-fifth, 16 in the three-hundred-and-eighty-seventh, 11 in the
 three-hundred-and-ninety-fourth, 9 in the four-hundred-and-second, 14 in the
-four-hundred-and-thirteenth, 8 in the four-hundred-and-twenty-ninth and **30 in the
-four-hundred-and-thirty-seventh**, against a population that grew by 12 in between and has now
-fallen by 4. **Fourteen sweeps**, twelve run every round, a thirteenth run once and declined
+four-hundred-and-thirteenth, 8 in the four-hundred-and-twenty-ninth, 30 in the
+four-hundred-and-thirty-seventh and **32 in the four-hundred-and-forty-second**, against a
+population that grew by 12 in between and has now fallen by 8. **The reading list is `git blame`
+since the four-hundred-and-forty-second**: order the rows by the commit that last wrote each
+`note = ` line, and the ones nothing has touched are the ones nothing has read — 40 of the 248 were
+older than commit 110 of 590, and **fourteen of the 32** read off the top of that list were wrong,
+with a fifteenth found beside them — the `implemented` neighbour one of the fourteen deferred to.
+**Fourteen sweeps**, twelve run every round, a thirteenth run once and declined
 (ADR 0265), and **the fourteenth built in the four-hundred-and-thirty-seventh** — a `partial` row
 whose note names nothing owed, which breaks the ledger's own definition of the status. Its first
 run printed 16 rows and seven were defects, two of them statuses: §9.3, `partial` on an expired
-reason for **365 sessions**, which is the longest this file has recorded. **The ninth sweep is the first to check that a citation names the *right* table**,
+reason for **365 sessions**, which the four-hundred-and-forty-second beat with §11.6's **424**. **The ninth sweep is the first to check that a citation names the *right* table**,
 and its first run corrected nine ledger rows and nine source comments — a whole block of §12.5.6's
 annotation tables and a whole block of §14.8.5's attribute tables, every one of them ISO 32000-1's
 number for something else. **Its second run, seven rounds later, found two more and one of them was
@@ -1520,10 +1525,94 @@ needs" and now says what it is. **A `pub fn` nothing names is sometimes a functi
 something else already does**, and that is a question for the caller side rather than a feature to
 build.
 
+
+## Thirty-two rows read in the four-hundred-and-forty-second, and the reading list came from `git blame`
+
+The headline job rather than the sweeps, and the round before it had recorded ~80 of 248 rows never
+re-read without being able to say *which*. **`git blame` says which.** Twenty lines over
+`git blame --line-porcelain doc/conformance/ledger.toml`: take each row's `note = ` line, take the
+commit that last wrote it, and order the `partial` rows by where that commit falls in
+`git log --reverse`. A note nobody has touched in three hundred commits is not proof nobody has read
+it — but every re-reading session in this file records itself *in the note* ("this row said X until
+session N"), so an untouched note is the closest thing to a list of unread rows this project can
+produce, and unlike the running estimate it is checkable. Of 590 commits, **40 `partial` rows had
+notes last written before commit 110** and this round read 32 of them, oldest first.
+
+**Fourteen of the thirty-two were wrong, a fifteenth row was found beside them, and four moved to
+`implemented`.** Every one was opened against the
+code and against the clause; the failure shapes are this file's own, and one is new.
+
+| row | shape | was | is |
+|---|---|---|---|
+| **§11.6** | 2, 5 | "a graphics-state soft mask is reported; transparency groups are the silence" | both were built in the two sessions *after* the note was written — §11.6.6's groups in the seventeenth, `build_soft_mask` in the eighteenth. **424 sessions**, past §9.3's 365 |
+| §11.4.1 | 2, 5 | a group's result as a soft mask's source "still reported rather than built" | ADR 0027, eighteenth session |
+| §11.3.7 | 1 | "[w]hat is absent is the distinction" | ADR 0234 states a knockout element's shape as a second command; what is absent is a shape *channel* |
+| **§8.9.3** | 1, 4 | "only 1- and 8-bit components are unpacked, and 2, 4 and 16 … are refused" | all five, and `tests/bit_depths.rs` opens by saying so — `implemented` |
+| §8.9.1 | 5 | the same sentence, deferring to §8.9.3's row | §8.9's parent three lines above already said "all five bit depths" |
+| §8.9.6 | 5 | `partial` "for §8.9.6.2's last sentence" | §8.9.6.2's own row had answered it |
+| §8.9.6.2 | new | quoted "the effect is to smooth the edges of the image" and called it "a recommendation" | **ISO 32000-2 does not contain that sentence.** It is ISO 32000-1's; this standard's is a `shall` about a different noun — "the effect shall be to smooth the edges of the mask, not to interpolate the painted colour values" |
+| §12.5 | 2, 5 | "no annotation responds to input, and §12.6's actions are not read" | §12.6.1 and §12.6.2 are `implemented`; ADR 0177 takes a press to a widget |
+| **§9.8.3** | 3, 5 | Table 122's four entries, "none of which is read" | `/Style`'s PANOSE chooses a substitute and `/FD`'s classes are read — by the session that wrote §9.8.3.2's and §9.8.3.3's rows, which did not touch the two rows above them |
+| §9.8.3.1 | 3, 5 | the same sentence, one row down | as above |
+| §7.6.6 | 2 | `partial` because "the /EFF path itself is unexercised — no embedded file's bytes are ever read" | a host has extracted an attachment's bytes since §7.11.4's panel. **Implemented this round**, below |
+| §8.6.6 | 14th sweep's | a note naming nothing owed | §8.6.6.5's `/NChannel` and `/Colorants`, which nothing reads |
+| §12.5.6.13 | new | "/Path supersedes it as the table requires" | **Table 185 requires nothing of the kind.** §12.5.6.9's Table 181 does say it of `/Vertices`; Table 185 marks `/InkList` "(Required)" flatly. Drawing the `/Path` alone is this crate's choice — `implemented`, with the test the row said it lacked |
+| §14.11.2 | 6 | `partial`, owing §14.11.2.2's guidelines "which are `inapplicable` on their own row" | a child that owes nothing cannot make its parent owe something — `implemented` |
+| §14.11.2.1 | 6 | `partial` above a note naming nothing owed | the boxes, their defaults and "its intersection with the media box" are all here; the rest of the clause is a NOTE about presses — `implemented` |
+
+**The seventeen rows read and kept** are worth naming, because a row read and left alone is the only
+way this file learns a population has stopped drifting: §7.4.2, §7.4.6, §7.4.7, §7.6.4.4.2, §7.9.2,
+§8.6.5.8, §8.6.5.9, §8.6.6.5, §8.7.4.1, §8.7.4.3, §8.9.6.4, §8.10, §8.10.4, §8.10.4.1, §8.10.4.3,
+§9.7.5.4, §12.5.6.3 and §12.6.4.8. Three were checked by grepping the whole tree for the entry the
+row calls unread — an image dictionary's `/Intent`, a shading's `/Background` and `/AntiAlias`, a
+`DeviceN`'s `/NChannel` — which is the second sweep run on one row at a time, and all three held.
+
+### Clause 11's `partial` rows are clean now, and the reason they were not is legible
+
+Twenty-seven of them, and **the blame order says why three were stale and twenty-four were not**:
+§11.3.7, §11.6 and §11.4.1 are the only three whose notes were last written before commit 90, and
+every other clause 11 row has been rewritten within the last ninety commits by the rounds that built
+transparency groups, the knockout shape, the page group and the press. **A family being worked on
+is a family whose rows are maintained; the three that fell out are the three nothing since had cause
+to open.** All three were the same failure — a note describing what the tree owed two sessions
+before the thing arrived.
+
+### The row that turned into work: §7.6.6's `/EFF`
+
+Table 20's `/EFF` names "[t]he name of the crypt filter that shall be used when encrypting embedded
+file streams that do not have their own crypt filter specifier", and nothing in this tree read it.
+The row's reason for that was "no embedded file's bytes are ever read", which was true when it was
+written and false since `Command::Extract` and §7.11.4's attachments panel — so a document writing
+`/StmF /Identity` beside a cipher in `/EFF` handed its attachment back as ciphertext, silently, to
+the one verb that asks for one. `Document::stream_method` reads it now, after the stream's own
+`/Crypt` specifier and before `/StmF`, which is the entry's own order; §7.6.6's rule that "related
+files ( RF ) shall use the same crypt filter as the embedded file ( EF )" holds by construction,
+both being `/Type /EmbeddedFile` streams.
+
+**The corpus cannot exercise it**, which is why the test is a corpus document with one entry blanked
+out. `encrypted-attachment.pdf` and `auth-event-ef-open.pdf` state *both* routes to `StdCF` — the
+stream's own `/Crypt` specifier and `/EFF` — so the reader's answer is the same whether or not it
+reads the second. Blanking the specifier with spaces leaves every byte offset where the
+cross-reference table says it is, so what is opened is a real producer's file minus one entry, and
+both halves of Table 20's sentence are asserted: with `/EFF` the stream takes `StdCF` and §7.6.6
+refuses it for want of a key, and with `/EFF` blanked as well it falls back to `/StmF` and the bytes
+pass through. Trap 8's shape exactly — a `shall` no document on disk can rank.
+
+### And two source claims went with them
+
+The fourth sweep's rule, run on this round's own nouns rather than as a sweep: `appearance.rs` said
+in two doc comments that a `/Path` supersedes `/InkList` "which the same tables say shall be ignored
+when it is present", which Table 185 does not say — the same sentence as §12.5.6.13's row, one
+directory away. And `encryption.rs`'s own test comment said the two corpus documents reach `StdCF`
+"only through `/EFF`", which is how the entry came to look exercised: they reach it through the
+stream's `/Crypt` specifier, and `/EFF` sits beside it doing nothing.
+
 ## What is still owed, named
 
-- **~80 `partial` rows** not yet re-read against the code, of 248 — 30 more went in the
-  four-hundred-and-thirty-seventh, three of which left the population by becoming `implemented`.
+- **~48 `partial` rows** not yet re-read against the code, of **244** — 32 more went in the
+  four-hundred-and-forty-second, four of which left the population by becoming `implemented`. The
+  number is still an estimate and the blame order is what will retire it: **8 rows whose notes were
+  last written before commit 110 are unread**, and the band from there to commit 300 holds 55 more.
 - **The fourteenth sweep's own vocabulary.** Nine of its sixteen hits are rows that *do* name a debt
   in words the sweep does not hold, and §9.3.1 shows the inverse: a row naming a debt it is wrong
   about is invisible to it. Widening the vocabulary makes the first number smaller and the second

@@ -208,6 +208,8 @@ pub(crate) struct Encryption {
     stream: Method,
     /// Table 20's `/StrF`, resolved to a method.
     string: Method,
+    /// Table 20's `/EFF`, resolved to a method, falling back to `/StmF` where it is absent.
+    embedded_file: Method,
     /// Table 20's `/CF`, so that a stream's own `/Crypt` filter can name one.
     filters: BTreeMap<Name, Method>,
     /// Table 21's `/EncryptMetadata`.
@@ -286,7 +288,12 @@ impl Encryption {
             }
         }
 
-        let (stream, string, filters) = crypt_filters(&get, version, revision, resolve)?;
+        let CryptFilters {
+            stream,
+            string,
+            embedded_file,
+            named: filters,
+        } = crypt_filters(&get, version, revision, resolve)?;
 
         let authenticated = match revision {
             2..=4 => {
@@ -343,6 +350,7 @@ impl Encryption {
             key,
             stream,
             string,
+            embedded_file,
             filters,
             encrypt_metadata,
             // The match above admits 2, 3, 4 and 6 and refuses everything else, so this
@@ -364,6 +372,21 @@ impl Encryption {
     /// The method Table 20's `/StrF` selects for every string.
     pub(crate) fn string_method(&self) -> Method {
         self.string
+    }
+
+    /// The method Table 20's `/EFF` selects for an embedded file stream (§7.11.4).
+    ///
+    /// §7.6.2, Table 20:
+    ///
+    /// > If this entry is not present, and the embedded file stream does not contain a crypt
+    /// > filter specifier, the stream shall be encrypted using the default stream crypt
+    /// > filter specified by StmF .
+    ///
+    /// The second sentence is why the absent case is [`Self::stream_method`] rather than
+    /// `Identity`: `/EFF` names a *departure* from the document's default, and a file that
+    /// states none has its attachments encrypted like everything else.
+    pub(crate) fn embedded_file_method(&self) -> Method {
+        self.embedded_file
     }
 
     /// The method a `/Crypt` filter's `/Name` selects (§7.6.6, Table 14).
@@ -762,7 +785,19 @@ fn hash_2b(password: &[u8], salt: &[u8], extra: &[u8]) -> Vec<u8> {
 /// produces a key that will not authenticate, which is reported as a wrong password.
 const MAX_2B_ROUNDS: usize = 256;
 
-/// Table 20's `/CF`, `/StmF` and `/StrF`, resolved to methods.
+/// Table 20's `/StmF`, `/StrF` and `/EFF`, resolved against its `/CF`.
+struct CryptFilters {
+    /// The default for every stream that names no filter of its own.
+    stream: Method,
+    /// The filter for every string.
+    string: Method,
+    /// The filter for an embedded file stream that carries no `/Crypt` specifier.
+    embedded_file: Method,
+    /// `/CF`'s own entries, so that a stream's `/Crypt` filter can name one.
+    named: BTreeMap<Name, Method>,
+}
+
+/// Table 20's `/CF`, `/StmF`, `/StrF` and `/EFF`, resolved to methods.
 ///
 /// Before `/V` 4 there are no crypt filters at all and Algorithm 1's RC4 applies to
 /// everything, which is what Table 20's description of `/V` 1 and 2 states.
@@ -771,9 +806,14 @@ fn crypt_filters(
     version: i64,
     revision: i64,
     resolve: &dyn Fn(&Object) -> Object,
-) -> SyntaxResult<(Method, Method, BTreeMap<Name, Method>)> {
+) -> SyntaxResult<CryptFilters> {
     if version < 4 {
-        return Ok((Method::Rc4, Method::Rc4, BTreeMap::new()));
+        return Ok(CryptFilters {
+            stream: Method::Rc4,
+            string: Method::Rc4,
+            embedded_file: Method::Rc4,
+            named: BTreeMap::new(),
+        });
     }
 
     let mut filters = BTreeMap::new();
@@ -801,13 +841,22 @@ fn crypt_filters(
     };
     let stream = select("StmF");
     let string = select("StrF");
+    // Table 20's `/EFF`, whose own sentence states both halves of this: it is "[t]he name of
+    // the crypt filter that shall be used when encrypting embedded file streams that do not
+    // have their own crypt filter specifier", and "[i]f this entry is not present, and the
+    // embedded file stream does not contain a crypt filter specifier, the stream shall be
+    // encrypted using the default stream crypt filter specified by StmF."
+    let embedded_file = match get("EFF").as_name() {
+        Some(_) => select("EFF"),
+        None => stream,
+    };
 
     // §7.6.4.1: "For revision 4, the filter CFM value shall be V2 (RC4) or AESV2
     // (AES128). For revision 6, the filter CFM value shall be AESV3 (AES-256)." A file
     // that disagrees is not one this handler can read, because the key it derived has the
     // wrong length for the cipher named.
     let expected_r6 = revision == 6;
-    for method in [stream, string]
+    for method in [stream, string, embedded_file]
         .into_iter()
         .chain(filters.values().copied())
     {
@@ -825,7 +874,12 @@ fn crypt_filters(
         }
     }
 
-    Ok((stream, string, filters))
+    Ok(CryptFilters {
+        stream,
+        string,
+        embedded_file,
+        named: filters,
+    })
 }
 
 /// Table 25's `/CFM`.
@@ -1267,6 +1321,7 @@ mod tests {
             authenticated: true,
             stream: Method::Rc4,
             string: Method::Rc4,
+            embedded_file: Method::Rc4,
             filters: BTreeMap::new(),
             encrypt_metadata: true,
             permissions: Permissions::from_flags(-1, false, 4),
@@ -1292,6 +1347,7 @@ mod tests {
             authenticated: true,
             stream: Method::AesV2,
             string: Method::AesV2,
+            embedded_file: Method::AesV2,
             filters: BTreeMap::new(),
             encrypt_metadata: true,
             permissions: Permissions::from_flags(-1, false, 4),
