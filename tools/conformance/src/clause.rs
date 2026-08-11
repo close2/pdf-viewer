@@ -373,12 +373,24 @@ impl ClauseIndex {
             .any(|heading| &heading.number == number)
     }
 
-    /// The title of a clause, taken from its first occurrence.
+    /// The title of a clause, taken from its **last** occurrence.
+    ///
+    /// **This took the first occurrence until the four-hundred-and-thirty-seventh session**, and
+    /// the difference is one clause. Exactly one number of the standard's 1017 headings occurs
+    /// twice — `14.8.4.7.3`, whose two titles are *Ruby and warichu elements* in the body and
+    /// *Link elements* in the corrigendum — because Errata Collection 3 Issue #133 inserts a new
+    /// subclause under that number and renumbers the ruby one to `14.8.4.7.4` ("EDITOR NOTE:
+    /// Clause is renumbered - existing text is unchanged"). A corrigendum is printed after the
+    /// text it amends, so the later heading is the current one, and taking the earlier gave the
+    /// ledger a row titled and written for a clause that had moved.
+    ///
+    /// Where a number occurs once, which is every other number in the document, first and last
+    /// are the same heading and this changes nothing.
     #[must_use]
     pub fn title(&self, number: &ClauseNumber) -> Option<&str> {
         self.headings
             .iter()
-            .find(|heading| &heading.number == number)
+            .rfind(|heading| &heading.number == number)
             .map(|heading| heading.title.as_str())
     }
 
@@ -568,6 +580,19 @@ mod tests {
         );
         assert!(index.holds_quotation(&number("14.8.4.7.3"), "ruby text"));
         assert!(index.holds_quotation(&number("14.8.4.7.3"), "link text"));
+    }
+
+    /// A corrigendum is printed after the text it amends, so where one number carries two
+    /// titles the later is the current one. Taking the earlier gave `§14.8.4.7.3` the title of
+    /// the clause Errata Collection 3 Issue #133 moved to `§14.8.4.7.4`.
+    #[test]
+    fn a_renumbered_clause_takes_the_corrigendums_title() {
+        let index = ClauseIndex::parse(
+            "## 14.8.4.7.3 Ruby and warichu elements\nruby text\n\n## Annex A\nx\n\n\
+             ## 14.8.4.7.3 Link elements\nlink text\n"
+                .to_owned(),
+        );
+        assert_eq!(index.title(&number("14.8.4.7.3")), Some("Link elements"));
     }
 
     #[test]

@@ -4,11 +4,12 @@ Status: **standing** — the counts live in `doc/HANDOVER.md`; the failure modes
 Read by: whoever is about to write or correct a ledger row, or to believe one.
 
 `doc/PLAN.md` §5a owns the ledger's format, statuses and checker; `doc/todo/01-ledger-partial-rows.md`
-owns the twelve sweeps and what each run found — the eleventh is new in the
+owns the fourteen sweeps and what each run found — the eleventh is new in the
 four-hundred-and-thirteenth and is the first that reads a row's *quotation marks* (ADR 0249), and
 the twelfth lives in `tools/spec-errata` and asks the same spans whether an erratum struck one
 (ADR 0254). The counts below were read off `cargo run -p conformance --bin ledger` in the
-four-hundred-and-twenty-ninth. What is here is the part that is about *claims* —
+four-hundred-and-thirty-seventh, whose fourteenth sweep — a `partial` row whose note names nothing
+owed — moved three rows to `implemented` on its first run (ADR 0273). What is here is the part that is about *claims* —
 the seven shapes a row goes wrong in, and the four times this project's own ledger has been wrong.
 It was `doc/HANDOVER.md`'s "The ledger" and its section 2 until the three-hundred-and-ninety-fifth
 moved it.
@@ -26,10 +27,10 @@ was a list of integers, so `§K.2` was a malformed citation and Annex O could no
 
 | status | rows | |
 |---|---|---|
-| `implemented` | 403 | every normative requirement in the clause is executed |
-| `partial` | 250 | some are; the note says which are not |
+| `implemented` | 406 | every normative requirement in the clause is executed |
+| `partial` | 248 | some are; the note says which are not |
 | **`silent`** | **0** | not implemented, and nothing says so — **Annex O's five were the last, and they were built in the three-hundred-and-sixty-ninth** |
-| `inapplicable` | 83 | a press, a layout engine, a production workflow — **and read at last**. §10.4.2.3 left in the three-hundred-and-eightieth, where a conversion this row called "[not] on any route to a pixel" turned out to be §11.5.3's own (ADR 0217), and **§10.4.2.4 left in the three-hundred-and-eighty-third on the same reasoning one clause over**: it said the two functions "cannot change a pixel" while §11.6.6 converts an RGB colour into a `DeviceCMYK` mask group by exactly this route, where every term the clause generates provably cancels (ADR 0220). Session 380 corrected two §10.4.2 rows and asked whether the neighbours had the same disease; one did |
+| `inapplicable` | 82 | a press, a layout engine, a production workflow — **and read at last**. §10.4.2.3 left in the three-hundred-and-eightieth, where a conversion this row called "[not] on any route to a pixel" turned out to be §11.5.3's own (ADR 0217), and **§10.4.2.4 left in the three-hundred-and-eighty-third on the same reasoning one clause over**: it said the two functions "cannot change a pixel" while §11.6.6 converts an RGB colour into a `DeviceCMYK` mask group by exactly this route, where every term the clause generates provably cancels (ADR 0220). Session 380 corrected two §10.4.2 rows and asked whether the neighbours had the same disease; one did |
 | `out-of-scope` | 113 | principle 5's closed exclusions, which the row names |
 | `reported` | 18 | not implemented, detected and named at runtime — **nine of §12.8.3's moved to `partial` in the three-hundred-and-seventy-seventh**, when the digest question turned out not to need the trust store the whole clause had been refused for (ADR 0215) |
 | `writer-side` | 8 | addresses a PDF *generator* |
@@ -67,7 +68,7 @@ function not, and §10.6.1 keeps the transfer for a device that needs no halfton
 owner split the scope line rather than dropping it, and the clause is implemented (ADR 0204).
 There is no requirement in the standard — the eight technical clauses or the
 eight normative annexes — that this program
-fails without saying so. That is a narrow claim: `partial` and `reported` are 268 rows between
+fails without saying so. That is a narrow claim: `partial` and `reported` are 266 rows between
 them and each names what it owes.
 
 **A seventh way was found in the three-hundred-and-fifty-ninth, in the population no sweep had

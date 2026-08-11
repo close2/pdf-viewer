@@ -1279,9 +1279,20 @@ impl ViewState {
 
     /// Forgets what a person typed into one field, leaving whatever the file and the actions say.
     ///
-    /// The operation an undo needs, and it is deliberately not "set it back to the old value":
-    /// the old value may have been the file's own, and re-stating that as an edit would make
-    /// every later save carry a change nobody made.
+    /// Deliberately not "set it back to the old value": the old value may have been the file's
+    /// own, and re-stating that as an edit would make every later save carry a change nobody
+    /// made. That distinction is the reason this exists and it is invisible until a document is
+    /// *written*, which is why `saving.rs` is where it is asserted.
+    ///
+    /// **This said "the operation an undo needs" until the four-hundred-and-thirty-seventh
+    /// session, and this tree's undo needs something else.** `doc/todo/01`'s fifth sweep found
+    /// the function named by no host, no tool, no fuzz target and no example in the
+    /// four-hundred-and-twenty-ninth; reading the caller side rather than building one is what
+    /// answers it. `viewer_core::Open` makes undo a *replay* rather than an inverse — the log is
+    /// cleared with [`Self::clear_all_fields`] and re-applied up to the cursor — so forgetting
+    /// one field is what a replay does by not reaching that entry, and a second route to the same
+    /// state is not what a host is missing. What is left here is the per-field operation itself,
+    /// for a caller that wants it without a log.
     pub fn clear_field(&mut self, document: &Document, name: &str) -> usize {
         let table = widgets_by_field_name(document);
         let Some(widgets) = table.get(name) else {

@@ -231,6 +231,39 @@ fn leading_moves_the_next_line_downwards() {
     );
 }
 
+/// ISO 32000-2 §9.3.1: a text state operator outside a text object, and what it survives.
+///
+/// > The text state operators may appear outside text objects, and the values they set are
+/// > retained across text objects in a single content stream.
+///
+/// The clause's next sentence is the other half — "[l]ike other graphics state parameters,
+/// these parameters shall be initialised to their default values at the beginning of each
+/// page" — and both fall out of the same construction, which is that the text state lives in
+/// the graphics state rather than in the text object. So `Q` restores it, which is the part a
+/// text object of its own could not show: the `TL` set before the first `BT` is still in force
+/// inside the *second* one, and the `TL` set inside a `q` is not.
+///
+/// **This is the sentence §9.3's row rested its `implemented` on from the
+/// four-hundred-and-thirty-seventh session**, and nothing had asserted it: the family's tests
+/// each set a parameter inside the text object that uses it.
+#[test]
+fn a_text_state_operator_outside_a_text_object_is_retained_and_saved() {
+    let across =
+        placements("12 TL BT /F1 10 Tf 0 50 Td (A) Tj ET BT /F1 10 Tf 0 30 Td (A) Tj T* (A) Tj ET");
+    assert_eq!(across.len(), 3, "three glyphs: {across:?}");
+    assert!(
+        (across[2].1 - 18.0).abs() < 0.01,
+        "the leading set before the first BT still moves the line inside the second: {across:?}"
+    );
+
+    let saved = placements("12 TL q 40 TL Q BT /F1 10 Tf 0 50 Td (A) Tj T* (A) Tj ET");
+    assert_eq!(saved.len(), 2, "two glyphs: {saved:?}");
+    assert!(
+        (saved[1].1 - 38.0).abs() < 0.01,
+        "and `Q` restores it, because the text state is part of the graphics state: {saved:?}"
+    );
+}
+
 /// §9.3.1: "Zero sized text shall not mark or clip any pixels (depending on text render
 /// mode)."
 ///

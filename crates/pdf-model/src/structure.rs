@@ -1053,11 +1053,19 @@ pub enum StandardType {
     Emphasis,
     /// `Strong` (PDF 2.0): content of "strong importance".
     Strong,
-    /// `Link`: an association between content and a §12.5.6.5 link annotation.
+    /// `Link`: "[a]n association between content enclosed by the Link structure element and a
+    /// corresponding link annotation" (§12.5.6.5), whose own subclause is §14.8.4.7.3.
     Link,
-    /// `Annot`: an association between content and an annotation of another kind.
+    /// `Annot`: "[e]ncloses one or more PDF annotations and associated content, if any".
+    ///
+    /// **The word was *association* here until the four-hundred-and-thirty-seventh session**,
+    /// which is what Table 368 said before Errata Collection 3 Issue #437 rewrote this row and
+    /// `Form`'s: the annotation is what the element is for and the content is the
+    /// optional part, which is the reverse of what an association reads as. §14.8.4.7.2's
+    /// ledger row was corrected for this exact word in the four-hundred-and-eighteenth and
+    /// these two doc comments one directory away were not.
     Annotation,
-    /// `Form`: an association between content and a §12.7 form field.
+    /// `Form`: "[e]ncloses a PDF widget annotation and associated content, if any" (§12.7).
     Form,
     /// `Ruby`: the wrapper "around an entire ruby assembly".
     Ruby,
@@ -1984,6 +1992,86 @@ mod tests {
         );
     }
 
+    /// §14.8.4.7.3's link element, in the shape the clause's own EXAMPLE 1 prints.
+    ///
+    /// Errata Collection 3 Issue #133 gave this number to a clause of its own, and moved the
+    /// heading the ledger carried under it — Ruby and warichu elements — one number along, to
+    /// `14.8.4.7.4`. ISO 32000-2 §14.8.4.7.3's two `shall`s meet in one fixture:
+    ///
+    /// > When a Link structure element describes a span of text to be associated with a link
+    /// > annotation and that span wraps from the end of one line to the beginning of another,
+    /// > the Link structure element shall include a single object reference that associates the
+    /// > span with the associated link annotation. Further, the link annotation shall use the
+    /// > QuadPoint entry to denote the active areas on the page.
+    ///
+    /// So the element holds one marked-content item and *one* object reference, and the
+    /// annotation it names carries sixteen numbers — EXAMPLE 1's two quadrilaterals, one per
+    /// line. Both are activated and the gap between them is not, which is the reader's whole
+    /// share of the clause: the structure says which annotation, and §12.5.6.5's `/QuadPoints`
+    /// says where.
+    #[test]
+    fn a_link_element_names_one_annotation_whose_quad_points_are_the_active_areas() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /StructParents 0 \
+             /Annots [7 0 R] >>",
+            "<< /Type /StructTreeRoot /K 5 0 R >>",
+            "<< /Type /StructElem /S /Link /P 4 0 R /Pg 3 0 R /K [0 6 0 R] >>",
+            "<< /Type /OBJR /Obj 7 0 R >>",
+            "<< /Type /Annot /Subtype /Link /Rect [10 10 190 90] \
+             /QuadPoints [100 70 180 70 180 90 100 90  20 20 60 20 60 40 20 40] >>",
+        ]);
+        let tree = Tree::of(&doc).expect("a structure tree root");
+
+        let top = tree.children(&doc, None);
+        let Some(Child::Element(link)) = top.first() else {
+            panic!("the root's child is the link element: {top:?}");
+        };
+        assert_eq!(
+            tree.role(&doc, link).as_deref(),
+            Some("Link"),
+            "the element's own type is the standard one"
+        );
+        let annotation = pdf_syntax::ObjectId {
+            number: 7,
+            generation: 0,
+        };
+        let kids = tree.children(&doc, Some(link));
+        assert_eq!(
+            kids.iter()
+                .filter(
+                    |child| matches!(child, Child::Object { object, .. } if *object == annotation)
+                )
+                .count(),
+            1,
+            "a single object reference for the wrapped span: {kids:?}"
+        );
+
+        let pages = crate::page::Pages::new(&doc);
+        let page = pages.get(0).expect("page one");
+        let found = crate::link::links(&doc, &page);
+        assert_eq!(found.len(), 1, "one annotation for the two lines");
+        assert_eq!(
+            found.first().map(|link| link.region.len()),
+            Some(2),
+            "sixteen numbers are two quadrilaterals"
+        );
+        assert!(
+            crate::link::at(&found, 140.0, 80.0).is_some(),
+            "the end of the first line"
+        );
+        assert!(
+            crate::link::at(&found, 40.0, 30.0).is_some(),
+            "the beginning of the second"
+        );
+        assert!(
+            crate::link::at(&found, 40.0, 80.0).is_none(),
+            "and the part of the first line the span does not reach is not active, \
+             which is what makes the quadrilaterals the active areas rather than the rectangle"
+        );
+    }
+
     /// A `/K` cycle terminates, and an untagged document has no tree at all.
     #[test]
     fn a_structure_tree_that_points_at_itself_terminates() {
@@ -2247,6 +2335,30 @@ mod tests {
             StandardType::read("P").is_some_and(|kind| !kind.since_pdf_2_0()),
             "and a paragraph is not"
         );
+    }
+
+    /// ISO 32000-2 §14.8.4.7.4's Table 369, whole: two assemblies, seven types, all inline.
+    ///
+    /// One test rather than seven because the table's own claim is a single one — every ruby
+    /// and warichu type is `Inline` — and because the ledger carried these seven split across
+    /// two rows until the four-hundred-and-thirty-seventh session, four of them under a number
+    /// Errata Collection 3 had given to §14.8.4.7.3's link element.
+    #[test]
+    fn every_ruby_and_warichu_type_is_inline() {
+        use super::{Category, StandardType};
+
+        for name in ["Ruby", "RB", "RT", "RP", "Warichu", "WT", "WP"] {
+            let kind = StandardType::read(name).unwrap_or_else(|| panic!("{name} is standard"));
+            assert_eq!(
+                kind.category().of(Some(Category::Block)),
+                Category::Inline,
+                "{name} is inline wherever it is used"
+            );
+            assert!(
+                !kind.since_pdf_2_0(),
+                "{name} predates PDF 2.0, which added eight types and none of these"
+            );
+        }
     }
 
     /// §14.8.4.1's rule for a type that is block *or* inline, applied where it is used.

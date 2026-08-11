@@ -486,7 +486,7 @@ title = "Standard security handler"
 status = "partial"
 code = ["crates/pdf-syntax/src/crypt.rs"]
 test = ["crates/pdf-syntax/tests/encryption.rs"]
-note = "Aggregate of the twelve rows below. Revisions 2, 3, 4 and 6 authenticate and derive keys; revision 5 is refused by name."
+note = "Aggregate of the **twenty** rows below — four subclauses, and sixteen algorithms and framings under two of them. **This said twelve until the four-hundred-and-thirty-seventh session**, which is a count no reading of the family gives, found by the tenth sweep's arithmetic over a parent's prose. Revisions 2, 3, 4 and 6 authenticate and derive keys; revision 5 is refused by name."
 
 [[clause]]
 clause = "7.6.4.1"
@@ -550,7 +550,7 @@ title = "Password algorithms"
 status = "partial"
 code = ["crates/pdf-syntax/src/crypt.rs"]
 test = ["crates/pdf-syntax/tests/encryption.rs::a_document_with_a_password_opens_with_it_and_not_without"]
-note = "Aggregate of the eleven below. Every algorithm a reader runs is implemented; the five that compute what a writer stores are writer-side, and two of those have their first four steps implemented anyway because Algorithms 6 and 7 reuse them."
+note = "Aggregate of the twelve rows below: Algorithms 3 to 13, and §7.6.4.4.1's framing. Every algorithm a reader runs is implemented. **Six** of the eleven compute what a writer stores — Algorithms 3, 4, 5, 8, 9 and 10 — and only *three* of those are `writer-side`, because a reader's authentication re-runs the others: Algorithm 6 runs 4 or 5 whole, and Algorithm 7 begins with Algorithm 3's steps (a) to (d), which is why §7.6.4.4.2 is `partial` rather than `writer-side`. **The sentence here said \"the eleven below … the five that compute what a writer stores are writer-side, and two of those have their first four steps implemented\" until the four-hundred-and-thirty-seventh session**, and none of the three numbers survived the rows below it — the tenth sweep's subject, in a row that states three counts of its own family in one sentence."
 
 [[clause]]
 clause = "7.6.4.4.1"
@@ -2018,7 +2018,7 @@ title = "General"
 status = "partial"
 code = ["crates/pdf-model/src/optional_content.rs"]
 test = ["crates/pdf-model/tests/optional_content.rs"]
-note = "Descriptive: it names the three subclauses below. Carries their aggregate."
+note = "Descriptive: it names the three subclauses beside it and carries their aggregate, which is why it is `partial` rather than `implemented` — §8.11.2 and §8.11.3 are settled and §8.11.4 is not. **What the aggregate owes was not written here until the four-hundred-and-thirty-seventh session**, and a `partial` note that names nothing owed is the fourteenth sweep's whole subject: Table 99's `/Configs`, and the configuration's own `/Name` and `/Creator`, are unread because the alternate configurations exist to be chosen between (§8.11.4.3), and §8.11.4.5's rule that a usage application dictionary depending on the zoom level \"shall be reapplied\" is measured rather than met — no corpus configuration names `Zoom`, `User` or `Language`."
 
 [[clause]]
 clause = "8.11.2"
@@ -2090,7 +2090,7 @@ title = "Configuring optional content"
 status = "partial"
 code = ["crates/pdf-model/src/optional_content.rs"]
 test = ["crates/pdf-model/tests/optional_content.rs"]
-note = "Aggregate of §8.11.4.1 to §8.11.4.5."
+note = "Aggregate of §8.11.4.1 to §8.11.4.5, and `partial` for three things its children owe and this row did not name until the four-hundred-and-thirty-seventh session: Table 99's `/Configs` and the configuration's own `/Name` and `/Creator`, unread because choosing between alternate configurations needs somebody to choose (§8.11.4.3); §8.11.4.4's usage application dictionaries for the events no corpus document states; and §8.11.4.5's reapplication on a change of zoom, which is measured rather than met. The fourteenth sweep prints every `partial` row whose note names nothing owed, and this was one."
 
 [[clause]]
 clause = "8.11.4.1"
@@ -2098,7 +2098,7 @@ title = "General"
 status = "partial"
 code = ["crates/pdf-model/src/optional_content.rs"]
 test = ["crates/pdf-model/tests/optional_content.rs"]
-note = "Descriptive. Carries the aggregate of the four below."
+note = "Descriptive. Carries the aggregate of the four subclauses beside it, and is `partial` for what they owe rather than for anything of its own: `/Configs`, `/Name` and `/Creator` on a configuration (§8.11.4.3), and §8.11.4.5's reapplication on a change of zoom. **Named here since the four-hundred-and-thirty-seventh session**, by the fourteenth sweep, which prints every `partial` row whose note names nothing owed."
 
 [[clause]]
 clause = "8.11.4.2"
@@ -2183,18 +2183,18 @@ note = "Both writing modes, from the thirty-sixth session. Mode 0's displacement
 [[clause]]
 clause = "9.3"
 title = "Text state parameters and operators"
-status = "partial"
+status = "implemented"
 code = ["crates/pdf-model/src/content.rs"]
-test = ["crates/pdf-model/tests/text_state.rs", "crates/pdf-model/tests/text_render_modes.rs"]
-note = "Reviewed as a family in the thirteenth session. Eight of Table 102's nine text state parameters are implemented and tested one clause at a time; the ninth, text knockout, is §9.3.8, which was this tree's third `silent` row until the fourteenth session made it report. All seven of Table 103's operators are executed, and the clause's rule that they \"may appear outside text objects, and the values they set are retained across text objects in a single content stream\" falls out of their living in the graphics state rather than in the text object."
+test = ["crates/pdf-model/tests/text_state.rs::a_text_state_operator_outside_a_text_object_is_retained_and_saved", "crates/pdf-model/tests/text_state.rs::text_knockout_becomes_a_group_only_where_the_two_models_differ", "crates/pdf-model/tests/text_render_modes.rs::mode_2_fills_then_strokes_each_glyph_in_turn", "crates/pdf-model/tests/text_render_modes.rs::a_type3_glyph_draws_in_mode_4_and_adds_nothing_to_the_clip"]
+note = "Reviewed as a family in the thirteenth session. **Was `partial` from that session until the four-hundred-and-thirty-seventh, on a reason its own child's row retired in the seventy-second**: it said \"[e]ight of Table 102's nine text state parameters are implemented … the ninth, text knockout, is §9.3.8, which was this tree's third `silent` row until the fourteenth session made it report\", and §9.3.8 has been `implemented` — drawn, not reported — since the seventy-second. Three hundred and sixty-five sessions, which is the longest this project has recorded, past §12.5.6.19's 364 and §12.7.6's 280. It was found by the fourteenth sweep on its first run (`doc/todo/01`), which prints every `partial` row whose note names nothing owed: this one named a report that had stopped being a report, so nothing else could see it — the sixth sweep's arithmetic never looks here, because §9.3.1 was `partial` for the same expired reason and a family with an owing child never qualifies. All nine of Table 102's parameters are executed and all seven of Table 103's operators; the clause's own rule that they \"may appear outside text objects, and the values they set are retained across text objects in a single content stream\" falls out of their living in the graphics state rather than in the text object, and is asserted rather than derived since this round. \"All text state parameters shall apply to Type 3 fonts unless otherwise stated\" holds by construction: `show_text` reads one state and dispatches on the font afterwards. **The status move cost this row its evidence** — it named two whole test *files*, which `FILE_ONLY_EVIDENCE_CEILING` refuses at zero on an `implemented` row — which is the same ratchet §9.4 tripped in the four-hundred-and-twenty-ninth, working the same way."
 
 [[clause]]
 clause = "9.3.1"
 title = "General"
-status = "partial"
+status = "implemented"
 code = ["crates/pdf-model/src/content.rs"]
-test = ["crates/pdf-model/tests/text_state.rs::zero_sized_text_neither_marks_nor_clips", "crates/pdf-model/tests/text_state.rs::a_negative_font_size_draws_and_reads_normally"]
-note = "Table 103's seven operators — Tc, Tw, Tz, TL, Tf, Tr, Ts — are all executed with the initial values the table states, and they sit in the graphics state so that q/Q saves them and a page starts from the defaults. Two sentences here are load-bearing and tested: \"Zero sized text shall not mark or clip any pixels (depending on text render mode)\", which is a guard on both the marking and the clipping path rather than only the first; and the NOTE that \"Negative text font size is permitted\", which draws a flipped glyph advancing leftwards. Partial only because of Tk, whose absence is §9.3.8."
+test = ["crates/pdf-model/tests/text_state.rs::zero_sized_text_neither_marks_nor_clips", "crates/pdf-model/tests/text_state.rs::a_negative_font_size_draws_and_reads_normally", "crates/pdf-model/tests/text_state.rs::a_text_state_operator_outside_a_text_object_is_retained_and_saved"]
+note = "Table 103's seven operators — Tc, Tw, Tz, TL, Tf, Tr, Ts — are all executed with the initial values the table states, and they sit in the graphics state so that q/Q saves them and a page starts from the defaults. Two sentences here are load-bearing and tested: \"Zero sized text shall not mark or clip any pixels (depending on text render mode)\", which is a guard on both the marking and the clipping path rather than only the first; and the NOTE that \"Negative text font size is permitted\", which draws a flipped glyph advancing leftwards. **This row ended \"[p]artial only because of Tk, whose absence is §9.3.8\" from the thirteenth session to the four-hundred-and-thirty-seventh, and Tk has not been absent since the seventy-second**: §9.3.8's own row opens \"[w]as this tree's third `silent` row; `reported` from the fourteenth session; drawn since the seventy-second\", and this subclause does not own the parameter in any case — what it states about `Tk` is that there is no operator for it, \"[t]he text knockout parameter, T k, shall be set through the TK entry in a graphics state parameter dictionary by using the gs operator\", which `content.rs` reads off an `/ExtGState`. Two further sentences of this subclause are asserted rather than derived since the four-hundred-and-thirty-seventh: that a text state operator \"may appear outside text objects, and the values they set are retained across text objects in a single content stream\", and that `q`/`Q` carries them with the rest of the graphics state, which is the same construction the first sentence rests on."
 
 [[clause]]
 clause = "9.3.2"
@@ -2410,7 +2410,7 @@ title = "Composite fonts"
 status = "partial"
 code = ["crates/pdf-font/src/lib.rs", "crates/pdf-font/src/cmap.rs"]
 test = ["crates/pdf-model/tests/composite_fonts.rs::the_cid_widths_agree_with_the_font_programs_own_advances"]
-note = "Aggregate of the seventeen rows below, reviewed as a family in the twentieth session (ADR 0029). A Type 0 font is two independent mappings and both are now read: §9.7.6.2's CMap from codes to CIDs, embedded (§9.7.5.3) or Identity, and §9.7.4.2's CID to glyph index, through a CID-keyed CFF's charset or a /CIDToGIDMap stream. **This row named two gaps and both had been closed before it was last touched** — corrected in the four-hundred-and-twenty-ninth session, by `doc/todo/01`'s fourth sweep run over the nouns fifteen rounds gave the tree. It said what was left is \"Table 116's seventy-odd predefined CMaps, refused by name on 15 corpus fonts\", which shipped in the hundred-and-fifty-sixth session — all 239 of Adobe's files are compiled in and §9.7.5.2's own row has read `implemented` ever since, the same sentence §9.7.6's row was corrected for in the two-hundred-and-ninety-eighth — and \"vertical writing, which is §9.2.4's missing /W2 metrics\", where §9.2.4 has read both writing modes since the **thirty-sixth** session and says so in its own note. Three rows in this family and §9.3.7 carried one or other half of that pair; the sessions that implement a mechanism do not maintain the rows of the clauses that need it. `partial` now for what its children actually owe: §9.7.5.4's `beginbfchar` in an `Encoding` CMap, which is two subclauses of the standard disagreeing and is decided in that row, and §9.7.5.1's remainder."
+note = "Aggregate of the sixteen rows below, reviewed as a family in the twentieth session (ADR 0029). (**The count said seventeen until the four-hundred-and-thirty-seventh session**; the tenth sweep found it and no reading of the family gives that number.) A Type 0 font is two independent mappings and both are now read: §9.7.6.2's CMap from codes to CIDs, embedded (§9.7.5.3) or Identity, and §9.7.4.2's CID to glyph index, through a CID-keyed CFF's charset or a /CIDToGIDMap stream. **This row named two gaps and both had been closed before it was last touched** — corrected in the four-hundred-and-twenty-ninth session, by `doc/todo/01`'s fourth sweep run over the nouns fifteen rounds gave the tree. It said what was left is \"Table 116's seventy-odd predefined CMaps, refused by name on 15 corpus fonts\", which shipped in the hundred-and-fifty-sixth session — all 239 of Adobe's files are compiled in and §9.7.5.2's own row has read `implemented` ever since, the same sentence §9.7.6's row was corrected for in the two-hundred-and-ninety-eighth — and \"vertical writing, which is §9.2.4's missing /W2 metrics\", where §9.2.4 has read both writing modes since the **thirty-sixth** session and says so in its own note. Three rows in this family and §9.3.7 carried one or other half of that pair; the sessions that implement a mechanism do not maintain the rows of the clauses that need it. `partial` now for what its children actually owe: §9.7.5.4's `beginbfchar` in an `Encoding` CMap, which is two subclauses of the standard disagreeing and is decided in that row, and §9.7.5.1's remainder."
 
 [[clause]]
 clause = "9.7.1"
@@ -2710,7 +2710,7 @@ title = "Classic colour conversion methods"
 status = "partial"
 code = ["crates/pdf-model/src/colour.rs"]
 test = ["crates/pdf-model/tests/colour_paths.rs::a_cmyk_colour_is_the_same_however_it_is_drawn"]
-note = "See §10.4.2.1 for the ranking and the individual rows for what is done."
+note = "See §10.4.2.1 for the ranking and the individual rows for what is done. `partial` for what two of the four conversions below owe and this row did not name until the four-hundred-and-thirty-seventh session: §10.4.2.5's `DeviceCMYK` to `DeviceRGB` is unused because §10.3's ICC route outranks it, and §10.4.2.3's grey-to-CMYK direction is unused for the same reason — both are stated in §10.4's parent row and in neither of theirs."
 
 [[clause]]
 clause = "10.4.2.1"
@@ -3011,10 +3011,10 @@ note = "Aggregate of the three below, read as a family in the fifteenth session 
 [[clause]]
 clause = "11.3.7.1"
 title = "General"
-status = "partial"
+status = "implemented"
 code = ["crates/pdf-model/src/image.rs"]
-test = ["crates/pdf-model/tests/image_masks.rs::a_soft_mask_finer_than_its_image_keeps_its_own_resolution"]
-note = "One sentence: alpha is shape times opacity. Held where the two are separately known — an image mask's shape multiplied by an `/SMask`'s opacity — and structurally elsewhere, since a paint carries one alpha and every source of it multiplies in. The clause's NOTE about anti-aliased edges being *shape* rather than opacity is the rasterisers' business and both treat coverage as shape."
+test = ["crates/pdf-model/tests/image_masks.rs::a_soft_mask_finer_than_its_image_keeps_its_own_resolution", "crates/pdf-model/tests/image_masks.rs::a_matte_colour_is_undone_before_the_image_is_drawn", "crates/pdf-model/tests/image_masks.rs::an_explicit_mask_paints_the_base_image_only_where_it_marks"]
+note = "One sentence, and it is the subclause's only requirement: \"the alpha values that control the compositing process shall be defined as the product of shape and opacity\". `image::combine_on_the_finer_grid` computes that product literally — the image's own alpha times the mask sample, rounded rather than truncated so that an opaque pixel under a fully opaque mask stays opaque — and structurally elsewhere, since a paint carries one alpha and every source of it multiplies in. The clause's NOTE about anti-aliased edges being *shape* rather than opacity is the rasterisers' business and both treat coverage as shape. **Was `partial` from the fifteenth session to the four-hundred-and-thirty-seventh above a note that named nothing owed**, which is what the fourteenth sweep prints (`doc/todo/01`); what it was carrying is the family's debt rather than its own, and the family's debt is stated where it lives: §11.3.7.3 keeps the `partial` for the two elements whose one alpha carries shape and opacity at once. Separating them is that subclause's requirement and not this one's."
 
 [[clause]]
 clause = "11.3.7.2"
@@ -3603,7 +3603,7 @@ title = "Markup annotations"
 status = "partial"
 code = ["crates/pdf-model/src/annotation.rs", "crates/pdf-model/src/popup.rs"]
 test = ["crates/pdf-model/tests/annotations.rs::a_stored_appearance_ignores_the_annotations_opacity", "crates/pdf-model/src/popup.rs::a_rich_text_string_fills_a_window_a_plain_one_would_have_left_empty"]
-note = "Table 172's /CA is read, as Table 166's entry of the same name. Nothing else in the clause marks the page by itself: /T, /Subj, /RC, /IRT, /RT, /IT and /ExData are a title, a subject, formatted text, a reply relationship, an intent and external data, all of which reach a comments pane rather than a raster, and /Popup is the window §12.5.6.14 excludes from the page — **excludes from the page, and no longer from the program**: since the three-hundred-and-twelfth session /T is the title bar of that window and /Contents is the text in it, which is what this clause says both entries are for (ADR 0191). The paragraph rule is applied where the text is laid out: 'When separating text into paragraphs, a CARRIAGE RETURN (0Dh) shall be used and not, for example, a LINE FEED character (0Ah)' — a carriage return starts a paragraph, and a line feed is accepted as one too, because the sentence binds a writer and a reader that enforced it would show a producer's paragraph break as a space. **And `/RC` is read since the three-hundred-and-forty-second session** (ADR 0199), which is `doc/todo/01`'s capability shape thirty sessions after the capability arrived: Table 172 makes it \"[a] rich text string (see Adobe XML Architecture, XML Forms Architecture (XFA) Specification, version 3.3 ) that shall be displayed in the popup window when the annotation is opened\", and the window has existed since the three-hundred-and-twelfth. `popup::rich_text` takes the element content and none of the formatting — the markup is XFA's and principle 5 excludes it, while the characters are what the clause requires displayed and what NOTE 1 makes \"textually equivalent\" to `/Contents` where a file states both; a closing paragraph becomes the newline this clause asks a plain `/Contents` to spell with a carriage return, and a `/Contents` outranks an `/RC` for NOTE 1's own reason. **The corpus cannot exercise it and that is measured, not assumed**: `examples/markup_text_census` finds 71 annotations stating `/RC` over 33 documents, 18 of them with no `/Contents` — and all 18 are on `issue13447.pdf`, which states no `/Popup` at all, so not one corpus popup changes. Trap 8's converse, and the module's own tests are the only defence. What is owed is the accessibility half — /Contents is what §14.9.3 extracts as an alternate description — and the rest of the interactive one: /Subj, /IRT, /RT and /IT reach a comments pane this program has no panel for, as does an `/RC` on an annotation that names no popup window to display it in."
+note = "Table 166's `/CA` is read — **this row said \"Table 172's /CA … as Table 166's entry of the same name\" until the four-hundred-and-thirty-seventh session, and Table 172 states no `/CA` at all**: the entry was the markup annotation's in ISO 32000-1 and is one of the twenty-three common to every annotation in ISO 32000-2, beside `/ca`. `doc/todo/01`'s ninth sweep, whose whole subject is a number that exists and names the wrong table. Nothing else in the clause marks the page by itself: /T, /Subj, /RC, /IRT, /RT, /IT and /ExData are a title, a subject, formatted text, a reply relationship, an intent and external data, all of which reach a comments pane rather than a raster, and /Popup is the window §12.5.6.14 excludes from the page — **excludes from the page, and no longer from the program**: since the three-hundred-and-twelfth session /T is the title bar of that window and /Contents is the text in it, which is what this clause says both entries are for (ADR 0191). The paragraph rule is applied where the text is laid out: 'When separating text into paragraphs, a CARRIAGE RETURN (0Dh) shall be used and not, for example, a LINE FEED character (0Ah)' — a carriage return starts a paragraph, and a line feed is accepted as one too, because the sentence binds a writer and a reader that enforced it would show a producer's paragraph break as a space. **And `/RC` is read since the three-hundred-and-forty-second session** (ADR 0199), which is `doc/todo/01`'s capability shape thirty sessions after the capability arrived: Table 172 makes it \"[a] rich text string (see Adobe XML Architecture, XML Forms Architecture (XFA) Specification, version 3.3 ) that shall be displayed in the popup window when the annotation is opened\", and the window has existed since the three-hundred-and-twelfth. `popup::rich_text` takes the element content and none of the formatting — the markup is XFA's and principle 5 excludes it, while the characters are what the clause requires displayed and what NOTE 1 makes \"textually equivalent\" to `/Contents` where a file states both; a closing paragraph becomes the newline this clause asks a plain `/Contents` to spell with a carriage return, and a `/Contents` outranks an `/RC` for NOTE 1's own reason. **The corpus cannot exercise it and that is measured, not assumed**: `examples/markup_text_census` finds 71 annotations stating `/RC` over 33 documents, 18 of them with no `/Contents` — and all 18 are on `issue13447.pdf`, which states no `/Popup` at all, so not one corpus popup changes. Trap 8's converse, and the module's own tests are the only defence. What is owed is the accessibility half — /Contents is what §14.9.3 extracts as an alternate description — and the rest of the interactive one: /Subj, /IRT, /RT and /IT reach a comments pane this program has no panel for, as does an `/RC` on an annotation that names no popup window to display it in."
 
 [[clause]]
 clause = "12.5.6.3"
@@ -4472,7 +4472,7 @@ title = "Introduction to the document security store (DSS)"
 status = "partial"
 code = ["crates/pdf-model/src/signature.rs"]
 test = ["crates/pdf-model/src/signature.rs::a_documents_own_declaration_can_be_held_against_it"]
-note = "The introduction to the DSS. Read as §12.8.4.3, which is where its entries are."
+note = "The introduction to the DSS, whose entries are §12.8.4.3's and are read there. **This note named nothing owed while the row was `partial`, from the three-hundred-and-seventy-seventh session to the four-hundred-and-thirty-seventh**, which is what the fourteenth sweep prints; the clause's own `shall`s say what it is: they are addressed to a *validator*, and each names a step this tree does not take. \"[T]he DSS dictionary shall be used to collect the certificates, CRLs and OCSP responses that are relevant to validate that signature\", and where a timestamp token is present and valid \"the UTC time included in that timestamp token shall be used as the time reference to check the revocation status of the signer's certificate and of all the intermediate CA certificates, up to a trusted root\". That is §12.8's question 3, which needs a trust store and a clock, and what this tree does instead is count the material and say so."
 
 [[clause]]
 clause = "12.8.4.3"
@@ -5616,7 +5616,7 @@ title = "Inline level structure types"
 status = "implemented"
 code = ["crates/pdf-model/src/structure.rs"]
 test = ["crates/pdf-model/src/structure.rs::a_heading_carries_its_level_and_the_table_carries_the_rest"]
-note = "The inline level types. See the three below."
+note = "The inline level types. See the three subclauses below §14.8.4.7.1's framing: §14.8.4.7.2's seven general ones, §14.8.4.7.3's link element and §14.8.4.7.4's ruby and warichu assemblies. **The third and fourth of those were one subclause until Errata Collection 3 Issue #133 split them**, and this family carried the pre-errata division until the four-hundred-and-thirty-seventh session — see §14.8.4.7.3."
 
 [[clause]]
 clause = "14.8.4.7.1"
@@ -5636,19 +5636,19 @@ note = "`Lbl`, `Span`, `Em`, `Strong`, `Link`, `Annot` and `Form`. `Em` and `Str
 
 [[clause]]
 clause = "14.8.4.7.3"
-title = "Ruby and warichu elements"
+title = "Link elements"
 status = "implemented"
-code = ["crates/pdf-model/src/structure.rs"]
-test = ["crates/pdf-model/src/structure.rs::a_heading_carries_its_level_and_the_table_carries_the_rest"]
-note = "`Ruby`, `RB`, `RT` and `RP`, the ruby assembly's four types, all inline. `RP` is the one with a condition on its use — punctuation \"used only when a PDF processor cannot place the ruby annotation text adjacent to the ruby base text\" — which is a producer's decision and changes nothing a reader does with the type. **This clause number appears twice in `doc/md/`**, once here and once in an annex; the citation checker finds the first, which is this one."
+code = ["crates/pdf-model/src/structure.rs", "crates/pdf-model/src/link.rs"]
+test = ["crates/pdf-model/src/structure.rs::a_link_element_names_one_annotation_whose_quad_points_are_the_active_areas", "crates/pdf-model/src/link.rs::quad_points_narrow_the_region_and_a_stray_one_is_ignored"]
+note = "**This row described the ruby assembly until the four-hundred-and-thirty-seventh session, and the clause it described had moved.** Errata Collection 3 Issue #133 inserts a heading here — \"Insert a new clause heading below NOTE 1 and modify text in subclause 14.8.4.7 as follows\" — and renumbers the ruby one to §14.8.4.7.4, saying so in its own editor's note: \"Clause is renumbered - existing text is unchanged\". The old row's last sentence is why nobody looked: it said the number \"appears twice in `doc/md/` … the citation checker finds the first\", which reads the renumbering as an artefact of the conversion. It is the standard. **Exactly one number of the standard's 1017 headings occurs twice and this is it**, so `ClauseIndex::title` now takes a number's *last* heading rather than its first — a corrigendum is printed after the text it amends — and the title above is the generator's. The clause states two `shall`s and both are about a *wrapped* span: \"the Link structure element shall include a single object reference that associates the span with the associated link annotation\", and \"the link annotation shall use the QuadPoint entry to denote the active areas on the page\". The first binds a producer and this crate validates no element's children (§14.8.4.7.2). The second is a reader's and is what `pdf_model::link::region` does, on the route §12.5.6.5's row records as followed since the fifty-seventh session: Table 176's `/QuadPoints` is the activation region where the clause admits it, one quadrilateral per line, so EXAMPLE 1's sixteen numbers activate the two lines of the span and not the rest of either. `structure.rs`'s `Link` type and `link.rs`'s region meet in `a_link_element_names_one_annotation_whose_quad_points_are_the_active_areas`. Issue #133's other three edits are recorded in §14.8.4.7.2's row."
 
 [[clause]]
 clause = "14.8.4.7.4"
 title = "Ruby and warichu elements"
 status = "implemented"
 code = ["crates/pdf-model/src/structure.rs"]
-test = ["crates/pdf-model/src/structure.rs::a_heading_carries_its_level_and_the_table_carries_the_rest"]
-note = "`Warichu`, `WT` and `WP`, the warichu assembly's three types, all inline."
+test = ["crates/pdf-model/src/structure.rs::every_ruby_and_warichu_type_is_inline"]
+note = "Table 369's **seven** types, all inline: `Ruby`, `RB`, `RT` and `RP` for the ruby assembly, `Warichu`, `WT` and `WP` for the warichu one. **This row named only the warichu three until the four-hundred-and-thirty-seventh session**, because the ledger had this clause's text split across two rows — Errata Collection 3 Issue #133 renumbers §14.8.4.7.3 to this number \"existing text is unchanged\", so what lives here is the whole of it. `RP` is the one entry with a condition on its use — punctuation \"used only when a ruby annotation cannot be properly formatted in a ruby style and instead is formatted as a normal comment, or when it is formatted as a warichu\" — which is a producer's decision and changes nothing a reader does with the type. **The sentence that stood in the old row was ISO 32000-1's** — \"used only when a PDF processor cannot place the ruby annotation text adjacent to the ruby base text\", which ISO 32000-2 does not contain anywhere — and it is below the eleventh sweep's floor, because a quotation of the *older standard* shares fewer than five opening words with the sentence that replaced it. The two constraints the table states on children (`Ruby` \"shall contain one RB element followed by either an RT element or a three-element sequence\", `Warichu` \"shall contain a three-element sequence consisting of WP , WT , and WP\") are validations this crate deliberately does not perform, for §14.8.4.7.2's reason."
 
 [[clause]]
 clause = "14.8.4.8"

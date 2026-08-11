@@ -19,7 +19,7 @@ features no file exercises.
 ```sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets      # must be silent of lints
-cargo nextest run --workspace               # 1594 tests, 11 skipped
+cargo nextest run --workspace               # 1603 tests, 11 skipped
 cargo test --workspace --doc                # the one doctest nextest does not run
 cargo build --profile gates -p pdf-sandbox --bins   # trap 10: Cargo will not do this for you
 cargo test  --profile gates -p pdf-model      --test corpus          -- --ignored --nocapture
@@ -127,7 +127,12 @@ takes outside its group's marks, two in `render-cpu` for the premultiplied route
 interpreter bounds — **and the gate printed 1594**, so this line was not behind for the third. **That
 round wrote 1588 into three files first and had to correct all three**, because it copied the number
 from a run taken *before* its own last six tests existed: the precondition the four-hundred-and-eighteenth
-recorded is not "a round that ran the gate" but a round that ran it **last**, after the final edit.
+recorded is not "a round that ran the gate" but a round that ran it **last**, after the final edit. **The four-hundred-and-thirty-sixth added five and the gate printed 1599; the
+four-hundred-and-thirty-seventh added four** — a §14.8.4.7.3 link element whose one object reference
+and sixteen `/QuadPoints` numbers are the clause's own EXAMPLE 1, Table 369's seven ruby and warichu
+types, a text state operator outside a text object surviving into the next one and a `Q`, and — in
+`tools/conformance` — a renumbered clause taking the corrigendum's title — **and the gate printed
+1603**, so this line was not behind for the fourth round running.
 - **One of those eighteen runs a C compiler**, and it is the only gate in this sequence that does.
   `viewer-ffi::a_c_program_drives_the_abi` builds `crates/viewer-ffi/c/open_a_page.c` against the
   crate's own header with `-Wall -Wextra -Werror`, links it against the `cdylib` — which it asks
@@ -193,7 +198,12 @@ every *other* row. The third found a `shall` binding for fifty-six sessions; the
 
 **The arithmetic one needs no round to justify it**: print every ledger row that is `partial`, `reported` or `unreviewed` while every one of its direct children is settled. Its first run found five and four were wrong, three of them in a shape no grep can see — the note corrected and the status left behind.
 
-**Thirteen now — twelve run every time and a thirteenth run once and declined (ADR 0265) — and the ninth checks a *number* rather than a claim**: every `Table NNN`'s `/Key`
+**Fourteen now — twelve run every time, a thirteenth run once and declined (ADR 0265), and a
+fourteenth built in the four-hundred-and-thirty-seventh: print every `partial` row whose note names
+nothing owed, which breaks the ledger's own definition of the status and which every other sweep
+here is blind to, because they all read a row's *reason* and this is a row with none. Its first run
+printed 16 and seven were defects, two of them statuses — §9.3, `partial` on an expired reason for
+365 sessions. And the ninth checks a *number* rather than a claim**: every `Table NNN`'s `/Key`
 citation, against the entries ISO 32000-2 actually puts in that table. `tools/conformance` verifies
 a cited table *exists* and prints its title; a number that exists and names the wrong table reads
 exactly like a right one, and it arrives in **blocks** — a run of consecutive rows written in one
