@@ -752,8 +752,10 @@ const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 0] = [];
 
 /// Contradicted, with a font on the page that carries no embedded program.
 ///
-/// 17 pages — the header said 19 while the list held 18, which is what a count written beside
-/// a list rather than counted off it does. The weakest entries here, because the difference
+/// 12 pages, and it held 17 until the four-hundred-and-thirty-first session measured the five
+/// that had never been opened and found them to be `CONTRADICTED_GLYPH_EDGES` (below). The header
+/// said 19 while the list held 18 before that, which is what a count written beside a list rather
+/// than counted off it does. The weakest entries here, because the difference
 /// need not be anyone's defect:
 /// every renderer substitutes, and where two references happen to choose the same system
 /// font and we choose another, the consensus is about their font rather than about the page.
@@ -995,28 +997,88 @@ const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 0] = [];
 /// the compiled-in face answers where `fontconfig` answers for them. **This is ADR 0133's
 /// stated trade being visible on one page**, and §9.5 NOTE 5 is why it is not a defect.
 ///
-/// It is also *not* `CONTRADICTED_GLYPH_EDGES`, and the bounds now say which: that group's 21
+/// It is also *not* `CONTRADICTED_GLYPH_EDGES`, and the bounds now say which: that group's
 /// pages fail on the differing fraction and nothing else, while this one fails **three of the
 /// four** — mean 8.45 of 5.00, differing 9.15% of 8.09%, structural similarity 0.8582 of
 /// 0.9000, with only the worst tile inside. A different face and a different sub-pixel phase
 /// are different measurements, and one page of each is what shows it.
-const CONTRADICTED_SUBSTITUTED_FONT: [&str; 17] = [
-    "bad-PageLabels.pdf page 1",
+///
+/// # Seventeen pages were two populations, and the four-hundred-and-thirty-first measured which
+///
+/// The paragraphs above examined six pages one at a time over four hundred sessions. **Five had
+/// never been opened at all** — `bad-PageLabels.pdf`, `franz_2.pdf` and `issue8088.pdf`'s three —
+/// and they were admitted on the group's own membership rule, which is that the page names a font
+/// nobody embedded. That rule is a hypothesis about what the page carries and this comment has
+/// said so since the sixth session; measuring all seventeen the same three ways splits the list
+/// along the substituted *family*, and it splits it cleanly.
+///
+/// **Where the file names a Times face, the substitution costs nothing that can be measured.**
+/// Ink at the page's own scale, in levels of 255, and the ink's bounding box at 8×:
+///
+/// | page | ours | `poppler` | `mupdf` | box at 8×, ours | `poppler` |
+/// |---|---|---|---|---|---|
+/// | `bad-PageLabels.pdf` p1 | 9.440 | 9.449 | 9.495 | 1442 × 86 at (83, 176) | 1441 × 86 at (83, 176) |
+/// | `franz_2.pdf` p1 | 115.278 | 115.285 | 116.251 | 1437 × 102 at (83, 164) | 1436 × 102 at (83, 164) |
+/// | `issue8088.pdf` p1 | 12.966 | 12.870 | 12.919 | 1233 × 143 at (84, 133) | 1233 × 143 at (84, 133) |
+/// | `issue8088.pdf` p2 | 13.247 | 13.095 | 13.140 | | |
+/// | `issue8088.pdf` p3 | 13.188 | 13.010 | 13.055 | | |
+///
+/// Three renderers putting the page's ink in the *same box to the pixel* over 1600 columns is
+/// §9.2.4's advances and the same cap height; `issue8088.pdf`'s three boxes are identical in all
+/// of ours, `poppler`'s and `mupdf`'s, and the other two differ by one column in 1440. Each of
+/// the five fails exactly one of the four bounds and it is the differing fraction — 5.01% to
+/// 5.68% against 5.00% — with mean at most 1.64 of 5.00 and structural similarity at worst 0.9906
+/// of 0.9000. **That is `CONTRADICTED_GLYPH_EDGES`' diagnosis and not this one's**, so the five
+/// have moved there. (`franz_2.pdf`'s wide spread is `mupdf` alone, and it is not a glyph: the
+/// page is a `0.5 0.5 0.5 sc` background that four renderers give as 146 and `mupdf` as 145, on a
+/// page that is nearly all background.)
+///
+/// **Where the file names a Helvetica or Arial face, the substitution costs one number.** The
+/// compiled-in sans is Liberation Sans (ADR 0133) and the references resolve one through this
+/// machine's fontconfig, which is `NimbusSans`. Drawn by `magick` at 144 px/em straight from the
+/// two files, the capital `I` is **99 rows** for Liberation Sans and **105** for `NimbusSans` —
+/// 0.6875 em against 0.729167 em, and the same 0.6875 against 0.729167 for the bold pair at
+/// 288 px/em. That is 5.7% shorter capitals, and it is what the rasters show:
+///
+/// | page | `/BaseFont` | ours | lightest reference | cap rows at 8×, ours | theirs |
+/// |---|---|---|---|---|---|
+/// | `issue6108.pdf` p1 | `/Arial`, 12 pt | 11.023 | 11.356 | 66 | 70 |
+/// | `issue7580.pdf` p1 | `/ArialMT`, 18 pt | 14.954 | 15.435 | 99 | 105 |
+/// | `issue9243.pdf` p1 | `/Helvetica-Bold` | 18.630 | 20.179 | 50 | 54 |
+/// | `bug850854.pdf` p1 | `/Helvetica` | 13.217 | 13.586 | | |
+/// | `bug847420.pdf` p1 | `/Arial,Italic` | 12.955 | 13.224 | | |
+/// | `issue6069.pdf` p1 | `/Arial` | 12.650 | 12.869 | | |
+/// | `issue11403_reduced.pdf` p1 | `/Helvetica` | 14.710 | 14.841 | | |
+///
+/// 66/96 and 99/144 are 0.6875 exactly, 70/96 and 105/144 are 0.729167 exactly — the two font
+/// files' own numbers, at two point sizes, arrived at without comparing anything to anybody. **So
+/// the whole of this group's remaining sans-face difference is one metric**, and the ink deficit
+/// it produces runs 1.0% on `issue11403_reduced.pdf` to 7.7% on `issue9243.pdf`, which is a page
+/// of nothing but capitals and therefore the pure case.
+///
+/// The advances are untouched by it, which is the half Table 109 does state and which was checked
+/// on the same rasters: `issue7580.pdf`'s ink spans 1463 device columns against 1461 and 1462,
+/// `issue6108.pdf`'s 2931 against 2928 and 2929, `issue9243.pdf`'s 210 against 211.
+///
+/// **It stays listed and the face is not changed**, and ADR 0267 has the argument rather than this
+/// comment: §9.5 NOTE 5 puts the choice beyond the standard, §9.8.1 says a descriptor's metrics
+/// exist so that a processor may "synthesise a substitute font or select a similar font when the
+/// font program is unavailable" and states no `shall` about doing it, and moving 0.6875 to 0.729167
+/// because that is where `NimbusSans` sits is curve-fitting with the arithmetic written out.
+/// `/CapHeight` is on §9.8.1's ledger row's list of Table 120 entries this tree does not read, and
+/// what this measurement adds is the row's missing number.
+const CONTRADICTED_SUBSTITUTED_FONT: [&str; 12] = [
     "bug847420.pdf page 1",
     "bug850854.pdf page 1",
     "calrgb.pdf page 1",
     "calrgb.pdf page 11",
     "calrgb.pdf page 12",
     "calrgb.pdf page 5",
-    "franz_2.pdf page 1",
     "issue11403_reduced.pdf page 1",
     "issue15716.pdf page 1",
     "issue6069.pdf page 1",
     "issue6108.pdf page 1",
     "issue7580.pdf page 1",
-    "issue8088.pdf page 1",
-    "issue8088.pdf page 2",
-    "issue8088.pdf page 3",
     "issue9243.pdf page 1",
 ];
 
@@ -1031,13 +1093,13 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 17] = [
 /// It opened "[e]ach fails **only** on mean absolute difference — 5.4 to 6.4 against a bound of
 /// 5.00 — while every other measure passes with room: worst tile 13.7 to 22.1 against 40, and
 /// structural similarity 0.904 to 0.946 against 0.900." **Every number in that sentence was
-/// `ghostscript`'s, and `ghostscript` is in the consensus on none of these 21 pages** — all of
-/// them read "poppler and mupdf agree". The gate's own line was measuring us against whichever
+/// `ghostscript`'s, and `ghostscript` is in the consensus on none of the 21 pages it then held**
+/// — all of them read "poppler and mupdf agree". The gate's own line was measuring us against whichever
 /// reference had the largest tile, which need not be one the verdict rests on, and printing it
 /// beside a bound derived from the pair that does; `measurements` is where that was corrected
 /// in the four-hundred-and-sixth session, and this group is the largest thing it moved.
 ///
-/// Against the pair that decides them, all 21 look like this:
+/// Against the pair that decides them, all 21 looked like this:
 ///
 /// | | across the 21 | its bound |
 /// |---|---|---|
@@ -1046,7 +1108,7 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 17] = [
 /// | structural similarity | 0.9655 to 0.9981 | 0.9000 |
 /// | **differing fraction** | **1.00× to 1.56× its own page bound** | 5.00% to 8.75% |
 ///
-/// **Every one of the 21 fails on exactly one bound and it is the differing fraction**, which
+/// **Every one of them fails on exactly one bound and it is the differing fraction**, which
 /// `Tolerance::accepts` has always checked and which nothing printed until that session. The
 /// mean — the measure this entry was built on — is a fifth to a half of its bound on every page.
 ///
@@ -1083,8 +1145,9 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 17] = [
 /// ADR 0243 has the derivation, what moving it would cost, and why the measurement that would
 /// justify moving it for us alone comes from a renderer sharing `skrifa` with us.
 ///
-/// `franz_2.pdf` is the same shape one group over and is this file's tightest instance of it:
-/// **5.01% against 5.00%**, one part in five hundred.
+/// `franz_2.pdf` was the same shape one group over and is this file's tightest instance of it —
+/// **5.01% against 5.00%**, one part in five hundred — and the four-hundred-and-thirty-first
+/// session moved it into this group along with four more (below).
 ///
 /// The measurement that turns that into a diagnosis is the *ink*: the mean luminance of the whole
 /// page, which counts how much was painted without caring where. Over the oracle's own artefacts:
@@ -1204,7 +1267,45 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 17] = [
 /// worst tile 12.54 against 40.00, ssim 0.9445 against 0.9000 — and the page is contradicted
 /// only because `poppler` and `mupdf` agree so closely that twice their spread is a tighter
 /// bound than the floor. Trap 12, on the eleven pages above's own subject.
-const CONTRADICTED_GLYPH_EDGES: [&str; 21] = [
+///
+/// # Five more in the four-hundred-and-thirty-first, and every one had a *substituted* face
+///
+/// `bad-PageLabels.pdf` page 1, `franz_2.pdf` page 1 and `issue8088.pdf` pages 1 to 3 sat in
+/// `CONTRADICTED_SUBSTITUTED_FONT`, admitted together on that group's membership rule — the page
+/// names a font nobody embedded — and never opened. All five name `/Times-Roman`, so the rule is
+/// true of them; it is not what they differ by, which is the seventh time this file has caught a
+/// group's name naming a hypothesis rather than a diagnosis.
+///
+/// The two instruments are this group's own. **The ink is conserved**, in levels of 255 at the
+/// page's own scale:
+///
+/// | page | ours | `poppler` | `mupdf` | `ghostscript` | `hayro` |
+/// |---|---|---|---|---|---|
+/// | `bad-PageLabels.pdf` | 9.440 | 9.449 | 9.495 | 9.654 | 9.344 |
+/// | `franz_2.pdf` | 115.278 | 115.285 | 116.251 | 115.380 | 115.222 |
+/// | `issue8088.pdf` p1 | 12.966 | 12.870 | 12.919 | 12.997 | 12.951 |
+/// | `issue8088.pdf` p2 | 13.247 | 13.095 | 13.140 | 13.237 | 13.164 |
+/// | `issue8088.pdf` p3 | 13.188 | 13.010 | 13.055 | 13.157 | 13.100 |
+///
+/// **And the marks are in the same box.** At 8× the ink's bounding box is 1233 × 143 at (84, 133)
+/// in ours, `poppler`'s and `mupdf`'s alike on `issue8088.pdf` — identical, over a 1600-column
+/// raster — and 1442 against 1441 columns on `bad-PageLabels.pdf` and 1437 against 1436 on
+/// `franz_2.pdf`, with the same height and the same origin in every one. Equal *height* is the
+/// part worth naming: it says the compiled-in `FoxitSerif` and the machine's `NimbusRoman` have
+/// the same cap height to the device pixel, which is exactly what the sans half of the group next
+/// door does *not* have. So the substitution is real and is not the difference.
+///
+/// Each of the five fails one bound and it is the differing fraction — `franz_2.pdf` 5.01%,
+/// `bad-PageLabels.pdf` 5.33%, `issue8088.pdf` 5.50%, 5.57% and 5.68%, against 5.00% — with mean
+/// at most 1.64 of 5.00, worst tile at most 5.05 of 40.00 and structural similarity at worst
+/// 0.9906 of 0.9000. The heatmaps are hollow letters and nothing else. That is this group's
+/// signature in all three of its instruments at once.
+const CONTRADICTED_GLYPH_EDGES: [&str; 26] = [
+    "bad-PageLabels.pdf page 1",
+    "franz_2.pdf page 1",
+    "issue8088.pdf page 1",
+    "issue8088.pdf page 2",
+    "issue8088.pdf page 3",
     "freeculture.pdf page 313",
     "bug1108301.pdf page 1",
     "bug1151216.pdf page 1",

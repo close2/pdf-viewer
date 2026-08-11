@@ -19,7 +19,7 @@ features no file exercises.
 ```sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets      # must be silent of lints
-cargo nextest run --workspace               # 1562 tests, 11 skipped
+cargo nextest run --workspace               # 1568 tests, 11 skipped
 cargo test --workspace --doc                # the one doctest nextest does not run
 cargo build --profile gates -p pdf-sandbox --bins   # trap 10: Cargo will not do this for you
 cargo test  --profile gates -p pdf-model      --test corpus          -- --ignored --nocapture
@@ -110,7 +110,11 @@ colour that comes back and a document that names its own press — **and the gat
 this line was not behind for the ninth round running. The four-hundred-and-twenty-ninth added
 **one** — `saving.rs`'s undo, for the one `pub fn` in `pdf-model` that the fifth sweep found named
 by no host, no tool, no fuzz target and no test — **and the gate printed 1562**, so this line was
-not behind for the tenth.
+not behind for the tenth. **The four-hundred-and-thirty-first added one** — `tools/spec-errata`'s,
+for a quotation that lowers the sentence's first letter — **and the gate printed 1568, so this line
+was five behind**, which is the second time in thirteen rounds. Where the five came from was not
+chased and the precondition is the same one the four-hundred-and-eighteenth wrote down: this line is
+current only for a round that *ran* the gate and copied its number.
 - **One of those eighteen runs a C compiler**, and it is the only gate in this sequence that does.
   `viewer-ffi::a_c_program_drives_the_abi` builds `crates/viewer-ffi/c/open_a_page.c` against the
   crate's own header with `-Wall -Wextra -Werror`, links it against the `cdylib` — which it asks

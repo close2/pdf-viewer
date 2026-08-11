@@ -211,10 +211,27 @@ pub const MIN_WORDS: usize = 4;
 /// It cannot make a false positive worth reading: a passage of [`MIN_WORDS`] words is twenty-odd
 /// characters, and two different sentences do not agree on twenty characters by having their
 /// spaces in different places. [`Landing::in_clause`] does the separating either way.
+///
+/// # Case is folded, and the four-hundred-and-thirty-first session found what that was hiding
+///
+/// A writer quoting the middle of a sentence lowers its first letter, because a quotation
+/// starting mid-sentence reads wrongly with a capital — and `CLAUDE.md`'s "quotation marks mean
+/// verbatim" is about the *words*, so the practice is right. The comparison here was not: with
+/// case kept, `pdf-font`'s "these fonts, or their font metrics and suitable substitution fonts"
+/// did not match §9.6.2.2's "These fonts, or their font metrics and suitable substitution fonts,
+/// shall be available to the PDF processor", which Errata Collection 3 struck outright — nine
+/// words identical and one letter apart. The four-hundred-and-eighteenth session corrected that
+/// sentence in three files and this crate could not see the fourth.
+///
+/// **This is not a loosening of the verbatim gate**, which is `conformance::quote` and keeps its
+/// case: that one decides whether a quotation is the standard's own words, and a lowered letter
+/// there is a real difference a reader should see. This function only asks whether a quotation is
+/// *about* a struck passage, which is a lead for a person to follow rather than a verdict.
 fn squeezed(text: &str) -> String {
     conformance::quote::normalise(text)
         .chars()
         .filter(|character| !character.is_whitespace())
+        .flat_map(char::to_lowercase)
         .collect()
 }
 
@@ -909,6 +926,24 @@ mod tests {
                 .contains(&conformance::quote::normalise(struck))
         );
         assert!(squeezed(conversion).contains(&squeezed(struck)));
+    }
+
+    #[test]
+    fn a_quotation_lowered_into_a_sentence_is_still_that_sentence() {
+        // §9.6.2.2's struck sentence and `pdf-font`'s quotation of its middle, which lowers the
+        // first letter because the quotation starts mid-sentence. Nine words identical and one
+        // letter apart: with case kept this answers `false` and the stale quotation is invisible,
+        // which is what happened for thirteen sessions after the four-hundred-and-eighteenth
+        // corrected the same sentence in three other files.
+        let struck = "These fonts, or their font metrics and suitable substitution fonts, \
+                      shall be available to the PDF processor.";
+        let quotation = "these fonts, or their font metrics and suitable substitution fonts";
+        assert!(overlaps(quotation, &squeezed(struck)));
+        // And the fold does not make two different sentences overlap.
+        assert!(!overlaps(
+            "these fonts, or their glyph widths and unsuitable replacement faces",
+            &squeezed(struck)
+        ));
     }
 
     /// A document from a body, with the trailer and cross-reference table a reader needs.

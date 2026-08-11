@@ -3536,10 +3536,15 @@ mod tests {
     ///
     /// Three things at once, and each has failed somewhere else in this tree. The widths are
     /// the clause's own — Helvetica's `M` is 833 thousandths of an em and its space 278, which
-    /// is the AFM's number and not something a substitute face happened to have — so the
-    /// metrics half of "these fonts, or their font metrics and suitable substitution fonts" is
-    /// what answered. [`LoadedFont::advance`] states them in ems, which is why these are
-    /// thousandths of one.
+    /// is the AFM's number and not something a substitute face happened to have — so it is the
+    /// published metrics that answered rather than the substitute program's own advances.
+    /// [`LoadedFont::advance`] states them in ems, which is why these are thousandths of one.
+    /// (This sentence quoted §9.6.2.2's "these fonts, or their font metrics and suitable
+    /// substitution fonts" until the four-hundred-and-thirty-first session; Errata Collection 3
+    /// struck the whole sentence — Issue #47 and #48, `/State` `Review` `Completed` — and
+    /// [`crate::standard`] carries the reading that replaces it. `tools/spec-errata` could not
+    /// see this one because the quotation lowers the sentence's first letter and the comparison
+    /// kept case; it folds case now, and found it.)
     /// Every code a Latin label uses has an outline with segments in it, because a font that
     /// maps a code and draws nothing is the silent failure trap 1 is about. And the whole of it
     /// runs against [`Document::empty`], which is the point: there is no file here.

@@ -344,6 +344,29 @@ at +0.42.
 **Re-run it after any round that changes what gets drawn**, and expect it to stay empty; a name
 appearing at −1 or beyond is a regression no other gate would report as one.
 
+**And it works on the *contradicted* list, which nobody had tried until the
+four-hundred-and-thirty-first.** The loop is the same loop — our ink minus the lightest live
+reference's, over artefacts already on disk — and the population is the gate's 68 `CONTRADICTED`
+lines instead of its 787 `ambiguous` ones. It costs seconds and it reads differently, because a
+contradicted page already has somebody pointing at it: what the sweep adds is *how much* and *which
+direction*, over a whole list at once.
+
+```text
+−5.115  issue5751.pdf p1   [incomplete]  we draw nothing; a Type 1 program this reader refuses
+−2.203  issue4436r.pdf p1                CONTRADICTED_SUBPIXEL_IMAGE, and its own note's 0.502
+−1.549  issue9243.pdf p1                 a substituted sans, 0.6875 em of cap against 0.729167
+−0.779  smask_luminosity_oob_transfer.pdf p1   CONTRADICTED_MASK_QUANTISATION
+−0.482  issue7580.pdf p1                 the same cap height, at 18 pt
+                                         then nothing past −0.4
++9.982  issue14802.pdf p1                CONTRADICTED_LINK_BORDER: two references drew no border
++13.704 issue11740_reduced.pdf p1        CONTRADICTED_REFERENCES_DREW_NOTHING, by name
+```
+
+**Nothing unexplained anywhere on the list**, which is the statement this file makes about the
+ambiguous bucket and had never made about the contradicted one. The head being a page this tree
+*reports* is correction 3 working one list over: a page we say we could not draw is expected to be
+light.
+
 **Run in the three-hundred-and-thirty-fourth over all 786**, after twenty rounds that changed the
 readback, the chrome, the annotations a person can add and nine pages' worth of diagnoses. Filtered
 against the corpus's own incomplete list first — correction 3 inside the loop rather than beside it

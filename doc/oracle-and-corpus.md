@@ -237,6 +237,40 @@ honoured to **1420 device columns against both references' 1419** at 8×, and wh
 naming, font substitution, and glyph selection are implementation-dependent" — and the group had
 argued from it for four hundred sessions without citing it.
 
+**And the group is twelve rather than seventeen since the four-hundred-and-thirty-first session**,
+which measured the five pages nobody had ever opened. `CONTRADICTED_SUBSTITUTED_FONT` admits a page
+on what it *carries* — the page names a font nobody embedded — which its own first paragraph calls
+the weakest rule in the file, and six of its seventeen had been re-derived one at a time over four
+hundred sessions while five had come in together and stayed. All five name `/Times-Roman`, and on
+all five the substitution is invisible: at 8× the ink's bounding box is **1233 × 143 at (84, 133) in
+ours, `poppler`'s and `mupdf`'s alike** on `issue8088.pdf`, identical over a 1600-column raster, and
+one column in 1440 apart on `bad-PageLabels.pdf` and `franz_2.pdf`. Equal width is §9.2.4's advances;
+equal *height* is the cap height, which nothing in the standard states. Each fails the differing
+fraction and nothing else, at 5.01% to 5.68% of 5.00%, so they are `CONTRADICTED_GLYPH_EDGES` and
+moved there — which takes that group to **26**.
+
+**What is left of this group's sans half is one number.** The compiled-in Helvetica is Liberation
+Sans and the references resolve `NimbusSans`; drawn straight from the two files, the capital `I` is
+**0.687500 em** against **0.729167 em**, in the regular and the bold alike, and the corpus rasters
+reproduce both exactly — `issue6108.pdf` at 12 pt draws 66 device rows against 70, `issue7580.pdf` at
+18 pt draws 99 against 105. 5.7% shorter capitals is 1.0% to 7.7% of the page's ink on the six pages
+that name a Helvetica or Arial face, largest on `issue9243.pdf`, which is nothing but capitals. The
+advances are untouched by it. **ADR 0267 declines to close it**, because moving 0.687500 to 0.729167
+is moving to where another program's font happens to sit, and §9.8.1's "[t]hese font metrics provide
+information that enables a PDF processor to synthesise a substitute font or select a similar font
+when the font program is unavailable" states no `shall` about doing so. `/CapHeight` is on §9.8.1's
+ledger row's list of Table 120 entries this tree does not read, and this is the number that list was
+missing.
+
+**And the ambiguous bucket's step 7 was run over this list for the first time.** Our ink minus the
+lightest live reference's, over all 68 contradicted pages, from artefacts already on disk: the head
+is `issue5751.pdf` at **−5.115**, a page this tree already reports and draws nothing on, then
+`issue4436r.pdf` −2.203 (`CONTRADICTED_SUBPIXEL_IMAGE`), `issue9243.pdf` −1.549 and
+`smask_luminosity_oob_transfer.pdf` −0.779 and `issue7580.pdf` −0.482, and **nothing else past −0.4**.
+The positive side is `issue11740_reduced.pdf` +13.704 and `issue14802.pdf` +9.982, both of them a
+reference that drew nothing. **Nothing unexplained anywhere on the contradicted list**, which is the
+statement `doc/todo/00` records for the ambiguous bucket and which had never been made about this one.
+
 ### 3c. The bound those thirty-eight fail was never derived, and it is left where it is
 
 **The four-hundred-and-seventh session asked the question §3b's last paragraph raises** — a bound a

@@ -1,9 +1,9 @@
 # What is left of font substitution
 
-Status: reported at runtime; three distinct gaps, the first now **empty of witnesses** and the third measured.
+Status: reported at runtime; four distinct gaps, the first now **empty of witnesses**, the third measured and the fourth measured and declined.
 Priority: 21
 Corpus: 40 documents
-Clauses: §9.10.2, §9.7.4.2, §9.8.3
+Clauses: §9.10.2, §9.7.4.2, §9.8.1, §9.8.3
 Code: `crates/pdf-font/src/substitute.rs`, `crates/pdf-model/src/content.rs`
 
 ## 1. A per-character fallback — **0 documents, and this section was wrong about its own two**
@@ -96,3 +96,21 @@ closed-by-decision list; `poppler` draws them from a face this machine has.
 
 The rest of the population is ones and twos, two of them reading back as a replacement character
 or a CJK ideograph, which is a `/ToUnicode` question rather than a glyph one.
+
+## 4. A fourth gap, measured and deliberately not closed — the substitute's cap height
+
+Not a code reaching no glyph but a glyph of the wrong size, and it is the only part of substitution
+this tree has a *number* for. The compiled-in Helvetica is Liberation Sans; the reference renderers
+resolve `NimbusSans` through `fontconfig`. Drawn straight from the two files, the capital `I` is
+**0.687500 em** against **0.729167 em**, in the regular and the bold alike, and the corpus rasters
+reproduce both exactly — `issue6108.pdf` at 12 pt draws 66 device rows against 70, `issue7580.pdf`
+at 18 pt draws 99 against 105. That is 5.7% shorter capitals and 1.0% to 7.7% of the page's ink on
+the six `CONTRADICTED_SUBSTITUTED_FONT` pages naming a Helvetica or Arial face; the serif faces have
+no such gap, and the advances have none in either family.
+
+**It is left open on purpose** (ADR 0267): §9.5 NOTE 5 puts substitution beyond the standard,
+§9.8.1 says a descriptor's metrics exist so that a processor may synthesise or select a substitute
+and states no `shall` about it, and closing the gap by scaling to 0.729167 would be scaling to where
+another program's font sits. **What would open it is a document** — a `/FontDescriptor` stating a
+usable `/CapHeight` for a non-embedded face, which no corpus page has yet been shown to do.
+`/CapHeight` is on §9.8.1's ledger row's list of Table 120 entries this tree does not read.
