@@ -290,14 +290,38 @@ fn survey_documents(documents: &[PathBuf]) {
         "  codes reaching no glyph *in silence*: {missed} over {silent} documents \
          (measurement, not a gate; doc/todo/21)"
     );
+    // Every one of them, not a top ten: at this population's size the ranked list *is* the
+    // measurement — the four-hundred-and-thirty-fourth session had to open the documents
+    // behind it — and one line apiece is nothing beside the per-document lines below.
     let mut worst: Vec<(&str, usize)> = verdicts
         .iter()
         .filter(|verdict| verdict.codes_without_a_glyph > 0)
         .map(|verdict| (verdict.name.as_str(), verdict.codes_without_a_glyph))
         .collect();
     worst.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(right.0)));
-    for (name, count) in worst.iter().take(10) {
+    for (name, count) in &worst {
         println!("    {count:6} {name}");
+    }
+    let blank: usize = verdicts
+        .iter()
+        .map(|verdict| verdict.codes_reaching_a_blank_glyph)
+        .sum();
+    let blank_documents = verdicts
+        .iter()
+        .filter(|verdict| verdict.codes_reaching_a_blank_glyph > 0)
+        .count();
+    println!(
+        "  codes reaching a glyph the font draws blank: {blank} over {blank_documents} \
+         documents (not a mark missed; ADR 0270)"
+    );
+    let mut blankest: Vec<(&str, usize)> = verdicts
+        .iter()
+        .filter(|verdict| verdict.codes_reaching_a_blank_glyph > 0)
+        .map(|verdict| (verdict.name.as_str(), verdict.codes_reaching_a_blank_glyph))
+        .collect();
+    blankest.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(right.0)));
+    for (name, count) in blankest.iter().take(10) {
+        println!("    blank {count:6} {name}");
     }
     for verdict in &verdicts {
         match &verdict.outcome {

@@ -78,3 +78,55 @@ fn a_page_of_ordinary_text_reports_nothing_about_its_fonts() {
     );
     assert!(interpretation.is_complete(), "and it is complete: {said}");
 }
+
+/// A code whose glyph the font *contains* and draws as empty is not a mark missed.
+///
+/// `pr12564.pdf` was the largest single contributor to the corpus's silent missing-glyph count
+/// — 26 of 62 — and not one of them is a missing mark: every one is code 35 through `/TT3`,
+/// whose glyph 1 the program contains and describes with no contours, which is how an sfnt
+/// stores a space. What made it look like a loss is the `/ToUnicode`, which reads that code
+/// back as `#`, so the whitespace exemption in front of the count could not see it — and
+/// `pdftotext` renders the page as `1101#Strayer#Drive`, which is the same statement from
+/// outside. §9.6.5.4's routes ended at a glyph; what that glyph draws is the program's to say.
+#[test]
+fn a_code_whose_font_contains_an_empty_glyph_is_counted_apart_from_a_missing_mark() {
+    let Some(interpretation) = page_one("pr12564.pdf") else {
+        return;
+    };
+    assert_eq!(
+        (
+            interpretation.codes_without_a_glyph,
+            interpretation.codes_reaching_a_blank_glyph
+        ),
+        (0, 26),
+        "all 26 reach a glyph the program describes as empty"
+    );
+    assert!(
+        interpretation.is_complete(),
+        "and the page is drawn: {}",
+        reports(&interpretation)
+    );
+}
+
+/// And a code that reaches no glyph, or `.notdef`, still counts as one.
+///
+/// `issue14821.pdf` is the corpus's other half of the same branch and both ends of it appear on
+/// one page. Five of its codes are `Identity-H` CIDs whose `loca` entries are empty by the
+/// glyph table's own statement — the program contains those glyphs and draws them as nothing.
+/// Three are ASCII codes in a nonsymbolic `TrueType` subset whose `(3, 1)` `cmap` maps all
+/// three to glyph 0 and whose `post` is version 3.0 with no names at all, so every route
+/// §9.6.5.4 states ends at `.notdef`: those three are text the reader loses.
+#[test]
+fn a_code_that_reaches_notdef_is_still_a_mark_missed() {
+    let Some(interpretation) = page_one("issue14821.pdf") else {
+        return;
+    };
+    assert_eq!(
+        (
+            interpretation.codes_without_a_glyph,
+            interpretation.codes_reaching_a_blank_glyph
+        ),
+        (3, 5),
+        "three codes reach .notdef and five reach an empty glyph"
+    );
+}

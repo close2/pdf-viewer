@@ -670,6 +670,37 @@ pub fn find(request: Request) -> (Arc<[u8]>, Format) {
 /// Foxit faces to that path would refuse five corpus documents that a machine font draws.
 #[must_use]
 pub fn installed(request: Request) -> Option<Arc<[u8]>> {
+    installed_accepted(request, |_| true)
+}
+
+/// The best face of the request's family that answers more of a document's codes than the one
+/// in hand.
+///
+/// **Public because a *simple* substituted font needs exactly this**, and it is the mirror of
+/// [`installed_covering`] one clause over: a composite font's substitute is judged by whether it
+/// can draw a script (§9.10.2 gives it characters and nothing else), and a simple font's by
+/// whether it answers the codes §9.6.5's encoding names. `accept` is handed each candidate's
+/// bytes and answers whether its code table is a strict improvement; `pdf_font::substitute_face`
+/// is where that comparison lives, because building the table is the caller's business.
+///
+/// The list is walked in its own order and stops at the first face that improves, so a Times
+/// document with Cyrillic in its `/Differences` gets `LiberationSerif` — the second name on this
+/// machine's `Serif` list, `NimbusRoman` having no Cyrillic — rather than whatever face on the
+/// machine happens to have the widest `cmap`.
+#[must_use]
+pub fn installed_wider(request: Request, accept: impl Fn(&Arc<[u8]>) -> bool) -> Option<Arc<[u8]>> {
+    installed_accepted(request, accept)
+}
+
+/// The best face on this machine that matches the request's family *and* satisfies `accept`.
+///
+/// The preference list is walked in its own order and each match is offered to `accept`, so a
+/// caller that needs more than a family match — [`installed_covering`] needs a repertoire — gets
+/// the *next* face of the same family rather than nothing. That distinction is the difference
+/// between a Cyrillic document drawn in a serif face and one drawn in whatever face on the
+/// machine happens to have the widest `cmap`: this machine's preference list for `Serif` begins
+/// with `NimbusRoman`, which has no Cyrillic, and continues with `LiberationSerif`, which has.
+fn installed_accepted(request: Request, accept: impl Fn(&Arc<[u8]>) -> bool) -> Option<Arc<[u8]>> {
     let families = PREFERENCES
         .iter()
         .find(|(family, _)| *family == request.family)
@@ -686,8 +717,13 @@ pub fn installed(request: Request) -> Option<Arc<[u8]>> {
                     .stem
                     .strip_prefix(&family)
                     .is_some_and(|rest| rest == *suffix)
+                    && let Some(bytes) = read_cached(&candidate.path)
                 {
-                    return read_cached(&candidate.path);
+                    if accept(&bytes) {
+                        return Some(bytes);
+                    }
+                    // Not this one; the same family's next name may still answer.
+                    break;
                 }
             }
         }
@@ -726,13 +762,11 @@ pub fn installed_covering(request: Request, wanted: &[char]) -> Option<Arc<[u8]>
         let charmap = skrifa::MetadataProvider::charmap(&font);
         wanted.iter().all(|c| charmap.map(*c).is_some())
     };
-    if let Some(bytes) = installed(request)
-        && (wanted.is_empty() || covers(&bytes))
-    {
-        return Some(bytes);
-    }
     if wanted.is_empty() {
-        return None;
+        return installed(request);
+    }
+    if let Some(bytes) = installed_accepted(request, covers) {
+        return Some(bytes);
     }
 
     // Memoised on the characters, because the search is the expensive part: it reads font

@@ -593,6 +593,14 @@ struct Tally {
     /// documents that mostly draw fine and each report costs the oracle a judged page (trap 11).
     /// The input to that question is a count, and this is where it is counted.
     codes_without_a_glyph: Vec<(String, usize)>,
+    /// Every code shown on a page one that reached a glyph its font program describes as
+    /// **empty**, on the same silent pages.
+    ///
+    /// The other half of the branch above, separated in the four-hundred-and-thirty-fourth
+    /// session because only one of the two is a mark the reader loses: a glyph the program
+    /// contains and draws as nothing is a space, however its `/ToUnicode` reads it back.
+    /// ADR 0270.
+    codes_reaching_a_blank_glyph: Vec<(String, usize)>,
     unopenable: Vec<String>,
     locked: Vec<String>,
     unreadable_encryption: Vec<String>,
@@ -688,6 +696,13 @@ fn examine(path: &Path, tally: &Mutex<Tally>) {
         let named = name.clone();
         record(tally, |t| t.codes_without_a_glyph.push((named, missed)));
     }
+    if interpretation.codes_reaching_a_blank_glyph > 0 && interpretation.is_complete() {
+        let blank = interpretation.codes_reaching_a_blank_glyph;
+        let named = name.clone();
+        record(tally, |t| {
+            t.codes_reaching_a_blank_glyph.push((named, blank));
+        });
+    }
     if !interpretation.is_complete() {
         let reported = format!("{:?}", interpretation.unsupported);
         record(tally, |t| t.incomplete.push((name.clone(), reported)));
@@ -779,6 +794,16 @@ fn the_corpus_opens_interprets_and_rasterises() {
     for (name, count) in worst.iter().take(10) {
         println!("    {count:6} {name}");
     }
+    let blank: usize = tally
+        .codes_reaching_a_blank_glyph
+        .iter()
+        .map(|(_, count)| *count)
+        .sum();
+    println!(
+        "  codes reaching a glyph the font draws blank: {blank} over {} documents (not a \
+         mark missed; ADR 0270)",
+        tally.codes_reaching_a_blank_glyph.len()
+    );
     for (name, reported) in &tally.incomplete {
         println!("  incomplete: {name}: {reported}");
     }

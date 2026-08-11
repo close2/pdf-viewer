@@ -1,10 +1,10 @@
 # What is left of font substitution
 
-Status: reported at runtime; four distinct gaps, the first now **empty of witnesses**, the third measured and the fourth measured and declined.
+Status: reported at runtime; four distinct gaps — the first still **empty of witnesses**, the second unchanged, the third **characterised, fixed and re-measured** (ADR 0270), the fourth measured and declined.
 Priority: 21
 Corpus: 40 documents
-Clauses: §9.10.2, §9.7.4.2, §9.8.1, §9.8.3
-Code: `crates/pdf-font/src/substitute.rs`, `crates/pdf-model/src/content.rs`
+Clauses: §9.10.2, §9.7.4.2, §9.6.2.2, §9.6.5.4, §9.8.1, §9.8.3
+Code: `crates/pdf-font/src/substitute.rs`, `crates/pdf-font/src/lib.rs`, `crates/pdf-model/src/content.rs`
 
 ## 1. A per-character fallback — **0 documents, and this section was wrong about its own two**
 
@@ -47,65 +47,63 @@ supplied and §9.10.2's third method has nothing to read. §9.7.4.2 leaves such 
 only through `/ToUnicode`, which addresses by character; without one there is no question to ask.
 Honest refusals. The `-UCS2` `CMap`s closed the rest of this population in session 156 (ADR 0140).
 
-## 3. A font is reported as a whole, and that is not fine-grained enough
+## 3. A font is reported as a whole — measured, and the silence was half spaces
 
 `FontError` and the "drew nothing" tally are the only channels a font has, so a font that maps
 *some* of its document's codes draws those and says nothing about the rest. ADR 0152 measured the
 alternative — reporting every uncovered code named 13 documents that mostly draw fine, and each
 report costs the oracle a judged page (trap 11) — and chose "drew none" deliberately.
 
-The general case needs a report where a glyph is *shown*. **The distinction it was said to need
-already exists** and this file was wrong about that: `LoadedFont::glyph_index` is public and
-answers "which glyph does this code reach, if any", so "no glyph" is `None` from it while "blank
-glyph" is `Some(g)` with an empty outline — `LoadedFont::outline` collapses the two and
-`glyph_index` does not. The whitespace-readback test added in ADR 0157 is the other half.
+`Interpretation::codes_without_a_glyph` is the measurement that question needs, and the
+four-hundred-and-thirty-fourth session found it was counting two different things (ADR 0270).
+`LoadedFont::outline` answers `None` both where the routes of §9.6.5.4 and §9.7.4.2 **reached a
+glyph the program contains** and describes with no contours — which is how every sfnt stores a
+space — and where they reached **nothing, or `.notdef`**. Only the second is a mark the reader
+loses, and `codes_reaching_a_blank_glyph` now holds the first.
 
-So what was owed was **the measurement, not the mechanism**, and the two-hundred-and-forty-fourth
-and -fifth sessions took it. `Interpretation::codes_without_a_glyph` counts the codes a page
-showed that reached no glyph — excluding the two cases that are not marks missed, a code that
-reads back as whitespace and a code §9.10.2 gave a character the substitute lacks — and
-`tests/corpus.rs` prints the sum over page one of all 974 documents, **counting only pages that
-report nothing**, because a document whose font already says "no outline for any of the codes
-this page shows" is not silent about it:
+**The split, over ADR 0269's 65 944 web documents and over the 974:**
 
-```text
-codes reaching no glyph *in silence*: 50 over 9 documents
-    26 pr12564.pdf        3 bug1392647.pdf         1 issue2017r.pdf
-     8 issue14821.pdf     2 issue2884_reduced.pdf  1 issue4398.pdf
-     6 bug1151216.pdf     2 issue4650.pdf          1 issue7020.pdf
-```
+| | web codes | web documents | corpus |
+|---|---|---|---|
+| a glyph the font describes as empty — not a mark missed | **28 837** | 359 | 57 over 9 |
+| no glyph, or `.notdef` — a mark lost, before the fix | **22 435** | 277 | 5 over 2 |
+| ADR 0269's total | 51 272 | 635 | 62 over 10 |
 
-**And then the largest contributor turned out not to be a missing mark at all.**
-`PDFVIEWER_TRACE_MISSING_GLYPH=1` names each code's readback, and all 26 of `pr12564.pdf`'s are
-one code that reads back as `#` — `pdftotext` renders that page as `1101#Strayer#Drive#*#San#Jose`,
-so the code **is** the document's space and having no outline is correct. The whitespace exemption
-is right in principle and blind to a font that reads a space back as something else.
+`pr12564.pdf`'s 26 — the corpus's largest contributor, diagnosed by hand in the
+two-hundred-and-forty-fifth session — are the first row, and so is the web's largest:
+`0300276.pdf` shows one `Identity-H` code 118 times whose `/ToUnicode` maps it to U+0007 and whose
+glyph the font contains and draws blank. The whitespace exemption in front of the count cannot see
+a font that reads its own space back as something else; the glyph index can.
 
-So the real silent population is **24 codes over 8 documents**, and ADR 0152's trade holds
-comfortably: turning them into reports would cost the oracle eight judged pages to name
-twenty-four codes.
+**And the second row had one mechanism in it.** Five documents were 4912 of the 22 435 and all
+five are Cyrillic through a standard-14 name: ten of §9.6.2.2's fourteen compiled-in faces are
+Foxit's bare CFF, whose charsets carry the standard Latin character set and nothing else, so a
+`/Differences` naming `afii10017` reached no glyph while the Latin codes of the same font drew.
+`substitute_face` now replaces a substituted face with one of the same family whose code table
+over Table 109's declared codes is a strict superset, and the population goes **22 435 codes over
+277 documents to 780 over 236** — with the web's reports 1144 → 1138, six of them leaving because
+the font they named now draws — so ADR 0269's second-largest reported population, a font with no
+outline for any code the page shows, is **261 → 255 of 65 944**.
 
-**`issue14821.pdf` was the one worth opening, and it is answered**: the document asks for glyphs
-its own embedded subsets do not contain. Five of its eight are `Identity-H` CIDs — 21, 22, 26,
-91 — whose `loca` entries are empty by the glyph table's own statement and which the descendant's
-`/W` does not list either; the other three are ASCII codes in a nonsymbolic `TrueType` subset
-whose `/Encoding` names a content stream, whose `(3,1)` `cmap` maps all three to glyph 0, and
-whose `post` is version 3.0 with no glyph names at all. Every route §9.6.5.4 and §9.7.4.2 state
-ends at nothing. The evidence is in those two ledger rows and the refusal is on the handover's
+**So ADR 0152's trade holds, and this is the number rather than the opinion.** Reporting every
+uncovered code would name 236 documents of 65 944 and 2 of the 974 to account for 780 codes, 231
+of those documents losing four codes or fewer. What is left is characterised rather than counted:
+a content stream showing **character code 0**, which reaches `.notdef` and reads back as U+FFFD or
+U+FFFF — the mode of the distribution, 109 documents losing exactly four codes and 98 losing two;
+an **embedded** subset missing a code it is asked for (`3867739.pdf`'s `$` and `>`, 43 of them);
+and `4728077.pdf`'s 54, one `Identity-H` code 0 reaching CID 0. Nothing left has more than two
+documents behind it.
+
+**`issue14821.pdf` is the corpus witness and it splits the way its ledger rows say.** Five of its
+eight are `Identity-H` CIDs whose `loca` entries are empty by the glyph table's own statement —
+the first row above — and three are ASCII codes in a nonsymbolic `TrueType` subset whose `(3,1)`
+`cmap` maps all three to glyph 0 and whose `post` is version 3.0 with no glyph names at all. Every
+route §9.6.5.4 and §9.7.4.2 state ends at nothing. The refusal is on the handover's
 closed-by-decision list; `poppler` draws them from a face this machine has.
 
-The rest of the population is ones and twos, two of them reading back as a replacement character
-or a CJK ideograph, which is a `/ToUnicode` question rather than a glyph one.
-
-**What the web says about both halves of this section, over 65 944 crawled documents** (ADR 0269).
-The *loud* population — a font whose program has no outline for any code the page shows — is **261
-documents, 0.40%**, the second-largest thing this tree reports on real files after §11.4.7's
-blending space, with a further 35 whose font program would not parse and 14 whose encoding cannot
-address a substitute. The *silent* one is **51 272 codes over 635 documents**: 0.96% of documents
-carry at least one code that reaches no glyph without saying so, at a mean of 81 codes apiece. That
-is the number ADR 0152's trade was made without, and it does not overturn the trade — a report per
-uncovered code would name 635 documents in the web's terms and 8 in the corpus's — but it does say
-the silence is a page's worth of text on a document that has any, not a stray code.
+**What this section still owes** is §1's chain: the superset rule takes one face or none, so a
+document whose encoding no single face of its family covers still loses whatever the face in hand
+lacks.
 
 ## 4. A fourth gap, measured and deliberately not closed — the substitute's cap height
 

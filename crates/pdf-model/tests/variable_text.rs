@@ -553,25 +553,39 @@ fn a_no_break_space_is_drawn_as_a_space() {
     );
 }
 
-/// A stand-in that cannot draw the value declines instead of drawing part of it.
+/// A stand-in draws the whole value or none of it, never part.
 ///
 /// The asymmetry is the finding, and `freetext_no_appearance.pdf` is where it came from: its
 /// value is a paragraph of Arabic, and a Latin stand-in draws its spaces and full stops and
 /// nothing else — a scatter of dots on an otherwise empty page, which is trap 1's archetype and
 /// worse than the blank a refusal leaves. Where the *document* names the font, a code it lacks
 /// is reported and the rest is drawn, because there the shortfall is the document's own choice.
+///
+/// **Which of the two outcomes this machine gets is a property of this machine**, and that is
+/// why the assertion is the equivalence rather than the blank. Until the
+/// four-hundred-and-thirty-fourth session a stand-in was always one of §9.6.2.2's compiled-in
+/// faces, none of which has Arabic, so the refusal was the only outcome and this test asserted
+/// it. Since ADR 0270 a substituted face is chosen by whether it covers the characters the
+/// encoding names — here an invented `/Differences` naming four Arabic glyphs — so a machine
+/// with an Arabic face draws the value in full and a machine without one still declines. What
+/// holds on both, and is what the test is for, is that the two go together: ink exactly when
+/// nothing was owed for a missing code.
 #[test]
-fn a_stand_in_that_cannot_draw_the_value_declines() {
+fn a_stand_in_draws_the_whole_value_or_none_of_it() {
     let (reports, raster) = draw(pdf_with(
         "",
         "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Tx \
          /T (field) /V <FEFF0627064406220646> /DA (/Nope 12 Tf 0 g) >>",
     ));
+    // The `/DR` that does not define `/Nope` is reported either way: that is the document's
+    // defect and no face on any machine changes it.
     assert_eq!(reports.len(), 1, "{reports:?}");
     assert!(reports[0].contains("/Nope"), "{reports:?}");
-    assert!(
+    let fell_short = reports[0].contains("states no code for");
+    assert_eq!(
         inked_columns(&raster).is_empty(),
-        "a value a stand-in cannot show may not be shown in part"
+        fell_short,
+        "a value a stand-in cannot show may not be shown in part: {reports:?}"
     );
 }
 

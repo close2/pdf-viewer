@@ -59,6 +59,17 @@ pub use crate::cmap::Code;
 /// A character code's glyph, for each of the 256 codes a simple font can use.
 type CodeTable = [Option<u16>; 256];
 
+/// The glyph index a font program answers with when it has no glyph for a code.
+///
+/// Glyph 0 is `.notdef` in every format Table 124 admits, and both of clause 9's selection
+/// routes end there when they fail: §9.6.5.2 substitutes it where "an encoding maps to a
+/// character name that does not exist in the Type 1 font program", and §9.7.6.3 substitutes
+/// "the glyph for CID 0 (which shall be present)" where "no glyph exists for that CID". So a
+/// code that reached it reached a statement of absence rather than a glyph, and the two
+/// instruments that ask this question — `pdf_model::Interpretation::codes_without_a_glyph` and
+/// [`substitute_face`]'s comparison of two faces — both have to say so the same way.
+pub const NOTDEF_GLYPH: u16 = 0;
+
 /// The glyph name each of a simple font's 256 character codes selects.
 ///
 /// Borrowed for a name one of the specifications lists, which is nearly every name a real
@@ -507,11 +518,18 @@ impl LoadedFont {
             // keep the layout right either way.
             Err(FontError::NotEmbedded { .. } | FontError::UnsupportedProgram { .. }) => {
                 let request = substitute::Request::derive(document, dict, descriptor);
-                let (data, format) = substitute::find(request);
-                (data, Program::from(format), Some(request))
+                // The encoding is read before the face is chosen, because *which* face is
+                // usable is decided by the characters the encoding names: see
+                // `substitute_face`. It is handed on to the code table below rather than read
+                // twice.
+                let names = substitute_encoding_names(document, dict, request, name)?;
+                let (data, format) = substitute_face(document, dict, request, &names, name);
+                (data, Program::from(format), Some((request, names)))
             }
             Err(other) => return Err(other),
         };
+        // The request outlives the match below, which consumes the encoding beside it.
+        let requested = substituted.as_ref().map(|(request, _)| *request);
         let type1 = parsed_type1(program, &data, name)?;
         let units_per_em = simple_units_per_em(type1.as_ref(), &data, program, name)?;
 
@@ -522,10 +540,9 @@ impl LoadedFont {
         let mapping = match (program, substituted) {
             // A substitute shares no glyph order with the font the document meant, so its
             // glyphs are reached by what each code *means* rather than by index.
-            (_, Some(request)) => {
-                let (table, resolved) = substitute_code_table(
-                    document, dict, descriptor, request, &data, program, name,
-                )?;
+            (_, Some((request, encoded))) => {
+                let (table, resolved) =
+                    substitute_code_table(document, dict, request, encoded, &data, program, name)?;
                 names = Some(resolved);
                 CodeMapping::Named(Box::new(table))
             }
@@ -571,7 +588,7 @@ impl LoadedFont {
         };
 
         let metrics = SimpleMetrics {
-            substituted,
+            substituted: requested,
             names: names.as_ref(),
             data: &data,
             program,
@@ -592,7 +609,7 @@ impl LoadedFont {
             // §9.2.4: a second set of metrics "is available only for composite fonts".
             vertical: None,
             units_per_em,
-            substituted: substituted.is_some(),
+            substituted: requested.is_some(),
             to_unicode: to_unicode(document, dict),
             collection: None,
             glyph_names: names,
@@ -1763,23 +1780,56 @@ fn to_unicode(document: &Document, dict: &Dictionary) -> tounicode::ToUnicode {
 fn substitute_code_table(
     document: &Document,
     dict: &Dictionary,
-    descriptor: Option<&Dictionary>,
     request: substitute::Request,
+    names: GlyphNames,
     data: &[u8],
     program: Program,
     name: &str,
 ) -> Result<(CodeTable, GlyphNames), FontError> {
-    let _ = descriptor;
+    let table = fill_substitute_table(&names, data, program, name)?;
 
-    // A symbolic standard-14 font carries its own encoding; everything else starts from a
-    // Latin base, defaulting to StandardEncoding when the document names none.
+    if !declared_codes(document, dict).any(|code| table.get(code).is_some_and(Option::is_some)) {
+        return Err(FontError::NoSubstitute {
+            name: name.to_owned(),
+            reason: format!(
+                "the {:?} face draws none of the codes the document declares",
+                request.family
+            ),
+        });
+    }
+
+    Ok((table, names))
+}
+
+/// The glyph names a substituted simple font's codes select.
+///
+/// A symbolic standard-14 font carries its own encoding; everything else starts from a Latin
+/// base, defaulting to `StandardEncoding` when the document names none.
+///
+/// Separated from [`substitute_code_table`] because the *choice of face* needs them too — see
+/// [`substitute_face`] — and computing them twice per font would be paying for the same
+/// `/Differences` array twice.
+fn substitute_encoding_names(
+    document: &Document,
+    dict: &Dictionary,
+    request: substitute::Request,
+    name: &str,
+) -> Result<GlyphNames, FontError> {
     let symbolic = match request.family {
         substitute::Family::Symbol => Some(encoding::SymbolicEncoding::Symbol),
         substitute::Family::ZapfDingbats => Some(encoding::SymbolicEncoding::ZapfDingbats),
         _ => None,
     };
-    let names = encoding_names(document, dict, name, symbolic, true)?;
+    encoding_names(document, dict, name, symbolic, true)
+}
 
+/// One code table, built by asking a face for every name the encoding states.
+fn fill_substitute_table(
+    names: &GlyphNames,
+    data: &[u8],
+    program: Program,
+    name: &str,
+) -> Result<CodeTable, FontError> {
     // **The two routes differ in what the substitute is addressed *by*, and the name-keyed one
     // is the shorter of the two.** An `sfnt` substitute is reached by character, so a glyph name
     // has to go through the Adobe Glyph List first; a bare CFF keys its glyphs by name already,
@@ -1830,17 +1880,147 @@ fn substitute_code_table(
         }
     }
 
-    if !declared_codes(document, dict).any(|code| table.get(code).is_some_and(Option::is_some)) {
-        return Err(FontError::NoSubstitute {
-            name: name.to_owned(),
-            reason: format!(
-                "the {:?} face draws none of the codes the document declares",
-                request.family
-            ),
-        });
-    }
+    Ok(table)
+}
 
-    Ok((table, names))
+/// The character a code stands for, where the Adobe Glyph List can say.
+///
+/// The same route [`fill_substitute_table`] takes for an `sfnt` face, asked separately because
+/// [`substitute_face`] needs to know *which* characters a face would have to have.
+fn substituted_character(names: &GlyphNames, code: usize) -> Option<char> {
+    let glyph_name = names.get(code).map(Cow::as_ref).filter(|n| !n.is_empty())?;
+    read_fonts::ps::agl::name_to_char(glyph_name)
+}
+
+/// Which face a substituted simple font is drawn from, when the first choice cannot draw it.
+///
+/// # The defect this exists for, and it is §9.6.2.2's fourteen that carry it
+///
+/// [`substitute::find`] answers a `/BaseFont` naming one of the standard 14 from the binary,
+/// which is what makes a machine with no fonts installed draw text at all — and ten of the
+/// fourteen compiled-in faces are Foxit's bare CFF programs, whose charsets hold the standard
+/// Latin character set and nothing else. So a document that names `Times-Roman` (or
+/// `TimesNewRomanPSMT`, which folds to it) and then states an `/Encoding` whose `/Differences`
+/// name `afii10017` and its neighbours — the Adobe Glyph List's names for Cyrillic — asked for
+/// characters that face has never had. Every one of those codes reached no glyph, and because
+/// the *Latin* codes of the same font drew, the "this font drew nothing" report never fired:
+/// the page lost its Russian in silence. The four-hundred-and-thirty-fourth session found this
+/// as the largest population in a 65 944-document web survey, and ADR 0270 has the numbers.
+///
+/// # The rule, and why it compares tables rather than characters
+///
+/// **A face is replaced only by one that draws everything it drew and more.** The two code
+/// tables are built and compared over the codes the document declares (§9.6.2.1, Table 109's
+/// `/FirstChar` and `/LastChar`), and the second face is taken only where its table is a strict
+/// superset of the first's. So a page can gain marks and cannot lose one, which is what makes
+/// this safe to apply to every substituted simple font rather than to a population somebody
+/// picked.
+///
+/// The alternative — ADR 0153's rule for a composite font, a face that covers a *set of
+/// characters* — was tried first and is measurably weaker here: `0546109.pdf` states a Greek
+/// encoding whose `/Differences` also name `controlSTX` and its thirty neighbours, so the set of
+/// characters the encoding names includes the C0 controls, no face on any machine has those in a
+/// `cmap`, and a coverage test refuses every candidate over glyphs the page could never show.
+/// Comparing tables asks the question the page actually poses: which of these two faces answers
+/// more of this document's codes.
+///
+/// # Which faces are tried, and why not the whole machine
+///
+/// [`substitute::installed`]'s own preference list for the request's family, in its order. A
+/// catalogue-wide search is what [`substitute::installed_covering`] does for a composite font,
+/// where a Latin face is *no* answer for a Chinese collection; here the first face is already
+/// the right shape and the search is for the same shape with a wider repertoire, so leaving the
+/// family would trade a page's typeface for a glyph.
+///
+/// §9.5's NOTE 5 puts the choice of substitute outside the standard altogether, so this is a
+/// documented choice in a place the standard leaves open, and it is made on what the *file*
+/// states rather than on what any other reader does.
+///
+/// # What it costs, and where
+///
+/// One code table per candidate — 256 `cmap` lookups over a face already read for the catalogue
+/// — and only for a font that has a declared code the first face cannot answer. A document whose
+/// substitutes cover their encodings, which is every Latin one, pays a single table build that
+/// [`substitute_code_table`] would have paid anyway.
+///
+/// The two symbolic families are excluded outright. Their encodings are name-keyed by design
+/// (`a9`, `universal`), an `sfnt` candidate is addressed through the Adobe Glyph List instead,
+/// and §9.6.2.2's own Symbol and `ZapfDingbats` faces are the right ones for them.
+fn substitute_face(
+    document: &Document,
+    dict: &Dictionary,
+    request: substitute::Request,
+    names: &GlyphNames,
+    name: &str,
+) -> (Arc<[u8]>, substitute::Format) {
+    let (data, format) = substitute::find(request);
+    if matches!(
+        request.family,
+        substitute::Family::Symbol | substitute::Family::ZapfDingbats
+    ) {
+        return (data, format);
+    }
+    let Ok(table) = fill_substitute_table(names, &data, Program::from(format), name) else {
+        // A face this crate cannot read is reported by the caller, which builds the same table
+        // again and keeps the error. Choosing a second face on the strength of a failure to
+        // read the first would report the wrong one.
+        return (data, format);
+    };
+
+    // The declared range is the producer's own statement of which codes the page shows
+    // (§9.6.2.1, Table 109), which is what makes it the right range to judge a face by — the
+    // same argument `declared_codes` already carries for the refusal below it.
+    //
+    // **And a dictionary that states neither bound has said nothing**, so nothing here is
+    // decided: `declared_codes` widens that silence to all 256 codes, which is right for
+    // "does this face draw *any* of them" and wrong for this comparison. `franz.pdf` is the
+    // page that showed it — `/Helvetica-Bold`, no `/FirstChar`, and a `/Differences` naming
+    // `ff`, `ffi`, `ffl` and `dotlessj` among the hundred codes it does show. The compiled-in
+    // face has no ligatures, another face on this machine has, and the page would have traded
+    // its typeface for four glyphs it never shows. ADR 0133 compiled the fourteen in so that a
+    // rendered page would stop being a property of the machine; spending that on a glyph no
+    // page asked for is the wrong side of the trade.
+    // A code answered with `.notdef` has not been answered — §9.6.5.2 makes that glyph what a
+    // *name the program does not have* resolves to — and a `/Differences` array naming
+    // `.notdef` outright is common enough to decide this comparison on its own: the name-keyed
+    // face has such a glyph and an `sfnt` reached through the Adobe Glyph List has no character
+    // for the name at all, so counting it would make every `sfnt` candidate look worse.
+    // `0546109.pdf` is the witness — a Greek `/Differences` with eleven `/.notdef` entries in it.
+    let answered = |table: &CodeTable, code: usize| {
+        table
+            .get(code)
+            .copied()
+            .flatten()
+            .is_some_and(|glyph| glyph != NOTDEF_GLYPH)
+    };
+    let Some(declared) = stated_code_range(document, dict) else {
+        return (data, format);
+    };
+    if declared
+        .clone()
+        .all(|code| answered(&table, code) || substituted_character(names, code).is_none())
+    {
+        return (data, format);
+    }
+    let wider = |bytes: &Arc<[u8]>| {
+        let Ok(other) = fill_substitute_table(names, bytes, Program::Sfnt, name) else {
+            return false;
+        };
+        let mut gains = false;
+        for code in declared.clone() {
+            match (answered(&table, code), answered(&other, code)) {
+                (true, false) => return false,
+                (false, true) => gains = true,
+                _ => {}
+            }
+        }
+        gains
+    };
+    match substitute::installed_wider(request, wider) {
+        // Every candidate in the preference list is an `sfnt`; the catalogue admits no other.
+        Some(better) => (better, substitute::Format::Sfnt),
+        None => (data, format),
+    }
 }
 
 /// Characters any face standing in for a registered character collection has to be able to draw.
@@ -1899,6 +2079,19 @@ fn script_sample(document: &Document, descendant: &Dictionary) -> &'static [char
 /// A dictionary stating neither yields every code, which keeps the judgement no weaker than
 /// it was for a font that says nothing about its range.
 fn declared_codes(document: &Document, dict: &Dictionary) -> std::ops::RangeInclusive<usize> {
+    stated_code_range(document, dict).unwrap_or(0..=255)
+}
+
+/// The same range, and `None` where the dictionary states neither bound.
+///
+/// The distinction is [`substitute_face`]'s: "which codes does this document show" is a question
+/// a dictionary can decline to answer, and a caller comparing two faces over the answer needs to
+/// know that it did. Table 109 makes both entries "(Required; optional in PDF 1.0-1.7 for the
+/// standard 14 fonts)", so the silence belongs to exactly the fonts this tree substitutes most.
+fn stated_code_range(
+    document: &Document,
+    dict: &Dictionary,
+) -> Option<std::ops::RangeInclusive<usize>> {
     let bound = |key: &str| {
         document
             .get_key(dict, key)
@@ -1906,8 +2099,8 @@ fn declared_codes(document: &Document, dict: &Dictionary) -> std::ops::RangeIncl
             .and_then(|value| usize::try_from(value).ok())
     };
     match (bound("FirstChar"), bound("LastChar")) {
-        (Some(first), Some(last)) if first <= last => first..=last.min(255),
-        _ => 0..=255,
+        (Some(first), Some(last)) if first <= last => Some(first..=last.min(255)),
+        _ => None,
     }
 }
 
@@ -4747,6 +4940,64 @@ mod missing_width_tests {
 
         assert_eq!(missing_width(&document, descriptor.as_dict()), 0.0);
         assert_eq!(missing_width(&document, None), 0.0);
+    }
+}
+
+/// §9.10.2's choice of substitute, on the one part of it that is not a property of this machine.
+///
+/// ADR 0270's rule is a comparison of two code tables, and which faces there are to compare is
+/// whatever is installed. What holds everywhere is the direction of the comparison, and that is
+/// what these state.
+#[cfg(test)]
+mod substitute_face_tests {
+    use super::fixture::font_dictionary;
+    use super::{Code, LoadedFont, declared_codes, stated_code_range};
+
+    /// A substituted face is replaced only by one that draws everything it drew.
+    ///
+    /// The invariant ADR 0270's rule rests on, and the only part of it that is a property of
+    /// this *program* rather than of this machine's font collection. `/Times-Roman` is one of
+    /// §9.6.2.2's fourteen, so [`substitute::find`] answers it from the binary with Foxit's
+    /// serif CFF, whose charset is the standard Latin character set; `afii10017` is the Adobe
+    /// Glyph List's name for CYRILLIC CAPITAL LETTER A, which that face has never had. A
+    /// machine with a Cyrillic serif face draws both codes and a machine with none draws the
+    /// Latin one — what may not happen, on any machine, is the swap that gains the second and
+    /// loses the first.
+    #[test]
+    fn a_substituted_face_is_replaced_only_by_one_that_keeps_every_code_it_drew() {
+        let (document, dict) = font_dictionary(
+            "/BaseFont /Times-Roman /FirstChar 65 /LastChar 66 \
+             /Encoding << /Differences [65 /A 66 /afii10017] >>",
+        );
+        let font = LoadedFont::load(&document, &dict, "F1").expect("a standard-14 name loads");
+        let latin = font.glyph_index(Code::single_byte(65));
+        let cyrillic = font.glyph_index(Code::single_byte(66));
+        assert!(
+            latin.is_some(),
+            "the Latin code the compiled-in face draws may not be lost to a wider face"
+        );
+        assert!(
+            cyrillic.is_none() || latin.is_some(),
+            "a face is taken only where its table is a superset of the one in hand"
+        );
+    }
+
+    /// A dictionary that states neither bound has said nothing about which codes it shows.
+    ///
+    /// Table 109 makes `/FirstChar` and `/LastChar` "(Required; optional in PDF 1.0-1.7 for the
+    /// standard 14 fonts)", so the silence belongs to exactly the fonts that get substituted —
+    /// and [`substitute_face`] reads it as *no evidence* rather than as all 256 codes.
+    /// `franz.pdf` is why: `/Helvetica-Bold` with no `/FirstChar` and a `/Differences` naming
+    /// `ff`, `ffi` and `ffl`, which would otherwise have traded the page's typeface for three
+    /// ligatures it never shows.
+    #[test]
+    fn a_font_stating_neither_bound_states_no_range() {
+        let (document, dict) = font_dictionary("/BaseFont /Helvetica");
+        assert_eq!(stated_code_range(&document, &dict), None);
+        assert_eq!(declared_codes(&document, &dict), 0..=255);
+
+        let (document, dict) = font_dictionary("/BaseFont /Helvetica /FirstChar 32 /LastChar 90");
+        assert_eq!(stated_code_range(&document, &dict), Some(32..=90));
     }
 }
 

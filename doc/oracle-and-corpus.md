@@ -51,12 +51,17 @@ and *ratchets none of them*.
 | SafeDocs `CC-MAIN-2021-31`, archive `3500`, first 24 | 24 | 22 | 2 | crawled web, no grant — never committed |
 | **SafeDocs `CC-MAIN-2021-31`, 79 archives `50 + 100k`, first 24 of each** (session 425) | **1896** | **1802** | **86** → 85 | crawled web, no grant — never committed |
 | **SafeDocs `CC-MAIN-2021-31`, 4 whole archives `0100 + 2000k`** (session 430) | **4000** | **3917** → 3923 | **70** → 64 | crawled web, no grant — never committed |
-| **SafeDocs `CC-MAIN-2021-31`, all 145 archives** (session 433) | **65 944** | **64 507** | **1144** | crawled web, no grant — never committed |
+| **SafeDocs `CC-MAIN-2021-31`, all 145 archives** (session 433) | **65 944** | **64 507** | **1144** → 1138 | crawled web, no grant — never committed |
 
 **The last row is the whole population, and the first survey to find a hang** (ADR 0269).
 **65 944 documents in 1139.3 s: 173 unopenable, 45 locked, 23 encrypted beyond us, 52 pageless,
 1144 incomplete, 2 slow**, with 51 272 codes reaching no glyph in silence over 635 documents — a
-baseline for this population, never a ratchet. It was run as **one process per archive**, because
+baseline for this population, never a ratchet. **The four-hundred-and-thirty-fourth session read
+that last number and moved two of them** (ADR 0270): the 51 272 are 28 837 codes over 359
+documents that were never a mark missed — a glyph the font program contains and describes with no
+contours — and 22 435 over 277 that were, of which one mechanism held 4912; with it fixed the same
+pass prints **1138 incomplete and 780 codes over 236 documents**, and the six reports that left are
+named in the ADR. It was run as **one process per archive**, because
 `render-cpu` rasterises under `panic = "abort"` and one document's abort would otherwise take every
 other verdict in the process with it; five of the 145 archives died on the first pass and both of
 this round's defects are those five. Four things it says:

@@ -37,6 +37,17 @@
 //! machine's own fonts keep serving everything else, where their broader coverage is worth more
 //! than reproducibility.
 //!
+//! **And "first" is not "only", which the four-hundred-and-thirty-fourth session had to find in a
+//! 65 944-document survey.** Ten of these fourteen are bare CFF programs whose charsets hold the
+//! standard Latin character set and nothing else, so a document naming one of the fourteen and
+//! then stating an `/Encoding` whose `/Differences` name Cyrillic or Greek asked for characters
+//! the compiled-in face has never had — and lost them in silence, because the Latin codes of the
+//! same font drew and the "this font drew nothing" report never fired.
+//! `pdf_font::substitute_face` is the answer and it keeps this module's trade intact: the
+//! compiled-in face is replaced only by one of the same family whose code table over the codes
+//! the document declares is a **strict superset**, so a page that this set can draw is still
+//! drawn from the binary and identically on every machine. ADR 0270.
+//!
 //! # What is here, and what it costs
 //!
 //! Ten bare CFF programs from `PDFium`'s Foxit set (BSD-3-Clause) and four Liberation Sans faces

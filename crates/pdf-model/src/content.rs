@@ -270,7 +270,26 @@ pub struct Interpretation {
     /// `doc/todo/21-font-substitution.md` asks whether that trade still holds, and the input to
     /// that question is a number rather than an opinion — which is this field, summed over the
     /// corpus by `pdf-model/tests/corpus.rs`.
+    ///
+    /// **It counts a mark missed and not a mark absent**, which are different things and were
+    /// one number until the four-hundred-and-thirty-fourth session: a code that reached a glyph
+    /// the program *contains* and that program describes as empty is in
+    /// [`Self::codes_reaching_a_blank_glyph`] instead. ADR 0270 has the split.
     pub codes_without_a_glyph: usize,
+    /// Codes this page showed that reached a glyph the font program describes as empty.
+    ///
+    /// The other half of the branch [`Self::codes_without_a_glyph`] counts, separated because
+    /// only one of the two is a mark the reader loses. §9.6.5.4's and §9.7.4.2's routes ended
+    /// at a glyph the program contains, and that glyph has no contours — which is how every
+    /// sfnt stores a space, and how a subset stores a character it was asked to carry and had
+    /// nothing to draw for. Drawing nothing is what the font says to do.
+    ///
+    /// It is a separate count rather than nothing at all because the whitespace exemption in
+    /// front of it is blind to a font whose `/ToUnicode` reads its own space back as something
+    /// else — `pr12564.pdf`'s 26 codes read back as `#`, and the web's largest single
+    /// contributor reads its space back as U+0007 — so this is where such a code lands, and
+    /// leaving it uncounted would have made the correction unmeasurable.
+    pub codes_reaching_a_blank_glyph: usize,
     /// ISO 32000-2 §14.9's accessibility spans over [`Self::text`], in the order they closed.
     ///
     /// One entry per marked-content sequence stating an `/Alt`, an `/E` or a `/Lang`, in
@@ -1743,6 +1762,7 @@ fn interpret_into(
         glyph_coverage: BTreeMap::new(),
         glyphs: 0,
         codes_without_a_glyph: 0,
+        codes_reaching_a_blank_glyph: 0,
         operations: 0,
         fonts: BTreeMap::new(),
         text: String::new(),
@@ -1872,6 +1892,7 @@ fn finished(document: &Document, interpreter: Interpreter<'_>) -> Interpretation
         text: interpreter.text,
         glyphs: interpreter.glyphs,
         codes_without_a_glyph: interpreter.codes_without_a_glyph,
+        codes_reaching_a_blank_glyph: interpreter.codes_reaching_a_blank_glyph,
         described: interpreter.described,
         artifacts: interpreter.artifacts,
         marked: interpreter.marked,
@@ -2126,6 +2147,9 @@ struct Interpreter<'a> {
     glyphs: usize,
     /// Codes shown that reached no glyph; see `Interpretation::codes_without_a_glyph`.
     codes_without_a_glyph: usize,
+    /// Codes shown that reached an empty glyph; see
+    /// `Interpretation::codes_reaching_a_blank_glyph`.
+    codes_reaching_a_blank_glyph: usize,
     operations: usize,
     /// Fonts already loaded, keyed by resource name.
     ///
@@ -5892,26 +5916,48 @@ impl Interpreter<'_> {
                             // twenty-two of the thirty new reports named a single code
                             // (trap 11 — print what a condition matched before trusting it).
                         } else {
-                            // The program answered with no outline at all, for a code that
-                            // means something else. One of these is not news — a producer's
-                            // deliberate `.notdef` is one — but a font *every* one of whose
-                            // codes comes back empty has drawn nothing the document asked
-                            // for, which is the condition the report below applies.
+                            // The program answered with no outline. One of these is not news
+                            // — a producer's deliberate `.notdef` is one — but a font *every*
+                            // one of whose codes comes back empty has drawn nothing the
+                            // document asked for, which is the condition the report below
+                            // applies. So the tally is the same either way, and what the two
+                            // arms below separate is the *measurement*: whether a mark was
+                            // missed at all.
                             coverage.empty = coverage.empty.saturating_add(1);
-                            self.codes_without_a_glyph =
-                                self.codes_without_a_glyph.saturating_add(1);
+                            // §9.6.5.4 and §9.7.4.2 state the routes from a code to a glyph,
+                            // and this asks which of two things happened at the end of one.
+                            // A code that reached a glyph the program contains has been
+                            // answered: what that glyph draws is the program's own statement,
+                            // and a glyph with no contours states a mark of nothing — which is
+                            // how every sfnt in existence stores a space. A code that reached
+                            // no glyph, or reached `.notdef`, was not answered: §9.6.5.2 makes
+                            // `.notdef` what is shown when "an encoding maps to a character
+                            // name that does not exist in the Type 1 font program", and
+                            // §9.7.6.3 makes CID 0 what is substituted when "no glyph exists
+                            // for that CID", so glyph 0 is the program saying it has none.
+                            let blank = program
+                                .glyph_index(code)
+                                .is_some_and(|glyph| glyph != pdf_font::NOTDEF_GLYPH);
+                            if blank {
+                                self.codes_reaching_a_blank_glyph =
+                                    self.codes_reaching_a_blank_glyph.saturating_add(1);
+                            } else {
+                                self.codes_without_a_glyph =
+                                    self.codes_without_a_glyph.saturating_add(1);
+                            }
                             // `PDFVIEWER_TRACE_MISSING_GLYPH=1` names each one on stderr, the
                             // same idiom `tests/corpus.rs` uses for a document that never
-                            // returns. The count alone cannot tell a mark that is missing from
-                            // a *space* whose font reads it back as something else, and on
-                            // `pr12564.pdf` — 26 of the corpus's 50 — every one is the second:
-                            // `pdftotext` reads that page as `1101#Strayer#Drive`, so the code
-                            // is the document's space and having no outline is correct.
+                            // returns. The readback is there because the count alone cannot
+                            // tell a mark that is missing from a *space* whose font reads it
+                            // back as something else, and the glyph index because that is what
+                            // the two arms above are decided by.
                             if std::env::var_os("PDFVIEWER_TRACE_MISSING_GLYPH").is_some() {
                                 eprintln!(
-                                    "MISSING font=/{} code={} read={:?}",
+                                    "MISSING {} font=/{} code={} glyph={:?} read={:?}",
+                                    if blank { "blank" } else { "absent" },
                                     state.text.font_name,
                                     code.value(),
+                                    program.glyph_index(code),
                                     self.text.get(start..)
                                 );
                             }

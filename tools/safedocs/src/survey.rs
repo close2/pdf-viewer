@@ -59,6 +59,12 @@ pub struct Verdict {
     pub taken: Duration,
     /// Codes shown on page one that reached no glyph while the page reported nothing.
     pub codes_without_a_glyph: usize,
+    /// Codes shown on page one that reached a glyph the font program describes as empty,
+    /// while the page reported nothing.
+    ///
+    /// Separated from the count above in the four-hundred-and-thirty-fourth session, because
+    /// only one of the two is a mark the reader loses. ADR 0270.
+    pub codes_reaching_a_blank_glyph: usize,
 }
 
 impl Verdict {
@@ -104,18 +110,28 @@ fn examine(path: &Path) -> Verdict {
         |name| name.to_string_lossy().into_owned(),
     );
     let started = Instant::now();
-    let mut codes_without_a_glyph = 0;
-    let outcome = read_and_draw(path, &mut codes_without_a_glyph);
+    let mut missing = Missing::default();
+    let outcome = read_and_draw(path, &mut missing);
     Verdict {
         name,
         outcome,
         taken: started.elapsed(),
-        codes_without_a_glyph,
+        codes_without_a_glyph: missing.without_a_glyph,
+        codes_reaching_a_blank_glyph: missing.blank,
     }
 }
 
+/// What one document's page one showed and did not draw a glyph for.
+#[derive(Debug, Default)]
+struct Missing {
+    /// Codes that reached no glyph at all.
+    without_a_glyph: usize,
+    /// Codes that reached a glyph the program describes as empty.
+    blank: usize,
+}
+
 /// The body of [`examine`], separated so that the timing wraps every path out of it.
-fn read_and_draw(path: &Path, codes_without_a_glyph: &mut usize) -> Outcome {
+fn read_and_draw(path: &Path, missing: &mut Missing) -> Outcome {
     let bytes = match std::fs::read(path) {
         Ok(bytes) => bytes,
         Err(error) => return Outcome::Unreadable(error.to_string()),
@@ -134,7 +150,8 @@ fn read_and_draw(path: &Path, codes_without_a_glyph: &mut usize) -> Outcome {
 
     let interpretation = pdf_model::interpret(&document, &page);
     if interpretation.is_complete() {
-        *codes_without_a_glyph = interpretation.codes_without_a_glyph;
+        missing.without_a_glyph = interpretation.codes_without_a_glyph;
+        missing.blank = interpretation.codes_reaching_a_blank_glyph;
     }
     if let Ok(target) = TargetSpec::for_page(&interpretation.display_list, 1.0, PIXEL_BUDGET) {
         // Discarded deliberately: an unsupported command is already counted below. What this

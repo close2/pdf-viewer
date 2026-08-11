@@ -19,7 +19,7 @@ features no file exercises.
 ```sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets      # must be silent of lints
-cargo nextest run --workspace               # 1580 tests, 11 skipped
+cargo nextest run --workspace               # 1584 tests, 11 skipped
 cargo test --workspace --doc                # the one doctest nextest does not run
 cargo build --profile gates -p pdf-sandbox --bins   # trap 10: Cargo will not do this for you
 cargo test  --profile gates -p pdf-model      --test corpus          -- --ignored --nocapture
@@ -117,7 +117,10 @@ chased and the precondition is the same one the four-hundred-and-eighteenth wrot
 current only for a round that *ran* the gate and copied its number. **The four-hundred-and-thirty-second
 added four and the gate printed 1572; the four-hundred-and-thirty-third added eight — four in a new
 `pdf-model/tests/hostile_geometry.rs` and four in `render-cpu`'s new `scan` module — and the gate
-printed 1580**, so this line was not behind.
+printed 1580**, so this line was not behind; the four-hundred-and-thirty-fourth added **four** —
+two in `silent_fonts.rs` for the two halves of the branch that counts a missing glyph and two in
+`pdf-font` for what a wider substitute must satisfy and for the range a dictionary declines to
+state — **and the gate printed 1584**, so this line was not behind for the second round running.
 - **One of those eighteen runs a C compiler**, and it is the only gate in this sequence that does.
   `viewer-ffi::a_c_program_drives_the_abi` builds `crates/viewer-ffi/c/open_a_page.c` against the
   crate's own header with `-Wall -Wextra -Werror`, links it against the `cdylib` — which it asks
