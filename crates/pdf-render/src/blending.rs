@@ -28,40 +28,114 @@
 //! [`crate::Color`] gives: a backend never sees a colour space, and sixteen corners are a
 //! table rather than one.
 
-/// The conversion out of a four-component blending colour space, as its cube's corners.
+/// The conversion out of a four-component blending colour space, as a sampled grid.
 ///
-/// A `DeviceCMYK` colour becomes a device colour by multilinear interpolation between the
-/// sixteen corners of the ink cube — the construction ADRs 0009 and 0042 chose, and the one
-/// an ICC lookup table uses over its own grid. The interpreter resolves the corners (which
-/// press to assume, or a profile's answer at them) and hands them over; nothing below the
-/// display list needs to know which space they came from.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// A colour of four components becomes a device colour by multilinear interpolation over a
+/// grid of `side` samples per axis — the construction ADRs 0009 and 0042 chose, and the one an
+/// ICC lookup table uses over its own grid. The interpreter resolves the samples (which press
+/// to assume, or the answers a document's own profile gives at them) and hands them over;
+/// nothing below the display list needs to know which space they came from.
+///
+/// **`side` is 2 for the assumed process inks**, whose sixteen corners are the whole table and
+/// for which the interpolation below is exactly the multilinear one this struct held until the
+/// four-hundred-and-thirty-sixth session. A document that names its own press (§8.6.5.6's
+/// `/DefaultCMYK`, §14.11.5's output intent) or states a four-component `ICCBased` blending
+/// space (§11.7.2) supplies a finer grid instead, because a real press is not multilinear
+/// between its corners. ADR 0272.
+#[derive(Debug, Clone, PartialEq)]
 pub struct BlendingSpace {
-    /// The device colour at each corner, indexed by the bits `c m y k` from the least
-    /// significant, so index 0 is no ink at all and index 15 is every ink at once.
-    pub corners: [[f32; 3]; 16],
+    /// How many samples the grid holds along each of the four axes; at least two.
+    side: usize,
+    /// `side⁴` device colours. The index runs `c` fastest and `k` slowest, so at `side` 2 it
+    /// is the bits `c m y k` from the least significant — index 0 is no ink at all and the
+    /// last is every ink at once.
+    grid: std::sync::Arc<[[f32; 3]]>,
 }
 
 impl BlendingSpace {
+    /// A blending space from a grid, or `None` if the grid is not one.
+    ///
+    /// The two conditions are the ones every reader below depends on and neither is checked
+    /// again: at least two samples per axis, and exactly `side⁴` of them.
+    #[must_use]
+    pub fn new(side: usize, grid: std::sync::Arc<[[f32; 3]]>) -> Option<Self> {
+        let wanted = side.checked_pow(4)?;
+        (side >= 2 && grid.len() == wanted).then_some(Self { side, grid })
+    }
+
+    /// How many samples the grid holds along each axis.
+    #[must_use]
+    pub fn side(&self) -> usize {
+        self.side
+    }
+
+    /// The samples themselves, in the index order [`BlendingSpace::new`] documents.
+    #[must_use]
+    pub fn grid(&self) -> &[[f32; 3]] {
+        &self.grid
+    }
+
     /// The device colour of one set of four components, each in `0.0..=1.0`.
     #[must_use]
     pub fn convert(&self, cyan: f32, magenta: f32, yellow: f32, black: f32) -> [f32; 3] {
-        let axes = [
-            [1.0 - cyan, cyan],
-            [1.0 - magenta, magenta],
-            [1.0 - yellow, yellow],
-            [1.0 - black, black],
-        ];
+        let last = self.side.saturating_sub(1);
+        // Each axis contributes a cell index and the fraction across that cell; at `side` 2
+        // the cell is the whole axis and the fraction is the component itself, which is what
+        // makes this the multilinear interpolation of sixteen corners in that case.
+        let axis = |value: f32| -> (usize, [f32; 2]) {
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "a grid side and a cell index, both far below f32's exact range"
+            )]
+            let scaled = value.clamp(0.0, 1.0) * last as f32;
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "`scaled` is in 0..=last, so its floor is a valid index"
+            )]
+            let cell = (scaled as usize).min(last.saturating_sub(1));
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "a cell index below the grid side"
+            )]
+            let fraction = scaled - cell as f32;
+            (cell, [1.0 - fraction, fraction])
+        };
+        let (cyan_cell, cyan_weights) = axis(cyan);
+        let (magenta_cell, magenta_weights) = axis(magenta);
+        let (yellow_cell, yellow_weights) = axis(yellow);
+        let (black_cell, black_weights) = axis(black);
+
         let mut rgb = [0.0f32; 3];
-        for (index, corner) in self.corners.iter().enumerate() {
-            let weight = axes[0][index & 1]
-                * axes[1][(index >> 1) & 1]
-                * axes[2][(index >> 2) & 1]
-                * axes[3][(index >> 3) & 1];
+        for corner in 0..16usize {
+            let offsets = [
+                corner & 1,
+                (corner >> 1) & 1,
+                (corner >> 2) & 1,
+                (corner >> 3) & 1,
+            ];
+            let weight = cyan_weights[offsets[0]]
+                * magenta_weights[offsets[1]]
+                * yellow_weights[offsets[2]]
+                * black_weights[offsets[3]];
             if weight == 0.0 {
                 continue;
             }
-            for (channel, value) in rgb.iter_mut().zip(corner) {
+            let index = black_cell
+                .saturating_add(offsets[3])
+                .saturating_mul(self.side)
+                .saturating_add(yellow_cell)
+                .saturating_add(offsets[2])
+                .saturating_mul(self.side)
+                .saturating_add(magenta_cell)
+                .saturating_add(offsets[1])
+                .saturating_mul(self.side)
+                .saturating_add(cyan_cell)
+                .saturating_add(offsets[0]);
+            let Some(sample) = self.grid.get(index) else {
+                continue;
+            };
+            for (channel, value) in rgb.iter_mut().zip(sample) {
                 *channel += weight * value;
             }
         }
@@ -149,7 +223,46 @@ mod tests {
                 *channel = f32::from(value) / 255.0;
             }
         }
-        BlendingSpace { corners }
+        BlendingSpace::new(2, corners.into()).expect("sixteen samples is a side of two")
+    }
+
+    /// A grid of side three, sampled from the assumed inks, interpolates back to them.
+    ///
+    /// The check that generalising the sixteen corners to a grid did not change what the grid
+    /// *means*: sampling the multilinear cube at every third of the way along each axis and
+    /// then interpolating that finer grid reproduces the cube, because a multilinear function
+    /// is reproduced exactly by multilinear interpolation of its own samples. A press whose
+    /// profile is not multilinear is why the finer grid exists at all (ADR 0272).
+    #[test]
+    fn a_finer_grid_sampled_from_the_cube_is_the_cube() {
+        let cube = process_inks();
+        let side = 3usize;
+        let mut grid = Vec::with_capacity(side.pow(4));
+        for black in 0..side {
+            for yellow in 0..side {
+                for magenta in 0..side {
+                    for cyan in 0..side {
+                        #[expect(clippy::cast_precision_loss, reason = "a grid index below three")]
+                        let at = |index: usize| index as f32 / 2.0;
+                        grid.push(cube.convert(at(cyan), at(magenta), at(yellow), at(black)));
+                    }
+                }
+            }
+        }
+        let finer = BlendingSpace::new(side, grid.into()).expect("81 samples is a side of three");
+        for step in 0..=10 {
+            #[expect(clippy::cast_precision_loss, reason = "a step below eleven")]
+            let value = step as f32 / 10.0;
+            let coarse = cube.convert(value, 1.0 - value, value * 0.5, 0.25);
+            let fine = finer.convert(value, 1.0 - value, value * 0.5, 0.25);
+            for (left, right) in coarse.iter().zip(fine) {
+                assert!(
+                    (left - right).abs() < 1e-5,
+                    "a multilinear cube resampled onto a finer grid is the same function: \
+                     {coarse:?} against {fine:?}"
+                );
+            }
+        }
     }
 
     /// Half of registration black over paper, which is ADR 0251's own fixture.

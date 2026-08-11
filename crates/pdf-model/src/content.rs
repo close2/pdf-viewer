@@ -29,7 +29,7 @@ use pdf_render::{
 use pdf_render::{Shading, ShadingKind};
 use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId};
 
-use crate::colour::{ColourSpace, Compositing, InkScale};
+use crate::colour::{ColourSpace, Compositing, InkScale, PressId};
 use crate::page::Page;
 
 /// Deepest nesting of `q`/`Q` that will be tracked.
@@ -1684,19 +1684,19 @@ pub fn interpret_with(
     // components are three plus one: the page is interpreted twice, once carrying cyan,
     // magenta and yellow and once carrying black, and `pdf_render::blending` puts the two
     // rasters back together where the clause puts the conversion. ADR 0262.
-    if page_composites_in_cmyk(document, page) {
+    if let PagePress::In(press) = page_press(document, page) {
         let (chromatic, drawable) = interpret_into(
             document,
             page,
             state,
-            Compositing::Subtractive(crate::colour::Half::Chromatic),
+            Compositing::Subtractive(crate::colour::Half::Chromatic, press),
         );
         if drawable {
             let (black, _) = interpret_into(
                 document,
                 page,
                 state,
-                Compositing::Subtractive(crate::colour::Half::Black),
+                Compositing::Subtractive(crate::colour::Half::Black, press),
             );
             // The two runs differ only in what a colour resolves to, so their geometry is
             // identical by construction — and this is what checks it, because the halves are
@@ -1706,10 +1706,9 @@ pub fn interpret_with(
             // this round and is still right.
             let mut chromatic = chromatic;
             if chromatic.display_list.geometry_digest() == black.display_list.geometry_digest() {
-                chromatic.display_list.set_blending(
-                    crate::colour::device_cmyk_blending_space(),
-                    black.display_list,
-                );
+                chromatic
+                    .display_list
+                    .set_blending(crate::colour::blending_space_of(press), black.display_list);
                 return chromatic;
             }
         }
@@ -1717,41 +1716,42 @@ pub fn interpret_with(
     interpret_into(document, page, state, Compositing::Device).0
 }
 
-/// Whether this document says what its `DeviceCMYK` *is*, rather than leaving it to us.
-///
-/// Two sources, both of which §8.6.5.6 and §14.11.5 rank above an assumption and both of which
-/// `crate::colour` already honours for a colour on its way to a pixel: the page's own
-/// `/DefaultCMYK`, whose value "shall be used as the colour space for the operation currently
-/// being performed", and an output intent's `/DestOutputProfile`. Asked at the page rather
-/// than at each colour because it is a property of the *space* §11.4.7 names, and the report
-/// it feeds is one per page.
-fn device_cmyk_is_a_named_press(document: &Document, page: &Page) -> bool {
-    if output_intent_space(document).is_some_and(|space| space.components() == 4) {
-        return true;
-    }
-    // `None` cannot happen for a literal device name — `ColourSpace::by_name` falls back on the
-    // device space when a `/DefaultCMYK` will not parse — and it is grouped with the plain
-    // answer rather than with the press because a report nobody can act on is worse than none.
-    !matches!(
-        ColourSpace::parse(
-            document,
-            &Object::Name(Name::new(b"DeviceCMYK".to_vec())),
-            &page.resources,
-        ),
-        Some(ColourSpace::Cmyk) | None
-    )
+/// What §11.4.7's page group asks a page to composite in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PagePress {
+    /// The device's three components: no page group, or one whose space is a three-component
+    /// RGB space, which is what this raster already holds.
+    Device,
+    /// Four components, and these are whose.
+    In(PressId),
+    /// Four components this tree cannot model, and this says why.
+    Beyond(&'static str),
 }
 
-/// Whether §11.4.7's page group states a blending colour space of `DeviceCMYK`.
+/// The press §11.4.7's page group composites in, and where its four components come from.
 ///
-/// The one departing space whose components this tree carries. An `ICCBased` space of four
-/// components is §11.4.7's case too and is *not* this: its conversion out is a profile rather
-/// than sixteen corners, so it keeps the report [`Interpreter::note_page_blending_space`]
-/// makes.
-fn page_composites_in_cmyk(document: &Document, page: &Page) -> bool {
+/// > That initial colour space shall serve as the default blending colour space for each page,
+/// > unless the page explicitly specifies an alternative default by means of its page
+/// > dictionary containing a Group key that contains a CS key whose value represents a
+/// > different colour space from the initial blending colour space.
+///
+/// Three routes reach a press, and Annex P — informative, and the standard's own algorithm for
+/// this question — puts them in this order. A device blending space "first appl[ies] the
+/// default colour space mechanism" (§8.6.5.6's `/DefaultCMYK`, whose value "shall be used as
+/// the colour space for the operation currently being performed"); a page group with no parent
+/// otherwise inherits "from the output device, or from the output intent" (§14.11.5), which is
+/// also §8.6.5.7 NOTE 3's "an output intent dictionary, if present, can suggest such a
+/// calibration"; and a `/CS` that is itself a four-component `ICCBased` space names the press
+/// outright, which is §11.7.2's paragraph about `DeviceCMYK` being redefined inside the group.
+///
+/// Where none of the three names one, the four components are the assumed inks of ADR 0263 and
+/// this is `PressId::ASSUMED`. Where one names a space this tree cannot sample — four
+/// components that are not an ICC profile, or a profile arriving after `MAX_PRESSES` others —
+/// [`PagePress::Beyond`] carries the reason into the report.
+fn page_press(document: &Document, page: &Page) -> PagePress {
     let attributes = document.get_key(&page.dict, "Group");
     let Some(attributes) = attributes.as_dict() else {
-        return false;
+        return PagePress::Device;
     };
     // §8.10.3 Table 94's `/S`, as [`page_blending_space`] reads it.
     if document
@@ -1759,12 +1759,63 @@ fn page_composites_in_cmyk(document: &Document, page: &Page) -> bool {
         .as_name()
         .is_none_or(|name| name.as_bytes() != b"Transparency")
     {
-        return false;
+        return PagePress::Device;
     }
     let entry = document.get_key(attributes, "CS");
-    matches!(
-        ColourSpace::parse(document, &entry, &Dictionary::new()),
-        Some(ColourSpace::Cmyk)
+    match ColourSpace::parse(document, &entry, &Dictionary::new()) {
+        Some(ColourSpace::Cmyk) => named_press(document, page),
+        Some(ColourSpace::Icc { profile }) if profile.channels() == 4 => press_or_beyond(&profile),
+        // A four-component space that is not a profile — a `DeviceN` of four inks, say — names
+        // components this tree has no conversion out of, so it keeps its report.
+        Some(space) if space.components() == 4 => PagePress::Beyond(
+            "its four components are named by a space this tree cannot sample (§11.7.2), \
+             so there is no conversion out of them",
+        ),
+        _ => PagePress::Device,
+    }
+}
+
+/// The press a `/DeviceCMYK` page group's four components belong to.
+///
+/// `/DefaultCMYK` first, because §8.6.5.6 says "shall" about the operation being performed
+/// while §8.6.5.7 NOTE 3 says an output intent "can suggest" a calibration — the nearer and
+/// stronger statement wins, which is the ranking ADR 0009 recorded for a colour on its way to a
+/// pixel and this is the same ranking one clause up.
+fn named_press(document: &Document, page: &Page) -> PagePress {
+    // `None` cannot happen for a literal device name — `ColourSpace::by_name` falls back on the
+    // device space when a `/DefaultCMYK` will not parse — and it is grouped with the plain
+    // answer because a space that did not parse names no press.
+    match ColourSpace::parse(
+        document,
+        &Object::Name(Name::new(b"DeviceCMYK".to_vec())),
+        &page.resources,
+    ) {
+        Some(ColourSpace::Cmyk) | None => {}
+        Some(ColourSpace::Icc { profile }) if profile.channels() == 4 => {
+            return press_or_beyond(&profile);
+        }
+        Some(space) if space.components() == 4 => {
+            return PagePress::Beyond(
+                "its /DefaultCMYK names a space this tree cannot sample (§8.6.5.6), so there \
+                 is no conversion out of its four components",
+            );
+        }
+        Some(_) => {}
+    }
+    match output_intent_space(document) {
+        Some(ColourSpace::Icc { profile }) if profile.channels() == 4 => press_or_beyond(&profile),
+        _ => PagePress::In(PressId::ASSUMED),
+    }
+}
+
+/// A profile sampled into a press, or the reason this process would not sample it.
+fn press_or_beyond(profile: &crate::icc::Profile) -> PagePress {
+    crate::colour::press_for_profile(profile).map_or(
+        PagePress::Beyond(
+            "the press it names is one more than this process samples (§11.7.2), so its four \
+             components are not converted out",
+        ),
+        PagePress::In,
     )
 }
 
@@ -1831,7 +1882,10 @@ fn interpret_into(
         blending: page_blending_space(document, page),
         blending_changed: false,
         black_generation_stated: false,
-        blending_press: device_cmyk_is_a_named_press(document, page),
+        blending_beyond: match page_press(document, page) {
+            PagePress::Beyond(why) => Some(why),
+            PagePress::Device | PagePress::In(_) => None,
+        },
     };
 
     for issue in issues {
@@ -2335,16 +2389,13 @@ struct Interpreter<'a> {
     /// Whether any `/ExtGState` on this page states Table 57's `/BG`, `/BG2`, `/UCR` or
     /// `/UCR2`, which §11.7.5.3 puts inside §10.4.2.4's conversion into a `DeviceCMYK` group.
     black_generation_stated: bool,
-    /// Whether the document names a press for `DeviceCMYK` rather than leaving it to us.
+    /// Why the four components §11.4.7 names cannot be sampled into a press, if they cannot.
     ///
-    /// §8.6.5.6's `/DefaultCMYK` and §14.11.5's `/DestOutputProfile` both say what this
-    /// document's ink *is*, and both outrank the assumed process inks `crate::colour`'s
-    /// `CMYK_CORNERS` stands in with (ADR 0009). A colour still reaches the right screen
-    /// pixel — the conversion into the blending space is the inverse of the conversion out of
-    /// it whichever press is assumed — but the four components §11.3.4 composites are then
-    /// this device's ink and not the one the file names, and a composite of two colours is
-    /// not the same in two presses. Reported rather than drawn. ADR 0263.
-    blending_press: bool,
+    /// [`PagePress::Beyond`]'s reason, carried into the report. Since the
+    /// four-hundred-and-thirty-sixth session a press a *document* names is drawn rather than
+    /// reported (ADR 0272), so what is left here is a four-component space that is not an ICC
+    /// profile and a profile arriving after this process has sampled its last.
+    blending_beyond: Option<&'static str>,
 }
 
 impl Interpreter<'_> {
@@ -4323,10 +4374,11 @@ impl Interpreter<'_> {
     /// > converted to the native colour space of the output device before being composited
     /// > with the context-dependent backdrop.
     ///
-    /// A `DeviceCMYK` page is drawn in those two orders' *agreeing* form since ADR 0262: the
-    /// page is interpreted twice, once per half of the space's four components, and
-    /// `pdf_render::blending` converts the pair where the clause puts the conversion. This
-    /// fires for what is left — a page whose space this tree cannot carry in four components,
+    /// A page whose blending space has four components is drawn in those two orders' *agreeing*
+    /// form since ADR 0262: the page is interpreted twice, once per half of the four, and
+    /// `pdf_render::blending` converts the pair where the clause puts the conversion. Whose
+    /// four they are is the document's since ADR 0272 — [`page_press`] is that reading. This
+    /// fires for what is left — a page whose space is not four components this tree can sample,
     /// or one where the four would not answer the question — and only on the pass that
     /// composites on the device, since the subtractive passes are the ones that do not depart.
     ///
@@ -4343,9 +4395,10 @@ impl Interpreter<'_> {
         if !any_command(self.list.commands(), &command_composites) {
             return;
         }
-        let because = self
-            .blending_undrawable()
-            .unwrap_or("its four components are not this tree's four: only /DeviceCMYK is carried");
+        let because = self.blending_undrawable().unwrap_or(
+            "its components are not four this tree can sample into a press, so §11.3.4 has \
+                 no per-component formula to apply and no conversion back out",
+        );
         self.note(Unsupported::TransparencyGroup {
             detail: format!("the page group's blending colour space {name} (§11.4.7): {because}"),
         });
@@ -4358,11 +4411,8 @@ impl Interpreter<'_> {
     /// three want a **second colour space** — one the document names, one a group introduces,
     /// one whose black generation the file states — and only the fourth is about a blend.
     fn blending_undrawable(&self) -> Option<&'static str> {
-        if self.blending_press {
-            return Some(
-                "the document names the press its DeviceCMYK is (§8.6.5.6 or §14.11.5), and \
-                 §11.3.4 would composite its four components rather than this device's",
-            );
+        if let Some(why) = self.blending_beyond {
+            return Some(why);
         }
         if self.blending_changed {
             return Some(

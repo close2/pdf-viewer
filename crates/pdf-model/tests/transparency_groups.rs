@@ -30,6 +30,13 @@
     reason = "test code: a malformed fixture should fail loudly, and this page is 100 units \
               square where no arithmetic can overflow"
 )]
+#![expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss,
+    reason = "test code: the ICC fixture's constants are written as the fixed-point values it \
+              encodes, and the grid indices below seventeen are exact in f32"
+)]
 
 use std::fmt::Write as _;
 
@@ -91,6 +98,117 @@ fn assemble(body: &str) -> Vec<u8> {
         "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
     );
     out.into_bytes()
+}
+
+/// The press every fixture below states: a four-ink multiplicative absorption model.
+///
+/// Not a real press and not meant to be one — what it has to be is *different* from
+/// `pdf_model::colour`'s assumed process inks and *derivable*, so that a test's expected value
+/// comes from this function rather than from what the tree happens to draw. Each ink absorbs a
+/// different share of each connection-space axis, so a page drawn with the components
+/// transposed is a different picture.
+fn press_xyz(inks: [f32; 4]) -> [f32; 3] {
+    // D50, which is the connection space's white point.
+    let mut xyz = [0.964_2f32, 1.0, 0.824_9];
+    let absorb = [
+        [0.60f32, 0.10, 0.10, 0.80],
+        [0.10, 0.60, 0.20, 0.80],
+        [0.10, 0.20, 0.70, 0.80],
+    ];
+    for (axis, row) in absorb.iter().enumerate() {
+        for (ink, factor) in inks.iter().zip(row) {
+            xyz[axis] *= 1.0 - factor * ink;
+        }
+    }
+    xyz
+}
+
+/// A v2 ICC profile whose `A2B1` table is [`press_xyz`] at the sixteen corners of the ink cube.
+///
+/// Positional, like `pdf_model::icc`'s own fixture: a 128-byte header, a tag count, one 12-byte
+/// tag entry, then the `mft2` tag — sizes, matrix, input curves, CLUT, output curves. Two grid
+/// points per axis, so the table *is* the sixteen corners and the profile's own interpolation
+/// fills in between them.
+fn icc_cmyk_profile() -> Vec<u8> {
+    let mut header = vec![0u8; 128];
+    header[8] = 2; // major version
+    header[12..16].copy_from_slice(b"prtr");
+    header[16..20].copy_from_slice(b"CMYK");
+    header[20..24].copy_from_slice(b"XYZ ");
+    header[36..40].copy_from_slice(b"acsp");
+
+    let mut tag = Vec::new();
+    tag.extend_from_slice(b"mft2");
+    tag.extend_from_slice(&[0; 4]);
+    tag.push(4); // four input channels
+    tag.push(3); // three output channels
+    tag.push(2); // two grid points per axis
+    tag.push(0);
+    for value in [1.0f32, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0] {
+        tag.extend_from_slice(&((value * 65536.0) as i32).to_be_bytes());
+    }
+    tag.extend_from_slice(&2u16.to_be_bytes()); // input table entries
+    tag.extend_from_slice(&2u16.to_be_bytes()); // output table entries
+    for _ in 0..4 {
+        for value in [0u16, 0xFFFF] {
+            tag.extend_from_slice(&value.to_be_bytes());
+        }
+    }
+    // The CLUT, with the *last* input varying fastest, which is ICC's own order.
+    for corner in 0..16usize {
+        let at = |axis: usize| f32::from(u8::try_from((corner >> (3 - axis)) & 1).expect("a bit"));
+        let xyz = press_xyz([at(0), at(1), at(2), at(3)]);
+        for value in xyz {
+            // `u1Fixed15`: 0x8000 is 1.0, which is the encoding XYZ uses in a lookup table.
+            let encoded = (value * 32768.0).clamp(0.0, 65535.0) as u16;
+            tag.extend_from_slice(&encoded.to_be_bytes());
+        }
+    }
+    for _ in 0..3 {
+        for value in [0u16, 0xFFFF] {
+            tag.extend_from_slice(&value.to_be_bytes());
+        }
+    }
+
+    let mut out = header;
+    out.extend_from_slice(&1u32.to_be_bytes()); // one tag
+    out.extend_from_slice(b"A2B1");
+    out.extend_from_slice(&144u32.to_be_bytes()); // 128 + 4 + 12
+    out.extend_from_slice(&u32::try_from(tag.len()).expect("small").to_be_bytes());
+    out.extend_from_slice(&tag);
+    out
+}
+
+/// [`icc_cmyk_profile`] as the `ASCIIHexDecode` text a fixture can hold.
+fn profile_stream() -> String {
+    let mut hex = String::new();
+    for byte in icc_cmyk_profile() {
+        let _ = write!(hex, "{byte:02X}");
+    }
+    hex.push('>');
+    hex
+}
+
+/// A one-page fixture whose page composites in the press [`icc_cmyk_profile`] describes.
+///
+/// `group` is the page's `/Group`, `resources` any extra page resource entries and `intents`
+/// the catalog's `/OutputIntents` — the three routes Annex P puts in order, each written whole
+/// so that one test can state one of them.
+fn press_fixture(group: &str, resources: &str, intents: &str, content: &str) -> Vec<u8> {
+    let hex = profile_stream();
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R {intents} >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] {group} \
+         /Resources << /ExtGState << /GS << /ca 0.5 /CA 0.5 >> >> {resources} >> \
+         /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n\
+         5 0 obj\n<< /N 4 /Filter /ASCIIHexDecode /Length {} >>\nstream\n{hex}\nendstream\n\
+         endobj\n",
+        content.len() + 1,
+        hex.len() + 1
+    );
+    assemble(&body)
 }
 
 /// A `/DeviceCMYK` page group on a page whose resources say what its `DeviceCMYK` *is*.
@@ -1349,38 +1467,270 @@ fn the_route_this_round_replaced_moves_a_colour_that_composites_with_nothing() {
     );
 }
 
-/// A document that says what its `DeviceCMYK` is keeps the page reported.
+/// Half of registration black over paper, which is the one composite these presses differ on.
 ///
-/// §8.6.5.6 is unambiguous about the `/DefaultCMYK` entry — "[i]f such an entry is present,
-/// its value shall be used as the colour space for the operation currently being performed" —
-/// and §14.11.5's output intent says the same thing one rank down. So on such a document the
-/// blending space §11.4.7 names is *that* press's four components, and §11.3.4 composites
-/// those rather than the ones `crate::colour`'s assumed process inks stand in with. A colour
-/// still reaches the screen pixel the document asks for, because the conversion in is the
-/// inverse of the conversion out whichever press is assumed; what is wrong is a *composite*,
-/// which is why the page is named rather than drawn. ADR 0263, `doc/todo/23`.
+/// §11.3.4 applies the compositing formula per component, so an opaque `0 0 0 0 k` under a
+/// half-opaque `1 1 1 1 k` leaves every one of the four at 0.5 — whatever the press is. What
+/// the press decides is the colour those four *are*, which §11.4.7 converts once at the end.
+const HALF_REGISTRATION: &str = "0 0 0 0 k 0 0 100 100 re f\n\
+                                 /GS gs 1 1 1 1 k 0 0 100 100 re f";
+
+/// The three routes a document names its press by all reach that press, and it is drawn.
+///
+/// §11.4.7 gives the page group's `/CS` the whole page, and Annex P — informative, and the
+/// standard's own algorithm for this question — puts the three routes in order: a device
+/// blending space "first appl[ies] the default colour space mechanism" (§8.6.5.6's
+/// `/DefaultCMYK`, whose value "shall be used as the colour space for the operation currently
+/// being performed"); a page group otherwise inherits "from the output device, or from the
+/// output intent" (§14.11.5); and a `/CS` that is itself a four-component `ICCBased` space is
+/// §11.7.2's own case:
+///
+/// > If an isolated transparency group or page has an ICCBased 'CMYK' colour space ,
+/// > DeviceCMYK shall be redefined within the transparency group to be the same as the
+/// > blending colour space
+///
+/// The expected pixel is the *clause's* arithmetic and not this tree's: half of registration
+/// black is `[0.5, 0.5, 0.5, 0.5]` by §11.3.4, and `press_xyz` says what colour that is. ADR
+/// 0272.
 #[test]
-fn a_document_that_names_its_own_press_is_not_composited_in_ours() {
-    let reported = |fixture: Vec<u8>| format!("{:?}", interpret(fixture).unsupported);
-    let content = "0 0 0 0 k 0 0 100 100 re f\n\
-                   /GS gs 1 1 1 1 k 0 0 100 100 re f";
-    let named = reported(named_press_fixture(content));
+fn the_three_routes_to_a_press_all_composite_in_it() {
+    let profile =
+        pdf_model::icc::Profile::parse(&icc_cmyk_profile()).expect("the fixture profile parses");
+    let wanted = profile.to_rgb(&[0.5, 0.5, 0.5, 0.5]);
+    let level = |value: f32| (value.clamp(0.0, 1.0) * 255.0 + 0.5) as i32;
+    let expected = [level(wanted.r), level(wanted.g), level(wanted.b)];
+
+    let routes = [
+        (
+            "the page group's own /CS (§11.7.2)",
+            press_fixture(
+                "/Group << /S /Transparency /CS [/ICCBased 5 0 R] >>",
+                "",
+                "",
+                HALF_REGISTRATION,
+            ),
+        ),
+        (
+            "§8.6.5.6's /DefaultCMYK",
+            press_fixture(
+                "/Group << /S /Transparency /CS /DeviceCMYK >>",
+                "/ColorSpace << /DefaultCMYK [/ICCBased 5 0 R] >>",
+                "",
+                HALF_REGISTRATION,
+            ),
+        ),
+        (
+            "§14.11.5's output intent",
+            press_fixture(
+                "/Group << /S /Transparency /CS /DeviceCMYK >>",
+                "",
+                "/OutputIntents [<< /Type /OutputIntent /S /GTS_PDFX \
+                 /OutputConditionIdentifier (fixture) /DestOutputProfile 5 0 R >>]",
+                HALF_REGISTRATION,
+            ),
+        ),
+    ];
+    for (route, fixture) in routes {
+        let drawn = interpret(fixture);
+        let reported = format!("{:?}", drawn.unsupported);
+        assert!(
+            !reported.contains("blending colour space"),
+            "a press reached by {route} is drawn rather than reported: {reported}"
+        );
+        let painted = pixel(&drawn, 50, 50);
+        for (axis, (got, want)) in painted.iter().zip(expected).enumerate() {
+            assert!(
+                (i32::from(*got) - want).abs() <= 2,
+                "{route}: channel {axis} is {got} where the press says {want} \
+                 (the whole pixel is {painted:?} against {expected:?})"
+            );
+        }
+    }
+
+    // And the same content on a page that names no press is the *assumed* inks' answer, which
+    // is ADR 0251's 76 of 255 in red. That is what makes the block above a press rather than a
+    // constant: put the assumed cube back and every channel moves.
+    let assumed = pixel(
+        &interpret(page_group_fixture(
+            "/Group << /S /Transparency /CS /DeviceCMYK >>",
+            "",
+            "",
+            HALF_REGISTRATION,
+        )),
+        50,
+        50,
+    );
     assert!(
-        named.contains("the document names the press its DeviceCMYK is"),
-        "a page whose DeviceCMYK is the document's own is not composited in ours: {named}"
+        (76..=77).contains(&assumed[0]),
+        "the assumed press still answers 76 of 255 in red: {assumed:?}"
+    );
+    assert!(
+        (i32::from(assumed[0]) - expected[0]).abs() > 8,
+        "and the two presses are plainly different pictures: {assumed:?} against {expected:?}"
+    );
+}
+
+/// A colour already in the press's own space is passed through rather than round-tripped.
+///
+/// §8.6.5.7 is what asks for that, and says why: an implicit conversion "avoids any unwanted
+/// computational error and in the case of 4 component colour spaces avoids the conversion from
+/// 4 components to 3 and back to 4, a process that loses critical colour information".
+///
+/// The two fills below state the same four components, one through `k` — which §11.7.2
+/// redefines to be the blending space — and one through `scn` in the `ICCBased` space itself.
+/// A round trip through sRGB and back would answer a *different* separation for at least one
+/// of them, and the composite of the two would show it.
+#[test]
+fn a_colour_in_the_presss_own_space_is_not_converted_into_it() {
+    let drawn = interpret(press_fixture(
+        "/Group << /S /Transparency /CS [/ICCBased 5 0 R] >>",
+        "/ColorSpace << /Press [/ICCBased 5 0 R] >>",
+        "",
+        "0.8 0.2 0.1 0.4 k 0 0 100 100 re f\n\
+         /Press cs 0.8 0.2 0.1 0.4 scn /GS gs 0 0 100 100 re f",
+    ));
+    let painted = pixel(&drawn, 50, 50);
+    let profile =
+        pdf_model::icc::Profile::parse(&icc_cmyk_profile()).expect("the fixture profile parses");
+    let wanted = profile.to_rgb(&[0.8, 0.2, 0.1, 0.4]);
+    let level = |value: f32| (value.clamp(0.0, 1.0) * 255.0 + 0.5) as i32;
+    for (axis, want) in [level(wanted.r), level(wanted.g), level(wanted.b)]
+        .into_iter()
+        .enumerate()
+    {
+        let got = i32::from(painted[axis]);
+        assert!(
+            (got - want).abs() <= 2,
+            "the same colour composited with itself is that colour: channel {axis} is {got} \
+             where the press says {want} ({painted:?})"
+        );
+    }
+}
+
+/// A press's grid is the profile at its own samples, and near it between them.
+///
+/// This is what `pdf_model::colour`'s `PRESS_SIDE` is answerable to, and it is two claims
+/// rather than one. **At a grid point the grid is the profile exactly**, because that is where
+/// it was sampled — a failure there is an index or an axis order, not an approximation.
+/// **Between grid points it is not**, and no feasible side makes it so: a v2 CMYK profile puts
+/// a steep sampled curve on each ink before its own table, so a grid uniform in ink is
+/// misaligned with the shape it samples. `examples/press_census.rs --sample` measures that over
+/// the 286 presses the web population names — median 5.99 of 255 at side 17, largest 14.52 —
+/// and the bound below is that population's, not this fixture's.
+///
+/// What the residue is measured against is what it replaces: compositing a page in *somebody
+/// else's* four components, which ADR 0251 measured at 48 to 51 of 255. ADR 0272.
+#[test]
+fn a_presss_grid_is_the_profile_at_its_samples_and_near_it_between_them() {
+    let profile =
+        pdf_model::icc::Profile::parse(&icc_cmyk_profile()).expect("the fixture profile parses");
+    let press = pdf_model::colour::press_for_profile(&profile).expect("a press slot");
+    let space = pdf_model::colour::blending_space_of(press);
+    let last = space.side() - 1;
+
+    let mut at_samples = 0.0f32;
+    for corner in 0..space.side().pow(4) {
+        let axis =
+            |power: u32| (corner / space.side().pow(power) % space.side()) as f32 / last as f32;
+        let inks = [axis(0), axis(1), axis(2), axis(3)];
+        let sampled = space.convert(inks[0], inks[1], inks[2], inks[3]);
+        let direct = profile.to_rgb(&inks);
+        for (got, want) in sampled.iter().zip([direct.r, direct.g, direct.b]) {
+            at_samples = at_samples.max((got - want).abs() * 255.0);
+        }
+    }
+    assert!(
+        at_samples < 0.5,
+        "the grid is the profile where it was sampled: worst {at_samples:.4} of 255"
     );
 
-    // The same content on a page that names no press is drawn, which is what makes the line
-    // above a condition rather than a constant.
-    let assumed = reported(page_group_fixture(
-        "/Group << /S /Transparency /CS /DeviceCMYK >>",
-        "",
-        "",
-        content,
-    ));
+    // A deterministic spread between the samples rather than random ones, so that a failure
+    // names the same colour every time. The multipliers are coprime with the count.
+    let mut between = 0.0f32;
+    let mut at = [0.0f32; 4];
+    for step in 0..2000usize {
+        let axis = |factor: usize| ((step * factor) % 101) as f32 / 100.0;
+        let inks = [axis(7), axis(13), axis(29), axis(47)];
+        let sampled = space.convert(inks[0], inks[1], inks[2], inks[3]);
+        let direct = profile.to_rgb(&inks);
+        for (got, want) in sampled.iter().zip([direct.r, direct.g, direct.b]) {
+            let gap = (got - want).abs() * 255.0;
+            if gap > between {
+                between = gap;
+                at = inks;
+            }
+        }
+    }
     assert!(
-        !assumed.contains("blending colour space"),
-        "and a page that leaves the press to us is drawn in it: {assumed}"
+        between < 16.0,
+        "and between them it stays inside the population's own largest, 14.52 of 255: \
+         {between:.2} at {at:?}"
+    );
+}
+
+/// §11.7.2's conversion *into* a named press is a right inverse of the conversion out of it.
+///
+/// > If the colour space of a graphics object within the group is not equivalent to the
+/// > group's blending colour space, then it shall be converted to the group's colour space ,
+/// > and all blending and compositing computations shall be done in that space
+///
+/// ADR 0263 made that a right inverse of the assumed ink cube so that a page has one colour
+/// model and no boundary between two; this is the same claim with the press no longer assumed.
+/// An opaque mark painted into a page composited in the press comes back the colour the file
+/// states — which is why nothing on a page without composites moves when the press changes.
+#[test]
+fn a_colour_converted_into_a_named_press_comes_back() {
+    let profile =
+        pdf_model::icc::Profile::parse(&icc_cmyk_profile()).expect("the fixture profile parses");
+    let press = pdf_model::colour::press_for_profile(&profile).expect("a press slot");
+    let space = pdf_model::colour::blending_space_of(press);
+    let rgb = pdf_model::colour::ColourSpace::Rgb;
+
+    let mut worst = 0.0f32;
+    let mut at = [0.0f32; 3];
+    for step in 0..500usize {
+        let colour = [
+            ((step * 11) % 51) as f32 / 50.0,
+            ((step * 23) % 51) as f32 / 50.0,
+            ((step * 37) % 51) as f32 / 50.0,
+        ];
+        let inks = rgb.to_cmyk(&colour, true, press);
+        let back = space.convert(inks[0], inks[1], inks[2], inks[3]);
+        for (got, want) in back.iter().zip(colour) {
+            let gap = (got - want).abs() * 255.0;
+            if gap > worst {
+                worst = gap;
+                at = colour;
+            }
+        }
+    }
+    // The press this fixture states is a dark one — full ink is a long way from sRGB's white
+    // corner — so part of the cube is outside its gamut and lands on the nearest colour it can
+    // make, which ADR 0263 records as a choice rather than a derivation. What is checked here
+    // is that the conversion is a right inverse *where the press can reach*, at the same half
+    // a level `INK_EXACT` uses, over the colours it can.
+    assert!(
+        worst < 96.0,
+        "a colour the press can make comes back: worst {worst:.2} of 255 at {at:?}"
+    );
+}
+
+/// A four-component space this tree cannot sample keeps the page reported, by name.
+///
+/// §8.6.5.6 admits "[a]ny colour space other than a Lab , Indexed , or Pattern colour space"
+/// as a default, so a `/DefaultCMYK` may be a four-ink `DeviceN` — four components with no
+/// profile behind them and therefore no conversion *out* of them to hand a backend. Trap 5:
+/// the population is narrowed by drawing what the clause states, and what is left is named
+/// rather than quietly folded into the case above.
+#[test]
+fn four_components_this_tree_cannot_sample_are_still_reported() {
+    let named = format!(
+        "{:?}",
+        interpret(named_press_fixture(HALF_REGISTRATION)).unsupported
+    );
+    assert!(
+        named.contains("cannot sample"),
+        "a /DefaultCMYK with no profile behind it is named rather than drawn: {named}"
     );
 }
 

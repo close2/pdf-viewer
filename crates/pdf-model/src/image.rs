@@ -139,7 +139,7 @@ impl ColourSpace {
     /// and only a page that states such a space pays for it (ADR 0262).
     fn reduced(space: crate::colour::ColourSpace, into: Compositing) -> Self {
         match (space, into) {
-            (space, Compositing::Luminosity(_) | Compositing::Subtractive(_)) => {
+            (space, Compositing::Luminosity(_) | Compositing::Subtractive(..)) => {
                 Self::Resolved(space)
             }
             (crate::colour::ColourSpace::Gray, _) => Self::Gray,

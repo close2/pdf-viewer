@@ -53,6 +53,8 @@ pub struct Profile {
     /// `None` for a profile whose black is already zero, and for the matrix and grey
     /// forms, where it does not arise.
     black: Option<[f32; 3]>,
+    /// What distinguishes this profile's bytes from another's. See [`Profile::identity`].
+    identity: u128,
 }
 
 /// How a profile gets from its own space to the connection space.
@@ -200,6 +202,21 @@ fn parametric(kind: u16, v: &[f32; 7], x: f32) -> f32 {
     }
 }
 
+/// What [`Profile::identity`] returns: the byte length beside an FNV-1a hash of the bytes.
+///
+/// FNV-1a because it is four lines a reader can check and needs no dependency; the length is
+/// carried in the high half so that two profiles of different sizes can never be confused
+/// whatever their hashes do.
+fn identity_of(data: &[u8]) -> u128 {
+    // The 64-bit FNV-1a offset basis and prime, from the algorithm's own definition.
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    for byte in data {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    (u128::try_from(data.len()).unwrap_or(u128::MAX) << 64) | u128::from(hash)
+}
+
 /// Reads a big-endian `u16`.
 fn u16_at(data: &[u8], at: usize) -> Option<u16> {
     let bytes = data.get(at..at.checked_add(2)?)?;
@@ -314,6 +331,7 @@ impl Profile {
             lab_pcs,
             transform,
             black: None,
+            identity: identity_of(data),
         };
         profile.black = profile.detect_black();
         Some(profile)
@@ -415,6 +433,26 @@ impl Profile {
     #[must_use]
     pub fn channels(&self) -> usize {
         self.channels
+    }
+
+    /// What tells this profile's bytes apart from another's.
+    ///
+    /// Two profiles parsed from the same bytes have the same identity, and that is the whole
+    /// contract: `crate::colour`'s press registry uses it to recognise a profile it has
+    /// already sampled, and §8.6.5.7's implicit conversion uses it to recognise the space a
+    /// colour is already *in* — "in the case of 4 component colour spaces avoids the
+    /// conversion from 4 components to 3 and back to 4, a process that loses critical colour
+    /// information".
+    ///
+    /// It is the profile's length beside a 64-bit FNV-1a of its bytes rather than a
+    /// cryptographic digest, because what it has to survive is a document's own profiles being
+    /// distinguished from each other, not an adversary constructing a pair. Two *different*
+    /// profiles of the same length whose hashes also collide would be treated as one press;
+    /// at 2⁻⁶⁴ per pair and a handful of profiles per document, that is a stated bound rather
+    /// than an assumed impossibility.
+    #[must_use]
+    pub fn identity(&self) -> u128 {
+        self.identity
     }
 
     /// Converts a colour in this profile's space to sRGB, with black point compensation.

@@ -7,50 +7,63 @@ three-hundred-and-ninety-seventh** (ADR 0234), and **§11.4.4's non-isolated gro
 the four-hundredth** (ADR 0237). The four-hundred-and-fifteenth found the standing population was
 the wrong one and priced what is left of it (ADR 0251); **the four-hundred-and-twenty-sixth built
 what it priced and found the price was for the wrong half** (ADR 0262); **the
-four-hundred-and-twenty-seventh built that other half and closed the standing item** (ADR 0263).
+four-hundred-and-twenty-seventh built that other half and closed the standing item** (ADR 0263);
+**the four-hundred-and-thirty-sixth made the press the document's** and closed the largest
+condition the web has (ADR 0272).
 Priority: 23
 Corpus: 6 documents
-Clauses: §11.3.5.3, §11.4.4, §11.6.6, §11.7.5.3, §8.6.5.6, §14.11.5
+Clauses: §11.3.5.3, §11.4.4, §11.6.6, §11.7.5.3, §8.6.5.5, §8.6.5.6, §8.6.5.7, §11.7.2, §14.11.5
 Code: `crates/pdf-model/src/content.rs`, `crates/pdf-model/src/colour.rs`,
 `crates/pdf-render/src/blending.rs`, `crates/render-cpu/src/lib.rs`
 
 | | corpus | web witnesses | what it is |
 |---|---|---|---|
-| **the document names the press its `DeviceCMYK` is** (§8.6.5.6, §14.11.5) | 0 | 7 of 1896, 8 of 4000, **151 of 65 944** | **the standing item, and the largest single condition the web has** (ADR 0269). Its four components are not ours, so a *composite* in them is not ours |
-| a group inside the page composites in a different space (§11.6.6) | 3 | 3 of 1896, 4 of 4000, **78 of 65 944** | needs a conversion between two spaces at the `Do`. A further **30** are a group that *introduces* the space rather than the page group doing so |
-| a non-separable blend mode on such a page (§11.3.5.3) | 1 | 1 of 1896, 2 of 4000, **27 of 65 944** | the black component has a rule of its own |
-| a page group whose four components are not `/DeviceCMYK` | 0 | 14 of 4000, **106 of 65 944** | its conversion out is a profile rather than sixteen corners; every one of the 14 checked in session 430 was four-component `ICCBased` (ADRs 0266, 0269) |
-| an `/ExtGState` states `/BG`, `/BG2`, `/UCR` or `/UCR2` (§11.7.5.3) | 0 | 1 of 1896, 0 of 4000, **7 of 65 944** | **was silent until the 426th**, and 0 of 4000 could have been read as noise |
+| a group inside the page composites in a different space (§11.6.6) | 3 | 3 of 1896, 4 of 4000, 78 → **85 of 65 944** | **the standing item now.** Needs a conversion between two spaces at the `Do`. A further **30** are a group that *introduces* the space rather than the page group doing so |
+| a page group whose components are not four this tree can sample | 0 | 14 of 4000, 106 → **5 of 65 944** | what is left after ADR 0272: a `/DeviceGray` or `Lab` page group, or four components with no profile behind them, so §11.3.4 has no formula to apply and no conversion out |
+| a non-separable blend mode on such a page (§11.3.5.3) | 1 | 1 of 1896, 2 of 4000, 27 → **28 of 65 944** | the black component has a rule of its own |
+| an `/ExtGState` states `/BG`, `/BG2`, `/UCR` or `/UCR2` (§11.7.5.3) | 0 | 1 of 1896, 0 of 4000, 7 → **9 of 65 944** | **was silent until the 426th**, and 0 of 4000 could have been read as noise |
+| ~~the document names the press its `DeviceCMYK` is~~ | ~~0~~ | ~~151~~ → **0** | **closed in the 436th, ADR 0272: the press is a value, and `CMYK_CORNERS` is one of them** |
 | ~~a conversion *into* the blending space~~ | ~~5~~ → 0 | ~~61~~ → 0 | **closed in the 427th, ADR 0263: a right inverse of the ink cube** |
 | ~~the four components themselves~~ | — | — | **closed in the 426th, ADR 0262: two rasters, no new format** |
 | ~~a non-isolated group NOTE 5 cannot flatten~~ | ~~6~~ → 3 | | **the non-knockout ones closed** in the 400th, ADR 0237; what is left is knockout, below |
 | ~~a soft-mask group with such a space~~ | ~~7~~ → 0 | | **closed** in the 380th and 383rd, ADRs 0217 and 0220 |
 | ~~a knockout element whose shape is not its coverage~~ | ~~5~~ → 0 | | **closed** in the 397th, ADR 0234 |
 
+The three rows that grew by one or two are documents that were reported for the press and are now
+reported for the next condition they meet — the population narrowing honestly rather than a
+condition being narrowed (trap 5).
+
 Each remaining one is refused *by name* rather than approximated, and since the four-hundred-and-
-twenty-sixth the name says **which** of the five conditions fired. The corpus documents are
+twenty-sixth the name says **which** of the conditions fired. The corpus documents are
 `bug1703683_page2_reduced`, `bug1755507` and `issue13520` for §11.6.6, `issue18032` for the
 non-separable blend, and `issue18032`, `knockout_blend_multiply` and `knockout_inner_backdrop` for
 what §11.4.4 still refuses. `personwithdog.pdf` left in the four-hundred-and-twenty-sixth and
 `issue12798_page1_reduced.pdf` and `bug1365930.pdf` in the four-hundred-and-twenty-seventh, which
 drew them.
 
-## The conversion into the space is closed, and it is a right inverse of the press
+## The press is the document's, and no ICC dependency was needed
 
-§11.7.2 requires a colour to be converted *into* the blending space, and §11.7.5.3 says which
-conversion by naming its **target** rather than its algorithm: "in the transparent model it may
-instead be the group colour space of a transparency group into which an object is being painted",
-where the opaque model's target "shall always be the native colour space of the output device". So
-it is the same conversion with a different target, on §10.3's branch by §10.4.2.1's ranking — and
-`colour::rgb_to_ink` is a right inverse of the ink cube, so one page has one colour model and there
-is no boundary between two. §10.4.2.4 keeps the nominal `k` and the search's starting point inside
-it. ADR 0263 has the construction, the gamut choice it costs and the pictures.
+**292 of the 65 703 web documents that open name a press**, and 286 of those name four components:
+186 by a page group `/CS` that is a four-component `ICCBased` space (§11.7.2), 94 by §14.11.5's
+output intent, 6 by §8.6.5.6's `/DefaultCMYK`. **Every one of those 286 profiles parses with the
+`A2B` evaluator ADR 0009 wrote in this tree**, so the round that was set up as a dependency
+question was a reading one. `crates/pdf-model/examples/press_census.rs` is the instrument.
 
-**What the residue rows above have in common** is that each needs a *second* space rather than a
-second direction: a press this tree does not model (§8.6.5.6, §14.11.5), a group that introduces
-one (§11.6.6), or a profile instead of sixteen corners. The first of them is the one to take next
-and it is an ICC `B2A` question — a document that names its press wants the conversion into *its*
-four components, which is the inverse of a profile rather than of a cube.
+Two clauses decide the direction. §8.6.5.5 requires the *file* to carry `B2A` for a blending-space
+profile — and all 286 do — but places no requirement on the processor; §14.11.5's Table 401 names
+`A2B` for this device outright: "the 'to CIE' (AToB) information may optionally be used to remap
+source colour values to some other destination colour space, such as for screen preview or
+hardcopy proofing". A screen is what this processor has. The conversion *into* the press is then
+ADR 0263's right inverse of the same sampling, so a page has one colour model and no boundary.
+
+**The residue this created is a number and it is the thing to watch.** A backend interpolates a
+table, so a press is sampled onto a grid of seventeen per axis; over the 286 profiles that grid
+departs from evaluating the profile by a median 5.99 and at most 14.52 of 255. No feasible side
+reaches half a level — a v2 CMYK profile puts a steep sampled curve on each ink *before* its own
+table, and sampling in linear light is worse rather than better. What closes it is per-axis input
+curves beside the grid, which is what an ICC `A2B` tag is, and which the backend would have to be
+taught. Against it stands the 48 to 51 of 255 that compositing in *somebody else's* four components
+costs (ADR 0251), which is what the round removed.
 
 ## The four components were two rasters, and that is closed
 

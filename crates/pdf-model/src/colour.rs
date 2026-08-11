@@ -31,6 +31,8 @@
 //! tree without anything looking wrong, and an XYZ matrix copied into a second place would
 //! fail the same way and be just as invisible.
 
+use std::sync::{Mutex, OnceLock};
+
 use rayon::iter::{IntoParallelIterator as _, ParallelIterator as _};
 
 use pdf_render::Color;
@@ -71,9 +73,9 @@ pub enum Compositing {
     /// A `/Luminosity` mask group whose blending space §10.4.2.3 sends to grey without
     /// passing through RGB, painted in the ink that clause weighs rather than in colour.
     Luminosity(InkScale),
-    /// A page §11.4.7 composites in `DeviceCMYK`, painted in the half of that space's four
-    /// components this raster carries. See [`Half`] and `pdf_render::blending`.
-    Subtractive(Half),
+    /// A page §11.4.7 composites in four components, painted in the half of them this raster
+    /// carries. See [`Half`], [`PressId`] for whose four they are, and `pdf_render::blending`.
+    Subtractive(Half, PressId),
 }
 
 /// Which of a `DeviceCMYK` blending space's four components one raster carries.
@@ -129,8 +131,8 @@ impl Compositing {
                 a: colour.a,
                 ..Color::grey(scale.grey_of(space, values))
             },
-            Self::Subtractive(half) => {
-                let [cyan, magenta, yellow, black] = space.to_cmyk(values, black_point);
+            Self::Subtractive(half, press) => {
+                let [cyan, magenta, yellow, black] = space.to_cmyk(values, black_point, press);
                 let painted = match half {
                     Half::Chromatic => Color::rgb(1.0 - cyan, 1.0 - magenta, 1.0 - yellow),
                     Half::Black => Color::grey(1.0 - black),
@@ -887,26 +889,59 @@ impl ColourSpace {
     /// A space that already resolves to `DeviceCMYK` is passed straight through, including a
     /// `Separation` or `DeviceN` whose alternate is one — §11.3.4 requires exactly that:
     /// spot colours "shall not be converted to a blending colour space (except in the case
-    /// where they first revert to their alternate colour space)". Everything else goes to RGB
-    /// by this crate's one route and then through [`rgb_to_ink`], so a `Lab` or `ICCBased`
-    /// colour reaches ink through sRGB — colorimetric where sRGB holds it, and clipped where
-    /// it does not, which is the same gamut question one space earlier.
+    /// where they first revert to their alternate colour space)". §11.7.2 is what makes that
+    /// right where the press is the document's rather than this tree's:
+    ///
+    /// > If an isolated transparency group or page has an ICCBased 'CMYK' colour space ,
+    /// > DeviceCMYK shall be redefined within the transparency group to be the same as the
+    /// > blending colour space and references to the process colourants Cyan , Magenta ,
+    /// > Yellow and Black are defined to be references to the corresponding colourants in the
+    /// > blending colour space, even where the actual or simulated output device is not CMYK.
+    ///
+    /// **A colour already in the press's own space is passed through too**, which is
+    /// §8.6.5.7's implicit conversion, and that clause gives the reason it exists:
+    ///
+    /// > This avoids any unwanted computational error and in the case of 4 component colour
+    /// > spaces avoids the conversion from 4 components to 3 and back to 4, a process that
+    /// > loses critical colour information.
+    ///
+    /// [`crate::icc::Profile::identity`] is what recognises it.
+    ///
+    /// Everything else goes to RGB by this crate's one route and then through [`rgb_to_ink`],
+    /// so a `Lab` or a *different* `ICCBased` colour reaches ink through sRGB — colorimetric
+    /// where sRGB holds it, and clipped where it does not, which is the same gamut question
+    /// one space earlier.
     #[must_use]
-    pub fn to_cmyk(&self, values: &[f32], black_point: bool) -> [f32; 4] {
-        self.to_cmyk_at(values, 0, black_point)
+    pub fn to_cmyk(&self, values: &[f32], black_point: bool, press: PressId) -> [f32; 4] {
+        self.to_cmyk_at(values, 0, black_point, press)
     }
 
     /// [`Self::to_cmyk`], carrying the recursion depth a nested space costs.
-    fn to_cmyk_at(&self, values: &[f32], depth: usize, black_point: bool) -> [f32; 4] {
+    fn to_cmyk_at(
+        &self,
+        values: &[f32],
+        depth: usize,
+        black_point: bool,
+        press: PressId,
+    ) -> [f32; 4] {
         if depth > MAX_DEPTH {
             return [0.0, 0.0, 0.0, 1.0];
         }
         let at = |index: usize| channel(values.get(index).copied().unwrap_or(0.0));
         match self {
             Self::Cmyk => [at(0), at(1), at(2), at(3)],
-            Self::Indexed { base, .. } => {
-                base.to_cmyk_at(&self.entry_of(values), depth.saturating_add(1), black_point)
+            Self::Icc { profile }
+                if press.press().identity == Some(profile.identity())
+                    && profile.channels() == 4 =>
+            {
+                [at(0), at(1), at(2), at(3)]
             }
+            Self::Indexed { base, .. } => base.to_cmyk_at(
+                &self.entry_of(values),
+                depth.saturating_add(1),
+                black_point,
+                press,
+            ),
             Self::Separation {
                 alternate,
                 transform,
@@ -915,11 +950,12 @@ impl ColourSpace {
                 &transform.eval(values),
                 depth.saturating_add(1),
                 black_point,
+                press,
             ),
             Self::Pattern { base } => base.as_ref().map_or([0.0, 0.0, 0.0, 1.0], |base| {
-                base.to_cmyk_at(values, depth.saturating_add(1), black_point)
+                base.to_cmyk_at(values, depth.saturating_add(1), black_point, press)
             }),
-            _ => rgb_to_ink(self.to_rgb_at(values, depth, black_point)),
+            _ => rgb_to_ink(press, self.to_rgb_at(values, depth, black_point)),
         }
     }
 
@@ -1131,23 +1167,268 @@ fn cmyk(c: f32, m: f32, y: f32, k: f32) -> Color {
     Color::rgb(channel(rgb[0]), channel(rgb[1]), channel(rgb[2]))
 }
 
-/// The conversion out of `DeviceCMYK`, as the table a backend is handed.
+/// Which press a page's four components belong to.
 ///
-/// §11.4.7 converts a page composited in its blending colour space to the device's *once*, at
-/// the end, and that happens in a backend where no colour space exists (see
-/// [`pdf_render::Color`]). So the table goes down with the display list, and this is the one
-/// place it is built: `a_backends_table_is_this_crates_own_conversion` checks that
-/// interpolating it is [`cmyk`] to the last bit, which is what keeps the "one route from a
-/// colour to the screen" rule in this module's header true of the new route as well.
-#[must_use]
-pub fn device_cmyk_blending_space() -> pdf_render::BlendingSpace {
-    let mut corners = [[0.0f32; 3]; 16];
-    for (target, source) in corners.iter_mut().zip(CMYK_CORNERS) {
-        for (component, value) in target.iter_mut().zip(source) {
-            *component = f32::from(value) / 255.0;
+/// A `Copy` handle rather than the press itself, and that is a shape decision worth its
+/// sentence: [`Compositing`] is `Copy`, is threaded through every painting function in this
+/// crate, and is a `BTreeMap` key in `crate::shading`. Carrying an `Arc` in it would cost a
+/// lifetime or an ordering on every one of those; carrying an index costs neither, and the
+/// presses themselves live in [`PRESSES`] for as long as the process does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct PressId(usize);
+
+impl PressId {
+    /// The press this tree assumes when a document says nothing: [`CMYK_CORNERS`].
+    pub const ASSUMED: Self = Self(0);
+
+    /// The press itself.
+    ///
+    /// A handle is only ever made by [`press_for_profile`] or by [`PressId::ASSUMED`], and
+    /// neither can name a slot that was not filled first, so an unfilled one falls back on the
+    /// assumed inks rather than failing: a colour has to come back from here.
+    #[must_use]
+    fn press(self) -> &'static Press {
+        if self.0 > 0
+            && let Some(press) = PRESSES
+                .get(self.0.saturating_sub(1))
+                .and_then(OnceLock::get)
+        {
+            return press;
+        }
+        ASSUMED.get_or_init(Press::assumed)
+    }
+}
+
+/// How many presses one process will sample.
+///
+/// A press costs its grid — `PRESS_SIDE⁴` device colours — plus, if a page converts a colour
+/// *into* it, [`INK_TABLE_SIDE`]³ separations. At the sizes below that is 1.0 MB and 78 KB
+/// apiece, so this bound is **8.6 MB**, and it is a bound rather than a cache because nothing
+/// here is ever evicted: a viewer holding several documents open at once, each naming its own
+/// press, is the case it exists for. A document arriving after the bound is reached keeps the
+/// report it had before this construction existed rather than being drawn in somebody else's
+/// four components.
+const MAX_PRESSES: usize = 8;
+
+/// The presses [`press_for_profile`] has sampled, filled from the front.
+///
+/// An array of `OnceLock`s rather than a locked `Vec` so that reading one — which happens per
+/// colour — takes no lock at all. [`NEXT_PRESS`] is held only while a slot is being filled,
+/// and never across anything that could run another job (ADR 0269).
+static PRESSES: [OnceLock<Press>; MAX_PRESSES] = [const { OnceLock::new() }; MAX_PRESSES];
+
+/// How many of [`PRESSES`] are filled, and the lock that fills the next one.
+static NEXT_PRESS: Mutex<usize> = Mutex::new(0);
+
+/// [`PressId::ASSUMED`]'s press, built on first use like any other.
+static ASSUMED: OnceLock<Press> = OnceLock::new();
+
+/// The four components a page composites in, in both directions.
+///
+/// §11.4.7 gives a page a blending colour space and §11.7.2 requires colours to be converted
+/// *into* it, so a press is two conversions that have to be inverses of each other — ADR 0263
+/// is where that became the rule, and this is that rule with the press no longer assumed.
+/// [`Press::space`] is the conversion out, sampled on a grid because that is what a backend
+/// can be handed; [`Press::table`] is the conversion in, searched against the same grid.
+#[derive(Debug)]
+pub struct Press {
+    /// §11.4.7's conversion out of the space, as the grid a backend interpolates.
+    space: pdf_render::BlendingSpace,
+    /// The profile this was sampled from, or `None` for the assumed inks.
+    identity: Option<u128>,
+    /// [`search_ink`] over a grid of sRGB, built on first use. See [`Press::table`].
+    table: OnceLock<Vec<[f32; 4]>>,
+}
+
+impl Press {
+    /// The press [`CMYK_CORNERS`] describes, whose grid is those sixteen corners.
+    fn assumed() -> Self {
+        let mut corners = [[0.0f32; 3]; 16];
+        for (target, source) in corners.iter_mut().zip(CMYK_CORNERS) {
+            for (component, value) in target.iter_mut().zip(source) {
+                *component = f32::from(value) / 255.0;
+            }
+        }
+        Self {
+            space: pdf_render::BlendingSpace::new(2, corners.into())
+                .unwrap_or_else(|| unreachable!("sixteen samples is a grid of side two")),
+            identity: None,
+            table: OnceLock::new(),
         }
     }
-    pdf_render::BlendingSpace { corners }
+
+    /// The conversion out of this press's four components, as the table a backend is handed.
+    ///
+    /// §11.4.7 converts a page composited in its blending colour space to the device's *once*,
+    /// at the end, and that happens in a backend where no colour space exists (see
+    /// [`pdf_render::Color`]). So the table goes down with the display list, and this is the
+    /// one place it is built: `a_backends_table_is_this_crates_own_conversion` checks that
+    /// interpolating the assumed press's is [`cmyk`] to the last bit, which is what keeps the
+    /// "one route from a colour to the screen" rule in this module's header true of it.
+    #[must_use]
+    pub fn blending_space(&self) -> pdf_render::BlendingSpace {
+        self.space.clone()
+    }
+}
+
+/// The press a four-component ICC profile describes, or `None` if this process holds too many.
+///
+/// # What this is, and which clause asks for it
+///
+/// A document that states a four-component `ICCBased` blending colour space (§11.7.2), or that
+/// names what its `DeviceCMYK` *is* through §8.6.5.6's `/DefaultCMYK` or §14.11.5's output
+/// intent, is naming a press whose four components are not this tree's assumed inks. §11.3.4
+/// composites per component, so compositing in ours is a different picture.
+///
+/// # Why sampling the profile is the whole of it, and no `B2A` is needed
+///
+/// The conversion **out** is the profile's own `A2B`, which this crate has evaluated since ADR
+/// 0009, sampled here onto a grid because a backend interpolates a table rather than running a
+/// colour management engine per pixel. §14.11.5's Table 401 names that direction for exactly
+/// this use:
+///
+/// > The output transformation uses the profile's "from CIE" information (BToA in ICC
+/// > terminology); the "to CIE" (AToB) information may optionally be used to remap source
+/// > colour values to some other destination colour space, such as for screen preview or
+/// > hardcopy proofing.
+///
+/// A screen is what this processor has, so the optional clause is the one in force.
+///
+/// The conversion **in** is then the right inverse of that grid — the same construction ADR
+/// 0263 built for the assumed inks, with the press no longer assumed — which is why a `B2A`
+/// table is not read even where §8.6.5.5 requires the file to carry one. Reading both would
+/// put two separately-built maps on one page, and a page drawn by two colour models is the
+/// defect ADR 0262 photographed.
+///
+/// A profile this crate cannot parse never reaches here, and §8.6.5.5 answers that case
+/// itself:
+///
+/// > If this entry is omitted and the PDF reader does not understand the ICC profile data, the
+/// > colour space that shall be used is DeviceGray , DeviceRGB , or DeviceCMYK , depending on
+/// > whether the value of N is 1 , 3 , or 4 , respectively.
+///
+/// For four components that is `DeviceCMYK`, which [`PressId::ASSUMED`] already composites in.
+#[must_use]
+pub fn press_for_profile(profile: &crate::icc::Profile) -> Option<PressId> {
+    if profile.channels() != 4 {
+        return None;
+    }
+    let identity = profile.identity();
+    if let Some(found) = registered(identity) {
+        return Some(found);
+    }
+    // The lock is held across the sampling and nothing else. That sampling is serial by
+    // construction — 83 521 profile evaluations, no rayon — because a `Mutex` held across a
+    // work-stealing call is what hung three archives in the four-hundred-and-thirty-third
+    // session (ADR 0269).
+    let mut next = NEXT_PRESS.lock().ok()?;
+    if let Some(found) = registered(identity) {
+        return Some(found);
+    }
+    let slot = PRESSES.get(*next)?;
+    let space = sample_press(profile)?;
+    let filled = slot
+        .set(Press {
+            space,
+            identity: Some(identity),
+            table: OnceLock::new(),
+        })
+        .is_ok();
+    if !filled {
+        return None;
+    }
+    *next = next.saturating_add(1);
+    Some(PressId(*next))
+}
+
+/// The press already sampled from a profile of this identity, if there is one.
+///
+/// The slots are filled from the front and never emptied, so the first unfilled one ends the
+/// scan: everything past it is unfilled too.
+fn registered(identity: u128) -> Option<PressId> {
+    for (index, slot) in PRESSES.iter().enumerate() {
+        let Some(press) = slot.get() else {
+            break;
+        };
+        if press.identity == Some(identity) {
+            return Some(PressId(index.saturating_add(1)));
+        }
+    }
+    None
+}
+
+/// How many samples per axis a press's grid holds.
+///
+/// A real press is not multilinear between the corners of its ink cube — that is what makes
+/// [`CMYK_CORNERS`] an assumption rather than a measurement — so the grid has to be fine
+/// enough that interpolating it is the profile.
+///
+/// # The side is measured, and so is what it still costs
+///
+/// `examples/press_census.rs --sample` builds the grid at several sides over **the 286 presses
+/// the web population names** and compares it against evaluating the profile directly, in
+/// levels of 255:
+///
+/// | side | median worst gap | p90 | largest |
+/// |---|---|---|---|
+/// | 9 | 16.34 | 18.12 | 21.60 |
+/// | **17** | **5.99** | **11.02** | **14.52** |
+/// | 33, on a sample of six | 1.80–4.80 | — | — |
+///
+/// **No feasible side reaches half a level**, and that is a property of the profiles rather
+/// than of the arithmetic: a v2 CMYK profile puts a steep sampled curve on each ink *before*
+/// its own table, so a grid uniform in ink is misaligned with the shape it is sampling.
+/// Sampling in linear light instead is **worse** — 8.62 median at side 17 against 5.99 —
+/// because it moves the error into the bright end where a level of 255 is a smaller step.
+///
+/// So seventeen is where the curve flattens against what a finer grid costs: 33 is 1.19 million
+/// evaluations and 14 MB a press, for about half the remaining gap. What the residue is
+/// measured *against* is the alternative it replaces — compositing a page in somebody else's
+/// four components, which ADR 0251 measured at **48 to 51 of 255**. ADR 0272 records both
+/// numbers and the construction that would close the rest: per-axis input curves beside the
+/// grid, which is what an ICC `A2B` tag *is*, and which the backend would have to be taught.
+///
+/// The cost is 83 521 profile evaluations and 1.0 MB, paid once per press and only where a
+/// page asks for one — `CLAUDE.md`'s launch rule, the same argument [`Press::table`] makes.
+const PRESS_SIDE: usize = 17;
+
+/// A profile's `A2B` sampled onto a [`PRESS_SIDE`] grid of its four components.
+fn sample_press(profile: &crate::icc::Profile) -> Option<pdf_render::BlendingSpace> {
+    let side = PRESS_SIDE;
+    let last = side.saturating_sub(1);
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a grid index below 17 and the side itself, both exact in f32"
+    )]
+    let at = |index: usize| index as f32 / last as f32;
+    let mut grid = Vec::with_capacity(side.checked_pow(4)?);
+    for black in 0..side {
+        for yellow in 0..side {
+            for magenta in 0..side {
+                for cyan in 0..side {
+                    // Black point compensation on, which is what §8.6.5.9's `Default` leaves
+                    // to this processor and what ADR 0009 chose for every other colour that
+                    // reaches a pixel through a profile. The conversion *in* is searched
+                    // against this same grid, so the two stay inverses whichever way it is set.
+                    let colour = profile.to_rgb(&[at(cyan), at(magenta), at(yellow), at(black)]);
+                    grid.push([colour.r, colour.g, colour.b]);
+                }
+            }
+        }
+    }
+    pdf_render::BlendingSpace::new(side, grid.into())
+}
+
+/// The conversion out of the assumed press, for a caller that has no [`PressId`] to hand.
+#[must_use]
+pub fn device_cmyk_blending_space() -> pdf_render::BlendingSpace {
+    PressId::ASSUMED.press().blending_space()
+}
+
+/// The conversion out of one press, for the interpreter that chose it.
+#[must_use]
+pub fn blending_space_of(press: PressId) -> pdf_render::BlendingSpace {
+    press.press().blending_space()
 }
 
 /// ISO 32000-2 §10.4.2.4's conversion from `DeviceRGB` to `DeviceCMYK`.
@@ -1256,13 +1537,15 @@ const INK_POLISH: usize = 6;
 /// So the grid is computed first and the lock is held only across a move. A second caller
 /// that arrives while the first is still computing builds its own copy and throws it away,
 /// which costs one grid and cannot wait on anything.
-fn ink_table() -> &'static [[f32; 4]] {
-    static TABLE: std::sync::OnceLock<Vec<[f32; 4]>> = std::sync::OnceLock::new();
-    if let Some(table) = TABLE.get() {
-        return table;
+impl Press {
+    /// [`search_ink`] over a grid of sRGB, built once and only where a page asks for it.
+    fn table(&self) -> &[[f32; 4]] {
+        if let Some(table) = self.table.get() {
+            return table;
+        }
+        let built = build_ink_table(&self.space);
+        self.table.get_or_init(|| built)
     }
-    let built = build_ink_table();
-    TABLE.get_or_init(|| built)
 }
 
 /// [`search_ink`] over every point of the [`INK_TABLE_SIDE`] grid.
@@ -1276,7 +1559,7 @@ fn ink_table() -> &'static [[f32; 4]] {
 /// the caller's work queue rather than of anything here, so the branch declines it. What it
 /// costs is 61.7 ms on a thread that is already one of many, where the machine has no idle
 /// core to spend anyway.
-fn build_ink_table() -> Vec<[f32; 4]> {
+fn build_ink_table(space: &pdf_render::BlendingSpace) -> Vec<[f32; 4]> {
     let side = INK_TABLE_SIDE;
     #[expect(
         clippy::cast_precision_loss,
@@ -1287,7 +1570,7 @@ fn build_ink_table() -> Vec<[f32; 4]> {
         let blue = index % side;
         let green = index / side % side;
         let red = index / side / side % side;
-        search_ink([at(red), at(green), at(blue)])
+        search_ink(space, [at(red), at(green), at(blue)])
     };
     let points = 0..side.saturating_mul(side).saturating_mul(side);
     if rayon::current_thread_index().is_some() {
@@ -1315,14 +1598,15 @@ fn build_ink_table() -> Vec<[f32; 4]> {
 /// is that question answered from nothing; this is it answered from [`ink_table`] and landed
 /// by [`polish_four_inks`], which is the same answer 998 times in 1000 and **16 times faster**
 /// on the colours a document is made of.
-fn rgb_to_ink(colour: Color) -> [f32; 4] {
+fn rgb_to_ink(press: PressId, colour: Color) -> [f32; 4] {
+    let press = press.press();
     let target = [channel(colour.r), channel(colour.g), channel(colour.b)];
-    polish_four_inks(target, ink_lookup(target))
+    polish_four_inks(&press.space, target, ink_lookup(press, target))
 }
 
 /// [`ink_table`] read at `target`, trilinearly between the eight grid separations around it.
-fn ink_lookup(target: [f32; 3]) -> [f32; 4] {
-    let table = ink_table();
+fn ink_lookup(press: &Press, target: [f32; 3]) -> [f32; 4] {
+    let table = press.table();
     let side = INK_TABLE_SIDE;
     let last = side.saturating_sub(1);
     let mut base = [0usize; 3];
@@ -1408,11 +1692,11 @@ fn ink_lookup(target: [f32; 3]) -> [f32; 4] {
 ///
 /// A page whose colours are all inside that gamut is therefore drawn exactly as it is drawn
 /// today, with only its *composites* moving, which is the whole of what §11.7.2 asks for.
-fn search_ink(target: [f32; 3]) -> [f32; 4] {
+fn search_ink(space: &pdf_render::BlendingSpace, target: [f32; 3]) -> [f32; 4] {
     let nominal = rgb_to_cmyk(Color::rgb(target[0], target[1], target[2]));
     let mut warm = [nominal[0], nominal[1], nominal[2]];
 
-    let first = ink_at_black(target, nominal[3], warm);
+    let first = ink_at_black(space, target, nominal[3], warm);
     if first.worst < INK_EXACT {
         return [first.inks[0], first.inks[1], first.inks[2], nominal[3]];
     }
@@ -1426,7 +1710,7 @@ fn search_ink(target: [f32; 3]) -> [f32; 4] {
             reason = "the ladder is twelve rungs; both counts are exact in f32"
         )]
         let black = span.saturating_sub(rung) as f32 / span as f32;
-        let solved = ink_at_black(target, black, warm);
+        let solved = ink_at_black(space, target, black, warm);
         if solved.worst < INK_EXACT {
             return [solved.inks[0], solved.inks[1], solved.inks[2], black];
         }
@@ -1438,6 +1722,7 @@ fn search_ink(target: [f32; 3]) -> [f32; 4] {
 
     let (closest, black) = nearest;
     polish_four_inks(
+        space,
         target,
         [closest.inks[0], closest.inks[1], closest.inks[2], black],
     )
@@ -1459,11 +1744,15 @@ struct Separation {
 /// Gauss–Newton on the trilinear slice, projected onto the unit cube and backtracked so that
 /// the squared distance falls at every step. `start` is the previous rung's answer, which is
 /// why the ladder costs far fewer steps than it has rungs.
-fn ink_at_black(target: [f32; 3], black: f32, start: [f32; 3]) -> Separation {
-    let slice = ink_slice(black);
+fn ink_at_black(
+    space: &pdf_render::BlendingSpace,
+    target: [f32; 3],
+    black: f32,
+    start: [f32; 3],
+) -> Separation {
     let mut inks = [channel(start[0]), channel(start[1]), channel(start[2])];
     let mut jacobian = [[0.0f32; 3]; 3];
-    let mut value = multilinear(&slice, &inks, Some(&mut jacobian));
+    let mut value = press_at_black(space, black, inks, Some(&mut jacobian));
     let (mut worst, mut squared) = gaps(value, target);
 
     for _ in 0..INK_STEPS {
@@ -1486,7 +1775,7 @@ fn ink_at_black(target: [f32; 3], black: f32, start: [f32; 3]) -> Separation {
                 channel(scale.mul_add(-step[1], inks[1])),
                 channel(scale.mul_add(-step[2], inks[2])),
             ];
-            let next = multilinear(&slice, &candidate, None);
+            let next = press_at_black(space, black, candidate, None);
             let (next_worst, next_squared) = gaps(next, target);
             if next_squared < squared {
                 inks = candidate;
@@ -1500,7 +1789,7 @@ fn ink_at_black(target: [f32; 3], black: f32, start: [f32; 3]) -> Separation {
         if !improved {
             break;
         }
-        value = multilinear(&slice, &inks, Some(&mut jacobian));
+        value = press_at_black(space, black, inks, Some(&mut jacobian));
     }
     Separation {
         inks,
@@ -1517,8 +1806,11 @@ fn ink_at_black(target: [f32; 3], black: f32, start: [f32; 3]) -> Separation {
 /// columns, so the step taken is the smallest one that answers — `Jᵀ(JJᵀ)⁻¹r`, the
 /// minimum-norm solution — which keeps the answer near where it started rather than wandering
 /// to some other preimage.
-fn polish_four_inks(target: [f32; 3], start: [f32; 4]) -> [f32; 4] {
-    let corners = cube_corners();
+fn polish_four_inks(
+    space: &pdf_render::BlendingSpace,
+    target: [f32; 3],
+    start: [f32; 4],
+) -> [f32; 4] {
     let mut inks = [
         channel(start[0]),
         channel(start[1]),
@@ -1528,12 +1820,12 @@ fn polish_four_inks(target: [f32; 3], start: [f32; 4]) -> [f32; 4] {
     let mut jacobian = [[0.0f32; 3]; 4];
     // The value alone first: a separation that already reproduces its colour — which is what
     // a lookup away from the gamut's boundary is — costs one evaluation and no derivative.
-    let mut value = multilinear(&corners, &inks, None);
+    let mut value = press_at(space, inks, None);
     let (mut worst, mut squared) = gaps(value, target);
     if worst < INK_EXACT {
         return inks;
     }
-    value = multilinear(&corners, &inks, Some(&mut jacobian));
+    value = press_at(space, inks, Some(&mut jacobian));
 
     for _ in 0..INK_POLISH {
         if worst < INK_EXACT {
@@ -1577,7 +1869,7 @@ fn polish_four_inks(target: [f32; 3], start: [f32; 4]) -> [f32; 4] {
             for ((component, was), taken) in candidate.iter_mut().zip(inks).zip(step) {
                 *component = channel(scale.mul_add(-taken, was));
             }
-            let next = multilinear(&corners, &candidate, None);
+            let next = press_at(space, candidate, None);
             let (next_worst, next_squared) = gaps(next, target);
             if next_squared < squared {
                 inks = candidate;
@@ -1591,7 +1883,7 @@ fn polish_four_inks(target: [f32; 3], start: [f32; 4]) -> [f32; 4] {
         if !improved {
             break;
         }
-        value = multilinear(&corners, &inks, Some(&mut jacobian));
+        value = press_at(space, inks, Some(&mut jacobian));
     }
     inks
 }
@@ -1608,28 +1900,138 @@ fn gaps(value: [f32; 3], target: [f32; 3]) -> (f32, f32) {
     (worst, squared)
 }
 
-/// The eight corners of [`CMYK_CORNERS`] at one black, indexed by the bits `c m y`.
+/// Which grid cell `value` falls in on one axis, and how far across that cell it is.
 ///
-/// [`cmyk`] is multilinear, so it is *linear* along the black axis: fixing `k` leaves a
-/// trilinear map over the other three whose corners are these.
-fn ink_slice(black: f32) -> [[f32; 3]; 8] {
+/// At a side of two the cell is the whole axis and the fraction is the value itself, which is
+/// what makes every evaluator below reduce *exactly* to the arithmetic they had when
+/// [`CMYK_CORNERS`] was the only press.
+fn press_cell(side: usize, value: f32) -> (usize, f32) {
+    let last = side.saturating_sub(1);
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a grid side below 18, exact in f32"
+    )]
+    let scaled = channel(value) * last as f32;
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "`scaled` is in 0..=last because `channel` clamps its argument"
+    )]
+    let cell = (scaled as usize).min(last.saturating_sub(1));
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a cell index below the grid side"
+    )]
+    let fraction = (scaled - cell as f32).clamp(0.0, 1.0);
+    (cell, fraction)
+}
+
+/// One sample of a press's grid, by its index on each of the four axes.
+fn press_sample(space: &pdf_render::BlendingSpace, at: [usize; 4]) -> [f32; 3] {
+    let side = space.side();
+    let index = ((at[3].saturating_mul(side).saturating_add(at[2]))
+        .saturating_mul(side)
+        .saturating_add(at[1]))
+    .saturating_mul(side)
+    .saturating_add(at[0]);
+    space.grid().get(index).copied().unwrap_or([0.0; 3])
+}
+
+/// A press's value at three inks and a fixed black, with the slope in each of the three.
+///
+/// A press's grid is multilinear *inside a cell*, so fixing the black leaves a trilinear map
+/// over the other three whose eight corners are the cell's, each interpolated along the black
+/// axis. The Jacobian [`multilinear`] returns is with respect to the fraction across a cell,
+/// so it is scaled back to the ink itself — which is the identity at a side of two, where the
+/// cell *is* the axis.
+fn press_at_black(
+    space: &pdf_render::BlendingSpace,
+    black: f32,
+    inks: [f32; 3],
+    mut jacobian: Option<&mut [[f32; 3]; 3]>,
+) -> [f32; 3] {
+    let side = space.side();
+    let (black_cell, black_fraction) = press_cell(side, black);
+    let cells = [
+        press_cell(side, inks[0]),
+        press_cell(side, inks[1]),
+        press_cell(side, inks[2]),
+    ];
     let mut slice = [[0.0f32; 3]; 8];
     for (index, corner) in slice.iter_mut().enumerate() {
-        for (axis, component) in corner.iter_mut().enumerate() {
-            let at = |which: usize| {
-                f32::from(
-                    CMYK_CORNERS
-                        .get(which)
-                        .and_then(|corner| corner.get(axis))
-                        .copied()
-                        .unwrap_or(0),
-                ) / 255.0
-            };
-            let without = at(index);
-            *component = black.mul_add(at(index.saturating_add(8)) - without, without);
+        let at = |axis: usize| {
+            cells
+                .get(axis)
+                .map_or(0, |cell| cell.0)
+                .saturating_add(index >> axis & 1)
+        };
+        let without = press_sample(space, [at(0), at(1), at(2), black_cell]);
+        let with = press_sample(space, [at(0), at(1), at(2), black_cell.saturating_add(1)]);
+        for (component, (low, high)) in corner.iter_mut().zip(without.iter().zip(with)) {
+            *component = black_fraction.mul_add(high - low, *low);
         }
     }
-    slice
+    let fractions = [cells[0].1, cells[1].1, cells[2].1];
+    let value = multilinear(&slice, &fractions, jacobian.as_deref_mut());
+    if let Some(jacobian) = jacobian {
+        scale_jacobian(jacobian, side);
+    }
+    value
+}
+
+/// A press's value at four inks, with the slope in each of the four.
+///
+/// The same construction as [`press_at_black`] one axis higher: the sixteen corners of the
+/// cell the inks fall in, and the Jacobian scaled from the cell back to the inks.
+fn press_at(
+    space: &pdf_render::BlendingSpace,
+    inks: [f32; 4],
+    mut jacobian: Option<&mut [[f32; 3]; 4]>,
+) -> [f32; 3] {
+    let side = space.side();
+    let cells = [
+        press_cell(side, inks[0]),
+        press_cell(side, inks[1]),
+        press_cell(side, inks[2]),
+        press_cell(side, inks[3]),
+    ];
+    let mut corners = [[0.0f32; 3]; 16];
+    for (index, corner) in corners.iter_mut().enumerate() {
+        let at = |axis: usize| {
+            cells
+                .get(axis)
+                .map_or(0, |cell| cell.0)
+                .saturating_add(index >> axis & 1)
+        };
+        *corner = press_sample(space, [at(0), at(1), at(2), at(3)]);
+    }
+    let fractions = [cells[0].1, cells[1].1, cells[2].1, cells[3].1];
+    let value = multilinear(&corners, &fractions, jacobian.as_deref_mut());
+    if let Some(jacobian) = jacobian {
+        scale_jacobian(jacobian, side);
+    }
+    value
+}
+
+/// Turns a derivative with respect to a cell fraction into one with respect to the ink.
+///
+/// A fraction crosses its whole cell while the ink crosses `1 / (side − 1)` of its axis, so
+/// the chain rule multiplies by `side − 1` — which is one at a side of two.
+fn scale_jacobian<const N: usize>(jacobian: &mut [[f32; 3]; N], side: usize) {
+    let last = side.saturating_sub(1);
+    if last <= 1 {
+        return;
+    }
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a grid side below 18, exact in f32"
+    )]
+    let factor = last as f32;
+    for column in jacobian.iter_mut() {
+        for slope in column.iter_mut() {
+            *slope *= factor;
+        }
+    }
 }
 
 /// A multilinear map's value at `inks`, and optionally its Jacobian as `N` columns.
@@ -1687,17 +2089,6 @@ fn multilinear<const N: usize>(
         }
     }
     value
-}
-
-/// [`CMYK_CORNERS`] as the fractions [`multilinear`] takes.
-fn cube_corners() -> [[f32; 3]; 16] {
-    let mut corners = [[0.0f32; 3]; 16];
-    for (target, source) in corners.iter_mut().zip(CMYK_CORNERS) {
-        for (component, value) in target.iter_mut().zip(source) {
-            *component = f32::from(value) / 255.0;
-        }
-    }
-    corners
 }
 
 /// Solves `columns · x = right` for `x`, or `None` where the three columns are coplanar.
@@ -1993,6 +2384,11 @@ mod tests {
 
     use super::{ColourSpace, InkScale};
 
+    /// The assumed press's grid, for the tests that search against it directly.
+    fn assumed() -> pdf_render::BlendingSpace {
+        super::PressId::ASSUMED.press().blending_space()
+    }
+
     /// A space's initial colour is the one ISO 32000-2 §8.6.8 gives it, which is often not
     /// black.
     ///
@@ -2164,7 +2560,7 @@ mod tests {
     #[test]
     fn the_conversion_into_ink_is_a_right_inverse_of_the_conversion_out() {
         let round_trip = |colour: Color| {
-            let ink = super::rgb_to_ink(colour);
+            let ink = super::rgb_to_ink(super::PressId::ASSUMED, colour);
             super::cmyk(ink[0], ink[1], ink[2], ink[3])
         };
         let gap = |a: Color, b: Color| {
@@ -2209,7 +2605,7 @@ mod tests {
                 digit / 5.0
             };
             let made = super::cmyk(at(0), at(1), at(2), at(3));
-            let ink = super::search_ink([made.r, made.g, made.b]);
+            let ink = super::search_ink(&assumed(), [made.r, made.g, made.b]);
             searched = searched.max(gap(super::cmyk(ink[0], ink[1], ink[2], ink[3]), made));
         }
         assert!(
