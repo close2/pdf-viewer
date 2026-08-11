@@ -19,13 +19,16 @@ Figure 70 draws exactly that.
 
 ## What this tree does instead, and why it is allowed
 
-Three departures, all in one direction, all licensed by §10.7.1's NOTE that the algorithm "is
-not defined by PDF":
+Four departures, all licensed by §10.7.1's NOTE that the algorithm "is not defined by PDF", and
+the first three all in one direction:
 
 1. Both backends **anti-alias**, so a partly covered pixel is partly painted.
 2. Therefore the painted area is *not* always at least the shape's.
 3. `Image::area_averaged` averages over the pixel area where the clause says "there shall not be
    averaging over the pixel area" (ADR 0025 — it is what made `bug1001080.pdf` legible).
+4. A clip's effect on a mark is a **product** where the clause states an intersection of sets —
+   narrowed to the mark's own coverage in the four-hundred-and-forty-fourth session (ADR 0280), and
+   the paragraph below has the reading and what is left.
 
 ## What is honoured
 
@@ -69,6 +72,28 @@ the collapsed axis passes through, not a band at the shape's own fractional posi
 statements were in `doc/md/` for the whole of the rule's life and neither had been read. Under a
 rotation or a shear the band remains, because a slanted line's pixel run is a staircase; no corpus
 document writes one. ADR 0208.
+
+**And since the four-hundred-and-forty-fourth, how a clip chain composes** — which is the same
+subclause's *other* paragraph, the one about clipping, unread here until the
+four-hundred-and-forty-third named it as a fourth departure (ADR 0279). §10.7.4 states a clip as a
+**set of pixels** intersected with a set of pixels, and §8.5.4 says the same thing about a *value*:
+"[t]he effective shape is the intersection of the object's intrinsic shape with the clipping path;
+the source shape value shall be 0.0 outside this intersection." A clip zeroes what is outside it and
+is silent about what is inside it. This tree composed a chain by *multiplying* anti-aliased
+coverages, so a rectangle stated six times drew its edge at a twentieth of the mark, and the ladder
+of *n* coincident `W n` clips read 0.5020, 0.2510, 0.1255, 0.0627, 0.0314, 0.0157 — each rung the
+one above it halved.
+
+The clause does not choose between `min` and a product on its own, and that is worth saying: on a
+set-valued clip the two are the same function, and the question only exists because departure (1)
+gives a boundary pixel a fraction. What decides is that a product moves further from the clause with
+every restatement while `min` is exact for coincident and nested boundaries and never *below* the
+product elsewhere. `scan::mask_intersect` takes the smaller of the two coverages; the ladder is flat
+and `issue21346.pdf`'s edge went 0.041 → 0.163 of the mark against a departure-(1) 0.827 and a
+clause 1.000. **The departure is narrowed rather than closed**: a mark's own coverage still meets
+the clip mask inside `tiny-skia`'s `fill_path`, which multiplies, and that is the same sentence one
+step along. ADR 0280; `doc/todo/11` item 4 carries what is left, and `doc/QUORRA_FEEDBACK.md` §18 is
+the ask, because the graphics device composes its chain inside the library.
 
 ## Where the departure is *visible*, and how to tell it from a defect
 

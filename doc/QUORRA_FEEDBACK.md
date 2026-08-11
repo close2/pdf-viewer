@@ -9,6 +9,15 @@ and then what the team did about it.
 Each finding below keeps its evidence and carries what closed it, because a feedback document
 that still reads as a complaint after the complaint was answered is worse than no document.
 
+**§18 is the newest, is a *question* rather than a defect, and this side changed itself first.**
+ISO 32000-2 §10.7.4 states clipping as an intersection of two *sets* of pixels and §8.5.4 says a
+clip zeroes the shape outside it; both backends were composing a clip chain by multiplying
+anti-aliased coverages, so one rectangle stated six times drew its edge at a twentieth of the mark.
+`render-cpu` now takes the smaller of the two coverages (our ADR 0280) and the ask is what your
+coverage lane does, since a chain is composed inside your device. **No gate moved** — 917/35/5/17
+before and after, not one per-page line changed — which is why it is written down rather than left
+to be rediscovered as a regression in whichever side is measured second.
+
 **§10 was the newest, was a defect rather than a request, and was answered at `0a1ffb13` the same
 day it was reported** — one unconditional line priced a texture the default coverage lane never
 allocates, five real pages were refused on it, and the fix went in one level deeper than the one
@@ -1552,3 +1561,82 @@ and no pair of them composes to it — the weight Destination-Over puts on the s
 *destination's* alpha, which no source-side operator supplies. That route was dropped, so this is
 **not** a request for `Compose::DestOver`; it is a note that the one place this side would have
 wanted it turned out not to need it. ADR 0277.
+
+## 18. A clip chain's coverages multiply, and §10.7.4 states an intersection of sets — **open, and it is this side's finding before it is a request**
+
+Written 2026-08-11, at the end of this viewer's four-hundred-and-forty-fourth session. This side
+changed its own composition in the same session and is telling you so, because our cross-backend
+gate is the instrument that would otherwise report the difference as yours.
+
+### What the standard says
+
+ISO 32000-2 §10.7.4 gives clipping a paragraph of its own, and it is about *sets* rather than about
+coverage:
+
+> For clipping, the clipping region consists of the set of pixels that would be included by a fill
+> operation. Subsequent painting operations shall affect a region that is the intersection of the
+> set of pixels defined by the clipping region with the set of pixels for the region to be painted.
+
+§8.5.4 says the same thing from the transparent imaging model's side, and it is the sharper of the
+two because it says what a clip does to a value:
+
+> The effective shape is the intersection of the object's intrinsic shape with the clipping path;
+> the source shape value shall be 0.0 outside this intersection.
+
+A clip zeroes what is outside it and is silent about what is inside it. Neither clause makes a
+clip's own boundary a quantity that multiplies; §11.6.5's soft mask is where a genuine product
+lives, and it is a different mechanism with a different clause.
+
+### What both of us were doing
+
+An anti-aliased clip boundary carries a fraction, and a chain composed by multiplication raises
+that fraction to a power. One page, one fill of the whole page, under **n** `W n` clips of the same
+rectangle whose left edge lands at device 113.386 at 8×; coverage of the boundary column:
+
+```text
+  coincident boundaries      1       2       3       4       5       6
+  coverage               0.5020  0.2510  0.1255  0.0627  0.0314  0.0157
+```
+
+Each rung is the one above it halved. `issue21346.pdf` in our corpus states one device rectangle
+six times over — a `W n`, three `/BBox` clips under §8.10.1 step c), the mark's own path and a
+§11.6.5 mask group's — and painted its edge at **0.041** of the mark where the geometry is 0.827 of
+it and the clause is 1.000. `poppler` and `ghostscript` give 1.000, `mupdf` 0.755.
+
+### What this side did about it
+
+`min`, on the chain only. It is exact where two boundaries coincide or nest — restating a clip then
+changes nothing, which is what a set intersection does — and where two unrelated boundaries share a
+pixel it is never *below* the product, so it is never further from the clause. The ladder above is
+flat at 0.5020 for every *n* now, and the witness page went 0.041 to 0.163. Our ADR 0280 has the
+argument and the numbers.
+
+Two things it did **not** buy, both stated so that you can price the same change:
+
+- the exact answer for two *unrelated* boundaries in one pixel is the area of the intersection of
+  the paths, rasterised once, which is a conflation-free rasteriser and is not what this is;
+- it cost **+0.19%** of the rasteriser's instructions on an ordinary page of text and **−8.75%** on
+  the corpus's heaviest clip page (`bug1721218_reduced.pdf`, 3554 clips), the second because the
+  scratch mask is now allocated once per chain rather than once per link.
+
+### The ask, and what it is not
+
+We hand you a chain of paths — `SceneBuilder`'s clip chain — and your device composes it, so this
+is one rule inside your rasteriser that this project cannot reach. **The ask is to say what that
+rule is**, and then whether §10.7.4's paragraph changes it. Three shapes would each close this:
+
+1. your coverage lane already takes an intersection rather than a product, in which case this
+   section closes as *already handled* and we would like to know it;
+2. it multiplies and you agree the clause asks for the other thing, in which case a chain of
+   coincident clips is a one-line change in the composition and the ladder above is the test;
+3. it multiplies deliberately, for a reason a display list cannot see — in which case we would
+   rather have the reason than the change, because it belongs in our own ledger row beside our
+   departure.
+
+**It is not a defect report and nothing of yours is refused over it.** Our cross-backend gate is
+`957 pages compared: 917 agree, 35 differ, 5 refused, 17 not comparable` before and after this
+change, and **not one per-page line moved by a digit**: the 22 pages whose CPU raster moved are not
+among the 35 the two backends already differ on, and elsewhere the movement stays under the
+agreement bound. So the two backends now compose clips by two different rules and no gate can see
+it yet — which is exactly why it is written down rather than left for a future round to rediscover
+as a regression in whichever side is measured second.

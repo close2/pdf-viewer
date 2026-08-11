@@ -224,22 +224,23 @@ const CONTRADICTED_PAGE_ROUNDING: [&str; 0] = [];
 /// `examples/clip_chain_census` says the first three outright — *clip references 3, distinct
 /// leaves 2, distinct clip nodes 3, chain depth histogram {2: 1, 3: 1}*.
 ///
-/// # What multiplying them costs, as a ladder this project wrote
+/// # What multiplying them cost, as a ladder this project wrote
 ///
-/// A synthetic A/B: the same 178.34645-point page, one fill of the same rectangle, under **n**
-/// `W n` clips of that rectangle and nothing else. Rendered at 8× through `examples/render_at`,
-/// the coverage of the boundary column (device 113, where the shape begins at 113.386):
+/// A synthetic A/B: the same 178.34645-point page, the whole page filled, under **n** `W n` clips
+/// of that rectangle and nothing else. Rendered at 8× through `examples/render_at`, the coverage
+/// of the boundary column (device 113, where the clip's left edge lands at 113.386):
 ///
 /// ```text
-///   boundaries      1       2       3       4       5       6
-///   coverage    0.5025  0.2487  0.1218  0.0609  0.0305  0.0152
+///   coincident boundaries      1       2       3       4       5       6
+///   before session 444     0.5020  0.2510  0.1255  0.0627  0.0314  0.0157
+///   since                  0.5020  0.5020  0.5020  0.5020  0.5020  0.5020
 /// ```
 ///
-/// Each rung is the one above it halved: the coverages are **multiplied**, and the small deficit
-/// against an exact `0.5025ⁿ` is the byte each mask is stored in. On the corpus page the six
-/// boundaries above put the edge at 0.0152 of a covered pixel, which at 8× is white to the byte
-/// and at the page's own scale is **level 253 of an interior at 206**, 4.1% of the mark where the
-/// geometry is 82.7% of it.
+/// Each rung used to be the one above it halved, because the coverages were **multiplied**. Three
+/// of this page's six statements are a clip *chain*, and `render-cpu` composes a chain with `min`
+/// since the four-hundred-and-forty-fourth session (ADR 0280) — a set intersected with itself is
+/// that set — so the ladder is flat and the page's edge went **0.041 → 0.163** of the mark, level
+/// 253 to level 247 against an interior of 206.
 ///
 /// # The clause, which this file had never cited
 ///
@@ -256,25 +257,25 @@ const CONTRADICTED_PAGE_ROUNDING: [&str; 0] = [];
 /// `ghostscript` do (both give 206, the interior colour, at device column 14). `mupdf` gives
 /// 0.755 and `hayro` 0.327, both of them anti-aliasing the clip and conflating it fewer times
 /// than we do. This tree's documented departure (1) from that subclause — an anti-aliasing
-/// rasteriser paints a partly covered pixel partly — would give **0.827**. It gives 0.041, and a
-/// product of six coverages is neither the clause nor the departure: it is further from the
-/// clause with every nesting level, in the direction the same paragraph's
-/// "[t]he area covered by painted pixels shall always be at least as large as the area of the
-/// original shape" forbids.
+/// rasteriser paints a partly covered pixel partly — would give **0.827**.
 ///
-/// # Why it is listed rather than fixed, and the price is measured rather than guessed
+/// # Why the page is still here after the composition changed
 ///
-/// `min` is the composition a set intersection asks for — it is exact where two boundaries
-/// coincide, it is never below the product, and it therefore never moves further from the
-/// clause. It is not taken here, for two reasons that are this tree's rather than the clause's,
-/// and ADR 0279 carries them: only the *clip chain* is ours to compose (a mark's own coverage
-/// meets the clip mask inside `tiny-skia`'s fill, and a soft mask is §11.6.5's alpha and a
-/// genuine product), so three of this page's six factors would remain; and the CPU backend is
-/// the correctness oracle, while `render-quorra` composes its clips by the same product and is
-/// not this project's to change. Three factors of `0.5025` removed from six leaves the edge at
-/// 0.064 against a bound that wants 0.827, so the verdict would not move either.
-/// [`doc/todo/11`](../../../doc/todo/11-shapes-that-still-disappear.md) carries the general
-/// case.
+/// `min` is what a set intersection asks for, and the four-hundred-and-forty-fourth session took
+/// it for the one composition that is this tree's: a clip *chain*, in `MaskCache::build`. Three of
+/// this page's six statements are the chain the mark draws under — the `W n` and the two `/BBox`
+/// clips — so composing them removes **two** factors and the edge went **0.041 → 0.163** of the
+/// mark, exactly the fourfold this ladder's `0.5020` predicts. The structural-similarity bound this
+/// page fails went 0.9734 → **0.9781** against a bound of 0.9900, so the verdict is unmoved, which
+/// is what ADR 0279 predicted before the change and ADR 0280 measured after it.
+///
+/// What is left is three factors and only one of them is a product the standard states. Two are the
+/// *same* sentence as the chain — a mark's own coverage meets the clip mask inside `tiny-skia`'s
+/// `fill_path`, which multiplies, once for form 13's fill under the chain and once for the mask
+/// group's fill under its own `/BBox` — and reaching them means this backend rasterising coverage
+/// into a buffer of its own instead of handing the mask to the library. The third, the mask's value
+/// multiplying the mark, is §11.6.5's alpha and the standard says multiply.
+/// [`doc/todo/11`](../../../doc/todo/11-shapes-that-still-disappear.md) carries what is owed.
 const CONTRADICTED_COINCIDENT_CLIP_EDGES: [&str; 1] = ["issue21346.pdf page 1"];
 
 /// Contradicted, and **we are the ones who are right**: an image sample at the pixel's centre.

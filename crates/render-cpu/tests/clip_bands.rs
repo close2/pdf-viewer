@@ -190,6 +190,64 @@ fn nested_clips_intersect() {
     });
 }
 
+/// Restating a clip is intersecting a set with itself, so it must change nothing.
+///
+/// ISO 32000-2 §10.7.4: "For clipping, the clipping region consists of the set of pixels that
+/// would be included by a fill operation. Subsequent painting operations shall affect a region
+/// that is the intersection of the set of pixels defined by the clipping region with the set of
+/// pixels for the region to be painted." A set intersected with itself is that set, however
+/// many times it is taken.
+///
+/// The rectangle's edges are deliberately at fractional device coordinates: on integer ones
+/// every coverage is 0 or 1, where a product and a minimum agree and the test would pass
+/// against either composition. `issue21346.pdf` states one rectangle six times over and its
+/// edge was painted at a twentieth of the mark before this assertion existed (ADR 0280).
+#[test]
+fn restating_a_clip_changes_nothing() {
+    let ladder: Vec<Raster> = (1..=6)
+        .map(|rungs| {
+            let mut list = DisplayList::new(Size::new(PAGE, PAGE));
+            let mut parent = None;
+            for _ in 0..rungs {
+                parent = Some(
+                    list.add_clip(Clip {
+                        path: rect(Point::new(30.4, 40.6), Point::new(170.6, 90.4)),
+                        transform: Transform::IDENTITY,
+                        fill_rule: FillRule::NonZero,
+                        parent,
+                    })
+                    .expect("a clip"),
+                );
+            }
+            gradient_page(&mut list, parent);
+            render(&list, 1.0)
+        })
+        .collect();
+
+    let (one, restated) = ladder.split_first().expect("six rungs");
+    // The discriminating pixel, named rather than trusted to the whole-page comparison below:
+    // the clip's left edge falls in device column 30, which must carry the same fraction
+    // whether the clip is stated once or six times.
+    let edge = pixel(one, 30, 120);
+    assert!(
+        edge != (255, 255, 255, 255),
+        "the boundary column must be partly painted for this test to discriminate, not {edge:?}"
+    );
+    for (rungs, raster) in restated.iter().enumerate() {
+        assert_eq!(
+            pixel(raster, 30, 120),
+            edge,
+            "the boundary column under {} coincident clips",
+            rungs + 2
+        );
+        assert!(
+            raster.data == one.data,
+            "{} coincident clips must draw what one draws",
+            rungs + 2
+        );
+    }
+}
+
 /// A clip that lies entirely off the page admits nothing at all.
 ///
 /// Worth its own case because it is the one clip that produces no mask: there are no

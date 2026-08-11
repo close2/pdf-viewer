@@ -135,21 +135,138 @@ pub(crate) fn mask_fill(
     mask.fill_path(path, fill_rule, anti_alias, at);
 }
 
-/// [`tiny_skia::Mask::intersect_path`], with the range applied to `anti_alias`.
+/// Narrows `mask` by a further clip path, taking the **smaller** of the two coverages.
+///
+/// `scratch` must have `mask`'s dimensions; it is cleared here and holds the new clip's own
+/// coverage while the two are composed.
+///
+/// # Why this is not [`tiny_skia::Mask::intersect_path`]
+///
+/// That method multiplies the two coverages, and ISO 32000-2 §10.7.4 states a clip as a set
+/// rather than as a coverage:
+///
+/// > For clipping, the clipping region consists of the set of pixels that would be included by
+/// > a fill operation. Subsequent painting operations shall affect a region that is the
+/// > intersection of the set of pixels defined by the clipping region with the set of pixels
+/// > for the region to be painted.
+///
+/// §8.5.4 says the same thing from the transparent imaging model's side — "[t]he effective
+/// shape is the intersection of the object's intrinsic shape with the clipping path; the source
+/// shape value shall be 0.0 outside this intersection" — which constrains a clip's effect
+/// *outside* the region and says nothing about lowering anything inside it.
+///
+/// A clipping region taken by the fill rule is 0 or 1 at every pixel, and on such a pair `min`
+/// and a product are the same function, so neither composition is derived from the clause
+/// directly. What decides between them is that this backend **anti-aliases**, which is
+/// departure (1) of §10.7.4's ledger row: a boundary pixel carries a fraction, and two clip
+/// boundaries falling in the same pixel then meet. There the two compositions part:
+///
+/// - a product raises that fraction to a power, so a rectangle stated as a clip *n* times over
+///   is drawn with an edge at `cᶰ`, further from the clause's whole pixel with every restatement
+///   and in the direction the same subclause's "[t]he area covered by painted pixels shall
+///   always be at least as large as the area of the original shape" forbids;
+/// - `min` is exact where the two boundaries coincide or nest — restating a clip then changes
+///   nothing, which is what a set intersection does — and elsewhere it is never below the
+///   product, so it is never further from the clause than the product is.
+///
+/// Neither is the clause's own answer for two *unrelated* boundaries sharing a pixel: the
+/// exact one there is the area of the intersection of the paths, which needs a conflation-free
+/// rasteriser. `min` is the composition that never moves away from the clause, and the bound on
+/// what it does not reach is [`doc/todo/11`](../../../doc/todo/11-shapes-that-still-disappear.md).
 pub(crate) fn mask_intersect(
     mask: &mut tiny_skia::Mask,
+    scratch: &mut tiny_skia::Mask,
     path: &tiny_skia::Path,
     fill_rule: tiny_skia::FillRule,
     anti_alias: bool,
     at: tiny_skia::Transform,
 ) {
-    let anti_alias = keep_anti_alias(anti_alias, expressible(path, at, 0.0));
-    mask.intersect_path(path, fill_rule, anti_alias, at);
+    scratch.clear();
+    mask_fill(scratch, path, fill_rule, anti_alias, at);
+    for (kept, &added) in mask.data_mut().iter_mut().zip(scratch.data()) {
+        *kept = (*kept).min(added);
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{SUPERSAMPLED_LIMIT, expressible};
+
+    /// A half-plane whose vertical edge falls at `x`, covering the rest of a 4-row mask.
+    fn half_plane(x: f32) -> tiny_skia::Path {
+        let mut builder = tiny_skia::PathBuilder::new();
+        builder.move_to(x, -1.0);
+        builder.line_to(8.0, -1.0);
+        builder.line_to(8.0, 5.0);
+        builder.line_to(x, 5.0);
+        builder.close();
+        builder.finish().expect("a rectangle")
+    }
+
+    /// Builds the mask for a chain of half-planes, root first, the way `MaskCache::build` does.
+    fn chain(edges: &[f32]) -> Vec<u8> {
+        let (root, nested) = edges.split_first().expect("a root");
+        let mut mask = tiny_skia::Mask::new(8, 4).expect("a mask");
+        let mut scratch = tiny_skia::Mask::new(8, 4).expect("a scratch mask");
+        super::mask_fill(
+            &mut mask,
+            &half_plane(*root),
+            tiny_skia::FillRule::Winding,
+            true,
+            tiny_skia::Transform::identity(),
+        );
+        for edge in nested {
+            super::mask_intersect(
+                &mut mask,
+                &mut scratch,
+                &half_plane(*edge),
+                tiny_skia::FillRule::Winding,
+                true,
+                tiny_skia::Transform::identity(),
+            );
+        }
+        mask.data().to_vec()
+    }
+
+    /// §10.7.4's clipping paragraph: a clip is a set of pixels, and a set intersected with
+    /// itself is that set. The edge is fractional, which is the only placement where a product
+    /// and a minimum differ at all.
+    #[test]
+    fn restating_a_clip_leaves_the_mask_alone() {
+        let once = chain(&[2.25]);
+        assert!(
+            once.iter().any(|&value| value > 0 && value < 255),
+            "the edge must be partly covered for this to discriminate: {once:?}"
+        );
+        for rungs in 2..=6 {
+            assert_eq!(
+                chain(&vec![2.25; rungs]),
+                once,
+                "{rungs} coincident clips must give one clip's mask"
+            );
+        }
+    }
+
+    /// Two boundaries that merely share a pixel take the smaller coverage rather than their
+    /// product — never below the product, so never further from the clause's whole pixel.
+    #[test]
+    fn two_boundaries_in_one_pixel_take_the_smaller_coverage() {
+        let wide = chain(&[2.25]);
+        let narrow = chain(&[2.75]);
+        let both = chain(&[2.25, 2.75]);
+        for (index, &value) in both.iter().enumerate() {
+            assert_eq!(
+                value,
+                wide[index].min(narrow[index]),
+                "cell {index} of the composed chain"
+            );
+        }
+        let edge = 2_usize;
+        assert!(
+            both[edge] > 0,
+            "the shared column must survive the composition: {both:?}"
+        );
+    }
 
     /// A triangle running from the page out to `reach`, which is what a damaged content
     /// stream states and what ADR 0269's two witnesses state.
