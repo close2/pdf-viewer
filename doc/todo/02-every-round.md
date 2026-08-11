@@ -19,7 +19,7 @@ features no file exercises.
 ```sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets      # must be silent of lints
-cargo nextest run --workspace               # 1568 tests, 11 skipped
+cargo nextest run --workspace               # 1580 tests, 11 skipped
 cargo test --workspace --doc                # the one doctest nextest does not run
 cargo build --profile gates -p pdf-sandbox --bins   # trap 10: Cargo will not do this for you
 cargo test  --profile gates -p pdf-model      --test corpus          -- --ignored --nocapture
@@ -114,7 +114,10 @@ not behind for the tenth. **The four-hundred-and-thirty-first added one** — `t
 for a quotation that lowers the sentence's first letter — **and the gate printed 1568, so this line
 was five behind**, which is the second time in thirteen rounds. Where the five came from was not
 chased and the precondition is the same one the four-hundred-and-eighteenth wrote down: this line is
-current only for a round that *ran* the gate and copied its number.
+current only for a round that *ran* the gate and copied its number. **The four-hundred-and-thirty-second
+added four and the gate printed 1572; the four-hundred-and-thirty-third added eight — four in a new
+`pdf-model/tests/hostile_geometry.rs` and four in `render-cpu`'s new `scan` module — and the gate
+printed 1580**, so this line was not behind.
 - **One of those eighteen runs a C compiler**, and it is the only gate in this sequence that does.
   `viewer-ffi::a_c_program_drives_the_abi` builds `crates/viewer-ffi/c/open_a_page.c` against the
   crate's own header with `-Wall -Wextra -Werror`, links it against the `cdylib` — which it asks
@@ -139,12 +142,18 @@ current only for a round that *ran* the gate and copied its number.
 **Fourteen fuzz targets since the four-hundred-and-twenty-eighth**, which added **`page`** — a
 whole document through `pdf_model::interpret`, which is clauses 8, 9 and 11 and was reachable by
 **no target at all**: `nm` finds `pdf_model::interpret` in one of the thirteen binaries and it
-calls it on a page with no `/Resources`. Seeded by `fuzz/seed_page.py` from every document on disk — **5944 SafeDocs members since the
-four-hundred-and-thirtieth**, `doc/corpora`'s 108 and the pdf.js submodule's 974, which is **8572
-seeds** where session 428 had 1882 — **28 535 edges against the best of the thirteen at 6483**, and
-**32 671 after that round's 51 324 iterations in 1255 s with 0 crashes, 0 out-of-memory and 0
-timeouts** — and it is the fifth target that needs its corpus seeded, for
-`sfnt`'s reason one layer up (ADR 0264). **And `cargo-fuzz` is installed and always was**; it is in
+calls it on a page with no `/Resources`. Seeded by `fuzz/seed_page.py` from every document on disk — **65 944 SafeDocs members since the
+four-hundred-and-thirty-third**, `doc/corpora`'s 108 and the pdf.js submodule's 974 — which is
+**38 331 seeds** where session 430 had 8572 and session 428 had 1882: of the 67 026 documents on
+disk **32 040 are under the target's 256 KiB ceiling and 34 986 are over it**. Coverage went
+**28 535 edges at session 428's seeding → 32 671 after session 430's 51 324 iterations →
+33 625 on this round's corpus and 34 119 after 33 217 more units**, with 0 crashes, 0 out-of-memory
+and 0 timeouts, and it is the fifth target that needs its corpus seeded, for
+`sfnt`'s reason one layer up (ADR 0264). **What 38 331 seeds cost is worth knowing before running
+it**: libFuzzer's fork mode merges the corpus before it fuzzes, one execution per seed, and that
+took **48 minutes** in the four-hundred-and-thirty-third — reducing 38 331 files to **8703** of
+distinct coverage — against session 430's few minutes on 8572. A round with an hour rather than
+three should `cmin` first or pass a smaller `-runs`. **And `cargo-fuzz` is installed and always was**; it is in
 `~/.cargo/bin`, which is not on `PATH`, which is what two rounds read as its absence.
 
 **Twelve fuzz targets, not five** — the handover's list had never included `object` and

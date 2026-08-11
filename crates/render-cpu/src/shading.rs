@@ -398,7 +398,8 @@ fn fill_with_raster(
     let Some(device_shape) = shape.clone().transform(shape_transform) else {
         return;
     };
-    pixmap.fill_path(
+    crate::scan::fill(
+        pixmap,
         &device_shape,
         &paint,
         fill_rule,

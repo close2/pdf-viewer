@@ -1241,27 +1241,60 @@ const INK_POLISH: usize = 6;
 /// 791 ns and 12.5 µs per distinct colour on a page made of them: over the 61 web witnesses of
 /// `doc/todo/23`, searching every colour added **37.3 s** to their page-one renders where the
 /// table adds **1.8 s**.
+///
+/// # Why the table is built *outside* the initialiser
+///
+/// `OnceLock::get_or_init` blocks every other caller until the closure returns, and rayon's
+/// `collect` **runs other jobs while it waits** — so a closure holding the lock and calling
+/// rayon can be handed a job that calls this function again, on the initialising thread, and
+/// then waits for itself. That is a deadlock rather than a slow path: the whole process stops
+/// with every thread parked. It is the shape this function had from the four-hundred-and-
+/// twenty-seventh session until the four-hundred-and-thirty-third found it in three of 145
+/// `SafeDocs` archives (ADR 0269), and a reduction of it — a rayon `collect` inside a
+/// `OnceLock` initialiser, called from a parallel iterator — hung 10 runs out of 10.
+///
+/// So the grid is computed first and the lock is held only across a move. A second caller
+/// that arrives while the first is still computing builds its own copy and throws it away,
+/// which costs one grid and cannot wait on anything.
 fn ink_table() -> &'static [[f32; 4]] {
     static TABLE: std::sync::OnceLock<Vec<[f32; 4]>> = std::sync::OnceLock::new();
-    TABLE.get_or_init(|| {
-        let side = INK_TABLE_SIDE;
-        #[expect(
-            clippy::cast_precision_loss,
-            reason = "a grid index below 17 and the side itself, both exact in f32"
-        )]
-        let at = |index: usize| index as f32 / side.saturating_sub(1) as f32;
-        // Rayon, because the entries are independent and this is *latency* rather than
-        // throughput: it is on the path to a page. 61.7 ms serially, 7.5-10.0 ms across 24.
-        (0..side.saturating_mul(side).saturating_mul(side))
-            .into_par_iter()
-            .map(|index| {
-                let blue = index % side;
-                let green = index / side % side;
-                let red = index / side / side % side;
-                search_ink([at(red), at(green), at(blue)])
-            })
-            .collect()
-    })
+    if let Some(table) = TABLE.get() {
+        return table;
+    }
+    let built = build_ink_table();
+    TABLE.get_or_init(|| built)
+}
+
+/// [`search_ink`] over every point of the [`INK_TABLE_SIDE`] grid.
+///
+/// **Parallel off a rayon worker and serial on one**, which is the second half of
+/// [`ink_table`]'s deadlock argument rather than a second opinion about speed. The parallelism
+/// is there for the launch path — 61.7 ms serially against 7.5–10.0 ms across this machine's
+/// 24 threads, on the way to page one — and the launch path is a host's own thread, never a
+/// worker of the pool. Inside a worker, `collect` would run other jobs while it waits and this
+/// function would nest once per job that wants the grid; the depth of that is a property of
+/// the caller's work queue rather than of anything here, so the branch declines it. What it
+/// costs is 61.7 ms on a thread that is already one of many, where the machine has no idle
+/// core to spend anyway.
+fn build_ink_table() -> Vec<[f32; 4]> {
+    let side = INK_TABLE_SIDE;
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a grid index below 17 and the side itself, both exact in f32"
+    )]
+    let at = |index: usize| index as f32 / side.saturating_sub(1) as f32;
+    let entry = |index: usize| {
+        let blue = index % side;
+        let green = index / side % side;
+        let red = index / side / side % side;
+        search_ink([at(red), at(green), at(blue)])
+    };
+    let points = 0..side.saturating_mul(side).saturating_mul(side);
+    if rayon::current_thread_index().is_some() {
+        points.map(entry).collect()
+    } else {
+        points.into_par_iter().map(entry).collect()
+    }
 }
 
 /// ISO 32000-2 §11.7.2's conversion from sRGB *into* `DeviceCMYK`, on §10.3's branch.

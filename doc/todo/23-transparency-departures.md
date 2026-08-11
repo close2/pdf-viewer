@@ -16,11 +16,11 @@ Code: `crates/pdf-model/src/content.rs`, `crates/pdf-model/src/colour.rs`,
 
 | | corpus | web witnesses | what it is |
 |---|---|---|---|
-| **the document names the press its `DeviceCMYK` is** (§8.6.5.6, §14.11.5) | 0 | 7 of 1896, **8 of 4000** | **the standing item.** Its four components are not ours, so a *composite* in them is not ours |
-| a group inside the page composites in a different space (§11.6.6) | 3 | 3 of 1896, **4 of 4000** | needs a conversion between two spaces at the `Do` |
-| a non-separable blend mode on such a page (§11.3.5.3) | 1 | 1 of 1896, **2 of 4000** | the black component has a rule of its own |
-| a four-component `ICCBased` blending space | 0 | **14 of 4000** | its conversion out is a profile rather than sixteen corners — **the largest named residue the web has**, ADR 0266 |
-| an `/ExtGState` states `/BG`, `/BG2`, `/UCR` or `/UCR2` (§11.7.5.3) | 0 | 1 of 1896, 0 of 4000 | **was silent until the 426th** |
+| **the document names the press its `DeviceCMYK` is** (§8.6.5.6, §14.11.5) | 0 | 7 of 1896, 8 of 4000, **151 of 65 944** | **the standing item, and the largest single condition the web has** (ADR 0269). Its four components are not ours, so a *composite* in them is not ours |
+| a group inside the page composites in a different space (§11.6.6) | 3 | 3 of 1896, 4 of 4000, **78 of 65 944** | needs a conversion between two spaces at the `Do`. A further **30** are a group that *introduces* the space rather than the page group doing so |
+| a non-separable blend mode on such a page (§11.3.5.3) | 1 | 1 of 1896, 2 of 4000, **27 of 65 944** | the black component has a rule of its own |
+| a page group whose four components are not `/DeviceCMYK` | 0 | 14 of 4000, **106 of 65 944** | its conversion out is a profile rather than sixteen corners; every one of the 14 checked in session 430 was four-component `ICCBased` (ADRs 0266, 0269) |
+| an `/ExtGState` states `/BG`, `/BG2`, `/UCR` or `/UCR2` (§11.7.5.3) | 0 | 1 of 1896, 0 of 4000, **7 of 65 944** | **was silent until the 426th**, and 0 of 4000 could have been read as noise |
 | ~~a conversion *into* the blending space~~ | ~~5~~ → 0 | ~~61~~ → 0 | **closed in the 427th, ADR 0263: a right inverse of the ink cube** |
 | ~~the four components themselves~~ | — | — | **closed in the 426th, ADR 0262: two rasters, no new format** |
 | ~~a non-isolated group NOTE 5 cannot flatten~~ | ~~6~~ → 3 | | **the non-knockout ones closed** in the 400th, ADR 0237; what is left is knockout, below |

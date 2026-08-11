@@ -97,6 +97,16 @@ closed-by-decision list; `poppler` draws them from a face this machine has.
 The rest of the population is ones and twos, two of them reading back as a replacement character
 or a CJK ideograph, which is a `/ToUnicode` question rather than a glyph one.
 
+**What the web says about both halves of this section, over 65 944 crawled documents** (ADR 0269).
+The *loud* population — a font whose program has no outline for any code the page shows — is **261
+documents, 0.40%**, the second-largest thing this tree reports on real files after §11.4.7's
+blending space, with a further 35 whose font program would not parse and 14 whose encoding cannot
+address a substitute. The *silent* one is **51 272 codes over 635 documents**: 0.96% of documents
+carry at least one code that reaches no glyph without saying so, at a mean of 81 codes apiece. That
+is the number ADR 0152's trade was made without, and it does not overturn the trade — a report per
+uncovered code would name 635 documents in the web's terms and 8 in the corpus's — but it does say
+the silence is a page's worth of text on a document that has any, not a stray code.
+
 ## 4. A fourth gap, measured and deliberately not closed — the substitute's cap height
 
 Not a code reaching no glyph but a glyph of the wrong size, and it is the only part of substitution

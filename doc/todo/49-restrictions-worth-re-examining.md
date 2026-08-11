@@ -84,6 +84,13 @@ places: `MASK_BUDGET` (32 MB), the confined worker's address-space ceiling (4 Gi
 - **The resource budgets** (`MAX_OPERATIONS` 4 M, `MAX_FORM_DEPTH`, `MAX_TILES`, the decode
   deadline). These are what stand between a decompression bomb and the machine. A "trusted
   document" flag that lifted them is *plausible* but should be argued as a whole, not per constant.
+  **What they cost is measured, over 65 944 crawled documents** (ADR 0269): 48 reach `MAX_TILES`,
+  31 `MAX_OPERATIONS`, 4 `MAX_FORM_DEPTH` and 1 `MAX_STATE_DEPTH` — **84, or 0.127% of the web**,
+  against 0.2% of session 430's 4000 and 0.105% of session 425's 1896, so the rate is stable at
+  three sample sizes. **Not one of the 84 is one of the two documents that are slow**, which is
+  the shape of the answer: the bound stops the work inside the per-document budget rather than
+  after it. What is still owed is one of the 84 read with the bound lifted in a scratch build, to
+  find out whether the constant costs a mark or stops a bomb.
 - **`Document` immutable and `interpret` a pure function of (document, view state).** This looks
   like a restriction and is actually the foundation of the test strategy: the oracle's 1794-page
   comparison means something only because interpretation is reproducible. A **cache beside** it

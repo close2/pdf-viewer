@@ -5,7 +5,8 @@ session, which built the three pieces `doc/test-docs.md` asked for. What is left
 a chunk a round, the way `doc/todo/00` takes a page off the ambiguous ranking.
 Priority: 03 — the standing band, deliberately.
 Corpus: 974 pdf.js documents **plus 108 in three submodules** and whatever `tools/safedocs` has
-been asked for — **5944 as of the four-hundred-and-thirtieth**, 85 archives, the manifest below
+been asked for — **65 944 as of the four-hundred-and-thirty-third**, 145 archives, 93 GB, the
+manifest below
 Code: `tools/safedocs`, `doc/corpora/*`, `doc/oracle-and-corpus.md` §2
 
 ## What exists now (ADR 0258)
@@ -70,7 +71,17 @@ The instrument works and every chunk so far has produced a finding. A round's ch
 **somewhere nobody has been**, and `corpus-cache/safedocs/manifest.tsv` is the record of where
 that is.
 
-**Taken so far: 85 archives, 5944 documents, 7.72 GiB transferred — 15.4% of the 50 GB.**
+**Taken so far: 145 archives and 65 944 documents, 93 GB on disk.** The four-hundred-and-thirty-third
+session surveyed **all of it** and this section's job has changed with it: the fetching rule below is
+spent, because there is no longer anywhere nobody has been in this corpus. What a round takes next is
+either a *different* corpus (SafeDocs' issue-tracker set, 31 GB in six archives) or a *population*
+out of the one on disk.
+
+**`manifest.tsv` holds 65 968 rows and the cache holds 65 944 documents**: archive `0050` was fetched
+twice, once by session 425's stride and once whole, so its 24 members are recorded twice. Every count
+here is over the distinct files.
+
+The record of how it was taken, for reproducibility:
 `0000` and `3500` in the four-hundred-and-twenty-second and -third, 24 members apiece; then in
 the four-hundred-and-twenty-fifth, **`50 + 100k` for k = 0 … 78** — `0050`, `0150`, … `7850` —
 24 members from the head of each, 2731.0 MiB of member ranges and 14.1 MiB of central
@@ -81,9 +92,11 @@ directories, 79 fetches, 0 failures, every CRC-32 matched. **That stride is spen
 stride paid 79 for 1896 (ADR 0266). 5409.6 MiB of member ranges and 728.7 KiB of directories,
 5.04 GiB in 438 s, 4 fetches, 0 failures, every CRC-32 matched. The offsets are ≡ 100 (mod 1000),
 which is disjoint from the stride and off the thousand-boundaries where the corpus changes
-directory; **the next round moves the offset** — `0300 + 2000k`, then `0500` — rather than deciding
-again. *Which* archives is immaterial and that is the point: an archive is a hash bucket, so the
-rule exists to stop two rounds fetching one archive twice and for no other reason.
+directory. *Which* archives is immaterial and that was the point: an archive is a hash bucket, so
+the rule existed to stop two rounds fetching one archive twice and for no other reason. **The
+four-hundred-and-thirty-third then took the remaining 60 whole archives** — the corpus on disk is
+145 of the 7933 — **and the rule is spent with it**: there is nothing left to schedule inside
+`CC-MAIN-2021-31` that a round would want before it wants a different corpus.
 
 What a chunk owes when it is taken:
 
@@ -92,8 +105,89 @@ What a chunk owes when it is taken:
   population `doc/todo/21` or `23` already names is worth nothing;
 - a **promotion** only where the problem is new and is named in the commit. The budget below.
 
-**The four-hundred-and-thirtieth's 4000 new documents, and it is a baseline rather than a
-ratchet:** *4000 documents in 53.3 s: 6 unopenable, 3 locked, 2 encrypted beyond us, 2 pageless,
+**The whole population, surveyed in the four-hundred-and-thirty-third, and it is a baseline rather
+than a ratchet** (ADR 0269): *65 944 documents in 1139.3 s: 173 unopenable, 45 locked, 23 encrypted
+beyond us, 52 pageless, **1144 incomplete**, 2 slow*, with 51 272 codes reaching no glyph in silence
+over 635 documents. **1148 s of wall clock**, 145 archives, one process each, 0 failures.
+
+**One process per archive is the method and it is not an implementation detail.** `render-cpu`
+rasterises under `[profile.release]`'s `panic = "abort"`, and the survey runs documents through one
+rayon `par_iter`, so one document's abort takes every other verdict in the process. Five of the 145
+archives produced no report at all on the first pass — two aborted and three sat at the driver's
+600 s timeout — and **both of this round's defects are those five**. Surveying 65 944 documents in
+one process would have produced one traceback and no numbers.
+
+**The three-way rate comparison, which is what a population this size is for:**
+
+| sample | documents | incomplete | rate |
+|---|---|---|---|
+| session 425, 79 archives × 24 | 1896 | 86 | 4.54% |
+| session 430, 4 whole archives | 4000 | 70 | 1.75% |
+| **session 433, all 145** | **65 944** | **1144** | **1.735%** |
+| the pdf.js gate | 974 | 68 | **6.98%** |
+
+The first number moved because sessions 426 and 427 built §11.4.7's conversion. The second and third
+differ by 0.015 points over a sixteen-fold increase in sample size, so **1.7% is a fact about the web**
+rather than about a sample — and the 974 being four times that is what a corpus assembled from bug
+reports is *for*.
+
+**The residue over 65 944, ranked** — a document reporting two things is in two rows:
+
+| population | documents | of 65 944 | named by |
+|---|---|---|---|
+| a group's blending colour space (§11.4.7, §11.6.6) | **398** | 0.60% | `doc/todo/23` |
+| a font with no outline for any code the page shows | **261** | 0.40% | `doc/todo/21` §3 |
+| an image | **152** | 0.23% | five things, ADR 0266 |
+| §11.4.4's non-isolated group | **129** | 0.20% | `doc/todo/23` |
+| **a budget stopped interpretation** | **84** | 0.13% | `doc/todo/49` |
+| text-showing operators skipped | 60 | 0.09% | with the font rows |
+| a font program that would not parse | 35 | 0.05% | — |
+| a `/Contents` part that would not decode | 32 | 0.05% | — |
+| a `/Font` or other resource the file never defines (§7.8.3) | 25 | 0.04% | ADR 0255 |
+| §11.6.4.3's knockout group | 23 | 0.03% | `doc/todo/23` |
+| an operator / a shading / an annotation | 22 / 20 / 11 | — | — |
+| §11.6.2's object in parts / §9.3.8's text knockout | 9 / 4 | — | — |
+
+**The first row's five conditions, read off the reports** — this is what `doc/todo/23` prices one row
+apiece, with a real number at last:
+
+| condition | documents |
+|---|---|
+| the document names the press its `DeviceCMYK` is (§8.6.5.6, §14.11.5) | **151** |
+| the page group's four components are not `/DeviceCMYK` | **106** |
+| a group inside the page composites in a different space (§11.6.6) | **78** |
+| a group inside the page *introduces* the space (§11.6.6, not the page group) | **30** |
+| a non-separable blend mode (§11.3.5.3) | **27** |
+| an `/ExtGState` states Table 57's `/BG` or `/UCR` (§11.7.5.3) | **7** |
+
+Four things to take away:
+
+- **The budgets are 0.127% of the web** — `MAX_TILES` 48, `MAX_OPERATIONS` 31, `MAX_FORM_DEPTH` 4,
+  `MAX_STATE_DEPTH` 1 — against 0.2% of 4000 and 0.105% of 1896, so the rate is stable at three
+  sizes, and **none of the 84 is one of the two slow documents**. That is session 430's finding
+  confirmed with ten times the evidence: the bound stops the work *inside* the per-document budget.
+  `doc/todo/49` keeps the constants where they are.
+- **Two documents are slow, which this population had never produced, and both are *complete*.**
+  `0423548.pdf` (archive `0423`, 9 933 485 bytes, SHA-256
+  `0db5152253cc8483dad26ae0c27cba5e54c88e6a941603ca17b27b8a4d487c85`) at **32.9 s** and
+  `6081357.pdf` (archive `6081`, 4 390 859 bytes, SHA-256
+  `c43ac28fd21d5d13201849d641346b9269582670c5b3ecdc0879228ec1964ab8`) at **68.0 s**, both measured
+  again on their own rather than under 24 threads. They report nothing; they simply take that long
+  to draw page one — and this population had never produced a "slow" at all: sessions 425 and 430
+  both printed 0, over 1896 and 4000 documents.
+  **Undiagnosed, and it is the next thing this file owes**: a profile of one of the two says whether
+  it is one construct or the size of the file.
+- **Nothing failed to open for a reason that is this tree's, for the third sample running.** 163 of
+  the 225 unusable documents have no `%PDF-` header in their first kilobyte, 52 have no first page
+  and 5 have an unusable cross-reference table — and all five of those were opened by hand: three
+  have had their `<<` and `>>` replaced by `&gt;` in transit, two are truncated to about a hundred
+  bytes. Four pageless ones were opened too and two state a linearised `/L` in the millions while
+  being 968 and 1431 bytes long.
+- **20 of the 23 encryption refusals are `/R` 5**, the deprecated proprietary extension the standard
+  states no algorithm for (§7.6.4.2, Table 21) — 0.03% of the web, which is the number that says
+  whether it would ever be worth implementing.
+
+**The four-hundred-and-thirtieth's 4000 new documents, for comparison:** *4000 documents in 53.3 s: 6 unopenable, 3 locked, 2 encrypted beyond us, 2 pageless,
 **70 incomplete**, 0 slow*, with 1161 codes reaching no glyph in silence over 33 documents — **64
 incomplete after that session's own two fixes** (ADR 0266). The rate is what moved: 86 of 1896 was
 4.5% and 70 of 4000 is **1.75%**, because sessions 426 and 427 closed §11.4.7's conversion into the

@@ -21,6 +21,7 @@
 
 mod blend;
 mod convert;
+mod scan;
 mod shading;
 
 use rayon::iter::{IntoParallelIterator as _, ParallelIterator as _};
@@ -441,7 +442,14 @@ impl CpuRasterizer {
             }
             let brush = self.paint(paint, blend, page_to_path(transform)?, &mut scratch)?;
             if !draw_sub_pixel_rule(pixmap, (&geometry, &converted), &style, at, &brush, clip) {
-                pixmap.stroke_path(&converted, &brush, &style, convert::transform(at), clip);
+                scan::stroke(
+                    pixmap,
+                    &converted,
+                    &brush,
+                    &style,
+                    convert::transform(at),
+                    clip,
+                );
             }
         }
         // The marks are *filled*, not stroked: §8.5.3.2 asks for "a filled circle
@@ -450,7 +458,8 @@ impl CpuRasterizer {
             && let Some(converted) = convert::path(&dots)
         {
             let mut scratch = None;
-            pixmap.fill_path(
+            scan::fill(
+                pixmap,
                 &converted,
                 &self.paint(paint, blend, page_to_path(transform)?, &mut scratch)?,
                 tiny_skia::FillRule::Winding,
@@ -906,6 +915,80 @@ impl CpuRasterizer {
         Ok(())
     }
 
+    /// Draws `path` with a paint no shader can express, and says whether it did.
+    ///
+    /// Two of them, and each is a *paint* that becomes pixels rather than a gradient:
+    ///
+    /// - **A mesh** carries a colour per triangle corner, so it is drawn triangle by triangle
+    ///   inside the shape rather than as a paint over it.
+    /// - **A radial whose two circles do not contain one another** is ISO 32000-2 §8.7.4.5.4's
+    ///   cone, where a point can lie on two blend circles and the clause's "greatest value of
+    ///   s" decides between them — including the case where the greater root is one `/Extend`
+    ///   refuses. No two-point conical gradient expresses that, so the cone is evaluated
+    ///   exactly and drawn as a raster; every other radial keeps the native gradient, which
+    ///   [`shading::is_a_cone`] proves is enough there.
+    ///
+    /// Split out of [`CpuRasterizer::draw_fill`] because it is one question — is this paint a
+    /// raster? — asked twice, and neither answer shares a line with what follows it there.
+    fn filled_as_a_raster(
+        &self,
+        pixmap: &mut tiny_skia::PixmapMut<'_>,
+        (path, fill_rule): (&tiny_skia::Path, pdf_render::FillRule),
+        (paint, blend): (&Paint, tiny_skia::BlendMode),
+        to_device: ToDevice,
+        (transform, clip): (Transform, Option<&tiny_skia::Mask>),
+    ) -> bool {
+        let Paint::Shading(shading) = paint else {
+            return false;
+        };
+        let at = convert::transform(to_device.of(transform));
+        match shading.kind.as_ref() {
+            pdf_render::ShadingKind::Mesh { triangles } => {
+                shading::fill_mesh(
+                    pixmap,
+                    path,
+                    triangles,
+                    to_device.of(shading.transform),
+                    convert::fill_rule(fill_rule),
+                    at,
+                    clip,
+                    blend,
+                    self.anti_alias,
+                );
+                true
+            }
+            pdf_render::ShadingKind::Radial {
+                start,
+                start_radius,
+                end,
+                end_radius,
+                ramp,
+                extend,
+            } => {
+                shading::is_a_cone(*start, *start_radius, *end, *end_radius)
+                    && shading::fill_radial(
+                        pixmap,
+                        path,
+                        pdf_render::Radial {
+                            start: *start,
+                            start_radius: *start_radius,
+                            end: *end,
+                            end_radius: *end_radius,
+                            ramp,
+                            extend: *extend,
+                        },
+                        to_device.of(shading.transform),
+                        convert::fill_rule(fill_rule),
+                        at,
+                        clip,
+                        blend,
+                        self.anti_alias,
+                    )
+            }
+            _ => false,
+        }
+    }
+
     /// Draws a filled path, including the marks a shape with no area cannot make itself.
     ///
     /// Split out of [`CpuRasterizer::draw`] because ISO 32000-2 §10.7.4 turns one command into
@@ -940,60 +1023,13 @@ impl CpuRasterizer {
         let source = cropped.as_ref().unwrap_or(source);
         let path = convert::path(source).ok_or(CpuRasterError::InvalidPath)?;
 
-        // A mesh carries a colour per triangle corner, which no shader can express, so it is
-        // drawn triangle by triangle inside the shape rather than as a paint over it.
-        if let Paint::Shading(shading) = paint
-            && let pdf_render::ShadingKind::Mesh { triangles } = shading.kind.as_ref()
-        {
-            shading::fill_mesh(
-                pixmap,
-                &path,
-                triangles,
-                to_device.of(shading.transform),
-                convert::fill_rule(fill_rule),
-                convert::transform(at),
-                clip,
-                blend,
-                self.anti_alias,
-            );
-            return Ok(());
-        }
-
-        // A radial shading whose two circles do not contain one another is §8.7.4.5.4's cone,
-        // where a point can lie on two blend circles and the clause's "greatest value of s"
-        // decides between them — including the case where the greater root is one `/Extend`
-        // refuses. No two-point conical gradient expresses that, so the cone is evaluated
-        // exactly and drawn as a raster; every other radial keeps the native gradient, which
-        // `shading::is_a_cone` proves is enough there.
-        if let Paint::Shading(shading) = paint
-            && let pdf_render::ShadingKind::Radial {
-                start,
-                start_radius,
-                end,
-                end_radius,
-                ramp,
-                extend,
-            } = shading.kind.as_ref()
-            && shading::is_a_cone(*start, *start_radius, *end, *end_radius)
-            && shading::fill_radial(
-                pixmap,
-                &path,
-                pdf_render::Radial {
-                    start: *start,
-                    start_radius: *start_radius,
-                    end: *end,
-                    end_radius: *end_radius,
-                    ramp,
-                    extend: *extend,
-                },
-                to_device.of(shading.transform),
-                convert::fill_rule(fill_rule),
-                convert::transform(at),
-                clip,
-                blend,
-                self.anti_alias,
-            )
-        {
+        if self.filled_as_a_raster(
+            pixmap,
+            (&path, fill_rule),
+            (paint, blend),
+            to_device,
+            (transform, clip),
+        ) {
             return Ok(());
         }
 
@@ -1006,7 +1042,8 @@ impl CpuRasterizer {
             && !split.marks.is_empty()
             && let Some(marks) = convert::path(&split.marks)
         {
-            pixmap.fill_path(
+            scan::fill(
+                pixmap,
                 &marks,
                 &brush,
                 tiny_skia::FillRule::Winding,
@@ -1028,7 +1065,8 @@ impl CpuRasterizer {
                 let shape = convert::path(&band.shape).ok_or(CpuRasterError::InvalidPath)?;
                 let mut faint = brush.clone();
                 faint.shader.apply_opacity(band.coverage);
-                pixmap.fill_path(
+                scan::fill(
+                    pixmap,
                     &shape,
                     &faint,
                     tiny_skia::FillRule::Winding,
@@ -1042,7 +1080,8 @@ impl CpuRasterizer {
             Some(split) => convert::path(&split.filled).ok_or(CpuRasterError::InvalidPath)?,
             None => path,
         };
-        pixmap.fill_path(
+        scan::fill(
+            pixmap,
             &path,
             &brush,
             convert::fill_rule(fill_rule),
@@ -1348,7 +1387,8 @@ impl CpuRasterizer {
         )?);
         let square = builder.finish().ok_or(CpuRasterError::InvalidPath)?;
 
-        pixmap.fill_path(
+        scan::fill(
+            pixmap,
             &square,
             &paint,
             tiny_skia::FillRule::Winding,
@@ -1491,7 +1531,8 @@ fn draw_rule_as_bands(
     for (shape, coverage) in &shapes {
         let mut faint = brush.clone();
         faint.shader.apply_opacity(*coverage);
-        pixmap.fill_path(
+        scan::fill(
+            pixmap,
             shape,
             &faint,
             tiny_skia::FillRule::Winding,
@@ -1562,7 +1603,8 @@ fn draw_rule_at_one_pixel(
     let mut faint = brush.clone();
     // `width` is a reciprocal of a positive stretch, so it is finite and above zero.
     faint.shader.apply_opacity(style.width / width);
-    pixmap.fill_path(
+    scan::fill(
+        pixmap,
         &outline,
         &faint,
         tiny_skia::FillRule::Winding,
@@ -2426,14 +2468,16 @@ impl MaskCache {
             },
         )?;
         // A fresh mask blocks everything, so filling the root path is what opens it.
-        mask.fill_path(
+        scan::mask_fill(
+            &mut mask,
             &root.path,
             root.fill_rule,
             self.anti_alias,
             convert::transform(to_band.of(root.transform)),
         );
         for shape in nested {
-            mask.intersect_path(
+            scan::mask_intersect(
+                &mut mask,
                 &shape.path,
                 shape.fill_rule,
                 self.anti_alias,

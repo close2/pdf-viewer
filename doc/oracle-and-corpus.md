@@ -51,8 +51,31 @@ and *ratchets none of them*.
 | SafeDocs `CC-MAIN-2021-31`, archive `3500`, first 24 | 24 | 22 | 2 | crawled web, no grant — never committed |
 | **SafeDocs `CC-MAIN-2021-31`, 79 archives `50 + 100k`, first 24 of each** (session 425) | **1896** | **1802** | **86** → 85 | crawled web, no grant — never committed |
 | **SafeDocs `CC-MAIN-2021-31`, 4 whole archives `0100 + 2000k`** (session 430) | **4000** | **3917** → 3923 | **70** → 64 | crawled web, no grant — never committed |
+| **SafeDocs `CC-MAIN-2021-31`, all 145 archives** (session 433) | **65 944** | **64 507** | **1144** | crawled web, no grant — never committed |
 
-**The last row is the first look at the web with §11.4.7's conversion built** (ADR 0266), and what
+**The last row is the whole population, and the first survey to find a hang** (ADR 0269).
+**65 944 documents in 1139.3 s: 173 unopenable, 45 locked, 23 encrypted beyond us, 52 pageless,
+1144 incomplete, 2 slow**, with 51 272 codes reaching no glyph in silence over 635 documents — a
+baseline for this population, never a ratchet. It was run as **one process per archive**, because
+`render-cpu` rasterises under `panic = "abort"` and one document's abort would otherwise take every
+other verdict in the process with it; five of the 145 archives died on the first pass and both of
+this round's defects are those five. Four things it says:
+
+- **1.735% is the web's rate**, against session 430's 1.75% of 4000 and session 425's 4.54% of 1896.
+  The first moved because sessions 426 and 427 built §11.4.7's conversion; the last two differ by
+  0.015 points over a sixteen-fold increase in sample size. **The 974 are at 68, which is 7.0%** —
+  four times the web — and that is what a corpus assembled from bug reports is for.
+- **The largest population is still a group's blending colour space**, 398 documents, 0.60%; and it
+  splits into `doc/todo/23`'s own rows with numbers at last — 151 documents name the press their
+  `DeviceCMYK` is, 106 state a page group whose four components are not `/DeviceCMYK`, 78 have a
+  group inside the page compositing in a different space and 7 state Table 57's `/BG` or `/UCR`.
+- **A budget stopped interpretation on 84 of 65 944, 0.127%**, stable across three samples, and
+  neither of the two slow documents is one of them.
+- **Nothing failed to open for a reason that is this tree's, for the third sample running**, and the
+  five whose cross-reference table is unusable were opened by hand: three have had their `<<` and
+  `>>` turned into `&gt;` in transit and two are truncated to about a hundred bytes.
+
+**The row above it is the first look at the web with §11.4.7's conversion built** (ADR 0266), and what
 it says is about the *residue*. **4000 documents in 53.3 s: 6 unopenable, 3 locked, 2 encrypted
 beyond us, 2 pageless, 70 incomplete, 0 slow**, with 1161 codes reaching no glyph in silence over 33
 documents; **64 incomplete after that session's own two fixes**. The rate is what moved — 86 of 1896
