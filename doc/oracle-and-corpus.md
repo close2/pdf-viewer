@@ -299,6 +299,45 @@ The positive side is `issue11740_reduced.pdf` +13.704 and `issue14802.pdf` +9.98
 reference that drew nothing. **Nothing unexplained anywhere on the contradicted list**, which is the
 statement `doc/todo/00` records for the ambiguous bucket and which had never been made about this one.
 
+**Three more were re-derived in the four-hundred-and-forty-third, and two of them were the harness.**
+`CONTRADICTED_PAGE_ROUNDING` had held `colorkeymask.pdf` and `issue21346.pdf` since the sixth session
+on the sentence "we and `ghostscript` produce a raster of one size while `poppler` and `mupdf` produce
+one a pixel wider". Rendered through `examples/render_at` at scale 1, **our own rasters are 596 × 842
+and 179 × 179** — `poppler`'s and `mupdf`'s sizes — because `TargetSpec::for_page` rounds a fractional
+page *up*, which §10.7.4's ledger row has said since the sixty-first session. What was being read is
+`<stem>-p<n>-ours.png`, which is our raster **after `normalise::to_common_size` cropped it to the
+smallest voting reference's size**, beside reference PNGs that come from the cache uncropped. Checked
+rather than argued: our render cropped to the reference's size is byte-identical to the artefact on
+both pages. **The group is empty and both pages are diagnosed by what they differ by:**
+
+- **`colorkeymask.pdf` is §10.7.4's image paragraph, and we are the ones who are right.** One
+  200 × 267 image at one device pixel per source sample; ours is **byte-identical to `ghostscript`
+  over 595 × 842** and `poppler` — which votes with `mupdf` — differs from both on 942 pixels of
+  500 990, in three one-pixel columns and one row. Device row 17's centre is outside the region so
+  the clause paints nothing there and we paint nothing there; device column 78's centre maps to
+  source sample 60, which the file states as `(0, 255, 0)`, and `poppler` paints `(130, 201, 77)` —
+  "[t]here shall not be averaging over the pixel area", at the one placement where there is nothing
+  to average. `CONTRADICTED_IMAGE_SAMPLE_AT_THE_PIXEL_CENTRE`, the list's second entry of that shape.
+- **`issue21346.pdf` is six coincident clip boundaries multiplied.** A `W n`, three `/BBox` clips,
+  the mark's own path and a mask group's, all stating the same device rectangle; the edge is painted
+  at 0.041 where the geometry is 0.827 and §10.7.4's clipping paragraph — a *set* of pixels
+  intersected with a *set* of pixels — is 1.000. A ladder of `n` coincident clips reads 0.5025,
+  0.2487, 0.1218, 0.0609, 0.0305, 0.0152. `CONTRADICTED_COINCIDENT_CLIP_EDGES`, left listed with the
+  price of `min` measured (ADR 0279, `doc/todo/11` item 4).
+
+**And the ranking's own head came off**: `issue15716.pdf` at **3.10 from the nearest against 3.92
+from the furthest**, the tightest ratio on the list that is not a link border, is
+`CONTRADICTED_SUBSTITUTED_FONT`'s third mechanism and the first with a closed form. Every renderer
+paints the area *its own* ZapfDingbats states to a fifth of a percent — ours 12 511.9 px² against
+`FoxitDingbats`' 12 520.7, `poppler` 15 294.5 against `D050000L`'s 15 282.0 — with identical advances
+(626, 694, 595, 776, Adobe's published metrics) and one of the four glyphs shared outright. A
+substituted serif costs nothing measurable, a substituted sans costs `/CapHeight`, and a substituted
+symbolic face costs a quarter of its ink.
+
+**Step 7 over the contradicted list reproduces the table above to the thousandth**, twelve rounds of
+pixel-moving work later — same five negative names in the same order, same two positive ones — which
+is what that alarm is for.
+
 ### 3c. The bound those thirty-eight fail was never derived, and it is left where it is
 
 **The four-hundred-and-seventh session asked the question §3b's last paragraph raises** — a bound a

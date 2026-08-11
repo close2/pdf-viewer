@@ -131,6 +131,23 @@ pub fn side_by_side(panels: &[&Raster]) -> Result<Raster, HarnessError> {
 /// when the outcome is a failure, since a heatmap of a passing comparison is a blank
 /// page and thousands of blank pages obscure the ones that matter.
 ///
+/// # `<case>-ours.png` is our raster after the page sizes were reconciled
+///
+/// The caller hands this function the rasters it compared, and those have been through
+/// [`normalise::to_common_size`](crate::normalise::to_common_size) — cropped to the smallest
+/// size any voting reference produced. The *reference* PNGs sitting in the same directory come
+/// from the render cache instead and are not cropped, so on a page whose size is fractional the
+/// listing shows ours at the smaller size beside a reference at the larger one, and reads
+/// exactly like this tree rounding a page down.
+///
+/// **It is not.** Two corpus pages were diagnosed as "our raster is one pixel smaller" for four
+/// hundred sessions on that reading, and both are wrong: `TargetSpec::for_page` rounds a page
+/// *up*, so our own render of `colorkeymask.pdf` is 596 x 842 and of `issue21346.pdf` is
+/// 179 x 179 — `poppler`'s and `mupdf`'s sizes — while `ghostscript` truncates and sets the
+/// common size. The only place our page size can be read is a render of our own
+/// (`pdf-model/examples/render_at`); this file is our page *reconciled with somebody else's*.
+/// `oracle.rs`'s `CONTRADICTED_PAGE_ROUNDING` carries the correction and ADR 0279 the round.
+///
 /// # Errors
 ///
 /// [`HarnessError::Png`] if any artefact cannot be written, and

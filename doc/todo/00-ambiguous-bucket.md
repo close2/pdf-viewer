@@ -55,6 +55,16 @@ session is that the tree is far enough along for this to be the work.
    reference's, a four-panel strip and a heatmap per reference. The picture has explained every
    page it was pointed at, and twice it named a defect the numbers could not (a shading painted
    as a square; a photograph rendered black).
+
+   **`<stem>-p<n>-ours.png` is not our page size, and two diagnoses were built on believing it
+   was.** It is our raster *after* `normalise::to_common_size` cropped it to the smallest size any
+   voting reference produced; the reference PNGs beside it come from the render cache and are not
+   cropped. So on a page whose box is fractional the listing shows ours at 595 next to a `poppler`
+   at 596 and reads like this tree rounding down — and `TargetSpec::for_page` rounds *up*, so our
+   own render is 596 and `ghostscript` is the one that truncates. `CONTRADICTED_PAGE_ROUNDING` held
+   two pages on that misreading for four hundred sessions (ADR 0279). **The only place our page
+   size can be read is a render of our own**, `examples/render_at`, which is the same rule as
+   trap 1 one file over: the instrument that reports a thing is not the thing.
 4. **Ask what the page is made of before measuring anything.** `cargo run --release -p pdf-model
    --example open_one -- <file> 1` prints the command count. **One command has meant one image
    three times running** — `freeculture.pdf`, `issue5747.pdf` and `issue13372.pdf` — and

@@ -3,10 +3,11 @@
 Status: **items 1 and 3 closed in the three-hundred-and-eighty-ninth session (ADR 0226) and their
 one named residual — a sub-pixel rule that is *diagonal* — closed in the four-hundred-and-thirty-second
 (ADR 0268); item 2 is fixed as far as any corpus document exercises it (ADR 0213) and its general
-case is unwitnessed.** What is left is one *new* measurement, at the boundary rather than under it,
-and it is below.
+case is unwitnessed.** What is left is one *new* measurement, at the boundary rather than under it —
+and, since the four-hundred-and-forty-third session, **item 4**, which is the same subclause's
+clipping paragraph and has a corpus witness.
 Priority: 11
-Corpus: 3 known witnesses; the general shape of the residual is stated
+Corpus: 4 known witnesses; the general shape of the residual is stated
 Clauses: §10.7.4 — see `_scan-conversion.md`
 Code: `crates/pdf-render/src/sub_pixel.rs`, `crates/render-cpu/src/lib.rs`,
 `crates/pdf-model/src/content.rs`'s `tile`, `crates/pdf-render/src/repeat.rs`,
@@ -131,6 +132,53 @@ deliberately and permanently for the *exact* substitution: its cross-section is 
 its length, so a single coverage across a pixel line would be worse than what the rasteriser already
 does. ADR 0226 argues it, and small text is the case that makes it a rule rather than a caution.
 ADR 0268's substitute does not touch a fill at all, so it does not reopen the question.
+
+## 4. A clip boundary that falls where another clip boundary already fell
+
+**New in the four-hundred-and-forty-third session**, and it is the same clause's *other* paragraph —
+the one about clipping, which neither this file nor §10.7.4's ledger row had ever cited:
+
+> For clipping, the clipping region consists of the set of pixels that would be included by a fill
+> operation. Subsequent painting operations shall affect a region that is the intersection of the set
+> of pixels defined by the clipping region with the set of pixels for the region to be painted.
+
+A clipping region is a **set of pixels**, taken by the fill rule that includes any pixel the path
+meets however little of it is covered, and what a later mark gets is a set *intersection*. This tree
+composes a clip chain by multiplying coverages instead — `MaskCache::build` fills the chain's root
+and calls `tiny_skia::Mask::intersect_path` for every nested clip, which multiplies — and the
+rasteriser then multiplies that into the mark's own coverage. Where two boundaries fall on the same
+device edge the product is a coverage raised to a power, which is not an approximation of anything.
+
+The ladder is one page, one fill of a rectangle whose left edge lands at device 113.386 at 8×, under
+**n** `W n` clips of the same rectangle:
+
+```text
+  coincident boundaries      1       2       3       4       5       6
+  coverage of the column  0.5025  0.2487  0.1218  0.0609  0.0305  0.0152
+```
+
+Each rung is the one above it halved; the small deficit against an exact `0.5025ⁿ` is the byte each
+mask is stored in. **The witness is `issue21346.pdf`**, which states the same device rectangle six
+times over — a `W n`, three `/BBox` clips under §8.10.1 step c), the mark's own path and the
+§11.6.5.2 mask group's — and paints its edge at 0.041 of the mark where the geometry is 0.827 of it
+and the clause is 1.000. `poppler` and `ghostscript` give 1.000, `mupdf` 0.755, `hayro` 0.327. It is
+`CONTRADICTED_COINCIDENT_CLIP_EDGES` in `oracle.rs`.
+
+**Not taken, and the price is measured rather than guessed** (ADR 0279). `min` is what a set
+intersection asks for — exact where two boundaries coincide, never below the product, so never
+further from the clause — but three things have to be settled first and two of them are not this
+crate's:
+
+- **Only the clip chain is ours to compose.** A mark's own coverage meets the clip mask inside
+  `tiny_skia`'s fill and a soft mask is §11.6.5's alpha and a genuine product, so three of that
+  page's six factors would survive the change; the edge would go 0.041 → 0.064 against a bound that
+  wants 0.827, and the verdict would not move.
+- **`render-quorra` multiplies too**, and the CPU backend is the correctness oracle. Changing one
+  side alone makes `tests/corpus.rs` report a difference that is a deliberate divergence, which is
+  the one thing that gate cannot say.
+- **`min` is not exact for boundaries that merely share a pixel**, only for ones that coincide or
+  nest. What is exact is intersecting the *paths* and rasterising once, which is a conflation-free
+  rasteriser and a project rather than an item.
 
 ## 2. Two marks that abut across a cell's box edge without repeating
 

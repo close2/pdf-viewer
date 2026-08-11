@@ -94,6 +94,39 @@ const PIXEL_BUDGET: u64 = 64 << 20;
 /// Pages we claim to draw completely, and which two independent reference renderers
 /// contradict: pages whose raster is one pixel smaller than the references'.
 ///
+/// **Empty as of the four-hundred-and-forty-third session, and the emptying is a correction
+/// rather than a fix: this tree's raster was never the smaller one.** `TargetSpec::for_page`
+/// rounds a fractional page *up* so that the raster contains it — the ledger's §10.7.4 row has
+/// said so since the sixty-first session — so on both of the two pages left here our own render
+/// is the *larger* size, the same size `poppler` and `mupdf` produce, and `ghostscript` is the
+/// renderer that truncates. Rendered straight through `examples/render_at` at scale 1:
+/// `colorkeymask.pdf` is **596 × 842** where this comment said 595, and `issue21346.pdf` is
+/// **179 × 179** where it said 178.
+///
+/// # What was misread was an artefact, and the artefact is doing what it is documented to do
+///
+/// `<stem>-p<n>-ours.png` under `<target>/tmp/oracle/` is our raster **after
+/// `normalise::to_common_size` has cropped it to the smallest of the three voting references**,
+/// which on both of these pages is `ghostscript`'s. The reference PNGs beside it are the
+/// *cache's* renders and are not cropped, so a directory listing shows ours at 595 or 178 next
+/// to a `poppler` at 596 or 179 and reads exactly like this tree rounding down. Both files were
+/// re-derived: our own render cropped to the reference's size is byte-identical to the artefact
+/// (`magick compare -metric AE` = 0 on both).
+///
+/// **So the rule is the one trap 1 states one directory over, arriving in the instrument rather
+/// than in a count: `-ours.png` is our raster reconciled with somebody else's page size, and the
+/// only place our page size can be read is a render of our own.** `report::write_artefacts`
+/// carries the same sentence where the file is written.
+///
+/// Both pages are still contradicted and both are now diagnosed by what they actually differ
+/// by, one clause apart: `issue21346.pdf` is [`CONTRADICTED_COINCIDENT_CLIP_EDGES`] and
+/// `colorkeymask.pdf` is [`CONTRADICTED_IMAGE_SAMPLE_AT_THE_PIXEL_CENTRE`]. That is the tenth
+/// and eleventh time a group's name in this file has named a hypothesis rather than a diagnosis,
+/// and the first time the hypothesis was contradicted by the harness's own output.
+///
+/// The paragraphs below are what the group said while it had members, kept because the history
+/// is what makes the correction legible.
+///
 /// 4 pages. Each has a page box whose size is fractional, and at 72 dpi we and `ghostscript`
 /// produce a raster of one size while `poppler` and `mupdf` produce one a pixel wider, taller,
 /// or both. Nothing in ISO 32000-2 says how a fractional page becomes an integer number of
@@ -152,13 +185,150 @@ const PIXEL_BUDGET: u64 = 64 << 20;
 /// is structural similarity, 0.9830 against 0.9900, which is what a one-pixel edge does to a
 /// page that is one flat square.
 ///
+/// (Neither sentence survives the paragraph at the top: both rasters are ours at the *larger*
+/// size, the sampled colours were never in dispute on either page, and the numbers quoted for
+/// `issue21346.pdf` were `ghostscript`'s, which session 406 corrected to mean 0.25 and
+/// similarity 0.9734 against the pair that decides it.)
+///
 /// **`french_diacritics.pdf` left this group in the sixteenth session and not by being rounded
 /// differently.** It agrees because area averaging replaced the four-tap filter that was
 /// drawing its reduced inline images (ADR 0025) — worst tile 12.60 against a bound of 5.89
 /// before, inside the bound after. Its raster really is 595x842 against `poppler`'s and
 /// `mupdf`'s 596, which is what put it here; that was true and was not what the references
 /// were disagreeing about.
-const CONTRADICTED_PAGE_ROUNDING: [&str; 2] = ["colorkeymask.pdf page 1", "issue21346.pdf page 1"];
+const CONTRADICTED_PAGE_ROUNDING: [&str; 0] = [];
+
+/// Contradicted, where every clip boundary the page states falls on the same device edge.
+///
+/// 1 page, moved out of [`CONTRADICTED_PAGE_ROUNDING`] in the four-hundred-and-forty-third
+/// session. `issue21346.pdf` is 178.34645 points square and holds one mark: a 150 × 150 square
+/// of `(0.227, 0.498, 0.690)` painted at a mask value of 0.25 over white. The interior is not in
+/// dispute — the closed form is `0.25 c + 0.75` per channel, which is **(206, 223, 235)**, and
+/// ours, `poppler`'s, `ghostscript`'s and `hayro`'s centre pixel is that byte for byte while
+/// `mupdf` is one level up on each. What differs is the square's one-pixel border.
+///
+/// # The boundaries, counted
+///
+/// Every construction on the page states the same device rectangle, device `[14.173, 164.173]`
+/// on both axes:
+///
+/// | | what states it |
+/// |---|---|
+/// | the page's `W n` | `14.173228 164.17322 m …` under the page's own matrix |
+/// | form `15`'s `/BBox [0 0 200 200]` | §8.10.1 step c), under `0.75 0 0 -0.75 14.173228 164.17322 cm` |
+/// | form `13`'s `/BBox [0 0 200 200]` | the same clause, under the same matrix |
+/// | form `13`'s fill | `0 0 m 200 0 l 200 200 l 0 200 l h f` |
+/// | the mask group `14`'s `/BBox` | §11.6.5.2's group, under the same matrix |
+/// | the mask group's own fill | the same four lines |
+///
+/// `examples/clip_chain_census` says the first three outright — *clip references 3, distinct
+/// leaves 2, distinct clip nodes 3, chain depth histogram {2: 1, 3: 1}*.
+///
+/// # What multiplying them costs, as a ladder this project wrote
+///
+/// A synthetic A/B: the same 178.34645-point page, one fill of the same rectangle, under **n**
+/// `W n` clips of that rectangle and nothing else. Rendered at 8× through `examples/render_at`,
+/// the coverage of the boundary column (device 113, where the shape begins at 113.386):
+///
+/// ```text
+///   boundaries      1       2       3       4       5       6
+///   coverage    0.5025  0.2487  0.1218  0.0609  0.0305  0.0152
+/// ```
+///
+/// Each rung is the one above it halved: the coverages are **multiplied**, and the small deficit
+/// against an exact `0.5025ⁿ` is the byte each mask is stored in. On the corpus page the six
+/// boundaries above put the edge at 0.0152 of a covered pixel, which at 8× is white to the byte
+/// and at the page's own scale is **level 253 of an interior at 206**, 4.1% of the mark where the
+/// geometry is 82.7% of it.
+///
+/// # The clause, which this file had never cited
+///
+/// §10.7.4 gives clipping a paragraph of its own, and it is about sets rather than about
+/// coverage:
+///
+/// > For clipping, the clipping region consists of the set of pixels that would be included by a
+/// > fill operation. Subsequent painting operations shall affect a region that is the
+/// > intersection of the set of pixels defined by the clipping region with the set of pixels for
+/// > the region to be painted.
+///
+/// A pixel the clip's fill would include is in the region, whole, however little of it the path
+/// covers — so the clause paints this edge at **1.000**, which is exactly what `poppler` and
+/// `ghostscript` do (both give 206, the interior colour, at device column 14). `mupdf` gives
+/// 0.755 and `hayro` 0.327, both of them anti-aliasing the clip and conflating it fewer times
+/// than we do. This tree's documented departure (1) from that subclause — an anti-aliasing
+/// rasteriser paints a partly covered pixel partly — would give **0.827**. It gives 0.041, and a
+/// product of six coverages is neither the clause nor the departure: it is further from the
+/// clause with every nesting level, in the direction the same paragraph's
+/// "[t]he area covered by painted pixels shall always be at least as large as the area of the
+/// original shape" forbids.
+///
+/// # Why it is listed rather than fixed, and the price is measured rather than guessed
+///
+/// `min` is the composition a set intersection asks for — it is exact where two boundaries
+/// coincide, it is never below the product, and it therefore never moves further from the
+/// clause. It is not taken here, for two reasons that are this tree's rather than the clause's,
+/// and ADR 0279 carries them: only the *clip chain* is ours to compose (a mark's own coverage
+/// meets the clip mask inside `tiny-skia`'s fill, and a soft mask is §11.6.5's alpha and a
+/// genuine product), so three of this page's six factors would remain; and the CPU backend is
+/// the correctness oracle, while `render-quorra` composes its clips by the same product and is
+/// not this project's to change. Three factors of `0.5025` removed from six leaves the edge at
+/// 0.064 against a bound that wants 0.827, so the verdict would not move either.
+/// [`doc/todo/11`](../../../doc/todo/11-shapes-that-still-disappear.md) carries the general
+/// case.
+const CONTRADICTED_COINCIDENT_CLIP_EDGES: [&str; 1] = ["issue21346.pdf page 1"];
+
+/// Contradicted, and **we are the ones who are right**: an image sample at the pixel's centre.
+///
+/// 1 page, moved out of [`CONTRADICTED_PAGE_ROUNDING`] in the four-hundred-and-forty-third
+/// session, where it had been filed since the sixth on a raster size that is not ours.
+///
+/// `colorkeymask.pdf` is nine commands: a §8.7.3 tiling pattern whose cell draws one
+/// 200 × 267 `/DeviceRGB` image with `/Mask [255 255 0 255 0 255]` (§8.9.6.4's colour key
+/// masking), under `200 0 0 267 0 0 cm` with the pattern's `/Matrix [1 0 0 1 18 557]`. So the
+/// image covers device x `[18, 218)` and y `[17.9998, 284.9998)` — **one device pixel per
+/// source sample, exactly**, with no reduction and no `/Interpolate`.
+///
+/// # The measurement
+///
+/// Ours and `ghostscript` are **byte-identical over the whole 595 × 842 raster**
+/// (`magick compare -metric AE` = 0), and `poppler` — which votes with `mupdf` — differs from
+/// both on **942 pixels of 500 990**, 0.19%. They are not scattered: 268 apiece in device
+/// columns 78, 138 and 218, and 141 in device row 17.
+///
+/// # §10.7.4's image paragraph decides all four of them, and it decides for us
+///
+/// > However, only those pixels whose centres lie within the region shall be painted. The
+/// > position of the centre of such a pixel -in other words, the point whose coordinate values
+/// > have fractional parts of one-half -shall be mapped back into source space to determine how
+/// > to colour the pixel. There shall not be averaging over the pixel area.
+///
+/// - **Device row 17** has its centre at y 17.5, which is outside `[17.9998, 284.9998)`. The
+///   clause paints nothing there and we paint nothing there; `poppler` paints it. Rows 18 to 284
+///   are 267 rows for 267 samples, which is the arithmetic saying the row we decline is the one
+///   the clause declines.
+/// - **Device column 78** has its centre at x 78.5, which maps back to source x 60.5 — sample
+///   **60**. The image's row 110 is `(255, 0, 0)` at samples 58 and 59 and `(0, 255, 0)` at 60
+///   and 61, read out of the file's own uncompressed bytes. Ours paints `(0, 255, 0)`, the
+///   sample whose region holds the centre. `poppler` paints `(130, 201, 77)`, which is neither
+///   sample. Columns 138 and 218 are the image's other two colour boundaries and behave the
+///   same way.
+///
+/// So the difference is the sentence "[t]here shall not be averaging over the pixel area",
+/// against a consensus that averages at a one-to-one placement. This is *not* ADR 0025's
+/// departure seen from the other side: that departure averages the samples that share a device
+/// pixel when an image is **reduced**, and one sample per pixel is the case where it has nothing
+/// to average. It is the clause carried out.
+///
+/// The page fails one bound and it is the worst tile, 5.03 against 5.00 — 942 pixels at up to
+/// 255 levels, gathered into three one-pixel columns, is what a tile maximum is for. The ink
+/// agrees to **0.03 of 255** across all five renderers (ours 12.4099, `ghostscript` 12.4099,
+/// `poppler` 12.4021, `mupdf` 12.4355, `hayro` 12.4195), which is why nothing else notices.
+///
+/// Listed rather than chased, and this is the group's whole point: a contradicted page is a
+/// question for the specification, and here the specification answers against the two renderers
+/// that agree. [`CONTRADICTED_VISIBILITY_EXPRESSION`] is the other entry of this shape and
+/// `AMBIGUOUS_IMAGE_REDUCTION` is where the same paragraph goes the other way.
+const CONTRADICTED_IMAGE_SAMPLE_AT_THE_PIXEL_CENTRE: [&str; 1] = ["colorkeymask.pdf page 1"];
 
 /// Contradicted, where the difference is this tree's own anti-aliasing at a shape's edge.
 ///
@@ -1067,6 +1237,57 @@ const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 0] = [];
 /// because that is where `NimbusSans` sits is curve-fitting with the arithmetic written out.
 /// `/CapHeight` is on §9.8.1's ledger row's list of Table 120 entries this tree does not read, and
 /// what this measurement adds is the row's missing number.
+///
+/// # `issue15716.pdf` page 1 is the group's third mechanism, and it has a closed form
+///
+/// Measured in the four-hundred-and-forty-third session, which took it off the ranking's head:
+/// **3.10 from the nearest reference against 3.92 from the furthest**, the tightest ratio on the
+/// contradicted list that is not a link border, which step 1 of `doc/todo/00` reads as *we are
+/// alone*. It had carried one sentence — "a grid of card suits where ours are Foxit's
+/// ZapfDingbats and theirs are the machine's clone of it" — since the hundred-and-forty-eighth,
+/// with no number behind it.
+///
+/// The page is 200 x 200 points holding a §8.7.3 tiling pattern of a 100 x 100 cell, so its
+/// sixteen marks are four glyphs drawn four times: `/BaseFont /ZapfDingbats` with
+/// `/Differences [1 /a109 /a110 /a111 /a112]`, at `64 0 0 64 … Tm` with `/F1 1 Tf`, two of them
+/// black under one `/OC` layer and two red under another. Nothing is embedded, so
+/// `pdf_font::standard` answers from `FoxitDingbats.pfb` (ADR 0133) while the three C references
+/// resolve `D050000L` through this machine's fontconfig.
+///
+/// **The ink is arithmetic rather than an agreement**, because the placement is the document's —
+/// each glyph is positioned by its own `TD` rather than by an advance — and the only unknown is
+/// the outlines. Each glyph's area comes from the two font programs themselves, in font units,
+/// scaled by `(64/1000)^2` and taken four times; the painted areas come from the rasters, black
+/// from `(1 - mean R) x 200^2` (a red glyph leaves R at 255) and the total from the same over G:
+///
+/// | | black px² | red px² | total |
+/// |---|---|---|---|
+/// | **`FoxitDingbats`, from its own charstrings** | **6147.1** | **6373.6** | **12 520.7** |
+/// | ours | 6129.2 | 6382.7 | 12 511.9 |
+/// | `hayro` | 6102.3 | 6406.7 | 12 509.0 |
+/// | **`D050000L`, from its own charstrings** | **8200.5** | **7081.5** | **15 282.0** |
+/// | `poppler` | 8212.8 | 7081.8 | 15 294.5 |
+/// | `mupdf` | 8189.5 | 7079.4 | 15 269.0 |
+/// | `ghostscript` | 8188.5 | 7078.4 | 15 266.9 |
+///
+/// **Every renderer paints the area its own font program states, to a fifth of a percent** — ours
+/// 0.07% under Foxit's total, `poppler` 0.08% over URW's — and the whole 18.1% difference is the
+/// two programs' outlines. No reference is trusted anywhere in that table: both closed forms are
+/// read out of the two files.
+///
+/// **What the two faces share is exactly what the standard states.** The advances are
+/// **626, 694, 595 and 776** in *both* programs — Adobe's published ZapfDingbats metrics, which is
+/// §9.6.2.1's Table 109 half honoured on both sides — and `a110`, the heart, has the same outline
+/// in both to 0.2% of its area. What differs is the other three: `a109` is 8.4% narrower in
+/// Foxit's face and 20.0% smaller in area, `a111` 11.4% and 24.5%, `a112` 14.2% and 28.7%. That is
+/// why the red pair, which contains the shared glyph, is 10.0% apart while the black pair is 25.0%.
+///
+/// So this group's three mechanisms are now measured and they are three different sizes: a
+/// substituted **serif** costs nothing that can be measured, a substituted **sans** costs one
+/// number (`/CapHeight`, 5.7%), and a substituted **symbolic** face costs a quarter of its ink
+/// while costing nothing at all in placement. All three are §9.5 NOTE 5's sentence — "some details
+/// of font naming, font substitution, and glyph selection are implementation-dependent" — and the
+/// third is the plainest instance of it in the file, because a dingbat *is* its outline.
 const CONTRADICTED_SUBSTITUTED_FONT: [&str; 12] = [
     "bug847420.pdf page 1",
     "bug850854.pdf page 1",
@@ -7784,6 +8005,8 @@ fn check_the_ratchets(results: &[Examined]) {
     // out to be wrong rather than every time the rendering changed.
     let contradicted: Vec<&str> = CONTRADICTED_PAGE_ROUNDING
         .iter()
+        .chain(&CONTRADICTED_COINCIDENT_CLIP_EDGES)
+        .chain(&CONTRADICTED_IMAGE_SAMPLE_AT_THE_PIXEL_CENTRE)
         .chain(&CONTRADICTED_SHARED_JBIG2_DECODER)
         .chain(&CONTRADICTED_IMAGE_RESAMPLING)
         .chain(&CONTRADICTED_CALIBRATED_COLOUR)
