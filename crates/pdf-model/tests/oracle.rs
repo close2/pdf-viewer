@@ -6582,6 +6582,70 @@ const AMBIGUOUS_ENLARGED_BILEVEL: [&str; 1] = ["jbig2_symbol_offset.pdf page 1"]
 /// earlier than usual, and the reason step 6's ladders are quoted from rasters of identical size.
 const AMBIGUOUS_HAIRLINE_BORDERS: [&str; 1] = ["issue18072.pdf page 1"];
 
+/// Ambiguous, and both pages reach this gate's judgement for the first time.
+///
+/// Two pages that state §11.4.7's `/Group << /S /Transparency /CS /DeviceCMYK >>` and were
+/// *reported* for it until the four-hundred-and-fortieth session, which found the report was a
+/// soft mask's group being counted as a change to the page's blending space (ADR 0276). A page
+/// this tree reports is excused this gate's diagnosis, so both arrived here with no reading
+/// behind them — and the first thing to establish about each is that the blending space is
+/// **not** what makes it ambiguous.
+///
+/// That is measurable rather than arguable, because the same page can be drawn both ways: this
+/// tree's ink route against the device-components route it replaces, RMSE over the same raster,
+/// beside what two references differ from each other by on the same page.
+///
+/// ```text
+///                                    ours in ink vs ours on the device   poppler vs ghostscript
+/// issue13520                                            0.0144                   0.0736
+/// bug1703683_page2_reduced                              0.0018                   0.0229
+/// ```
+///
+/// **A fifth and a thirteenth of the references' own disagreement.** So each page needs its own
+/// reading, and each has one.
+///
+/// # `bug1703683_page2_reduced.pdf`, where two ladders agree and the third does not
+///
+/// 612 × 792, four product photographs and 5-point captions. Step 6's ladders:
+///
+/// ```text
+///                72 dpi    576 dpi
+/// poppler       5.42909   5.36945
+/// mupdf         5.22151   5.22575
+/// ours (1x/8x)  5.36769   5.35913
+/// ```
+///
+/// Ours moves by **0.009 of 255 across an eightfold change** — a ladder that does not move is one
+/// already measuring the geometry — and its limit is **0.010** from `poppler`'s. `mupdf`'s is
+/// **0.144** below both, and it is the whole reason no consensus forms. The difference image says
+/// where that 0.144 is: subtract our render from either reference and every lit pixel is on the
+/// outline of a photograph or a glyph, with the interiors black. So this is the boundary of every
+/// mark, at 1.60% of the page's pixels, and §10.7.4 hands a partly covered pixel to the device.
+///
+/// # `issue13520.pdf`, where no two of the five draw the same picture
+///
+/// 208 × 89, one glossy button drawn as `Screen`-blended groups over a `DeviceN` shading.
+/// **`poppler` draws none of the white highlights at all** and `hayro` paints a dark disc over
+/// the right-hand bulge where the others paint a highlight; `ghostscript` outlines the whole
+/// shape in a rough dark line. Ours and `mupdf` are the two that draw the artwork, and step 6
+/// cannot arbitrate the rest:
+///
+/// ```text
+///                72 dpi    576 dpi
+/// poppler      17.6287   17.4397
+/// mupdf        16.5747   16.6970
+/// ours (1x/8x) 16.8109   16.9811
+/// ```
+///
+/// The two ladders end **0.74 of 255 apart and move in opposite directions**, which is
+/// `doc/todo/00` step 6's own definition of neither having converged. Ours ends between them,
+/// 0.28 from one and 0.46 from the other. A page where one reference omits a whole class of mark
+/// is `ambiguous` by the verdict's definition and is listed rather than ranked.
+const AMBIGUOUS_PAGE_DRAWN_IN_INK: [&str; 2] = [
+    "bug1703683_page2_reduced.pdf page 1",
+    "issue13520.pdf page 1",
+];
+
 /// Ambiguous because a barcode is a page of bars narrower than a pixel.
 ///
 /// `issue8187.pdf` page 1 is 200 × 50 and holds one Code-39 barcode and nothing else. It sat
@@ -6854,6 +6918,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_GRADIENT_BAND_EDGES)
         .chain(&AMBIGUOUS_UNASKED_INTERPOLATION)
         .chain(&AMBIGUOUS_HAIRLINE_BORDERS)
+        .chain(&AMBIGUOUS_PAGE_DRAWN_IN_INK)
         .chain(&AMBIGUOUS_ICC_MATRIX_PROFILE)
         .chain(&AMBIGUOUS_A_REFERENCE_DECODED_THE_IMAGE_WRONG)
         .copied()

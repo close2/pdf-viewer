@@ -17,19 +17,24 @@ requests to somebody else and became work here, because quorra answered both ask
 (ADR 0275): §11.4.7's two rasters are drawn through quorra and three corpus pages left the refused
 list, while §11.4.6's two marks cannot be *asked for* at `89d7dd77` — the operators exist and the
 one position this tree emits them from is one of the two the builder refuses. That row stays, with
-its reason corrected and an ask written (`doc/QUORRA_FEEDBACK.md` section 14.2).
+its reason corrected and an ask written (`doc/QUORRA_FEEDBACK.md` section 14.2). **The
+four-hundred-and-fortieth asked the standing row what it contained and 77 of its 85 were a soft
+mask** (ADR 0276): the flag that says a group changed the page's blending space was not scoped to
+the page the way the space itself is, so an isolated group inside an `/SMask`'s group took the whole
+page off §11.4.7's ink route. Corpus 68 → 65 incomplete, web 905 → 851, and this row is 85 → 8.
 Priority: 23
-Corpus: 6 documents
-Clauses: §11.3.5.3, §11.4.4, §11.6.6, §11.7.5.3, §8.6.5.5, §8.6.5.6, §8.6.5.7, §11.7.2, §14.11.5
+Corpus: 4 documents
+Clauses: §11.3.5.3, §11.4.4, §11.5.3, §11.6.6, §11.7.5.3, §8.6.5.5, §8.6.5.6, §8.6.5.7, §11.7.2,
+§14.11.5
 Code: `crates/pdf-model/src/content.rs`, `crates/pdf-model/src/colour.rs`,
 `crates/pdf-render/src/blending.rs`, `crates/render-cpu/src/lib.rs`
 
 | | corpus | web witnesses | what it is |
 |---|---|---|---|
-| a group inside the page composites in a different space (§11.6.6) | 3 | 3 of 1896, 4 of 4000, 78 → **85 of 65 944** | **the standing item now.** Needs a conversion between two spaces at the `Do`. A further **30** are a group that *introduces* the space rather than the page group doing so |
+| a non-separable blend mode on such a page (§11.3.5.3) | 1 | 1 of 1896, 2 of 4000, 27, 28 → **31 of 65 944** | **the standing item now.** The black component has a rule of its own and neither raster has a blend function that states it. It rose by three in the 440th, and the three are documents that were reported for §11.6.6 and now meet this condition instead — trap 5's honest direction |
+| a group inside the page composites in a different space (§11.6.6) | 0 | 78, 85 → **8 of 65 944** | 77 of the 85 were a mask's group counted as the page's (ADR 0276). A further **30** — 1 in the corpus, `bug1721218_reduced.pdf` — are a group that *introduces* a space on a page that states none |
+| an `/ExtGState` states `/BG`, `/BG2`, `/UCR` or `/UCR2` (§11.7.5.3) | 0 | 1 of 1896, 0 of 4000, 7 → **9 of 65 944** | **was silent until the 426th**, and 0 of 4000 could have been read as noise. **All nine state it at `soft_mask_depth` 0**, measured in the 440th, so the monotone flag costs nothing here |
 | a page group whose components are not four this tree can sample | 0 | 14 of 4000, 106 → **5 of 65 944** | what is left after ADR 0272: a `/DeviceGray` or `Lab` page group, or four components with no profile behind them, so §11.3.4 has no formula to apply and no conversion out |
-| a non-separable blend mode on such a page (§11.3.5.3) | 1 | 1 of 1896, 2 of 4000, 27 → **28 of 65 944** | the black component has a rule of its own |
-| an `/ExtGState` states `/BG`, `/BG2`, `/UCR` or `/UCR2` (§11.7.5.3) | 0 | 1 of 1896, 0 of 4000, 7 → **9 of 65 944** | **was silent until the 426th**, and 0 of 4000 could have been read as noise |
 | ~~the document names the press its `DeviceCMYK` is~~ | ~~0~~ | ~~151~~ → **0** | **closed in the 436th, ADR 0272: the press is a value, and `CMYK_CORNERS` is one of them** |
 | ~~a conversion *into* the blending space~~ | ~~5~~ → 0 | ~~61~~ → 0 | **closed in the 427th, ADR 0263: a right inverse of the ink cube** |
 | ~~the four components themselves~~ | — | — | **closed in the 426th, ADR 0262: two rasters, no new format** |
@@ -37,17 +42,47 @@ Code: `crates/pdf-model/src/content.rs`, `crates/pdf-model/src/colour.rs`,
 | ~~a soft-mask group with such a space~~ | ~~7~~ → 0 | | **closed** in the 380th and 383rd, ADRs 0217 and 0220 |
 | ~~a knockout element whose shape is not its coverage~~ | ~~5~~ → 0 | | **closed** in the 397th, ADR 0234 |
 
-The three rows that grew by one or two are documents that were reported for the press and are now
-reported for the next condition they meet — the population narrowing honestly rather than a
-condition being narrowed (trap 5).
+The rows that grew by one or two in the four-hundred-and-thirty-sixth are documents that were
+reported for the press and are now reported for the next condition they meet — the population
+narrowing honestly rather than a condition being narrowed (trap 5).
 
 Each remaining one is refused *by name* rather than approximated, and since the four-hundred-and-
 twenty-sixth the name says **which** of the conditions fired. The corpus documents are
-`bug1703683_page2_reduced`, `bug1755507` and `issue13520` for §11.6.6, `issue18032` for the
-non-separable blend, and `issue18032`, `knockout_blend_multiply` and `knockout_inner_backdrop` for
-what §11.4.4 still refuses. `personwithdog.pdf` left in the four-hundred-and-twenty-sixth and
-`issue12798_page1_reduced.pdf` and `bug1365930.pdf` in the four-hundred-and-twenty-seventh, which
-drew them.
+`bug1721218_reduced` for a group that introduces a space, `issue18032` for the non-separable blend,
+and `issue18032`, `knockout_blend_multiply` and `knockout_inner_backdrop` for what §11.4.4 still
+refuses. `personwithdog.pdf` left in the four-hundred-and-twenty-sixth,
+`issue12798_page1_reduced.pdf` and `bug1365930.pdf` in the four-hundred-and-twenty-seventh, and
+`bug1703683_page2_reduced.pdf`, `bug1755507.pdf` and `issue13520.pdf` in the four-hundred-and-
+fortieth, each of which drew them.
+
+## The report was the mask's, and the flag was not scoped
+
+**77 of the 85 web documents this file called §11.6.6's standing item, and all three of the
+corpus's, were a group declared inside a soft mask** (ADR 0276). `build_soft_mask` clears the
+blending space in force for a mask group's content — ADR 0220's finding, because §11.5.3 reduces
+such a group to one luminosity and §10.4.2.3's conversion to it is linear in the components — and
+`Interpreter::blending_changed`, added later for a different question, was outside that scope. So
+every isolated group inside an `/SMask`'s group compared its space against `None` and counted as a
+group *the page* composites in, which took the whole page off §11.4.7's ink route.
+
+The instrument was one `eprintln!` at the place the flag is set, printing the two spaces and the
+interpreter's `soft_mask_depth`, over the 85 documents and their 1320 changes. Not one document had
+changes in both places. **What the 8 real ones state** is three shapes over 32 sites: an isolated
+group with a three-component `/CS` inside a `/DeviceCMYK` page (20), an isolated `/DeviceCMYK` group
+inside an isolated three-component one (10), and an isolated `/DeviceGray` group inside a
+`/DeviceCMYK` page (2).
+
+**What that row needs is now one construction rather than four.** A group on the page that
+introduces a space of its own has to composite its elements in that space and convert once at its
+`Do`, which is ADR 0262's pair of rasters one scope down: `Command::Group` would carry a blending
+space and a second command list, and three backends would have to resolve the pair before
+compositing the group onto its parent. Both halves of the conversion between two presses already
+exist — `Press::blending_space` out and `colour::rgb_to_ink` in — so what is missing is the display
+list's vocabulary and not the arithmetic. 8 web documents and 0 corpus ones is what it is worth.
+
+**54 of the 77 become complete and 23 keep a report they already had** — 21 of §11.4.4's
+non-isolated group, one knockout, and three that join the non-separable row above. Web blending
+reports over all 65 944: **157 over 156 documents → 83 over 82**.
 
 ## The press is the document's, and no ICC dependency was needed
 
@@ -130,8 +165,9 @@ states no `/Group` at all — nothing on it composites anywhere but the device's
 report has gone. And five documents were departing in silence, because nothing in this tree read
 §11.4.7's entry: `bug1365930`, `bug1703683_page2_reduced`, `issue12798_page1_reduced`, `issue13520`
 and `personwithdog` all state a page group of `/DeviceCMYK`, so **every mark on those pages
-composites in ink**. Four of them report it now; `bug1365930` does not, because nothing on its first
-page composites and the space cannot change a pixel there.
+composites in ink**. Four of them reported it then; `bug1365930` did not, because nothing on its
+first page composites and the space cannot change a pixel there. **All five are drawn in ink now**,
+the last three of them in the four-hundred-and-fortieth.
 
 `crates/pdf-model/examples/group_space_census.rs` is what says this, and the thing that made it say
 anything is printing the *effective* space beside the declared one. 115 of the 974 documents state a
@@ -140,7 +176,8 @@ dictionaries declare `/DeviceCMYK` and 96 groups actually composite in it.
 
 ## How it was priced in the four-hundred-and-fifteenth, and what survived that pricing
 
-**A second raster format is genuinely required, and ADR 0217 gave the wrong reason for it.** The
+**A second raster format was thought to be genuinely required, and ADR 0217 gave the wrong reason
+for it; the requirement itself was withdrawn in the four-hundred-and-twenty-sixth, below.** The
 reason was "a painted group's result is three components"; the number of components has nothing to
 do with it. §11.3.3 under `Normal` is a weighted average — §11.3.6: "the compositing formula
 collapses to a simple weighted average of the backdrop and source colours" — and a convex

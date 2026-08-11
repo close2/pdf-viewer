@@ -2377,7 +2377,7 @@ struct Interpreter<'a> {
     /// three the device raster already holds, which is what this tree composites in; `Some`
     /// names one that is not, and is what gets reported where it is introduced.
     blending: Option<String>,
-    /// Whether the space in force changed anywhere below the page group.
+    /// Whether the space in force changed anywhere below the page group, on the page itself.
     ///
     /// §11.4.7's page group is drawn in its own space by running the page twice, once per half
     /// of its four components (`crate::colour::Half`), and that answers the *page*: a group
@@ -2385,6 +2385,13 @@ struct Interpreter<'a> {
     /// conversion between the two spaces at its `Do`. Where one does, the page is drawn on the
     /// device's components and reported instead — narrowing the page's own condition until it
     /// stopped firing is the failure this flag exists to avoid.
+    ///
+    /// **"On the page itself" is the whole of the four-hundred-and-fortieth session's finding.**
+    /// A *soft mask's* group is not painted onto the page: §11.5.3 composites it against its own
+    /// backdrop and takes one luminosity from the result, which becomes an alpha. So a space
+    /// declared inside one says nothing about the space the page composites in, and
+    /// [`Interpreter::build_soft_mask`] scopes this flag the way it already scoped
+    /// [`Interpreter::blending`]. ADR 0276.
     blending_changed: bool,
     /// Whether any `/ExtGState` on this page states Table 57's `/BG`, `/BG2`, `/UCR` or
     /// `/UCR2`, which §11.7.5.3 puts inside §10.4.2.4's conversion into a `DeviceCMYK` group.
@@ -3823,7 +3830,19 @@ impl Interpreter<'_> {
         // compositing the clause asks for, and the one thing that is not — a blend function,
         // which is not affine — is `note_blended_luminosity`'s report and not this one.
         let saved_blending = self.blending.take();
+        // **And so does the flag that records one**, which it did not until the
+        // four-hundred-and-fortieth session. [`Interpreter::blending_changed`] answers exactly
+        // one question — whether the *page* may be composited in the space §11.4.7 gives it —
+        // and the line above makes every group inside a mask compare its space against `None`,
+        // so a mask group holding an isolated `/DeviceCMYK` group set the flag on a page that
+        // composites in `/DeviceCMYK` and departs from nothing. **77 of the 85 web documents
+        // reported for §11.6.6 and all three of the corpus's were that**, measured by asking
+        // each change its `soft_mask_depth` (ADR 0276). A mask's group is not painted onto the
+        // page at all — §11.5.3 turns its result into one luminosity — so no space inside it
+        // is a space the page composites in.
+        let saved_change = std::mem::replace(&mut self.blending_changed, false);
         self.run(&content, &resources, &inner, 0);
+        self.blending_changed = saved_change;
         self.blending = saved_blending;
         self.compositing = saved_compositing;
         self.uncoloured = saved_uncoloured;

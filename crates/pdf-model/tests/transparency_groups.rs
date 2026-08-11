@@ -1757,3 +1757,112 @@ fn a_non_separable_blend_keeps_a_page_group_on_the_devices_components() {
         "§11.3.5.3's rule for the black component is what is missing: {reported}"
     );
 }
+
+/// What the isolated group object 6 holds, drawn either inside the mask or on the page.
+///
+/// One small opaque grey mark in a corner, away from the pixel the tests below read, because
+/// what these tests are about is where the group is *declared* rather than what it paints.
+const DECLARES_A_SPACE: &str = "0.5 g 0 0 10 10 re f";
+
+/// A one-page fixture that can put one isolated `/DeviceCMYK` group in either of two places.
+///
+/// Object 6 is that group, isolated and stating `/CS /DeviceGray` — one component where the
+/// page composites in four, so it is a departure from the page's space wherever it is drawn.
+/// Both the page's resources and the mask group's name it `/In`, so `mask` and `page` decide
+/// which of the two draws it. Everything else is held fixed: the page group is `/DeviceCMYK`,
+/// object 5 is §11.6.5.1's `/G` with a `/DeviceGray` group of its own, and `/GS` is the
+/// half-opaque state [`HALF_REGISTRATION`] uses.
+fn mask_group_fixture(mask: &str, page: &str) -> Vec<u8> {
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+         /Group << /S /Transparency /CS /DeviceCMYK >> \
+         /Resources << /ExtGState << /GS << /ca 0.5 >> \
+         /GM << /SMask << /S /Luminosity /G 5 0 R >> >> >> \
+         /XObject << /In 6 0 R >> >> /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{page}\nendstream\nendobj\n\
+         5 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] \
+         /Group << /S /Transparency /CS /DeviceGray >> \
+         /Resources << /XObject << /In 6 0 R >> >> /Length {} >>\n\
+         stream\n{mask}\nendstream\nendobj\n\
+         6 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] \
+         /Group << /S /Transparency /I true /CS /DeviceGray >> /Length {} >>\n\
+         stream\n{DECLARES_A_SPACE}\nendstream\nendobj\n",
+        page.len() + 1,
+        mask.len() + 1,
+        DECLARES_A_SPACE.len() + 1
+    );
+    assemble(&body)
+}
+
+/// A group declared inside a soft mask is not a group the page composites in.
+///
+/// §11.5.3 takes a mask group's result apart from the page entirely — it composites the group
+/// against a backdrop of its own and reduces the result to one number:
+///
+/// > The second method of deriving a soft mask from a transparency group shall begin by
+/// > compositing the group with a fully opaque backdrop of a specified colour. The mask value at
+/// > any given point shall then be defined to be the luminosity of the resulting colour.
+///
+/// which §11.6.5.1 then uses as the mask's alpha. So a `/CS` declared inside one is answered by
+/// §11.5.3's own derivation (ADR 0220) and says nothing about the space §11.4.7 gives the page.
+/// Until the four-hundred-and-fortieth session it said everything: `build_soft_mask` cleared the
+/// space in force for the mask's content and left the flag that records a *change* of space set,
+/// so this page was drawn on the device's three components and reported for a conversion nobody
+/// had asked for. **77 of the 85 web documents reported for §11.6.6, and all three of the
+/// corpus's, were exactly this fixture** (ADR 0276).
+///
+/// The measurement is §11.3.4's, per component: an opaque `0 0 0 0 k` under a half-opaque
+/// `1 1 1 1 k` is 0.5 of each of the four inks, and the assumed press's conversion out of the
+/// cube at (½, ½, ½, ½) is the mean of its sixteen corners — (76.0, 66.1, 63.9) of 255.
+#[test]
+fn a_group_declared_inside_a_soft_mask_leaves_the_pages_blending_space_alone() {
+    let drawn = interpret(mask_group_fixture(
+        "/In Do",
+        "0 0 0 0 k 0 0 100 100 re f\n\
+         q /GM gs 0 0 1 0 k 0 0 10 10 re f Q\n\
+         /GS gs 1 1 1 1 k 0 0 100 100 re f",
+    ));
+    assert!(drawn.is_complete(), "{:?}", drawn.unsupported);
+    let painted = pixel(&drawn, 50, 50);
+    for (axis, want) in [76, 66, 64].into_iter().enumerate() {
+        assert!(
+            (i32::from(painted[axis]) - want).abs() <= 1,
+            "half of registration black over paper is the cube's mean: channel {axis} of \
+             {painted:?} against {want}"
+        );
+    }
+}
+
+/// The same group on the page itself keeps the report, which is what makes the test above one.
+///
+/// Trap 5: a population stops being reported because what the clause states is drawn, never
+/// because a condition was narrowed until it stopped firing. §11.6.6 gives an isolated group's
+/// `/CS` effect — "all painting operators shall convert source colours in a colour space (that
+/// are not equivalent to the group colour space) to the group colour space before compositing
+/// objects into the group" — and this tree has no second pair of rasters to composite such a
+/// group in, so a page carrying one is still drawn on the device's components and still says so.
+///
+/// The pixel is the other half of that statement: converting each colour first and averaging on
+/// the device gives 127.5 where the clause's own arithmetic gives 76, which is the 51 of 255
+/// ADR 0251 measured and the whole reason §11.4.7 is drawn rather than approximated.
+#[test]
+fn the_same_group_on_the_page_still_reports_and_still_draws_on_the_device() {
+    let drawn = interpret(mask_group_fixture(
+        "0.5 g 0 0 100 100 re f",
+        "0 0 0 0 k 0 0 100 100 re f\n\
+         q /In Do Q\n\
+         /GS gs 1 1 1 1 k 0 0 100 100 re f",
+    ));
+    let reported = format!("{:?}", drawn.unsupported);
+    assert!(
+        reported.contains("a group inside it composites in a different space"),
+        "a group on the page introduces the space the page does not composite in: {reported}"
+    );
+    let painted = pixel(&drawn, 50, 50);
+    assert!(
+        (127..=128).contains(&painted[0]),
+        "averaging two converted colours on the device gives 127.5 of 255: {painted:?}"
+    );
+}
