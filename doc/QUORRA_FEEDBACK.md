@@ -1412,7 +1412,7 @@ composited in a four-component blending colour space (§11.4.7)"* — the §11.4
 standing in front of section 17's, and this page was never section 16's alone. Both sides
 predicted it and neither had to guess, because the refusals name their clause.
 
-## 17. Four components need two rasters, and one `Scene` renders one — **closed**: answered at `89d7dd77` (it was already true), taken up here in session 439
+## 17. Four components need two rasters, and one `Scene` renders one — **closed**: answered at `89d7dd77` (it was already true), taken up here in session 439, with one more mark on its fixture in session 441 (§17.3)
 
 ISO 32000-2 §11.4.7 puts a colour space under the whole page:
 
@@ -1520,3 +1520,35 @@ raster and (35, 31, 32) only if the second pass happened. Both backends draw it 
 
 **The section is closed.** It asked one question, the answer was yes, and the work it named is
 done.
+
+### 17.3 One more mark on the same fixture, and it is a report rather than an ask — session 441
+
+`four_component_page` gained a **fifth mark** in session 441: an opaque `Hue` over an opaque
+backdrop, both stating four ink components. It is here because ISO 32000-2 §11.3.5.3 gives the
+black component of a subtractive blending colour space a rule that is not the rule it gives the
+other three —
+
+> For the K component, the result shall be the K component of Cb for the Hue , Saturation , and
+> Color blend modes; it shall be the K component of Cs for the Luminosity blend mode.
+
+— and this side had been *reporting* such a page rather than drawing it, on the belief that the
+rule needed a blend function neither raster carries. **It does not.** The black raster is neutral
+in all three of its channels, and on a neutral pair the clause's own `Sat`, `SetSat`, `SetLum` and
+`Lum` return the backdrop for the first three modes and the source for `Luminosity` — the rule,
+term for term, at a worst gap of 1.19 × 10⁻⁷ over 200 000 pairs.
+
+**Nothing is asked of quorra for it**, and that is the point of writing it down: the identity means
+a renderer that implements §11.3.5.3 for three components implements the black component's rule
+with it, and `quorra_scene::BlendMode::Hue` on the second raster is the whole of the translation.
+`cpu_and_quorra_agree_on_a_four_component_page` now asserts the mark at **(12, 88, 90)**, where the
+wrong K would be (19, 138, 141), and it passes — so quorra's shader has the identity as well as
+this side's arithmetic does.
+
+One thing was *considered* and would have been an ask, and is recorded because it was measured
+rather than assumed: stating the rule explicitly instead of deriving it means a blend function
+`B(Cb, Cs) = Cb`, which under §11.3.3 collapses to Porter-Duff **Destination-Over** exactly.
+`quorra_scene::Compose` has `SrcOver`, `Src`, `DestOut` and `Plus` and no member for that operator,
+and no pair of them composes to it — the weight Destination-Over puts on the source is the
+*destination's* alpha, which no source-side operator supplies. That route was dropped, so this is
+**not** a request for `Compose::DestOver`; it is a note that the one place this side would have
+wanted it turned out not to need it. ADR 0277.

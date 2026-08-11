@@ -26,9 +26,12 @@
 
 #![expect(
     clippy::expect_used,
+    clippy::panic,
     clippy::arithmetic_side_effects,
     reason = "test code: a malformed fixture should fail loudly, and this page is 100 units \
-              square where no arithmetic can overflow"
+              square where no arithmetic can overflow. The one `panic!` is `clause_blend_cmyk` \
+              refusing a mode Table 135 does not name, which is a caller's typo and has to be \
+              louder than a wrong colour"
 )]
 #![expect(
     clippy::cast_possible_truncation,
@@ -1080,7 +1083,7 @@ fn page_group_fixture(page_group: &str, form_group: &str, form: &str, page: &str
         "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] {page_group} \
-         /Resources << /ExtGState << /GS << /ca 0.5 /CA 0.5 >> /GH << /BM /Hue >> >> \
+         /Resources << /ExtGState << /GS << /ca 0.5 /CA 0.5 >> /GK << /BG2 /Default >> >> \
          /XObject << /Fm 5 0 R >> >> /Contents 4 0 R >>\nendobj\n\
          4 0 obj\n<< /Length {} >>\nstream\n{page}\nendstream\nendobj\n\
          5 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] {form_group} \
@@ -1151,15 +1154,18 @@ fn the_blending_space_is_the_one_in_force_rather_than_the_one_declared() {
             "/GS gs 1 0 0 RG 0 0 1 rg 10 10 50 50 re B /Fm Do",
         )
     };
-    // The same page with §11.3.5.3's `Hue` over it, which is the one thing on this fixture
+    // The same page with Table 57's `/BG2` set over it, which is the one thing on this fixture
     // that keeps a `/DeviceCMYK` page group *undrawable* — and therefore named. Since the
     // four-hundred-and-twenty-seventh session such a page is drawn (ADR 0263), so the report
-    // stopped being an instrument for "which space is in force" on its own.
+    // stopped being an instrument for "which space is in force" on its own. **This lever was
+    // §11.3.5.3's `Hue` until the four-hundred-and-forty-first**, which draws that too
+    // (ADR 0277); §11.7.5.3's black generation is what is left, and it is a whole-page
+    // condition in the same way.
     let named = |page_group: &str, form_group: &str| {
         probe(
             page_group,
             form_group,
-            "/GS gs /GH gs 1 0 0 RG 0 0 1 rg 10 10 50 50 re B /Fm Do",
+            "/GS gs /GK gs 1 0 0 RG 0 0 1 rg 10 10 50 50 re B /Fm Do",
         )
     };
     let page_cmyk = "/Group << /S /Transparency /CS /DeviceCMYK >>";
@@ -1734,28 +1740,274 @@ fn four_components_this_tree_cannot_sample_are_still_reported() {
     );
 }
 
-/// §11.3.5.3's non-separable modes give the black component a rule of its own.
+/// A page compositing in `/DeviceCMYK` with one opaque `k` fill blended over another.
+///
+/// `mode` is the `/BM` name the upper fill is painted under; `backdrop` and `source` are the
+/// two `k` operands. Both fills are opaque and cover the page, so §11.3.3's compositing
+/// formula runs at `αb = αs = 1` and reduces to `Cr = B(Cb, Cs)` — the pixel this fixture
+/// draws *is* Table 135's blend function, with nothing else in the way of reading it.
+fn non_separable_fixture(mode: &str, backdrop: &str, source: &str) -> Vec<u8> {
+    let page = format!("{backdrop} k 0 0 100 100 re f /GB gs {source} k 0 0 100 100 re f");
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+         /Group << /S /Transparency /CS /DeviceCMYK >> \
+         /Resources << /ExtGState << /GB << /BM /{mode} >> >> >> /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{page}\nendstream\nendobj\n",
+        page.len() + 1,
+    );
+    assemble(&body)
+}
+
+/// ISO 32000-2 §11.3.5.3's `Lum`: `0.3 × Cred + 0.59 × Cgreen + 0.11 × Cblue`.
+///
+/// This block of five functions is the clause's own pseudocode, transcribed here so that the
+/// tests below are held to *it* rather than to `render-cpu`'s transcription of the same thing.
+/// Transliterated rather than quoted because the clause prints these four as images and
+/// `doc/md/` therefore holds `<!-- formula-not-decoded -->` where each one should be.
+fn clause_lum(c: [f32; 3]) -> f32 {
+    0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2]
+}
+
+/// §11.3.5.3's `ClipColor`, which brings a colour back into range about its luminosity.
+fn clause_clip(c: [f32; 3]) -> [f32; 3] {
+    let l = clause_lum(c);
+    let n = c[0].min(c[1]).min(c[2]);
+    let x = c[0].max(c[1]).max(c[2]);
+    let mut c = c;
+    if n < 0.0 {
+        c = c.map(|v| l + (v - l) * l / (l - n));
+    }
+    if x > 1.0 {
+        c = c.map(|v| l + (v - l) * (1.0 - l) / (x - l));
+    }
+    c
+}
+
+/// §11.3.5.3's `SetLum`, giving a colour the luminosity `l`.
+fn clause_set_lum(c: [f32; 3], l: f32) -> [f32; 3] {
+    let d = l - clause_lum(c);
+    clause_clip(c.map(|v| v + d))
+}
+
+/// §11.3.5.3's `Sat`, the largest component less the smallest.
+fn clause_sat(c: [f32; 3]) -> f32 {
+    c[0].max(c[1]).max(c[2]) - c[0].min(c[1]).min(c[2])
+}
+
+/// §11.3.5.3's `SetSat`, giving a colour the saturation `s`.
+fn clause_set_sat(c: [f32; 3], s: f32) -> [f32; 3] {
+    let n = c[0].min(c[1]).min(c[2]);
+    let x = c[0].max(c[1]).max(c[2]);
+    let (mid, max) = if x > n { (s / (x - n), s) } else { (0.0, 0.0) };
+    c.map(|v| {
+        if v <= n {
+            0.0
+        } else if v >= x {
+            max
+        } else {
+            (v - n) * mid
+        }
+    })
+}
+
+/// What §11.3.5.3 says the result of blending two `DeviceCMYK` colours is, end to end.
+///
+/// Both bullets of the clause's CMYK rule, applied where the clause applies them:
+///
+/// > The C , M and Y components shall be converted to their complementary R , G and B
+/// > components by subtracting each from 1.0. The formulae in this subclause shall be applied
+/// > to the RGB colour values. The results shall be complemented back to C , M and Y in the
+/// > same way.
 ///
 /// > For the K component, the result shall be the K component of Cb for the Hue , Saturation ,
 /// > and Color blend modes; it shall be the K component of Cs for the Luminosity blend mode.
+fn clause_blend_cmyk(mode: &str, backdrop: [f32; 4], source: [f32; 4]) -> [f32; 4] {
+    let complement = |c: [f32; 4]| [1.0 - c[0], 1.0 - c[1], 1.0 - c[2]];
+    let (cb, cs) = (complement(backdrop), complement(source));
+    let rgb = match mode {
+        "Hue" => clause_set_lum(clause_set_sat(cs, clause_sat(cb)), clause_lum(cb)),
+        "Saturation" => clause_set_lum(clause_set_sat(cb, clause_sat(cs)), clause_lum(cb)),
+        "Color" => clause_set_lum(cs, clause_lum(cb)),
+        "Luminosity" => clause_set_lum(cb, clause_lum(cs)),
+        other => panic!("not one of Table 135's four: {other}"),
+    };
+    let black = if mode == "Luminosity" {
+        source[3]
+    } else {
+        backdrop[3]
+    };
+    [1.0 - rgb[0], 1.0 - rgb[1], 1.0 - rgb[2], black]
+}
+
+/// The device colour the assumed process inks give one `DeviceCMYK` colour.
 ///
-/// Which is a blend function neither raster has: the pair of passes carries three components
-/// in one and the fourth in the other, and each is composited by the backend's own separable
-/// arithmetic. Reported by name rather than drawn with the chromatic rule applied to black.
+/// The sixteen corners `pdf_model::colour`'s `CMYK_CORNERS` holds, interpolated multilinearly,
+/// which is the conversion §11.4.7 puts *after* the compositing and which
+/// `pdf_render::blending` performs. Written out here so that a test's expectation comes from
+/// the clause plus a stated table rather than from a rendered pixel.
+fn assumed_press(cmyk: [f32; 4]) -> [f32; 3] {
+    const CORNERS: [[f32; 3]; 16] = [
+        [255.0, 255.0, 255.0],
+        [0.0, 173.0, 239.0],
+        [236.0, 0.0, 140.0],
+        [46.0, 49.0, 146.0],
+        [255.0, 242.0, 0.0],
+        [0.0, 166.0, 80.0],
+        [237.0, 28.0, 36.0],
+        [54.0, 54.0, 57.0],
+        [35.0, 31.0, 32.0],
+        [0.0, 15.0, 36.0],
+        [36.0, 0.0, 0.0],
+        [0.0, 0.0, 2.0],
+        [28.0, 26.0, 0.0],
+        [0.0, 19.0, 0.0],
+        [34.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0],
+    ];
+    let mut out = [0.0f32; 3];
+    for (corner, sample) in CORNERS.iter().enumerate() {
+        let weight = (0..4)
+            .map(|axis| {
+                let ink = cmyk[axis].clamp(0.0, 1.0);
+                if corner >> axis & 1 == 1 {
+                    ink
+                } else {
+                    1.0 - ink
+                }
+            })
+            .product::<f32>();
+        for (channel, value) in out.iter_mut().zip(sample) {
+            *channel += weight * value;
+        }
+    }
+    out
+}
+
+/// §11.3.5.3's `Hue` on a page that composites in four components, against the clause's own
+/// arithmetic — including the black component, which is where the clause stops being the
+/// chromatic rule.
+///
+/// The two colours are chosen so that the answer is derivable by hand and so that the K rule
+/// is what decides most of the picture. `Cb` is `1 0 0 0.4 k` and `Cs` is `0 1 0 0 k`:
+///
+/// - Complementing the chromatic three gives `Cb` = (0, 1, 1) and `Cs` = (1, 0, 1).
+/// - `Sat(Cb)` = 1, and `SetSat(Cs, 1)` leaves (1, 0, 1) where it is.
+/// - `Lum(Cb)` = 0.70 and `Lum(Cs)` = 0.41, so `SetLum` adds 0.29 to each component, reaching
+///   (1.29, 0.29, 1.29) — out of range, which is what makes `ClipColor` load-bearing here.
+/// - `ClipColor` scales about `L` = 0.70 by `(1 − L)/(x − L)` = 0.30/0.59, giving
+///   (1.0, 0.4915, 1.0), so the chromatic result is `0 0.5085 0` in ink.
+/// - **The K component is `Cb`'s, which is 0.4**, and no part of the chromatic arithmetic
+///   produced it.
+///
+/// `0 0.5085 0 0.4` through the assumed press's sixteen corners is (161.4, 81.3, 124.2) of
+/// 255. Taking the *source's* K instead — the rule for `Luminosity`, one bullet down — would
+/// be `0 0.5085 0 0`, which is (245.3, 125.3, 196.5): a hundred levels away in two channels,
+/// so this fixture cannot pass by accident.
 #[test]
-fn a_non_separable_blend_keeps_a_page_group_on_the_devices_components() {
-    let blended = interpret(page_group_fixture(
-        "/Group << /S /Transparency /CS /DeviceCMYK >>",
-        "",
-        "",
-        "0 0 0 0 k 0 0 100 100 re f\n\
-         /GH gs 1 1 1 1 k 0 0 100 100 re f",
+fn a_non_separable_blend_takes_the_black_component_from_the_backdrop() {
+    let blended = interpret(non_separable_fixture("Hue", "1 0 0 0.4", "0 1 0 0"));
+    assert!(blended.is_complete(), "{:?}", blended.unsupported);
+
+    let expected = assumed_press(clause_blend_cmyk(
+        "Hue",
+        [1.0, 0.0, 0.0, 0.4],
+        [0.0, 1.0, 0.0, 0.0],
     ));
-    let reported = format!("{:?}", blended.unsupported);
     assert!(
-        reported.contains("non-separable blend mode"),
-        "§11.3.5.3's rule for the black component is what is missing: {reported}"
+        (expected[0] - 161.4).abs() < 0.2
+            && (expected[1] - 81.3).abs() < 0.2
+            && (expected[2] - 124.2).abs() < 0.2,
+        "the hand derivation above is what the clause's own functions produce: {expected:?}"
     );
+
+    let drawn = pixel(&blended, 50, 50);
+    for (channel, (got, want)) in drawn.iter().zip(expected).enumerate() {
+        assert!(
+            (f32::from(*got) - want).abs() <= 2.0,
+            "channel {channel} of §11.3.5.3's Hue over four components: drew {drawn:?}, the \
+             clause says {expected:?}"
+        );
+    }
+    assert_eq!(drawn[3], 255, "both fills are opaque");
+}
+
+/// §11.3.5.3's `Luminosity`, which is the other half of the same bullet: the K comes from the
+/// *source*.
+///
+/// The same two colours the `Hue` test uses, so the difference between the two expectations is
+/// the clause's own sentence and nothing else. By hand: `SetLum(Cb, Lum(Cs))` subtracts 0.29
+/// from (0, 1, 1), reaching (−0.29, 0.71, 0.71); `ClipColor` scales about `L` = 0.41 by
+/// `L/(L − n)` = 0.41/0.70, giving (0, 0.5857, 0.5857) — so the ink is `1 0.4143 0.4143` — and
+/// the K is `Cs`'s **0**, not the backdrop's 0.4.
+#[test]
+fn the_luminosity_mode_takes_the_black_component_from_the_source() {
+    let blended = interpret(non_separable_fixture("Luminosity", "1 0 0 0.4", "0 1 0 0"));
+    assert!(blended.is_complete(), "{:?}", blended.unsupported);
+
+    let expected = clause_blend_cmyk("Luminosity", [1.0, 0.0, 0.0, 0.4], [0.0, 1.0, 0.0, 0.0]);
+    assert!(
+        expected[3] == 0.0 && (expected[1] - 0.4143).abs() < 0.001,
+        "the clause's Luminosity leaves the backdrop's black behind: {expected:?}"
+    );
+
+    let drawn = pixel(&blended, 50, 50);
+    let device = assumed_press(expected);
+    for (channel, (got, want)) in drawn.iter().zip(device).enumerate() {
+        assert!(
+            (f32::from(*got) - want).abs() <= 2.0,
+            "channel {channel} of §11.3.5.3's Luminosity over four components: drew {drawn:?}, \
+             the clause says {device:?}"
+        );
+    }
+}
+
+/// All four of Table 135's modes on a page in four components, against the same transcription.
+///
+/// A different colour pair from the two tests above, and chosen for one reason: `1 0 0 0.4`
+/// over `0 1 0 0` makes `Sat(Cs)` and `Sat(Cb)` both 1, so `SetSat` is the identity there and
+/// `Hue` and `Color` are the same picture. These two saturate differently in both directions,
+/// so the four modes draw four pages — which is what the last loop asserts, because a
+/// construction that folded the four into one would satisfy every other assertion here.
+///
+/// `Luminosity` is also the one that drives a component past 1.0 with this pair, so
+/// `ClipColor`'s second arm is exercised as well as its first.
+#[test]
+fn every_non_separable_mode_agrees_with_the_clause_over_four_components() {
+    let backdrop = [0.2, 0.6, 0.9, 0.4];
+    let source = [0.7, 0.1, 0.3, 0.0];
+    let mut seen: Vec<[f32; 3]> = Vec::new();
+    for mode in ["Hue", "Saturation", "Color", "Luminosity"] {
+        let blended = interpret(non_separable_fixture(
+            mode,
+            "0.2 0.6 0.9 0.4",
+            "0.7 0.1 0.3 0",
+        ));
+        assert!(blended.is_complete(), "{mode}: {:?}", blended.unsupported);
+        let expected = assumed_press(clause_blend_cmyk(mode, backdrop, source));
+        let drawn = pixel(&blended, 50, 50);
+        for (got, want) in drawn.iter().zip(expected) {
+            assert!(
+                (f32::from(*got) - want).abs() <= 2.0,
+                "{mode} over four components: drew {drawn:?}, the clause says {expected:?}"
+            );
+        }
+        seen.push(expected);
+    }
+    for (index, left) in seen.iter().enumerate() {
+        for right in seen.iter().skip(index + 1) {
+            let gap = left
+                .iter()
+                .zip(right)
+                .map(|(l, r)| (l - r).abs())
+                .fold(0.0f32, f32::max);
+            assert!(
+                gap > 1.0,
+                "two of the four draw the same page: {left:?} {right:?}"
+            );
+        }
+    }
 }
 
 /// What the isolated group object 6 holds, drawn either inside the mask or on the page.

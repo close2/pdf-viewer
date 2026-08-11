@@ -24,6 +24,29 @@
 //! > complemented (subtracted from 1.0) before the blend function is applied and the results
 //! > of the function shall then be complemented back before being used.
 //!
+//! **§11.3.5.3's four non-separable modes are carried by the same pair, and the clause's own
+//! split falls exactly where the two rasters already are.** Its auxiliary functions "operate on
+//! colours that are assumed to have red, green, and blue components" — three, which is what
+//! each raster holds — and the CMYK rule is two bullets:
+//!
+//! > The C , M and Y components shall be converted to their complementary R , G and B
+//! > components by subtracting each from 1.0. The formulae in this subclause shall be applied
+//! > to the RGB colour values. The results shall be complemented back to C , M and Y in the
+//! > same way.
+//!
+//! > For the K component, the result shall be the K component of Cb for the Hue , Saturation ,
+//! > and Color blend modes; it shall be the K component of Cs for the Luminosity blend mode.
+//!
+//! The first bullet is the chromatic raster's contents, so a backend's `Hue`, `Saturation`,
+//! `Color` and `Luminosity` see the R, G and B the clause names, with nothing mapped around
+//! them. **The second is not a second rule at all**: the black raster is neutral in all three
+//! of its channels by construction, and on a neutral pair the clause's own four functions
+//! return the backdrop for `Hue`, `Saturation` and `Color` and the source for `Luminosity` —
+//! which is that bullet, term for term. `render-cpu`'s `blend` module states the derivation and
+//! `the_clauses_own_functions_give_the_black_components_rule_on_a_neutral_pair` checks it over
+//! 200 000 pairs. So a page in four components asks a backend for nothing it does not already
+//! do for a page in three.
+//!
 //! The interpreter names the conversion rather than the space, for the reason
 //! [`crate::Color`] gives: a backend never sees a colour space, and sixteen corners are a
 //! table rather than one.

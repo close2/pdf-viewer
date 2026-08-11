@@ -351,10 +351,15 @@ fn a_non_isolated_group_composited_with(blend: pdf_render::BlendMode) -> pdf_ren
 ///   which the cube interpolates to (76, 66, 64) — against the (128, 128, 128) that averaging
 ///   the two *converted* colours gives, 51 of 255 away;
 /// - **the black component alone** is white in the chromatic raster, so (35, 31, 32) is only
-///   reachable if the second render happened.
+///   reachable if the second render happened;
+/// - **§11.3.5.3's `Hue` over four components** is (12, 88, 90), whose K is the *backdrop's*
+///   and whose chromatic half is the clause's own `SetLum(SetSat(…))`. It is the third
+///   because the black raster is neutral and the clause's four functions return the K rule on
+///   a neutral pair — an identity this backend's shader has to have as much as the oracle's
+///   arithmetic does, and this is where it is asked (ADR 0277).
 ///
-/// `render-cpu`'s `four_component_page.rs` derives both from the clause; this asserts the
-/// same two on the graphics device.
+/// `render-cpu`'s `four_component_page.rs` derives all three from the clause; this asserts the
+/// same three on the graphics device.
 #[test]
 fn cpu_and_quorra_agree_on_a_four_component_page() {
     let list = test_scenes::four_component_page();
@@ -383,6 +388,11 @@ fn cpu_and_quorra_agree_on_a_four_component_page() {
     assert!(
         close(black, [35, 31, 32, 255]),
         "the fourth component was drawn: {black:?}"
+    );
+    let blended = at(430, 562);
+    assert!(
+        close(blended, [12, 88, 90, 255]),
+        "§11.3.5.3's Hue over four components, with the backdrop's black: {blended:?}"
     );
 }
 

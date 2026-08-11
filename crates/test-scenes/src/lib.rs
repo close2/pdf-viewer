@@ -486,7 +486,7 @@ const PROCESS_INKS: [[u8; 3]; 16] = [
 ///
 /// # What each mark is for
 ///
-/// Four marks, in page coordinates, and each answers a different question:
+/// Six marks, in page coordinates, and each answers a different question:
 ///
 /// | mark | inks | what it catches |
 /// |---|---|---|
@@ -494,9 +494,30 @@ const PROCESS_INKS: [[u8; 3]; 16] = [
 /// | half registration black, x 80–300, y 500–700 | all four at ½ | the clause itself: per component the pixel is ½ of each ink, and the cube's own average is **(76, 66, 64)**, not the (128, 128, 128) that averaging the two *converted* colours gives |
 /// | process black alone, x 340–520, y 500–700 | k = 1 | a backend that draws the chromatic list and drops the other: this mark is **white** in the chromatic raster and (35, 31, 32) only if the second one was drawn |
 /// | process cyan alone, x 80–300, y 180–380 | c = 1 | the chromatic half, which must survive the recombination unchanged at (0, 173, 239) |
+/// | a `Hue` pair, x 340–520, y 180–380 | 0.2 0.6 0.9 0.4 under 0.7 0.1 0.3 0 | §11.3.5.3 over four components — see below |
 ///
 /// The second row is the arithmetic the fixture exists for, and the third is what tells a
 /// backend that renders one raster from a backend that renders two.
+///
+/// # The fifth row, and what it is the only witness for
+///
+/// §11.3.5.3's four modes are non-separable, so the black component gets a rule of its own:
+///
+/// > For the K component, the result shall be the K component of Cb for the Hue , Saturation ,
+/// > and Color blend modes; it shall be the K component of Cs for the Luminosity blend mode.
+///
+/// Both marks are opaque, so §11.3.3 reduces to `Cr = B(Cb, Cs)` and the pixel *is* the blend
+/// function. The clause's own arithmetic on the complements gives `0.977 0.277 0.511` in ink,
+/// and the K is the backdrop's **0.4**, which the cube converts to **(12, 88, 90)**. Taking the
+/// source's K instead — the rule one bullet down, for `Luminosity` — would be (19, 138, 141),
+/// so this mark cannot pass by accident.
+///
+/// **Nothing is mapped for it in either list.** The black raster is neutral in all three
+/// channels, and on a neutral pair the clause's own `Sat`, `SetSat`, `SetLum` and `Lum` return
+/// the backdrop for `Hue`, `Saturation` and `Color` and the source for `Luminosity` — so a
+/// backend that implements §11.3.5.3 gets the black component's rule with it. That identity is
+/// what this mark holds each backend to, and `render-cpu`'s `blend` module derives it (ADR
+/// 0277).
 ///
 /// # What each backend does with it
 ///
@@ -517,11 +538,13 @@ const PROCESS_INKS: [[u8; 3]; 16] = [
               push an impossible error case onto every caller"
 )]
 pub fn four_component_page() -> DisplayList {
-    /// One ink mark: its rectangle, its four ink components, and the alpha it paints at.
+    /// One ink mark: its rectangle, its four ink components, the alpha it paints at and the
+    /// mode it paints under.
     struct Mark {
         rect: (f32, f32, f32, f32),
         inks: [f32; 4],
         alpha: f32,
+        blend: BlendMode,
     }
 
     let marks = [
@@ -529,21 +552,39 @@ pub fn four_component_page() -> DisplayList {
             rect: (40.0, 100.0, 555.0, 750.0),
             inks: [0.0, 0.0, 0.0, 0.0],
             alpha: 1.0,
+            blend: BlendMode::Normal,
         },
         Mark {
             rect: (80.0, 500.0, 300.0, 700.0),
             inks: [1.0, 1.0, 1.0, 1.0],
             alpha: 0.5,
+            blend: BlendMode::Normal,
         },
         Mark {
             rect: (340.0, 500.0, 520.0, 700.0),
             inks: [0.0, 0.0, 0.0, 1.0],
             alpha: 1.0,
+            blend: BlendMode::Normal,
         },
         Mark {
             rect: (80.0, 180.0, 300.0, 380.0),
             inks: [1.0, 0.0, 0.0, 0.0],
             alpha: 1.0,
+            blend: BlendMode::Normal,
+        },
+        // §11.3.5.3's pair: a backdrop, then a `Hue` over it. Opaque, so the pixel is the
+        // blend function itself and nothing about the alphas can absorb an error.
+        Mark {
+            rect: (340.0, 180.0, 520.0, 380.0),
+            inks: [0.2, 0.6, 0.9, 0.4],
+            alpha: 1.0,
+            blend: BlendMode::Normal,
+        },
+        Mark {
+            rect: (340.0, 180.0, 520.0, 380.0),
+            inks: [0.7, 0.1, 0.3, 0.0],
+            alpha: 1.0,
+            blend: BlendMode::Hue,
         },
     ];
 
@@ -574,7 +615,7 @@ pub fn four_component_page() -> DisplayList {
                 }),
                 clip: None,
                 mask: None,
-                blend: BlendMode::Normal,
+                blend: mark.blend,
             });
         }
         list

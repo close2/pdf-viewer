@@ -19,7 +19,7 @@ features no file exercises.
 ```sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets      # must be silent of lints
-cargo nextest run --workspace               # 1609 tests, 11 skipped
+cargo nextest run --workspace               # 1614 tests, 11 skipped
 cargo test --workspace --doc                # the one doctest nextest does not run
 cargo build --profile gates -p pdf-sandbox --bins   # trap 10: Cargo will not do this for you
 cargo test  --profile gates -p pdf-model      --test corpus          -- --ignored --nocapture
@@ -138,7 +138,12 @@ added **one** net — one refusal test replaced by an agreement test and two mor
 `render-cpu/tests/four_component_page.rs` for §11.4.7's ink against the route it replaces, one in
 `render-gpu`'s headless suite for the refusal that is left there, and two in `render-quorra`'s, one
 of which asks the *scene vocabulary* for a call it declines — **and the gate printed 1609**, so this
-line was not behind for the sixth round running.
+line was not behind for the sixth round running. The four-hundred-and-fortieth added **two** — one
+fixture in `transparency_groups` put in either of two places — and printed **1611**; the
+four-hundred-and-forty-first added **four and removed one**, a net **three** — three fixtures in
+`transparency_groups` held to §11.3.5.3's own pseudocode, replacing the refusal test they make
+false, and one in `render-cpu`'s `blend` for the identity that closed the row — **and the gate
+printed 1614**, so this line was not behind for the eighth round running.
 - **One of those eighteen runs a C compiler**, and it is the only gate in this sequence that does.
   `viewer-ffi::a_c_program_drives_the_abi` builds `crates/viewer-ffi/c/open_a_page.c` against the
   crate's own header with `-Wall -Wextra -Werror`, links it against the `cdylib` — which it asks

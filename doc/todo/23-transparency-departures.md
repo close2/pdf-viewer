@@ -22,8 +22,14 @@ four-hundred-and-fortieth asked the standing row what it contained and 77 of its
 mask** (ADR 0276): the flag that says a group changed the page's blending space was not scoped to
 the page the way the space itself is, so an isolated group inside an `/SMask`'s group took the whole
 page off §11.4.7's ink route. Corpus 68 → 65 incomplete, web 905 → 851, and this row is 85 → 8.
+**The four-hundred-and-forty-first closed §11.3.5.3's row with no code written for it at all**
+(ADR 0277): the rule that clause gives the black component is what its own four functions return on
+the neutral colour the black raster holds, so a backend that implements §11.3.5.3 for three
+components implements it for four. Web 851 → **824** incomplete — 27 of the 31 complete, 4 keeping
+§11.4.4's report — that row 31 → 0, and the refusal it fired from
+was deleted rather than narrowed.
 Priority: 23
-Corpus: 4 documents
+Corpus: 3 documents
 Clauses: §11.3.5.3, §11.4.4, §11.5.3, §11.6.6, §11.7.5.3, §8.6.5.5, §8.6.5.6, §8.6.5.7, §11.7.2,
 §14.11.5
 Code: `crates/pdf-model/src/content.rs`, `crates/pdf-model/src/colour.rs`,
@@ -31,8 +37,8 @@ Code: `crates/pdf-model/src/content.rs`, `crates/pdf-model/src/colour.rs`,
 
 | | corpus | web witnesses | what it is |
 |---|---|---|---|
-| a non-separable blend mode on such a page (§11.3.5.3) | 1 | 1 of 1896, 2 of 4000, 27, 28 → **31 of 65 944** | **the standing item now.** The black component has a rule of its own and neither raster has a blend function that states it. It rose by three in the 440th, and the three are documents that were reported for §11.6.6 and now meet this condition instead — trap 5's honest direction |
-| a group inside the page composites in a different space (§11.6.6) | 0 | 78, 85 → **8 of 65 944** | 77 of the 85 were a mask's group counted as the page's (ADR 0276). A further **30** — 1 in the corpus, `bug1721218_reduced.pdf` — are a group that *introduces* a space on a page that states none |
+| ~~a non-separable blend mode on such a page (§11.3.5.3)~~ | ~~1~~ → 0 | ~~1 of 1896, 2 of 4000, 27, 28, 31~~ → **0** | **closed in the 441st, ADR 0277: the K rule is the clause's own four functions on a neutral pair, which is what the black raster is.** No display-list member, no backend arm, no refusal — the collapse went further than the round set out to take it, and the explicit route it replaced (a `Backdrop` blend function, which is Destination-Over exactly) would have cost the quorra backend all 31 |
+| a group inside the page composites in a different space (§11.6.6) — **the standing item now** | 0 | 78, 85 → **8 of 65 944** | 77 of the 85 were a mask's group counted as the page's (ADR 0276). A further **30** — 1 in the corpus, `bug1721218_reduced.pdf` — are a group that *introduces* a space on a page that states none |
 | an `/ExtGState` states `/BG`, `/BG2`, `/UCR` or `/UCR2` (§11.7.5.3) | 0 | 1 of 1896, 0 of 4000, 7 → **9 of 65 944** | **was silent until the 426th**, and 0 of 4000 could have been read as noise. **All nine state it at `soft_mask_depth` 0**, measured in the 440th, so the monotone flag costs nothing here |
 | a page group whose components are not four this tree can sample | 0 | 14 of 4000, 106 → **5 of 65 944** | what is left after ADR 0272: a `/DeviceGray` or `Lab` page group, or four components with no profile behind them, so §11.3.4 has no formula to apply and no conversion out |
 | ~~the document names the press its `DeviceCMYK` is~~ | ~~0~~ | ~~151~~ → **0** | **closed in the 436th, ADR 0272: the press is a value, and `CMYK_CORNERS` is one of them** |
@@ -48,12 +54,41 @@ narrowing honestly rather than a condition being narrowed (trap 5).
 
 Each remaining one is refused *by name* rather than approximated, and since the four-hundred-and-
 twenty-sixth the name says **which** of the conditions fired. The corpus documents are
-`bug1721218_reduced` for a group that introduces a space, `issue18032` for the non-separable blend,
-and `issue18032`, `knockout_blend_multiply` and `knockout_inner_backdrop` for what §11.4.4 still
-refuses. `personwithdog.pdf` left in the four-hundred-and-twenty-sixth,
-`issue12798_page1_reduced.pdf` and `bug1365930.pdf` in the four-hundred-and-twenty-seventh, and
-`bug1703683_page2_reduced.pdf`, `bug1755507.pdf` and `issue13520.pdf` in the four-hundred-and-
-fortieth, each of which drew them.
+`bug1721218_reduced` for a group that introduces a space, and `issue18032`,
+`knockout_blend_multiply` and `knockout_inner_backdrop` for what §11.4.4 still refuses.
+`personwithdog.pdf` left in the four-hundred-and-twenty-sixth, `issue12798_page1_reduced.pdf` and
+`bug1365930.pdf` in the four-hundred-and-twenty-seventh, and `bug1703683_page2_reduced.pdf`,
+`bug1755507.pdf` and `issue13520.pdf` in the four-hundred-and-fortieth, each of which drew them.
+`issue18032.pdf` lost its **third** report in the four-hundred-and-forty-first and keeps the two
+§11.4.4 and §11.4.6 give it, which is why the corpus count did not move while the picture did.
+
+## The K rule was the RGB rule, evaluated where the K is
+
+**§11.3.5.3 gives the black component of a subtractive blending space a rule of its own** — "[f]or
+the K component, the result shall be the K component of Cb for the Hue , Saturation , and Color
+blend modes; it shall be the K component of Cs for the Luminosity blend mode" — and this file, the
+ledger and the interpreter all called it a blend function neither raster has. **It is not a blend
+function at all** (ADR 0277).
+
+The clause's auxiliary functions "operate on colours that are assumed to have red, green, and blue
+components", which is three, which is what each raster holds. The chromatic raster holds the
+complements the clause's *first* bullet asks for, so `Hue` there is already the clause. The black
+raster is **neutral in all three of its channels**, and on a neutral pair `Sat` is 0, `SetSat(C, 0)`
+takes the clause's own `else` arm, `SetLum` returns the neutral colour of the luminosity it is
+given, and `Lum` of a neutral colour is its level — so `Hue`, `Saturation` and `Color` come to `Cb`
+and `Luminosity` to `Cs`. Worst gap over 200 000 neutral pairs: **1.19 × 10⁻⁷**, one ulp, which is
+the residue of `0.3 + 0.59 + 0.11` not being exactly 1 in binary floating point.
+
+So the round deleted a refusal and added no vocabulary. The explicit alternative was written first
+and withdrawn with its own arithmetic recorded: `B(Cb, Cs) = Cb` under §11.3.3 is Porter-Duff
+**Destination-Over** exactly, `tiny-skia` and `peniko` both have that operator and
+`quorra_scene::Compose` does not — so stating the rule rather than deriving it would have cost the
+quorra backend all 31 documents and bought no pixel.
+
+**What is now load-bearing is that the black raster is neutral**, which `Half::Black` guarantees by
+painting `Color::grey`. A future change that put anything else in its other two channels would
+break §11.3.5.3 silently, which is why the identity has a test on both a CPU and a GPU backend
+rather than a paragraph.
 
 ## The report was the mask's, and the flag was not scoped
 

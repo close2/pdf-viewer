@@ -197,6 +197,36 @@ impl NonSeparable {
     }
 
     /// Table 135's blend function `B(Cb, Cs)`.
+    ///
+    /// # What these four do on a **neutral** pair, and why a whole clause depends on it
+    ///
+    /// §11.4.7's four-component page is drawn as two three-channel rasters, the second of
+    /// which holds the complement of the black component in every channel
+    /// (`pdf_render::blending`, `pdf_model::colour`'s `Half::Black`). §11.3.5.3 gives that
+    /// component a rule that reads like a second blend function:
+    ///
+    /// > For the K component, the result shall be the K component of Cb for the Hue ,
+    /// > Saturation , and Color blend modes; it shall be the K component of Cs for the
+    /// > Luminosity blend mode.
+    ///
+    /// **It is not one.** With both operands neutral it is what the four lines below already
+    /// return, because each of the clause's auxiliary functions degenerates:
+    ///
+    /// - `Sat` of a neutral colour is 0, and `SetSat(C, 0)` takes the `else` arm of the
+    ///   clause's own `if Cmax > Cmin` — its operand is neutral too — and returns black.
+    /// - `SetLum(C, l)` on a neutral `C` adds one offset to three equal components, so the
+    ///   result is the neutral colour of luminosity `l`, and `ClipColor` has nothing to clip
+    ///   because `l` came from a colour already in range.
+    /// - `Lum` of a neutral colour is that colour's level, since the clause's three weights
+    ///   sum to one.
+    ///
+    /// So `Hue`, `Saturation` and `Color` all come to `SetLum(neutral, Lum(Cb))` = `Cb`, and
+    /// `Luminosity` comes to `SetLum(Cb, Lum(Cs))` = `Cs`. That is the bullet, term for term,
+    /// and it means a backend that implements §11.3.5.3 for three components implements the
+    /// black component's rule as well, with no second vocabulary anywhere between the
+    /// interpreter and the raster. ADR 0277;
+    /// [`tests::the_clauses_own_functions_give_the_black_components_rule_on_a_neutral_pair`]
+    /// is the check over 200 000 pairs.
     fn blend(self, backdrop: Rgb, source: Rgb) -> Rgb {
         match self {
             // Table 135: B(Cb, Cs) = SetLum(SetSat(Cs, Sat(Cb)), Lum(Cb))
@@ -502,6 +532,48 @@ mod tests {
             NonSeparable::Luminosity.blend(backdrop, source),
             NonSeparable::Color.blend(source, backdrop),
             "luminosity against colour",
+        );
+    }
+
+    /// §11.3.5.3's rule for the black component is what these four functions already return
+    /// on a **neutral** pair, which is what a four-component page's second raster holds.
+    ///
+    /// > For the K component, the result shall be the K component of Cb for the Hue ,
+    /// > Saturation , and Color blend modes; it shall be the K component of Cs for the
+    /// > Luminosity blend mode.
+    ///
+    /// 200 000 pairs — 500 backdrop levels against 400 source levels, spread over the whole
+    /// range so that the `Lum` weights and `SetSat`'s `if Cmax > Cmin` are met at every
+    /// magnitude rather than at a few round numbers. The bound is the *residue of the three
+    /// weights*: `0.3 + 0.59 + 0.11` is not exactly 1 in binary floating point, so `Lum` of a
+    /// neutral colour is its level times `1 ± 6 × 10⁻⁸` and the identity is exact only up to
+    /// that. Reported as the worst gap seen rather than asserted at an invented tolerance.
+    /// [`super::NonSeparable::blend`] carries the derivation; ADR 0277 carries the consequence.
+    #[test]
+    fn the_clauses_own_functions_give_the_black_components_rule_on_a_neutral_pair() {
+        let mut worst = 0.0f32;
+        for back in 0..500u32 {
+            let b = f32::from(u16::try_from(back).unwrap_or(0)) / 499.0;
+            for src in 0..400u32 {
+                let s = f32::from(u16::try_from(src).unwrap_or(0)) / 399.0;
+                let (backdrop, source) = (rgb(b, b, b), rgb(s, s, s));
+                for (mode, expected) in [
+                    (NonSeparable::Hue, b),
+                    (NonSeparable::Saturation, b),
+                    (NonSeparable::Color, b),
+                    (NonSeparable::Luminosity, s),
+                ] {
+                    let result = mode.blend(backdrop, source);
+                    for channel in [result.r, result.g, result.b] {
+                        worst = worst.max((channel - expected).abs());
+                    }
+                }
+            }
+        }
+        assert!(
+            worst < 1e-6,
+            "the black component's rule is the clause's own functions on a neutral pair: \
+             worst gap {worst:e} over 200 000 pairs"
         );
     }
 

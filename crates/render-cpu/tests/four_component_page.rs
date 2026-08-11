@@ -71,8 +71,10 @@ fn a_four_component_page_composites_in_ink_and_converts_once() {
     let raster = render(&test_scenes::four_component_page());
 
     // Nothing but paper: no ink at all is the cube's first corner, and the medium under it
-    // is white as well, so this pixel says only that the page was drawn.
-    assert_close("paper", pixel(&raster, 450, 592), [255, 255, 255, 255]);
+    // is white as well, so this pixel says only that the page was drawn. Page y 420, the band
+    // between the two rows of marks — it was page y 250 until the four-hundred-and-forty-first
+    // session put the `Hue` pair there.
+    assert_close("paper", pixel(&raster, 450, 422), [255, 255, 255, 255]);
 
     // Half of registration black over paper. Per component the pixel holds ½ of each of the
     // four inks, and the multilinear interpolation of the cube at (½, ½, ½, ½) is the mean of
@@ -96,6 +98,18 @@ fn a_four_component_page_composites_in_ink_and_converts_once() {
         "process cyan alone",
         pixel(&raster, 190, 562),
         [0, 173, 239, 255],
+    );
+
+    // §11.3.5.3's `Hue` over four components, both marks opaque so the pixel is the blend
+    // function itself. The clause's functions on the complements of `0.2 0.6 0.9` and
+    // `0.7 0.1 0.3` give `0.0227 0.7227 0.4893`, which complements back to `0.977 0.277
+    // 0.511` in ink; the K is the **backdrop's** 0.4, which no part of that arithmetic
+    // produced. The cube at those four is (11.8, 87.7, 90.0). Taking the source's K instead
+    // would be (19.2, 137.8, 141.3), fifty levels away in two channels.
+    assert_close(
+        "a non-separable blend over four components",
+        pixel(&raster, 430, 562),
+        [12, 88, 90, 255],
     );
 }
 

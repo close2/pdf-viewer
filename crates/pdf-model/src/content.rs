@@ -4425,10 +4425,19 @@ impl Interpreter<'_> {
 
     /// Why this page cannot be drawn in the blending space it states, or `None` if it can.
     ///
-    /// Four conditions, each of which is a *different* clause asking for something the pair of
-    /// rasters does not carry, and each named rather than folded into the others. The first
-    /// three want a **second colour space** — one the document names, one a group introduces,
-    /// one whose black generation the file states — and only the fourth is about a blend.
+    /// Three conditions, each of which is a *different* clause asking for something the pair of
+    /// rasters does not carry, and each named rather than folded into the others. All three
+    /// want a **second colour space** — one the document names, one a group introduces, one
+    /// whose black generation the file states.
+    ///
+    /// **A fourth was here until the four-hundred-and-forty-first session and it was not a
+    /// second colour space at all**: §11.3.5.3's rule for the black component under Table 135's
+    /// four modes, which this reported as "a blend function neither raster has". It is drawn
+    /// rather than reported since ADR 0277, and nothing was written for it — the clause splits
+    /// a subtractive space's four components along the same line the two rasters already are,
+    /// its chromatic bullet is what [`crate::colour::Half::Chromatic`] holds, and the rule it
+    /// gives the black component is what its own four functions return on the neutral colour
+    /// [`crate::colour::Half::Black`] holds. `render-cpu`'s `blend` module has the derivation.
     fn blending_undrawable(&self) -> Option<&'static str> {
         if let Some(why) = self.blending_beyond {
             return Some(why);
@@ -4443,14 +4452,6 @@ impl Interpreter<'_> {
             return Some(
                 "an /ExtGState states Table 57's black generation or undercolour removal, which \
                  §11.7.5.3 puts inside the conversion into the space",
-            );
-        }
-        if any_command(self.list.commands(), &|command: &Command| {
-            !command.blend().is_separable()
-        }) {
-            return Some(
-                "a non-separable blend mode gives the black component a rule of its own \
-                 (§11.3.5.3), and neither raster has a blend function that states it",
             );
         }
         None
