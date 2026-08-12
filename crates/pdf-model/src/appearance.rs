@@ -3358,32 +3358,40 @@ impl Border {
         let colour = colour(document, source, key)?;
         let entry = document.get_key(annotation, "Border");
         let border = entry.as_array().unwrap_or_default();
-        let radii = [
-            number(document, border.first()).unwrap_or_default(),
-            number(document, border.get(1)).unwrap_or_default(),
-        ];
 
         // Table 166: "If an annotation dictionary includes the BS entry, then the Border entry
         // is ignored." §12.5.4 supplies the default width the two of them share. Errata
         // Collection 3 makes it "shall be ignored" (Issue #287) — the same precedence, stated
         // as a requirement.
-        let (width, style, dash) = if let Some(style) = document.get_key(annotation, "BS").as_dict()
-        {
-            Self::from_style_dictionary(document, style)
-        } else {
-            let width = number(document, border.get(2)).unwrap_or(DEFAULT_BORDER_WIDTH);
-            let fourth = border.get(3).map(|item| document.resolve(item));
-            let dash = fourth
-                .as_ref()
-                .and_then(Object::as_array)
-                .and_then(|values| numbers(document, values));
-            let style = if dash.is_some() {
-                Style::Dashed
+        //
+        // **The corner radii are part of what is ignored, and were read out of `/Border`
+        // whatever `/BS` said until the four-hundred-and-fifty-eighth session.** They are the
+        // one thing Table 166's array states that Table 168 has no entry for, which is what made
+        // reading them beside a `/BS` look like completeness rather than the departure it is: a
+        // `/BS` annotation that also carries `/Border [10 10 1]` is one whose border the standard
+        // says is square, and this drew it round without a word.
+        let (width, style, dash, radii) =
+            if let Some(style) = document.get_key(annotation, "BS").as_dict() {
+                let (width, style, dash) = Self::from_style_dictionary(document, style);
+                (width, style, dash, [0.0, 0.0])
             } else {
-                Style::Solid
+                let width = number(document, border.get(2)).unwrap_or(DEFAULT_BORDER_WIDTH);
+                let fourth = border.get(3).map(|item| document.resolve(item));
+                let dash = fourth
+                    .as_ref()
+                    .and_then(Object::as_array)
+                    .and_then(|values| numbers(document, values));
+                let style = if dash.is_some() {
+                    Style::Dashed
+                } else {
+                    Style::Solid
+                };
+                let radii = [
+                    number(document, border.first()).unwrap_or_default(),
+                    number(document, border.get(1)).unwrap_or_default(),
+                ];
+                (width, style, dash.unwrap_or_default(), radii)
             };
-            (width, style, dash.unwrap_or_default())
-        };
 
         Ok(Self {
             colour,
@@ -3453,10 +3461,22 @@ impl Border {
     /// Appends the path this border's style asks for around a rectangle.
     fn outline(&self, stream: &mut Stream, rect: [f32; 4]) {
         if self.style == Style::Underline {
-            // Table 168: "A single line along the bottom of the annotation rectangle." The
-            // line's width is centred on that edge, as any stroke is on its path.
-            stream.move_to([rect[0], rect[1]]);
-            stream.line_to([rect[2], rect[1]]);
+            // Table 168: "A single line along the bottom of the annotation rectangle", and
+            // §12.5.4's sentence binds this style as much as the rectangular ones: "If present,
+            // the border shall be drawn completely inside the annotation rectangle."
+            //
+            // **This centred the line on that edge until the four-hundred-and-fifty-eighth
+            // session**, on a comment saying a stroke is centred on its path — which is true of
+            // the stroke and says nothing about where the path goes. Half the line fell below
+            // `/Rect`, where [`Constructed::bounded`]'s clip cut it off, so what a reader saw
+            // was an underline half the width the document asked for rather than ink outside
+            // the rectangle. The path is the bottom edge raised by half the width, the same
+            // arithmetic [`Self::inset`] does for the other four styles, and the butt caps a
+            // constructed appearance never changes keep the line's ends on the rectangle's own
+            // sides.
+            let bottom = self.inset(rect)[1];
+            stream.move_to([rect[0], bottom]);
+            stream.line_to([rect[2], bottom]);
         } else {
             stream.rounded_rectangle(self.inset(rect), self.radii);
         }

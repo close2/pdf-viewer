@@ -1639,12 +1639,43 @@ directory away. And `encryption.rs`'s own test comment said the two corpus docum
 "only through `/EFF`", which is how the entry came to look exercised: they reach it through the
 stream's `/Crypt` specifier, and `/EFF` sits beside it doing nothing.
 
+## The blame list's last three, and the first of them was two departures
+
+Run again in the four-hundred-and-fifty-eighth. Of 607 commits, **20 `partial` rows have notes last
+written before commit 110**, and seventeen of them are the ones the four-hundred-and-forty-second
+recorded as read and kept — which is this file's own flaw arriving as predicted, because keeping a
+row edits nothing. **The three that are genuinely unread are §12.5.4, §12.5.6 and §12.5.6.8**, all
+three written in one sitting, all three about annotations.
+
+**§12.5.4 was two silent departures, and neither is a shape the sweeps look for** (ADR 0293):
+
+| sentence | was | is |
+|---|---|---|
+| §12.5.4's "the border shall be drawn completely inside the annotation rectangle" | applied to the four rectangular styles; Table 168's `U` put its path *on* the bottom edge | the edge raised by half the width, the same arithmetic the other four get |
+| Table 166's "[i]f an annotation dictionary includes the BS entry, then the Border entry is ignored" | obeyed for the width, the style and the dash; `/Border`'s corner radii were read whatever `/BS` said | `/Border` is read only where no `/BS` is present |
+
+**The first is worth a shape of its own: a clip absorbed the departure.**
+`Constructed::bounded` clips a link's construction to `/Rect`, so the half of the underline that
+fell outside was cut off rather than drawn — and what a reader saw was a line half the width the
+document asked for. Neither a report, nor a refusal, nor a distance from a reference names that.
+The four subtypes that opt *out* of that clip because their geometry is in default user space
+(§12.5.6.7's `/L`, §12.5.6.9's `/Vertices`, §12.5.6.10's `/QuadPoints`, §12.5.6.13's `/InkList`)
+are exactly the ones where the same mistake would have been visible. **Ask what a bounded
+construction's box is absorbing.**
+
+**The second is a precedence rule losing to an argument from completeness.** The corner radii are
+the one thing Table 166's array states that Table 168 has no entry for, so reading them beside a
+`/BS` looks like taking a value from the only place that supplies it. A precedence rule is not
+about which entry is better informed; it is about which entry is read. `crates/pdf-model/examples/border_precedence_census.rs`
+counted the population before either fix was believed: of 33 781 annotations stating no `/AP`, one
+states a `U` border and none of the six stating both a `/BS` and a non-zero radius is a subtype
+whose border this crate constructs — trap 8, and the fixture is a pair differing only in the `/BS`.
+
 ## What is still owed, named
 
-- **~48 `partial` rows** not yet re-read against the code, of **244** — 32 more went in the
-  four-hundred-and-forty-second, four of which left the population by becoming `implemented`. The
-  number is still an estimate and the blame order is what will retire it: **8 rows whose notes were
-  last written before commit 110 are unread**, and the band from there to commit 300 holds 55 more.
+- **~47 `partial` rows** not yet re-read against the code, of **244**. The blame order is what will
+  retire it: **two rows whose notes were last written before commit 110 of 607 are unread** —
+  §12.5.6 and §12.5.6.8 — and the band from there to commit 300 holds the rest.
 - **The fourteenth sweep's own vocabulary.** Nine of its sixteen hits are rows that *do* name a debt
   in words the sweep does not hold, and §9.3.1 shows the inverse: a row naming a debt it is wrong
   about is invisible to it. Widening the vocabulary makes the first number smaller and the second

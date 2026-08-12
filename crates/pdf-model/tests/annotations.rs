@@ -2116,3 +2116,77 @@ fn table_192s_rollover_icon_is_named_rather_than_drawn() {
         "and the normal icon is still drawn"
     );
 }
+
+/// §12.5.4's underline border is inside the rectangle, not centred on its bottom edge.
+///
+/// Table 168 calls the `U` style "[a] single line along the bottom of the annotation
+/// rectangle", and §12.5.4's own sentence binds it exactly as it binds the four rectangular
+/// styles: "If present, the border shall be drawn completely inside the annotation rectangle."
+/// A stroke straddles its path, so a path *on* the bottom edge puts half the ink below `/Rect`
+/// — which is what this crate drew until the four-hundred-and-fifty-eighth session, on a
+/// comment that described where a stroke sits relative to its path and mistook that for where
+/// the path goes.
+///
+/// **What the reader saw was a thin line rather than ink outside the rectangle**, and that is
+/// worth stating because it is why nothing noticed: `Constructed::bounded` clips a link's
+/// construction to `/Rect`, so the half that fell outside was cut away and a `/W` 4 underline
+/// arrived 2 units thick. A departure that loses half a mark inside a clip looks like a mark.
+///
+/// One corpus document states a `U` border on an annotation with no appearance stream —
+/// `annotation-border-styles.pdf`, whose object 29 is a `/Subtype /Link` with
+/// `/BS << /S /U /W 1 >>` — so the departure was on a real page, half a point of it.
+#[test]
+fn an_underline_border_is_drawn_inside_the_rectangle_rather_than_across_its_edge() {
+    let raster = render(pdf_with(
+        "<< /Type /Annot /Subtype /Link /Rect [20 20 80 60] /C [0 1 0] \
+         /BS << /W 4 /S /U >> >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+
+    // A 4-unit line whose path is the bottom edge raised by half its width covers exactly the
+    // four rows inside the rectangle, and none outside it.
+    assert_eq!(extent(&raster), (20, 20, 79, 23));
+    assert!(!painted(&raster, 50, 19), "below /Rect");
+    assert!(painted(&raster, 50, 20), "the bottom edge itself");
+    assert!(painted(&raster, 50, 23), "the inner limit of a 4-unit line");
+    assert!(!painted(&raster, 50, 24), "just inside the line");
+    assert_eq!(colour_at(&raster, 50, 21), (0, 255, 0), "Table 166's /C");
+}
+
+/// A `/BS` entry ignores `/Border` whole, corner radii included.
+///
+/// Table 166: "If an annotation dictionary includes the BS entry, then the Border entry is
+/// ignored" — sharpened by Errata Collection 3 Issue #287 to *shall be ignored*. Table 168 has
+/// no entry for a corner radius, which is why reading `/Border`'s first two elements beside a
+/// `/BS` looked like completeness; it is a border the standard says is square, drawn round.
+///
+/// The pair is the point: two annotations differing only in whether `/BS` is present, so the
+/// same `/Border [12 12 4]` rounds one corner and is ignored on the other. No corpus document
+/// states both a `/BS` and a non-zero `/Border` radius on an annotation this crate constructs a
+/// border for — 6 do state both, and all 6 are ink annotations, whose mark is `/InkList` — so
+/// this fixture is the only witness there is.
+#[test]
+fn a_border_style_dictionary_ignores_the_border_arrays_corner_radii() {
+    let rounded = render(pdf_with(
+        "<< /Type /Annot /Subtype /Link /Rect [20 20 80 60] /C [0 1 0] /Border [12 12 4] >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+    assert!(
+        !painted(&rounded, 21, 21),
+        "/Border's radii round the corner when nothing overrides them"
+    );
+
+    let square = render(pdf_with(
+        "<< /Type /Annot /Subtype /Link /Rect [20 20 80 60] /C [0 1 0] /Border [12 12 4] \
+         /BS << /W 4 /S /S >> >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+    assert!(
+        painted(&square, 21, 21),
+        "a /BS entry ignores /Border, so the corner is square"
+    );
+    assert_eq!(extent(&square), (20, 20, 79, 59), "still inside /Rect");
+}
