@@ -100,6 +100,14 @@ here:
   `pdf-model`'s rlib and its own test target in one graph, and `-p hayro-compare` on its own has
   nothing to overlap.
 
+- **The quorra gate runs one of two coverage lanes, and the other one is a round's to ask for.**
+  `PDFVIEWER_QUORRA_COVERAGE=gpu` points the same gate at the lane `viewer-ui` switches to past ten
+  times magnification; paired with `PDFVIEWER_QUORRA_SCALE=4` it is the population that lane
+  actually draws for. Both turn the ratchets off, and the run says so. **Two kinds of round owe
+  this run**: one that takes a quorra release, because the release may be entirely inside a lane
+  §2 does not exercise — which `74c4994d` was, and it took 24 refusals off that lane at 4× while
+  moving nothing at all on the default one (ADR 0283) — and one that changes the zoom path.
+
 **The fuzz targets are `doc/verify.md`'s**, and `tools/state.sh counts` says how many there are.
 Three rules bind a round rather than a count:
 

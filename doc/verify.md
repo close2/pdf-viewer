@@ -63,6 +63,15 @@ cargo run --release -p pdf-model --example render_at -- [file.pdf] [page] [scale
 cargo run --release -p render-quorra --example zoom_ladder -- [file.pdf] [page] [out-dir]
   # the two backends compared up a ladder of magnifications and back down, through one device,
   # switching coverage lanes where `viewer-ui` does. `doc/QUORRA_FEEDBACK.md` §11
+PDFVIEWER_QUORRA_COVERAGE=gpu PDFVIEWER_QUORRA_SCALE=4 \
+  cargo test --profile gates -p render-quorra --test corpus -- --ignored --nocapture
+  # §2's quorra gate pointed at the *other* coverage lane — the one `viewer-ui` switches to past
+  # ten times magnification, and the one no gate had ever run over the corpus. Either knob turns
+  # the ratchets off and the run says so; a value that is neither `cpu` nor `gpu` is a panic
+  # rather than a silent default. `PDFVIEWER_QUORRA_SCALE=4` is the interesting pairing, because
+  # the lane exists for magnification: ADR 0283 took its refusals from 36 to 12 there.
+FIRST_FRAME_COVERAGE=gpu cargo run --release -p render-quorra --example first_frame -- [page] [scale]
+  # what the first frame costs that the tenth does not, on either lane (ADRs 0179, 0283)
 cargo run --release -p viewer-gtk --example outline_census -- [file.pdf]
   # how many rows §12.3.3's outline becomes and how many the document's own `/Count` signs ask to
   # be open, which is the number ADR 0244 quotes for the GTK host's tree

@@ -10,7 +10,8 @@
 //! then ten renders of the same page and the same target, each timed, with nothing waited for.
 //!
 //! ```sh
-//! cargo run --release -p render-quorra --example first_frame -- [page] [scale]
+//! cargo run --release -p render-quorra --example first_frame -- [page] [scale] [settle-ms]
+//! FIRST_FRAME_COVERAGE=gpu cargo run --release -p render-quorra --example first_frame
 //! ```
 //!
 //! Readback is included and is the same on every frame, so it cancels out of the *difference*,
@@ -38,8 +39,25 @@ fn main() {
 
     // The device is created *after* the page is interpreted, so that nothing it does on a
     // background thread has had the interpretation to hide behind — the launch path's order.
+    // **Which coverage lane**, because the two are opposite curves and the first frame is where
+    // they differ most: the CPU lane's atlas pays for a tile once per *page* and the GPU lane
+    // has no atlas at all, so a measurement of "the first frame" taken on the default lane says
+    // nothing about the one `pdf-viewer.rs` switches to past `GPU_COVERAGE_MAGNIFICATION`. A
+    // value that is neither is a panic rather than a fallback, for `tests/corpus.rs`'s reason.
+    let coverage = match std::env::var("FIRST_FRAME_COVERAGE")
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "" | "cpu" => quorra_gpu::Coverage::Cpu,
+        "gpu" => quorra_gpu::Coverage::Gpu,
+        other => panic!("FIRST_FRAME_COVERAGE={other}: expected `cpu` or `gpu`"),
+    };
+
     let brought_up = Instant::now();
     let mut backend = render_quorra::QuorraRasterizer::new_headless().expect("an adapter");
+    backend.set_coverage(coverage);
     let bring_up = brought_up.elapsed().as_secs_f64() * 1e3;
 
     // A third argument in milliseconds waits before the first frame, which is the experiment
@@ -63,11 +81,15 @@ fn main() {
     }
 
     println!(
-        "page {} at {scale} ({}x{}) on {}",
+        "page {} at {scale} ({}x{}) on {}, {} coverage lane",
         index.saturating_add(1),
         target.width,
         target.height,
-        backend.adapter_description()
+        backend.adapter_description(),
+        match coverage {
+            quorra_gpu::Coverage::Cpu => "cpu",
+            quorra_gpu::Coverage::Gpu => "gpu",
+        }
     );
     println!("  bring-up          {bring_up:8.2} ms");
     for (nth, ms) in times.iter().enumerate() {

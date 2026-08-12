@@ -125,16 +125,27 @@ project's contract describes.
 
 ## What the lane still does not do
 
+**Two of these three stopped being true while this document said them**, and both were
+overtaken by quorra rather than by anything here — which is what a document about
+somebody else's code does (ADR 0283). They are kept, struck, because the correction is
+worth more than the tidy list.
+
 - **Residue clips take the CPU lane.** A non-rectangular clip multiplies into coverage
   on the CPU, and no pass does that on the device yet. Such commands fall back
   silently and correctly — both kinds of tile share one sheet — so a page full of
   non-rectangular clips gets the CPU lane's cost even under `Coverage::Gpu`.
-- **No atlas stands in front of it.** That is most of why 1× costs what it does, and it
-  is deliberate: a cache keyed on the device transform is exactly what a zoom gesture
-  defeats.
-- **Nothing chooses per *command*.** A page mixing a huge headline with body text gets
-  one lane for the whole frame, chosen from the magnification: the lane is a device
-  setting, not a property of a fill.
+- ~~**No atlas stands in front of it.**~~ One does, since `74c4994d`: a tile the atlas
+  admits *and the page places more than once* is answered from the atlas even under
+  `Coverage::Gpu`. What is left of the sentence is the reason it was written — a cache
+  keyed on the device transform is what a zoom gesture defeats — and that is now the
+  criterion rather than a caveat: the device takes the tiles the atlas will not hold or
+  will not benefit from, which during a zoom is most of them.
+- ~~**Nothing chooses per *command*.**~~ The lane is chosen per command, since
+  `c1f6e2f4` by cost and since `74c4994d` by what the atlas will *do* with the tile —
+  refuse it, hold one it already has, hold one the page places once, or hold one the
+  page places again. `Coverage::Gpu` is now the statement that the device is *available*
+  for a command rather than that it draws every one. The magnification still selects it,
+  in `viewer-ui`, for the reason the cliff above gives.
 
 ## One thing worth knowing about correctness
 
@@ -147,6 +158,21 @@ a quarter-pixel tolerance and a chord cuts inside a convex curve, while the GPU 
 draws the quadratics themselves. If this viewer's comparison harness starts reporting
 differences on curved artwork after a switch, that is the reason, and the CPU backend
 is not the reference to trust on it.
+
+## What the lane does on the corpus
+
+**Nothing measured it here until ADR 0283**, which is the point worth taking from this
+section: the whole document above rests on one dense page and a set of fixtures, and
+`viewer-ui` switches a person onto the lane on the strength of it. The gate that puts a
+backend beside the CPU oracle over 974 real first pages now runs either lane —
+`PDFVIEWER_QUORRA_COVERAGE=cpu|gpu`, `doc/verify.md` — and the ratchets stay on the
+default one, because the two lanes are stated not to draw identical pixels.
+
+The numbers are the ADR's and `doc/QUORRA_FEEDBACK.md` §20's rather than this file's,
+for `CLAUDE.md`'s reason. What belongs here is the shape: at the page's own scale the
+second lane agrees with the oracle on all but a few dozen pages and refuses a handful,
+and **at four times that scale — nearer to where the lane is actually selected — its
+refusals are what move**, not its pixels.
 
 ## Where the numbers came from
 

@@ -9,7 +9,14 @@ and then what the team did about it.
 Each finding below keeps its evidence and carries what closed it, because a feedback document
 that still reads as a complaint after the complaint was answered is worse than no document.
 
-**§19 is the newest, and it is a finding of *yours about us* rather than either side's complaint.**
+**§20 is the newest, and it is the first time this gate has looked at your *other* coverage lane.**
+`74c4994d` is three commits and every line of all three is inside it, so the run that used to answer
+"a quorra release does not move this gate" was answering about a lane the release does not touch.
+Pointed at the one it does: **twenty-four pages that could not be drawn at four times a page's own
+scale now draw, twenty of them agreeing with our CPU oracle**, and nothing went the other way. §20.4
+is the two things that come back to you, neither of them a defect.
+
+**§19 is a finding of *yours about us* rather than either side's complaint.**
 `04c0d23`'s `doc/corpus-profile.md` walked the 995 first pages this gate hands you and reports that
 **not one of them emits a `Command::Rect`** — every rectangle a document draws arrives as a `Fill`
 whose outline happens to be one. That is true and it is ours: `render-quorra`'s translation names
@@ -1705,3 +1712,81 @@ document has been asking for in three sections without naming it: it measured *o
 *your* counters and reported a shape neither side had. The median page being twelve commands and glyph
 reuse being 1.33 rather than 55 are not facts about quorra — they are facts about what this viewer
 hands quorra, and every fixture on both sides was built against a page nobody had counted.
+
+## 20. The second lane, measured against the corpus for the first time — **and `74c4994d` takes 24 refusals off it**
+
+**This section is the answer to a question this document has never asked, because it could not.**
+Every number above §20 was taken on `Coverage::Cpu`: this gate has always run quorra's default
+lane, and the fixtures were the only thing that had ever judged the other one. That is the exact
+shape of this project's own trap 12b — fourteen small scenes said a backend was fine and the first
+real page at a window's size came back blank — and it stood while `viewer-ui` switched a *person*
+onto the GPU lane at ten times magnification.
+
+So the gate now takes `PDFVIEWER_QUORRA_COVERAGE=cpu|gpu`, and this is the first corpus-scale
+statement about the lane. AMD Radeon 890M, RADV, Vulkan, release-grade build, the whole 974.
+
+### 20.1 What the release did, at the page's own scale
+
+| `Coverage::Gpu`, scale 1 | agree | differ | refused |
+|---|---:|---:|---:|
+| `c1f6e2f4` | 904 | 44 | **9** |
+| `74c4994d` | 908 | 44 | **5** |
+
+The four are `bug1703683_page2_reduced.pdf`, `issue12810.pdf`, `issue1905.pdf` and `issue9418.pdf`
+— refused at the old pin for 605, 311, 1324 and 481 megabytes of winding target against a 256 MiB
+budget, and **each now agrees with the CPU oracle**. `6ef954e`'s pane is what did it. You named two
+of the four; the other two are this corpus's.
+
+The differing list is identical at both pins, so nothing left agreement to pay for them. Rasterisation
+went 4.68 s → 6.13 s and **that is the four pages joining the timed set**, not a slowdown: measured
+alone, twice, they are 1.26–1.27 s, leaving 4.86 s against 4.68 beside an oracle column that moved
+2.01 → 2.05 on the same subtraction.
+
+### 20.2 And at four times that scale, which is nearer where the lane is chosen
+
+| `Coverage::Gpu`, scale 4 | agree | differ | refused | median ratio |
+|---|---:|---:|---:|---:|
+| `c1f6e2f4` | 900 | 16 | **36** | 2.87× |
+| `74c4994d` | 920 | 20 | **12** | 2.55× |
+
+**Twenty-four pages the lane could not draw now draw, twenty of them agreeing with the oracle**, and
+not one page went the other way. This is the release's own claim reaching a population it was not
+measured on: at 1× it closes four holes, at 4× twenty-four.
+
+### 20.3 The first frame, on a real page: no effect, and that is consistent with your own table
+
+Page 7 of ISO 32000-2, GPU lane, three samples per cell, milliseconds:
+
+| | frame 1 | frame 10 |
+|---|---|---|
+| `c1f6e2f4`, 596×842 | 21.8 / 20.6 / 15.0 | 4.1 / 7.0 / 4.1 |
+| `74c4994d`, 596×842 | 21.0 / 25.8 / 17.7 | 7.8 / 4.6 / 4.0 |
+| `c1f6e2f4`, 2382×3368 | 44.5 / 55.0 / 44.4 | 36.2 / 25.6 / 29.2 |
+| `74c4994d`, 2382×3368 | 51.8 / 52.4 / 51.2 | 26.6 / 25.7 / 30.5 |
+
+Every band overlaps every other. A page of dense text places each outline many times, which is the
+case `74c4994`'s message says had to stay untouched — so this is the census behaving as documented,
+and it is recorded here so that nobody re-measures it expecting the 2.5–3× and reads a null as a
+regression.
+
+### 20.4 Two things back, and neither is a defect
+
+1. **`transparency_group.pdf`'s worst tile is 31.7 of 255 at 4× on this lane**, against the 1.5 to
+   12.2 your own attribution reports and against `tests/coverage_lanes.rs`'s stated bounds. It is a
+   page that was *refused* before this release, so nothing regressed and there is no earlier value
+   to compare with — which is why this is a question rather than a finding. The other three that
+   moved into *differs* are `bug1743245` (13.7), `issue12295` (16.3) and `issue19971` (14.3). If
+   sixteen samples is the whole explanation, the arithmetic should cap nearer 16 of 255 than 32, and
+   we would rather ask than assume.
+2. **Twelve refusals remain at 4×, and eight of them are yours**: `22060_A1_01_Plans.pdf` over the
+   resource budget at 548 MB, `Test-plusminus.pdf`, `issue14297.pdf`, `issue16287.pdf` and
+   `issue269_2.pdf` over the 256 MiB frame budget by between 4% and 20%, and
+   `bug1703683_page2_reduced.pdf`, `bug1721218_reduced.pdf` and `issue1905.pdf` past the
+   16384×16384 scratch image this adapter allows. Two of those last three are the interesting ones:
+   `bug1703683_page2_reduced.pdf` and `issue1905.pdf` are pages your pane took off the refused list
+   at 1×, and at 4× they come back as a *texture capacity* refusal instead — a different ceiling,
+   reached by the same page. (`bug1721218_reduced.pdf` has been that refusal at every scale and is
+   this corpus's most pathological page by some margin.) Whether the pane can be cut against that
+   ceiling the way it is now cut
+   against the byte budget is your question; the four remaining refusals are ours, and they are
+   §14.2's knockout ask, unchanged.

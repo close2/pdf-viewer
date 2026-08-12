@@ -76,6 +76,43 @@ fn scale() -> f32 {
         .unwrap_or(SCALE)
 }
 
+/// Which of quorra's two coverage lanes to draw with, which `PDFVIEWER_QUORRA_COVERAGE` may
+/// override with `cpu` or `gpu`.
+///
+/// **The default is quorra's own — [`quorra_gpu::Coverage::Cpu`], the scanline rasteriser with
+/// the glyph atlas in front of it — and that is the lane this tree draws every page with.** The
+/// other one exists for magnification: nothing in it depends on the scale, so a frame at 100×
+/// re-uses what a frame at 1× built, and `viewer-ui` switches to it past
+/// `GPU_COVERAGE_MAGNIFICATION`. Which means the lane a person sees when they zoom in has been
+/// judged by fixtures alone — trap 12b's exact shape, one lane over — while this gate, the only
+/// instrument in the tree that puts a backend beside the oracle at the corpus's scale, has never
+/// run it.
+///
+/// Overriding it **skips the ratchets**, for the scale knob's reason and one more: the two lanes
+/// deliberately do not draw identical pixels (quorra's ADR 0016 states the sampled lane's bound
+/// against the exact one), so a list of differing pages is a property of the lane that produced
+/// it.
+/// A value that is neither is a **panic** rather than a fallback: this variable's whole purpose
+/// is to say which lane the numbers below came from, and a typo that quietly measured the
+/// default would be a run reported as the lane it did not use.
+#[expect(
+    clippy::panic,
+    reason = "a mistyped lane must stop the run: the alternative is a survey headed `gpu` \
+              that measured the default"
+)]
+fn coverage() -> quorra_gpu::Coverage {
+    match std::env::var("PDFVIEWER_QUORRA_COVERAGE")
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "" | "cpu" => quorra_gpu::Coverage::Cpu,
+        "gpu" => quorra_gpu::Coverage::Gpu,
+        other => panic!("PDFVIEWER_QUORRA_COVERAGE={other}: expected `cpu` or `gpu`"),
+    }
+}
+
 /// How far a page may sit from the oracle before it is counted as differing.
 ///
 /// Three numbers because they catch different failures, and they are `real_pages.rs`'s own
@@ -348,6 +385,7 @@ fn every_corpus_page_agrees_with_the_cpu_oracle() {
         return;
     };
     let scale = scale();
+    let coverage = coverage();
     let only = std::env::var("PDFVIEWER_QUORRA_ONLY").ok();
     let files = selected(files, only.as_deref());
 
@@ -358,7 +396,8 @@ fn every_corpus_page_agrees_with_the_cpu_oracle() {
         ..quorra_gpu::Options::default()
     })
     .unwrap_or_else(|e| panic!("no adapter available for quorra: {e}"));
-    announce(&quorra, files.len(), scale);
+    quorra.set_coverage(coverage);
+    announce(&quorra, files.len(), scale, coverage);
 
     let started = Instant::now();
     let mut agreed = 0usize;
@@ -441,16 +480,7 @@ fn every_corpus_page_agrees_with_the_cpu_oracle() {
         started.elapsed(),
     );
 
-    // Compared exactly: the ratchets were measured at exactly this scale, so anything else —
-    // however near — is a different measurement.
-    let rescaled = (scale - SCALE).abs() > 0.0;
-    if only.is_some() || rescaled {
-        println!(
-            "{} of the corpus at scale {scale}. The ratchets below are NOT checked: they are \
-             measured over the whole corpus at scale {SCALE}, and a list held to equality \
-             over anything else would report every document it excluded as fixed.",
-            files.len()
-        );
+    if !ratchets_apply(files.len(), scale, coverage, only.is_some()) {
         return;
     }
     assert_eq!(refused, REFUSED, "the pages quorra refuses have changed");
@@ -461,14 +491,56 @@ fn every_corpus_page_agrees_with_the_cpu_oracle() {
     );
 }
 
+/// Whether the ratchets below the survey are checked, saying why when they are not.
+///
+/// They are measured over the whole corpus, at [`SCALE`], on quorra's default coverage lane —
+/// exactly, because a measurement taken anywhere else is a different measurement — so each of
+/// the three knobs turns them off. A list held to equality over a subset would report every
+/// document the filter excluded as fixed, and a list held over the *other* lane would report
+/// the two lanes' stated difference (quorra's ADR 0016) as a change in this backend.
+fn ratchets_apply(
+    documents: usize,
+    scale: f32,
+    coverage: quorra_gpu::Coverage,
+    filtered: bool,
+) -> bool {
+    let rescaled = (scale - SCALE).abs() > 0.0;
+    let other_lane = coverage != quorra_gpu::Coverage::Cpu;
+    if !(filtered || rescaled || other_lane) {
+        return true;
+    }
+    println!(
+        "{documents} of the corpus at scale {scale} on the {} lane. The ratchets below are NOT \
+         checked: they are measured over the whole corpus at scale {SCALE} on the default lane, \
+         and a list held to equality over anything else would report every document it excluded \
+         as fixed.",
+        lane_name(coverage)
+    );
+    false
+}
+
+/// What to call a lane in a line a person reads.
+fn lane_name(coverage: quorra_gpu::Coverage) -> &'static str {
+    match coverage {
+        quorra_gpu::Coverage::Cpu => "cpu",
+        quorra_gpu::Coverage::Gpu => "gpu",
+    }
+}
+
 /// Says which adapter and which build produced the numbers below them.
 ///
 /// Both matter to every number this gate prints: a software adapter and a discrete GPU are
 /// different machines, and a debug build is ~15× slower here.
-fn announce(quorra: &QuorraRasterizer, documents: usize, scale: f32) {
+fn announce(
+    quorra: &QuorraRasterizer,
+    documents: usize,
+    scale: f32,
+    coverage: quorra_gpu::Coverage,
+) {
     println!("adapter: {}", quorra.adapter_description());
     println!(
-        "{documents} documents, page one, at scale {scale}, {} build",
+        "{documents} documents, page one, at scale {scale}, {} coverage lane, {} build",
+        lane_name(coverage),
         if cfg!(debug_assertions) {
             "debug"
         } else {
