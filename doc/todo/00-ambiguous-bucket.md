@@ -2,9 +2,15 @@
 
 Status: **standing task**, since the hundred-and-seventy-sixth session. **0 names left**, from 754.
 Priority: 00 — the last large population where a defect can live without a name
-Corpus: 786 ambiguous pages (750 on documents we call complete); **all 786 diagnosed, 0 held by name**
-— and the 72 this line used to say was `wc -l` of a file with a twelve-line header, corrected in the
-three-hundred-and-seventeenth session by counting what the gate counts
+Corpus: 786 ambiguous pages (**754** on documents we call complete); **all 786 diagnosed, 0 held by
+name** — and the 72 this line used to say was `wc -l` of a file with a twelve-line header, corrected
+in the three-hundred-and-seventeenth session by counting what the gate counts. **This parenthesis
+said 750 for 140 commits and the gate prints 754**, read off it in the four-hundred-and-forty-fifth.
+Where the four went was not chased and does not need to be: the *ambiguous* total has been 786
+throughout, and only the complete/incomplete split moves — which is what a report arriving on or
+leaving a page already in this bucket does, and several rounds in this block did that. The lesson is
+the one the test count taught: a number a round does not print is a number from the last round that
+did.
 
 Code: `crates/pdf-model/tests/oracle.rs`, `crates/pdf-model/tests/ambiguous_undiagnosed.txt`
 

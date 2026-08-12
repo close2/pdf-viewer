@@ -97,13 +97,20 @@ cargo run --release -p pdf-model --example spec_annotation_census -- doc/*.pdf
   # what the fourteen specification PDFs' annotations are, which is what the Markdown conversion
   # under doc/md/ dropped: 12 545 annotations, 11 462 of them in ISO 32000-2, and in three of the
   # documents they are the *errata* — 434 strikeouts over 4038 words (ADR 0252). Also what §14.7
-  # gives, and the number that bounds it: `Tree::walk` stops at 65 536 items and that tree is larger
+  # gives. **The number that used to bound it is gone**: this line said `Tree::walk` stops at 65 536
+  # items and that tree is larger, which stopped being true in the four-hundred-and-twenty-first —
+  # `MAX_ELEMENTS` is 2^20 and ISO 32000-2's tree is 129 389 items in 151 ms (ADR 0257). What is
+  # still 65 536 is `MAX_CHILDREN`, a bound on one element's children rather than on the tree
 cargo run --release -p spec-errata -- census doc/*.pdf   # the same counts by subtype and §12.5.6.2 role
 cargo run --release -p spec-errata -- emit   doc/*.pdf > doc/errata.md   # gitignored: it is the spec
 cargo run --release -p spec-errata -- check  doc/*.pdf
   # the two questions that follow: how many struck passages doc/md/ still presents as current text
-  # (79), and which rustdoc quotations quote a passage struck out of the clause they cite (3, all
-  # fixed in the four-hundred-and-sixteenth). **Never a gate**: the conformance checker has to keep
+  # (**151**) and which quotations quote a passage struck out of the clause they cite (**27** —
+  # blockquote 8, ledger 9, prose 10), with 75 more landing in another clause. Both numbers printed
+  # in the four-hundred-and-forty-fifth and unmoved for eleven rounds. **This comment said 79 and
+  # "3, all fixed in the four-hundred-and-sixteenth"** — the 79 became 151 in the very next round,
+  # when the comparison stopped keeping whitespace (ADR 0253), and the 3 was never the whole
+  # population. **Never a gate**: the conformance checker has to keep
   # comparing quotations against a conversion this project did not make, and this parses fourteen
   # PDFs in 6.4 s. ADR 0252
 cargo run --release -p render-gpu --example frame_split -- [file.pdf] [page] [scale]
@@ -155,7 +162,10 @@ cd fuzz && cargo +nightly fuzz run page -- -runs=50000 -fork=6 -rss_limit_mb=409
   #   find corpus-cache/safedocs doc/corpora doc/pdf.js/test/pdfs -name '*.pdf' -print0 \
   #     | xargs -0 python3 fuzz/seed_page.py fuzz/corpus/page
   # 1882 seeds under the target's own 256 KiB ceiling, `cmin` to 1535, **28 535 edges** against the
-  # best of the other thirteen at 6483. The script prints what the seeds *state* — 100 with a
+  # best of the other thirteen at 6483. `doc/todo/02` carries the current numbers, and one of them is
+  # a warning: the corpus is 39 012 files now and libFuzzer merges it once per run, which is about
+  # **50 minutes** of the four-hundred-and-forty-fifth's 77. `cargo fuzz cmin page` once would write
+  # the reduced ~9000 back and nothing has spent that merge. The script prints what the seeds *state* — 100 with a
   # `/Function`, 58 with a `/Shading`, 62 with a `/Pattern` — because a corpus that states none
   # seeds nothing about §8.7.4.5.
   # **It is the slow one, and the flags say why.** Interpreting a page under the sanitiser is
@@ -191,12 +201,17 @@ cd fuzz && cargo +nightly fuzz run confined_wire -- -runs=1000000 -rss_limit_mb=
   # but a *process*: `pdf-view-worker` runs hostile files behind seccomp and writes its answers to
   # a host that is not confined. **Seed its corpus first**, with `fuzz/seed_confined_wire.py` —
   # a second implementation of the frame layer, which spawns the release worker and keeps every
-  # payload it wrote: 83 of them from five documents and all 25 questions. Unseeded it never gets
+  # payload it wrote: 83 of them from five documents and 25 of the 29 questions (see below). Unseeded it never gets
   # past a one-byte discriminant into an outline's tree or a thumbnail's samples:
   #   cargo build --release -p viewer-confined --bins
   #   python3 fuzz/seed_confined_wire.py target/pdf-view-worker fuzz/corpus/confined_wire \
   #     doc/PDF20_AN002-AF.pdf doc/PDF-Declarations.pdf doc/ISO_32000-2_sponsored_EC3.pdf \
   #     doc/PDF20_AN001-BPC.pdf doc/pdf.js/test/pdfs/issue15716.pdf
+  # **The seeder covers 25 of the transport's 29 questions and stops at discriminant 25.** Four
+  # arrived after it was written — `Offset` and `FieldSelection` (26, 27, ADR 0225), `Fields` (28,
+  # ADR 0235) and `FreeTextAt` (29, ADR 0238) — so their payloads have never been seeded, which the
+  # four-hundred-and-forty-fifth found by counting `query_kind` against `QUERIES`. Adding them is
+  # four lines of `fuzz/seed_confined_wire.py` and a re-seed
 cd fuzz && cargo +nightly fuzz run cms          -- -runs=50000   # §12.8.3.3's signature value:
   # `pdf_model::der`'s X.690 reader and `pdf_model::cms`'s RFC 5652 SignedData, the tree's only
   # ASN.1. **Seed its corpus** with the eleven `/Contents` blobs the nine signed corpus documents
@@ -243,13 +258,18 @@ subtype breakdown** comes free from the corpus gate's own output:
 `grep -o 'Annotation { detail: "[^"]*"' | sort | uniq -c`.
 
 The oracle's first run on a fresh build directory is ~95 s and writes 319 MB of remembered
-reference renders; every run after it is ~30 s. **Read the printed hit rate rather than the
+reference renders; **a warm run was ~30 s when that was written and is 102 s in the
+four-hundred-and-forty-fifth**, at the same 99.7% hit rate over a 1.6 GB cache and with the machine
+otherwise idle. **Read the printed hit rate rather than the
 clock** — and it is the tell for something outside this tree: session 166 saw it at 85.7% on an
 unchanged corpus, which was `poppler` being upgraded on this machine and every cached
-`pdftoppm` render becoming a new key. Nothing about the verdicts moved. Of that ~30 s, ~23 s is the three external renderers at a 99.7% hit rate; the rest is
-ours — roughly 600 s of processor time over 24 cores on our own render, the comparison and the
-artefacts. **If 30 s ever becomes the constraint, that is where to look and not at the
-subprocesses.** `PDFREF_CACHE=off` asks the three renderers again — how "the cache changes no verdict" is
+`pdftoppm` render becoming a new key. Nothing about the verdicts moved. **The clock is now ours
+rather than the subprocesses'**: the run prints *271 s ours, 90 s in the three reference renderers*
+over 24 cores, where the ~30 s era's split was ~23 s of subprocess. The corpus gate (3.2 → 5.0 s) and
+quorra's (25.1 → 39.0 s) moved by about the same factor, which points at the
+three gates' common half — every one of the 974 first pages rasterised, and §11.4.7 drawing a
+four-component page twice since ADR 0262. **If the clock ever becomes the constraint, that is where to
+look and not at the subprocesses.** `PDFREF_CACHE=off` asks the three renderers again — how "the cache changes no verdict" is
 re-checked; `PDFVIEWER_ORACLE_ONLY=a,b` compares only matching pages in 0.2 s and refuses to check
 the ratchets, saying so. `PDFVIEWER_CORPUS_TRACE=1` names each document as it starts, which is how
 a hang is identified from a killed run.

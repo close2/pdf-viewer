@@ -7,14 +7,17 @@ session** (ADR 0203). **Item 2 is finished**: its clause was taken in the three-
 is painted with. **Item 3's structural half is finished as well**: §11.4.6's shape closed in the
 three-hundred-and-ninety-seventh (ADR 0234) and §11.4.4's non-isolated group in the four-hundredth
 (ADR 0237), so **the two NOTE 5 lines this file prints are expected to be gone** — which is now a
-check rather than a question, the third time this file has turned one into the other. What is left
-of item 3 is §11.4.7's `/DeviceCMYK` blending space, which is `doc/todo/23`'s one standing
-population with this document as its witness — **and §11.4.7 turned out to be the right clause for
-a reason nobody had checked**: the four-hundred-and-fifteenth session found that a group's own
-`/CS` takes effect only where the group is isolated, so it is the *page* group that decides, and
-the entry was read nowhere in this tree until that session (ADR 0251). Whether this catalogue's
-four reports were groups or its page is therefore a question the owner's run answers and no gate
-here can. Measured in the three-hundred-and-thirty-sixth, from a
+check rather than a question, the third time this file has turned one into the other. **And item 3 is finished too, in four more rounds**: §11.4.7's `/DeviceCMYK`
+blending space was `doc/todo/23`'s one standing population with this document as its witness, and
+the four-hundred-and-fifteenth found the entry had been read nowhere in this tree — a group's own
+`/CS` takes effect only where the group is isolated, so it is the *page* group that decides (ADR
+0251). The four-hundred-and-twenty-sixth then drew the page in the space it states (two rasters, not
+a raster format — ADR 0262), the four-hundred-and-twenty-seventh gave §11.7.2 the conversion *into*
+it (ADR 0263), the four-hundred-and-thirty-sixth made the press the document's own (ADR 0272), and
+the four-hundred-and-fortieth found that a *soft mask's* group had been counted as a group the page
+composites in (ADR 0276). **So every departure this file printed is now expected to be gone**, and
+the whole file has become one check the owner's run performs and no gate here can — including
+whether this catalogue's four reports were its groups or its page. Measured in the three-hundred-and-thirty-sixth, from a
 document the project owner opened and the notes it printed.
 Priority: 28
 Corpus: **0** — and that is the point. This is a real document from outside the pdf.js corpus, and

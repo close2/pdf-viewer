@@ -47,8 +47,12 @@ here:
 - **`cargo nextest` is a user-local install** — `cargo install cargo-nextest --locked`, or the
   prebuilt from `https://get.nexte.st/latest/linux` into `~/.cargo/bin`. Without it,
   `cargo test --workspace` is exactly the same gate at three times the wall clock, and that is
-  what CI runs. `nextest` skips doctests, which is why the line after it is there: 1550 + 1 = the
-  **1551** `cargo test --workspace` reports. (This line said 1314 until the
+  what CI runs. `nextest` skips doctests, which is why the line after it is there: 1619 + 1 = the
+  **1620** `cargo test --workspace` reports. **This arithmetic said 1550 + 1 = 1551 until the
+  four-hundred-and-forty-fifth ran the gate and read 1619 off it** — the sum was seven rounds behind
+  while the *test count* two lines above it was current, which is the shape to watch: a round that
+  copies the gate's own number into the line it is told to update leaves the derived number beside it
+  untouched. (This line said 1314 until the
   three-hundred-and-eighty-eighth, which counted the tree with `nextest list` before and after its
   own seven and found the number two behind — the count is the gate's and not this file's. It said
   **1398** until the four-hundred-and-second, which added six tests to a gate that printed 1410:
@@ -149,13 +153,24 @@ printed 1614**, so this line was not behind for the eighth round running. The fo
   this line was not behind for the ninth. The four-hundred-and-forty-fourth added **three** — two in
   `render-cpu`'s `scan` for a clip restated six times and for two boundaries in one pixel, and one in
   its `clip_bands` for the same clause drawn rather than composed — **and the gate printed 1619**, so
-  this line was not behind for the tenth.
-- **One of those eighteen runs a C compiler**, and it is the only gate in this sequence that does.
+  this line was not behind for the tenth. **The four-hundred-and-forty-fifth added none** — a closing
+  round that re-ran every gate whole and wrote no test — **and the gate printed 1619 again**, which is
+  what this line is supposed to say when nothing moved.
+- **One of those fourteen commands runs a C compiler**, and it is the only gate in this sequence
+  that does — this said "one of those eighteen" from the four-hundred-and-eleventh, which wrote it,
+  until the four-hundred-and-forty-fifth counted the block and found fourteen lines, which is what it
+  has always had.
   `viewer-ffi::a_c_program_drives_the_abi` builds `crates/viewer-ffi/c/open_a_page.c` against the
   crate's own header with `-Wall -Wextra -Werror`, links it against the `cdylib` — which it asks
   cargo to build, because `cargo test` does not — and runs it on a document. It **skips** where
   there is no `cc` or `gcc`, printing why: a machine without a C compiler cannot run it, and
   failing there would make the gate a coin toss. CI has one, so on CI it is not a skip.
+  **A C++ compiler runs too and is not a gate**: `clippy --workspace` and `test --workspace` build
+  `viewer-qt`, whose `build.rs` compiles `cxx-qt`'s generated bridge, and on a **cold** build that
+  prints six `cargo:warning=` lines beginning `viewer-qt@0.1.0:` — `-Wmaybe-uninitialized` inside
+  `rust::cxxbridge1::Vec<T>::Vec()`. They are **gcc's, about generated code, and not clippy lints**,
+  and a warm build prints none of them, which is exactly what makes them easy to read as a
+  regression. Seen and checked in the four-hundred-and-forty-fifth.
 - **Line 28 is two gates since the four-hundred-and-twenty-third**, and it gained the second one
   without gaining a line: `-- --ignored` runs every ignored test in that binary, and
   `the_text_we_draw_agrees_with_pdfboxs_frozen_extraction` is one. It compares 40 documents against
@@ -181,22 +196,38 @@ disk **32 040 are under the target's 256 KiB ceiling and 34 986 are over it**. C
 **28 535 edges at session 428's seeding → 32 671 after session 430's 51 324 iterations →
 33 625 on this round's corpus and 34 119 after 33 217 more units**, with 0 crashes, 0 out-of-memory
 and 0 timeouts, and it is the fifth target that needs its corpus seeded, for
-`sfnt`'s reason one layer up (ADR 0264). **What 38 331 seeds cost is worth knowing before running
+`sfnt`'s reason one layer up (ADR 0264). **The four-hundred-and-forty-fifth ran it whole and it is
+still clean**: 39 012 seeds merged to **9072** of distinct coverage, then **50 045 iterations over
+six forks in 4595 s**, ending at **34 551 edges, ft 190 263, corpus 9890**, with **0 crashes, 0
+out-of-memory and 0 timeouts**. **What that corpus costs is worth knowing before running
 it**: libFuzzer's fork mode merges the corpus before it fuzzes, one execution per seed, and that
 took **48 minutes** in the four-hundred-and-thirty-third — reducing 38 331 files to **8703** of
-distinct coverage — against session 430's few minutes on 8572. A round with an hour rather than
-three should `cmin` first or pass a smaller `-runs`. **And `cargo-fuzz` is installed and always was**; it is in
+distinct coverage — against session 430's few minutes on 8572, and **about 50 of the
+four-hundred-and-forty-fifth's 77 minutes**. A round with an hour rather than
+three should `cmin` first or pass a smaller `-runs`. **The merge is now most of the cost and it is
+paid every time**, because nothing writes the reduced set back: `cargo fuzz cmin page` once would
+take `fuzz/corpus/page` from 39 012 files to about 9000 and make the stated invocation an hour's
+job rather than an afternoon's. It costs one more merge to do and no round has spent it.
+**And a `slow-unit-` artefact is the sanitiser's, which is checkable rather than assumed**: that
+round's run left **19** new ones (28 → 47 in `fuzz/artifacts/page/`, and **no** crash, leak or
+out-of-memory), and two of the largest render in **0.79 s and 0.70 s** under
+`examples/render_at` against a release build. **And `cargo-fuzz` is installed and always was**; it is in
 `~/.cargo/bin`, which is not on `PATH`, which is what two rounds read as its absence.
 
-**Twelve fuzz targets, not five** — the handover's list had never included `object` and
-`document`, `sfnt` arrived in the two-hundred-and-forty-first, `xmp` in the two-hundred-and-ninety-fourth, `fragment` in the three-hundred-and-sixty-ninth, **`confined_wire` in the three-hundred-and-eighty-sixth** — the confined viewer's four decoders, whose input is a *process* rather than a document (ADR 0223) — and **`x509` in the three-hundred-and-ninety-second**, the signer's certificate and the RSA arithmetic that runs on the key inside it (ADR 0229), seeded by `fuzz/seed_x509.py`. A round that touches a parser
+**Fourteen fuzz targets, not five** — the handover's list had never included `object` and
+`document`, `sfnt` arrived in the two-hundred-and-forty-first, `xmp` in the two-hundred-and-ninety-fourth, `cms` in the three-hundred-and-seventy-seventh — §12.8.3.3's `SignedData` through the tree's only ASN.1 reader (ADR 0215) — `fragment` in the three-hundred-and-sixty-ninth, **`confined_wire` in the three-hundred-and-eighty-sixth** — the confined viewer's four decoders, whose input is a *process* rather than a document (ADR 0223) — **`x509` in the three-hundred-and-ninety-second**, the signer's certificate and the RSA arithmetic that runs on the key inside it (ADR 0229), seeded by `fuzz/seed_x509.py` — and **`page` in the four-hundred-and-twenty-eighth** (ADR 0264), the paragraph above. A round that touches a parser
 runs the one that covers it; a round that touches `pdf-font`'s glyph-table repairs runs `sfnt`
 **with its corpus seeded**, because unseeded it never forms a table directory and tests nothing.
+**This paragraph opened "Twelve fuzz targets, not five" for seventeen rounds after the paragraph
+above it said fourteen**, and never named `cms` at all — corrected in the four-hundred-and-forty-fifth,
+which ran all fourteen.
 
-`doc/verify.md` has the rest — `cargo deny`, the fourteen fuzzers, the two cross-target checks, the
+`doc/verify.md` has the rest — `cargo deny`, the fourteen fuzzers, the five cross-target checks, the
 callgrind counters and the census examples — and says which of them a change needs. **This sentence
 said "the five fuzzers" while the paragraph above it said twelve**, and the three-hundred-and-ninety-fifth
-corrected it while moving the list out of `doc/HANDOVER.md`.
+corrected it while moving the list out of `doc/HANDOVER.md`; **it said "the two cross-target checks"
+while `doc/verify.md` listed five**, corrected in the four-hundred-and-forty-fifth, which ran all
+five.
 
 ## 3. Leave the ledger non-`unreviewed`
 
@@ -312,14 +343,17 @@ sources in the three-hundred-and-eighty-fifth. That was 31 s a round in the wron
 `/home/AI/cargo-target/pdf-viewer` was **311 GB** in the three-hundred-and-eighty-fifth session,
 and a *clean* tree is 17 GB of dev artefacts plus about 1 GB per release-grade profile. The rest
 is superseded output that Cargo on stable has no command to remove — `cargo clean --gc` is
-nightly-only. So it is swept by hand, and `target/tmp/` is what the sweep must **not** take:
+nightly-only. So it is swept by hand, and `target/tmp/` is what the sweep must **not** take.
+**It was 94 GB when the four-hundred-and-forty-fifth measured it**, below the threshold, so that
+round owed no sweep and ran none:
 
 ```sh
 du -sh /home/AI/cargo-target/pdf-viewer
 rm -rf /home/AI/cargo-target/pdf-viewer/{debug,release,gates}   # never tmp/ — see below
 ```
 
-`target/tmp/pdfref-cache` is the reference-render cache (ADR 0020), **1.5 GB**, and deleting it
+`target/tmp/pdfref-cache` is the reference-render cache (ADR 0020), **1.6 GB** in the
+four-hundred-and-forty-fifth, and deleting it
 costs the next oracle run about a thousand seconds of `pdftoppm`, `mutool` and `gs`. `cargo clean`
 takes the whole directory including that, which is why the sweep names its subdirectories instead.
 Run in the three-hundred-and-eighty-fifth: **334 GB → 8.1 GB**, the cache untouched.

@@ -1,10 +1,13 @@
 # Confine the interpreter and the rasteriser
 
 Status: **built, answers every question, stoppable, and not yet where a person would meet it.** The
-confined process exists, draws real pages (ADR 0218) and carries all twenty-eight questions —
-twenty-five since the three-hundred-and-eighty-sixth (ADR 0223) and §12.7's form since the
-three-hundred-and-ninety-eighth (ADR 0235); a hostile document has a cancel since the
-four-hundred-and-fourth (ADR 0241). What is left is that the window does not use it.
+confined process exists, draws real pages (ADR 0218) and carries all **twenty-nine** questions —
+twenty-five since the three-hundred-and-eighty-sixth (ADR 0223), the caret's inverse and a field's
+selected range since the three-hundred-and-eighty-eighth (ADR 0225), §12.7's form since the
+three-hundred-and-ninety-eighth (ADR 0235) and §12.5.6.6's free text at a point since the
+four-hundred-and-first (ADR 0238); a hostile document has a cancel since the
+four-hundred-and-fourth (ADR 0241). **This line said twenty-eight until the
+four-hundred-and-forty-fifth counted them.** What is left is that the window does not use it.
 Priority: 34
 Clauses: —, this is `CLAUDE.md` principle 3
 Code: `crates/viewer-confined`, `crates/pdf-sandbox/src/lockdown.rs`

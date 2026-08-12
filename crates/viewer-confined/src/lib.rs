@@ -31,11 +31,12 @@
 //!
 //! Two messages therefore never cross, and both because the confined side answers them itself:
 //! [`viewer_core::Event::NeedsRender`] and [`viewer_core::Command::RenderReady`]. **Everything
-//! else crosses**, including all twenty-five questions — the eleven a panel is made of since the
-//! three-hundred-and-eighty-sixth session (ADR 0223). What is left of [`Uncarried`] is those two
-//! and three contents an *answer* can hold that this build cannot name; each is refused **by
-//! name**, which is the difference between a boundary that is incomplete and one that is quietly
-//! wrong.
+//! else crosses**, including all twenty-nine questions — the eleven a panel is made of since the
+//! three-hundred-and-eighty-sixth session (ADR 0223), and four more since: `Offset` and
+//! `FieldSelection` (ADR 0225), `Fields` (ADR 0235) and `FreeTextAt` (ADR 0238). What is left of
+//! [`Uncarried`] is those two and three contents an *answer* can hold that this build cannot name;
+//! each is refused **by name**, which is the difference between a boundary that is incomplete and
+//! one that is quietly wrong.
 //!
 //! # What the host still owns
 //!

@@ -8,9 +8,10 @@ Traps, in `doc/habits.md` or in the todo file that owns the work, rather than he
 `doc/HANDOVER.md`'s last section until the three-hundred-and-ninety-fifth moved it out: it is
 narrative by that file's own definition, and a round needs it only when it is asking *when*.
 
-The block summary below it is the same shape one level up — what a run of twenty rounds had in
-common — and it is kept because it states a finding the per-session rows cannot. The one
-measurement lesson that block carried went to `doc/habits.md`'s "Measuring", where it is used.
+The block summaries below it are the same shape one level up — what a run of twenty or thirty rounds
+had in common — and they are kept because each states a finding the per-session rows cannot. The one
+measurement lesson the first of them carried went to `doc/habits.md`'s "Measuring", where it is used.
+A closing round writes one; there are **two**, for 315–334 and for 416–445.
 
 | Session | What landed | Where |
 |---|---|---|
@@ -455,6 +456,7 @@ measurement lesson that block carried went to `doc/habits.md`'s "Measuring", whe
 | 442 | **The reading list was in `git blame` all along.** `doc/todo/01`'s headline is a reading job and its fourteen sweeps are not it: a sweep reads a row's *reason* — a blocker, a capability, a retired string, an unread key — and the population the file exists for is a note whose reason quietly expired, which states none of those. Session 437 could say ~80 of 248 rows were never re-read and not **which**. **`git blame` says which**: twenty lines that attribute each row's `note = ` line to the commit that last wrote it and index it into `git log --reverse`, resting on a convention this project already keeps — every re-reading session records itself *in the note it corrected* — so an untouched note is the closest thing to an unread row that is checkable per row. Of 590 commits, **40 `partial` rows had notes older than commit 110**; **32 were read, opening the code and the clause for each, and fourteen were wrong** with a fifteenth found beside them. **§11.6 is the longest-lived stale claim this project has recorded: 424 sessions** — "a graphics-state soft mask is reported; transparency groups are the silence", both built in the two sessions *after* the note was written, past §9.3's 365 and §12.5.6.19's 364. Beside it §11.4.1 said a group as a soft mask's source was "still reported rather than built" (ADR 0027, session 18) and §11.3.7 said the shape/opacity distinction was "absent" (ADR 0234 states it). **Clause 11's rows are clean now and the blame order says why they had not been**: those three are the only ones whose notes predate commit 90, and every other row in the clause has been rewritten in the last ninety by the rounds that built groups, the knockout shape, the page group and the press — a family under work is a family whose rows are maintained. §8.9.3 said "only 1- and 8-bit components are unpacked" while `tests/bit_depths.rs` opens by saying that is what it *replaced*, and §8.9.1 carried the same sentence deferring to it while §8.9's parent three lines above said "all five"; §9.8.3 and §9.8.3.1 both said Table 122's four entries were "none of which is read" while `/Style`'s PANOSE picks a substitute and `/FD`'s classes are read — written by the session that wrote §9.8.3.2's and §9.8.3.3's rows and never carried up; §12.5 said "no annotation responds to input, and §12.6's actions are not read". **§8.9.6.2 was quoting ISO 32000-1**: "the effect is to smooth the edges of the image", called "a recommendation", where this standard's §8.9.6.2 is a `shall` about a different noun — "the effect shall be to smooth the edges of the mask, not to interpolate the painted colour values" — met by construction, since a stencil's cleared samples are `[0, 0, 0, 0]` and both backends premultiply before they filter. **Two rows turned into decisions.** §7.6.6 was `partial` because "no embedded file's bytes are ever read", false since `Command::Extract`, so Table 20's `/EFF` was read by nothing and a document writing `/StmF /Identity` beside a cipher in `/EFF` handed its attachment back as **ciphertext, silently**; `stream_method` reads it now, after the stream's own `/Crypt` specifier and before `/StmF`, which is the entry's own order. The fixture is `encrypted-attachment.pdf` **with one entry blanked to spaces** — no document exercises `/EFF` alone and a synthetic one would encrypt with the algorithms under test — and both halves of Table 20's sentence are asserted, which is what separates reading the entry from refusing every attachment. And §12.5.6.13 said `/Path` "supersedes it as the table requires": **Table 185 requires nothing of the kind**, marking `/InkList` "(Required)" flatly where §12.5.6.9's Table 181 does state it of `/Vertices` — the row had borrowed the neighbour's rule with the neighbour's code. The behaviour stands and is labelled a choice, with the test the row said it lacked. Four rows to `implemented`, ledger 875 at 406/248/18/82/8/113 → **410/244/18/82/8/113**. Every page gate unmoved and checked rather than assumed: corpus 974 with **65** incomplete, oracle 1794 at 1693/101 with **905/68/786** and all seven verdict counts identical, quorra **917/35/5/17**, text 99.2% (24007/24191), dates 1514/1545, XMP 318/1, JPEG 2000 14, `spec-errata` **151/27** unchanged with none of the round's own quotations landing. Tests 1614 → **1616**. | [ADR 0278](adr/0278-the-reading-list-is-the-blame-order.md) |
 | 443 | **Two pages that were the harness's crop, and a clip that multiplies its own edge.** The contradicted list, worked a fourth time, and for the fourth time the *diagnosis* was the defect rather than the page: every one of the oracle's 1794 per-page lines is byte-identical before and after this round. **`CONTRADICTED_PAGE_ROUNDING` is empty and it was never about rounding.** It had held `colorkeymask.pdf` and `issue21346.pdf` since the sixth session on "we and `ghostscript` produce a raster of one size while `poppler` and `mupdf` produce one a pixel wider"; `examples/render_at` at scale 1 says our own rasters are **596 x 842** and **179 x 179** — `poppler`'s and `mupdf`'s sizes — because `TargetSpec::for_page` rounds a fractional page *up*, which §10.7.4's row has said since the sixty-first session. What was being read is `<stem>-p<n>-ours.png`, **our raster after `normalise::to_common_size` cropped it to the smallest voting reference's size**, sitting beside reference PNGs the cache wrote uncropped; checked rather than argued, `magick compare -metric AE` = 0 between our own render cropped to that size and the artefact, on both pages. Trap 1 arriving in an instrument, and the note is now where the file is *written* as well as where it was misread. **`colorkeymask.pdf` is §10.7.4's image paragraph carried out against the consensus.** One 200 x 267 image at one device pixel per source sample; ours is byte-identical to `ghostscript` over the whole 595 x 842 raster and `poppler` — voting with `mupdf` — differs from both on **942 pixels of 500 990**, three one-pixel columns and one row. Device row 17's centre is outside the region, so the clause paints nothing there and we paint nothing there; device column 78's centre maps to source sample 60, which the file's own uncompressed bytes state as `(0, 255, 0)`, and `poppler` paints `(130, 201, 77)` — neither sample. "[T]here shall not be averaging over the pixel area", at the one placement where ADR 0025's departure has nothing to average. `CONTRADICTED_IMAGE_SAMPLE_AT_THE_PIXEL_CENTRE`, the list's second entry where the specification answers against the two renderers that agree. **`issue21346.pdf` is six coincident clip boundaries multiplied**, and it names a paragraph neither `oracle.rs` nor §10.7.4's ledger row had ever cited: a clipping region is "the set of pixels that would be included by a fill operation" and a later mark gets "the intersection of the set of pixels". A ladder written for it — one fill under **n** `W n` clips of the same rectangle — reads **0.5025, 0.2487, 0.1218, 0.0609, 0.0305, 0.0152**, each rung the one above it halved. The page states that rectangle six times (a `W n`, three `/BBox` clips, the mark's own path, a §11.6.5.2 mask group's) and its edge is painted at **0.041** where the geometry is 0.827 and the clause is 1.000; `poppler` and `ghostscript` give 1.000, `mupdf` 0.755, `hayro` 0.327. **§10.7.4's fourth departure**, named with its price rather than fixed: `min` is what a set intersection asks for and is never below the product, but only the clip chain is this tree's to compose, three of the six factors would survive, the verdict would not move, and `render-quorra` multiplies too while `render-cpu` is the oracle. **And the ranking's own head came off with a closed form.** `issue15716.pdf` at **3.10 from the nearest against 3.92 from the furthest** — the tightest ratio on the list that is not a link border — is sixteen ZapfDingbats card suits, and every renderer paints the area *its own* font program states to a fifth of a percent: ours **12 511.9 px²** against `FoxitDingbats`' 12 520.7, `poppler` 15 294.5 against `D050000L`'s 15 282.0, with **identical advances** (626, 694, 595, 776, Adobe's published metrics) and one of the four glyphs shared outright. So `CONTRADICTED_SUBSTITUTED_FONT`'s three mechanisms are now three measured sizes: a substituted serif costs nothing measurable, a substituted sans costs `/CapHeight` (5.7%), a substituted symbolic face costs **a quarter of its ink** and nothing at all in placement. Step 7 over the contradicted list reproduces session 431's head to the thousandth, twelve pixel-moving rounds later. Citations 6543 → **6554**, quotations 628 → **630**, tests **1616** unmoved; corpus 65 incomplete, oracle 905/68/786 over 1693/101, quorra 917/35/5/17, text 99.2% and 99.8%, dates, XMP and JPEG 2000 all as the table says. ADR 0279, `doc/todo/11` item 4 |
 | 444 | **A clip is a set, and a set intersected with itself is itself.** ADR 0279 measured a fourth departure from §10.7.4 and left it standing; this round read the clause again and one of the three reasons for waiting turned out to be a reason to move. §10.7.4 states clipping as an intersection of two *sets* of pixels, and §8.5.4 says what that does to a value — "The effective shape is the intersection of the object's intrinsic shape with the clipping path; the source shape value shall be 0.0 outside this intersection" — so a clip zeroes what is outside it and is silent about what is inside it. **Neither clause chooses between `min` and a product on its own**, and saying so is the honest half: on a set-valued clip the two are the same function, and the question exists only because this tree anti-aliases. What decides is that a product moves further from the clause with every restatement, in the direction the same subclause's "area covered by painted pixels shall always be at least as large as the area of the original shape" forbids, while `min` is exact for coincident and nested boundaries and never *below* the product elsewhere. `scan::mask_intersect` fills a scratch mask and takes the smaller of the two coverages where it called `tiny_skia::Mask::intersect_path` before. The ladder of *n* coincident `W n` clips went **0.5020, 0.2510, 0.1255, 0.0627, 0.0314, 0.0157** to flat at 0.5020, and `issue21346.pdf`'s edge went **0.041 to 0.163** of the mark — three of its six statements are the chain the mark draws under, so two factors come out and the fourfold is what 0.5020 predicts. **The page stays contradicted** (similarity 0.9734 to 0.9781 against a bound of 0.9900), which ADR 0279 predicted before the change: two of the four factors that remain are the *same sentence* one step along — `tiny-skia` multiplies the finished mask into the mark's own coverage — and reaching them needs this backend's own blitter. The sixth is §11.6.5's alpha and is a product the standard states. **Every gate reproduced**: the corpus's 65 incomplete, the oracle's 905/68/786 with 22 per-page lines moving in the third decimal place and no verdict changing, both text gates, and quorra's 917/35/5/17 **line for line**, which is the strongest thing this round has to say about changing the correctness oracle's rasteriser. Step 7's negative tail is byte-identical over all 786 ambiguous pages. It costs **+0.19%** of the rasteriser on a page of text and buys **8.75%** on the corpus's heaviest clip page, because a chain now allocates one scratch mask rather than one per link. The two backends now compose clips by two different rules and no gate can see it, which is `QUORRA_FEEDBACK.md` §18 rather than a silence. ADR 0280 |
+| 445 | **Every gate whole, and twenty-eight numbers that were never printed.** The closing round of the block of thirty. **Every count reproduced**: tests 1619/11 skipped and one doctest, corpus 974 with 65 incomplete, oracle 1794 at 1693/101 with 905/68/786 and the undiagnosed list empty, quorra 917/35/5/17, text 99.2% (24007/24191) and PDFBox 99.8% (14257/14281), dates 1514/1545, XMP 318/1 with 3191 properties, JPEG 2000 14, conformance 6559/631/219 over 875 rows at 410/244/18/82/8/113. **Everything `doc/verify.md` holds beyond §2 was run and passed**: `cargo deny` on all four checks, all **five** cross-target checks under `-D warnings`, `pdf-sandbox` in release, the fuzz workspace's own `rustfmt` and `clippy`, **all fourteen fuzz targets** at their stated counts with **0 crashes, 0 leaks and 0 out-of-memory** — `page` at 50 045 iterations over six forks in 4595 s, 39 012 seeds merged to 9072 of distinct coverage and 34 551 edges, leaving 19 `slow-unit-` artefacts that render in 0.79 s and 0.70 s in release — `spec-errata check` at 151 and 27, and the window under `Xvfb` at 122.6 ms to the first present with five page turns at 9.2–16.1 ms. **What moved is prose.** Twenty-eight claims in eleven files were false — nine documents and two rustdoc comments — none of them a defect in the program and none of them visible to any gate — a gate ratchets a count and reads no sentence. The four that had stood longest: `doc/todo/README.md` said §10.5's transfer function *is ignored* and is the ledger's first `silent` row **eighty-seven rounds** after it was implemented; the same index carried *5 names* in the ambiguous bucket sixty-six rounds after it emptied; the confined transport carries **twenty-nine** questions and five places said twenty-eight, uncounted since §12.5.6.6's arrived in the four-hundred-and-first; and `doc/HANDOVER.md`'s own not-implemented table said **24 codes over 8 documents** reach no glyph in silence where the gate prints **5 over 2**. **Three timings roughly doubled and are recorded rather than diagnosed** — oracle 51.5 → 102.0 s, quorra 25.1 → 39.0 s, corpus 3.2 → 5.0 s, which are the three gates that rasterise all 974 first pages. **One claim is left standing deliberately**: `CLAUDE.md` says seven of Annex O's eleven `shall`s are carried out and four reported, where `doc/todo/39` and the ledger say eight and three since the four-hundred-and-fourteenth — that file is the owner's and the correction is theirs to make. Block summary for 416–445 appended | — |
 
 ## The twenty rounds from the three-hundred-and-fifteenth
 
@@ -511,3 +513,95 @@ and in this file.
 interface's font cannot set), `oc_usage_census` (which of Table 100's categories the corpus asks
 for — six documents, and `Zoom` not once), and `readback` (what a page reads back as, which is the
 direction the text gate is silent about and the only way to judge a rule that could invent text).
+
+## The thirty rounds from the four-hundred-and-sixteenth
+
+**What the thirty have in common is one sentence, and it is about the denominator rather than about
+the tree:**
+
+> **The corpus that ranks the work stopped being the corpus that measures it.**
+
+`CLAUDE.md`'s "Two questions, two denominators" was written as a warning. This block is the first
+one where the two instruments visibly answer different questions, and the numbers say it without
+interpretation:
+
+- **The oracle did not change a single verdict in thirty rounds.** 905 agree / 68 contradicted /
+  786 ambiguous entering the block and 905 / 68 / 786 leaving it, over the same 1794 pages, with
+  only the complete/incomplete split moving (1690 / 104 → 1693 / 101). Four rounds (427, 432, 440,
+  441) re-ran it before and after their own work and diffed the 1794 *lines* rather than the
+  summaries; the four-hundred-and-forty-fourth moved 22 of those lines and **none changed verdict**.
+- **What moved is the web.** 65 944 crawled documents and 93 GB arrived in the
+  four-hundred-and-thirty-third, and the incomplete count went **1144 → 1138 → 905 → 851 → 824**
+  across four whole re-surveys — 1.735% of the web to 1.25%, against the 974's 6.7%. **Three** of
+  `doc/todo/23`'s standing rows were closed on evidence **no pdf.js document carries** — the press a
+  document names (436), a group inside a soft mask (440) and §11.3.5.3's black component (441) — and
+  each of the three was ranked by the web and by nothing else.
+- The corpus gate moved 68 → 70 → 69 → 68 → **65** over the same thirty rounds — four movements, and
+  three of them a *report* arriving or leaving rather than a mark that changed.
+
+**The five largest findings, in the order the block found them:**
+
+1. **The copy of the standard this project checks itself against carries text the standard struck
+   out** (416–418; ADRs 0252, 0253, 0254). The fourteen PDFs under `doc/` hold 12 545 annotations,
+   11 462 of them in ISO 32000-2, and in three documents the annotations *are* the errata — 434
+   strikeouts over 4038 words. `doc/md/`, which the conformance gate reads, dropped every one of
+   them, so **151 struck passages verify as the standard's current words**. Three clauses had been
+   implemented from retired text: §12.5.2's `/BM` on a stored appearance, §14.13.5's `/MCAF`, and
+   §7.8.3's first step for a Type 3 glyph description's resources. `spec-errata check` printed 151
+   and 27 in the four-hundred-and-forty-fifth, unmoved for eleven rounds.
+2. **The world is not the corpus, and it has a rate** (422, 425, 430, 433; ADRs 0258, 0261, 0266,
+   0269). Three submodules and a fetcher that refuses a plan in bytes, then 1896 documents, then
+   4000, then all **65 944**. The archives turned out to be **hash buckets rather than crawl
+   neighbourhoods** — a member's number and its SHA-256 as a fraction of 2²⁵⁶ agree to 2.6 × 10⁻⁴ —
+   so the stratification rule the item prescribed was withdrawn by its own first sample.
+3. **The first crasher and the first hang, both out of files nobody wrote on purpose** (425, 433).
+   A 696-byte document whose §7.10.4 stitching function names its own object overflowed the stack of
+   a *shipped* binary; a `OnceLock` initialiser that calls rayon was handed a job that re-entered it
+   on the initialising thread and hung three archives. **Nothing in the tree could have found the
+   first**, and the four-hundred-and-twenty-eighth asked the linker rather than arguing: `nm` finds
+   `pdf_model::interpret` in **one** of the thirteen fuzz binaries. `page` is the fourteenth target
+   and the answer (ADR 0264).
+4. **Transparency: six rounds, and in five of them the clause's own algebra collapsed a construction
+   somebody had priced** (426, 427, 436, 439, 440, 441; ADRs 0262, 0263, 0272, 0275, 0276, 0277).
+   §11.3.4 applies the compositing formula *per component*, so four components are two rasters and
+   not a raster format. §11.7.5.3 names the conversion's **target** rather than its algorithm, so it
+   sits on §10.3's branch and is a right inverse of the ink cube. §14.11.5's Table 401 names `A2B`
+   for a screen, so the press a document names needs neither an ICC engine nor a `B2A`. §11.5.3
+   reduces a mask group to one luminosity, so **77 of 85** web witnesses were never the clause the
+   report named. And §11.3.5.3's auxiliary functions "operate on colours that are assumed to have
+   red, green, and blue components", so a backend that implements the clause for three implements it
+   for four — the four-hundred-and-forty-first **deleted a refusal and wrote no code**. The
+   population went from 398 web documents to **52**.
+5. **The instrument was wrong more often than the picture** (431, 442, 443; ADRs 0267, 0278, 0279).
+   `CONTRADICTED_PAGE_ROUNDING` had held two pages since the sixth session and was never about
+   rounding. §11.6's ledger note was stale for **424 sessions**, the longest-lived false claim this
+   project has recorded, and the reading list that found it was in `git blame` all along — order the
+   `partial` rows by the commit that last wrote each `note =` line and read from the top.
+
+**And one thing this block did not do**, written down because a block summary is where a false
+memory sets: **it built no host.** GTK4, Qt 6 and the C ABI are the *previous* block's (408, 410,
+411), and the only new consumer here is a program rather than a person — `tools/pdf-retrieve` in the
+four-hundred-and-twenty-first, JSON on stdout over readers that already existed (ADR 0257). What the
+hosts got in these thirty rounds was surface and correction.
+
+**What the project knows now that it did not thirty rounds ago:**
+
+- **What its own specification substrate is worth.** `doc/md/` is a conversion this project did not
+  make, it is lossy in a way that changes clauses, and the errata are recoverable from the PDFs
+  themselves. `tools/spec-errata` is the sidecar, deliberately not a gate.
+- **What share of real files it draws.** 1.25% of 65 944 crawled documents report something, and the
+  974's rate is four to five times that because a bug-report corpus is assembled from failures.
+- **That a fuzz target is only as good as the code its binary contains**, which is a question for
+  `nm` and not for a list of file names — and that `cargo-fuzz` had been on this disk the whole time
+  two rounds (425, 426) spent recording its absence, because `which` answers a question about `PATH`.
+- **That the transparency clauses are cheaper than they read.** Five constructions were priced and
+  none was needed; the pattern is strong enough that the next §11 refusal should be re-derived from
+  the clause before anybody estimates it.
+- **That `pdf_syntax::Document` being `!Sync` was never the blocker it was called** (424, ADR 0260):
+  N documents in N threads needs nothing from that crate, and the parallel search is declined on
+  **memory** — 966 MB against 225 — rather than on a lock.
+
+**The block's own arithmetic**, all of it read off the gates in the four-hundred-and-forty-fifth
+against the four-hundred-and-fifteenth's recorded numbers: tests **1493 → 1619**, citations
+**6032 → 6559**, quotations **576 → 631**, ledger **400 implemented / 252 partial → 410 / 244** over
+875 unmoved rows, quorra **912 / 36 / 9 / 17 → 917 / 35 / 5 / 17**, and **29 ADRs** (0252 to 0280).

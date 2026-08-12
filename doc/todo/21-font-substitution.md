@@ -2,7 +2,12 @@
 
 Status: reported at runtime; four distinct gaps — the first still **empty of witnesses**, the second unchanged, the third **characterised, fixed and re-measured** (ADR 0270), the fourth measured and declined.
 Priority: 21
-Corpus: 40 documents
+Corpus: 40 documents. **The corpus gate's own two silence lines, read in the
+four-hundred-and-forty-fifth**: `codes reaching no glyph *in silence*: 5 over 2 documents`
+(`issue14821.pdf` 3, `issue4650.pdf` 2) and `codes reaching a glyph the font draws blank: 57 over
+9 documents` — the split ADR 0270 drew, and the first of the two is what §3 below is about.
+`doc/HANDOVER.md`'s not-implemented table said **24 over 8** for that first line until that round
+read the gate.
 Clauses: §9.10.2, §9.7.4.2, §9.6.2.2, §9.6.5.4, §9.8.1, §9.8.3
 Code: `crates/pdf-font/src/substitute.rs`, `crates/pdf-font/src/lib.rs`, `crates/pdf-model/src/content.rs`
 

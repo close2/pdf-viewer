@@ -2715,7 +2715,7 @@ mod tests {
     /// Every question `viewer-core` states, encoded and read back.
     ///
     /// **The list used to have two halves** — what crossed and what was refused by name — and the
-    /// second half is empty since the three-hundred-and-eighty-sixth session. All twenty-eight are
+    /// second half is empty since the three-hundred-and-eighty-sixth session. All twenty-nine are
     /// here, written out rather than generated, so that a question added to `viewer-core` makes
     /// `encode_query`'s match fail to compile and somebody then notices there is no round trip
     /// for it.

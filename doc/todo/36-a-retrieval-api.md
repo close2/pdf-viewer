@@ -44,7 +44,7 @@ carets including the `BM, ` that ADR 0253 found this tree implementing from reti
 
 ## The pipe: one message, not a transport
 
-`viewer-confined`'s length-prefixed stdio transport carries all twenty-eight questions and is fuzzed
+`viewer-confined`'s length-prefixed stdio transport carries all twenty-nine questions and is fuzzed
 at 13 M executions, so **no second transport was built and none should be**. What is missing is a
 *vocabulary* entry rather than a channel: `viewer_core::Query` has no "this page's text". The
 readback crosses that boundary only as a `Selection` — which needs a drag — or as §14.9's spoken

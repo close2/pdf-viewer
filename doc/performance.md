@@ -23,7 +23,13 @@ looked at a PDF, so the document opens on a thread of its own (ADR 0182); and a 
 needs no window either, so **it is made on a second thread** and handed to quorra, which added the
 entry point for it after `doc/QUORRA_FEEDBACK.md` §8 asked with a measurement (ADR 0185). Of what
 is left: `EventLoop::new` 20 to 45 ms, the first present 48 to 53, the device **13 to 19**, the
-instance 0.006 to 2.6 and the document's join 5.
+instance 0.006 to 2.6 and the document's join 5. **Re-run in the four-hundred-and-forty-fifth on the
+same software adapter**, ISO 32000-2, one launch: **122.6 ms** to the first present — arguments 0.017,
+chrome fonts 2.2, event loop 30.6, window 30.7, graphics instance 42.8, graphics device 68.3, document
+joined 72.9 — with five arrow keys turning to page 6 presenting in **9.2 to 16.1 ms**. That is one
+sample on a machine with a fuzz corpus merge on it, so it is a check that the shape holds rather than
+a new bound; the step that is furthest from the range above is `graphics device` at +25.4 ms against
+13 to 19, which is where a loaded machine would show first.
 **Two things on it broke a rule `CLAUDE.md` states and both are closed**, in
 [todo 42](todo/42-the-launch-path.md): `Document::open` cost 12 to 22 ms on 101 318 objects
 against 0.20 on a small file, where the rule is "a 500-page document must open no slower than a
@@ -78,7 +84,10 @@ that reproduces each, and the same document now carries what closed them:
 *anisotropic* transform being given one scalar device width, which is exact for a similarity and
 exactly wrong for a shear. Four documents left the list.
 
-**Where it stood when this section was written: 914 agree, 42 differ, 1 refused** — and 27 of the 42 are the glyph
+**Where it stands today is 917 agree, 35 differ, 5 refused, 17 not comparable**, printed by the gate
+in the four-hundred-and-forty-fifth; the five refusals are `bug1721218_reduced.pdf`'s coverage and
+§11.4.6's four knockout pages, whose two marks that backend's builder will not take (ADR 0275,
+`QUORRA_FEEDBACK.md` §14.2). **Where it stood when this section was written: 914 agree, 42 differ, 1 refused** — and 27 of the 42 are the glyph
 antialiasing floor, which shrinks as the page grows (17 pages differ at 2×, 16 at 4×). It was
 913/43 until the three-hundred-and-sixty-eighth session: `issue4260_reduced.pdf` returned to
 `agrees` the moment a §10.7.4 mark became a whole device pixel row instead of a band at the

@@ -1,6 +1,9 @@
 # The project's own turnaround — what is left after 608 s became 268
 
-Status: **open, and it is the *project's* performance rather than the *program's*.**
+Status: **open, and it is the *project's* performance rather than the *program's*.** **A second item
+arrived in the four-hundred-and-forty-fifth and is now the larger of the two**: three gates roughly
+doubled between the three-hundred-and-ninety-eighth and that round, unseen because no gate measures a
+gate — last section of this file.
 Priority: 43
 
 Everything else in the `40`–`49` band is about how fast `pdf-viewer` runs. This one is about how
@@ -80,3 +83,38 @@ rather than a fact. Do not build it without an argument for why that judgement c
   profile, which makes CI's compile slower and its test run faster by an unmeasured amount.
   Somebody should read one CI run's step timings before changing anything there.
 - **The fuzzers and the nightly job**, which are outside §2 and were never timed.
+
+## A third denominator, handed over by the four-hundred-and-forty-fifth: the gates got slower and no gate saw it
+
+That closing round re-took the whole of `doc/HANDOVER.md`'s gate-table timing column, which had been
+the three-hundred-and-ninety-eighth's for forty-seven rounds. **Every count reproduced and three of
+the ten timings roughly doubled:**
+
+| gate | 398 | 445 |
+|---|---|---|
+| oracle, 1794 pages | 51.5 s | **102.0 s** |
+| quorra vs the CPU oracle, 957 pages | 25.1 s | **39.0 s** |
+| corpus, 974 documents | 3.2 s | **5.0 s** |
+| `cargo nextest run --workspace` | 31.0 s | 33.9 s |
+| text vs `pdftotext`, 974 | 31.3 s | 31.0 s |
+| dates / XMP / JPEG 2000 | 0.9 / 0.4 / 13.8 s | 0.7 / 0.4 / 11.8 s |
+
+Both runs were on an idle machine with a warm build and a 99.7% reference-cache hit rate, and the
+oracle's own line moved with them: it prints **271 s ours against 90 s in the three reference
+renderers**, where the era the ~30 s figure was written in was ~23 s of subprocess out of ~30.
+
+**The three that moved are exactly the three that rasterise all 974 first pages; the ones that did
+not are the ones that do not.** The hypothesis to test first — and it is a hypothesis, because
+nothing here measured it — is that §11.4.7's page group has been drawn as **two** rasters since
+ADR 0262 and quorra's pair since ADR 0275, so a four-component page costs both of them twice. That is
+7 documents of the 974 on the corpus's own count, which is nowhere near a factor of two, so it is at
+best part of the answer.
+
+**What makes this todo's rather than a performance defect**: none of it is what a *user* waits for.
+The program's own launch, page turn and search numbers are `doc/performance.md`'s and did not move.
+This is the round's clock, which is the denominator this file owns, and it is now the largest single
+item on it — 51 s a round, against the 340 s ADR 0222 took off the whole sequence.
+
+**The instrument to use is the one already here**: `doc/todo/02` §2's sequence with each step timed,
+run at `2531f447`-era and at HEAD, which is what ADR 0222 did to get its table. A `git bisect` over
+the twelve rounds between the two measurements would name the commit rather than the suspicion.

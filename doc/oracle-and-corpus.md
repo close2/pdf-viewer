@@ -43,7 +43,7 @@ and *ratchets none of them*.
 
 | population | documents | complete | reported | licence |
 |---|---|---|---|---|
-| `doc/pdf.js/test/pdfs` (the gate) | 974 | — | **70 incomplete** | — |
+| `doc/pdf.js/test/pdfs` (the gate) | 974 | — | **65 incomplete** | — |
 | `doc/corpora/pdf20examples` | 7 | **7** | 0 | CC BY-SA 4.0 |
 | `doc/corpora/pdf-differences` | 37 | 30 | 7 | Apache-2.0 |
 | `doc/corpora/pdfbox` (`.../test/resources/input`) | 64 | 63 | 1 | Apache-2.0 |
@@ -51,9 +51,9 @@ and *ratchets none of them*.
 | SafeDocs `CC-MAIN-2021-31`, archive `3500`, first 24 | 24 | 22 | 2 | crawled web, no grant — never committed |
 | **SafeDocs `CC-MAIN-2021-31`, 79 archives `50 + 100k`, first 24 of each** (session 425) | **1896** | **1802** | **86** → 85 | crawled web, no grant — never committed |
 | **SafeDocs `CC-MAIN-2021-31`, 4 whole archives `0100 + 2000k`** (session 430) | **4000** | **3917** → 3923 | **70** → 64 | crawled web, no grant — never committed |
-| **SafeDocs `CC-MAIN-2021-31`, all 145 archives** (session 433) | **65 944** | **64 507** | **1144** → 1138 | crawled web, no grant — never committed |
+| **SafeDocs `CC-MAIN-2021-31`, all 145 archives** (session 433) | **65 944** | **64 507** | **1144** → 1138 → 905 → 851 → **824** | crawled web, no grant — never committed |
 
-**The last row is the whole population, and the first survey to find a hang** (ADR 0269).
+**The last row is the whole population, and the first survey to find a hang** (ADR 0269). **Its reported column is the only figure in this table that four later rounds moved**, each re-surveying all 65 944 whole: 1138 after session 434's substitution rule, 905 after the four-hundred-and-thirty-sixth made the press the document's own — 233 documents becoming complete — 851 after the four-hundred-and-fortieth took a soft mask's group off §11.4.7's route, and **824** after the four-hundred-and-forty-first closed §11.3.5.3's row (ADRs 0270, 0272, 0276, 0277). The four-hundred-and-forty-fifth did **not** re-run it — 93 GB is not a closing round's instrument — so 824 is session 441's printed number and is labelled as one rather than re-claimed.
 **65 944 documents in 1139.3 s: 173 unopenable, 45 locked, 23 encrypted beyond us, 52 pageless,
 1144 incomplete, 2 slow**, with 51 272 codes reaching no glyph in silence over 635 documents — a
 baseline for this population, never a ratchet. **The four-hundred-and-thirty-fourth session read
@@ -68,8 +68,10 @@ this round's defects are those five. Four things it says:
 
 - **1.735% is the web's rate**, against session 430's 1.75% of 4000 and session 425's 4.54% of 1896.
   The first moved because sessions 426 and 427 built §11.4.7's conversion; the last two differ by
-  0.015 points over a sixteen-fold increase in sample size. **The 974 are at 68, which is 7.0%** —
-  four times the web — and that is what a corpus assembled from bug reports is for.
+  0.015 points over a sixteen-fold increase in sample size. **The 974 are at 65, which is 6.7%** —
+  four times the web — and that is what a corpus assembled from bug reports is for. (The web's own
+  1144 fell to 824 over sessions 434, 440 and 441, so the ratio holds while both numbers move; this
+  bullet's corpus figure said 68 and 7.0% until the four-hundred-and-forty-fifth read the gate.)
 - **The largest population is still a group's blending colour space**, 398 documents, 0.60%; and it
   splits into `doc/todo/23`'s own rows with numbers at last — 151 documents name the press their
   `DeviceCMYK` is, 106 state a page group whose four components are not `/DeviceCMYK`, 78 have a
