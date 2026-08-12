@@ -1867,6 +1867,7 @@ fn interpret_into(
         page: size,
         shadings: crate::shading::Cache::default(),
         resource_tables: std::cell::RefCell::default(),
+        icc_spaces: BTreeMap::new(),
         image_masks: crate::image::MaskCache::default(),
         structure: crate::structure::ParentTree::for_page(document, &page.dict),
         output_intent: output_intent_space(document),
@@ -2285,6 +2286,24 @@ struct Interpreter<'a> {
     /// bounded by the number of distinct resource tables the page's forms reach. That is the
     /// trade, and on the witness it is one copy of one map against 26 414 of them.
     resource_tables: std::cell::RefCell<BTreeMap<ObjectId, Dictionary>>,
+    /// An `ICCBased` colour space a `cs` or `CS` operator names, parsed once per stream.
+    ///
+    /// # Why only this one shape
+    ///
+    /// `ColourSpace::parse` is a pure function of the object *and* the resource dictionary in
+    /// force — §8.6.5.1 resolves a name through it, and an `Indexed` space's base may be one —
+    /// so a space cannot in general be remembered by the object alone. `[/ICCBased <stream>]`
+    /// can: its whole content is the stream, §8.6.5.5 states nothing about it that a resource
+    /// dictionary could change, and the stream's [`ObjectId`] identifies it exactly.
+    ///
+    /// # What it is worth
+    ///
+    /// The parse **inflates the profile and reads its tables**, and a page that sets the same
+    /// space per mark pays that per mark. `3129278.pdf` from the `SafeDocs` corpus is 1052
+    /// shading fills each preceded by its own `cs`, and 95% of its 380 G interpretation
+    /// instructions were inside `ColourSpace::parse_at` — 78% of the page in `zlib` and 17%
+    /// in `icc::Profile::parse` — for one profile it read 1053 times.
+    icc_spaces: BTreeMap<ObjectId, ColourSpace>,
     /// §11.6.5.2's soft masks already read for the device to place (§10.7.4).
     ///
     /// The same argument as [`Self::shadings`], and the same shape: a page draws one
@@ -3920,11 +3939,32 @@ impl Interpreter<'_> {
             return;
         };
 
+        // The one space worth remembering, and the only one that can be: see
+        // [`Interpreter::icc_spaces`].
+        // **The table is asked before the shape is tested**, and the order is the whole cost
+        // argument: a hit is one map lookup, and [`is_icc_based`] — which resolves the array
+        // and so copies it — runs once per *distinct* object rather than once per operator.
+        let stated = self
+            .resource_entry(resources, "ColorSpace", &name)
+            .and_then(|entry| entry.as_reference());
+        if let Some(id) = stated
+            && let Some(space) = self.icc_spaces.get(&id)
+        {
+            let space = space.clone();
+            self.take_colour_space(space, state, fill);
+            return;
+        }
+
         let space = ColourSpace::parse(
             self.document,
             &Object::Name(Name::new(name.as_bytes().to_vec())),
             resources,
         );
+        if let (Some(id), Some(parsed)) = (stated, space.as_ref())
+            && is_icc_based(self.document, id)
+        {
+            self.icc_spaces.insert(id, parsed.clone());
+        }
         let space = space.unwrap_or_else(|| {
             self.note(Unsupported::Shading {
                 name: format!("colour space /{name}"),
@@ -3932,6 +3972,16 @@ impl Interpreter<'_> {
             ColourSpace::Gray
         });
 
+        self.take_colour_space(space, state, fill);
+    }
+
+    /// Puts a space into the graphics state, with §8.6.8's initial colour.
+    ///
+    /// Split out of [`Interpreter::set_colour_space`] so that a space answered from
+    /// [`Interpreter::icc_spaces`] and one parsed on the spot take exactly the same path: a
+    /// memo that skipped this would set the space and leave the *previous* space's colour, and
+    /// the clause is explicit that it must not.
+    fn take_colour_space(&mut self, space: ColourSpace, state: &mut GraphicsState, fill: bool) {
         // §8.6.8: `cs` and `CS` "shall also set the current colour to its initial value,
         // which depends on the colour space". Omitting this leaves the previous space's
         // colour in place, which shows up as content painted in the wrong colour — and the
@@ -7926,6 +7976,21 @@ fn known_blend_mode(name: &[u8]) -> Option<BlendMode> {
         b"Luminosity" => BlendMode::Luminosity,
         _ => return None,
     })
+}
+
+/// Whether this object is `[/ICCBased <stream>]` — §8.6.5.5's one-element array form.
+///
+/// The test [`Interpreter::icc_spaces`] needs, and it is deliberately narrow: it says that the
+/// space's whole content is the stream, so the resource dictionary in force cannot change what
+/// it means. Resolving the array is cheap — an array of two objects — and the profile behind it
+/// is what costs.
+fn is_icc_based(document: &Document, id: ObjectId) -> bool {
+    document
+        .get(id)
+        .as_array()
+        .and_then(<[Object]>::first)
+        .and_then(Object::as_name)
+        .is_some_and(|name| name.as_bytes() == b"ICCBased")
 }
 
 #[cfg(test)]

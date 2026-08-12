@@ -69,6 +69,20 @@ pub struct Cache {
     /// The kind and the shading's own matrix, which is `/Matrix` for a type 1 and the
     /// identity for every other type.
     built: BTreeMap<(ObjectId, usize, Compositing), (Arc<ShadingKind>, Transform)>,
+    /// A `/ColorSpace` stated as an **indirect object**, parsed once.
+    ///
+    /// [`Self::built`] cannot help a page of *distinct* shadings, and one exists:
+    /// `3129278.pdf` from the `SafeDocs` corpus states **1053 axial shadings**, each its own
+    /// object and each naming the same `ICCBased` space, so nothing above was ever hit and
+    /// `ColourSpace::parse` inflated and parsed that profile 1053 times — **60% of the page's
+    /// 380 G interpretation instructions in `zlib`, and 17% more in `icc::Profile::parse`**.
+    ///
+    /// Keyed by [`ObjectId`] for [`Self::built`]'s reason turned round: a reference is what
+    /// says two shadings mean *one* space, and a space stated inline is the object's own and
+    /// costs nothing to parse twice. §8.6.5.1's resolution through the resource dictionary
+    /// does not reach here at all — that applies to a space stated as a **name**, which has no
+    /// object identity and is not put in this table.
+    spaces: BTreeMap<ObjectId, ColourSpace>,
 }
 
 impl Cache {
@@ -114,7 +128,8 @@ impl Cache {
                 transform: own.then(transform),
             });
         }
-        let (kind, own) = kind_of(document, object, resources, resolution, into)?;
+        let space = self.space_of(document, object, resources);
+        let (kind, own) = kind_of(document, object, resources, resolution, into, space)?;
         let kind = Arc::new(kind);
         if let Some(id) = key {
             self.built
@@ -124,6 +139,27 @@ impl Cache {
             kind,
             transform: own.then(transform),
         })
+    }
+
+    /// This shading's colour space, parsed once where the shading states it by reference.
+    ///
+    /// `None` where there is nothing to remember — an inline space, or a name — and
+    /// [`kind_of`] then parses it itself, which is what it did for every shading before this
+    /// table existed.
+    fn space_of(
+        &mut self,
+        document: &Document,
+        object: &Object,
+        resources: &Dictionary,
+    ) -> Option<ColourSpace> {
+        let dict = dictionary_of(document, object)?;
+        let id = dict.get("ColorSpace")?.as_reference()?;
+        if let Some(space) = self.spaces.get(&id) {
+            return Some(space.clone());
+        }
+        let space = ColourSpace::parse(document, &Object::Reference(id), resources)?;
+        self.spaces.insert(id, space.clone());
+        Some(space)
     }
 }
 
@@ -158,6 +194,7 @@ pub fn build(
         resources,
         Ramp::RESOLUTION,
         Compositing::Device,
+        None,
     )?;
     Ok(Shading {
         kind: Arc::new(kind),
@@ -176,6 +213,7 @@ fn kind_of(
     resources: &Dictionary,
     resolution: usize,
     into: Compositing,
+    space: Option<ColourSpace>,
 ) -> Result<(ShadingKind, Transform), ShadingError> {
     let resolved = document.resolve(object);
     let dict = match &resolved {
@@ -195,10 +233,13 @@ fn kind_of(
             detail: "no /ShadingType".to_owned(),
         })?;
 
-    let space = ColourSpace::parse(document, &document.get_key(&dict, "ColorSpace"), resources)
-        .ok_or_else(|| ShadingError::Malformed {
-            detail: "unsupported /ColorSpace".to_owned(),
-        })?;
+    let space = match space {
+        Some(space) => space,
+        None => ColourSpace::parse(document, &document.get_key(&dict, "ColorSpace"), resources)
+            .ok_or_else(|| ShadingError::Malformed {
+                detail: "unsupported /ColorSpace".to_owned(),
+            })?,
+    };
 
     let (kind, own) = match kind {
         // Only a type 1 shading has a `/Matrix`, which places its domain rectangle within

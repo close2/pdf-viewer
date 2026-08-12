@@ -205,6 +205,22 @@ Four things to take away:
   `0423548.pdf`'s remaining seconds are 2.1 of interpretation and 2.85 of `initial_backdrop`,
   which allocates and copies a whole surface per group — **4.3 GB** across its 136 groups where
   their bands are **82 MB**. `doc/todo/40`.
+- **Re-surveyed whole in the round that took ADR 0288** — 145 archives, one process each, 65 944
+  documents, 1188 s, 0 failures: *173 unopenable, 45 locked, 23 encrypted beyond us, 52 pageless,
+  **823 incomplete**, 2 slow*. 1144 → 823 over the eleven rounds since ADR 0269, and **the two slow
+  documents are not the two ADR 0271 diagnosed**: those were fixed, and these two were under the
+  30 s threshold before the survey's 24-way load put them over it.
+  - **`3129278.pdf`** — 5 874 commands, **34 450 ms**, and 95% of its 380 G instructions inside
+    `ColourSpace::parse_at`: 1053 distinct axial shadings, each preceded by its own `cs` naming one
+    `[/ICCBased 15 0 R]`, so the profile was inflated and read 1053 times. **Taken: about 1 550 ms**
+    (ADR 0288), and it re-prices `doc/todo/41` on a second population.
+  - **`3990833.pdf`** — 279 commands, **24 948 ms → about 19 500**, and **what is left is the next
+    candidate this population offers**: 38 images on one page, and `callgrind` over its 233 G
+    instructions says `image::convert_channels` 22.2%, `zune_jpeg` about 30%, `colour::press_at`
+    9.8%, `zlib` 9.3%. A per-sample press conversion with a memo (`image::Conversion`) that a
+    photograph's colours defeat. Trap 6 binds anything done about it: `ColourSpace::to_rgb` is the
+    only place a colour becomes RGB.
+
 - **Nothing failed to open for a reason that is this tree's, for the third sample running.** 163 of
   the 225 unusable documents have no `%PDF-` header in their first kilobyte, 52 have no first page
   and 5 have an unusable cross-reference table — and all five of those were opened by hand: three
