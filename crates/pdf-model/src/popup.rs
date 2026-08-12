@@ -26,6 +26,12 @@
 //! 79 have text to show and 4 have no `/Parent`. **No `/Popup` reference names an annotation the
 //! page's `/Annots` does not also list**, which is why this walks `/Annots` and does not chase
 //! Table 172's entry from the other end: the two routes reach the same 128.
+//!
+//! **A second entry opens the same window and is §12.5.6.4's**, read here since the
+//! four-hundred-and-fifty-ninth session; `opens_with_the_page` has the argument. The corpus
+//! cannot rank it — `examples/open_annotation_census` finds 28 text annotations, exactly one
+//! stating Table 175's `/Open true`, and that one's popup already states its own — so the pair of
+//! fixtures below differ only in the rule, which is trap 8's shape.
 
 use pdf_syntax::{Dictionary, Document, ObjectId};
 
@@ -49,7 +55,19 @@ pub struct Popup {
     pub parent: Option<ObjectId>,
     /// Table 166's `/Rect`, normalised to `[x0, y0, x1, y1]` with `x0 <= x1` and `y0 <= y1`.
     pub rect: [f32; 4],
-    /// Table 186's `/Open`: "whether the popup annotation shall initially be displayed open".
+    /// Whether the window opens with the page, which **two** entries can each say.
+    ///
+    /// Table 186's `/Open` is the popup's own — "whether the popup annotation shall initially be
+    /// displayed open" — and Table 175's is the *text annotation's*: "[a] flag specifying whether
+    /// the annotation shall initially be displayed open". §12.5.6.4 is what makes the second one
+    /// a statement about this window rather than about an icon:
+    ///
+    /// > When closed, the annotation shall appear as an icon; when open, it shall display a popup
+    /// > window containing the text of the note in a font and size chosen by the interactive PDF
+    /// > processor.
+    ///
+    /// See this module's `opens_with_the_page` for why that is a disjunction rather than a
+    /// precedence.
     ///
     /// *Initially*, which is why a viewer holds the current state elsewhere: this is the file's
     /// opinion about the moment the page appears, not a fact that survives a click.
@@ -169,7 +187,7 @@ fn read(document: &Document, id: ObjectId, dict: &Dictionary) -> Option<Popup> {
         annotation: id,
         parent,
         rect,
-        open: document.get_key(dict, "Open") == pdf_syntax::Object::Boolean(true),
+        open: opens_with_the_page(document, dict, resolved.as_dict()),
         title: text(document, source, "T"),
         // Table 166's `/Contents` first, and Table 172's `/RC` only where there is none: NOTE 1
         // makes the two "textually equivalent" where both are present, and the plain string is
@@ -178,6 +196,51 @@ fn read(document: &Document, id: ObjectId, dict: &Dictionary) -> Option<Popup> {
         modified: text(document, source, "M"),
         colour: colour(document, source),
     })
+}
+
+/// Whether the file asks for this window to be open when the page appears.
+///
+/// **Two entries can each say so, and neither says the opposite.** Table 186 gives the popup its
+/// own `/Open`, "whether the popup annotation shall initially be displayed open"; Table 175 gives
+/// a *text* annotation an `/Open`, "whether the annotation shall initially be displayed open", and
+/// §12.5.6.4 says what an open text annotation is: "when open, it shall display a popup window
+/// containing the text of the note". Each entry defaults to `false`, so each states a condition
+/// under which the window is open and neither states one under which it is closed — which makes
+/// this a disjunction rather than a precedence, and means there is no conflict for Table 186's
+/// four-entry override list to have settled.
+///
+/// **Table 175's half was read nowhere until the four-hundred-and-fifty-ninth session**, on a
+/// doc comment in `crate::appearance` saying `/Open` was not read because this program "draws no
+/// popup for any subtype" — true when it was written and false since the three-hundred-and-twelfth
+/// session, which is `doc/todo/01`'s capability shape. A file saying its sticky note starts open
+/// showed no window and said nothing about it. ADR 0294.
+///
+/// **Only a text annotation's `/Open` counts**, because Table 175 is the only table outside
+/// Table 186 that gives an annotation the entry at all. §12.5.6.7, §12.5.6.8, §12.5.6.9,
+/// §12.5.6.10 and §12.5.6.13 each say their annotation displays a popup window "when opened" and
+/// none of them states an entry that opens it, so an `/Open` on one of those subtypes is a key the
+/// standard does not define — of which the corpus has none, counted by
+/// `examples/open_annotation_census`.
+fn opens_with_the_page(
+    document: &Document,
+    popup: &Dictionary,
+    parent: Option<&Dictionary>,
+) -> bool {
+    if is_open(document, popup) {
+        return true;
+    }
+    parent.is_some_and(|parent| {
+        document
+            .get_key(parent, "Subtype")
+            .as_name()
+            .is_some_and(|subtype| subtype.as_bytes() == b"Text")
+            && is_open(document, parent)
+    })
+}
+
+/// Whether a dictionary states `/Open true`, which both tables spell the same way.
+fn is_open(document: &Document, dict: &Dictionary) -> bool {
+    document.get_key(dict, "Open") == pdf_syntax::Object::Boolean(true)
 }
 
 /// Table 172's `/RC`, as the characters it carries — §12.5.6.2:
@@ -426,6 +489,52 @@ mod tests {
         assert_eq!(popups[0].text.as_deref(), Some("an orphan"));
         assert_eq!(popups[0].parent, None);
         // Table 186's default: "Default value: false (closed)."
+        assert!(!popups[0].open);
+    }
+
+    /// §12.5.6.4's `/Open` opens the window its own popup does not ask for.
+    ///
+    /// A **pair** differing only in the rule, because the corpus cannot rank this one: the single
+    /// text annotation in it that states `/Open true` has a popup that states its own, so a reader
+    /// ignoring Table 175 draws that document identically (trap 8, and
+    /// `examples/open_annotation_census` is the count).
+    #[test]
+    fn a_text_annotations_own_open_opens_its_popup() {
+        // Table 175: "A flag specifying whether the annotation shall initially be displayed
+        // open", and §12.5.6.4: "when open, it shall display a popup window containing the text
+        // of the note".
+        let with_open = "4 0 obj << /Type /Annot /Subtype /Text /Rect [10 10 30 30] /Popup 5 0 R \
+                         /Open true /Contents (a note) >> endobj\n\
+                         5 0 obj << /Type /Annot /Subtype /Popup /Rect [40 40 200 140] \
+                         /Parent 4 0 R >> endobj\n";
+        let without = with_open.replace("/Open true ", "");
+        assert_ne!(with_open, without, "the pair must differ in the rule alone");
+
+        for (objects, expected) in [(with_open, true), (without.as_str(), false)] {
+            let document = document("4 0 R 5 0 R", objects);
+            let view = crate::view::ViewState::of(&document);
+            let popups = popups(&document, &page(&document), &view);
+            assert_eq!(popups.len(), 1);
+            assert_eq!(popups[0].open, expected, "{objects}");
+        }
+    }
+
+    /// An `/Open` on a subtype no table gives one to opens nothing.
+    #[test]
+    fn only_a_text_annotations_open_reaches_its_popup() {
+        // Table 182 gives a text markup annotation no `/Open`, and §12.5.6.10's "[w]hen opened,
+        // they shall display a popup window" names no entry that opens it. A key the standard
+        // does not define for this subtype states nothing about the window.
+        let document = document(
+            "4 0 R 5 0 R",
+            "4 0 obj << /Type /Annot /Subtype /Highlight /Rect [10 10 30 30] /Popup 5 0 R \
+             /Open true /Contents (a note) >> endobj\n\
+             5 0 obj << /Type /Annot /Subtype /Popup /Rect [40 40 200 140] /Parent 4 0 R >> \
+             endobj\n",
+        );
+        let view = crate::view::ViewState::of(&document);
+        let popups = popups(&document, &page(&document), &view);
+        assert_eq!(popups.len(), 1);
         assert!(!popups[0].open);
     }
 

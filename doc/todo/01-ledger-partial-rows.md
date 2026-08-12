@@ -1671,11 +1671,46 @@ counted the population before either fix was believed: of 33 781 annotations sta
 states a `U` border and none of the six stating both a `/BS` and a non-zero radius is a subtype
 whose border this crate constructs — trap 8, and the fixture is a pair differing only in the `/BS`.
 
+## The blame list's last two, and both rows were right
+
+Read in the four-hundred-and-fifty-ninth (ADR 0294). §12.5.6's "Table 171's subtypes are all
+recognised" and §12.5.6.8's account of the inscription and of `/RD`'s order both hold against the
+code, checked entry by entry. **The block was real anyway and neither departure was the row's
+subject**, which is the finding worth keeping: reading a row is not the same as reading the clause
+family the row sits in.
+
+| clause | sentence | was | is |
+|---|---|---|---|
+| §12.5.6.4 | "when open, it shall display a popup window containing the text of the note", and Table 175's `/Open` | read nowhere in the tree — one reader of `"Open"` in `crates/`, and it reads Table 186's entry on the *popup* | `popup::opens_with_the_page`, as a disjunction of the two entries |
+| §12.5.6.8 | §12.5.4's "the width and dash pattern for the lines drawn by line, square, circle, and ink annotations" | a `/BS` `/S` of `B` or `I` reported as an appearance this crate could not derive | nothing reported; the style is not an entry this subtype's `/BS` supplies |
+
+**The first is a shape none of the fourteen sweeps has, and it is now `doc/habits.md`'s sixth
+refusal shape.** §12.5.6.4's note had *already been corrected once*, in the
+three-hundred-and-twelfth session, by retiring its refusal with the words "the popup window /Open
+selects … is drawn since" — a sentence that is true about the window and says nothing about the
+entry. A row in that state names no blocker, no missing vocabulary and no absent architecture, so
+every sweep above passes it. **The grep that finds it takes the entry named in the correction and
+asks who reads it**, which for this row was one line:
+
+```sh
+grep -rn '"Open"' crates/ | grep -v tests
+```
+
+**And the second is trap 11 rather than trap 5**: the report fired where the clause asks for
+nothing, which costs a page off the oracle's judged set rather than a mark off the page. The
+condition to test is whether the *table* gives the entry a meaning for that subtype, not whether the
+entry is present — Table 180 and Table 181 both restrict `/BS` to a width and a dash, and
+§12.5.6.9's polygon had it right all along, which is what made the inconsistency legible.
+
 ## What is still owed, named
 
-- **~47 `partial` rows** not yet re-read against the code, of **244**. The blame order is what will
-  retire it: **two rows whose notes were last written before commit 110 of 607 are unread** —
-  §12.5.6 and §12.5.6.8 — and the band from there to commit 300 holds the rest.
+- **The `partial` rows not yet re-read against the code**, which the previous round put at ~47 of
+  244 and which is that estimate less the two this one read. **Nothing above commit 110 is unread now**: the twenty rows
+  still blaming there are the seventeen the four-hundred-and-forty-second read and kept plus the
+  three this round and the last one did, and keeping a row edits nothing. The band from commit 110
+  to 300 holds the rest, and what replaces the blame order as a
+  way in is `doc/habits.md`'s six refusal shapes, the sixth of which was added by the round that
+  emptied it.
 - **The fourteenth sweep's own vocabulary.** Nine of its sixteen hits are rows that *do* name a debt
   in words the sweep does not hold, and §9.3.1 shows the inverse: a row naming a debt it is wrong
   about is invisible to it. Widening the vocabulary makes the first number smaller and the second

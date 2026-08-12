@@ -379,7 +379,7 @@ back and change `OCInteract`". A warning written where the work is does not fire
   months. **Anything deferred on an external condition should carry the date it was last
   verified.**
 
-**The five shapes a refusal takes when it has outlived its reason.** Moved here from
+**The six shapes a refusal takes when it has outlived its reason.** Moved here from
 `doc/HANDOVER.md` in the four-hundred-and-forty-sixth, because they are read before a clause
 round rather than by every round. Each is a mistake this project made, and each names the sweep
 in `doc/todo/01-ledger-partial-rows.md` that would have caught it.
@@ -435,6 +435,17 @@ the hundred-and-thirty-second — but the window was never the blocker: `Query::
 with one string, and §14.9.3's `shall` needs two, because the name that *addresses* a field is not
 the name a person is shown. **Ask what the program would have to say to obey the clause, not only
 what it would have to have** (ADR 0167).
+
+**And a sixth, from the four-hundred-and-fifty-ninth, which is what the *corrections* to these
+rows leave behind.** §12.5.6.4's note retired its own refusal by naming the capability that
+arrived — "the popup window `/Open` selects … is drawn since the three-hundred-and-twelfth
+session" — and it is true about the window and says nothing about `/Open`, which was read nowhere
+in the tree. `crate::appearance`'s comment beside it had the same shape: "`/Open` is not read …
+this program draws no popup for any subtype", correct when written and expired by the same session.
+A row in this state passes every sweep above, because it names no blocker, no missing vocabulary
+and no absent architecture — it names a *capability that exists*. **When a note says a clause was
+closed by a capability arriving, grep for the entry rather than for the capability**: the
+capability is what somebody built, and the entry is what nobody went back to wire to it. ADR 0294.
 
 ### Measuring
 

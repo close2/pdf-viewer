@@ -748,9 +748,12 @@ fn link(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Ou
 /// invention where the standard only recommends one would be a choice with no requirement
 /// behind it, which is a different thing from a choice a requirement forces.
 ///
-/// `/Open` is not read. §12.5.6.4 gives it a popup window "containing the text of the note",
-/// and [`crate::annotation`] draws no popup for any subtype, on the ground that a window is not
-/// part of the page.
+/// `/Open` is not read *here*, and that is a statement about this routine rather than about the
+/// entry: §12.5.6.4 gives an open text annotation a popup window "containing the text of the
+/// note", and a window is not part of the page. `crate::popup`'s `opens_with_the_page` is what
+/// reads it, since the four-hundred-and-fifty-ninth session — this comment said the entry was not
+/// read at all, on the ground that this program drew no popup for any subtype, which stopped being
+/// true in the three-hundred-and-twelfth.
 /// A clause's mapping from an icon's name to its artwork.
 type IconLookup = fn(&[u8]) -> Option<&'static [icon::Figure]>;
 
@@ -869,6 +872,23 @@ fn largest_square_within(rect: [f32; 4]) -> [f32; 4] {
 ///
 /// Table 180's `/IC` fills it and Table 166's `/C` strokes it. `/RD` is the difference between
 /// `/Rect` and the shape, which exists because a `/BE` border effect can push the two apart.
+///
+/// # What this subtype's `/BS` supplies, and what it does not
+///
+/// Table 180 gives it two of Table 168's entries and no more — "specifying the line width and
+/// dash pattern that shall be used in drawing the rectangle or ellipse" — and §12.5.4 says the
+/// same thing from the other end, naming the four subtypes it holds for:
+///
+/// > Such dictionaries may also be used to specify the width and dash pattern for the lines drawn
+/// > by line, square, circle, and ink annotations.
+///
+/// So Table 168's `/S` styles nothing here: the mark is the annotation's own rectangle or ellipse
+/// rather than §12.5.4's border around one, and there is no `U` underline or `B` bevel of it to
+/// draw. **This reported a beveled or inset `/S` as an appearance it could not derive until the
+/// four-hundred-and-fifty-ninth session**, which named a gap the clause does not have — the
+/// mirror of [`Border::outline`]'s departure, one sentence over: an entry consulted where its own
+/// table says it supplies nothing. §12.5.6.9's polygon, under the identically worded Table 181,
+/// never reported it.
 fn square_or_circle(
     document: &Document,
     annotation: &Dictionary,
@@ -894,7 +914,7 @@ fn square_or_circle(
         stream.rectangle(box_);
     }
     stream.paint(interior != Colour::None, border.strokes());
-    Ok(border.simulated())
+    Ok(Painted::DRAWN)
 }
 
 /// Draws §12.5.6.9's polygon or polyline, from its `/Vertices` or its `/Path`.
@@ -3483,6 +3503,11 @@ impl Border {
     }
 
     /// The report a `B` or `I` border owes: the rectangle is drawn, the illusion is not.
+    ///
+    /// Asked only by the subtypes whose `/BS` is a *border* — §12.5.6.5's link and §12.5.6.19's
+    /// widget. §12.5.4 gives "line, square, circle, and ink annotations" a `/BS` that supplies
+    /// "the width and dash pattern" alone, so on those four there is no style to be unable to
+    /// draw; see [`square_or_circle`].
     fn simulated(&self) -> Painted {
         if self.style == Style::Simulated && self.strokes() {
             Painted::partly(Refusal::NotDerivable(

@@ -687,6 +687,49 @@ fn a_circle_is_an_ellipse_inscribed_in_its_rectangle() {
     }
 }
 
+/// A square's `/BS` gives it a width and a dash and no style, so a `B` there is not a gap.
+///
+/// Table 180 gives this subtype two of Table 168's entries — "specifying the line width and dash
+/// pattern that shall be used in drawing the rectangle or ellipse" — and §12.5.4 states the same
+/// restriction for four subtypes at once: "[s]uch dictionaries may also be used to specify the
+/// width and dash pattern for the lines drawn by line, square, circle, and ink annotations". The
+/// mark is the annotation's own rectangle, not §12.5.4's border around one, so there is no
+/// simulated bevel left undrawn to report.
+///
+/// **The pair is the discriminating part**: the identical `/BS` on a link *is* §12.5.4's border,
+/// where Table 168's `S` entry applies in full and the bevel is a real absence. A reader that
+/// asked the border dictionary the same question for both subtypes reports twice or not at all.
+#[test]
+fn a_squares_border_style_names_no_bevel_to_report_and_a_links_does() {
+    let square = interpret(pdf_with(
+        "<< /Type /Annot /Subtype /Square /Rect [20 20 80 60] /F 4 /C [0 1 0] \
+         /BS << /W 4 /S /B >> >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+    assert!(
+        !square.display_list.commands().is_empty(),
+        "the rectangle Table 180 requires is drawn"
+    );
+    assert!(
+        square.unsupported.is_empty(),
+        "a square's /BS states only a width and a dash: {:?}",
+        square.unsupported
+    );
+
+    let link = interpret(pdf_with(
+        "<< /Type /Annot /Subtype /Link /Rect [20 20 80 60] /C [0 1 0] \
+         /BS << /W 4 /S /B >> >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+    let reported = format!("{:?}", link.unsupported);
+    assert!(
+        reported.contains("beveled"),
+        "a link's /BS is §12.5.4's border, whose /S this cannot draw: {reported}"
+    );
+}
+
 /// A link's border is §12.5.4's rectangle, in Table 166's `/C`, inside `/Rect`.
 ///
 /// Table 166 makes `/C` "a colour used for ... The border of a link annotation" and §12.5.4

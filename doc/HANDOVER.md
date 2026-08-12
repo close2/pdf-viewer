@@ -278,10 +278,11 @@ thirty-one sessions (0115). None was `silent`, none was `reported`, and no gate 
 last. Three were found by reading the clause beside the code; the fourth by measuring something
 else.
 
-**The five shapes a refusal takes when it has outlived its reason** — a reason that names a
+**The six shapes a refusal takes when it has outlived its reason** — a reason that names a
 vocabulary, a reason that names an architecture, a capability that arrived and announced nothing,
-a capability that reached the crate and never reached the program, and a row that would have
-survived the capability arriving — are in [`doc/habits.md`](habits.md)'s ledger section, beside
+a capability that reached the crate and never reached the program, a row that would have
+survived the capability arriving, and a row *corrected* by naming the capability that arrived while
+the entry it turns on stayed unread — are in [`doc/habits.md`](habits.md)'s ledger section, beside
 the sweeps that find each. They are the highest-yield reading this project has.
 
 ---
