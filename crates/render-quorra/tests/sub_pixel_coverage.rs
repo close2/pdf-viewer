@@ -291,10 +291,16 @@ fn a_sub_pixel_rule_at_the_rasters_edge_keeps_its_ink_on_both_backends() {
 ///
 /// 0 and 90 degrees are in the list deliberately: they are the axis-aligned case the exact
 /// substitution takes, so the ladder crosses from one construction to the other without a step.
+///
+/// **1.0 is in the width list since ADR 0285 and is the rung that used to fail.** `tiny-skia`
+/// takes the hairline for every width up to *and including* one device pixel, so a `1 w` rule —
+/// which at the page's own scale is most of the line work in every technical drawing — carried
+/// 141.42 of its own 200 at 45°, a 29.3% shortfall on a stroke §10.7.4's `shall` covers by name:
+/// "[t]his rule applies both to fill operations and to strokes with non-zero width".
 #[test]
 fn a_turned_sub_pixel_rule_carries_its_area_on_both_backends() {
     for degrees in [0.0_f32, 5.0, 15.0, 30.0, 45.0, 60.0, 90.0] {
-        for width in [0.05_f32, 0.1, 0.2, 0.5] {
+        for width in [0.05_f32, 0.1, 0.2, 0.5, 1.0] {
             agrees_with_the_area(
                 &turned_rule(degrees, width),
                 total_ink,
@@ -303,5 +309,30 @@ fn a_turned_sub_pixel_rule_carries_its_area_on_both_backends() {
                 &format!("a {width}-unit rule at {degrees} degrees"),
             );
         }
+    }
+}
+
+/// A **zero-width** rule is one device pixel wide on both backends, at every angle.
+///
+/// §8.4.3.2: "A line width of 0 shall denote the thinnest line that can be rendered at device
+/// resolution: 1 device pixel wide", and `pdf_render::Stroke::device_width` resolves it there —
+/// in the shared crate, so that neither backend decides it alone. §10.7.4 then *permits* a
+/// zero-width stroke to "include fewer pixels than the rule implies", which is what `tiny-skia`'s
+/// hairline does and what this tree declines: the permission is a `may`, and taking it in one
+/// backend only would have left the two disagreeing by 29% on a turned line with no clause to
+/// settle it. ADR 0285 argues the choice; this pins it.
+///
+/// The area compared against is one device pixel times the rule's length, which is what
+/// `device_width` promoted the stroke to — not zero, which has no area to be short of.
+#[test]
+fn a_zero_width_rule_is_one_device_pixel_wide_on_both_backends() {
+    for degrees in [0.0_f32, 15.0, 45.0, 90.0] {
+        agrees_with_the_area(
+            &turned_rule(degrees, 0.0),
+            total_ink,
+            TURNED_TOLERANCE,
+            2.0 * REACH,
+            &format!("a 0-width rule at {degrees} degrees"),
+        );
     }
 }

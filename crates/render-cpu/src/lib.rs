@@ -1510,7 +1510,7 @@ fn draw_sub_pixel_rule(
     let Some(one_pixel) = pdf_render::thinnest_line(at) else {
         return false;
     };
-    if style.width >= one_pixel || !carries_coverage_as_alpha(brush) {
+    if !at_or_under_the_quantum(style.width, one_pixel) || !carries_coverage_as_alpha(brush) {
         return false;
     }
     // The resolution scale bounds how finely a curve is measured while it is offset, and is what
@@ -1518,7 +1518,15 @@ fn draw_sub_pixel_rule(
     let scale = tiny_skia::PathStroker::compute_resolution_scale(&convert::transform(at));
     // The cheap questions come first: a path of straight axis-aligned rules is one walk over the
     // commands, and only such a path can reach the exact construction at all.
-    if style.dash.is_none()
+    // **The exact construction stays strictly under the quantum.** A rule *thinner* than a device
+    // pixel lies inside one pixel line and `pdf_render::sub_pixel_bands` draws that line at the
+    // coverage its area implies; a rule that is exactly one pixel wide has no such line — it
+    // spans two of them at a fractional offset — and snapping it onto one would be §10.7.5's
+    // automatic stroke adjustment performed without `/SA`, which ADR 0208 forbids and
+    // `render-cpu/tests/zero_area_fill.rs` pins by making a `0 w` stroke and a zero-height fill
+    // land in *different* places. The general construction below moves nothing.
+    if style.width < one_pixel
+        && style.dash.is_none()
         && at.preserves_axes()
         && pdf_render::only_flat_subpaths(geometry.0)
         && draw_rule_as_bands(pixmap, geometry.1, style, at, scale, brush, clip)
@@ -1526,6 +1534,41 @@ fn draw_sub_pixel_rule(
         return true;
     }
     draw_rule_at_one_pixel(pixmap, geometry.1, style, at, scale, brush, clip)
+}
+
+/// Whether a mark this wide is one §10.7.4 owes its substitute, at a quantum of `one_pixel`.
+///
+/// **The boundary is inclusive, and that is a decision rather than a reading.** §10.7.4 states
+/// the rule and one exemption:
+///
+/// > The area covered by painted pixels shall always be at least as large as the area of the
+/// > original shape. This rule applies both to fill operations and to strokes with non-zero
+/// > width. Zero-width strokes may be done in an implementation-defined manner that may include
+/// > fewer pixels than the rule implies.
+///
+/// For a stroke the document gave a width the `shall` is plain, and `tiny-skia`'s hairline —
+/// which it chooses for every width up to and including one device pixel — carries `cos θ` of
+/// the rule's area, 29.3% short at 45°. That is the whole reason this boundary moved from `<` to
+/// `<=`: at exactly one device pixel a `1 w` rule was being drawn short of its own area on every
+/// technical drawing in the corpus, and the discontinuity was `tiny-skia`'s `<=` rather than
+/// anything derived.
+///
+/// **A `0 w` rule follows it, and the clause permits either.** §10.7.4's exemption is a `may`, so
+/// the hairline is allowed; §8.4.3.2 says "[a] line width of 0 shall denote the thinnest line
+/// that can be rendered at device resolution: 1 device pixel wide", and a staircase one pixel
+/// wide *along an axis* is thinner than that measured across the line. Neither reading is forced.
+/// What decides it here is this project's own rule about two backends: `pdf_render::Stroke::
+/// device_width` resolves a zero width to one device pixel **in the shared crate**, so that both
+/// backends draw one mark, and quorra strokes exactly that. Leaving the hairline in place would
+/// be `render-cpu` privately re-deciding what `pdf-render` had decided, and the two backends
+/// would disagree by 29% on every turned `0 w` line with no clause to arbitrate. No corpus
+/// document ranks the choice: the whole gate is identical either way, measured.
+///
+/// `<=` rather than an equality test on purpose: a page transform of 1.0037 leaves the two sides
+/// near rather than equal, and a rule that only fired on the exact float would be a rule about
+/// one scale.
+fn at_or_under_the_quantum(width: f32, one_pixel: f32) -> bool {
+    width <= one_pixel
 }
 
 /// ADR 0226's exact construction: the rule's own outline, at the coverage its area implies.
@@ -1602,9 +1645,9 @@ fn draw_rule_at_one_pixel(
         return false;
     };
     // A width above the substitute's is not this rule's business: `draw_sub_pixel_rule` has
-    // already established that the stroke is under one device pixel by §8.4.3.2's reading, and
-    // under an anisotropic transform that leaves the two readings a factor apart.
-    if style.width >= width {
+    // already established that the stroke is at or under one device pixel by §8.4.3.2's reading,
+    // and under an anisotropic transform that leaves the two readings a factor apart.
+    if !at_or_under_the_quantum(style.width, width) {
         return false;
     }
     let dashed;
@@ -1630,7 +1673,14 @@ fn draw_rule_at_one_pixel(
     // 8x limit. The substitute is therefore the swept body and nothing else. What that gives up
     // is the true cap, whose own area is `O(w²)` and which extends the mark by half of a width
     // this rule has already established is under one pixel.
-    widened.line_cap = tiny_skia::LineCap::Butt;
+    // **Except where nothing was widened.** The factor above is `width / style.width`, and at
+    // the quantum itself it is exactly 1: a rule already one device pixel wide overstates its own
+    // cap by nothing, so dropping it would be a pure loss of half a pixel at each end rather than
+    // a trade. That is not a refinement of ADR 0268's argument but its own arithmetic read at the
+    // boundary this rule has just been extended to.
+    if style.width < width {
+        widened.line_cap = tiny_skia::LineCap::Butt;
+    }
     let Some(outline) = path.stroke(&widened, scale) else {
         return false;
     };

@@ -263,6 +263,17 @@ const REFUSED: [&str; 5] = [
 /// rasterisers to distribute differently, which is the same sentence `issue4260_reduced.pdf`
 /// left on.
 ///
+/// **Two arrived and one left when §10.7.4's quantum boundary became inclusive (ADR 0285).**
+/// `tiny-skia` takes its hairline for every width up to *and including* one device pixel, so a
+/// `1 w` rule — most of the line work in a technical drawing at the page's own scale — was drawn
+/// at `cos θ` of its own area. It is filled as its own outline now, which is what quorra always
+/// did, and the two backends therefore differ on more *edges* and on less ink: `bug1743245.pdf`
+/// and `issue2177.pdf` cross a threshold in the third decimal place (mean 1.5070 against a bound
+/// of 1.5; worst tile 7.14 against 7.0), and `issue14415.pdf` left. **Not one page's verdict
+/// moved on the reference oracle** — 905 agree, 68 contradicted, 786 ambiguous before and after
+/// — which is what makes this churn at the bound rather than a change of picture, and it is
+/// written down here so that a later round does not read the arrival as a defect.
+///
 /// **And a fourth left in the four-hundred-and-thirty-second, on the same sentence and the other
 /// half of the shape.** `issue12810.pdf` is a 1728 × 2592 drawing whose page one states **34 787
 /// strokes thinner than a device pixel**, 25 406 of them *not* axis-aligned, and 62.6% of their
@@ -272,7 +283,8 @@ const REFUSED: [&str; 5] = [
 /// stroke ink**, and quorra was drawing all of it. Once the processor draws a turned sub-pixel rule
 /// one device pixel wide with the width it gave up in the paint's alpha (ADR 0268), the page's own
 /// ink goes 5.0782 → 5.1550 and the two backends have nothing left to differ about.
-const DIFFERS_AT_THE_EDGES: [&str; 23] = [
+const DIFFERS_AT_THE_EDGES: [&str; 24] = [
+    "bug1743245.pdf",
     "bug1885505.pdf",
     "bug1992868.pdf",
     "chrome-text-selection-markedContent.pdf",
@@ -280,11 +292,11 @@ const DIFFERS_AT_THE_EDGES: [&str; 23] = [
     "extgstate.pdf",
     "inks_basic.pdf",
     "issue11473.pdf",
-    "issue14415.pdf",
     "issue14438.pdf",
     "issue15012.pdf",
     "issue18911.pdf",
     "issue19239.pdf",
+    "issue2177.pdf",
     "issue2884_reduced.pdf",
     "issue7014.pdf",
     "issue7492.pdf",
@@ -316,6 +328,15 @@ const DIFFERS_AT_THE_EDGES: [&str; 23] = [
 /// and it stopped being one backend's when the two started answering a thin rectangle with its
 /// own area.
 ///
+/// **`issue21068.pdf` and `bug1844583.pdf` arrived, and `knockout_groups_test.pdf` left, with
+/// ADR 0285's inclusive quantum boundary** — see the note on the list above, which holds the
+/// argument for both. `issue21068.pdf` is worth the second mention: it is the comb-field page
+/// that left this list in the two-hundred-and-seventh session when a redundant clip came off,
+/// and its separators are `1 w` rules, so it is exactly the population the change moves. Against
+/// the *references* it improved — mean 10.06 → 9.42, ssim 0.8183 → 0.8413 — while moving away
+/// from quorra, which is the shape of a page where the two backends' coverage quanta now show on
+/// more edges rather than one of them drawing the wrong thing.
+///
 /// What stays, measured pixel by pixel: four pages (`copy_paste_ligatures`,
 /// `issue4402_reduced`, `issue18030`, `issue15150`) have **zero**
 /// pixels differing by more than 64 of 255 — miniature or enormous pages where uniform
@@ -339,8 +360,9 @@ const DIFFERS_AT_THE_EDGES: [&str; 23] = [
 /// is the one the new rule does not reach. Matching `tiny-skia`'s sub-pixel distribution
 /// byte-for-byte would be curve-fitting to another renderer, which quorra's charter forbids;
 /// they stay listed so a *growth* in their numbers is still a finding.
-const DIFFERS_IN_SHAPE: [&str; 12] = [
+const DIFFERS_IN_SHAPE: [&str; 13] = [
     "22060_A1_01_Plans.pdf",
+    "bug1844583.pdf",
     "copy_paste_ligatures.pdf",
     "issue12295.pdf",
     "issue15150.pdf",
@@ -348,9 +370,9 @@ const DIFFERS_IN_SHAPE: [&str; 12] = [
     "issue16316.pdf",
     "issue18030.pdf",
     "issue20232.pdf",
+    "issue21068.pdf",
     "issue269_2.pdf",
     "issue4402_reduced.pdf",
-    "knockout_groups_test.pdf",
     "standard_fonts.pdf",
 ];
 

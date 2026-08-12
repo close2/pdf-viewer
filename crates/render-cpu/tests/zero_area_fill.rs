@@ -148,9 +148,19 @@ fn a_rectangle_of_no_width_marks_the_page_too() {
 ///
 /// The line is placed off a pixel boundary deliberately: on one, the snapped row and the
 /// centred band are the same rectangle and the divergence this test pins would be invisible.
+///
+/// **And off the rasteriser's own sample grid, at *every* scale this runs at**, which is a
+/// stronger condition and was learned the hard way (ADR 0285). `tiny-skia` supersamples four
+/// times per pixel row and takes each sub-row's sample at its centre, so a band displaced by a
+/// tenth of a pixel covers exactly the same four sample lines as one that is not displaced at
+/// all. At `50.3` the stroke's band lands 0.4 into its row at scale 2 — 298.9 to 299.9, whose
+/// only whole set of sample lines is row 299's — and the two constructions came back
+/// *byte-identical* while both were doing exactly what they should. `50.125` splits the ink
+/// across two rows at both scales (39.84/40.16 and 119.84/40.16), which is what makes the
+/// assertion below an assertion.
 #[test]
 fn a_flat_fill_carries_a_hairline_strokes_ink_at_its_own_placement() {
-    const OFF_THE_GRID: f32 = 50.3;
+    const OFF_THE_GRID: f32 = 50.125;
 
     let fill = filled(&zero_height_rectangle(OFF_THE_GRID), FillRule::NonZero);
     let mut stroked = DisplayList::new(Size::new(PAGE, PAGE));

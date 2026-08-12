@@ -1,12 +1,11 @@
 # Shapes that still disappear
 
-Status: **items 1 and 3 closed in the three-hundred-and-eighty-ninth session (ADR 0226) and their
-one named residual — a sub-pixel rule that is *diagonal* — closed in the four-hundred-and-thirty-second
-(ADR 0268); item 2 is fixed as far as any corpus document exercises it (ADR 0213) and its general
-case is unwitnessed; item 4, the same subclause's clipping paragraph, is **half paid** — the clip
-chain composes as a set intersection since the four-hundred-and-forty-fourth (ADR 0280) and the
-mark's own coverage still multiplies into the mask.** What is left is that half, and one *new*
-measurement at the boundary rather than under it.
+Status: **items 1 and 3 closed (ADR 0226), their diagonal residual closed (ADR 0268), and the
+boundary itself — a rule *exactly* one device pixel wide — closed with ADR 0285; item 2 is fixed as
+far as any corpus document exercises it (ADR 0213) and its general case is unwitnessed; item 4, the
+same subclause's clipping paragraph, is **half paid** — the clip chain composes as a set
+intersection since ADR 0280 and the mark's own coverage still multiplies into the mask.** What is
+left is that half, and the cap a substitute does not draw for a rule strictly under the quantum.
 Priority: 11
 Corpus: 4 known witnesses; the general shape of the residual is stated
 Clauses: §10.7.4, and §8.5.4 for item 4 — see `_scan-conversion.md`
@@ -78,14 +77,22 @@ four-hundred-and-thirty-second session measured the case instead of inheriting t
   strokes inside a §8.7.3 tiling cell: ink **0.6768 → 0.7566** where the two-ladder limit for the
   page is 0.752 to 0.760. Ten per cent under the geometry to on it.
 
-## What is left: the rule that is **exactly** one device pixel wide
+## The rule that is **exactly** one device pixel wide — **closed (ADR 0285)**
 
-Found by the same instrument in the same session and **not paid**, because it is a different claim
-from this file's: a mark that is thinner than the document said is not a mark that disappeared, and
-§10.7.4's quantum has nothing to do with it.
+Found by the same instrument in the session that closed the residual above, and paid in the round
+after this file was last written. `at_or_under_the_quantum` is the comparison, `<` became `<=`, and
+three things had to be settled with it: the *exact* construction stays strictly under the quantum
+because snapping a one-pixel rule onto a row would be §10.7.5's stroke adjustment without `/SA`
+(ADR 0208); the **cap comes back** at the quantum, because ADR 0268's `width / style.width`
+overstatement is exactly 1 there; and the `0 w` stroke follows the rule rather than keeping the
+hairline — §10.7.4's exemption is a `may`, §8.4.3.2's "1 device pixel wide" is a `shall`, and what
+decides between the two readings is that `pdf_render::Stroke::device_width` resolves a zero width
+in the shared crate so that both backends draw one mark.
 
-`tiny-skia` chooses the hairline for `width <= 1.0` device pixels, so at *exactly* one pixel a
-turned rule still gets it:
+**The whole corpus gate is byte-identical with the exemption in and with it out**, so the choice is
+recorded as a choice. The reference oracle did not move a single verdict; step 7's ink sweep moved
+31 rows up and none into the negative tail; the cross-backend gate cost two pages, at bounds this
+project chose. What it fixed:
 
 ```text
   a 200-unit rule, one device pixel wide, total ink against its own 200
@@ -95,23 +102,21 @@ turned rule still gets it:
 ```
 
 **−29.3% at 45°, on every `1 w` stroke at the page's own scale**, which is a large share of every
-technical drawing in the corpus. ADR 0268 stops strictly under one pixel and therefore leaves a
-one-point discontinuity at the boundary — 0.999 of a pixel is filled, 1.000 is a hairline, 1.001 is
-filled again — which is `tiny-skia`'s `<=` rather than anything derived.
+technical drawing in the corpus, and it is a `shall` rather than a preference: §10.7.4's rule about
+painted area "applies both to fill operations and to strokes with non-zero width". It broke under
+the clause's binary model too — a 45° band of width 1 and length `L` has area `L` and the hairline
+paints `L/√2` pixels — so the finding does not rest on this tree's anti-aliasing departure.
 
-Taking it is a round of its own and the reason is blast radius rather than difficulty: the change is
-one comparison, and it moves what **every** page with an ordinary hairline draws, so it owes its own
-before/after over the oracle's 1794 pages and its own instruction count. Two things to settle first:
+**The 45° knife edge is `tiny-skia`'s and survives the fix.** The plain fill of a one-device-pixel
+band at exactly 45° reads 177.44 of its own 200, because that converter quantises the band's
+per-row run to quarter pixels. 177.44 is much better than 141.42 and it is not the geometry; the
+gate's `TURNED_TOLERANCE` of 14% is set by it.
 
-- **The `0 w` stroke must not follow it.** `Stroke::device_width` promotes a zero width to exactly
-  one device pixel, so the two arrive indistinguishable at the rasteriser, and §10.7.4 exempts one of
-  them by name — "Zero-width strokes may be done in an implementation-defined manner that may
-  include fewer pixels than the rule implies". Telling them apart means reading the document's own
-  width, which `draw_stroke` has and `draw_sub_pixel_rule` is not passed.
-- **The 45° knife edge is `tiny-skia`'s and survives either way.** The plain fill of a
-  one-device-pixel band at exactly 45° reads 177.44 of its own 200, because that converter quantises
-  the band's per-row run to quarter pixels. 177.44 is much better than 141.42 and it is not the
-  geometry.
+**And one thing this cost that no gate would have shown**: `zero_area_fill.rs`'s placement of
+`50.3` put the stroke's band 0.1 of a pixel off its row at scale 2, which is *below* `tiny-skia`'s
+quarter-row sample quantum, so the snapped fill and the unsnapped band came back byte-identical and
+the test failed with both constructions correct. A test must be placed off the rasteriser's own
+sample grid and not merely off the pixel boundary. ADR 0285 §"the test that had to move".
 
 ## And one loss ADR 0268 takes deliberately: the cap it does not draw
 
