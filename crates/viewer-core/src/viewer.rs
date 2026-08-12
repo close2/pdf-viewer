@@ -911,7 +911,7 @@ impl Viewer {
     /// which is what makes a replay of its prefix the whole of the state.
     fn edit(&mut self, edit: crate::command::Edit, events: &mut Vec<Event>) {
         let Some(id) = self.focused else { return };
-        if let Some(refused) = self.refusal(id, operation_of(&edit)) {
+        if let Some(refused) = self.refusal(id, operation_of(&edit), field_of(&edit)) {
             events.push(refused);
             return;
         }
@@ -988,12 +988,13 @@ impl Viewer {
         &self,
         id: DocumentId,
         operation: pdf_model::restriction::Operation,
+        field: Option<&str>,
     ) -> Option<Event> {
         if self.restrictions == crate::RestrictionLevel::Off {
             return None;
         }
         let open = self.focused()?;
-        let notes = crate::notes::refusal(&open.document, operation);
+        let notes = crate::notes::refusal(&open.document, operation, field);
         (!notes.is_empty()).then_some(Event::Refused {
             document: id,
             operation,
@@ -2086,6 +2087,21 @@ fn operation_of(edit: &crate::command::Edit) -> pdf_model::restriction::Operatio
         crate::command::Edit::Markup { .. }
         | crate::command::Edit::FreeText { .. }
         | crate::command::Edit::SetFreeText { .. } => pdf_model::restriction::Operation::Annotate,
+    }
+}
+
+/// Which field an [`crate::Edit`] names, where it names one.
+///
+/// §12.7.5.5's signature field lock is the one restriction that is about a *field* rather than
+/// about the document, so the question `operation_of` answers — which permission covers this
+/// verb — is not enough on its own to ask it. `None` for every edit whose subject is an
+/// annotation, which §12.7.4.2 gives no name to.
+fn field_of(edit: &crate::command::Edit) -> Option<&str> {
+    match edit {
+        crate::command::Edit::SetField { field, .. } => Some(field),
+        crate::command::Edit::Markup { .. }
+        | crate::command::Edit::FreeText { .. }
+        | crate::command::Edit::SetFreeText { .. } => None,
     }
 }
 

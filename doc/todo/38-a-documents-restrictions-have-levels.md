@@ -4,7 +4,8 @@ Status: **the shape is built (ADR 0212, session 373); two of the four levels and
 them are what is left.** No user interface is to be built until the project owner asks for one.
 Priority: 38 — capability, and low priority by the owner's own words
 Clauses: §7.6.4.2 (Table 22's `/P`), §12.8.2.2 (`/DocMDP`), §12.8.6 and Table 258 (usage rights),
-§12.7.6.2
+§12.7.5.5 (Table 236's signature field lock — the one restriction addressed to a *named field*
+rather than to the document, ADR 0284), §12.7.6.2
 Code: `crates/pdf-model/src/restriction.rs`, `crates/viewer-core/src/viewer.rs`,
 `crates/viewer-core/src/notes.rs`, `crates/pdf-syntax/src/crypt.rs`
 

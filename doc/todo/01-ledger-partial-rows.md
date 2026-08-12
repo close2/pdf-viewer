@@ -690,6 +690,38 @@ mean deciding which of English's ways of saying "the flags in Table 227's `/Ff`"
 a checker that has to be right every time, which is the standard `citation.rs` already sets itself
 for `another_document`. It stays a sweep, and it is cheap: one run is under a second.
 
+## The blame list re-offers a row that was read and kept, and that is its one flaw
+
+Found by running it again (ADR 0284). The order works — every defect that round found was at the
+top of it — and **seventeen of the rows above the fold are ones the previous run read and kept**,
+because keeping a row edits nothing and `git blame` cannot see a reading that changed nothing. So
+the list re-offers them for ever and the never-read rows sit underneath.
+
+**The remedy is not a stamp**, which `CLAUDE.md` puts in `doc/history/` anyway. It is that a row
+read and kept **records the evidence that kept it** — the grep that was run, the entry that was
+checked, the sentence that still binds — which is content rather than bookkeeping and moves the
+blame pointer as a by-product. The previous run did exactly that for three of its seventeen (an
+image dictionary's `/Intent`, a shading's `/Background` and `/AntiAlias`, a `DeviceN`'s
+`/NChannel`) and not for the other fourteen, which is why they are still on top.
+
+## Six rows read in the round that built §12.7.5.5's lock, and one of them was work
+
+Off the same blame list, oldest first, skipping the seventeen above. ADR 0284 has the argument;
+the shapes are this file's own.
+
+| row | shape | was | is |
+|---|---|---|---|
+| **§12.7.5.5** | 4 | "Table 235's `/Lock` and `/SV` are signing behaviour" | `/SV` is; `/Lock` is a `shall` on whoever *changes a value*, which this program does. Read now, as a fourth `Restriction` — **`implemented`** |
+| §7.6 | 2 | a revision 4 password outside ASCII needs "Annex D data this crate does not hold" | `pdf_syntax::text_string` has held Table D.3 both ways for hundreds of commits, and `crypt.rs`'s own comment says so |
+| §7.7 | 5 | "what it does not read is everything the catalog holds for a *viewer*" | its own child §7.7.2 lists eighteen of twenty-five as read |
+| §14.6 | 6 | "[w]hat is *not* read is any tag's meaning" | three sentences after saying optional content rides on `BDC`; four tags are read by name |
+| §14.6.1 | 6 | the same sentence one row down | as above, plus §14.9's four entries and §14.7.5.2's `/MCID` |
+| §14.8.2.6.1 | 3 | the `Alt`/`ActualText` exception "is not read" | both are read; every requirement left in the clause addresses a *document* — **`implemented`** |
+
+**The one that turned into work is the one the corpus could never have found**: no document in the
+974 states a `/Lock`, so the fixture is the only witness there is. Trap 8, and the reason a
+spec-driven track exists at all.
+
 ## What is still owed, named
 
 - ~~**§12.8.2.3's `should`**~~ — closed in the hundred-and-ninety-eighth session (ADR 0159).

@@ -1,9 +1,11 @@
 //! What a document asserts about what its reader may do — read, never decided.
 //!
-//! Three clauses put a restriction on the person holding the file: §7.6.4.2's Table 22, which a
+//! Four clauses put a restriction on the person holding the file: §7.6.4.2's Table 22, which a
 //! security handler encrypts into the document; §12.8.2.2's `/DocMDP`, which an author's
-//! certification signature states; and §12.8.6's permissions dictionary, which is what makes the
-//! second binding rather than advisory. This module reads all three and answers one question —
+//! certification signature states; §12.8.6's permissions dictionary, which is what makes the
+//! second binding rather than advisory; and §12.7.5.5's signature field lock, which is the only
+//! one of the four addressed to a **named field** rather than to the document. This module reads
+//! all four and answers one question —
 //! *what does this document assert about this operation* — and it answers it with **reasons**
 //! rather than with a verdict.
 //!
@@ -118,6 +120,14 @@ pub enum Restriction {
         /// 3 or greater and 6 where it is 2.
         bit: u8,
     },
+    /// §12.7.5.5's signature field lock, asserted by a signature field that has been signed.
+    ///
+    /// > The signature field lock dictionary … contains the names of form fields whose values
+    /// > shall no longer be changed after this signature has been signed.
+    ///
+    /// The only one of the four that is about **one field** rather than about the document, and
+    /// therefore the only reason [`asserted`] needs to be told which field is being filled in.
+    FieldLocked,
 }
 
 /// Every restriction this document asserts against this operation.
@@ -129,9 +139,22 @@ pub enum Restriction {
 ///
 /// §12.8.6's `/Perms /DocMDP` first, because it applies whether or not the document is encrypted
 /// — the clause says these permissions "do not require that the document be encrypted" — and
-/// then §7.6.4.2's Table 22, which applies only where a security handler granted anything.
+/// then §7.6.4.2's Table 22, which applies only where a security handler granted anything, and
+/// last §12.7.5.5's signature field lock.
+///
+/// # `field`
+///
+/// The fully qualified name (§12.7.4.2) of the field being filled in, and `None` for every other
+/// operation. Two of the three clauses restrict the *document* and the third restricts a named
+/// field, so the verb alone cannot decide it — and a `Some` for an operation that is not
+/// [`Operation::FillInForm`] is ignored rather than made an error, because no clause here reads a
+/// field name for anything else.
 #[must_use]
-pub fn asserted(document: &Document, operation: Operation) -> Vec<Restriction> {
+pub fn asserted(
+    document: &Document,
+    operation: Operation,
+    field: Option<&str>,
+) -> Vec<Restriction> {
     let mut out = Vec::new();
     if let Some(level) = crate::signature::permissions(document).doc_mdp
         && !certification_permits(level, operation)
@@ -142,6 +165,14 @@ pub fn asserted(document: &Document, operation: Operation) -> Vec<Restriction> {
         && let Some(restriction) = withheld(permissions, operation)
     {
         out.push(restriction);
+    }
+    if operation == Operation::FillInForm
+        && let Some(field) = field
+        && crate::signature::field_locks(document)
+            .iter()
+            .any(|lock| lock.locks(field))
+    {
+        out.push(Restriction::FieldLocked);
     }
     out
 }

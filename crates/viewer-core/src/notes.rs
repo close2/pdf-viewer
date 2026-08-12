@@ -98,11 +98,12 @@ pub(crate) fn about(document: &Document) -> Vec<String> {
 pub(crate) fn refusal(
     document: &Document,
     operation: pdf_model::restriction::Operation,
+    field: Option<&str>,
 ) -> Vec<String> {
     use pdf_model::restriction::Restriction;
     use pdf_model::signature::Modification;
 
-    pdf_model::restriction::asserted(document, operation)
+    pdf_model::restriction::asserted(document, operation, field)
         .into_iter()
         .map(|restriction| match restriction {
             // §12.8.2.2.1's parenthesis is a `shall` addressed to a processor that modifies:
@@ -132,6 +133,16 @@ pub(crate) fn refusal(
             Restriction::AccessDenied { bit } => format!(
                 "this document's encryption does not grant {} (§7.6.4.2's Table 22, bit {bit}) — \
                  it was not done",
+                operation.as_str()
+            ),
+            // §12.7.5.5: "The signature field lock dictionary … contains the names of form
+            // fields whose values shall no longer be changed after this signature has been
+            // signed." The sentence names the *signature* as what locks the field, which is
+            // what a person is owed here: the refusal is somebody's signature rather than the
+            // document's encryption or its author's certification.
+            Restriction::FieldLocked => format!(
+                "a signature in this document locks this field against further change \
+                 (§12.7.5.5's /Lock) — {} was not done",
                 operation.as_str()
             ),
         })

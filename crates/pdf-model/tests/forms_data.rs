@@ -472,6 +472,118 @@ fn a_read_only_field_refuses_a_person_and_not_an_import() {
     assert!(after.contains("imported"), "{after:?}");
 }
 
+/// The same form with a signature field carrying §12.7.5.5's `/Lock`, signed or not.
+///
+/// `action` is Table 236's `/Action` verbatim, so a caller can hand it a name the table does not
+/// define; `fields` is the `/Fields` array's contents, empty for `/All`. `signed` decides whether
+/// the signature field states a `/V` — which is the clause's own condition, "after this signature
+/// has been **signed**", and the only thing that separates a lock that binds from an instruction
+/// to whatever will do the signing.
+///
+/// The signature dictionary is the smallest one `signature::read` accepts: a `/ByteRange` and
+/// nothing else. It signs nothing and verifies as nothing, which is exactly right here — this is
+/// a test of what a field lock *asserts*, and §12.8.1's three questions about the signature
+/// itself are a different clause with its own fixtures.
+fn form_locking(action: &str, fields: &[&str], signed: bool) -> Vec<u8> {
+    let form = String::from_utf8(form()).expect("the fixture is ASCII");
+    let with_field = form.replace("/Fields [5 0 R 6 0 R]", "/Fields [5 0 R 6 0 R 8 0 R]");
+    assert_ne!(with_field, form, "the fixture states a field list");
+    let mut names = String::new();
+    for name in fields {
+        let _ = write!(names, "({name}) ");
+    }
+    let value = if signed { "/V 9 0 R " } else { "" };
+    let objects = format!(
+        "8 0 obj\n<< /Type /Annot /Subtype /Widget /Rect [0 0 0 0] /F 4 /FT /Sig \
+         /T (sig) {value}/Lock 10 0 R >>\nendobj\n\
+         9 0 obj\n<< /Type /Sig /ByteRange [0 100 200 300] >>\nendobj\n\
+         10 0 obj\n<< /Type /SigFieldLock /Action /{action} /Fields [{names}] >>\nendobj\n"
+    );
+    let body = with_field
+        .split_once("xref\n")
+        .map_or(with_field.as_str(), |(body, _)| body);
+    rebuilt(&format!("{body}{objects}"))
+}
+
+/// §12.7.5.5's signature field lock, in all three of Table 236's actions and unsigned.
+///
+/// The clause states the prohibition in prose and the vocabulary in the table, and the two are
+/// worded differently — the table's column says the fields "should be locked" and the sentence
+/// under it, about the lock dictionary, is a `shall`:
+///
+/// > contains the names of form fields whose values shall no longer be changed after this
+/// > signature has been signed.
+///
+/// **Nothing in the corpus states one**, which is trap 8's shape and why this is a hand-built
+/// file: six of the 974 documents carry a signature and none of the six carries a `/Lock`. So the
+/// fixture is the only witness there is, and each case below is one line of the table.
+///
+/// The last case is the clause's own condition rather than the table's, and it is the one a
+/// reader is most likely to get wrong: an *unsigned* signature field with a `/Lock` locks
+/// nothing. §12.7.5.5's NOTE 1 says what such a field is for — it "can also hold information
+/// needed later when the actual signing takes place" — so the entry is an instruction to the
+/// signer until there is a signature to have been signed.
+#[test]
+fn a_signed_signature_field_locks_the_fields_its_lock_names() {
+    use pdf_model::restriction::{Operation, Restriction, asserted};
+
+    let locked = vec![Restriction::FieldLocked];
+
+    // Include: "All fields specified in Fields".
+    let include = Document::open(form_locking("Include", &["name"], true)).expect("a valid PDF");
+    assert_eq!(
+        asserted(&include, Operation::FillInForm, Some("name")),
+        locked
+    );
+    assert_eq!(
+        asserted(&include, Operation::FillInForm, Some("agree")),
+        Vec::new()
+    );
+    // The lock is about a field's *value*; §12.7.5.5 says nothing about annotating.
+    assert_eq!(
+        asserted(&include, Operation::Annotate, Some("name")),
+        Vec::new()
+    );
+
+    // All: "All fields in the document".
+    let all = Document::open(form_locking("All", &[], true)).expect("a valid PDF");
+    for field in ["name", "agree", "sig"] {
+        assert_eq!(
+            asserted(&all, Operation::FillInForm, Some(field)),
+            locked,
+            "{field} is a field in the document"
+        );
+    }
+
+    // Exclude: "All fields except those specified in Fields".
+    let exclude = Document::open(form_locking("Exclude", &["name"], true)).expect("a valid PDF");
+    assert_eq!(
+        asserted(&exclude, Operation::FillInForm, Some("name")),
+        Vec::new()
+    );
+    assert_eq!(
+        asserted(&exclude, Operation::FillInForm, Some("agree")),
+        locked
+    );
+
+    // A name Table 236 does not define states nothing this clause defines, and a lock is not
+    // guessed at: falling back to `All` would close a document on a word the standard does not
+    // use.
+    let unknown = Document::open(form_locking("Everything", &[], true)).expect("a valid PDF");
+    assert_eq!(
+        asserted(&unknown, Operation::FillInForm, Some("name")),
+        Vec::new()
+    );
+
+    // And the condition the clause states: the same lock, on a field nobody has signed.
+    let unsigned = Document::open(form_locking("All", &[], false)).expect("a valid PDF");
+    assert_eq!(
+        asserted(&unsigned, Operation::FillInForm, Some("name")),
+        Vec::new(),
+        "a /Lock binds after this signature has been signed, and this one has not"
+    );
+}
+
 /// A form whose author certified the document with §12.8.2.2's `/P`.
 ///
 /// The catalog gains §12.8.6's `/Perms /DocMDP`, pointing at a signature whose `/Reference`
@@ -610,7 +722,7 @@ fn a_certified_document_states_which_operation_its_author_forbade() {
     let final_document = Document::open(certified_form(1)).expect("the fixture is a valid PDF");
     for operation in [Operation::FillInForm, Operation::Annotate] {
         assert_eq!(
-            asserted(&final_document, operation),
+            asserted(&final_document, operation, None),
             vec![Restriction::Certified {
                 level: Modification::None
             }],
@@ -621,22 +733,22 @@ fn a_certified_document_states_which_operation_its_author_forbade() {
     // Level 2 is the level that separates them: "filling in forms … and signing" and not
     // annotation, which level 3 adds.
     let fillable = Document::open(certified_form(2)).expect("the fixture is a valid PDF");
-    assert_eq!(asserted(&fillable, Operation::FillInForm), Vec::new());
+    assert_eq!(asserted(&fillable, Operation::FillInForm, None), Vec::new());
     assert_eq!(
-        asserted(&fillable, Operation::Annotate),
+        asserted(&fillable, Operation::Annotate, None),
         vec![Restriction::Certified {
             level: Modification::FormFilling
         }]
     );
 
     let commented = Document::open(certified_form(3)).expect("the fixture is a valid PDF");
-    assert_eq!(asserted(&commented, Operation::Annotate), Vec::new());
+    assert_eq!(asserted(&commented, Operation::Annotate, None), Vec::new());
 
     // Table 257 defines 1, 2 and 3 and nothing else; a value outside them may not lock a
     // document a person is entitled to fill in.
     let odd = Document::open(certified_form(9)).expect("the fixture is a valid PDF");
-    assert_eq!(asserted(&odd, Operation::FillInForm), Vec::new());
-    assert_eq!(asserted(&odd, Operation::Annotate), Vec::new());
+    assert_eq!(asserted(&odd, Operation::FillInForm, None), Vec::new());
+    assert_eq!(asserted(&odd, Operation::Annotate, None), Vec::new());
 
     // And `pdf-model` itself no longer refuses: the value goes in, because whether to obey the
     // document is not a question this crate is entitled to answer.
