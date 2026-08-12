@@ -75,8 +75,17 @@ here:
   `rust::cxxbridge1::Vec<T>::Vec()`. They are **gcc's, about generated code, and not clippy
   lints**, and a warm build prints none of them, which is exactly what makes them easy to read as
   a regression.
-- **The `text_extraction` line is two gates and gains no line**: `-- --ignored` runs every ignored
-  test in that binary, and `the_text_we_draw_agrees_with_pdfboxs_frozen_extraction` is one. It
+- **`-- --ignored` runs every ignored test in the binary, which is not always what the line wants.**
+  It is a switch on the whole binary rather than a filter, so a test that carries `#[ignore]` to mean
+  *run me explicitly* is run by every gate line that names its file. The oracle's binary held one for
+  thirty-nine rounds — a derivation whose own doc comment says it "is not itself a gate" — and the two
+  walked the corpus side by side under `rayon`, which doubled the line's wall clock and inflated the
+  per-page spans it prints (ADR 0282). **The rule that came out of it is where the fix goes, not what
+  the fix was**: a test in a gate binary that must not run in the gate declines *by itself*, because
+  an invocation can be copied without its guard and a test cannot be run without itself. Nothing here
+  changes when one is added.
+- **The `text_extraction` line is two gates and gains no line**, which is the other side of the same
+  mechanism and is correct: `the_text_we_draw_agrees_with_pdfboxs_frozen_extraction` is a gate. It
   compares documents against the `PDFTextStripper` output Apache PDFBox checked in beside them — a
   *frozen* second reference, which cannot drift under this tree the way the machine's poppler can
   — and it costs a fraction of the pdf.js gate, because its reference is a file rather than one

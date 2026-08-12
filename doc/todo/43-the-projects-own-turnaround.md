@@ -1,9 +1,9 @@
 # The project's own turnaround — what is left after 608 s became 268
 
-Status: **open, and it is the *project's* performance rather than the *program's*.** **A second item
-arrived in the four-hundred-and-forty-fifth and is now the larger of the two**: three gates roughly
-doubled between the three-hundred-and-ninety-eighth and that round, unseen because no gate measures a
-gate — last section of this file.
+Status: **open, and it is the *project's* performance rather than the *program's*.** The second item —
+three gates said to have doubled — was taken in the four-hundred-and-forty-seventh and is **closed**:
+one of the three had moved, for a reason that was not rendering at all, and the last section of this
+file is what the bisect found.
 Priority: 43
 
 Everything else in the `40`–`49` band is about how fast `pdf-viewer` runs. This one is about how
@@ -84,37 +84,40 @@ rather than a fact. Do not build it without an argument for why that judgement c
   Somebody should read one CI run's step timings before changing anything there.
 - **The fuzzers and the nightly job**, which are outside §2 and were never timed.
 
-## A third denominator, handed over by the four-hundred-and-forty-fifth: the gates got slower and no gate saw it
+## A third denominator, opened by the four-hundred-and-forty-fifth and closed by the four-hundred-and-forty-seventh
 
-That closing round re-took the whole of `doc/HANDOVER.md`'s gate-table timing column, which had been
-the three-hundred-and-ninety-eighth's for forty-seven rounds. **Every count reproduced and three of
-the ten timings roughly doubled:**
+The four-hundred-and-forty-fifth re-took `doc/HANDOVER.md`'s gate-timing column, which had been the
+three-hundred-and-ninety-eighth's for forty-seven rounds, and reported that **three of ten timings had
+roughly doubled** — the oracle, the quorra comparison and the corpus gate, which it noted were "exactly
+the three that rasterise all 974 first pages". It handed over a hypothesis (§11.4.7's page group drawn
+as two rasters since ADR 0262) and an instrument (bisect the window).
 
-| gate | 398 | 445 |
-|---|---|---|
-| oracle, 1794 pages | 51.5 s | **102.0 s** |
-| quorra vs the CPU oracle, 957 pages | 25.1 s | **39.0 s** |
-| corpus, 974 documents | 3.2 s | **5.0 s** |
-| `cargo nextest run --workspace` | 31.0 s | 33.9 s |
-| text vs `pdftotext`, 974 | 31.3 s | 31.0 s |
-| dates / XMP / JPEG 2000 | 0.9 / 0.4 / 13.8 s | 0.7 / 0.4 / 11.8 s |
+**The bisect was run and the answer is smaller and stranger than the handover.** ADR 0282 is the whole
+argument; three things belong here because they are about *this file's* denominator.
 
-Both runs were on an idle machine with a warm build and a 99.7% reference-cache hit rate, and the
-oracle's own line moved with them: it prints **271 s ours against 90 s in the three reference
-renderers**, where the era the ~30 s figure was written in was ~23 s of subprocess out of ~30.
+- **Two of the three never moved.** Session 398's own commit `244b86a`, checked out beside `351bfed` in
+  one sitting on one machine, gives corpus **4.6/4.6/4.7 s** against HEAD's **3.9/4.0/4.0** and quorra
+  **34.6/34.5** against HEAD's **34.1/35.0**. The corpus gate is *faster* at HEAD. Neither end's
+  reported figure reproduces; what reproduces is the difference between them being nothing. The page-group
+  hypothesis is excluded, because the gates ADRs 0262 and 0275 touched are the two that did not move.
+- **The one that moved is `92579c2`, and it is not rendering.** The four-hundred-and-seventh session added
+  a second `#[ignore]`d test to `oracle.rs` — a derivation whose own doc comment says it "is not itself a
+  gate" — and `doc/todo/02` §2 invokes that binary with `--ignored`, which un-ignores every test in it. The
+  two then walked the corpus under `rayon` in one process. The derivation now declines unless
+  `PDFVIEWER_ORACLE_SPREAD` is set: the oracle line goes **47.0/46.3/55.5 s → 24.4/25.1/30.2 s**,
+  interleaved, three samples each.
+- **The corpus gate was the wrong probe and this file named it.** It said the corpus gate "takes seconds,
+  which makes it the right bisect probe". Cheap is not the same as sensitive; that probe shows this effect
+  *backwards*, and a round following the instruction would have concluded there was nothing to find. The
+  probe that worked was the expensive one, at about two minutes a step and six steps.
 
-**The three that moved are exactly the three that rasterise all 974 first pages; the ones that did
-not are the ones that do not.** The hypothesis to test first — and it is a hypothesis, because
-nothing here measured it — is that §11.4.7's page group has been drawn as **two** rasters since
-ADR 0262 and quorra's pair since ADR 0275, so a four-component page costs both of them twice. That is
-7 documents of the 974 on the corpus's own count, which is nowhere near a factor of two, so it is at
-best part of the answer.
+**What this leaves for the denominator this file owns.** The whole of `doc/todo/02` §2, end to end through
+`tools/state.sh`, is now **2 m 37 s**. §1's fat link is again the single largest item in a round and is
+still unmeasured against what it buys, which is the top of this file and unchanged.
 
-**What makes this todo's rather than a performance defect**: none of it is what a *user* waits for.
-The program's own launch, page turn and search numbers are `doc/performance.md`'s and did not move.
-This is the round's clock, which is the denominator this file owns, and it is now the largest single
-item on it — 51 s a round, against the 340 s ADR 0222 took off the whole sequence.
-
-**The instrument to use is the one already here**: `doc/todo/02` §2's sequence with each step timed,
-run at `2531f447`-era and at HEAD, which is what ADR 0222 did to get its table. A `git bisect` over
-the twelve rounds between the two measurements would name the commit rather than the suspicion.
+**And one lesson that is this file's rather than the ADR's**: *no gate measures a gate*, which is what the
+four-hundred-and-forty-fifth said, and it is still true. What the four-hundred-and-forty-seventh adds is
+that a gate's own printed timings are not a substitute — the oracle's `processor time` and `slowest pages`
+rows read a factor of two high for thirty-nine rounds, and one of them was quoted *in this file* as
+evidence for the regression it was a symptom of. A number a gate prints about itself is only as good as
+what else is in its process.

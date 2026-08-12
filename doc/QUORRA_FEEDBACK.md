@@ -9,7 +9,33 @@ and then what the team did about it.
 Each finding below keeps its evidence and carries what closed it, because a feedback document
 that still reads as a complaint after the complaint was answered is worse than no document.
 
-**§18 is the newest, is a *question* rather than a defect, and this side changed itself first.**
+**§19 is the newest, and it is a finding of *yours about us* rather than either side's complaint.**
+`04c0d23`'s `doc/corpus-profile.md` walked the 995 first pages this gate hands you and reports that
+**not one of them emits a `Command::Rect`** — every rectangle a document draws arrives as a `Fill`
+whose outline happens to be one. That is true and it is ours: `render-quorra`'s translation names
+`quorra_scene::Rect` in exactly one place, `present.rs`'s blit, and nowhere on a page's path. Whether
+it should is §19.
+
+**And the release the project owner asked about does not move this gate, which is the second time
+that has been established rather than assumed.** `595d8c87` fixes a regression `89d7dd77` introduced
+— a multiply-xor-rotate accumulator whose low bits are the ones `hashbrown` indexes with — and
+`c1f6e2f4` chooses the coverage lane per command by cost. Run as an A/B/A alternation, six samples
+each, rebuilt between arms:
+
+| pin | gate wall clock | serial rasterisation through quorra | agree / differ / refused / not comparable |
+|---|---|---|---|
+| `89d7dd77` | 26.3–27.1 s | 6.17–6.35 s | 917 / 35 / 5 / 17 |
+| `595d8c87` | 26.2–27.3 s | 6.12–6.44 s | 917 / 35 / 5 / 17 |
+| `c1f6e2f4` **(pinned)** | 26.9–29.0 s | 6.26–6.78 s | 917 / 35 / 5 / 17 |
+
+Every band overlaps every other. Your own figures for the hasher are 468 → 397 ms on one page and
+46 → 43 on another; 957 pages summing to 6.3 s of rasterisation cannot see that, and the unalternated
+wall clock of this gate spanned 23.9–39.2 s at a *fixed* pin on the same day. **Read the middle
+column as a null result about the instrument, not about the change** — the same thing §13's median
+row had to say about ADR 0022, and the reason it is worth repeating is that the null arrived from two
+independent directions.
+
+**§18 is a *question* rather than a defect, and this side changed itself first.**
 ISO 32000-2 §10.7.4 states clipping as an intersection of two *sets* of pixels and §8.5.4 says a
 clip zeroes the shape outside it; both backends were composing a clip chain by multiplying
 anti-aliased coverages, so one rectangle stated six times drew its edge at a twentieth of the mark.
@@ -82,15 +108,17 @@ frame allocates ~12 ms that every frame after it reuses, and it is provably not 
 
 **Where it stands, at the page's own scale:**
 
-| | first run | at `2531f447` | at `89d7dd77`, session 438 | now, session 439 |
-|---|---|---|---|---|
-| agree | 900 | 911 | 914 | **917** |
-| differ | 50 | 35 — 23 of them the antialiasing floor (§4) | 35 | **35**, page for page the same list |
-| refused | 7 | 11 | 8 | **5** |
-| median page | 2.64× the CPU backend | 2.05× to 2.33×, run to run | 2.46× | **2.37× and 2.35×**, two runs |
+| | first run | at `2531f447` | at `89d7dd77`, session 438 | at `89d7dd77`, session 439 | now, `c1f6e2f4`, session 447 |
+|---|---|---|---|---|---|
+| agree | 900 | 911 | 914 | 917 | **917** |
+| differ | 50 | 35 — 23 of them the antialiasing floor (§4) | 35 | 35 | **35**, page for page the same list |
+| refused | 7 | 11 | 8 | 5 | **5** |
+| median page | 2.64× the CPU backend | 2.05× to 2.33×, run to run | 2.46× | 2.37× and 2.35×, two runs | **1.83× to 2.79×**, eight runs across three pins |
 
 The fourth column is one revision of yours and one session of ours: the pin did not move, and the
-three pages are §17.2's.
+three pages are §17.2's. The fifth is two revisions of yours and no change at all to any of the four
+rows — see the alternation at the top of this document, and read the median row as the band it has
+always been rather than as a figure that moved.
 
 **The middle column is what this table used to call "now", and reading it beside the first is how
 this document has been wrong.** It said `914 / 42 / 1` for the whole stretch in which sections 14,
@@ -1640,3 +1668,40 @@ among the 35 the two backends already differ on, and elsewhere the movement stay
 agreement bound. So the two backends now compose clips by two different rules and no gate can see
 it yet — which is exactly why it is written down rather than left for a future round to rediscover
 as a regression in whichever side is measured second.
+
+
+---
+
+## 19. Not one page emits a `Command::Rect`, and that is ours — **open, and it is your finding about our side**
+
+`04c0d23`'s `doc/corpus-profile.md` walked the 995 first pages this gate builds and counted what is
+on them. One row of that table is a fact about **our** translation rather than about a page:
+
+> **Not one page emits a `Command::Rect`.** The lane is real, reachable and documented, and every
+> rectangle a document draws arrives as a `Fill` whose outline happens to be one.
+
+Checked here and confirmed: `quorra_scene::Rect` is named in exactly one place in
+`crates/render-quorra/src/`, `present.rs`'s blit of the finished page, and nowhere on the path any
+page's content takes. So the lane your flagship fixture prices is one we never take, and the reason is
+on our side of the boundary: `pdf_render::Command::Fill` carries an outline, and `render-quorra`
+hands it over as an outline without asking whether it is four axis-aligned edges.
+
+**What we owe you is a decision rather than an answer, and we do not have it yet.** Two things have
+to be true before this is worth doing and neither is measured:
+
+1. that recognising a rectangular outline is cheap relative to what the `Rect` lane saves — which
+   depends on your side, since the saving is inside `encode`;
+2. that it is *exactly* the same mark. §8.5.2.1's `re` appends four lines and a close, and a fill of
+   that path under a transform that is not axis-aligned is not a rectangle at all; a lane that
+   assumed otherwise would be the kind of shortcut `CLAUDE.md` forbids taking silently.
+
+**What would settle it from your end** is one number: what a `Command::Rect` costs against a `Fill`
+of the same four-edge outline, at the sizes your profile says a page actually contains — median 12
+commands, p99 4320. If the answer is "nothing worth the recognition pass", this section closes as
+*already handled* the way §15's may, and neither side writes any code.
+
+**And the profile itself is worth saying thank you for out loud**, because it did something this
+document has been asking for in three sections without naming it: it measured *our* corpus with
+*your* counters and reported a shape neither side had. The median page being twelve commands and glyph
+reuse being 1.33 rather than 55 are not facts about quorra — they are facts about what this viewer
+hands quorra, and every fixture on both sides was built against a page nobody had counted.

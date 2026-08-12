@@ -8399,6 +8399,10 @@ const MEASURES: [Measure; 4] = [
     },
 ];
 
+/// The environment variable that asks for the derivation below. See its doc comment for why
+/// an attribute could not carry this.
+const SPREAD_IS_ASKED_FOR: &str = "PDFVIEWER_ORACLE_SPREAD";
+
 /// Where the fixed bounds come from, re-derived from the corpus rather than remembered.
 ///
 /// # Why this is a separate run and not part of the gate
@@ -8421,9 +8425,27 @@ const MEASURES: [Measure; 4] = [
 /// evidence for changing a bound; it is not itself a gate, because a bound that moved
 /// whenever a reference renderer was upgraded would be the curve-fitting `CLAUDE.md` forbids
 /// wearing a schedule.
+///
+/// # Why `#[ignore]` is not enough, and there is an environment variable as well
+///
+/// `#[ignore]` says *run explicitly*, and `cargo test -- --ignored` — which is how every
+/// corpus gate in this tree is invoked — overrides it for every test in the binary at once.
+/// So the attribute cannot express "not this one", and the gate's own command silently
+/// acquired a passenger: measured in the four-hundred-and-forty-seventh session, this ran
+/// beside the gate on the same 24 cores for 40 s, taking the oracle line from 48 s to 96 and
+/// inflating the per-page spans the gate prints, because both walk the corpus under `rayon`.
+/// The guard is here rather than in the invocation for the reason a guard usually is: an
+/// invocation can be copied without it, and a test cannot be run without itself. ADR 0282.
 #[test]
 #[ignore = "renders every corpus page with all four renderers; run explicitly, in release"]
 fn the_fixed_bounds_against_the_references_own_spread() {
+    if std::env::var_os(SPREAD_IS_ASKED_FOR).is_none() {
+        println!(
+            "skipped: this is a derivation rather than a gate — set {SPREAD_IS_ASKED_FOR}=1 to \
+             run it. See the doc comment for why `--ignored` alone does not ask for it."
+        );
+        return;
+    }
     require_the_sandbox();
     let Some(items) = work_items() else {
         println!("skipped: the doc/pdf.js submodule is not checked out");

@@ -453,6 +453,18 @@ what it would have to have** (ADR 0167).
   the baseline on this machine rather than trusting a number in this file.
 - **Attribute a regression by removing the suspect, not by reading the profile.** The profile shows
   the *shape* of the extra work, not its cause; one stubbed field said 96 of 110 M.
+- **A gate's own printed timings are only as good as what else is in its process.** The oracle's
+  `processor time` and `slowest pages` rows read a factor of two high for thirty-nine rounds,
+  because a second test in the same binary was walking the same corpus under `rayon` beside it, and
+  the report is built from per-page `Instant` spans. One page read 93.2 s where the same work alone
+  is 5.4–6.7 s, and a todo quoted the inflated row as evidence for the regression it was a symptom
+  of. Nothing could see it, because a self-timing gate has no second reading to disagree with.
+  Session 447, ADR 0282.
+- **Check that the cheap probe moves the right way before bisecting on it.** Cheap and *sensitive
+  to the thing you are looking for* are different properties. `doc/todo/43` named the corpus gate
+  as the probe for a slowdown because it "takes seconds"; it is **faster** at the bad end than at
+  the good one, so a round following the instruction would have concluded there was nothing to
+  find. One sample at each end of the window, before the first bisect step, costs a minute.
 - **When a page's error has a suspiciously round size, do the arithmetic.** Seven pixels of
   gradient where there should be an edge is 1800 ÷ 256.
 - **Profile before believing an explanation, even one whose arithmetic matches.** A 48-second page
