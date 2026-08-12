@@ -69,7 +69,7 @@ fn main() {
                                 height,
                                 ..
                             } => println!("  Sampled domain={domain:?} grid={width}x{height}"),
-                            ShadingKind::Mesh { triangles } => {
+                            ShadingKind::Mesh { triangles, .. } => {
                                 println!("  Mesh {} triangles", triangles.len());
                             }
                             other => println!("  {other:?}"),

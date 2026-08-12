@@ -546,6 +546,101 @@ fn a_triangle_mesh_puts_its_corner_colours_at_its_corners() {
     );
 }
 
+/// A lattice mesh (§8.7.4.5.6) fills the quad between two rows, both triangles of it.
+///
+/// Type 5 states no edge flags at all: the geometry *is* the row structure, so the two
+/// triangles between a pair of rows are the whole of what the clause asks a reader to
+/// construct. A reader that formed one triangle per cell instead would leave half of every
+/// cell unpainted and put three of the four corner colours in the right place all the same,
+/// which is why the assertion below is about the fourth corner and about coverage.
+#[test]
+fn a_lattice_mesh_triangulates_between_its_rows() {
+    // No flags, and eight bits each for the coordinates and the three components, so a
+    // vertex is five whole bytes. Two rows of two: red and green along the bottom of the
+    // page, blue and yellow along the top.
+    let data = "00 00 FF 00 00  FF 00 00 FF 00  00 FF 00 00 FF  FF FF FF FF 00 >";
+    let mesh = format!(
+        "<< /ShadingType 5 /ColorSpace /DeviceRGB /VerticesPerRow 2 /BitsPerCoordinate 8 \
+         /BitsPerComponent 8 /Decode [0 100 0 100 0 1 0 1 0 1] \
+         /Filter /ASCIIHexDecode /Length {} >>\nstream\n{data}\nendstream",
+        data.len()
+    );
+    let raster = render(pdf_with(&mesh, "/Sh0 sh"));
+
+    // Page (5, 5) is raster row 94: the first row's first vertex, which is red.
+    let (r, g, b, a) = pixel(&raster, 5, 94);
+    assert_eq!(a, 255, "the lattice paints its own area");
+    assert!(
+        r > 200 && g < 60 && b < 60,
+        "bottom left is red: {r},{g},{b}"
+    );
+    let (r, g, b, _) = pixel(&raster, 94, 94);
+    assert!(
+        g > 200 && r < 60 && b < 60,
+        "bottom right is green: {r},{g},{b}"
+    );
+    let (r, g, b, _) = pixel(&raster, 5, 5);
+    assert!(b > 200 && r < 60 && g < 60, "top left is blue: {r},{g},{b}");
+    // The fourth corner is the one a single triangle per cell would not reach.
+    let (r, g, b, a) = pixel(&raster, 94, 5);
+    assert_eq!(a, 255, "both triangles of the cell are drawn");
+    assert!(
+        r > 200 && g > 200 && b < 60,
+        "top right is yellow: {r},{g},{b}"
+    );
+}
+
+/// A mesh with a `/Function` interpolates the parameter, not the colour (§8.7.4.5.5).
+///
+/// > If the shading dictionary contains a Function entry, the colour data for each vertex
+/// > shall be specified by a single parametric value t rather than by n separate colour
+/// > components. All linear interpolation within the triangle mesh shall be done using the t
+/// > values. After interpolation, the results shall be passed to the function(s) specified in
+/// > the Function entry to determine the colour at each point.
+///
+/// The two orders agree wherever the function is a straight line, which is why this fixture's
+/// is `/N 2`: red rises as `t²`. The corners carry `t = 0`, `1` and `0`, so at the pixel
+/// sampled below the interpolated parameter is 0.505 and the clause's colour is
+/// `0.505² = 0.255` of full red — 65. Evaluating the function at each corner first and
+/// interpolating the *colours* gives `0.505` — 129, twice as much, and nothing about the
+/// resulting page says which was done. That is what this tree drew until it read the sentence.
+#[test]
+fn a_mesh_with_a_function_interpolates_the_parameter() {
+    // Eight bits each for the flag, both coordinates and the single parametric value, so a
+    // vertex is four whole bytes.
+    //
+    // Three vertices, each `flag x y t`: (0,0) at t = 0, (100,0) at t = 1, (0,100) at t = 0.
+    let data = "00 00 00 00  00 FF 00 FF  00 00 FF 00 >";
+    let mesh = format!(
+        "<< /ShadingType 4 /ColorSpace /DeviceRGB /BitsPerCoordinate 8 \
+         /BitsPerComponent 8 /BitsPerFlag 8 /Decode [0 100 0 100 0 1] \
+         /Function << /FunctionType 2 /Domain [0 1] /C0 [0 0 0] /C1 [1 0 0] /N 2 >> \
+         /Filter /ASCIIHexDecode /Length {} >>\nstream\n{data}\nendstream",
+        data.len()
+    );
+    let raster = render(pdf_with(&mesh, "/Sh0 sh"));
+
+    // Device (50, 95) is page (50.5, 4.5): barycentric 0.505 towards the `t = 1` corner.
+    let parameter = 0.505_f32;
+    let (red, green, blue, alpha) = pixel(&raster, 50, 95);
+    assert_eq!(alpha, 255, "the mesh paints this pixel");
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "test code: a fraction of full scale, so the rounded product is in 0..=255"
+    )]
+    let expected = (parameter * parameter * 255.0).round() as u8;
+    assert!(
+        red.abs_diff(expected) <= 3,
+        "§8.7.4.5.5 calls the function with the interpolated parameter, which is {expected} \
+         here; interpolating the corner colours would give 129. Got {red}"
+    );
+    assert!(
+        green < 4 && blue < 4,
+        "the function states red alone: {red},{green},{blue}"
+    );
+}
+
 /// A shading type that does not exist must be reported, not skipped.
 #[test]
 fn an_unknown_shading_type_is_reported() {

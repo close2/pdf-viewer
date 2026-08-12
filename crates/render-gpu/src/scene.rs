@@ -498,13 +498,14 @@ fn encode_fill(
         knock_out(scene, at, rule, shape);
     }
 
-    // A mesh carries a colour per triangle corner, which no brush can express, so it is
-    // drawn triangle by triangle inside a layer clipped to the shape.
+    // A mesh carries a colour — or §8.7.4.5.5's parametric value — per triangle corner,
+    // which no brush can express, so it is rasterised and drawn inside a layer clipped to
+    // the shape.
     if let Paint::Shading(shading) = paint
-        && let pdf_render::ShadingKind::Mesh { triangles } = shading.kind.as_ref()
+        && let pdf_render::ShadingKind::Mesh { triangles, ramp } = shading.kind.as_ref()
     {
-        // A mesh always needs a layer, because it is drawn as triangles clipped to the
-        // shape; source-over is what an unblended one composites through.
+        // A mesh always needs a layer, because its raster is clipped to the shape;
+        // source-over is what an unblended one composites through.
         let mode = layer.unwrap_or(peniko::BlendMode::new(
             peniko::Mix::Normal,
             peniko::Compose::SrcOver,
@@ -513,6 +514,7 @@ fn encode_fill(
         crate::shading::fill_mesh(
             scene,
             triangles,
+            ramp.as_ref(),
             shading.transform.then(spaces.to_device),
             target,
         );

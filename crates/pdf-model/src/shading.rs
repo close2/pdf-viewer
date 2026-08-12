@@ -259,7 +259,7 @@ fn kind_of(
             Transform::IDENTITY,
         ),
         4..=7 => (
-            mesh(document, &resolved, &dict, &space, kind, into)?,
+            mesh(document, &resolved, &dict, &space, kind, resolution, into)?,
             Transform::IDENTITY,
         ),
         other => return Err(ShadingError::UnsupportedType { kind: other }),
@@ -365,28 +365,34 @@ fn ramp(
         });
     }
     let (low, high) = domain(document, dict);
-
-    // Where the function jumps, in the shading's own parameter. §8.7.4.5.3 makes the colour at
-    // a point whatever the function says it is, and a type 3 function with two equal `/Bounds`
-    // says one colour up to a point and another after it — a step, which a table of evenly
-    // spaced samples cannot hold. `Ramp::sample_across` puts a pair of stops at each of these.
-    let span = high - low;
-    let mut breaks: Vec<f32> = Vec::new();
-    if span.abs() > f32::EPSILON {
-        for function in &functions {
-            breaks.extend(
-                function
-                    .breakpoints()
-                    .into_iter()
-                    .map(|at| (at - low) / span),
-            );
-        }
-    }
+    let breaks = breakpoints_over(&functions, low, high);
 
     Ok(Ramp::sample_across_at(resolution, &breaks, |t| {
         let parameter = low + t * (high - low);
         colour_from(&functions, &[parameter], space, into)
     }))
+}
+
+/// Where a shading's functions jump, as fractions of the interval `low` to `high`.
+///
+/// §8.7.4.5.3 makes the colour at a point whatever the function says it is, and a type 3
+/// function with two equal `/Bounds` says one colour up to a point and another after it — a
+/// step, which a table of evenly spaced samples cannot hold. [`Ramp::sample_across_at`] puts a
+/// pair of stops at each of these.
+///
+/// The interval is the shading's own parameter: `/Domain` for an axial or radial shading, and
+/// for a mesh the `/Decode` pair Table 81 gives the parametric value. A zero-width interval
+/// states one colour and has nowhere for a break to sit.
+pub(crate) fn breakpoints_over(functions: &[Function], low: f32, high: f32) -> Vec<f32> {
+    let span = high - low;
+    if span.abs() <= f32::EPSILON {
+        return Vec::new();
+    }
+    functions
+        .iter()
+        .flat_map(Function::breakpoints)
+        .map(|at| (at - low) / span)
+        .collect()
 }
 
 /// Evaluates a shading's functions at a point and converts the result to RGB.
@@ -457,6 +463,7 @@ fn mesh(
     dict: &Dictionary,
     space: &ColourSpace,
     kind: i64,
+    resolution: usize,
     into: Compositing,
 ) -> Result<ShadingKind, ShadingError> {
     let stream = object.as_stream().ok_or_else(|| ShadingError::Malformed {
@@ -474,15 +481,16 @@ fn mesh(
         }
     };
 
-    let triangles =
-        crate::mesh::read(document, stream, kind, space, &functions, into).ok_or_else(|| {
-            ShadingError::Malformed {
-                detail: format!("the type {kind} mesh stream could not be read"),
-            }
-        })?;
+    let (triangles, ramp) = crate::mesh::read(
+        document, stream, kind, space, &functions, resolution, into,
+    )
+    .ok_or_else(|| ShadingError::Malformed {
+        detail: format!("the type {kind} mesh stream could not be read"),
+    })?;
 
     Ok(ShadingKind::Mesh {
         triangles: triangles.into(),
+        ramp,
     })
 }
 

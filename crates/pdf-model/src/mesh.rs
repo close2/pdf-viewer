@@ -7,8 +7,18 @@
 //! points. A Coons patch is exactly a tensor patch whose interior points are implied by its
 //! boundary, so both are converted to the tensor form and evaluated once.
 //!
-//! Everything leaves here as triangles with a colour at each corner, which is the one
-//! representation a rasteriser can actually draw.
+//! Everything leaves here as triangles, which is the one representation a rasteriser can
+//! actually draw — carrying a colour at each corner, or, where the shading states a
+//! `/Function`, the parametric value at each corner beside the sampled function.
+//!
+//! # Which of the two a mesh carries is a `shall` about an order
+//!
+//! §8.7.4.5.5: "[a]ll linear interpolation within the triangle mesh shall be done using the t
+//! values. After interpolation, the results shall be passed to the function(s) specified in
+//! the Function entry to determine the colour at each point." Evaluating the function at each
+//! vertex and interpolating the colours it returns is the same picture only where the function
+//! is a straight line, and nothing about the result says which was done — so the parameter is
+//! what leaves here, and [`pdf_render::Corners`] is where the distinction is kept.
 //!
 //! # The data is a bit stream, not a byte stream
 //!
@@ -18,7 +28,7 @@
 //! Getting that padding wrong shifts every subsequent value by a few bits, which produces a
 //! mesh that is plausible and wrong rather than one that fails.
 
-use pdf_render::{Color, Point, Triangle};
+use pdf_render::{Color, Corners, Point, Ramp, Triangle};
 use pdf_syntax::{Dictionary, Document, Stream};
 
 use crate::colour::{ColourSpace, Compositing};
@@ -37,7 +47,12 @@ const PATCH_STEPS: usize = 10;
 /// patches. This is the decompression-bomb bound for shadings.
 const MAX_TRIANGLES: usize = 1 << 18;
 
-/// Reads a mesh shading's stream into triangles.
+/// Reads a mesh shading's stream into triangles, with the ramp a parametric mesh needs.
+///
+/// The ramp is `Some` exactly where the shading states a `/Function`, which is exactly where
+/// the triangles carry [`Corners::Parameters`]: §8.7.4.5.5 interpolates the parameter and
+/// calls the function afterwards, so the function crosses into the display list as the
+/// samples of itself that [`Ramp`] already is for an axial or a radial shading.
 ///
 /// Returns `None` when the stream is unreadable or describes no triangles, which the
 /// caller reports rather than drawing an empty shading.
@@ -47,8 +62,9 @@ pub(crate) fn read(
     kind: i64,
     space: &ColourSpace,
     functions: &[Function],
+    resolution: usize,
     into: Compositing,
-) -> Option<Vec<Triangle>> {
+) -> Option<(Vec<Triangle>, Option<Ramp>)> {
     let dict = &stream.dict;
     let data = document.decoded_stream_data(stream)?;
 
@@ -90,27 +106,37 @@ pub(crate) fn read(
         into,
     };
 
-    let mut bits = BitReader::new(&data);
-    let triangles = match kind {
-        4 => reader.free_form(&mut bits),
-        5 => {
-            let per_row = usize::try_from(
-                document
-                    .get_key(dict, "VerticesPerRow")
-                    .as_integer()
-                    .unwrap_or(0),
-            )
-            .ok()?;
-            if per_row < 2 {
-                return None;
-            }
-            reader.lattice(&mut bits, per_row)
+    // Type 5's lattice width is read before the vertices, whichever of the two things a
+    // vertex carries.
+    let per_row = if kind == 5 {
+        let per_row = usize::try_from(
+            document
+                .get_key(dict, "VerticesPerRow")
+                .as_integer()
+                .unwrap_or(0),
+        )
+        .ok()?;
+        if per_row < 2 {
+            return None;
         }
-        6 | 7 => reader.patches(&mut bits, kind == 7),
-        _ => return None,
+        per_row
+    } else {
+        0
     };
 
-    (!triangles.is_empty()).then_some(triangles)
+    let mut bits = BitReader::new(&data);
+    // The two readings differ only in what a vertex carries, which is what the clause makes
+    // the whole question: components, or the one parametric value the function takes.
+    let (triangles, ramp) = if functions.is_empty() {
+        (reader.triangles::<Color>(&mut bits, kind, per_row)?, None)
+    } else {
+        (
+            reader.triangles::<f32>(&mut bits, kind, per_row)?,
+            Some(reader.ramp(resolution)),
+        )
+    };
+
+    (!triangles.is_empty()).then_some((triangles, ramp))
 }
 
 /// Reads a bit width, checking it against the values the specification permits.
@@ -149,11 +175,79 @@ fn decode_ranges(document: &Document, dict: &Dictionary) -> Option<Vec<(f32, f32
     )
 }
 
-/// One vertex: where it is and what colour it carries.
+/// One vertex: where it is and what it carries — a colour, or §8.7.4.5.5's parameter.
 #[derive(Debug, Clone, Copy)]
-struct Vertex {
+struct Vertex<C> {
     point: Point,
-    colour: Color,
+    corner: C,
+}
+
+/// What a vertex carries, and the two things the reader does with it.
+///
+/// A mesh states either a colour per vertex or one parametric value per vertex, and the
+/// clause makes that a choice about *what is interpolated* rather than about a format. The
+/// reading of the stream is identical either way — the flags, the lattice, the patches and
+/// their shared edges — so the difference between the two lives here and nowhere else.
+trait Corner: Copy {
+    /// Reads one vertex's worth of the stream.
+    fn read(reader: &MeshReader<'_>, bits: &mut BitReader<'_>) -> Option<Self>;
+
+    /// The value `t` of the way from `self` to `other`, which a patch's interior needs.
+    fn mix(self, other: Self, t: f32) -> Self;
+
+    /// Three of these as the display list carries them.
+    fn corners(values: [Self; 3]) -> Corners;
+
+    /// A value for a patch slot the stream is about to fill, so that a patch's four corners
+    /// can be an array before all four have been read.
+    fn placeholder() -> Self;
+}
+
+impl Corner for Color {
+    fn read(reader: &MeshReader<'_>, bits: &mut BitReader<'_>) -> Option<Self> {
+        let mut values = Vec::with_capacity(reader.components);
+        for index in 0..reader.components {
+            let raw = bits.read(reader.component_bits)?;
+            values.push(reader.decode_at(index.checked_add(2)?, raw, reader.component_bits));
+        }
+        Some(reader.into.paint(reader.space, &values, true))
+    }
+
+    fn mix(self, other: Self, t: f32) -> Self {
+        Color {
+            r: self.r + (other.r - self.r) * t,
+            g: self.g + (other.g - self.g) * t,
+            b: self.b + (other.b - self.b) * t,
+            a: self.a + (other.a - self.a) * t,
+        }
+    }
+
+    fn corners(values: [Self; 3]) -> Corners {
+        Corners::Colours(values)
+    }
+
+    fn placeholder() -> Self {
+        Color::BLACK
+    }
+}
+
+impl Corner for f32 {
+    fn read(reader: &MeshReader<'_>, bits: &mut BitReader<'_>) -> Option<Self> {
+        let raw = bits.read(reader.component_bits)?;
+        Some(reader.fraction_of_range(reader.decode_at(2, raw, reader.component_bits)))
+    }
+
+    fn mix(self, other: Self, t: f32) -> Self {
+        self + (other - self) * t
+    }
+
+    fn corners(values: [Self; 3]) -> Corners {
+        Corners::Parameters(values)
+    }
+
+    fn placeholder() -> Self {
+        0.0
+    }
 }
 
 /// The parsed shape of a mesh stream, ready to read vertices from.
@@ -170,6 +264,23 @@ struct MeshReader<'a> {
 }
 
 impl MeshReader<'_> {
+    /// Reads the whole stream as one of the four mesh types, whichever thing a vertex carries.
+    ///
+    /// `per_row` is type 5's `/VerticesPerRow` and is read by nothing else.
+    fn triangles<C: Corner>(
+        &self,
+        bits: &mut BitReader<'_>,
+        kind: i64,
+        per_row: usize,
+    ) -> Option<Vec<Triangle>> {
+        match kind {
+            4 => Some(self.free_form::<C>(bits)),
+            5 => Some(self.lattice::<C>(bits, per_row)),
+            6 | 7 => Some(self.patches::<C>(bits, kind == 7)),
+            _ => None,
+        }
+    }
+
     /// Maps a raw sample onto the range `/Decode` gives for that position.
     fn decode_at(&self, index: usize, raw: u32, width: u32) -> f32 {
         let (low, high) = self.decode.get(index).copied().unwrap_or((0.0, 1.0));
@@ -195,29 +306,57 @@ impl MeshReader<'_> {
         ))
     }
 
-    fn read_colour(&self, bits: &mut BitReader<'_>) -> Option<Color> {
-        let mut values = Vec::with_capacity(self.components);
-        for index in 0..self.components {
-            let raw = bits.read(self.component_bits)?;
-            values.push(self.decode_at(index.checked_add(2)?, raw, self.component_bits));
+    /// Where a decoded parametric value sits in the range `/Decode` gives it.
+    ///
+    /// Table 81 makes that range the function's input interval — "[e]ach input value shall be
+    /// forced into the range interval specified for the corresponding colour component in the
+    /// shading dictionary's Decode array" — and [`Self::ramp`] samples the function across it,
+    /// so a corner carries its position in the range rather than the value itself. A range of
+    /// zero width states one colour for the whole mesh, and every corner is at its start.
+    fn fraction_of_range(&self, value: f32) -> f32 {
+        let (low, high) = self.parameter_range();
+        let span = high - low;
+        if span.abs() <= f32::EPSILON {
+            return 0.0;
         }
-        Some(self.to_colour(&values))
+        (value - low) / span
     }
 
-    /// Turns the stream's components into a colour, through the functions if there are any.
-    fn to_colour(&self, values: &[f32]) -> Color {
-        if self.functions.is_empty() {
-            return self.into.paint(self.space, values, true);
-        }
+    /// The `/Decode` pair the parametric value is mapped onto, which is the third.
+    fn parameter_range(&self) -> (f32, f32) {
+        self.decode.get(2).copied().unwrap_or((0.0, 1.0))
+    }
+
+    /// The shading's `/Function`, sampled across the range `/Decode` gives its input.
+    ///
+    /// The same construction as an axial or radial shading's ramp, and for the same reason:
+    /// a display list holds no PDF functions, so the function is evaluated here and crosses
+    /// as samples. Its own discontinuities are sampled *across* rather than averaged over,
+    /// which is what a type 3 stitching function with equal `/Bounds` needs.
+    fn ramp(&self, resolution: usize) -> Ramp {
+        let (low, high) = self.parameter_range();
+        let span = high - low;
+        let breaks = crate::shading::breakpoints_over(self.functions, low, high);
+        Ramp::sample_across_at(resolution, &breaks, |t| {
+            self.colour_of_parameter(low + t * span)
+        })
+    }
+
+    /// The colour the shading's functions give one parametric value.
+    fn colour_of_parameter(&self, parameter: f32) -> Color {
         let mut components = Vec::new();
         for function in self.functions {
-            components.extend(function.eval(values));
+            components.extend(function.eval(&[parameter]));
         }
         self.into.paint(self.space, &components, true)
     }
 
     /// Reads a vertex, including the byte padding each one carries in a triangle mesh.
-    fn read_vertex(&self, bits: &mut BitReader<'_>, with_flag: bool) -> Option<(u8, Vertex)> {
+    fn read_vertex<C: Corner>(
+        &self,
+        bits: &mut BitReader<'_>,
+        with_flag: bool,
+    ) -> Option<(u8, Vertex<C>)> {
         let flag = if with_flag {
             // Only the low two bits of an edge flag are meaningful, whatever width the
             // dictionary gave it.
@@ -226,17 +365,17 @@ impl MeshReader<'_> {
             0
         };
         let point = self.read_point(bits)?;
-        let colour = self.read_colour(bits)?;
+        let corner = C::read(self, bits)?;
         // "Each set of vertex data shall occupy a whole number of bytes."
         bits.align();
-        Some((flag, Vertex { point, colour }))
+        Some((flag, Vertex { point, corner }))
     }
 
     /// Type 4: a strip whose edge flags say which two earlier vertices each triangle keeps.
-    fn free_form(&self, bits: &mut BitReader<'_>) -> Vec<Triangle> {
+    fn free_form<C: Corner>(&self, bits: &mut BitReader<'_>) -> Vec<Triangle> {
         let mut triangles = Vec::new();
         // The previous two triangles' vertices, in the specification's `va`, `vb`, `vc`.
-        let mut previous: Option<(Vertex, Vertex, Vertex)> = None;
+        let mut previous: Option<(Vertex<C>, Vertex<C>, Vertex<C>)> = None;
 
         while triangles.len() < MAX_TRIANGLES {
             let Some((flag, vertex)) = self.read_vertex(bits, true) else {
@@ -267,8 +406,8 @@ impl MeshReader<'_> {
     }
 
     /// Type 5: rows of a lattice, with triangles between consecutive rows.
-    fn lattice(&self, bits: &mut BitReader<'_>, per_row: usize) -> Vec<Triangle> {
-        let mut rows: Vec<Vec<Vertex>> = Vec::new();
+    fn lattice<C: Corner>(&self, bits: &mut BitReader<'_>, per_row: usize) -> Vec<Triangle> {
+        let mut rows: Vec<Vec<Vertex<C>>> = Vec::new();
         loop {
             let mut row = Vec::with_capacity(per_row);
             for _ in 0..per_row {
@@ -307,12 +446,12 @@ impl MeshReader<'_> {
     }
 
     /// Types 6 and 7: Bézier patches, evaluated into triangles.
-    fn patches(&self, bits: &mut BitReader<'_>, tensor: bool) -> Vec<Triangle> {
+    fn patches<C: Corner>(&self, bits: &mut BitReader<'_>, tensor: bool) -> Vec<Triangle> {
         let boundary = 12usize;
         let total = if tensor { 16 } else { boundary };
 
         let mut triangles = Vec::new();
-        let mut previous: Option<([Point; 16], [Color; 4])> = None;
+        let mut previous: Option<([Point; 16], [C; 4])> = None;
 
         while triangles.len() < MAX_TRIANGLES {
             let Some(flag) = bits.read(self.flag_bits) else {
@@ -320,20 +459,20 @@ impl MeshReader<'_> {
             };
             let flag = flag & 0b11;
 
-            // A continuation reuses four points and two colours from the previous patch's
+            // A continuation reuses four points and two corners from the previous patch's
             // named edge, so only the rest is in the stream.
-            let (mut points, mut colours, start, colour_start) = match (flag, previous) {
-                (0, _) => ([Point::new(0.0, 0.0); 16], [Color::BLACK; 4], 0, 0),
-                (_, Some((last, last_colours))) => {
-                    let (edge, shared) = shared_edge(flag, &last, &last_colours);
+            let (mut points, mut corners, start, corner_start) = match (flag, previous) {
+                (0, _) => ([Point::new(0.0, 0.0); 16], [C::placeholder(); 4], 0, 0),
+                (_, Some((last, last_corners))) => {
+                    let (edge, shared) = shared_edge(flag, &last, &last_corners);
                     let mut points = [Point::new(0.0, 0.0); 16];
                     for (slot, point) in points.iter_mut().zip(edge.iter()) {
                         *slot = *point;
                     }
-                    let mut colours = [Color::BLACK; 4];
-                    colours[0] = shared[0];
-                    colours[1] = shared[1];
-                    (points, colours, 4, 2)
+                    let mut corners = [C::placeholder(); 4];
+                    corners[0] = shared[0];
+                    corners[1] = shared[1];
+                    (points, corners, 4, 2)
                 }
                 // A continuation with no previous patch is malformed.
                 _ => break,
@@ -350,12 +489,12 @@ impl MeshReader<'_> {
             if !complete {
                 break;
             }
-            for slot in colours.iter_mut().skip(colour_start) {
-                let Some(colour) = self.read_colour(bits) else {
+            for slot in corners.iter_mut().skip(corner_start) {
+                let Some(corner) = C::read(self, bits) else {
                     complete = false;
                     break;
                 };
-                *slot = colour;
+                *slot = corner;
             }
             if !complete {
                 break;
@@ -363,8 +502,8 @@ impl MeshReader<'_> {
             // A patch's data is *not* padded to a byte boundary, unlike a vertex's.
 
             let grid = control_grid(&points, tensor);
-            triangles.extend(tessellate(&grid, &colours));
-            previous = Some((points, colours));
+            triangles.extend(tessellate(&grid, &corners));
+            previous = Some((points, corners));
         }
         triangles
     }
@@ -381,11 +520,15 @@ impl BitReader<'_> {
     }
 }
 
-/// The points and colours a continuation patch inherits from its predecessor.
+/// The points and corners a continuation patch inherits from its predecessor.
 ///
 /// The indices come straight from Table 84: flag 1 continues along the previous patch's
 /// second edge, flag 2 its third, flag 3 its fourth.
-fn shared_edge(flag: u32, points: &[Point; 16], colours: &[Color; 4]) -> ([Point; 4], [Color; 2]) {
+fn shared_edge<C: Corner>(
+    flag: u32,
+    points: &[Point; 16],
+    corners: &[C; 4],
+) -> ([Point; 4], [C; 2]) {
     let pick = |indices: [usize; 4]| {
         [
             points[indices[0]],
@@ -395,9 +538,9 @@ fn shared_edge(flag: u32, points: &[Point; 16], colours: &[Color; 4]) -> ([Point
         ]
     };
     match flag {
-        1 => (pick([3, 4, 5, 6]), [colours[1], colours[2]]),
-        2 => (pick([6, 7, 8, 9]), [colours[2], colours[3]]),
-        _ => (pick([9, 10, 11, 0]), [colours[3], colours[0]]),
+        1 => (pick([3, 4, 5, 6]), [corners[1], corners[2]]),
+        2 => (pick([6, 7, 8, 9]), [corners[2], corners[3]]),
+        _ => (pick([9, 10, 11, 0]), [corners[3], corners[0]]),
     }
 }
 
@@ -473,13 +616,13 @@ fn control_grid(points: &[Point; 16], tensor: bool) -> [[Point; 4]; 4] {
 }
 
 /// Evaluates a bicubic Bézier surface into triangles.
-fn tessellate(grid: &[[Point; 4]; 4], colours: &[Color; 4]) -> Vec<Triangle> {
+fn tessellate<C: Corner>(grid: &[[Point; 4]; 4], patch: &[C; 4]) -> Vec<Triangle> {
     let mut points = Vec::with_capacity(
         PATCH_STEPS
             .saturating_add(1)
             .saturating_mul(PATCH_STEPS.saturating_add(1)),
     );
-    let mut corner_colours = Vec::with_capacity(points.capacity());
+    let mut corners = Vec::with_capacity(points.capacity());
 
     for row in 0..=PATCH_STEPS {
         for column in 0..=PATCH_STEPS {
@@ -494,7 +637,7 @@ fn tessellate(grid: &[[Point; 4]; 4], colours: &[Color; 4]) -> Vec<Triangle> {
             points.push(surface(grid, u, v));
             // The corners are `c1` at (0,0), `c2` at (0,1), `c3` at (1,1), `c4` at (1,0),
             // matching the order the control points visit them.
-            corner_colours.push(bilinear(colours, u, v));
+            corners.push(bilinear(patch, u, v));
         }
     }
 
@@ -512,7 +655,7 @@ fn tessellate(grid: &[[Point; 4]; 4], colours: &[Color; 4]) -> Vec<Triangle> {
             );
             let corner = |index: usize| Vertex {
                 point: points.get(index).copied().unwrap_or(Point::new(0.0, 0.0)),
-                colour: corner_colours.get(index).copied().unwrap_or(Color::BLACK),
+                corner: corners.get(index).copied().unwrap_or_else(C::placeholder),
             };
             triangles.push(triangle((corner(a), corner(b), corner(c))));
             triangles.push(triangle((corner(b), corner(d), corner(c))));
@@ -542,23 +685,21 @@ fn bernstein(t: f32) -> [f32; 4] {
     [s * s * s, 3.0 * s * s * t, 3.0 * s * t * t, t * t * t]
 }
 
-/// The colour inside a patch, interpolated between its four corner colours.
-fn bilinear(colours: &[Color; 4], u: f32, v: f32) -> Color {
-    let mix = |a: Color, b: Color, t: f32| Color {
-        r: a.r + (b.r - a.r) * t,
-        g: a.g + (b.g - a.g) * t,
-        b: a.b + (b.b - a.b) * t,
-        a: a.a + (b.a - a.a) * t,
-    };
-    let top = mix(colours[0], colours[1], v);
-    let bottom = mix(colours[3], colours[2], v);
-    mix(top, bottom, u)
+/// What a patch's interior carries, interpolated between its four corners.
+///
+/// Bilinear in whichever quantity the corners hold, which is the same rule §8.7.4.5.5 states
+/// for a triangle: where the corners are parameters, this interpolates the parameter and the
+/// function is called afterwards, at each device pixel, by the rasteriser.
+fn bilinear<C: Corner>(corners: &[C; 4], u: f32, v: f32) -> C {
+    let top = corners[0].mix(corners[1], v);
+    let bottom = corners[3].mix(corners[2], v);
+    top.mix(bottom, u)
 }
 
-fn triangle(corners: (Vertex, Vertex, Vertex)) -> Triangle {
-    let (a, b, c) = corners;
+fn triangle<C: Corner>(vertices: (Vertex<C>, Vertex<C>, Vertex<C>)) -> Triangle {
+    let (a, b, c) = vertices;
     Triangle {
         points: [a.point, b.point, c.point],
-        colours: [a.colour, b.colour, c.colour],
+        corners: C::corners([a.corner, b.corner, c.corner]),
     }
 }

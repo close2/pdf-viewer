@@ -63,9 +63,14 @@ impl Shading {
                 ramp.stops.iter().all(|stop| opaque(&stop.colour))
             }
             ShadingKind::Sampled { pixels, .. } => pixels.iter().all(opaque),
-            ShadingKind::Mesh { triangles } => triangles
-                .iter()
-                .all(|triangle| triangle.colours.iter().all(opaque)),
+            // A parametric mesh's colours are all in its ramp, and its corners hold none.
+            ShadingKind::Mesh { triangles, ramp } => match ramp {
+                Some(ramp) => ramp.stops.iter().all(|stop| opaque(&stop.colour)),
+                None => triangles.iter().all(|triangle| match &triangle.corners {
+                    Corners::Colours(colours) => colours.iter().all(opaque),
+                    Corners::Parameters(_) => false,
+                }),
+            },
         }
     }
 
@@ -134,14 +139,25 @@ impl Shading {
                 height: *height,
                 pixels: pixels.iter().map(scale).collect(),
             },
-            ShadingKind::Mesh { triangles } => ShadingKind::Mesh {
+            // A parametric mesh carries its colours in the ramp, so that is where the alpha
+            // goes; a corner holding a parameter has none to scale.
+            ShadingKind::Mesh {
+                triangles,
+                ramp: colours,
+            } => ShadingKind::Mesh {
                 triangles: triangles
                     .iter()
                     .map(|triangle| Triangle {
                         points: triangle.points,
-                        colours: triangle.colours.map(|colour| scale(&colour)),
+                        corners: match triangle.corners {
+                            Corners::Colours(corners) => {
+                                Corners::Colours(corners.map(|colour| scale(&colour)))
+                            }
+                            parameters @ Corners::Parameters(_) => parameters,
+                        },
                     })
                     .collect(),
+                ramp: colours.as_ref().map(ramp),
             },
         };
         Self {
@@ -203,8 +219,12 @@ pub enum ShadingKind {
     },
     /// Colour varies smoothly across triangles (PDF types 4, 5, 6 and 7).
     Mesh {
-        /// The triangles, each carrying a colour per corner.
+        /// The triangles, each carrying a colour or a parametric value per corner.
         triangles: Arc<[Triangle]>,
+        /// The shading's `/Function`, sampled — present exactly where the corners carry
+        /// [`Corners::Parameters`], because that is the entry whose presence makes them
+        /// parameters. `None` where they carry colours.
+        ramp: Option<Ramp>,
     },
 }
 
@@ -546,8 +566,14 @@ pub struct MeshRaster {
 impl MeshRaster {
     /// Rasterises `triangles` into the part of a `width` by `height` target they cover.
     ///
-    /// `to_device` carries the mesh's own coordinates onto the target. Returns `None` when
-    /// the mesh covers no pixel of it, which a clipped-away or degenerate mesh does.
+    /// `to_device` carries the mesh's own coordinates onto the target. `ramp` is
+    /// [`ShadingKind::Mesh`]'s, and is what turns a [`Corners::Parameters`] corner into a
+    /// colour *after* the interpolation §8.7.4.5.5 requires be done on the parameter.
+    ///
+    /// Returns `None` when the mesh covers no pixel of it, which a clipped-away or degenerate
+    /// mesh does — and when a triangle carries parameters with no ramp to resolve them, which
+    /// [`ShadingKind::Mesh`]'s own invariant rules out and which would otherwise be painted as
+    /// though a parameter were a colour.
     #[must_use]
     #[expect(
         clippy::cast_possible_truncation,
@@ -557,6 +583,7 @@ impl MeshRaster {
     )]
     pub fn build(
         triangles: &[Triangle],
+        ramp: Option<&Ramp>,
         to_device: Transform,
         width: u32,
         height: u32,
@@ -564,11 +591,18 @@ impl MeshRaster {
         if triangles.is_empty() || width == 0 || height == 0 {
             return None;
         }
+        if ramp.is_none()
+            && triangles
+                .iter()
+                .any(|triangle| matches!(triangle.corners, Corners::Parameters(_)))
+        {
+            return None;
+        }
         let device: Vec<Triangle> = triangles
             .iter()
             .map(|triangle| Triangle {
                 points: triangle.points.map(|point| to_device.apply(point)),
-                colours: triangle.colours,
+                corners: triangle.corners,
             })
             .collect();
 
@@ -602,7 +636,7 @@ impl MeshRaster {
                 .saturating_mul(4)
         ];
         for triangle in &device {
-            triangle.paint(&mut data, left, top, span, rows);
+            triangle.paint(&mut data, ramp, left, top, span, rows);
         }
 
         Some(Self {
@@ -853,70 +887,40 @@ impl RadialRaster {
     }
 }
 
-/// One triangle of a mesh shading, with a colour at each corner.
+/// One triangle of a mesh shading, with what each corner carries.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Triangle {
     /// The corners, in the shading's own coordinates.
     pub points: [Point; 3],
-    /// The colour at each corner, in the same order.
-    pub colours: [Color; 3],
+    /// What each corner carries, in the same order.
+    pub corners: Corners,
+}
+
+/// What a mesh triangle's corners carry, which is what gets interpolated across it.
+///
+/// ISO 32000-2 §8.7.4.5.5 gives a mesh shading two ways of stating colour, and the difference
+/// between them is an *order of operations* rather than a format:
+///
+/// > If the shading dictionary contains a Function entry, the colour data for each vertex
+/// > shall be specified by a single parametric value t rather than by n separate colour
+/// > components. All linear interpolation within the triangle mesh shall be done using the t
+/// > values. After interpolation, the results shall be passed to the function(s) specified in
+/// > the Function entry to determine the colour at each point.
+///
+/// So a mesh with a `/Function` interpolates the parameter and colours afterwards; evaluating
+/// the function at each corner and interpolating the *colours* is a different picture wherever
+/// the function is not a straight line, and no report would name it. The distinction is in the
+/// type because it cannot be recovered from a colour once one has been computed.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Corners {
+    /// A colour per corner: the mesh states its components and no `/Function`.
+    Colours([Color; 3]),
+    /// §8.7.4.5.5's parametric value per corner, as a fraction of the range `/Decode` gives
+    /// it. The colour is [`ShadingKind::Mesh`]'s ramp at the interpolated value.
+    Parameters([f32; 3]),
 }
 
 impl Triangle {
-    /// Whether the three corner colours are close enough to draw as one flat colour.
-    ///
-    /// Backends that cannot interpolate colour across a triangle subdivide until this
-    /// holds. The threshold is below what an eight-bit channel can represent, so the
-    /// result is indistinguishable from true interpolation once quantised.
-    #[must_use]
-    pub fn is_flat(&self, tolerance: f32) -> bool {
-        let [first, second, third] = self.colours;
-        let spread = |get: fn(&Color) -> f32| {
-            let (x, y, z) = (get(&first), get(&second), get(&third));
-            x.max(y).max(z) - x.min(y).min(z)
-        };
-        spread(|colour| colour.r) <= tolerance
-            && spread(|colour| colour.g) <= tolerance
-            && spread(|colour| colour.b) <= tolerance
-            && spread(|colour| colour.a) <= tolerance
-    }
-
-    /// Whether the triangle is too small on the device for subdivision to change a pixel.
-    ///
-    /// The points must already be in device space, which is where both backends subdivide.
-    ///
-    /// # Why this is a correctness statement and not an approximation
-    ///
-    /// [`Self::is_flat`] asks whether the *colours* are close enough to fill flat, and a
-    /// triangle whose corners differ keeps splitting until they are — up to `4^6` pieces,
-    /// however small it is on screen. But a triangle that covers less than a pixel cannot
-    /// display a gradient: the output raster has one sample there, and every sub-triangle's
-    /// average would land in the same one. Splitting it produces four fills that composite
-    /// to the colour the single fill already had.
-    ///
-    /// So this is not a quality-for-speed trade. It is the observation that beyond a certain
-    /// size the extra work has no representable effect, and both backends stop at the same
-    /// point because the criterion lives here rather than in either of them.
-    ///
-    /// # What it is worth
-    ///
-    /// `tensor-allflags-withfunction.pdf` filled 22.0 G instructions' worth of tiny paths
-    /// through `tiny-skia`, half of it inside the fill machinery and its per-path pipeline
-    /// compilation. `personwithdog.pdf` took 17.3 seconds to rasterise a page whose display
-    /// list has eighteen commands.
-    #[must_use]
-    pub fn is_subpixel(&self) -> bool {
-        let [first, second, third] = self.points;
-        let extent = |get: fn(&Point) -> f32| {
-            let (x, y, z) = (get(&first), get(&second), get(&third));
-            x.max(y).max(z) - x.min(y).min(z)
-        };
-        // One pixel in *both* axes: a long thin sliver spans several samples along its
-        // length and its colour still varies across them, so a bounding box test has to
-        // require smallness in each direction rather than in area.
-        extent(|point| point.x) <= 1.0 && extent(|point| point.y) <= 1.0
-    }
-
     /// Paints this triangle into a device-resolution buffer by §8.7.4.5.5's interpolation.
     ///
     /// The buffer's first pixel is device `(left, top)`. A pixel belongs to the triangle when
@@ -927,7 +931,11 @@ impl Triangle {
     /// invisible, which is the same property the old subdivision relied on.
     ///
     /// The interpolation itself is barycentric, which is the linear interpolation the clause
-    /// asks for written in the coordinates that make it one expression per channel.
+    /// asks for written in the coordinates that make it one expression per channel — and what
+    /// it is applied to is [`Corners`]: a colour per channel where the mesh states colours, and
+    /// the *parameter* where it states a `/Function`, whose ramp is then read at the
+    /// interpolated value. Doing it the other way round makes a nonlinear function's interior
+    /// a straight line between two of its values.
     #[expect(
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss,
@@ -938,7 +946,15 @@ impl Triangle {
         clippy::many_single_char_names,
         reason = "the clause's own notation for a triangle and its barycentric weights"
     )]
-    fn paint(&self, data: &mut [u8], left: u32, top: u32, span: u32, rows: u32) {
+    fn paint(
+        &self,
+        data: &mut [u8],
+        ramp: Option<&Ramp>,
+        left: u32,
+        top: u32,
+        span: u32,
+        rows: u32,
+    ) {
         let [a, b, c] = self.points;
         // Twice the signed area. Zero means the three corners are collinear, so the triangle
         // covers nothing and has no interior to interpolate over.
@@ -976,9 +992,25 @@ impl Triangle {
                     continue;
                 }
                 let (u, v, w) = (w0 / area, w1 / area, w2 / area);
-                let [ca, cb, cc] = self.colours;
-                let mix = |get: fn(&Color) -> f32| {
-                    (u * get(&ca) + v * get(&cb) + w * get(&cc)).clamp(0.0, 1.0)
+                let colour = match self.corners {
+                    Corners::Colours([ca, cb, cc]) => {
+                        let mix = |get: fn(&Color) -> f32| {
+                            (u * get(&ca) + v * get(&cb) + w * get(&cc)).clamp(0.0, 1.0)
+                        };
+                        Color {
+                            r: mix(|colour| colour.r),
+                            g: mix(|colour| colour.g),
+                            b: mix(|colour| colour.b),
+                            a: mix(|colour| colour.a),
+                        }
+                    }
+                    // §8.7.4.5.5: the interpolation is on the parameter, and the function —
+                    // sampled into the ramp — is what turns the *interpolated* value into a
+                    // colour. `build` has refused a parametric mesh with no ramp.
+                    Corners::Parameters([ta, tb, tc]) => match ramp {
+                        Some(ramp) => ramp.colour_at(u * ta + v * tb + w * tc),
+                        None => continue,
+                    },
                 };
                 let at = ((row as usize)
                     .saturating_mul(span as usize)
@@ -987,76 +1019,22 @@ impl Triangle {
                 let Some(pixel) = data.get_mut(at..at.saturating_add(4)) else {
                     continue;
                 };
-                for (slot, value) in pixel.iter_mut().zip([
-                    mix(|colour| colour.r),
-                    mix(|colour| colour.g),
-                    mix(|colour| colour.b),
-                    mix(|colour| colour.a),
-                ]) {
+                for (slot, value) in pixel
+                    .iter_mut()
+                    .zip([colour.r, colour.g, colour.b, colour.a])
+                {
                     // Rounded rather than truncated, so a corner's own colour round-trips.
-                    *slot = (value * 255.0 + 0.5) as u8;
+                    *slot = (value.clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
                 }
             }
         }
-    }
-
-    /// Returns the average of the three corner colours.
-    #[must_use]
-    pub fn average_colour(&self) -> Color {
-        let [first, second, third] = self.colours;
-        Color {
-            r: (first.r + second.r + third.r) / 3.0,
-            g: (first.g + second.g + third.g) / 3.0,
-            b: (first.b + second.b + third.b) / 3.0,
-            a: (first.a + second.a + third.a) / 3.0,
-        }
-    }
-
-    /// Splits the triangle into four by halving each edge.
-    ///
-    /// Four rather than two so that subdivision stays symmetric: splitting on one edge
-    /// repeatedly produces slivers, which rasterise with visible seams.
-    #[must_use]
-    pub fn subdivide(&self) -> [Self; 4] {
-        let midpoint = |start: Point, end: Point| {
-            Point::new(f32::midpoint(start.x, end.x), f32::midpoint(start.y, end.y))
-        };
-        let blend = |start: Color, end: Color| Color {
-            r: f32::midpoint(start.r, end.r),
-            g: f32::midpoint(start.g, end.g),
-            b: f32::midpoint(start.b, end.b),
-            a: f32::midpoint(start.a, end.a),
-        };
-        let [p0, p1, p2] = self.points;
-        let [c0, c1, c2] = self.colours;
-        let (m01, m12, m20) = (midpoint(p0, p1), midpoint(p1, p2), midpoint(p2, p0));
-        let (b01, b12, b20) = (blend(c0, c1), blend(c1, c2), blend(c2, c0));
-
-        [
-            Self {
-                points: [p0, m01, m20],
-                colours: [c0, b01, b20],
-            },
-            Self {
-                points: [m01, p1, m12],
-                colours: [b01, c1, b12],
-            },
-            Self {
-                points: [m20, m12, p2],
-                colours: [b20, b12, c2],
-            },
-            Self {
-                points: [m01, m12, m20],
-                colours: [b01, b12, b20],
-            },
-        ]
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Ramp, Triangle, blend_parameter};
-    use crate::{Color, Point};
+    use super::{Corners, MeshRaster, Ramp, Triangle, blend_parameter};
+    use crate::{Color, Point, Transform};
 
     /// A break makes a step, and a ramp without one averages across it.
     ///
@@ -1140,62 +1118,105 @@ mod tests {
         assert!((ramp.colour_at(0.5).r - 0.5).abs() < 0.01);
     }
 
-    /// A triangle with the given device-space extents and three distinct corner colours, so
-    /// that [`Triangle::is_flat`] never short-circuits the size question.
-    fn spanning(width: f32, height: f32) -> Triangle {
+    /// A right triangle covering the top-left twenty pixels, with the given corners.
+    fn triangle(corners: Corners) -> Triangle {
         Triangle {
             points: [
                 Point::new(0.0, 0.0),
-                Point::new(width, 0.0),
-                Point::new(0.0, height),
+                Point::new(20.0, 0.0),
+                Point::new(0.0, 20.0),
             ],
-            colours: [
-                Color::rgb(0.0, 0.0, 0.0),
-                Color::rgb(1.0, 0.0, 0.0),
-                Color::rgb(0.0, 1.0, 0.0),
-            ],
+            corners,
         }
     }
 
-    #[test]
-    fn a_triangle_spanning_pixels_is_not_subpixel() {
-        assert!(!spanning(10.0, 10.0).is_subpixel());
-    }
-
-    #[test]
-    fn a_triangle_inside_one_pixel_is_subpixel() {
-        assert!(spanning(0.5, 0.5).is_subpixel());
-        // Exactly one pixel across counts: a triangle that spans from one sample's position
-        // to the next still has only one sample inside it.
-        assert!(spanning(1.0, 1.0).is_subpixel());
-    }
-
-    /// The rule is smallness in *each* axis, not small area, and this is the case that
-    /// distinguishes them.
+    /// The colour of one device pixel of a rasterised mesh, as `(r, g, b, a)`.
     ///
-    /// A sliver twenty pixels long and a tenth of a pixel tall covers two square pixels of
-    /// area but crosses twenty samples along its length, and its colour varies across them.
-    /// Stopping subdivision there would draw a twenty-pixel streak in one flat colour.
-    #[test]
-    fn a_long_thin_sliver_is_not_subpixel() {
-        assert!(!spanning(20.0, 0.1).is_subpixel());
-        assert!(!spanning(0.1, 20.0).is_subpixel());
+    /// The raster's own origin is subtracted, so the coordinates are the target's.
+    fn pixel(raster: &MeshRaster, x: u32, y: u32) -> (u8, u8, u8, u8) {
+        let column = x.saturating_sub(u32::try_from(raster.left).unwrap_or(0));
+        let row = y.saturating_sub(u32::try_from(raster.top).unwrap_or(0));
+        let at = (row
+            .saturating_mul(raster.image.width)
+            .saturating_add(column) as usize)
+            .saturating_mul(4);
+        let bytes = raster
+            .image
+            .data
+            .get(at..at.saturating_add(4))
+            .expect("in the raster");
+        (bytes[0], bytes[1], bytes[2], bytes[3])
     }
 
-    /// Subdivision stops on either condition, so a triangle can be worth subdividing for its
-    /// size and not for its colour. Pinning both directions keeps the two independent.
-    #[test]
-    fn size_and_colour_are_separate_questions() {
-        let large_and_flat = Triangle {
-            points: spanning(10.0, 10.0).points,
-            colours: [Color::rgb(0.5, 0.5, 0.5); 3],
-        };
-        assert!(large_and_flat.is_flat(1.0 / 512.0));
-        assert!(!large_and_flat.is_subpixel());
+    /// The pixel both mesh tests read, and the parameter the clause's interpolation gives it.
+    ///
+    /// Device pixel (10, 0) is sampled at its centre, (10.5, 0.5). In the triangle
+    /// `(0,0), (20,0), (0,20)` that is barycentric `(0.45, 0.525, 0.025)`, so a corner set of
+    /// `t = 0, 1, 0` interpolates to **0.525** there. Written down rather than assumed,
+    /// because a test that takes its expected value from the code under test measures nothing.
+    const PARAMETER: f32 = 0.525;
 
-        let tiny_and_varied = spanning(0.25, 0.25);
-        assert!(!tiny_and_varied.is_flat(1.0 / 512.0));
-        assert!(tiny_and_varied.is_subpixel());
+    /// A fraction of full scale as the eight-bit level [`Triangle::paint`] writes for it.
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "test code: the argument is a fraction of full scale, so the rounded product \
+                  is in 0..=255"
+    )]
+    fn level(fraction: f32) -> u8 {
+        (fraction * 255.0).round() as u8
+    }
+
+    /// ISO 32000-2 §8.7.4.5.5's order: interpolate the parameter, *then* call the function.
+    ///
+    /// The ramp here is the square law `t²` in red, which is the simplest function that tells
+    /// the two orders apart: it is the clause's answer squared where the other order's is
+    /// linear. At [`PARAMETER`] the clause gives `0.525² = 0.2756` of full red — 70 — and
+    /// evaluating the function at the corners first and interpolating the *colours* gives
+    /// `0.525 × 1 = 0.525` — 134, which is what the next test measures on the same geometry.
+    /// Both are plausible pictures and only one is the clause's.
+    #[test]
+    fn a_parametric_mesh_interpolates_the_parameter_and_not_the_colour() {
+        let ramp = Ramp::sample(|t| Color::rgb(t * t, 0.0, 0.0));
+        let mesh = [triangle(Corners::Parameters([0.0, 1.0, 0.0]))];
+        let raster = MeshRaster::build(&mesh, Some(&ramp), Transform::IDENTITY, 32, 32)
+            .expect("the mesh covers pixels");
+
+        let (red, _, _, alpha) = pixel(&raster, 10, 0);
+        assert_eq!(alpha, 255, "the mesh paints this pixel");
+        let expected = level(PARAMETER * PARAMETER);
+        assert!(
+            red.abs_diff(expected) <= 1,
+            "§8.7.4.5.5 puts the ramp at the interpolated parameter here, which is {expected}; \
+             interpolating the corner colours would give 134. Got {red}"
+        );
+    }
+
+    /// The same geometry with the function already applied at its corners is the picture the
+    /// clause does *not* ask for, and this pins the difference rather than assuming it.
+    #[test]
+    fn interpolating_the_corner_colours_is_a_different_picture() {
+        let mesh = [triangle(Corners::Colours([
+            Color::rgb(0.0, 0.0, 0.0),
+            Color::rgb(1.0, 0.0, 0.0),
+            Color::rgb(0.0, 0.0, 0.0),
+        ]))];
+        let raster =
+            MeshRaster::build(&mesh, None, Transform::IDENTITY, 32, 32).expect("it covers pixels");
+        let (red, _, _, _) = pixel(&raster, 10, 0);
+        let expected = level(PARAMETER);
+        assert!(
+            red.abs_diff(expected) <= 1,
+            "a colour mesh interpolates the colours, which is {expected} of full red: {red}"
+        );
+    }
+
+    /// A parametric mesh with no ramp is not a mesh whose colours can be known, and painting
+    /// the parameters as though they were colours is the plausible answer trap 5 forbids.
+    #[test]
+    fn a_parametric_mesh_without_its_ramp_is_refused() {
+        let mesh = [triangle(Corners::Parameters([0.0, 1.0, 0.0]))];
+        assert!(MeshRaster::build(&mesh, None, Transform::IDENTITY, 32, 32).is_none());
     }
 
     /// §10.7.3's smoothness tolerance moves the sampling in one direction only.

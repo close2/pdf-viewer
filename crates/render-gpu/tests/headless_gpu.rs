@@ -772,14 +772,14 @@ fn cpu_and_gpu_agree_on_a_radial_cone() {
     );
 }
 
-/// A mesh, which neither rasteriser can shade natively and which both therefore
-/// subdivide into flat triangles.
+/// A mesh, which neither rasteriser can shade natively and which both therefore draw as the
+/// one raster `pdf_render::MeshRaster` builds.
 ///
-/// The two do that with the same thresholds but not the same rasteriser, so this is the
-/// scene most likely to expose a difference in how the subdivision was applied.
+/// The colours are shared and the *placement* is not, so what this scene can still catch is
+/// the raster being put in the wrong place or sampled with a filter on one backend.
 #[test]
 fn cpu_and_gpu_agree_on_a_mesh_shading() {
-    use pdf_render::{Color, Point, Triangle};
+    use pdf_render::{Color, Corners, Point, Triangle};
 
     let triangles = vec![
         Triangle {
@@ -788,11 +788,11 @@ fn cpu_and_gpu_agree_on_a_mesh_shading() {
                 Point::new(180.0, 20.0),
                 Point::new(20.0, 180.0),
             ],
-            colours: [
+            corners: Corners::Colours([
                 Color::rgb(1.0, 0.0, 0.0),
                 Color::rgb(0.0, 1.0, 0.0),
                 Color::rgb(0.0, 0.0, 1.0),
-            ],
+            ]),
         },
         Triangle {
             points: [
@@ -800,16 +800,17 @@ fn cpu_and_gpu_agree_on_a_mesh_shading() {
                 Point::new(180.0, 180.0),
                 Point::new(20.0, 180.0),
             ],
-            colours: [
+            corners: Corners::Colours([
                 Color::rgb(0.0, 1.0, 0.0),
                 Color::rgb(1.0, 1.0, 0.0),
                 Color::rgb(0.0, 0.0, 1.0),
-            ],
+            ]),
         },
     ];
 
     let list = shaded_page(pdf_render::ShadingKind::Mesh {
         triangles: triangles.into(),
+        ramp: None,
     });
     let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
 
@@ -819,6 +820,44 @@ fn cpu_and_gpu_agree_on_a_mesh_shading() {
     let gpu = gpu().rasterize(&list, target).expect("supported");
     assert_within_tolerance(
         "mesh shading",
+        raster_compare::compare(&cpu, &gpu).expect("same size"),
+    );
+}
+
+/// The same mesh with ISO 32000-2 §8.7.4.5.5's *parametric* corners, which the scene above
+/// leaves at their default.
+///
+/// A mesh with a `/Function` carries one value per corner and a ramp beside the triangles, so
+/// the colours a backend draws depend on something the coloured scene never hands it. Trap 2's
+/// rule about a suite's defaults, one field over.
+#[test]
+fn cpu_and_gpu_agree_on_a_parametric_mesh_shading() {
+    use pdf_render::{Color, Corners, Point, Ramp, Triangle};
+
+    let triangles = vec![Triangle {
+        points: [
+            Point::new(20.0, 20.0),
+            Point::new(180.0, 20.0),
+            Point::new(20.0, 180.0),
+        ],
+        corners: Corners::Parameters([0.0, 1.0, 0.5]),
+    }];
+    // A square law, so that a backend interpolating the colours rather than the parameter
+    // would differ by a quarter of full scale in the middle of an edge.
+    let ramp = Ramp::sample(|t| Color::rgb(t * t, 0.25, 1.0 - t * t));
+
+    let list = shaded_page(pdf_render::ShadingKind::Mesh {
+        triangles: triangles.into(),
+        ramp: Some(ramp),
+    });
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+
+    let cpu = CpuRasterizer::new()
+        .rasterize(&list, target)
+        .expect("supported");
+    let gpu = gpu().rasterize(&list, target).expect("supported");
+    assert_within_tolerance(
+        "parametric mesh shading",
         raster_compare::compare(&cpu, &gpu).expect("same size"),
     );
 }

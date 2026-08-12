@@ -503,11 +503,13 @@ impl<'a> Encoder<'a> {
                 extend: *extend,
             },
             ShadingKind::Sampled { .. } => return Ok(ShadedPaint::Sampled),
-            ShadingKind::Mesh { triangles } => {
-                return Ok(match self.mesh(triangles, shading.transform)? {
-                    Some(mesh) => ShadedPaint::Ready(quorra_scene::Paint::Mesh(mesh)),
-                    None => ShadedPaint::Nothing,
-                });
+            ShadingKind::Mesh { triangles, ramp } => {
+                return Ok(
+                    match self.mesh(triangles, ramp.as_ref(), shading.transform)? {
+                        Some(mesh) => ShadedPaint::Ready(quorra_scene::Paint::Mesh(mesh)),
+                        None => ShadedPaint::Nothing,
+                    },
+                );
             }
             other => {
                 return Err(QuorraRasterError::Unsupported(format!("shading {other:?}")));
@@ -748,6 +750,7 @@ impl<'a> Encoder<'a> {
     fn mesh(
         &mut self,
         triangles: &[pdf_render::Triangle],
+        ramp: Option<&pdf_render::Ramp>,
         shading_transform: Transform,
     ) -> Result<Option<quorra_scene::MeshId>, QuorraRasterError> {
         let to_device = shading_transform.then(self.target.transform);
@@ -756,6 +759,7 @@ impl<'a> Encoder<'a> {
         // document, and both sibling backends already skip it silently.
         let Some(raster) = pdf_render::MeshRaster::build(
             triangles,
+            ramp,
             to_device,
             self.target.width,
             self.target.height,

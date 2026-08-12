@@ -88,9 +88,10 @@ pub(crate) fn shader<'a>(
             transform,
         ),
         ShadingKind::Sampled { .. } => sampled_shader(shading, transform, scratch),
-        // Meshes carry a colour per triangle corner, which no shader can express; the
-        // caller subdivides and fills them. A kind added later lands here too, and
-        // returning None makes the caller report it rather than draw nothing.
+        // Meshes carry a colour — or §8.7.4.5.5's parametric value — per triangle corner,
+        // which no shader can express; `fill_mesh` rasterises them instead. A kind added
+        // later lands here too, and returning None makes the caller report it rather than
+        // draw nothing.
         _ => None,
     }
 }
@@ -200,6 +201,7 @@ pub(crate) fn fill_mesh(
     pixmap: &mut tiny_skia::PixmapMut<'_>,
     shape: &tiny_skia::Path,
     triangles: &[pdf_render::Triangle],
+    ramp: Option<&Ramp>,
     to_device: Transform,
     fill_rule: tiny_skia::FillRule,
     shape_transform: tiny_skia::Transform,
@@ -208,7 +210,7 @@ pub(crate) fn fill_mesh(
     anti_alias: bool,
 ) {
     let Some(raster) =
-        pdf_render::MeshRaster::build(triangles, to_device, pixmap.width(), pixmap.height())
+        pdf_render::MeshRaster::build(triangles, ramp, to_device, pixmap.width(), pixmap.height())
     else {
         return;
     };

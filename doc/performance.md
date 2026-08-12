@@ -689,5 +689,8 @@ decoded-stream cache, measured at 0.7% of interpretation and deliberately not ta
 
 Two fixes worth carrying as patterns: unpacking JPEG output cost 6.89 G until two paired
 `chunks_exact` iterators took it to 1.25 G — **the safety habits this project enforces everywhere
-are expensive in a loop that runs per pixel** — and `Triangle::is_subpixel` took
-`personwithdog.pdf` from 17.3 s to 1.06 s *while* moving every mesh page closer to the references.
+are expensive in a loop that runs per pixel** — and a mesh's triangles stopping at the device
+pixel took `personwithdog.pdf` from 17.3 s to 1.06 s *while* moving every mesh page closer to the
+references. (That rule was `Triangle::is_subpixel`, a bound on a *subdivision* that
+`pdf_render::MeshRaster` replaced in the forty-third session; the method survived it as dead code
+until ADR 0292 removed it, and what it bought is why the sentence stays.)

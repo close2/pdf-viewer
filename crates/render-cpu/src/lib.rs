@@ -976,8 +976,9 @@ impl CpuRasterizer {
     ///
     /// Two of them, and each is a *paint* that becomes pixels rather than a gradient:
     ///
-    /// - **A mesh** carries a colour per triangle corner, so it is drawn triangle by triangle
-    ///   inside the shape rather than as a paint over it.
+    /// - **A mesh** carries a colour — or §8.7.4.5.5's parametric value — per triangle corner,
+    ///   so it is rasterised by [`pdf_render::MeshRaster`] and drawn inside the shape rather
+    ///   than as a paint over it.
     /// - **A radial whose two circles do not contain one another** is ISO 32000-2 §8.7.4.5.4's
     ///   cone, where a point can lie on two blend circles and the clause's "greatest value of
     ///   s" decides between them — including the case where the greater root is one `/Extend`
@@ -1000,11 +1001,12 @@ impl CpuRasterizer {
         };
         let at = convert::transform(to_device.of(transform));
         match shading.kind.as_ref() {
-            pdf_render::ShadingKind::Mesh { triangles } => {
+            pdf_render::ShadingKind::Mesh { triangles, ramp } => {
                 shading::fill_mesh(
                     pixmap,
                     path,
                     triangles,
+                    ramp.as_ref(),
                     to_device.of(shading.transform),
                     convert::fill_rule(fill_rule),
                     at,
