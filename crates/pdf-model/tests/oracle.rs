@@ -5002,7 +5002,7 @@ const AMBIGUOUS_STACKED_SCREEN_UNDER_MASKS: [&str; 0] = [];
 ///                    limit             ours     hayro    poppler   mupdf    ghostscript
 /// issue12963 p8     5.6177 / 5.6180   5.601    5.841    5.921    5.630    5.488
 /// two_pages p2      1.0448 / 1.0457   1.032    1.029    1.070    1.073    1.063
-/// issue12295 p1     7.4106 / 6.9985   7.547   12.744   11.036   10.504   14.763
+/// issue12295 p1     7.4106 / 6.9985   7.681   12.744   11.036   10.504   14.763
 /// ```
 ///
 /// On the first two the ladders agree to four figures and ours is nearest the geometry — 0.017
@@ -5016,19 +5016,26 @@ const AMBIGUOUS_STACKED_SCREEN_UNDER_MASKS: [&str; 0] = [];
 /// implementations at once, and ADR 0025's departure is why ours is the smallest of the five
 /// overshoots rather than the largest.
 ///
-/// **Ours read 8.792 until the four-hundred-and-thirty-second session and now reads 7.547**, 1.4
+/// **Ours read 8.792 until the four-hundred-and-thirty-second session and 7.547 after it**, 1.4
 /// levels over its own limit to 0.55, which is over half of what separated us from the geometry.
 /// The page states **65 859 strokes thinner than a device pixel**, every one of them round-capped
-/// and 91.8% of them shorter than one device pixel — median length 0.145 — and ADR 0268 draws such
-/// a rule as its swept body one device pixel wide, butt-capped, with the width it gave up in the
-/// paint's alpha. Two round caps at one device pixel would be `π/4` of a pixel against a body of
-/// 0.145, which is the version of that rule this session measured and did not ship. Our own ladder
-/// at 8× is **6.934 before and after**, which is the check rather than a spare number: at that
-/// scale the strokes are no longer sub-pixel and the rule may not touch them.
+/// and 91.8% of them shorter than one device pixel — median length 0.145, and every one of them
+/// 0.1366 of a device pixel wide (`pdf-model/examples/sub_pixel_width_census`) — and ADR 0268 draws
+/// such a rule as its swept body one device pixel wide with the width it gave up in the paint's
+/// alpha. **It reads 7.681 since the four-hundred-and-fifty-fifth**, which drew the caps ADR 0268
+/// butt-capped away: a cap's area is a *square* of the width, so it is stated at the substitute's
+/// width with `(w / W)²` of the alpha (ADR 0290). Those caps are 1.14 levels of the page's own
+/// geometry and 0.133 of a level landed, because at that width each cap's ink is about half a level
+/// of 255 on each of a few pixels and half a level is what an eight-bit raster rounds away.
+/// Our own ladder at 8× is **6.934 before and after both changes**, which is the check rather than
+/// a spare number: at that scale the strokes are no longer sub-pixel and neither rule may touch
+/// them. The page therefore sits 0.75 of a level above its own geometry where it sat 0.61, and
+/// every reference sits 3 to 7 levels above it, which is this group's whole subject.
 ///
 /// `doc/todo/00`'s step-7 sweep reads it the other way and its own note already says why: this page
 /// went −1.712 → **−2.956** of our ink minus the lightest reference's, because moving toward a
-/// geometry every reference overpaints is moving away from all of them.
+/// geometry every reference overpaints is moving away from all of them. ADR 0290 moves it back to
+/// −2.823 for the same reason in reverse.
 /// # A fourth, in the two-hundred-and-sixty-eighth, and the tightest limit the bucket has
 ///
 /// `issue12963.pdf` page 7 is page 8's neighbour and says the same thing more exactly: `poppler`

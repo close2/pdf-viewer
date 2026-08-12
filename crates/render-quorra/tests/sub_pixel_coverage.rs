@@ -39,8 +39,8 @@
 use std::sync::Arc;
 
 use pdf_render::{
-    BlendMode, Color, Command, DisplayList, FillRule, Paint, Path, PathCommand, Point, Rasterizer,
-    Size, Stroke, TargetSpec, Transform,
+    BlendMode, Color, Command, DisplayList, FillRule, LineCap, Paint, Path, PathCommand, Point,
+    Rasterizer, Size, Stroke, TargetSpec, Transform,
 };
 use render_quorra::QuorraRasterizer;
 
@@ -240,6 +240,97 @@ fn agrees_with_the_area(
     }
 }
 
+/// What the **processor** owes a mark, where the device does not draw one at all.
+///
+/// Everything else in this file holds both backends to the shape's own area, which is what makes
+/// it a gate on the clause rather than on one library. Two marks cannot be gated that way today
+/// and each is a measurement rather than a suspicion, taken with
+/// `render-quorra/examples/sub_pixel_marks`:
+///
+/// - **the device draws no round cap at all**, at any width — a 40-unit rule 5 units wide with
+///   round caps carries 200.157 of ink on it against the 219.635 its own area states, which is the
+///   butt-capped answer to the last digit;
+/// - **and it flattens a small circle into a polygon inscribed in it** — §8.5.3.2's dot at one
+///   device pixel reads 0.5020 against `pi/4`, which is the inscribed *square*, and at two pixels
+///   2.8235, which is the inscribed octagon.
+///
+/// Both are quorra's own and are written up in `doc/QUORRA_FEEDBACK.md` with the reproduction.
+/// Asserting them here would ratchet a defect rather than a requirement, which is exactly what
+/// this file's own comment says it declined to do for the processor before ADR 0226.
+fn the_processor_agrees_with_the_area(
+    list: &DisplayList,
+    measure: fn(&pdf_render::Raster) -> f32,
+    tolerance: f32,
+    area: f32,
+    what: &str,
+) {
+    let target = TargetSpec::for_page(list, 1.0, 1 << 30).expect("a page of a stated size");
+    let drawn = measure(
+        &render_cpu::CpuRasterizer::new()
+            .rasterize(list, target)
+            .expect("a scene of one mark"),
+    );
+    assert!(
+        drawn > 0.0,
+        "§10.7.4: no shape ever disappears, and {what} did on the processor"
+    );
+    let error = (drawn - area).abs() / area;
+    assert!(
+        error < tolerance,
+        "{what} drew {drawn:.4} of ink on the processor, {:.1}% from its own area of {area} — run \
+         `cargo run --release -p render-quorra --example sub_pixel_marks` for both backends' \
+         ladders",
+        error * 100.0
+    );
+}
+
+/// A rule of `length` at `degrees` from the x axis, centred on [`TURNED`], with `cap` at each end.
+fn capped_rule(degrees: f32, length: f32, width: f32, cap: LineCap) -> DisplayList {
+    let (sin, cos) = degrees.to_radians().sin_cos();
+    let (cx, cy) = (TURNED.width / 2.0, TURNED.height / 2.0);
+    let half = length / 2.0;
+    let mut path = Path::new();
+    path.push(PathCommand::MoveTo(Point::new(
+        cx - half * cos,
+        cy - half * sin,
+    )));
+    path.push(PathCommand::LineTo(Point::new(
+        cx + half * cos,
+        cy + half * sin,
+    )));
+
+    let mut list = DisplayList::new(TURNED);
+    list.push(Command::Stroke {
+        path: Arc::new(path),
+        transform: Transform::IDENTITY,
+        stroke: Stroke {
+            width,
+            cap,
+            ..Stroke::default()
+        },
+        paint: Paint::Solid(Color::BLACK),
+        clip: None,
+        mask: None,
+        blend: BlendMode::Normal,
+    });
+    list
+}
+
+/// The area a capped rule sweeps, from ISO 32000-2 §8.4.3.3's Table 53.
+///
+/// The body is `width * length`; both caps that project lie outside it and outside each other, so
+/// their areas add. A round cap is "[a] semicircular arc with a diameter equal to the line width",
+/// which is `pi w^2 / 8` apiece, and a projecting square cap continues "for a distance equal to
+/// half the line width", which is `w^2 / 2` apiece.
+fn capped_area(length: f32, width: f32, cap: LineCap) -> f32 {
+    let caps = match cap {
+        LineCap::Butt => 0.0,
+        LineCap::Round => core::f32::consts::PI * width * width / 4.0,
+        LineCap::Square => width * width,
+    };
+    width * length + caps
+}
+
 /// A filled sliver thinner than either rasteriser's coverage quantum still carries its own area.
 #[test]
 fn a_sliver_thinner_than_a_quantum_carries_its_area_on_both_backends() {
@@ -309,6 +400,73 @@ fn a_turned_sub_pixel_rule_carries_its_area_on_both_backends() {
                 &format!("a {width}-unit rule at {degrees} degrees"),
             );
         }
+    }
+}
+
+/// A sub-pixel rule's **cap** is drawn, and carries the area §8.4.3.3 states for it.
+///
+/// The substitute for a rule under the quantum is the same rule one device pixel wide with the
+/// width it gave up in the paint's alpha (ADR 0268), and that identity is the swept *body's*: a
+/// cap's area goes as the square of the width, so a widened cap at the body's alpha is overstated
+/// by the same factor the body's is corrected by. ADR 0268 therefore butt-capped the substitute
+/// and left the cap undrawn, which cost the whole of it: a rule as long as it is wide lost 44% of
+/// its own area under round caps and 50% under projecting square ones, and one shorter than its
+/// own width lost all of it — `0.15` long and `0.5` wide drew **nothing at all**, which is the
+/// disappearance §10.7.4 forbids by name.
+///
+/// The cap is now a mark of its own at the alpha *its* own square implies, so both are exact. The
+/// rungs below are measured: the worst residual on them is 3.8%, on a rule one unit long where the
+/// substitute's own body is quantised by `tiny-skia`'s quarter-pixel runs, and the shortfall this
+/// gate exists to catch is 28% to 33% on the same rungs.
+///
+/// The last rung is five units wide — far above the quantum — and is the control: the construction
+/// must leave an ordinary stroke exactly where the stroker put it.
+#[test]
+fn a_sub_pixel_rules_cap_carries_its_own_area() {
+    for degrees in [0.0_f32, 30.0] {
+        for (length, width) in [(1.0_f32, 0.5_f32), (4.0, 0.5), (40.0, 0.5), (40.0, 5.0)] {
+            for cap in [LineCap::Round, LineCap::Square] {
+                let what =
+                    format!("a {width}-unit rule {length} long at {degrees} degrees, {cap:?}");
+                let list = capped_rule(degrees, length, width, cap);
+                let area = capped_area(length, width, cap);
+                // The device draws no round cap at all, which is quorra's own and is measured
+                // rather than assumed — see `the_processor_agrees_with_the_area`.
+                if cap == LineCap::Square {
+                    agrees_with_the_area(&list, total_ink, TOLERANCE, area, &what);
+                } else {
+                    the_processor_agrees_with_the_area(&list, total_ink, TOLERANCE, area, &what);
+                }
+            }
+        }
+    }
+}
+
+/// §8.5.3.2's dot is the same mark with no rule under it, and the same quantum swallowed it.
+///
+/// > If a subpath is degenerate (consists of a single-point closed path or of two or more points
+/// > at the same coordinates), the S operator shall paint it only if round line caps have been
+/// > specified, producing a filled circle centred at the single point.
+///
+/// A circle of the line's width is a shape whose area is the *square* of a width the device
+/// measures in pixels, so at 0.1 and 0.2 units it was 0.008 and 0.03 of a pixel and the processor
+/// drew nothing whatever — while at 0.5 it drew 28% *more* than the circle's own area, because
+/// `tiny-skia` rounds a shape that crosses one of its sample lines up to a quarter of a row. Both
+/// are answered by stating the mark at one device pixel and carrying its area in the alpha.
+///
+/// 1.0 is the boundary, where nothing is widened and the rasteriser draws the document's own
+/// circle; 2.0 is above it and must be untouched.
+#[test]
+fn a_degenerate_subpaths_dot_carries_its_own_area() {
+    for width in [0.2_f32, 0.5, 1.0, 2.0] {
+        let list = capped_rule(0.0, 0.0, width, LineCap::Round);
+        the_processor_agrees_with_the_area(
+            &list,
+            total_ink,
+            TOLERANCE,
+            capped_area(0.0, width, LineCap::Round),
+            &format!("a {width}-unit dot"),
+        );
     }
 }
 

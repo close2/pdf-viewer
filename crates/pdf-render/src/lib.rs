@@ -63,4 +63,7 @@ pub use strips::{
     command_extents, replay_ratio, row_costs, strip_boundaries, strip_boundaries_avoiding,
     unsplittable_rows,
 };
-pub use sub_pixel::{SubPixelBand, only_flat_subpaths, sub_pixel_bands, substitute_width};
+pub use sub_pixel::{
+    EnlargedMark, SubPixelBand, enlarged_mark, only_flat_subpaths, sub_pixel_bands, sub_pixel_caps,
+    substitute_width,
+};

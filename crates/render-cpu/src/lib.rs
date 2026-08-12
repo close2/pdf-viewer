@@ -417,20 +417,31 @@ impl CpuRasterizer {
     ) -> Result<(), CpuRasterError> {
         let at = to_device.of(transform);
         let width = stroke.device_width(at);
+        // §8.5.3.2's marks are circles and squares of the line's width, so a width under the
+        // device's coverage quantum makes each of them a shape whose *area* is under the square
+        // of it — a 0.2-unit dot is 0.03 of a pixel at scale 1 and this rasteriser drew nothing
+        // at all for it. §10.7.4 forbids that by name, and `pdf_render::enlarged_mark` is the
+        // same substitution `draw_rule_at_one_pixel` makes for the body: the mark is stated at
+        // one device pixel and the area it gave up is carried in the paint's alpha. It is
+        // conditioned on the same question as every other use of that identity.
+        let enlarged = carries_coverage_as_alpha(self.anti_alias, blend)
+            .then(|| pdf_render::enlarged_mark(width, at))
+            .flatten();
+        let mark_width = enlarged.map_or(width, |mark| mark.width);
         // ISO 32000-2 §8.5.3.2's two rules about a stroke with no length. Neither is
         // Skia's answer: it paints a projecting square cap where the clause asks for
         // no output, it refuses a path that is only a `m` rather than drawing
         // nothing, and it faces a zero-length dash's square cap upright rather than
         // along the path. Both are decided in `pdf-render` so that the two backends
         // cannot answer them differently.
-        let split = pdf_render::split_degenerate(path, stroke.cap, width);
+        let split = pdf_render::split_degenerate(path, stroke.cap, mark_width);
         let geometry = split.as_ref().map_or(path, |s| &s.stroked);
         let mut dots = split.as_ref().map_or_else(Path::new, |s| s.dots.clone());
-        let (geometry, dashed) = match Self::zero_length_dashes(geometry, stroke, width, &mut dots)
-        {
-            Some(remainder) => (remainder, true),
-            None => (geometry.clone(), false),
-        };
+        let (geometry, dashed) =
+            match Self::zero_length_dashes(geometry, stroke, mark_width, &mut dots) {
+                Some(remainder) => (remainder, true),
+                None => (geometry.clone(), false),
+            };
 
         let mut scratch = None;
         if !geometry.is_empty() {
@@ -441,7 +452,14 @@ impl CpuRasterizer {
                 style.dash = None;
             }
             let brush = self.paint(paint, blend, page_to_path(transform)?, &mut scratch)?;
-            if !draw_sub_pixel_rule(pixmap, (&geometry, &converted), &style, at, &brush, clip) {
+            if !draw_sub_pixel_rule(
+                pixmap,
+                (&geometry, &converted),
+                (&style, stroke.cap),
+                at,
+                &brush,
+                clip,
+            ) {
                 scan::stroke(
                     pixmap,
                     &converted,
@@ -458,10 +476,15 @@ impl CpuRasterizer {
             && let Some(converted) = convert::path(&dots)
         {
             let mut scratch = None;
+            let mut brush = self.paint(paint, blend, page_to_path(transform)?, &mut scratch)?;
+            if let Some(mark) = enlarged {
+                // The mark was built at `mark.width` above, so this is the area it gave up.
+                brush.shader.apply_opacity(mark.coverage);
+            }
             scan::fill(
                 pixmap,
                 &converted,
-                &self.paint(paint, blend, page_to_path(transform)?, &mut scratch)?,
+                &brush,
                 tiny_skia::FillRule::Winding,
                 convert::transform(at),
                 clip,
@@ -1092,7 +1115,7 @@ impl CpuRasterizer {
             None => source,
         };
         // §10.7.4 again, for a shape this rasteriser's coverage quantum would round to nothing.
-        if carries_coverage_as_alpha(&brush)
+        if carries_coverage_as_alpha(brush.anti_alias, brush.blend_mode)
             && let Some(bands) = pdf_render::sub_pixel_bands(remaining, at, fill_rule)
         {
             for band in &bands {
@@ -1502,7 +1525,7 @@ fn page_to_path(transform: Transform) -> Result<Transform, CpuRasterError> {
 fn draw_sub_pixel_rule(
     pixmap: &mut tiny_skia::PixmapMut<'_>,
     geometry: (&Path, &tiny_skia::Path),
-    style: &tiny_skia::Stroke,
+    (style, cap): (&tiny_skia::Stroke, pdf_render::LineCap),
     at: Transform,
     brush: &tiny_skia::Paint<'_>,
     clip: Option<&tiny_skia::Mask>,
@@ -1510,7 +1533,9 @@ fn draw_sub_pixel_rule(
     let Some(one_pixel) = pdf_render::thinnest_line(at) else {
         return false;
     };
-    if !at_or_under_the_quantum(style.width, one_pixel) || !carries_coverage_as_alpha(brush) {
+    if !at_or_under_the_quantum(style.width, one_pixel)
+        || !carries_coverage_as_alpha(brush.anti_alias, brush.blend_mode)
+    {
         return false;
     }
     // The resolution scale bounds how finely a curve is measured while it is offset, and is what
@@ -1533,7 +1558,7 @@ fn draw_sub_pixel_rule(
     {
         return true;
     }
-    draw_rule_at_one_pixel(pixmap, geometry.1, style, at, scale, brush, clip)
+    draw_rule_at_one_pixel(pixmap, (geometry, cap), style, at, scale, brush, clip)
 }
 
 /// Whether a mark this wide is one §10.7.4 owes its substitute, at a quantum of `one_pixel`.
@@ -1621,7 +1646,7 @@ fn draw_rule_as_bands(
 }
 
 /// ADR 0268's general construction: the rule stroked one device pixel wide, at the alpha its own
-/// width implies.
+/// width implies, with §8.4.3.3's cap as a second mark at the alpha *its* own area implies.
 ///
 /// See [`draw_sub_pixel_rule`] for why this is owed and [`pdf_render::substitute_width`] for why
 /// the width is stated from the transform's *smaller* stretch. The two moves are one arithmetic
@@ -1631,10 +1656,12 @@ fn draw_rule_as_bands(
 ///
 /// The dashes are dispensed first, by the same `tiny_skia::Path::dash` that `stroke_path` would
 /// have called, because widening a dashed stroke must not widen its dashes: §8.4.3.6's pattern is
-/// measured along the path and has nothing to do with the width.
+/// measured along the path and has nothing to do with the width. The caps are taken from the
+/// dashed path for the same clause's sake: §8.4.3.3 states the cap style "shall be used at both
+/// ends of open subpaths (and dashes 8.4.3.6, "Line dash pattern") when they are stroked".
 fn draw_rule_at_one_pixel(
     pixmap: &mut tiny_skia::PixmapMut<'_>,
-    path: &tiny_skia::Path,
+    (geometry, cap): ((&Path, &tiny_skia::Path), pdf_render::LineCap),
     style: &tiny_skia::Stroke,
     at: Transform,
     scale: f32,
@@ -1651,13 +1678,20 @@ fn draw_rule_at_one_pixel(
         return false;
     }
     let dashed;
+    // The caps are stated from the *path's* own commands, and where the dasher has cut new ends
+    // they have to be read back from what it produced — which is the one case that pays for a
+    // conversion. An undashed rule already has its geometry in both forms.
+    let mut cut_ends = None;
     let path = match style.dash.as_ref() {
-        None => path,
+        None => geometry.1,
         Some(dash) => {
-            let Some(cut) = path.dash(dash, scale) else {
+            let Some(cut) = geometry.1.dash(dash, scale) else {
                 return false;
             };
             dashed = cut;
+            if cap != pdf_render::LineCap::Butt {
+                cut_ends = Some(convert::from_skia_path(&dashed));
+            }
             &dashed
         }
     };
@@ -1666,19 +1700,13 @@ fn draw_rule_at_one_pixel(
     widened.dash = None;
     // The identity above is the *body's*: a cap's area goes as the square of the width, so
     // widening multiplies it by `(width / style.width)²` where the alpha divides it back only
-    // once, and the end is then overstated by that factor. On a long rule nobody could see it;
-    // on `issue12295.pdf`, whose 65 859 sub-pixel strokes are round-capped and 91.8% of them
-    // shorter than one device pixel — median length 0.145 — two round caps at one pixel are
-    // `π/4` of a pixel against a body of 0.145, and the page came out 31% heavier than its own
-    // 8x limit. The substitute is therefore the swept body and nothing else. What that gives up
-    // is the true cap, whose own area is `O(w²)` and which extends the mark by half of a width
-    // this rule has already established is under one pixel.
+    // once, and the end would be overstated by that factor — which is why the widened stroke is
+    // butt-capped and the cap is a mark of its own below, at the alpha its own square implies.
     // **Except where nothing was widened.** The factor above is `width / style.width`, and at
     // the quantum itself it is exactly 1: a rule already one device pixel wide overstates its own
-    // cap by nothing, so dropping it would be a pure loss of half a pixel at each end rather than
-    // a trade. That is not a refinement of ADR 0268's argument but its own arithmetic read at the
-    // boundary this rule has just been extended to.
-    if style.width < width {
+    // cap by nothing, so the stroker's own cap is exact and there is nothing to state twice.
+    let widening = style.width < width;
+    if widening {
         widened.line_cap = tiny_skia::LineCap::Butt;
     }
     let Some(outline) = path.stroke(&widened, scale) else {
@@ -1695,6 +1723,26 @@ fn draw_rule_at_one_pixel(
         convert::transform(at),
         clip,
     );
+    // A butt cap projects nothing, which is the overwhelmingly common case and the one that must
+    // not pay for a path conversion to be told so.
+    if widening
+        && cap != pdf_render::LineCap::Butt
+        && let Some(mark) = pdf_render::enlarged_mark(style.width, at)
+        && let Some(caps) =
+            pdf_render::sub_pixel_caps(cut_ends.as_ref().unwrap_or(geometry.0), cap, mark)
+        && let Some(converted) = convert::path(&caps)
+    {
+        let mut faint = brush.clone();
+        faint.shader.apply_opacity(mark.coverage);
+        scan::fill(
+            pixmap,
+            &converted,
+            &faint,
+            tiny_skia::FillRule::Winding,
+            convert::transform(at),
+            clip,
+        );
+    }
     true
 }
 
@@ -1733,8 +1781,12 @@ fn draw_rule_at_one_pixel(
 /// *within its own shape* and `tiny-skia` states that as Porter-Duff Source. There a scaled alpha
 /// leaves a partly transparent pixel where a partly covered one is meant. A sub-pixel shape inside
 /// a knockout group therefore keeps whatever the rasteriser already gave it. ADR 0226.
-fn carries_coverage_as_alpha(brush: &tiny_skia::Paint<'_>) -> bool {
-    brush.anti_alias && brush.blend_mode != tiny_skia::BlendMode::Source
+///
+/// Asked of the two fields rather than of a paint, because §8.5.3.2's marks are decided before
+/// there is a paint to ask: `draw_stroke` states a dot's *diameter* while building the geometry,
+/// and the alpha it will be filled at is the same question one step later.
+fn carries_coverage_as_alpha(anti_alias: bool, blend: tiny_skia::BlendMode) -> bool {
+    anti_alias && blend != tiny_skia::BlendMode::Source
 }
 
 /// Multiplies a straight-alpha channel by its alpha.

@@ -1848,3 +1848,83 @@ same twelve: `22060_A1_01_Plans.pdf` over the resource budget, four pages over t
 budget by 4% to 20%, three past the 16384×16384 scratch image this adapter allows, and four that
 are this side's §11.4.6 knockout hole (§14.2). Nothing in this release touched either bound and
 nothing here suggests it should have — the question in §20.4 stands as it was written.
+
+
+---
+
+## 21. Two marks the device does not draw, both `O(w²)` and both found by one instrument — **open, and a defect report rather than an ask**
+
+Written at the end of this viewer's four-hundred-and-fifty-fifth session, whose subject was the
+same two marks on *our* side: §8.4.3.3's projecting caps and §8.5.3.2's dot, whose areas go as the
+**square** of the line width rather than with it. Our own rasteriser lost them under the device
+pixel and now states them at one pixel with the area they gave up carried in the alpha. Building
+the ladder that measures that produced two readings of quorra, and both are reproducible in one
+command:
+
+```sh
+cargo run --release -p render-quorra --example sub_pixel_marks    # sections 5 and 6
+```
+
+### 21.1 A round cap adds no ink at any width
+
+The scene is one stroked segment of `length` at `degrees`, `width` wide, on a 320 × 320 page at
+scale 1, and the number is total ink over the raster in units of one fully covered pixel. Table 53
+states the area a cap adds: a round cap is "[a] semicircular arc with a diameter equal to the line
+width … drawn around the endpoint and … filled in", so two of them are `π w² / 4`.
+
+```text
+  cap       angle   length   width   quorra    its own area   error
+  Butt          0    40.00    5.00   200.157       200.000      0.1%
+  Round         0    40.00    5.00   200.157       219.635     -8.9%
+  Round        30    40.00    5.00   200.008       219.635     -8.9%
+  Square        0    40.00    5.00   225.193       225.000      0.1%
+  Round         0     4.00    0.50     2.000         2.196     -8.9%
+  Round         0     0.50    1.00     0.502         1.285    -60.9%
+```
+
+**The round rows are the butt rows to the last digit**, at every width and both angles, while the
+square rows are right to a tenth of a per cent. So the round cap is not merely coarse: it deposits
+nothing at all, and on a short rule — where the caps are most of the mark — that is 61% of what the
+document asked for. Our own CPU rasteriser reads 219.263 and 219.514 on the two 5-unit rows.
+
+**A hypothesis, offered as one and not as a diagnosis**, from reading `quorra-gpu`'s
+`raster.rs::cap_at` at `a35dc70`, which is the revision this tree builds and which is
+character-for-character the same function in every checkout from `0a1ffb1` on: a cap's arc sweeps exactly `π`, and `arc_fan` resolves the
+direction by "[t]ake the shorter way round: a join or cap never sweeps more than pi", which at
+exactly `π` cannot distinguish the half-disc *outside* the stroke from the half-disc *inside* it.
+An arc drawn on the inside lies within the body and adds no ink, which is precisely what the
+numbers say. A join's sweep is under `π` and is unaffected, which fits: only caps read wrong here.
+
+### 21.2 A small circle is flattened into a polygon inscribed in it
+
+§8.5.3.2's degenerate subpath under round caps is "a filled circle centred at the single point",
+and both backends receive *the same* geometry for it — `pdf_render::split_degenerate` builds the
+circle as four cubics in the shared crate exactly so that neither rasteriser decides it alone. The
+areas come back:
+
+```text
+  diameter   quorra   its own area   error        what that area is
+      0.50   0.1255         0.1963   -36.1%
+      1.00   0.5020         0.7854   -36.1%       the inscribed square, 0.5 exactly
+      2.00   2.8235         3.1416   -10.1%       the inscribed octagon, 2√2 = 2.828
+```
+
+−36.1% twice over, and the values name their own cause: at a flattening tolerance of a quarter of a
+device pixel a circle of diameter 1 has four segments and one of diameter 2 has eight. It is a
+*tolerance* rather than a defect, and §10.7.3 leaves each device its own — "each output device may
+have internal limits on the maximum and minimum tolerances attainable" — so this is a report
+rather than a request. What makes it worth reporting is where the error lands: a quarter-pixel
+tolerance costs a fraction of a per cent on the curves a page is mostly made of and a third of the
+shape on the marks that are already the smallest thing on the page, which is the opposite of how a
+tolerance is usually chosen. A tolerance stated as a fraction of the *shape* rather than of the
+device — or simply floored at a few segments per full turn — would cost nothing on a large curve.
+
+### 21.3 What this side did about it, which is nothing
+
+Neither reading changes what we hand you and neither is worked around here. What they do change is
+one gate: `render-quorra/tests/sub_pixel_coverage.rs` holds **both** backends to the shape's own
+area for every mark it measures, which is what makes it a gate on ISO 32000-2 §10.7.4 rather than
+on one library — and the two rows above are held against the processor only, with the reason and
+these numbers in the test's own comment. Asserting them of the device today would ratchet a defect
+rather than a requirement, which is the mistake that file's header records having avoided once
+already. Both come back the moment either row draws its area.

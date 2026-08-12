@@ -38,10 +38,19 @@
 //! `cos θ` of a turned rule's area, 29.3% short at 45° and at every thickness rather than only
 //! near the quantum.
 //!
-//! The last two thicknesses are the boundary again, one axis over, and **the 1.00 row is a defect
-//! this instrument found and this tree has not paid**: at exactly one device pixel `tiny-skia`
-//! still chooses the hairline, so a 45° rule reads 141.42 of its own 200 where the fill of the
-//! same outline reads 177.44. `doc/todo/11` carries it.
+//! The last two thicknesses are the boundary again, one axis over, and the 1.00 row is a defect
+//! this instrument found and ADR 0285 paid: at exactly one device pixel `tiny-skia` chose the
+//! hairline, so a 45° rule read 141.42 of its own 200 where the fill of the same outline reads
+//! 177.44.
+//!
+//! **A fifth and a sixth since the four-hundred-and-fifty-fifth**, and they are the marks whose
+//! area goes as the *square* of the width rather than with it: §8.4.3.3's two projecting caps, and
+//! §8.5.3.2's dot. A ladder of capped rules at two angles and a ladder of degenerate subpaths,
+//! each against the area Table 53 states for it. They are what found this instrument's two
+//! standing observations about the device — that it draws no round cap at all, and that it
+//! flattens a small circle into a polygon inscribed in it — which are section 21 of
+//! `doc/QUORRA_FEEDBACK.md` and are why `tests/sub_pixel_coverage.rs` holds only the processor to
+//! those two rows.
 //!
 //! ```sh
 //! cargo run --release -p render-quorra --example sub_pixel_marks
@@ -285,6 +294,116 @@ fn main() {
             }
         }
     }
+
+    caps_and_dots(scale);
+}
+
+/// Sections 5 and 6: the marks whose area goes as the *square* of the width.
+///
+/// A round or projecting square cap is a mark of its own — §8.4.3.3's Table 53 — and §8.5.3.2's
+/// dot is the same shape with no rule under it. Both are `O(w²)`, so under the quantum they are
+/// the first marks to go and the last to come back. The comparison is total ink against the area
+/// the table states.
+fn caps_and_dots(scale: f32) {
+    // The cap the substitute did not draw before ADR 0290.
+    println!();
+    println!("a capped rule under the quantum, at scale {scale}");
+    println!("  cap      angle   length   width   backend   total ink   its own area   error");
+    for cap in [
+        pdf_render::LineCap::Butt,
+        pdf_render::LineCap::Round,
+        pdf_render::LineCap::Square,
+    ] {
+        for degrees in [0.0_f32, 30.0] {
+            for (length, width) in [
+                (0.15_f32, 0.5_f32),
+                (0.5, 0.5),
+                (1.0, 0.5),
+                (4.0, 0.5),
+                (40.0, 0.5),
+                (0.5, 0.2),
+                (0.5, 1.0),
+                (40.0, 5.0),
+            ] {
+                let list = capped_rule(degrees, length, width, cap);
+                let area = capped_area(length, width, cap) * scale * scale;
+                for (name, raster) in draw(&list, scale) {
+                    let total = total_ink(&raster);
+                    println!(
+                        "  {:<7}  {degrees:>5.0}   {length:>6.2}   {width:>5.2}   {name:<8}  \
+                         {total:>9.4}   {area:>12.4}   {:>7.1}%",
+                        format!("{cap:?}"),
+                        100.0 * (total - area) / area
+                    );
+                }
+            }
+        }
+    }
+
+    // 6. §8.5.3.2's own dot, which is the cap above with no rule under it: a degenerate subpath
+    //    under round caps is "a filled circle centred at the single point", of area `pi w^2 / 4`,
+    //    and that circle is a fill the same quantum can swallow.
+    println!();
+    println!("a degenerate subpath under round caps, at scale {scale}");
+    println!("  width   backend   total ink   its own area   error");
+    for width in [0.1_f32, 0.2, 0.5, 1.0, 2.0] {
+        let list = capped_rule(0.0, 0.0, width, pdf_render::LineCap::Round);
+        let area = capped_area(0.0, width, pdf_render::LineCap::Round) * scale * scale;
+        for (name, raster) in draw(&list, scale) {
+            let total = total_ink(&raster);
+            println!(
+                "  {width:>5.2}   {name:<8}  {total:>9.4}   {area:>12.4}   {:>7.1}%",
+                100.0 * (total - area) / area
+            );
+        }
+    }
+}
+
+/// A capped rule of `length` at `degrees`, centred on [`TURNED`], stroked `width` wide.
+fn capped_rule(degrees: f32, length: f32, width: f32, cap: pdf_render::LineCap) -> DisplayList {
+    let (sin, cos) = degrees.to_radians().sin_cos();
+    let (cx, cy) = (TURNED.width / 2.0, TURNED.height / 2.0);
+    let half = length / 2.0;
+    let mut path = Path::new();
+    path.push(PathCommand::MoveTo(Point::new(
+        cx - half * cos,
+        cy - half * sin,
+    )));
+    path.push(PathCommand::LineTo(Point::new(
+        cx + half * cos,
+        cy + half * sin,
+    )));
+
+    let mut list = DisplayList::new(TURNED);
+    list.push(Command::Stroke {
+        path: Arc::new(path),
+        transform: Transform::IDENTITY,
+        stroke: Stroke {
+            width,
+            cap,
+            ..Stroke::default()
+        },
+        paint: Paint::Solid(Color::BLACK),
+        clip: None,
+        mask: None,
+        blend: BlendMode::Normal,
+    });
+    list
+}
+
+/// The area a capped rule sweeps, ISO 32000-2 §8.4.3.3's Table 53.
+///
+/// The body is `width * length` and the two caps are disjoint from it and from each other: a
+/// round cap is a semicircular arc "with a diameter equal to the line width", so the two are
+/// `pi w^2 / 4` together, and a projecting square cap extends "a distance equal to half the line
+/// width", so the two are `w^2`.
+fn capped_area(length: f32, width: f32, cap: pdf_render::LineCap) -> f32 {
+    let caps = match cap {
+        pdf_render::LineCap::Butt => 0.0,
+        pdf_render::LineCap::Round => core::f32::consts::PI * width * width / 4.0,
+        pdf_render::LineCap::Square => width * width,
+    };
+    width * length + caps
 }
 
 /// Which of the two operators states the turned band.

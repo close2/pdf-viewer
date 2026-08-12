@@ -68,13 +68,14 @@ pub struct DegenerateStroke {
     pub dots: Path,
 }
 
-/// Control-point distance for a quarter circle of unit radius.
+/// Control-point distance for a quarter circle of unit radius, shared with
+/// [`crate::sub_pixel`], whose caps are arcs of the same circle.
 ///
 /// The classic four-cubic circle: `4/3 · (√2 − 1)`, which is `0.552_284_749_8` and rounds to
 /// this at `f32`. Its radial error peaks at about 0.027% of the radius — a fifth of a
 /// thousandth of a pixel on a ten-pixel dot — and both backends receive the *same*
 /// approximation, so it cannot be a reason for them to disagree.
-const KAPPA: f32 = 0.552_284_8;
+pub(crate) const KAPPA: f32 = 0.552_284_8;
 
 /// Splits a path's degenerate subpaths out of it, ISO 32000-2 §8.5.3.2.
 ///

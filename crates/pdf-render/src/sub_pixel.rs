@@ -87,9 +87,9 @@
 //!   substituted subpath is thin along the same axis they are disjoint — the guard above sees to
 //!   that — and the two fill rules agree.
 //!
-//! The one this module is deliberately silent about is the **stroke** whose outline is not a
-//! rectangle: a round cap ends a rule with an arc, and such a path is declined here and drawn by
-//! whatever the backend would otherwise have done. ADR 0226.
+//! A **stroke** whose outline is not a rectangle is declined by the substitution above for the
+//! first of those reasons — a round cap ends a rule with an arc — and falls to the general
+//! construction below rather than to whatever the backend would otherwise have done. ADR 0226.
 //!
 //! # The turned rule, and why it needs no scan converter of its own
 //!
@@ -121,10 +121,45 @@
 //! band one pixel wide spreads its ink over a pixel where a band of the true width spreads it over
 //! `w`, and at the raster's edge the half that falls outside is still lost. What it replaces is a
 //! construction that was wrong about the total as well as the placement. ADR 0268.
+//!
+//! # The marks whose area is a *square* of the width, which the same identity does not reach
+//!
+//! ADR 0268's identity is the swept **body's**: widening a band by `k` multiplies its area by `k`
+//! and dividing the alpha by `k` gives it back. Every other mark a stroke makes has an area that
+//! goes as the square of the width — §8.4.3.3's two caps that project, and §8.5.3.2's dot — so
+//! widening one by `k` multiplies its area by `k²` and the body's alpha restores only one factor.
+//! ADR 0268 dropped the cap for exactly that reason, and measured what dropping it costs: on a
+//! rule as long as it is wide the two round caps are 44% of what the document asked for, and on a
+//! rule shorter than its own width they are most of it.
+//!
+//! The factor is known, so the answer is to divide by it rather than to give the mark up:
+//! [`enlarged_mark`] states such a mark at the substitute width with an alpha of `(w / W)²`, which
+//! puts down exactly the area the document's own width implies at every width under the quantum.
+//! Three shapes reach it and they are the whole of §8.4.3.3's and §8.5.3.2's marks:
+//!
+//! - a cap that projects — [`sub_pixel_caps`], built here so that the shape a backend fills is
+//!   Table 53's rather than a stroker's idea of it;
+//! - §8.5.3.2's "filled circle centred at the single point" for a degenerate subpath, and
+//! - the mark a zero-length *dash* leaves, whose cap "shall always be painted".
+//!
+//! The last two are [`crate::degenerate`]'s geometry already, and they need nothing here but the
+//! diameter and the alpha: both are circles or squares of the line's width, so the same `(w / W)²`
+//! is exact for them too.
+//!
+//! **The caps are a separate mark rather than a wider stroke**, which is what keeps the arithmetic
+//! exact instead of merely closer. A butt-capped body at `W` and Table 53's cap at `W` are
+//! disjoint — the cap is what projects *beyond* the body's squared-off end — so the two draws add
+//! where a stroker's own round-capped outline at `W` would have carried the cap at the body's
+//! alpha and overstated it by `W / w`. What the two draws still lose is the seam: an anti-aliasing
+//! rasteriser gives each of them partial coverage in the pixels along the shared edge, and two
+//! draws composite as `1 − (1 − a)(1 − b)` where one scan conversion would have added. That is one
+//! pixel line at the end of a mark this whole module exists because it is under a pixel, and it is
+//! the same seam `doc/todo/11`'s last item carries for a tiling's cell boundary.
 
 use crate::collapsed::{Extent, subpath_extents};
+use crate::degenerate::KAPPA;
 use crate::geom::{Path, PathCommand, Point, Transform};
-use crate::paint::FillRule;
+use crate::paint::{FillRule, LineCap};
 
 /// One device pixel line's worth of a shape too thin for the rasteriser to measure.
 ///
@@ -225,6 +260,185 @@ pub fn substitute_width(to_device: Transform) -> Option<f32> {
         return None;
     }
     Some(1.0 / floor)
+}
+
+/// A mark whose area goes as the *square* of the stroke's width, restated at a width the device
+/// can measure — ISO 32000-2 §10.7.4.
+///
+/// Produced by [`enlarged_mark`]. §8.4.3.3's two projecting caps and §8.5.3.2's dot are all stated
+/// by the standard as shapes of the line's width in both directions, so widening one to `width`
+/// multiplies its area by the square of the factor and [`Self::coverage`] divides it back.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EnlargedMark {
+    /// The width the mark is to be stated at, in the path's own space: [`substitute_width`]'s.
+    pub width: f32,
+    /// What the paint's alpha is multiplied by, in `0.0 < coverage < 1.0`.
+    pub coverage: f32,
+}
+
+/// How a mark whose area is a square of the line's width is stated where that width is under the
+/// device's coverage quantum, ISO 32000-2 §10.7.4.
+///
+/// Returns `None` — and the caller draws the mark the document's own width states — for a width at
+/// or above [`substitute_width`], where nothing is being widened and the rasteriser can measure the
+/// mark as it is, and for a width that is not positive and finite, which names no mark at all.
+///
+/// The module comment argues the construction and lists the three marks that reach it. The arithmetic
+/// is one line: a shape of width `w` restated at `W` covers `(W / w)²` times the area, so an alpha of
+/// `(w / W)²` puts down what the document asked for, exactly, at every width under the quantum.
+#[must_use]
+pub fn enlarged_mark(width: f32, to_device: Transform) -> Option<EnlargedMark> {
+    let substitute = substitute_width(to_device)?;
+    if !width.is_finite() || width <= 0.0 || width >= substitute {
+        return None;
+    }
+    let ratio = width / substitute;
+    Some(EnlargedMark {
+        width: substitute,
+        coverage: ratio * ratio,
+    })
+}
+
+/// The shapes ISO 32000-2 §8.4.3.3's line cap adds at the ends of a path's open subpaths, stated at
+/// an [`EnlargedMark`]'s width and to be **filled** with the stroking paint.
+///
+/// Table 53 states two caps that project beyond the path and one that does not:
+///
+/// > Round cap . A semicircular arc with a diameter equal to the line width shall be drawn around
+/// > the endpoint and shall be filled in.
+///
+/// > Projecting square cap . The stroke shall continue beyond the endpoint of the path for a
+/// > distance equal to half the line width and shall be squared off.
+///
+/// Both are outside the butt-capped body the caller draws — that is what "beyond the endpoint"
+/// means — so the two marks are disjoint and their ink adds. Returns `None` for a butt cap, which
+/// projects nothing, and for a path whose subpaths are all closed or all without a direction: a
+/// closed subpath has a join where an open one has a cap, and a subpath with no direction at all is
+/// §8.5.3.2's, answered by [`crate::degenerate`] before this is reached.
+///
+/// The shapes are this crate's own geometry rather than a stroker's, for [`crate::degenerate`]'s
+/// reason: two backends that each asked their own library for a cap would be two decisions rather
+/// than one.
+#[must_use]
+pub fn sub_pixel_caps(path: &Path, cap: LineCap, mark: EnlargedMark) -> Option<Path> {
+    let radius = mark.width / 2.0;
+    if cap == LineCap::Butt || !radius.is_finite() || radius <= 0.0 {
+        return None;
+    }
+    let mut caps = Path::new();
+    let commands = path.commands();
+    for extent in subpath_extents(path) {
+        let subpath = &commands[extent.range()];
+        // A closed subpath has a join where an open one has a cap, and a subpath opened by a
+        // segment after an `h` begins at a point outside this slice — Table 58's rule that such a
+        // segment "shall begin a new subpath" starting where the closed one did. Declining the
+        // second is a cap not drawn rather than one drawn in the wrong place.
+        if !matches!(subpath.first(), Some(PathCommand::MoveTo(_)))
+            || subpath.iter().any(|c| matches!(c, PathCommand::Close))
+        {
+            continue;
+        }
+        for (at, outward) in open_ends(subpath) {
+            append_cap(&mut caps, at, outward, radius, cap);
+        }
+    }
+    (!caps.is_empty()).then_some(caps)
+}
+
+/// A subpath's two ends, each with the unit vector pointing out of the path there.
+///
+/// The direction at an end is towards the nearest point of the subpath that differs from it,
+/// reversed — which is the segment's own direction for a line and the cubic's tangent for a curve,
+/// since a Bézier leaves its first point towards its first control point. Where a control point
+/// coincides with the end the next one along answers, which is the same fallback a stroker makes
+/// and the only one that keeps a cap facing outwards on `c` curves a producer wrote flat.
+///
+/// Empty for a subpath that reaches no second point at all: §8.5.3.2 gives such a subpath its own
+/// answer, and a cap with no orientation is what that clause declines to draw.
+///
+/// The slice begins with the subpath's own `m`, which the caller has established.
+fn open_ends(subpath: &[PathCommand]) -> impl Iterator<Item = (Point, Point)> {
+    let mut points = subpath.iter().flat_map(|command| match *command {
+        PathCommand::MoveTo(p) | PathCommand::LineTo(p) => [Some(p), None, None],
+        PathCommand::CurveTo(a, b, p) => [Some(a), Some(b), Some(p)],
+        PathCommand::Close => [None, None, None],
+    });
+    let first = points.next().flatten();
+    let mut ends = [None, None];
+    if let Some(start) = first {
+        let mut last = start;
+        let mut before_last = None;
+        for point in points.flatten() {
+            if point != last {
+                before_last = Some(last);
+                last = point;
+            }
+            if ends[0].is_none() && point != start {
+                // The direction *out* of the subpath at its start is away from where it goes.
+                ends[0] = Some((start, away(start, point)));
+            }
+        }
+        if let Some(before) = before_last {
+            ends[1] = Some((last, away(last, before)));
+        }
+    }
+    ends.into_iter().flatten()
+}
+
+/// The unit vector at `from` pointing away from `towards`, or `None`'s stand-in — the caller only
+/// asks where the two points differ, so the length is positive.
+fn away(from: Point, towards: Point) -> Point {
+    let (dx, dy) = (from.x - towards.x, from.y - towards.y);
+    let length = crate::geom::length(dx, dy);
+    if length > 0.0 && length.is_finite() {
+        Point::new(dx / length, dy / length)
+    } else {
+        Point::new(0.0, 0.0)
+    }
+}
+
+/// Appends ISO 32000-2 Table 53's cap at `at`, facing `outward`, for a line of radius `radius`.
+///
+/// A zero `outward` — the two points the direction was taken from coincide after all — appends
+/// nothing, which is [`open_ends`]'s own answer for a subpath with no direction.
+fn append_cap(into: &mut Path, at: Point, outward: Point, radius: f32, cap: LineCap) {
+    if outward.x == 0.0 && outward.y == 0.0 {
+        return;
+    }
+    let along = Point::new(outward.x * radius, outward.y * radius);
+    let across = Point::new(-along.y, along.x);
+    let point = |a: f32, b: f32| {
+        Point::new(
+            at.x + a * along.x + b * across.x,
+            at.y + a * along.y + b * across.y,
+        )
+    };
+    match cap {
+        // Table 53's butt cap "shall be squared off at the endpoint", which is where the body the
+        // caller draws already ends.
+        LineCap::Butt => {}
+        LineCap::Square => {
+            into.push(PathCommand::MoveTo(point(0.0, 1.0)));
+            into.push(PathCommand::LineTo(point(1.0, 1.0)));
+            into.push(PathCommand::LineTo(point(1.0, -1.0)));
+            into.push(PathCommand::LineTo(point(0.0, -1.0)));
+            into.push(PathCommand::Close);
+        }
+        LineCap::Round => {
+            into.push(PathCommand::MoveTo(point(0.0, 1.0)));
+            into.push(PathCommand::CurveTo(
+                point(KAPPA, 1.0),
+                point(1.0, KAPPA),
+                point(1.0, 0.0),
+            ));
+            into.push(PathCommand::CurveTo(
+                point(1.0, -KAPPA),
+                point(KAPPA, -1.0),
+                point(0.0, -1.0),
+            ));
+            into.push(PathCommand::Close);
+        }
+    }
 }
 
 /// Whether every subpath of a path has no extent along one axis, so that stroking it produces
@@ -549,7 +763,7 @@ fn stated_in_path_space(band: DeviceBand, inverse: Transform) -> Option<Path> {
 mod tests {
     use super::{only_flat_subpaths, sub_pixel_bands};
     use crate::geom::{Path, PathCommand, Point, Transform};
-    use crate::paint::FillRule;
+    use crate::paint::{FillRule, LineCap};
 
     fn path(commands: &[PathCommand]) -> Path {
         let mut p = Path::new();
@@ -786,6 +1000,121 @@ mod tests {
             width > crate::thinnest_line(at).expect("a nonsingular transform"),
             "the reading §8.4.3.2 asks for is the narrower of the two"
         );
+    }
+
+    /// A mark whose area is a square of the width keeps that area at the substitute: a quarter of
+    /// a pixel across is a sixteenth of a pixel of ink, which is what the document's own width
+    /// covers.
+    #[test]
+    fn a_mark_stated_at_the_substitute_keeps_the_area_its_own_width_implies() {
+        let mark = super::enlarged_mark(0.25, Transform::IDENTITY).expect("under the quantum");
+        assert!((mark.width - 1.0).abs() < 1e-6, "{mark:?}");
+        assert!((mark.coverage - 0.0625).abs() < 1e-6, "{mark:?}");
+        // The device's pixel, not the page's: at twice the scale the same width is half a pixel.
+        let doubled = super::enlarged_mark(0.25, Transform::scale(2.0, 2.0)).expect("under it");
+        assert!((doubled.width - 0.5).abs() < 1e-6, "{doubled:?}");
+        assert!((doubled.coverage - 0.25).abs() < 1e-6, "{doubled:?}");
+    }
+
+    /// At and above the quantum nothing is widened, so nothing is owed: the rasteriser measures
+    /// the mark the document stated and a scaled alpha would only make it faint.
+    #[test]
+    fn a_mark_at_the_quantum_is_left_exactly_as_the_document_stated_it() {
+        assert_eq!(super::enlarged_mark(1.0, Transform::IDENTITY), None);
+        assert_eq!(super::enlarged_mark(4.0, Transform::IDENTITY), None);
+        assert_eq!(super::enlarged_mark(0.0, Transform::IDENTITY), None);
+        assert_eq!(super::enlarged_mark(0.5, Transform::scale(0.0, 0.0)), None);
+    }
+
+    /// Table 53's projecting square cap continues "beyond the endpoint of the path for a distance
+    /// equal to half the line width", which is where the butt-capped body the caller draws stops.
+    #[test]
+    fn a_square_cap_is_the_half_width_the_table_states_beyond_each_end() {
+        let rule = path(&[
+            PathCommand::MoveTo(Point::new(10.0, 20.0)),
+            PathCommand::LineTo(Point::new(90.0, 20.0)),
+        ]);
+        let mark = super::enlarged_mark(0.2, Transform::IDENTITY).expect("under the quantum");
+        let caps = super::sub_pixel_caps(&rule, LineCap::Square, mark).expect("two caps");
+        let hull = caps.hull().expect("two squares");
+        assert_eq!(
+            (hull.min.x, hull.max.x),
+            (9.5, 90.5),
+            "half of one device pixel beyond each end"
+        );
+        assert_eq!(
+            (hull.min.y, hull.max.y),
+            (19.5, 20.5),
+            "the substitute's width"
+        );
+        assert_eq!(caps.commands().len(), 10, "two closed quadrilaterals");
+    }
+
+    /// The round cap is "a semicircular arc with a diameter equal to the line width … around the
+    /// endpoint": it reaches half a width past the end and no further back than the end itself,
+    /// which is what makes it disjoint from the body.
+    #[test]
+    fn a_round_cap_is_the_semicircle_beyond_the_end_and_nothing_behind_it() {
+        let rule = path(&[
+            PathCommand::MoveTo(Point::new(10.0, 20.0)),
+            PathCommand::LineTo(Point::new(90.0, 20.0)),
+        ]);
+        let mark = super::enlarged_mark(0.2, Transform::IDENTITY).expect("under the quantum");
+        let caps = super::sub_pixel_caps(&rule, LineCap::Round, mark).expect("two caps");
+        let hull = caps.hull().expect("two half discs");
+        assert_eq!((hull.min.x, hull.max.x), (9.5, 90.5));
+        assert_eq!((hull.min.y, hull.max.y), (19.5, 20.5));
+        assert_eq!(caps.commands().len(), 8, "two arcs of two cubics apiece");
+    }
+
+    /// A butt cap "shall be squared off at the endpoint", so there is nothing outside the body to
+    /// state — the case that must cost nothing, since it is what most documents write.
+    #[test]
+    fn a_butt_cap_states_no_mark_of_its_own() {
+        let rule = path(&[
+            PathCommand::MoveTo(Point::new(10.0, 20.0)),
+            PathCommand::LineTo(Point::new(90.0, 20.0)),
+        ]);
+        let mark = super::enlarged_mark(0.2, Transform::IDENTITY).expect("under the quantum");
+        assert_eq!(super::sub_pixel_caps(&rule, LineCap::Butt, mark), None);
+    }
+
+    /// §8.4.3.3 gives the cap to "both ends of open subpaths", so a closed one has none: what it
+    /// has at the point where it meets itself is §8.4.3.5's join.
+    #[test]
+    fn a_closed_subpath_is_capped_nowhere() {
+        let triangle = path(&[
+            PathCommand::MoveTo(Point::new(10.0, 20.0)),
+            PathCommand::LineTo(Point::new(90.0, 20.0)),
+            PathCommand::LineTo(Point::new(90.0, 60.0)),
+            PathCommand::Close,
+        ]);
+        let mark = super::enlarged_mark(0.2, Transform::IDENTITY).expect("under the quantum");
+        assert_eq!(super::sub_pixel_caps(&triangle, LineCap::Round, mark), None);
+    }
+
+    /// A cap faces along the path at the end it caps, which for a curve is its own tangent —
+    /// towards the last control point rather than towards where the curve started.
+    #[test]
+    fn a_curves_cap_faces_along_its_tangent() {
+        let curve = path(&[
+            PathCommand::MoveTo(Point::new(10.0, 20.0)),
+            PathCommand::CurveTo(
+                Point::new(10.0, 60.0),
+                Point::new(50.0, 90.0),
+                Point::new(90.0, 90.0),
+            ),
+        ]);
+        let mark = super::enlarged_mark(0.2, Transform::IDENTITY).expect("under the quantum");
+        let caps = super::sub_pixel_caps(&curve, LineCap::Square, mark).expect("two caps");
+        let hull = caps.hull().expect("two squares");
+        assert_eq!(
+            (hull.min.x, hull.max.x),
+            (9.5, 90.5),
+            "the start's tangent is vertical and the end's horizontal, so only the end reaches \
+             past 90 in x"
+        );
+        assert_eq!((hull.min.y, hull.max.y), (19.5, 90.5));
     }
 
     /// The gate a backend puts in front of converting a thin stroke into a fill: a rule is flat,

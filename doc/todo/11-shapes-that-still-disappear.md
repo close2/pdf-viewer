@@ -1,19 +1,24 @@
 # Shapes that still disappear
 
-Status: **items 1 and 3 closed (ADR 0226), their diagonal residual closed (ADR 0268), and the
-boundary itself — a rule *exactly* one device pixel wide — closed with ADR 0285; item 2 is fixed as
-far as any corpus document exercises it (ADR 0213) and its general case is unwitnessed; item 4, the
-same subclause's clipping paragraph, is **half paid** — the clip chain composes as a set
+Status: **items 1 and 3 closed (ADR 0226), their diagonal residual closed (ADR 0268), the boundary
+itself — a rule *exactly* one device pixel wide — closed with ADR 0285, and the cap a substitute
+does not draw closed with ADR 0290 along with §8.5.3.2's dot, which nobody had measured; item 2 is
+fixed as far as any corpus document exercises it (ADR 0213) and its general case is unwitnessed;
+item 4, the same subclause's clipping paragraph, is **half paid** — the clip chain composes as a set
 intersection on **both** backends since ADR 0280 and quorra's own ADR 0030, and the mark's own
-coverage still multiplies into the mask on both.** What is
-left is that half, and the cap a substitute does not draw for a rule strictly under the quantum.
+coverage still multiplies into the mask on both.** What is left is that half, what an eight-bit
+raster does to a mark whose ink is under one of its levels, and two marks abutting across a cell's
+box edge.
 Priority: 11
 Corpus: 4 known witnesses; the general shape of the residual is stated
-Clauses: §10.7.4, and §8.5.4 for item 4 — see `_scan-conversion.md`
+Clauses: §10.7.4, §8.4.3.3 and §8.5.3.2 for the marks that are `O(w²)`, and §8.5.4 for item 4 —
+see `_scan-conversion.md`
 Code: `crates/pdf-render/src/sub_pixel.rs`, `crates/render-cpu/src/lib.rs`,
 `crates/render-cpu/src/scan.rs` (item 4's composition),
 `crates/pdf-model/src/content.rs`'s `tile`, `crates/pdf-render/src/repeat.rs`,
-`crates/render-quorra/examples/sub_pixel_marks.rs` (the instrument),
+`crates/render-quorra/examples/sub_pixel_marks.rs` and
+`crates/pdf-model/examples/sub_pixel_width_census.rs` (the two instruments: what a backend does
+with a mark, and what a page's own marks are),
 `crates/render-quorra/tests/sub_pixel_coverage.rs` (the gate, on **both** backends since 389)
 
 Leftovers from the hundred-and-eighty-sixth to -eighth sessions, which closed §10.7.4's
@@ -119,21 +124,38 @@ quarter-row sample quantum, so the snapped fill and the unsnapped band came back
 the test failed with both constructions correct. A test must be placed off the rasteriser's own
 sample grid and not merely off the pixel boundary. ADR 0285 §"the test that had to move".
 
-## And one loss ADR 0268 takes deliberately: the cap it does not draw
+## The cap ADR 0268 did not draw — **closed (ADR 0290), and it brought §8.5.3.2's dot with it**
 
-The substitute is the stroke's **swept body**, butt-capped, because a cap's area goes as the square
-of the width: widening multiplies it by `width / style.width` more than the alpha divides it back,
-and on `issue12295.pdf` — 65 859 sub-pixel strokes, every one round-capped, 91.8% of them shorter
-than one device pixel, median length **0.145** — keeping the cap put the page 66% over its own 8×
-limit where the body alone puts it 8.9% over.
+ADR 0268's substitute was the stroke's **swept body**, butt-capped, because a cap's area goes as
+the square of the width where the body's goes with it: widening by `k` multiplies the cap by `k²`
+where the body's alpha divides by `k` once. The answer is the missing factor rather than the
+missing mark — `pdf_render::enlarged_mark` states any such mark at the substitute's width with an
+alpha of `(w / W)²` — and Table 53's projecting caps lie *outside* the butt-capped body, so
+`pdf_render::sub_pixel_caps` is a second, disjoint mark whose ink adds rather than a wider stroke
+whose ink would be overstated by `W / w`.
 
-What is given up is the cap's own area, which is `O(w²)` with `w` under one device pixel. It is not
-nothing in one case: a round-capped subpath *shorter than its own width* is a dot of area `πw²/4`
-and the body it is replaced by is thinner still. §8.5.3.2's exactly-degenerate subpath is already
-taken out and filled as a dot by `pdf_render::split_degenerate`; the nearly-degenerate one is not,
-and that is where this would be answered rather than in `render-cpu`. **No corpus page reports it**:
-`doc/todo/00`'s step-7 sweep over all 786 ambiguous pages moves every entry *up* except
-`issue12295.pdf`'s own, which moves down because the page's geometry is below every reference.
+**The same measurement found a mark nobody had looked at**: §8.5.3.2's dot, "a filled circle centred
+at the single point", is `π w² / 4` and vanished outright at 0.1 and 0.2 of a device pixel — silent,
+ungated and unwitnessed. It takes the same substitution, as does a zero-length dash's mark.
+
+### What is left of it: an eight-bit raster's own floor
+
+`issue12295.pdf` is the witness and the residual is the *raster's*. All 65 859 of its sub-pixel
+strokes are 0.1366 of a device pixel wide (`pdf-model/examples/sub_pixel_width_census`), so their
+caps are 2170.93 device pixels of geometry — 1.14 levels of 255 over the page — and the page's ink
+rose by **0.133**. A cap at that width is 0.0073 of a pixel of ink spread over the few pixels its
+substitute covers, about **half a level of 255 each**, and half a level is what an eight-bit raster
+rounds away. The mark no longer disappears, which is the clause's requirement; what lands is what
+the raster can hold.
+
+**What would recover the rest is one draw rather than two**: the cap's coverage *added* into the
+body's own mark instead of composited beside it at its own alpha, so that one deposit of 40 levels
+is made where two of 35 and half a level are made now. It needs the subpath's arc length — a
+flattening for a curve — and a second construction for a path with joins, where one alpha cannot be
+right for every subpath. It would also take back most of what this cost: **+146.8% of the
+rasteriser's instructions on that page** (21.30e9 → 52.57e9 over 20 rasterisations), against +0.19%
+on an ordinary page of text, and the profile says it is the second `scan::fill` per stroke rather
+than the geometry.
 
 A thin shape that is not a rectangle at all — a sliver of a triangle, a glyph stem — is declined
 deliberately and permanently for the *exact* substitution: its cross-section is not constant along
