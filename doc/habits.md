@@ -379,13 +379,70 @@ back and change `OCInteract`". A warning written where the work is does not fire
   months. **Anything deferred on an external condition should carry the date it was last
   verified.**
 
+**The five shapes a refusal takes when it has outlived its reason.** Moved here from
+`doc/HANDOVER.md` in the four-hundred-and-forty-sixth, because they are read before a clause
+round rather than by every round. Each is a mistake this project made, and each names the sweep
+in `doc/todo/01-ledger-partial-rows.md` that would have caught it.
+
+**A reason that names a vocabulary is the fourth of these shapes**, found in the
+two-hundred-and-fifty-seventh: §12.6.3's `/Fo` and `/Bl` were owed "keyboard focus, which
+`viewer-core` does not have — there is no focus model in `Command` at all, and adding one is a
+vocabulary change rather than a clause". No message was needed. The clause says what happens when
+an annotation receives the input focus and nothing about how it comes to, so a press inside a
+widget's active area gives it — a choice, and the one every pointing interface makes. All ten of
+Table 197's events are raised now. **Ask what the program already receives before adding a way to
+receive it.**
+
+**A reason that names an architecture is two reasons wearing one coat**, which the
+two-hundred-and-seventeenth session found: §12.5.3's `NoZoom` and `NoRotate` were both refused
+because they "make an appearance's placement depend on the view, which a resolution-independent
+display list cannot express". `NoRotate` depends on §7.7.3.3's `/Rotate`, which is in the *file* —
+it was never a view-dependence at all — and `NoZoom`'s real cost is one flag on the interpretation
+and a re-read of 51 documents out of 974 (ADR 0168). **Split a refusal into one claim per entry
+before believing it.**
+
+**A capability makes clauses reachable, and nothing announces it.** The ten sessions from the
+hundred-and-sixty-sixth closed four clauses without anybody picking them off a list: §12.3.3
+because a panel existed to display an outline in, §14.3.3 because a panel existed to display
+`/Info` in, §7.7.2's `/PageMode` and §12.6.3's trigger events because a sidebar and a pointer had
+arrived. Each of those rows said some version of *this program has no ___*, and each stayed true
+for between seven and forty-one sessions after it stopped being true. The three sweeps that catch
+it are in `doc/todo/01-ledger-partial-rows.md`, the hundred-and-ninety-first session found a
+`shall` that had been binding for fifty-six, the two-hundred-and-first found the longest one
+yet — §12.3.2.1's magnification and window position, owed since the **hundred-and-thirty-second**
+session put scrolling and zoom in the vocabulary, still explained by "a window with scrolling and
+zoom, which this program does not have" sixty-nine sessions later (ADR 0162) — and the
+two-hundred-and-fourth found the same row family's other half, §12.6.3's four page-scoped trigger
+events blocked on "a page-visibility model a one-page-at-a-time window does not have", which is
+what a window that turns pages is (ADR 0164).
+
+**And the two-hundred-and-fifty-third and -fourth found the inverse, which no sweep was asking
+for: a capability that reached the crate implementing the clause and never reached the program.**
+§12.5.6.19's `/H` was `implemented`, argued in ADR 0123, tested with pixels — and `viewer-core`
+took the annotation under the pointer from `link_at`, which returns a `/Subtype /Link` and nothing
+else, so no host could press a widget for a hundred and fifteen sessions. **The question the
+sweeps do not ask is "the model implements this — who calls it?"** Widening the region then turned
+a latent default into a wrong pixel in the same sitting: §12.5.6.19's `/H` defaults to `I`, two
+tables define the entry and no others do, and a `Square` had been one caller away from inverting
+under the cursor. ADR 0177. **The sweep that asks it is `doc/todo/01`'s fifth** — every `pub fn`
+in `pdf-model`, grepped against the two host-side crates — and it found §8.11.4.3's `/ListMode`
+on its first run, read into `OptionalContent::list_mode` and asked by nothing with a layer panel
+on the screen (ADR 0178).
+
+**And the two-hundred-and-fourteenth found a row that would have survived the capability arriving.**
+§14.9.3 said `/TU` "names a field in a user interface this program does not have" — false since
+the hundred-and-thirty-second — but the window was never the blocker: `Query::FieldAt` answered
+with one string, and §14.9.3's `shall` needs two, because the name that *addresses* a field is not
+the name a person is shown. **Ask what the program would have to say to obey the clause, not only
+what it would have to have** (ADR 0167).
+
 ### Measuring
 
 - **A negative answer from a tool is a claim about that tool, not about the world.** `which
   cargo-fuzz` reports nothing here because `~/.cargo/bin` is not on `PATH`, and two consecutive
   rounds wrote "`cargo-fuzz` is not installed on this machine" into an ADR and a todo — leaving a
-  fuzz target unwritten — while the binary had been on disk since 26 July and `doc/HANDOVER.md`'s
-  own environment list said how to invoke it. The check that would have cost two more seconds is
+  fuzz target unwritten — while the binary had been on disk since 26 July and `doc/environment.md`
+  said how to invoke it. The check that would have cost two more seconds is
   `ls ~/.cargo/bin`. Session 428, ADR 0264.
 - **Ask the linker what a binary can execute.** `nm <binary> | grep -c <symbol>` answers "could
   this program ever run that code, under any input" with no fuzzing, no coverage build and no

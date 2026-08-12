@@ -12,7 +12,7 @@ is how they drift apart, and they had: this list said 1369 tests where the gate 
 omitted `render-quorra`'s corpus gate altogether. `doc/todo/02` §2 is the one copy.
 
 **Nothing here runs in a fresh clone until the specifications are unpacked**, which is one command
-and is in `doc/HANDOVER.md`'s "What to do next".
+and is in `doc/environment.md`.
 
 ```sh
 cargo run -p conformance --bin ledger      # regenerates rows, keeps every status
@@ -162,9 +162,9 @@ cd fuzz && cargo +nightly fuzz run page -- -runs=50000 -fork=6 -rss_limit_mb=409
   #   find corpus-cache/safedocs doc/corpora doc/pdf.js/test/pdfs -name '*.pdf' -print0 \
   #     | xargs -0 python3 fuzz/seed_page.py fuzz/corpus/page
   # 1882 seeds under the target's own 256 KiB ceiling, `cmin` to 1535, **28 535 edges** against the
-  # best of the other thirteen at 6483. `doc/todo/02` carries the current numbers, and one of them is
-  # a warning: the corpus is 39 012 files now and libFuzzer merges it once per run, which is about
-  # **50 minutes** of the four-hundred-and-forty-fifth's 77. `cargo fuzz cmin page` once would write
+  # best of the other thirteen at 6483. The run prints the current numbers and `doc/todo/02` §2 carries the
+  # warning: libFuzzer merges the corpus once per run, and on the seeds `seed_page.py` produces that
+  # merge has been most of the wall clock. `cargo fuzz cmin page` once would write
   # the reduced ~9000 back and nothing has spent that merge. The script prints what the seeds *state* — 100 with a
   # `/Function`, 58 with a `/Shading`, 62 with a `/Pattern` — because a corpus that states none
   # seeds nothing about §8.7.4.5.
@@ -241,7 +241,7 @@ cargo run --profile gates -p pdf-retrieve --example substitution_cost
 
 # Which of this tree's quotations land on text Errata Collection 3 struck out. Not a gate for
 # ADR 0252's reason — the checker must keep comparing against a conversion this project did
-# not make. ~4 s over all fourteen documents. `doc/todo/02` §4's twelfth sweep.
+# not make. ~4 s over all fourteen documents. `doc/todo/01`'s twelfth sweep.
 cargo run --profile gates -p spec-errata -- check doc/*.pdf
 ```
 

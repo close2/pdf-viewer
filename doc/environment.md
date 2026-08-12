@@ -1,0 +1,108 @@
+# The environment, and the agreements that go with it
+
+Moved here so that `CLAUDE.md` holds only principles and `doc/HANDOVER.md` only the state of
+play. **Read this before running anything**: the machine, the user the agent runs as, what it
+can and cannot open a window on, and where the build lands.
+
+## Working agreements
+
+- You are running as your own user.  Obviously not a real sandbox, but you do not need to ask
+  before deleting files,...   You are not able to modify global config or install anything globally.
+  Evaluate if installing something globally by asking the human or creating a user local
+  copy / installation automatically is the better choice.
+- If a proposed fix looks wrong for this setup, say so instead of running it.
+- Verify claims by running them. Report failures with their output; never assert that
+  something works without having checked.
+
+## The machine, the account and the display
+
+**Arch Linux. GPU: AMD Strix (Radeon 880M/890M, RDNA 3.5) — RADV. Session: X11.** The agent runs
+as user `AI` via `sudo -u AI`, reaching `/home/cl/projects/pdf-viewer` through the `coders` group.
+**Hand a run on the real GPU to the user; everything else is testable here.**
+
+- KDE Frameworks 6 packages on Arch have no `kf6-` prefix (`kio`, `kconfig`, `ki18n`).
+- **Launch with a login shell** so `umask 002` applies, or every file the agent creates is
+  unwritable by `cl`: `sudo -u AI bash -lc 'cd /home/cl/projects/pdf-viewer && claude'`
+- **`AI` has no X authority cookie**, so anything needing *the user's* display fails at
+  `XOpenDisplayFailed`. **The viewer can still be run, and this file said otherwise for dozens of
+  sessions** (ADR 0126): `Xvfb` and `lavapipe` are installed, so the real window, the real event
+  loop and the real vello surface all work, `xdotool` drives them and `xwd` photographs the
+  result.
+
+  ```sh
+  Xvfb :77 -screen 0 900x1100x24 &
+  DISPLAY=:77 target/pdf-viewer --trace doc/ISO_32000-2_sponsored_EC3.pdf &
+  sleep 20   # 1023 pages: the window is up long before this, but the title is not
+  DISPLAY=:77 xdotool windowfocus --sync $(DISPLAY=:77 xdotool search --name "ISO 32000" | tail -1)
+  DISPLAY=:77 xdotool key --delay 400 Right Right Right Right Right
+  DISPLAY=:77 xwd -root -silent -out screen.xwd && magick xwd:screen.xwd screen.png
+  ```
+
+  **Two corrections from the two-hundred-and-thirteenth session's run, both of which cost time.**
+  `xdotool search --name ISO_32000` finds nothing: that document sets `/DisplayDocTitle`, so its
+  title bar reads *ISO 32000-2:2020 (PDF 2.0)…* with a space, which is the feature working. And
+  `xwd … | magick - screen.png` fails with *no decode delegate*, because this machine's
+  ImageMagick no longer sniffs xwd from a pipe; `-out` plus `magick xwd:<file>` does.
+
+  **A wheel notch is two events here.** `xdotool click 4` is a button press *and* a release, and
+  winit's X11 backend turns both into `MouseWheel`, so one `click` is two `Command::Scroll`s or
+  two zoom steps. It has always been so — the sidebar's scrolling has doubled the same way since
+  it landed — and it is a fact about this instrument rather than about the code: divide before
+  believing a step count measured this way. Found in the two-hundred-and-fourteenth session,
+  checking Ctrl + wheel in the window.
+
+  **And the pointer has to be inside the window**, which is 800×1000 on a 900×1100 screen: a
+  `mousemove` to 850 produces no wheel event at all and looks exactly like a binding that does
+  not work. `xdotool getwindowgeometry` first.
+
+  **This is the only way to exercise the loop** — key press to command to request to frame to
+  window — which is where every defect of sessions 140 to 142 lived and which no gate touches.
+  Not a gate itself: `Xvfb` and `xdotool` are not build dependencies and a test that skipped
+  silently would be worse than none.
+- **Build directory**: `AI` builds into `/home/AI/cargo-target/pdf-viewer` via `~/.cargo/config.toml`,
+  so the two users never fight over `target/`. Do not "fix" this. `pdfref` needs `--work-dir` for
+  the same reason.
+- **`cargo-fuzz` needs `+nightly`** explicitly; `rust-toolchain.toml` pins stable 1.97.1
+  deliberately. `cargo-deny` is in the agent's `~/.cargo/bin` — **and so is `cargo-fuzz`, which is
+  not on `PATH`**, so `which cargo-fuzz` answers nothing and `cargo fuzz` fails with "no such
+  subcommand". Sessions 425 and 426 read that as "cargo-fuzz is not installed here" and left a
+  target unwritten on the strength of it; it has been there since 26 July. Prefix the run:
+  `PATH=$HOME/.cargo/bin:$PATH cargo +nightly fuzz …`. **`which` answers a question about `PATH`,
+  not a question about the disk** (ADR 0264).
+- The Arlington model is a **submodule** pinned at `ba7d4d61`; `pdf-spec` will not build without
+  `git submodule update --init`.
+- KDE Frameworks 6 packages on Arch have no `kf6-` prefix (`kio`, `kconfig`, `ki18n`).
+- **`tmp/hayro` is a checkout of the whole hayro workspace**, with the project owner's fork as
+  `origin` and the maintainer's as `upstream`. **The owner's standing offer is that a fix goes on a
+  branch there, they push it and open the pull request, and this tree depends on the fork
+  meanwhile** — so a defect in `hayro-jpeg2000` or any other member is a branch to write rather than
+  a dependency to wait on. `doc/JPEG2000_FEEDBACK.md` §9 has the detail and the precedent. **This
+  changes what a todo file may call blocked**: "waits on the decoder's API" is a statement about
+  effort, not about access.
+
+## The specifications, and the one command a fresh clone needs
+
+**The specifications are in this tree encrypted, and that was not engineering.** The fourteen ISO
+and PDF Association documents in `doc/` and their Markdown conversions under `doc/md/` were
+**tracked in the clear, and the project owner is not licensed to redistribute them** — free to
+obtain is not the same permission, and a repository carrying them passes them on to everyone who
+clones it. In the three-hundred-and-eleventh session they left the tree, the index and **all 436
+commits of the history**, and came back **encrypted** (ADR 0187): `doc/specifications.zip`, 37 MB,
+ZipCrypto, all twenty-eight files, with `.gitignore` covering what `unzip` puts back. `git log
+--all --name-only` finds no path under `doc/md/` and no `doc/*.pdf` in any commit, which is the
+only check worth trusting on this. **This tree may be published**; nothing else here had to be
+true first.
+
+**Run this once in a fresh clone, and every gate and example in this tree works:**
+
+```sh
+unzip -P <password> doc/specifications.zip    # from the workspace root; ask the owner
+```
+
+**Every reference to the documents stays as it was**, decided by the owner in that session: four
+tests and eleven measurement examples open `doc/ISO_32000-2_sponsored_EC3.pdf` or
+`doc/PDF20_AN001-BPC.pdf` and fail loudly until you have, and `cargo test -p conformance` checks
+no citation without `doc/md/ISO_32000-2_sponsored_EC3.md`. **CI is a developer like any other
+here** and unpacks the archive from the `SPEC_ZIP_PASSWORD` repository secret before its tests;
+a pull request from a fork gets no secret, and the step says so rather than failing obscurely.
+

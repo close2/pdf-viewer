@@ -41,7 +41,7 @@ fn main() {
     let root = conformance::workspace_root();
     let started = Instant::now();
     let markdown = ClauseIndex::read(&root.join(conformance::STANDARD))
-        .expect("doc/md/ is unpacked; see doc/HANDOVER.md");
+        .expect("doc/md/ is unpacked; see doc/environment.md");
     println!(
         "doc/md/: {} headings in {:?}",
         markdown.headings().len(),

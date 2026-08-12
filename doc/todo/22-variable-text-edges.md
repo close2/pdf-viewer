@@ -95,7 +95,7 @@ type-specific flag in Tables 229, 231 and 233; four of the twenty have no witnes
 This section read *"`Query::FieldAt` answers with §14.9.3's two names and **no value**… nothing is
 wrong today, because `viewer-ui` sends no `Edit::SetField` at all"* and was stale in both halves:
 `viewer-ui` has typed into fields since the three-hundred-and-forty-ninth (ADR 0201) and
-`Answer::Field` has carried the value for as long. Found by `doc/todo/02` §4's third sweep in the
+`Answer::Field` has carried the value for as long. Found by `doc/todo/01`'s third sweep in the
 four-hundred-and-eleventh, which is exactly the shape that sweep hunts — a note whose stated reason
 is a capability the tree acquired sixty sessions ago.
 

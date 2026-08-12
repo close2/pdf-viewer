@@ -1,10 +1,20 @@
 # Project: PDF Viewer
 
-> **New here?** Read `doc/HANDOVER.md` after this file: current state, traps, and
-> what to do next.
-
 A PDF viewer in Rust, targeting Acrobat-class fidelity, with the goal of being the
 noticeably fastest PDF viewer available — and clean enough to be taught from.
+
+> **New here?** Read `doc/HANDOVER.md` after this file: what the program is, the traps, and
+> where each kind of round is told to look.
+
+**This file holds the principles and nothing that a command can print.** A fact that can be
+counted is not written down here; what is written down is the command that counts it, and
+`tools/state.sh` is that command. Where a number appears below it is the standard's, not
+ours.
+
+| moved out of this file | now in | opened when |
+|---|---|---|
+| the stack table, and why `rustybuzz` is not in it | [`doc/stack.md`](doc/stack.md) | you are choosing or questioning a dependency |
+| the working agreements, the machine, the agent user, the display | [`doc/environment.md`](doc/environment.md) | you are about to run something |
 
 ## Non-negotiable principles
 
@@ -157,7 +167,7 @@ In practice:
   §10.4.2.5 defines that conversion outright, and §10.4.2.1 ranks it below §10.3's ICC route
   — so the question is answered twice, in an order, and the code was right for a reason
   nobody had found. Before recording a silence, read the *titles* around the subject in
-  `doc/md/`; it takes a minute, and this claim survived thirty-two sessions in this file.
+  `doc/md/`; it takes a minute, and that claim survived thirty-two sessions in this file.
 - Curve-fitting to another renderer's output is forbidden outright. An implementation is
   correct for all valid PDFs or it is not correct; tuning constants until a corpus matches
   produces neither correctness nor knowledge.
@@ -181,26 +191,19 @@ In scope, without exclusions:
   synthesised ones, form field appearance construction, optional content, outlines,
   destinations, page labels.
 - **What a reader does with an open document**: selecting its text, filling a field, adding an
-  annotation or a markup. A viewer that can only look is not the target and never was; this
-  became explicit in the hundred-and-thirtieth session, and the exclusion it amends is below.
+  annotation or a markup. A viewer that can only look is not the target and never was; the
+  exclusion it amends is below.
 - **Clause 10 where it applies to a screen**, and the standard decides which clauses those are
   rather than this file. **This entry used to say "[h]alftones and transfer functions describe a
   marking device; those are *inapplicable*", and it was wrong about the second of the two** —
-  found in the three-hundred-and-fifty-seventh session on a corpus document that draws wrong
-  because of it. ISO 32000-2 never uses the phrase *marking device*; §8.3.2.2's term is a
-  "raster output device **such as a display or a printer**", and §10.1's own list of rendering
-  steps separates the two: "[f]or any object for which transfer functions are in effect, apply
-  those transfer functions" against "**[i]f** the raster output device supports PDF-defined
-  halftoning, apply halftoning". §10.6.1 says it for a screen outright — "[h]alftoning is not
-  required for such devices; **after gamma correction by the transfer functions**, the colour
-  components shall be transmitted directly to the device."
-
-  So **§10.6's halftones are inapplicable on the standard's own condition**, and **§10.5's
-  transfer functions are in scope**: they decide what a screen shows. Flatness and smoothness are
-  **not** inapplicable either, and the difference is worth the words: §10.7.2 makes ignoring
-  flatness an explicit permission, and §10.7.3 says "each output device may have internal limits"
-  on smoothness — a clause that permits is a clause that has been read, and it is a stronger
-  answer than one that does not apply.
+  found on a corpus document that draws wrong because of it, on evidence the standard states
+  three times over. So **§10.6's halftones are inapplicable on the standard's own condition**, and
+  **§10.5's transfer functions are in scope**: they decide what a screen shows. Flatness and
+  smoothness are **not** inapplicable either, and the difference is worth the words: §10.7.2 makes
+  ignoring flatness an explicit permission, and §10.7.3 says "each output device may have internal
+  limits" on smoothness — a clause that permits is a clause that has been read, and it is a
+  stronger answer than one that does not apply. The reading itself, with the standard's own words
+  under each clause number, is `doc/todo/13-the-transfer-function.md` and §10.5's ledger row.
 
   **The lesson is more general than the clause**, and it is the project owner's: the restrictions
   in this file were drawn early, around the most important functionality, and they come off step
@@ -208,18 +211,16 @@ In scope, without exclusions:
   An entry here that says a clause does not apply is a *claim about the specification*, and it
   decays exactly the way a ledger row's does.
 - **Clause 14** — output intents, and tagged PDF as far as accessibility needs it.
-- **The normative annexes**, which this list did not mention until the
-  three-hundred-and-sixtieth session and which were therefore in scope all along with nothing
-  looking at them. Eight of the standard's seventeen are normative — **D** (character sets and
-  encodings), **E** (extending PDF), **F** (linearised PDF), **I** (versions and compatibility),
-  **K** (XFA), **L** (structure element nesting), **O** (fragment identifiers) and **Q** (a
-  method for determining transparency) — and the ledger carries a row for each because a
-  requirement is a requirement wherever the standard prints it. The other nine say *informative*
-  on their own title line and state nothing. Annex O is the reason this entry is not a
-  formality: eleven `shall`s addressed to "the PDF processor", and when this entry was written
-  none of them was implemented and none of them reported. **Seven are carried out and four are
-  reported since the three-hundred-and-sixty-ninth session** (ADR 0209), which is what an annex
-  being in scope is supposed to lead to.
+- **The normative annexes**, which this list did not mention for a long time and which were
+  therefore in scope all along with nothing looking at them. The normative ones are **D**
+  (character sets and encodings), **E** (extending PDF), **F** (linearised PDF), **I** (versions
+  and compatibility), **K** (XFA), **L** (structure element nesting), **O** (fragment identifiers)
+  and **Q** (a method for determining transparency) — and the ledger carries a row for each because
+  a requirement is a requirement wherever the standard prints it. The rest say *informative* on
+  their own title line and state nothing. Annex O is the reason this entry is not a formality: its
+  `shall`s are addressed to "the PDF processor", and when this entry was written not one of them
+  was implemented and not one reported. `tools/state.sh annex-o` counts where they stand;
+  `doc/todo/39` and ADR 0209 say what each of the remainder needs.
 
 The exclusions, closed, each with its reason:
 
@@ -241,13 +242,13 @@ The exclusions, closed, each with its reason:
   requirements fall on a generator is in scope: linearisation, object-stream packing,
   optimisation, and the rest of what a producer owes.
 
-  **This exclusion was "we do not create files" and was amended in the hundred-and-thirtieth
-  session, by argument rather than by attrition.** What a *user* does to a document already
-  open — an annotation added, a field filled — is not authoring, and it is written back by
-  §7.5.6's incremental update: the new objects and a new cross-reference section appended,
-  never a rewrite of what was there. The producer's bytes stay in the file, byte for byte,
-  under whatever the user added. This tree already reads that construction (ADR 0100), which
-  is why it is the one form of writing it is placed to get right.
+  **This exclusion was "we do not create files" and was amended by argument rather than by
+  attrition.** What a *user* does to a document already open — an annotation added, a field
+  filled — is not authoring, and it is written back by §7.5.6's incremental update: the new
+  objects and a new cross-reference section appended, never a rewrite of what was there. The
+  producer's bytes stay in the file, byte for byte, under whatever the user added. This tree
+  already reads that construction (ADR 0100), which is why it is the one form of writing it is
+  placed to get right.
 
   **`pdf_syntax::Document` stays immutable, and that is not a style preference.** An edit is a
   log beside the document rather than a change to it — the pattern `view.rs` already uses for
@@ -269,8 +270,7 @@ for one thing — **ranking**. §6.3.2.2 places three obligations on a rendering
 render the page contents as defined, respect the default or user-specified optional content
 configuration (§8.11), and draw the appearance stream of every annotation whose flags call
 for one (§12.5.3, §12.5.5). Where that ordering disagrees with the corpus's, the
-specification's wins — optional content is seventh by corpus document count, first by clause
-6, and failing today.
+specification's wins.
 
 #### Two questions, two denominators
 
@@ -325,41 +325,21 @@ speculative optimization of code nobody measured.
 Where the conflict is real and unresolvable, clarity wins in cold paths, speed wins in
 hot paths, and the choice is written down.
 
-## Stack
+## Where knowledge lives
 
-| Area | Choice |
-|---|---|
-| Language | Rust |
-| Rasterizer | GPU first, for page one and every page after it; `tiny-skia` as the correctness oracle and as the fallback for a frame the device refuses — behind one trait |
-| Fonts | `skrifa` (+ Type1/Type3 handled in-tree) |
-| Windowing | `winit` |
-| Dialogs | `ashpd` (XDG desktop portal — native KDE dialogs, any toolkit) |
-| Accessibility | `AccessKit` (AT-SPI on Linux) |
-| Parallelism | `rayon` |
-| Deflate | `flate2` with `zlib-rs` backend (pure Rust, ~C speed) |
-| Spec model | Arlington PDF Model → generated validation layer |
+A rule about these documents, and it is the project owner's:
 
-**Not used:** `rustybuzz`. PDF content streams carry already-positioned glyphs; shaping
-them again would move glyphs away from where the document specifies. It may return later,
-scoped strictly to text *we* generate (annotations, form fields with non-embedded fonts).
+> **A fact that can be counted is not written down. What is written down is the command that
+> counts it.**
 
-## Working agreements
+It binds *derived* facts — counts, rates, gate results, "N of M", session numbers, dates. It
+does not bind, at all, the things no command can produce: the principles above, the argument
+for a decision, a trap, a clause reading. Those are the project's memory and they are why this
+works; deleting one is the only unrecoverable mistake a round can make.
 
-- You are running as your own user.  Obviously not a real sandbox, but you do not need to ask
-  before deleting files,...   You are not able to modify global config or install anything globally.
-  Evaluate if installing something globally by asking the human or creating a user local
-  copy / installation automatically is the better choice.
-- If a proposed fix looks wrong for this setup, say so instead of running it.
-- Verify claims by running them. Report failures with their output; never assert that
-  something works without having checked.
-
-## Environment notes
-
-- Arch Linux. GPU: AMD Strix (Radeon 880M/890M, RDNA 3.5) — RADV. Session: X11.
-- Claude Code may run as user `AI` via `sudo -u AI`, reaching this tree through the
-  `coders` group. That user has no X authority cookie, so it cannot open a window on *the
-  user's* display — but it can run the viewer on its own: `Xvfb` and `lavapipe` are
-  installed, `xdotool` sends real key presses and `xwd` reads the window's pixels back.
-  See `doc/adr/0126`. Hand a run on the real GPU to the user; everything else is testable
-  here.
-- KDE Frameworks 6 packages on Arch have no `kf6-` prefix (`kio`, `kconfig`, `ki18n`).
+The sharpest consequence: **a round asked to measure something must not be able to read the
+answer in a document.** A table of gate numbers is what lets a round write "unchanged" without
+running anything. So the numbers are not in the instruction files — `tools/state.sh` prints
+them — and session bookkeeping is one file per round under `doc/history/`, which no round reads to do its
+work.
+ADR 0281 has the argument, ADR 0232 its predecessor.

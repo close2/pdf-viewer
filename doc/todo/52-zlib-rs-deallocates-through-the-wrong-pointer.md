@@ -32,7 +32,7 @@ deflated stream in a 974-document corpus without a fault. What Miri objects to i
 rule, and the machine code an optimiser emits from that pattern is very likely fine today. "Very
 likely fine today" is exactly what a provenance bug is before it is a miscompilation.
 
-`zlib-rs` was chosen (`CLAUDE.md`'s stack table) as "pure Rust, ~C speed" — the whole reason it is
+`zlib-rs` was chosen (`doc/stack.md`'s table) as "pure Rust, ~C speed" — the whole reason it is
 here rather than `miniz` or C `zlib` is that it is Rust. A soundness bug in it is worth reporting
 for that reason above any other.
 

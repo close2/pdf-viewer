@@ -4,7 +4,7 @@ Status: **record** — what was read, off copies on this machine, and what each 
 Read by: whoever is about to vendor data or take a dependency. The licence obligations this
 lists are met by `/NOTICE` and checked by `viewer-ui/tests/notices.rs`.
 
-`doc/HANDOVER.md` §1 is the pointer to this file. ADR 0133 cites "`HANDOVER.md` §1" and means
+`doc/HANDOVER.md`'s reader table points a round taking a dependency here. ADR 0133 cites "`HANDOVER.md` §1" and means
 this.
 
 **This project is MIT** as of the hundred-and-thirtieth session (relicensed from MPL-2.0; one

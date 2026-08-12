@@ -11,7 +11,7 @@
 //! A PDF content stream carries glyphs the producer already positioned. Re-shaping them
 //! would move glyphs away from the coordinates the document specifies, and would do so most
 //! visibly on the complex-script documents where shaping seems most helpful. See
-//! `CLAUDE.md` on `rustybuzz`.
+//! `doc/stack.md` on `rustybuzz`.
 //!
 //! # What is implemented, and what says so
 //!

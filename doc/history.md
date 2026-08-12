@@ -3,6 +3,12 @@
 Status: **record** — appended to, never rewritten.
 Read by: whoever wants to know when something landed and which ADR argues it.
 
+**Sessions 5 to 445 are this table; 446 onwards are one file each in [`doc/history/`](history/README.md)**,
+which is where a round writes its record now — a shared row is a merge conflict and cannot hold more
+than a sentence, and that pressure is what put 816 lines of per-round narrative in an instruction
+file (ADR 0281). This table is kept exactly as it is: splitting a record up for tidiness is the one
+thing a record may not have done to it.
+
 One line per session; the argument is in the ADR, and every durable lesson is in `doc/HANDOVER.md`'s
 Traps, in `doc/habits.md` or in the todo file that owns the work, rather than here. This table was
 `doc/HANDOVER.md`'s last section until the three-hundred-and-ninety-fifth moved it out: it is
@@ -11,7 +17,9 @@ narrative by that file's own definition, and a round needs it only when it is as
 The block summaries below it are the same shape one level up — what a run of twenty or thirty rounds
 had in common — and they are kept because each states a finding the per-session rows cannot. The one
 measurement lesson the first of them carried went to `doc/habits.md`'s "Measuring", where it is used.
-A closing round writes one; there are **two**, for 315–334 and for 416–445.
+A closing round writes one; there are two, for 315–334 and for 416–445, and a closing round from
+446 on appends its summary here rather than to its own file, because a summary is about a *run* of
+rounds and belongs beside the others.
 
 | Session | What landed | Where |
 |---|---|---|

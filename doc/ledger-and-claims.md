@@ -1,6 +1,6 @@
 # The conformance ledger, and where a false claim can hide
 
-Status: **standing** — the counts live in `doc/HANDOVER.md`; the failure modes live here.
+Status: **standing** — `tools/state.sh` prints the counts; the failure modes live here.
 Read by: whoever is about to write or correct a ledger row, or to believe one.
 
 `doc/PLAN.md` §5a owns the ledger's format, statuses and checker; `doc/todo/01-ledger-partial-rows.md`

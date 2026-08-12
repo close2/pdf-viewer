@@ -149,7 +149,7 @@ program.** Everything about documents, pages, clicks, selection and editing is `
 — `Command` in, `Event` out, `Query` → `Answer` beside them, with no windowing or graphics
 type in its API — and what is left in `viewer-ui` is a window, a keyboard, a GPU and the two
 decisions a host owns: which files a document may name, and what to do when one asks for a
-password. `doc/HANDOVER.md` §0 points at `doc/ui-boundary.md`, which is that interface's
+password. `doc/ui-boundary.md` is that interface's
 specification, and ADRs 0116 to 0121 are
 its argument; the second consumer is `viewer-core/tests/headless.rs`, which drives the whole
 state machine with no display at all.

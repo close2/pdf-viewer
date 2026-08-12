@@ -16,7 +16,7 @@ readback that exists, and this one interprets pages nobody is looking at. Six co
 compile and `PDFV_EVENT_KIND_COUNT` moved 15 → **16** for the first time, which is what a C caller's
 `pdfv_abi_check` is for (ADR 0250).
 Read by: anybody writing a host, adding a `Command`, `Event` or `Query`, or asking what the
-crate boundary permits. `doc/HANDOVER.md` §0 is the pointer to this file, and ADRs 0116 to 0121
+crate boundary permits. `doc/HANDOVER.md`'s reader table points a round writing a host here, and ADRs 0116 to 0121
 are the argument.
 
 This was `doc/HANDOVER.md`'s section 0 until the three-hundred-and-ninety-fifth session moved it
