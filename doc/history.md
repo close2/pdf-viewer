@@ -1,6 +1,8 @@
 # How the project got here
 
-Status: **record** — appended to, never rewritten.
+Status: **record** — never rewritten, and **closed to per-session rows**: the table below ends at
+445 and no round adds to it. The one thing still appended here is a *closing* round's block
+summary, which is about a run of rounds rather than about one.
 Read by: whoever wants to know when something landed and which ADR argues it.
 
 **Sessions 5 to 445 are this table; 446 onwards are one file each in [`doc/history/`](history/README.md)**,

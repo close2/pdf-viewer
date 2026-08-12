@@ -256,10 +256,11 @@ change.
 
 - The ADR, if the round made a decision. The argument goes there, not in the handover.
 - **The session's record is one new file in [`doc/history/`](../history/README.md)**, named
-  `<session>-<slug>.md`, and nowhere else. A number, a date or a session reference in any other
-  document is bookkeeping and belongs in that file; a citation of an ADR for an *argument* is a
-  pointer and stays where it is. (Sessions up to 445 are rows in `doc/history.md`, which is kept
-  as it is — ADR 0281.)
+  `<session>-<slug>.md`, and nowhere else. **Created, not appended to**: a round adds a file that
+  did not exist, and edits no other round's — not `doc/history.md`, whose table is closed at 445,
+  and not the neighbouring file. A number, a date or a session reference in any other document is
+  bookkeeping and belongs in that file; a citation of an ADR for an *argument* is a pointer and
+  stays where it is. (ADR 0281.)
 - `doc/HANDOVER.md`, `doc/todo/README.md` and this file: only if what they *claim* stopped being
   true. None of them holds a number, so a round that only moved numbers writes nothing here.
 - The todo file: delete it if the item is done, correct it if the round changed what it owes.

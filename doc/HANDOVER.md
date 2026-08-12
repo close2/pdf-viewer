@@ -15,6 +15,14 @@ round write "unchanged" without running anything. ADR 0281.
 and in [`doc/history/`](history/README.md), nowhere else. This file has been halved four times; if you
 find yourself retelling a session here, you are undoing that (ADRs 0232, 0281).
 
+**And the round's own record is one *new file*, never an edit to an existing one.** Write
+`doc/history/<session>-<slug>.md` — a file that did not exist before, named so that `ls` sorts it
+last — and write nothing about the round anywhere else. A round does **not** append to
+`doc/history.md`, which holds sessions 5 to 445 and is closed; it does not extend a table here, in
+[`doc/todo/README.md`](todo/README.md) or in [`doc/todo/02-every-round.md`](todo/02-every-round.md);
+and it does not touch a neighbouring session's file. One round, one added file, and
+[`doc/history/README.md`](history/README.md) says what goes in it.
+
 ## Which file this round needs
 
 Each of these is *all* of what it holds, not a précis. Open the one your round is about — that is
