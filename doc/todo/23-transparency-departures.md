@@ -18,6 +18,10 @@ requests to somebody else and became work here, because quorra answered both ask
 list, while §11.4.6's two marks cannot be *asked for* at `89d7dd77` — the operators exist and the
 one position this tree emits them from is one of the two the builder refuses. That row stays, with
 its reason corrected and an ask written (`doc/QUORRA_FEEDBACK.md` section 14.2). **The
+four-hundred-and-fifty-sixth took the second backend row off this file** (ADR 0291): quorra lifted
+both refusals at `2c9bdd0`, `render-quorra` states §11.4.6's two stages, and the four corpus pages
+that were refused for it agree with the CPU oracle — so no backend row is left here and what
+remains is the interpreter's. **The
 four-hundred-and-fortieth asked the standing row what it contained and 77 of its 85 were a soft
 mask** (ADR 0276): the flag that says a group changed the page's blending space was not scoped to
 the page the way the space itself is, so an isolated group inside an `/SMask`'s group took the whole
@@ -307,28 +311,31 @@ Plus: source-over there is 32 of 255 out at a half-covered pixel under a half-op
    corpus documents state it true** (the ledger row said none did), and none of their knockout
    groups is drawn today. Honouring it means composing the mask and the constants into the shape
    instead of into the object, which is a second `stated_shape` rather than a new vocabulary.
-3. **`render-quorra` refuses a `Shaped` element outright, and at `89d7dd77` it cannot do otherwise.**
-   `doc/QUORRA_FEEDBACK.md` §14 asked for Destination-Out and Plus; **both arrived at `89d7dd77`**
-   as `Compose::DestOut` and `Compose::Plus` (quorra's ADR 0025), weighted by shape rather than by
-   the paint's alpha, which is what a `Shaped` command's second member already carries. **The
-   four-hundred-and-thirty-ninth session wrote the translation out and neither mark can be asked
-   for**, for two independent reasons:
-   - `SceneBuilder::fill` refuses a staged operator inside a knockout group
-     (`StagedComposeUnsupported { reason: InsideKnockoutGroup }`), and `Command::Shaped`'s own
-     documentation states that a knockout group is the only place it occurs — so the refused
-     position is the only position. §14.1 recorded that position as one this tree does not emit,
-     which was a claim about this tree's display lists made without building one.
-   - `SceneBuilder::group`, `stroke` and `image` carry no `Compose` at all, and three of the four
-     corpus pages state a `Shaped` whose two halves are **groups** (§11.6.4.2 makes a nested
-     group's shape the union of its elements'). Only `knockout_smask.pdf` is a fill-and-fill pair.
+3. ~~**`render-quorra` refuses a `Shaped` element outright**~~ — **closed in the
+   four-hundred-and-fifty-sixth, ADR 0291.** The history is the part worth keeping, because it is
+   three rounds long and each one was a different kind of wrong. §14 asked for Destination-Out and
+   Plus and **both arrived at `89d7dd77`** (quorra's ADR 0025), weighted by shape rather than by
+   the paint's alpha, which is what a `Shaped` command's second member already carries; the
+   four-hundred-and-thirty-ninth session then wrote the translation out and found neither mark
+   could be *asked for*, for two independent reasons — `SceneBuilder::fill` refused a staged
+   operator inside a knockout group, which is the one position `Command::Shaped` occurs in, and
+   `group`, `stroke` and `image` carried no `Compose` at all while three of the four corpus pages
+   state a `Shaped` whose halves are **groups** (§11.6.4.2 makes a nested group's shape the union
+   of its elements'; only `knockout_smask.pdf` is a fill-and-fill pair). `doc/QUORRA_FEEDBACK.md`
+   §14.2 asked for both lifts; quorra's ADRs 0032 and 0033 are both, at `2c9bdd0`.
 
-   `doc/QUORRA_FEEDBACK.md` §14.2 asks for the two lifts and re-offers §14's own alternative, a
-   per-element shape channel, which would answer both at once.
-   `headless_quorra.rs::quorra_will_not_take_the_pair_where_this_tree_would_hand_it_over` holds the
-   first against the vocabulary, so this row moves when quorra moves rather than when somebody
-   re-reads a document. **It must still be written as a pair or not at all** — `Plus` alone
-   saturates a premultiplied channel past its alpha, and the library states that as the caller's
-   obligation because one mark cannot tell it whether the other is coming.
+   **What this side wrote is one rule rather than two constructions**: a half that is already a
+   group states the operator on its own `GroupSpec`, and every other half is drawn inside a group
+   of one element — the same arithmetic, and the only uniform route in a vocabulary that carries
+   `Compose` on a fill and on a group and on nothing else. A stroke, an image and a fill whose
+   paint is a sampled shading all take the second route, and a per-mark route would have been
+   correct for some paints and silently wrong for the rest. **It is still written as a pair or not
+   at all** — `Plus` alone saturates a premultiplied channel past its alpha, and the library states
+   that as the caller's obligation because one mark cannot tell it whether the other is coming.
+   All four corpus pages agree with the CPU oracle, and `quorra_states_what_it_will_not_stage` now
+   holds the two constraints that *did* survive — a staged half may carry no blend mode (§11.3.5's
+   implicit one-element group) and must be isolated (§11.4.4's backdrop would arrive inside the
+   shape).
 4. **`render-gpu`'s coverage path keeps its documented residue**: where the shape *is* the coverage
    it still draws the element with source-over after the Destination-Out, which weights the
    backdrop by `1 − f × opacity` a second time. Bounded and stated in `knock_out`'s own comment

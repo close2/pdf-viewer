@@ -32,6 +32,16 @@ that still reads as a complaint after the complaint was answered is worse than n
   the effect, so it was measured as an A/B/A of eight samples an arm and read at the minimum:
   **14.94 ms → 12.77 and 12.47**, both `A` arms agreeing. §9.1 is what remains.
 
+**And `2c9bdd0` answered §14.2 with two ADRs, which is the last thing standing between this tree
+and §11.4.6's clause.** `6f777e8` accepts the staged pair inside a knockout group — the one
+position this tree emits it from — and `2c9bdd0` puts a `compose` on `GroupSpec`, so a *group* can
+be one stage, which is what §11.3.7.2's union-of-shapes forces for three of the four pages. This
+side wrote the translation in the four-hundred-and-fifty-sixth session and **all four pages left
+the refused list agreeing with the CPU oracle** (§14.3). The same bump made §13 and §18 answered
+sections that had been sitting under `open` headings — one of them for three days, one of them for
+eleven rounds while this document's own summary said otherwise (§13.1, §18.1). §20.6 is both
+coverage lanes measured on this machine at that revision.
+
 **§20 is the newest, and it is the first time this gate has looked at your *other* coverage lane.**
 `74c4994d` is three commits and every line of all three is inside it, so the run that used to answer
 "a quorra release does not move this gate" was answering about a lane the release does not touch.
@@ -138,12 +148,12 @@ frame allocates ~12 ms that every frame after it reuses, and it is provably not 
 
 **Where it stands, at the page's own scale:**
 
-| | first run | at `2531f447` | at `89d7dd77`, session 438 | at `89d7dd77`, session 439 | now, `c1f6e2f4`, session 447 |
-|---|---|---|---|---|---|
-| agree | 900 | 911 | 914 | 917 | **917** |
-| differ | 50 | 35 — 23 of them the antialiasing floor (§4) | 35 | 35 | **35**, page for page the same list |
-| refused | 7 | 11 | 8 | 5 | **5** |
-| median page | 2.64× the CPU backend | 2.05× to 2.33×, run to run | 2.46× | 2.37× and 2.35×, two runs | **1.83× to 2.79×**, eight runs across three pins |
+| | first run | at `2531f447` | at `89d7dd77`, session 438 | at `89d7dd77`, session 439 | at `c1f6e2f4`, session 447 | now, `2c9bdd0`, session 456 |
+|---|---|---|---|---|---|---|
+| agree | 900 | 911 | 914 | 917 | 917 | **919** |
+| differ | 50 | 35 — 23 of them the antialiasing floor (§4) | 35 | 35 | 35, page for page the same list | **37** — two joined at ADR 0285's inclusive quantum, one left |
+| refused | 7 | 11 | 8 | 5 | 5 | **1** |
+| median page | 2.64× the CPU backend | 2.05× to 2.33×, run to run | 2.46× | 2.37× and 2.35×, two runs | 1.83× to 2.79×, eight runs across three pins | **1.75× and 1.78×**, two runs |
 
 The fourth column is one revision of yours and one session of ours: the pin did not move, and the
 three pages are §17.2's. The fifth is two revisions of yours and no change at all to any of the four
@@ -159,9 +169,10 @@ three-hundred-and-eighty-fourth session corrected a stale `913 / 43`, and the
 four-hundred-and-thirty-eighth corrected a stale `914 / 42 / 1`. **The columns are dated now, which
 is the fix for the shape rather than for the instance.**
 
-Five refusals, by what they are: four are §14's stated shapes, and one is
-`bug1721218_reduced.pdf`'s coverage, which is §15's page and a texture capacity rather than a hole
-in the vocabulary. §17's three are gone.
+**One refusal, and it is the page this list started with**: `bug1721218_reduced.pdf`'s coverage,
+which is §15's page and a texture capacity rather than a hole in the vocabulary. §14's four stated
+shapes left in the four-hundred-and-fifty-sixth session, when the two lifts §14.2 asked for arrived
+at `2c9bdd0` and this side wrote the translation (§14.3); §17's three are gone.
 
 The median is a *timing* and moves between runs on one revision — 2.05× and 2.33× were two runs of
 the same gate — so it is a band rather than a figure that moved. quorra's ADR 0022 predicts it
@@ -1052,7 +1063,7 @@ three Vulkan libraries before, 17 and none after.
 
 ---
 
-## 13. Half a page turn is `encode`, and it is CPU — **open, and it is a request for an instrument before it is a request for speed**
+## 13. Half a page turn is `encode`, and it is CPU — **answered at quorra's ADR 0023, three days after this was written, and this heading said `open` for eleven rounds after that**
 
 **New, 2026-08-08, from this viewer's three-hundred-and-ninety-first session.** It is not a defect
 and nothing here is wrong; it is a measurement, taken because the project owner's own document felt
@@ -1139,7 +1150,28 @@ either would do:
 returns is what makes `execute` reportable at all, and this side depends on that: it is the reason
 our trace can say a frame's cost without introducing a fence of its own.
 
-## 14. §11.4.6's shape is not always the coverage, and `Compose` has no way to say so — **the operators arrived at `89d7dd77` and cannot be asked for where this side emits them; §14.2 is the second ask**
+### 13.1 What came back — quorra's ADR 0023, and this heading was wrong for eleven rounds
+
+Both halves, on 2026-08-11, three days after §13 was written and before this side had taken a
+release that carried them. `Options::instrument_encode` subdivides encode into phases reported
+through `Timings::phases`, so 3.86 µs a command can be attributed rather than guessed at, and
+`Timings::execute_provenance` says which clock `execute` came from while `phases` names
+`"target acquire"` and `"present"` — the two things the `elsewhere` row stood in for.
+
+**What is worth keeping here is not the answer but why this section still said `open`, and it is
+worse than a stale claim about somebody else's code.** The summary at the top of this document has
+recorded the arrival since the four-hundred-and-thirty-eighth session — "§13's instrument arrived
+in the same release and its other half was decided" — while the heading three screens down went on
+saying `open`. **This document contradicted itself for eleven rounds**, which is precisely the
+disease it names two paragraphs later about its own verdict table and precisely the ledger's, one
+document over: a summary and a section that are two copies of one fact, kept by hand. This tree's
+ADR 0283 says a claim about somebody else's code decays on their schedule; the correction here is
+narrower and sharper — *the same document had already been told*.
+
+**Neither half is used here yet.** `render-quorra` does not set `instrument_encode`, and
+`doc/todo/45`'s attribution of a frame is where it would land.
+
+## 14. §11.4.6's shape is not always the coverage, and `Compose` has no way to say so — **closed**: the operators arrived at `89d7dd77`, both refusals in front of them came off at `2c9bdd0`, and this side draws the four pages
 
 Written 2026-08-08, at the end of this viewer's three-hundred-and-ninety-seventh session. **The ask
 below was granted exactly** — `Compose::DestOut` and `Compose::Plus`, quorra's ADR 0025 — and what
@@ -1246,7 +1278,7 @@ from anybody. **The section stays here rather than being deleted**, because the 
 what the two implementations checked against each other and it is the reason the operators have the
 weighting they do.
 
-### 14.2 The two marks were written out, and neither can be asked for
+### 14.2 The two marks were written out, and neither could be asked for — **both lifts came back at `2c9bdd0`**
 
 Written 2026-08-11 at the end of this viewer's four-hundred-and-thirty-ninth session, which set
 out to write the translation §14.1 called this side's work and found it is not writable at
@@ -1313,6 +1345,47 @@ a fixture whose two halves were groups and then asked for an operator only `fill
 §14.1 asserted a property of this tree's display lists — "[n]either is anything this side emits" —
 without building one. `doc/todo/23` carries the four pages, and the refusal message in
 `render-quorra` now names both obstacles instead of claiming the work is unwritten here.
+
+### 14.3 What came back — `6f777e8` and `2c9bdd0`, and what this side did with it
+
+Both asks, in the order they were written, in two commits and two ADRs.
+
+- **quorra's ADR 0032** deletes `StagedComposeReason::InsideKnockoutGroup` rather than leaving it
+  unreachable, on the reading that §11.4.6's per-element rule *is* the staged pair weighted by that
+  element's own source shape — so a staged element **replaces** the group's erase for itself rather
+  than adding a second one. `quorra_will_not_take_the_pair_where_this_tree_would_hand_it_over` was
+  written "so that it fails the day you lift the restriction" and it did: it stopped compiling at
+  the bump, which is the notification working as designed. What stands in its place is
+  `quorra_states_what_it_will_not_stage`, holding the two constraints that survived.
+- **quorra's ADR 0033** puts `compose` on `GroupSpec`, beside `blend`, which is where §14.2 said it
+  would sit. The erase half of a group is the same content drawn opaque — the only way a group's
+  shape reaches a raster, since Table 140's group alpha is not what a premultiplied texture holds.
+
+**What this side wrote is smaller than the ask was**, and the reason is worth recording: a
+`Compose` can be stated on a fill and on a group and on nothing else, while a `Shaped` element's
+object may be a stroke, an image, or a fill whose paint takes the image door (a sampled shading).
+So every half that is not already a group is drawn *inside* a group of one element, which is the
+same arithmetic — an isolated group at alpha 1 under no mask holds exactly the element's own
+premultiplied colour — and one uniform route instead of a per-mark route that would have been
+correct for some paints and silently wrong for the rest. It costs one buffer per staged mark, on
+four pages of the corpus.
+
+**Measured here, on the corpus, at `2c9bdd0`**: the four pages come off the refused list and every
+one of them **agrees with the CPU oracle** — two independent transcriptions of
+`P' = (1 − f) × P + S`, one per backend, meeting on artwork nobody invented for a fixture. The
+default lane at the page's own scale goes 915 agree / 37 differ / 5 refused to **919 / 37 / 1**,
+and the one refusal left is `bug1721218_reduced.pdf`, which is a texture capacity rather than a
+clause. `test-scenes`' own `knockout_stated_shape` is drawn rather than refused, and the pixel it
+is checked at is the clause's arithmetic to within the unorm rounding your ADR 0033 states: the red
+under the element is gone whole, and what stands in its place is `½ × blue + ½ × green` at 127 or
+128 per channel.
+
+**One constraint of yours costs this side nothing today and is worth naming anyway.** A staged
+half may not carry a blend mode, because §11.3.5 composites such a mark through an implicit
+one-element group. `pdf-model` already drops the blend from a shape half — §11.4.6 leaves a
+knockout element nothing to blend against — but an *object* half that blends is a display list this
+tree can build, and it would now be refused by name rather than drawn. No corpus page states one,
+and the honest reason this is not an ask is that nobody has a document that needs it.
 
 ## 15. A gradient the scene will paint across a page, to keep a few dozen pixels of it — **open, and it is this side's finding rather than a defect of yours**
 
@@ -1620,7 +1693,7 @@ and no pair of them composes to it — the weight Destination-Over puts on the s
 **not** a request for `Compose::DestOver`; it is a note that the one place this side would have
 wanted it turned out not to need it. ADR 0277.
 
-## 18. A clip chain's coverages multiply, and §10.7.4 states an intersection of sets — **open, and it is this side's finding before it is a request**
+## 18. A clip chain's coverages multiply, and §10.7.4 states an intersection of sets — **answered at `0ddaa40`: quorra composes a chain by `min` too**
 
 Written 2026-08-11, at the end of this viewer's four-hundred-and-forty-fourth session. This side
 changed its own composition in the same session and is telling you so, because our cross-backend
@@ -1698,6 +1771,22 @@ among the 35 the two backends already differ on, and elsewhere the movement stay
 agreement bound. So the two backends now compose clips by two different rules and no gate can see
 it yet — which is exactly why it is written down rather than left for a future round to rediscover
 as a regression in whichever side is measured second.
+
+### 18.1 What came back — `0ddaa40`, and it is the first of the three shapes
+
+The second shape, and then the first: quorra composed a chain by multiplying and now takes `min`,
+from §8.5.4's own sentence that the graphics state holds *one* clipping path set to the
+intersection of the current path and the new one (its ADR 0030). So the two backends compose a
+chain by the same rule again, and the "no gate can see it" sentence above is what that costs: this
+side changed in the four-hundred-and-forty-fourth session, quorra in the release taken in the
+four-hundred-and-fifty-sixth, and in between nothing in either tree could have told anybody the two
+disagreed.
+
+**Where a clip meets the *mark*, quorra still multiplies**, deliberately and with its reasoning
+recorded — two unrelated boundaries sharing a pixel are the common case, and a product is the
+estimator that assumes it. That is exactly this tree's own remaining departure, which is still
+`tiny-skia`'s and is still §10.7.4's row: the two projects are in the same place, by two
+independent readings, with the same open question. Nothing is asked for here.
 
 
 ---
@@ -1841,6 +1930,14 @@ so ADR 0179's timeline is `lavapipe` under `Xvfb` and the GPU half of the number
 measure. Until somebody runs that, asking you for an API to save 6 ms would be asking for a
 mechanism nobody has priced end to end.
 
+**Asked again in your upgrade note's §7, and the answer is unchanged, which is itself the answer
+you wanted.** Take shape 2: state the 6 ms rather than build a mechanism for it. Nothing here is
+waiting on `Device::warm_for` or on a hint at construction — if it existed today, `viewer-ui` could
+not call it, for the reason above — so it should be built when a host that knows its viewport
+before its first frame asks for it, and not for us. If that changes it will change because
+somebody measured a launch on the owner's own adapter, which is the one number this whole section
+is short of.
+
 ## 20.5 The remaining refusals are unmoved, and that is expected
 
 `ab219d0` fixes coverage rather than capacity, so the twelve refusals §20.4 listed at 4× are the
@@ -1848,6 +1945,38 @@ same twelve: `22060_A1_01_Plans.pdf` over the resource budget, four pages over t
 budget by 4% to 20%, three past the 16384×16384 scratch image this adapter allows, and four that
 are this side's §11.4.6 knockout hole (§14.2). Nothing in this release touched either bound and
 nothing here suggests it should have — the question in §20.4 stands as it was written.
+
+## 20.6 Both lanes at `2c9bdd0`, on this machine, with §11.4.6's pair written
+
+Measured in the four-hundred-and-fifty-sixth session, on the machine
+[`doc/environment.md`](environment.md) describes — AMD Strix, Radeon 890M under RADV, X11, the
+gates profile — over the whole corpus, after this side took `2c9bdd0` **and** wrote the staged
+pair §14.3 describes. The `refused` column therefore differs from the one your upgrade note
+measured on your laptop by exactly the four §11.4.6 pages, and nothing else in the four rows does.
+
+| | agree | differ | refused | quorra | the CPU oracle beside it |
+|---|---:|---:|---:|---|---|
+| scale 1, `cpu` | 919 | 37 | 1 | 5.38 s | 2.44 s |
+| scale 1, `gpu` | 918 | 38 | 1 | 5.14 s | 2.42 s |
+| scale 4, `cpu` | 929 | 16 | 7 | 22.75 s | 11.43 s |
+| scale 4, `gpu` | 930 | 14 | 8 | 19.59 s | 11.61 s |
+
+**Every verdict count is your table plus four agreements and minus four refusals**, in all four
+rows. Two machines, two adapters, two working copies, and the *page-level* outcome is identical —
+which says what these columns are: a property of the pair of rasterisers and of the clause, not of
+the card. The columns that are this machine's are the two clocks, and they say something weaker
+than yours did: at 4× the device lane is **14% faster** over the corpus here where it was a third
+faster there, and at page scale the two lanes are within 5% of each other, which is the atlas doing
+its job and the lane declining work it would lose on. We are not deriving a scale threshold from
+that, for the reason your §3 gives.
+
+**The one refusal the device lane adds at 4× is `Test-plusminus.pdf`**, over the 256 MiB frame
+budget at 280 MB where the CPU lane draws it and differs by 0.037 mean. Your §6 names that page as
+one of the two whose sheet is half empty by shelf height, and the commit after the one this tree
+pinned — `7a58ced`, "Shelves stay near one width" — is aimed at exactly it. **This tree did not
+take that commit**: the upgrade note is written against `2c9bdd0` and a round that took an
+undescribed revision would be measuring something no document states. It is the next bump's, and
+this paragraph is where it is written down so that the next round does not rediscover it.
 
 
 ---
@@ -1928,3 +2057,12 @@ on one library — and the two rows above are held against the processor only, w
 these numbers in the test's own comment. Asserting them of the device today would ratchet a defect
 rather than a requirement, which is the mistake that file's header records having avoided once
 already. Both come back the moment either row draws its area.
+
+**Re-run at `2c9bdd0` in the four-hundred-and-fifty-sixth session and both readings are unchanged
+to the digit** — a round cap still deposits exactly what a butt cap does (2.0000 against 2.1963 of
+its own area on the 4-unit rule, 0.5020 against 1.2854 on the short one), and a circle of diameter
+1 is still 0.5020 against 0.7854, which is its inscribed square. That is what the two commits
+between the revisions say it should be: they touch `quorra-scene`'s builder and the composite
+shader and nothing in `raster.rs`. Checking rather than assuming cost one command, and it is the
+half of ADR 0283's lesson that runs the other way — a claim about somebody else's code can also
+*survive* their release, and only running it says which.

@@ -69,6 +69,29 @@ pub(crate) enum Admitted {
 /// deep across 3 608 chains).
 const MAX_CLIP_DEPTH: usize = 4096;
 
+/// One transparency group's parameters, as [`Encoder::group`] takes them.
+///
+/// A struct rather than seven arguments because two callers state them: the page's own
+/// groups, and §11.4.6's staged halves, which differ from the first only in the operator
+/// the finished group composites with.
+#[derive(Clone, Copy)]
+struct GroupParts<'a> {
+    /// The group's elements.
+    commands: &'a [Command],
+    /// §11.4.5's group alpha.
+    alpha: f32,
+    /// How the finished group combines with its backdrop (§11.3.5).
+    blend: BlendMode,
+    /// Active clip, or `None` for unclipped.
+    clip: Option<ClipId>,
+    /// Soft mask applied to the composited group, or `None` (§11.6.4.3).
+    mask: Option<SoftMaskId>,
+    /// Table 145's `/I`.
+    isolated: bool,
+    /// Whether the group is a knockout group (§11.4.6).
+    knockout: bool,
+}
+
 impl<'a> Encoder<'a> {
     pub(crate) fn new(
         device: &'a mut quorra_gpu::Device,
@@ -147,79 +170,20 @@ impl<'a> Encoder<'a> {
                     blend,
                     isolated,
                     knockout,
-                } => {
-                    let Admitted::Chain(clip) = self.clip_chain(builder, *clip)? else {
-                        continue; // the clip admits nothing: the group draws nothing
-                    };
-                    let mask = self.mask_id(builder, *mask)?;
-                    let spec = quorra_scene::GroupSpec {
+                } => self.group(
+                    builder,
+                    GroupParts {
+                        commands,
                         alpha: *alpha,
-                        blend: blend_mode(*blend),
-                        clip,
-                        knockout: *knockout,
-                        mask,
-                        // Table 145's `/I`, straight through. §11.4.5's isolated group is
-                        // what a layer in any rasterising library is; §11.4.4's other
-                        // initial backdrop — "the group's backdrop" — is the one quorra
-                        // gained in its ADR 0019, and the flag is how a scene asks for it.
-                        //
-                        // **The three conditions are not re-checked here, and that is
-                        // deliberate.** `pdf-model` emits `isolated: false` only where the
-                        // group's own blend is Normal, it is not a knockout group and no
-                        // enclosing group is one (ADR 0237, and `Command::Group`'s
-                        // `isolated` states the guarantee); quorra accepts exactly that set
-                        // and refuses the rest at `SceneBuilder::group` as
-                        // `SceneError::NonIsolatedGroupUnsupported`, which arrives below as
-                        // a typed `QuorraRasterError::Scene` naming which condition broke.
-                        // A copy of the condition here would be a second reading of §11.4.4
-                        // free to drift from the one that decides the picture.
+                        blend: *blend,
+                        clip: *clip,
+                        mask: *mask,
                         isolated: *isolated,
-                    };
-                    let mut walked = Ok(());
-                    builder.group(spec, |body| {
-                        walked = self.commands(body, commands);
-                        // The builder's own error channel carries scene refusals;
-                        // upload and translation errors travel beside it.
-                        Ok(())
-                    })?;
-                    walked?;
-                }
-                // §11.4.6's element whose shape is stated apart from its alpha:
-                // `(1 − shape) × backdrop + object`, which `Compose::Src` cannot say
-                // because it reads the shape off the coverage — the assumption this
-                // element exists to contradict.
-                //
-                // **The two operators exist and neither can be asked for here**, which the
-                // four-hundred-and-thirty-ninth session established by writing the
-                // translation out and running it rather than by reading. quorra's ADR 0025
-                // gave `Compose` the `DestOut` and `Plus` `doc/QUORRA_FEEDBACK.md` section 14
-                // asked for; the two positions its builder refuses them in were recorded as
-                // things this tree does not emit, and one of them is the *only* position this
-                // tree emits them from:
-                //
-                // - `SceneBuilder::fill` refuses a staged operator inside a knockout group
-                //   (`StagedComposeUnsupported { reason: InsideKnockoutGroup }`), and
-                //   `Command::Shaped` appears nowhere else — its own documentation states
-                //   that as a guarantee, because outside one the shape is unused;
-                // - `SceneBuilder::group`, `stroke` and `image` carry no compositing operator
-                //   at all, and three of the four corpus pages behind this refusal state a
-                //   `Shaped` whose two halves are **groups** (a nested group's shape is the
-                //   union of its elements', §11.6.4.2), so even lifting the first would leave
-                //   them unsayable.
-                //
-                // Section 14.2 is the ask that follows, and `doc/todo/23` carries the page
-                // count. The refusal stays until both are answered, because half of the pair
-                // is worse than neither: `Plus` alone saturates a premultiplied channel past
-                // its alpha, and the library states that as the caller's obligation.
-                Command::Shaped { .. } => {
-                    return Err(QuorraRasterError::Unsupported(
-                        "a knockout element whose shape is not its coverage: quorra's \
-                         Destination-Out is refused inside a knockout group, which is the \
-                         only place this element occurs, and a group mark carries no \
-                         compositing operator at all (ISO 32000-2 §11.4.6)"
-                            .to_owned(),
-                    ));
-                }
+                        knockout: *knockout,
+                    },
+                    quorra_scene::Compose::SrcOver,
+                )?,
+                Command::Shaped { object, shape } => self.shaped(builder, object, shape)?,
                 // `Command` is non-exhaustive: a variant added upstream must fail
                 // loudly here, never fall through as a hole in the page.
                 other => {
@@ -230,6 +194,151 @@ impl<'a> Encoder<'a> {
             }
         }
         Ok(())
+    }
+
+    /// One transparency group, composited by `compose` (ISO 32000-2 §11.4.1).
+    ///
+    /// `compose` is [`quorra_scene::Compose::SrcOver`] for every group a page states, and one
+    /// of §11.4.6's two staged operators where this group is one half of a
+    /// [`Command::Shaped`] — see [`Self::shaped`].
+    fn group(
+        &mut self,
+        builder: &mut SceneBuilder,
+        parts: GroupParts<'_>,
+        compose: quorra_scene::Compose,
+    ) -> Result<(), QuorraRasterError> {
+        let Admitted::Chain(clip) = self.clip_chain(builder, parts.clip)? else {
+            return Ok(()); // the clip admits nothing: the group draws nothing
+        };
+        let mask = self.mask_id(builder, parts.mask)?;
+        let spec = quorra_scene::GroupSpec {
+            alpha: parts.alpha,
+            blend: blend_mode(parts.blend),
+            clip,
+            knockout: parts.knockout,
+            mask,
+            compose,
+            // Table 145's `/I`, straight through. §11.4.5's isolated group is
+            // what a layer in any rasterising library is; §11.4.4's other
+            // initial backdrop — "the group's backdrop" — is the one quorra
+            // gained in its ADR 0019, and the flag is how a scene asks for it.
+            //
+            // **The three conditions are not re-checked here, and that is
+            // deliberate.** `pdf-model` emits `isolated: false` only where the
+            // group's own blend is Normal, it is not a knockout group and no
+            // enclosing group is one (ADR 0237, and `Command::Group`'s
+            // `isolated` states the guarantee); quorra accepts exactly that set
+            // and refuses the rest at `SceneBuilder::group` as
+            // `SceneError::NonIsolatedGroupUnsupported`, which arrives below as
+            // a typed `QuorraRasterError::Scene` naming which condition broke.
+            // A copy of the condition here would be a second reading of §11.4.4
+            // free to drift from the one that decides the picture.
+            isolated: parts.isolated,
+        };
+        let mut walked = Ok(());
+        builder.group(spec, |body| {
+            walked = self.commands(body, parts.commands);
+            // The builder's own error channel carries scene refusals;
+            // upload and translation errors travel beside it.
+            Ok(())
+        })?;
+        walked
+    }
+
+    /// §11.4.6's two stages, for an element whose shape the display list states apart from
+    /// its alpha ([`Command::Shaped`]).
+    ///
+    /// On the transparent initial backdrop a group is built on, the clause's weighted
+    /// average is one line per pixel in premultiplied form — with the accumulated result
+    /// `P`, the element's shape `f` and its premultiplied colour `S`:
+    ///
+    /// ```text
+    /// P' = (1 − f) × P + S
+    /// ```
+    ///
+    /// which is Porter-Duff Destination-Out with the shape half, then Plus with the object.
+    /// [`quorra_scene::Compose::Src`] cannot say it: that operator reads the shape off the
+    /// coverage a mark is drawn with, which is the assumption this element exists to
+    /// contradict.
+    ///
+    /// **Both halves are emitted or neither is**, which is this caller's obligation rather
+    /// than something the library can check — `Plus` alone drives a premultiplied channel
+    /// past its alpha, and one mark cannot tell a library that the other is coming
+    /// ([`quorra_scene::Compose::Plus`]). The two halves carry the same clip and the same
+    /// geometry (`pdf_model`'s `stated_shape` derives one from the other), so every route
+    /// that draws nothing removes both.
+    ///
+    /// Outside a knockout group the shape is unused and the object would be drawn alone —
+    /// but [`Command::Shaped`] guarantees this command occurs nowhere else, so there is no
+    /// such branch here.
+    fn shaped(
+        &mut self,
+        builder: &mut SceneBuilder,
+        object: &Command,
+        shape: &Command,
+    ) -> Result<(), QuorraRasterError> {
+        self.stage(builder, shape, quorra_scene::Compose::DestOut)?;
+        self.stage(builder, object, quorra_scene::Compose::Plus)
+    }
+
+    /// One half of [`Self::shaped`], drawn with the operator that stage is.
+    ///
+    /// A **group** states the operator itself: §11.3.7.2 makes a group's shape "the union
+    /// […] of the shapes of the objects it contains", which no single mark can state, and
+    /// `quorra_scene::GroupSpec::compose` is where quorra took that ask (its ADR 0033).
+    ///
+    /// Everything else is drawn inside a group of one element, which is the same
+    /// arithmetic: an isolated group at alpha 1 under no mask, clip or blend holds exactly
+    /// the element's own premultiplied colour, so compositing it is compositing the
+    /// element. That is one buffer per staged mark and it buys uniformity — `stroke` and
+    /// `image` carry no compositing operator in this vocabulary at all, and a `fill` whose
+    /// paint is a sampled shading is drawn as an image too (see [`Self::sampled_fill`]), so
+    /// a per-mark route would be correct for some paints and silently wrong for the rest.
+    fn stage(
+        &mut self,
+        builder: &mut SceneBuilder,
+        half: &Command,
+        compose: quorra_scene::Compose,
+    ) -> Result<(), QuorraRasterError> {
+        if let Command::Group {
+            commands,
+            alpha,
+            clip,
+            mask,
+            blend,
+            isolated,
+            knockout,
+        } = half
+        {
+            return self.group(
+                builder,
+                GroupParts {
+                    commands,
+                    alpha: *alpha,
+                    blend: *blend,
+                    clip: *clip,
+                    mask: *mask,
+                    isolated: *isolated,
+                    knockout: *knockout,
+                },
+                compose,
+            );
+        }
+        self.group(
+            builder,
+            GroupParts {
+                commands: std::slice::from_ref(half),
+                alpha: 1.0,
+                blend: BlendMode::Normal,
+                // The element carries its own clip and mask, which the walk below applies;
+                // stating them here as well would multiply each in twice.
+                clip: None,
+                mask: None,
+                isolated: true,
+                knockout: false,
+            },
+            compose,
+        )
     }
 
     fn fill(

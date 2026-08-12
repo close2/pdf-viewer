@@ -217,13 +217,16 @@ const MIN_STRUCTURAL_SIMILARITY: f64 = 0.99;
 /// 0.8637/0.8634 and 16.9057/16.9117 — and the third is the one worth naming twice: ADR 0274
 /// found its §11.4.4 refusal standing in front of this one, so it is the page whose *second*
 /// reason has now gone too.
-const REFUSED: [&str; 5] = [
-    "bug1721218_reduced.pdf",
-    "knockout_inner_backdrop.pdf",
-    "knockout_nested.pdf",
-    "knockout_nested_group_alpha.pdf",
-    "knockout_smask.pdf",
-];
+///
+/// **And the four §11.4.6 pages left in the four-hundred-and-fifty-sixth, which is the first
+/// time a whole request left this list at once.** Section 14.2 asked for two things — the
+/// staged pair where the clause puts it, and a compositing operator on a group — and quorra's
+/// ADRs 0032 and 0033 are those two. `render-quorra` states §11.4.6's two stages now (ADR
+/// 0291), and all four pages **agree with the CPU oracle**: two independent transcriptions of
+/// `P' = (1 − f) × P + S`, one per backend, meeting on artwork that no fixture invented.
+/// What is left here is the one page that was here first, and its refusal is a texture
+/// capacity rather than a clause.
+const REFUSED: [&str; 1] = ["bug1721218_reduced.pdf"];
 
 /// Pages where the two rasterisers differ only at the **edges** of what they draw.
 ///

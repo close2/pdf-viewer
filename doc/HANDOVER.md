@@ -714,5 +714,8 @@ are no longer here.
 
 **[`doc/history.md`](history.md)** — one line per session, with the ADR that argues each, and **two**
 block summaries: what the twenty rounds from the three-hundred-and-fifteenth had in common, and what
-the thirty from the four-hundred-and-sixteenth did. A round appends one row to it and nothing else; a
-*closing* round appends the summary as well.
+the thirty from the four-hundred-and-sixteenth did. **It ends at the four-hundred-and-forty-fifth and
+a round appends nothing to it** — this sentence said "a round appends one row to it; a *closing*
+round appends the summary as well" for ten rounds after ADR 0281 moved the record to
+[`doc/history/`](history/README.md), one file per round. Where a future closing round's block
+summary goes is not decided; nothing has closed a block since.

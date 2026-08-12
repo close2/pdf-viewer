@@ -1167,7 +1167,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1507,7 +1507,7 @@ dependencies = [
  "gobject-sys",
  "libc",
  "system-deps",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3197,7 +3197,7 @@ dependencies = [
 [[package]]
 name = "quorra-gpu"
 version = "0.1.0"
-source = "git+https://github.com/close2/quorra#a35dc70304f5e34a2179c3df085c863e21014cf7"
+source = "git+https://github.com/close2/quorra#2c9bdd0550affd7379a517bb6b659605bfd81066"
 dependencies = [
  "pollster",
  "quorra-scene",
@@ -3208,7 +3208,7 @@ dependencies = [
 [[package]]
 name = "quorra-scene"
 version = "0.1.0"
-source = "git+https://github.com/close2/quorra#a35dc70304f5e34a2179c3df085c863e21014cf7"
+source = "git+https://github.com/close2/quorra#2c9bdd0550affd7379a517bb6b659605bfd81066"
 
 [[package]]
 name = "quote"
@@ -3474,7 +3474,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3897,7 +3897,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.4",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4958,7 +4958,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

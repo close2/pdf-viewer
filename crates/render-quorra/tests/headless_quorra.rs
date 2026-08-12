@@ -113,100 +113,131 @@ fn cpu_and_quorra_agree_on_knockout_groups() {
     );
 }
 
-/// §11.4.6's element whose shape is stated apart from its alpha is refused **by name**.
+/// §11.4.6's element whose shape is stated apart from its alpha, **drawn**.
 ///
-/// `quorra_scene::Compose` offers source-over and coverage-modulated source, and the second
-/// is precisely the assumption this element exists to contradict: it reads the shape off the
-/// coverage. Writing `(1 − shape) × backdrop + object` needs Porter-Duff Destination-Out and
-/// Plus — so the backend says so and draws nothing, rather than drawing the page the
-/// coverage-modulated form would give.
+/// This test read `quorra_refuses_a_knockout_element_that_states_its_shape` until the
+/// four-hundred-and-fifty-sixth session. `quorra_scene::Compose` offers source-over and
+/// coverage-modulated source, and the second is precisely the assumption this element exists
+/// to contradict: it reads the shape off the coverage. Writing `(1 − shape) × backdrop +
+/// object` needs Porter-Duff Destination-Out and Plus, and the pair arrived at `89d7dd77`
+/// refused in the one position this tree emits it from — inside a knockout group — with a
+/// group carrying no compositing operator at all. quorra's ADRs 0032 and 0033 lifted both
+/// (`doc/QUORRA_FEEDBACK.md` section 14.2 is the ask they answer), and this backend now
+/// states the two stages.
 ///
-/// **The two operators exist since `89d7dd77` (quorra's ADR 0025) and neither can be asked
-/// for where this element occurs**, which the four-hundred-and-thirty-ninth session found by
-/// writing the translation rather than by reading about it —
-/// `quorra_will_not_take_the_pair_where_this_tree_would_hand_it_over` below is the position
-/// itself, stated in the scene vocabulary and refused. `doc/QUORRA_FEEDBACK.md` section 14.2
-/// is the ask that follows.
+/// # The pixel, not the tolerance
 ///
-/// This is a *test of the refusal*, not of a defect: it fails if the refusal ever becomes
-/// silent.
+/// A tolerance says the two backends agree, not that they agree on the *clause*: the
+/// coverage-modulated form agrees with the pair wherever an element is opaque, which is most
+/// of any page. So one pixel is asserted against the arithmetic, where the two forms differ
+/// most — inside the shaped element **and** inside the red rectangle it knocks out, with the
+/// element at alpha ½ and its shape 1:
+///
+/// - Each element composites with the group's *initial* backdrop (§11.4.6), which for this
+///   isolated group is transparent, and the accumulated result is weighted by `1 − shape`.
+///   The shape here is 1, so the red is gone entirely and what is left is the object: blue
+///   at alpha ½.
+/// - The group is opaque and composites over the green page, so §11.3.6 gives
+///   `½ × (0, 0, 255) + ½ × (0, 255, 0)` = **`(0, 127.5, 127.5)`**, and the red channel is
+///   **0** exactly.
+///
+/// The two colour channels are a half level, which an eight-bit raster cannot hold: the
+/// group's alpha is quantised to `128/255` on its way through the layer, so the deposit
+/// rounds up and the backdrop it weights rounds down, and this asserts each channel within
+/// one level of the arithmetic rather than pinning whichever neighbour this adapter happens
+/// to produce. That is quorra's stated unorm rounding — 0.77 of 255 in its ADR 0033 — and
+/// pinning the byte would be pinning the rounding.
+///
+/// Drawing the element with `Compose::Src` instead would weight the backdrop by
+/// `1 − shape × alpha` and leave half the red standing, which is 64 of 255 on the red
+/// channel and is what this assertion is for.
 #[test]
-fn quorra_refuses_a_knockout_element_that_states_its_shape() {
+fn cpu_and_quorra_agree_on_a_knockout_element_that_states_its_shape() {
     let list = test_scenes::knockout_stated_shape();
-    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("target fits the budget");
-    let refusal = quorra()
-        .rasterize(&list, target)
-        .expect_err("the two marks §11.4.6's second stage needs cannot be asked for")
-        .to_string();
-    assert!(
-        refusal.contains("§11.4.6") && refusal.contains("shape"),
-        "the refusal names the clause and what it needs: {refusal}"
+    assert_within_tolerance(
+        "knockout stated shape",
+        compare("knockout stated shape", &list),
     );
+
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("target fits the budget");
+    let ours = quorra()
+        .rasterize(&list, target)
+        .expect("quorra draws §11.4.6's two stages");
+    // Page (200, 600): inside the shaped rectangle and inside the red one under it, well
+    // away from every edge. The raster's rows run the other way (ADR 0064).
+    let at = (((842 - 600) * ours.width + 200) * 4) as usize;
+    let pixel = &ours.data[at..at + 4];
+    assert_eq!(
+        (pixel[0], pixel[3]),
+        (0, 255),
+        "the element's shape knocked the red out whole: {pixel:?}"
+    );
+    for (channel, component) in [("green", pixel[1]), ("blue", pixel[2])] {
+        assert!(
+            component.abs_diff(128) <= 1,
+            "{channel} is {component}, and ½ × 255 rounds to 127 or 128"
+        );
+    }
 }
 
-/// The scene vocabulary refuses §11.4.6's pair in the one position this tree would emit it
-/// from — which is what the refusal above is *about*, held here rather than described.
+/// The two constraints quorra states on §11.4.6's staged pair, held against the vocabulary
+/// itself.
 ///
-/// `quorra_scene::Compose::DestOut` and `Plus` arrived at `89d7dd77` with two positions
-/// refused, `BlendNotNormal` and `InsideKnockoutGroup`, recorded on both sides of the
-/// boundary as positions this tree does not emit. The second is the only position it emits
-/// them from: `pdf_render::Command::Shaped` "appears only as a direct element of a
-/// [`Command::Group`] whose `knockout` is set", because outside one §11.4.4's formulas reach
-/// the shape only through shape × opacity and the object may be drawn alone. So the mark that
-/// would carry `DestOut` is by construction inside a knockout group.
+/// This test read `quorra_will_not_take_the_pair_where_this_tree_would_hand_it_over` until
+/// the four-hundred-and-fifty-sixth session, where it did its job: it was written "so that it
+/// fails the day you lift the restriction", and `StagedComposeReason::InsideKnockoutGroup`
+/// is deleted at `2c9bdd0`. What replaces it is the same shape one step along — the
+/// constraints that *did* survive, asserted directly against the builder with no display list
+/// in the way, because they are the two things [`render_quorra`]'s translation relies on
+/// being refused rather than approximated:
 ///
-/// This asserts the refusal directly against the builder, with no display list in the way, so
-/// that it is a statement about the vocabulary rather than about this backend. **It fails
-/// when quorra lifts the restriction** — which is the notification the next round wants, and
-/// the reason it is a test rather than a paragraph.
+/// - **a staged mark or group may not also carry a blend mode.** §11.3.5 composites such a
+///   mark through an implicit one-element group, which is the step the pair replaces.
+/// - **a staged group must be isolated.** §11.4.4 seeds a non-isolated group's buffer with
+///   its own backdrop, so the alpha the erase half reads as a shape would carry the
+///   backdrop's too.
 ///
-/// The second half of the obstacle cannot be a test at all and is recorded here instead:
-/// `SceneBuilder::group`, `stroke` and `image` take no `Compose`, and three of the four corpus
-/// pages behind this refusal state a `Shaped` whose two halves are groups. That one is a
-/// missing parameter, so a round that tried it would not compile.
+/// The first is why `pdf_model`'s shape half drops the blend mode, and the second is why a
+/// staged half is emitted as an isolated group. A page that broke either would be drawn
+/// wrongly rather than refused if these ever became silent, which is what makes them worth a
+/// test in this tree as well as in quorra's.
 #[test]
-fn quorra_will_not_take_the_pair_where_this_tree_would_hand_it_over() {
-    let mut builder = quorra_scene::SceneBuilder::new();
-    let spec = quorra_scene::GroupSpec {
+fn quorra_states_what_it_will_not_stage() {
+    let staged = |blend, isolated| quorra_scene::GroupSpec {
         alpha: 1.0,
-        blend: quorra_scene::BlendMode::Normal,
+        blend,
         clip: None,
-        knockout: true,
+        knockout: false,
         mask: None,
-        isolated: true,
+        compose: quorra_scene::Compose::DestOut,
+        isolated,
     };
-    let mut staged = Ok(());
-    builder
-        .group(spec, |body| {
-            // The shape half of a `Command::Shaped`: the object with every source of opacity
-            // removed, so the alpha it is drawn with is §11.6.4.2's shape. The outline id is
-            // never resolved — the builder refuses before a device would see it.
-            staged = body.fill(
-                quorra_scene::OutlineId(0),
-                quorra_scene::Affine::IDENTITY,
-                quorra_scene::FillRule::NonZero,
-                quorra_scene::Paint::Solid(quorra_scene::Color::new(1.0, 1.0, 1.0, 1.0)),
-                None,
-                quorra_scene::BlendMode::Normal,
-                quorra_scene::Compose::DestOut,
-                None,
-            );
-            Ok(())
-        })
-        .expect("the knockout group itself is accepted");
-
-    let refusal = staged.expect_err(
-        "Destination-Out inside a knockout group is what §11.4.6's first stage needs here",
-    );
+    let refusal = quorra_scene::SceneBuilder::new()
+        .group(staged(quorra_scene::BlendMode::Multiply, true), |_| Ok(()))
+        .expect_err("a blend mode composites the group by §11.3.5");
     assert!(
         matches!(
             refusal,
-            quorra_scene::SceneError::StagedComposeUnsupported {
-                compose: quorra_scene::Compose::DestOut,
+            quorra_scene::SceneError::GroupComposeUnsupported {
+                reason: quorra_scene::GroupComposeReason::BlendNotNormal,
                 ..
             }
         ),
-        "the vocabulary names what it will not take and where: {refusal:?}"
+        "the vocabulary names what it will not take and why: {refusal:?}"
+    );
+
+    let refusal = quorra_scene::SceneBuilder::new()
+        .group(staged(quorra_scene::BlendMode::Normal, false), |_| Ok(()))
+        .expect_err("§11.4.4's backdrop would arrive inside the shape");
+    assert!(
+        matches!(
+            refusal,
+            quorra_scene::SceneError::GroupComposeUnsupported {
+                reason: quorra_scene::GroupComposeReason::NonIsolated,
+                ..
+            }
+        ),
+        "the vocabulary names what it will not take and why: {refusal:?}"
     );
 }
 
