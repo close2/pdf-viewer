@@ -194,8 +194,14 @@ Four things to take away:
   **The survey's own `slow` count is not the way to say so, and three passes are why**: before 2,
   after 0, and a third pass on an idle machine 1 — a *third* document, `1284722.pdf`, which takes
   **11.13 / 11.14 / 11.23 s alone** and crosses the 30 s budget only under the survey's 24-way
-  load. Every other line of the survey is identical. `1284722.pdf` is 11.1 s of `interpret` for
-  94 596 commands and is the next candidate this population offers. What is still owed on those pages is the *band*:
+  load. Every other line of the survey is identical. ~~`1284722.pdf` is 11.1 s of `interpret` for
+  94 596 commands and is the next candidate this population offers.~~ **Taken (ADR 0287): 11 011 ms
+  → 142 ms.** Its `/Resources /ExtGState` is an *indirect* dictionary with 26 414 entries and the
+  page states 26 414 `gs` operators, and `Document::get` hands back an owned object — so the
+  interpreter copied that whole map once per operator, which was 57% of 108 G instructions.
+  `Interpreter::resource_tables` remembers an indirect category table by its `ObjectId`, and a
+  direct one is read in place. `6081357.pdf` went 267 → 207 ms with it; `0423548.pdf` did not move
+  at all, because its seconds are `initial_backdrop`'s and belong to `doc/todo/40`. What is still owed on those pages is the *band*:
   `0423548.pdf`'s remaining seconds are 2.1 of interpretation and 2.85 of `initial_backdrop`,
   which allocates and copies a whole surface per group — **4.3 GB** across its 136 groups where
   their bands are **82 MB**. `doc/todo/40`.

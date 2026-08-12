@@ -1866,6 +1866,7 @@ fn interpret_into(
         base: base_transform(page),
         page: size,
         shadings: crate::shading::Cache::default(),
+        resource_tables: std::cell::RefCell::default(),
         image_masks: crate::image::MaskCache::default(),
         structure: crate::structure::ParentTree::for_page(document, &page.dict),
         output_intent: output_intent_space(document),
@@ -2262,6 +2263,28 @@ struct Interpreter<'a> {
     /// same every time. This is what keeps `Function::parse` from running once per painting
     /// operation; `shading::Cache` has the measurement and the one case it refuses.
     shadings: crate::shading::Cache,
+    /// A resource **category table** — `/ExtGState`, `/Font`, `/XObject` — that a resource
+    /// dictionary states as an indirect reference, resolved once per object.
+    ///
+    /// # Why this exists, and it is quadratic without it
+    ///
+    /// `Document::get` hands back an *owned* object, so resolving `/Resources /ExtGState`
+    /// copies the whole category table out of the document's cache — every time. A page that
+    /// states one `/ExtGState` entry per `gs` operator therefore copies an *n*-entry
+    /// `BTreeMap` *n* times. `1284722.pdf` from the `SafeDocs` corpus is exactly that page:
+    /// **26 414 entries and 26 414 `gs` operators**, and 57% of its 108 G interpretation
+    /// instructions were cloning and dropping that map (`doc/todo/03` named it as the
+    /// population's next candidate at 11.1 s for 94 596 commands).
+    ///
+    /// Keyed by [`ObjectId`] because that is what identifies the table: two resource
+    /// dictionaries naming the same object name the same table, and a reference is the only
+    /// thing that says so. A *direct* table needs no entry here at all — it is already in
+    /// hand, and [`Interpreter::resource_entry`] reads it in place.
+    ///
+    /// **What it costs is a second copy of each table** beside the document's own cache,
+    /// bounded by the number of distinct resource tables the page's forms reach. That is the
+    /// trade, and on the witness it is one copy of one map against 26 414 of them.
+    resource_tables: std::cell::RefCell<BTreeMap<ObjectId, Dictionary>>,
     /// §11.6.5.2's soft masks already read for the device to place (§10.7.4).
     ///
     /// The same argument as [`Self::shadings`], and the same shape: a page draws one
@@ -7119,8 +7142,35 @@ impl Interpreter<'_> {
     /// paint one shading object thousands of times, and only the reference says they are the
     /// same one.
     fn resource_entry(&self, resources: &Dictionary, category: &str, name: &str) -> Option<Object> {
-        let table = self.document.get_key(resources, category);
-        table.as_dict()?.get(name).cloned()
+        match resources.get(category)? {
+            // Already in hand: read the entry out of the table rather than copying the table
+            // to do it. This is the common shape and it costs nothing.
+            Object::Dictionary(table) => table.get(name).cloned(),
+            // The expensive shape, and [`Interpreter::resource_tables`] is why: a reference is
+            // resolved by *copying* the object out of the document's cache, so a page with one
+            // entry per operator pays the whole table per operator.
+            Object::Reference(id) => {
+                let id = *id;
+                if let Some(table) = self.resource_tables.borrow().get(&id) {
+                    return table.get(name).cloned();
+                }
+                let resolved = self.document.get(id);
+                let Some(table) = resolved.as_dict() else {
+                    // A reference to a reference, or to something that is not a dictionary at
+                    // all: the general path answers both and neither is worth remembering.
+                    return self
+                        .document
+                        .resolve(&resolved)
+                        .as_dict()?
+                        .get(name)
+                        .cloned();
+                };
+                let entry = table.get(name).cloned();
+                self.resource_tables.borrow_mut().insert(id, table.clone());
+                entry
+            }
+            other => self.document.resolve(other).as_dict()?.get(name).cloned(),
+        }
     }
 
     /// §14.9's four entries for a marked-content sequence, from either place each may live.
