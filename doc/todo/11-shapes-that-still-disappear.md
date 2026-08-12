@@ -4,7 +4,8 @@ Status: **items 1 and 3 closed (ADR 0226), their diagonal residual closed (ADR 0
 boundary itself — a rule *exactly* one device pixel wide — closed with ADR 0285; item 2 is fixed as
 far as any corpus document exercises it (ADR 0213) and its general case is unwitnessed; item 4, the
 same subclause's clipping paragraph, is **half paid** — the clip chain composes as a set
-intersection since ADR 0280 and the mark's own coverage still multiplies into the mask.** What is
+intersection on **both** backends since ADR 0280 and quorra's own ADR 0030, and the mark's own
+coverage still multiplies into the mask on both.** What is
 left is that half, and the cap a substitute does not draw for a rule strictly under the quantum.
 Priority: 11
 Corpus: 4 known witnesses; the general shape of the residual is stated
@@ -196,9 +197,16 @@ Two things bound any attempt:
 
 - **`min` is not exact for boundaries that merely share a pixel**, only for ones that coincide or
   nest. What is exact is intersecting the *paths* and rasterising once.
-- **`render-quorra` still multiplies its chain**, inside the graphics library, so the two backends
-  now compose clips by two different rules. No gate can see it — 957 pages, not one per-page line
-  moved — and it is `doc/QUORRA_FEEDBACK.md` §18 rather than a silence.
+- ~~**`render-quorra` still multiplies its chain**, inside the graphics library, so the two backends
+  now compose clips by two different rules.~~ **Answered: quorra takes `min` there too** (its ADR
+  0030, `doc/QUORRA_FEEDBACK.md` §18), reached from §8.5.4's own sentence rather than from this
+  tree's reading of it — the graphics state holds *one* clipping path, so rasterising each link
+  separately is a convenience and nothing in the standard composes two fractional coverages. **No
+  gate could see it before and none can see it now**: product chain, `min` chain and `min` chain
+  with a `min` mark all give 915 / 37 / 5 over the 957 pages, with no per-page line moving. Both
+  sides still multiply where the clip meets the **mark**, and quorra records that as a choice with
+  the same reason this file gives — two unrelated boundaries in one pixel are the common case, and
+  only a conflation-free rasteriser answers the clause.
 
 ## 2. Two marks that abut across a cell's box edge without repeating
 

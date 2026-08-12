@@ -174,6 +174,15 @@ second lane agrees with the oracle on all but a few dozen pages and refuses a ha
 and **at four times that scale — nearer to where the lane is actually selected — its
 refusals are what move**, not its pixels.
 
+**And the first run of it found a defect that only this lane could reach** (ADR 0289).
+A page whose worst tile sat far outside the sampled lane's stated spread was not a
+sampling difference at all: quorra's scratch packer left the wide layout's tail behind
+when it restrided its rows, and a shelf holding *only* GPU-lane tiles — which cannot
+exist until the device can take a tile the atlas would have held — kept somebody else's
+coverage. Five pages at 1× and six at 4×, with the CPU lane unmoved. **A lane no
+instrument watches is a lane whose defects wait for one**, which is the argument for the
+knob rather than a fact about the packer.
+
 ## Where the numbers came from
 
 `crates/quorra-gpu/examples/zoom.rs` in the quorra checkout, release build, RADV

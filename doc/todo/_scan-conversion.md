@@ -92,8 +92,11 @@ product elsewhere. `scan::mask_intersect` takes the smaller of the two coverages
 and `issue21346.pdf`'s edge went 0.041 → 0.163 of the mark against a departure-(1) 0.827 and a
 clause 1.000. **The departure is narrowed rather than closed**: a mark's own coverage still meets
 the clip mask inside `tiny-skia`'s `fill_path`, which multiplies, and that is the same sentence one
-step along. ADR 0280; `doc/todo/11` item 4 carries what is left, and `doc/QUORRA_FEEDBACK.md` §18 is
-the ask, because the graphics device composes its chain inside the library.
+step along. ADR 0280; `doc/todo/11` item 4 carries what is left. **§18 was the ask, because the
+graphics device composes its chain inside the library, and it is answered**: quorra takes `min`
+across a chain too (its ADR 0030), read off §8.5.4's "the graphics state holds one clipping path"
+rather than off this tree's argument — so the two backends compose a chain by one rule again, and
+both still multiply where the clip meets the *mark*.
 
 ## Where the departure is *visible*, and how to tell it from a defect
 

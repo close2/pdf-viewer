@@ -1,7 +1,10 @@
 # The launch path: 110 to 119 ms to the first frame, and what is left on it
 
 Status: **open**, measured in the two-hundred-and-seventy-fourth session; four of its five items
-are closed and the fifth is quorra's (§9 of `doc/QUORRA_FEEDBACK.md`).
+are closed and the fifth is **partly answered**: §9 of `doc/QUORRA_FEEDBACK.md` asked for the
+first frame's fixed cost to be warmed, and quorra's ADR 0031 found a fifth of it was an instrument
+of its own and moved it to the constructor — 2.2 to 2.5 ms off, confirmed here. What is left is an
+**API question** rather than an optimisation, and it is this side's to ask.
 Priority: 42 — performance, measured and priced, not yet taken
 Corpus: every document; the two costs that scale do so with the *document*, not with page one
 Code: `crates/viewer-ui/src/bin/pdf-viewer.rs` (`Launch`), `crates/pdf-model/examples/open_cost.rs`,
@@ -144,6 +147,21 @@ so what the first frame pays for is device resource creation, not warmth. Two co
 - The ask is in `doc/QUORRA_FEEDBACK.md` §9: warm the *allocations* on the same background thread
   that already warms the shaders. Nothing about the API changes and ~12 ms comes off every cold
   launch of every host.
+
+**Answered in part, and the remainder changed shape.** quorra timed the inside of `Device::render`
+and found **2.43 ms of the first frame was making that frame's own timestamp query** — a `QuerySet`
+and two buffers per frame, which the driver charges for the first time and pools afterwards. One
+lives with the device now (its ADR 0031). Confirmed here on this side's own instrument, A/B/A with
+eight samples an arm because the effect is smaller than the spread: the minimum first frame goes
+**14.94 ms → 12.77 and 12.47**, and both `A` arms agree with each other.
+
+**What is left is not an optimisation and cannot be warmed on a thread**: about 6 ms inside
+`run_frame` that scales with the target — page-sized textures and the driver's first touch of a
+heap that size — and a warm-up thread cannot allocate those before the viewport exists. quorra
+records it as the caller's contract rather than taking it, which makes it *this* side's question:
+whether to ask for a size hint or a `Device::warm_for(extent)`, and what a host would pass it
+before it has a window. `viewer-ui` knows its viewport only after `Resized`, so the honest answer
+may be that the first frame keeps this cost and the number is stated rather than hidden.
 
 **And it re-scales the whole timeline.** ADR 0179's 145 ms is `lavapipe` under `Xvfb`, where the
 first present is 54 to 68 ms because llvmpipe is drawing the page on the processor. On the real

@@ -9,6 +9,29 @@ and then what the team did about it.
 Each finding below keeps its evidence and carries what closed it, because a feedback document
 that still reads as a complaint after the complaint was answered is worse than no document.
 
+**Three sections were answered at once at `a35dc703`, and all three were asks this document made:
+§20.4's page, §18's rule and §9's first frame.** Each is marked below with what reproduced here.
+
+- **§20.4's `transparency_group.pdf` was a defect and it was not the sampling.** The instinct in
+  that section — that sixteen samples cannot cap a worst tile at 31.7 of 255 — was right, and
+  `ab219d0` found the reason: `ScratchPacker` restrides its rows down to the width the shelves
+  reached and left the wide layout's tail behind, so a shelf whose tiles wrote no CPU bytes kept
+  somebody else's coverage. It needed a shelf of *only* GPU-lane tiles to be reachable at all,
+  which is why the lane's first corpus-scale run is what produced it. **Reproduced here exactly**:
+  gpu lane at 1× **909 → 914 agree, 43 → 38 differ**; at 4× **920 → 926 agree, 20 → 14 differ**;
+  the lane this tree renders on unmoved at 915 / 37 / 5. Five pages and six pages, none going the
+  other way.
+- **§18's question is answered from the standard rather than from our reading of it**, which is the
+  better outcome: `0ddaa40` takes `min` across a chain on §8.5.4's own sentence — the graphics
+  state holds *one* clipping path, so rasterising each link separately is a convenience and nothing
+  in the standard composes two fractional coverages. Both sides still multiply where the clip meets
+  the **mark**, both record it as a choice, and neither is the clause's area.
+- **§9 is answered in part, and the part is exactly the size it was measured at.** `a35dc70` timed
+  the inside of `Device::render` and found 2.43 ms of the first frame was creating that frame's own
+  timestamp query; one lives with the device now. This side's instrument has a spread three times
+  the effect, so it was measured as an A/B/A of eight samples an arm and read at the minimum:
+  **14.94 ms → 12.77 and 12.47**, both `A` arms agreeing. §9.1 is what remains.
+
 **§20 is the newest, and it is the first time this gate has looked at your *other* coverage lane.**
 `74c4994d` is three commits and every line of all three is inside it, so the run that used to answer
 "a quorra release does not move this gate" was answering about a lane the release does not touch.
@@ -1790,3 +1813,38 @@ regression.
    ceiling the way it is now cut
    against the byte budget is your question; the four remaining refusals are ours, and they are
    §14.2's knockout ask, unchanged.
+
+
+## 9.1 What is left of §9 is an API question, and it is ours to ask
+
+`a35dc70` takes 2.43 ms off the first frame and says what the rest is: about 6 ms inside
+`run_frame` that **scales with the target** — page-sized textures and the driver's first touch of a
+heap that size — which a warm-up thread cannot allocate before the viewport exists. Your ADR 0031
+records that as the caller's contract rather than taking it, which is the right call and hands the
+question back.
+
+**We are not asking for `Device::warm_for(extent)` yet, and the reason is on this side.** A host
+that could call it would have to know its viewport before its first frame, and `viewer-ui` learns
+that from `Resized` — after the window exists, which is after the point where the saving would be
+banked. The two honest shapes are:
+
+1. **A size hint at construction**, where a host that already knows its window (a fixed-size
+   viewer, a print path, a headless renderer at a stated target) can pay the allocation off the
+   critical path, and one that does not passes nothing and loses nothing.
+2. **Nothing at all**, and the number is stated rather than hidden — which is what `doc/todo/42`
+   now says, because `CLAUDE.md` puts page one on the device by choice and therefore owes the cost
+   a measurement rather than an excuse.
+
+What would settle it here is a launch measured on the *real* adapter through a real window, and
+this machine cannot take it: the agent's account has no X authority cookie for the owner's display,
+so ADR 0179's timeline is `lavapipe` under `Xvfb` and the GPU half of the number is the owner's to
+measure. Until somebody runs that, asking you for an API to save 6 ms would be asking for a
+mechanism nobody has priced end to end.
+
+## 20.5 The remaining refusals are unmoved, and that is expected
+
+`ab219d0` fixes coverage rather than capacity, so the twelve refusals §20.4 listed at 4× are the
+same twelve: `22060_A1_01_Plans.pdf` over the resource budget, four pages over the 256 MiB frame
+budget by 4% to 20%, three past the 16384×16384 scratch image this adapter allows, and four that
+are this side's §11.4.6 knockout hole (§14.2). Nothing in this release touched either bound and
+nothing here suggests it should have — the question in §20.4 stands as it was written.
