@@ -21,8 +21,11 @@
 //! specification's standard encoding, which `read-fonts` already carries and which this
 //! module defers to, because one table is easier to keep right than two.
 //!
-//! `MacExpertEncoding` is absent. It is valid but rare, and a font naming it is refused
-//! rather than quietly given Latin glyph names.
+//! `MacExpertEncoding` is Table D.4, transcribed the same way and cross-checked twice: the
+//! markdown conversion and `pdftotext -layout` over `doc/ISO_32000-2_sponsored_EC3.pdf` agree
+//! on all 165 assignments and neither has a code the other lacks. That check is not a
+//! formality — `doc/HANDOVER.md` records that the conversion drops content and that a *table*
+//! is where to expect it — and here it came out clean.
 
 use skrifa::raw::ps::encoding::PredefinedEncoding;
 
@@ -36,19 +39,22 @@ pub enum BaseEncoding {
     WinAnsi,
     /// `MacRomanEncoding`.
     MacRoman,
+    /// `MacExpertEncoding`, Annex D.4's expert set.
+    MacExpert,
 }
 
 impl BaseEncoding {
     /// Looks up a base encoding by the name `/Encoding` or `/BaseEncoding` uses.
     ///
-    /// Returns `None` for a name with no table here, including the valid-but-absent
-    /// `MacExpertEncoding`, so the caller reports it rather than substituting.
+    /// Returns `None` for a name with no table here, which since Annex D.4 arrived is every
+    /// name outside the four Table 109 and Table 112 permit.
     #[must_use]
     pub fn by_name(name: &[u8]) -> Option<Self> {
         match name {
             b"StandardEncoding" => Some(Self::Standard),
             b"WinAnsiEncoding" => Some(Self::WinAnsi),
             b"MacRomanEncoding" => Some(Self::MacRoman),
+            b"MacExpertEncoding" => Some(Self::MacExpert),
             _ => None,
         }
     }
@@ -70,6 +76,7 @@ impl BaseEncoding {
             // A `u8` cannot index outside a 256-element array.
             Self::WinAnsi => WIN_ANSI[usize::from(code)],
             Self::MacRoman => MAC_ROMAN[usize::from(code)],
+            Self::MacExpert => MAC_EXPERT[usize::from(code)],
         }
     }
 }
@@ -378,6 +385,88 @@ impl SymbolicEncoding {
     }
 }
 
+/// The `MacExpertEncoding` base encoding — Annex D.4's Table D.4.
+///
+/// **165 of the 256 codes are assigned and the rest are unencoded**, which is a much sparser
+/// table than the Latin ones and is the character of the set: D.4 describes "the "expert"
+/// character set, which contains additional characters useful for sophisticated typography,
+/// such as small capitals, ligatures, and fractions". Nothing in it is a letter of the alphabet,
+/// so a code falling back to a Latin table would draw a plausible glyph that says something
+/// else — which is why this crate refused the encoding rather than substituting for it until
+/// the table was transcribed.
+///
+/// The annex adds one sentence worth keeping beside the table, because it bounds what having
+/// this table buys: "[t]he built-in encoding in an expert font program can be different from
+/// `MacExpertEncoding`", and §9.6.5.1's rules about which encoding wins are where that is
+/// answered rather than here.
+#[rustfmt::skip]
+static MAC_EXPERT: [&str; 256] = [
+    "",                     "",                     "",                     "", // 0
+    "",                     "",                     "",                     "", // 4
+    "",                     "",                     "",                     "", // 8
+    "",                     "",                     "",                     "", // 12
+    "",                     "",                     "",                     "", // 16
+    "",                     "",                     "",                     "", // 20
+    "",                     "",                     "",                     "", // 24
+    "",                     "",                     "",                     "", // 28
+    "space",                "exclamsmall",          "Hungarumlautsmall",    "centoldstyle", // 32
+    "dollaroldstyle",       "dollarsuperior",       "ampersandsmall",       "Acutesmall", // 36
+    "parenleftsuperior",    "parenrightsuperior",   "twodotenleader",       "onedotenleader", // 40
+    "comma",                "hyphen",               "period",               "fraction", // 44
+    "zerooldstyle",         "oneoldstyle",          "twooldstyle",          "threeoldstyle", // 48
+    "fouroldstyle",         "fiveoldstyle",         "sixoldstyle",          "sevenoldstyle", // 52
+    "eightoldstyle",        "nineoldstyle",         "colon",                "semicolon", // 56
+    "",                     "threequartersemdash",  "",                     "questionsmall", // 60
+    "",                     "",                     "",                     "", // 64
+    "Ethsmall",             "",                     "",                     "onequarter", // 68
+    "onehalf",              "threequarters",        "oneeighth",            "threeeighths", // 72
+    "fiveeighths",          "seveneighths",         "onethird",             "twothirds", // 76
+    "",                     "",                     "",                     "", // 80
+    "",                     "",                     "ff",                   "fi", // 84
+    "fl",                   "ffi",                  "ffl",                  "parenleftinferior", // 88
+    "",                     "parenrightinferior",   "Circumflexsmall",      "hypheninferior", // 92
+    "Gravesmall",           "Asmall",               "Bsmall",               "Csmall", // 96
+    "Dsmall",               "Esmall",               "Fsmall",               "Gsmall", // 100
+    "Hsmall",               "Ismall",               "Jsmall",               "Ksmall", // 104
+    "Lsmall",               "Msmall",               "Nsmall",               "Osmall", // 108
+    "Psmall",               "Qsmall",               "Rsmall",               "Ssmall", // 112
+    "Tsmall",               "Usmall",               "Vsmall",               "Wsmall", // 116
+    "Xsmall",               "Ysmall",               "Zsmall",               "colonmonetary", // 120
+    "onefitted",            "rupiah",               "Tildesmall",           "", // 124
+    "",                     "asuperior",            "centsuperior",         "", // 128
+    "",                     "",                     "",                     "Aacutesmall", // 132
+    "Agravesmall",          "Acircumflexsmall",     "Adieresissmall",       "Atildesmall", // 136
+    "Aringsmall",           "Ccedillasmall",        "Eacutesmall",          "Egravesmall", // 140
+    "Ecircumflexsmall",     "Edieresissmall",       "Iacutesmall",          "Igravesmall", // 144
+    "Icircumflexsmall",     "Idieresissmall",       "Ntildesmall",          "Oacutesmall", // 148
+    "Ogravesmall",          "Ocircumflexsmall",     "Odieresissmall",       "Otildesmall", // 152
+    "Uacutesmall",          "Ugravesmall",          "Ucircumflexsmall",     "Udieresissmall", // 156
+    "",                     "eightsuperior",        "fourinferior",         "threeinferior", // 160
+    "sixinferior",          "eightinferior",        "seveninferior",        "Scaronsmall", // 164
+    "",                     "centinferior",         "twoinferior",          "", // 168
+    "Dieresissmall",        "",                     "Caronsmall",           "osuperior", // 172
+    "fiveinferior",         "",                     "commainferior",        "periodinferior", // 176
+    "Yacutesmall",          "",                     "dollarinferior",       "", // 180
+    "",                     "Thornsmall",           "",                     "nineinferior", // 184
+    "zeroinferior",         "Zcaronsmall",          "AEsmall",              "Oslashsmall", // 188
+    "questiondownsmall",    "oneinferior",          "Lslashsmall",          "", // 192
+    "",                     "",                     "",                     "", // 196
+    "",                     "Cedillasmall",         "",                     "", // 200
+    "",                     "",                     "",                     "OEsmall", // 204
+    "figuredash",           "hyphensuperior",       "",                     "", // 208
+    "",                     "",                     "exclamdownsmall",      "", // 212
+    "Ydieresissmall",       "",                     "onesuperior",          "twosuperior", // 216
+    "threesuperior",        "foursuperior",         "fivesuperior",         "sixsuperior", // 220
+    "sevensuperior",        "ninesuperior",         "zerosuperior",         "", // 224
+    "esuperior",            "rsuperior",            "tsuperior",            "", // 228
+    "",                     "isuperior",            "ssuperior",            "dsuperior", // 232
+    "",                     "",                     "",                     "", // 236
+    "",                     "lsuperior",            "Ogoneksmall",          "Brevesmall", // 240
+    "Macronsmall",          "bsuperior",            "nsuperior",            "msuperior", // 244
+    "commasuperior",        "periodsuperior",       "Dotaccentsmall",       "Ringsmall", // 248
+    "",                     "",                     "",                     "", // 252
+];
+
 /// The built-in encoding of the standard-14 `Symbol` font.
 /// 
 /// Transcribed from Table D.5 of ISO 32000-2. `Symbol` is symbolic: it has no
@@ -660,13 +749,73 @@ mod tests {
     }
 
     #[test]
-    fn unknown_and_unimplemented_encoding_names_are_refused() {
+    fn unknown_encoding_names_are_refused_and_the_four_permitted_ones_are_not() {
         assert_eq!(
             BaseEncoding::by_name(b"WinAnsiEncoding"),
             Some(BaseEncoding::WinAnsi)
         );
-        // Valid in PDF, but this crate has no table for it, so it must not be guessed at.
-        assert_eq!(BaseEncoding::by_name(b"MacExpertEncoding"), None);
+        assert_eq!(
+            BaseEncoding::by_name(b"MacExpertEncoding"),
+            Some(BaseEncoding::MacExpert)
+        );
         assert_eq!(BaseEncoding::by_name(b"NotAnEncoding"), None);
+    }
+
+    /// Table D.4's own assignments, at the four places it is easiest to transcribe wrongly.
+    ///
+    /// The table is printed in **two column-pairs per row**, so a transcription that read it
+    /// left to right would interleave two alphabets; it gives codes in **octal**, so `276` is
+    /// 190 and not 276; and it assigns 165 of 256 codes, so the sparseness is the table rather
+    /// than a gap in the reading. The four below are the first entry of each of those hazards:
+    /// `AEsmall` at octal 276 opens the left column, `Jsmall` at octal 152 opens the right,
+    /// `space` is the lowest assigned code, and 128 is one of the ninety-one that are not
+    /// assigned at all.
+    #[test]
+    fn the_expert_set_is_annex_d4s_own_table() {
+        let expert = BaseEncoding::MacExpert;
+        assert_eq!(expert.glyph_name(0o276), "AEsmall");
+        assert_eq!(expert.glyph_name(0o152), "Jsmall");
+        assert_eq!(expert.glyph_name(0o040), "space");
+        assert_eq!(
+            expert.glyph_name(128),
+            "",
+            "an unassigned code is unencoded"
+        );
+        assert_eq!(
+            (0..=255_u8)
+                .filter(|c| !expert.glyph_name(*c).is_empty())
+                .count(),
+            165,
+            "Table D.4 assigns 165 of the 256 codes"
+        );
+    }
+
+    /// **Six codes mean the same thing in the expert set and in the Latin ones, and they are
+    /// all punctuation**: space, comma, hyphen, period, colon and semicolon. Every other
+    /// assignment differs.
+    ///
+    /// This is the measurement that says what refusing the encoding was worth before Table D.4
+    /// was transcribed, and it is worse than "the tables are unrelated" rather than better. A
+    /// Latin fallback would have drawn a document's punctuation *correctly* and every letter,
+    /// ligature, fraction and small capital as something else — plausible output with the
+    /// commas in the right places, which is the shape of failure `doc/HANDOVER.md`'s trap 1
+    /// exists for. Written as a test because the count is a fact about two tables that a later
+    /// edition could change.
+    #[test]
+    fn the_expert_set_shares_only_punctuation_with_the_latin_tables() {
+        let shared: Vec<&str> = (0..=255_u8)
+            .filter_map(|code| {
+                let expert = BaseEncoding::MacExpert.glyph_name(code);
+                (!expert.is_empty()
+                    && [BaseEncoding::WinAnsi, BaseEncoding::MacRoman]
+                        .iter()
+                        .any(|latin| latin.glyph_name(code) == expert))
+                .then_some(expert)
+            })
+            .collect();
+        assert_eq!(
+            shared,
+            ["space", "comma", "hyphen", "period", "colon", "semicolon"]
+        );
     }
 }

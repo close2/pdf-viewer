@@ -2116,7 +2116,11 @@ fn stated_code_range(
 /// §9.6.5.1 makes it the base a nonsymbolic font falls back to, and producers write it. That is
 /// a deliberate extra rather than an oversight, and it is why this list exists separately from
 /// [`BaseEncoding::by_name`] — the two answer different questions, *may a font say this* and
-/// *does this crate have the table*, and `MacExpertEncoding` is the name where they differ.
+/// *does this crate have the table*. **`MacExpertEncoding` was the name where they differed and
+/// is not any more**: Annex D.4's table is transcribed, so the two lists give the same four
+/// answers today and `an_encoding_name_the_table_does_not_permit_is_no_encoding_at_all` asserts
+/// it. They stay separate because a later edition can add a name to one and not the other, and
+/// because the answer to the second question is what decides whether a font draws.
 const PERMITTED_ENCODING_NAMES: [&[u8]; 4] = [
     b"StandardEncoding",
     b"MacRomanEncoding",
@@ -2137,10 +2141,13 @@ const PERMITTED_ENCODING_NAMES: [&[u8]; 4] = [
 /// `bug859204.pdf` writes `/Encoding /NULL` on an embedded Type 1 program and lost its whole
 /// page for it.
 ///
-/// `MacExpertEncoding` keeps the refusal, and the difference is the point: it is a name the
-/// table *permits*, so a font naming it means it, and drawing that font through some other
-/// encoding would put the wrong glyphs on the page in silence. A name the table does not permit
-/// carries no such meaning to lose.
+/// **The refusal below has no member today.** It fires where a name the table *permits* has no
+/// table in this crate — `MacExpertEncoding` was that name until Annex D.4 was transcribed —
+/// and it is kept rather than removed because the distinction is the load-bearing one: a name
+/// the table permits carries a meaning a fallback would lose, and a name it does not permit
+/// carries none. Six of the expert set's codes mean exactly what they mean in `WinAnsiEncoding`
+/// — space, comma, hyphen, period, colon, semicolon — so a fallback would have got a document's
+/// punctuation right and every letter wrong, which is why it was never taken.
 fn base_encoding(
     document: &Document,
     dict: &Dictionary,
@@ -4738,8 +4745,15 @@ mod cff_encoding_tests {
     /// /NULL` and lost its whole page to a refusal.
     ///
     /// The second half is the control, and it is what keeps the first from being a licence:
-    /// `MacExpertEncoding` is a name the table *does* permit, so a font naming it means it, and
-    /// falling back would draw the wrong glyphs in silence. It is still refused by name.
+    /// **every name the table permits is a name this crate has a table for**, so a font naming
+    /// one means it and gets it. `MacExpertEncoding` used to be the exception and used to be
+    /// refused by name; Annex D.4's table arrived and it is not.
+    ///
+    /// The two lists still answer different questions — *may a font say this* and *does this
+    /// crate have the table* — and this asserts that they currently give the same four answers,
+    /// which is what makes [`super::FontError::UnsupportedEncoding`] a branch with no member
+    /// rather than a report that fires. A later edition adding a fifth permitted name would
+    /// fail here rather than start refusing fonts quietly.
     #[test]
     fn an_encoding_name_the_table_does_not_permit_is_no_encoding_at_all() {
         let (table, names) = resolve("/Encoding /NULL");
@@ -4748,12 +4762,18 @@ mod cff_encoding_tests {
         assert_eq!(names[65], own_names[65]);
         assert_eq!(table[65], Some(ALPHA));
 
-        let (document, dict) = font_dictionary("/Encoding /MacExpertEncoding");
-        let refused = simple_code_table(&document, &dict, &fixture(), "F1");
-        assert!(
-            matches!(refused, Err(super::FontError::UnsupportedEncoding { .. })),
-            "a name the table permits and this crate lacks is still refused"
-        );
+        for name in super::PERMITTED_ENCODING_NAMES {
+            assert!(
+                pdf_font_encoding_has(name),
+                "{} is permitted and has no table",
+                String::from_utf8_lossy(name)
+            );
+        }
+    }
+
+    /// Whether [`crate::encoding::BaseEncoding`] has a table for this name.
+    fn pdf_font_encoding_has(name: &[u8]) -> bool {
+        crate::encoding::BaseEncoding::by_name(name).is_some()
     }
 
     /// The font descriptor's flags decide nothing here, which is the whole finding.

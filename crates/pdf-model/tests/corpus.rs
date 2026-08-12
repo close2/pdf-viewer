@@ -538,8 +538,11 @@ const MAX_PAGELESS: usize = 5;
 /// cell says what a font that says nothing does: `/Encoding` specifies the encoding "if
 /// different from its built-in encoding", so the built-in one stands. The page drew no text at
 /// all for it. It draws with nothing reported now and the oracle's agreeing set gains it: 840
-/// pages to 841. `MacExpertEncoding` keeps its refusal, because that name *is* one Table 112
-/// permits and a font that states it means it.
+/// pages to 841. `MacExpertEncoding` kept its refusal for the same reason turned round —
+/// that name *is* one Table 112 permits, so a font stating it means it and a Latin fallback
+/// would have drawn its punctuation right and its letters wrong — **and it stopped needing one
+/// when Annex D.4's table was transcribed** (ADR 0286). No corpus document names it, so this
+/// count does not move either way.
 ///
 /// **89 to 91 in the hundred-and-twenty-seventh session, and it is a rise on purpose** — trap
 /// 5's kind, and the sharpest instance this file records. The interpreter's font cache was keyed

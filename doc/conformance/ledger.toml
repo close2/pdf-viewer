@@ -6282,7 +6282,7 @@ clause = "D.1"
 title = "General"
 status = "implemented"
 code = ["crates/pdf-font/src/encoding.rs"]
-test = ["crates/pdf-font/src/encoding.rs::unknown_and_unimplemented_encoding_names_are_refused"]
+test = ["crates/pdf-font/src/encoding.rs::unknown_encoding_names_are_refused_and_the_four_permitted_ones_are_not"]
 note = "The annex's own table of the four predefined encodings, and its two `shall`s are met: \"PDF processors shall have a predefined encoding named WinAnsiEncoding\" and the same for `MacExpertEncoding`. The first is `BaseEncoding::WinAnsi`, transcribed here rather than copied from Windows code page 1252 — the module comment says why, and it is the difference between a right glyph and a plausible one. The second is *had* rather than *used*: the name is recognised and a font naming it is refused out loud, which D.4's row states. `PDFDocEncoding` is the one the annex says PDF has no predefined encoding for, and §7.9.2.2 is where this tree reads it."
 
 [[clause]]
@@ -6304,10 +6304,10 @@ note = "`PDFDocEncoding`, the encoding of a text string outside a content stream
 [[clause]]
 clause = "D.4"
 title = "Expert set and MacExpert encoding"
-status = "reported"
+status = "implemented"
 code = ["crates/pdf-font/src/encoding.rs", "crates/pdf-font/src/lib.rs"]
-test = ["crates/pdf-font/src/lib.rs::an_encoding_name_the_table_does_not_permit_is_no_encoding_at_all"]
-note = "`MacExpertEncoding` and the expert character set. The table is absent and a font naming the encoding is **refused by name** rather than quietly given Latin glyph names — the annex itself says \"only certain fonts have the appropriate character set for use with this encoding\" and that none of the standard 14 has it, so substituting would map every code to the wrong glyph in silence. The name is in Table 112's permitted list, which is why the refusal distinguishes it from a name the table does not permit at all."
+test = ["crates/pdf-font/src/encoding.rs::the_expert_set_is_annex_d4s_own_table", "crates/pdf-font/src/encoding.rs::the_expert_set_shares_only_punctuation_with_the_latin_tables", "crates/pdf-font/src/lib.rs::an_encoding_name_the_table_does_not_permit_is_no_encoding_at_all"]
+note = "Table D.4's 165 assignments, transcribed as `MAC_EXPERT` beside the other base encodings and cross-checked twice — the markdown conversion and `pdftotext -layout` over the PDF agree on every code and neither has one the other lacks, which is a check `doc/HANDOVER.md` asks for because the conversion drops content and a *table* is where to expect it. **This row read `reported` until then, and the refusal it recorded was right**: a font naming this encoding was refused by name rather than given Latin glyph names, because the annex says \"only certain fonts have the appropriate character set for use with this encoding\" and none of the standard 14 has it. What the transcription then measured is that the refusal was righter than its own reason said — **six codes mean the same thing in the expert set and in `WinAnsiEncoding`, and all six are punctuation** (space, comma, hyphen, period, colon, semicolon), so a Latin fallback would have drawn a document's punctuation correctly and every letter, ligature, fraction and small capital as something else. Not one of the 974 corpus documents names the encoding, so nothing here is demand-driven and no gate moves; what changes is that a document that does name it now draws instead of drawing nothing. The annex's own caveat is recorded beside the table rather than acted on here: \"[t]he built-in encoding in an expert font program can be different from MacExpertEncoding\", which is §9.6.5.1's question. ADR 0286."
 
 [[clause]]
 clause = "D.5"
