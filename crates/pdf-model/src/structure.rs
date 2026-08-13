@@ -1531,16 +1531,16 @@ impl TableStack {
     ///
     /// One entry per cell, in walk order, as `(the cell's token, the header cells' tokens)`; a
     /// cell whose headers come to nothing is not listed at all. Within an entry the order is
-    /// Table 384's:
+    /// §14.8.5.7's Table 384's: the entries are listed row IDs first and then column IDs, each
+    /// group ordered from most specific to most general — which is the order the search itself
+    /// produces, because it starts at the cell and walks outward.
     ///
-    /// > The order in which the entries in the Headers array are listed shall be row IDs followed
-    /// > by column IDs. The row and column IDs shall be ordered from most specific to most
-    /// > general.
+    /// That is prose rather than a blockquote for the reason `doc/HANDOVER.md` gives about
+    /// `doc/md/`: the conversion writes the sentence's "IDs" as "ID s", so no quotation of it can
+    /// be verbatim against the file the checker reads. `pdftotext -layout` over
+    /// `doc/ISO_32000-2_sponsored_EC3.pdf` says "row IDs", and the standard is what it says.
     ///
-    /// which is the order the search itself produces, because it starts at the cell and walks
-    /// outward.
-    ///
-    /// Two routes, and the clause chooses between them rather than combining them:
+    /// Two routes, and §14.8.4.8.3 chooses between them rather than combining them:
     ///
     /// > If the Headers attribute (see 14.8.5, "Standard structure attributes") is not specified,
     /// > any cell in a table may have multiple headers associated with it. These headers are
@@ -3716,6 +3716,8 @@ mod tests {
     }
 
     /// Table 384's `/Headers` replaces the search, and carries the headers of what it names.
+    ///
+    /// §14.8.5.7:
     ///
     /// > the headers associated with any cell shall be those in its Headers array plus those in
     /// > the Headers array of any TH cells in that array, and so on recursively
