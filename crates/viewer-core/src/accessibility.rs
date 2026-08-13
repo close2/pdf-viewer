@@ -127,6 +127,24 @@ pub struct AccessibilityNode {
     /// grid, which is one a document put outside a `TR`. The second of those is not the same as a
     /// column header and is deliberately not reported as one: a host says it does not know.
     pub header_scope: Option<HeaderScope>,
+    /// Where the **document says** the element is: Table 379's `/BBox`, in the same device pixels
+    /// [`Self::quads`] are in.
+    ///
+    /// §14.8.5.4.3 makes it "the rectangle that completely encloses its visible content", and it
+    /// is a different kind of statement from [`Self::quads`]: those are the shapes *this program*
+    /// found by drawing the element's text, and this is what the producer wrote down. The two are
+    /// carried side by side rather than merged, because an element whose content is a picture has
+    /// the second and not the first — 60 of the 61 corpus elements that state a `/BBox` and mark
+    /// no text are `Figure`s — and a host that wants somewhere to point a magnifier can take
+    /// whichever it has.
+    ///
+    /// `[x0, y0, x1, y1]` with y increasing downwards, because the mapping from the clause's
+    /// default user space runs through the same flip [`Self::quads`] take: §7.7.3.3's `/Rotate`
+    /// and the crop box's origin first, then the viewport's magnification and centring.
+    ///
+    /// `None` for an element stating none, which is all but 132 of the corpus's 133 114 elements
+    /// — so the ordinary answer here is nothing, and that is not a failure.
+    pub bounds: Option<[f32; 4]>,
 }
 
 /// What one element contributes before its quads are mapped into the viewport.
@@ -154,6 +172,12 @@ pub(crate) struct Gathered {
     pub(crate) language: Option<String>,
     /// Table 384's `/Scope` for a `TH`, stated or assumed.
     pub(crate) header_scope: Option<HeaderScope>,
+    /// Table 379's `/BBox`, in **default user space** — the space the clause states it in.
+    ///
+    /// Mapped to the viewport by [`finish`], for the reason [`AccessibilityNode::bounds`] gives:
+    /// this side of the walk has no magnification and no origin, and the flip between the page's
+    /// y axis and the raster's belongs to whoever holds them.
+    pub(crate) bounds: Option<[f32; 4]>,
 }
 
 /// Reads the page's part of §14.7's structure tree.
@@ -290,6 +314,7 @@ fn walk(
                 let phrase =
                     text_entry(document, &dict, "Alt").or_else(|| text_entry(document, &dict, "E"));
                 let header_scope = header_scope(document, tree, &dict, &role, depth, tables);
+                let bounds = tree.bounds(document, &dict);
                 let index = out.len();
                 out.push((
                     parent,
@@ -301,6 +326,7 @@ fn walk(
                         phrase,
                         language: language.clone(),
                         header_scope,
+                        bounds,
                     },
                 ));
                 walk(
@@ -416,6 +442,7 @@ pub(crate) fn finish(
     marked: &[MarkedSpan],
     described: &[Described],
     quads: impl Fn(usize, usize) -> Vec<[f32; 8]>,
+    place: impl Fn([f32; 4]) -> Option<[f32; 4]>,
 ) -> AccessibilityNode {
     let substituted = gathered.phrase.is_some();
     let name = gathered.phrase.unwrap_or_else(|| {
@@ -434,5 +461,6 @@ pub(crate) fn finish(
         language: gathered.language,
         quads: all,
         header_scope: gathered.header_scope,
+        bounds: gathered.bounds.and_then(place),
     }
 }

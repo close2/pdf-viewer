@@ -200,12 +200,21 @@ cd fuzz && cargo +nightly fuzz run sfnt          -- -runs=50000   # §9.6.3's tw
 #     DISPLAY=:99 pdf-viewer doc/PDF20_AN001-BPC.pdf & sleep 6
 #     busctl --address=$ADDR call org.a11y.atspi.Registry /org/a11y/atspi/accessible/root \
 #       org.a11y.atspi.Accessible GetChildren'
-# `org.a11y.Status IsEnabled` is already true here; where it is not, set it before the viewer
-# starts or every adapter stays inactive by design. **The registry needs a `DISPLAY` of its own**:
+# **`org.a11y.Status IsEnabled` is *not* true inside a fresh `dbus-run-session`** — this line said
+# it "is already true here", which is a fact about the desktop session and not about the bus the
+# recipe builds. Set it, on the session bus, before the viewer starts:
+#   busctl --user set-property org.a11y.Bus /org/a11y/bus org.a11y.Status IsEnabled b true
+# Without it every adapter stays inactive by design and the application's whole subtree comes back
+# empty, with nothing saying why. **An accessible's `Name` is a D-Bus property, not a method**, so a
+# walker that calls `GetName` reads every node as `''` and looks exactly like a bridge that lost its
+# labels — `get-property … org.a11y.atspi.Accessible Name`. **The registry needs a `DISPLAY` of its own**:
 # without one it prints *AT-SPI: Cannot open default display*, exits, and every later call fails
 # with `ServiceUnknown`, which looks nothing like the cause. **And the adapter implements no
 # `GetRoleName`**, so a client asks `GetRole` and gets AT-SPI's integer — read the names out of
 # `atspi-common`'s own enum in declaration order rather than numbering them by hand (ADR 0300).
+# `org.a11y.atspi.Component.GetExtents` at each node is what says *where* an element is, and a node
+# with no bounds implements no `Component` at all — the call errors rather than answering a zero
+# rectangle, which is what "this element has no place" looks like from a client (ADR 0301).
 # **Orca is not installed on this machine**, so
 # what a person on a desktop still has to do is run one and listen.
 cd fuzz && cargo +nightly fuzz run fragment      -- -runs=50000   # Annex O's fragment identifier,

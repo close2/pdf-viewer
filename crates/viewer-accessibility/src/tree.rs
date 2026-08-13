@@ -210,7 +210,7 @@ fn elements(view: &PageView, out: &mut Vec<(NodeId, Node)>) -> Vec<NodeId> {
         if let Some(language) = node.language.as_deref() {
             built.set_language(language);
         }
-        if let Some(bounds) = bounding_box(&node.quads) {
+        if let Some(bounds) = place(node) {
             built.set_bounds(bounds);
         }
         if let Some(list) = children.get(index) {
@@ -275,6 +275,35 @@ fn reports(view: &PageView, out: &mut Vec<(NodeId, Node)>) -> Node {
     ));
     group.set_children(children);
     group
+}
+
+/// Where a magnifier is pointed at this element, and which of two statements decides it.
+///
+/// The shapes this program drew come first: they are what is on the screen, measured from the
+/// marks rather than declared, and they are what the ring should sit on wherever they exist.
+/// **Table 379's `/BBox` is what answers where they do not** — an element that marks no text, a
+/// `Figure` or a cell holding an image, whose extent no text layer can recover. §14.8.5.4.3
+/// states it as "the rectangle that completely encloses its visible content", which is exactly
+/// the question being asked here, and `viewer_core` has already mapped it into these pixels.
+///
+/// Two statements rather than one merged rectangle, and the order is the conservative one: the
+/// document's number is a *claim* about a layout this program has already carried out, so it is
+/// used where there is nothing to compare it against and not in place of what was drawn. Whether
+/// a stated `/BBox` should win over measured text — a `Figure` holding a caption and a picture
+/// has both, and the text quads cover only the caption — is a question nothing has measured, and
+/// `doc/todo/31` carries it.
+///
+/// `None` where the element has neither: an untagged region, or an element reached only through
+/// §14.7.5.3's object reference and stating no bounds.
+fn place(node: &AccessibilityNode) -> Option<Rect> {
+    bounding_box(&node.quads).or_else(|| {
+        node.bounds.map(|rect| Rect {
+            x0: f64::from(rect[0]),
+            y0: f64::from(rect[1]),
+            x1: f64::from(rect[2]),
+            y1: f64::from(rect[3]),
+        })
+    })
 }
 
 /// The smallest axis-aligned rectangle covering an element's quadrilaterals.

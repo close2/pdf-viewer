@@ -24,6 +24,7 @@ fn element(parent: Option<usize>, role: &str, name: &str) -> AccessibilityNode {
         language: None,
         quads: Vec::new(),
         header_scope: None,
+        bounds: None,
     }
 }
 
@@ -194,6 +195,37 @@ fn an_elements_bounds_cover_all_of_its_shapes() {
     assert!((bounds.y0 - 20.0).abs() < 1e-6, "{bounds:?}");
     assert!((bounds.x1 - 110.0).abs() < 1e-6, "{bounds:?}");
     assert!((bounds.y1 - 46.0).abs() < 1e-6, "{bounds:?}");
+}
+
+/// An element that drew no text is placed by the rectangle its document states.
+///
+/// §14.8.5.4.3's `/BBox` is "the rectangle that completely encloses its visible content", and a
+/// `Figure` is the element it exists for: nothing it draws is text, so `quads` is empty and
+/// AccessKit would otherwise be handed a node with no place. Where both are present the measured
+/// shapes win, which is [`tree`]'s own order — the picture on the screen is what this program
+/// drew, and the attribute is a claim about a layout it has already carried out.
+#[test]
+fn a_figure_that_drew_no_text_is_placed_by_its_stated_bounds() {
+    let mut figure = element(None, "Figure", "a chart of sales");
+    figure.bounds = Some([12.0, 24.0, 212.0, 124.0]);
+    let mut paragraph = element(None, "P", "a caption");
+    paragraph.quads = vec![[10.0, 20.0, 110.0, 20.0, 110.0, 32.0, 10.0, 32.0]];
+    paragraph.bounds = Some([0.0, 0.0, 400.0, 400.0]);
+    let nodes = [figure, paragraph];
+    let update = tree::build(&view(&nodes, &[]));
+
+    let placed = node(&update, NodeId(16))
+        .bounds()
+        .expect("a figure with no shapes still has the rectangle its document states");
+    assert!((placed.x0 - 12.0).abs() < 1e-6, "{placed:?}");
+    assert!((placed.y0 - 24.0).abs() < 1e-6, "{placed:?}");
+    assert!((placed.x1 - 212.0).abs() < 1e-6, "{placed:?}");
+    assert!((placed.y1 - 124.0).abs() < 1e-6, "{placed:?}");
+
+    let measured = node(&update, NodeId(17))
+        .bounds()
+        .expect("a paragraph is placed by what was drawn");
+    assert!((measured.x1 - 110.0).abs() < 1e-6, "{measured:?}");
 }
 
 /// §12.4.2's page label names the page where the document states one.

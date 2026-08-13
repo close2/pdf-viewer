@@ -1495,9 +1495,69 @@ impl Viewer {
                     &interpreted.marked,
                     &interpreted.described,
                     |start, end| self.device_quads(open, (start, end)),
+                    |rect| self.device_rect(open, rect),
                 )
             })
             .collect()
+    }
+
+    /// A rectangle stated in **default user space**, in device pixels of the viewport.
+    ///
+    /// Table 379's `/BBox` is the caller this exists for, and it is one transform longer than
+    /// [`Self::device_quads`]: a selection's shapes are already in the display list's space, and
+    /// this one starts where §12.5.2's annotation rectangles do — before §7.7.3.3's `/Rotate` and
+    /// before the crop box's origin. [`pdf_model::content::page_space_at`] is that first step and
+    /// [`Self::user_space`]'s inverse; the rest is the magnification, the centring and the y flip
+    /// [`Self::device_quads`] applies, which is why it is applied here rather than composed into
+    /// the page's transform (trap 12a, ADR 0118).
+    ///
+    /// The two mapped corners are sorted afterwards rather than assumed to keep their order: a
+    /// `/Rotate 180` page maps a lower-left corner onto an upper-right one, and the y flip
+    /// exchanges them again.
+    ///
+    /// # Why the page is the limit
+    ///
+    /// The result is intersected with the page, and that is a reading of the clause rather than a
+    /// tidy-up. §14.8.5.4.3 makes the rectangle one that "completely encloses its **visible**
+    /// content", and §14.11.2.1 says what of a page can be seen: the crop box "defines the region
+    /// to which the contents of the page shall be clipped (cropped) when displayed or printed".
+    /// So a rectangle beyond the page encloses nothing anybody can look at, and the part of it
+    /// that is on the page is the whole of what the attribute can be describing.
+    ///
+    /// It is not hypothetical: **8 of the corpus's 132 stated rectangles reach outside their own
+    /// page** (`pdf-model --example element_bounds_census`), and `doc/PDF20_AN001-BPC.pdf` states
+    /// `[-32768 -32768 32767 32767]` for a figure — the whole representable plane, which is a
+    /// producer writing "somewhere" rather than a bounding box. Handed on unclipped, that is a
+    /// node covering fifty thousand pixels in every direction and winning every hit test on the
+    /// page.
+    ///
+    /// `None` where the rectangle does not meet the page at all, because then the document has
+    /// said nothing about where on this page the element is. A rectangle that merely touches an
+    /// edge crosses as a degenerate one: §7.9.5's own NOTE is that "[r]ectangles can have a width
+    /// of zero or height of zero".
+    fn device_rect(&self, open: &Open, rect: [f32; 4]) -> Option<[f32; 4]> {
+        let interpreted = open.interpreted.as_ref()?;
+        let magnification = open.magnification(self.viewport, self.scale)?;
+        let size = open.page_size(open.page_index)?;
+        let raster = crate::open::raster_extent(interpreted.list.page_size, magnification);
+        let origin = open.origin(self.viewport, raster);
+        let page = open.shown_page()?;
+        let first = pdf_model::content::page_space_at(page, rect[0], rect[1]);
+        let second = pdf_model::content::page_space_at(page, rect[2], rect[3]);
+        let (x0, x1) = (first.0.min(second.0), first.0.max(second.0));
+        let (y0, y1) = (first.1.min(second.1), first.1.max(second.1));
+        if x1 < 0.0 || y1 < 0.0 || x0 > size.width || y0 > size.height {
+            return None;
+        }
+        let (x0, x1) = (x0.max(0.0), x1.min(size.width));
+        let (y0, y1) = (y0.max(0.0), y1.min(size.height));
+        // The y flip exchanges the two edges: the page's top is raster row zero.
+        Some([
+            origin.0 + x0 * magnification,
+            origin.1 + (size.height - y1) * magnification,
+            origin.0 + x1 * magnification,
+            origin.1 + (size.height - y0) * magnification,
+        ])
     }
 
     /// The shapes covering a range of the readback, in device pixels of the viewport.

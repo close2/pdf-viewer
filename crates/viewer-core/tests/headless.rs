@@ -2388,6 +2388,182 @@ fn with_a_table() -> Vec<u8> {
     out.into_bytes()
 }
 
+/// A document whose figures mark no text and say where they are.
+///
+/// Two pages holding the same figure — a filled rectangle inside a marked-content sequence, with
+/// no text in it at all — and the same Table 379 `/BBox`. The second page states `/Rotate 90`,
+/// which is what makes the fixture worth having: the attribute is stated in **default user
+/// space**, so a reader that took its numbers straight to the raster would agree with one that
+/// mapped them on the first page and disagree on the second.
+///
+/// The first page also carries a paragraph, so that "an element with quads" and "an element with
+/// bounds" are both present and can be told apart.
+fn with_a_figure() -> Vec<u8> {
+    use std::fmt::Write as _;
+    let first = "/Figure <</MCID 0>> BDC 20 30 60 40 re f EMC\n\
+         BT /F1 12 Tf 100 20 Td /P <</MCID 1>> BDC (a caption) Tj EMC ET\n";
+    let second = "/Figure <</MCID 0>> BDC 20 30 60 40 re f EMC\n\
+         /Figure <</MCID 1>> BDC 0 0 10 10 re f EMC\n";
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 8 0 R \
+          /MarkInfo << /Marked true >> >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Contents 5 0 R \
+          /Resources << /Font << /F1 7 0 R >> >> /StructParents 0 >>\nendobj\n\
+         4 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Rotate 90 \
+          /Contents 6 0 R /Resources << >> /StructParents 1 >>\nendobj\n\
+         5 0 obj\n<< /Length {} >>\nstream\n{first}endstream\nendobj\n\
+         6 0 obj\n<< /Length {} >>\nstream\n{second}endstream\nendobj\n\
+         7 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n\
+         8 0 obj\n<< /Type /StructTreeRoot /K [9 0 R 10 0 R 11 0 R 12 0 R] >>\nendobj\n\
+         9 0 obj\n<< /Type /StructElem /S /Figure /P 8 0 R /Pg 3 0 R /K [0] /Alt (a chart) \
+          /A << /O /Layout /BBox [20 30 80 70] >> >>\nendobj\n\
+         10 0 obj\n<< /Type /StructElem /S /P /P 8 0 R /Pg 3 0 R /K [1] >>\nendobj\n\
+         11 0 obj\n<< /Type /StructElem /S /Figure /P 8 0 R /Pg 4 0 R /K [0] /Alt (the same \
+          chart, on a page that is turned) /A << /O /Layout /BBox [20 30 80 70] >> >>\nendobj\n\
+         12 0 obj\n<< /Type /StructElem /S /Figure /P 8 0 R /Pg 4 0 R /K [1] /Alt (a figure \
+          whose producer wrote the whole plane) \
+          /A << /O /Layout /BBox [-32768 -32768 32767 32767] >> >>\nendobj\n",
+        first.len(),
+        second.len(),
+    );
+
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// Table 379's `/BBox` crosses for an element the text layer cannot place, in the viewport's own
+/// pixels and through §7.7.3.3's rotation.
+///
+/// ISO 32000-2 §14.8.5.4.3 states the attribute as
+///
+/// > An array of four numbers in default user space units that shall give the coordinates of the
+/// > left, bottom, right, and top edges, respectively, of the structure element's bounding box
+/// > (the rectangle that completely encloses its visible content).
+///
+/// which is a rectangle a magnifier can be pointed at, for exactly the elements
+/// [`viewer_core::AccessibilityNode::quads`] is empty for: this figure's content is a filled
+/// rectangle and no glyph, so the text layer knows nothing about where it is.
+///
+/// **The expected numbers are written out from the clause's own space rather than taken from the
+/// code**, which is trap 12a's rule: default user space has its y pointing up from the bottom of
+/// the page, `/Rotate 90` takes `(x, y)` to `(y, W - x)` for the unrotated width `W`, and the
+/// viewport's origin and scale come from [`Query::PageGeometry`] — a different answer of the
+/// viewer's, not the one under test.
+#[test]
+fn an_element_that_marks_no_text_crosses_with_the_bounds_the_document_states() {
+    let mut viewer = Viewer::new(400, 300, 1.0);
+    let events: Vec<Event> = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: with_a_figure(),
+            password: None,
+            fragment: None,
+        })
+        .collect();
+    let first_frame = request(&events).clone();
+    serve(&mut viewer, &first_frame);
+
+    let geometry = |viewer: &Viewer, page: usize| match viewer.query(Query::PageGeometry(page)) {
+        Answer::Geometry(geometry) => geometry,
+        other => panic!("a page has a geometry: {other:?}"),
+    };
+    let nodes = |viewer: &Viewer| match viewer.query(Query::AccessibilityTree) {
+        Answer::Accessibility(nodes) => nodes,
+        other => panic!("the query always answers: {other:?}"),
+    };
+    let named = |nodes: &[viewer_core::AccessibilityNode], name: &str| {
+        nodes
+            .iter()
+            .find(|node| node.name == name)
+            .unwrap_or_else(|| panic!("{name} is on the page: {nodes:?}"))
+            .clone()
+    };
+
+    let first = geometry(&viewer, 0);
+    let figure = named(&nodes(&viewer), "a chart");
+    assert!(
+        figure.quads.is_empty(),
+        "the figure marks no text, so the text layer places it nowhere: {figure:?}"
+    );
+    // Page height 100, y up: the top edge 70 is 30 units down from the top, the bottom edge 30
+    // is 70 units down.
+    assert_eq!(
+        figure.bounds,
+        Some([
+            first.origin.0 + 20.0 * first.scale,
+            first.origin.1 + 30.0 * first.scale,
+            first.origin.0 + 80.0 * first.scale,
+            first.origin.1 + 70.0 * first.scale,
+        ]),
+    );
+
+    let caption = named(&nodes(&viewer), "a caption");
+    assert!(
+        !caption.quads.is_empty(),
+        "the paragraph marks text and is placed by the text layer: {caption:?}"
+    );
+    assert_eq!(
+        caption.bounds, None,
+        "an element stating no /BBox has said nothing about where it is"
+    );
+
+    // The same figure on a page turned a quarter clockwise. `/Rotate 90` maps (x, y) to
+    // (y, 200 - x), so the rectangle's corners become (30, 180) and (70, 120) in the page's own
+    // space, and the displayed page is 200 units tall — which puts them 20 and 80 units from
+    // the top.
+    let turned: Vec<Event> = viewer.handle(Command::GoTo(PageTarget::Index(1))).collect();
+    let next = request(&turned).clone();
+    serve(&mut viewer, &next);
+    let second = geometry(&viewer, 1);
+    let rotated = named(&nodes(&viewer), "the same chart, on a page that is turned");
+    assert_eq!(
+        rotated.bounds,
+        Some([
+            second.origin.0 + 30.0 * second.scale,
+            second.origin.1 + 20.0 * second.scale,
+            second.origin.0 + 70.0 * second.scale,
+            second.origin.1 + 80.0 * second.scale,
+        ]),
+        "the attribute is in default user space, and §7.7.3.3's rotation stands between it and \
+         the screen",
+    );
+
+    // And `doc/PDF20_AN001-BPC.pdf`'s own idiom, which 8 of the corpus's 132 rectangles share:
+    // the whole representable plane, which encloses the figure and everything else. §14.11.2.1
+    // says what of a page can be seen, so what crosses is the page.
+    let whole_plane = named(
+        &nodes(&viewer),
+        "a figure whose producer wrote the whole plane",
+    );
+    assert_eq!(
+        whole_plane.bounds,
+        Some([
+            second.origin.0,
+            second.origin.1,
+            second.origin.0 + 100.0 * second.scale,
+            second.origin.1 + 200.0 * second.scale,
+        ]),
+        "a rectangle beyond the page is clipped to the page, which is all of it that is visible",
+    );
+}
+
 /// Table 384's `/Scope` crosses for a `TH`, stated or assumed, and for nothing else.
 ///
 /// §14.8.4.8.3 makes a `TH` a cell "describing one or more rows, columns or rows and columns of

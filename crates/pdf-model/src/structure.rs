@@ -648,6 +648,40 @@ impl Tree {
             .and_then(HeaderScope::read)
     }
 
+    /// Table 379's `/BBox`, in **default user space**, where the element states one.
+    ///
+    /// ISO 32000-2 §14.8.5.4.3:
+    ///
+    /// > An array of four numbers in default user space units that shall give the coordinates of
+    /// > the left, bottom, right, and top edges, respectively, of the structure element's bounding
+    /// > box (the rectangle that completely encloses its visible content).
+    ///
+    /// The other twelve entries of that table describe the layout process that produced an
+    /// appearance this reader already has. This one describes a *result*, and it is the only
+    /// statement the standard makes about where an element is that does not require re-running
+    /// that process — which matters for exactly the elements whose extent cannot be recovered from
+    /// the text layer, because they mark no text. The clause's own condition says which those are:
+    ///
+    /// > The BBox attribute should be present for structure elements whose content does not lend
+    /// > itself to reflow or any other visual rearrangement of the content inside it.
+    ///
+    /// with NOTE 1 naming `Figure` and `Formula`, and 60 of the 61 corpus elements that state one
+    /// *and* mark no text are `Figure`s.
+    ///
+    /// **Default user space, not the display list's**: §7.7.3.3's `/Rotate` and the crop box's
+    /// origin stand between the two, and [`crate::content::page_space_at`] is the map. A caller
+    /// that took these numbers for pixels would place a rotated page's figures off the page.
+    ///
+    /// Not inheritable, which is why this asks [`Self::attribute`]: a paragraph inside a figure
+    /// has its own extent and the figure's rectangle is not a statement about it.
+    ///
+    /// `None` for an element stating none, and for a value that is not four finite numbers —
+    /// which no corpus document states.
+    #[must_use]
+    pub fn bounds(&self, document: &Document, element: &Dictionary) -> Option<[f32; 4]> {
+        normalised_rectangle(document, &self.attribute(document, element, "BBox")?)
+    }
+
     /// The structure element a `/ID` names, through §14.7.2's Table 354 `/IDTree`.
     ///
     /// > A name tree (see 7.9.6, "Name trees") that maps element identifiers (see "Table 355 -
@@ -1685,7 +1719,18 @@ impl Artifact {
 
 /// Table 363's `/BBox`, normalised the way a page's boxes are.
 fn rectangle(document: &Document, list: &Dictionary) -> Option<[f32; 4]> {
-    let array = document.get_key(list, "BBox");
+    normalised_rectangle(document, &document.get_key(list, "BBox"))
+}
+
+/// A four-number array as a rectangle, normalised the way a page's boxes are.
+///
+/// Shared by Table 363's artifact `/BBox` and Table 379's layout one: both are "the rectangle
+/// that completely encloses" something visible, both are stated in default user space, and
+/// neither clause says which pair of corners comes first. §7.9.5 is why they are sorted rather
+/// than trusted: a rectangle is "an array of four numbers giving the coordinates of a pair of
+/// diagonally opposite corners", and the `[llx lly urx ury]` order is the one it says the array
+/// "[t]ypically" takes rather than the one it requires.
+fn normalised_rectangle(document: &Document, array: &Object) -> Option<[f32; 4]> {
     let items = array.as_array()?;
     if items.len() < 4 {
         return None;
@@ -2930,6 +2975,55 @@ mod tests {
             tree.cell_span(&doc, &elements[3]),
             (1, 1),
             "Table 384's default is 1, and a span of zero is not a number of columns"
+        );
+    }
+
+    /// Table 379's `/BBox`, read off the elements that state one.
+    ///
+    /// The second figure states its corners the other way round, which §7.9.5 permits — "a pair
+    /// of diagonally opposite corners" — and comes back as the same rectangle. The third states
+    /// three numbers, which is not a rectangle and is answered with nothing rather than with a
+    /// rectangle three quarters invented.
+    #[test]
+    fn a_block_level_element_states_the_rectangle_enclosing_its_visible_content() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /StructParents 0 >>",
+            "<< /Type /StructTreeRoot /K [5 0 R 6 0 R 7 0 R 8 0 R] >>",
+            "<< /Type /StructElem /S /Figure /Pg 3 0 R /A << /O /Layout /BBox [10 20 60 80] >> >>",
+            "<< /Type /StructElem /S /Figure /Pg 3 0 R /A << /O /Layout /BBox [60 80 10 20] >> >>",
+            "<< /Type /StructElem /S /Figure /Pg 3 0 R /A << /O /Layout /BBox [10 20 60] >> >>",
+            "<< /Type /StructElem /S /Figure /Pg 3 0 R >>",
+        ]);
+        let tree = Tree::of(&doc).expect("a structure tree");
+        let elements: Vec<_> = tree
+            .children(&doc, None)
+            .into_iter()
+            .filter_map(|child| match child {
+                Child::Element(dict) => Some(dict),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(
+            tree.bounds(&doc, &elements[0]),
+            Some([10.0, 20.0, 60.0, 80.0])
+        );
+        assert_eq!(
+            tree.bounds(&doc, &elements[1]),
+            Some([10.0, 20.0, 60.0, 80.0]),
+            "§7.9.5 states a rectangle as a pair of diagonally opposite corners, in no order"
+        );
+        assert_eq!(
+            tree.bounds(&doc, &elements[2]),
+            None,
+            "three numbers are not the four Table 379 states"
+        );
+        assert_eq!(
+            tree.bounds(&doc, &elements[3]),
+            None,
+            "the attribute is optional, and an element stating none has said nothing"
         );
     }
 

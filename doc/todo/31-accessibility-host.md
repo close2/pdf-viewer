@@ -1,12 +1,15 @@
 # The AccessKit bridge: what is left of it
 
 Status: **built and verified on a real bus** in the three-hundred-and-seventy-sixth session
-(ADR 0214); a `TH`'s axis closed on one in the four-hundred-and-sixty-fifth (ADR 0300).
+(ADR 0214); a `TH`'s axis closed on one in the four-hundred-and-sixty-fifth (ADR 0300) and
+Table 379's `/BBox` in the four-hundred-and-sixty-sixth (ADR 0301).
 Priority: 31 — capability
 Clauses: §14.7, §14.8.4, §14.8.5.4.3, §14.8.5.7, §14.9
 Code: `crates/viewer-accessibility/` (`role.rs`, `tree.rs`, `bridge.rs`),
 `crates/viewer-core/src/accessibility.rs`, `crates/pdf-model/src/structure.rs`,
 `crates/viewer-ui/src/bin/pdf-viewer.rs` (`App::attend`, `App::speak`)
+Instruments: `pdf-model --example element_bounds_census`,
+`viewer-core --example accessibility_cost`
 
 The item this file used to hold — "the answer exists and nothing asks" — is closed.
 `viewer-accessibility` maps §14.8.4's forty-one standard structure types onto `accesskit::Role`,
@@ -39,12 +42,22 @@ corpus's 5965 header cells, 3114 are a **row**'s and were all being announced as
   fill them exists (`pdf_model::structure::TableStack`); what is missing is somewhere for it to
   arrive. Worth an upstream question rather than code here.
 
-- **An element that marks no text has no place at all.** `AccessibilityNode::quads` is built from
-  the text layer, so a `Figure`, or a table cell holding an image, crosses with an empty rectangle
-  and a magnifier has nothing to point at. Table 379's `/BBox` is a description of where the element
-  was laid out, in default user space, and §14.8.5.4.3's ledger row is `silent` for it since ADR
-  0300. **Measure first**: no census has counted a `/BBox` layout attribute in the corpus, and the
-  first question is whether any document states one.
+- **An element that marks no text and states no `/BBox` still has no place.** Table 379's
+  rectangle is read since ADR 0301 and it answers for 61 of the 1700 corpus elements whose content
+  produced no text; the other 1639 have nothing the standard states about where they are. 576 of
+  them reach the page only through §14.7.5.3's `/OBJR`, and **that is the strongest remaining
+  route**: an object reference names an annotation, §12.5.2's `/Rect` says where an annotation is,
+  and `AccessibilityNode` does not carry the object — the same missing link the `Form` item below
+  needs. The rest would need a bound taken from the *marks* rather than from the document, which is
+  a different kind of answer and wants an argument before it wants code: the display list records
+  no `/MCID`, so nothing today can say which commands an element's content items made.
+
+- **Whether a stated `/BBox` should win over the shapes that were drawn.** `tree::place` prefers
+  the quads where an element has both, on the conservative reading — the marks are what is on the
+  screen. A `Figure` holding a caption *and* a picture has text quads covering only the caption
+  while the attribute covers both, so the two disagree by exactly the picture. Nothing has measured
+  how often that happens or by how much; `element_bounds_census` has the walk and would need the
+  text layer beside it.
 
 - **A `Form` element's control role.** §14.8.4.7.2 makes the `Form` structure type *one widget
   annotation*, and a screen reader wants `CheckBox`, `TextInput`, `RadioButton` — which needs the
@@ -63,14 +76,15 @@ corpus's 5965 header cells, 3114 are a **row**'s and were all being announced as
   out is `ScrollIntoView` on an element, which is `Command::Scroll` and a rectangle this crate
   already has.
 
-- **The question costs eighty milliseconds on a thousand-page document**, and a screen reader asks
-  it on every page turn. Measured in the four-hundred-and-sixty-fifth session, in release, on ISO
-  32000-2: `Query::AccessibilityTree` is 67–91 ms, against the 0.13–0.25 ms ADR 0228 recorded on a
-  five-page one. `viewer_core::accessibility::nodes` walks the **whole document's** structure tree
-  and prunes afterwards, resolving §14.7.3's role map per element as it goes. Two obvious levers —
-  reach the page's elements through §14.7.5.4's parent tree instead of walking down, or memoise the
-  role map — and neither has been priced. This belongs to whoever takes `doc/todo/45` next as much
-  as it belongs here.
+- **The question costs tens of milliseconds on a thousand-page document**, and a screen reader asks
+  it on every page turn — against the 0.13–0.25 ms ADR 0228 recorded on a five-page one.
+  `viewer_core::accessibility::nodes` walks the **whole document's** structure tree and prunes
+  afterwards, resolving §14.7.3's role map per element as it goes. Two obvious levers — reach the
+  page's elements through §14.7.5.4's parent tree instead of walking down, or memoise the role map
+  — and neither has been priced. This belongs to whoever takes `doc/todo/45` next as much as it
+  belongs here. **`viewer-core --example accessibility_cost` is the stopwatch** since ADR 0301,
+  which is what the entry needed: the four-hundred-and-sixty-fifth measured this by hand and left
+  nothing anybody could rerun.
 
 ## And two things that are decided rather than owed
 

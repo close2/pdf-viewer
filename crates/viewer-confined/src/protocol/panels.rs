@@ -1443,6 +1443,7 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
             language,
             quads,
             header_scope,
+            bounds,
         } = node;
         writer
             .option_usize(*parent)
@@ -1450,8 +1451,16 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
             .str(name)
             .bool(*substituted)
             .option_str(language.as_deref())
-            .u8(scope_kind(*header_scope))
-            .usize(quads.len());
+            .u8(scope_kind(*header_scope));
+        match bounds {
+            Some(rect) => {
+                writer.u8(1).numbers(rect);
+            }
+            None => {
+                writer.u8(0);
+            }
+        }
+        writer.usize(quads.len());
         for quad in quads {
             writer.quad(*quad);
         }
@@ -1487,6 +1496,7 @@ pub(super) fn decode_accessibility(
             substituted: reader.bool("a node's substitution flag")?,
             language: reader.option_string("a node's language")?,
             header_scope: read_scope(reader)?,
+            bounds: reader.option_rect("a node's stated bounding box")?,
             quads: super::read_quads(reader, "a node's shapes")?,
         })
     })
