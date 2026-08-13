@@ -2904,6 +2904,97 @@ fn an_embedded_file_comes_out_of_the_document() {
     );
 }
 
+/// §12.5.6.15: clicking a file attachment annotation extracts the file it attaches.
+///
+/// §12.5.1 says an activated annotation "exhibits its associated object, such as by opening a
+/// popup window displaying a text note", and §12.5.6.15 says what a file attachment
+/// annotation's associated object is and what activating one does: "activating the annotation
+/// extracts the embedded file and gives the user an opportunity to view it or store it in the
+/// file system". Until ADR 0295 nothing in this tree read Table 187's required `/FS` for its own
+/// clause — the icon was drawn and the file behind it was unreachable, because the only list
+/// this program built came from §7.7.4's `/EmbeddedFiles` tree and this document has no name
+/// dictionary at all.
+///
+/// It is the only such document in the 974 (`pdf-model --example file_attachment_census`), and
+/// ISO 32000-2's own PDF has six.
+#[test]
+fn a_click_on_a_file_attachment_annotation_extracts_its_file() {
+    let Some(bytes) = corpus_bytes("annotation-fileattachment.pdf") else {
+        println!("skipped: the doc/pdf.js submodule is not checked out");
+        return;
+    };
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password: None,
+            fragment: None,
+        })
+        .for_each(drop);
+    // The annotation's own `/Rect`, on a page 841.92 units tall.
+    let on_paperclip = device_point(&viewer, [70.7023, 724.338, 90.7023, 748.338], 841.92);
+    viewer
+        .handle(Command::Pointer {
+            at: on_paperclip,
+            action: PointerAction::Pressed,
+        })
+        .for_each(drop);
+    let events: Vec<_> = viewer
+        .handle(Command::Pointer {
+            at: on_paperclip,
+            action: PointerAction::Released,
+        })
+        .collect();
+    let extracted = events.iter().find_map(|event| match event {
+        Event::Extracted { name, bytes, .. } => Some((name.clone(), bytes.clone())),
+        _ => None,
+    });
+    let Some((name, bytes)) = extracted else {
+        panic!("the click extracts the file, and produced {events:?}");
+    };
+    assert_eq!(name, "Test.txt", "Table 43's own name for the file");
+    assert_eq!(
+        String::from_utf8_lossy(&bytes),
+        "Test attachment",
+        "the file itself, with §7.4's filters undone"
+    );
+    // And this corpus's only witness to a rule `pdf-model` had only fixtures for: Table 45's
+    // `/CheckSum` is "a 16-byte string" and this file's is a UTF-16BE text string beginning with
+    // a byte order mark, which is the producer having written the MD5 digest as text. A checksum
+    // stated wrongly is not a checksum absent, so it is reported — and the bytes still come,
+    // because the clause says the entry "is strictly a checksum, and is not used for security
+    // purposes".
+    assert!(
+        events.iter().any(|event| matches!(
+            event,
+            Event::Reported { notes, .. } if notes.iter().any(|note| note.contains("MD5 checksum"))
+        )),
+        "{events:?}"
+    );
+
+    // A click somewhere else on the page extracts nothing: the file crosses because the
+    // annotation was activated, not because the document carries it.
+    viewer
+        .handle(Command::Pointer {
+            at: (400.0, 400.0),
+            action: PointerAction::Pressed,
+        })
+        .for_each(drop);
+    let events: Vec<_> = viewer
+        .handle(Command::Pointer {
+            at: (400.0, 400.0),
+            action: PointerAction::Released,
+        })
+        .collect();
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, Event::Extracted { .. })),
+        "{events:?}"
+    );
+}
+
 /// Table 29's `/PageMode` reaches a host, which is what makes three of its six values mean
 /// anything.
 ///

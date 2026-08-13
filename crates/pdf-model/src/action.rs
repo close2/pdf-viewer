@@ -527,9 +527,11 @@ fn attached_file(
                 })?,
         };
     let dict = found.as_dict()?;
-    // §12.5.6.15's `/FS` is the file specification the annotation refers to.
-    let specification = document.get_key(dict, "FS");
-    crate::attachment::read(document, specification.as_dict()?, String::new())
+    // §12.5.6.15's `/FS` is the file specification the annotation refers to, and
+    // `attachment::of_annotation` is the one reader of it — the same entry a click on the
+    // paperclip extracts (ADR 0295). What this caller needs is only the stream; the name and the
+    // description come with it and cost nothing.
+    crate::attachment::of_annotation(document, dict)
 }
 
 /// Tables 204 and 205, read into [`EmbeddedGoTo`].

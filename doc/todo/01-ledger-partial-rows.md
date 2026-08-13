@@ -10,8 +10,10 @@ since the four-hundred-and-forty-second**: order the rows by the commit that las
 `note = ` line, and the ones nothing has touched are the ones nothing has read — 40 of the 248 were
 older than commit 110 of 590, and **fourteen of the 32** read off the top of that list were wrong,
 with a fifteenth found beside them — the `implemented` neighbour one of the fourteen deferred to.
-**Fourteen sweeps**, twelve run every round, a thirteenth run once and declined
-(ADR 0265), and **the fourteenth built in the four-hundred-and-thirty-seventh** — a `partial` row
+**Fifteen sweeps**, twelve run every round, a thirteenth run once and declined
+(ADR 0265), a fourteenth built in the four-hundred-and-thirty-seventh, and **the fifteenth built
+in the four-hundred-and-sixtieth** — the first that ignores what a row says and asks instead who
+reads the entries the clause states (ADR 0295) — a `partial` row
 whose note names nothing owed, which breaks the ledger's own definition of the status. Its first
 run printed 16 rows and seven were defects, two of them statuses: §9.3, `partial` on an expired
 reason for **365 sessions**, which the four-hundred-and-forty-second beat with §11.6's **424**. **The ninth sweep is the first to check that a citation names the *right* table**,
@@ -1701,6 +1703,57 @@ nothing, which costs a page off the oracle's judged set rather than a mark off t
 condition to test is whether the *table* gives the entry a meaning for that subtype, not whether the
 entry is present — Table 180 and Table 181 both restrict `/BS` to a width and a dash, and
 §12.5.6.9's polygon had it right all along, which is what made the inconsistency legible.
+
+## A fifteenth sweep, and it is the first that asks who reads an *entry the clause states*
+
+Built in the four-hundred-and-sixtieth, for the sixth refusal shape the round before named and
+left with no instrument. The fourteen above all read what a row *says* — its blocker, its
+capability, its retired string, its citation, its table number, its arithmetic. A row that retires
+its refusal by naming a capability that arrived says nothing wrong: it names something that
+exists. So this sweep reads no reason at all.
+
+Thirty lines of Python over `ledger.toml`, `doc/md/ISO_32000-2_sponsored_EC3.md` and the source
+roots:
+
+1. **The population** is every row whose note explains itself by an arrival — `since the …th
+   session`, `since ADR NNNN`, `is drawn since`, `now has`, `the window that arrived`.
+2. **The entries** are the ones the clause *itself* states: every `Table N -Title` heading printed
+   inside the clause's own span of the standard, whose first column is `Key`, and every key in it.
+   Not the entries the note names — the note is what is not to be trusted.
+3. **Two questions per entry.** Does any `.rs` file under `crates/`, `tools/` or `fuzz/` contain
+   the string at all? And does any file the row itself names in `code = [...]`? **The second is
+   the discriminator the four-hundred-and-fifty-ninth needed by hand**: `"Open"` *was* named in
+   `crates/`, by the popup reader, under a different table, so question 1 alone passes the very
+   row this sweep exists for.
+
+**Its first run: 168 rows in the population, 30 of them stating an entry their own code does not
+name — 57 entries, 38 named nowhere at all and 19 named only elsewhere.** Most are refusals the
+row already describes and `CLAUDE.md` already closes: §12.6.4.6's `/Win`, §12.6.4.9's four sound
+entries and §12.6.4.10's two are excluded actions, Table 200's `/DS` is an ECMAScript action,
+Table 177's and Table 228's `/DS` are XFA's default style string, §12.7.5.5's seed values are the
+signer's. Read the hit before believing it, as with every sweep here — and note the conversion
+trap in passing: Table 200's rows come out of `doc/md/` with the columns shifted, so four of its
+five keys read as prose and only one reached the output.
+
+**The one that was work is §12.5.6.15, and it is the sixth shape exactly.** The row is
+`implemented`, its note is "**all four are drawn since the two-hundred-and-sixty-sixth session**"
+— an arrival — and it disposed of Table 187's **required** `/FS` in eight words: "the embedded
+file, which is not a rendering question". True about rendering, and the reason nobody asked the
+other question. `/FS` was named in `crates/` and in neither of the row's own two files: the one
+reader is §12.6.4.4's embedded go-to, which follows a *target path* into an attached document —
+a different clause's use of the same entry, which is `/Open`'s shape one clause along.
+
+So a document that attached its file to a **page** rather than to §7.7.4's name tree carried a
+file no part of this program could reach: the icon was drawn and nothing else. That is the
+corpus's one file attachment annotation and all six in ISO 32000-2's own PDF. ADR 0295.
+
+**And the sweep found its own refusal's other half, which is worth more than the finding.**
+§7.11.4.1's row *named the missing caller in so many words* — "§12.5.6.15's file attachment
+annotations being the caller the clause names, and not yet built" — so the ledger held the answer
+and the question in two rows of two different families, which is the seventh failure shape
+(two rows about one mechanism, disagreeing) with the disagreement being about *this tree* rather
+than about the standard. No grep above finds it: the sentence names a clause, not a capability, a
+blocker or a retired string.
 
 ## What is still owed, named
 

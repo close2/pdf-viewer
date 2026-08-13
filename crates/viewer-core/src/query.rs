@@ -35,6 +35,15 @@ pub enum Query<'a> {
     /// §8.11.4.3's `/Order`, as a layer panel would show it.
     Layers,
     /// §7.11.4's embedded files, listed rather than extracted.
+    ///
+    /// The catalog's `/EmbeddedFiles` tree, which is one of the two homes §7.11.4.1 gives an
+    /// embedded file. **The other one is deliberately not here**: §12.5.6.15's file attachment
+    /// annotation carries its file on a *page*, so a document-wide list of those costs a walk of
+    /// every page's `/Annots` — 78 to 123 ms cold over three runs on ISO 32000-2's 1023 pages,
+    /// 13 to 15 ms warm (`pdf-model --example file_attachment_census`) — and every host asks this
+    /// query when a document opens, which is where `CLAUDE.md` forbids a full page-tree walk.
+    /// Such a file is reached by activating its annotation instead, which is what §12.5.6.15
+    /// says activation does; ADR 0295 has the argument and what a lazily-filled panel would need.
     Attachments,
     /// §12.3.5's portable collection, where the catalog states one.
     ///

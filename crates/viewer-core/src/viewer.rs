@@ -662,7 +662,7 @@ impl Viewer {
                 let toggled = clicked
                     && pressed_on
                         .filter(|annotation| Some(*annotation) == over)
-                        .is_some_and(|annotation| open.toggle_popup(annotation));
+                        .is_some_and(|annotation| exhibit(id, open, annotation, events));
                 if toggled {
                     events.push(damage(viewport));
                 }
@@ -866,43 +866,7 @@ impl Viewer {
             });
             return;
         };
-        // Trap 5 on the one path where a *stream* can refuse: §7.6.6 makes a crypt filter's
-        // absent key the stream's answer rather than the file's, and two of the corpus's
-        // twenty-three attachments are exactly that. A silent empty file would be worse than
-        // none.
-        let Some(bytes) = open.document.decoded_stream_data(&file.stream) else {
-            events.push(Event::Reported {
-                document: id,
-                page: None,
-                notes: vec![format!(
-                    "the embedded file {name:?} states a filter or an encryption this program \
-                     cannot undo"
-                )],
-            });
-            return;
-        };
-        // Table 45's `/CheckSum` is the one entry of §7.11.4 that can only be answered by
-        // somebody holding the decoded bytes, and this is the only place in the program that
-        // does. Said and not acted on: the clause calls it "strictly a checksum, and … not used
-        // for security purposes", so a mismatch is the producer's mistake and withholding the
-        // file would tell a person less than handing it over with a sentence.
-        if file.checksum_matches(&bytes) == Some(false) {
-            events.push(Event::Reported {
-                document: id,
-                page: None,
-                notes: vec![format!(
-                    "the embedded file {name:?} does not match the MD5 checksum the document \
-                     states for it (§7.11.4, Table 45)"
-                )],
-            });
-        }
-        events.push(Event::Extracted {
-            document: id,
-            // Table 43's own name for the file where it states one, because that is what a
-            // person would call it; the tree's key otherwise, which is all there is.
-            name: file.file_name.clone().unwrap_or_else(|| file.name.clone()),
-            bytes: bytes.to_vec(),
-        });
+        hand_over(id, &open.document, &file, events);
     }
 
     /// Adds one edit to the log and applies it.
@@ -2255,4 +2219,103 @@ fn build_layers(
             }
         })
         .collect()
+}
+
+/// Hands one embedded file's decoded bytes to the host, saying what §7.11.4 lets a file get wrong.
+///
+/// Two callers and one set of sentences: [`Command::Extract`], which names a file §7.7.4's tree
+/// filed, and a click on §12.5.6.15's file attachment annotation, which names none because an
+/// annotation files its file under nothing. Both owe the same three statements, which is why
+/// this is one function rather than two that drifted.
+fn hand_over(
+    id: DocumentId,
+    document: &pdf_syntax::Document,
+    file: &pdf_model::attachment::Attachment,
+    events: &mut Vec<Event>,
+) {
+    let name = file.file_name.clone().unwrap_or_else(|| file.name.clone());
+    // Trap 5 on the one path where a *stream* can refuse: §7.6.6 makes a crypt filter's absent
+    // key the stream's answer rather than the file's, and two of the corpus's twenty-three
+    // attachments are exactly that. A silent empty file would be worse than none.
+    let Some(bytes) = document.decoded_stream_data(&file.stream) else {
+        events.push(Event::Reported {
+            document: id,
+            page: None,
+            notes: vec![format!(
+                "the embedded file {name:?} states a filter or an encryption this program cannot \
+                 undo"
+            )],
+        });
+        return;
+    };
+    // Table 45's `/CheckSum` is the one entry of §7.11.4 that can only be answered by somebody
+    // holding the decoded bytes, and this is the only place in the program that does. Said and
+    // not acted on: the clause calls it "strictly a checksum, and … not used for security
+    // purposes", so a mismatch is the producer's mistake and withholding the file would tell a
+    // person less than handing it over with a sentence.
+    if file.checksum_matches(&bytes) == Some(false) {
+        events.push(Event::Reported {
+            document: id,
+            page: None,
+            notes: vec![format!(
+                "the embedded file {name:?} does not match the MD5 checksum the document states \
+                 for it (§7.11.4, Table 45)"
+            )],
+        });
+    }
+    events.push(Event::Extracted {
+        document: id,
+        // Table 43's own name for the file where it states one, because that is what a person
+        // would call it; the tree's key otherwise, which is all there is.
+        name,
+        bytes: bytes.to_vec(),
+    });
+}
+
+/// §12.5.1: what an annotation a person just clicked "exhibits", and whether the page changed.
+///
+/// > When the user activates the annotation by clicking it, it exhibits its associated object,
+/// > such as by opening a popup window displaying a text note ("Figure 77 -Open annotation") or
+/// > by playing a sound or a movie.
+///
+/// Two associated objects, and the clause's "such as" is why they are one function rather than
+/// two conditions in the pointer arm. §12.5.6.14's window opens or closes (`Open::toggle_popup`,
+/// ADR 0191). §12.5.6.15's *file* comes out: "[a] file attachment annotation contains a
+/// reference to a file, which typically shall be embedded in the PDF file", and the clause says
+/// what activating one does — "activating the annotation extracts the embedded file and gives
+/// the user an opportunity to view it or store it in the file system". The bytes cross as
+/// [`Event::Extracted`], which is where they cross for [`crate::Command::Extract`] too, and
+/// where they land is the host's policy (rule 2).
+///
+/// **The file is reached here rather than from a document-wide list, and that is a
+/// measurement**: a panel listing every page's attachments has to walk every page, which costs
+/// 78 to 123 ms cold over three runs on ISO 32000-2's 1023 pages and 13 to 15 ms warm
+/// (`pdf-model --example file_attachment_census`) — and every host asks [`Query::Attachments`]
+/// when a document opens, which is exactly where `CLAUDE.md` forbids a full page-tree walk. A
+/// click has already found its page. ADR 0295.
+fn exhibit(id: DocumentId, open: &mut Open, annotation: ObjectId, events: &mut Vec<Event>) -> bool {
+    let toggled = open.toggle_popup(annotation);
+    if let Some(file) = attached_file(open, annotation) {
+        hand_over(id, &open.document, &file, events);
+    }
+    toggled
+}
+
+/// The file §12.5.6.15's annotation attaches, where the object under the click is one.
+///
+/// `None` for every other subtype, which is nearly every click: the question is asked of one
+/// annotation the pointer already found, so it costs one dictionary lookup rather than a walk.
+fn attached_file(open: &Open, annotation: ObjectId) -> Option<pdf_model::attachment::Attachment> {
+    let object = open.document.get(annotation);
+    let dict = object.as_dict()?;
+    if open
+        .document
+        .get_key(dict, "Subtype")
+        .as_name()
+        .map(pdf_syntax::Name::as_bytes)
+        != Some(b"FileAttachment")
+    {
+        return None;
+    }
+    pdf_model::attachment::of_annotation(&open.document, dict)
 }

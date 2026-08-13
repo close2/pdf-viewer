@@ -446,6 +446,12 @@ A row in this state passes every sweep above, because it names no blocker, no mi
 and no absent architecture — it names a *capability that exists*. **When a note says a clause was
 closed by a capability arriving, grep for the entry rather than for the capability**: the
 capability is what somebody built, and the entry is what nobody went back to wire to it. ADR 0294.
+**`doc/todo/01`'s fifteenth sweep is the instrument**, built in the four-hundred-and-sixtieth: it
+reads no reason at all, takes the entries the *clause's own tables* state, and asks both whether
+any source file names each and whether the row's own `code = [...]` files do. The second question
+is the one that matters — `/Open` was named in `crates/`, by another table's reader — and its first
+run found §12.5.6.15's required `/FS`, disposed of by "not a rendering question" while a document
+that attached its file to a page carried a file nothing here could reach. ADR 0295.
 
 ### Measuring
 

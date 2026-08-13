@@ -25,9 +25,12 @@
 //! §7.11.4.1 gives an embedded file two homes — "[a]ny file specification dictionary in the
 //! document may have an EF entry", and "[e]mbedded file streams may be associated with the
 //! document as a whole through the `EmbeddedFiles` entry in the PDF file's name dictionary".
-//! This
-//! module reads the second and provides the reader for the first, which is what §12.5.6.15's
-//! file attachment annotations need.
+//! [`attachments`] walks the second, which is a *list* a panel shows; [`of_annotation`] reads
+//! the first as §12.5.6.15's file attachment annotation states it, which is a file a person
+//! reaches by clicking the paperclip on the page. Until the four-hundred-and-sixtieth session
+//! nothing read the second route at all, so the corpus's one file attachment annotation — and
+//! the six in ISO 32000-2's own PDF — embedded files no part of this program could reach
+//! (ADR 0295).
 //!
 //! # §14.13's associated files are the same specifications, reached from elsewhere
 //!
@@ -347,6 +350,57 @@ pub fn attachments(document: &Document) -> Vec<Attachment> {
     out
 }
 
+/// The embedded file §12.5.6.15's file attachment annotation names, with its own description.
+///
+/// ISO 32000-2 §12.5.6.15:
+///
+/// > A file attachment annotation ( PDF 1.3 ) contains a reference to a file, which typically
+/// > shall be embedded in the PDF file (see 7.11.4, "Embedded file streams").
+///
+/// Table 187 makes `/FS` **required**, and it is the second of the two homes §7.11.4.1 gives an
+/// embedded file: "[a]ny file specification dictionary in the document may have an EF entry",
+/// beside the document-wide `/EmbeddedFiles` tree [`attachments`] walks. A document may use
+/// either, and the corpus's own file attachment annotation uses the one the tree cannot reach —
+/// as do the six in ISO 32000-2's own PDF, counted by
+/// `crates/pdf-model/examples/file_attachment_census.rs`.
+///
+/// `None` where the annotation states no `/FS`, or where the specification it names carries no
+/// `/EF`: that is §7.11.1's file outside the document, which this program has no filesystem to
+/// open (principle 3).
+///
+/// # The description is the annotation's, and that is the clause's one `shall`
+///
+/// ISO 32000-2 §12.5.6.15 again, and it is the only requirement the clause puts on a processor:
+///
+/// > The Contents entry of the annotation dictionary may specify descriptive text relating to
+/// > the attached file. Interactive PDF processors shall use this entry rather than the optional
+/// > Desc entry ( PDF 1.6 ) in the file specification dictionary (see "Table 43 -Entries in a
+/// > file specification dictionary") identified by the annotation's FS entry.
+///
+/// So [`Attachment::description`] is Table 172's `/Contents` where the annotation states one.
+/// Where it states none there is no "this entry" to use instead, and §7.11.4.1's `/Desc` keeps
+/// its own clause's meaning — "a textual description of the embedded file, which can be
+/// displayed in the user interface" — which is what [`read`] already put there.
+///
+/// The name is the specification's own — Table 43's `/UF` or `/F` — because an annotation files
+/// its file under no key, where §7.7.4's tree does.
+#[must_use]
+pub fn of_annotation(document: &Document, annotation: &Dictionary) -> Option<Attachment> {
+    let specification = document.get_key(annotation, "FS");
+    let specification = specification.as_dict()?;
+    let name = crate::file_spec::FileSpec::from_dictionary(document, specification)
+        .display_name()
+        .unwrap_or_default();
+    let mut attachment = read(document, specification, name)?;
+    if let Object::String(bytes) = document.get_key(annotation, "Contents") {
+        let contents = pdf_syntax::text_string(&bytes);
+        if !contents.is_empty() {
+            attachment.description = Some(contents);
+        }
+    }
+    Some(attachment)
+}
+
 /// §7.11.4.2's related files: the other files of a set the specification names one of.
 ///
 /// > In some circumstances, a PDF file can refer to a group of related files, such as the set of
@@ -444,7 +498,7 @@ pub fn read(document: &Document, specification: &Dictionary, name: String) -> Op
 
 #[cfg(test)]
 mod tests {
-    use super::{attachments, related};
+    use super::{attachments, of_annotation, related};
     use pdf_syntax::Document;
 
     fn document(objects: &[&str]) -> Document {
@@ -708,5 +762,115 @@ mod tests {
             "the whole DCS set, in the order the array pairs them"
         );
         assert_eq!(set.len(), 5);
+    }
+
+    /// One page carrying one file attachment annotation, and nothing in the name dictionary.
+    ///
+    /// `contents` is written into the annotation where it is `Some`, which is the only
+    /// difference between the two documents §12.5.6.15's `shall` is read with.
+    fn attached(contents: Option<&str>) -> Document {
+        let annotation = format!(
+            "<< /Type /Annot /Subtype /FileAttachment /Rect [10 10 30 34] /FS 5 0 R \
+             /Name /Paperclip{} >>",
+            contents.map_or_else(String::new, |text| format!(" /Contents ({text})"))
+        );
+        document(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [4 0 R] >>",
+            &annotation,
+            "<< /Type /Filespec /UF (report.csv) /Desc (the specification's own words) \
+             /EF << /F 6 0 R >> >>",
+            "<< /Type /EmbeddedFile /Subtype /text#2Fcsv /Length 5 /Params << /Size 5 >> >>\n\
+             stream\na,b,c\nendstream",
+        ])
+    }
+
+    /// The annotation of the fixture above, which is object 4.
+    fn annotation(doc: &Document) -> pdf_syntax::Dictionary {
+        doc.get(pdf_syntax::ObjectId {
+            number: 4,
+            generation: 0,
+        })
+        .as_dict()
+        .cloned()
+        .expect("the annotation")
+    }
+
+    /// §12.5.6.15: the file an annotation names is read, though no name tree holds it.
+    ///
+    /// §7.11.4.1 gives an embedded file two homes and a document may use either. This fixture
+    /// uses the one the `/EmbeddedFiles` tree does not reach, which is the corpus's own case:
+    /// `annotation-fileattachment.pdf` states no name dictionary at all and attaches its file
+    /// to a page (`crates/pdf-model/examples/file_attachment_census.rs`).
+    #[test]
+    fn a_file_an_annotation_names_is_read_though_the_name_tree_holds_none() {
+        let doc = attached(Some("the sales figures"));
+        assert!(
+            attachments(&doc).is_empty(),
+            "the document files nothing under /EmbeddedFiles"
+        );
+        let file = of_annotation(&doc, &annotation(&doc)).expect("the annotation's file");
+        assert_eq!(
+            file.name, "report.csv",
+            "an annotation files its specification under no key, so the name is the file's own"
+        );
+        assert_eq!(file.media_type.as_deref(), Some("text/csv"));
+        assert_eq!(
+            doc.decoded_stream_data(&file.stream).as_deref(),
+            Some(&b"a,b,c"[..]),
+            "the bytes an extraction would hand over"
+        );
+    }
+
+    /// §12.5.6.15's one `shall`, as a pair of documents differing only in `/Contents`.
+    ///
+    /// > The Contents entry of the annotation dictionary may specify descriptive text relating
+    /// > to the attached file. Interactive PDF processors shall use this entry rather than the
+    /// > optional Desc entry ( PDF 1.6 ) in the file specification dictionary … identified by
+    /// > the annotation's FS entry.
+    ///
+    /// Both documents state the same `/Desc`, so the assertion is about which of two present
+    /// texts is chosen rather than about a fallback firing. **No corpus document can rank this**:
+    /// the one file attachment annotation in the 974 states a `/Contents` beside an *empty*
+    /// `/Desc`, and so do all six in ISO 32000-2's own PDF, so a reader that preferred the wrong
+    /// entry shows the same thing (trap 8).
+    #[test]
+    fn a_file_attachments_description_is_the_annotations_contents_and_not_the_specifications_desc()
+    {
+        let stated = attached(Some("the sales figures"));
+        let with = of_annotation(&stated, &annotation(&stated)).expect("the annotation's file");
+        assert_eq!(
+            with.description.as_deref(),
+            Some("the sales figures"),
+            "Table 172's /Contents, which the clause puts ahead of Table 43's /Desc"
+        );
+
+        let silent = attached(None);
+        let without = of_annotation(&silent, &annotation(&silent)).expect("the annotation's file");
+        assert_eq!(
+            without.description.as_deref(),
+            Some("the specification's own words"),
+            "with no /Contents there is no entry to use instead, so §7.11.4.1's /Desc keeps its \
+             own clause's meaning"
+        );
+    }
+
+    /// An annotation whose specification names a file *outside* the document attaches nothing.
+    ///
+    /// §7.11.1's external file is the refusal principle 3 makes architectural — this renderer
+    /// has no filesystem — and `read` already draws that line at `/EF`. Asserted here because
+    /// the caller is a click: a person who clicks a paperclip and gets a file that was never in
+    /// the document would have been handed something invented.
+    #[test]
+    fn an_annotation_naming_an_external_file_attaches_nothing() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [4 0 R] >>",
+            "<< /Type /Annot /Subtype /FileAttachment /Rect [10 10 30 34] /FS 5 0 R >>",
+            "<< /Type /Filespec /F (elsewhere.csv) >>",
+        ]);
+        assert!(of_annotation(&doc, &annotation(&doc)).is_none());
     }
 }

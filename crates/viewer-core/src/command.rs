@@ -164,6 +164,11 @@ pub enum Command {
     /// answered with. A name the tree does not hold extracts nothing and says so; a name it
     /// holds twice extracts the first, because the clause makes a name tree's keys unique and a
     /// file that broke that has not said which it meant.
+    ///
+    /// A file §12.5.6.15's annotation attaches is *not* named here and needs no command at all:
+    /// it has no key in any tree, and a click on the annotation is what extracts it — the same
+    /// [`crate::Event::Extracted`], reached through [`Self::Pointer`]. See
+    /// [`crate::Query::Attachments`] for why the two routes are not one list.
     Extract {
         /// The `/EmbeddedFiles` key.
         name: String,
