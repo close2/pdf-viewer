@@ -20,7 +20,7 @@
 //! elements — §12.3.2.3's structure destinations read one element's own entries, and text
 //! extraction asks about the element covering a sequence it is already inside.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use pdf_syntax::{Dictionary, Document, Object, ObjectId, tree};
 
@@ -682,6 +682,71 @@ impl Tree {
         normalised_rectangle(document, &self.attribute(document, element, "BBox")?)
     }
 
+    /// Table 384's `/Headers` for a `TH` or `TD`: the element identifiers the cell states.
+    ///
+    /// ISO 32000-2 §14.8.5.7:
+    ///
+    /// > An array of byte strings, where each string shall be the element identifier (see the ID
+    /// > entry in "Table 355 - Entries in a structure element dictionary") for a TH structure
+    /// > element that shall be used as a header associated with this cell.
+    ///
+    /// The identifiers are returned **unresolved**, in the document's own order, because the
+    /// clause makes that order part of the answer: "[t]he order in which the entries in the
+    /// Headers array are listed shall be row IDs followed by column IDs" and those "shall be
+    /// ordered from most specific to most general". Resolving them is [`TableStack`]'s, which is
+    /// the only thing that knows which cell a walk gave each identifier to.
+    ///
+    /// `Some(vec![])` for a cell stating an **empty** array, and that is not the same answer as
+    /// `None`: §14.8.4.8.3's search runs only where "the Headers attribute … is not specified",
+    /// so a cell that specified an empty one has said it has no headers rather than asked for
+    /// them to be worked out. 2 of the corpus's 281 cells that state the entry state an empty
+    /// array — measured by `examples/cell_header_census`.
+    ///
+    /// Not inheritable, which is why this asks [`Self::attribute`]: a cell inside a cell's own
+    /// table would otherwise take the enclosing cell's headers.
+    #[must_use]
+    pub fn cell_headers(&self, document: &Document, element: &Dictionary) -> Option<Vec<Vec<u8>>> {
+        let stated = self.attribute(document, element, "Headers")?;
+        let items = stated.as_array()?;
+        Some(
+            items
+                .iter()
+                .take(MAX_CHILDREN)
+                .filter_map(|item| {
+                    document
+                        .resolve(item)
+                        .as_string()
+                        .map(<[u8]>::to_vec)
+                        .filter(|id| !id.is_empty())
+                })
+                .collect(),
+        )
+    }
+
+    /// Everything one `TH` or `TD` says about itself that §14.8.4.8.3's search needs.
+    ///
+    /// Read in one call because [`TableStack`] wants all of it for the same element and each
+    /// entry costs a walk of §14.7.6's attribute objects and §14.7.6.2's class map; a tagged
+    /// document's elements are overwhelmingly paragraphs and spans, so this is asked only where
+    /// the element has turned out to be a cell.
+    #[must_use]
+    pub fn cell_facts(&self, document: &Document, element: &Dictionary) -> CellFacts {
+        let (row_span, column_span) = self.cell_span(document, element);
+        CellFacts {
+            row_span,
+            column_span,
+            scope: self.header_scope(document, element),
+            // Table 355's `/ID` is on the element itself rather than in an attribute object:
+            // "[t]he element identifier, a byte string designating this structure element."
+            id: document
+                .get_key(element, "ID")
+                .as_string()
+                .map(<[u8]>::to_vec)
+                .filter(|id| !id.is_empty()),
+            headers: self.cell_headers(document, element),
+        }
+    }
+
     /// The structure element a `/ID` names, through §14.7.2's Table 354 `/IDTree`.
     ///
     /// > A name tree (see 7.9.6, "Name trees") that maps element identifiers (see "Table 355 -
@@ -692,8 +757,11 @@ impl Tree {
     /// [`pdf_syntax::tree::lookup`] does. §14.7.7's worked example carries one, mapping `Chap1`,
     /// `Sec1.1`, `Sec1.2` and `Sec1.3` to four elements.
     ///
-    /// `None` for a document with no `/IDTree` — 89 of the corpus's 89 tagged ones — or an
-    /// identifier it does not hold.
+    /// `None` for a document that states no `/IDTree`, or for an identifier it does not hold.
+    /// **This line used to say "89 of the corpus's 89 tagged ones" state none, and it was wrong
+    /// from the round that wrote it**: 12 of those 89 state one, and over the wider corpus 22 of
+    /// 151 tagged documents do — which is where all 475 of the identifiers Table 384's `/Headers`
+    /// names are found. `examples/cell_header_census` is what counts it.
     #[must_use]
     pub fn element_by_id(&self, document: &Document, id: &[u8]) -> Option<Dictionary> {
         let tree = document.get_key(&self.root, "IDTree");
@@ -1216,7 +1284,75 @@ impl TableGrid {
     }
 }
 
-/// The tables a walk of §14.7's tree is currently inside, innermost last.
+/// Everything one `TH` or `TD` states about itself that its place in the grid cannot say.
+///
+/// [`Tree::cell_facts`] reads it; [`TableStack`] is what it is read for.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CellFacts {
+    /// Table 384's `/RowSpan`, at least 1.
+    pub row_span: usize,
+    /// Table 384's `/ColSpan`, at least 1.
+    pub column_span: usize,
+    /// Table 384's `/Scope`, where the cell states one.
+    ///
+    /// `None` leaves §14.8.5.7's assumption to be made from the cell's place in the grid, which
+    /// [`TableStack`] has and the caller does not.
+    pub scope: Option<HeaderScope>,
+    /// Table 355's `/ID`, where the element states one, which is what `/Headers` names cells by.
+    pub id: Option<Vec<u8>>,
+    /// Table 384's `/Headers`, unresolved, in the document's order.
+    pub headers: Option<Vec<Vec<u8>>>,
+}
+
+/// How many grid entries one walk's tables hold between them before recording stops.
+///
+/// One entry per column a cell occupies, so a table of ordinary cells costs one apiece and a
+/// `/ColSpan` of a thousand costs a thousand — which is what makes this a bound on a `/ColSpan` a
+/// document controls rather than on a table anybody writes. `examples/cell_header_census` prints
+/// [`TableStack::truncated`] over 1251 files and 21 883 cells, and has never seen it true. At this
+/// crate's sizes the bound is about 6 MB of intervals.
+///
+/// **A cell past the bound is still placed**, so §14.8.5.7's assumed `/Scope` is unaffected; what
+/// it loses is its part in §14.8.4.8.3's search, and [`TableStack::truncated`] says so rather than
+/// leaving a shorter list of headers looking like a document that states fewer.
+const MAX_TABLE_GRID: usize = 1 << 18;
+
+/// One cell of one table, as the search reads it back.
+#[derive(Debug, Clone)]
+struct PlacedCell {
+    /// What the caller called this cell — its own index, and what [`TableStack::headers`] answers.
+    token: usize,
+    /// Which of [`TableStack::tables`] the cell belongs to.
+    table: usize,
+    /// Where it sits.
+    place: CellPlacement,
+    /// Whether it is a `TH` rather than a `TD`.
+    header: bool,
+    /// Table 384's `/Scope`, stated or assumed — which is what the search filters on.
+    scope: HeaderScope,
+    /// Table 384's `/Headers`, unresolved.
+    stated: Option<Vec<Vec<u8>>>,
+}
+
+/// The rows each column of one table has been occupied by, in increasing row order.
+///
+/// One list per column, each holding `[row, row + RowSpan)` and the cell that fills it. The
+/// intervals of a column cannot overlap — [`TableGrid::place`] never puts a cell where one still
+/// reaches — and they arrive in increasing row order because the walk fills the table row by row,
+/// which is what makes [`TableStack::covering`] a binary search rather than a scan.
+///
+/// **A column's list, rather than a row's**, and the asymmetry is the memory: a cell is recorded
+/// once per column it spans and its `/RowSpan` costs nothing, so a table of ordinary cells costs
+/// one entry each.
+#[derive(Debug, Clone, Default)]
+struct TableColumns {
+    /// The grid that places cells, which is the same one [`HeaderScope`]'s assumption needs.
+    grid: TableGrid,
+    /// Per column, the intervals of rows that are occupied and by which cell.
+    occupied: Vec<Vec<(usize, usize, usize)>>,
+}
+
+/// The tables a walk of §14.7's tree is currently inside, and everything they placed.
 ///
 /// §14.8.4.8.3 puts no bar on a `Table` inside a `TD`, so one grid is not enough and the enclosing
 /// table's rows continue where the inner one's finish. The stack is keyed by the walk's own depth,
@@ -1226,13 +1362,40 @@ impl TableGrid {
 /// It is deliberately *driven* rather than computed. Both callers walk the tree for their own
 /// reasons — a census over a corpus, and `viewer_core`'s answer for one page — and neither should
 /// walk it a second time to learn where its cells are.
+///
+/// # Why the headers are answered afterwards
+///
+/// [`Self::enter`] answers a cell's *place* immediately, because §14.8.5.7's assumption needs
+/// nothing but the grid so far. [`Self::headers`] cannot: Table 384's `/Headers` names cells by
+/// `/ID`, and nothing in the standard makes the cell it names one the walk has already reached.
+/// So the identifiers are kept unresolved until the walk is over and the whole table is known —
+/// which is also what lets the entry's own recursion terminate.
 #[derive(Debug, Clone, Default)]
 pub struct TableStack {
-    /// The depth each open table's element was entered at, with its grid.
+    /// Every table the walk has entered, in the order it entered them.
+    tables: Vec<TableColumns>,
+    /// The depth each open table was entered at, and which of [`Self::tables`] it is.
     ///
     /// One entry per depth, because [`Self::enter`] closes every table at or below the depth it
     /// is given before opening another, so this is bounded by whatever bounds the walk's depth.
-    open: Vec<(usize, TableGrid)>,
+    open: Vec<(usize, usize)>,
+    /// Every cell the walk has placed, in walk order.
+    cells: Vec<PlacedCell>,
+    /// Which cell each stated `/ID` belongs to, for resolving `/Headers`.
+    ///
+    /// Cells only: Table 384 makes a `/Headers` entry "the element identifier … for a TH
+    /// structure element", so an identifier naming anything else names nothing this answers with.
+    ///
+    /// **Not through Table 354's `/IDTree`**, which [`Tree::element_by_id`] reads and which would
+    /// answer with a dictionary — and a dictionary is not something a caller can point at, because
+    /// what this type answers in is the caller's own token for the element. It also means a
+    /// document that states identifiers without the index Table 354 requires beside them is still
+    /// read. All 475 of the corpus's `/Headers` entries resolve either way.
+    by_id: BTreeMap<Vec<u8>, usize>,
+    /// How much of [`MAX_TABLE_GRID`] has been spent.
+    entries: usize,
+    /// Whether that bound was reached, which is [`Self::truncated`].
+    truncated: bool,
 }
 
 impl TableStack {
@@ -1242,6 +1405,16 @@ impl TableStack {
         Self::default()
     }
 
+    /// Whether [`MAX_TABLE_GRID`] stopped this walk recording cells.
+    ///
+    /// `true` means [`Self::headers`] answers for a *part* of the document's tables, which is a
+    /// different statement from a document whose cells state no headers. Reported rather than
+    /// applied in silence, for [`Walk::truncated`]'s reason.
+    #[must_use]
+    pub fn truncated(&self) -> bool {
+        self.truncated
+    }
+
     /// Enters one structure element, and answers with its place in its table where it is a cell.
     ///
     /// `kind` is the element's §14.8.4 type **after §14.7.3's role mapping**, because a document's
@@ -1249,37 +1422,297 @@ impl TableStack {
     /// — a type §14.8.4 does not define — is neither a table nor a cell and only closes what the
     /// walk has left.
     ///
-    /// `span` is asked for **only where the element turns out to be a cell**, which is why it is a
-    /// closure rather than a pair: [`Tree::cell_span`] reads the element's attribute objects and
-    /// its class map, and a tagged document's elements are overwhelmingly paragraphs and spans.
+    /// `token` is whatever the caller calls this element — its index in the caller's own list —
+    /// and is what [`Self::headers`] answers in. It is read only for a cell.
+    ///
+    /// `facts` is asked for **only where the element turns out to be a cell**, which is why it is
+    /// a closure rather than a value: [`Tree::cell_facts`] reads the element's attribute objects
+    /// and its class map, and a tagged document's elements are overwhelmingly paragraphs and
+    /// spans.
     pub fn enter(
         &mut self,
         depth: usize,
         kind: Option<&StandardType>,
-        span: impl FnOnce() -> (usize, usize),
+        token: usize,
+        facts: impl FnOnce() -> CellFacts,
     ) -> Option<CellPlacement> {
         while self.open.last().is_some_and(|(at, _)| *at >= depth) {
             self.open.pop();
         }
         match kind {
             Some(StandardType::Table) => {
-                self.open.push((depth, TableGrid::default()));
+                let table = self.tables.len();
+                self.tables.push(TableColumns::default());
+                self.open.push((depth, table));
                 None
             }
             Some(StandardType::TableRow) => {
-                if let Some((_, grid)) = self.open.last_mut() {
-                    grid.begin_row();
+                if let Some(table) = self.open.last().map(|(_, table)| *table)
+                    && let Some(columns) = self.tables.get_mut(table)
+                {
+                    columns.grid.begin_row();
                 }
                 None
             }
-            Some(StandardType::TableHeader | StandardType::TableData) => {
-                let (row_span, column_span) = span();
-                self.open
-                    .last_mut()
-                    .and_then(|(_, grid)| grid.place(row_span, column_span))
+            Some(kind @ (StandardType::TableHeader | StandardType::TableData)) => {
+                let facts = facts();
+                let table = self.open.last().map(|(_, table)| *table)?;
+                let columns = self.tables.get_mut(table)?;
+                let place = columns.grid.place(facts.row_span, facts.column_span)?;
+                self.record(
+                    table,
+                    token,
+                    *kind == StandardType::TableHeader,
+                    place,
+                    facts,
+                );
+                Some(place)
             }
             _ => None,
         }
+    }
+
+    /// Keeps one placed cell, and the columns it occupies, for the search to read back.
+    fn record(
+        &mut self,
+        table: usize,
+        token: usize,
+        header: bool,
+        place: CellPlacement,
+        facts: CellFacts,
+    ) {
+        // The same clamp [`TableGrid::place`] applied when it filled the grid: a `/ColSpan` past
+        // [`MAX_TABLE_COLUMNS`] occupies the columns this reader has and no more, and recording
+        // more of them than the grid knows about would put a cell where nothing can find it.
+        let end = place
+            .column
+            .saturating_add(place.column_span)
+            .min(MAX_TABLE_COLUMNS)
+            .max(place.column);
+        let width = end.saturating_sub(place.column);
+        if self.entries.saturating_add(width) > MAX_TABLE_GRID {
+            self.truncated = true;
+            return;
+        }
+        self.entries = self.entries.saturating_add(width);
+        let cell = self.cells.len();
+        let rows = (place.row, place.row.saturating_add(place.row_span));
+        if let Some(columns) = self.tables.get_mut(table) {
+            if columns.occupied.len() < end {
+                columns.occupied.resize(end, Vec::new());
+            }
+            for column in columns
+                .occupied
+                .get_mut(place.column..end)
+                .into_iter()
+                .flatten()
+            {
+                column.push((rows.0, rows.1, cell));
+            }
+        }
+        if let Some(id) = facts.id {
+            self.by_id.entry(id).or_insert(cell);
+        }
+        self.cells.push(PlacedCell {
+            token,
+            table,
+            place,
+            header,
+            // §14.8.5.7's assumption is what a cell stating nothing gets, and it is about the
+            // cell's place in the grid rather than its ordinal among its row's children.
+            scope: facts
+                .scope
+                .unwrap_or_else(|| HeaderScope::assumed(place.row, place.column)),
+            stated: facts.headers,
+        });
+    }
+
+    /// §14.8.4.8.3's headers, for every cell this walk placed that has any.
+    ///
+    /// One entry per cell, in walk order, as `(the cell's token, the header cells' tokens)`; a
+    /// cell whose headers come to nothing is not listed at all. Within an entry the order is
+    /// Table 384's:
+    ///
+    /// > The order in which the entries in the Headers array are listed shall be row IDs followed
+    /// > by column IDs. The row and column IDs shall be ordered from most specific to most
+    /// > general.
+    ///
+    /// which is the order the search itself produces, because it starts at the cell and walks
+    /// outward.
+    ///
+    /// Two routes, and the clause chooses between them rather than combining them:
+    ///
+    /// > If the Headers attribute (see 14.8.5, "Standard structure attributes") is not specified,
+    /// > any cell in a table may have multiple headers associated with it. These headers are
+    /// > defined either explicitly by the Headers attribute, or implicitly, by the following
+    /// > algorithm
+    ///
+    /// A cell that states the attribute is answered from it, expanded by Table 384's own
+    /// recursion — "the headers associated with any cell shall be those in its Headers array plus
+    /// those in the Headers array of any TH cells in that array, and so on recursively" — and a
+    /// cell that states none is answered by [`Self::search`].
+    ///
+    /// **A header found twice is answered once.** Two searches build one list and a cell spanning
+    /// both axes can be met by both of them, and the standard says nothing about the case; naming
+    /// the same header twice would have a reader announce it twice, which is a choice this crate
+    /// makes rather than a rule it read. It is also what makes the recursion above terminate.
+    #[must_use]
+    pub fn headers(&self) -> Vec<(usize, Vec<usize>)> {
+        let mut out = Vec::new();
+        for (index, cell) in self.cells.iter().enumerate() {
+            let mut found = Vec::new();
+            let mut seen = BTreeSet::new();
+            seen.insert(index);
+            if let Some(ids) = &cell.stated {
+                self.resolve(ids, &mut seen, &mut found);
+            } else {
+                self.search(index, HeaderScope::Row, &mut seen, &mut found);
+                self.search(index, HeaderScope::Column, &mut seen, &mut found);
+            }
+            if !found.is_empty() {
+                out.push((
+                    cell.token,
+                    found
+                        .into_iter()
+                        .filter_map(|cell| self.cells.get(cell).map(|cell| cell.token))
+                        .collect(),
+                ));
+            }
+        }
+        out
+    }
+
+    /// Table 384's `/Headers`, resolved and expanded by the entry's own recursion.
+    ///
+    /// Breadth-first, because the recursion appends the *named* cells' headers after the named
+    /// cells themselves and the entry's order is "from most specific to most general". `seen`
+    /// carries the cells already named, which is both the dedup rule [`Self::headers`] states and
+    /// what terminates a document whose cells name each other.
+    fn resolve(&self, ids: &[Vec<u8>], seen: &mut BTreeSet<usize>, out: &mut Vec<usize>) {
+        let mut frontier: Vec<usize> = Vec::new();
+        for id in ids {
+            let Some(&cell) = self.by_id.get(id) else {
+                continue;
+            };
+            if seen.insert(cell) {
+                out.push(cell);
+                frontier.push(cell);
+            }
+        }
+        for _ in 0..MAX_DEPTH {
+            if frontier.is_empty() {
+                return;
+            }
+            let mut next = Vec::new();
+            for named in frontier.drain(..) {
+                let Some(ids) = self.cells.get(named).and_then(|cell| cell.stated.as_ref()) else {
+                    continue;
+                };
+                for id in ids {
+                    let Some(&cell) = self.by_id.get(id) else {
+                        continue;
+                    };
+                    if seen.insert(cell) {
+                        out.push(cell);
+                        next.push(cell);
+                    }
+                }
+            }
+            frontier = next;
+        }
+    }
+
+    /// §14.8.4.8.3's search along one axis, from a cell towards the first cell of its table.
+    ///
+    /// ISO 32000-2 §14.8.4.8.3:
+    ///
+    /// > To find headers for any data or header cell, begin from the current cell position and use
+    /// > the current value of WritingMode to search towards the first cell in the appropriate
+    /// > horizontal/vertical direction. The search terminates when any of these conditions is
+    /// > reached:
+    ///
+    /// > the edge of the table is reached
+    ///
+    /// > a data cell is found after a header cell
+    ///
+    /// > a header cell has the Headers attribute set -the headers that are specified are appended
+    /// > to the row/ column list that is being built
+    ///
+    /// > When a header cell is found in the search and the (implicit or explicit) Scope attribute
+    /// > of the header cell is either Both or Row/Column , the header cell is appended to the end
+    /// > of the list of row/column headers, resulting in a list of headers ordered from most
+    /// > specific to most general.
+    ///
+    /// `axis` is which of the two lists is being built: [`HeaderScope::Row`] walks towards the
+    /// first column of the cell's own row, [`HeaderScope::Column`] towards the first row of its
+    /// own column. [`HeaderScope::Both`] is not an axis and searches nothing — it is what a
+    /// *header* may be scoped to, never a direction.
+    ///
+    /// **The direction is the grid's rather than the page's**, which is the clause's own reading:
+    /// its NOTE says the algorithm "works for languages with different intrinsic directionality of
+    /// the script … because the structure always reflects the logical content order of the table",
+    /// so `WritingMode` decides where the first cell is *drawn* and the structure decides which it
+    /// is.
+    fn search(
+        &self,
+        from: usize,
+        axis: HeaderScope,
+        seen: &mut BTreeSet<usize>,
+        out: &mut Vec<usize>,
+    ) {
+        let Some(cell) = self.cells.get(from) else {
+            return;
+        };
+        let (mut row, mut column) = (cell.place.row, cell.place.column);
+        let mut after_a_header = false;
+        loop {
+            // "the edge of the table is reached" — which is column zero along a row and row zero
+            // down a column, both of them exclusive because the cell itself is not its own header.
+            match axis {
+                HeaderScope::Row if column > 0 => column = column.saturating_sub(1),
+                HeaderScope::Column if row > 0 => row = row.saturating_sub(1),
+                _ => return,
+            }
+            let Some(found) = self.covering(cell.table, row, column) else {
+                continue;
+            };
+            let Some(other) = self.cells.get(found) else {
+                return;
+            };
+            // Step over the whole of the cell that was found rather than over one grid position,
+            // so a cell spanning a hundred columns costs one step and is considered once.
+            match axis {
+                HeaderScope::Row => column = other.place.column,
+                _ => row = other.place.row,
+            }
+            if !other.header {
+                if after_a_header {
+                    return;
+                }
+                continue;
+            }
+            after_a_header = true;
+            // "either Both or Row/Column" — the axis being built, or a header that describes both.
+            if (other.scope == axis || other.scope == HeaderScope::Both) && seen.insert(found) {
+                out.push(found);
+            }
+            if let Some(ids) = &other.stated {
+                self.resolve(ids, seen, out);
+                return;
+            }
+        }
+    }
+
+    /// Which cell occupies one position of one table's grid.
+    ///
+    /// A binary search over the column's intervals, which are non-overlapping and in increasing
+    /// row order; `None` for a position no cell reaches, which the search steps over because a gap
+    /// in a table is neither a data cell nor a header cell.
+    fn covering(&self, table: usize, row: usize, column: usize) -> Option<usize> {
+        let intervals = self.tables.get(table)?.occupied.get(column)?;
+        let at = intervals.partition_point(|(start, _, _)| *start <= row);
+        let &(start, end, cell) = intervals.get(at.checked_sub(1)?)?;
+        (start <= row && row < end).then_some(cell)
     }
 }
 
@@ -2170,8 +2603,8 @@ pub fn document_language(document: &Document) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        Checked, Child, FieldRole, HeaderScope, MAX_TABLE_COLUMNS, ParentTree, StandardType,
-        TableGrid, TableStack, Tree, actual_text,
+        CellFacts, Checked, Child, FieldRole, HeaderScope, MAX_TABLE_COLUMNS, ParentTree,
+        StandardType, TableGrid, TableStack, Tree, actual_text,
     };
     use pdf_syntax::{Document, Object};
 
@@ -3107,21 +3540,25 @@ mod tests {
     /// its corner cell is assumed [`HeaderScope::Both`] however deep in another table it sits.
     #[test]
     fn a_table_inside_a_cell_does_not_disturb_the_table_around_it() {
-        let one = || (1, 1);
+        let one = || CellFacts {
+            row_span: 1,
+            column_span: 1,
+            ..CellFacts::default()
+        };
         let mut stack = TableStack::new();
         // Table(0) > TR(1) > TD(2), which is the outer table's first cell.
-        assert_eq!(stack.enter(0, Some(&StandardType::Table), one), None);
-        assert_eq!(stack.enter(1, Some(&StandardType::TableRow), one), None);
+        assert_eq!(stack.enter(0, Some(&StandardType::Table), 0, one), None);
+        assert_eq!(stack.enter(1, Some(&StandardType::TableRow), 1, one), None);
         let outer = stack
-            .enter(2, Some(&StandardType::TableData), one)
+            .enter(2, Some(&StandardType::TableData), 2, one)
             .expect("a cell in a row");
         assert_eq!((outer.row, outer.column), (0, 0));
 
         // A table inside that cell: Table(3) > TR(4) > TH(5).
-        assert_eq!(stack.enter(3, Some(&StandardType::Table), one), None);
-        assert_eq!(stack.enter(4, Some(&StandardType::TableRow), one), None);
+        assert_eq!(stack.enter(3, Some(&StandardType::Table), 3, one), None);
+        assert_eq!(stack.enter(4, Some(&StandardType::TableRow), 4, one), None);
         let inner = stack
-            .enter(5, Some(&StandardType::TableHeader), one)
+            .enter(5, Some(&StandardType::TableHeader), 5, one)
             .expect("a cell in the inner table's row");
         assert_eq!((inner.row, inner.column), (0, 0));
         assert_eq!(
@@ -3130,9 +3567,9 @@ mod tests {
         );
 
         // Back out to the outer table's second row, which is row 1 and not row 0.
-        assert_eq!(stack.enter(1, Some(&StandardType::TableRow), one), None);
+        assert_eq!(stack.enter(1, Some(&StandardType::TableRow), 6, one), None);
         let again = stack
-            .enter(2, Some(&StandardType::TableHeader), one)
+            .enter(2, Some(&StandardType::TableHeader), 7, one)
             .expect("a cell in the outer table's second row");
         assert_eq!((again.row, again.column), (1, 0));
         assert_eq!(
@@ -3143,7 +3580,10 @@ mod tests {
 
         // And a cell with no table around it is placed nowhere.
         let mut loose = TableStack::new();
-        assert_eq!(loose.enter(0, Some(&StandardType::TableHeader), one), None);
+        assert_eq!(
+            loose.enter(0, Some(&StandardType::TableHeader), 0, one),
+            None
+        );
     }
 
     /// §14.7.2's `/IDTree`: an element found by the identifier it states.
@@ -3161,5 +3601,201 @@ mod tests {
         let found = tree.element_by_id(&doc, b"Chap1").expect("the element");
         assert_eq!(tree.role(&doc, &found).as_deref(), Some("Sect"));
         assert!(tree.element_by_id(&doc, b"Chap2").is_none());
+    }
+
+    /// Drives one table through a [`TableStack`], a row at a time, and answers its headers.
+    ///
+    /// `rows` is the table as the walk meets it: one entry per cell, `(is a TH, the cell's own
+    /// facts)`, grouped into rows. The token each cell gets is its position in the whole table
+    /// counting from zero, which is what the assertions name it by.
+    fn headers_of(rows: &[Vec<(bool, CellFacts)>]) -> Vec<(usize, Vec<usize>)> {
+        let mut stack = TableStack::new();
+        let mut token = 0usize;
+        stack.enter(0, Some(&StandardType::Table), token, CellFacts::default);
+        for row in rows {
+            token = token.saturating_add(1);
+            stack.enter(1, Some(&StandardType::TableRow), token, CellFacts::default);
+            for (header, facts) in row {
+                token = token.saturating_add(1);
+                let kind = if *header {
+                    StandardType::TableHeader
+                } else {
+                    StandardType::TableData
+                };
+                stack.enter(2, Some(&kind), token, || facts.clone());
+            }
+        }
+        assert!(!stack.truncated(), "no fixture here is near the bound");
+        stack.headers()
+    }
+
+    /// A cell of one row and one column, with nothing else stated.
+    fn cell() -> CellFacts {
+        CellFacts {
+            row_span: 1,
+            column_span: 1,
+            ..CellFacts::default()
+        }
+    }
+
+    /// §14.8.4.8.3's search: a cell's row headers, then its column headers.
+    ///
+    /// The table is a header row above a header column, which is the ordinary shape, plus one
+    /// header spanning two rows — because the row search of the *second* row has to meet it, and a
+    /// grid that recorded only the row a cell begins in would find nothing there.
+    ///
+    /// ```text
+    ///     c0        c1      c2
+    /// r0  TH corner TH one  TH two
+    /// r1  TH side   TD      TD
+    /// r2  (spans)   TD      TD
+    /// ```
+    #[test]
+    fn a_cells_headers_are_its_rows_then_its_columns() {
+        let spanning = CellFacts {
+            row_span: 2,
+            ..cell()
+        };
+        let found = headers_of(&[
+            vec![(true, cell()), (true, cell()), (true, cell())],
+            vec![(true, spanning), (false, cell()), (false, cell())],
+            vec![(false, cell()), (false, cell())],
+        ]);
+        // Tokens: 0 the table, 1 the first TR, 2 3 4 its cells, 5 the second TR, 6 7 8 its cells,
+        // 9 the third TR, 10 and 11 its two — which begin at column 1, the spanning header
+        // having taken column 0 of that row.
+        let of = |token: usize| {
+            found
+                .iter()
+                .find(|(cell, _)| *cell == token)
+                .map(|(_, headers)| headers.clone())
+                .unwrap_or_default()
+        };
+        assert_eq!(of(2), Vec::<usize>::new(), "the corner cell has no headers");
+        assert_eq!(
+            of(3),
+            vec![2],
+            "a header in the first row is described by the corner, which is scoped to both"
+        );
+        assert_eq!(
+            of(7),
+            vec![6, 3],
+            "Table 384's order: the row's header first, then the column's"
+        );
+        assert_eq!(of(8), vec![6, 4], "the same, one column over");
+        assert_eq!(
+            of(10),
+            vec![6, 3],
+            "the row below the spanning header still meets it, at column zero"
+        );
+    }
+
+    /// The search stops at the first data cell it meets *after* a header cell.
+    ///
+    /// One row, `TH TD TH TD`, both headers scoped to the row so that both would be collected if
+    /// the search ran to the table's edge. The clause stops it at the data cell between them, so
+    /// the answer is the nearer header alone.
+    #[test]
+    fn the_search_stops_at_a_data_cell_after_a_header_cell() {
+        let scoped = CellFacts {
+            scope: Some(HeaderScope::Row),
+            ..cell()
+        };
+        let found = headers_of(&[vec![
+            (true, scoped.clone()),
+            (false, cell()),
+            (true, scoped),
+            (false, cell()),
+        ]]);
+        // Tokens: 0 the table, 1 the row, 2 3 4 5 the four cells.
+        assert_eq!(
+            found,
+            vec![(3, vec![2]), (4, vec![2]), (5, vec![4])],
+            "the last cell's far header is behind a data cell and its near one is not"
+        );
+    }
+
+    /// Table 384's `/Headers` replaces the search, and carries the headers of what it names.
+    ///
+    /// > the headers associated with any cell shall be those in its Headers array plus those in
+    /// > the Headers array of any TH cells in that array, and so on recursively
+    ///
+    /// The data cell names `B`, `B` names `A`, and the answer is both — in that order, because the
+    /// entry's own rule is "from most specific to most general". The search would have answered
+    /// `A` alone, which is what makes this a test of the choice between the two routes.
+    #[test]
+    fn a_stated_headers_array_replaces_the_search_and_carries_its_own_headers() {
+        let named = |id: &[u8], headers: Option<Vec<Vec<u8>>>| CellFacts {
+            id: Some(id.to_vec()),
+            headers,
+            ..cell()
+        };
+        let found = headers_of(&[
+            vec![
+                (true, named(b"A", None)),
+                (true, named(b"B", Some(vec![b"A".to_vec()]))),
+            ],
+            vec![(false, {
+                CellFacts {
+                    headers: Some(vec![b"B".to_vec()]),
+                    ..cell()
+                }
+            })],
+        ]);
+        // Tokens: 0 the table, 1 the first TR, 2 and 3 its cells, 4 the second TR, 5 its cell.
+        assert_eq!(
+            found.iter().find(|(cell, _)| *cell == 5),
+            Some(&(5, vec![3, 2])),
+            "the array, then what the array's own cell names"
+        );
+        // And a cell naming an identifier nobody states is answered with nothing rather than
+        // falling back to the search, because the attribute *is* specified.
+        let missing = headers_of(&[
+            vec![(true, named(b"A", None))],
+            vec![(false, {
+                CellFacts {
+                    headers: Some(vec![b"Z".to_vec()]),
+                    ..cell()
+                }
+            })],
+        ]);
+        assert_eq!(missing, Vec::new());
+    }
+
+    /// Table 384's `/Headers`, read off the cells that state one.
+    #[test]
+    fn a_cell_states_the_identifiers_of_the_headers_that_describe_it() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+            "<< /Type /StructTreeRoot /K [5 0 R 6 0 R 7 0 R] >>",
+            "<< /Type /StructElem /S /TD /ID (cell) /A << /O /Table /Headers [(a) (b)] >> >>",
+            "<< /Type /StructElem /S /TD /A << /O /Table /Headers [] >> >>",
+            "<< /Type /StructElem /S /TD >>",
+        ]);
+        let tree = Tree::of(&doc).expect("a structure tree");
+        let elements: Vec<_> = tree
+            .children(&doc, None)
+            .into_iter()
+            .filter_map(|child| match child {
+                Child::Element(dict) => Some(dict),
+                _ => None,
+            })
+            .collect();
+
+        let facts = tree.cell_facts(&doc, &elements[0]);
+        assert_eq!(facts.id.as_deref(), Some(&b"cell"[..]));
+        assert_eq!(
+            facts.headers,
+            Some(vec![b"a".to_vec(), b"b".to_vec()]),
+            "the document's own order, which Table 384 makes part of the answer"
+        );
+        assert_eq!(
+            tree.cell_headers(&doc, &elements[1]),
+            Some(Vec::new()),
+            "an empty array is the attribute specified, which is not the attribute absent"
+        );
+        assert_eq!(tree.cell_headers(&doc, &elements[2]), None);
     }
 }

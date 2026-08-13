@@ -3283,6 +3283,7 @@ mod tests {
                 quads: Vec::new(),
                 header_scope: None,
                 bounds: None,
+                headers: Vec::new(),
             },
             // A `Figure` marks no text, so Table 379's `/BBox` is the only place it has — and
             // a rectangle that did not cross would leave a magnifier nothing to point at.
@@ -3295,6 +3296,7 @@ mod tests {
                 quads: vec![[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]],
                 header_scope: None,
                 bounds: Some([8.0, 9.0, 10.0, 11.0]),
+                headers: Vec::new(),
             },
             // A `TH` whose axis Table 384 states, because a header cell that crossed as a
             // column's when the document called it a row's would be read out backwards.
@@ -3307,6 +3309,20 @@ mod tests {
                 quads: Vec::new(),
                 header_scope: Some(pdf_model::structure::HeaderScope::Row),
                 bounds: None,
+                headers: Vec::new(),
+            },
+            // And a `TD` that §14.8.4.8.3's search gave the header beside it, because a cell
+            // whose headers did not cross would be announced with nothing in front of it.
+            AccessibilityNode {
+                parent: Some(0),
+                role: "TD".to_owned(),
+                name: "north".to_owned(),
+                substituted: false,
+                language: None,
+                quads: Vec::new(),
+                header_scope: None,
+                bounds: None,
+                headers: vec![2],
             },
         ];
         let Reply::Accessibility(read) = round_trip(&Answer::Accessibility(nodes.clone())) else {

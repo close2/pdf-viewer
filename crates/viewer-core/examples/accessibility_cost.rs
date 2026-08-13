@@ -66,36 +66,66 @@ fn main() {
         return;
     }
 
-    let (best, nodes, bounded) = ask(&viewer, repeats);
-    println!("{path}: the page it opens on — {best:.3?}, {nodes} node(s), {bounded} with bounds");
+    let measured = ask(&viewer, repeats);
+    println!("{path}: the page it opens on — {measured}");
 
     if page > 0 {
         viewer
             .handle(Command::GoTo(PageTarget::Index(page)))
             .for_each(drop);
-        let (best, nodes, bounded) = ask(&viewer, repeats);
-        println!("  page {page} — {best:.3?}, {nodes} node(s), {bounded} with bounds");
+        let measured = ask(&viewer, repeats);
+        println!("  page {page} — {measured}");
+    }
+}
+
+/// One run's best time, and what the answer it produced holds.
+struct Measured {
+    /// The best of the repeats.
+    best: Duration,
+    /// How many nodes came back.
+    nodes: usize,
+    /// How many carry Table 379's `/BBox`.
+    bounded: usize,
+    /// How many carry §14.8.4.8.3's header cells, and how many associations in all.
+    headed: (usize, usize),
+}
+
+impl std::fmt::Display for Measured {
+    fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            out,
+            "{:.3?}, {} node(s), {} with bounds, {} with headers ({} associations)",
+            self.best, self.nodes, self.bounded, self.headed.0, self.headed.1
+        )
     }
 }
 
 /// Asks the question `repeats` times, and answers with the best time and what came back.
 ///
-/// The count of nodes carrying Table 379's `/BBox` is printed beside the time because the two
-/// belong together: reading the attribute costs one `Tree::attribute` per element whatever the
-/// document states, and how many elements it *answers* for is what that buys.
-fn ask(viewer: &Viewer, repeats: usize) -> (Duration, usize, usize) {
-    let mut best = Duration::MAX;
-    let mut nodes = 0_usize;
-    let mut bounded = 0_usize;
+/// The counts beside the time are what it bought: nodes carrying Table 379's `/BBox`, and cells
+/// carrying §14.8.4.8.3's headers. Both cost work per *element* whatever the document states —
+/// one `Tree::attribute` for the first, a walk of the table's grid for the second — so the count
+/// of elements they answer for is the other half of the measurement.
+fn ask(viewer: &Viewer, repeats: usize) -> Measured {
+    let mut measured = Measured {
+        best: Duration::MAX,
+        nodes: 0,
+        bounded: 0,
+        headed: (0, 0),
+    };
     for _ in 0..repeats.max(1) {
         let started = Instant::now();
         let answer = viewer.query(Query::AccessibilityTree);
         let elapsed = started.elapsed();
-        best = best.min(elapsed);
+        measured.best = measured.best.min(elapsed);
         if let Answer::Accessibility(tree) = answer {
-            nodes = tree.len();
-            bounded = tree.iter().filter(|node| node.bounds.is_some()).count();
+            measured.nodes = tree.len();
+            measured.bounded = tree.iter().filter(|node| node.bounds.is_some()).count();
+            measured.headed = (
+                tree.iter().filter(|node| !node.headers.is_empty()).count(),
+                tree.iter().map(|node| node.headers.len()).sum(),
+            );
         }
     }
-    (best, nodes, bounded)
+    measured
 }

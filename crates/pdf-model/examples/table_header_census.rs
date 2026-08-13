@@ -86,12 +86,14 @@ fn census(document: &Document) -> Counts {
     };
     counts.tagged = 1;
     let mut stack = TableStack::new();
-    for (depth, child) in tree.walk(document).items {
+    for (token, (depth, child)) in tree.walk(document).items.into_iter().enumerate() {
         let Child::Element(dict) = child else {
             continue;
         };
         let kind = tree.standard_role(document, &dict);
-        let placement = stack.enter(depth, kind.as_ref(), || tree.cell_span(document, &dict));
+        let placement = stack.enter(depth, kind.as_ref(), token, || {
+            tree.cell_facts(document, &dict)
+        });
         match kind {
             Some(StandardType::Table) => counts.tables = counts.tables.saturating_add(1),
             Some(StandardType::TableHeader) => {

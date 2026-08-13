@@ -145,6 +145,32 @@ pub struct AccessibilityNode {
     /// `None` for an element stating none, which is all but 132 of the corpus's 133 114 elements
     /// — so the ordinary answer here is nothing, and that is not a failure.
     pub bounds: Option<[f32; 4]>,
+    /// The header cells that describe this one, as indices into the answer.
+    ///
+    /// §14.8.4.8.3 gives a table cell its headers twice over — Table 384's `/Headers`, an array of
+    /// the `/ID`s the producer wrote, and an algorithm for every cell that states none — and both
+    /// are read. The order is the clause's: the row's headers, then the column's, each from most
+    /// specific to most general.
+    ///
+    /// **Indices rather than names**, because a header is a *node* and the host already has its
+    /// text, its role and its bounds; a copied string would be a second statement of the same
+    /// thing that could disagree with the first.
+    ///
+    /// **An index is always lower than this node's own.** §14.8.4.8.3's search walks *out* from a
+    /// cell towards its table's first, so what it finds is always earlier in the tree; a
+    /// `/Headers` array naming a cell later than the one that states it has no index in a
+    /// parent-first list and is dropped, which no corpus document does — all 475 stated entries
+    /// name a `TH` earlier in the walk, measured.
+    ///
+    /// Empty for every element that is not a table cell, and for a cell no header describes —
+    /// 4452 of the corpus's 21 883 cells, against 17 431 that end with at least one and 17 152 of
+    /// those answered by the search rather than by an array, measured by
+    /// `pdf-model --example cell_header_census`.
+    ///
+    /// **A header on another page is not here**, and that is a real loss rather than a decision:
+    /// this answer is one page's, so a table whose header row is on the page before has its data
+    /// cells' headers pruned away with it. Nothing in §14.8 makes a table stay on one page.
+    pub headers: Vec<usize>,
 }
 
 /// What one element contributes before its quads are mapped into the viewport.
@@ -178,6 +204,13 @@ pub(crate) struct Gathered {
     /// this side of the walk has no magnification and no origin, and the flip between the page's
     /// y axis and the raster's belongs to whoever holds them.
     pub(crate) bounds: Option<[f32; 4]>,
+    /// §14.8.4.8.3's header cells, as indices into this list — **before** [`prune`] moves them.
+    ///
+    /// Filled after the walk rather than during it, because Table 384's `/Headers` names cells by
+    /// an identifier and nothing in the standard makes the cell it names one the walk has already
+    /// reached. `pdf_model::structure::TableStack::headers` is what answers, in the tokens this
+    /// walk gave it, which are exactly these indices.
+    pub(crate) headers: Vec<usize>,
 }
 
 /// Reads the page's part of §14.7's structure tree.
@@ -212,6 +245,12 @@ pub(crate) fn nodes(
         &mut tables,
         &mut out,
     );
+    // §14.8.4.8.3's headers, once the whole tree has been seen — see `Gathered::headers`.
+    for (token, headers) in tables.headers() {
+        if let Some((_, entry)) = out.get_mut(token) {
+            entry.headers = headers;
+        }
+    }
     prune(out)
 }
 
@@ -224,10 +263,20 @@ pub(crate) fn nodes(
 fn prune(gathered: Vec<(Option<usize>, Gathered)>) -> Vec<(Option<usize>, Gathered)> {
     let mut moved: Vec<Option<usize>> = vec![None; gathered.len()];
     let mut out: Vec<(Option<usize>, Gathered)> = Vec::new();
-    for (index, (parent, entry)) in gathered.into_iter().enumerate() {
+    for (index, (parent, mut entry)) in gathered.into_iter().enumerate() {
         if entry.mcids.is_empty() && !entry.on_page {
             continue;
         }
+        // §14.8.4.8.3's search only ever walks *out* to a header, so its new index is already
+        // known here. Two kinds of header are dropped instead of being pointed at, and both are
+        // stated in `AccessibilityNode::headers`: one on another page, which this answer is not
+        // about, and one a `/Headers` array names *later* in the tree, which a parent-first list
+        // has no index for yet. No corpus document states the second.
+        entry.headers = entry
+            .headers
+            .iter()
+            .filter_map(|header| moved.get(*header).copied().flatten())
+            .collect();
         // A kept element's nearest kept ancestor. The walk pushed every content item to every
         // ancestor, so an ancestor of a kept element is itself kept and this is always the
         // parent — but reading it out of the map rather than assuming it is what makes the
@@ -313,9 +362,9 @@ fn walk(
                 let role = tree.role(document, &dict).unwrap_or_default();
                 let phrase =
                     text_entry(document, &dict, "Alt").or_else(|| text_entry(document, &dict, "E"));
-                let header_scope = header_scope(document, tree, &dict, &role, depth, tables);
-                let bounds = tree.bounds(document, &dict);
                 let index = out.len();
+                let header_scope = header_scope(document, tree, &dict, &role, depth, index, tables);
+                let bounds = tree.bounds(document, &dict);
                 out.push((
                     parent,
                     Gathered {
@@ -327,6 +376,7 @@ fn walk(
                         language: language.clone(),
                         header_scope,
                         bounds,
+                        headers: Vec::new(),
                     },
                 ));
                 walk(
@@ -396,16 +446,22 @@ fn walk(
 /// The stack is told about **every** element rather than only the table ones, because it is what
 /// closes a table the walk has left: a walk that named only tables would keep one open under
 /// everything that came after it, and a paragraph three sections later would be placed in a grid.
+///
+/// `index` is the element's place in the answer being built, which the stack keeps so that
+/// [`nodes`] can ask it for §14.8.4.8.3's headers once the whole tree has been walked.
 fn header_scope(
     document: &Document,
     tree: &Tree,
     dict: &Dictionary,
     role: &str,
     depth: usize,
+    index: usize,
     tables: &mut TableStack,
 ) -> Option<HeaderScope> {
     let kind = StandardType::read(role);
-    let placement = tables.enter(depth, kind.as_ref(), || tree.cell_span(document, dict));
+    let placement = tables.enter(depth, kind.as_ref(), index, || {
+        tree.cell_facts(document, dict)
+    });
     if kind != Some(StandardType::TableHeader) {
         return None;
     }
@@ -462,5 +518,6 @@ pub(crate) fn finish(
         quads: all,
         header_scope: gathered.header_scope,
         bounds: gathered.bounds.and_then(place),
+        headers: gathered.headers,
     }
 }

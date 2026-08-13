@@ -154,6 +154,8 @@ fn page_name(view: &PageView) -> String {
 /// `viewer_core` prunes it.
 fn elements(view: &PageView, out: &mut Vec<(NodeId, Node)>) -> Vec<NodeId> {
     let mut roots: Vec<NodeId> = Vec::new();
+    // What each cell named as a header would be said as, built once for the whole page.
+    let spoken = spoken_headers(view);
     // One entry per element of the answer: the children collected for it so far, and whether it
     // is published at all. Parent-first ordering means a node's parent is always already here.
     let mut children: Vec<Vec<NodeId>> = vec![Vec::new(); view.nodes.len()];
@@ -197,15 +199,20 @@ fn elements(view: &PageView, out: &mut Vec<(NodeId, Node)>) -> Vec<NodeId> {
         if let Some(level) = mapping.level {
             built.set_level(usize::try_from(level).unwrap_or(usize::MAX));
         }
+        let mut description: Vec<String> = Vec::new();
         if let Some(name) = mapping.unmapped {
-            built.set_description(format!(
+            description.push(format!(
                 "structure type {name}, which ISO 32000-2 §14.8.4 does not define and this \
                  document's role map does not map"
             ));
         } else if let Some(note) = mapping.note {
             // What the platform's vocabulary could not carry, in the description rather than in
             // the name: it is about the *reading* of the cell and not what the cell says.
-            built.set_description(note);
+            description.push(note.to_owned());
+        }
+        description.extend(headers(node, &spoken));
+        if !description.is_empty() {
+            built.set_description(description.join("; "));
         }
         if let Some(language) = node.language.as_deref() {
             built.set_language(language);
@@ -233,6 +240,103 @@ fn elements(view: &PageView, out: &mut Vec<(NodeId, Node)>) -> Vec<NodeId> {
         roots.push(id);
     }
     roots
+}
+
+/// What a table cell's header cells are, in words a person is meant to hear.
+///
+/// §14.8.4.8.3's whole purpose is what a reader does with the answer, and Table 384's `/Short`
+/// says so outright: "[w]hen accessed by means of a screen reader, for each table cell the
+/// applicable header cells are read to the user in order to allow that user to understand the
+/// content of the table cell." So the headers have to reach a person, and on this platform the
+/// **description** is the only channel that does — which is a choice about a platform rather than
+/// a reading of the standard, and the two alternatives are why:
+///
+/// - **`accesskit::Node::set_labelled_by` is the relation this is**, and it reaches nobody:
+///   `accesskit_atspi_common`'s `relation_set` builds exactly one relation, `ControllerFor`, out of
+///   `Node::controls`, so a `LabelledBy` set here would stop at the crate. Worse than inert,
+///   because `accesskit_consumer::Node::label` *falls back* to the labelled-by nodes' text where a
+///   node has no label of its own — so an empty table cell would be announced as its own headers.
+/// - **AT-SPI's `Table` and `TableCell` interfaces** are where a client would ordinarily ask, and
+///   that adapter implements neither. `doc/todo/31` records it as owed to the platform.
+///
+/// The order is the standard's, and it is stated rather than assumed by the listener: the row's
+/// headers first, then the column's, each from most specific to most general.
+///
+/// `None` where the cell has no headers, and where none of them has anything to say — a header
+/// cell whose content drew no text has no name, and naming it with an empty string would put a
+/// stray comma in the middle of a sentence somebody is listening to.
+fn headers(node: &AccessibilityNode, spoken: &[String]) -> Option<String> {
+    let named: Vec<&str> = node
+        .headers
+        .iter()
+        .filter_map(|at| spoken.get(*at))
+        .map(String::as_str)
+        .filter(|name| !name.is_empty())
+        .collect();
+    (!named.is_empty()).then(|| format!("headers, most specific first: {}", named.join(", ")))
+}
+
+/// What each element named as a header cell would be *said* as, indexed as the answer is.
+///
+/// **A header cell's text is usually not its own**, and that is what reading this back off a bus
+/// found: `bug2014080.pdf` puts each cell's words in a `P` inside the cell, so every `TH` in it has
+/// an empty [`AccessibilityNode::name`] — which is correct, because that field is deliberately the
+/// element's own text and not its subtree's, and a container repeating its children's would be
+/// read twice. A header *named by another cell* is the one place where the subtree is what is
+/// wanted: nothing is descending into it, so nothing would say the words at all.
+///
+/// The subtree is a contiguous run, because the answer is `viewer_core`'s depth-first walk with
+/// elements removed rather than reordered — so this stops at the first node that is not below the
+/// one it started at. An element stating §14.9.3's `/Alt` ends the descent for the reason
+/// [`elements`] gives: the substitution is what to say instead of what is under it.
+///
+/// Only the elements some cell names are computed, and each of them once: a header row is named by
+/// every cell in its column, and building its text per cell would be the same string over again.
+fn spoken_headers(view: &PageView) -> Vec<String> {
+    let mut out = vec![String::new(); view.nodes.len()];
+    let mut wanted: Vec<usize> = view
+        .nodes
+        .iter()
+        .flat_map(|node| node.headers.iter().copied())
+        .collect();
+    wanted.sort_unstable();
+    wanted.dedup();
+    for at in wanted {
+        let Some(header) = view.nodes.get(at) else {
+            continue;
+        };
+        let mut text = header.name.trim().to_owned();
+        let mut inside = vec![at];
+        let mut silenced: Vec<usize> = if header.substituted {
+            vec![at]
+        } else {
+            Vec::new()
+        };
+        for (index, node) in view.nodes.iter().enumerate().skip(at.saturating_add(1)) {
+            let Some(parent) = node.parent.filter(|parent| inside.contains(parent)) else {
+                break;
+            };
+            inside.push(index);
+            if silenced.contains(&parent) {
+                silenced.push(index);
+                continue;
+            }
+            let words = node.name.trim();
+            if !words.is_empty() {
+                if !text.is_empty() {
+                    text.push(' ');
+                }
+                text.push_str(words);
+            }
+            if node.substituted {
+                silenced.push(index);
+            }
+        }
+        if let Some(slot) = out.get_mut(at) {
+            *slot = text;
+        }
+    }
+    out
 }
 
 /// Puts a node's text where the platform will read it from.

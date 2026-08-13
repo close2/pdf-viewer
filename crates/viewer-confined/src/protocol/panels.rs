@@ -1444,6 +1444,7 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
             quads,
             header_scope,
             bounds,
+            headers,
         } = node;
         writer
             .option_usize(*parent)
@@ -1459,6 +1460,10 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
             None => {
                 writer.u8(0);
             }
+        }
+        writer.usize(headers.len());
+        for header in headers {
+            writer.usize(*header);
         }
         writer.usize(quads.len());
         for quad in quads {
@@ -1488,6 +1493,7 @@ pub(super) fn decode_accessibility(
                 value: u32::try_from(parent).unwrap_or(u32::MAX),
             });
         }
+        let index = at;
         at = at.saturating_add(1);
         Ok(AccessibilityNode {
             parent,
@@ -1497,6 +1503,19 @@ pub(super) fn decode_accessibility(
             language: reader.option_string("a node's language")?,
             header_scope: read_scope(reader)?,
             bounds: reader.option_rect("a node's stated bounding box")?,
+            // §14.8.4.8.3's header cells, checked the same way the parent link is: a header is a
+            // cell the search walked *out to*, so it is always a node already read, and one that
+            // is not would be a confined side pointing a host at something it has not been given.
+            headers: reader.list("a node's header cells", |reader| {
+                let header = reader.usize("a node's header cell")?;
+                if header >= index {
+                    return Err(ProtocolError::Unrecognised {
+                        what: "a node's header cell, which must be a node already read",
+                        value: u32::try_from(header).unwrap_or(u32::MAX),
+                    });
+                }
+                Ok(header)
+            })?,
             quads: super::read_quads(reader, "a node's shapes")?,
         })
     })

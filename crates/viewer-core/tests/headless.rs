@@ -2630,6 +2630,58 @@ fn a_header_cell_crosses_with_the_axis_it_describes() {
     );
 }
 
+/// §14.8.4.8.3's search gives each cell the header cells that describe it.
+///
+/// > To find headers for any data or header cell, begin from the current cell position and use
+/// > the current value of WritingMode to search towards the first cell in the appropriate
+/// > horizontal/vertical direction.
+///
+/// The same fixture as the axis test above, because the two questions are one grid: the search
+/// walks out along the row and up the column, and both the `/RowSpan` and the stated `/Scope`
+/// change what it finds. 17 152 of the corpus's 17 431 cells that end with a header get it this
+/// way rather than from Table 384's array — `pdf-model --example cell_header_census`.
+#[test]
+fn a_cell_is_given_the_header_cells_that_describe_it() {
+    let mut viewer = Viewer::new(400, 300, 1.0);
+    let events: Vec<Event> = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: with_a_table(),
+            password: None,
+            fragment: None,
+        })
+        .collect();
+    let request = request(&events).clone();
+    serve(&mut viewer, &request);
+
+    let Answer::Accessibility(nodes) = viewer.query(Query::AccessibilityTree) else {
+        panic!("the query always answers");
+    };
+    let headers = |name: &str| -> Vec<&str> {
+        nodes
+            .iter()
+            .find(|node| node.name == name)
+            .unwrap_or_else(|| panic!("{name} is on the page: {nodes:?}"))
+            .headers
+            .iter()
+            .map(|at| nodes.get(*at).map_or("", |header| header.name.as_str()))
+            .collect()
+    };
+
+    // The corner cell is the table's edge in both directions and has no headers at all.
+    assert!(headers("Region").is_empty(), "{:?}", headers("Region"));
+    // Table 384's order: the row's headers, then the column's. `Region` spans two rows, so the
+    // second row's cell meets it along its row even though nothing of it was written there.
+    assert_eq!(headers("North"), vec!["Region", "2023"]);
+    // A data cell, whose row header is the `TH` beside it and whose column headers are the two
+    // above — the search collects a run of header cells and stops at the first data cell after
+    // one, which is what makes this three rather than two.
+    assert_eq!(headers("12"), vec!["South", "North", "2023"]);
+    // And the scope filter: `South` is a header cell in this cell's own column, but §14.8.5.7
+    // assumes it to be its *row*'s, so the column search steps over it to reach `Region`.
+    assert_eq!(headers("Total"), vec!["Region"]);
+}
+
 #[test]
 fn a_page_stating_a_duration_advances_when_it_is_told_the_time() {
     // §12.4.4.1's `/Dur`, and rule 3: this crate has no clock, so the only way it learns that a

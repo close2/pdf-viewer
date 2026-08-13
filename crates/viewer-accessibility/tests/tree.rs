@@ -25,6 +25,7 @@ fn element(parent: Option<usize>, role: &str, name: &str) -> AccessibilityNode {
         quads: Vec::new(),
         header_scope: None,
         bounds: None,
+        headers: Vec::new(),
     }
 }
 
@@ -303,5 +304,65 @@ fn a_header_cells_axis_decides_its_role_and_the_rest_is_said_in_words() {
             .is_some_and(|note| note.contains("not known")),
         "{:?}",
         unknown.description()
+    );
+}
+
+/// A cell's header cells reach a person, in the order §14.8.4.8.3 builds them in.
+///
+/// Table 384's `/Short` says what this is for — "for each table cell the applicable header cells
+/// are read to the user in order to allow that user to understand the content of the table cell" —
+/// and on this platform the description is the channel that gets there. See `tree::headers` for
+/// why it is not the `labelled_by` relation.
+#[test]
+fn a_cells_header_cells_are_said_in_the_order_the_clause_builds_them() {
+    let mut cell = element(None, "TD", "1.4 million");
+    cell.headers = vec![1, 2];
+    let nodes = [
+        cell,
+        header(None, "France", Some(HeaderScope::Row)),
+        header(None, "Population", Some(HeaderScope::Column)),
+    ];
+    let update = tree::build(&view(&nodes, &[]));
+    assert_eq!(
+        node(&update, NodeId(16)).description(),
+        Some("headers, most specific first: France, Population")
+    );
+
+    // A cell with no headers says nothing, and a header cell that lost something to the platform
+    // keeps saying it beside its own headers rather than instead of them.
+    assert_eq!(node(&update, NodeId(17)).description(), None);
+    let mut corner = header(None, "corner", Some(HeaderScope::Both));
+    corner.headers = vec![1];
+    let both = [corner, header(None, "Region", Some(HeaderScope::Row))];
+    let update = tree::build(&view(&both, &[]));
+    let note = node(&update, NodeId(16)).description().unwrap_or_default();
+    assert!(note.contains("both"), "{note}");
+    assert!(
+        note.contains("headers, most specific first: Region"),
+        "{note}"
+    );
+}
+
+/// A header cell whose words are in a `P` inside it is still said by name.
+///
+/// Found by reading the tree back off a real bus rather than in a test: `bug2014080.pdf` puts each
+/// cell's text in a paragraph within the cell, so every `TH` in it has an empty
+/// `AccessibilityNode::name` — which is right, because that field is the element's own text and
+/// not its subtree's. A cell *named as a header* is the one place the subtree is what is wanted,
+/// because nothing else will descend into it to say the words.
+#[test]
+fn a_header_cell_whose_text_is_in_a_child_is_still_named() {
+    let mut cell = element(None, "TD", "23");
+    cell.headers = vec![1];
+    let nodes = [
+        cell,
+        header(None, "", Some(HeaderScope::Column)),
+        element(Some(1), "P", "Sydney"),
+    ];
+    let update = tree::build(&view(&nodes, &[]));
+    let note = node(&update, NodeId(16)).description().unwrap_or_default();
+    assert!(
+        note.contains("headers, most specific first: Sydney"),
+        "{note}"
     );
 }

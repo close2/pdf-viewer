@@ -106,6 +106,13 @@ cargo run --release -p pdf-model --example presentation_census -- doc/pdf.js/tes
   # states a /Trans, a /Dur or a /PresSteps — asked of the page tree rather than of the raw bytes,
   # so a /Trans inside an object stream would have counted. `--example presentation_fixture` writes
   # the three-slide document that therefore has to stand in for one (ADR 0230)
+cargo run --release -p pdf-model --example cell_header_census -- doc/pdf.js/test/pdfs/*.pdf doc/*.pdf doc/corpora/*/**/*.pdf
+  # §14.8.4.8.3's two routes to a table cell's header cells, counted apart: over 1251 files, 21 883
+  # cells, 281 stating Table 384's /Headers (2 of them an empty array) and **17 152 of the 17 431
+  # cells that end with a header answered by the *search* rather than by an array** — which is what
+  # says the algorithm is the feature and the entry is the exception (ADR 0312). It also prints the
+  # two counts that decided what was *not* taken: 0 of 6197 TH state /Short, and no document's
+  # tables outgrow the grid `TableStack` keeps
 cargo run --release -p pdf-model --example luminosity_mask_census -- doc/pdf.js/test/pdfs/*.pdf
   # what a §11.5.3 mask group is painted *with*, against what its /CS declares — 87 groups on
   # this corpus, 39 blending in /DeviceCMYK and 36 in /DeviceGray, and not one setting a `k`
@@ -223,6 +230,13 @@ cd fuzz && cargo +nightly fuzz run sfnt          -- -runs=50000   # §9.6.3's tw
 # `org.a11y.atspi.Component.GetExtents` at each node is what says *where* an element is, and a node
 # with no bounds implements no `Component` at all — the call errors rather than answering a zero
 # rectangle, which is what "this element has no place" looks like from a client (ADR 0301).
+# **Read `Description` beside `Name`**: it is where everything the platform's roles cannot carry
+# arrives — a `TH` scoped to both axes, and §14.8.4.8.3's header cells for every cell. A walker that
+# printed only names would have shown the four-hundred-and-seventy-seventh round's whole change as
+# nothing at all. `bug2014080.pdf` exercises the clause's search and `pdfjs_wikipedia.pdf` Table
+# 384's stated array, which is one document each for the two routes (ADR 0312). **And the bus is
+# what found the defect that round's tests could not**: a `TH` whose words are in a `P` inside it
+# has an empty `Name`, so the header sentence named nothing — every cell in that document.
 # **Orca is not installed on this machine**, so
 # what a person on a desktop still has to do is run one and listen.
 cd fuzz && cargo +nightly fuzz run fragment      -- -runs=50000   # Annex O's fragment identifier,
