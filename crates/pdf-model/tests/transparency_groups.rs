@@ -829,7 +829,8 @@ fn nested_fixture(inner: &str, content: &str, outer_body: &str) -> Vec<u8> {
 /// Where an element *does* blend, the display list states the group's own backdrop (ADR
 /// 0237) on three conditions, and this pins what happens either side of each of them: a
 /// constant alpha and a soft mask at the `Do` are drawn, a blend mode at the `Do` is not,
-/// and neither is a knockout group or an element of one.
+/// and neither is a knockout group whose rule can change a pixel — which is where §11.4.6's
+/// initial backdrop and §11.4.4's immediate one part company, and nowhere else (ADR 0307).
 #[test]
 fn a_non_isolated_group_reports_only_where_the_backdrop_cannot_be_stated() {
     let reported = |group: &str, form: &str, page: &str| {
@@ -868,9 +869,19 @@ fn a_non_isolated_group_reports_only_where_the_backdrop_cannot_be_stated() {
         "an isolated group is what a rasteriser's layer already is"
     );
     assert!(
-        reported(
+        !reported(
             "/Group << /S /Transparency /K true >>",
             blending,
+            "/GS gs /Fm Do"
+        )
+        .contains("non-isolated"),
+        "one element has no earlier element to knock out, so §11.4.6's initial backdrop is \
+         §11.4.4's immediate one and the group is drawn on it"
+    );
+    assert!(
+        reported(
+            "/Group << /S /Transparency /K true >>",
+            "1 0 0 rg 10 10 50 50 re f /GB gs 0 0 1 rg 30 30 50 50 re f",
             "/GS gs /Fm Do"
         )
         .contains("non-isolated"),
@@ -2116,5 +2127,162 @@ fn the_same_group_on_the_page_still_reports_and_still_draws_on_the_device() {
     assert!(
         (127..=128).contains(&painted[0]),
         "averaging two converted colours on the device gives 127.5 of 255: {painted:?}"
+    );
+}
+
+/// §11.4.6's rule composites each element with the group's *initial* backdrop, and where it
+/// can change no pixel that backdrop is the one the group already has.
+///
+/// > In a knockout group, each individual element shall be composited with the group's
+/// > initial backdrop rather than with the stack of preceding elements in the group.
+///
+/// The initial backdrop and the immediate one differ only after an element has been
+/// composited into the group, so a group in which no compositing element covers an earlier
+/// one is §11.4.4's group exactly — the same statement `a_knockout_group_reports_only_where
+/// _the_two_models_differ` already pins for the report, one step further along. Table 145's
+/// `/K` alone used to force §11.4.5's transparent substitute onto such a group, and what that
+/// cost is the whole of the page below: a single Multiply element inside a `/I false /K true`
+/// group had nothing to blend with.
+///
+/// The measurement is §11.3.5.2's own Multiply, `B(Cb, Cs) = Cb × Cs`, on a cyan element over
+/// a yellow page: (1,1,0) × (0,1,1) is (0,1,0), green. Drawn on transparency the same element
+/// is cyan, which is as far apart as a red and a blue channel can be. `knockout_blend_multiply
+/// .pdf` is the corpus page, and ADR 0307 the argument.
+#[test]
+fn a_knockout_rule_that_can_show_nothing_leaves_the_group_the_backdrop_it_has() {
+    let drawn = interpret(fixture(
+        "/Group << /S /Transparency /I false /K true >>",
+        "[0 0 100 100]",
+        "/GB gs 0 1 1 rg 20 20 60 60 re f",
+        "1 1 0 rg 0 0 100 100 re f /Fm Do",
+    ));
+    assert!(drawn.is_complete(), "{:?}", drawn.unsupported);
+    assert!(
+        drawn.display_list.commands().iter().any(|command| matches!(
+            command,
+            Command::Group {
+                isolated: false,
+                knockout: false,
+                ..
+            }
+        )),
+        "the group states the backdrop its elements composite onto: {:?}",
+        drawn.display_list.commands()
+    );
+    assert_eq!(
+        pixel(&drawn, 50, 50),
+        [0, 255, 0, 255],
+        "the element multiplies with the page it is painted over"
+    );
+    assert_eq!(
+        pixel(&drawn, 5, 5),
+        [255, 255, 0, 255],
+        "and the page is untouched where the group does not mark"
+    );
+
+    // The control, and it is one entry of one content stream: a second element that composites
+    // *over* the first is what §11.4.6's rule can show, so the group goes back to the
+    // substitute and says so. Without this the assertion above would pass just as well for a
+    // renderer that had stopped implementing knockout altogether.
+    let shows = interpret(fixture(
+        "/Group << /S /Transparency /I false /K true >>",
+        "[0 0 100 100]",
+        "0 1 1 rg 20 20 60 60 re f /GB gs 1 0 1 rg 30 30 60 60 re f",
+        "1 1 0 rg 0 0 100 100 re f /Fm Do",
+    ));
+    let reported = format!("{:?}", shows.unsupported);
+    assert!(
+        reported.contains("knockout, and an element composites over another"),
+        "a knockout rule that can show is still refused by name: {reported}"
+    );
+}
+
+/// A page whose outer form group holds a fill and an inner form group.
+///
+/// `outer` and `inner` are the two `/Group` dictionaries, written whole so that a test can
+/// change one entry of one of them and nothing else. The inner group's one element blends,
+/// which is the only thing that can tell one initial backdrop from another (§11.4.4 NOTE 2).
+fn nested_group_fixture(outer: &str, inner: &str) -> Vec<u8> {
+    const OUTER: &str = "0 0 1 rg 0 0 100 100 re f /In Do";
+    const INNER: &str = "/GB gs 1 0 0 rg 20 20 60 60 re f";
+    const PAGE: &str = "/Fm Do";
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+         /Resources << /XObject << /Fm 5 0 R >> >> /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{PAGE}\nendstream\nendobj\n\
+         5 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] {outer} \
+         /Resources << /XObject << /In 6 0 R >> >> /Length {} >>\n\
+         stream\n{OUTER}\nendstream\nendobj\n\
+         6 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] {inner} \
+         /Resources << /ExtGState << /GB << /BM /Multiply >> >> >> /Length {} >>\n\
+         stream\n{INNER}\nendstream\nendobj\n",
+        PAGE.len() + 1,
+        OUTER.len() + 1,
+        INNER.len() + 1
+    );
+    assemble(&body)
+}
+
+/// §11.4.6's NOTE 6: a non-isolated group nested in a knockout group takes the *outer* group's
+/// initial backdrop.
+///
+/// > When a non-isolated group is nested within a knockout group, the initial backdrop of the
+/// > inner group is the same as that of the outer group; it is not the immediate backdrop of
+/// > the inner group. This behaviour, although perhaps unexpected, is a consequence of the
+/// > group compositing formulas when b = 0.
+///
+/// So where the outer knockout group is isolated its initial backdrop is §11.4.5's transparent
+/// one, and the inner group has that — which makes the inner group an isolated group by
+/// §11.4.5's own definition, whatever its `/I` says. This renderer composites a group's
+/// elements onto transparency, so that page is drawn exactly and has nothing to report; it
+/// reported one for `knockout_inner_backdrop.pdf` until ADR 0307.
+///
+/// The three fixtures differ in one entry each and no two of them can pass by accident:
+///
+/// - `/K true /I true` outside: NOTE 6's transparent backdrop, so the Multiply has nothing to
+///   blend with and the square is its own red.
+/// - `/K false /I true` outside: NOTE 6 does not apply, the inner group's backdrop is the blue
+///   fill beside it, and §11.3.5.2's Multiply of (0,0,1) with (1,0,0) is black. This tree draws
+///   that — ADR 0237 — so the difference between this fixture and the one above is the whole of
+///   what NOTE 6 says, at the pixel.
+/// - `/K true /I false` outside: the outer group's own initial backdrop is the page, so the
+///   inner group's is too, and this renderer substitutes transparency and reports it.
+#[test]
+fn a_group_inside_an_isolated_knockout_group_takes_the_transparency_note_6_gives_it() {
+    let inner = "/Group << /S /Transparency /I false >>";
+
+    let nested = interpret(nested_group_fixture(
+        "/Group << /S /Transparency /I true /K true >>",
+        inner,
+    ));
+    assert!(nested.is_complete(), "{:?}", nested.unsupported);
+    assert_eq!(
+        pixel(&nested, 50, 50),
+        [255, 0, 0, 255],
+        "NOTE 6 gives the inner group the outer group's transparent initial backdrop"
+    );
+
+    let ordinary = interpret(nested_group_fixture(
+        "/Group << /S /Transparency /I true /K false >>",
+        inner,
+    ));
+    assert!(ordinary.is_complete(), "{:?}", ordinary.unsupported);
+    assert_eq!(
+        pixel(&ordinary, 50, 50),
+        [0, 0, 0, 255],
+        "without the knockout attribute the inner group blends with its immediate backdrop"
+    );
+
+    let opaque_backdrop = interpret(nested_group_fixture(
+        "/Group << /S /Transparency /I false /K true >>",
+        inner,
+    ));
+    let reported = format!("{:?}", opaque_backdrop.unsupported);
+    assert!(
+        reported.contains("non-isolated, and an element blends with the backdrop it excludes"),
+        "a knockout group whose own initial backdrop is the page passes that page inward, \
+         and this renderer substitutes transparency for it: {reported}"
     );
 }

@@ -5541,8 +5541,11 @@ const AMBIGUOUS_OURS_ON_THE_LIMIT: [&str; 3] = [
 /// **And this page reports nothing**, which used to be worth saying because five of the corpus's
 /// documents reported exactly this clause. `doc/todo/23`'s first population was "a knockout element
 /// whose shape is not its coverage" and it is **closed** as of ADR 0234, so of the pages this
-/// paragraph named only `knockout_blend_multiply.pdf` and `knockout_inner_backdrop.pdf` still
-/// report — for §11.4.4's non-isolated residue rather than for a shape — and page 2 of this file
+/// paragraph named, none still reports: `knockout_blend_multiply.pdf` and
+/// `knockout_inner_backdrop.pdf` kept theirs for §11.4.4's non-isolated residue rather than for a
+/// shape until the four-hundred-and-seventy-second, which read §11.4.6 for *which* backdrop it
+/// hands each element and found neither page needed a construction — one is §11.4.4's group
+/// wearing `/K`, the other is §11.4.5's under NOTE 6 (ADR 0307). Page 2 of this file
 /// agrees with the consensus now. Page 1's knockout groups were always ones this tree composites
 /// without reaching that condition, so the page is judged rather than excused, and **the numbers
 /// above are unmoved to a hundredth**: it is the group the five-renderer split is about, and no

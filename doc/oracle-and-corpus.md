@@ -309,9 +309,14 @@ edge, **21 glyph edges** whose ink matches the consensus to a fraction of a leve
 JBIG2 decoder, 1 a visibility expression the two agreeing references share a *gap* about, 3 a link
 border, 1 a sub-pixel image, 1 a `CalRGB` alternate, 1 an eight-bit mask value, **5 a `DeviceCMYK`
 conversion**, 2 a reference that drew nothing, 1 a reference glyph width, 1 a negative line width,
-**17 substituted fonts**, **1 a tight consensus**, **0 unexplained**. The other 2 are on documents
-this tree already reports (`issue5751.pdf`, `knockout_blend_multiply.pdf`) and are held by the
-incomplete list rather than by a group.
+**17 substituted fonts**, **1 a tight consensus**, **0 unexplained**. The other 2 were on documents
+this tree already reported (`issue5751.pdf`, `knockout_blend_multiply.pdf`) and held by the
+incomplete list rather than by a group — **and the second of those left in the
+four-hundred-and-seventy-second**, which is what a page held by the incomplete list is for: it
+contradicted all three references at mean 23.96 because §11.4.6's `/K` was substituting §11.4.5's
+transparent backdrop for a group whose knockout rule could show nothing, and it agrees with them
+now (ADR 0307). The figures in this paragraph are the four-hundred-and-fifth session's and
+`tools/state.sh oracle` is what says today's.
 
 **A count beside a list is not the list**, which is `doc/todo/02` §6's rule arriving one directory
 over: the numbers above are now what `oracle.rs`'s arrays hold, and the way to keep them so is to

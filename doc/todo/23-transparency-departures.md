@@ -32,8 +32,16 @@ the neutral colour the black raster holds, so a backend that implements §11.3.5
 components implements it for four. Web 851 → **824** incomplete — 27 of the 31 complete, 4 keeping
 §11.4.4's report — that row 31 → 0, and the refusal it fired from
 was deleted rather than narrowed.
+**The four-hundred-and-seventy-second read §11.4.6 for *which* backdrop a knockout group hands
+each element and found this file's second open item was two documents that needed no construction
+at all** (ADR 0307): a knockout group whose rule can change no pixel is §11.4.4's group, and
+NOTE 6 makes a non-isolated group nested in an isolated knockout group §11.4.5's. Corpus 67 → 65
+incomplete and the oracle's contradicted set 68 → 67: `knockout_blend_multiply.pdf` draws the
+colour §11.3.5.2 states rather than one two channels away, which all three references were
+already drawing, and `knockout_inner_backdrop.pdf` — which was drawn right all along — stops
+reporting a departure it does not have.
 Priority: 23
-Corpus: 3 documents
+Corpus: 2 documents
 Clauses: §11.3.5.3, §11.4.4, §11.5.3, §11.6.6, §11.7.5.3, §8.6.5.5, §8.6.5.6, §8.6.5.7, §11.7.2,
 §14.11.5
 Code: `crates/pdf-model/src/content.rs`, `crates/pdf-model/src/colour.rs`,
@@ -48,7 +56,7 @@ Code: `crates/pdf-model/src/content.rs`, `crates/pdf-model/src/colour.rs`,
 | ~~the document names the press its `DeviceCMYK` is~~ | ~~0~~ | ~~151~~ → **0** | **closed in the 436th, ADR 0272: the press is a value, and `CMYK_CORNERS` is one of them** |
 | ~~a conversion *into* the blending space~~ | ~~5~~ → 0 | ~~61~~ → 0 | **closed in the 427th, ADR 0263: a right inverse of the ink cube** |
 | ~~the four components themselves~~ | — | — | **closed in the 426th, ADR 0262: two rasters, no new format** |
-| ~~a non-isolated group NOTE 5 cannot flatten~~ | ~~6~~ → 3 | | **the non-knockout ones closed** in the 400th, ADR 0237; what is left is knockout, below |
+| ~~a non-isolated group NOTE 5 cannot flatten~~ | ~~6~~ → ~~3~~ → 1 | | **the non-knockout ones closed** in the 400th, ADR 0237; **two of the three knockout ones closed in the 472nd, ADR 0307** — one was §11.4.4's group wearing `/K`, the other was §11.4.5's wearing `/I false` under NOTE 6 — and what is left is `issue18032.pdf`, below |
 | ~~a soft-mask group with such a space~~ | ~~7~~ → 0 | | **closed** in the 380th and 383rd, ADRs 0217 and 0220 |
 | ~~a knockout element whose shape is not its coverage~~ | ~~5~~ → 0 | | **closed** in the 397th, ADR 0234 |
 
@@ -58,8 +66,9 @@ narrowing honestly rather than a condition being narrowed (trap 5).
 
 Each remaining one is refused *by name* rather than approximated, and since the four-hundred-and-
 twenty-sixth the name says **which** of the conditions fired. The corpus documents are
-`bug1721218_reduced` for a group that introduces a space, and `issue18032`,
-`knockout_blend_multiply` and `knockout_inner_backdrop` for what §11.4.4 still refuses.
+`bug1721218_reduced` for a group that introduces a space, and `issue18032` for what §11.4.4
+still refuses. `knockout_blend_multiply` and `knockout_inner_backdrop` left in the
+four-hundred-and-seventy-second.
 `personwithdog.pdf` left in the four-hundred-and-twenty-sixth, `issue12798_page1_reduced.pdf` and
 `bug1365930.pdf` in the four-hundred-and-twenty-seventh, and `bug1703683_page2_reduced.pdf`,
 `bug1755507.pdf` and `issue13520.pdf` in the four-hundred-and-fortieth, each of which drew them.
@@ -268,12 +277,21 @@ formulas, and the three fixtures.
 
 ### What that left behind
 
-1. **A knockout group whose elements blend** — the same sentence one clause over. §11.4.6
-   composites each element with the group's *initial* backdrop, which for a non-isolated knockout
-   group is the page, so the two stages are not the pair `Command::Shaped` states. Three corpus
-   documents: `issue18032.pdf` and `knockout_blend_multiply.pdf` state one, and
-   `knockout_inner_backdrop.pdf` is a non-isolated group *inside* a knockout one, which is a
-   third condition rather than the second.
+1. **A non-isolated knockout group whose elements blend *and* whose rule can show** — the same
+   sentence one clause over. §11.4.6 composites each element with the group's *initial* backdrop,
+   which for a non-isolated knockout group is the page, so the two stages are not the pair
+   `Command::Shaped` states. **Two of the three corpus witnesses this used to name were not this
+   item**, which the four-hundred-and-seventy-second found by reading the clause against them
+   (ADR 0307): `knockout_blend_multiply.pdf` is one element, which has nothing to knock out, so
+   §11.4.6's initial backdrop *is* §11.4.4's immediate one and the group takes ADR 0237's
+   construction; and `knockout_inner_backdrop.pdf` is a non-isolated group inside an **isolated**
+   knockout group, which NOTE 6 gives that group's transparent initial backdrop — so it is
+   §11.4.5's isolated group by definition and was being drawn correctly while reporting otherwise.
+   `issue18032.pdf` is what is left, and the arithmetic says why it is a construction rather than
+   a condition: unrolling the recurrence leaves the staged pair intact, but the Plus half's colour
+   is the element blended against the *initial* backdrop, so a backend needs that backdrop
+   retained beside the accumulation and a scratch per element. Three backends, one corpus
+   document.
 2. **A blend mode at the `Do`**, where the collapse genuinely fails and NOTE 4's second
    accumulator would genuinely be needed — 0.601 of full scale wrong if it is assumed anyway. No
    corpus document states one.

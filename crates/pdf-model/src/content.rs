@@ -1874,6 +1874,82 @@ fn press_or_beyond(profile: &crate::icc::Profile) -> PagePress {
     )
 }
 
+impl<'a> Interpreter<'a> {
+    /// The interpreter one page starts with, before a byte of its content stream is read.
+    ///
+    /// Separate from [`interpret_into`] so that the page's own preparation — what a host has
+    /// instructed about §12.7's widgets, what §11.4.7 gives the page to composite in — reads
+    /// as the one list of answers it is, rather than as the opening third of the function
+    /// that then runs the page.
+    fn for_page(
+        document: &'a Document,
+        page: &Page,
+        state: &'a crate::view::ViewState,
+        compositing: Compositing,
+    ) -> Self {
+        let size = displayed_size(page);
+        // §6.3.2.2's "unless otherwise instructed", asked once per page and only where a host
+        // has instructed: a document nobody has said this about pays one enum comparison, and
+        // one that has pays a walk of §12.7.4.1's field tree — the same walk `Query::Fields`
+        // already makes for the same page, which is what keeps the two sets identical rather
+        // than similar.
+        let delegated = match state.widget_appearances() {
+            crate::view::WidgetAppearances::Drawn => BTreeSet::new(),
+            crate::view::WidgetAppearances::Delegated => {
+                crate::form::delegated_widgets(document, page, state)
+            }
+        };
+        Self {
+            document,
+            list: DisplayList::new(size),
+            unsupported: BTreeMap::new(),
+            text_operations: 0,
+            glyph_coverage: BTreeMap::new(),
+            glyphs: 0,
+            codes_without_a_glyph: 0,
+            codes_reaching_a_blank_glyph: 0,
+            operations: 0,
+            fonts: BTreeMap::new(),
+            text: String::new(),
+            described: Vec::new(),
+            artifacts: Vec::new(),
+            marked: Vec::new(),
+            inferred_separators: 0,
+            text_layer: Vec::new(),
+            associated: Vec::new(),
+            reversed_chars: 0,
+            view_dependent: false,
+            text_cursor: None,
+            base: base_transform(page),
+            page: size,
+            shadings: crate::shading::Cache::default(),
+            resource_tables: std::cell::RefCell::default(),
+            icc_spaces: BTreeMap::new(),
+            image_masks: crate::image::MaskCache::default(),
+            structure: crate::structure::ParentTree::for_page(document, &page.dict),
+            output_intent: output_intent_space(document),
+            optional_content: state.optional_content().cloned(),
+            view: state,
+            delegated,
+            hidden: 0,
+            glyph_depth: 0,
+            soft_mask_depth: 0,
+            uncoloured: false,
+            inside_knockout: false,
+            transparent_initial_backdrop: false,
+            alpha_is_shape: false,
+            compositing,
+            blending: page_blending_space(document, page),
+            blending_changed: false,
+            black_generation_stated: false,
+            blending_beyond: match page_press(document, page) {
+                PagePress::Beyond(why) => Some(why),
+                PagePress::Device | PagePress::In(_) => None,
+            },
+        }
+    }
+}
+
 /// One interpretation of a page, into the components `compositing` names.
 ///
 /// The second half of the answer is whether the page may be drawn in the blending space it
@@ -1885,65 +1961,7 @@ fn interpret_into(
     compositing: Compositing,
 ) -> (Interpretation, bool) {
     let (content, issues) = page.content_with_report(document);
-    let size = displayed_size(page);
-    // §6.3.2.2's "unless otherwise instructed", asked once per page and only where a host has
-    // instructed: a document nobody has said this about pays one enum comparison, and one that
-    // has pays a walk of §12.7.4.1's field tree — the same walk `Query::Fields` already makes
-    // for the same page, which is what keeps the two sets identical rather than similar.
-    let delegated = match state.widget_appearances() {
-        crate::view::WidgetAppearances::Drawn => BTreeSet::new(),
-        crate::view::WidgetAppearances::Delegated => {
-            crate::form::delegated_widgets(document, page, state)
-        }
-    };
-
-    let mut interpreter = Interpreter {
-        document,
-        list: DisplayList::new(size),
-        unsupported: BTreeMap::new(),
-        text_operations: 0,
-        glyph_coverage: BTreeMap::new(),
-        glyphs: 0,
-        codes_without_a_glyph: 0,
-        codes_reaching_a_blank_glyph: 0,
-        operations: 0,
-        fonts: BTreeMap::new(),
-        text: String::new(),
-        described: Vec::new(),
-        artifacts: Vec::new(),
-        marked: Vec::new(),
-        inferred_separators: 0,
-        text_layer: Vec::new(),
-        associated: Vec::new(),
-        reversed_chars: 0,
-        view_dependent: false,
-        text_cursor: None,
-        base: base_transform(page),
-        page: size,
-        shadings: crate::shading::Cache::default(),
-        resource_tables: std::cell::RefCell::default(),
-        icc_spaces: BTreeMap::new(),
-        image_masks: crate::image::MaskCache::default(),
-        structure: crate::structure::ParentTree::for_page(document, &page.dict),
-        output_intent: output_intent_space(document),
-        optional_content: state.optional_content().cloned(),
-        view: state,
-        delegated,
-        hidden: 0,
-        glyph_depth: 0,
-        soft_mask_depth: 0,
-        uncoloured: false,
-        inside_knockout: false,
-        alpha_is_shape: false,
-        compositing,
-        blending: page_blending_space(document, page),
-        blending_changed: false,
-        black_generation_stated: false,
-        blending_beyond: match page_press(document, page) {
-            PagePress::Beyond(why) => Some(why),
-            PagePress::Device | PagePress::In(_) => None,
-        },
-    };
+    let mut interpreter = Interpreter::for_page(document, page, state, compositing);
 
     for issue in issues {
         interpreter.note(Unsupported::Content { issue });
@@ -2454,6 +2472,24 @@ struct Interpreter<'a> {
     /// into a knockout parent would stop being *one* element of that parent and become several,
     /// which is precisely what §11.4.6 makes different.
     inside_knockout: bool,
+    /// Whether a group opened here composites its elements onto a **transparent** initial
+    /// backdrop whatever Table 145's `/I` says (§11.4.6 NOTE 6).
+    ///
+    /// > When a non-isolated group is nested within a knockout group, the initial backdrop of
+    /// > the inner group is the same as that of the outer group; it is not the immediate
+    /// > backdrop of the inner group.
+    ///
+    /// So a *direct element* of a knockout group takes that group's initial backdrop, and
+    /// where the knockout group's own is transparent — §11.4.5's, which an isolated one has
+    /// and which a knockout group that is itself such an element inherits in turn — the inner
+    /// group is §11.4.5's isolated group by that clause's own definition, and drawing it on
+    /// transparency is the clause rather than a substitution.
+    ///
+    /// Set for a knockout group's own content and cleared for everything else, because NOTE 6
+    /// reaches a direct element and not a descendant: a group two levels down composites onto
+    /// its parent's *accumulated* content, which is what "it is not the immediate backdrop"
+    /// distinguishes.
+    transparent_initial_backdrop: bool,
     /// Whether §11.6.4.3's `/AIS` has been set true anywhere on this page.
     ///
     /// While it is, a mask and the alpha constants are *shape* rather than opacity, and
@@ -3960,7 +3996,12 @@ impl Interpreter<'_> {
         // page at all — §11.5.3 turns its result into one luminosity — so no space inside it
         // is a space the page composites in.
         let saved_change = std::mem::replace(&mut self.blending_changed, false);
+        // And so does §11.4.6's NOTE 6, for the reason the `false` below it states: the mask's
+        // group is not an element of the knockout group the `gs` appears in, so nothing inside
+        // it inherits that group's initial backdrop.
+        let saved_backdrop = std::mem::replace(&mut self.transparent_initial_backdrop, false);
         self.run(&content, &resources, &inner, 0);
+        self.transparent_initial_backdrop = saved_backdrop;
         self.blending_changed = saved_change;
         self.blending = saved_blending;
         self.compositing = saved_compositing;
@@ -3981,7 +4022,11 @@ impl Interpreter<'_> {
             // `true` for the second: a mask raster is built on transparency, so a
             // non-isolated mask group is drawn as §11.4.5's isolated one and reports on the
             // same condition a painted group used to.
-            self.note_group_structure(&group, &commands, false, true);
+            // `false` for the third: §11.4.6's NOTE 6 gives its backdrop to the *elements* of
+            // a knockout group, and a soft mask is named by an `/ExtGState` rather than being
+            // an element of anything — so a mask group's non-isolation is a departure however
+            // it was reached.
+            self.note_group_structure(&group, &commands, false, true, false);
         }
         self.note_blended_luminosity(request.compositing, &commands);
 
@@ -4360,6 +4405,15 @@ impl Interpreter<'_> {
 
         let mark = self.list.command_count();
         let enclosing_knockout = self.inside_knockout;
+        // §11.4.6's NOTE 6, which decides what *this* group's elements composite onto: this
+        // group's own initial backdrop is transparent when it says so or when NOTE 6 hands it
+        // the transparent one an enclosing knockout group has, and its elements inherit that
+        // in turn only if this group is itself a knockout group.
+        let backdrop_transparent = self.transparent_initial_backdrop;
+        let enclosing_transparent = std::mem::replace(
+            &mut self.transparent_initial_backdrop,
+            group.knockout && (group.isolated || backdrop_transparent),
+        );
         self.inside_knockout = enclosing_knockout || group.knockout;
         // §11.6.6's group colour space, which the elements composite in and which
         // [`group_blending`] resolves against §11.7.2's inheritance rule. Saved and restored
@@ -4378,6 +4432,7 @@ impl Interpreter<'_> {
         self.run(content, resources, &inner, form_depth.saturating_add(1));
         self.blending = outside;
         self.inside_knockout = enclosing_knockout;
+        self.transparent_initial_backdrop = enclosing_transparent;
         let commands = self.list.split_off_commands(mark);
         if commands.is_empty() {
             return;
@@ -4442,16 +4497,26 @@ impl Interpreter<'_> {
         // is composited in and removed again exactly, so it cancels. Where an element
         // blends it does not, and that group is the one `note_group_structure` already
         // names — so it keeps both reports rather than gaining a second departure.
+        // `backdrop_transparent` is the third answer and it is the clause's rather than an
+        // approximation: NOTE 6 hands a direct element of a knockout group that group's
+        // initial backdrop, so a `/I false` knockout group nested in an isolated one has
+        // §11.4.5's transparent backdrop and the pair below is exact for it.
         //
         // Where an element's shape is *not* its coverage the display list states the two
         // separately, which is `Command::Shaped` and ADR 0234. The coverage case is left
         // alone rather than folded into it: it is the same arithmetic in one draw instead
         // of two, and it is what §9.3.8's text objects are made of.
+
+        // Whether §11.4.6's rule can change a pixel of this group, which decides below whether
+        // its initial backdrop and §11.4.4's immediate one are the same thing. Asked of the
+        // file's own elements, before the rewrite that turns any of them into a
+        // `Command::Shaped` whose bounds and blending this predicate cannot read.
+        let knockout_shows = group.knockout && knockout_can_show(&commands);
         let mut commands = commands;
         let mut knockout = false;
         if group.knockout
             && !self.alpha_is_shape
-            && (group.isolated || !any_command(&commands, &command_blends))
+            && (group.isolated || backdrop_transparent || !any_command(&commands, &command_blends))
         {
             if knockout_shape_is_coverage(&commands) {
                 knockout = true;
@@ -4469,11 +4534,23 @@ impl Interpreter<'_> {
         // - **Normal at the `Do`.** The cancellation is of a division by Table 140's group
         //   alpha against a multiplication by it, and only the Normal blend function
         //   performs the second. Under any other the group's own colour is needed.
-        // - **Not a knockout group.** §11.4.6 composites each element with the group's
-        //   *initial* backdrop, which here is the page rather than transparency, so the two
-        //   stages are not the pair `Command::Shaped` states.
-        // - **Not inside one.** A knockout group's element is weighted by its own shape,
-        //   which is a quantity this command does not carry.
+        // - **Not a knockout group whose rule can change a pixel.** §11.4.6 composites each
+        //   element with the group's *initial* backdrop, which here is the page rather than
+        //   transparency, so the two stages are not the pair `Command::Shaped` states. But
+        //   the two backdrops are the same wherever the knockout rule can show nothing —
+        //   `knockout_can_show` is that condition, and where it holds the immediate backdrop
+        //   *is* the initial one at every point an element marks, which makes such a group
+        //   §11.4.4's group exactly rather than a substitution for it. `/K true` alone used
+        //   to stand here, and it cost `knockout_blend_multiply.pdf`'s single Multiply
+        //   element the page it blends with (ADR 0307).
+        // - **Not drawn as a knockout group.** The pair `Command::Shaped` states is
+        //   `P' = (1 − f) × P + S` on the transparent start §11.4.5 gives, and seeding `P`
+        //   from the page would put the backdrop in twice. Every group that reaches the
+        //   condition above already satisfies this one — a knockout group is drawn only when
+        //   it is isolated or when nothing in it blends — and it is stated rather than
+        //   derived because a `Command::Shaped` reads as blending to `command_blends`.
+        // - **Not inside a knockout group.** A knockout group's element is weighted by its
+        //   own shape, which is a quantity this command does not carry.
         //
         // And a fourth condition, which is not about correctness but about *cost*: with
         // every element painting Normal the backdrop is composited in and removed again
@@ -4486,11 +4563,19 @@ impl Interpreter<'_> {
         //
         // Isolation is otherwise §11.4.5's, which is what a rasteriser's layer is.
         let isolated = group.isolated
-            || group.knockout
+            || knockout_shows
+            || knockout
             || enclosing_knockout
             || outer.blend != BlendMode::Normal
             || !any_command(&commands, &command_blends);
-        self.note_group_departures(group, &commands, knockout, isolated, introduced.as_deref());
+        self.note_group_departures(
+            group,
+            &commands,
+            knockout,
+            isolated,
+            introduced.as_deref(),
+            backdrop_transparent,
+        );
         // §11.6.6's final compositing: the group's shape "shall then be painted into the
         // parent group or page, using the group's accumulated colour and opacity at each
         // point" — under the state in force at `Do`, which is where `ca` and `/BM` were left
@@ -4614,6 +4699,9 @@ impl Interpreter<'_> {
     /// the display list carries, and each is reported only where it can change a pixel —
     /// a report that fires where the output is provably identical costs the page its place
     /// in the oracle's comparison and buys nothing.
+    ///
+    /// `backdrop_transparent` is §11.4.6's NOTE 6 — see
+    /// [`Interpreter::transparent_initial_backdrop`].
     fn note_group_departures(
         &mut self,
         group: &TransparencyGroup,
@@ -4621,8 +4709,15 @@ impl Interpreter<'_> {
         knockout_drawn: bool,
         isolated_drawn: bool,
         introduced: Option<&str>,
+        backdrop_transparent: bool,
     ) {
-        self.note_group_structure(group, commands, knockout_drawn, isolated_drawn);
+        self.note_group_structure(
+            group,
+            commands,
+            knockout_drawn,
+            isolated_drawn,
+            backdrop_transparent,
+        );
 
         // §11.6.6: for an isolated group, a `/CS` means "all painting operators shall
         // convert source colours ... to the group colour space before compositing objects
@@ -4652,13 +4747,24 @@ impl Interpreter<'_> {
     /// `/CS` the space the mask's luminosity is computed in, where §11.6.6 makes a painted
     /// group's the space its elements are composited in. `crate::soft_mask` decides the
     /// first; this decides what the two share.
+    ///
+    /// `backdrop_transparent` is §11.4.6's NOTE 6: a group that is a direct element of a
+    /// knockout group whose initial backdrop is transparent **is** §11.4.5's isolated group
+    /// by that clause's own definition, whatever Table 145's `/I` says here, so both
+    /// questions below are asked of that rather than of the entry. See
+    /// [`Interpreter::transparent_initial_backdrop`], and `knockout_inner_backdrop.pdf` is
+    /// the page that showed the difference: its inner group states `/I false` inside an
+    /// isolated knockout group, is drawn on the transparency the clause asks for, and was
+    /// reported as departing from it (ADR 0307).
     fn note_group_structure(
         &mut self,
         group: &TransparencyGroup,
         commands: &[Command],
         knockout_drawn: bool,
         isolated_drawn: bool,
+        backdrop_transparent: bool,
     ) {
+        let isolated_by_clause = group.isolated || backdrop_transparent;
         // §11.4.4 composites a non-isolated group's elements onto the group's backdrop and
         // then removes that backdrop's contribution again (its NOTE 3). Under the Normal
         // blend mode the removal is exact and the backdrop cancels, which is what §11.6.7's
@@ -4676,7 +4782,7 @@ impl Interpreter<'_> {
         // here is the population that construction refuses: a knockout group, an element of
         // one, and a group composited under a blend mode of its own — plus a *mask* group,
         // which is evaluated into a raster built on transparency whatever it declares.
-        if !group.isolated
+        if !isolated_by_clause
             && isolated_drawn
             && any_command(commands, &|command| command_blends(command))
         {
@@ -4706,7 +4812,7 @@ impl Interpreter<'_> {
             // precise true statement is the one worth printing.
             let refusal = if let Some(element) = unstatable_shape(commands) {
                 element
-            } else if !group.isolated && any_command(commands, &command_blends) {
+            } else if !isolated_by_clause && any_command(commands, &command_blends) {
                 "non-isolated, and an element blends with the backdrop it excludes"
             } else {
                 "/AIS makes the mask and the alpha constants a shape (§11.6.4.3)"
@@ -6964,7 +7070,11 @@ impl Interpreter<'_> {
         let isolated = self.inside_knockout
             || state.blend != BlendMode::Normal
             || !any_command(&parts, &command_blends);
-        if isolated && any_command(&parts, &command_blends) {
+        // §11.4.6's NOTE 6 reaches the implicit group too, because §11.6.7 makes the cell an
+        // *element* of whatever paints it: a pattern painted inside a knockout group whose
+        // initial backdrop is transparent has that backdrop rather than its immediate one, so
+        // the isolated construction is the clause and there is no backdrop being excluded.
+        if isolated && !self.transparent_initial_backdrop && any_command(&parts, &command_blends) {
             self.note(Unsupported::TransparencyGroup {
                 detail: "non-isolated, and an element blends with the backdrop it excludes"
                     .to_owned(),
