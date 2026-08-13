@@ -85,6 +85,14 @@ cargo run --release -p pdf-model --example clip_chain_census -- [file.pdf] [page
   # fill's pixels its clip can admit. Written for `doc/todo/40`, and what it answered was
   # `doc/todo/40`'s neighbour: 3490 `sh` operators shading 10.4 M pixels a render to keep 85 608
   # (ADR 0236). A profile cannot see either number — it counts commands, not what a command covers
+cargo run --release -p pdf-model --example content_budget_census -- doc doc/pdf.js doc/corpora
+  # what a page's content costs in the three quantities `doc/todo/10`'s bounds name: operators,
+  # lexer tokens, and decoded bytes. It counts both of the first two in one pass, which is what
+  # makes it an A/B rather than two measurements — `MAX_OPERATIONS` said operators and counted
+  # tokens, and the ratio is 3.76 corpus-wide, about 2 for text and about 7 for Bézier artwork
+  # (ADR 0306). Also the largest single decoded stream and the largest page /Contents total, which
+  # are the two numbers `Limits::max_stream_len` is set against: 483.84 MiB over 5 047 187 streams
+  # of 65 967 crawled documents. Every argument is walked recursively, so `corpus-cache` is one
 cargo run --release -p pdf-model --example field_flag_census -- doc/pdf.js/test/pdfs/*.pdf
   # which of §12.7's twenty field flags any real document states (ADR 0197)
 cargo run --release -p pdf-model --example variable_text_census -- doc/pdf.js/test/pdfs/*.pdf

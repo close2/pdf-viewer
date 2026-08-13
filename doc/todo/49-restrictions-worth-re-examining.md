@@ -98,7 +98,7 @@ places: `MASK_BUDGET` (32 MB), the confined worker's address-space ceiling (4 Gi
   |---|---|---|
   | `MAX_FORM_DEPTH` 16 | **all four documents are cycles** — lifted to 256, all four reach 256 | the attack it exists for. Unbounded recursion exhausts the *stack*, which the confined worker's 4 GiB ceiling does not see and which Rust turns into an abort rather than a report |
   | `MAX_TILES` 4096 | all 48 terminate, 0.06–14.2 s, wanting 4104–895 500 tiles; **14 of 48 want under twice the bound** | 1 000 000 *empty* tiles interpret in 889 ms **reporting nothing** — an empty cell executes no operator, so `MAX_OPERATIONS` never sees it and this is the only bound on the loop |
-  | `MAX_OPERATIONS` 4 M | all 31 terminate, wanting 4.1–53.6 M operators, 0.27–49.9 s; the worst peaks at 1.57 GB for 495 marks | **a count is not a cost** — one `sh` paints the page — so no larger number bounds the time either. The cancel does, at 0.83–1.97 ms |
+  | `MAX_OPERATIONS` 4 M | all 31 terminate, wanting 4.1–53.6 M **lexer tokens** — the word was *operators* here and in ADR 0271 and the counter was counting tokens (ADR 0306) — 0.27–49.9 s; the worst peaks at 1.57 GB for 495 marks | **a count is not a cost** — one `sh` paints the page — so no larger number bounds the time either. The cancel does, at 0.83–1.97 ms |
   | `MAX_STATE_DEPTH` 256 | one document, wanting **337** | ISO 32000-2 §C.2's Table C.1 prints **28** as the depth a writer could rely on. 256 is nine times the standard's own figure and the document wants twelve times it |
 
   **And the two documents that are slow are still not among them**, which was true before this
@@ -176,11 +176,19 @@ change to *what* is bounded, and both need the argument before the code.
   name at the end. The empty-cell measurement is the one that says the count cannot simply be
   dropped in favour of `MAX_OPERATIONS`.
 - **`MAX_OPERATIONS` has the same defect one layer up**, and its population says so: 30 of the 31
-  documents it stops are legitimate drawings wanting 4.1–53.6 M operators, and the thirty-first
+  documents it stops are legitimate drawings wanting 4.1–53.6 M tokens, and the thirty-first
   produces 495 marks from 53.6 M. A count cannot tell them apart because one operator's cost is
   unbounded. The honest instrument is a *deadline*, which this tree already has in the confined
   worker (ADR 0241, a kill at 0.83–1.97 ms) — so the question is whether `interpret` should carry
   one of its own for the unconfined path, and what a host that is not the viewer does with it.
+- **And it was counting the wrong quantity as well, which is a different fault from the one above
+  and is fixed** (ADR 0306). Every "operators" in this file's budget rows means *lexer tokens*: the
+  one increment site was the token loop, and §7.8.2 puts an operator after its operands, so a `c`
+  cost seven. The counter now counts operators, the value stays at four million, and the
+  re-measurement is 48 pages of 926 680 past four million tokens against **8** past four million
+  operators. The argument in the two bullets above survives it unchanged — a count is still not a
+  cost — but the *rate* this file quotes was measured through the old unit and a round re-running
+  the survey should expect the `MAX_OPERATIONS` row to fall.
 
 Neither is a defect today: both bounds refuse loudly and both refuse 0.127% of the web. This is
 here so that a round which wants to admit `MAX_TILES`' 48 knows the price is a new mechanism

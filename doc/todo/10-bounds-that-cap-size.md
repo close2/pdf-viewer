@@ -1,9 +1,14 @@
 # Bounds that cap size rather than guard against a bomb
 
-Status: **open** — asked for by the project owner, with a witness they supplied.
+Status: **open** — asked for by the project owner, with a witness they supplied. §3's three
+defects are carried out (ADR 0306) and **the witness now draws whole**; what is open is §5, whose
+choice is the owner's, and the residue §3 now names.
 Priority: 10 (a defect: a document this program can draw, and does not).
 Witness: `tmp/Entwurf.pdf` — **not in the repository and not addable to it**, so everything
 below is either a reproducible measurement or a general rule, and no test may name that path.
+Instrument: `cargo run --release -p pdf-model --example content_budget_census -- <dir>…`, which
+counts a page's operators and its lexer tokens in one pass and prints the largest decoded stream
+and the largest `/Contents` total beside them.
 Clauses: §7.8.2 (content stream syntax), §8.7.3.1 (tiling patterns), §7.4 (filters), §C.2
 Table C.1 (the standard's own architectural minima).
 Code: `crates/pdf-model/src/content.rs`, `crates/pdf-syntax/src/{parser,filter}.rs`,
@@ -27,37 +32,41 @@ Two sentences of it are the design constraints and are easy to lose: **the callb
 block**, and **a bound that stops a bomb is a different object from a bound that stops a big
 document**. The whole plan below is the second sentence applied one bound at a time.
 
-## 1. The witness, and why it is a defect rather than a policy
+## 1. The witness, and why it was a defect rather than a policy — **fixed, ADR 0306**
 
 `tmp/Entwurf.pdf` is 49 679 512 bytes, **one page**, Inkscape 1.4.3 through cairo 1.18.4: a
 hand-drawn geological cross-section traced to Bézier vectors. No text, no images, no fonts.
 2 868 970 `c`, 127 295 `m`, 58 003 `f` — **3 185 295 operators**, in **20 834 587 lexer tokens**.
 
-`target/pdf-retrieve page tmp/Entwurf.pdf 0` reports `LimitReached { limit: "MAX_OPERATIONS" }`
-and the viewer draws **19%** of the artwork, correctly and loudly, and stops.
+**It draws whole now**, and the constant did not move: `MAX_OPERATIONS` said "[m]ost operators
+executed for one page" and counted lexer *tokens*, from one increment site at the top of
+`content.rs`'s `while let Some(token)` — before the operand/operator distinction is made, so a `c`
+cost seven. §7.8.2 puts an operator after its operands and the counter now increments where the
+interpreter knows it has one.
 
-**`MAX_OPERATIONS` is 4 000 000, its doc comment says "[m]ost operators executed for one page",
-and it counts tokens.** One increment site, `content.rs`'s `while let Some(token)`, before the
-operand/operator distinction is made — so a `c` costs 7 against it. Two independent numbers agree
-to two decimals: display-list commands drawn / total fills = 11 128 / 58 003 = 19.19%, and
-4 000 000 / 20 834 587 = 19.20%. **This document states 814 705 fewer operators than the
-advertised bound and is truncated anyway**, because for curve-heavy vector art the effective
-operator budget is about 6.5× tighter than the constant claims.
+| | before | after |
+|---|---|---|
+| `pdf-retrieve page … 0` | `LimitReached { limit: "MAX_OPERATIONS" }`, 0.54 s, 380 MB | `complete: true`, `unsupported: []`, 1.36 s, 380 MB |
+| `render_at … 1 1.0` | 0.62 s, 381 MB, **7.99%** of the raster inked | 1.54–1.59 s over five samples, 381 MB, **34.64%** inked |
+| `mutool draw -r 72` | 2.08–2.31 s, 97 MB, 34.88% inked | |
+| `pdftoppm -r 72` | 3.38–3.53 s, 19–20 MB, 34.38% inked | |
 
-**Why no test saw it.** `pdf-model/tests/hostile_budgets.rs` builds its fixture from
+The three renders agree about the page's ink to within a quarter of a point, which is what says it
+draws *whole* rather than merely *more*. `Document::open` on the 49.6 MB file is **13.3 ms**.
+
+**Two residues from that table, and they are this file's now rather than ADR 0306's.** We are the
+fastest of the three and **the least frugal by a factor of four to twenty** — 381 MB against
+`mutool`'s 97 MB and `pdftoppm`'s 20 MB — on a document whose content stream is 66 MB decoded;
+nobody has attributed that. And the earlier measurement in this section, taken by splitting the
+file into seven chunks, recorded **1.30–1.33 s and 215 MB**, so interpreting it whole costs about
+20% more time and 75% more memory than interpreting it in pieces. Both are questions for §5's
+road D, which is the entry that changes the *kind* of the quantity.
+
+**Why no test saw it.** `pdf-model/tests/hostile_budgets.rs` built its fixture from
 `"n\n".repeat(4_000_002)` — deliberately a zero-operand operator, "so this measures the bound
 rather than the operator". That is the one input shape where tokens and operators are the same
-number. The conflation propagated: ADR 0271, `doc/todo/49` and ledger §7.8.2 all say documents
-"want 4.1 to 53.6 million **operators**", and those are token counts. **Correcting the four
-documents is owed whatever else is decided**, and it is the cheapest item in this file.
-
-**And the document is not hard.** Split at fill boundaries into seven chunks of ~3M tokens, every
-chunk interprets with an empty `unsupported` list — nothing else refuses: not `MAX_OPERANDS`, not
-`MAX_STATE_DEPTH`, not `TargetSpec::for_page`, not the rasteriser. Whole artwork in one process:
-**1.30–1.33 s, 215 MB peak resident**, against `mutool draw` 3.83 s and `pdftoppm` 6.72 s.
-`Document::open` on the 49.6 MB file is **13.3 ms**, which is incremental parsing working exactly
-as `CLAUDE.md` requires. **We would be roughly 3× faster than the fastest reference if we drew
-it, and one constant is the only reason we do not.**
+number. Every fixture there now states operands, and
+`a_stream_of_many_tokens_and_few_operators_still_draws` is the control that discriminates.
 
 ## 2. The line the owner drew, measured rather than argued
 
@@ -73,6 +82,21 @@ token. `MAX_OPERATIONS` bounds time *after* decompression and bounds memory not 
 bound the owner is thinking of is not the bound that caps their document** — they are different
 objects, in different crates, and the one that is load-bearing is the weaker of the two.
 
+**Both were rebuilt from this description in the four-hundred-and-seventy-first session and came
+out the same sizes to the byte** — 389 317 and 1 847 467, both 1029:1 — which is what makes the
+comparison below a measurement rather than a memory. `bomb.py`-shaped generators are not committed
+because the description above is enough to rebuild them, and that is the point of writing it down.
+
+| | before | after ADR 0306 |
+|---|---|---|
+| **Bomb A** | 0.81 s, **831 MB**, `MAX_OPERATIONS` | 0.71 s, **831 MB**, `MAX_OPERATIONS` |
+| **Bomb B** | 3.26 s, **3694 MB**, `MAX_OPERATIONS` | 1.18 s, **1095 MB**, `TooLarge { part: Some(0), limit: 1073741824 }` |
+
+Bomb A is unchanged and should be: 200 million operators is 200 million operators however they are
+counted. Bomb B loses 70% of its peak, because `max_stream_len` is now a gibibyte and reaching it
+is a refusal rather than a clamp. **It is still a gibibyte commanded by 1.85 MB of file**, and no
+entry in §5 but D takes that back.
+
 The clean statement, and the test to apply to every bound in the tree:
 
 > **Every bound that is genuinely load-bearing guards a *cycle*, a *decode*, or an *allocation* —
@@ -82,30 +106,51 @@ The clean statement, and the test to apply to every bound in the tree:
 | bound | if removed, a *small malicious* input can… | verdict |
 |---|---|---|
 | `MAX_FORM_DEPTH` 16 | recurse until the **stack** aborts the process — which the address-space ceiling cannot see, and which Rust turns into an abort rather than a report | **load-bearing, do not touch** |
-| `max_stream_len` 2 GiB + the Flate/LZW guards | turn 1.85 MB into 3.7 GB (measured) | **load-bearing, and the weakest link** |
+| `max_stream_len` 1 GiB + the Flate/LZW guards | turned 1.85 MB into 3.7 GB (measured); 1095 MB since ADR 0306 lowered the bound to fit the ceiling and made reaching it a refusal | **load-bearing, and still the weakest link** |
 | `MAX_TILES` 4096 | state `/XStep 0.001` over 600 units — 3.6×10¹¹ empty cells, about four days; an empty cell executes no operator, so nothing else sees it (ADR 0271) | **load-bearing**, but bounds a *count* where it means to bound *work* |
 | `pdf-sandbox`'s `MAX_PIXELS`/`MAX_SAMPLES`, `RLIMIT_AS`, seccomp, Landlock | unbounded decode in the historically worst attack surface | **load-bearing** |
 | `xmp` ×5, `der`/`cms`/`x509`/`pkcs1`, `function.rs`'s `MAX_STITCH_DEPTH` (a 720-byte file overflowed every stack until session 425), `icc`, `mesh`, `image::MAX_SAMPLES`, every cycle guard | each turns a tiny file into unbounded work | **load-bearing** |
-| **`MAX_OPERATIONS` 4 M** | nothing a bomb needs: the memory is already spent, and the time is unbounded either way because one `sh` can paint the whole page | **caps an honest document** |
+| **`MAX_OPERATIONS` 4 M** | nothing a bomb needs: the memory is already spent, and the time is unbounded either way because one `sh` can paint the whole page | **caps an honest document** — and capped it seven times harder than it said, until ADR 0306 |
 | **`MAX_STATE_DEPTH` 256** | nothing — the cost is per saved state and the ceiling sees it (1 document of 65 944 wants 337; Table C.1's own figure is 28) | **caps an honest document** |
 | `readback::BUDGET`, `MASK_BUDGET`, quorra's device budget, `MAX_PIXELS`, the zoom range | LRU clamps and refusals sized to a device, not refusals of content | **neither — good citizens** |
 
-## 3. Three defects that are owed on any road
+## 3. Three defects that were owed on any road — **all three carried out, ADR 0306**
 
-These are not architecture and do not wait for a decision.
+They were not architecture and did not wait for a decision, which is why they were taken first.
 
-1. **The token/operator conflation**, above: the counter, its comment, `hostile_budgets.rs`'s
-   zero-operand fixture, ADR 0271, `doc/todo/49` and ledger §7.8.2.
-2. **The Flate and LZW length guard is a silent clamp that keeps its partial output**, so a
-   truncated bomb is indistinguishable from a complete decode. ASCII85 and RunLength refuse
-   properly. **Trap 5 says unsupported input stays loud, and this is the one guard that does
-   not.**
-3. **`max_stream_len` and the confined ceiling contradict each other.** 2 GiB per stream, and
-   `read_to_end`'s growth doubles it — the worker's abort reads `memory allocation of 3800000000
-   bytes failed`, about twice the stream — against a 4 GiB `RLIMIT_AS`. One stream can therefore
-   command the whole ceiling and leave nothing for the raster. And there is **no aggregate
-   budget**: `Page::content_with_report` concatenates every `/Contents` part with no total, and
-   `/Contents` may hold `max_array_len` = 2²⁰ entries.
+1. ~~**The token/operator conflation**: the counter, its comment, `hostile_budgets.rs`'s
+   zero-operand fixture, ADR 0271, `doc/todo/49` and ledger §7.8.2.~~ **Done.** The counter counts
+   operators, the value stays at four million, and six documents were corrected — the two named
+   above plus `doc/performance.md`, `doc/todo/03` and §7.7.3.3's ledger row. Re-measured over
+   926 680 pages of 65 967 crawled documents: 48 pages pass four million tokens, **8** pass four
+   million operators.
+2. ~~**The Flate and LZW length guard is a silent clamp that keeps its partial output.**~~
+   **Done.** `filter::FilterRefusal` separates `Unsupported`, `Corrupt` and `TooLarge { limit }`;
+   the salvage of a *truncated* stream is kept and the guard refuses; and a third hole turned up
+   in `ascii85`, whose `z` arm reached the check by way of a `continue` — eight `z` under a bound
+   of eight produced thirty-two bytes and reported nothing. Both new tests were confirmed to fail
+   with the defect put back.
+3. ~~**`max_stream_len` and the confined ceiling contradict each other**, and there is no aggregate
+   budget.~~ **Done.** `max_stream_len` is `1 << 30`, bounded from above by the ceiling
+   (4 GiB less the raster's gibibyte, over a decode that costs about twice its output) and from
+   below by the largest decoded stream in 5 047 187 streams, which is 483.84 MiB. The aggregate is
+   Table 31's own sentence rather than a new number — the array of parts "form[s] a single stream",
+   so the bound one stream gets is the bound the array gets — reported as
+   `ContentIssue::TooLarge { part: None, limit }`.
+
+**What is left of this section, and it is residue rather than a defect:**
+
+- **A decode still costs about twice its output.** `read_to_end` grows a `Vec` by doubling and
+  `Arc<[u8]>` is then a copy of it, so a gibibyte stream commands two, and the ceiling has three to
+  give after the raster. That is the arithmetic the new bound was derived *from* rather than a
+  contradiction, but it is the reason a bomb still costs 1095 MB. §5's road D is the only entry
+  that removes the allocation.
+- **The image path drops the reason.** `Document::image_stream` still calls the `Option`-returning
+  `decode_with_parms`, so an image whose decode passes the bound is refused loudly as an image this
+  reader could not decode rather than as one it declined to. One call site and a variant of
+  `ImageStream`'s error; nothing about it is hard and no document exercises it.
+- **A ceiling breach in the confined worker is still `WorkerDied { detail: "killed by signal 6" }`**,
+  indistinguishable from a crash. That is §5 B's item and not this one's.
 
 ## 4. What exists to build on
 

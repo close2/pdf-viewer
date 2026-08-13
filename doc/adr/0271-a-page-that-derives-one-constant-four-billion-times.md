@@ -1,7 +1,19 @@
 # ADR 0271 — A page that derives one constant four billion times, and four bounds nobody had opened
 
 Date: 2026-08-11 (session 435)
-Status: accepted
+Status: accepted. **Corrected in one unit by ADR 0306**, which does not disturb a measurement here.
+
+> **Everywhere below that this ADR says a document "wants *n* operators", it means *n* lexer
+> tokens.** `MAX_OPERATIONS` counted the loop's turns rather than the operators, and §7.8.2 puts
+> an operator after its operands, so `x1 y1 x2 y2 x3 y3 c` is seven of the first and one of the
+> second. The populations, the wall clocks and the peaks below were all measured through that
+> counter and are exactly as recorded; what was wrong is the word. Read "4.1 to 53.6 million
+> operators" as "4.1 to 53.6 million tokens", and note that the conclusion this ADR draws from
+> them — that the population is maps and plans rather than bombs, and that a count is not a cost —
+> is unaffected, because a document that terminates with the bound lifted terminates whichever
+> quantity the bound was counting. Session 471 re-measured in operators: of 926 680 pages over
+> 65 967 crawled documents, 48 pass four million tokens and **8** pass four million operators.
+
 
 ## Context
 
@@ -148,7 +160,7 @@ mean, and they are not.
 |---|---|---|---|---|
 | **`MAX_FORM_DEPTH` 16** | 4 (0.006%) | **all four are cycles** — lifted sixteenfold to 256, all four reach 256 | unbounded recursion | **no.** A cycle exhausts the *stack*, and Rust's guard page makes that an abort rather than a report. Nothing else catches this |
 | **`MAX_TILES` 4096** | 48 (0.073%) | all terminate, 0.06–14.2 s, wanting 4104–895 500 tiles; **14 of 48 want under twice the bound** | a loop whose trip count the file states and whose body may cost nothing | **no.** 1 000 000 *empty* tiles interpret in 889 ms reporting nothing — `MAX_OPERATIONS` never moves, because an empty cell executes no operator |
-| **`MAX_OPERATIONS` 4 M** | 31 (0.047%) | all terminate, wanting 4.1–53.6 M operators, 0.27–49.9 s; the worst peaks at 1.57 GB for 495 marks | slowness | **yes**, and a cancel already exists at 0.83–1.97 ms (ADR 0241) |
+| **`MAX_OPERATIONS` 4 M** | 31 (0.047%) | all terminate, wanting 4.1–53.6 M **tokens** (see the correction above), 0.27–49.9 s; the worst peaks at 1.57 GB for 495 marks | slowness | **yes**, and a cancel already exists at 0.83–1.97 ms (ADR 0241) |
 | **`MAX_STATE_DEPTH` 256** | 1 (0.0015%) | wants **337**, draws in 0.05 s | memory per saved state | **yes** |
 
 **`MAX_FORM_DEPTH` is the clean answer: this is the attack the bound exists for.** Four documents
@@ -168,7 +180,7 @@ should become is a bound on the *work*, and `doc/todo/49` carries that as the it
 
 **`MAX_OPERATIONS` is the one whose population is mostly legitimate, and the honest reading is
 that it is the wrong instrument.** Thirty of the 31 are maps, plans and charts that draw in under
-14 s. The thirty-first, `7926547.pdf`, wants 53.6 million operators, takes 49.9 s, peaks at
+14 s. The thirty-first, `7926547.pdf`, wants 53.6 million tokens, takes 49.9 s, peaks at
 1.57 GB and produces **495 display commands** — so the bound is doing real work for one document
 in 65 944. It stays at four million because **a count is not a cost**: one `sh` paints the whole
 page, so no number here bounds the time. What bounds the time is the confined worker's cancel,

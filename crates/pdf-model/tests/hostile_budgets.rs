@@ -1,10 +1,26 @@
-//! What the interpreter's four resource bounds stop, and that each stops it *by name*.
+//! What this program's resource bounds stop, and that each stops it *by name*.
 //!
 //! `CLAUDE.md` principle 3: "Memory safety is not enough. Explicit memory and time budgets
 //! guard against decompression bombs, xref cycles, and pathological content — Rust does not
 //! prevent resource exhaustion." The four bounds in `content.rs` are that guard, and until the
 //! four-hundred-and-thirty-fifth session **nobody had opened the documents they stop**: the
 //! survey of 65 944 crawled documents reported 84 refusals over 83 of them and no more.
+//!
+//! Two of the fixtures below are about a bound on *bytes* rather than on a count —
+//! `Limits::max_stream_len`, and the total of a page's `/Contents` parts, which had no bound at
+//! all until ADR 0306. They are here rather than beside `pdf-syntax`'s own filter tests because
+//! what they assert is what the *page* reports, which is the thing a person sees.
+//!
+//! # A fixture whose two numbers agree measures neither
+//!
+//! `MAX_OPERATIONS` counted lexer tokens for its whole life while its name and its comment said
+//! operators, and the reason no test saw it is in this file: the fixture below was
+//! `"n\n".repeat(4_000_002)` — a *zero-operand* operator, chosen "so this measures the bound
+//! rather than the operator", which is the one input shape where tokens and operators are the
+//! same number. §7.8.2 puts an operator after its operands, so a `c` is seven tokens and one
+//! operator and a real drawing was refused at a seventh of the advertised bound. Every fixture
+//! here now states operands, and the control that would have caught it — many tokens, few
+//! operators — is `a_stream_of_many_tokens_and_few_operators_still_draws`. ADR 0306.
 //!
 //! # Where the standard is on a nested construct
 //!
@@ -33,12 +49,14 @@
 
 #![expect(
     clippy::expect_used,
-    reason = "test code: a malformed fixture should fail loudly"
+    clippy::arithmetic_side_effects,
+    reason = "test code: a malformed fixture should fail loudly, and the one sum here is an \
+              index into a fixture of three objects"
 )]
 
 use std::fmt::Write as _;
 
-use pdf_syntax::Document;
+use pdf_syntax::{Document, Limits};
 
 /// A one-page PDF whose content stream is `operators`, with `extra` objects beside it.
 ///
@@ -53,7 +71,35 @@ fn page(operators: &str, resources: &str, extra: &str) -> Document {
          /Resources {resources} /Contents 4 0 R >>\nendobj\n\
          4 0 obj\n<< /Length {length} >>\nstream\n{operators}\nendstream\nendobj\n{extra}"
     );
+    assemble(&body, Limits::DEFAULT)
+}
 
+/// A one-page PDF whose `/Contents` is an array of `parts`, opened under `limits`.
+///
+/// Table 31 makes the array one stream, which is what gives the concatenation a bound.
+fn page_of_parts(parts: &[String], limits: Limits) -> Document {
+    let mut names = String::new();
+    let mut objects = String::new();
+    for (index, part) in parts.iter().enumerate() {
+        let number = index + 4;
+        let _ = write!(names, "{number} 0 R ");
+        let _ = write!(
+            objects,
+            "{number} 0 obj\n<< /Length {} >>\nstream\n{part}\nendstream\nendobj\n",
+            part.len()
+        );
+    }
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] \
+         /Resources << >> /Contents [{names}] >>\nendobj\n{objects}"
+    );
+    assemble(&body, limits)
+}
+
+/// Wraps a body of objects in a header, a cross-reference table and a trailer.
+fn assemble(body: &str, limits: Limits) -> Document {
     let mut out = String::from("%PDF-1.7\n");
     let mut offsets = Vec::new();
     for object in body.split_inclusive("endobj\n") {
@@ -71,7 +117,7 @@ fn page(operators: &str, resources: &str, extra: &str) -> Document {
         out,
         "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
     );
-    Document::open(out.into_bytes()).expect("the fixture opens")
+    Document::open_with_limits(out.into_bytes(), limits).expect("the fixture opens")
 }
 
 /// What page one reported, as the survey and the corpus gate print it.
@@ -213,20 +259,100 @@ fn a_tiling_inside_the_bound_still_paints() {
 /// A content stream longer than `MAX_OPERATIONS` is refused, and says which bound refused it.
 ///
 /// **The one bound of the four whose population is mostly legitimate.** Of the 31 documents of
-/// 65 944 that reach it, every one *terminates* with the bound lifted a hundredfold — they want
-/// 4.1 to 53.6 million operators and take 0.27 s to 49.9 s — so what this bound stops is
-/// slowness rather than a bomb, and the confined worker's cancel already answers slowness at
-/// 0.83–1.97 ms. It is left where it is because the worst case at a *raised count* is not
-/// bounded either: one operator can paint the whole page, so a count is not a cost. ADR 0271.
+/// 65 944 that reach it under the *token* count it used to keep, every one *terminates* with the
+/// bound lifted a hundredfold, and they are maps, plans and charts rather than bombs. It is left
+/// at four million because the worst case at a raised count is not bounded either: one operator
+/// can paint the whole page, so a count is not a cost. ADRs 0271 and 0306.
+///
+/// The fixture states one operand per operator on purpose. `0 g` is §8.6.8's "set the colour
+/// space to `DeviceGray` … and set the gray level", two lexer tokens and **one** operator, so a
+/// counter reading the lexer would refuse this stream at half its length and this assertion
+/// would pass for the wrong reason.
 #[test]
 fn a_content_stream_longer_than_the_bound_is_refused_by_name() {
-    // `n` is §8.5.3.1's "end the path object without filling or stroking", the cheapest
-    // operator there is — so this measures the bound rather than the operator.
-    let content = "n\n".repeat(4_000_002);
+    let content = "0 g\n".repeat(4_000_002);
     let document = page(&content, "<< >>", "");
     let reported = reported(&document);
     assert!(
         reported.contains("MAX_OPERATIONS"),
         "four million operators must be refused by name: {reported}"
+    );
+}
+
+/// …and a stream of *many tokens and few operators* is not refused at all.
+///
+/// **The control that was missing for the whole life of the bound**, and the shape of the
+/// document that found it: a hand-traced drawing, all cubic Béziers and no text. §7.8.2 puts an
+/// operator after its operands, so `x1 y1 x2 y2 x3 y3 c` is seven tokens and one operator, and a
+/// counter reading the loop's turns charges a curve seven times over. The fixture below states
+/// **4.4 million lexer tokens and 1.1 million operators**: it was refused before ADR 0306 and
+/// draws after it, and no other assertion in this file can tell the two counters apart.
+#[test]
+fn a_stream_of_many_tokens_and_few_operators_still_draws() {
+    // `c` appends a cubic Bézier — six operands, seven tokens — and `n` ends the path so that
+    // the fixture does not accumulate half a million segments in one path object.
+    let mut content = "0 0 0 rg 10 10 100 100 re f\n".to_owned();
+    content.push_str(&"0 0 0 0 0 0 c\nn\n".repeat(550_000));
+    let document = page(&content, "<< >>", "");
+    let reported = reported(&document);
+    assert_eq!(
+        reported, "[]",
+        "1.1 million operators are inside a four-million-operator bound, whatever the token \
+         count is"
+    );
+    assert!(
+        commands(&document) > 0,
+        "and the square stated before the curves is still drawn"
+    );
+}
+
+/// A page whose `/Contents` parts add up past `max_stream_len` says so, and names the bound.
+///
+/// **There was no total at all until ADR 0306.** One part was bounded and the concatenation was
+/// not, and `/Contents` may hold `max_array_len` = 2²⁰ entries. ISO 32000-2 §7.7.3.3's Table 31
+/// is what gives the concatenation a bound without inventing a second number:
+///
+/// > If the value is an array, the effect shall be as if all of the streams in the array were
+/// > concatenated with at least one white-space character added between the streams' data, in
+/// > order, to form a single stream.
+///
+/// So the array *is* one stream, and the bound one stream gets is the bound it gets. The
+/// fixture moves the bound rather than building a gibibyte to reach it.
+#[test]
+fn contents_parts_adding_up_past_the_bound_are_refused_by_name() {
+    let part = "0 g\n".repeat(100);
+    let limits = Limits {
+        max_stream_len: 1000,
+        ..Limits::DEFAULT
+    };
+    let document = page_of_parts(&[part.clone(), part.clone(), part], limits);
+    let reported = reported(&document);
+    assert!(
+        reported.contains("TooLarge"),
+        "three parts of 400 bytes against a bound of 1000 must be refused by name: {reported}"
+    );
+}
+
+/// …and parts adding up to less than the bound are one stream, drawn.
+#[test]
+fn contents_parts_inside_the_bound_are_one_stream() {
+    let limits = Limits {
+        max_stream_len: 1000,
+        ..Limits::DEFAULT
+    };
+    let document = page_of_parts(
+        &[
+            "0 0 0 rg\n".to_owned(),
+            "10 10 100 100 re\n".to_owned(),
+            "f\n".to_owned(),
+        ],
+        limits,
+    );
+    let reported = reported(&document);
+    assert_eq!(reported, "[]", "three short parts are inside the bound");
+    assert!(
+        commands(&document) > 0,
+        "and the square, whose operator is in the third part and whose operands are in the \
+         second, is drawn — which is what Table 31's concatenation means"
     );
 }

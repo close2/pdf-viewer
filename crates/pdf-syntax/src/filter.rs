@@ -25,6 +25,35 @@ use std::sync::Arc;
 use crate::object::{Dictionary, Object};
 use crate::parser::Limits;
 
+/// Why a filter stage produced no decoded bytes.
+///
+/// Three statements about one stream, and keeping them apart is what
+/// [`decode_with_parms_reported`] exists for. A caller that only needs bytes takes
+/// [`decode_with_parms`] and gets `None` for all three.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FilterRefusal {
+    /// The filter is not one this module decodes: an image codec, or a name from no table.
+    Unsupported,
+    /// The data is not what the filter's grammar admits, and nothing survived.
+    ///
+    /// A *partly* decodable stream is not this: `FlateDecode` and `LZWDecode` both keep what
+    /// they inflated before the damage, because a partly-inflated content stream still renders
+    /// most of a page.
+    Corrupt,
+    /// The decoded data passed [`Limits::max_stream_len`].
+    ///
+    /// **Kept apart from [`Self::Corrupt`] because the two are opposite statements about the
+    /// same bytes**: a corrupt stream gave everything it had, and this one had more to give.
+    /// Until the four-hundred-and-seventy-first session `flate` and `lzw` answered a bomb with
+    /// the prefix they had inflated and no report at all — `io::Take` returns `Ok` at its
+    /// limit, so a stream clamped at two gibibytes was indistinguishable from a complete
+    /// decode. Trap 5: unsupported input stays loud.
+    TooLarge {
+        /// The bound, in bytes.
+        limit: usize,
+    },
+}
+
 /// Decodes one filter stage and applies any predictor from `parms`.
 ///
 /// Predictors are part of decoding, not a separate step: `FlateDecode` with
@@ -39,17 +68,31 @@ pub fn decode_with_parms(
     parms: Option<&Dictionary>,
     limits: Limits,
 ) -> Option<Arc<[u8]>> {
-    let decoded = decode(filter, data, parms, limits)?;
+    decode_with_parms_reported(filter, data, parms, limits).ok()
+}
+
+/// The same, saying which of [`FilterRefusal`]'s three answers it is.
+///
+/// # Errors
+///
+/// [`FilterRefusal`], whose variants are the three reasons.
+pub fn decode_with_parms_reported(
+    filter: &[u8],
+    data: &[u8],
+    parms: Option<&Dictionary>,
+    limits: Limits,
+) -> Result<Arc<[u8]>, FilterRefusal> {
+    let decoded = decode_reported(filter, data, parms, limits)?;
 
     let Some(parms) = parms else {
-        return Some(decoded);
+        return Ok(decoded);
     };
     let predictor = parms
         .get("Predictor")
         .and_then(Object::as_integer)
         .unwrap_or(1);
     if predictor <= 1 {
-        return Some(decoded);
+        return Ok(decoded);
     }
 
     let colors = parms
@@ -68,7 +111,9 @@ pub fn decode_with_parms(
         .and_then(|value| usize::try_from(value).ok())
         .unwrap_or(1);
 
-    apply_predictor(&decoded, predictor, colors, bits, columns)
+    // An undefined predictor is data this reader cannot reverse, which is the `Corrupt` case:
+    // it has all the bytes and no rule for them.
+    apply_predictor(&decoded, predictor, colors, bits, columns).ok_or(FilterRefusal::Corrupt)
 }
 
 /// Reverses a PNG or TIFF predictor.
@@ -224,7 +269,8 @@ pub fn is_image_codec(filter: &[u8]) -> bool {
 /// `/EarlyChange` changes where the code width grows and therefore what every byte after
 /// that point decodes to.
 ///
-/// Returns `None` for an unsupported filter or corrupt data.
+/// Returns `None` for an unsupported filter, corrupt data or a decode past
+/// [`Limits::max_stream_len`]; [`decode_reported`] says which.
 #[must_use]
 pub fn decode(
     filter: &[u8],
@@ -232,6 +278,20 @@ pub fn decode(
     parms: Option<&Dictionary>,
     limits: Limits,
 ) -> Option<Arc<[u8]>> {
+    decode_reported(filter, data, parms, limits).ok()
+}
+
+/// Decodes one filter stage, saying which of [`FilterRefusal`]'s three answers a failure is.
+///
+/// # Errors
+///
+/// [`FilterRefusal`], whose variants are the three reasons.
+pub fn decode_reported(
+    filter: &[u8],
+    data: &[u8],
+    parms: Option<&Dictionary>,
+    limits: Limits,
+) -> Result<Arc<[u8]>, FilterRefusal> {
     match filter {
         b"FlateDecode" | b"Fl" => flate(data, limits),
         b"LZWDecode" | b"LZW" => {
@@ -245,13 +305,13 @@ pub fn decode(
                 .unwrap_or(1);
             lzw(data, early != 0, limits)
         }
-        b"ASCIIHexDecode" | b"AHx" => Some(ascii_hex(data)),
+        b"ASCIIHexDecode" | b"AHx" => Ok(ascii_hex(data)),
         b"ASCII85Decode" | b"A85" => ascii85(data, limits),
         b"RunLengthDecode" | b"RL" => run_length(data, limits),
         // Not a compression filter: it declares that the stream is encrypted, which is
         // handled elsewhere. Passing the data through unchanged is correct.
-        b"Crypt" => Some(Arc::from(data)),
-        _ => None,
+        b"Crypt" => Ok(Arc::from(data)),
+        _ => Err(FilterRefusal::Unsupported),
     }
 }
 
@@ -284,8 +344,10 @@ pub fn decode(
 ///   byte boundaries arbitrarily".
 ///
 /// A truncated or corrupt stream keeps what it decoded, for [`flate`]'s reason: a partial
-/// content stream still renders most of a page.
-fn lzw(data: &[u8], early_change: bool, limits: Limits) -> Option<Arc<[u8]>> {
+/// content stream still renders most of a page. **A stream that passes
+/// [`Limits::max_stream_len`] does not**, and the difference is the whole of ADR 0306: damage
+/// means the encoder had no more to give, and the bound means it had a great deal more.
+fn lzw(data: &[u8], early_change: bool, limits: Limits) -> Result<Arc<[u8]>, FilterRefusal> {
     /// Restart with the initial table and a nine-bit code.
     const CLEAR: u16 = 256;
     /// End of data.
@@ -320,7 +382,7 @@ fn lzw(data: &[u8], early_change: bool, limits: Limits) -> Option<Arc<[u8]>> {
             bits -= width;
 
             if code == EOD {
-                return Some(Arc::from(out.as_slice()));
+                return Ok(Arc::from(out.as_slice()));
             }
             if code == CLEAR {
                 next = FIRST;
@@ -340,7 +402,7 @@ fn lzw(data: &[u8], early_change: bool, limits: Limits) -> Option<Arc<[u8]>> {
                 previous.unwrap_or(0)
             } else {
                 // A code past the end of the table is corrupt data, not a sequence.
-                return (!out.is_empty()).then(|| Arc::from(out.as_slice()));
+                return salvage(&out);
             };
             let extends = code == next;
             for _ in 0..ENTRIES {
@@ -360,8 +422,12 @@ fn lzw(data: &[u8], early_change: bool, limits: Limits) -> Option<Arc<[u8]>> {
 
             if out.len().saturating_add(scratch.len()) > limits.max_stream_len {
                 // A bomb rather than a stream: LZW reaches about 1365:1 on long runs of one
-                // byte, so a small file can name a very large output.
-                return (!out.is_empty()).then(|| Arc::from(out.as_slice()));
+                // byte, so a small file can name a very large output. **What it decoded so far
+                // is discarded rather than handed back**, because a prefix of a bomb read as a
+                // whole stream is exactly the silence this guard exists to break.
+                return Err(FilterRefusal::TooLarge {
+                    limit: limits.max_stream_len,
+                });
             }
             out.extend_from_slice(&scratch);
 
@@ -390,7 +456,19 @@ fn lzw(data: &[u8], early_change: bool, limits: Limits) -> Option<Arc<[u8]>> {
 
     // No EOD marker: the encoder is required to emit one, and a file that does not is
     // truncated rather than empty.
-    (!out.is_empty()).then(|| Arc::from(out.as_slice()))
+    salvage(&out)
+}
+
+/// What a *damaged* stream hands back: whatever it decoded, or [`FilterRefusal::Corrupt`].
+///
+/// Only for damage. A stream stopped by [`Limits::max_stream_len`] does not come through here
+/// — see [`FilterRefusal::TooLarge`].
+fn salvage(out: &[u8]) -> Result<Arc<[u8]>, FilterRefusal> {
+    if out.is_empty() {
+        Err(FilterRefusal::Corrupt)
+    } else {
+        Ok(Arc::from(out))
+    }
 }
 
 /// Inflates a zlib or raw deflate stream.
@@ -399,34 +477,47 @@ fn lzw(data: &[u8], early_change: bool, limits: Limits) -> Option<Arc<[u8]>> {
 /// two-byte zlib header are common in the wild. Truncated output is kept rather than
 /// discarded: a partially-inflated content stream still renders most of a page, and
 /// discarding it would lose everything over one corrupt byte at the end.
-fn flate(data: &[u8], limits: Limits) -> Option<Arc<[u8]>> {
+///
+/// **A stream stopped by [`Limits::max_stream_len`] is the other case, and one code path used
+/// to serve both.** `io::Take` yields end-of-file at its limit and `read_to_end` reports that
+/// as `Ok`, so a bomb clamped at the bound came back as a complete decode of its own prefix,
+/// with nothing said. The ceiling here is therefore **one byte past** the bound: reaching that
+/// byte is what tells the two apart, and it costs one byte of memory to know. ADR 0306.
+fn flate(data: &[u8], limits: Limits) -> Result<Arc<[u8]>, FilterRefusal> {
     use std::io::Read as _;
 
     // Leading whitespace before the compressed data occurs and confuses the header check.
     let start = data
         .iter()
-        .position(|&byte| !crate::lexer::is_whitespace(byte))?;
-    let data = data.get(start..)?;
+        .position(|&byte| !crate::lexer::is_whitespace(byte))
+        .ok_or(FilterRefusal::Corrupt)?;
+    let data = data.get(start..).ok_or(FilterRefusal::Corrupt)?;
+    let ceiling = limits.max_stream_len.saturating_add(1) as u64;
 
     for raw in [false, true] {
         let mut out = Vec::new();
         let result = if raw {
             flate2::read::DeflateDecoder::new(data)
-                .take(limits.max_stream_len as u64)
+                .take(ceiling)
                 .read_to_end(&mut out)
         } else {
             flate2::read::ZlibDecoder::new(data)
-                .take(limits.max_stream_len as u64)
+                .take(ceiling)
                 .read_to_end(&mut out)
         };
+        if out.len() > limits.max_stream_len {
+            return Err(FilterRefusal::TooLarge {
+                limit: limits.max_stream_len,
+            });
+        }
         match result {
-            Ok(_) => return Some(Arc::from(out.as_slice())),
+            Ok(_) => return Ok(Arc::from(out.as_slice())),
             // Partial output from a truncated stream is still useful.
-            Err(_) if !out.is_empty() => return Some(Arc::from(out.as_slice())),
+            Err(_) if !out.is_empty() => return Ok(Arc::from(out.as_slice())),
             Err(_) => {}
         }
     }
-    None
+    Err(FilterRefusal::Corrupt)
 }
 
 /// Decodes `ASCIIHexDecode`: hex digits terminated by `>`.
@@ -457,7 +548,7 @@ fn ascii_hex(data: &[u8]) -> Arc<[u8]> {
 }
 
 /// Decodes `ASCII85Decode`.
-fn ascii85(data: &[u8], limits: Limits) -> Option<Arc<[u8]>> {
+fn ascii85(data: &[u8], limits: Limits) -> Result<Arc<[u8]>, FilterRefusal> {
     let mut out = Vec::new();
     let mut group = [0u8; 5];
     let mut count = 0usize;
@@ -469,7 +560,18 @@ fn ascii85(data: &[u8], limits: Limits) -> Option<Arc<[u8]>> {
         data
     };
 
+    // **Checked here rather than beside the two places that push**, because one of those is
+    // `z` and it used to `continue` straight past the guard: eight `z` under a bound of eight
+    // produced thirty-two bytes and reported nothing, which is the same defect this file's
+    // other two filters had and was found by asserting that all four agree. One input byte
+    // yields at most four output bytes, so the overshoot inside the loop is four; the check
+    // after it is what catches a group that landed on the last byte.
     for byte in body.iter().copied() {
+        if out.len() > limits.max_stream_len {
+            return Err(FilterRefusal::TooLarge {
+                limit: limits.max_stream_len,
+            });
+        }
         if crate::lexer::is_whitespace(byte) {
             continue;
         }
@@ -482,7 +584,7 @@ fn ascii85(data: &[u8], limits: Limits) -> Option<Arc<[u8]>> {
             continue;
         }
         if !(b'!'..=b'u').contains(&byte) {
-            return None;
+            return Err(FilterRefusal::Corrupt);
         }
 
         if let Some(slot) = group.get_mut(count) {
@@ -493,9 +595,6 @@ fn ascii85(data: &[u8], limits: Limits) -> Option<Arc<[u8]>> {
         if count == 5 {
             push_ascii85_group(&mut out, group, 5);
             count = 0;
-        }
-        if out.len() > limits.max_stream_len {
-            return None;
         }
     }
 
@@ -508,7 +607,12 @@ fn ascii85(data: &[u8], limits: Limits) -> Option<Arc<[u8]>> {
         push_ascii85_group(&mut out, padded, count);
     }
 
-    Some(Arc::from(out.as_slice()))
+    if out.len() > limits.max_stream_len {
+        return Err(FilterRefusal::TooLarge {
+            limit: limits.max_stream_len,
+        });
+    }
+    Ok(Arc::from(out.as_slice()))
 }
 
 /// Expands one base-85 group, keeping `count - 1` of the four decoded bytes.
@@ -523,7 +627,7 @@ fn push_ascii85_group(out: &mut Vec<u8>, group: [u8; 5], count: usize) {
 }
 
 /// Decodes `RunLengthDecode`.
-fn run_length(data: &[u8], limits: Limits) -> Option<Arc<[u8]>> {
+fn run_length(data: &[u8], limits: Limits) -> Result<Arc<[u8]>, FilterRefusal> {
     let mut out = Vec::new();
     let mut at = 0usize;
 
@@ -535,24 +639,28 @@ fn run_length(data: &[u8], limits: Limits) -> Option<Arc<[u8]>> {
             // 0..=127: copy the next length + 1 bytes literally.
             0..=127 => {
                 let run = usize::from(length).saturating_add(1);
-                let slice = data.get(at..at.saturating_add(run))?;
+                let slice = data
+                    .get(at..at.saturating_add(run))
+                    .ok_or(FilterRefusal::Corrupt)?;
                 out.extend_from_slice(slice);
                 at = at.saturating_add(run);
             }
             // 129..=255: repeat the next byte 257 - length times.
             _ => {
-                let &byte = data.get(at)?;
+                let &byte = data.get(at).ok_or(FilterRefusal::Corrupt)?;
                 at = at.saturating_add(1);
                 let run = 257usize.saturating_sub(usize::from(length));
                 out.resize(out.len().saturating_add(run), byte);
             }
         }
         if out.len() > limits.max_stream_len {
-            return None;
+            return Err(FilterRefusal::TooLarge {
+                limit: limits.max_stream_len,
+            });
         }
     }
 
-    Some(Arc::from(out.as_slice()))
+    Ok(Arc::from(out.as_slice()))
 }
 
 #[cfg(test)]

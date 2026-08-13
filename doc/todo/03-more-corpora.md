@@ -188,8 +188,11 @@ Four things to take away:
   moved, and the reason differs for each: `MAX_FORM_DEPTH`'s four documents are **all cycles**,
   `MAX_TILES` is the only bound on a loop an *empty* cell makes invisible to `MAX_OPERATIONS`
   (1 000 000 empty tiles in 889 ms reporting nothing), `MAX_OPERATIONS`' 31 all terminate wanting
-  4.1–53.6 M operators, and `MAX_STATE_DEPTH`'s single witness wants 337 where §C.2's Table C.1
-  prints 28 as the depth a writer could rely on.
+  4.1–53.6 M **lexer tokens** — the word here was *operators* and the counter was counting tokens
+  until ADR 0306 corrected the unit without moving the value — and `MAX_STATE_DEPTH`'s single
+  witness wants 337 where §C.2's Table C.1 prints 28 as the depth a writer could rely on. **The
+  `MAX_OPERATIONS` figure is therefore a population of the old unit**: re-measured over 926 680
+  pages of 65 967 crawled documents, 48 pass four million tokens and 8 pass four million operators.
 - **Two documents are slow, which this population had never produced, and both are *complete*.**
   `0423548.pdf` (archive `0423`, 9 933 485 bytes, SHA-256
   `0db5152253cc8483dad26ae0c27cba5e54c88e6a941603ca17b27b8a4d487c85`) at **32.9 s** and

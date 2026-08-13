@@ -63,13 +63,29 @@ const MAX_STATE_DEPTH: usize = 256;
 /// compressed stream of a few kilobytes can expand into tens of millions of operations —
 /// a decompression bomb aimed at the renderer rather than at memory.
 ///
+/// **It said "operators" and counted lexer tokens for its whole life, and the value has not
+/// moved: the unit has.** §7.8.2 puts an operator after its operands — "all of the operands
+/// needed by an operator shall immediately precede that operator" — so `x1 y1 x2 y2 x3 y3 c` is
+/// seven tokens and one operator, and the single increment site was the token loop. For a
+/// hand-traced drawing that is a budget about seven times tighter than this constant advertises,
+/// and the project owner's witness was truncated at 19% of its artwork while stating 814 705
+/// *fewer* operators than the bound. The counter now increments where the interpreter knows it
+/// has an operator, which is after the keyword arm and before the dispatch.
+///
+/// **What that costs, measured rather than argued.** Over **926 680 pages of 65 967 crawled
+/// documents** (`cargo run --release -p pdf-model --example content_budget_census`), 48 pages
+/// state more than four million lexer tokens and **8** state more than four million operators;
+/// the corpus-wide ratio is 3.76 tokens per operator and is not a constant — it is about 2 for
+/// text and about 7 for cubic Béziers. So correcting the unit hands back forty pages of a
+/// million and refuses the eight that really are programs of that length.
+///
 /// **It is a bound on slowness rather than on exhaustion, and the four-hundred-and-thirty-fifth
-/// session opened the documents that reach it to find that out.** All 31 of 65 944 that do
-/// *terminate* when it is lifted a hundredfold — they want 4.1 to 53.6 million operators and
-/// take 0.27 s to 49.9 s, and they are maps, plans and charts rather than bombs. The bound
-/// stays for the reason a raised one would not help: **a count is not a cost.** One `sh` can
-/// paint the whole page, so no number here bounds the time, and what actually bounds it is the
-/// confined worker's cancel — a kill, at 0.83–1.97 ms (ADR 0241). ADR 0271.
+/// session opened the documents that reach it to find that out.** All 31 of 65 944 that did
+/// *terminate* when it was lifted a hundredfold — they are maps, plans and charts rather than
+/// bombs. The bound stays at four million for the reason a raised one would not help: **a count
+/// is not a cost.** One `sh` can paint the whole page, so no number here bounds the time, and
+/// what actually bounds it is the confined worker's cancel — a kill, at 0.83–1.97 ms (ADR
+/// 0241). ADRs 0271 and 0306.
 const MAX_OPERATIONS: usize = 4_000_000;
 
 /// Most operands one operator may take before the rest are refused.
@@ -2688,14 +2704,6 @@ impl Interpreter<'_> {
         let mut replaced_ends_at: Option<usize> = None;
 
         while let Some(token) = lexer.next_token() {
-            self.operations = self.operations.saturating_add(1);
-            if self.operations > MAX_OPERATIONS {
-                self.note(Unsupported::LimitReached {
-                    limit: "MAX_OPERATIONS",
-                });
-                return;
-            }
-
             // Operands accumulate until an operator consumes them.
             let operator = match token {
                 // §7.8.2's grammar puts an operator *after* its operands, and §7.3.6 makes an
@@ -2760,6 +2768,23 @@ impl Interpreter<'_> {
                     continue;
                 }
             };
+
+            // **Here rather than at the top of the loop, and that is the whole of ADR 0306.**
+            // `MAX_OPERATIONS` names operators and this is the only place the interpreter knows
+            // it has one: §7.8.2's grammar puts the operator after its operands, so a `c` is
+            // seven tokens and one operator, and counting the loop's turns charged a curve seven
+            // times over. Everything above this line is an operand, an array bracket or a
+            // keyword inside an array, and none of those is an operator.
+            //
+            // What bounds the *token* loop is the stream's own length — every token consumes at
+            // least one byte — and `Limits::max_stream_len` bounds that.
+            self.operations = self.operations.saturating_add(1);
+            if self.operations > MAX_OPERATIONS {
+                self.note(Unsupported::LimitReached {
+                    limit: "MAX_OPERATIONS",
+                });
+                return;
+            }
 
             // §8.6.8: inside a `d1` glyph description or an uncoloured tiling pattern —
             // and inside everything either of them invokes — "all of the following operators

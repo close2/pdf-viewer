@@ -168,13 +168,22 @@ bound lifted, one process apiece:
 | bound | documents | with the bound lifted |
 |---|---|---|
 | `MAX_TILES` 4096 | 48 | all terminate, 0.06–14.2 s, wanting 4104–895 500 tiles |
-| `MAX_OPERATIONS` 4 M | 31 | all terminate, wanting 4.1–53.6 M operators, 0.27–49.9 s |
+| `MAX_OPERATIONS` 4 M | 31 | all terminate, wanting 4.1–53.6 M **lexer tokens**, 0.27–49.9 s |
 | `MAX_FORM_DEPTH` 16 | 4 | **all four are cycles**: lifted to 256, all four reach 256 |
 | `MAX_STATE_DEPTH` 256 | 1 | wants 337, draws in 0.05 s |
 
 and one number that is a property of the loop rather than of any document: with `MAX_TILES` lifted,
 **1 000 000 empty tiles interpret in 889 ms reporting nothing** — 0.89 µs apiece, and `/XStep 0.001`
 over a 600-unit fill states 3.6 × 10¹¹ of them, about four days. None of the four bounds moved.
+
+**And the second column of that table was in the wrong unit for the whole of the bound's life**
+(ADR 0306). `MAX_OPERATIONS` said *operators* and counted lexer tokens, which §7.8.2 makes seven of
+for one `c`; the counter now counts operators and the value is unchanged at four million. Measured
+in the right unit over 926 680 pages of 65 967 crawled documents, 48 pages pass four million tokens
+and **8** pass four million operators — so the row above is a population of *tokens* and a round
+re-running it should expect a smaller number. The instrument is
+`cargo run --release -p pdf-model --example content_budget_census -- <dir>…`, which counts both in
+one pass and prints the largest decoded stream and the largest page `/Contents` total beside them.
 
 ## What a document-wide search costs, and what a bound on memory bought
 

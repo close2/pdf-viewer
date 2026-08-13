@@ -17,7 +17,7 @@
 
 use std::collections::BTreeMap;
 
-use pdf_syntax::{Dictionary, Document, Object, ObjectId};
+use pdf_syntax::{Dictionary, Document, FilterRefusal, Object, ObjectId, StreamRefusal};
 
 /// Deepest page-tree nesting that will be followed.
 ///
@@ -312,6 +312,7 @@ impl Page {
 
         let mut out = Vec::new();
         let mut issues = Vec::new();
+        let limit = document.limits().max_stream_len;
         for (index, (named, part)) in parts.iter().enumerate() {
             // A `/Contents` that is missing entirely is an empty page, not a defect; one
             // whose entries are not streams is a malformed page and worth saying so.
@@ -328,13 +329,44 @@ impl Page {
                 }
                 continue;
             };
-            let Some(data) = document.decoded_stream_data(stream) else {
-                issues.push(ContentIssue::Undecodable {
-                    index,
-                    filters: filter_names(document, &stream.dict),
-                });
-                continue;
+            let data = match document.decoded_stream_data_reported(stream) {
+                Ok(data) => data,
+                // A bound refused this part; the filter chain did not fail to work. Saying
+                // "undecodable" of a stream this reader can decode perfectly well would put a
+                // limit of ours into a sentence about the file.
+                Err(StreamRefusal::Filter {
+                    why: FilterRefusal::TooLarge { limit },
+                    ..
+                }) => {
+                    issues.push(ContentIssue::TooLarge {
+                        part: Some(index),
+                        limit,
+                    });
+                    continue;
+                }
+                Err(_) => {
+                    issues.push(ContentIssue::Undecodable {
+                        index,
+                        filters: filter_names(document, &stream.dict),
+                    });
+                    continue;
+                }
             };
+            // **Table 31 says what the parts are, and therefore what bounds them.** Its
+            // `/Contents` row:
+            //
+            // > If the value is an array, the effect shall be as if all of the streams in the
+            // > array were concatenated with at least one white-space character added between
+            // > the streams' data, in order, to form a single stream.
+            //
+            // So the array *is* one stream, and the bound one stream gets is the bound the
+            // array gets — no second number, and none invented here. Without it a page could
+            // state `max_array_len` = 2²⁰ parts of `max_stream_len` each and none of them would
+            // be refused; the concatenation had no total at all until ADR 0306.
+            if out.len().saturating_add(data.len()) > limit {
+                issues.push(ContentIssue::TooLarge { part: None, limit });
+                break;
+            }
             out.extend_from_slice(&data);
             out.push(b'\n');
         }
@@ -948,7 +980,23 @@ fn filter_names(document: &Document, dict: &Dictionary) -> Vec<String> {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[non_exhaustive]
 pub enum ContentIssue {
+    /// A part, or the parts together, passed [`pdf_syntax::Limits::max_stream_len`].
+    ///
+    /// **Not [`Self::Undecodable`], and the difference is which of the two is being described.**
+    /// An undecodable part is one this reader could not read; this one it could read and
+    /// declined to, which is a statement about a bound of ours. A page that reports this has
+    /// content the document states and this program refused, and saying so is trap 5.
+    TooLarge {
+        /// Which part of `/Contents`, counting from zero, or `None` where it was the
+        /// concatenation of all of them that passed the bound rather than any single part.
+        part: Option<usize>,
+        /// The bound, in bytes.
+        limit: usize,
+    },
     /// A part's filter chain could not be applied, or the stream is damaged.
+    ///
+    /// **Not a part this reader declined on a bound** — that is [`Self::TooLarge`], and the two
+    /// were one report until ADR 0306.
     Undecodable {
         /// Which part of `/Contents`, counting from zero.
         index: usize,

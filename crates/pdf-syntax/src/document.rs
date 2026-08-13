@@ -21,6 +21,7 @@ use std::thread::ThreadId;
 
 use crate::crypt::{Encryption, Method, Permissions};
 use crate::error::{SyntaxError, SyntaxResult};
+use crate::filter::FilterRefusal;
 use crate::object::{Dictionary, Name, Object, ObjectId, Stream};
 use crate::parser::{Limits, Parser};
 use crate::xref::{Location, XrefTable};
@@ -774,23 +775,53 @@ impl Document {
     /// Returns `None` when a filter in the chain is not supported, rather than returning
     /// the encoded bytes. Handing back compressed data as if it were decoded would produce
     /// garbage that looks like a rendering bug. Also for a stream whose data lives in an
-    /// external file — see [`Self::is_external`].
+    /// external file — see [`Self::is_external`]. [`Self::decoded_stream_data_reported`] says
+    /// which of [`StreamRefusal`]'s answers it was.
     #[must_use]
     pub fn decoded_stream_data(&self, stream: &Stream) -> Option<Arc<[u8]>> {
-        if stream.decryption_failed || Self::is_external(stream) {
-            return None;
+        self.decoded_stream_data_reported(stream).ok()
+    }
+
+    /// The same, naming what refused.
+    ///
+    /// The distinction a caller needs is [`StreamRefusal::TooLarge`]: a stream this reader
+    /// *could* have decoded and declined to, which is a statement about the file rather than
+    /// about this program's filter table. Reporting it as an unsupported filter would be the
+    /// silent-fallback failure one layer up from the one ADR 0306 removed.
+    ///
+    /// # Errors
+    ///
+    /// [`StreamRefusal`], whose variants are the reasons.
+    pub fn decoded_stream_data_reported(
+        &self,
+        stream: &Stream,
+    ) -> Result<Arc<[u8]>, StreamRefusal> {
+        if stream.decryption_failed {
+            return Err(StreamRefusal::DecryptionFailed);
+        }
+        if Self::is_external(stream) {
+            return Err(StreamRefusal::External);
         }
         let filters = self.filter_chain(&stream.dict);
         if filters.is_empty() || self.states_no_data(stream) {
-            return Some(Arc::clone(&stream.data));
+            return Ok(Arc::clone(&stream.data));
         }
 
         let mut data: Arc<[u8]> = Arc::clone(&stream.data);
         for (index, filter) in filters.iter().enumerate() {
             let parms = self.decode_parms(&stream.dict, index);
-            data = crate::filter::decode_with_parms(filter, &data, parms.as_ref(), self.limits)?;
+            data = crate::filter::decode_with_parms_reported(
+                filter,
+                &data,
+                parms.as_ref(),
+                self.limits,
+            )
+            .map_err(|why| StreamRefusal::Filter {
+                name: String::from_utf8_lossy(filter).into_owned(),
+                why,
+            })?;
         }
-        Some(data)
+        Ok(data)
     }
 
     /// Whether the file *states* that this stream holds nothing, ISO 32000-2 §7.3.8.1.
@@ -974,6 +1005,27 @@ fn is_signature_dictionary(dict: &Dictionary) -> bool {
                 && matches!(dict.get("Contents"), Some(Object::String(_)))
         }
     }
+}
+
+/// Why a stream's data could not be handed over decoded.
+///
+/// Three answers to one question, and only [`Document::decoded_stream_data_reported`] keeps
+/// them apart. The one that matters is [`Self::Filter`] carrying
+/// [`FilterRefusal::TooLarge`]: everything else is something this reader cannot do, and that
+/// one is something it declined to do.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StreamRefusal {
+    /// §7.6's decryption did not produce plaintext for this stream.
+    DecryptionFailed,
+    /// §7.3.8.1's external file, which the renderer has no filesystem to open (principle 3).
+    External,
+    /// A filter in the chain refused.
+    Filter {
+        /// Which filter, as the file names it.
+        name: String,
+        /// What it answered.
+        why: FilterRefusal,
+    },
 }
 
 /// A stream's data with its image codec, if any, still to be applied.

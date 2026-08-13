@@ -34,7 +34,14 @@ pub struct Limits {
     pub max_dict_len: usize,
     /// Maximum length of one string, in bytes.
     pub max_string_len: usize,
-    /// Maximum length of one stream's raw data, in bytes.
+    /// Maximum length of one stream, in bytes, raw or decoded.
+    ///
+    /// **Both, and that is the point of one number rather than two**: §7.3.8.2 makes `/Length`
+    /// a statement about the bytes in the file, and a filter turns those into more of them, so
+    /// a bound on the first alone bounds nothing a decompression bomb does.
+    ///
+    /// It is also the bound on a page's whole `/Contents`, because Table 31 says the parts of
+    /// the array are one stream — see `pdf_model::Page::content_with_report`.
     pub max_stream_len: usize,
 }
 
@@ -47,7 +54,24 @@ impl Limits {
         max_array_len: 1 << 20,
         max_dict_len: 1 << 16,
         max_string_len: 1 << 26,
-        max_stream_len: 1 << 31,
+        // **One gibibyte.** Two gibibytes until the four-hundred-and-seventy-first session,
+        // where it contradicted the ceiling the confined worker runs under, and the new figure
+        // is bounded from both sides rather than chosen:
+        //
+        // - **From above by the ceiling.** `pdf_sandbox`'s `INTERPRETER_ADDRESS_SPACE_LIMIT` is
+        //   4 GiB, of which `MAX_PIXELS` x 4 bytes = 1 GiB is the raster's. Decoding costs
+        //   about *twice* the decoded length before the bytes are handed over — `read_to_end`
+        //   grows a `Vec` by doubling and `Arc<[u8]>` is then a copy of it — measured at
+        //   3694 MB peak for a 1.9 GB decode. So a bound of L costs about 2L, and 2L has to fit
+        //   in the 3 GiB the raster leaves. At 2 GiB it did not: one stream could ask for the
+        //   whole ceiling and leave nothing to draw with.
+        // - **From below by what documents contain.** The largest decoded stream in
+        //   **5 047 187 streams over 65 967 crawled documents** is 483.84 MiB, and one stream in
+        //   five million passes 256 MiB (`content_budget_census`). A gibibyte is twice the
+        //   largest real one and refuses none of them.
+        //
+        // ADR 0306.
+        max_stream_len: 1 << 30,
     };
 }
 
