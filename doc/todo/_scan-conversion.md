@@ -23,7 +23,16 @@ Four departures, all licensed by §10.7.1's NOTE that the algorithm "is not defi
 the first three all in one direction:
 
 1. Both backends **anti-alias**, so a partly covered pixel is partly painted.
-2. Therefore the painted area is *not* always at least the shape's.
+2. Therefore the painted area is *not* always at least the shape's. **This one had no witness for
+   four hundred and seventy-two sessions and now has a large one** (ADR 0308): where a document
+   states one region as *many* opaque fills, every internal boundary falls inside some device
+   pixel, and §11.3.7.3 composites each mark's coverage into the last by the *union* function —
+   "an 'inverted multiplication'". Two halves unite to three quarters, four quarters to `0.75⁴`,
+   and *n* equal shares rise towards `1/e`, so what lies under the region shines through it. On a
+   cross-section of 58 003 filled polygons the layer beneath keeps 0.1937 of itself at page scale,
+   0.0673 at 4× and 0.0156 at 8×. `doc/todo/11` item 5 has the whole measurement, the three
+   backends, the four references and what a cure would cost; `crates/pdf-model/examples/
+   uncovered_share.rs` is the instrument for any page.
 3. `Image::area_averaged` averages over the pixel area where the clause says "there shall not be
    averaging over the pixel area" (ADR 0025 — it is what made `bug1001080.pdf` legible).
 4. A clip's effect on a mark is a **product** where the clause states an intersection of sets —

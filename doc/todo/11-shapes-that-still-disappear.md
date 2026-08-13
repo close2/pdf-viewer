@@ -7,19 +7,23 @@ fixed as far as any corpus document exercises it (ADR 0213) and its general case
 item 4, the same subclause's clipping paragraph, is **half paid** — the clip chain composes as a set
 intersection on **both** backends since ADR 0280 and quorra's own ADR 0030, and the mark's own
 coverage still multiplies into the mask on both.** What is left is that half, what an eight-bit
-raster does to a mark whose ink is under one of its levels, and two marks abutting across a cell's
-box edge.
+raster does to a mark whose ink is under one of its levels, and two marks abutting — which item 2
+had only across a cell's box edge and which the four-hundred-and-seventy-third session measured in
+its general form on a document the project owner reported (ADR 0308). **It is not a defect of this
+program**, and item 5 says on what evidence.
 Priority: 11
 Corpus: 4 known witnesses; the general shape of the residual is stated
-Clauses: §10.7.4, §8.4.3.3 and §8.5.3.2 for the marks that are `O(w²)`, and §8.5.4 for item 4 —
-see `_scan-conversion.md`
+Clauses: §10.7.4, §8.4.3.3 and §8.5.3.2 for the marks that are `O(w²)`, §8.5.4 for item 4 and
+§11.3.7.3 for item 5 — see `_scan-conversion.md`
 Code: `crates/pdf-render/src/sub_pixel.rs`, `crates/render-cpu/src/lib.rs`,
 `crates/render-cpu/src/scan.rs` (item 4's composition),
 `crates/pdf-model/src/content.rs`'s `tile`, `crates/pdf-render/src/repeat.rs`,
 `crates/render-quorra/examples/sub_pixel_marks.rs` and
 `crates/pdf-model/examples/sub_pixel_width_census.rs` (the two instruments: what a backend does
 with a mark, and what a page's own marks are),
-`crates/render-quorra/tests/sub_pixel_coverage.rs` (the gate, on **both** backends since 389)
+`crates/render-quorra/tests/sub_pixel_coverage.rs` (the gate, on **both** backends since 389),
+`crates/render-quorra/tests/abutting_marks.rs` and `crates/pdf-model/examples/uncovered_share.rs`
+(item 5's gate and its instrument)
 
 Leftovers from the hundred-and-eighty-sixth to -eighth sessions, which closed §10.7.4's
 "no shape ever disappears" for a fill with *no* area (ADR 0154) and for a redundant pattern-cell
@@ -262,3 +266,77 @@ There is also a residual on the *witness*, which is not this and is smaller: bot
 to 3% under the geometry at 2× and 4×, and that is the rules' **ends** abutting column by column —
 the same seam one axis over, over one pixel column per three rather than the whole length of every
 rule. It is `AMBIGUOUS_TILING_CELL_CLIP`'s own last paragraph.
+
+## 5. Two marks that abut anywhere — **witnessed, measured, and not this program's** (ADR 0308)
+
+Item 2 above is this one inside a tiling cell, and the *unwitnessed general case* it hands on is
+narrower than what a document actually does. **A witness arrived from the project owner in the
+four-hundred-and-seventy-third session**: a 50 MB Inkscape geological cross-section whose page is
+one 148 MB content stream of **58 003 `f` operators, 2 868 970 curve segments, 57 413 colour
+changes and no clipping path at all**. A dark green frame rule runs under it, and the owner's
+screenshot shows the rule shining through the polygons drawn over it — and disappearing when the
+page is magnified.
+
+It reproduces exactly, and the mark either side of it is stated: the rule is two stroked
+rectangles sharing a coincident edge (user x 1329.8279 and 1329.914, display-list commands 1 and
+2), and the polygons over it are ordinary opaque fills three to seven device pixels across at page
+scale. **The seam is what §11.3.7.3 states.** Result shape is the *union* of the backdrop's and
+the source's, "an 'inverted multiplication' -a multiplication with the inputs and outputs
+complemented", so two marks each covering half a boundary pixel unite to three quarters of it and
+a quarter of whatever lies beneath survives. Four marks covering a quarter each leave `0.75⁴`, and
+*n* of them rise towards `1/e`: **the seam gets worse the more pieces a drawing states its region
+in**, which is why a cross-section of 58 003 polygons is where it is seen and a page of text is
+not.
+
+The numbers, all from `crates/render-quorra/tests/abutting_marks.rs` and
+`crates/pdf-model/examples/uncovered_share.rs`:
+
+```text
+  two opaque rectangles abutting mid-pixel, share of the backdrop still showing
+    render-cpu (tiny-skia)   0.2510      Union(0.5, 0.5) leaves   0.2500
+    render-quorra            0.2471      four quarter-covers      0.3164
+    render-gpu (vello)       0.2510        cpu 0.3137, quorra 0.3137, vello 0.3176
+
+  the same fixture, the references
+    mutool draw              0.2510
+    gs -dGraphicsAlphaBits=4 0.2200
+    gs, anti-aliasing off    0.0000      — §10.7.4's own aliased rule, which has no seam
+    pdftoppm                 0.0000      — and this one is **not** conflation handling
+
+  the owner's page, share of a layer under the fills still showing (interior pixels)
+    1x 0.1937    2x 0.1282    4x 0.0673    8x 0.0156
+```
+
+**`poppler`'s zero is trap 9 and the control says so.** A single rectangle whose right edge lands
+half way across a device pixel reads 0.498 here, 0.533 on `mupdf` and 0.467 on `gs` — and **0.000**
+on `pdftoppm`, which snaps an axis-aligned rectangle to whole pixels and is therefore aliased for
+exactly the shape the fixture is made of. Restate the same pair of marks with a seam that is *not*
+axis-aligned and `poppler` leaks too: 1.765 device pixels over the fixture's square against ours
+2.698, `mupdf`'s 2.871 and `gs`'s 1.004. Three renderers with true analytic coverage — this tree's
+two, and `mupdf` — agree to a level of 255; the two that do not are the two that are not
+anti-aliasing the shape.
+
+So **nothing here is `render-quorra`'s** and no feedback section is owed: it answers 0.2471 where
+the processor answers 0.2510 and vello 0.2510, all three inside one level of 255 of the arithmetic.
+
+### What it would take, and what that costs
+
+Only one thing removes it: **the marks are resolved against one another before either is
+composited.** Two constructions, both priced rather than taken:
+
+- **Draw at *N*× and box-filter down.** This is what `-dGraphicsAlphaBits` is, and its 0.2200
+  above is that filter's quantisation rather than conflation — it is *not* exact either. Cost is
+  `N²` of the rasteriser and `N²` of the raster's memory, on the one path where this project has
+  said latency is the feature. It is the cheap answer to write and the expensive one to run, and
+  it would be paid on every page including the ones that do not need it.
+- **A conflation-free rasteriser**, keeping each boundary pixel's marks as sub-pixel geometry
+  until the pixel is finished rather than as one accumulated coverage. That is the same project
+  item 4 above names for the clip that meets a mark — "this backend's own blitter" — and it has to
+  answer what a blend mode and a transparency group do to a fragment list, which item 4's version
+  does not.
+
+Neither is started, and the reason is written down rather than left as a silence: **the artefact
+shrinks by roughly half per doubling of the magnification and is gone by 8×**, so it is worst
+exactly where a reader is looking at a whole page rather than at its detail, and both cures cost
+their most on the frame where time-to-first-page is measured. A round that takes this owes the
+measurement above at both ends.
