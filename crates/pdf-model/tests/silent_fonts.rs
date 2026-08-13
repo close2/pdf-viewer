@@ -130,3 +130,65 @@ fn a_code_that_reaches_notdef_is_still_a_mark_missed() {
         "three codes reach .notdef and five reach an empty glyph"
     );
 }
+
+/// A page that draws its text and can name none of it says how much it lost.
+///
+/// `french_diacritics.pdf` is the sharpest case in the corpus and it was refused deliberately and
+/// **silently** until the four-hundred-and-seventy-sixth session. A pdfTeX Type 3 font whose
+/// `/Differences` names the Latin-1 accented letters `/a192`, `/a194`, `/a196` …, which is the
+/// character code in decimal and is the producer's own label: §9.10.2's first method has no
+/// `/ToUnicode` to read, its second looks the name up in "the Adobe Glyph List and Adobe Glyph
+/// List for New Fonts" and neither holds it, its third is for composite fonts, and the closing
+/// permission is taken only for 0x21–0x7E — which is why the `1` at code 49 comes back and the
+/// twenty-eight accented codes do not. `doc/todo/21` §5 has the reading; ADR 0311 has why the
+/// clause reaches no further.
+///
+/// The page is **right**: all twenty-nine glyphs mark it, nothing is reported, and the picture
+/// agrees with every reference. What was missing was any statement that a reader gets one
+/// character of it.
+#[test]
+fn a_page_whose_codes_no_method_can_name_says_how_many() {
+    let Some(interpretation) = page_one("french_diacritics.pdf") else {
+        return;
+    };
+    assert_eq!(
+        (
+            interpretation.glyphs,
+            interpretation.codes_without_a_character,
+            interpretation.text.trim()
+        ),
+        (29, 28, "1"),
+        "the page draws every glyph and §9.10.2 names one of its twenty-nine codes"
+    );
+    assert!(
+        interpretation.is_complete(),
+        "and it is a *readback* refusal rather than a drawing one: {}",
+        reports(&interpretation)
+    );
+}
+
+/// The same count on a page that reads back nothing at all.
+///
+/// `complex_ttf_font.pdf` is the archetype the text gate has carried since the sixty-third
+/// session — 527 glyphs on the page and nothing but the placement pass's own inferred breaks out
+/// of it — and the discriminating half of the test above: a page with no text and a page whose
+/// text nothing can name produce the same readback and are not the same page. This count is the
+/// only thing that tells them apart, and the readback being *whitespace* rather than empty is
+/// what makes it the sharper illustration: a rule that asked the buffer would call all 616 of
+/// these spaces.
+#[test]
+fn a_page_that_reads_back_nothing_is_distinguishable_from_a_page_with_no_text() {
+    let Some(interpretation) = page_one("complex_ttf_font.pdf") else {
+        return;
+    };
+    assert!(
+        interpretation.text.trim().is_empty() && interpretation.glyphs == 527,
+        "527 glyphs and a readback of nothing but separators: {} glyphs, {:?}",
+        interpretation.glyphs,
+        interpretation.text
+    );
+    assert_eq!(
+        interpretation.codes_without_a_character, 616,
+        "and every code the page showed is one §9.10.2 could not name"
+    );
+}

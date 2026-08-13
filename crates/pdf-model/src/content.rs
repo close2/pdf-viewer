@@ -343,6 +343,24 @@ pub struct Interpretation {
     /// contributor reads its space back as U+0007 — so this is where such a code lands, and
     /// leaving it uncounted would have made the correction unmeasurable.
     pub codes_reaching_a_blank_glyph: usize,
+    /// Codes this page showed that §9.10.2 could not name, whether or not a glyph was drawn.
+    ///
+    /// The reading half of what the two counts above measure for the drawing half, and the one
+    /// the tree had no channel for at all: §9.10.2 ends "there is no way to determine what the
+    /// character code represents", and a page whose fonts are in that position drew its text
+    /// perfectly and handed back nothing, with nothing anywhere saying which of the two had
+    /// happened. `french_diacritics.pdf` is the sharpest case — a pdfTeX Type 3 font whose
+    /// `/Differences` names the Latin-1 accented letters `/a192`, `/a224` … , which is the
+    /// producer's own label and not a name the clause's second method can resolve. This is that
+    /// refusal saying what it is. `doc/todo/21` §5 has the reading and ADR 0311 the argument.
+    ///
+    /// **Not a report**, for ADR 0152's reason: every report costs the oracle a judged page
+    /// (trap 11), and this is a shortfall in the readback rather than in the picture. A host
+    /// that searches or selects can read it and say so; the oracle never sees it.
+    ///
+    /// Counts a code the *page* showed. A code shown inside a Type 3 glyph description is how
+    /// that glyph is painted rather than text of the page (§9.6.4), and is not counted here.
+    pub codes_without_a_character: usize,
     /// ISO 32000-2 §14.9's accessibility spans over [`Self::text`], in the order they closed.
     ///
     /// One entry per marked-content sequence stating an `/Alt`, an `/E` or a `/Lang`, in
@@ -1052,6 +1070,53 @@ struct Coverage {
     /// How many of `empty` were §9.10.2's uncovered characters, which decides which of the
     /// two reports a silent font gets.
     uncovered: u32,
+}
+
+/// What one code contributed to the page's readback.
+///
+/// Three states rather than a string, because the difference between the last two decides
+/// whether a code that reached no outline is a mark the reader lost. A code that reads back as
+/// a space is *meant* to have no outline; a code §9.10.2 could not name says nothing either
+/// way, and taking the second for the first is a wrong answer that reports nothing.
+///
+/// **They were the same state until the four-hundred-and-seventy-sixth session**, because the
+/// test in front of the tally was `self.text[start..].chars().all(char::is_whitespace)` and an
+/// empty slice satisfies that vacuously — so a font that named none of its codes was read as a
+/// page of spaces. It was blind twice over: inside §14.8.2.5.3's reversal the readback is
+/// collected per code and appended after the string, so *every* code's slice was empty there.
+/// Asking the font what it said, rather than asking the buffer what arrived, answers both.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Readback {
+    /// Text, at least one character of which is not whitespace.
+    Characters,
+    /// Text, all of it whitespace.
+    Whitespace,
+    /// Nothing at all: every one of §9.10.2's methods, its closing permission and §9.3.3's
+    /// naming of code 32 declined, or the producer's own mapping is the empty string.
+    Nothing,
+}
+
+impl Readback {
+    /// Classifies what [`Font::text`] appended for one code.
+    fn of(named: bool, text: &str) -> Self {
+        if !named || text.is_empty() {
+            Self::Nothing
+        } else if text.chars().all(char::is_whitespace) {
+            Self::Whitespace
+        } else {
+            Self::Characters
+        }
+    }
+
+    /// Whether this readback says a mark was owed.
+    ///
+    /// Only characters do. A space is *meant* to have no outline, and a code §9.10.2 could not
+    /// name says nothing about what the page owed — the clause's own words are "there is no way
+    /// to determine what the character code represents", which is not evidence in either
+    /// direction and must not be read as either.
+    fn names_a_mark(self) -> bool {
+        self == Self::Characters
+    }
 }
 
 /// A glyph outline's bounding box in page space, for §9.3.8's overlap test.
@@ -1909,6 +1974,7 @@ impl<'a> Interpreter<'a> {
             glyphs: 0,
             codes_without_a_glyph: 0,
             codes_reaching_a_blank_glyph: 0,
+            codes_without_a_character: 0,
             operations: 0,
             fonts: BTreeMap::new(),
             text: String::new(),
@@ -2060,6 +2126,7 @@ fn finished(document: &Document, interpreter: Interpreter<'_>) -> Interpretation
         glyphs: interpreter.glyphs,
         codes_without_a_glyph: interpreter.codes_without_a_glyph,
         codes_reaching_a_blank_glyph: interpreter.codes_reaching_a_blank_glyph,
+        codes_without_a_character: interpreter.codes_without_a_character,
         described: interpreter.described,
         artifacts: interpreter.artifacts,
         marked: interpreter.marked,
@@ -2317,6 +2384,9 @@ struct Interpreter<'a> {
     /// Codes shown that reached an empty glyph; see
     /// `Interpretation::codes_reaching_a_blank_glyph`.
     codes_reaching_a_blank_glyph: usize,
+    /// Codes shown that §9.10.2 could not name; see
+    /// `Interpretation::codes_without_a_character`.
+    codes_without_a_character: usize,
     operations: usize,
     /// Fonts already loaded, keyed by resource name.
     ///
@@ -6237,7 +6307,15 @@ impl Interpreter<'_> {
             };
 
             let start = self.text.len();
-            self.read_back(&font, code, reversing.then_some(&mut pieces));
+            let read = self.read_back(&font, code, reversing.then_some(&mut pieces));
+            if read == Some(Readback::Nothing) {
+                // §9.10.2 exhausted on a code the page *showed*. Counted rather than reported,
+                // for ADR 0152's reason one column over — a report would cost the oracle a
+                // judged page (trap 11) for a shortfall in the readback and not in the picture
+                // — but counted rather than nothing at all, because a refusal that says nothing
+                // is indistinguishable from a page with no text on it.
+                self.codes_without_a_character = self.codes_without_a_character.saturating_add(1);
+            }
 
             // Glyph space to text space: scale by the font size, apply horizontal scaling and
             // rise, then the text matrix and the current transform. §9.4.4 calls this the text
@@ -6278,25 +6356,15 @@ impl Interpreter<'_> {
                             // Tallied rather than reported here: see `glyph_coverage`.
                             coverage.empty = coverage.empty.saturating_add(1);
                             coverage.uncovered = coverage.uncovered.saturating_add(1);
-                        } else if self
-                            .text
-                            .get(start..)
-                            .is_some_and(|read| read.chars().all(char::is_whitespace))
-                        {
-                            // A code that reads back as a space is *meant* to have no
-                            // outline, so it is neither a mark made nor a mark missed and it
-                            // is not tallied at all. Measured rather than assumed: counting
-                            // it took the corpus's incomplete documents from 79 to 109, and
-                            // twenty-two of the thirty new reports named a single code
-                            // (trap 11 — print what a condition matched before trusting it).
-                        } else {
-                            // The program answered with no outline. One of these is not news
-                            // — a producer's deliberate `.notdef` is one — but a font *every*
-                            // one of whose codes comes back empty has drawn nothing the
-                            // document asked for, which is the condition the report below
-                            // applies. So the tally is the same either way, and what the two
-                            // arms below separate is the *measurement*: whether a mark was
-                            // missed at all.
+                        } else if read.is_some_and(Readback::names_a_mark) {
+                            // The program answered with no outline for a code §9.10.2 *did*
+                            // name, so a character the document states did not reach the page.
+                            // One of these is not news — a producer's deliberate `.notdef` is
+                            // one — but a font every one of whose codes comes back empty has
+                            // drawn nothing the document asked for, which is the condition the
+                            // report below applies. So the tally is the same either way, and
+                            // what the two arms separate is the *measurement*: whether a mark
+                            // was missed at all.
                             coverage.empty = coverage.empty.saturating_add(1);
                             // §9.6.5.4 and §9.7.4.2 state the routes from a code to a glyph,
                             // and this asks which of two things happened at the end of one.
@@ -6335,6 +6403,31 @@ impl Interpreter<'_> {
                                     self.text.get(start..)
                                 );
                             }
+                        } else {
+                            // Neither a mark made nor a mark missed, for one of two reasons,
+                            // and the code could not tell them apart until the
+                            // four-hundred-and-seventy-sixth session.
+                            //
+                            // A code that reads back as a **space** is *meant* to have no
+                            // outline. Measured rather than assumed: counting one took the
+                            // corpus's incomplete documents from 79 to 109, and twenty-two of
+                            // the thirty new reports named a single code (trap 11 — print what
+                            // a condition matched before trusting it).
+                            //
+                            // A code §9.10.2 could **not name** is a different thing wearing
+                            // the same clothes: the clause's own answer is "there is no way to
+                            // determine what the character code represents", so nothing here
+                            // knows whether a mark was owed, and reporting a font on that
+                            // evidence would be a guess that costs the oracle a judged page.
+                            // It is counted where it belongs instead — `codes_without_a_character`
+                            // above. The test used to be `self.text[start..]` all whitespace,
+                            // which an empty slice satisfies vacuously, so the two were one
+                            // branch *and were blind inside §14.8.2.5.3's reversal*, where a
+                            // code's readback never lands in that slice at all.
+                            //
+                            // `None` — a code inside a Type 3 glyph description — is here for a
+                            // third reason: what such a code is, and whether it drew, are
+                            // §9.6.4's questions about the glyph rather than this page's.
                         }
                     }
                     Font::Type3(type3) => {
@@ -6418,7 +6511,17 @@ impl Interpreter<'_> {
     /// rather than per `char` because what the clause reverses are the characters "as found in
     /// the show string operator" — one code may map to several, and a ligature's `/ToUnicode`
     /// saying `fi` would come back as `if` from a reversal that worked on characters.
-    fn read_back(&mut self, font: &Font, code: Code, reversed: Option<&mut Vec<String>>) {
+    ///
+    /// Returns what the code contributed, or `None` where it contributed nothing *because it is
+    /// not the page's text* — a code inside a Type 3 glyph description, below. That is a
+    /// different thing from [`Readback::Nothing`], which is a code the page showed and §9.10.2
+    /// could not name, and the caller counts only the second.
+    fn read_back(
+        &mut self,
+        font: &Font,
+        code: Code,
+        reversed: Option<&mut Vec<String>>,
+    ) -> Option<Readback> {
         // **Not from inside a Type 3 glyph description.** §9.6.4 makes a glyph description a
         // way of *painting* one glyph — "a glyph in a Type 3 font shall be defined by a
         // content stream that contains the operators that paint the glyph" — so the text
@@ -6431,18 +6534,19 @@ impl Interpreter<'_> {
         // "pp2200--4400::" — every character twice, once from the outer code and once from
         // the description that draws it.
         if self.glyph_depth > 0 {
-            return;
+            return None;
         }
-        match reversed {
-            Some(pieces) => {
-                let mut piece = String::new();
-                font.text(code, &mut piece);
-                pieces.push(piece);
-            }
-            None => {
-                font.text(code, &mut self.text);
-            }
-        }
+        Some(if let Some(pieces) = reversed {
+            let mut piece = String::new();
+            let named = font.text(code, &mut piece);
+            let read = Readback::of(named, &piece);
+            pieces.push(piece);
+            read
+        } else {
+            let start = self.text.len();
+            let named = font.text(code, &mut self.text);
+            Readback::of(named, self.text.get(start..).unwrap_or_default())
+        })
     }
 
     /// How wide a gap has to be before it means a word break rather than kerning.

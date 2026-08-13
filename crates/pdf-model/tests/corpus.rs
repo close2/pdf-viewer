@@ -621,12 +621,40 @@ struct Tally {
     /// contains and draws as nothing is a space, however its `/ToUnicode` reads it back.
     /// ADR 0270.
     codes_reaching_a_blank_glyph: Vec<(String, usize)>,
+    /// Every code shown on a page one that §9.10.2 could not name, on pages that report nothing.
+    ///
+    /// The reading half of the two above, and the population `doc/todo/21` §5 is about: the
+    /// clause's own "there is no way to determine what the character code represents", counted
+    /// so that a page which draws its text and hands back none of it says so. Same rule as the
+    /// two above — a page that already reports is not silent — but a much larger number, because
+    /// a font that cannot name a code usually draws it perfectly well.
+    codes_without_a_character: Vec<(String, usize)>,
     unopenable: Vec<String>,
     locked: Vec<String>,
     unreadable_encryption: Vec<String>,
     pageless: Vec<String>,
     incomplete: Vec<(String, String)>,
     slow: Vec<(String, Duration)>,
+}
+
+/// Prints one of the three populations a page can lose *without reporting*, worst ten first.
+///
+/// One function for all three because they are the same measurement of different things — a
+/// total, a document count, and the documents that carry most of it — and because reading them
+/// side by side is the whole point: a code can be a mark missed, a mark the font meant not to
+/// make, or a mark made that nothing can name, and only the last of those leaves the picture
+/// right.
+fn silence(what: &str, caveat: &str, counted: &[(String, usize)]) {
+    let total: usize = counted.iter().map(|(_, count)| *count).sum();
+    println!(
+        "  {what}: {total} over {} documents ({caveat})",
+        counted.len()
+    );
+    let mut worst = counted.to_vec();
+    worst.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    for (name, count) in worst.iter().take(10) {
+        println!("    {count:6} {name}");
+    }
 }
 
 /// Names a document on stderr when `PDFVIEWER_CORPUS_TRACE` is set.
@@ -723,6 +751,13 @@ fn examine(path: &Path, tally: &Mutex<Tally>) {
             t.codes_reaching_a_blank_glyph.push((named, blank));
         });
     }
+    if interpretation.codes_without_a_character > 0 && interpretation.is_complete() {
+        let unnamed = interpretation.codes_without_a_character;
+        let named = name.clone();
+        record(tally, |t| {
+            t.codes_without_a_character.push((named, unnamed));
+        });
+    }
     if !interpretation.is_complete() {
         let reported = format!("{:?}", interpretation.unsupported);
         record(tally, |t| t.incomplete.push((name.clone(), reported)));
@@ -799,30 +834,20 @@ fn the_corpus_opens_interprets_and_rasterises() {
         tally.incomplete.len(),
         tally.slow.len()
     );
-    let missed: usize = tally
-        .codes_without_a_glyph
-        .iter()
-        .map(|(_, count)| *count)
-        .sum();
-    println!(
-        "  codes reaching no glyph *in silence*: {missed} over {} documents (measurement, \
-         not a gate; doc/todo/21)",
-        tally.codes_without_a_glyph.len()
+    silence(
+        "codes reaching no glyph *in silence*",
+        "measurement, not a gate; doc/todo/21",
+        &tally.codes_without_a_glyph,
     );
-    let mut worst = tally.codes_without_a_glyph.clone();
-    worst.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-    for (name, count) in worst.iter().take(10) {
-        println!("    {count:6} {name}");
-    }
-    let blank: usize = tally
-        .codes_reaching_a_blank_glyph
-        .iter()
-        .map(|(_, count)| *count)
-        .sum();
-    println!(
-        "  codes reaching a glyph the font draws blank: {blank} over {} documents (not a \
-         mark missed; ADR 0270)",
-        tally.codes_reaching_a_blank_glyph.len()
+    silence(
+        "codes reaching a glyph the font draws blank",
+        "not a mark missed; ADR 0270",
+        &tally.codes_reaching_a_blank_glyph,
+    );
+    silence(
+        "codes §9.10.2 could not name *in silence*",
+        "a readback missed, not a mark; doc/todo/21 §5, ADR 0311",
+        &tally.codes_without_a_character,
     );
     for (name, reported) in &tally.incomplete {
         println!("  incomplete: {name}: {reported}");

@@ -415,6 +415,42 @@ fn a_reversed_chars_sequence_is_read_back_forwards() {
     assert_eq!(drawn.text.trim(), "Hello world.");
 }
 
+/// A code §9.10.2 cannot name is counted the same inside the tag and outside it.
+///
+/// The pair is the point rather than either half. `Interpretation::codes_without_a_character`
+/// asks what the *font* said about a code; the branch that decides it asked what the readback
+/// *buffer* held until the four-hundred-and-seventy-sixth session — and inside §14.8.2.5.3's
+/// reversal no code's text ever reaches that buffer while the string is being shown, because the
+/// clause makes the whole string arrive backwards after it. So a buffer-reading rule answers
+/// "nothing" for every code here, whether the font named it or not, and both of these would count
+/// two.
+///
+/// `/F1` is the substituted Helvetica with no `/Encoding`, so Table 112's default base encoding
+/// is `StandardEncoding` (§9.6.5.1) and code 1 is one the table leaves unencoded: no glyph name,
+/// no `/ToUnicode`, no program name, and 0x01 outside the printable range §9.10.2's closing
+/// permission is taken for. Code 0x41 is `A`. One of the two is nameable and one is not,
+/// whichever order the clause puts them in.
+#[test]
+fn a_code_no_method_can_name_is_counted_through_a_reversal_too() {
+    let plain = interpret("BT /F1 12 Tf 10 50 Td <0141> Tj ET", "", "", "");
+    let reversed = interpret(
+        "BT /F1 12 Tf 10 50 Td /ReversedChars BMC <0141> Tj EMC ET",
+        "",
+        "",
+        "",
+    );
+    assert_eq!(
+        (plain.text.trim(), plain.codes_without_a_character),
+        ("A", 1),
+        "one of the two codes is named and one is not"
+    );
+    assert_eq!(
+        (reversed.text.trim(), reversed.codes_without_a_character),
+        ("A", 1),
+        "and the reversal changes the order of the readback, not what the font said"
+    );
+}
+
 /// Without the tag, the same stream reads back exactly as it was written.
 ///
 /// The point of the pair: §14.8.2.5.3 is a *marked-content* rule, not a property of the glyphs

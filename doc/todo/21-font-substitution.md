@@ -1,14 +1,14 @@
 # What is left of font substitution
 
-Status: reported at runtime; four distinct gaps — the first still **empty of witnesses**, the second unchanged, the third **characterised, fixed and re-measured** (ADR 0270), the fourth measured and declined.
+Status: reported at runtime; five distinct gaps — the first still **empty of witnesses**, the second unchanged, the third **characterised, fixed and re-measured** (ADR 0270), the fourth measured and declined, the fifth **refused on the clause's own words and now counted** (ADR 0311).
 Priority: 21
-Corpus: 40 documents. **The corpus gate's own two silence lines, read in the
-four-hundred-and-forty-fifth**: `codes reaching no glyph *in silence*: 5 over 2 documents`
-(`issue14821.pdf` 3, `issue4650.pdf` 2) and `codes reaching a glyph the font draws blank: 57 over
-9 documents` — the split ADR 0270 drew, and the first of the two is what §3 below is about.
-`doc/HANDOVER.md`'s not-implemented table said **24 over 8** for that first line until that round
-read the gate.
-Clauses: §9.10.2, §9.7.4.2, §9.6.2.2, §9.6.5.4, §9.8.1, §9.8.3
+Corpus: 40 documents. **The corpus gate's own three silence lines are where the counts are, and
+this file does not repeat them** (ADR 0281): `codes reaching no glyph *in silence*` and `codes
+reaching a glyph the font draws blank` are the split ADR 0270 drew, the first of the two being what
+§3 below is about, and `codes §9.10.2 could not name *in silence*` is §5's, added in the
+four-hundred-and-seventy-sixth. The line's own worst-ten follows each. `doc/HANDOVER.md`'s
+not-implemented table stated the first of them wrongly for long enough to be worth this sentence.
+Clauses: §9.10.2, §9.7.4.2, §9.6.2.2, §9.6.4, §9.6.5.3, §9.6.5.4, §9.8.1, §9.8.3
 Code: `crates/pdf-font/src/substitute.rs`, `crates/pdf-font/src/lib.rs`, `crates/pdf-model/src/content.rs`
 
 ## 1. A per-character fallback — **0 documents, and this section was wrong about its own two**
@@ -127,3 +127,48 @@ and states no `shall` about it, and closing the gap by scaling to 0.729167 would
 another program's font sits. **What would open it is a document** — a `/FontDescriptor` stating a
 usable `/CapHeight` for a non-embedded face, which no corpus page has yet been shown to do.
 `/CapHeight` is on §9.8.1's ledger row's list of Table 120 entries this tree does not read.
+
+## 5. A page that draws its text and can name none of it — refused, and now counted
+
+**The refusal is settled and the reading is in ADR 0311.** `french_diacritics.pdf` was the
+sharpest named refusal in the text band, and §9.10.2 answers it in the clause's own words rather
+than by a judgement of ours: all four of its routes are exhausted and the closing sentence says
+"there is no way to determine what the character code represents in which case a PDF processor may
+choose a character code of their choosing". A licence to invent is not a route, so no `aNNN` rule
+is written and the printable-ASCII bound on §9.10.2's permission is not widened past 0x7E —
+Annex D is what forbids it, because code 192 is `Agrave` in `WinAnsiEncoding`, `questiondown` in
+`MacRomanEncoding` and unencoded in `StandardEncoding`. The sharpest fact in the reading is that
+`a192` **is** a published Adobe glyph name: Annex D.6 puts it at code 218 of `ZapfDingbats`, so
+following the one list that holds it would read `À` as an ornament, and §9.10.2 sends a reader to
+that list nowhere.
+
+**What was owed was not the answer but the voice.** A page whose fonts §9.10.2 cannot name and a
+page with no text on it were the same `Interpretation` — an empty readback and `unsupported: []` —
+so `Interpretation::codes_without_a_character` counts the codes a page showed and no method could
+name, whatever was drawn for them. `tests/corpus.rs` prints it as the third silence line beside
+the two ADR 0270 split, `examples/readback` prints it beside the glyph count, and `silent_fonts.rs`
+holds `french_diacritics.pdf` at 29 glyphs, 28 unnamed and a readback of `1`.
+
+**A count and not a report**, on ADR 0152's own trade: this is a shortfall in the readback and not
+in the picture, and forty-five reports would cost the oracle forty-five judged pages.
+
+### What is owed next, with the number in front of it
+
+The corpus gate's third line is where to read it, not this file. When it was added it printed
+**1342 codes over 45 documents** — against 5 over 2 reaching no glyph and 57 over 9 reaching a
+blank one, so the *reading* band is two orders of magnitude wider than the drawing band and had
+never been counted. What is owed is its **shape**, which nothing has yet characterised:
+
+- how much of it is §2's forty `Identity`-ordering fonts with no `/ToUnicode`, where the question
+  is already known to be unanswerable;
+- how much is a symbolic `TrueType` whose `post` names nothing and whose `cmap` inverts to codes
+  rather than characters (`issue2017r.pdf`'s shape, which §9.10.2's permission already partly
+  reaches);
+- and how much is a name §9.10.2's two lists do not hold although *some* published list does —
+  `ZapfDingbats.pdf` loses exactly 50 codes to that, and it is the one sub-population where the
+  question "should the clause name a third list" is worth putting to the standard rather than to
+  the corpus.
+
+Read it the way ADR 0269's populations were read: the largest contributors first
+(`complex_ttf_font.pdf` 616, `issue5874.pdf` 130, `bug911034.pdf` 72), and by opening the file
+rather than by reasoning about the count.

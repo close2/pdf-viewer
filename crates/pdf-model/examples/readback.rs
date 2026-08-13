@@ -38,4 +38,10 @@ fn main() {
     };
     let interpretation = pdf_model::content::interpret(&document, &page);
     println!("{}", interpretation.text);
+    // What the readback does *not* contain, which reading it cannot show: a page whose fonts
+    // §9.10.2 cannot name prints an empty line and looks exactly like a page with no text.
+    println!(
+        "--- {} glyph(s) marked the page; {} code(s) §9.10.2 could not name",
+        interpretation.glyphs, interpretation.codes_without_a_character
+    );
 }
