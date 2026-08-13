@@ -143,11 +143,20 @@ pub(crate) struct Constructed {
     pub resources: Dictionary,
     /// Whether Table 166's `/Rect` bounds what this construction drew.
     ///
-    /// **Four subtypes state their geometry in default user space and are therefore not bounded
-    /// by it**: §12.5.6.7's `/L`, §12.5.6.9's `/Vertices`, §12.5.6.10's `/QuadPoints` and
-    /// §12.5.6.13's `/InkList` are all "in default user space", which is the page's space and
-    /// not a box's — so a file whose `/Rect` does not contain them has written a bounding box
-    /// that is wrong, and the marks the clause states are still where the clause states them.
+    /// **Five subtypes state their geometry in default user space and are therefore not bounded
+    /// by it**: §12.5.6.7's `/L`, §12.5.6.9's `/Vertices`, §12.5.6.10's `/QuadPoints`,
+    /// §12.5.6.13's `/InkList` and §12.5.6.6's `/CL` are all "in default user space", which is
+    /// the page's space and not a box's — so a file whose `/Rect` does not contain them has
+    /// written a bounding box that is wrong, and the marks the clause states are still where the
+    /// clause states them.
+    ///
+    /// **The fifth was missing from ADR 0193's table**, which listed the four it found while
+    /// drawing a line annotation. Table 177's `/CL` uses that ADR's own words — "the starting,
+    /// knee point, and ending coordinates of the line in default user space" — so a free text
+    /// annotation belongs on the list, and joining it costs its *text* nothing: §12.7.4.3's own
+    /// example puts "any required graphics state changes, such as clipping" inside the
+    /// construction, so [`crate::variable_text::lay_out`] clips the value to the box itself
+    /// rather than relying on a `/BBox`.
     ///
     /// Every other construction here *derives* its geometry from `/Rect` — an icon on the square
     /// inside it, a border along it, a field's text laid out in it — and stays inside by
@@ -261,6 +270,7 @@ pub(crate) fn construct(
             | b"Underline"
             | b"StrikeOut"
             | b"Squiggly"
+            | b"FreeText"
     );
     let outcome = match subtype {
         b"Link" => link(document, annotation, &mut stream),
@@ -2718,7 +2728,10 @@ pub(crate) fn accepted_prefix(
 /// that reason, and Table 177's `/RD` states where the text goes: "The inner rectangle is
 /// where the annotation's text should be displayed."
 ///
-/// Nothing is drawn around it. Table 177's `/BS` gives "the line width and dash pattern that
+/// Table 177's `/CL` is drawn beside it where the annotation's `/IT` asks for one — see
+/// [`callout`], which holds the whole of that entry and of `/LE`.
+///
+/// No *border* is drawn. Table 177's `/BS` gives "the line width and dash pattern that
 /// shall be used in drawing the annotation's border" and no clause states its *colour* — Table
 /// 166's `/C` is the icon background, the popup title bar and a link's border, none of which a
 /// free text annotation has. So a border is refused on the same grounds as §12.5.6.10's marks,
@@ -2759,14 +2772,26 @@ fn free_text(
 ) -> Outcome {
     let rect = rectangle(document, annotation)?;
     // §12.5.6.6's `/RD` uses the same left, top, right, bottom order §12.5.6.8's does, which
-    // `differences` already reads.
+    // `differences` already reads. It is the *text's* box and not the callout's — Table 177 says
+    // "[t]he inner rectangle is where the annotation's text should be displayed" — so the line
+    // below is drawn before it and in `/Rect`'s own space.
     let box_ = differences(document, annotation, rect);
-    let laid_out = free_text_layout(document, annotation, box_, retyped, Asked::default())?;
+    // Drawn first so that the note sits over the line where the two meet, and read before the
+    // layout so that a callout still reaches the page where the text cannot be laid out: Table
+    // 177 states the two independently and each is a mark the file asked for.
+    let callout = callout(document, annotation, stream);
     let decoration = undrawn_decoration(document, annotation);
+    let laid_out = match free_text_layout(document, annotation, box_, retyped, Asked::default()) {
+        Ok(laid_out) => laid_out,
+        // ADR 0075's rule, one subtype over: an entry that cannot be read is a reason to draw
+        // the part that can be rather than a reason to decline the whole annotation.
+        Err(refusal) if callout.drawn => return Ok(Painted::partly(refusal)),
+        Err(refusal) => return Err(refusal),
+    };
     let Some(laid_out) = laid_out else {
         return Ok(Painted {
-            drawn: false,
-            report: decoration,
+            drawn: callout.drawn,
+            report: callout.owed.or(decoration),
         });
     };
     stream.text.push_str(&laid_out.content);
@@ -2776,40 +2801,147 @@ fn free_text(
     ));
     Ok(Painted {
         drawn: true,
-        report: laid_out.owed.map(Refusal::Text).or(decoration),
+        report: laid_out
+            .owed
+            .map(Refusal::Text)
+            .or(callout.owed)
+            .or(decoration),
     })
+}
+
+/// What [`callout`] put on the page, and what it could not.
+struct Callout {
+    drawn: bool,
+    owed: Option<Refusal>,
+}
+
+impl Callout {
+    /// The annotation asks for no callout line, which is the case for every intent but one.
+    const NONE: Self = Self {
+        drawn: false,
+        owed: None,
+    };
+}
+
+/// Draws Table 177's `/CL`, the line from a free text annotation to the place it is about.
+///
+/// # What the table states
+///
+/// ISO 32000-2 §12.5.6.6, Table 177, on the entry:
+///
+/// > (Optional; meaningful only if IT is FreeTextCallout; PDF 1.6) An array of four or six
+/// > numbers specifying a callout line attached to the free text annotation. Six numbers [ x 1 y
+/// > 1 x 2 y 2 x 3 y 3 ] represent the starting, knee point, and ending coordinates of the line
+/// > in default user space, as shown in "Figure 79 - Free text annotation with callout". Four
+/// > numbers [ x 1 y 1 x 2 y 2 ] represent the starting and ending coordinates of the line.
+///
+/// with `/LE` naming "the line ending style that shall be used in drawing the callout line
+/// specified in CL. The name shall specify the line ending style for the endpoint defined by the
+/// pairs of coordinates ( x 1 , y 1 )". So the geometry is complete: two or three points, and one
+/// of Table 179's ten shapes at the first of them, which is Figure 79's arrow tip.
+///
+/// # The condition to draw is the table's own, and it is not the entry's presence
+///
+/// The quotation above makes `/CL` meaningful only where `/IT` names one particular intent, which
+/// is a condition on the *value* of another entry rather than on this one. Table 177's `/IT` makes
+/// the plain `FreeText` its default and says of its third value that with it "no callout line is
+/// drawn". So an annotation stating `/CL` without the callout intent has stated something the
+/// table declares meaningless, and **nothing is reported for it**: a report names what this
+/// program owes, and the standard owes a mark here only under the intent that asks for one
+/// (trap 11).
+///
+/// # Two things the table does not state, and where each is taken from
+///
+/// - **The colour.** Table 166's `/C` is "the background of the annotation's icon when closed,
+///   the title bar of the annotation's popup window, [and] the border of a link annotation", and
+///   this subtype has none of the three; `/DA` is "the default appearance string that shall be
+///   used in formatting the text", which this line is not. So the construction states **black**,
+///   which is not an invention but the absence of one: §8.4.1's Table 51 gives the graphics
+///   state's colour parameter "Initial value: black", so a stream that names no colour paints in
+///   it. It is written out rather than left to the initial state so that the mark cannot depend
+///   on what ran before the appearance.
+/// - **The width.** Table 177 binds `/BS` to a different mark — its `/RD` row says border styles
+///   and effects "shall be applied to the border of the inner rectangle" — so the one entry of
+///   this subtype that carries a line width is a statement about the box round the text. One
+///   point is therefore a choice, taken at [`DEFAULT_BORDER_WIDTH`], which is the number §12.5.4
+///   states when nothing else does.
+///
+/// # Why this is drawn where `/BS`'s border is refused
+///
+/// Both lack a colour, and the difference is which of them the file *asked for*. Table 166's
+/// `/Border` states "Default value: [0 0 1]", so a border is what an annotation saying nothing at
+/// all about one has — drawing it in a colour of this program's choosing would put a mark on
+/// nearly every free text annotation in the world on the strength of a default. A callout exists
+/// only where a producer wrote four or six numbers *and* an intent, and those numbers say
+/// something no other mark on the page says: which place the note is about.
+fn callout(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Callout {
+    let intent = document.get_key(annotation, "IT");
+    if intent
+        .as_name()
+        .is_none_or(|name| name.as_bytes() != b"FreeTextCallout")
+    {
+        return Callout::NONE;
+    }
+    let entry = document.get_key(annotation, "CL");
+    let Some(values) = entry.as_array() else {
+        return Callout::NONE;
+    };
+    let line = pairs(document, values);
+    // "An array of four or six numbers": a length outside those two states neither the
+    // two-point line nor the three-point one, and which points a reader would keep is not
+    // something the table answers.
+    if !matches!((values.len(), line.len()), (4, 2) | (6, 3)) {
+        return Callout {
+            drawn: false,
+            owed: Some(CALLOUT_SHAPE),
+        };
+    }
+    let stated = document.get_key(annotation, "LE");
+    let ending = stated
+        .as_name()
+        .and_then(|name| Ending::read(name.as_bytes()));
+    // Table 177 gives `/LE` "Default value: None", which answers an *absent* entry; a name
+    // outside Table 179 is a file asking for a shape this reader has no description of, and the
+    // line is drawn without it rather than instead of it.
+    let owed = match stated {
+        Object::Null => None,
+        _ => ending.is_none().then_some(UNKNOWN_LINE_ENDING),
+    };
+    let ending = ending.unwrap_or(Ending::None);
+
+    stream.text.push_str("q\n");
+    stream.set_colour(Colour::Components([0.0; 4], 1), true);
+    stream.set_stroke(DEFAULT_BORDER_WIDTH, &[]);
+    polyline(stream, &line, false);
+    stream.paint(false, true);
+    if let (Some(first), Some(second)) = (line.first(), line.get(1)) {
+        // The one ending goes at (x1, y1) and points away from the knee — or from the far end
+        // where there is no knee — which is what makes an arrowhead there an arrow *at* the
+        // place the note is about. Table 179's four filled styles are stroked alone: Table 177
+        // gives this subtype no `/IC` for them to be filled with.
+        draw_endings(
+            stream,
+            [ending, Ending::None],
+            [*first, *second],
+            DEFAULT_BORDER_WIDTH,
+            Colour::None,
+        );
+    }
+    stream.text.push_str("Q\n");
+    Callout { drawn: true, owed }
 }
 
 /// What Table 177 asks to be drawn *around* the text and no clause states a colour for.
 ///
-/// Two entries, both reported by name rather than guessed at, and both for one reason: Table
-/// 166's `/C` is "the background of the annotation's icon when closed, the title bar of the
-/// annotation's popup window, [and] the border of a link annotation", none of which a free text
-/// annotation has — so nothing in the standard says what colour either mark is.
+/// `/BS` gives "the line width and dash pattern that shall be used in drawing the annotation's
+/// border" and nothing anywhere states the colour: Table 166's `/C` is "the background of the
+/// annotation's icon when closed, the title bar of the annotation's popup window, [and] the
+/// border of a link annotation", none of which a free text annotation has.
 ///
-/// - `/CL` is "an array of four or six numbers specifying a callout line attached to the free
-///   text annotation", with `/LE` naming "the line ending style that shall be used in drawing the
-///   callout line specified in `CL`". This is also the whole of what Table 177's `/IT` asks for:
-///   `FreeTextCallout` is "intended to function as a callout … through the callout line specified
-///   in CL", `FreeTextTypeWriter` states that "no callout line is drawn", and `FreeText` is the
-///   default and plain — so the two intents that are not this one ask for nothing this
-///   construction does not already do.
-/// - `/BS` gives "the line width and dash pattern that shall be used in drawing the annotation's
-///   border".
-///
-/// The callout outranks the border because it is the larger absence: a line reaching out to a
-/// place on the page says which place the note is about.
+/// **`/CL` stood beside it here and is now drawn** — [`callout`] holds what separates the two,
+/// and it is not the absence of a colour, which they share. It is that Table 166's `/Border`
+/// gives every annotation a border by default and no annotation a callout line.
 fn undrawn_decoration(document: &Document, annotation: &Dictionary) -> Option<Refusal> {
-    let callout = document
-        .get_key(annotation, "CL")
-        .as_array()
-        .is_some_and(|line| !line.is_empty());
-    if callout {
-        return Some(Refusal::NotDerivable(
-            "Table 177's /CL states a callout line and /LE the style of its ending, and no \
-             clause states the colour to draw them in",
-        ));
-    }
     // §12.5.6.2: `/C` is a group attribute, and this refusal turns on whether there is a colour.
     let shared = crate::markup::group_source(document, annotation);
     Border::read(document, annotation, &shared, "C")
@@ -3341,6 +3473,17 @@ const ENDINGS_WITH_NO_END: Refusal = Refusal::NotDerivable(
 
 const UNKNOWN_LINE_ENDING: Refusal =
     Refusal::NotDerivable("its /LE names a line ending style Table 179 does not define");
+
+/// A `/CL` whose length is neither of the two Table 177 states.
+///
+/// "An array of four or six numbers": four are a start and an end, six a start, a knee and an
+/// end. A length outside those two states neither, and which of its numbers a reader should keep
+/// is not something the table answers — so the line is refused and named rather than drawn from
+/// a prefix the producer may not have meant.
+const CALLOUT_SHAPE: Refusal = Refusal::NotDerivable(
+    "its /CL states neither the four numbers of a two-point callout line nor the six of a \
+     three-point one",
+);
 
 /// §12.5.6.7's `/Cap`, which replicates `/Contents` "as a caption in the appearance of the
 /// line" and gives no entry from which to take a font.

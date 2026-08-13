@@ -5,8 +5,10 @@ types into a field since the three-hundred-and-forty-ninth** (ADR 0201), **a car
 next character goes since the three-hundred-and-seventy-first** (ADR 0211), **a click places it
 and a drag selects since the three-hundred-and-eighty-eighth** (ADR 0225), **§12.5.6.6's free
 text since the four-hundred-and-first** (ADR 0238), and **the *file's* own free text annotation
-since the four-hundred-and-sixty-ninth** (ADR 0304). What is left is a callout line no clause states
-a colour for, and a flag that waits on a verb this program does not have.
+since the four-hundred-and-sixty-ninth** (ADR 0304), and **Table 177's callout line since the
+four-hundred-and-ninety-fourth** (ADR 0329). What is left is a border whose colour no clause states
+and whose default fires on every annotation, and a flag that waits on a verb this program does not
+have.
 Priority: 33
 Clauses: §12.5.6.6, §12.5.6.10, §12.7.4.3, §7.5.6, §14.8.2.5
 Code: `crates/viewer-core/src/command.rs` (`Edit`), `crates/pdf-model/src/view.rs`,
@@ -84,13 +86,35 @@ here:
 - **No message was added.** `Query::FreeTextAt` and `Edit::SetFreeText` already said it, and all six
   consumers gained the capability by being recompiled.
 
+## 1c. ~~The callout line~~ — **done in the four-hundred-and-ninety-fourth session**
+
+`appearance::callout` draws Table 177's `/CL` — two points or three, with `/LE`'s ending at
+(x1, y1) — wherever the annotation states no appearance stream and its `/IT` is `FreeTextCallout`.
+ADR 0329 has the argument. Four things worth keeping here:
+
+- **This file said the colour had to be invented, and it does not.** Drawing takes no entry: §8.4.1's
+  Table 51 gives the graphics state's colour "Initial value: black", so a construction that names
+  none paints in it. What separates this from `/BS`'s border — which stays refused — is not the
+  silence they share but which mark the *file* asked for: Table 166's `/Border` gives every
+  annotation a border by default, and nothing gives one a callout.
+- **The condition is `/IT`'s value, not `/CL`'s presence**, and the other two intents report
+  nothing. "[M]eaningful only if IT is FreeTextCallout" is the table's own condition, and a report
+  fired outside it would name a gap the clause does not have (trap 11).
+- **A fifth entry for ADR 0193's table.** `/CL`'s coordinates are "in default user space", the
+  words that ADR found on four other entries, so a free text annotation is no longer bounded by
+  `/Rect` — and its text loses nothing, because §12.7.4.3's own example puts the clip inside the
+  construction.
+- **Trap 8 is the whole instrument**: `examples/free_text_census` counts 0 of 73 free text
+  annotations stating a `/CL`, so the fixtures are hand-built pairs differing in the two-point
+  against three-point sentence, in `/LE`, in `/IT` and in `/RD`.
+
 ### What is still owed on this subtype
 
-- **Table 177's `/CL` and `/LE` drawn rather than reported.** The geometry is stated and the colour
-  is not — Table 166's `/C` is an icon's background, a popup's title bar and a link's border, none
-  of which this subtype has — so drawing it means inventing one, exactly as `/BS`'s border does.
-  Reported by name since the four-hundred-and-first session. **No corpus document states one at
-  all**, on every page rather than on first pages: `examples/free_text_census` counts 0 of 73.
+- **Table 177's `/BS` border drawn rather than reported.** The colour is stated nowhere — Table
+  166's `/C` is an icon's background, a popup's title bar and a link's border, none of which this
+  subtype has — and unlike the callout above, Table 166's `/Border` default `[0 0 1]` means the
+  refusal fires on annotations that said nothing at all about a border. Drawing it means both
+  inventing a colour and inventing it for annotations whose producers never asked.
 - **Table 167 bit 8, `Locked`, is still read by nothing**, and now for a reason that is a property
   of the code rather than a prediction: it restricts *deleting* an annotation and *moving* one, and
   this program does neither. The day either lands, the §12.5.3 row is the one to revisit.

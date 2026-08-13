@@ -1884,28 +1884,208 @@ fn clearing_a_free_text_annotation_does_not_uncover_its_rich_text() {
     );
 }
 
-/// Table 177's `/CL` and `/LE` are reported by name rather than drawn (§12.5.6.6).
+/// A free text annotation carrying whatever Table 177 entries the caller states.
 ///
-/// The clause states the geometry — "[s]ix numbers … represent the starting, knee point, and
-/// ending coordinates of the line in default user space" — and states no colour to draw it in:
-/// Table 166's `/C` is "the background of the annotation's icon when closed, the title bar of the
-/// annotation's popup window, [and] the border of a link annotation", and this subtype has none of
-/// the three. So the callout is refused for the same reason `/BS`'s border is, and named, which is
-/// trap 5's rule: an annotation drawn without what it asked for is a silently wrong page. This is
-/// also the whole of Table 177's `/IT` — `FreeTextCallout` is the intent that needs this line, and
-/// the other two ask for nothing more than the text.
-#[test]
-fn a_callout_line_is_reported_rather_than_invented() {
-    let (reports, _) = draw(pdf_with(
+/// One builder for the callout tests below, so that a pair of fixtures differs in the entry
+/// under test and in nothing else — trap 8's shape, and the only shape available here: **no
+/// corpus document states a `/CL` at all**, on any page, which `examples/free_text_census`
+/// counts. The `/Rect` is `[20 40 180 70]` and every callout below runs in the empty half of the
+/// page under it, so the marks the callout makes and the marks the text makes never meet.
+fn callout_annotation(entries: &str) -> Vec<u8> {
+    pdf_with(
         "",
-        "<< /Type /Annot /Subtype /FreeText /Rect [20 40 180 70] /F 4 /Contents (visible) \
-         /IT /FreeTextCallout /CL [10 10 15 30 20 45] /LE /OpenArrow \
-         /DA (/Helv 12 Tf 0 g) /Border [0 0 0] >>",
+        &format!(
+            "<< /Type /Annot /Subtype /FreeText /Rect [20 40 180 70] /F 4 /Contents (visible) \
+             /DA (/Helv 12 Tf 0 g) /Border [0 0 0] {entries} >>"
+        ),
+    )
+}
+
+/// Every point below the annotation's rectangle that a mark reached, in PDF coordinates.
+///
+/// The text sits at y 40 and above, so this is the callout's ink and nothing else.
+fn callout_ink(raster: &pdf_render::Raster) -> Vec<(u32, u32)> {
+    let mut points = Vec::new();
+    for y in 0..38 {
+        for x in 0..raster.width {
+            let row = raster.height.saturating_sub(1).saturating_sub(y);
+            if opacity(raster, x, row) > 0 {
+                points.push((x, y));
+            }
+        }
+    }
+    points
+}
+
+/// Table 177's `/CL` drawn: two points make a straight line and three bend at the knee.
+///
+/// ISO 32000-2 §12.5.6.6, Table 177:
+///
+/// > Six numbers [ x 1 y 1 x 2 y 2 x 3 y 3 ] represent the starting, knee point, and ending
+/// > coordinates of the line in default user space, as shown in "Figure 79 - Free text
+/// > annotation with callout". Four numbers [ x 1 y 1 x 2 y 2 ] represent the starting and
+/// > ending coordinates of the line.
+///
+/// The pair differs in that sentence alone. Both start at (30, 10) and end at (60, 40); the
+/// three-point one puts its knee at (30, 25), so its first leg is the vertical x = 30 while the
+/// straight one is at x = 40 by the time it reaches y = 20. Each fixture is inked where the other
+/// is not, which is what makes this a test of the rule rather than of "something was drawn".
+///
+/// **It is also the check that a callout is not clipped to `/Rect`.** The whole line lies below
+/// the annotation's rectangle, and ADR 0193's rule is why it survives: this entry's coordinates
+/// are "in default user space", exactly as §12.5.6.7's `/L` is, so `/Rect` is not a box the marks
+/// are inside.
+#[test]
+fn a_callout_lines_knee_is_where_its_third_pair_of_coordinates_puts_it() {
+    let (straight_reports, straight) =
+        draw(callout_annotation("/IT /FreeTextCallout /CL [30 10 60 40]"));
+    let (bent_reports, bent) = draw(callout_annotation(
+        "/IT /FreeTextCallout /CL [30 10 30 25 60 40]",
+    ));
+    assert!(straight_reports.is_empty(), "{straight_reports:?}");
+    assert!(bent_reports.is_empty(), "{bent_reports:?}");
+
+    let straight = callout_ink(&straight);
+    let bent = callout_ink(&bent);
+    assert!(
+        straight.contains(&(40, 20)) && !straight.contains(&(30, 20)),
+        "the two-point line runs diagonally: {straight:?}"
+    );
+    assert!(
+        bent.contains(&(30, 20)) && !bent.contains(&(40, 20)),
+        "the three-point line goes up from its start before it turns: {bent:?}"
+    );
+}
+
+/// Table 177's `/LE` puts one of Table 179's shapes at (x1, y1) and nowhere else.
+///
+/// ISO 32000-2 §12.5.6.6, Table 177:
+///
+/// > The name shall specify the line ending style for the endpoint defined by the pairs of
+/// > coordinates ( x 1 , y 1 ).
+///
+/// So the pair below states the same `/CL` and differs in `/LE` alone: the ending adds marks
+/// around the *start*, which is Figure 79's arrow tip, and adds none around the end that meets
+/// the note. Table 179's shapes are §12.5.6.7's and are drawn by the same code, so what this
+/// asserts is the wiring — one name rather than an array of two, and the endpoint the table
+/// names.
+#[test]
+fn a_callouts_line_ending_decorates_the_end_the_table_names() {
+    let plain = callout_ink(&draw(callout_annotation("/IT /FreeTextCallout /CL [30 10 60 40]")).1);
+    let (reports, arrowed) = draw(callout_annotation(
+        "/IT /FreeTextCallout /CL [30 10 60 40] /LE /ClosedArrow",
+    ));
+    assert!(reports.is_empty(), "{reports:?}");
+    let arrowed = callout_ink(&arrowed);
+
+    let extra: Vec<(u32, u32)> = arrowed
+        .iter()
+        .copied()
+        .filter(|point| !plain.contains(point))
+        .collect();
+    assert!(!extra.is_empty(), "the ending marks the page");
+    for (x, y) in extra {
+        assert!(
+            x < 40 && y < 20,
+            "every mark the ending added is at the start (30, 10), not at the end (60, 40): \
+             ({x}, {y})"
+        );
+    }
+}
+
+/// Table 177 makes `/CL` meaningful under one intent, and the other two draw nothing.
+///
+/// Table 177 gives `/IT` three values with `FreeText` the default, and says of the third that the
+/// annotation "is intended to function as a click-to-type or typewriter object and **no callout
+/// line is drawn**". So the same six numbers mean a line under one intent and nothing under the
+/// others — and nothing is *reported* under the others either, because a report names what this
+/// program owes and the table owes a mark only where it says one is meaningful (trap 11).
+#[test]
+fn a_callout_line_is_drawn_only_under_the_intent_that_makes_it_meaningful() {
+    let line = "/CL [30 10 30 25 60 40] /LE /OpenArrow";
+    let asked = draw(callout_annotation(&format!("/IT /FreeTextCallout {line}")));
+    assert!(asked.1.width > 0 && !callout_ink(&asked.1).is_empty());
+
+    for intent in ["/IT /FreeTextTypeWriter ", "/IT /FreeText ", ""] {
+        let (reports, raster) = draw(callout_annotation(&format!("{intent}{line}")));
+        assert!(
+            callout_ink(&raster).is_empty(),
+            "{intent:?} draws no callout line"
+        );
+        assert!(
+            reports.is_empty(),
+            "and owes nothing for an entry the table calls meaningless: {reports:?}"
+        );
+    }
+}
+
+/// `/RD` insets the text and leaves the callout where the page put it.
+///
+/// Table 177 states the two in different spaces on purpose: the inner rectangle "is where the
+/// annotation's text should be displayed", while `/CL`'s numbers are "in default user space". The
+/// pair below states the same callout and differs in `/RD` alone, so the text moves and the line
+/// does not — which is the entry that makes a `/Rect` big enough for both readable at all.
+#[test]
+fn a_free_texts_inner_rectangle_moves_its_text_and_not_its_callout() {
+    let line = "/IT /FreeTextCallout /CL [30 10 30 25 60 40]";
+    let (_, flush) = draw(callout_annotation(line));
+    let (_, inset) = draw(callout_annotation(&format!("{line} /RD [40 0 0 0]")));
+
+    assert_eq!(
+        callout_ink(&flush),
+        callout_ink(&inset),
+        "the callout is in the page's space and `/RD` says nothing about it"
+    );
+    let (flush, inset) = (inked_columns(&flush), inked_columns(&inset));
+    let leftmost = |columns: &[u32]| columns.iter().copied().min().expect("something was drawn");
+    assert!(
+        leftmost(&inset) > leftmost(&flush),
+        "and the text starts forty points further in: {:?} against {:?}",
+        leftmost(&inset),
+        leftmost(&flush)
+    );
+}
+
+/// What the callout refuses, and that it refuses out loud while still drawing what it can.
+///
+/// Two shapes of malformed statement, each named rather than guessed at (trap 5):
+///
+/// - **A `/CL` of five numbers.** Table 177 states "[a]n array of four or six numbers", and which
+///   of five a reader should keep is not something the table answers.
+/// - **A `/LE` outside Table 179.** The table's ten names are the whole of it, and the default
+///   `None` answers an *absent* entry rather than an unreadable one — so the line is still drawn
+///   and the ending is what is named, which is ADR 0075's rule applied one entry over.
+#[test]
+fn a_callout_this_reader_cannot_read_is_named_rather_than_invented() {
+    let (reports, raster) = draw(callout_annotation(
+        "/IT /FreeTextCallout /CL [30 10 30 25 60]",
     ));
     assert_eq!(reports.len(), 1, "{reports:?}");
+    assert!(reports[0].contains("/CL"), "{reports:?}");
     assert!(
-        reports[0].contains("/CL") && reports[0].contains("/LE"),
-        "the report names both entries: {reports:?}"
+        callout_ink(&raster).is_empty(),
+        "and no line is drawn from a prefix of it"
+    );
+    assert!(
+        !inked_columns(&raster).is_empty(),
+        "while the note itself still says what it says"
+    );
+
+    let (reports, raster) = draw(callout_annotation(
+        "/IT /FreeTextCallout /CL [30 10 30 25 60 40] /LE /Wedge",
+    ));
+    assert_eq!(reports.len(), 1, "{reports:?}");
+    assert!(reports[0].contains("/LE"), "{reports:?}");
+    let drawn = callout_ink(&raster);
+    let plain = callout_ink(
+        &draw(callout_annotation(
+            "/IT /FreeTextCallout /CL [30 10 30 25 60 40]",
+        ))
+        .1,
+    );
+    assert_eq!(
+        drawn, plain,
+        "the line is drawn without the ending it named"
     );
 }
 
