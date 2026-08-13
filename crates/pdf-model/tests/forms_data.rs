@@ -532,16 +532,16 @@ fn a_signed_signature_field_locks_the_fields_its_lock_names() {
     // Include: "All fields specified in Fields".
     let include = Document::open(form_locking("Include", &["name"], true)).expect("a valid PDF");
     assert_eq!(
-        asserted(&include, Operation::FillInForm, Some("name")),
+        asserted(&include, Operation::FillInForm, Some("name"), None),
         locked
     );
     assert_eq!(
-        asserted(&include, Operation::FillInForm, Some("agree")),
+        asserted(&include, Operation::FillInForm, Some("agree"), None),
         Vec::new()
     );
     // The lock is about a field's *value*; §12.7.5.5 says nothing about annotating.
     assert_eq!(
-        asserted(&include, Operation::Annotate, Some("name")),
+        asserted(&include, Operation::Annotate, Some("name"), None),
         Vec::new()
     );
 
@@ -549,7 +549,7 @@ fn a_signed_signature_field_locks_the_fields_its_lock_names() {
     let all = Document::open(form_locking("All", &[], true)).expect("a valid PDF");
     for field in ["name", "agree", "sig"] {
         assert_eq!(
-            asserted(&all, Operation::FillInForm, Some(field)),
+            asserted(&all, Operation::FillInForm, Some(field), None),
             locked,
             "{field} is a field in the document"
         );
@@ -558,11 +558,11 @@ fn a_signed_signature_field_locks_the_fields_its_lock_names() {
     // Exclude: "All fields except those specified in Fields".
     let exclude = Document::open(form_locking("Exclude", &["name"], true)).expect("a valid PDF");
     assert_eq!(
-        asserted(&exclude, Operation::FillInForm, Some("name")),
+        asserted(&exclude, Operation::FillInForm, Some("name"), None),
         Vec::new()
     );
     assert_eq!(
-        asserted(&exclude, Operation::FillInForm, Some("agree")),
+        asserted(&exclude, Operation::FillInForm, Some("agree"), None),
         locked
     );
 
@@ -571,14 +571,14 @@ fn a_signed_signature_field_locks_the_fields_its_lock_names() {
     // use.
     let unknown = Document::open(form_locking("Everything", &[], true)).expect("a valid PDF");
     assert_eq!(
-        asserted(&unknown, Operation::FillInForm, Some("name")),
+        asserted(&unknown, Operation::FillInForm, Some("name"), None),
         Vec::new()
     );
 
     // And the condition the clause states: the same lock, on a field nobody has signed.
     let unsigned = Document::open(form_locking("All", &[], false)).expect("a valid PDF");
     assert_eq!(
-        asserted(&unsigned, Operation::FillInForm, Some("name")),
+        asserted(&unsigned, Operation::FillInForm, Some("name"), None),
         Vec::new(),
         "a /Lock binds after this signature has been signed, and this one has not"
     );
@@ -722,7 +722,7 @@ fn a_certified_document_states_which_operation_its_author_forbade() {
     let final_document = Document::open(certified_form(1)).expect("the fixture is a valid PDF");
     for operation in [Operation::FillInForm, Operation::Annotate] {
         assert_eq!(
-            asserted(&final_document, operation, None),
+            asserted(&final_document, operation, None, None),
             vec![Restriction::Certified {
                 level: Modification::None
             }],
@@ -733,22 +733,31 @@ fn a_certified_document_states_which_operation_its_author_forbade() {
     // Level 2 is the level that separates them: "filling in forms … and signing" and not
     // annotation, which level 3 adds.
     let fillable = Document::open(certified_form(2)).expect("the fixture is a valid PDF");
-    assert_eq!(asserted(&fillable, Operation::FillInForm, None), Vec::new());
     assert_eq!(
-        asserted(&fillable, Operation::Annotate, None),
+        asserted(&fillable, Operation::FillInForm, None, None),
+        Vec::new()
+    );
+    assert_eq!(
+        asserted(&fillable, Operation::Annotate, None, None),
         vec![Restriction::Certified {
             level: Modification::FormFilling
         }]
     );
 
     let commented = Document::open(certified_form(3)).expect("the fixture is a valid PDF");
-    assert_eq!(asserted(&commented, Operation::Annotate, None), Vec::new());
+    assert_eq!(
+        asserted(&commented, Operation::Annotate, None, None),
+        Vec::new()
+    );
 
     // Table 257 defines 1, 2 and 3 and nothing else; a value outside them may not lock a
     // document a person is entitled to fill in.
     let odd = Document::open(certified_form(9)).expect("the fixture is a valid PDF");
-    assert_eq!(asserted(&odd, Operation::FillInForm, None), Vec::new());
-    assert_eq!(asserted(&odd, Operation::Annotate, None), Vec::new());
+    assert_eq!(
+        asserted(&odd, Operation::FillInForm, None, None),
+        Vec::new()
+    );
+    assert_eq!(asserted(&odd, Operation::Annotate, None, None), Vec::new());
 
     // And `pdf-model` itself no longer refuses: the value goes in, because whether to obey the
     // document is not a question this crate is entitled to answer.

@@ -2215,13 +2215,18 @@ impl App {
         }
     }
 
-    /// Aims the keyboard at §12.5.6.6's annotation, where one a person added is under the point.
+    /// Aims the keyboard at §12.5.6.6's annotation under the point, whoever wrote it.
     ///
     /// The same two questions a field takes, in the same order and for the same reasons:
-    /// `Query::FreeTextAt` names the annotation and hands back Table 166's `/Contents` as the log
-    /// has it, and `Query::Offset` says where inside that text the press landed. Neither is a
-    /// second implementation of anything — the core answers both from §12.7.4.3's own layout,
-    /// which is the subclause §12.5.6.6 sends this subtype to.
+    /// `Query::FreeTextAt` names the annotation and hands back Table 166's `/Contents` as it reads
+    /// now, and `Query::Offset` says where inside that text the press landed. Neither is a second
+    /// implementation of anything — the core answers both from §12.7.4.3's own layout, which is
+    /// the subclause §12.5.6.6 sends this subtype to.
+    ///
+    /// **This host needed not one line to reach the file's own annotations** (ADR 0304): the core
+    /// answered `Query::FreeTextAt` for an annotation a person had added and now answers it for
+    /// the producer's too, and `Edit::SetFreeText` already named its target by object. A capability
+    /// that arrives through an existing message is what `doc/ui-boundary.md` is arguing for.
     fn aim_at_free_text(&mut self, at: (f32, f32)) -> Option<Typing> {
         let Answer::FreeText { annotation, text } = self.viewer.query(Query::FreeTextAt { at })
         else {

@@ -142,6 +142,21 @@ pub struct ViewState {
     /// that it has an identity for as long as the document is open — which is what the pointer,
     /// a later edit and the writer all need to name it by.
     added: Vec<Added>,
+    /// What a person retyped into a free text annotation **the file itself states**.
+    ///
+    /// The sixth thing in this struct that comes from outside the document, and the only one that
+    /// contradicts something the file already says: `added` puts a new object beside the
+    /// producer's, and this replaces the `/Contents` of one of theirs. §7.5.6 is what makes that
+    /// the same kind of writing rather than a different one — an update states "this object now
+    /// reads like this" and leaves the bytes it read like before untouched underneath — which is
+    /// why `CLAUDE.md`'s exclusion covers it: what a *user* does to a document already open is not
+    /// authoring.
+    ///
+    /// Keyed by the annotation's object, which is its identity in the file and needs no allocating.
+    /// An entry whose string is empty is a person who **cleared** the note, which is a different
+    /// thing from never having touched it: the first draws nothing and the second draws Table
+    /// 166's `/Contents`.
+    retyped: BTreeMap<ObjectId, String>,
 }
 
 /// The resource name the `/DA` of a free text annotation this program creates uses.
@@ -402,8 +417,8 @@ pub struct Imported {
 
 /// Everything this state says about one annotation, gathered in one walk.
 ///
-/// A struct rather than four arguments because the four are asked together, once per annotation
-/// per page, and because three of them default to "the file's own answer" — which is what
+/// A struct rather than five arguments because the five are asked together, once per annotation
+/// per page, and because four of them default to "the file's own answer" — which is what
 /// [`Default`] here means and what every annotation in a document nothing has interacted with
 /// gets.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -422,6 +437,18 @@ pub struct AnnotationView<'a> {
     /// two modifying entries are defined *against* the flags the document states, which only the
     /// reader of that dictionary has.
     pub flags: Option<crate::forms_data::FlagChange>,
+    /// What a person retyped into §12.5.6.6's annotation, where they retyped one.
+    ///
+    /// `None` is *this state has nothing to say*, so Table 166's `/Contents` and Table 177's `/RC`
+    /// are read as the file states them. `Some("")` is a note whose text a person **took out**,
+    /// which draws nothing — the same distinction [`FieldValue`] draws between a field nobody
+    /// touched and one somebody cleared, and for the same reason.
+    ///
+    /// It is a statement about the *text*, and the appearance follows from it rather than beside
+    /// it: §12.5.6.6 has this subtype's appearance generated from these entries by §12.7.4.3, so a
+    /// stored `/AP` describing text the annotation no longer has is set aside by
+    /// [`crate::annotation::decide`] where this is `Some`.
+    pub contents: Option<&'a str>,
 }
 
 /// Which of Table 170's appearances an annotation shows.
@@ -511,6 +538,7 @@ impl ViewState {
             magnification: None,
             widget_appearances: WidgetAppearances::default(),
             added: Vec::new(),
+            retyped: BTreeMap::new(),
         }
     }
 
@@ -608,8 +636,8 @@ impl ViewState {
 
     /// Everything this state says about one annotation, gathered once.
     ///
-    /// The four questions are asked together, per annotation and per page, so asking them in one
-    /// call is one lookup per set rather than four walks of the page's annotation array.
+    /// The five questions are asked together, per annotation and per page, so asking them in one
+    /// call is one lookup per set rather than five walks of the page's annotation array.
     #[must_use]
     pub fn annotation(&self, annotation: ObjectId) -> AnnotationView<'_> {
         AnnotationView {
@@ -630,6 +658,7 @@ impl ViewState {
             flags: self.imported.get(&annotation).and_then(|import| {
                 (!import.annotation_flags.is_unchanged()).then_some(import.annotation_flags)
             }),
+            contents: self.retyped.get(&annotation).map(String::as_str),
         }
     }
 
@@ -868,7 +897,7 @@ impl ViewState {
         dict.insert(Name::new(&b"BS"[..]), Object::Dictionary(style));
         let id = self.next_free_object(document);
         self.added.push(Added { id, page, dict });
-        self.set_free_text(id, text);
+        self.set_free_text(document, id, text);
         Some(id)
     }
 
@@ -881,26 +910,62 @@ impl ViewState {
     /// counterpart, named by object rather than by §12.7.4.2's qualified name because an
     /// annotation has no such name and nothing inherits from it.
     ///
-    /// Returns whether anything took the text. **`false` for an annotation this state did not
-    /// add**, which includes every free text annotation the file itself states: changing one of
-    /// those means replacing an object the producer wrote, and what this crate holds is a log
-    /// beside an immutable document. `doc/todo/33` carries what that would cost.
-    pub fn set_free_text(&mut self, annotation: ObjectId, text: &str) -> bool {
-        let Some(added) = self.added.iter_mut().find(|added| added.id == annotation) else {
+    /// Returns whether anything took the text: `false` for an object that is not a free text
+    /// annotation of this document at all, which is a caller's mistake rather than a document's.
+    ///
+    /// # The file's own annotation, and why replacing one is the same kind of writing
+    ///
+    /// **Two annotations reach here and only one of them is this state's own.** An annotation
+    /// [`ViewState::add_free_text`] created is a dictionary in the log, and its text is written
+    /// into that dictionary. An annotation the *file* states is the producer's object, and what is
+    /// recorded is a replacement of its `/Contents` — read back by
+    /// [`ViewState::annotation`], drawn by [`crate::annotation::decide`], and written by
+    /// [`ViewState::save`] as §7.5.6's "this object now reads like this". Nothing is written to the
+    /// file until then and the document itself never changes, which is `CLAUDE.md`'s rule 1.
+    ///
+    /// (This refused the second of the two until the four-hundred-and-sixty-ninth session, on the
+    /// grounds that "replacing an object the producer wrote is a decision nobody has made". It is
+    /// §7.5.6's own second case — the clause's list is "objects that have been changed, replaced,
+    /// or deleted" — and the producer's bytes survive it byte for byte. ADR 0304.)
+    ///
+    /// # What Table 167 says about it, and what it does not
+    ///
+    /// Bit 10, `LockedContents`, is the flag that forbids this and it is the *document's*
+    /// assertion rather than this crate's verdict — so it is read by
+    /// [`crate::restriction::asserted`], where a host can apply `CLAUDE.md`'s four levels to it,
+    /// and **not** here. What is here is the check that this object is a free text annotation,
+    /// which is a fact rather than a permission.
+    ///
+    /// Bit 8, `Locked`, is deliberately not the same flag and its own row says so: "do not allow
+    /// the annotation to be deleted or its properties (including position and size) to be modified
+    /// by the user. However, this flag does not restrict changes to the annotation's contents".
+    pub fn set_free_text(&mut self, document: &Document, annotation: ObjectId, text: &str) -> bool {
+        if let Some(added) = self.added.iter_mut().find(|added| added.id == annotation) {
+            if added
+                .dict
+                .get("Subtype")
+                .and_then(Object::as_name)
+                .is_none_or(|subtype| subtype.as_bytes() != b"FreeText")
+            {
+                return false;
+            }
+            added.dict.insert(
+                Name::new(&b"Contents"[..]),
+                Object::String(pdf_syntax::text_string::encode_text_string(text).into()),
+            );
+            return true;
+        }
+        let Some(dict) = document.get(annotation).as_dict().cloned() else {
             return false;
         };
-        if added
-            .dict
-            .get("Subtype")
-            .and_then(Object::as_name)
+        if document
+            .get_key(&dict, "Subtype")
+            .as_name()
             .is_none_or(|subtype| subtype.as_bytes() != b"FreeText")
         {
             return false;
         }
-        added.dict.insert(
-            Name::new(&b"Contents"[..]),
-            Object::String(pdf_syntax::text_string::encode_text_string(text).into()),
-        );
+        self.retyped.insert(annotation, text.to_owned());
         true
     }
 
@@ -911,9 +976,12 @@ impl ViewState {
     /// added and the one on top is the one under the pointer, which is the rule
     /// [`crate::view::annotation_at`] applies to the page's own array.
     ///
-    /// **Only annotations this state added**, for [`ViewState::set_free_text`]'s reason: aiming a
-    /// keyboard at one whose text nothing can change would be an interface that looks like it
-    /// works.
+    /// **The page's own annotations as well as the ones this state added**, and the added ones win
+    /// where both cover the point: §12.5.2 draws an addition after the page's `/Annots`, so the
+    /// note a person just drew is the one on top of the note the producer wrote.
+    ///
+    /// The text is what the annotation says *now* — a retyping where there is one, and Table 166's
+    /// `/Contents` otherwise — because that is what a host puts a caret into.
     #[must_use]
     pub fn free_text_at(
         &self,
@@ -922,31 +990,59 @@ impl ViewState {
         x: f32,
         y: f32,
     ) -> Option<(ObjectId, String)> {
-        let (id, dict) = self.added_free_text_at(document, page, x, y)?;
-        let text = crate::variable_text::string(document, &[&dict], "Contents").unwrap_or_default();
+        let (id, dict) = self.free_text_dict_at(document, page, x, y)?;
+        let text = match self.retyped.get(&id) {
+            Some(retyped) => retyped.clone(),
+            None => {
+                crate::variable_text::string(document, &[&dict], "Contents").unwrap_or_default()
+            }
+        };
         Some((id, text))
     }
 
     /// [`Self::free_text_at`] with the dictionary rather than the text, for the caret's three
     /// questions.
-    fn added_free_text_at(
+    fn free_text_dict_at(
         &self,
         document: &Document,
         page: &crate::Page,
         x: f32,
         y: f32,
     ) -> Option<(ObjectId, Dictionary)> {
-        self.added_on(page.id)
-            .filter(|added| {
-                added
-                    .dict
-                    .get("Subtype")
-                    .and_then(Object::as_name)
-                    .is_some_and(|subtype| subtype.as_bytes() == b"FreeText")
-            })
+        let added = self
+            .added_on(page.id)
+            .filter(|added| is_free_text(document, &added.dict))
             .filter(|added| rectangle_covers(document, &added.dict, f64::from(x), f64::from(y)))
             .last()
-            .map(|added| (added.id, added.dict.clone()))
+            .map(|added| (added.id, added.dict.clone()));
+        if added.is_some() {
+            return added;
+        }
+        // The file's own, and the **last** covering the point for §12.5.2's reason again: within
+        // one `/Annots` array the entry drawn last is the entry on top.
+        let annotations = document.get_key(&page.dict, "Annots");
+        let annotations = annotations.as_array()?;
+        let mut found = None;
+        for entry in annotations {
+            let Some(id) = entry.as_reference() else {
+                continue;
+            };
+            let resolved = document.resolve(entry);
+            let Some(dict) = resolved.as_dict() else {
+                continue;
+            };
+            // §12.5.3's Hidden, NoView and ReadOnly each say "interact with the user", and a
+            // keyboard aimed at an annotation is interaction — so the same three bits that decide
+            // whether a click reaches one decide whether it can be typed into.
+            if !is_free_text(document, dict)
+                || !crate::annotation::interacts(document, dict, self.annotation(id))
+                || !rectangle_covers(document, dict, f64::from(x), f64::from(y))
+            {
+                continue;
+            }
+            found = Some((id, dict.clone()));
+        }
+        found
     }
 
     /// The thing at a point that a person can put a caret in, whatever kind it is.
@@ -962,7 +1058,7 @@ impl ViewState {
         x: f32,
         y: f32,
     ) -> Option<(ObjectId, Dictionary)> {
-        if let Some(found) = self.added_free_text_at(document, page, x, y) {
+        if let Some(found) = self.free_text_dict_at(document, page, x, y) {
             return Some(found);
         }
         // The last widget covering the point, which is the one drawn on top (§12.5.2's order) and
@@ -1025,6 +1121,16 @@ impl ViewState {
     /// one before any of it.
     pub fn clear_all_additions(&mut self) {
         self.added.clear();
+    }
+
+    /// Forgets every retyping of a free text annotation the file states.
+    ///
+    /// The third of the three [`crate::view::ViewState`] clears a replay starts from, beside
+    /// [`Self::clear_all_fields`] and [`Self::clear_all_additions`], and it is separate from the
+    /// second for the reason the two maps are separate: an addition is an object that would stop
+    /// existing, and this is a statement about one that exists either way.
+    pub fn clear_all_free_text(&mut self) {
+        self.retyped.clear();
     }
 
     /// Sets the value of every widget of one field, the way a person typing into it does.
@@ -1313,7 +1419,13 @@ impl ViewState {
     /// # What is written
     ///
     /// One replacement object per field a value was typed into, carrying Table 226's `/V`, and
-    /// the interactive form dictionary with Table 224's `/NeedAppearances` set true.
+    /// the interactive form dictionary with Table 224's `/NeedAppearances` set true. Every
+    /// annotation a person added, with its page's `/Annots` extended
+    /// ([`ViewState::write_additions`]); and every free text annotation of the file's **own** that
+    /// a person retyped, with Table 166's `/Contents` and a replaced appearance
+    /// ([`ViewState::write_retypings`]) — which is §7.5.6's second case, "objects that have been
+    /// changed, replaced, or deleted", and the producer's own bytes are still in the file beneath
+    /// it.
     ///
     /// **The flag is the honest half of this, and it is a decision with a cost.** A widget's
     /// appearance stream still says what the field said before, and a writer has two ways to fix
@@ -1353,6 +1465,7 @@ impl ViewState {
         let mut update = Update::beside(document);
         let mut withheld = Vec::new();
         self.write_additions(document, &mut update);
+        let unappeared = self.write_retypings(document, &mut update);
         for (widget, entered) in &self.edited {
             let widget = *widget;
             let Some(dict) = document.get(widget).as_dict().cloned() else {
@@ -1438,7 +1551,64 @@ impl ViewState {
         let bytes = pdf_syntax::write::incremental_update(document, &update.replacements)?;
         withheld.sort_unstable();
         withheld.dedup();
-        Ok(Written { bytes, withheld })
+        Ok(Written {
+            bytes,
+            withheld,
+            unappeared,
+        })
+    }
+
+    /// Writes every free text annotation of the file's own that a person retyped.
+    ///
+    /// Two entries of one object, and the second is what keeps the file consistent with itself.
+    /// Table 166's `/Contents` is what the person typed; Table 177's `/AP` is **replaced** with the
+    /// appearance this program draws for that text, because §12.5.6.6's Table 177 makes the file's
+    /// own `/AP` decisive in its `/DA` row —
+    ///
+    /// > The annotation dictionary's AP entry, if present, shall take precedence over the DA entry
+    ///
+    /// — so a stream left as it was would be the file's own instruction to go on showing the
+    /// producer's text under the person's `/Contents`. §12.5.6.6 sends this subtype's appearance to
+    /// §12.7.4.3 to be *generated* from these entries, and this writes the generation.
+    ///
+    /// **Replaced rather than spliced, and that is measured rather than assumed.** §12.7.4.3's
+    /// closing paragraph updates an existing stream by replacing "the existing contents of the
+    /// appearance stream from /Tx BMC to the matching EMC", appending where there is no such
+    /// region — which is right for a widget, whose stream is background and border with the text in
+    /// a marked region, and wrong here: of the corpus's 67 free text annotations carrying a stream,
+    /// **11 hold a marked-content region and 56 do not** (`examples/free_text_census`), so
+    /// appending would draw the new text *on top of* the old for five annotations in six. The
+    /// subtype's whole appearance is its text, so the whole appearance is what is regenerated.
+    ///
+    /// The stream dictionary is built afresh rather than kept, which is the other half of the same
+    /// point: these marks are in the page's own default user space with `/BBox` the annotation's
+    /// `/Rect` — [`write_added_appearance`]'s argument — and a `/Matrix` the producer wrote for
+    /// their own marks would move them.
+    ///
+    /// Returns every annotation left without an appearance at all, which is
+    /// [`Written::unappeared`]. That is not the same as an empty note: it is one whose text this
+    /// program could not lay out, and the annotation is written with `/Contents` and no `/AP` so
+    /// that the next reader constructs from Table 177's Required `/DA` rather than drawing text
+    /// nothing in the file claims any more.
+    fn write_retypings(&self, document: &Document, update: &mut Update) -> Vec<ObjectId> {
+        let mut unappeared = Vec::new();
+        for (annotation, text) in &self.retyped {
+            let Some(mut dict) = update.current(document, *annotation) else {
+                continue;
+            };
+            if !is_free_text(document, &dict) {
+                continue;
+            }
+            dict.insert(
+                Name::new(&b"Contents"[..]),
+                Object::String(pdf_syntax::text_string::encode_text_string(text).into()),
+            );
+            if !write_retyped_appearance(document, update, &mut dict, text) {
+                unappeared.push(*annotation);
+            }
+            update.put(*annotation, Object::Dictionary(dict));
+        }
+        unappeared
     }
 
     /// Writes every annotation a person added, and attaches each to its page.
@@ -2428,6 +2598,14 @@ pub fn annotation_at(
     found
 }
 
+/// Whether this dictionary is §12.5.6.6's annotation, which Table 177 makes `/Subtype /FreeText`.
+fn is_free_text(document: &Document, annotation: &Dictionary) -> bool {
+    document
+        .get_key(annotation, "Subtype")
+        .as_name()
+        .is_some_and(|subtype| subtype.as_bytes() == b"FreeText")
+}
+
 /// Whether Table 166's `/Rect` covers a point in default user space.
 ///
 /// The rectangle "shall be two opposite corners" and states no order, so both are normalised
@@ -2453,9 +2631,9 @@ fn rectangle_covers(document: &Document, annotation: &Dictionary, x: f64, y: f64
 
 /// A saved document, and what this program declined to put in it.
 ///
-/// Two values rather than bytes alone because the second is not an error and must not be silent:
-/// a save that quietly dropped what a person typed would be their work lost without a word, and
-/// this one drops exactly one thing on purpose. See [`ViewState::save`] for the clause.
+/// Three values rather than bytes alone because the other two are not errors and must not be
+/// silent: a save that quietly dropped what a person typed would be their work lost without a
+/// word, and this one drops two things on purpose. See [`ViewState::save`] for the clauses.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Written {
     /// The whole file: the document as it was opened, with §7.5.6's update appended.
@@ -2465,6 +2643,14 @@ pub struct Written {
     /// Table 231 bit 14's NOTE, quoted in full on [`ViewState::save`]. Empty for every document
     /// with no password field in it, which is every document in this project's corpus.
     pub withheld: Vec<String>,
+    /// Every free text annotation written with `/Contents` and **no** appearance stream.
+    ///
+    /// The other thing a save drops on purpose, and it drops less than it looks: the annotation
+    /// carries what the person typed and Table 177 makes `/DA` Required, so the next reader has
+    /// everything §12.5.6.6 needs to generate an appearance — this one could not, and says which
+    /// annotations. Empty unless a retyped annotation's `/DA` names a font its document does not
+    /// define. See [`ViewState::save`].
+    pub unappeared: Vec<ObjectId>,
 }
 
 /// §12.7.4.2's qualified name of the field a widget belongs to, or the widget's own object.
@@ -2675,7 +2861,8 @@ fn write_added_appearance(document: &Document, update: &mut Update, dict: &mut D
     let Some(rect) = crate::annotation::rectangle(document, dict, "Rect") else {
         return;
     };
-    let built = crate::appearance::construct(document, dict, &subtype, FieldValue::Stored, rect);
+    let built =
+        crate::appearance::construct(document, dict, &subtype, AnnotationView::default(), rect);
     let Some(content) = built.content else {
         return;
     };
@@ -2716,6 +2903,88 @@ fn write_added_appearance(document: &Document, update: &mut Update, dict: &mut D
     let mut appearances = Dictionary::new();
     appearances.insert(Name::new(&b"N"[..]), Object::Reference(id));
     dict.insert(Name::new(&b"AP"[..]), Object::Dictionary(appearances));
+}
+
+/// Replaces the appearance of a free text annotation whose `/Contents` a person retyped.
+///
+/// [`ViewState::write_retypings`] carries the argument for replacing rather than splicing and for
+/// building the stream dictionary afresh. What is here is the two places the new stream can go:
+/// over the object Table 168's `/N` already names, where the file states one indirectly — so the
+/// update replaces an object rather than adding one and orphaning another — and into a new object
+/// otherwise.
+///
+/// `text` is passed beside the dictionary rather than read back out of it because an empty string
+/// is a decision: [`crate::appearance`] falls back to Table 177's `/RC` where `/Contents` says
+/// nothing, and a person who took the text out has not asked for the rich text underneath it.
+///
+/// Returns whether the annotation ends this update showing what it says. `false` is the one case
+/// that is a shortfall — the text could not be laid out, so the annotation is written with no
+/// appearance at all and the next reader constructs from Table 177's Required `/DA`. A note whose
+/// text a person removed draws nothing and is `true`: there is nothing to show and nothing owed.
+fn write_retyped_appearance(
+    document: &Document,
+    update: &mut Update,
+    dict: &mut Dictionary,
+    text: &str,
+) -> bool {
+    let Some(rect) = crate::annotation::rectangle(document, dict, "Rect") else {
+        return false;
+    };
+    let view = AnnotationView {
+        contents: Some(text),
+        ..AnnotationView::default()
+    };
+    let built = crate::appearance::construct(document, dict, b"FreeText", view, rect);
+    let Some(content) = built.content else {
+        // Table 177 makes `/AP` decisive over `/DA`, so a stream that draws the producer's text is
+        // exactly what an annotation that no longer says it must not keep.
+        dict.remove("AP");
+        return built.report.is_none();
+    };
+    let existing = document
+        .get_key(dict, "AP")
+        .as_dict()
+        .and_then(|appearances| appearances.get("N").cloned())
+        .as_ref()
+        .and_then(Object::as_reference);
+    let mut stream = Dictionary::new();
+    stream.insert(
+        Name::new(&b"Type"[..]),
+        Object::Name(Name::new(&b"XObject"[..])),
+    );
+    stream.insert(
+        Name::new(&b"Subtype"[..]),
+        Object::Name(Name::new(&b"Form"[..])),
+    );
+    stream.insert(
+        Name::new(&b"BBox"[..]),
+        Object::Array(
+            rect.iter()
+                .map(|edge| Object::Real(f64::from(*edge)))
+                .collect(),
+        ),
+    );
+    stream.insert(
+        Name::new(&b"Resources"[..]),
+        Object::Dictionary(built.resources),
+    );
+    stream.insert(
+        Name::new(&b"Length"[..]),
+        Object::Integer(i64::try_from(content.len()).unwrap_or(i64::MAX)),
+    );
+    let id = existing.unwrap_or_else(|| update.allocate());
+    update.put(
+        id,
+        Object::Stream(std::sync::Arc::new(pdf_syntax::Stream {
+            dict: stream,
+            data: content.into(),
+            decryption_failed: false,
+        })),
+    );
+    let mut appearances = Dictionary::new();
+    appearances.insert(Name::new(&b"N"[..]), Object::Reference(id));
+    dict.insert(Name::new(&b"AP"[..]), Object::Dictionary(appearances));
+    true
 }
 
 #[cfg(test)]

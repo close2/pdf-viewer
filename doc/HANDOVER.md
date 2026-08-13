@@ -91,7 +91,10 @@ value is not deleting back to it (ADR 0211) — undo it and redo it; a click on 
 activation (ADR 0191); a person can **add an annotation** — §12.5.6.10's four markups over what is
 selected (ADR 0196), and §12.5.6.6's free text drawn as a rectangle and typed into, which is the
 one markup subtype whose text *is* the annotation and therefore the one whose geometry has to come
-from a drag rather than from a selection (ADR 0238); and the result can be **saved** — the file it
+from a drag rather than from a selection (ADR 0238) — **and the producer's own free text annotation
+can be retyped**, which is §7.5.6's second case rather than a second kind of writing, with Table
+167's `LockedContents` asked as a policy and its `Locked` deliberately not, on the table's own
+sentence (ADR 0304); and the result can be **saved** — the file it
 was opened from, unchanged, with §7.5.6's incremental update appended, which is the one kind of
 writing `CLAUDE.md` permits.
 

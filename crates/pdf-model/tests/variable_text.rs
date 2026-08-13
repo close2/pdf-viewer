@@ -161,6 +161,23 @@ fn inked_rows(raster: &pdf_render::Raster) -> Vec<u32> {
         .collect()
 }
 
+/// A page coordinate as the `f32` every question in this crate's vocabulary takes.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "a /Rect's midpoint, which §7.7.3.3 bounds far below an f32's exact range"
+)]
+fn f64_as_f32(value: f64) -> f32 {
+    value as f32
+}
+
+/// Table 166's `/Contents` as §7.9.2.2's text string, read out of a saved file.
+fn contents_of(document: &Document, dict: &pdf_syntax::Dictionary) -> Option<String> {
+    match document.get_key(dict, "Contents") {
+        pdf_syntax::Object::String(bytes) => Some(pdf_syntax::text_string::text_string(&bytes)),
+        _ => None,
+    }
+}
+
 /// The leftmost and rightmost inked column, which is what quadding moves.
 fn ink_span(raster: &pdf_render::Raster) -> (u32, u32) {
     let columns = inked_columns(raster);
@@ -1574,7 +1591,7 @@ fn a_free_text_annotation_a_person_added_answers_the_carets_three_questions() {
 
     // Then what a person typed reaches the page, and it is the text they typed rather than the
     // empty box they drew.
-    assert!(view.set_free_text(annotation, "abcdef"));
+    assert!(view.set_free_text(&document, annotation, "abcdef"));
     let raster = draw_with(&document, &page, &view);
     let (first, last) = ink_span(&raster);
     assert!(
@@ -1582,11 +1599,288 @@ fn a_free_text_annotation_a_person_added_answers_the_carets_three_questions() {
         "the text escaped the annotation: {first}..{last}"
     );
     let wider = last;
-    assert!(view.set_free_text(annotation, "a"));
+    assert!(view.set_free_text(&document, annotation, "a"));
     let (_, last) = ink_span(&draw_with(&document, &page, &view));
     assert!(
         last < wider,
         "one character inks less far than six: {last} against {wider}"
+    );
+}
+
+/// The **file's own** free text annotation, retyped, redrawn and written back (§12.5.6.6, §7.5.6).
+///
+/// Three claims in one fixture, because they are one mechanism seen at three places:
+///
+/// - **The stored appearance is set aside.** Table 177 makes the file's own `/AP` decisive over
+///   its `/DA` — "[t]he annotation dictionary's AP entry, if present, shall take precedence over
+///   the DA entry" — and that is a precedence between two things the *file* says about one text.
+///   Once a person has changed the text, the stream describes an annotation that no longer exists,
+///   and §12.5.6.6 states where the appearance comes from instead: "12.7.4.3, 'Variable text',
+///   describes the process of using these entries to generate the appearance of the text in these
+///   annotations". The fixture's stored stream fills the whole rectangle, so a page still drawing
+///   it is unmistakable.
+/// - **The saved file says what the viewer showed**, which is the assertion that makes the other
+///   two worth having: the update is read back through a second `Document` and drawn, and its ink
+///   is compared with the ink of the state that was saved.
+/// - **Replaced rather than spliced.** §12.7.4.3's closing paragraph appends where a stream holds
+///   no `/Tx` marked content, which for this subtype would draw the new text on top of the old —
+///   56 of the corpus's 67 free text appearance streams have no such region
+///   (`examples/free_text_census`). The fixture's stream has none either, so an append would leave
+///   the block behind.
+#[test]
+fn a_free_text_annotation_the_file_states_is_retyped_redrawn_and_written_back() {
+    let bytes = pdf_with_appearance(
+        "",
+        "<< /Type /Annot /Subtype /FreeText /Rect [20 40 180 70] /F 4 /Contents (the producer's) \
+         /DA (/Helv 12 Tf 0 g) /Border [0 0 0] /AP << /N 6 0 R >> >>",
+        // The producer's own appearance, and deliberately nothing like text: a solid block over
+        // the whole rectangle, with no `/Tx` marked-content region to splice into.
+        "0 0 0 rg 0 0 160 30 re f",
+    );
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let annotation = pdf_syntax::ObjectId::new(5, 0);
+
+    let stored = draw_with(&document, &page, &pdf_model::view::ViewState::of(&document));
+    let filled = inked_columns(&stored).len();
+    assert!(
+        filled >= 150,
+        "the file's own appearance fills its rectangle: {filled} columns"
+    );
+
+    let mut view = pdf_model::view::ViewState::of(&document);
+    assert_eq!(
+        view.free_text_at(&document, &page, 100.0, 55.0),
+        Some((annotation, "the producer's".to_owned())),
+        "a point inside the rectangle names the file's own annotation and what it says"
+    );
+    assert!(
+        view.set_free_text(&document, annotation, "i"),
+        "an annotation the file states takes the text"
+    );
+    assert!(
+        !view.set_free_text(&document, pdf_syntax::ObjectId::new(3, 0), "i"),
+        "the page is not a free text annotation"
+    );
+
+    let retyped = draw_with(&document, &page, &view);
+    let narrow = inked_columns(&retyped).len();
+    assert!(
+        narrow < 20,
+        "one character replaces the block rather than joining it: {narrow} columns"
+    );
+
+    // §7.5.6, and the assertion the other two exist for: what the next reader sees.
+    let written = view.save(&document).expect("the fixture can be written");
+    assert!(written.unappeared.is_empty(), "{:?}", written.unappeared);
+    let reopened = Document::open(written.bytes).expect("what was written is a PDF");
+    let reopened_page = pdf_model::Pages::new(&reopened).get(0).expect("page one");
+    let dict = reopened
+        .get(annotation)
+        .as_dict()
+        .cloned()
+        .expect("the annotation was replaced rather than removed");
+    assert_eq!(
+        contents_of(&reopened, &dict).as_deref(),
+        Some("i"),
+        "Table 166's /Contents is what the person typed"
+    );
+    let saved = draw_with(
+        &reopened,
+        &reopened_page,
+        &pdf_model::view::ViewState::of(&reopened),
+    );
+    assert_eq!(
+        inked_columns(&saved),
+        inked_columns(&retyped),
+        "the saved file draws the annotation the viewer was drawing"
+    );
+}
+
+/// The same edit on a **producer's** annotation rather than on a fixture (§12.5.6.6, §7.5.6).
+///
+/// Trap 4, one clause over: the fixture above is written by the test that reads it, and
+/// `tracemonkey_freetext.pdf` is written by Firefox — its annotation states `/Rect [446.4 509.1
+/// 504.3 529]`, `/DA (/Helv 10 Tf 0 g)`, `/Contents (Hello World)` and an `/AP` whose stream this
+/// program did not compose. What is asserted is what a next reader sees: the annotation is found by
+/// a point on its own page, retyped, written, reopened, and read back.
+#[test]
+fn a_corpus_documents_own_free_text_annotation_is_retyped_and_written_back() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../doc/pdf.js/test/pdfs/tracemonkey_freetext.pdf");
+    let Ok(bytes) = std::fs::read(&path) else {
+        println!("skipped: the doc/pdf.js submodule is not checked out");
+        return;
+    };
+    let document = Document::open(bytes).expect("tracemonkey_freetext.pdf opens");
+    let pages = pdf_model::Pages::new(&document);
+    let mut view = pdf_model::view::ViewState::of(&document);
+
+    // The point is taken from the *document* rather than from the code under test, which is trap
+    // 12a's rule: the annotation's own rectangle names its middle.
+    let (index, annotation, before) = (0..pages.len())
+        .find_map(|index| {
+            let page = pages.get(index)?;
+            let annots = document.get_key(&page.dict, "Annots");
+            let id = annots
+                .as_array()?
+                .iter()
+                .filter_map(pdf_syntax::Object::as_reference)
+                .find(|id| {
+                    document
+                        .get(*id)
+                        .as_dict()
+                        .map(|dict| document.get_key(dict, "Subtype"))
+                        .and_then(|subtype| {
+                            subtype.as_name().map(|name| name.as_bytes() == b"FreeText")
+                        })
+                        .unwrap_or(false)
+                })?;
+            let dict = document.get(id).as_dict().cloned()?;
+            let rect = document.get_key(&dict, "Rect");
+            let mut corners = rect
+                .as_array()?
+                .iter()
+                .filter_map(|value| document.resolve(value).as_number());
+            let (x0, y0, x1, y1) = (
+                corners.next()?,
+                corners.next()?,
+                corners.next()?,
+                corners.next()?,
+            );
+            // A page coordinate, so the narrowing is exact for anything a `/MediaBox` admits.
+            let middle = (f64_as_f32((x0 + x1) * 0.5), f64_as_f32((y0 + y1) * 0.5));
+            let (found, text) = view.free_text_at(&document, &page, middle.0, middle.1)?;
+            (found == id).then_some((index, id, text))
+        })
+        .expect("the document states a free text annotation with a rectangle");
+    assert_eq!(before, "Hello World", "the producer's own text");
+
+    assert!(view.set_free_text(&document, annotation, "reread"));
+    let written = view.save(&document).expect("the document can be written");
+    assert!(written.unappeared.is_empty(), "{:?}", written.unappeared);
+
+    let reopened = Document::open(written.bytes).expect("what was written is a PDF");
+    let page = pdf_model::Pages::new(&reopened)
+        .get(index)
+        .expect("the page the annotation is on");
+    let dict = reopened
+        .get(annotation)
+        .as_dict()
+        .cloned()
+        .expect("the annotation survives");
+    assert_eq!(contents_of(&reopened, &dict).as_deref(), Some("reread"));
+    // And a reader that never heard of this edit draws the new text, because the appearance was
+    // replaced with it: the file's own `/AP` is what Table 177 makes decisive.
+    let interpretation = pdf_model::interpret(&reopened, &page);
+    assert!(
+        interpretation.text.contains("reread"),
+        "the page reads back the new note: {:?}",
+        interpretation.text
+    );
+}
+
+/// Table 167's bit 8 and bit 10 are not the same flag, and the table says so (§12.5.3).
+///
+/// **A pair of fixtures differing only in that rule**, which is trap 8's shape and is the only way
+/// to see this one: the corpus's 73 free text annotations carry bit 10 once and bit 8 three times,
+/// never on the same annotation, and no document at all pairs them (`examples/free_text_census`).
+///
+/// §12.5.3's Table 167, bit 8:
+///
+/// > If set, do not allow the annotation to be deleted or its properties (including position and
+/// > size) to be modified by the user.
+///
+/// and bit 10:
+///
+/// > If set, do not allow the contents of the annotation to be modified by the user.
+///
+/// Bit 8's row goes on to say — in prose here rather than as a quotation, because `doc/md/`'s
+/// conversion splits *changes* into "chang es" and the sentence cannot be checked against it —
+/// that the flag does not restrict changes to the annotation's contents, naming a form field's
+/// value as the example. The PDF has the word whole; `pdftotext -layout` is where that was
+/// settled, which is the handover's rule for a gate that accuses the standard of a gap.
+///
+/// So one of the two restricts this operation and the other explicitly does not — and what either
+/// produces is a **reason** rather than a refusal, because `CLAUDE.md` makes obeying a document's
+/// restrictions the reader's own policy. `pdf_model` is asked, `viewer_core` decides.
+#[test]
+fn table_167s_locked_flag_is_not_its_locked_contents_flag() {
+    use pdf_model::restriction::{Operation, Restriction, asserted};
+
+    let annotation = pdf_syntax::ObjectId::new(5, 0);
+    // 4 is Table 167 bit 3, Print, which both carry so that the two files differ in one bit only.
+    for (flags, expected) in [
+        (4 | (1 << 9), vec![Restriction::AnnotationLocked]),
+        (4 | (1 << 7), Vec::new()),
+    ] {
+        let document = Document::open(pdf_with(
+            "",
+            &format!(
+                "<< /Type /Annot /Subtype /FreeText /Rect [20 40 180 70] /F {flags} \
+                 /Contents (locked?) /DA (/Helv 12 Tf 0 g) /Border [0 0 0] >>"
+            ),
+        ))
+        .expect("the fixture is a valid PDF");
+        assert_eq!(
+            asserted(&document, Operation::Annotate, None, Some(annotation)),
+            expected,
+            "/F {flags}"
+        );
+        // And the model itself does neither: a refusal at the point of the operation could never
+        // become `CLAUDE.md`'s *ask*, which is what `crate::restriction` exists to keep possible.
+        let mut view = pdf_model::view::ViewState::of(&document);
+        assert!(
+            view.set_free_text(&document, annotation, "typed"),
+            "/F {flags}: the flag is read where a host can apply a policy to it, not here"
+        );
+    }
+}
+
+/// A note whose text a person removed draws nothing, and does not fall back to Table 177's `/RC`.
+///
+/// The distinction [`pdf_model::view::AnnotationView::contents`] exists for. `/RC` is the file's
+/// *second* statement of the same text — §12.5.6.2 NOTE 1 makes the two "textually equivalent" —
+/// so a reader that fell back to it would answer an empty note with the producer's words. That is
+/// the same rule §12.7.6.3 states for a field: "its V entry shall be removed", and a cleared value
+/// is not an untouched one.
+#[test]
+fn clearing_a_free_text_annotation_does_not_uncover_its_rich_text() {
+    let document = Document::open(pdf_with(
+        "",
+        "<< /Type /Annot /Subtype /FreeText /Rect [20 40 180 70] /F 4 /Contents (mmmmmmmmmm) \
+         /RC (wwwwwwwwww) /DA (/Helv 12 Tf 0 g) /Border [0 0 0] >>",
+    ))
+    .expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let annotation = pdf_syntax::ObjectId::new(5, 0);
+
+    let mut view = pdf_model::view::ViewState::of(&document);
+    assert!(
+        !inked_columns(&draw_with(&document, &page, &view)).is_empty(),
+        "the file's own text is drawn"
+    );
+    assert!(view.set_free_text(&document, annotation, ""));
+    assert!(
+        inked_columns(&draw_with(&document, &page, &view)).is_empty(),
+        "an emptied note draws nothing at all"
+    );
+
+    // And the saved file says the same: no `/Contents`, and no appearance to contradict it.
+    let written = view.save(&document).expect("the fixture can be written");
+    let reopened = Document::open(written.bytes).expect("what was written is a PDF");
+    let dict = reopened
+        .get(annotation)
+        .as_dict()
+        .cloned()
+        .expect("replaced");
+    assert!(
+        contents_of(&reopened, &dict).is_none_or(|text| text.is_empty()),
+        "the note is empty in the file too"
+    );
+    assert!(
+        reopened.get_key(&dict, "AP").as_dict().is_none(),
+        "and carries no appearance stream drawing what it no longer says"
     );
 }
 

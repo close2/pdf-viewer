@@ -9,6 +9,12 @@
 //! *what does this document assert about this operation* — and it answers it with **reasons**
 //! rather than with a verdict.
 //!
+//! **A fifth joined them in the four-hundred-and-sixty-ninth session**: §12.5.3's Table 167 bit
+//! 10, `LockedContents`, which is addressed to a **named annotation** the way the fourth is
+//! addressed to a named field. It arrived here rather than at the point of the edit for this
+//! module's whole reason — a refusal that cannot become an *ask* is the thing `CLAUDE.md` says to
+//! avoid — and `crate::view::ViewState::set_free_text` therefore does not consult it.
+//!
 //! # Why a reason and not a boolean
 //!
 //! The verdict is not this crate's to give. `CLAUDE.md`'s "A document's restrictions are the
@@ -64,10 +70,13 @@ pub enum Operation {
     /// §7.6.4.1's own words for it: "[f]illing in forms (that is, filling in existing interactive
     /// form fields) and signing the document".
     FillInForm,
-    /// Adding an annotation to a page — `crate::view::ViewState::add_markup`.
+    /// Adding an annotation to a page, or changing one — `crate::view::ViewState::add_markup` and
+    /// `crate::view::ViewState::set_free_text`.
     ///
     /// §7.6.4.1's "[a]dding or modifying text annotations", and Table 257's "annotation creation,
-    /// deletion, and modification", which `/DocMDP` permits only at its third level.
+    /// deletion, and modification", which `/DocMDP` permits only at its third level. **One verb for
+    /// both halves**, because both of those sentences name both: adding and modifying are one
+    /// permission everywhere the standard states one.
     Annotate,
 }
 
@@ -128,6 +137,19 @@ pub enum Restriction {
     /// The only one of the four that is about **one field** rather than about the document, and
     /// therefore the only reason [`asserted`] needs to be told which field is being filled in.
     FieldLocked,
+    /// §12.5.3's Table 167 bit 10, asserted by the annotation being edited.
+    ///
+    /// > LockedContents … If set, do not allow the contents of the annotation to be modified by
+    /// > the user. This flag does not restrict deletion of the annotation or changes to other
+    /// > annotation properties, such as position and size.
+    ///
+    /// **Bit 8 is the one that sounds like this and is not**, and the difference is the table's own
+    /// rather than a reading of it: `Locked` is "do not allow the annotation to be deleted or its
+    /// properties (including position and size) to be modified by the user", and its row ends
+    /// "[h]owever, this flag does not restrict changes to the annotation's contents, such as the
+    /// value of a form field". So an annotation carrying bit 8 and not bit 10 may be typed into,
+    /// and nothing here consults bit 8.
+    AnnotationLocked,
 }
 
 /// Every restriction this document asserts against this operation.
@@ -142,18 +164,19 @@ pub enum Restriction {
 /// then §7.6.4.2's Table 22, which applies only where a security handler granted anything, and
 /// last §12.7.5.5's signature field lock.
 ///
-/// # `field`
+/// # `field` and `annotation`
 ///
-/// The fully qualified name (§12.7.4.2) of the field being filled in, and `None` for every other
-/// operation. Two of the three clauses restrict the *document* and the third restricts a named
-/// field, so the verb alone cannot decide it — and a `Some` for an operation that is not
-/// [`Operation::FillInForm`] is ignored rather than made an error, because no clause here reads a
-/// field name for anything else.
+/// The fully qualified name (§12.7.4.2) of the field being filled in, and the object of the
+/// annotation being changed — each `None` for every operation that names no such thing. Two of the
+/// clauses restrict the *document*, one restricts a named field and one a named annotation, so the
+/// verb alone cannot decide it; a `Some` an operation's clause does not read is ignored rather than
+/// made an error.
 #[must_use]
 pub fn asserted(
     document: &Document,
     operation: Operation,
     field: Option<&str>,
+    annotation: Option<pdf_syntax::ObjectId>,
 ) -> Vec<Restriction> {
     let mut out = Vec::new();
     if let Some(level) = crate::signature::permissions(document).doc_mdp
@@ -174,8 +197,21 @@ pub fn asserted(
     {
         out.push(Restriction::FieldLocked);
     }
+    if operation == Operation::Annotate
+        && let Some(annotation) = annotation
+        && let Some(dict) = document.get(annotation).as_dict()
+        && document
+            .get_key(dict, "F")
+            .as_integer()
+            .is_some_and(|flags| flags & LOCKED_CONTENTS != 0)
+    {
+        out.push(Restriction::AnnotationLocked);
+    }
     out
 }
+
+/// Table 167 bit 10, counted from 1 as the table numbers its positions.
+const LOCKED_CONTENTS: i64 = 1 << 9;
 
 /// Whether Table 257's `/P` leaves room for this operation.
 ///

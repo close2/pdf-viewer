@@ -3,9 +3,10 @@
 Status: **markup landed in the three-hundred-and-twenty-first session** (ADR 0196), **a window
 types into a field since the three-hundred-and-forty-ninth** (ADR 0201), **a caret says where the
 next character goes since the three-hundred-and-seventy-first** (ADR 0211), **a click places it
-and a drag selects since the three-hundred-and-eighty-eighth** (ADR 0225), and **§12.5.6.6's free
-text since the four-hundred-and-first** (ADR 0238). What is left is one annotation this program
-still will not touch — the *file's* own — and a callout line no clause states a colour for.
+and a drag selects since the three-hundred-and-eighty-eighth** (ADR 0225), **§12.5.6.6's free
+text since the four-hundred-and-first** (ADR 0238), and **the *file's* own free text annotation
+since the four-hundred-and-sixty-ninth** (ADR 0304). What is left is a callout line no clause states
+a colour for, and a flag that waits on a verb this program does not have.
 Priority: 33
 Clauses: §12.5.6.6, §12.5.6.10, §12.7.4.3, §7.5.6, §14.8.2.5
 Code: `crates/viewer-core/src/command.rs` (`Edit`), `crates/pdf-model/src/view.rs`,
@@ -59,19 +60,40 @@ that can ask needs no event. `viewer-ui` binds `f`, `viewer-confined` carries al
   reads six corpus documents that break that sentence; writing a seventh would be a different
   thing.
 
-### What is still owed on this subtype, and neither is a capability
+## 1b. ~~The file's own free text annotation~~ — **done in the four-hundred-and-sixty-ninth session**
 
-- **Editing a free text annotation the *file* states.** `ViewState::set_free_text` takes only an
-  annotation this session added and `free_text_at` answers `None` for the producer's own, which is
-  deliberate: appending an object is the writing `CLAUDE.md` permits, and replacing one the
-  producer wrote is a decision nobody has made. What it would cost is a second map in `ViewState`
-  — annotation to text — read where `appearance::free_text` takes `/Contents`, plus a replacement
-  object at save time. Table 167's `Locked` and `LockedContents` become reachable the same day and
-  the §12.5.3 ledger row says so.
+`ViewState::set_free_text` takes an annotation the producer wrote as well as one this session added,
+`free_text_at` answers for the page's own `/Annots`, and §7.5.6's update writes the annotation with
+its new `/Contents` and a **replaced** `/AP`. ADR 0304 has the argument. Four things worth keeping
+here:
+
+- **The refusal named an architecture that did not exist.** This file said replacing an object the
+  producer wrote is "a decision nobody has made"; §7.5.6's own list is "objects that have been
+  changed, replaced, or deleted", the producer's bytes survive it byte for byte, and `write.rs` had
+  taken a map of replacements since the hundred-and-thirty-sixth session. What was missing was only
+  what `pdf_model::view` was willing to say.
+- **Replaced rather than spliced, and the census is the argument.** §12.7.4.3's closing paragraph
+  appends its new contents where a stream holds no `/Tx` marked content, and
+  `examples/free_text_census` counts **56 of the corpus's 67 free text appearance streams without
+  one** — so the splice reading would have drawn the new note on top of the old for five annotations
+  in six. A widget's stream is artwork *with* the text in a region; this subtype's whole appearance
+  is its text.
+- **Table 167 bit 10 is the flag, and bit 8 is not.** `LockedContents` forbids this; `Locked`'s own
+  row says it "does not restrict changes to the annotation's contents". Both are read in
+  `restriction::asserted` rather than at the edit, so `CLAUDE.md`'s four levels stay reachable.
+- **No message was added.** `Query::FreeTextAt` and `Edit::SetFreeText` already said it, and all six
+  consumers gained the capability by being recompiled.
+
+### What is still owed on this subtype
+
 - **Table 177's `/CL` and `/LE` drawn rather than reported.** The geometry is stated and the colour
   is not — Table 166's `/C` is an icon's background, a popup's title bar and a link's border, none
   of which this subtype has — so drawing it means inventing one, exactly as `/BS`'s border does.
-  Reported by name since this round. No corpus first page states one.
+  Reported by name since the four-hundred-and-first session. **No corpus document states one at
+  all**, on every page rather than on first pages: `examples/free_text_census` counts 0 of 73.
+- **Table 167 bit 8, `Locked`, is still read by nothing**, and now for a reason that is a property
+  of the code rather than a prediction: it restricts *deleting* an annotation and *moving* one, and
+  this program does neither. The day either lands, the §12.5.3 row is the one to revisit.
 
 ## 2. ~~A caret~~ — **done in the three-hundred-and-seventy-first session**
 

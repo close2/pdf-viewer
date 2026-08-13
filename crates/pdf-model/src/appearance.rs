@@ -247,7 +247,7 @@ pub(crate) fn construct(
     document: &Document,
     annotation: &Dictionary,
     subtype: &[u8],
-    value: FieldValue<'_>,
+    view: crate::view::AnnotationView<'_>,
     rect: [f32; 4],
 ) -> Constructed {
     let mut stream = Stream::new();
@@ -268,11 +268,11 @@ pub(crate) fn construct(
         b"Polygon" | b"PolyLine" => polygon(document, annotation, &mut stream, subtype),
         b"Ink" => ink(document, annotation, &mut stream),
         b"Line" => line(document, annotation, &mut stream),
-        b"Widget" => widget(document, annotation, &mut stream, value),
+        b"Widget" => widget(document, annotation, &mut stream, view.value),
         b"Highlight" | b"Underline" | b"StrikeOut" | b"Squiggly" => {
             text_markup(document, annotation, &mut stream, subtype)
         }
-        b"FreeText" => free_text(document, annotation, &mut stream),
+        b"FreeText" => free_text(document, annotation, &mut stream, view.contents),
         b"Text" => text_icon(document, annotation, &mut stream, rect),
         b"FileAttachment" | b"Sound" => symbol_icon(document, annotation, &mut stream, subtype),
         // §12.5.6.12's stamp is the one of the four icon clauses whose standard names are not
@@ -685,7 +685,16 @@ pub(crate) fn for_saving(
     // A widget's rectangle is the file's: §12.5.6.4's fixed-size icon is the only case where a
     // constructed appearance's box is not `/Rect`, and a widget is not it.
     let rect = rectangle(document, annotation).unwrap_or([0.0; 4]);
-    let constructed = construct(document, annotation, b"Widget", value, rect);
+    let constructed = construct(
+        document,
+        annotation,
+        b"Widget",
+        crate::view::AnnotationView {
+            value,
+            ..crate::view::AnnotationView::default()
+        },
+        rect,
+    );
     let Some(content) = constructed.content else {
         // A field with no value, no background and no border draws nothing, and there is no
         // stream to *replace* here — so adding an object that draws nothing would grow the file
@@ -2517,7 +2526,7 @@ fn laid_out_in(
     asked: Asked,
 ) -> Option<variable_text::LaidOut> {
     if is_free_text(document, annotation) {
-        return free_text_layout(document, annotation, box_, asked)
+        return free_text_layout(document, annotation, box_, view.contents, asked)
             .ok()
             .flatten();
     }
@@ -2726,12 +2735,17 @@ pub(crate) fn accepted_prefix(
 /// Until the three-hundred-and-eighty-seventh session a free text annotation stating only `/RC`
 /// drew nothing and reported nothing, which on this subtype is a blank page: the text *is* the
 /// annotation.
-fn free_text(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Outcome {
+fn free_text(
+    document: &Document,
+    annotation: &Dictionary,
+    stream: &mut Stream,
+    retyped: Option<&str>,
+) -> Outcome {
     let rect = rectangle(document, annotation)?;
     // §12.5.6.6's `/RD` uses the same left, top, right, bottom order §12.5.6.8's does, which
     // `differences` already reads.
     let box_ = differences(document, annotation, rect);
-    let laid_out = free_text_layout(document, annotation, box_, Asked::default())?;
+    let laid_out = free_text_layout(document, annotation, box_, retyped, Asked::default())?;
     let decoration = undrawn_decoration(document, annotation);
     let Some(laid_out) = laid_out else {
         return Ok(Painted {
@@ -2800,16 +2814,24 @@ fn undrawn_decoration(document: &Document, annotation: &Dictionary) -> Option<Re
 /// out where a question asked something of it**, exactly as an empty field is: somewhere for the
 /// first character to go is the one thing an empty box can be asked, and an annotation a person
 /// has just drawn with a pointer is empty by construction.
+///
+/// `retyped` is [`crate::view::AnnotationView::contents`], and where it is `Some` it is the whole
+/// answer: a person who took the text out of a note has not asked for Table 177's `/RC` to appear
+/// from underneath it, and the fallback below is between two things the *file* states.
 fn free_text_layout(
     document: &Document,
     annotation: &Dictionary,
     box_: [f32; 4],
+    retyped: Option<&str>,
     asked: Asked,
 ) -> Result<Option<variable_text::LaidOut>, Refusal> {
-    let text = variable_text::string(document, &[annotation], "Contents")
-        .filter(|contents| !contents.is_empty())
-        .or_else(|| crate::popup::rich_text(document, annotation))
-        .unwrap_or_default();
+    let text = match retyped {
+        Some(retyped) => retyped.to_owned(),
+        None => variable_text::string(document, &[annotation], "Contents")
+            .filter(|contents| !contents.is_empty())
+            .or_else(|| crate::popup::rich_text(document, annotation))
+            .unwrap_or_default(),
+    };
     if text.is_empty() && asked == Asked::default() {
         return Ok(None);
     }

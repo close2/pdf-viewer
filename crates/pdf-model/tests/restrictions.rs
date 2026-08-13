@@ -62,12 +62,12 @@ fn an_encrypted_document_can_grant_one_operation_and_withhold_the_other() {
     assert!(!permissions.owner, "the empty password is the user's here");
 
     assert_eq!(
-        asserted(&document, Operation::FillInForm, None),
+        asserted(&document, Operation::FillInForm, None, None),
         Vec::new(),
         "bit 9 grants filling in a field at revision 3 or greater"
     );
     assert_eq!(
-        asserted(&document, Operation::Annotate, None),
+        asserted(&document, Operation::Annotate, None, None),
         vec![Restriction::AccessDenied { bit: 6 }],
         "and bit 6, which is what annotating needs, is clear"
     );
@@ -87,9 +87,12 @@ fn the_corpus_certification_permits_filling_in_and_not_annotating() {
         return;
     };
     let document = Document::open(bytes).expect("a valid PDF");
-    assert_eq!(asserted(&document, Operation::FillInForm, None), Vec::new());
     assert_eq!(
-        asserted(&document, Operation::Annotate, None),
+        asserted(&document, Operation::FillInForm, None, None),
+        Vec::new()
+    );
+    assert_eq!(
+        asserted(&document, Operation::Annotate, None, None),
         vec![Restriction::Certified {
             level: pdf_model::signature::Modification::FormFilling
         }]
@@ -108,6 +111,6 @@ fn an_ordinary_document_asserts_nothing_against_either_operation() {
     let document = Document::open(bytes).expect("a valid PDF");
     assert!(document.permissions().is_none(), "it is not encrypted");
     for operation in [Operation::FillInForm, Operation::Annotate] {
-        assert_eq!(asserted(&document, operation, None), Vec::new());
+        assert_eq!(asserted(&document, operation, None, None), Vec::new());
     }
 }

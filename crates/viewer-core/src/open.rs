@@ -262,11 +262,13 @@ pub(crate) enum Done {
         /// The colour of the text, which Table 177's `/DA` carries.
         colour: [f32; 3],
     },
-    /// §12.5.6.6's `/Contents`, on an annotation an earlier entry of this log added.
+    /// §12.5.6.6's `/Contents`, on an annotation an earlier entry of this log added **or on one
+    /// the file itself states**.
     ///
     /// **The object is stable across a replay**, which is what lets the log name one at all:
     /// `ViewState::add_free_text` allocates from the document's own highest number plus however
-    /// many annotations have been added, and a replay adds the same ones in the same order.
+    /// many annotations have been added, and a replay adds the same ones in the same order. The
+    /// file's own annotation needs no such argument — its object number *is* its identity.
     SetFreeText {
         /// The annotation.
         annotation: ObjectId,
@@ -543,6 +545,7 @@ impl Open {
         let log = std::mem::take(&mut self.log);
         self.view.clear_all_fields();
         self.view.clear_all_additions();
+        self.view.clear_all_free_text();
         for edit in log.iter().take(self.cursor) {
             match edit {
                 Done::SetField { field, value } => {
@@ -562,7 +565,7 @@ impl Open {
                         .add_free_text(&self.document, *page, *rect, "", *colour);
                 }
                 Done::SetFreeText { annotation, text } => {
-                    self.view.set_free_text(*annotation, text);
+                    self.view.set_free_text(&self.document, *annotation, text);
                 }
             }
         }

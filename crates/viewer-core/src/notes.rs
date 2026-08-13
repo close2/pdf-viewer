@@ -99,11 +99,12 @@ pub(crate) fn refusal(
     document: &Document,
     operation: pdf_model::restriction::Operation,
     field: Option<&str>,
+    annotation: Option<pdf_syntax::ObjectId>,
 ) -> Vec<String> {
     use pdf_model::restriction::Restriction;
     use pdf_model::signature::Modification;
 
-    pdf_model::restriction::asserted(document, operation, field)
+    pdf_model::restriction::asserted(document, operation, field, annotation)
         .into_iter()
         .map(|restriction| match restriction {
             // §12.8.2.2.1's parenthesis is a `shall` addressed to a processor that modifies:
@@ -143,6 +144,15 @@ pub(crate) fn refusal(
             Restriction::FieldLocked => format!(
                 "a signature in this document locks this field against further change \
                  (§12.7.5.5's /Lock) — {} was not done",
+                operation.as_str()
+            ),
+            // §12.5.3's Table 167 bit 10: "If set, do not allow the contents of the annotation to
+            // be modified by the user." Bit 8's `Locked` is named in the same breath because it
+            // is the flag a person would expect to be the reason and is not — its own row says it
+            // "does not restrict changes to the annotation's contents".
+            Restriction::AnnotationLocked => format!(
+                "this annotation is marked LockedContents (§12.5.3's Table 167, bit 10), so its \
+                 text may not be changed — {} was not done",
                 operation.as_str()
             ),
         })

@@ -832,6 +832,22 @@ impl Viewer {
                         )],
                     });
                 }
+                // The same rule one clause over, and the same channel. §12.5.6.6's annotation is
+                // its text, so an annotation written without an appearance is one whose note this
+                // program could not draw — Table 177 makes `/DA` Required, so the next reader has
+                // what it needs and this one says which annotations it left to them.
+                for annotation in written.unappeared {
+                    events.push(Event::Reported {
+                        document: id,
+                        page: None,
+                        notes: vec![format!(
+                            "the free text annotation {} {} was written with what was typed into \
+                             it and no appearance stream, because this program could not lay that \
+                             text out (ISO 32000-2 §12.5.6.6)",
+                            annotation.number, annotation.generation
+                        )],
+                    });
+                }
                 events.push(Event::Saved {
                     document: id,
                     bytes: written.bytes,
@@ -875,7 +891,12 @@ impl Viewer {
     /// which is what makes a replay of its prefix the whole of the state.
     fn edit(&mut self, edit: crate::command::Edit, events: &mut Vec<Event>) {
         let Some(id) = self.focused else { return };
-        if let Some(refused) = self.refusal(id, operation_of(&edit), field_of(&edit)) {
+        if let Some(refused) = self.refusal(
+            id,
+            operation_of(&edit),
+            field_of(&edit),
+            annotation_of(&edit),
+        ) {
             events.push(refused);
             return;
         }
@@ -953,12 +974,13 @@ impl Viewer {
         id: DocumentId,
         operation: pdf_model::restriction::Operation,
         field: Option<&str>,
+        annotation: Option<ObjectId>,
     ) -> Option<Event> {
         if self.restrictions == crate::RestrictionLevel::Off {
             return None;
         }
         let open = self.focused()?;
-        let notes = crate::notes::refusal(&open.document, operation, field);
+        let notes = crate::notes::refusal(&open.document, operation, field, annotation);
         (!notes.is_empty()).then_some(Event::Refused {
             document: id,
             operation,
@@ -2126,6 +2148,22 @@ fn field_of(edit: &crate::command::Edit) -> Option<&str> {
         crate::command::Edit::Markup { .. }
         | crate::command::Edit::FreeText { .. }
         | crate::command::Edit::SetFreeText { .. } => None,
+    }
+}
+
+/// Which annotation an [`crate::Edit`] names, where it names one.
+///
+/// [`field_of`]'s counterpart, and it exists for the same shape one clause over: §12.5.3's Table
+/// 167 bit 10 restricts **this annotation** rather than the document, so the verb cannot answer it
+/// either. `None` for every edit whose subject is a field or an annotation that does not exist yet
+/// — a restriction on changing an annotation's contents has nothing to say about creating one, and
+/// the flag is read off an object the file already holds.
+fn annotation_of(edit: &crate::command::Edit) -> Option<ObjectId> {
+    match edit {
+        crate::command::Edit::SetFreeText { annotation, .. } => Some(*annotation),
+        crate::command::Edit::SetField { .. }
+        | crate::command::Edit::Markup { .. }
+        | crate::command::Edit::FreeText { .. } => None,
     }
 }
 

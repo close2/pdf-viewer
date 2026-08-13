@@ -1,6 +1,10 @@
 # ADR 0238 — The one annotation whose text is the annotation
 
-Status: accepted, 2026-08-08 (session 401).
+Status: accepted, 2026-08-08 (session 401). **Amended by ADR 0304 (session 469)**, which takes the
+one decision this ADR deferred: `set_free_text` and `free_text_at` now reach the free text
+annotation the *file* states, so the two sentences below saying they refuse it, and the sentence
+saying Table 167's `Locked` and `LockedContents` are therefore unreachable, describe this round
+rather than the tree.
 
 ## Context
 

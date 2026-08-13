@@ -765,6 +765,26 @@ fn decided(
         String::from_utf8_lossy(&subtype).into_owned()
     };
     let stated_rect = rectangle(document, annotation, "Rect");
+
+    // §12.5.6.6, and it is the one place a *reader's* statement outranks a stored appearance
+    // stream. Table 177 makes the file's own `/AP` decisive over its `/DA` — "[t]he annotation
+    // dictionary's AP entry, if present, shall take precedence over the DA entry" — which is a
+    // precedence between two things the **file** says about the same text. A person who retyped
+    // the note has changed that text, so the stored stream no longer describes this annotation at
+    // all, and §12.5.6.6 states where its appearance comes from instead: "12.7.4.3, 'Variable
+    // text', describes the process of using these entries to generate the appearance of the text
+    // in these annotations". The construction is that process, so the stream is set aside and the
+    // appearance is generated.
+    if view.contents.is_some() && subtype == b"FreeText" {
+        return match stated_rect {
+            Some(rect) if !is_empty(rect) => {
+                construct(document, annotation, &subtype, &name, rect, view)
+            }
+            Some(_) => Decision::Nothing,
+            None => Decision::Unsupported(format!("{name}: no usable /Rect")),
+        };
+    }
+
     let stored = match stored_appearance(document, annotation, view) {
         Normal::Stream(stream) => stream,
         Normal::Absent => {
@@ -895,7 +915,6 @@ fn construct(
     rect: [f32; 4],
     view: crate::view::AnnotationView<'_>,
 ) -> Decision {
-    let value = view.value;
     // §12.5.6.14: a popup is the window belonging to some *other* annotation, and §12.5.6.24's
     // projection is a measurement inside an activated 3D model — clause 13, which principle 5
     // excludes. Table 166 names both, with `Link`, as the subtypes a writer need not give an
@@ -904,7 +923,7 @@ fn construct(
         return Decision::Nothing;
     }
 
-    let constructed = crate::appearance::construct(document, annotation, subtype, value, rect);
+    let constructed = crate::appearance::construct(document, annotation, subtype, view, rect);
     let owed = constructed.report.map(|detail| format!("{name}: {detail}"));
     let Some(content) = constructed.content else {
         return match owed {
