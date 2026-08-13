@@ -195,9 +195,72 @@ and "very complicated document" becomes "many chunks" rather than a refusal.
   unbounded (one `sh` paints the page), so it needs A's deadline anyway for the pathological
   operator. And it does nothing about the 3.7 GB spent before interpretation starts.
 
-**They are not exclusive.** A is a subset of C's requirements; B is orthogonal to both and is the
-only one that answers memory. The plausible order is §3's defects, then A behind an off-by-default
-switch with the gates pinned, then B or C as a separate decision with its own number attached.
+### D — stream the decompression, so the bomb never becomes an allocation
+
+Raised by the project owner, who observed that nobody here had considered it:
+
+> We might be able for instance to prevent gif-bombs by streaming the decompression. There are
+> possibly reasons it doesn't fit, but I have the impression that we haven't even considered it.
+
+**They are right that it was never considered, and the code is much closer to it than the other
+three roads are to theirs.** `filter::flate` already holds a *streaming* decoder —
+`flate2::read::ZlibDecoder`, an `io::Read` — and then calls `read_to_end` into a `Vec`. The
+decompressor streams; the consumer does not. Bomb B's 3.7 GB is that one call.
+
+**What it changes is the *kind* of the quantity, and that is the whole argument.** A window-fed
+lexer turns a decompression bomb from an unbounded *allocation* into unbounded *time* — and time
+is exactly what roads A and C make interruptible, while memory is what none of them can take
+back. A 1.85 MB file inflating to 1.77 GiB would cost a fixed buffer and run until somebody stops
+it, instead of taking the machine down before anybody is asked. That is also the only answer in
+this file that needs **no number at all**: a window is a buffer size, not a policy, and the owner's
+objection is to policies stated as constants.
+
+**So D is best read as a precondition rather than a fourth alternative.** A and C bound time and
+leave §2's measured 3.7 GB untouched; B answers memory by killing the process, which is the
+blunt version of the same answer. D is the one that removes the allocation, after which the
+counting bounds have nothing left to justify them.
+
+**Where it fits, and where it does not** — this is the part that has to be measured rather than
+assumed, and the split is not even:
+
+- **Content streams are the good case, and they are the case that matters.** The interpreter reads
+  a content stream once, forwards, one token at a time, and never seeks back. §7.8.2 even blesses
+  the shape: where `/Contents` is an array, "the division between streams may occur only at the
+  boundaries between lexical tokens", so several parts chain into one reader instead of being
+  concatenated into one `Vec` — which is where today's *missing aggregate budget* (§3.3) also
+  lives. Every filter that appears on a content stream — Flate, LZW, ASCII85, ASCIIHex,
+  RunLength — is inherently streaming.
+- **`Lexer::new` takes `&'a [u8]`**, and that is the real work. A reader-fed lexer needs a window
+  that can hold the largest single lexical object, and `max_string_len` is 2²⁶, so either the
+  window grows for one token or a string gets its own bound. Neither is hard; both are decisions.
+- **Inline images are the sharp edge.** `inline_image::scan` searches forward from `ID` for `EI`
+  over data whose length the dictionary does not state, which is a lookahead of unbounded size
+  inside a bounded window.
+- **The image and font paths want the whole thing anyway.** An embedded font program is parsed
+  with random access; image sample data is indexed; an ICC profile, an xref stream and JBIG2
+  globals are all read as a unit. `decoded_stream_data` returning `Arc<[u8]>` is right for those
+  and streaming buys them nothing — so this is an *added* route rather than a replacement, and the
+  refusals for those paths (`image::MAX_SAMPLES`, `icc::MAX_PROFILE`, the codec bounds) stay
+  exactly as they are.
+- **It cuts across `doc/todo/41`'s decoded-stream cache and `doc/todo/47`'s search**, which want to
+  *keep* a decoded stream rather than stream past it. 41 is priced and refused today, so there is
+  no conflict yet; a round taking either owes the other a sentence.
+- **One behaviour must survive it.** `flate` deliberately keeps partial output from a truncated
+  stream, because "a partially-inflated content stream still renders most of a page". Streaming
+  makes that the natural case rather than a special one — but §3.2's defect is that the same code
+  keeps partial output *silently* when it hits the length guard, and a streaming rewrite that does
+  not separate those two is the same bug with better memory behaviour.
+
+**What a round taking D owes first**: the measurement, not the rewrite. Feed `Lexer` from an
+`io::Read` behind a fixed window, run Bomb B and `tmp/Entwurf.pdf` through it, and report peak
+resident and wall clock for both against §1's and §2's figures. If a 64 KiB window draws
+`Entwurf.pdf` at 1.3 s and holds Bomb B at a few megabytes, the rest of this file's arithmetic
+changes shape.
+
+**They are not exclusive.** A is a subset of C's requirements; B is orthogonal to both; **D is
+underneath all three** and is the only one that removes the allocation rather than surviving it.
+The plausible order is §3's defects, then D's measurement, then A behind an off-by-default switch
+with the gates pinned, then B or C as a separate decision with its own number attached.
 
 ## 6. What a round taking this owes
 
