@@ -246,6 +246,15 @@ anchor that makes it checkable.
   announced the fix, because nothing was watching then either. **A page in this bucket was
   unwatched in both directions**, so an example of it went stale as quietly as the defect did —
   which is the whole argument for the list the hundred-and-seventy-sixth session put under it.
+- **A page that draws right can read back wrong, and this project's two text gates are built not
+  to see it.** Both strip whitespace from the comparison, deliberately — a content stream records
+  positions rather than words — so every question about *word separation* is outside them, and a
+  readback nobody prints is a readback nobody checks. `issue4304.pdf` is 895 bytes named
+  *Words that should have spaces between them*; its advances were fixed in the
+  four-hundred-and-fifth session, the picture has been right since, and it went on reading back
+  `Wordsthatshouldhavespacesbetweenthem.` for fifty-nine more. **So a round that fixes what a page
+  draws asks what it reads back** — `examples/readback` is one command — because selection, search,
+  `pdf-retrieve` and the screen reader take the second and no gate does. ADR 0299.
 - **A report has a price, paid in gated pages.** Print what a condition matched before trusting its
   count; **measure the corpus before choosing between reporting a gap and closing it** (every
   `/Decode` array in all 974 documents is Table 88's default or its exact reversal).

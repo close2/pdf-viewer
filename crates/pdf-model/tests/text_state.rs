@@ -45,17 +45,34 @@ const TO_UNICODE: &str = "/CIDInit /ProcSet findresource begin\n\
      2 beginbfchar\n<0020> <0020>\n<0041> <0041>\nendbfchar\nendcmap\n\
      CMapName currentdict /CMap defineresource pop\nend\nend";
 
+/// The same, mapping two codes that are *not* code 32.
+///
+/// A composite font needs one to reach a substitute at all, and this one leaves `<0020>`
+/// unanswered so that a two-byte code 32 arrives at the readback with every §9.10.2 method
+/// having declined — which is the case `a_two_byte_code_32_is_not_read_back_as_a_space`
+/// needs and which the `CMap` above would hide.
+const TO_UNICODE_WITHOUT_SPACE: &str = "/CIDInit /ProcSet findresource begin\n\
+     12 dict begin\nbegincmap\n1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n\
+     2 beginbfchar\n<0041> <0041>\n<0042> <0042>\nendbfchar\nendcmap\n\
+     CMapName currentdict /CMap defineresource pop\nend\nend";
+
 /// A one-page fixture with a simple font `/F1` and an `Identity-H` composite font `/F0`.
 ///
 /// Both are substituted rather than embedded, which is what makes the pair comparable: the
 /// same installed face draws both, so a difference between them is a difference in the
 /// rules being tested rather than in the glyphs.
+///
+/// Three more fonts exist for §9.3.3's readback, and each differs from `/F1` in one thing:
+/// `/F2` names code 32 `/.notdef`, which no method of §9.10.2 can turn into a character —
+/// `issue4304.pdf`'s shape, in 895 bytes of corpus; `/F3` names it `/bullet`, which the
+/// Adobe Glyph List answers, so §9.10.2 has spoken and §9.3.3 must not; and `/F4` is a
+/// composite font whose codes are two bytes, which §9.3.3 excludes by name.
 fn fixture(content: &str) -> Vec<u8> {
     let body = format!(
         "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
-         /Resources << /Font << /F1 5 0 R /F0 6 0 R >> \
+         /Resources << /Font << /F1 5 0 R /F0 6 0 R /F2 10 0 R /F3 11 0 R /F4 12 0 R >> \
          /ExtGState << /Half << /ca 0.5 /CA 0.5 >> /Knock << /TK true >> \
          /NoKnock << /TK false >> /Mult << /ca 0.5 /BM /Multiply >> >> >> /Contents 4 0 R >>\nendobj\n\
          4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n\
@@ -68,9 +85,17 @@ fn fixture(content: &str) -> Vec<u8> {
          8 0 obj\n<< /Type /FontDescriptor /FontName /TestCID /Flags 4 \
          /FontBBox [0 0 1000 1000] /ItalicAngle 0 /Ascent 800 /Descent -200 \
          /CapHeight 700 /StemV 80 >>\nendobj\n\
-         9 0 obj\n<< /Length {} >>\nstream\n{TO_UNICODE}\nendstream\nendobj\n",
+         9 0 obj\n<< /Length {} >>\nstream\n{TO_UNICODE}\nendstream\nendobj\n\
+         10 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica \
+         /Encoding << /Type /Encoding /Differences [32 /.notdef] >> >>\nendobj\n\
+         11 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica \
+         /Encoding << /Type /Encoding /Differences [32 /bullet] >> >>\nendobj\n\
+         12 0 obj\n<< /Type /Font /Subtype /Type0 /BaseFont /TestCID /Encoding /Identity-H \
+         /DescendantFonts [7 0 R] /ToUnicode 13 0 R >>\nendobj\n\
+         13 0 obj\n<< /Length {} >>\nstream\n{TO_UNICODE_WITHOUT_SPACE}\nendstream\nendobj\n",
         content.len() + 1,
         TO_UNICODE.len() + 1,
+        TO_UNICODE_WITHOUT_SPACE.len() + 1,
     );
 
     let mut out = String::from("%PDF-1.7\n");
@@ -154,6 +179,53 @@ fn word_spacing_does_not_reach_a_two_byte_code_32() {
     assert_eq!(
         with, without,
         "a two-byte code 32 takes no word spacing, so `Tw` must change nothing"
+    );
+}
+
+/// §9.3.3: a single-byte code 32 is the ASCII SPACE character, whatever the font names it.
+///
+/// The clause identifies the two in order to say which glyph `Tw` applies to — "Word spacing
+/// works the same way as character spacing but shall apply only to the ASCII SPACE character
+/// (20h)", of "every occurrence of the single-byte character code 32 in a string" — and that
+/// identification is a statement about the code. A font that names code 32 `/.notdef` has not
+/// contradicted it; it has said nothing, and §9.10.2's three methods and its closing
+/// permission all decline in turn.
+///
+/// `issue4304.pdf` is the corpus witness and is named after the defect: 895 bytes of
+/// `/Times-Roman` with `/Differences [32 /.notdef …]`, drawing *Words that should have spaces
+/// between them.* — the advances since the four-hundred-and-fifth session — and reading back
+/// `Wordsthatshouldhavespacesbetweenthem.` until this rule. **Neither text gate can see it**:
+/// both strip whitespace from the comparison, deliberately, so the readback itself is the only
+/// instrument there is.
+#[test]
+fn a_space_no_method_can_name_still_reads_back_as_one() {
+    assert_eq!(interpret("BT /F2 10 Tf 0 0 Td (A B) Tj ET").text, "A B");
+}
+
+/// §9.10.2 first: a font that *does* say what code 32 means is believed.
+///
+/// The rule above is a last resort behind the clause's own methods, not a rule about the byte.
+/// A `/Differences` naming code 32 `/bullet` is the producer's own statement, the Adobe Glyph
+/// List answers it, and a space would be text the page does not show.
+#[test]
+fn a_code_32_the_encoding_names_is_read_as_what_it_names() {
+    assert_eq!(
+        interpret("BT /F3 10 Tf 0 0 Td (A B) Tj ET").text,
+        "A\u{2022}B"
+    );
+}
+
+/// §9.3.3: and the rule is about the code's *encoding*, exactly as the spacing rule is.
+///
+/// "It shall not apply to occurrences of the byte value 32 in multiple-byte codes" — so a
+/// two-byte `<0020>` is not the ASCII SPACE character and gets no space, for the same reason
+/// `word_spacing_does_not_reach_a_two_byte_code_32` gets no `Tw`. `/F4`'s `/ToUnicode` covers
+/// `A` and `B` and leaves `<0020>` for the readback to decline.
+#[test]
+fn a_two_byte_code_32_is_not_read_back_as_a_space() {
+    assert_eq!(
+        interpret("BT /F4 10 Tf 0 0 Td <004100200042> Tj ET").text,
+        "AB"
     );
 }
 

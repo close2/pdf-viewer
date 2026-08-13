@@ -21,8 +21,9 @@
 //! # A `CMap` built on another
 //!
 //! §9.10.3 states it as the one dictionary entry that means anything here: `/UseCMap` "may be
-//! used if the CMap is based on another ToUnicode CMap", and Table 118 says the referencing
-//! `CMap` "shall specify only the character mappings that differ from the referenced CMap". So
+//! used if the `CMap` is based on another `ToUnicode` `CMap`", and Table 118 says the
+//! referencing `CMap` "shall specify only the character mappings that differ from the referenced
+//! `CMap`". So
 //! a map carries an optional base, consulted after its own mappings and never before them.
 
 use std::collections::BTreeMap;
@@ -374,7 +375,7 @@ mod tests {
     }
 
     /// Table 118: a referencing `CMap` "shall specify only the character mappings that differ
-    /// from the referenced CMap". So a code the file states answers from the file, and one it
+    /// from the referenced `CMap`". So a code the file states answers from the file, and one it
     /// does not answers from the base.
     #[test]
     fn a_base_answers_the_codes_the_file_states_nothing_about() {

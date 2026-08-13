@@ -493,8 +493,8 @@ fn pdfjs_corpus() -> Vec<PathBuf> {
 /// # One left in the four-hundred-and-sixty-third, and three of the four *below* this list were read
 ///
 /// `issue5010.pdf` is gone: its `/ToUnicode` states five mappings for codes its page never shows
-/// and `/Adobe-Korea1-UCS2 usecmap` for the rest, which §9.10.3 permits — "UseCMap , which may be
-/// used if the CMap is based on another ToUnicode CMap" — and which nothing here followed, so the
+/// and `/Adobe-Korea1-UCS2 usecmap` for the rest, which §9.10.3 permits — "`UseCMap` , which may be
+/// used if the `CMap` is based on another `ToUnicode` `CMap`" — and which nothing here followed, so the
 /// page read back the empty string. ADR 0298.
 ///
 /// That round also listed, for the first time, every document scoring under 100% rather than
@@ -507,7 +507,7 @@ fn pdfjs_corpus() -> Vec<PathBuf> {
 /// - `issue918.pdf` (7): the Type 3 codes outside printable ASCII described above.
 /// - `issue20489.pdf` (1): `Date>SCALE` is two labels forty lines apart that `pdftotext`'s column
 ///   analysis ran into one word.
-/// - `issue1350.pdf` (1): the reference reads `beginnerÕs`, which is MacRomanEncoding 0xD5 taken
+/// - `issue1350.pdf` (1): the reference reads `beginnerÕs`, which is `MacRomanEncoding` 0xD5 taken
 ///   as Latin-1; this tree reads `beginner’s`.
 const TEXT_BELOW_FLOOR: [&str; 22] = [
     "ArabicCIDTrueType.pdf",

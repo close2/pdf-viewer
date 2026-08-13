@@ -94,7 +94,7 @@ pub fn cid_to_unicode(registry: &str, ordering: &str) -> Option<crate::tounicode
 ///
 /// The same files [`cid_to_unicode`] reads, reached the other way round: by the name a
 /// document states rather than by the collection a descendant declares. §9.10.3 permits a
-/// `/ToUnicode` `CMap` to be "based on another ToUnicode CMap", and the ones a producer can
+/// `/ToUnicode` `CMap` to be "based on another `ToUnicode` `CMap`", and the ones a producer can
 /// name without carrying them are these.
 ///
 /// A name whose file states no `bfchar` or `bfrange` — every CID `CMap` in the set — parses to

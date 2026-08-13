@@ -129,13 +129,15 @@ fn joins(run: [f32; 8], quad: [f32; 8]) -> bool {
 /// "aaa" is one match rather than two. That is what a person pressing *next* expects.
 ///
 /// **A space in the needle matches whatever separated the words on the page**, which is the
-/// second judgement and the one with a derivation rather than a convention behind it. Neither
-/// space nor line break is in the file: `content.rs`'s `separate_text` *infers* both from where
-/// §9.4.4's text rendering matrix put the next glyph — "[a] content stream has no notion of words
-/// or lines; it has positions" — so a phrase matched against a literal `' '` would be matched
-/// against this crate's own inference, and "transparency group" broken across a line would not be
-/// found on a page that plainly says it. One or more whitespace characters therefore satisfy one
-/// or more spaces in the needle. A single word is unaffected, which is why the case-folding test
+/// second judgement and the one with a derivation rather than a convention behind it. A word
+/// break reaches the readback by one of two quite different routes, and only one of them is in
+/// the file: §9.3.3's single-byte code 32, which the clause names "the ASCII SPACE character
+/// (20h)" and which `content.rs`'s `Font::text` reads as one; or `separate_text`'s *inference*
+/// from where §9.4.4's text rendering matrix put the next glyph — "[a] content stream has no
+/// notion of words or lines; it has positions". A line break is always the second. So a phrase
+/// matched against a literal `' '` would sometimes be matched against this crate's own inference,
+/// and "transparency group" broken across a line would not be found on a page that plainly says
+/// it. One or more whitespace characters therefore satisfy one or more spaces in the needle. A single word is unaffected, which is why the case-folding test
 /// below still reads the same.
 ///
 /// **Whole-word matching is deliberately not done**, and the reason is the same sentence from the

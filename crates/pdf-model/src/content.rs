@@ -835,11 +835,50 @@ impl Font {
     }
 
     /// Appends what a code means to the page's extracted text.
+    ///
+    /// §9.10.2's methods first, and where every one of them has declined, the one code the
+    /// standard names a character for outside that clause. §9.3.3 states it twice, and the
+    /// first sentence is the naming:
+    ///
+    /// > Word spacing works the same way as character spacing but shall apply only to the
+    /// > ASCII SPACE character (20h).
+    ///
+    /// > Word spacing shall be applied to every occurrence of the single-byte character code
+    /// > 32 in a string when using a simple font (including Type 3) or a composite font that
+    /// > defines code 32 as a single-byte code.
+    ///
+    /// Read together those say that a single-byte code 32 in a show string **is** the ASCII
+    /// SPACE character — the clause identifies the code with the character in order to say
+    /// which glyph `Tw` applies to, and identifying them is what it does. So a font whose
+    /// encoding, `/ToUnicode` and program all decline to say what such a code means has not
+    /// contradicted the clause; it has said nothing, and the clause has already said it.
+    ///
+    /// **This is last, not first**, because §9.10.2's methods are the producer's own
+    /// statements about a code and this is the standard's about the encoding. A
+    /// `/Differences` naming code 32 `/bullet`, or a `/ToUnicode` mapping it to U+2019, is
+    /// answered by the earlier method and never reaches here.
+    ///
+    /// It is what [`pdf_font::LoadedFont`]'s own last resort excludes: §9.10.2's closing
+    /// permission is taken there for 0x21 to 0x7E only, because reading a code *as* its byte
+    /// is a choice about a producer's convention. This one is not that choice. Two corpus
+    /// documents show the difference — `issue4304.pdf` is 895 bytes named after it, a
+    /// `/Times-Roman` whose `/Differences` maps 32 to `/.notdef`, drawing
+    /// *Words that should have spaces between them.* since the four-hundred-and-fifth session
+    /// fixed its advances and reading back `Wordsthatshouldhavespacesbetweenthem.` until this;
+    /// and `Type3WordSpacing.pdf`, whose Type 3 font names no glyph at code 32 at all and
+    /// whose six lines are drawn with `Tw` from 50 down to 0.
     fn text(&self, code: Code, out: &mut String) -> bool {
-        match self {
+        if match self {
             Self::Program(font) => font.text(code, out),
             Self::Type3(font) => font.text(code.value(), out),
+        } {
+            return true;
         }
+        if code.takes_word_spacing() {
+            out.push(' ');
+            return true;
+        }
+        false
     }
 }
 
@@ -6016,7 +6055,6 @@ impl Interpreter<'_> {
         // The quadrilaterals of a reversed string, in the order the glyphs were *placed*, so
         // that they can be paired with their pieces when those are appended backwards.
         let mut reversed_quads: Vec<[f32; 8]> = Vec::new();
-        let mut first = true;
         // One show string's worth of glyph coverage, applied to the font's tally once at the
         // end: see `tally_glyph` for why it is not applied per code.
         let mut coverage = Coverage::default();
@@ -6029,7 +6067,22 @@ impl Interpreter<'_> {
             Font::Type3(_) => (1.0, 0.0),
         };
 
-        for code in font.decode(bytes) {
+        // One separation decision per show string, taken before its first glyph, because
+        // §9.4.4 leaves nothing inside one to infer from. The clause's combined displacement
+        // is `tx = ((w0 − Tj/1000) × Tfs + Tc + Tw) × Th`, and between two codes of one
+        // string the `Tj` term is absent: what separates them is the first glyph's own width
+        // plus `Tc`, which applies to every pair alike and is tracking rather than a word
+        // break, plus `Tw`, which §9.3.3 applies to the single-byte code 32 alone. So the only
+        // word gap a show string can state is that code, and `Font::text` reads it as the
+        // character §9.3.3 names rather than as a distance. The separation *between* show
+        // operations still has a position to read, which is where `Tj`'s adjustment and every
+        // `Td`, `T*` and `Tm` land.
+        let codes = font.decode(bytes);
+        if !codes.is_empty() {
+            self.separate_text(text.matrix, size, word_gap, vertical);
+        }
+
+        for code in codes {
             let advance_em = font.advance(code);
             // §9.7.4.3's second set of metrics, which decide where the glyph is drawn
             // relative to the current text position and where that position goes next.
@@ -6038,10 +6091,6 @@ impl Interpreter<'_> {
                 Font::Type3(_) => ([0.0, 0.0], [0.0, 0.0]),
             };
 
-            if !reversing || first {
-                self.separate_text(text.matrix, size, word_gap, vertical);
-            }
-            first = false;
             let start = self.text.len();
             self.read_back(&font, code, reversing.then_some(&mut pieces));
 
@@ -6281,6 +6330,19 @@ impl Interpreter<'_> {
     ///
     /// The two axes swap in writing mode 1, where a column advances downward and a new column
     /// is a new line.
+    ///
+    /// **A heuristic the standard names as one.** §14.8.2.6.2 requires a *tagged* producer to
+    /// state its word breaks — "any white-space characters that would be present to separate
+    /// words in a pure text representation shall be present in the tagged PDF representation
+    /// of the text" — and says what that spares a reader: "the PDF processor can determine
+    /// word breaks without having to rely on heuristics based on information such as glyph
+    /// positioning on the page, font changes, or glyph sizes". An untagged page leaves exactly
+    /// that reliance, so what is below is a **choice** rather than a clause obeyed, and the
+    /// standard's own sentence is what says which kind of thing it is.
+    ///
+    /// **It is called once per show operation and not once per code**, because §9.4.4 leaves
+    /// nothing inside one show string to read: see the comment at the call site for the
+    /// decomposition, and `Font::text` for the one gap a show string *can* state.
     fn separate_text(&mut self, matrix: Transform, size: f32, word_gap: f32, vertical: bool) {
         // The text-space origin under the matrix is simply its translation.
         let here = (matrix.e, matrix.f);
