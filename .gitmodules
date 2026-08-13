@@ -16,3 +16,7 @@
 	path = doc/corpora/pdfbox
 	url = https://github.com/apache/pdfbox.git
 	shallow = true
+[submodule "doc/corpora/format-corpus"]
+	path = doc/corpora/format-corpus
+	url = https://github.com/openpreserve/format-corpus.git
+	shallow = true

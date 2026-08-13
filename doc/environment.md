@@ -70,7 +70,12 @@ as user `AI` via `sudo -u AI`, reaching `/home/cl/projects/pdf-viewer` through t
   `PATH=$HOME/.cargo/bin:$PATH cargo +nightly fuzz …`. **`which` answers a question about `PATH`,
   not a question about the disk** (ADR 0264).
 - The Arlington model is a **submodule** pinned at `ba7d4d61`; `pdf-spec` will not build without
-  `git submodule update --init`.
+  `git submodule update --init`. **It is the only submodule a build needs.** `doc/pdf.js` is what
+  the ratchets are measured over, so CI must have it; the four corpora under `doc/corpora/` are
+  optional in the strong sense — no gate names one, and the tests that name a path inside one print
+  that it is not checked out and pass. **Two of the four want a sparse clone rather than
+  `git submodule update --init`**, which would take the whole upstream repository; the recipes are
+  `doc/oracle-and-corpus.md` §2 and they are 73 MB and 12 MB instead.
 - KDE Frameworks 6 packages on Arch have no `kf6-` prefix (`kio`, `kconfig`, `ki18n`).
 - **`tmp/hayro` is a checkout of the whole hayro workspace**, with the project owner's fork as
   `origin` and the maintainer's as `upstream`. **The owner's standing offer is that a fix goes on a

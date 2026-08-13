@@ -138,3 +138,24 @@ a derived work of the same documents, which is why it is inside the archive rath
 
 doc/pdf.js is a submodule holding Mozilla's pdf.js test corpus, Apache-2.0. It is used by the
 gates and by nothing that ships.
+
+Four more test corpora are submodules under doc/corpora/. A submodule is a pin rather than a
+copy — this repository records a URL and a commit identifier, and a clone fetches the bytes from
+their own server under their own terms — so none of them is redistributed here and none of these
+lines is an obligation being discharged. They are here as a courtesy to the people who assembled
+the files, and doc/third-party-data.md is the full reading.
+
+    doc/corpora/pdf20examples   The PDF Association's ISO 32000-2 example files, CC BY-SA 4.0.
+    doc/corpora/pdf-differences The PDF Association's reader-divergence files, Apache-2.0.
+    doc/corpora/pdfbox          Apache PDFBox's test inputs and their frozen PDFTextStripper
+                                output, Apache-2.0, with NOTICE.txt beside them in the checkout.
+    doc/corpora/format-corpus   The Open Preservation Foundation's format corpus, three of its
+                                PDF directories. pdfCabinetOfHorrors states CC0 outright;
+                                pdf-handbuilt-test-corpus states nothing of its own and takes the
+                                repository's CC0 default, crediting an iPRES 2017 paper and the
+                                artefact deposited at DOI 10.22000/53; govdocs1-error-pdfs is
+                                copied from Govdocs1, whose own terms call it freely
+                                redistributable to the best of their knowledge and ask for this
+                                citation: Garfinkel, Farrell, Roussev and Dinolt, Bringing
+                                Science to Digital Forensics with Standardized Forensic Corpora,
+                                DFRWS 2009, Montreal, Canada.

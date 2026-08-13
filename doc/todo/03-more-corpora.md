@@ -4,10 +4,10 @@ Status: **standing**, and it became standing rather than one-off in the four-hun
 session, which built the three pieces `doc/test-docs.md` asked for. What is left is the *taking*:
 a chunk a round, the way `doc/todo/00` takes a page off the ambiguous ranking.
 Priority: 03 — the standing band, deliberately.
-Corpus: 974 pdf.js documents **plus 108 in three submodules** and whatever `tools/safedocs` has
+Corpus: 974 pdf.js documents **plus 275 in four submodules** and whatever `tools/safedocs` has
 been asked for — **65 944 as of the four-hundred-and-thirty-third**, 145 archives, 93 GB, the
-manifest below — **plus 267 in `openpreserve/format-corpus`, fetched and surveyed but not taken
-into the tree** (`doc/oracle-and-corpus.md` §2b, §2c)
+manifest below. The fourth submodule is three directories of `openpreserve/format-corpus`, taken in
+the four-hundred-and-seventieth (`doc/oracle-and-corpus.md` §2b, §2c; ADR 0305)
 Code: `tools/safedocs`, `doc/corpora/*`, `doc/oracle-and-corpus.md` §2
 
 ## What exists now (ADR 0258)
@@ -17,6 +17,10 @@ Code: `tools/safedocs`, `doc/corpora/*`, `doc/oracle-and-corpus.md` §2
 - **`doc/corpora/pdfbox`** — 64 files, Apache-2.0, a **partial sparse** checkout of
   `pdfbox/src/test/resources/input`. The recipe is in `doc/oracle-and-corpus.md` §2 because
   `.gitmodules` cannot hold it.
+- **`doc/corpora/format-corpus`** — 167 files in three directories, partial sparse again, added in
+  the four-hundred-and-seventieth on the owner's rule that a corpus is added unless its licence
+  clearly forbids it (ADR 0305). `pdf-handbuilt-test-corpus` is the instrument; the other two are
+  populations. `doc/third-party-data.md` has each directory's terms and the two that were left.
 - **`tools/safedocs`** — `corpora`, `plan`, `fetch --download`, `list`, `survey [--dir …]`. It
   reads a chunk out of a gigabyte archive through the archive's own central directory and one
   contiguous byte range, refuses a plan over 32 MiB **while naming the `--budget-mb` that would
@@ -82,10 +86,12 @@ out of the one on disk.
 lesson is about which kind is worth a round.** `openpreserve/format-corpus`'s
 `pdf-handbuilt-test-corpus` is 89 files that each carry **one** deliberate structural defect and all
 draw the same *Hello PDF-world!*, so a blank render *is* the finding and no reference is needed to
-say so — 0.1 MB of files against 93 GB of crawl, and it produced a defect the crawl cannot reach
-(ADR 0302). **A corpus built to be diagnostic outranks a corpus built to be large**, when what a
+say so — 0.1 MB of files against 93 GB of crawl. **It produced three defects over three consecutive
+rounds** (ADRs 0302, 0303, 0305), and the third is the sharpest statement of what such a corpus is
+for: a census of the 65 703 crawled documents that open finds **not one** with the construct that
+defect was in. **A corpus built to be diagnostic outranks a corpus built to be large**, when what a
 round wants is a defect rather than a rate. `doc/oracle-and-corpus.md` §2b has the survey and the
-one-line ink assertion that reads it.
+one-line ink assertion that reads it, and §7 below says why the instrument is now spent.
 
 **`manifest.tsv` holds 65 968 rows and the cache holds 65 944 documents**: archive `0050` was fetched
 twice, once by session 425's stride and once whole, so its 24 members are recorded twice. Every count
@@ -288,30 +294,19 @@ worth knowing before reading the next one:
   else together. 7 more are `doc/todo/21` §3's font-with-no-outline and 4 are §11.4.4's
   non-isolated group. The remaining 8 are singletons and are listed in ADR 0261.
 
-### 2. ~~`openpreserve/format-corpus` is owed a licence reading, not a decision~~ — read in the four-hundred-and-sixty-seventh; **the decision is the owner's and is stated below**
+### 2. ~~`openpreserve/format-corpus` is owed a licence reading, not a decision~~ — **read in the four-hundred-and-sixty-seventh and decided in the four-hundred-and-seventieth**
 
-**The reading is done and the corpus has been surveyed** (ADR 0302). The whole of it —
-what each of the five PDF directories states about its own licence, the recipe that fetches
-them, and what surveying 267 of their files produced — is
-[`doc/oracle-and-corpus.md`](../oracle-and-corpus.md) §2b and §2c, because that is where
-populations live. What belongs here is the question and nothing else:
+**Done.** The reading is `doc/oracle-and-corpus.md` §2c and the decision is the project owner's,
+quoted in ADR 0305: add a corpus unless its licence *clearly* forbids it, because a submodule is a
+pin rather than a copy and pinning republishes nothing — and mention them all as a courtesy anyway.
+Three of the five directories are `doc/corpora/format-corpus`; `jhove-errors` and
+`fully-featured-pdf` were left on size and on value, which is stated as such rather than dressed as
+a licence.
 
-> **May `openpreserve/format-corpus` be added as a fourth submodule under `doc/corpora/`,
-> sparse-checked out to `pdfCabinetOfHorrors` and `pdf-handbuilt-test-corpus` and nothing
-> else?**
-
-Everything a decision needs is in §2c. The short of it: only `pdfCabinetOfHorrors` carries an
-explicit in-directory CC0 statement; `pdf-handbuilt-test-corpus` states nothing and points at a
-deposited research artefact (DOI 10.22000/53); and the other three are **not** on the table —
-`govdocs1-error-pdfs` states other terms outright, `fully-featured-pdf` embeds third-party media,
-and `jhove-errors` has no sidecar at all while consisting of published journal articles a third
-party is in no position to dedicate to the public domain.
-
-A yes costs **0 bytes** of history — a submodule is pinned by commit — and buys a test the right to
-name a path in those two directories, the way `crates/pdf-model/tests/contents_entry.rs` names one
-in `pdf-differences`. A no costs nothing already spent: ADR 0302's regression test builds its own
-fixtures and names no external file. **Nothing in this tree depends on the corpus either way**, and
-`corpus-cache/` is where a round that wants it puts it.
+**What this changes for a later round** is the rule and not the corpus. A candidate corpus is now
+taken unless somebody can point at the sentence that forbids it, and the questions worth asking of
+one are the other two: will anybody run it, and what does a fresh clone pay for it. Both were
+answered here — 73 MB, no gate depending on it, and a defect fixed the day it arrived.
 
 ### 3. The promotion budget, and why it is mostly moot
 
@@ -393,20 +388,19 @@ Applied here it splits, and the split is the useful half:
 - **The array-formed page groups are all four-component `ICCBased`**, which is `doc/todo/23`'s row
   and now has a number: 14 of 4000.
 
-### 7. What the four-hundred-and-sixty-seventh diagnosed, one of which is now taken
+### 7. What the four-hundred-and-sixty-seventh diagnosed, both of which are now taken
 
-- **A page tree node with no `/Kids` becomes a leaf, and the blank page it yields is silent.**
-  `T02-02_005_page-tree-no-kids.pdf` states `/Pages << /Count 1 >>` with no children while object 2
-  sits beside it stating a `/Contents`; `Pages::get(0)` hands back the `/Pages` dictionary itself,
-  which has no content stream, so the page draws blank and the survey calls it **complete**. The
-  leaf rule is deliberate and argued where it lives — `page.rs`: "[t]rusting `/Type` instead would
-  drop pages from files that omit it", which is right about the files that motivated it. What is not
-  argued is the *silence*: §7.7.3.2 Table 30 makes `/Kids` **required** in a page tree node, so a
-  dictionary that states `/Count` and no `/Kids` has said in the same breath that it is a node and
-  that it has no children. The two candidate readings are "no first page" (loud, and costs the files
-  the leaf rule was written for) and "a leaf that reports" — and which one is right wants the
-  population first: how many of the 65 944 have a node with a `/Count` and no `/Kids`. Nothing
-  measures that today.
+- ~~**A page tree node with no `/Kids` becomes a leaf, and the blank page it yields is silent.**~~
+  **Taken in the four-hundred-and-seventieth** (ADR 0305), and the population this file said it
+  wanted was measured first: `examples/kidless_node_census` walks the tree with `pdf_syntax` alone
+  and finds **0 of the 65 703** SafeDocs documents that open with such a node, 1 of the 1025 pdf.js
+  and specification documents, and 1 of the 165 in `format-corpus`. Zero on the web is what decided
+  the shape: the construct is unreachable by any corpus, so the rule is pinned by five pairs of
+  hand-built fixtures in `crates/pdf-model/tests/page_tree_nodes.rs`. The reading is Table 31's —
+  `/Type` is required of a page object and names `Page` or `Template`, so a dictionary saying
+  `Pages` is not one — and where that empties the tree the recovery scan finds the producer's page,
+  which is what makes `T02-02_005_page-tree-no-kids.pdf` draw its *Hello PDF-world!*. One document
+  of the 974 moved with it and `MAX_PAGELESS` went 5 → 6, argued at the constant.
 - ~~**A `Tf` whose size operand is a lone `.`**~~ — **read and taken in the
   four-hundred-and-sixty-eighth** (ADR 0303). §7.3.3 writes both numeric forms as "one or more
   decimal digits", so a run holding none is no number at all; the lexer returns the `Keyword` it
@@ -416,6 +410,13 @@ Applied here it splits, and the split is the useful half:
   nine of those were already reporting; **three** display lists of 11 349 move and only one of the
   three changes a pixel — `issue9252.pdf`, whose producer wrote `. .59 .84 rg` meaning zero and whose
   word is now black rather than teal, because a guess that happened to be right is still a guess.
+
+**And the instrument is now spent, which is worth knowing before spending a round on it.** All five
+of the handbuilt corpus's silent blanks are accounted for: two are the blank the standard asks for
+and three were defects, taken in three consecutive rounds. Thirteen of its 89 files draw nothing
+today and every one of them either reports or is right. A round wanting a finding from this
+direction should point the same ink assertion at `pdfCabinetOfHorrors` or `govdocs1-error-pdfs`,
+where the files do *not* share a page and the method therefore needs a reference again.
 
 ## What not to do
 

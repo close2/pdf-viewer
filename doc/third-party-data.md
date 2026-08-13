@@ -157,12 +157,53 @@ before this session or after it, and the one witness this round promoted is name
 inside a pinned submodule. That is the cheapest possible answer to a licence question and it is
 worth stating as the rule rather than as an accident.
 
-**`openpreserve/format-corpus` was examined and declined**, and on licence rather than on size.
-GitHub detects none; its `README.md` says "[a]ll items are CC0 licenced **unless otherwise
-stated**", and per-file `.md` sidecars are where such a statement would be — a grant with an
-escape clause is not one this project relies on without reading it, which is ADR 0187's
-discipline. ADR 0258 records what a sparse checkout of its two small PDF directories would cost
-(9.7 MB) for whenever that reading happens.
+**`openpreserve/format-corpus` was examined and declined** in that session, and on licence rather
+than on size: GitHub detects none; its `README.md` says "[a]ll items are CC0 licenced **unless
+otherwise stated**", and per-file `.md` sidecars are where such a statement would be — a grant with
+an escape clause is not one this project relies on without reading it, which is ADR 0187's
+discipline. The four-hundred-and-sixty-seventh read every sidecar
+(`doc/oracle-and-corpus.md` §2c) and put the question to the project owner, **who reversed the
+caution rather than answering the file**:
+
+> Add as many submodules as you want unless we can clearly deduce from their licence that we are
+> not allowed to do so. We don't even republish, so most licence notes don't even apply to us!
+> (We should still mention them as a courtesy.)
+
+That is a rule rather than a ruling, and its two halves are what the fourth corpus was taken
+under. **A submodule is a pin, not a copy**: this repository records a URL and a commit
+identifier, so a clone fetches those bytes from *their* server under *their* terms and this
+history carries none of them — which is why the redistribution conditions that dominate the table
+above are not engaged at all. What remains is the courtesy, and it is met here and in `/NOTICE`
+§3. ADR 0305.
+
+**So `doc/corpora/format-corpus` is the fourth**, pinned at `366f068c` and sparse-checked out to
+three of its five PDF directories. Each row is what that directory's own sidecar says, quoted, and
+where it says nothing this table says so rather than implying terms it does not carry:
+
+| directory | what its own files state | why it is here |
+|---|---|---|
+| `pdf-handbuilt-test-corpus` (89 files, 360 KB) | **nothing of its own**, so the repository's root default applies; its `README.md` credits an iPRES 2017 paper and a deposited artefact, DOI [10.22000/53](https://dx.doi.org/10.22000/53) | the reason for the whole exercise: 89 files carrying **one** deliberate structural defect apiece, all drawing the same *Hello PDF-world!*, so a blank page is a finding without a reference (ADRs 0302, 0303, 0305) |
+| `pdfCabinetOfHorrors` (24 files, 9.7 MB) | **CC0, explicitly**: its `readme.md` ends "All files in this folder: Creative Commons CC0: Public Domain Dedication." | archival horrors — encryption at three permission settings, embedded video, a corrupt byte, a JPEG whose `/Height` was altered |
+| `govdocs1-error-pdfs` (54 files, 63 MB) | **otherwise stated, and permissively**: "All PDF files in this folder and subfolders are copied from Govdocs1", quoting Govdocs1's own "freely available for research and may be (to the best of our knowledge) freely redistributed" and asking for a citation — Garfinkel, Farrell, Roussev and Dinolt, *Bringing Science to Digital Forensics with Standardized Forensic Corpora*, DFRWS 2009, which this line is | `.gov` documents from the 1990s and 2000s that broke somebody else's software: legacy producers, four unparsable CFF programs and a truncated `head` table between them |
+
+**Two directories were left, and neither for a licence that forbids** — saying so is the point,
+because the owner's rule turns on *clearly forbids* and neither of these does:
+
+- **`jhove-errors`** (99 files, **275 MB**) — no sidecar at all, and its files are published journal
+  articles and theses from Springer, Wiley and university repositories. The root CC0 default is
+  unreliable rather than absent here: a third party is in no position to dedicate somebody else's
+  paper to the public domain. That is an *absent grant* rather than a prohibition, so under the
+  owner's rule it could be pinned; it is left out because it would nearly quadruple what this
+  corpus costs a fresh clone and because surveying it produced two ordinary reports — one `/Font`
+  and one `/ExtGState` a page names and the file never defines.
+- **`fully-featured-pdf`** (1 file, 23 MB) — no sidecar, and the file embeds third-party media (an
+  MP3, a QuickTime movie, a U3D model) the README does not licence. Left on value first: one
+  document, already complete, whose distinguishing half is Clause 13, which `CLAUDE.md` excludes.
+
+**What that costs a fresh clone**: 73 MB checked out and about 58 MB of pack, against
+`doc/pdf.js`'s 350 MB and `doc/arlington-pdf-model`'s 125 MB. **No gate requires it** — the
+submodule is named by `doc/oracle-and-corpus.md` §2b and by `tools/safedocs survey --dir`, which a
+round runs on purpose, and by nothing in `doc/todo/02` §2.
 
 **And what `tools/safedocs` fetches is under no grant at all**, which is why `.gitignore`'s entry
 for `corpus-cache/` now carries a licence sentence: the `CC-MAIN-2021-31` corpus is eight million

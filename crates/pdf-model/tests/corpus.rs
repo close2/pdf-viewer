@@ -162,7 +162,24 @@ const MAX_UNREADABLE_ENCRYPTION: usize = 2;
 /// `operator_list_cycle.pdf`, `issue19484_1.pdf`, `issue19484_2.pdf` and
 /// `poppler-395-0-fuzzed.pdf`. Five of the six report something, which is why `MAX_INCOMPLETE`
 /// rises with this: they are new *pages*, not new failures.
-const MAX_PAGELESS: usize = 5;
+///
+/// # 5 to 6 in the four-hundred-and-seventieth, and it is a page this tree should never have had
+///
+/// `poppler-937-0-fuzzed.pdf` joins them, and the direction is the honest one rather than a
+/// regression. Its `/Pages` node states `/Type /Pages` and a `/Kids` whose `[` was fuzzed into a
+/// NUL — which §7.2.3 makes white space — so the entry resolves to a bare dictionary rather than
+/// to Table 30's required array. This tree used to read a node with no usable `/Kids` as a
+/// **leaf** and draw it: a page with no `/Contents`, blank, and silent about all of it. §7.7.3.2
+/// and §7.7.3.3 settle it in the file's own words, and `page.rs`'s `declares_a_node` is that
+/// reading (ADR 0305); nothing in the file declares `/Type /Page` either, so the recovery scan
+/// finds nothing and the document has no first page.
+///
+/// **All three references agree, each having read it independently**, which is principle 5's
+/// direction of inference and not the reason: `poppler` prints *Kids object (page 1) is wrong
+/// type (dictionary)* and writes one 1×1 pixel, `mutool` refuses with *invalid page number: -1*,
+/// and `ghostscript` says *Requested `FirstPage` is greater than the number of pages in the file:
+/// 0*. The blank page that used to be counted here was this reader's invention.
+const MAX_PAGELESS: usize = 6;
 
 /// Documents whose first page interprets with something reported as unsupported.
 ///

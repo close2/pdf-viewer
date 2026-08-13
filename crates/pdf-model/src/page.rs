@@ -30,6 +30,36 @@ const MAX_TREE_DEPTH: usize = 64;
 /// Bounds the work a single lookup can cost regardless of what the tree claims.
 const MAX_NODES_VISITED: usize = 1 << 20;
 
+/// Whether a dictionary states that it is a page tree *node* rather than a page object.
+///
+/// §7.7.3.3 Table 31 makes `/Type` required of a page object, and says which name it takes:
+///
+/// > ( Required ) The type of PDF object that this dictionary describes; shall be Page for a
+/// > page object or Template for an invisible Template page (see 12.7.7, "Named pages").
+///
+/// So a dictionary saying `/Type /Pages` has said in its own words that it is neither. §7.7.3.2
+/// Table 30 then makes `/Kids` required of the node it says it is, and a node whose required
+/// children are absent has *no* children rather than being one:
+///
+/// > ( Required ) An array of indirect references to the immediate children of this node. The
+/// > children shall only be page objects or other page tree nodes.
+///
+/// The question is only ever asked where `/Kids` is missing, and the asymmetry is the point.
+/// A dictionary with no `/Kids` and no `/Type` is a leaf, because a page object that omits the
+/// entry is common and trusting `/Type` in that direction would drop those pages from their
+/// documents. A dictionary with no `/Kids` and `/Type /Pages` is the file contradicting itself,
+/// and this reads the entry the file *did* write rather than drawing a node as a page.
+///
+/// Where that empties the tree, [`Pages::new`]'s recovery scan asks every object what it says
+/// it is — which is how the witness in `doc/corpora/format-corpus` finds its page — and where
+/// the scan finds nothing the document has no first page and says so. ADR 0305.
+fn declares_a_node(document: &Document, node: &Dictionary) -> bool {
+    document
+        .get_key(node, "Type")
+        .as_name()
+        .is_some_and(|kind| kind.as_bytes() == b"Pages")
+}
+
 /// Attributes a page inherits from its ancestors.
 #[derive(Debug, Clone, Default)]
 struct Inherited {
@@ -356,8 +386,18 @@ impl<'a> Pages<'a> {
 
         // `/Count` is authoritative when present and plausible, and the tree is counted
         // only when it is not — which keeps opening a large document cheap.
+        //
+        // It is not authoritative over a root with no `/Kids`, which is the one shape where
+        // the entry describes a subtree the file did not write: §7.7.3.2 Table 30 requires
+        // both entries of a node, so a root stating `/Count 1` and no children has contradicted
+        // itself and the walk below is what settles it. One dictionary lookup, and only where
+        // the root has no children — a tree with children never reaches the second condition.
+        let root_has_kids = root
+            .as_ref()
+            .is_some_and(|node| document.get_key(node, "Kids").as_array().is_some());
         let declared = root
             .as_ref()
+            .filter(|_| root_has_kids)
             .and_then(|node| document.get_key(node, "Count").as_integer())
             .and_then(|value| usize::try_from(value).ok());
 
@@ -595,8 +635,12 @@ fn locate(
     let kids = document.get_key(node, "Kids");
     let Some(kids) = kids.as_array() else {
         // A leaf, and not the one asked for, since a match is recognised at the reference in
-        // the parent's `/Kids` — the only place a page's object number is written down.
-        *counted = counted.saturating_add(1);
+        // the parent's `/Kids` — the only place a page's object number is written down. A node
+        // that states `/Type /Pages` is not a leaf and counts as no page, which is the same
+        // arithmetic `find_leaf` does.
+        if !declares_a_node(document, node) {
+            *counted = counted.saturating_add(1);
+        }
         return None;
     };
 
@@ -634,8 +678,11 @@ fn collect(
     let kids = document.get_key(node, "Kids");
     let Some(kids) = kids.as_array() else {
         // A leaf. Its own object number is written down in the parent's `/Kids` and not here,
-        // which is why the entry is inserted by the parent below and this only counts.
-        *counted = counted.saturating_add(1);
+        // which is why the entry is inserted by the parent below and this only counts — and a
+        // node that states `/Type /Pages` is not one, on the same reading as `find_leaf`'s.
+        if !declares_a_node(document, node) {
+            *counted = counted.saturating_add(1);
+        }
         return;
     };
 
@@ -672,9 +719,11 @@ fn count_leaves(document: &Document, node: &Dictionary) -> usize {
 
         let kids = document.get_key(node, "Kids");
         let Some(kids) = kids.as_array() else {
-            // No `/Kids` means this is a leaf, whatever its `/Type` claims. Trusting
-            // `/Type` instead would drop pages from files that omit it.
-            return 1;
+            // No `/Kids` means this is a leaf, whatever its `/Type` *omits*: trusting `/Type`
+            // in that direction would drop pages from files that leave it out. A node that
+            // states `/Type /Pages` is the one case the file itself has answered, and Table 30
+            // makes its missing `/Kids` an absence of children rather than a page.
+            return usize::from(!declares_a_node(document, node));
         };
 
         kids.iter()
@@ -714,6 +763,11 @@ fn find_leaf(
     let kids = document.get_key(node, "Kids");
 
     let Some(kids) = kids.as_array() else {
+        // A node whose own `/Type` says it is not a page has no page here to take, and none
+        // beneath it either — so it is stepped over without consuming one of `remaining`.
+        if declares_a_node(document, node) {
+            return None;
+        }
         // A leaf. Take it if this is the one asked for.
         if *remaining == 0 {
             return Some(build_page(document, node, &inherited, view, node_id));
