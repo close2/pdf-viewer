@@ -1,0 +1,373 @@
+//! ISO 32000-2 §9.7's composite fonts: the `CMap` a Type0 font's `/Encoding` names, and the
+//! `CIDFont`'s own route from a CID to a glyph.
+//!
+//! The two halves are §9.7.5's and §9.7.4.2's and they are independent — a `CMap` says
+//! nothing about glyph indices and a `/CIDToGIDMap` says nothing about codes — so they are
+//! resolved apart from each other, which is what stops the Identity case from being the only
+//! one that works. The `CMap` format itself is [`crate::cmap`]'s and the predefined ones are
+//! [`crate::predefined`]'s; what is here is what a font dictionary says about them.
+
+use std::borrow::Cow;
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
+use pdf_syntax::{Dictionary, Document, Object};
+use skrifa::FontRef;
+
+use crate::cff::CodeToGlyph;
+use crate::cmap::CMap;
+use crate::loading::{FontError, Meaning};
+use crate::predefined;
+use crate::program::Program;
+
+/// How a `CIDFont` turns a CID into a glyph index (ISO 32000-2 §9.7.4.2).
+///
+/// The clause gives one route per kind of embedded program, and the three arms below are
+/// exactly those routes. Which one applies is decided by what the program *is* rather than by
+/// the `/Subtype` name, because a `CIDFontType0` may arrive wrapped in an `OpenType`
+/// container and glyph selection then still runs through the CFF's charset.
+#[derive(Debug)]
+pub(crate) enum CidToGlyph {
+    /// The CID is the glyph index.
+    ///
+    /// Two of the clause's cases reach this. A `TrueType` program whose `/CIDToGIDMap` is
+    /// `Identity` (§9.7.5.2):
+    ///
+    /// > the 2-byte CID values shall be identical glyph indices for the glyph descriptions in
+    /// > the `TrueType` font program
+    ///
+    /// And a CFF program whose Top DICT carries no `CIDFont` operators (§9.7.4.2):
+    ///
+    /// > The CIDs shall be used directly as GID values
+    Identity,
+    /// A CID-keyed CFF's charset, inverted (§9.7.4.2).
+    ///
+    /// > The CIDs shall be used to determine the GID value for the glyph procedure using the
+    /// > charset table in the CFF program.
+    Charset(BTreeMap<u16, u16>),
+    /// A `/CIDToGIDMap` stream (§9.7.4.1 Table 115).
+    ///
+    /// > the glyph index for a particular CID value c shall be a 2-byte value stored in bytes
+    /// > 2 × 𝑐 and 2 × 𝑐 + 1 , where the first byte shall be the high-order byte.
+    Stream(Arc<[u8]>),
+}
+
+impl CidToGlyph {
+    /// The glyph index a CID selects, or `None` where the `CIDFont` has none for it.
+    pub(crate) fn glyph(&self, cid: u32) -> Option<u16> {
+        match self {
+            // Glyph indices are 16 bits wide, so a larger CID cannot name one.
+            Self::Identity => u16::try_from(cid).ok(),
+            Self::Charset(by_cid) => by_cid.get(&u16::try_from(cid).ok()?).copied(),
+            Self::Stream(bytes) => {
+                let at = usize::try_from(cid).ok()?.checked_mul(2)?;
+                let pair = bytes.get(at..at.checked_add(2)?)?;
+                let (Some(&high), Some(&low)) = (pair.first(), pair.get(1)) else {
+                    return None;
+                };
+                Some(u16::from_be_bytes([high, low]))
+            }
+        }
+    }
+}
+
+/// Resolves a Type 0 font's `/Encoding` to the `CMap` that decodes its strings.
+///
+/// ISO 32000-2 §9.7.6.1 Table 119 gives the two forms:
+///
+/// > The name of a predefined `CMap`, or a stream containing a `CMap` that maps character codes
+/// > to font numbers and CIDs.
+///
+/// Of the predefined names, Table 116's two Identity `CMap`s are built here and the rest are
+/// *data* — the registered `CMap` files — which this binary has carried since the
+/// hundred-and-fifty-sixth session (see [`crate::predefined`]). A name it does not carry is
+/// still refused and reported rather than approximated: guessing at a `CMap` maps codes to the
+/// wrong glyphs, which is plausible-looking wrong text and the worst kind of rendering error.
+///
+/// Vertical writing is *drawn*, and this comment said it was refused for eighty-five sessions
+/// after it stopped being. §9.7.5.1 makes the mode a property of the `CMap` and it decides the
+/// metrics:
+///
+/// > A `CMap` shall specify the writing mode … for any `CIDFont` with which the `CMap` is
+/// > combined. The writing mode determines which metrics shall be used when glyphs are painted
+/// > from that font.
+///
+/// §9.2.4 and §9.7.4.3 give those metrics as `/W2` and `/DW2`, which `Vertical::read` has read
+/// since the thirty-sixth session — `vertical.pdf` sets two columns down the right edge of its
+/// page, where before that it came out as one overlapping line across the top, reporting
+/// nothing. What is refused here is a *predefined* `CMap`, horizontal or vertical alike, and
+/// the only reason a name ending in `V` is refused is the data the paragraph above names.
+pub(crate) fn composite_cmap(
+    document: &Document,
+    dict: &Dictionary,
+    name: &str,
+) -> Result<CMap, FontError> {
+    let unsupported = |encoding: &str| FontError::UnsupportedEncoding {
+        name: name.to_owned(),
+        encoding: encoding.to_owned(),
+    };
+
+    let encoding = document.get_key(dict, "Encoding");
+    let cmap = match &encoding {
+        Object::Name(named) => match named.as_bytes() {
+            b"Identity-H" => return Ok(CMap::identity()),
+            // §9.7.5.2: the two Identity `CMap`s differ only in their writing mode, and
+            // the vertical one carries `/WMode 1`, which `CMap::identity_vertical` states.
+            b"Identity-V" => return Ok(CMap::identity_vertical()),
+            other => {
+                let named = String::from_utf8_lossy(other);
+                return predefined::cmap(&named).ok_or_else(|| unsupported(&named));
+            }
+        },
+        Object::Stream(_) => read_cmap(document, &encoding, name, 0)?,
+        _ => return Err(unsupported("no /Encoding naming a CMap")),
+    };
+
+    // Table 118's `/WMode` and the file's own must agree — "The value of this entry shall be
+    // the same as the value of WMode in the CMap file" — so a font is refused if *either*
+    // asks for vertical writing rather than only the one a reader happens to consult.
+    let dictionary_wmode = encoding
+        .as_stream()
+        .map(|stream| document.get_key(&stream.dict, "WMode"))
+        .and_then(|value| value.as_integer())
+        .unwrap_or(0);
+    if i64::from(cmap.wmode()) != dictionary_wmode.clamp(0, 1) {
+        return Err(unsupported(
+            "a CMap whose /WMode disagrees with the one in its own stream",
+        ));
+    }
+
+    // Without codespace ranges no code can be extracted at all (§9.7.6.2), and without
+    // character mappings every code is `.notdef` (§9.7.6.3) — a page of empty boxes drawn in
+    // silence. Both are refused rather than approximated, per the rule that unsupported input
+    // stays loud. Every one of the corpus's fourteen embedded `CMap`s states both.
+    if !cmap.has_codespace() {
+        return Err(unsupported("a CMap stream with no codespace ranges"));
+    }
+    if !cmap.has_mappings() {
+        return Err(unsupported("a CMap stream with no character mappings"));
+    }
+    Ok(cmap)
+}
+
+/// Reads one embedded `CMap` stream and the chain of `/UseCMap`s beneath it (§9.7.5.3).
+///
+/// Table 118 states what it is:
+///
+/// > The name of a predefined `CMap`, or a stream containing a `CMap`. If this entry is
+/// > present, the referencing `CMap` shall specify only the character mappings that differ from
+/// > the referenced `CMap`.
+///
+/// A stream is read and built upon; a *name* is a predefined `CMap`, which this binary carries
+/// (see [`crate::predefined`]) and which is therefore resolved rather than refused. A name it
+/// does not carry is still refused: the referencing map's mappings would be missing an unknown
+/// share of their codes, which is worse than saying so.
+///
+/// §9.7.5.4 a) requires a `usecmap` operator inside the file to be named by `/UseCMap` as well:
+///
+/// > If the embedded `CMap` file contains a `usecmap` reference, the `CMap` indicated there
+/// > shall also be identified by the `UseCMap` entry in the `CMap` stream dictionary.
+///
+/// **Because the clause requires the two to agree, the file's own statement is read where the
+/// dictionary is silent** — on a conforming file it says the same thing, and on a file that
+/// omitted the entry it is the only statement there is. The refusal is kept for the case its
+/// reason actually describes: a name this binary does not carry, where what the map inherits
+/// cannot be found and an unknown share of its codes would silently be missing.
+///
+/// No corpus document exercises any of this — none of the fourteen embedded `CMap`s references
+/// another — so the tests are synthetic, which is trap 8's advice rather than an accident. The
+/// `/ToUnicode` form is the one a document does exercise; see [`crate::loading::read_to_unicode`].
+fn read_cmap(
+    document: &Document,
+    object: &Object,
+    name: &str,
+    depth: u32,
+) -> Result<CMap, FontError> {
+    /// Bounds the `/UseCMap` chain, which a document could otherwise make cyclic.
+    const MAX_DEPTH: u32 = 4;
+
+    let unsupported = |encoding: &str| FontError::UnsupportedEncoding {
+        name: name.to_owned(),
+        encoding: encoding.to_owned(),
+    };
+
+    if depth > MAX_DEPTH {
+        return Err(unsupported("a /UseCMap chain deeper than four"));
+    }
+    let stream = object
+        .as_stream()
+        .ok_or_else(|| unsupported("an /Encoding that is neither a name nor a stream"))?;
+    let data = document
+        .decoded_stream_data(stream)
+        .ok_or_else(|| FontError::Malformed {
+            name: name.to_owned(),
+            detail: "the CMap stream could not be decoded".to_owned(),
+        })?;
+
+    let used = match document.get_key(&stream.dict, "UseCMap") {
+        // §9.7.5.4 a) requires an in-file `usecmap` reference to be named by this entry as
+        // well, so on a conforming file the two say the same thing and the file's own
+        // statement is what a file that omitted the entry has left. Resolved rather than
+        // refused where the name is one this binary carries; the refusal below still fires
+        // where it is not, because then what the map inherits genuinely cannot be found.
+        Object::Null => predefined::used_by(&data).and_then(|name| predefined::cmap(&name)),
+        Object::Name(named) if named.as_bytes() == b"Identity-H" => Some(CMap::identity()),
+        Object::Name(named) if named.as_bytes() == b"Identity-V" => Some(CMap::identity_vertical()),
+        Object::Name(named) => {
+            let name_used = String::from_utf8_lossy(named.as_bytes()).into_owned();
+            Some(predefined::cmap(&name_used).ok_or_else(|| {
+                unsupported(&format!("a CMap built on the predefined {name_used}"))
+            })?)
+        }
+        referenced => Some(read_cmap(
+            document,
+            &referenced,
+            name,
+            depth.saturating_add(1),
+        )?),
+    };
+
+    let cmap = CMap::parse(&data, used.as_ref());
+    if cmap.references_another() && used.is_none() {
+        return Err(unsupported(
+            "a CMap whose usecmap reference is not named by /UseCMap (§9.7.5.4 a))",
+        ));
+    }
+    Ok(cmap)
+}
+
+/// Resolves how a `CIDFont`'s CIDs reach glyph indices (§9.7.4.2).
+///
+/// Three routes, in the order the clauses put them.
+///
+/// **A CID-keyed CFF's charset first**, because §9.7.4.2 states that route outright and does
+/// so for the program rather than for the `/Subtype` name — a `CIDFontType0` may arrive as a
+/// CFF wrapped in an `OpenType` container, and the clause's two CFF cases are about what the
+/// Top DICT contains.
+///
+/// **Then the dictionary's own `/CIDToGIDMap` stream**, whatever the `CIDFont`'s subtype.
+/// Table 115 conditions the entry's *presence* on Type 2 — "Required for Type 2 `CIDFonts` with
+/// embedded font programs" — and defines its meaning unconditionally: "A specification of the
+/// mapping from CIDs to glyph indices." §9.7.4.2's other CFF sentence, that a program whose
+/// Top DICT has no `CIDFont` operators uses "the CIDs … directly as GID values", describes what
+/// such a program offers on its own; it cannot outrank a mapping the font dictionary states,
+/// because that would make the stated mapping mean nothing.
+///
+/// **The identity last**, which is what remains when neither the program nor the dictionary
+/// says otherwise.
+///
+/// The one corpus font that settles the middle rule is `issue7901.pdf`'s: a `CIDFontType0`
+/// whose `/FontFile3` is an `OpenType` wrapper around a *name*-keyed CFF, carrying a
+/// `/CIDToGIDMap` stream of 230 entries. Ignoring the stream there — the first reading of
+/// Table 115 written here — drew "üãÍ†Ë œÍ†ÿ¨ Ì{«" where four renderers draw "The Free Software
+/// Definition", because the producer's CIDs are not that CFF's glyph indices and the stream is
+/// the only thing in the file that says what they are.
+pub(crate) fn cid_to_glyph(
+    document: &Document,
+    descendant: &Dictionary,
+    data: &[u8],
+    program: Program,
+    name: &str,
+) -> Result<CidToGlyph, FontError> {
+    // A CFF, bare or wrapped. `read` reports whether the Top DICT uses CIDFont operators,
+    // which is precisely the distinction §9.7.4.2 draws between its two CFF cases.
+    let cff = match program {
+        Program::BareCff => Some(Cow::Borrowed(data)),
+        Program::Sfnt => FontRef::new(data).ok().and_then(|font| {
+            font.table_data(skrifa::Tag::new(b"CFF "))
+                .map(|table| Cow::Owned(table.as_bytes().to_vec()))
+        }),
+        // §9.9's Table 124 gives a CIDFont two programs, `/FontFile2` and `/FontFile3`, and
+        // a bare Type 1 is neither — so nothing is read out of it *here*, and the
+        // `/CIDToGIDMap` route below decides, which for a CIDFontType0 is the identity.
+        //
+        // That identity is the clause's own answer rather than a guess, by two sentences
+        // read together. §9.7.4.2, on a CFF whose Top DICT does not use CIDFont operators:
+        //
+        // > The CIDs shall be used directly as GID values, and the glyph procedure shall be
+        // > retrieved using the CharStrings INDEX
+        //
+        // and §9.6.2.1's NOTE 1, on what a CFF *is*:
+        //
+        // > an alternative, more compact but functionally equivalent representation of a
+        // > Type 1 font program
+        //
+        // A bare Type 1 program is a name-keyed program whose charstrings are in an order,
+        // exactly as a non-CID-keyed CFF's are, so "used directly as GID values" transfers
+        // without inventing anything. `issue11740_reduced.pdf` is the witness, and before
+        // this it was substituted for and drawn through its own `/ToUnicode` — which
+        // records the Windows-1251 *bytes* of its Russian text as Latin-1 code points, so
+        // the page came out as mojibake with nothing reported.
+        Program::Type1 => None,
+    };
+    if let Some(cff) = cff {
+        // A bare CFF has already been read once, to decide it was one; a wrapped one is read
+        // here for the first time. Either way a program this crate cannot parse is a font it
+        // cannot draw, so the error is propagated rather than falling through to the identity.
+        let read = CodeToGlyph::read(&cff).map_err(|e| FontError::Malformed {
+            name: name.to_owned(),
+            detail: e.to_string(),
+        })?;
+        if let CodeToGlyph::Keyed { by_cid } = read {
+            return Ok(CidToGlyph::Charset(by_cid));
+        }
+    }
+
+    Ok(match document.get_key(descendant, "CIDToGIDMap") {
+        // Absent, or `Identity`: the CID is the glyph index. A producer that omits the entry
+        // has said nothing to prefer over the identity — which is also what §9.7.5.2 describes
+        // for `Identity-H` with an embedded `TrueType` program.
+        Object::Null => CidToGlyph::Identity,
+        Object::Name(map) if map == "Identity" => CidToGlyph::Identity,
+        Object::Name(other) => {
+            return Err(FontError::UnsupportedEncoding {
+                name: name.to_owned(),
+                encoding: format!(
+                    "/CIDToGIDMap /{}, which Table 115 says shall be Identity",
+                    String::from_utf8_lossy(other.as_bytes())
+                ),
+            });
+        }
+        stream => {
+            /// A glyph index is 16 bits, so no CID above 65 535 can have one and a map longer
+            /// than two bytes per such CID describes nothing.
+            const MAX_MAP: usize = 2 * (1 << 16);
+
+            let stream = stream.as_stream().ok_or_else(|| FontError::Malformed {
+                name: name.to_owned(),
+                detail: "/CIDToGIDMap is neither a name nor a stream".to_owned(),
+            })?;
+            let bytes =
+                document
+                    .decoded_stream_data(stream)
+                    .ok_or_else(|| FontError::Malformed {
+                        name: name.to_owned(),
+                        detail: "the /CIDToGIDMap stream could not be decoded".to_owned(),
+                    })?;
+            let kept = bytes.get(..bytes.len().min(MAX_MAP)).unwrap_or(&bytes);
+            CidToGlyph::Stream(Arc::from(kept))
+        }
+    })
+}
+
+/// Reads a font's `/ToUnicode` `CMap`, which is absent more often than not.
+/// ISO 32000-2 §9.10.2's third method, steps b) to d): the character collection's own table.
+///
+/// > b. Obtain the registry and ordering of the character collection used by the font's CMap
+/// > (for example, Adobe and Japan1) from its CIDSystemInfo dictionary.
+///
+/// `None` where the descendant states no `/CIDSystemInfo`, or states one this binary carries no
+/// table for — which is every registry but Adobe's, and `Identity` orderings, where the codes
+/// are indices into a font nobody supplied and no table could say what they mean.
+pub(crate) fn collection_meaning(document: &Document, descendant: &Dictionary) -> Option<Meaning> {
+    let info = document.get_key(descendant, "CIDSystemInfo");
+    let info = info.as_dict()?;
+    let text = |key: &str| {
+        document
+            .get_key(info, key)
+            .as_string()
+            .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
+    };
+    let (registry, ordering) = (text("Registry")?, text("Ordering")?);
+    predefined::cid_to_unicode(&registry, &ordering).map(Meaning::ByCid)
+}

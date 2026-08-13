@@ -9,7 +9,7 @@ reaching a glyph the font draws blank` are the split ADR 0270 drew, the first of
 four-hundred-and-seventy-sixth. The line's own worst-ten follows each. `doc/HANDOVER.md`'s
 not-implemented table stated the first of them wrongly for long enough to be worth this sentence.
 Clauses: §9.10.2, §9.7.4.2, §9.6.2.2, §9.6.4, §9.6.5.3, §9.6.5.4, §9.8.1, §9.8.3
-Code: `crates/pdf-font/src/substitute.rs`, `crates/pdf-font/src/lib.rs`, `crates/pdf-model/src/content.rs`
+Code: `crates/pdf-font/src/substitute.rs`, `crates/pdf-font/src/substituted.rs`, `crates/pdf-model/src/content.rs`
 
 ## 1. A per-character fallback — **0 documents, and this section was wrong about its own two**
 

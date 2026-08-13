@@ -354,7 +354,7 @@ document report `unsupported: []` and render **almost no text**.
 
 `cargo test -p pdf-model --test render_real_pdf -- --nocapture writes_inspectable` writes PNGs;
 the oracle's artefacts are better. Two automated checks catch a wrong mapping, both in
-`pdf-font/src/lib.rs`: `the_pdf_widths_agree_with_the_font_programs_own_advances` — the `/Widths`
+`pdf-font/src/loading.rs`: `the_pdf_widths_agree_with_the_font_programs_own_advances` — the `/Widths`
 and the charstring's own advance are independent statements of one fact — and
 `an_uncovered_code_has_no_glyph_rather_than_a_guessed_one`. Neither replaces looking.
 
