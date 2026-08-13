@@ -107,3 +107,13 @@ resource budget, so the eight are the Intel UHD's and cannot be chased from here
 this file wants the owner's own machine**, with `--trace=frames` rather than `--trace`, which is 64
 lines against 453 — and it now wants it more than it did, because the two items closed above were
 this machine's largest and what is left is a phase whose ratio to `execute` is `llvmpipe`'s.
+
+**And the eight are now worth re-measuring before anything is concluded from them**, which is a
+change of the *subject* rather than of the method. They were taken against a library that allocated
+every layer, mask and root at the size of the target; since the four-hundred-and-seventy-eighth
+session took quorra's `a7babab`, each is the size of what it marks, and upstream prices the corpus's
+layered frames at 4× down 41 % (`QUORRA_FEEDBACK.md` §22, quorra's ADRs 0036–0039). On this machine's
+corpus every refusal that was a byte budget went to zero. A refusal is still a fact about the
+owner's adapter and none of that predicts the Intel UHD — but eight refusals measured against the
+old allocation are eight refusals against a frame that no longer exists, and re-running is a page
+turn rather than an investigation.

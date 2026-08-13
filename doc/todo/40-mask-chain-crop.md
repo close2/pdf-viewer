@@ -104,3 +104,33 @@ The third is the honest one and the round that takes it should say so before it 
 `render-quorra` is handed the same display list and encodes the same 3490 page-sized rectangles.
 `pdf_render::cropped_rectangle` is in the shared crate so that it can call it; nobody has.
 `doc/QUORRA_FEEDBACK.md` is where that belongs.
+
+## And the *other* other half was taken upstream, which is evidence about this item
+
+**Added in the four-hundred-and-seventy-eighth**, and it is worth a paragraph because it is the
+same argument this file makes, made by somebody else and then measured. quorra's ADRs 0036 to 0039
+size a layer, a soft mask and finally the root itself to **what the plan marks** rather than to the
+target, for the reason the table above gives: the buffer and the band differ by a factor nobody
+had looked at. Their measurement, on the corpus this tree hands them at 4×, is
+`issue16287.pdf` from 291 199 104 frame bytes to 6 158 496, and every layered frame of the corpus
+from 2 259.2 MB to 1 325.5 MB — and **no page of it changed verdict**, at either scale, which is
+the property this file's third option says a round taking the item here must record.
+
+Two things it does not settle, and they are the two that make this item hard here:
+
+- **It is a different buffer.** They size a *group's* layer; the item above is a **soft mask**
+  and a non-isolated group's initial backdrop, whose value outside the band is
+  `SoftMask::outside` rather than transparency — 255 for a white `/BC` — so a band still means
+  "constant outside" rather than "nothing outside" and `Built` still has to carry the constant.
+- **They are not the oracle.** ADR 0219's finding is that a parent's mask rows are only *nearly*
+  the prefix's contribution for a child's band, and it is this backend that decides what correct
+  means. Upstream can take a bounded departure and record it; here it is a departure from the
+  measuring stick itself.
+
+What their result does change is the *prior*. Their own handover warned before ADR 0039 that most
+pages mark most of their area and the item would gain nothing; the ADR records the warning as
+**wrong**, on a census: the median layered frame marks about two thirds of its target and a quarter
+of them mark all of it, so the gain is in the tail rather than in the median. A round taking this
+item should expect the same shape — little on most documents and a great deal on the two this file
+names — and should take the census before the code, which is what made that ADR an ADR rather than
+a note saying it was not worth it.

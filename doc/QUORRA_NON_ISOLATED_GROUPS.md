@@ -101,10 +101,22 @@ spent on for a page of nested artwork, and it is worth logging beside the budget
 refusal is investigated. Adding the field is source-compatible unless something here
 destructures `Counters` exhaustively.
 
+> **Both sentences of that paragraph stopped being true at `a7babab`, and the field's *name* did
+> not change** — read `QUORRA_FEEDBACK.md` §22 before quoting either. A plan accumulates in **one**
+> texture now rather than a ping-pong pair, none of them is full-target, and one of the textures
+> counted is a transient copy of the backdrop rather than any plan's. So the counter is smaller
+> than it was for the same page, and it is a count of textures of *differing sizes* — which makes
+> "the number `max_frame_bytes` is spent on" wrong twice: the budget is spent on bytes, and the
+> refusal message is what names them.
+
 What still costs is *nesting*, which the scene builder bounds at 16; a maximally nested
 page is still refused at page size. Bounding each layer to its group's device bounding
 box is the answer to that one, and it is recorded on the quorra side as the next step
 rather than done.
+
+> **That last paragraph is the one this document got right, and it was taken** — at `a7babab`,
+> where quorra's ADRs 0036 to 0039 size every plan (layer, mask and the root itself) to what it
+> marks. `QUORRA_FEEDBACK.md` §22 has what that did to this corpus.
 
 ## What it costs a frame
 

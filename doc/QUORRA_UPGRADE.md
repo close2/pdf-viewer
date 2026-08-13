@@ -6,6 +6,15 @@ is what came back, what it costs to take, and what is now available and unused. 
 number below names the command that produced it and the machine it ran on, because two of
 the three sections that matter are measurements and one of those is not portable.
 
+> **This file is about `2c9bdd0` and stays that way.** The tree pins `a7babab` since the
+> four-hundred-and-seventy-eighth session — fourteen commits further on, six of them carrying
+> ADRs, and the one with the number on it sizes every plan to what it marks. What that release
+> required (nothing), what it did on this machine (four lanes, and no page refused for frame bytes
+> at any scale), and what was declined from it (`Device::warm_for`) are `QUORRA_FEEDBACK.md`
+> §22 and §9.2. **§6 below is the section to read against the current tree**: its three
+> sheet-capacity refusals are the three that are still refused at 4×, and the packer that shipped
+> in the same range (ADR 0034) did not move them, exactly as that ADR predicts about itself.
+
 **Where the revisions sit.** `a35dc70` is pushed. The two commits after it — `6f777e8` and
 `2c9bdd0` — are the answer to §14.2 and are the reason to take a second bump rather than
 wait.

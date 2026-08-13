@@ -77,6 +77,13 @@ that reproduces each, and the same document now carries what closed them:
   with the 512 MB budget full, and a page refused in the full run passing on its own. Entries
   carry recency now and the device releases down to half its budget after every frame —
   **zero** resource refusals at 4×, where 413 pages agreed before and 918 do now.
+  **That zero decayed to one and nothing was watching**, which the four-hundred-and-sixty-second
+  session noticed while measuring something else and wrote up further down this file.
+  `22060_A1_01_Plans.pdf` — 72 sampled images — would hold 548 104 348 resource bytes against the
+  536 870 912 `max_resource_bytes` default. It is a ratchet now rather than a sentence
+  (`corpus.rs::REFUSED_AT_FOUR`), and that is the answer to a claim of this kind rather than a
+  better paragraph: nobody knows how many rounds passed between the zero becoming a one and
+  somebody noticing, and a test is the only thing that would have.
 - **Six refusal messages named a byte count under the budget they exceeded.** They add up now,
   and the one that replaced the mis-stated limit says what it is.
 
@@ -84,10 +91,19 @@ that reproduces each, and the same document now carries what closed them:
 *anisotropic* transform being given one scalar device width, which is exact for a similarity and
 exactly wrong for a shear. Four documents left the list.
 
-**Where it stands today is 917 agree, 35 differ, 5 refused, 17 not comparable**, printed by the gate
-in the four-hundred-and-forty-fifth; the five refusals are `bug1721218_reduced.pdf`'s coverage and
-§11.4.6's four knockout pages, whose two marks that backend's builder will not take (ADR 0275,
-`QUORRA_FEEDBACK.md` §14.2). **Where it stood when this section was written: 914 agree, 42 differ, 1 refused** — and 27 of the 42 are the glyph
+**Where it stands is what the gate prints**, and it is not written here: `tools/state.sh` runs it
+and `crates/render-quorra/tests/corpus.rs`'s `REFUSED` holds the refusals to equality, so the count
+in a paragraph is always the one a round did not run. **What is worth stating is the *shape* of the
+refusal list, because that is an argument rather than a number**: at the page's own scale one page
+refuses and its reason is a *device capability* — `bug1721218_reduced.pdf`'s rasterised coverage
+outgrows the 16 384 × 16 384 texture this adapter allows. Every refusal that was a **clause** the
+backend could not state has been closed (§11.4.4's non-isolated group, §11.4.7's four-component
+page, §11.4.6's knockout pair — ADRs 0237, 0262, 0291), and since the four-hundred-and-seventy-eighth
+session every refusal that was **arithmetic against a byte budget** has been closed too, upstream
+and at every scale (`QUORRA_FEEDBACK.md` §22). This paragraph used to carry three successive counts
+and each was stale before it was read.
+
+**Where it stood when this section was written: 914 agree, 42 differ, 1 refused** — and 27 of the 42 are the glyph
 antialiasing floor, which shrinks as the page grows (17 pages differ at 2×, 16 at 4×). It was
 913/43 until the three-hundred-and-sixty-eighth session: `issue4260_reduced.pdf` returned to
 `agrees` the moment a §10.7.4 mark became a whole device pixel row instead of a band at the
@@ -706,6 +722,8 @@ is the run that would show a retained raster crowding the budget, and it shows n
 same run says about a claim in this file**: there is one resource refusal at 4× today
 (`22060_A1_01_Plans.pdf`), where section 3b records zero; it predates this change by both arms of the
 A/B, and it is what a ratcheted count looks like when nothing is ratcheting it.
+**Something is ratcheting it since the four-hundred-and-seventy-eighth**: `corpus.rs::REFUSED_AT_FOUR`
+holds that lane's refusals to equality by name, which the sentence above is the argument for.
 
 **What is left is quorra's and is reported rather than changed**: `encode` is 45% of a page turn,
 is host processor time, and is the only phase of `Device::render` that tracks the scene's size —

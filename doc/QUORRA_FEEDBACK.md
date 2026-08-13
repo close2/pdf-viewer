@@ -42,7 +42,17 @@ sections that had been sitting under `open` headings — one of them for three d
 eleven rounds while this document's own summary said otherwise (§13.1, §18.1). §20.6 is both
 coverage lanes measured on this machine at that revision.
 
-**§20 is the newest, and it is the first time this gate has looked at your *other* coverage lane.**
+**§22 is the newest and it is the first bump that cost this tree not one line of source.**
+`a7babab` sizes every plan — layer, mask, root — to what it marks, and on this machine **no page of
+the corpus is refused for frame bytes at any scale any more**: the five documents this document has
+named for that reason are drawn on both coverage lanes now, and four of the five agree with the CPU
+oracle. What is left refusing at 4× is one
+resource budget that is ours to set and three pages past this adapter's texture limit, which is a
+list stable enough to be a **ratchet** rather than a paragraph — so the second lane §2 of
+`doc/todo/02-every-round.md` requires has stopped being a survey. §9.2 is `Device::warm_for`,
+declined a second time and now for a reason of yours as much as ours.
+
+**§20 was the newest before it, and it is the first time this gate looked at your *other* coverage lane.**
 `74c4994d` is three commits and every line of all three is inside it, so the run that used to answer
 "a quorra release does not move this gate" was answering about a lane the release does not touch.
 Pointed at the one it does: **twenty-four pages that could not be drawn at four times a page's own
@@ -196,6 +206,11 @@ rasterisers disagreeing and a refusal is a command quorra cannot draw.
 
 - `PDFVIEWER_QUORRA_ONLY=a,b` restricts it to matching file names.
 - `PDFVIEWER_QUORRA_SCALE=2` renders at another scale. Both skip the ratchets and say so.
+- `PDFVIEWER_QUORRA_SCALE=4` is the exception since §22: the *refusal* list is held at that scale
+  too, on the default lane, because nothing left in it is arithmetic against a budget upstream
+  keeps improving. The differing list is still a survey there and the run says so.
+- `PDFVIEWER_QUORRA_COVERAGE=gpu` picks the other coverage lane. It never checks a ratchet: the
+  two lanes deliberately do not draw the same pixels, and they do not allocate the same way either.
 - Every page that differs writes both renders to `target/tmp/quorra/<stem>/{cpu,quorra}.png`.
 
 The glyph-phase quantum is **off** in this gate, so what it measures is the adapter and the
@@ -1938,13 +1953,36 @@ before its first frame asks for it, and not for us. If that changes it will chan
 somebody measured a launch on the owner's own adapter, which is the one number this whole section
 is short of.
 
-## 20.5 The remaining refusals are unmoved, and that is expected
+### 9.2 You built it anyway, and we still cannot call it — with a second reason that is yours
+
+`Device::warm_for` is in `a7babab` (your ADR 0035). **The answer above is unchanged and this side
+re-measured rather than re-read it**: the first frame here is still the first frame, and §22 has
+what it costs on this machine at both scales. `viewer-ui` still learns its viewport from `Resized`.
+
+What the release adds is a second reason, and it is one your own ADR 0039 states plainly: the hint
+warms a **target-sized** layer, and after 0036 to 0039 that is the right size only for a root that
+fills its target — about a quarter of layered frames, which are themselves about 8 % of frames. So
+on the population that would call it, the hint is the wrong size more often than not. Nothing about
+that is a complaint: 0035 is measured, correct, and free to call, and 0039 says so about itself,
+which is the part worth acknowledging. It means the **10.3 ms should not be quoted as a general
+number**, and this document is not quoting it.
+
+The one thing that would change the answer here has not changed either: a host in this tree that
+knows its size before its first frame — a print path, `viewer-confined`'s worker, a fixed-size
+viewer. When one exists, `warm_for` is one line and this section closes.
+
+## 20.5 The remaining refusals are unmoved, and that is expected — **and §22 moved them**
 
 `ab219d0` fixes coverage rather than capacity, so the twelve refusals §20.4 listed at 4× are the
 same twelve: `22060_A1_01_Plans.pdf` over the resource budget, four pages over the 256 MiB frame
 budget by 4% to 20%, three past the 16384×16384 scratch image this adapter allows, and four that
 are this side's §11.4.6 knockout hole (§14.2). Nothing in this release touched either bound and
 nothing here suggests it should have — the question in §20.4 stands as it was written.
+
+**Read this section as history**: of the twelve, the four knockout pages went at `2c9bdd0` (§14.3),
+the four byte-budget ones at `a7babab` (§22.3), and the four that are left are the resource budget
+and the three sheet-capacity refusals. §20.4's question about `transparency_group.pdf`'s worst tile
+also stopped standing, and it was `ab219d0` that answered it — see this document's own summary.
 
 ## 20.6 Both lanes at `2c9bdd0`, on this machine, with §11.4.6's pair written
 
@@ -1977,6 +2015,15 @@ pinned — `7a58ced`, "Shelves stay near one width" — is aimed at exactly it. 
 take that commit**: the upgrade note is written against `2c9bdd0` and a round that took an
 undescribed revision would be measuring something no document states. It is the next bump's, and
 this paragraph is where it is written down so that the next round does not rediscover it.
+
+**The next bump took it and the page draws — but not for the reason this paragraph expected.**
+`Test-plusminus.pdf` is drawn by the device lane at 4× since `a7babab` and differs by **0.0104**
+mean there, better than the CPU lane's 0.0370. What freed it was not `7a58ced`'s packing: ADR 0034
+states of itself that no page of the corpus changed verdict, and the page's refusal was frame
+bytes rather than sheet occupancy. It was ADR 0039, four commits later, sizing the root to what the
+page marks. **The paragraph did its job anyway** — the next round did not rediscover the question —
+and the lesson is the ordinary one: a named commit aimed at a page is a hypothesis about which
+allocation the page is refused for, and only running it says.
 
 
 ---
@@ -2058,7 +2105,9 @@ these numbers in the test's own comment. Asserting them of the device today woul
 rather than a requirement, which is the mistake that file's header records having avoided once
 already. Both come back the moment either row draws its area.
 
-**Re-run at `2c9bdd0` in the four-hundred-and-fifty-sixth session and both readings are unchanged
+**Re-run at `a7babab` in the four-hundred-and-seventy-eighth and both readings are unchanged
+again**, to the same digits as below; §22.6 has them. **Re-run at `2c9bdd0` in the
+four-hundred-and-fifty-sixth session and both readings are unchanged
 to the digit** — a round cap still deposits exactly what a butt cap does (2.0000 against 2.1963 of
 its own area on the 4-unit rule, 0.5020 against 1.2854 on the short one), and a circle of diameter
 1 is still 0.5020 against 0.7854, which is its inscribed square. That is what the two commits
@@ -2066,3 +2115,154 @@ between the revisions say it should be: they touch `quorra-scene`'s builder and 
 shader and nothing in `raster.rs`. Checking rather than assuming cost one command, and it is the
 half of ADR 0283's lesson that runs the other way — a claim about somebody else's code can also
 *survive* their release, and only running it says which.
+
+---
+
+## 22. `a7babab` on this machine: not one line changed here, and no page is refused for frame bytes at any scale — **taken, and this is what it did**
+
+Written at the end of this viewer's four-hundred-and-seventy-eighth session, which took the
+fourteen commits between `2c9bdd0` and `a7babab` — ADR 0034's packer, ADR 0035's `warm_for`, and
+0036 to 0039 sizing a layer, a mask, a plan's accumulation and finally the root to what each
+marks. Every number here is this machine's, taken on the run rather than read off your note: AMD
+Strix, Radeon 890M under RADV, the `gates` profile, `doc/environment.md`'s box.
+
+### 22.1 The bump required nothing
+
+No source change. `Cargo.lock`'s two hashes, and the workspace builds with `clippy --workspace
+--all-targets` silent and every test compiling. **That is worth saying out loud** because the two
+bumps before it each cost a line or a deleted test — `GroupSpec` gained `isolated`, then `compose`,
+and `StagedComposeReason` lost the variant a test existed to catch. A release that changes what a
+frame costs without touching what a caller says is the shape this dependency should have, and it is
+why this round's diff is a measurement rather than a port.
+
+### 22.2 The four lanes
+
+`doc/todo/02-every-round.md` §2 makes all four a debt of any round that takes one of your releases,
+for ADR 0283's reason — `74c4994d` was a release entirely inside a lane the default run does not
+exercise. **The verdict columns are the result; no clock from this round is.** Five other
+sessions were compiling on this box throughout, at a load average between 30 and 60, and the tell
+is the **oracle**, which does identical work in all three scale-1 runs and reported totals of
+**3.10 s, 12.51 s and 13.00 s** for it. A ratio taken across that is noise with a decimal point, so
+this table has no clock column at all and the ones the run printed are not repeated here. §20.6's
+are the last ones this document quotes.
+
+| | agree | differ | refused | not comparable |
+|---|---:|---:|---:|---:|
+| scale 1, `cpu` | 918 | 37 | **1** | 18 |
+| scale 1, `gpu` | 917 | 38 | **1** | 18 |
+| scale 4, `cpu` | 931 | 16 | **4** | 23 |
+| scale 4, `gpu` | 932 | 15 | **4** | 23 |
+
+The two `cpu` rows were each measured **twice**, before and after the ratchet below was written,
+and every one of those eight numbers came back identical — which is the property the ratchet needs
+and which no amount of contention touches.
+
+Against §20.6's table at `2c9bdd0`, the two scale-1 rows are one page short of the same counts —
+956 pages comparable here against 957 there — and that page is **not** attributable to this
+release: §20.6 was measured twenty-two sessions ago in a different working copy, and a page the CPU
+oracle itself declines is skipped by this gate before either backend is judged. What is
+attributable is the pair of scale-4 rows: §20.6 had **7** refusals on the `cpu` lane and **8** on
+the `gpu` one, and both are **4** now.
+
+At 4× the two lanes now refuse *the same four pages*, which they did not before: `Test-plusminus.pdf`
+was the one refusal the device lane added, at 280 MB against the 256 MiB frame budget, and §20.6
+said in as many words that `7a58ced` was aimed at it and that the next bump would say. It does —
+though not by that commit; §20.6 now carries what actually freed the page.
+
+### 22.3 What left, and what the four that stay are
+
+**Every refusal that was arithmetic against the frame's byte budget is gone, at every scale.** The
+four documents §20.4 and §20.5 name for that reason — `Test-plusminus.pdf`, `issue14297.pdf`,
+`issue16287.pdf` and `issue269_2.pdf` — were run again by name at 4× on both lanes, together with
+`transparency_group.pdf`, which your §6 names as the sheet that is half empty by shelf height:
+**all five draw, on both lanes, and four of the five agree with the CPU oracle**. The fifth is
+`Test-plusminus.pdf`, differing by mean 0.0370 on the `cpu` lane and **0.0104** on the `gpu` one,
+worst tile 9.36 in the same place on both, which is a coverage quantum rather than a shape.
+
+What is left refuses for something no allocator reaches, and this is the sentence that makes the
+list holdable:
+
+- **`22060_A1_01_Plans.pdf`** — 72 sampled images at 4× — holds 522 014 748 resident resource bytes
+  and asks for 548 104 348 against `max_resource_bytes`' 536 870 912 default. That is the *cache's*
+  budget rather than the frame's, and it is ours: this tree passes `Options::default()`. It is the
+  one refusal here a bigger number would take off rather than a tighter allocation, and we are not
+  raising it blind.
+- **`bug1703683_page2_reduced.pdf`, `bug1721218_reduced.pdf`, `issue1905.pdf`** exceed the
+  16 384 × 16 384 texture this adapter allows for the rasterised-coverage sheet. Your
+  `QUORRA_UPGRADE.md` §6 records the fix as a frame using more than one sheet pass; nothing here can
+  work around it and no budget grants it. **ADR 0034's packer did not move them**, which is exactly
+  what that ADR predicts about itself — a shelf-height limit is an occupancy and this is a ceiling.
+
+### 22.4 So the second lane finally became a gate, which is what we owe you back
+
+Until now the 4× run printed *"the ratchets below are NOT checked"*, and it had to: twelve refusals
+at one revision, seven at the next, most of them a byte count 4 % to 20 % over a budget you kept
+improving. A list that every release moves cannot be held to equality — it becomes a count living
+in a document, which `CLAUDE.md` has a rule against.
+
+`crates/render-quorra/tests/corpus.rs` now holds `REFUSED_AT_FOUR` **by name, to equality**, on the
+default lane at exactly 4×. It is the stronger of the two lists this gate carries: a page arriving
+in it is a hole that only appears under magnification. The differing list at 4× is still a survey,
+because it is a property of the coverage quantum and shrinks as a page grows; and the `gpu` lane is
+still a survey at both scales, because the two lanes do not allocate the same way — three of these
+four refusals are for the **coverage sheet**, and which tiles go in it is decided per command by
+your ADR 0029, so the sheet a frame commits is a property of the lane that built it.
+
+**What that means for you**: a regression in frame or sheet allocation now fails a build here rather
+than being noticed by whoever next reads a paragraph. It also means the four names above are now a
+contract in this tree, so if a future release takes one off, this gate will fail loudly and
+correctly, and the round that takes that release re-baselines it. That is the intended direction.
+
+### 22.5 The counter caveat, handled — and what it cost
+
+You flagged that `Counters::layer_textures` reports a smaller number and means something slightly
+different: textures rather than pairs-doubled, none of them full-target, and one of the ones counted
+a transient backdrop copy rather than any plan's.
+
+**Nothing in this tree reads it.** `present.rs` takes `commands`, `commands_culled` and
+`bytes_uploaded` from `Counters` and nothing else; there is no log line, no assertion and no ratchet
+on it. So the code cost is zero — and the flag was still the right thing to send, because the cost
+was **two sentences of prose** that would otherwise have gone on being true-sounding:
+`doc/QUORRA_NON_ISOLATED_GROUPS.md` calls the field "how many full-target internal textures the
+frame actually allocated" and "the number `max_frame_bytes` is spent on for a page of nested
+artwork". After `a7babab` the first is wrong twice over and the second is wrong in kind — a budget
+is spent on bytes, and this is now a count of textures of *differing sizes*. Both are corrected in
+place, dated, rather than rewritten as though they had always said so.
+
+It is worth naming the shape once: **a counter whose meaning changed while its name did not.** It
+was harmless here only because nobody had put it on a dashboard, and that is luck rather than
+judgement. If a future field's meaning changes this way, a renamed field would cost you one line of
+migration and would cost every caller nothing at all.
+
+### 22.6 What is unchanged, and what is still ours
+
+- **§15** (a gradient painted across a page to keep a few dozen pixels of it) and **§19** (not one
+  corpus page emits a `Command::Rect`) are ours and are unmoved by this release.
+- **§21**'s two readings — a round cap that deposits no ink, and a small circle flattened to its
+  inscribed polygon — were **re-run at this revision and are unchanged to the digit**, which is one
+  command and the second time this document has checked rather than assumed. A round cap still
+  deposits exactly what a butt cap does (**200.1571** against its own 219.6349 on the 5-unit rule,
+  **2.0000** against 2.1963 on the 4-unit one, **0.5020** against 1.2854 on the short one), and a
+  circle of diameter 1 is still **0.5020** against 0.7854, its inscribed square. The prediction
+  was right for the stated reason — `git diff 2c9bdd0..a7babab` does not name `raster.rs` at all —
+  and it is only a prediction until it is run.
+- **§9.2** is the `warm_for` answer, and it is still *no*, now for two reasons instead of one.
+
+### 22.7 A note to the next round rather than to you: you moved again while this ran
+
+`cargo update` resolved `a7babab` as `main` at the time this round pinned it, and every measurement
+above is that revision. By the time the round finished, the sibling checkout at
+`/home/cl/projects/render-lib` carried three more commits — an **ADR 0040** that re-measures what a
+first frame pays and prices the allocation `warm_for` warms at a fraction of a millisecond, an
+**ADR 0041**, and *"A round cap is the half-disc outside the stroke, not the one inside it"*, which
+is §21.1's defect by name. Whether they were on `main` yet is not something this round can say.
+
+Two consequences, both for whoever takes the next bump rather than for this document to act on:
+
+- **§9.2's quotation of 24.7 → 10.3 ms is being retracted at the source**, which is ADR 0283's
+  lesson arriving from the other direction: a number decays on its author's schedule, not its
+  reader's. The answer to `warm_for` does not change — this host still cannot call it — but the
+  *reason* stated in §9.2 is about to be superseded by a better one of theirs.
+- **§21.1 should be re-run first thing after that bump**, and if the round cap deposits its area,
+  `render-quorra/tests/sub_pixel_coverage.rs` gains the row it has been holding against the
+  processor only, which is what §21.3 says it is waiting for.

@@ -3,8 +3,12 @@
 Status: **open**, measured in the two-hundred-and-seventy-fourth session; four of its five items
 are closed and the fifth is **partly answered**: §9 of `doc/QUORRA_FEEDBACK.md` asked for the
 first frame's fixed cost to be warmed, and quorra's ADR 0031 found a fifth of it was an instrument
-of its own and moved it to the constructor — 2.2 to 2.5 ms off, confirmed here. What is left is an
-**API question** rather than an optimisation, and it is this side's to ask.
+of its own and moved it to the constructor — 2.2 to 2.5 ms off, confirmed here. What is left was an
+**API question**, and the four-hundred-and-seventy-eighth session **answered it and closed it**:
+the API arrived (`Device::warm_for`, quorra's ADR 0035), the first frame was measured across both
+revisions here, and this host still cannot call it — with a second reason that is upstream's own.
+Item 5 has the table. **What is left of item 5 is a number nobody has taken**, and it is the
+owner's: a launch on the real adapter through a real window.
 Priority: 42 — performance, measured and priced, not yet taken
 Corpus: every document; the two costs that scale do so with the *document*, not with page one
 Code: `crates/viewer-ui/src/bin/pdf-viewer.rs` (`Launch`), `crates/pdf-model/examples/open_cost.rs`,
@@ -162,6 +166,33 @@ records it as the caller's contract rather than taking it, which makes it *this*
 whether to ask for a size hint or a `Device::warm_for(extent)`, and what a host would pass it
 before it has a window. `viewer-ui` knows its viewport only after `Resized`, so the honest answer
 may be that the first frame keeps this cost and the number is stated rather than hidden.
+
+**`Device::warm_for` now exists and the answer is still that one**, decided in the
+four-hundred-and-seventy-eighth session with a measurement rather than by re-reading this
+paragraph. `examples/first_frame.rs` on page 7 of the specification, eight runs an arm across the
+two quorra revisions, read at the **minimum** because the spread is several times the effect and
+five other sessions were compiling on the box:
+
+```text
+                          first frame      frames 3-5
+  scale 1   2c9bdd0          26.15 ms        7.54 ms
+            a7babab          26.24           5.58
+  scale 4   2c9bdd0          51.35          30.44
+            a7babab          56.91          31.78
+```
+
+Nothing in the release moves either column by more than the spread, which is the expected result
+and worth having anyway: 0036 to 0039 size a frame's **layer** textures, and a frame with no
+transparency group allocates none — upstream's own census puts layered frames at about 8 % of the
+corpus at 4×. So the first frame's fixed cost on a launch-shaped page is what it was.
+
+**And the hint would not fit even where it applies.** quorra's ADR 0039 says so about ADR 0035 in
+its own *what it cost* section: `warm_for` warms a **target-sized** layer, and after the plans are
+sized to what they mark that is the right size only for a root that fills its target — about a
+quarter of layered frames. Its headline of 24.7 ms → 10.3 was measured on a page whose root did
+fill the target and is not a general number. Both halves of the reason to decline are therefore
+now on the record: this host cannot call it, and where a host could, the size would usually be
+wrong. `doc/QUORRA_FEEDBACK.md` §9.2.
 
 **And it re-scales the whole timeline.** ADR 0179's 145 ms is `lavapipe` under `Xvfb`, where the
 first present is 54 to 68 ms because llvmpipe is drawing the page on the processor. On the real

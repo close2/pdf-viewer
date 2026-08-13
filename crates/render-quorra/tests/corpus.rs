@@ -60,6 +60,13 @@ const PIXEL_BUDGET: u64 = 64 << 20;
 /// beside the artefacts that gate already writes.
 const SCALE: f32 = 1.0;
 
+/// The one *other* scale this gate has a ratchet for: [`REFUSED_AT_FOUR`]'s.
+///
+/// Four times a page's own scale is where `viewer-ui` has switched coverage lanes and where a
+/// frame's allocations are sixteen times a page's, so it is the population a resource refusal
+/// belongs to. Any other value is a survey, exactly as before.
+const MAGNIFIED: f32 = 4.0;
+
 /// The scale to render at, which `PDFVIEWER_QUORRA_SCALE` may override.
 ///
 /// It exists for the speed half of this gate rather than the fidelity half. A GPU frame's
@@ -227,6 +234,43 @@ const MIN_STRUCTURAL_SIMILARITY: f64 = 0.99;
 /// What is left here is the one page that was here first, and its refusal is a texture
 /// capacity rather than a clause.
 const REFUSED: [&str; 1] = ["bug1721218_reduced.pdf"];
+
+/// The same list at [`MAGNIFIED`], which is the population the zoom path actually draws.
+///
+/// **This ratchet exists because the number it holds finally stopped moving.** At four times a
+/// page's own scale this run has never been a gate: `doc/todo/02-every-round.md` section 2 makes
+/// it a run every round that takes a quorra release owes, and until now what came back was a survey
+/// nobody could fail — twelve refusals at one revision, seven at the next, each release taking
+/// some off and each count living in a document rather than in a test. What made them uncheckable
+/// was that most of them were *arithmetic against a byte budget* that upstream kept improving:
+/// four pages over the 256 MiB frame budget by 4 % to 20 % is a list that moves the moment
+/// anything is allocated more tightly, and quorra's ADRs 0036 to 0039 allocated every plan, mask
+/// and root to what it marks. **Not one page of this corpus is refused for frame bytes at any
+/// scale now**, and what is left is two kinds of refusal that no allocation strategy reaches:
+///
+/// - `22060_A1_01_Plans.pdf` — 72 sampled images at 4× — already holds 522 014 748 resident
+///   *resource* bytes, and the next upload would take it to 548 104 348 against the 536 870 912
+///   `max_resource_bytes` this tree leaves at its default. That is the cache's budget rather than
+///   the frame's, and it is the one refusal here a **larger number** would take off rather than a
+///   tighter allocation. Nobody has raised it, because a budget raised to admit one page is a
+///   budget chosen by that page.
+/// - The other three exceed the **16 384 × 16 384 texture** this adapter allows for the
+///   rasterised-coverage sheet. That is a device capability, not a policy, and quorra's
+///   `QUORRA_UPGRADE.md` section 6 records the fix as a frame using more than one sheet pass —
+///   which nothing in this tree can work around and no budget can grant.
+///
+/// So this list is held to equality for the same reason [`REFUSED`] is, and it is a **stronger**
+/// statement than that one: a page arriving here is a hole in the backend that only appears under
+/// magnification, and a page leaving it is a hole closed. It is checked on the default lane only,
+/// because the two lanes put *different tiles* in the coverage sheet that three of these four
+/// refuse for — the encoder chooses per command (quorra's ADR 0029) — so the sheet a frame
+/// commits is a property of the lane, and a lane's refusals are its own.
+const REFUSED_AT_FOUR: [&str; 4] = [
+    "22060_A1_01_Plans.pdf",
+    "bug1703683_page2_reduced.pdf",
+    "bug1721218_reduced.pdf",
+    "issue1905.pdf",
+];
 
 /// Pages where the two rasterisers differ only at the **edges** of what they draw.
 ///
@@ -505,34 +549,81 @@ fn every_corpus_page_agrees_with_the_cpu_oracle() {
         started.elapsed(),
     );
 
-    if !ratchets_apply(files.len(), scale, coverage, only.is_some()) {
-        return;
-    }
-    assert_eq!(refused, REFUSED, "the pages quorra refuses have changed");
-    assert_eq!(
-        differing,
-        differing_pages(),
-        "the pages quorra draws differently from the oracle have changed"
+    hold(
+        ratchets(files.len(), scale, coverage, only.is_some()),
+        &refused,
+        &differing,
     );
 }
 
-/// Whether the ratchets below the survey are checked, saying why when they are not.
+/// Holds the run to whichever lists it is the measurement for.
+fn hold(which: Ratchets, refused: &[String], differing: &[String]) {
+    match which {
+        Ratchets::None => {}
+        Ratchets::RefusalsUnderMagnification => {
+            assert_eq!(
+                refused, REFUSED_AT_FOUR,
+                "the pages quorra refuses at {MAGNIFIED}× have changed"
+            );
+        }
+        Ratchets::All => {
+            assert_eq!(refused, REFUSED, "the pages quorra refuses have changed");
+            assert_eq!(
+                differing,
+                differing_pages(),
+                "the pages quorra draws differently from the oracle have changed"
+            );
+        }
+    }
+}
+
+/// Which ratchets a run checks, which depends on which run it is.
+#[derive(Clone, Copy)]
+enum Ratchets {
+    /// Both lists: the survey is the measurement they were taken from.
+    All,
+    /// [`REFUSED_AT_FOUR`] alone. A *differing* list is a property of the coverage quantum and
+    /// shrinks as a page grows, so it is a different measurement at every scale and nobody has
+    /// stabilised one; a *refusal* at magnification is arithmetic against a stated budget or a
+    /// stated device limit, and both of those hold still.
+    RefusalsUnderMagnification,
+    /// Nothing: the run measured a population no list was taken over.
+    None,
+}
+
+/// Which ratchets below the survey are checked, saying why when some are not.
 ///
-/// They are measured over the whole corpus, at [`SCALE`], on quorra's default coverage lane —
-/// exactly, because a measurement taken anywhere else is a different measurement — so each of
-/// the three knobs turns them off. A list held to equality over a subset would report every
-/// document the filter excluded as fixed, and a list held over the *other* lane would report
-/// the two lanes' stated difference (quorra's ADR 0016) as a change in this backend.
-fn ratchets_apply(
+/// [`REFUSED`] and the differing lists are measured over the whole corpus, at [`SCALE`], on
+/// quorra's default coverage lane — exactly, because a measurement taken anywhere else is a
+/// different measurement — so each of the three knobs turns them off. A list held to equality
+/// over a subset would report every document the filter excluded as fixed, and a list held over
+/// the *other* lane would report the two lanes' stated difference (quorra's ADR 0016) as a change
+/// in this backend.
+///
+/// **One knob has a ratchet of its own since the four-hundred-and-seventy-eighth session**:
+/// the same corpus at [`MAGNIFIED`] on the default lane holds [`REFUSED_AT_FOUR`]. Its doc
+/// comment is the argument for why that list can be held now and could not be before.
+fn ratchets(
     documents: usize,
     scale: f32,
     coverage: quorra_gpu::Coverage,
     filtered: bool,
-) -> bool {
-    let rescaled = (scale - SCALE).abs() > 0.0;
-    let other_lane = coverage != quorra_gpu::Coverage::Cpu;
-    if !(filtered || rescaled || other_lane) {
-        return true;
+) -> Ratchets {
+    // Every list below was measured over the whole corpus on the default lane; only the scale
+    // decides which of them a run can still be held to.
+    let as_measured = !filtered && coverage == quorra_gpu::Coverage::Cpu;
+    if as_measured && is_exactly(scale, SCALE) {
+        return Ratchets::All;
+    }
+    if as_measured && is_exactly(scale, MAGNIFIED) {
+        println!(
+            "{documents} of the corpus at scale {scale} on the {} lane. The refusals below ARE \
+             checked, against the list measured at this scale on this lane; the differing list is \
+             not, because it is a property of the coverage quantum and is a different measurement \
+             at every scale.",
+            lane_name(coverage)
+        );
+        return Ratchets::RefusalsUnderMagnification;
     }
     println!(
         "{documents} of the corpus at scale {scale} on the {} lane. The ratchets below are NOT \
@@ -541,7 +632,17 @@ fn ratchets_apply(
          as fixed.",
         lane_name(coverage)
     );
-    false
+    Ratchets::None
+}
+
+/// Whether a run's scale is exactly the one a list was measured at.
+///
+/// Written as a difference against zero rather than as `==` because that is what the question
+/// is — a list belongs to the scale it was taken at and to no neighbour of it — and because a
+/// scale that is not a number must match nothing: `NaN <= 0.0` is false, which is the answer
+/// wanted here.
+fn is_exactly(scale: f32, measured: f32) -> bool {
+    (scale - measured).abs() <= 0.0
 }
 
 /// What to call a lane in a line a person reads.
