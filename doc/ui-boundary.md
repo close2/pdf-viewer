@@ -295,7 +295,9 @@ is set in the same Helvetica on a machine with no fonts installed.
 - `viewer-ui` — consumer #1 since session 132, and a tier-2 host.
 - `viewer-host` — **exists** since the four-hundred-and-tenth, and it is what a second host
   discovered: the three panel answers as one row shape, §12.7.5's field as the control it is,
-  §12.7.6.4's file policy and the launch timeline. Toolkit-free, depended on by both native hosts,
+  §12.7.6.4's file policy, §O.2.1's extraction policy and the launch timeline. Toolkit-free, depended
+  on by all three hosts since the four-hundred-and-seventy-fifth — `viewer-ui` took the dependency
+  rather than keep a third copy of the decision (ADR 0310) —
   and deliberately *not* in `viewer-core` — a mapping from three answers into one row shape is a
   convenience for whoever draws a tree, not a statement about a document. ADR 0246.
 - `viewer-gtk` — **exists** since the four-hundred-and-eighth. GTK4 through `gtk4-rs`, tier 1,

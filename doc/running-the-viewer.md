@@ -18,9 +18,11 @@ cargo run --release -p viewer-ui --bin pdf-viewer -- doc/PDF20_AN001-BPC.pdf
 `--page N` opens at a page, **and so does Annex O's fragment identifier** —
 `pdf-viewer 'doc/ISO_32000-2_sponsored_EC3.pdf#page=100&zoom=150'` opens at page 100 of 1023 and
 asks for an 893×1263 raster, which is 150% of a 595×842 page; `#nameddest=`, `#view=`, `#viewrect=`,
-`#comment=`, `#structelem=` and `#search=` are the others carried out, and the ones that are not are
-printed by name — `tools/state.sh annex-o` says which, and it reads the program rather than this
-sentence (ADRs 0209, 0250). The argument is split at its first `#` only when the whole of it does not name
+`#comment=`, `#structelem=`, `#search=` and `#ef=` are the others carried out, and the ones that are
+not are printed by name — `tools/state.sh annex-o` says which, and it reads the program rather than
+this sentence (ADRs 0209, 0250, 0310). **`#ef=` hands the embedded file it names to the host and the
+host declines to write it**, because a URI is not a person asking: the note says so and names §O.2.1,
+which is the annex's own "may choose to prompt the user or even prevent opening of the file". The argument is split at its first `#` only when the whole of it does not name
 an existing file, so a document called `a#b.pdf` still opens.
 
 **`--cpu` means *no graphics device*, since the three-hundred-and-eighty-fourth session** (ADR

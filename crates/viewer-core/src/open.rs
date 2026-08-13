@@ -206,6 +206,14 @@ pub(crate) struct Open {
     /// are still to be read, and from where — while the selection is the one occurrence it has
     /// arrived at. `None` between searches, which is every moment nobody is looking for anything.
     pub(crate) searching: Option<crate::search::Searching>,
+    /// Table Annex O.3's `ef`, waiting to be handed to the host: §7.7.4's tree key it named.
+    ///
+    /// The same shape [`Self::searching`] has and for the same reason — a fragment parameter whose
+    /// work is not this type's — except that this one is finished as the document opens rather
+    /// than pumped: the bytes are already in the file, so `Viewer::open` takes this and pushes
+    /// `Event::Extracted`. `None` for every fragment that names no embedded file, which is every
+    /// fragment anybody writes.
+    pub(crate) opening_file: Option<String>,
     /// Which of §12.5.6.14's popup windows a person has opened or closed, by annotation.
     ///
     /// **The file states only the first frame.** Table 186's `/Open` is "[a] flag specifying
@@ -408,6 +416,7 @@ impl Open {
             selection: None,
             pending_selection: None,
             searching: None,
+            opening_file: None,
             popups: BTreeMap::new(),
             readbacks: crate::readback::Readbacks::default(),
         }
@@ -790,23 +799,24 @@ impl Open {
                     "this URI's fragment asks for `{}`, which this program does not do: {reason}",
                     parameter.name()
                 ));
-                // "Any remaining parameters after this parameter apply to the selected embedded
-                // file." So everything after `ef` is about a document this program has not
-                // opened, and applying it to *this* one would take a person somewhere the URI did
-                // not name. Stop, and say how much was left.
-                if matches!(parameter, Parameter::EmbeddedFile(_)) {
-                    let left = parameters.as_slice().len();
-                    if left > 0 {
-                        notes.push(format!(
-                            "and the {left} parameter(s) after it apply to that embedded file \
-                             rather than to this document, so none of them was applied"
-                        ));
-                    }
-                    break;
-                }
                 continue;
             }
             self.apply_parameter(parameter, &mut notes);
+            // "Any remaining parameters after this parameter apply to the selected embedded
+            // file." So everything after `ef` is about a document this program has not opened,
+            // and applying it to *this* one would take a person somewhere the URI did not name.
+            // Stop, and say how much was left — which is what is still owed of Table Annex O.3's
+            // `ef` now that the file itself comes out (ADR 0310).
+            if matches!(parameter, Parameter::EmbeddedFile(_)) {
+                let left = parameters.as_slice().len();
+                if left > 0 {
+                    notes.push(format!(
+                        "and the {left} parameter(s) after it apply to that embedded file rather \
+                         than to this document, so none of them was applied"
+                    ));
+                }
+                break;
+            }
         }
         for unread in &fragment.unread {
             notes.push(format!(
@@ -932,8 +942,28 @@ impl Open {
                     )),
                 }
             }
-            // The three [`Parameter::unhonoured`] names never reach here.
-            Parameter::EmbeddedFile(_) | Parameter::Highlight { .. } | Parameter::Fdf(_) => {}
+            // Table Annex O.3, and the annex's one `shall` on a processor that is not about where
+            // the window points:
+            //
+            // > When used as part of a PDF open parameter, the PDF processor shall open the
+            // > embedded file contained within the EmbeddedFiles name tree identified by name .
+            //
+            // §7.11.4's bytes are inside the document, so nothing is fetched; what *opening* one
+            // means is the host's, and the annex says so itself two sentences later —
+            // "[s]ecurity should be strongly considered when opening an embedded file … a PDF
+            // processor may choose to prompt the user or even prevent opening of the file", which
+            // is a `should` and a `may` addressed to whoever faces the person. So this records the
+            // name and `Viewer::open` hands the bytes over as `Event::Extracted`, where
+            // `Command::Extract` and §12.5.6.15's annotation already put them (ADR 0310).
+            //
+            // Lossy for the reason [`text`] is, and for the same comparison `annotation_named`
+            // makes: the annex gives its byte string no character encoding and §7.7.4's tree key
+            // states one, so the match is against §7.9.2's *decoded* text string as UTF-8.
+            Parameter::EmbeddedFile(name) => {
+                self.opening_file = Some(String::from_utf8_lossy(name).into_owned());
+            }
+            // The two [`Parameter::unhonoured`] names never reach here.
+            Parameter::Highlight { .. } | Parameter::Fdf(_) => {}
         }
     }
 

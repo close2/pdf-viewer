@@ -22,6 +22,10 @@ render-quorra.workspace = true
 # rather than reports), named directly for the match arms.
 quorra-gpu.workspace = true
 viewer-core.workspace = true
+# The host-side decisions that are not this window's: §O.2.1 says a processor may decline to open
+# an embedded file a URI named, and that choice belongs beside §12.7.6.4's import policy rather
+# than in each of the three hosts separately. Toolkit-free, so this costs no widget (ADR 0310).
+viewer-host.workspace = true
 # ISO 32000-2 §14.7's tree, handed to AccessKit and so to AT-SPI. The crate that owns the one
 # asynchronous runtime in this tree, and the reason it is a crate: nothing on the launch path,
 # the render path or the parse path may reach it. ADR 0214.

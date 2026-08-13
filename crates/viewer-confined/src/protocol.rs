@@ -27,8 +27,8 @@ use pdf_render::{Point, Raster, RasterFormat, Rect, Size};
 use pdf_sandbox::lockdown::{Confinement, LandlockLevel, SystemCalls};
 use pdf_syntax::{Name, ObjectId};
 use viewer_core::{
-    Answer, Command, DocumentId, Edit, Event, Find, FindDirection, FocusMove, Found, PageGeometry,
-    PageTarget, PointerAction, Purpose, Query, RestrictionLevel, Selection, Zoom,
+    Answer, Command, DocumentId, Edit, Event, Extraction, Find, FindDirection, FocusMove, Found,
+    PageGeometry, PageTarget, PointerAction, Purpose, Query, RestrictionLevel, Selection, Zoom,
 };
 
 use crate::Reply;
@@ -1371,12 +1371,21 @@ pub(crate) fn encode_event(event: &Event) -> Result<Vec<u8>, Uncarried> {
         }
         Event::Extracted {
             document,
+            asked,
             name,
             bytes,
         } => {
             writer
                 .u8(k::EXTRACTED)
                 .document(*document)
+                // What asked for the file, which decides whether the host on the other side of
+                // this pipe may write it without a person: Annex O's `ef` is a URI's sentence and
+                // a click is a person's. One byte, and the decode below refuses any other value
+                // rather than guessing at the safer one.
+                .u8(match asked {
+                    Extraction::Asked => 0,
+                    Extraction::Fragment => 1,
+                })
                 .str(name)
                 .bytes(bytes);
         }
@@ -1512,6 +1521,16 @@ pub(crate) fn decode_event(bytes: &[u8]) -> Result<Event, ProtocolError> {
         },
         k::EXTRACTED => Event::Extracted {
             document: reader.document(what)?,
+            asked: match reader.u8("what asked for an attachment")? {
+                0 => Extraction::Asked,
+                1 => Extraction::Fragment,
+                value => {
+                    return Err(ProtocolError::Unrecognised {
+                        what: "what asked for an attachment",
+                        value: u32::from(value),
+                    });
+                }
+            },
             name: reader.string("an attachment's name")?,
             bytes: reader.bytes("an attachment")?.to_vec(),
         },
@@ -2640,6 +2659,15 @@ mod tests {
             },
             Event::Extracted {
                 document,
+                asked: Extraction::Asked,
+                name: "readme.txt".to_owned(),
+                bytes: b"hello".to_vec(),
+            },
+            // Both of §O.2.1's provenances on the wire, because the byte that carries them is what
+            // lets the host on the other side decline one and write the other.
+            Event::Extracted {
+                document,
+                asked: Extraction::Fragment,
                 name: "readme.txt".to_owned(),
                 bytes: b"hello".to_vec(),
             },

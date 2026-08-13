@@ -27,8 +27,8 @@ use pdf_model::view::WidgetAppearances;
 use pdf_render::Rasterizer;
 use render_cpu::CpuRasterizer;
 use viewer_core::{
-    Answer, Command, DocumentId, Edit, Entered, Event, Find, FindDirection, FormField, PageTarget,
-    PointerAction, Query, Rendered, Viewer, Zoom,
+    Answer, Command, DocumentId, Edit, Entered, Event, Extraction, Find, FindDirection, FormField,
+    PageTarget, PointerAction, Query, Rendered, Viewer, Zoom,
 };
 use viewer_host::form::{ControlKind, control_kind};
 use viewer_host::panel::{PanelRow, RowAction};
@@ -785,7 +785,9 @@ impl Host {
             Event::Transition { transition, .. } => {
                 self.say(&format!("transition: {:?}", transition.style));
             }
-            Event::Extracted { name, bytes, .. } => self.write_extracted(&name, &bytes),
+            Event::Extracted {
+                asked, name, bytes, ..
+            } => self.write_extracted(asked, &name, &bytes),
             Event::Saved { bytes, .. } => self.write_saved(&bytes),
             Event::Dirty { dirty, .. } => {
                 self.dirty = dirty;
@@ -895,7 +897,13 @@ impl Host {
     /// The name is the document's own words and not a path — §7.11.4's note is that `/F` is "a
     /// platform-dependent encoding" — so only its last component is used and only beside the
     /// document, which is the same policy §12.7.6.4's import takes in the other direction.
-    fn write_extracted(&mut self, name: &str, bytes: &[u8]) {
+    fn write_extracted(&mut self, asked: Extraction, name: &str, bytes: &[u8]) {
+        // §O.2.1's own sentence, decided once for all three hosts in `viewer_host::policy`: a URI
+        // that named a file is not a person who asked for one.
+        if let Err(refusal) = viewer_host::may_write_extracted(asked) {
+            self.say(&refusal);
+            return;
+        }
         let Some(directory) = self.directory.clone() else {
             self.say("cannot write the attachment: the document is not in a known directory");
             return;

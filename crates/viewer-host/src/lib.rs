@@ -31,8 +31,9 @@
 //!   per *control* rather than one per clause type, because the clause's choice field is two
 //!   controls and its button field is three.
 //! - [`policy`] — §12.7.6.4's import-data file, under the narrowest policy that still performs
-//!   the action. `viewer_core`'s rule 2 is that the crate has no filesystem, so this is where
-//!   that rule reaches a person.
+//!   the action, and §O.2.1's embedded file, which a URI may name and a person may not have.
+//!   `viewer_core`'s rule 2 is that the crate has no filesystem, so this is where that rule
+//!   reaches a person.
 //! - [`trace`] — `--trace=<topics>`, in the line format `viewer-ui` prints, so that two hosts'
 //!   launch timelines can be read side by side. `CLAUDE.md` makes the launch path a measured
 //!   thing and a host is a program a person runs.
@@ -54,5 +55,5 @@ pub mod trace;
 
 pub use form::{ControlKind, control_kind};
 pub use panel::{PanelRow, RowAction, attachment_rows, layer_rows, outline_rows};
-pub use policy::{ImportRefusal, read_import, resolve_import};
+pub use policy::{ImportRefusal, may_write_extracted, read_import, resolve_import};
 pub use trace::{Topic, Trace, parse_topics};

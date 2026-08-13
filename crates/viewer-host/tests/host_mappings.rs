@@ -17,10 +17,10 @@
 use std::path::{Path, PathBuf};
 
 use pdf_model::form::{Choice, ChoiceControl, Control, TextControl};
-use viewer_core::{Answer, Command, DocumentId, Query, Viewer};
+use viewer_core::{Answer, Command, DocumentId, Extraction, Query, Viewer};
 use viewer_host::{
     ControlKind, ImportRefusal, PanelRow, RowAction, attachment_rows, control_kind, layer_rows,
-    outline_rows, resolve_import,
+    may_write_extracted, outline_rows, resolve_import,
 };
 
 /// The identity these tests give the one document they open.
@@ -309,5 +309,28 @@ fn the_import_policy_admits_a_neighbour_and_refuses_everything_else() {
         resolve_import(None, "data.fdf"),
         Err(ImportRefusal::NoDirectory),
         "a document with no directory has no neighbourhood to resolve against"
+    );
+}
+
+/// ISO 32000-2 §O.2.1, Table Annex O.3's `ef`:
+///
+/// > Security should be strongly considered when opening an embedded file. When opening a file
+/// > that is not from a trusted source, a PDF processor may choose to prompt the user or even
+/// > prevent opening of the file.
+///
+/// The clause offers two answers and this project takes the second, because none of the three
+/// hosts has a dialogue to prompt with — so the rule that has to hold is that the *provenance*
+/// decides and nothing else does. A click still writes the file; a URI's fragment does not, and
+/// says so. Without this the four-hundred-and-seventy-fifth session's `ef` would have made
+/// `pdf-viewer report.pdf#ef=x` write a file to disk with nobody having pressed anything.
+#[test]
+fn a_uris_embedded_file_is_not_written_and_a_persons_is() {
+    assert_eq!(may_write_extracted(Extraction::Asked), Ok(()));
+    let refused = may_write_extracted(Extraction::Fragment)
+        .expect_err("a URI's fragment is not a person asking");
+    assert!(refused.contains("was not written to disk"), "{refused}");
+    assert!(
+        refused.contains("§O.2.1"),
+        "and it cites the clause: {refused}"
     );
 }

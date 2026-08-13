@@ -4380,6 +4380,7 @@ dependencies = [
  "thiserror 2.0.19",
  "viewer-accessibility",
  "viewer-core",
+ "viewer-host",
  "winit",
 ]
 

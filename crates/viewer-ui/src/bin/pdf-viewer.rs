@@ -1884,7 +1884,13 @@ impl App {
     /// only its last component is used and a name that is a path, is empty, or is `..` is
     /// refused rather than followed. §7.11.4 states no policy at all, because a policy is a
     /// property of the processor.
-    fn write_extracted(&self, name: &str, bytes: &[u8]) {
+    fn write_extracted(&self, asked: viewer_core::Extraction, name: &str, bytes: &[u8]) {
+        // §O.2.1's own sentence, decided once for all three hosts in `viewer_host::policy`: a URI
+        // that named a file is not a person who asked for one.
+        if let Err(refusal) = viewer_host::may_write_extracted(asked) {
+            println!("note: {refusal}");
+            return;
+        }
         let stem = std::path::Path::new(name).file_name();
         let Some(stem) = stem.filter(|stem| !stem.is_empty()) else {
             println!("note: the embedded file's name {name:?} is not a file name");
@@ -2949,7 +2955,9 @@ impl App {
             // Rule 2 in one arm: the core produced the bytes and the host owns the filesystem.
             // Written beside the document with `.edited.pdf` appended rather than over it,
             // because overwriting somebody's file is a decision this program has not been given.
-            Event::Extracted { name, bytes, .. } => self.write_extracted(&name, &bytes),
+            Event::Extracted {
+                asked, name, bytes, ..
+            } => self.write_extracted(asked, &name, &bytes),
             Event::Saved { bytes, .. } => self.write_saved(&bytes),
             // What a host does with this is mark its window and ask before closing. This one
             // has no dialogue to ask with, so it marks the title and says so on the way past.

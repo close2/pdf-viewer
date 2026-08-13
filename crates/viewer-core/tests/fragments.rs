@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 
 use pdf_render::Rasterizer;
 use render_cpu::CpuRasterizer;
-use viewer_core::{Answer, Command, DocumentId, Event, Find, Query, Rendered, Viewer};
+use viewer_core::{Answer, Command, DocumentId, Event, Extraction, Find, Query, Rendered, Viewer};
 
 /// The document these tests open.
 const DOCUMENT: DocumentId = DocumentId(1);
@@ -289,25 +289,112 @@ fn a_parameter_this_program_refuses_is_named_and_the_others_still_run() {
     );
 }
 
-/// Table Annex O.3's `ef`: "[a]ny remaining parameters after this parameter apply to the selected
-/// embedded file."
+/// Table Annex O.3's `ef` in §O.2.1, which is the annex's one `shall` about a file rather than a
+/// view:
 ///
-/// So a fragment this program stops at is a fragment it must stop *reading*: applying the `page`
-/// after an `ef` would take a person to page three of the wrong document. The refusal does not
-/// depend on the file — opening an embedded file is a host's decision — which is why this uses a
-/// document with no embedded files at all and still expects both statements.
+/// > When used as part of a PDF open parameter, the PDF processor shall open the embedded file
+/// > contained within the EmbeddedFiles name tree identified by name .
+///
+/// `attachment.pdf`'s tree is `<</Names [(foo.txt) 15 0 R]>>`, so `foo.txt` is the key the annex
+/// says to match, and the file specification's own `/F` is `foo.txt` as well — which is what
+/// `Event::Extracted` reports, because Table 43's name is what a person would call the file. Its
+/// contents are `bar baz \n` once §7.4's filters are undone, and checking those rather than a
+/// length is what distinguishes an extraction from a still-deflated stream.
+///
+/// **Ten of the corpus's 964 documents carry an `/EmbeddedFiles` tree at all, with 23 files
+/// between them** — the population this parameter can reach, counted rather than assumed.
+///
+/// What the annex leaves to a host is what "open" then means: "[s]ecurity should be strongly
+/// considered when opening an embedded file … a PDF processor may choose to prompt the user or
+/// even prevent opening of the file". The bytes crossing as `Event::Extracted` is exactly that
+/// decision being handed over, and it is the channel `Command::Extract` and §12.5.6.15's
+/// annotation already use.
+#[test]
+fn an_embedded_file_the_fragment_names_comes_out_of_the_document() {
+    let Some((_, events)) = opened("attachment.pdf", "ef=foo.txt") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    let extracted: Vec<_> = events
+        .iter()
+        .filter_map(|event| match event {
+            Event::Extracted {
+                asked, name, bytes, ..
+            } => Some((*asked, name.clone(), bytes.clone())),
+            _ => None,
+        })
+        .collect();
+    let [(asked, name, bytes)] = extracted.as_slice() else {
+        panic!("one file out of the document, not {extracted:?}");
+    };
+    assert_eq!(
+        *asked,
+        Extraction::Fragment,
+        "a URI named it, and no host may write it as though a person had"
+    );
+    assert_eq!(name, "foo.txt", "Table 43's own name for the file");
+    assert_eq!(
+        String::from_utf8_lossy(bytes),
+        "bar baz \n",
+        "the file itself, with §7.4's filters undone"
+    );
+    let said = notes(&events);
+    assert!(
+        !said.iter().any(|note| note.contains("does not do")),
+        "a parameter carried out is not refused: {said:?}"
+    );
+
+    // A name the tree does not hold is reported rather than swallowed, which is the same sentence
+    // `Command::Extract` produces for the same mistake.
+    let Some((_, events)) = opened("attachment.pdf", "ef=nothing.txt") else {
+        return;
+    };
+    let said = notes(&events);
+    assert!(
+        said.iter()
+            .any(|note| note.contains("embeds no file called")),
+        "{said:?}"
+    );
+}
+
+/// Table Annex O.3's `ef` again: "[a]ny remaining parameters after this parameter apply to the
+/// selected embedded file."
+///
+/// That sentence is about the parameters *after* it and is the half of this row still owed: a
+/// second document would have to be opened for them to mean anything, and `Command::Open` is the
+/// host's. So the fragment stops here and says how much it did not apply — applying the `page`
+/// would take a person to page three of the wrong document.
+///
+/// `issue17056.pdf` files a whole PDF under the tree key `destination-doc.pdf`, which is the case
+/// that makes the sentence matter rather than a hypothetical one. The `search` is the witness
+/// rather than the `page`: a search that had been applied to *this* document would have raised
+/// `Event::Searched`, whatever number of pages the file turns out to have.
 #[test]
 fn an_embedded_file_stops_the_parameters_after_it() {
-    let Some((viewer, events)) = opened("vertical.pdf", "ef=data.xml&page=3") else {
+    let Some((viewer, events)) = opened(
+        "issue17056.pdf",
+        "ef=destination-doc.pdf&page=3&search=%22the%22",
+    ) else {
         eprintln!("skipped: doc/pdf.js is not checked out");
         return;
     };
     assert_eq!(page(&viewer), 0, "page three was never applied");
     let notes = notes(&events);
-    assert!(notes.iter().any(|note| note.contains("`ef`")), "{notes:?}");
     assert!(
-        notes.iter().any(|note| note.contains("1 parameter(s)")),
+        notes.iter().any(|note| note.contains("2 parameter(s)")),
         "{notes:?}"
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, Event::Searched { .. })),
+        "nor was the search after it"
+    );
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, Event::Extracted { .. })),
+        "and the file it named still came out"
     );
 }
 

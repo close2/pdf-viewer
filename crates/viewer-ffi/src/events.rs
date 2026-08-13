@@ -9,7 +9,7 @@
 //! Everything in this module is safe Rust. [`crate::abi`] is the only place that turns an index
 //! and a pointer into a call on one of these.
 
-use viewer_core::{Event, RenderRequest};
+use viewer_core::{Event, Extraction, RenderRequest};
 
 use crate::kinds::EventKind;
 use crate::status::Status;
@@ -151,9 +151,20 @@ impl Events {
                 None if *remaining == 0 => "a search found nothing in the document".to_owned(),
                 None => format!("a search has {remaining} page(s) left to read"),
             },
-            Event::Extracted { name, bytes, .. } => {
-                format!("the embedded file {name:?} is {} byte(s)", bytes.len())
-            }
+            // The provenance is in the sentence rather than in an accessor, because this ABI has
+            // no structured answer for an extraction at all — a C caller learns the kind and reads
+            // this. §O.2.1 is why it matters: a URI naming a file is not a person asking for one,
+            // and a caller writing bytes to disk needs to know which it has (ADR 0310).
+            Event::Extracted {
+                asked, name, bytes, ..
+            } => format!(
+                "the embedded file {name:?} is {} byte(s), asked for by {}",
+                bytes.len(),
+                match asked {
+                    Extraction::Asked => "a person",
+                    Extraction::Fragment => "the URI's fragment",
+                }
+            ),
             Event::Refused {
                 operation, notes, ..
             } => format!("{operation:?} was refused: {}", notes.join(" ")),

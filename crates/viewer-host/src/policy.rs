@@ -1,13 +1,18 @@
-//! The two decisions `doc/todo/30` says a host owns, and why they are a host's.
+//! The three decisions `doc/todo/30` says a host owns, and why they are a host's.
 //!
 //! `viewer_core`'s rule 2 is that the crate has no filesystem: "[a] document naming a file is a
 //! document asking this machine for something, and whether to give it is not a rendering
-//! decision." Both decisions below are that rule reaching a person.
+//! decision." Every decision below is that rule reaching a person.
 //!
 //! **§12.7.6.4** — a form's import-data action names a file, and the clause makes performing it a
 //! `shall` while saying nothing at all about *which* files a document may name, because that is a
 //! property of the processor rather than of the format. So the policy is stated here, in a host,
 //! and it is deliberately the narrowest one that still performs the action.
+//!
+//! **§O.2.1** — a fragment identifier may name an embedded file, and the annex says in the same
+//! row that a processor "may choose to prompt the user or even prevent opening of the file". A
+//! URI is somebody else's sentence far more often than a click is, so the two are not one request
+//! and a host has to be able to decline the first (ADR 0310).
 //!
 //! **§7.6.4.1** — an encrypted document asks for a password. The clause requires a processor to
 //! try the empty user password and then to ask; asking is a window, and a window is a host's.
@@ -15,6 +20,8 @@
 //! what puts the platform's secure entry in front of it.
 
 use std::path::{Component, Path, PathBuf};
+
+use viewer_core::Extraction;
 
 /// Why a file a document named was not supplied.
 ///
@@ -79,4 +86,39 @@ pub fn resolve_import(directory: Option<&Path>, name: &str) -> Result<PathBuf, I
 pub fn read_import(directory: Option<&Path>, name: &str) -> Result<Vec<u8>, String> {
     let path = resolve_import(directory, name).map_err(|refusal| refusal.to_string())?;
     std::fs::read(&path).map_err(|error| format!("cannot read {}: {error}", path.display()))
+}
+
+/// Whether §7.11.4's extracted bytes may be written to disk without asking a person first.
+///
+/// **The third decision this module holds, and the annex that needs it says why.** ISO 32000-2
+/// §O.2.1, Table Annex O.3's `ef`:
+///
+/// > Security should be strongly considered when opening an embedded file. When opening a file
+/// > that is not from a trusted source, a PDF processor may choose to prompt the user or even
+/// > prevent opening of the file.
+///
+/// The annex attaches that to the one parameter whose effect is a *file* and to no other, and §O.1
+/// says why it is different from a click: a fragment identifier is "useful primarily when referring
+/// to them from external to the PDF such as a web page or web API", so the sentence that named the
+/// file is frequently not the reader's. [`Extraction`] is `viewer-core` saying which of the two
+/// happened; this is the one place the three hosts decide what to do about it.
+///
+/// **`prevent` rather than `prompt`, and it is a choice rather than a reading**: the annex offers
+/// both and none of these three hosts has a dialogue to prompt with, so the narrower of the two is
+/// taken and said out loud. `doc/todo/38`'s *ask* level is where this becomes the other one, and
+/// nothing here has to be revisited for it — the policy is already asked in one place, off a value
+/// a host can see. ADR 0310.
+///
+/// # Errors
+///
+/// The sentence to say to the person, where the file is not to be written.
+pub fn may_write_extracted(asked: Extraction) -> Result<(), String> {
+    match asked {
+        Extraction::Asked => Ok(()),
+        Extraction::Fragment => Err(
+            "the URI's fragment asked for this embedded file rather than a person, so it was not \
+             written to disk — open it from the files panel to extract it (ISO 32000-2 §O.2.1)"
+                .to_owned(),
+        ),
+    }
 }

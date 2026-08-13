@@ -124,7 +124,7 @@ pub enum Event {
         /// The file.
         bytes: Vec<u8>,
     },
-    /// §7.11.4's embedded file, decoded. Write it somewhere.
+    /// §7.11.4's embedded file, decoded. Write it somewhere — or do not; see [`Extraction`].
     ///
     /// The answer to [`crate::Command::Extract`], and the bytes are the file itself rather than
     /// the stream: §7.4's filters are undone here, because a host that had to decode them would
@@ -132,6 +132,8 @@ pub enum Event {
     Extracted {
         /// Which document it came out of.
         document: DocumentId,
+        /// What asked for it, which is the only thing that decides whether to ask a person first.
+        asked: Extraction,
         /// Table 43's `/UF` or `/F` where the specification states one, and the
         /// `/EmbeddedFiles` key otherwise. **A name and not a path**: it is the document's own
         /// words, and turning it into somewhere on this machine is the host's decision (rule 2)
@@ -214,6 +216,35 @@ pub enum Event {
         /// always `false` for it.
         wrapped: bool,
     },
+}
+
+/// What asked for §7.11.4's bytes, and the reason [`Event::Extracted`] carries it.
+///
+/// **The annex that made this necessary is the one that says why.** ISO 32000-2 §O.2.1, Table
+/// Annex O.3's `ef`:
+///
+/// > Security should be strongly considered when opening an embedded file. When opening a file
+/// > that is not from a trusted source, a PDF processor may choose to prompt the user or even
+/// > prevent opening of the file.
+///
+/// That sentence is attached to that parameter and to no other, and §O.1 says why: a fragment
+/// identifier is "useful primarily when referring to them from external to the PDF such as a web
+/// page or web API". A URI is somebody else's sentence far more often than a click is, so the two
+/// are not the same request even though they produce the same bytes — and a host that wrote a file
+/// to disk for one has to be able to decline for the other. ADR 0310.
+///
+/// This crate takes no view of which is safe. It says which happened, once, where a host can see
+/// it; the four levels `doc/todo/38` describes are built on top of this rather than inside it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Extraction {
+    /// A person: [`crate::Command::Extract`], or activating §12.5.6.15's file attachment
+    /// annotation, which the clause makes an act of the reader — "activating the annotation
+    /// extracts the embedded file and gives the user an opportunity to view it or store it in the
+    /// file system".
+    Asked,
+    /// Annex O's `ef` parameter: the URI the document was opened from named the file, and nobody
+    /// pressed anything.
+    Fragment,
 }
 
 /// Where a [`crate::Command::Find`] landed.

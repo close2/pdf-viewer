@@ -3176,9 +3176,17 @@ fn an_embedded_file_comes_out_of_the_document() {
     let (key, claimed) = (file.name.clone(), file.size);
 
     let events: Vec<_> = viewer.handle(Command::Extract { name: key }).collect();
-    let [Event::Extracted { name, bytes, .. }] = events.as_slice() else {
+    let [
+        Event::Extracted {
+            asked, name, bytes, ..
+        },
+    ] = events.as_slice()
+    else {
         panic!("one extraction, not {events:?}");
     };
+    // A person pressed something, which is what lets a host write the file to disk without asking
+    // again — Annex O's `ef` is the other provenance and `tests/fragments.rs` holds that end.
+    assert_eq!(*asked, viewer_core::Extraction::Asked);
     assert_eq!(name, "foo.txt", "Table 43's own name for the file");
     assert_eq!(
         String::from_utf8_lossy(bytes),

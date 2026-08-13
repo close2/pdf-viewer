@@ -209,9 +209,12 @@ pub enum Parameter {
     /// > the EmbeddedFiles name tree. Any remaining parameters after this parameter apply to the
     /// > selected embedded file.
     ///
-    /// The second sentence is why this one cannot be quietly skipped: everything after it names
-    /// something in *another* document, and applying it to this one would follow a URI to the
-    /// wrong place. [`Self::unhonoured`].
+    /// The second sentence is not about this parameter but about the ones after it: everything
+    /// following it names something in *another* document, and applying it to this one would
+    /// follow a URI to the wrong place. So a reader that carries this one out still stops here —
+    /// which is `viewer_core::Open::apply_fragment`'s business rather than [`Self::unhonoured`]'s,
+    /// and the difference between the two is what this variant was refused for until the
+    /// four-hundred-and-seventy-fifth session.
     EmbeddedFile(Vec<u8>),
     /// Table Annex O.4's `zoom` — a percentage, and optionally where to put the page. §O.2.2.
     ///
@@ -310,17 +313,28 @@ impl Parameter {
     ///
     /// `None` means it is carried out. **A claim about this tree rather than about the standard**,
     /// in the shape [`crate::requirements::Kind::unmet`] already uses: a sentence rather than a
-    /// boolean, one reason per arm, and it decays — which it did in the four-hundred-and-fourteenth
-    /// session, when `Search` came off this list. It read "this program has no document-wide
-    /// search", and `viewer_core::Command::Find` is one.
+    /// boolean, one reason per arm, and it decays — which it has now done twice. `Search` came off
+    /// this list in the four-hundred-and-fourteenth session, where it had read "this program has no
+    /// document-wide search" and `viewer_core::Command::Find` is one; `EmbeddedFile` came off it in
+    /// the four-hundred-and-seventy-fifth, where it had read "opening an embedded file is the
+    /// host's decision, and every parameter after this one applies to that file rather than to this
+    /// document" — two claims in one coat, and only the second was ever a blocker. Table Annex O.3
+    /// in §O.2.1 makes this parameter the annex's one `shall` on a *processor* that has nothing to
+    /// do with where the window points:
     ///
-    /// The three that are refused are refused for two different reasons, and the difference
-    /// matters more than the count. `Fdf` and `EmbeddedFile` want something from outside the
-    /// document, which principle 3 does not let the part of this program that reads PDFs have.
-    /// `Highlight` wants a *concept* this program does not have: what it can highlight is a range
-    /// of a page's text, and a rectangle measured from the corner of the page is not one — naming
-    /// that is the honest answer, and drawing something rectangular near it would be inventing a
-    /// feature and calling it the annex's.
+    /// > When used as part of a PDF open parameter, the PDF processor shall open the embedded file
+    /// > contained within the EmbeddedFiles name tree identified by name .
+    ///
+    /// §7.11.4's bytes are inside the document and `viewer_core::Event::Extracted` is how they
+    /// reach a host, which is precisely what "the host's decision" describes rather than what
+    /// stands in its way. ADR 0310.
+    ///
+    /// The two that are refused are refused for two different reasons. `Fdf` wants something from
+    /// outside the document — a URI fetched, which principle 3 does not let the part of this
+    /// program that reads PDFs do and which no host of it supplies yet. `Highlight` wants a shape
+    /// this vocabulary has nowhere to put: the annex asks for a *rectangle* to be highlighted, and
+    /// it means something other than selection by that, because it says "selected" for `comment`
+    /// and for `search` and says "highlighted" here.
     #[must_use]
     pub fn unhonoured(&self) -> Option<&'static str> {
         Some(match self {
@@ -328,16 +342,15 @@ impl Parameter {
             | Self::NamedDestination(_)
             | Self::StructureElement(_)
             | Self::Comment(_)
+            | Self::EmbeddedFile(_)
             | Self::Zoom { .. }
             | Self::View(_)
             | Self::ViewRect { .. }
             | Self::Search(_) => return None,
-            Self::EmbeddedFile(_) => {
-                "opening an embedded file is the host's decision, and every parameter after this \
-                 one applies to that file rather than to this document"
-            }
             Self::Highlight { .. } => {
-                "this program highlights a range of a page's text, and a rectangle is not one"
+                "the annex highlights a rectangle rather than selecting one — it says \"selected\" \
+                 for `comment` and `search` and leaves this one's nature to a processor — so it is \
+                 a shape of its own, and no host has asked for one to draw"
             }
             Self::Fdf(_) => "fetching a URI is the host's, and no host supplies one yet",
         })
@@ -840,14 +853,16 @@ mod tests {
         assert_eq!(parse("search=\"\"").parameters, Vec::new());
     }
 
-    /// Eight of the eleven are carried out and three are named, and the three are named *here* so
-    /// that a host reporting them needs no list of its own.
+    /// Nine of the eleven are carried out and two are named, and the two are named *here* so that
+    /// a host reporting them needs no list of its own.
     ///
-    /// **`search` moved sides in the four-hundred-and-fourteenth session** — this test read
-    /// "seven" and "four" until `viewer_core::Command::Find` made the eighth true — which is what
-    /// [`Parameter::unhonoured`]'s own comment says it is for.
+    /// **Two have moved sides**, which is what [`Parameter::unhonoured`]'s own comment says it is
+    /// for: `search` in the four-hundred-and-fourteenth session, when
+    /// `viewer_core::Command::Find` became a document-wide search, and `ef` in the
+    /// four-hundred-and-seventy-fifth, when its refusal turned out to be about the parameters
+    /// *after* it rather than about itself (ADR 0310).
     #[test]
-    fn the_three_this_program_cannot_carry_out_name_themselves() {
+    fn the_two_this_program_cannot_carry_out_name_themselves() {
         let read = parse(
             "page=1&nameddest=a&structelem=b&comment=c&zoom=100&view=Fit&viewrect=0,0,1,1\
              &ef=d&highlight=0,1,2,3&search=x&fdf=f.fdf",
@@ -869,6 +884,7 @@ mod tests {
                 "zoom",
                 "view",
                 "viewrect",
+                "ef",
                 "search"
             ]
         );
@@ -877,7 +893,7 @@ mod tests {
                 .iter()
                 .map(|parameter| parameter.name())
                 .collect::<Vec<_>>(),
-            ["ef", "highlight", "fdf"]
+            ["highlight", "fdf"]
         );
         assert!(refused.iter().all(|parameter| {
             parameter
