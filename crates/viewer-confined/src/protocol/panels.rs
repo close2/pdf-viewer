@@ -46,6 +46,7 @@ use pdf_model::form::{Choice, ChoiceControl, Control, TextControl};
 use pdf_model::metadata::{Information, Trapped};
 use pdf_model::outline::{Item as OutlineItem, Outline};
 use pdf_model::page::Boundary;
+use pdf_model::structure::HeaderScope;
 use pdf_model::thumbnail::Thumbnail;
 use pdf_model::view::{FieldName, ShownValue};
 use pdf_model::viewer_preferences::{
@@ -1441,6 +1442,7 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
             substituted,
             language,
             quads,
+            header_scope,
         } = node;
         writer
             .option_usize(*parent)
@@ -1448,6 +1450,7 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
             .str(name)
             .bool(*substituted)
             .option_str(language.as_deref())
+            .u8(scope_kind(*header_scope))
             .usize(quads.len());
         for quad in quads {
             writer.quad(*quad);
@@ -1483,8 +1486,33 @@ pub(super) fn decode_accessibility(
             name: reader.string("a node's name")?,
             substituted: reader.bool("a node's substitution flag")?,
             language: reader.option_string("a node's language")?,
+            header_scope: read_scope(reader)?,
             quads: super::read_quads(reader, "a node's shapes")?,
         })
+    })
+}
+
+/// Table 384's `/Scope`, as one byte.
+///
+/// A discriminant of its own rather than an `Option` of a name: the three values are the
+/// standard's closed set, and a name would let the confined side send a fourth.
+fn scope_kind(scope: Option<HeaderScope>) -> u8 {
+    match scope {
+        None => 0,
+        Some(HeaderScope::Row) => 1,
+        Some(HeaderScope::Column) => 2,
+        Some(HeaderScope::Both) => 3,
+    }
+}
+
+/// Reads what [`scope_kind`] wrote, refusing a value this build does not define.
+fn read_scope(reader: &mut Reader<'_>) -> Result<Option<HeaderScope>, ProtocolError> {
+    Ok(match reader.u8("a header cell's axis")? {
+        0 => None,
+        1 => Some(HeaderScope::Row),
+        2 => Some(HeaderScope::Column),
+        3 => Some(HeaderScope::Both),
+        value => return Err(unrecognised("a header cell's axis", value)),
     })
 }
 

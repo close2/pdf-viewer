@@ -2328,6 +2328,132 @@ fn a_structure_type_crosses_role_mapped_and_speaking_only_for_itself() {
     assert!(nodes[2].substituted, "{:?}", nodes[2]);
 }
 
+/// One tagged table, built so that every branch of §14.8.5.7's assumption is on one page.
+///
+/// The corner cell spans two rows, which is what makes the second row's first *child* not its
+/// first column — the difference between a reader that counts children and one that keeps a grid.
+/// The last row's header states a `/Scope` the assumption would have contradicted.
+fn with_a_table() -> Vec<u8> {
+    use std::fmt::Write as _;
+    let content = "BT /F1 12 Tf 10 60 Td\n\
+         /TH <</MCID 0>> BDC (Region) Tj EMC\n\
+         /TH <</MCID 1>> BDC (2023) Tj EMC\n\
+         /TH <</MCID 2>> BDC (North) Tj EMC\n\
+         /TH <</MCID 3>> BDC (South) Tj EMC\n\
+         /TD <</MCID 4>> BDC (12) Tj EMC\n\
+         /TH <</MCID 5>> BDC (Total) Tj EMC\nET\n";
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 6 0 R \
+          /MarkInfo << /Marked true >> >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Contents 4 0 R \
+          /Resources << /Font << /F1 5 0 R >> >> /StructParents 0 >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{content}endstream\nendobj\n\
+         5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n\
+         6 0 obj\n<< /Type /StructTreeRoot /K [7 0 R] >>\nendobj\n\
+         7 0 obj\n<< /Type /StructElem /S /Table /P 6 0 R /Pg 3 0 R \
+          /K [8 0 R 11 0 R 13 0 R 16 0 R] >>\nendobj\n\
+         8 0 obj\n<< /Type /StructElem /S /TR /P 7 0 R /Pg 3 0 R /K [9 0 R 10 0 R] >>\nendobj\n\
+         9 0 obj\n<< /Type /StructElem /S /TH /P 8 0 R /Pg 3 0 R /K [0] \
+          /A << /O /Table /RowSpan 2 >> >>\nendobj\n\
+         10 0 obj\n<< /Type /StructElem /S /TH /P 8 0 R /Pg 3 0 R /K [1] >>\nendobj\n\
+         11 0 obj\n<< /Type /StructElem /S /TR /P 7 0 R /Pg 3 0 R /K [12 0 R] >>\nendobj\n\
+         12 0 obj\n<< /Type /StructElem /S /TH /P 11 0 R /Pg 3 0 R /K [2] >>\nendobj\n\
+         13 0 obj\n<< /Type /StructElem /S /TR /P 7 0 R /Pg 3 0 R /K [14 0 R 15 0 R] >>\nendobj\n\
+         14 0 obj\n<< /Type /StructElem /S /TH /P 13 0 R /Pg 3 0 R /K [3] >>\nendobj\n\
+         15 0 obj\n<< /Type /StructElem /S /TD /P 13 0 R /Pg 3 0 R /K [4] >>\nendobj\n\
+         16 0 obj\n<< /Type /StructElem /S /TR /P 7 0 R /Pg 3 0 R /K [17 0 R] >>\nendobj\n\
+         17 0 obj\n<< /Type /StructElem /S /TH /P 16 0 R /Pg 3 0 R /K [5] \
+          /A << /O /Table /Scope /Column >> >>\nendobj\n",
+        content.len()
+    );
+
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// Table 384's `/Scope` crosses for a `TH`, stated or assumed, and for nothing else.
+///
+/// §14.8.4.8.3 makes a `TH` a cell "describing one or more rows, columns or rows and columns of
+/// the table", and §14.8.5.7 says which where the document does not:
+///
+/// > if it is in the first row and column, the Scope is assumed to be Both
+///
+/// > otherwise, if it is in the first row, the Scope is assumed to be Column
+///
+/// > otherwise, if it is in the first column, the Scope is assumed to be Row
+///
+/// > otherwise, the Scope is assumed to be Both
+///
+/// The assumption is about the cell's place in the table's *grid*, which is why the answer is
+/// this crate's: a host has the elements and not the spans that placed them.
+#[test]
+fn a_header_cell_crosses_with_the_axis_it_describes() {
+    use pdf_model::structure::HeaderScope;
+
+    let mut viewer = Viewer::new(400, 300, 1.0);
+    let events: Vec<Event> = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: with_a_table(),
+            password: None,
+            fragment: None,
+        })
+        .collect();
+    let request = request(&events).clone();
+    serve(&mut viewer, &request);
+
+    let Answer::Accessibility(nodes) = viewer.query(Query::AccessibilityTree) else {
+        panic!("the query always answers");
+    };
+    let scope = |name: &str| {
+        nodes
+            .iter()
+            .find(|node| node.name == name)
+            .unwrap_or_else(|| panic!("{name} is on the page: {nodes:?}"))
+            .header_scope
+    };
+
+    // First row and column: the corner of a table with headers on two sides.
+    assert_eq!(scope("Region"), Some(HeaderScope::Both));
+    // The first row, and not the first column.
+    assert_eq!(scope("2023"), Some(HeaderScope::Column));
+    // The second row's only child — and *not* its first column, because the corner cell above it
+    // states a `/RowSpan` of 2. A reader counting children would answer `Row` here.
+    assert_eq!(scope("North"), Some(HeaderScope::Both));
+    // The third row's first column, where the spill has expired.
+    assert_eq!(scope("South"), Some(HeaderScope::Row));
+    // A data cell describes nothing: Table 384's entry "shall only have an effect for structure
+    // elements of type of TH".
+    assert_eq!(scope("12"), None);
+    // And a stated `/Scope` beats the assumption, which would have said `Row` for this one.
+    assert_eq!(scope("Total"), Some(HeaderScope::Column));
+
+    // Nothing outside the table claims an axis.
+    assert!(
+        nodes
+            .iter()
+            .all(|node| node.role == "TH" || node.header_scope.is_none()),
+        "{nodes:?}"
+    );
+}
+
 #[test]
 fn a_page_stating_a_duration_advances_when_it_is_told_the_time() {
     // §12.4.4.1's `/Dur`, and rule 3: this crate has no clock, so the only way it learns that a

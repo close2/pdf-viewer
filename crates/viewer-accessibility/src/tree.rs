@@ -189,7 +189,7 @@ fn elements(view: &PageView, out: &mut Vec<(NodeId, Node)>) -> Vec<NodeId> {
         if !published.get(index).copied().unwrap_or(false) {
             continue;
         }
-        let mapping = crate::role::map(&node.role, !node.name.trim().is_empty());
+        let mapping = crate::role::map(&node.role, !node.name.trim().is_empty(), node.header_scope);
         let mut built = Node::new(mapping.role);
         if mapping.speaks && !node.name.is_empty() {
             say(&mut built, &node.name);
@@ -202,6 +202,10 @@ fn elements(view: &PageView, out: &mut Vec<(NodeId, Node)>) -> Vec<NodeId> {
                 "structure type {name}, which ISO 32000-2 §14.8.4 does not define and this \
                  document's role map does not map"
             ));
+        } else if let Some(note) = mapping.note {
+            // What the platform's vocabulary could not carry, in the description rather than in
+            // the name: it is about the *reading* of the cell and not what the cell says.
+            built.set_description(note);
         }
         if let Some(language) = node.language.as_deref() {
             built.set_language(language);

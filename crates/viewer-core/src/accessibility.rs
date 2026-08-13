@@ -41,7 +41,7 @@
 
 use pdf_model::accessibility::Described;
 use pdf_model::content::MarkedSpan;
-use pdf_model::structure::{Child, Tree};
+use pdf_model::structure::{Child, HeaderScope, StandardType, TableStack, Tree};
 use pdf_syntax::{Dictionary, Document};
 
 /// How deep a structure tree is walked before the walk is abandoned.
@@ -115,6 +115,18 @@ pub struct AccessibilityNode {
     /// content drew no text — a figure, a table cell holding an image — which is a statement
     /// about this program's text layer rather than about the element.
     pub quads: Vec<[f32; 8]>,
+    /// Which of a table's axes this element describes, for a `TH` and nothing else.
+    ///
+    /// §14.8.4.8.3 makes a table header cell one "describing one or more rows, columns or rows and
+    /// columns of the table", and Table 384's `/Scope` is which. It crosses because a host cannot
+    /// work it out: where the document states no `/Scope`, §14.8.5.7's answer is an assumption
+    /// about the cell's place in its table's *grid*, and the grid is a fact about the structure
+    /// tree — spans and all — that this side has and the other side does not.
+    ///
+    /// `None` for every element that is not a `TH`, and for a `TH` this reader could place in no
+    /// grid, which is one a document put outside a `TR`. The second of those is not the same as a
+    /// column header and is deliberately not reported as one: a host says it does not know.
+    pub header_scope: Option<HeaderScope>,
 }
 
 /// What one element contributes before its quads are mapped into the viewport.
@@ -140,6 +152,8 @@ pub(crate) struct Gathered {
     pub(crate) phrase: Option<String>,
     /// §14.9.2's `/Lang`, where the element itself states one.
     pub(crate) language: Option<String>,
+    /// Table 384's `/Scope` for a `TH`, stated or assumed.
+    pub(crate) header_scope: Option<HeaderScope>,
 }
 
 /// Reads the page's part of §14.7's structure tree.
@@ -160,6 +174,9 @@ pub(crate) fn nodes(
         return Vec::new();
     };
     let mut out: Vec<(Option<usize>, Gathered)> = Vec::new();
+    // §14.8.4.8.3's tables, kept as the walk descends: a cell's place in its grid is what
+    // §14.8.5.7 assumes a header's axis from, and it is not knowable from the cell alone.
+    let mut tables = TableStack::new();
     walk(
         document,
         &tree,
@@ -168,6 +185,7 @@ pub(crate) fn nodes(
         page,
         default_language,
         0,
+        &mut tables,
         &mut out,
     );
     prune(out)
@@ -249,6 +267,7 @@ fn walk(
     page: pdf_syntax::ObjectId,
     language: Option<&str>,
     depth: usize,
+    tables: &mut TableStack,
     out: &mut Vec<(Option<usize>, Gathered)>,
 ) {
     if depth >= MAX_DEPTH || out.len() >= MAX_NODES {
@@ -270,6 +289,7 @@ fn walk(
                 let role = tree.role(document, &dict).unwrap_or_default();
                 let phrase =
                     text_entry(document, &dict, "Alt").or_else(|| text_entry(document, &dict, "E"));
+                let header_scope = header_scope(document, tree, &dict, &role, depth, tables);
                 let index = out.len();
                 out.push((
                     parent,
@@ -280,6 +300,7 @@ fn walk(
                         on_page: false,
                         phrase,
                         language: language.clone(),
+                        header_scope,
                     },
                 ));
                 walk(
@@ -290,6 +311,7 @@ fn walk(
                     page,
                     language.as_deref(),
                     depth.saturating_add(1),
+                    tables,
                     out,
                 );
             }
@@ -343,6 +365,30 @@ fn walk(
     }
 }
 
+/// Which of a table's axes one element describes, where the element is a `TH`.
+///
+/// The stack is told about **every** element rather than only the table ones, because it is what
+/// closes a table the walk has left: a walk that named only tables would keep one open under
+/// everything that came after it, and a paragraph three sections later would be placed in a grid.
+fn header_scope(
+    document: &Document,
+    tree: &Tree,
+    dict: &Dictionary,
+    role: &str,
+    depth: usize,
+    tables: &mut TableStack,
+) -> Option<HeaderScope> {
+    let kind = StandardType::read(role);
+    let placement = tables.enter(depth, kind.as_ref(), || tree.cell_span(document, dict));
+    if kind != Some(StandardType::TableHeader) {
+        return None;
+    }
+    // Table 384's own value where the document states one, and §14.8.5.7's assumption where it
+    // does not — which needs the cell's place in the grid and answers nothing without it.
+    tree.header_scope(document, dict)
+        .or_else(|| placement.map(|cell| HeaderScope::assumed(cell.row, cell.column)))
+}
+
 /// A text-string entry, decoded through §7.9.2.2's rules.
 fn text_entry(document: &Document, dict: &Dictionary, key: &str) -> Option<String> {
     let value = document.get_key(dict, key);
@@ -387,5 +433,6 @@ pub(crate) fn finish(
         substituted,
         language: gathered.language,
         quads: all,
+        header_scope: gathered.header_scope,
     }
 }

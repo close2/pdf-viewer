@@ -10,6 +10,7 @@
 )]
 
 use accesskit::{Node, NodeId, Role};
+use pdf_model::structure::HeaderScope;
 use viewer_accessibility::{PageView, tree};
 use viewer_core::AccessibilityNode;
 
@@ -22,6 +23,15 @@ fn element(parent: Option<usize>, role: &str, name: &str) -> AccessibilityNode {
         substituted: false,
         language: None,
         quads: Vec::new(),
+        header_scope: None,
+    }
+}
+
+/// One `TH`, with the axis Table 384 states or §14.8.5.7 assumes for it.
+fn header(parent: Option<usize>, name: &str, scope: Option<HeaderScope>) -> AccessibilityNode {
+    AccessibilityNode {
+        header_scope: scope,
+        ..element(parent, "TH", name)
     }
 }
 
@@ -219,4 +229,47 @@ fn a_static_text_node_puts_its_text_in_the_value() {
     let paragraphs = [element(None, "P", "a paragraph")];
     let update = tree::build(&view(&paragraphs, &[]));
     assert_eq!(node(&update, NodeId(16)).label(), Some("a paragraph"));
+}
+
+/// A header cell's axis decides its role, and the axis the platform cannot say is said in words.
+///
+/// ISO 32000-2 §14.8.4.8.3 makes a `TH` a cell "describing one or more rows, columns or rows and
+/// columns of the table", and Table 384's `/Scope` is which. AccessKit has a role for two of the
+/// three; the third — and a cell whose axis could not be determined at all — are described rather
+/// than guessed at, which is what `role.rs` argues.
+#[test]
+fn a_header_cells_axis_decides_its_role_and_the_rest_is_said_in_words() {
+    let nodes = [
+        header(None, "Region", Some(HeaderScope::Row)),
+        header(None, "2024", Some(HeaderScope::Column)),
+        header(None, "corner", Some(HeaderScope::Both)),
+        header(None, "loose", None),
+    ];
+    let update = tree::build(&view(&nodes, &[]));
+
+    let row = node(&update, NodeId(16));
+    assert_eq!(row.role(), Role::RowHeader);
+    assert_eq!(row.description(), None, "nothing was lost");
+    assert_eq!(node(&update, NodeId(17)).role(), Role::ColumnHeader);
+    assert_eq!(node(&update, NodeId(17)).description(), None);
+
+    // `Both` has no role in AccessKit and none in AT-SPI either, so the loss is stated.
+    let both = node(&update, NodeId(18));
+    assert_eq!(both.role(), Role::ColumnHeader);
+    assert!(
+        both.description().is_some_and(|note| note.contains("both")),
+        "{:?}",
+        both.description()
+    );
+
+    // And an axis this reader could not determine says so rather than passing for a column's.
+    let unknown = node(&update, NodeId(19));
+    assert_eq!(unknown.role(), Role::ColumnHeader);
+    assert!(
+        unknown
+            .description()
+            .is_some_and(|note| note.contains("not known")),
+        "{:?}",
+        unknown.description()
+    );
 }

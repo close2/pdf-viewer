@@ -21,7 +21,7 @@
 //! | `RB`, `RP`, `WT`, `WP` | `Label` | AccessKit has `Ruby` and `RubyAnnotation` and nothing for the base text, the punctuation or warichu's halves |
 //! | `Warichu` | `Group` | no warichu role |
 //! | `LBody` | `GenericContainer` | no list-item-body role; a list item's content belongs to the item, which is what the platform filter does with this one |
-//! | `TH` | `ColumnHeader` | AccessKit splits header cells by axis and §14.8.4.8.3 leaves the axis to the `Scope` attribute, which this program does not read here. Named in `doc/todo/31` |
+//! | `TH` scoped `Both` | `ColumnHeader`, described | AccessKit splits header cells by axis and has no role for a cell that describes both. See below |
 //! | `Figure` | `Image` | `Role::Figure` exists and becomes an AT-SPI `Panel`, which says nothing; a `Figure` is graphical content that §14.8.4.8.5 says "should have either an `Alt` entry or an `ActualText` entry", which is an image with alternative text |
 //! | anything else | `Group`, described | §14.8.4.1 requires a tagged document's types to be standard or role mapped to standard ones, so a name arriving here is a defect in the *document*. The name is put in the node's description rather than dropped |
 //!
@@ -43,9 +43,36 @@
 //! course of pagination, layout, or other mechanical processes or introduced by the document
 //! author for decoration". A running head read aloud on every page is what tagging exists to
 //! prevent, so an artifact's text is dropped rather than promoted.
+//!
+//! # A header cell's axis, and the one value the platform has no word for
+//!
+//! §14.8.4.8.3's `TH` is a cell "describing one or more rows, columns or rows and columns of the
+//! table", and Table 384's `/Scope` says which of the three — stated by the document, or assumed
+//! by §14.8.5.7 from the cell's place in the grid. `viewer_core::AccessibilityNode::header_scope`
+//! carries the answer here because only the reading side can work it out.
+//!
+//! Two of the three land exactly: `Row` is [`accesskit::Role::RowHeader`] and `Column` is
+//! [`accesskit::Role::ColumnHeader`], which `accesskit_atspi_common` puts on the bus as AT-SPI's
+//! `RowHeader` and `ColumnHeader`. **`Both` has no role in either vocabulary, and what is done
+//! with it is a choice rather than a derivation**: the node keeps `ColumnHeader` and says in its
+//! description that the document scopes it to both axes. The alternative — a plain `Cell` — loses
+//! the fact that it is a header at all, which is the more expensive of the two losses; and
+//! inventing an axis the document did not state is what this table exists to avoid.
+//!
+//! **A `TH` whose axis is unknown is a third case and is not folded into the second.** A document
+//! that puts a header cell outside a `TR` leaves §14.8.5.7's assumption nothing to work from, so
+//! there is no scope, and the description says the axis could not be determined instead of naming
+//! one. That is the same rule the untagged page follows one file over.
+//!
+//! **What does *not* cross is the cell's coordinates**, and the reason is worth recording because
+//! it is about this platform rather than about the standard: `accesskit_atspi_common` implements
+//! `Accessible`, `Action`, `Component`, `Hyperlink`, `Selection`, `Text` and `Value`, and **not**
+//! `org.a11y.atspi.Table` or `TableCell`. A row and column index set on a node would therefore
+//! reach AccessKit and stop there, which is the shape of capability `doc/habits.md` warns about.
+//! `doc/todo/31` records it as owed to the platform rather than to this crate.
 
 use accesskit::Role;
-use pdf_model::structure::StandardType;
+use pdf_model::structure::{HeaderScope, StandardType};
 
 /// What one structure type becomes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -76,6 +103,12 @@ pub struct Mapping {
     /// `false` for `Artifact` alone: §14.8.2.2 makes an artifact content that is on the page and
     /// is not the document's, and speaking it is what tagging exists to avoid.
     pub speaks: bool,
+    /// What the platform's vocabulary could not carry, in words a person is meant to hear.
+    ///
+    /// `Some` only where the mapping *lost* something a document stated — a `TH` scoped to both
+    /// axes, or one whose axis could not be determined — and it becomes the node's description
+    /// rather than its name, so it is advisory rather than read in place of the cell's content.
+    pub note: Option<&'static str>,
 }
 
 /// Maps one element's structure type onto the platform's vocabulary.
@@ -83,14 +116,20 @@ pub struct Mapping {
 /// `speaking` is whether the element has anything of its own to say, which decides one thing: a
 /// type that would otherwise become a role the platform filters out of the tree keeps its text by
 /// becoming a [`Role::Label`] instead. See this module's own documentation.
+///
+/// `scope` is Table 384's axis for a `TH`, which
+/// [`viewer_core::AccessibilityNode::header_scope`] answers with and which decides between two
+/// roles the platform keeps apart. It is ignored for every other type, because the entry "shall
+/// only have an effect for structure elements of type of TH".
 #[must_use]
-pub fn map(role: &str, speaking: bool) -> Mapping {
+pub fn map(role: &str, speaking: bool, scope: Option<HeaderScope>) -> Mapping {
     let Some(standard) = StandardType::read(role) else {
         return Mapping {
             role: Role::Group,
             level: None,
             unmapped: Some(role.to_owned()),
             speaks: true,
+            note: None,
         };
     };
     #[expect(
@@ -138,7 +177,7 @@ pub fn map(role: &str, speaking: bool) -> Mapping {
         // Table 371, tables.
         StandardType::Table => (Role::Table, None),
         StandardType::TableRow => (Role::Row, None),
-        StandardType::TableHeader => (Role::ColumnHeader, None),
+        StandardType::TableHeader => (header_role(scope), None),
         StandardType::TableData => (Role::Cell, None),
         StandardType::TableHead | StandardType::TableBody | StandardType::TableFoot => {
             (Role::RowGroup, None)
@@ -162,6 +201,38 @@ pub fn map(role: &str, speaking: bool) -> Mapping {
         level,
         unmapped: None,
         speaks,
+        note: header_note(&standard, scope),
+    }
+}
+
+/// Which header role a `TH`'s axis becomes.
+///
+/// `Both` and an axis this reader could not determine both keep [`Role::ColumnHeader`], and
+/// [`header_note`] is what says which of the two happened. Neither is silent and neither invents
+/// an axis: see this module's own documentation for why the loss falls this way.
+fn header_role(scope: Option<HeaderScope>) -> Role {
+    match scope {
+        Some(HeaderScope::Row) => Role::RowHeader,
+        Some(HeaderScope::Column | HeaderScope::Both) | None => Role::ColumnHeader,
+    }
+}
+
+/// What a header cell's node says about an axis the platform could not carry.
+fn header_note(standard: &StandardType, scope: Option<HeaderScope>) -> Option<&'static str> {
+    if *standard != StandardType::TableHeader {
+        return None;
+    }
+    match scope {
+        Some(HeaderScope::Both) => Some(
+            "this header cell describes both its row and its column (ISO 32000-2 Table 384, \
+             Scope Both); this platform has a role for each axis and none for both, so it is \
+             given as a column header",
+        ),
+        None => Some(
+            "this document states a table header cell outside a table row (ISO 32000-2 \
+             §14.8.4.8.3), so which of the table's axes it describes is not known",
+        ),
+        Some(HeaderScope::Row | HeaderScope::Column) => None,
     }
 }
 
@@ -236,7 +307,7 @@ mod tests {
                 StandardType::read(name).is_some(),
                 "{name} is one of §14.8.4's own names"
             );
-            let mapping = map(name, false);
+            let mapping = map(name, false, None);
             assert_eq!(mapping.unmapped, None, "{name} is standard");
             assert_ne!(
                 mapping.role,
@@ -249,13 +320,13 @@ mod tests {
     /// §14.8.4.5's `Hn` carries its level, and `H` deliberately does not.
     #[test]
     fn a_numbered_heading_carries_its_level_and_an_unnumbered_one_does_not() {
-        assert_eq!(map("H1", true).level, Some(1));
-        assert_eq!(map("H6", true).level, Some(6));
+        assert_eq!(map("H1", true, None).level, Some(1));
+        assert_eq!(map("H6", true, None).level, Some(6));
         // "with n being a sequence of digits representing an unsigned integer greater than or
         // equal to 1" — so a level nobody enumerated is still a level.
-        assert_eq!(map("H17", true).level, Some(17));
-        assert_eq!(map("H", true).role, Role::Heading);
-        assert_eq!(map("H", true).level, None);
+        assert_eq!(map("H17", true, None).level, Some(17));
+        assert_eq!(map("H", true, None).role, Role::Heading);
+        assert_eq!(map("H", true, None).level, None);
     }
 
     /// A role the platform filters out never carries the element's text away with it.
@@ -263,17 +334,17 @@ mod tests {
     fn a_filtered_role_never_carries_text() {
         // `NonStruct` is the type whose clause asks to be ignored, and the mapping obeys that
         // where there is nothing to lose.
-        assert_eq!(map("NonStruct", false).role, Role::GenericContainer);
-        assert_eq!(map("LBody", false).role, Role::GenericContainer);
+        assert_eq!(map("NonStruct", false, None).role, Role::GenericContainer);
+        assert_eq!(map("LBody", false, None).role, Role::GenericContainer);
         // And keeps the node where there is.
-        assert_eq!(map("NonStruct", true).role, Role::Label);
-        assert_eq!(map("LBody", true).role, Role::Label);
+        assert_eq!(map("NonStruct", true, None).role, Role::Label);
+        assert_eq!(map("LBody", true, None).role, Role::Label);
     }
 
     /// §14.8.2.2's artifact keeps its filtered role and is never spoken.
     #[test]
     fn an_artifact_is_not_spoken_even_when_it_has_text() {
-        let Mapping { role, speaks, .. } = map("Artifact", true);
+        let Mapping { role, speaks, .. } = map("Artifact", true, None);
         assert_eq!(role, Role::GenericContainer);
         assert!(
             !speaks,
@@ -287,7 +358,7 @@ mod tests {
     /// arriving here is §14.8.4.1's requirement unmet by the document.
     #[test]
     fn a_type_outside_the_standard_set_is_carried_rather_than_dropped() {
-        let mapping = map("Advertising", true);
+        let mapping = map("Advertising", true, None);
         assert_eq!(mapping.role, Role::Group);
         assert_eq!(mapping.unmapped.as_deref(), Some("Advertising"));
     }

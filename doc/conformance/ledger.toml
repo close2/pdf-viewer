@@ -5408,7 +5408,7 @@ title = "Tagged PDF"
 status = "partial"
 code = ["crates/pdf-model/src/structure.rs"]
 test = ["crates/pdf-model/src/structure.rs::a_document_says_it_is_tagged_in_its_mark_information_dictionary"]
-note = "Tagged PDF: \"a stylised use of PDF that builds on the logical structure framework described in 14.7\". Of its sixty rows, what is read is the whole of §14.8.4's vocabulary, §14.8.2's artifacts and reversed show strings, §14.8.6's namespaces, and this row's own mark information dictionary. What is left is §14.8.5's attributes — what a `/BBox` or a `/ColSpan` *says* — and §14.8.2.5's ordering, which is a question for a consumer that walks the tree rather than for the reader that builds it."
+note = "Tagged PDF: \"a stylised use of PDF that builds on the logical structure framework described in 14.7\". Of its sixty rows, what is read is the whole of §14.8.4's vocabulary, §14.8.2's artifacts and reversed show strings, §14.8.6's namespaces, and this row's own mark information dictionary. What is left is most of §14.8.5's attributes — what a `/BBox` *says* — with Table 384's `/Scope`, `/RowSpan` and `/ColSpan` read since ADR 0300, and §14.8.2.5's ordering, which is a question for a consumer that walks the tree rather than for the reader that builds it."
 
 [[clause]]
 clause = "14.8.1"
@@ -5680,7 +5680,7 @@ title = "Table structure types"
 status = "implemented"
 code = ["crates/pdf-model/src/structure.rs"]
 test = ["crates/pdf-model/src/structure.rs::a_heading_carries_its_level_and_the_table_carries_the_rest"]
-note = "`Table`, `TR`, `TH`, `TD`, `THead`, `TBody` and `TFoot`. `Table` is block level and the other six are internal to it. The attributes that make a table *readable* — `/Headers`, `/Scope`, `/RowSpan`, `/ColSpan` — are §14.8.5's and are unread as data, which is where the remaining work in this family is."
+note = "`Table`, `TR`, `TH`, `TD`, `THead`, `TBody` and `TFoot`. `Table` is block level and the other six are internal to it. Three of the four attributes that make a table *readable* are read since ADR 0300 — `/Scope`, `/RowSpan` and `/ColSpan`, §14.8.5.7's row has them — and this clause's own contribution is the sentence that says what a `TH` is for: \"A table header cell containing content describing one or more rows, columns or rows and columns of the table.\" What is still unread here is the clause's *algorithm*, the implicit header search that runs where `/Headers` states nothing; §14.8.5.7 is where that is owed, because the array and the search are two routes to one answer."
 
 [[clause]]
 clause = "14.8.4.8.4"
@@ -5720,7 +5720,7 @@ title = "Standard structure attributes"
 status = "partial"
 code = ["crates/pdf-model/src/structure.rs"]
 test = ["crates/pdf-model/src/structure.rs::an_attributes_owner_and_its_ancestry_decide_which_value_applies"]
-note = "The attributes a structure element may carry. **How an attribute is found is implemented** — where it lives (§14.8.5.1), whose vocabulary it is in (§14.8.5.2) and which of several values applies (§14.8.5.3) — and **what each attribute means is not, deliberately**: twelve of this family's sixteen rows are `inapplicable`, because a layout attribute describes the layout process that produced an appearance this reader already has. What is left `silent` is §14.8.5.6's `PrintField`, the one family with a rendering-adjacent entry."
+note = "The attributes a structure element may carry. **How an attribute is found is implemented** — where it lives (§14.8.5.1), whose vocabulary it is in (§14.8.5.2) and which of several values applies (§14.8.5.3) — and **what most of them mean is not, deliberately**: eleven of this family's sixteen rows are `inapplicable`, because a layout attribute describes the layout process that produced an appearance this reader already has. **Two are not, and both were found the same way**: §14.8.5.6's `PrintField` says what a flattened form field was, and §14.8.5.7's `/Scope` says which axis a table header describes. Neither is drawn and both are read aloud, which is the test this family's `inapplicable` rows should be put to rather than \"does it change a pixel\"."
 
 [[clause]]
 clause = "14.8.5.1"
@@ -5767,8 +5767,8 @@ note = "Table 378's attributes common to every structure type: `/Placement`, `/W
 [[clause]]
 clause = "14.8.5.4.3"
 title = "Layout Attributes for BLSEs"
-status = "inapplicable"
-note = "Table 379's block-level attributes: `/SpaceBefore`, `/SpaceAfter`, `/StartIndent`, `/EndIndent`, `/TextIndent`, `/TextAlign`, `/BBox`, `/Width`, `/Height`, `/BlockAlign`, `/InlineAlign`, `/TBorderStyle`, `/TPadding`. The `/BBox` here is a *description* of where the element was laid out and not a clip — unlike §8.10's form `/BBox` and §8.7.3.1's pattern `/BBox`, which are, and the three should not be confused."
+status = "silent"
+note = "Table 379's block-level attributes: `/SpaceBefore`, `/SpaceAfter`, `/StartIndent`, `/EndIndent`, `/TextIndent`, `/TextAlign`, `/BBox`, `/Width`, `/Height`, `/BlockAlign`, `/InlineAlign`, `/TBorderStyle`, `/TPadding`. Ten of the thirteen describe the layout process that produced an appearance this reader already has, and a reader that drew from them would draw the page twice. **`/BBox`, `/Width` and `/Height` are not among them, and this row was `inapplicable` on a reason that only answers for the other ten.** The reason it gave — the `/BBox` here is a *description* of where the element was laid out and not a clip, unlike §8.10's form `/BBox` and §8.7.3.1's pattern `/BBox`, which are, and the three should not be confused — is about *drawing*, and where an element is turns out to be a question this program is asked from the other direction: `viewer_core::AccessibilityNode::quads` is built from the text layer, so an element that marks no text crosses to an assistive technology with **no place at all**, which `viewer_accessibility::tree::bounding_box` states in its own words as \"a figure, a table cell holding an image\". A description of where the element was laid out is exactly what a magnifier wants to be pointed at. Nothing reports the gap, which is what makes this `silent` rather than `reported`. Found by the seventh sweep beside §14.8.5.7, and the two are one shape: a §14.8.5 row refused on what it does not draw, for an entry whose only reader speaks. The population is unmeasured — no census has counted a `/BBox` layout attribute in the corpus — and `doc/todo/31` carries both the measurement and the work."
 
 [[clause]]
 clause = "14.8.5.4.4"
@@ -5811,8 +5811,10 @@ note = "Table 383 whole, in `Tree::print_field`: `/Role` in all five of its valu
 [[clause]]
 clause = "14.8.5.7"
 title = "Table attributes"
-status = "inapplicable"
-note = "Table 384's `/RowSpan`, `/ColSpan`, `/Headers`, `/Scope`, `/Summary` and PDF 2.0's `/Short` — the table semantics §14.8.4.8.3's header-search algorithm consumes. Nothing here is drawn; a spanned cell was drawn as whatever marks the content stream made. (The number said 383 until the three-hundred-and-eighty-seventh session, which is the PrintField attributes §14.8.5.6 owns and which `structure.rs` cites correctly for `/Checked`; the table attributes are 384.)"
+status = "partial"
+code = ["crates/pdf-model/src/structure.rs", "crates/viewer-core/src/accessibility.rs", "crates/viewer-accessibility/src/role.rs"]
+test = ["crates/pdf-model/src/structure.rs::a_header_cell_states_its_axis_and_a_cell_states_its_spans", "crates/viewer-core/tests/headless.rs::a_header_cell_crosses_with_the_axis_it_describes"]
+note = "Table 384's `/RowSpan`, `/ColSpan`, `/Headers`, `/Scope`, `/Summary` and PDF 2.0's `/Short`. **This row was `inapplicable` on the reason \"[n]othing here is drawn; a spanned cell was drawn as whatever marks the content stream made\", which is the refusal shape whose reason names a *rendering* argument for a requirement addressed to a reader.** §14.8.5.6 next door had already stopped being inapplicable for exactly that: a `PrintField` attribute is not drawn either and it is what a screen reader says. `/Scope`, `/RowSpan` and `/ColSpan` are read since ADR 0300 — `Tree::header_scope` and `Tree::cell_span`, with `TableStack` keeping the grid a walk of §14.7's tree needs to place a cell — and the axis reaches AT-SPI as `RowHeader` or `ColumnHeader`, read back off a real bus. The assumption for a `TH` that states no `/Scope` is the clause's own four bullets over the *logical* row and column, which §14.8.4.8.3's NOTE is what licenses: \"the structure always reflects the logical content order of the table\", so `WritingMode` decides where a row is drawn and not which row is first. What is left is `/Headers`, which needs §14.8.4.8.3's implicit search as well as the explicit array or it would implement one of a clause's two routes; `/Summary`, a table-level sentence nothing yet says; and `/Short`, whose value is what a screen reader should repeat in place of a long header. Measured over 978 documents by `examples/table_header_census`: 25 state a table, 5965 `TH` in all, 227 of them state `/Scope`, and the axes come to 3114 `Row`, 1670 `Column` and 1181 `Both` — so a reader that called every header a column's was wrong about more than half of them. (The number said 383 until the three-hundred-and-eighty-seventh session, which is the PrintField attributes §14.8.5.6 owns and which `structure.rs` cites correctly for `/Checked`; the table attributes are 384.)"
 
 [[clause]]
 clause = "14.8.5.8"

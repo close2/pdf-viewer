@@ -3253,6 +3253,7 @@ mod tests {
                 substituted: false,
                 language: Some("en-GB".to_owned()),
                 quads: Vec::new(),
+                header_scope: None,
             },
             AccessibilityNode {
                 parent: Some(0),
@@ -3261,6 +3262,18 @@ mod tests {
                 substituted: true,
                 language: None,
                 quads: vec![[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]],
+                header_scope: None,
+            },
+            // A `TH` whose axis Table 384 states, because a header cell that crossed as a
+            // column's when the document called it a row's would be read out backwards.
+            AccessibilityNode {
+                parent: Some(0),
+                role: "TH".to_owned(),
+                name: "Region".to_owned(),
+                substituted: false,
+                language: None,
+                quads: Vec::new(),
+                header_scope: Some(pdf_model::structure::HeaderScope::Row),
             },
         ];
         let Reply::Accessibility(read) = round_trip(&Answer::Accessibility(nodes.clone())) else {

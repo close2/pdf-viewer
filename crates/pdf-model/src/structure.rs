@@ -601,6 +601,53 @@ impl Tree {
         })
     }
 
+    /// Table 384's `/RowSpan` and `/ColSpan` for a `TH` or `TD`, with the table's own defaults.
+    ///
+    /// ISO 32000-2 §14.8.5.7:
+    ///
+    /// > (Optional; not inheritable) The number of rows in the enclosing table that shall be
+    /// > spanned by the cell.
+    ///
+    /// and the same sentence for columns, both with "Default value: 1". *Not inheritable* is why
+    /// this asks [`Self::attribute`] rather than [`Self::inherited_attribute`] — a cell inside a
+    /// spanned cell's table would otherwise take its enclosing cell's span.
+    ///
+    /// A value below 1 is read as 1: the entry is a number of rows or columns, and a cell
+    /// occupies at least the one it is in.
+    ///
+    /// Both entries are read for a `TD` as well as a `TH`, because Table 384 states them for both
+    /// and because a `TD`'s span is what pushes the *next* row's header cell off column zero.
+    #[must_use]
+    pub fn cell_span(&self, document: &Document, element: &Dictionary) -> (usize, usize) {
+        let span = |name: &str| {
+            self.attribute(document, element, name)
+                .and_then(|value| value.as_integer())
+                .and_then(|value| usize::try_from(value).ok())
+                .filter(|value| *value >= 1)
+                .unwrap_or(1)
+        };
+        (span("RowSpan"), span("ColSpan"))
+    }
+
+    /// Table 384's `/Scope`, where a `TH` states one.
+    ///
+    /// `None` for an element that states none — for which [`HeaderScope::assumed`] is the
+    /// standard's own answer and needs the cell's place in the grid — and for a value outside the
+    /// table's three names, which is a document stating something §14.8.5.7 does not define.
+    ///
+    /// The clause's condition on which attribute objects may carry it is
+    /// [`Self::attribute`]'s already: the table attributes "may only be defined in attribute
+    /// objects whose `O` (owner) entry has the value `Table` or whose owner is any other owner
+    /// excluding `Layout`, `List`, `PrintField` and `Artifact`" — a paraphrase in this crate's own
+    /// spelling of the names — and a format-specific owner's value is never consulted.
+    #[must_use]
+    pub fn header_scope(&self, document: &Document, element: &Dictionary) -> Option<HeaderScope> {
+        self.attribute(document, element, "Scope")
+            .and_then(|value| value.as_name().map(|name| name.as_bytes().to_vec()))
+            .as_deref()
+            .and_then(HeaderScope::read)
+    }
+
     /// The structure element a `/ID` names, through §14.7.2's Table 354 `/IDTree`.
     ///
     /// > A name tree (see 7.9.6, "Name trees") that maps element identifiers (see "Table 355 -
@@ -956,6 +1003,249 @@ impl Checked {
             b"neutral" => Self::Neutral,
             _ => return None,
         })
+    }
+}
+
+/// Table 384's `/Scope`: which of a table's axes one `TH` cell's content describes.
+///
+/// ISO 32000-2 §14.8.4.8.3 gives the header cell itself as
+///
+/// > A table header cell containing content describing one or more rows, columns or rows and
+/// > columns of the table.
+///
+/// and this entry is what says which of the three it is. Nothing about the page depends on it —
+/// a header cell was drawn by the marks its content stream made, whatever it describes — and
+/// everything about *reading* the table does: a screen reader announces a cell's headers before
+/// the cell, and a row's header announced as a column's puts the wrong word in front of every
+/// cell in the table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HeaderScope {
+    /// `Row`: the cell describes the row it is in.
+    Row,
+    /// `Column`: the cell describes the column it is in.
+    Column,
+    /// `Both`: the cell describes both.
+    ///
+    /// Table 384's assumption for a cell in the first row *and* the first column, and for one in
+    /// neither — which is the corner cell of a table with headers on two sides, and every header
+    /// cell buried inside one.
+    Both,
+}
+
+impl HeaderScope {
+    /// One of Table 384's three names, or `None` for anything else.
+    ///
+    /// ISO 32000-2 §14.8.5.7:
+    ///
+    /// > A name whose value shall be one of the following: Row, Column
+    ///
+    /// — and `Both`, which the Markdown conversion of the standard breaks across a space.
+    #[must_use]
+    pub fn read(name: &[u8]) -> Option<Self> {
+        Some(match name {
+            b"Row" => Self::Row,
+            b"Column" => Self::Column,
+            b"Both" => Self::Both,
+            _ => return None,
+        })
+    }
+
+    /// Table 384's assumed value, for a `TH` that states no `/Scope`.
+    ///
+    /// ISO 32000-2 §14.8.5.7:
+    ///
+    /// > If a Scope is not specified for a TH structure element, then the assumed value for the
+    /// > Scope shall be determined as follows, taking into account the current value for
+    /// > WritingMode
+    ///
+    /// > if it is in the first row and column, the Scope is assumed to be Both
+    ///
+    /// > otherwise, if it is in the first row, the Scope is assumed to be Column
+    ///
+    /// > otherwise, if it is in the first column, the Scope is assumed to be Row
+    ///
+    /// > otherwise, the Scope is assumed to be Both
+    ///
+    /// **The row and the column here are the *logical* ones — the table's own `TR` order and the
+    /// cell's place in the grid — and that is the standard's reading rather than this crate's
+    /// convenience.** §14.8.4.8.3's NOTE, on the header search these assumptions feed, says
+    ///
+    /// > This algorithm works for languages with different intrinsic directionality of the script
+    /// > (such as right-to-left) because the structure always reflects the logical content order
+    /// > of the table.
+    ///
+    /// so `WritingMode` decides where the first row and column are *drawn*, and the structure
+    /// decides which they are. This reader has the structure, which is why it can answer without
+    /// reading §14.8.5.4's layout attributes at all.
+    #[must_use]
+    pub fn assumed(row: usize, column: usize) -> Self {
+        match (row, column) {
+            (0, 0) => Self::Both,
+            (0, _) => Self::Column,
+            (_, 0) => Self::Row,
+            _ => Self::Both,
+        }
+    }
+}
+
+/// How many columns of one table this reader places cells in.
+///
+/// A bound on a `/ColSpan` a document controls, and it cannot change an answer: [`HeaderScope`]'s
+/// assumption turns on whether a cell is in the *first* column, and a cell placed at this bound is
+/// not in the first column however far past it the document put it. Sixty-four times this many
+/// `usize` is the worst a [`MAX_DEPTH`]-deep nest of tables can hold at once.
+const MAX_TABLE_COLUMNS: usize = 4096;
+
+/// Where one `TH` or `TD` sits in its table, and how far it reaches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CellPlacement {
+    /// The row, counting the table's `TR` elements from zero across `THead`, `TBody` and `TFoot`.
+    pub row: usize,
+    /// The first column the cell occupies, counting from zero.
+    pub column: usize,
+    /// Table 384's `/RowSpan`, at least 1.
+    pub row_span: usize,
+    /// Table 384's `/ColSpan`, at least 1.
+    pub column_span: usize,
+}
+
+/// One table's grid, filled a row at a time as §14.7's tree is walked.
+///
+/// **A cell's column is not its position among its row's children**, which is the whole reason
+/// this type exists. Table 384's `/RowSpan` lets a cell in an earlier row occupy a column of this
+/// one — ISO 32000-2 §14.8.5.7 —
+///
+/// > The number of rows in the enclosing table that shall be spanned by the cell.
+///
+/// — so the second row of a table whose first cell spans two rows begins at column 1, and a
+/// reader that counted children would call that cell the first column's and give it
+/// [`HeaderScope::Row`] where §14.8.5.7 assumes [`HeaderScope::Both`].
+///
+/// The grid is filled in the order the tree is walked, which is the order the standard states the
+/// table in: `begin_row` at each `TR`, `place` at each `TH` or `TD`. [`TableStack`] is what drives
+/// it, and is what a consumer uses: a table may contain a table, so one grid is not enough.
+#[derive(Debug, Clone, Default)]
+struct TableGrid {
+    /// The row being filled, or `None` before the first `TR`.
+    row: Option<usize>,
+    /// The column the next cell of this row is tried at, before spill is considered.
+    next: usize,
+    /// For each column, the first row in which it is free again.
+    free_from: Vec<usize>,
+}
+
+impl TableGrid {
+    /// Begins the next `TR` of this table.
+    fn begin_row(&mut self) {
+        self.row = Some(match self.row {
+            None => 0,
+            Some(row) => row.saturating_add(1),
+        });
+        self.next = 0;
+    }
+
+    /// Places the next cell of the row being filled, spanning as Table 384 says it does.
+    ///
+    /// `None` before any row has begun, which is a `TH` or `TD` outside a `TR`. Nothing is
+    /// invented for it: the position is the one thing §14.8.5.7's assumption turns on, and a
+    /// guess there would be this reader's opinion about which axis a header describes.
+    fn place(&mut self, row_span: usize, column_span: usize) -> Option<CellPlacement> {
+        let row = self.row?;
+        let row_span = row_span.max(1);
+        let column_span = column_span.max(1);
+        let mut column = self.next;
+        while column < MAX_TABLE_COLUMNS
+            && self
+                .free_from
+                .get(column)
+                .is_some_and(|free_from| *free_from > row)
+        {
+            column = column.saturating_add(1);
+        }
+        let end = column
+            .saturating_add(column_span)
+            .min(MAX_TABLE_COLUMNS)
+            .max(column);
+        if self.free_from.len() < end {
+            self.free_from.resize(end, 0);
+        }
+        for slot in self.free_from.get_mut(column..end).into_iter().flatten() {
+            *slot = row.saturating_add(row_span);
+        }
+        self.next = end;
+        Some(CellPlacement {
+            row,
+            column,
+            row_span,
+            column_span,
+        })
+    }
+}
+
+/// The tables a walk of §14.7's tree is currently inside, innermost last.
+///
+/// §14.8.4.8.3 puts no bar on a `Table` inside a `TD`, so one grid is not enough and the enclosing
+/// table's rows continue where the inner one's finish. The stack is keyed by the walk's own depth,
+/// which is what both consumers of this type already have: a depth-first [`Tree::walk`] carries
+/// one, and a recursive walk is at one.
+///
+/// It is deliberately *driven* rather than computed. Both callers walk the tree for their own
+/// reasons — a census over a corpus, and `viewer_core`'s answer for one page — and neither should
+/// walk it a second time to learn where its cells are.
+#[derive(Debug, Clone, Default)]
+pub struct TableStack {
+    /// The depth each open table's element was entered at, with its grid.
+    ///
+    /// One entry per depth, because [`Self::enter`] closes every table at or below the depth it
+    /// is given before opening another, so this is bounded by whatever bounds the walk's depth.
+    open: Vec<(usize, TableGrid)>,
+}
+
+impl TableStack {
+    /// A stack inside no table.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Enters one structure element, and answers with its place in its table where it is a cell.
+    ///
+    /// `kind` is the element's §14.8.4 type **after §14.7.3's role mapping**, because a document's
+    /// own name for a table cell is a table cell; [`Tree::standard_role`] is that reading. `None`
+    /// — a type §14.8.4 does not define — is neither a table nor a cell and only closes what the
+    /// walk has left.
+    ///
+    /// `span` is asked for **only where the element turns out to be a cell**, which is why it is a
+    /// closure rather than a pair: [`Tree::cell_span`] reads the element's attribute objects and
+    /// its class map, and a tagged document's elements are overwhelmingly paragraphs and spans.
+    pub fn enter(
+        &mut self,
+        depth: usize,
+        kind: Option<&StandardType>,
+        span: impl FnOnce() -> (usize, usize),
+    ) -> Option<CellPlacement> {
+        while self.open.last().is_some_and(|(at, _)| *at >= depth) {
+            self.open.pop();
+        }
+        match kind {
+            Some(StandardType::Table) => {
+                self.open.push((depth, TableGrid::default()));
+                None
+            }
+            Some(StandardType::TableRow) => {
+                if let Some((_, grid)) = self.open.last_mut() {
+                    grid.begin_row();
+                }
+                None
+            }
+            Some(StandardType::TableHeader | StandardType::TableData) => {
+                let (row_span, column_span) = span();
+                self.open
+                    .last_mut()
+                    .and_then(|(_, grid)| grid.place(row_span, column_span))
+            }
+            _ => None,
+        }
     }
 }
 
@@ -1834,7 +2124,10 @@ pub fn document_language(document: &Document) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Checked, Child, FieldRole, ParentTree, Tree, actual_text};
+    use super::{
+        Checked, Child, FieldRole, HeaderScope, MAX_TABLE_COLUMNS, ParentTree, StandardType,
+        TableGrid, TableStack, Tree, actual_text,
+    };
     use pdf_syntax::{Document, Object};
 
     /// Builds a document from object bodies numbered from 1.
@@ -2595,6 +2888,168 @@ mod tests {
             tree.print_field(&doc, &elements[3]).is_none(),
             "an element with no PrintField attributes has none"
         );
+    }
+
+    /// Table 384's `/Scope` and the two spans, read off the cells that state them.
+    ///
+    /// The `/Scope` a document states wins outright; a name outside the table's three is not one
+    /// of them and is read as nothing rather than as the nearest.
+    #[test]
+    fn a_header_cell_states_its_axis_and_a_cell_states_its_spans() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /StructParents 0 >>",
+            "<< /Type /StructTreeRoot /K [5 0 R 6 0 R 7 0 R 8 0 R] >>",
+            "<< /Type /StructElem /S /TH /Pg 3 0 R /A << /O /Table /Scope /Row >> >>",
+            "<< /Type /StructElem /S /TH /Pg 3 0 R /A << /O /Table /Scope /Sideways >> >>",
+            "<< /Type /StructElem /S /TD /Pg 3 0 R /A << /O /Table /RowSpan 2 /ColSpan 3 >> >>",
+            "<< /Type /StructElem /S /TD /Pg 3 0 R /A << /O /Table /ColSpan 0 >> >>",
+        ]);
+        let tree = Tree::of(&doc).expect("a structure tree");
+        let elements: Vec<_> = tree
+            .children(&doc, None)
+            .into_iter()
+            .filter_map(|child| match child {
+                Child::Element(dict) => Some(dict),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(
+            tree.header_scope(&doc, &elements[0]),
+            Some(HeaderScope::Row)
+        );
+        assert_eq!(
+            tree.header_scope(&doc, &elements[1]),
+            None,
+            "a name Table 384 does not define is not one of its three"
+        );
+        assert_eq!(tree.cell_span(&doc, &elements[2]), (2, 3));
+        assert_eq!(
+            tree.cell_span(&doc, &elements[3]),
+            (1, 1),
+            "Table 384's default is 1, and a span of zero is not a number of columns"
+        );
+    }
+
+    /// §14.8.5.7's four assumptions, and the grid they are asked about.
+    ///
+    /// The second row is the one worth having: its first *child* is not in its first column,
+    /// because the cell above it spans two rows. A reader counting children would call that cell
+    /// the first column's and assume [`HeaderScope::Row`] for it, where the clause's last bullet
+    /// assumes [`HeaderScope::Both`] — a cell in neither the first row nor the first column.
+    #[test]
+    fn a_spanning_cell_moves_the_next_rows_first_child_off_the_first_column() {
+        let mut grid = TableGrid::default();
+        assert_eq!(
+            grid.place(1, 1),
+            None,
+            "a cell outside a row has no position, and none is invented for it"
+        );
+
+        // Row 0: a corner cell two rows tall, then two ordinary cells.
+        grid.begin_row();
+        assert_eq!(
+            grid.place(2, 1).map(|cell| (cell.row, cell.column)),
+            Some((0, 0))
+        );
+        assert_eq!(
+            grid.place(1, 1).map(|cell| (cell.row, cell.column)),
+            Some((0, 1))
+        );
+        assert_eq!(
+            grid.place(1, 2).map(|cell| (cell.row, cell.column)),
+            Some((0, 2))
+        );
+
+        // Row 1: column 0 is still occupied by the corner cell, so the first child is column 1.
+        grid.begin_row();
+        let first = grid.place(1, 1).expect("a cell in a row");
+        assert_eq!((first.row, first.column), (1, 1));
+        assert_eq!(
+            HeaderScope::assumed(first.row, first.column),
+            HeaderScope::Both,
+            "neither the first row nor the first column"
+        );
+
+        // Row 2: the spill has expired and the first child is the first column again.
+        grid.begin_row();
+        let again = grid.place(1, 1).expect("a cell in a row");
+        assert_eq!((again.row, again.column), (2, 0));
+        assert_eq!(
+            HeaderScope::assumed(again.row, again.column),
+            HeaderScope::Row
+        );
+
+        assert_eq!(HeaderScope::assumed(0, 0), HeaderScope::Both);
+        assert_eq!(HeaderScope::assumed(0, 4), HeaderScope::Column);
+        assert_eq!(HeaderScope::read(b"Both"), Some(HeaderScope::Both));
+        assert_eq!(HeaderScope::read(b"row"), None, "the names are Table 384's");
+    }
+
+    /// A `/ColSpan` a document controls cannot make this reader allocate without bound.
+    ///
+    /// And the bound cannot change an answer: every cell past the first column is assumed the
+    /// same way, so a cell clamped to [`MAX_TABLE_COLUMNS`] is still not in the first column.
+    #[test]
+    fn a_hostile_span_is_bounded_and_the_bound_changes_no_assumption() {
+        let mut grid = TableGrid::default();
+        grid.begin_row();
+        let huge = grid.place(1, usize::MAX).expect("a cell in a row");
+        assert_eq!(huge.column, 0);
+        let next = grid.place(1, 1).expect("a second cell");
+        assert_eq!(next.column, MAX_TABLE_COLUMNS);
+        assert_eq!(
+            HeaderScope::assumed(next.row, next.column),
+            HeaderScope::Column,
+            "the first row, whatever the column"
+        );
+    }
+
+    /// A table inside a cell has its own grid, and the outer table's rows go on afterwards.
+    ///
+    /// §14.8.4.8.3 bars nothing from a `TD`, and a nested table's first row is its own first row:
+    /// its corner cell is assumed [`HeaderScope::Both`] however deep in another table it sits.
+    #[test]
+    fn a_table_inside_a_cell_does_not_disturb_the_table_around_it() {
+        let one = || (1, 1);
+        let mut stack = TableStack::new();
+        // Table(0) > TR(1) > TD(2), which is the outer table's first cell.
+        assert_eq!(stack.enter(0, Some(&StandardType::Table), one), None);
+        assert_eq!(stack.enter(1, Some(&StandardType::TableRow), one), None);
+        let outer = stack
+            .enter(2, Some(&StandardType::TableData), one)
+            .expect("a cell in a row");
+        assert_eq!((outer.row, outer.column), (0, 0));
+
+        // A table inside that cell: Table(3) > TR(4) > TH(5).
+        assert_eq!(stack.enter(3, Some(&StandardType::Table), one), None);
+        assert_eq!(stack.enter(4, Some(&StandardType::TableRow), one), None);
+        let inner = stack
+            .enter(5, Some(&StandardType::TableHeader), one)
+            .expect("a cell in the inner table's row");
+        assert_eq!((inner.row, inner.column), (0, 0));
+        assert_eq!(
+            HeaderScope::assumed(inner.row, inner.column),
+            HeaderScope::Both
+        );
+
+        // Back out to the outer table's second row, which is row 1 and not row 0.
+        assert_eq!(stack.enter(1, Some(&StandardType::TableRow), one), None);
+        let again = stack
+            .enter(2, Some(&StandardType::TableHeader), one)
+            .expect("a cell in the outer table's second row");
+        assert_eq!((again.row, again.column), (1, 0));
+        assert_eq!(
+            HeaderScope::assumed(again.row, again.column),
+            HeaderScope::Row,
+            "the first column of a row that is not the first"
+        );
+
+        // And a cell with no table around it is placed nowhere.
+        let mut loose = TableStack::new();
+        assert_eq!(loose.enter(0, Some(&StandardType::TableHeader), one), None);
     }
 
     /// §14.7.2's `/IDTree`: an element found by the identifier it states.
