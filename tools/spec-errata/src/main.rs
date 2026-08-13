@@ -143,6 +143,10 @@ fn check(notes: &[Note]) -> Result<(), spec_errata::Error> {
         notes,
         &PathBuf::from("doc/conformance/ledger.toml"),
     )?);
+    landings.extend(spec_errata::document_landings(
+        notes,
+        &PathBuf::from("doc"),
+    )?);
     let (cited, elsewhere): (Vec<_>, Vec<_>) = landings
         .iter()
         .partition(|landing| spec_errata::Landing::in_clause(landing));

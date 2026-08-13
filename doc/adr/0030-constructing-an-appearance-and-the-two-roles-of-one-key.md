@@ -116,7 +116,7 @@ not be used if the annotation has an appearance stream ... in that case, the app
 shall specify any transparency."
 
 **§12.5.5 states the opposite**, in one sentence about compositing the appearance's transparency
-group: "using the values of the BM, ca and CA entries in the annotation dictionary and a soft
+group: "using the values of the BM, ca and CA entries in the annotation dictionary … and a soft
 mask of None". This tree followed that sentence, applying `/CA` as the initial alpha of the
 appearance's graphics state.
 

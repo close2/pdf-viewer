@@ -169,7 +169,7 @@ impl Document {
         let mut document = Self::around(Arc::clone(&bytes), xref, limits);
         document.authenticate(password)?;
 
-        // §7.5.5 makes the trailer's `/Root` "[t]he catalog dictionary for the PDF document", so
+        // §7.5.5 makes the trailer's `/Root` "[t]he catalog dictionary for the PDF file", so
         // **a cross-reference table that leads to no catalog has been disproved by the file
         // itself** — whatever it parsed as, and however self-consistent it looked. `xref::read`
         // scans only when the table is *absent, unreadable or empty*, which leaves the case a

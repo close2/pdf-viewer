@@ -45,8 +45,8 @@ Three things this needed, and each is a rule rather than a detail.
 "objects that have been changed, replaced, or deleted", and a widget with no `/AP` needs an object
 *added*, because §7.3.8.1 makes every stream indirect and there is nowhere else to put one.
 `Update::beside` picks the first free number from **both** the trailer's `/Size` and the highest
-number the cross-reference table actually holds, taking the larger. §7.5.5 says `/Size` is "one
-greater than the highest object number used in the file"; **68 of the corpus's 974 documents write
+number the cross-reference table actually holds, taking the larger. §7.5.5 says `/Size` shall "be
+1 greater than the highest object number defined in the PDF file"; **68 of the corpus's 974 documents write
 at least one entry beyond their own `/Size`**, a fact this tree already records in the §7.5.5
 ledger row for a different reason. Trusting `/Size` alone would put a new object on top of an
 existing one, silently.

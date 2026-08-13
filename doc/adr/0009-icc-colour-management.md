@@ -102,7 +102,7 @@ The black point compensation work also turned up a source already sitting in `do
 PDF 2.0 Application Note 001, written by ISO 32000's co-project-leader, which defines
 compensation as "aligning the darkest colour that could be described by the colour space of
 the data to be displayed with the darkest colour that the output profile for the display
-device can produce". That sentence settles the design question the arithmetic cannot — the
+device (screen or print) can produce". That sentence settles the design question the arithmetic cannot — the
 black to align is the *source* space's, which is why it is found by pushing full ink through
 the profile rather than by round-tripping its `B2A` table as Little CMS does. The two
 constructions agree except in the darkest few percent.

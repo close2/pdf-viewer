@@ -151,7 +151,7 @@ const MAX_UNREADABLE_ENCRYPTION: usize = 2;
 ///   null-dereference in Firefox's *worker* shutdown that a pdf.js promise exposed.
 ///
 /// **11 to 5 in the hundred-and-seventh session**, from two recovery rules and no new feature.
-/// §7.5.5 makes the trailer's `/Root` "[t]he catalog dictionary for the PDF document", so a
+/// §7.5.5 makes the trailer's `/Root` "[t]he catalog dictionary for the PDF file", so a
 /// cross-reference table that leads to no catalog has been disproved by the file itself — and
 /// `Document::open` now rebuilds by scanning and tries again, which `xref::read` did not because
 /// it scans only when the table is *absent, unreadable or empty*. Table 31 makes `/Type`

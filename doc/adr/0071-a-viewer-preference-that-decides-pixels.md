@@ -61,7 +61,7 @@ where the ink stops — and each was confirmed to fail when its half is removed.
 ## What is still owed, and it has a corpus behind it
 
 `/DisplayDocTitle`, which 22 documents set. The title is "taken from the `dc:title` element of the
-XMP metadata stream (see 14.3.2)", and §14.3.2 is a `partial` row whose note says no XMP reaches
+XMP metadata stream", and §14.3.2 is a `partial` row whose note says no XMP reaches
 anything. So the entry is read, its meaning is not available, and the row says which of the two
 it is. Nothing pretends otherwise by falling back to the file name silently — that *is* the
 entry's `false` case, which is why the gap is invisible in a window and is written down here.

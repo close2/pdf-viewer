@@ -169,6 +169,12 @@ share and the two that break it:
   the misses that match the standard for at least five words and then diverge — a claim this
   project invented shares no words with it and a misquotation shares most of them. ADR 0249, and
   it is not a gate for a reason the ADR prices.
+- **One reads *these documents'* quotation marks**, on the same discriminator and for the same
+  reason: `cargo run --release -p conformance --bin quotations`, seconds, over every Markdown file
+  this project wrote under `doc/`. Its first run found three sentences quoted as the standard's that
+  ISO 32000-2 does not contain, two of which were also standing in `crates/` in prose the gate does
+  not read. **Suspect the conversion before the document**: two more of its suspects were `doc/md/`
+  losing text the PDF has. ADR 0309.
 - **One is not run from here at all**: `cargo run --release -p spec-errata -- check doc/*.pdf`,
   seconds, asking the same spans a *different* question — does one of them quote a sentence Errata
   Collection 3 struck out? That needs none of ADR 0249's syntax, because the erratum supplies the

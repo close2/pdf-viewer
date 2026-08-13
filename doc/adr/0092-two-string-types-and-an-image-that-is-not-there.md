@@ -22,7 +22,7 @@ The parse is small and two properties of it are not obvious.
 
 **A conforming date may be four characters of payload.** "[T]he year field (YYYY) shall be present
 and all other fields may be present but only if all of their preceding fields are also present.
-The default values for MM and DD shall be both 01; all other numerical fields shall default to
+… The default values for MM and DD shall be both 01; all other numerical fields shall default to
 zero values." So `D:1998` *is* a date and means 1998-01-01T00:00:00, and a parser that demands
 fourteen digits rejects valid files.
 
@@ -33,7 +33,10 @@ that and failed on the clause's own example, which is the cheapest possible demo
 a clause that states an answer is the test to write.
 
 **An absent zone is decided, not unknown.** "If no UT information is specified, the relationship
-of the specified time to UT shall be considered to be GMT." `Date::offset` still records that the
+of the specified time to UT shall be considered to be GMT." (Errata Collection 3 Issue #251 retires
+that half-sentence for "the missing timezone offset shall be assumed to be the same as Greenwich
+Mean Time's timezone offset (+0'00)", which decides the same thing in arithmetic rather than in
+words; `doc/errata-read.md` has the reading.) `Date::offset` still records that the
 producer claimed nothing, because a viewer showing a date should be able to say "as written" — but
 `Date::instant`, which the ordering rests on, takes the clause's answer.
 

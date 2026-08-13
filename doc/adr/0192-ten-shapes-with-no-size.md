@@ -59,8 +59,9 @@ Three more choices, each in the code beside the sentence that leaves it open:
 
 **And two things stay refused, each with its own sentence.** A `/LE` naming something outside
 Table 179 is reported rather than dropped to `None` — a line that quietly lost its arrowheads would
-be trap 5 — and §12.5.6.9's *polygon* is reported where it states `/LE` at all, because "the first
-and last vertex shall be implicitly connected" leaves it no end to decorate. So is a polyline whose
+be trap 5 — and §12.5.6.9's *polygon* is reported where it states `/LE` at all, because a polyline
+is what the clause calls a polygon "except that the first and last vertex are not implicitly
+connected", so a polygon's are and it has no end to decorate. So is a polyline whose
 shape comes from Table 181's `/Path`, whose curves this routine does not hold the ends of.
 
 ## Consequences

@@ -664,8 +664,9 @@ struct Transfer {
 impl Transfer {
     /// Table 57's two entries, read from an `/ExtGState`, with `/TR2` in preference to `/TR`.
     ///
-    /// Table 57 makes that precedence explicit — `/TR2` "shall be used in preference to `TR`" —
-    /// and both take a function, an array of four, or a name.
+    /// Table 57 makes that precedence explicit — "[i]f both TR and TR2 are present in the same
+    /// graphics state parameter dictionary, TR2 shall take precedence" — and both take a
+    /// function, an array of four, or a name.
     ///
     /// Three answers, not two, which is what [`Stated`] exists to say: the state says nothing, the
     /// state turns an inherited transfer **off** (`/Identity`, or `/TR2`'s `/Default`), or the

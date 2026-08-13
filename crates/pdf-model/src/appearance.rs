@@ -976,9 +976,10 @@ fn polygon(
     stream.paint(interior != Colour::None, border.strokes());
 
     // **A polygon's ends meet, so it has none.** Table 181 gives `/LE` to both subtypes and
-    // §12.5.6.9 gives a polygon no end to put one on — "the first and last vertex shall be
-    // implicitly connected" — so this is the polyline half alone, which is also the only half
-    // Table 181's `/IC` is a line-ending colour for.
+    // §12.5.6.9 gives a polygon no end to put one on: a polyline is what it calls a polygon
+    // "except that the first and last vertex are not implicitly connected", so a polygon's are.
+    // This is therefore the polyline half alone, which is also the only half Table 181's `/IC`
+    // is a line-ending colour for.
     if !closed
         && let Some(vertices) = vertices.as_deref()
         && let (Some(first), Some(second)) = (vertices.first(), vertices.get(1))

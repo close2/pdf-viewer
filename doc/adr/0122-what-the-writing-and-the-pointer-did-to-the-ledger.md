@@ -49,14 +49,17 @@ they are found by reading a parent row against its children and by nothing else.
 
 ## The gap the pointer opened
 
-**Table 192's `/H` is a clause that became reachable when this program grew a pointer**, and it
-is now the largest thing §12.5.6.19 owes.
+**Table 191's `/H` is a clause that became reachable when this program grew a pointer**, and it
+is now the largest thing §12.5.6.19 owes. (This paragraph said *Table 192* for the whole of its
+life, and Table 192 is the appearance characteristics dictionary one row below `/H` — the same
+shape as the `§9.3.6 Table 106` the thirteenth session found in the code, and found here by the
+sweep that reads these documents' quotation marks.)
 
 > The annotation's highlighting mode, the visual effect that shall be used when the mouse button
 > is pressed or held down inside its active area: N (None) No highlighting. I (Invert) Invert the
 > colours used to display the contents of the annotation rectangle. O (Outline) Stroke the
 > colours used to display the annotation border. … P (Push) Display the annotation's down
-> appearance, if any. … T (Toggle) Same as P (which is preferred).
+> appearance, if any … T (Toggle) Same as P (which is preferred).
 
 This tree shows §12.5.5's down appearance whatever `/H` says. That is right for P and T and wrong
 for the other three — **including the default, which is `I`**, and so every widget that states no

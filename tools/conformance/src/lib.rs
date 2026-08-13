@@ -48,6 +48,7 @@
 pub mod citation;
 pub mod clause;
 pub mod ledger;
+pub mod prose;
 pub mod quote;
 pub mod toml_subset;
 

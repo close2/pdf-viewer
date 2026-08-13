@@ -82,7 +82,8 @@ uses both — one graphics state sets three functions and the next sets `/Identi
 folded them together would carry the transfer past the object it was written for and paint the rest
 of the page wrong.
 
-Table 57's precedence is the table's own: `/TR2` "shall be used in preference to `TR`".
+Table 57's precedence is the table's own: "[i]f both TR and TR2 are present in the same graphics
+state parameter dictionary, TR2 shall take precedence."
 
 ### Where it is applied
 

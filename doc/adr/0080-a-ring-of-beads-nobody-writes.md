@@ -46,8 +46,8 @@ disagree, which is §12.3.3's outline rule reused.
 ## The standard states one array's order twice, and the two disagree
 
 A page carries the same beads by another route, and Table 31's NOTE 2 says so: the `/B` entry
-"can be created or recreated from the information obtained from the Threads key in the document
-catalog dictionary". That makes it checkable — the habit `/Count`, an LZW stream length and a
+"can be created or recreated from the information obtained from the Threads key in the catalog
+dictionary". That makes it checkable — the habit `/Count`, an LZW stream length and a
 byte-swapped `indexToLocFormat` all taught here.
 
 What it cannot check is the *order*, because the standard gives two:

@@ -62,6 +62,9 @@ pub enum Error {
     /// The conformance ledger could not be read.
     #[error("reading the ledger: {0}")]
     Ledger(#[from] conformance::ledger::LedgerError),
+    /// This project's own Markdown documents could not be walked.
+    #[error("reading the documents: {0}")]
+    Documents(#[from] conformance::prose::Error),
 }
 
 /// What §12.5.6.2 makes one annotation *to* the others around it.
@@ -341,6 +344,14 @@ pub enum Quoted {
     Comment,
     /// A pair of quotation marks inside a `doc/conformance/ledger.toml` note.
     LedgerNote,
+    /// A quotation in one of this project's own Markdown documents — a `>` blockquote or a pair
+    /// of quotation marks in `doc/*.md`, `doc/todo/`, `doc/history/` or an ADR.
+    ///
+    /// The sixth population, and the largest: `doc/todo/48` named it and nothing read a word of
+    /// it until `conformance::prose` did. It is asked the same question as the other five here,
+    /// because the erratum supplies the other side of the comparison and needs no syntax saying
+    /// which quotations are the standard's (ADR 0254).
+    Document,
 }
 
 impl Quoted {
@@ -352,6 +363,7 @@ impl Quoted {
             Self::Prose => "prose",
             Self::Comment => "comment",
             Self::LedgerNote => "ledger",
+            Self::Document => "document",
         }
     }
 }
@@ -673,6 +685,52 @@ pub fn ledger_landings(notes: &[Note], ledger: &Path) -> Result<Vec<Landing>, Er
                         clause: Some(row.clause.to_string()),
                         quotation: span.clone(),
                         note: (*erratum).clone(),
+                    });
+                }
+            }
+        }
+    }
+    Ok(found)
+}
+
+/// Every quotation in this project's own Markdown documents that overlaps struck-out text.
+///
+/// The sixth population, reached through [`conformance::prose`], which says what a quotation is
+/// in a Markdown document and why the *other* question — does it match the standard's current
+/// text — is a sweep rather than a gate. This one needs none of that argument, for
+/// [`ledger_landings`]'s reason: a span matching a sentence an erratum struck out is the
+/// standard's by construction, whatever else a document quotes.
+///
+/// The attribution is the nearest clause citation on or before the quotation's own line, which is
+/// weaker here than it is over a doc comment — a document's prose names clauses in passing — so
+/// [`Landing::in_clause`] sorts rather than decides.
+///
+/// # Errors
+///
+/// [`Error::Documents`] where `directory` cannot be walked, [`Error::Unreadable`] where a
+/// document under it cannot be read.
+pub fn document_landings(notes: &[Note], directory: &Path) -> Result<Vec<Landing>, Error> {
+    let struck = retired(notes);
+    let documents = conformance::prose::documents(directory)?;
+    let mut found = Vec::new();
+    for file in documents {
+        let text = std::fs::read_to_string(&file)
+            .map_err(|error| Error::Unreadable(file.clone(), error))?;
+        let citations = conformance::citation::scan_prose(&text).citations;
+        for (line, _, quotation) in conformance::prose::quotations(&text) {
+            let clause = citations
+                .iter()
+                .rfind(|citation| citation.line <= line)
+                .map(|citation| citation.number.to_string());
+            for (note, passage) in &struck {
+                if overlaps(&quotation, passage) {
+                    found.push(Landing {
+                        file: file.clone(),
+                        line,
+                        kind: Quoted::Document,
+                        clause: clause.clone(),
+                        quotation: quotation.clone(),
+                        note: (*note).clone(),
                     });
                 }
             }

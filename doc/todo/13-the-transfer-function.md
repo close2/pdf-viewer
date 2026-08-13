@@ -69,7 +69,7 @@ output device**, and §8.3.2.2 defines it in the same breath:
 both printer and display applications" — and §10.1 closes the door on the escape route:
 
 > For the purpose of clause 10, it is irrelevant whether a raster output device physically exists
-> and is actually used for rendering, or is just assumed.
+> and is actually used for rendering, or is just assumed …
 
 **And §10.1 separates §10.5 from §10.6 by exactly the criterion this project conflated.** Its list
 of rendering steps reads:

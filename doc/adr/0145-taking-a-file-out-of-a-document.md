@@ -19,9 +19,11 @@ with no filesystem at all can still hand a person their attachment.
 
 Three smaller choices, each with its reason:
 
-- **Named by the tree's key, not by an index.** §7.11.4.1 makes `/EmbeddedFiles` "map name
-  strings to file specifications", so the key is the document's own identifier and
-  `Query::Attachments` already answered with it. An index into a list would be a numbering the
+- **Named by the tree's key, not by an index.** §7.7.4's Table 33 makes `/EmbeddedFiles` "[a] name
+  tree mapping name strings to file specifications for embedded file streams", so the key is the
+  document's own identifier and `Query::Attachments` already answered with it. (This sentence used
+  to be quoted from §7.11.4.1, whose version of it Errata Collection 3 Issue #481 struck out;
+  Table 33's is the copy the standard still contains.) An index into a list would be a numbering the
   host and the core would both have to derive from the same walk.
 - **Decoded here.** §7.4's filters are undone before the bytes cross, because a host that had to
   undo them would be a second reader of the document — and because two of the corpus's

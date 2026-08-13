@@ -19,7 +19,7 @@ sat there.
 ## Two rules, and neither comes from another reader
 
 **§7.5.5: a cross-reference table that leads to no catalog has been disproved by the file
-itself.** `/Root` is "[t]he catalog dictionary for the PDF document". `xref::read` scans for
+itself.** `/Root` is "[t]he catalog dictionary for the PDF file". `xref::read` scans for
 objects only when the table is *absent, unreadable or empty* — which leaves exactly the case a
 hand edit produces: a complete, self-consistent table whose offsets all point a few bytes wrong.
 It parses; it works for nothing.

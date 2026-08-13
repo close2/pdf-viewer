@@ -10,7 +10,9 @@ Priority: 48 — kept, by the convention that the `40`–`49` band is *the proje
 **Its real weight is higher than the number**: this is a list of known-wrong passages in the file
 principle 5 rests on.
 Corpus: —, the subject is `doc/md/` and the fourteen documents under `doc/`
-Code: `tools/spec-errata` (built), `crates/pdf-model/examples/spec_annotation_census.rs` (the census)
+Code: `tools/spec-errata` (built), `conformance::prose` and its `quotations` binary (the sixth
+population, built in the four-hundred-and-seventy-fourth),
+`crates/pdf-model/examples/spec_annotation_census.rs` (the census)
 Read: `doc/errata-read.md` — all 120, their verdicts, and what is owed
 
 ## What the census found, and what it corrected in this file
@@ -63,7 +65,11 @@ defect in the standard. ADR 0252 has the argument.
   doc comment, which nothing reads; and **`ledger.toml` notes**, ADR 0249's 977 spans, which nothing
   reads either. 25 land in the clause they cite and every one is now a *correction* quoting the
   wording it retired; 51 more match a phrase struck out of another clause and all of them have been
-  looked at.
+  looked at. **A fifth and a sixth were added later** — a `"` in an ordinary `//` comment (ADR 0255)
+  and, in the four-hundred-and-seventy-fourth, every quotation in this project's own Markdown
+  documents (`spec_errata::document_landings`, ADR 0309). The sixth's landings are almost all
+  correct writing by construction, because `doc/errata-read.md`'s whole subject is the struck text;
+  two were not, and both are corrected.
 
 ## What is still owed
 
@@ -76,11 +82,16 @@ defect in the standard. ADR 0252 has the argument.
 3. **The ledger's single-quoted spans.** `quoted_spans` collects `"` … `"` only, because an
    apostrophe would make every possessive an opening mark; §12.7.5.2.2's stale quotation was in
    single quotes and was found through the source rather than by the sweep.
-3a. **Quotations of the standard in Markdown**, named in the four-hundred-and-nineteenth and
-   uncounted: `doc/errata-read.md`, `doc/HANDOVER.md`, `doc/todo/` and the 255 ADRs quote the
-   standard constantly and no instrument compares a word of it. It is named here rather than done
-   because the reason to expect something in it is inductive — each of the five populations swept so
-   far produced a finding on its first run — and because it is the largest of them.
+3a. ~~**Quotations of the standard in Markdown**~~ — **built and run, and the induction held.**
+   `conformance::prose` and `cargo run --release -p conformance --bin quotations` read every
+   Markdown document this project wrote under `doc/` against all fourteen specifications, with ADR
+   0249's discriminator and the standard's own continuation printed under each divergence. Thirteen
+   corrections on the first run, three of them sentences ISO 32000-2 does not contain, two of them
+   spread across four files and two files where the gate could not see them, and one a wrong *table*
+   number. Two of the suspects turned out to be `doc/md/` truncating a row and shifting a table's
+   columns — the caveat above, now with witnesses. ADR 0309. **A gate is still refused for ADR
+   0249's reason** and the price has gone up: the syntax it needs would have to be migrated onto
+   1401 spans rather than 417.
 4. **The disagreement sweep** (the old step 3), unchanged: compare our extraction against `doc/md/`
    and report every span where they differ. The annotations were one loss of four; three others are
    recorded in this file's history and none has been swept for.
@@ -112,6 +123,13 @@ an unrelated clause found `content.rs` quoting the struck fourth bullet, which f
 the instrument — a `"` inside an ordinary `//` comment and a quotation with an ellipsis in it — and
 six more stale quotations behind them (ADR 0255). One of the six, §8.9.7's NOTE 3, is a clause whose
 *code* was already right and whose comment was two years behind it.
+
+**The four-hundred-and-seventy-fourth ran it a fifth time, over the population item 3a named, and it
+passed again** — three sentences quoted as ISO 32000-2's that ISO 32000-2 does not contain, two of
+them also standing in `crates/` where the gate exists and could not see them because neither was a
+blockquote. ADR 0309. It also produced the first *evidence* for this file's own warning about the
+conversion rather than more advice: two suspects were `doc/md/` truncating Table 29's `/OpenAction`
+row and shifting Table 179's columns, both acquitted by `pdftotext -layout` over the PDF.
 
 The replacement condition, for whoever picks it up: **the reading half is done and the correctness
 question it was asked to answer is answered.** What is left is items 1 to 3 above, which are two

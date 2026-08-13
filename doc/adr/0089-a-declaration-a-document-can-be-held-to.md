@@ -17,7 +17,7 @@ The store holds X.509 material — certificates, "an array of all Certificate Re
 What a program that cannot validate can still answer is whether **the document carries what a
 validator would need**, which is precisely what §12.8.4 exists for, so `SecurityStore` counts each
 array and the `/VRI` entries. A document timestamp "is a standard signature dictionary as
-described in [Table 255]", so it needs no new reader at all — only its `/Type`, and the byte-range
+described in" Table 255, so it needs no new reader at all — only its `/Type`, and the byte-range
 check ADR 0088 built, which is the one requirement of that family a program without a trust store
 can hold a file to.
 
