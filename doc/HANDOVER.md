@@ -349,11 +349,16 @@ own cross-reference table had hidden started rendering (ADR 0148).
 *reading of the specification* rather than finding a defect. `issue6621.pdf` and `issue7901.pdf`
 were both code that was right about the clause it cited.
 
-**A contradicted page's group names a hypothesis, not a diagnosis — eight for eight on being
-wrong**, the newest being `issue4304.pdf` in the four-hundred-and-fifth session, which spent a
-hundred and eighty sessions inside `CONTRADICTED_SUBSTITUTED_FONT` while the difference was six
+**A contradicted page's group names a hypothesis, not a diagnosis — nine for nine on being
+wrong**, the newest being `calrgb.pdf`'s four pages, which spent four hundred and fifty-five
+sessions inside `CONTRADICTED_SUBSTITUTED_FONT` differing from each other in one entry no voting
+renderer reads. The one before it, `issue4304.pdf` in the four-hundred-and-fifth session, spent a
+hundred and eighty sessions in the same group while the difference was six
 spaces of zero width and the side-by-side said so in one look. Open the artefact before believing the label — **and measure it, because a label this
-project wrote is still a label**. Twice the instrument that settled one was the font's own `cmap`,
+project wrote is still a label**. **A group's note that names another group's mechanism is the
+cheapest tell there is**: `calrgb.pdf`'s said "a residue of colour management rather than of fonts"
+and stayed under the *font* group's name for four hundred and fifty-five sessions after the session
+that wrote it. Twice the instrument that settled one was the font's own `cmap`,
 `loca` and `post` tables read directly: ten minutes, exact.
 
 ### 2. A paint is positioned in the *path's* space, not the device's

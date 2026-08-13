@@ -376,8 +376,12 @@ of it is `hayro`, which shares `skrifa` with this tree, so it is not evidence ab
 status is unchanged and now has a reason beside it.
 
 **Two cautions the contradicted list earned.** A page may be contradicted for a reason other than
-the one its group names — **eight for eight, so far, on the group being wrong**, the newest being
-`issue4304.pdf` in the four-hundred-and-fifth session, which sat in `CONTRADICTED_SUBSTITUTED_FONT`
+the one its group names — **nine for nine, so far, on the group being wrong**. The newest is
+`calrgb.pdf` pages 1, 5, 11 and 12, which sat in `CONTRADICTED_SUBSTITUTED_FONT` from the sixth
+session under a note naming *another* group's mechanism, and which differ from one another only in
+a `/BlackPoint` no voting renderer reads (ADR 0296) — the tell being that all four printed metrics
+were identical on all four pages, which the gate had been saying every run. The one before it is
+`issue4304.pdf` in the four-hundred-and-fifth session, which sat in the same group
 for a hundred and eighty sessions while drawing *Wordsthatshouldhavespacesbetweenthem.* against
 four renderers' *Words that should have spaces between them.* Its font really is substituted and
 that really was not the difference: `/Differences [32 /.notdef …]` sent code 32 to a glyph whose

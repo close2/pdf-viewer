@@ -2219,12 +2219,20 @@ fn transform(matrix: &[f32; 9], vector: [f32; 3]) -> [f32; 3] {
 ///   happens to share a name.
 ///
 /// The cost, stated plainly: a document raising its `BlackPoint` gets shadows at the
-/// lightness it states rather than stretched down to the display's black. `calgray.pdf`
-/// page 3 and `calrgb.pdf` page 14 are the corpus's only examples, and both are files
-/// written to probe this entry rather than to display anything.
+/// lightness it states rather than stretched down to the display's black. **This paragraph
+/// named `calgray.pdf` page 3 and `calrgb.pdf` page 14 as "the corpus's only examples" and
+/// there are eleven**, all in those same two files, which are written to probe this entry
+/// rather than to display anything — `cargo run --release -p pdf-model --example
+/// black_point_census` is what counts them, so that the number is not written here again.
 ///
 /// All three reference renderers do the same, which is evidence that this is how §8.6.5.2
-/// and §8.6.5.3 are commonly read — not the reason for the choice, which is above.
+/// and §8.6.5.3 are commonly read — not the reason for the choice, which is above. **The
+/// corpus states that evidence as an A/B rather than as an impression**: `calrgb.pdf` pages
+/// 1, 5, 11 and 12 state one `CalRGB` in three of Table 63's four entries and differ only in
+/// `/BlackPoint`, at `[0 0 0]`, `[1 1 1]`, `[8 8 8]` and `[50 50 50]`, and this tree's
+/// rasters, `poppler`'s, `mupdf`'s and `ghostscript`'s are byte-identical across the four
+/// below the header that prints those values. `oracle.rs`'s `CONTRADICTED_CALRGB_TO_SCREEN`
+/// has the measurement; `hayro` is the one renderer the entry moves.
 fn cie_to_srgb(xyz: [f32; 3], white: [f32; 3]) -> Color {
     xyz_d50_to_srgb(adapt(xyz, white, D50))
 }
@@ -3035,6 +3043,14 @@ mod tests {
     ///
     /// The second black point is `calrgb.pdf` page 14's, which Table 63 permits and no
     /// stretch is defined on: its Y span is zero and its Z span negative.
+    ///
+    /// **The `CalRGB` half is the corpus's own A/B and was missing here for four hundred and
+    /// fifty sessions**, while the test's name and this comment both said "a Cal space".
+    /// `calrgb.pdf` pages 1, 5, 11 and 12 state one space in `/WhitePoint`, `/Gamma` and
+    /// `/Matrix` and differ only in `/BlackPoint` — `[0 0 0]`, `[1 1 1]`, `[8 8 8]`,
+    /// `[50 50 50]` — and four renderers produce one raster from the four. The values below
+    /// are those four pages, so a stretch reintroduced here fails this test on the same input
+    /// the oracle would fail on.
     #[test]
     fn a_cal_spaces_black_point_does_not_move_its_colours() {
         let grey = |black| {
@@ -3062,6 +3078,24 @@ mod tests {
             bytes(space.to_rgb_without_black_point(&[0.35])),
             bytes(space.to_rgb(&[0.35]))
         );
+
+        // `calrgb.pdf` pages 1, 5, 11 and 12: one identity `CalRGB` under four black points,
+        // on the swatch the oracle's own table reads, `A B C = 0.75 0.00 0.00`.
+        let swatch = |black| {
+            bytes(
+                ColourSpace::CalRgb {
+                    white: [1.0, 1.0, 1.0],
+                    black,
+                    gamma: [1.0, 1.0, 1.0],
+                    matrix: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+                }
+                .to_rgb(&[0.75, 0.0, 0.0]),
+            )
+        };
+        let stated = swatch([0.0, 0.0, 0.0]);
+        assert_eq!(swatch([1.0, 1.0, 1.0]), stated);
+        assert_eq!(swatch([8.0, 8.0, 8.0]), stated);
+        assert_eq!(swatch([50.0, 50.0, 50.0]), stated);
     }
 
     #[test]

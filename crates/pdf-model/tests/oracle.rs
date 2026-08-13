@@ -373,18 +373,152 @@ const CONTRADICTED_ANTIALIASED_EDGES: [&str; 2] = ["colors.pdf page 1", "colors.
 /// components for `DeviceRGB` — so their page is pinker than ours by a few levels across
 /// every pixel the image covers, which is 6.8% of the page.
 ///
-/// The same difference kept four pages of `calrgb.pdf` in `CONTRADICTED_SUBSTITUTED_FONT`,
-/// where it is described as "a residue of colour management rather than of fonts". It is
-/// listed separately here because this page has no substituted font to be confused with, and
-/// because the argument is ADR 0012's rather than anyone's arithmetic: §8.6.5.3 gives a
-/// `CalRGB` a white point, a gamma and a matrix into XYZ, and a renderer that ignores all
-/// three is not reading the clause.
+/// Four pages of `calrgb.pdf` sat in `CONTRADICTED_SUBSTITUTED_FONT` on a sentence pointing
+/// here — "a residue of colour management rather than of fonts" — and the
+/// four-hundred-and-sixty-first session measured them and gave them
+/// [`CONTRADICTED_CALRGB_TO_SCREEN`] instead. **They are not this page's mechanism**: on
+/// `calrgb.pdf` no renderer takes the components for `DeviceRGB`, and what differs there is
+/// §10.3's second half rather than §8.6.5.3's first. This page's own claim above is
+/// unmeasured against that distinction and is where a round wanting one should start.
+///
+/// It is listed separately from the substituted-font group because this page has no
+/// substituted font to be confused with, and because the argument is ADR 0012's rather than
+/// anyone's arithmetic: §8.6.5.3 gives a `CalRGB` a white point, a gamma and a matrix into
+/// XYZ, and a renderer that ignores all three is not reading the clause.
 ///
 /// The `None` colourants are not the cause, though they look like one. §8.6.6.5 is explicit:
 /// "when the DeviceN colour space reverts to its alternate colour space, those components
 /// shall be passed to the tint transformation function", which is what happens here — the
 /// space never reaches a device colourant, so it always reverts.
 const CONTRADICTED_CALIBRATED_COLOUR: [&str; 1] = ["issue9940.pdf page 1"];
+
+/// Contradicted, where the difference is the half of the journey §10.3.1 puts beyond itself.
+///
+/// 4 pages, and they are **one page four times**. They spent four hundred and fifty-five sessions
+/// in [`CONTRADICTED_SUBSTITUTED_FONT`] on that group's membership rule — the page names a font
+/// nobody embedded — under a two-sentence note calling them "a residue of colour management rather
+/// than of fonts" with no number behind it. The four-hundred-and-sixty-first session measured them.
+/// **Ninth for nine on a group's name naming a hypothesis rather than a diagnosis.**
+///
+/// # The four pages differ from each other in one entry, and four renderers ignore it
+///
+/// `calrgb.pdf` is 850 × 1100 points, so the oracle's raster is one pixel per point, and each page
+/// states its own space in a header above a grid of eighty swatches labelled with the `A, B, C`
+/// that produced them. Pages 1, 5, 11 and 12 state the *same* space in three of Table 63's four
+/// entries — `/WhitePoint [1 1 1]`, `/Gamma [1 1 1]`, the identity `/Matrix` — and differ only in
+/// the fourth:
+///
+/// | page | `/BlackPoint` |
+/// |---|---|
+/// | 1 | `[0 0 0]`, which is the table's default |
+/// | 5 | `[1 1 1]`, the white point itself |
+/// | 11 | `[8 8 8]` |
+/// | 12 | `[50 50 50]` |
+///
+/// **Below the header, our raster, `poppler`'s, `mupdf`'s and `ghostscript`'s are byte-identical
+/// across all four pages** — device rows 150 to 1090, `md5` of the raw RGB. Four renderers read the
+/// entry and none of them lets it move a colour. `hayro` is the only one that does, and it does not
+/// vote, which is why it is the only panel that changes: it sits 0.87 of 255 from us on page 1 and
+/// **16.54** on page 12.
+///
+/// So the gate is printing one measurement four times, and it says so itself — mean 1.38, worst
+/// tile 14.16, differing 11.23%, similarity 0.9908 on pages 1, 5 and 11 alike, with page 12's
+/// worst tile the only figure that moves, to 13.86. **That one figure is the header, not the
+/// page**: the worst 32-pixel tile against `ghostscript` sits at (192, 0) on all four, which is the
+/// line printing the `/BlackPoint` values, and page 12 prints `[50.00000 …]` where page 1 prints
+/// `[0.00000 …]`. So on this page the worst tile is measuring the label font and the differing
+/// fraction is measuring the swatches — and only the second decides the verdict.
+///
+/// # It is not the font, and the instrument is the swatch interiors
+///
+/// 76.6% of the page is flat in all five renderers — a pixel whose 7 × 7 neighbourhood is one
+/// colour in every one of them — and that region contains no glyph at all. Splitting the
+/// difference across it:
+///
+/// | | mean over the flat region | share of the page's total difference falling inside it |
+/// |---|---|---|
+/// | `poppler` | **0.004** of 255 | 0.5% |
+/// | `mupdf` | 1.677 | 67.0% |
+/// | `ghostscript` | 1.362 | 56.6% |
+///
+/// **Against `poppler`, not one channel of the swatch interiors moves by more than four levels**,
+/// and `poppler` substitutes a *different* serif face from ours — this sheet's labels are
+/// `/Times-Roman` with no `/FontFile`, ours is `FoxitSerif` (ADR 0133) and the C references resolve
+/// `NimbusRoman` through fontconfig. Two renderers with different faces agreeing to 0.004 of 255
+/// over three quarters of the page is the substitution costing nothing measurable, which is ADR
+/// 0267's finding for the serif family arriving on a fifth document. Against the pair that decides
+/// the verdict, two thirds of the difference is inside swatches where no glyph is drawn.
+///
+/// # And nobody here assumes `DeviceRGB`, which is the other hypothesis this page kills
+///
+/// Page 1's space is the identity in all three of its transformation entries, so §8.6.5.3's first
+/// stage is the identity and the file is stating XYZ directly. Its swatch `A B C = 0.75 0.00 0.00`
+/// is therefore `X Y Z = (0.75, 0, 0)`, and a processor taking the components for `DeviceRGB` would
+/// paint `(191, 0, 0)`. Read off the five rasters at that swatch's centre:
+///
+/// | | ours | `poppler` | `mupdf` | `ghostscript` | `hayro` |
+/// |---|---|---|---|---|---|
+/// | `0.75 0.00 0.00` | 255, 0, 62 | 255, 0, 62 | 255, 0, 65 | 255, 0, 66 | 255, 0, 60 |
+/// | `0.01 0.00 0.00` | 50, 0, 2 | 50, 0, 2 | 19, 0, 2 | 35, 0, 2 | 49, 0, 2 |
+/// | `0.50 0.50 0.50` | 188, 188, 187 | 188, 188, 188 | 193, 187, 188 | 196, 187, 188 | 194, 184, 188 |
+///
+/// All five convert; none assumes. What separates them is the shadow end and the neutral axis —
+/// where a white point is adapted and where a transfer function is applied — and that is §10.3's
+/// half rather than §8.6.5.3's.
+///
+/// # Two camps of two, and the reference that agrees with us is further out than we are
+///
+/// The gate's differing fraction counts channels moving by more than four levels of 255 over four
+/// channels per pixel, alpha included. Every pair on page 1, in the gate's own units:
+///
+/// ```text
+///   ours        <-> poppler        1.62%      <- the closest pair on the page
+///   mupdf       <-> ghostscript    4.41%      <- the consensus, so the bound is twice it: 8.82%
+///   ours        <-> mupdf         11.12%
+///   ours        <-> ghostscript   11.23%      <- the figure the gate prints for us
+///   poppler     <-> mupdf         11.21%
+///   poppler     <-> ghostscript   11.65%
+/// ```
+///
+/// **`poppler` is further from the consensus pair than we are, on both of its members**, so the
+/// verdict "`mupdf` and `ghostscript` agree, we differ" would read identically with `poppler` in
+/// our place and by a larger margin. Four renderers in two camps of two, and the gate votes with
+/// whichever camp's members are nearer each other — trap 12, on a page where the thing the camps
+/// disagree about is named by a clause. (The bound and the printed figure reproduce exactly from
+/// these pairs, which is how the whole table above is checked against the gate rather than beside
+/// it.)
+///
+/// # What the specification determines
+///
+/// §8.6.5.3 defines components-to-XYZ exactly and all five renderers agree there — on page 1 it is
+/// the identity, and the swatch table above is what an identity looks like when everybody applies
+/// it. The remaining half is stated to be open, in one sentence of §10.3.1:
+///
+/// > The specific method by which the CIE-based destination colour space is established is beyond
+/// > the scope of this document, but may include the use of Output Intents
+///
+/// That is `doc/todo/00`'s shape 3, and it is the same reading `AMBIGUOUS_CALRGB_TO_SCREEN` carries
+/// over eight *other* pages of this same document. These four are that finding arriving at a
+/// tighter bound rather than a second finding: they are contradicted instead of ambiguous only
+/// because the two references that share a camp happen to agree to 4.41%.
+///
+/// # And `/BlackPoint` is a decision rather than a gap, which this page is the corpus witness for
+///
+/// §8.6.5.3 says the entry "shall control the overall effect of the CIE-based gamut mapping
+/// function described in subclause 10.3", and §8.6.5.9 says who decides whether it does: "[i]f the
+/// value is not given or set to `Default`, then the behaviour is left to the PDF processor to
+/// determine", which is every document in the corpus. `colour::cie_to_srgb` reads the entry and
+/// applies none of it, argued there and in ADR 0012. **What these four pages add is the cost,
+/// measured**: a `/BlackPoint` moved from `[0 0 0]` to `[50 50 50]` changes nothing in this tree's
+/// raster, in `poppler`'s, in `mupdf`'s or in `ghostscript`'s, so the choice is the one four
+/// independent readers of the clause make. `cargo run --release -p pdf-model --example
+/// black_point_census` counts how many corpus spaces state one at all.
+const CONTRADICTED_CALRGB_TO_SCREEN: [&str; 4] = [
+    "calrgb.pdf page 1",
+    "calrgb.pdf page 5",
+    "calrgb.pdf page 11",
+    "calrgb.pdf page 12",
+];
 
 /// Contradicted, where the references space the glyphs by no width the document states.
 ///
@@ -923,8 +1057,10 @@ const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 0] = [];
 
 /// Contradicted, with a font on the page that carries no embedded program.
 ///
-/// 12 pages, and it held 17 until the four-hundred-and-thirty-first session measured the five
-/// that had never been opened and found them to be `CONTRADICTED_GLYPH_EDGES` (below). The header
+/// 8 pages, and it held 17 until the four-hundred-and-thirty-first session measured the five
+/// that had never been opened and found them to be `CONTRADICTED_GLYPH_EDGES` (below), and 12
+/// until the four-hundred-and-sixty-first measured `calrgb.pdf`'s four and found them to be
+/// [`CONTRADICTED_CALRGB_TO_SCREEN`]. The header
 /// said 19 while the list held 18 before that, which is what a count written beside a list rather
 /// than counted off it does. The weakest entries here, because the difference
 /// need not be anyone's defect:
@@ -946,10 +1082,16 @@ const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 0] = [];
 /// converted through XYZ as §8.6.5.2 and §8.6.5.3 define them. Eight of their twelve pages
 /// left this list when that was fixed.
 ///
-/// The four that remain differ by about ten levels in one channel against `mupdf` and
-/// `ghostscript`, while agreeing with `poppler` exactly. That is a residue of colour
-/// management rather than of fonts, and small enough that closing it would mean choosing
-/// whose arithmetic to copy — which principle 5 forbids.
+/// **The four of `calrgb.pdf` that remained are gone too, and the sentence that kept them here
+/// was right about the mechanism and wrong to leave them under this name.** It read "a residue of
+/// colour management rather than of fonts", which is exactly what the four-hundred-and-sixty-first
+/// session measured them to be: against `poppler` — a renderer that substitutes a *different*
+/// serif face from ours — not one channel of the swatch interiors moves by more than four levels,
+/// while two thirds of the difference against the pair that decides the verdict lies inside
+/// swatches that hold no glyph at all. [`CONTRADICTED_CALRGB_TO_SCREEN`] has the whole measurement.
+/// **A group's own note naming another group's mechanism is a page in the wrong group**, and this
+/// one said so from the sixth session — the same one that converted these spaces through XYZ and
+/// took eight of their twelve pages off this list — without the other four moving.
 ///
 /// Seven entries left this list without being fixed, and the distinction matters: they are
 /// **Type 3** fonts, which have no embedded program because §9.6.4 gives them no program at
@@ -1289,13 +1431,9 @@ const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 0] = [];
 /// while costing nothing at all in placement. All three are §9.5 NOTE 5's sentence — "some details
 /// of font naming, font substitution, and glyph selection are implementation-dependent" — and the
 /// third is the plainest instance of it in the file, because a dingbat *is* its outline.
-const CONTRADICTED_SUBSTITUTED_FONT: [&str; 12] = [
+const CONTRADICTED_SUBSTITUTED_FONT: [&str; 8] = [
     "bug847420.pdf page 1",
     "bug850854.pdf page 1",
-    "calrgb.pdf page 1",
-    "calrgb.pdf page 11",
-    "calrgb.pdf page 12",
-    "calrgb.pdf page 5",
     "issue11403_reduced.pdf page 1",
     "issue15716.pdf page 1",
     "issue6069.pdf page 1",
@@ -4424,6 +4562,12 @@ const AMBIGUOUS_DEVICE_N_ALTERNATE: [&str; 1] = ["issue17065.pdf page 1"];
 /// This is §3a's third shape, and the sharpest instance of it the bucket holds: the clause is
 /// closed about the part it defines, open about the part it does not, and names the clause that
 /// says so.
+///
+/// **Four more of this document's pages carry the same reading one verdict over.**
+/// [`CONTRADICTED_CALRGB_TO_SCREEN`] holds pages 1, 5, 11 and 12, which differ from each other only
+/// in `/BlackPoint` and are contradicted rather than ambiguous for one reason: on them the two
+/// references that share a camp agree to 4.41%, so the bound derived from them is tight enough to
+/// exclude us. Same document, same clause, same open half — a different bound.
 const AMBIGUOUS_CALRGB_TO_SCREEN: [&str; 8] = [
     "calrgb.pdf page 3",
     "calrgb.pdf page 6",
@@ -8018,6 +8162,7 @@ fn check_the_ratchets(results: &[Examined]) {
         .chain(&CONTRADICTED_SHARED_JBIG2_DECODER)
         .chain(&CONTRADICTED_IMAGE_RESAMPLING)
         .chain(&CONTRADICTED_CALIBRATED_COLOUR)
+        .chain(&CONTRADICTED_CALRGB_TO_SCREEN)
         .chain(&CONTRADICTED_REFERENCE_GLYPH_WIDTHS)
         .chain(&CONTRADICTED_NEGATIVE_LINE_WIDTH)
         .chain(&CONTRADICTED_DEVICE_CMYK_CONVERSION)
