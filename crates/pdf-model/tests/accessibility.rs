@@ -440,12 +440,15 @@ fn a_code_no_method_can_name_is_counted_through_a_reversal_too() {
         "",
     );
     assert_eq!(
-        (plain.text.trim(), plain.codes_without_a_character),
+        (plain.text.trim(), plain.codes_without_a_character.total()),
         ("A", 1),
         "one of the two codes is named and one is not"
     );
     assert_eq!(
-        (reversed.text.trim(), reversed.codes_without_a_character),
+        (
+            reversed.text.trim(),
+            reversed.codes_without_a_character.total()
+        ),
         ("A", 1),
         "and the reversal changes the order of the readback, not what the font said"
     );

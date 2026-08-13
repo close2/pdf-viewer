@@ -751,8 +751,8 @@ fn examine(path: &Path, tally: &Mutex<Tally>) {
             t.codes_reaching_a_blank_glyph.push((named, blank));
         });
     }
-    if interpretation.codes_without_a_character > 0 && interpretation.is_complete() {
-        let unnamed = interpretation.codes_without_a_character;
+    if interpretation.codes_without_a_character.total() > 0 && interpretation.is_complete() {
+        let unnamed = interpretation.codes_without_a_character.total();
         let named = name.clone();
         record(tally, |t| {
             t.codes_without_a_character.push((named, unnamed));

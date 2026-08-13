@@ -383,6 +383,27 @@ impl SymbolicEncoding {
             Self::ZapfDingbats => ZAPF_DINGBATS[usize::from(code)],
         }
     }
+
+    /// Returns the character this font's own set gives a glyph name, where the annex states one.
+    ///
+    /// **Only `ZapfDingbats` answers**, and the asymmetry is the standard's rather than this
+    /// crate's: Table D.5's names are `alpha`, `universal`, `weierstrass` — names the Adobe Glyph
+    /// List holds, so §9.10.2's second method already answers for `Symbol` and this would be a
+    /// second route to the same character. Table D.6's are `a1`, `a192`, which that list does not
+    /// hold at all; [`ZAPF_DINGBATS_CHARACTERS`] is the reading of why the annex answers instead.
+    ///
+    /// Keyed by **name** so that a `/Differences` array rearranging this font's own glyphs is
+    /// followed — §9.6.5.1 lets one override any built-in encoding — while a name that is not one
+    /// of this set's answers `None`. The lookup walks the encoding beside it rather than holding a
+    /// second table keyed the other way, which is what keeps the two from drifting apart.
+    #[must_use]
+    pub fn character_for(self, name: &str) -> Option<char> {
+        if self != Self::ZapfDingbats || name.is_empty() {
+            return None;
+        }
+        let code = ZAPF_DINGBATS.iter().position(|known| *known == name)?;
+        ZAPF_DINGBATS_CHARACTERS[code]
+    }
 }
 
 /// The `MacExpertEncoding` base encoding — Annex D.4's Table D.4.
@@ -612,9 +633,98 @@ static ZAPF_DINGBATS: [&str; 256] = [
     "a189",           "a190",           "a191",           "", // 252
 ];
 
+/// The character each `ZapfDingbats` code stands for — the `CHAR` column of the same Table D.6.
+///
+/// **Why a table of characters exists here at all, when §9.10.2 sends a reader to the Adobe Glyph
+/// List.** The list does not hold `a1`, and Annex D.1 says why in one sentence — "[t]he characters
+/// for `ZapfDingbats` are ordered by code instead of by name, since the names in that font are
+/// meaningless" — so the name is not the route and never was. The route the standard states is
+/// this table: D.1 opens "[t]his annex lists the character sets and encodings that shall be
+/// predefined in any PDF processor", §9.6.5.1 says the two symbolic standard-14 fonts are the ones
+/// "whose encodings **and character sets** are documented in Annex D", and Table D.6 prints, for
+/// every code, the character beside the name. A processor that predefines this set predefines what
+/// each of its codes represents, which is the question §9.10.2 asks. ADR 0318 has the reading, and
+/// the reason it is keyed by **code within this font's own encoding** rather than by name: a name
+/// like `a192` is also what pdfTeX calls the glyph for code 192 of a completely different font, and
+/// reading *that* as a dingbat is the mistake this table's key is chosen to make impossible.
+///
+/// Transcribed from ISO 32000-2 Table D.6, whose `CHAR` column ISO typeset in a Unicode text font
+/// rather than in `ZapfDingbats` itself — checked against the file's own fonts, so the characters
+/// here are the standard's own and not a rendering of a glyph.
+#[rustfmt::skip]
+static ZAPF_DINGBATS_CHARACTERS: [Option<char>; 256] = [
+    None,            None,            None,            None, // 0
+    None,            None,            None,            None, // 4
+    None,            None,            None,            None, // 8
+    None,            None,            None,            None, // 12
+    None,            None,            None,            None, // 16
+    None,            None,            None,            None, // 20
+    None,            None,            None,            None, // 24
+    None,            None,            None,            None, // 28
+    Some(' '),       Some('✁'),       Some('✂'),       Some('✃'), // 32
+    Some('✄'),       Some('☎'),       Some('✆'),       Some('✇'), // 36
+    Some('✈'),       Some('✉'),       Some('☛'),       Some('☞'), // 40
+    Some('✌'),       Some('✍'),       Some('✎'),       Some('✏'), // 44
+    Some('✐'),       Some('✑'),       Some('✒'),       Some('✓'), // 48
+    Some('✔'),       Some('✕'),       Some('✖'),       Some('✗'), // 52
+    Some('✘'),       Some('✙'),       Some('✚'),       Some('✛'), // 56
+    Some('✜'),       Some('✝'),       Some('✞'),       Some('✟'), // 60
+    Some('✠'),       Some('✡'),       Some('✢'),       Some('✣'), // 64
+    Some('✤'),       Some('✥'),       Some('✦'),       Some('✧'), // 68
+    Some('★'),       Some('✩'),       Some('✪'),       Some('✫'), // 72
+    Some('✬'),       Some('✭'),       Some('✮'),       Some('✯'), // 76
+    Some('✰'),       Some('✱'),       Some('✲'),       Some('✳'), // 80
+    Some('✴'),       Some('✵'),       Some('✶'),       Some('✷'), // 84
+    Some('✸'),       Some('✹'),       Some('✺'),       Some('✻'), // 88
+    Some('✼'),       Some('✽'),       Some('✾'),       Some('✿'), // 92
+    Some('❀'),       Some('❁'),       Some('❂'),       Some('❃'), // 96
+    Some('❄'),       Some('❅'),       Some('❆'),       Some('❇'), // 100
+    Some('❈'),       Some('❉'),       Some('❊'),       Some('❋'), // 104
+    Some('●'),       Some('❍'),       Some('■'),       Some('❏'), // 108
+    Some('❐'),       Some('❑'),       Some('❒'),       Some('▲'), // 112
+    Some('▼'),       Some('◆'),       Some('❖'),       Some('◗'), // 116
+    Some('❘'),       Some('❙'),       Some('❚'),       Some('❛'), // 120
+    Some('❜'),       Some('❝'),       Some('❞'),       None, // 124
+    None,            None,            None,            None, // 128
+    None,            None,            None,            None, // 132
+    None,            None,            None,            None, // 136
+    None,            None,            None,            None, // 140
+    None,            None,            None,            None, // 144
+    None,            None,            None,            None, // 148
+    None,            None,            None,            None, // 152
+    None,            None,            None,            None, // 156
+    None,            Some('❡'),       Some('❢'),       Some('❣'), // 160
+    Some('❤'),       Some('❥'),       Some('❦'),       Some('❧'), // 164
+    Some('♣'),       Some('♦'),       Some('♥'),       Some('♠'), // 168
+    Some('①'),       Some('②'),       Some('③'),       Some('④'), // 172
+    Some('⑤'),       Some('⑥'),       Some('⑦'),       Some('⑧'), // 176
+    Some('⑨'),       Some('⑩'),       Some('❶'),       Some('❷'), // 180
+    Some('❸'),       Some('❹'),       Some('❺'),       Some('❻'), // 184
+    Some('❼'),       Some('❽'),       Some('❾'),       Some('❿'), // 188
+    Some('➀'),       Some('➁'),       Some('➂'),       Some('➃'), // 192
+    Some('➄'),       Some('➅'),       Some('➆'),       Some('➇'), // 196
+    Some('➈'),       Some('➉'),       Some('➊'),       Some('➋'), // 200
+    Some('➌'),       Some('➍'),       Some('➎'),       Some('➏'), // 204
+    Some('➐'),       Some('➑'),       Some('➒'),       Some('➓'), // 208
+    Some('➔'),       Some('→'),       Some('↔'),       Some('↕'), // 212
+    Some('➘'),       Some('➙'),       Some('➚'),       Some('➛'), // 216
+    Some('➜'),       Some('➝'),       Some('➞'),       Some('➟'), // 220
+    Some('➠'),       Some('➡'),       Some('➢'),       Some('➣'), // 224
+    Some('➤'),       Some('➥'),       Some('➦'),       Some('➧'), // 228
+    Some('➨'),       Some('➩'),       Some('➪'),       Some('➫'), // 232
+    Some('➬'),       Some('➭'),       Some('➮'),       Some('➯'), // 236
+    None,            Some('➱'),       Some('➲'),       Some('➳'), // 240
+    Some('➴'),       Some('➵'),       Some('➶'),       Some('➷'), // 244
+    Some('➸'),       Some('➹'),       Some('➺'),       Some('➻'), // 248
+    Some('➼'),       Some('➽'),       Some('➾'),       None, // 252
+];
+
 #[cfg(test)]
 mod tests {
-    use super::{BaseEncoding, MAC_ROMAN, WIN_ANSI};
+    use super::{
+        BaseEncoding, MAC_ROMAN, SymbolicEncoding, WIN_ANSI, ZAPF_DINGBATS,
+        ZAPF_DINGBATS_CHARACTERS,
+    };
     use skrifa::raw::ps::string::STANDARD_STRINGS;
 
     /// Every glyph name in these tables must be one the CFF specification also knows.
@@ -816,6 +926,78 @@ mod tests {
         assert_eq!(
             shared,
             ["space", "comma", "hyphen", "period", "colon", "semicolon"]
+        );
+    }
+
+    /// Annex D.6's two columns describe the same 188 codes, and the pair is the point.
+    ///
+    /// `ZAPF_DINGBATS` is the `NAME` column and `ZAPF_DINGBATS_CHARACTERS` is the `CHAR` column of
+    /// one table, transcribed in two passes and hundreds of sessions apart, and
+    /// [`SymbolicEncoding::character_for`] walks the first to index the second — so a slip in
+    /// either that left them out of step would hand a code the character of its neighbour, which
+    /// is the failure a reader could not see. This is what makes them one table again.
+    #[test]
+    fn the_dingbats_names_and_characters_describe_the_same_codes() {
+        let named: Vec<usize> = (0..256).filter(|c| !ZAPF_DINGBATS[*c].is_empty()).collect();
+        let charactered: Vec<usize> = (0..256)
+            .filter(|c| ZAPF_DINGBATS_CHARACTERS[*c].is_some())
+            .collect();
+        assert_eq!(named, charactered, "every encoded code states a character");
+        assert_eq!(named.len(), 188, "Table D.6 assigns 188 of the 256 codes");
+    }
+
+    /// Table D.6's own rows, at the places the table is easiest to read wrongly.
+    ///
+    /// Its codes are **octal**, so `041` is 33 rather than 41; its rows run in **four
+    /// column-groups**, so a reader going left to right across a printed row jumps between four
+    /// disjoint ranges of the encoding; and the one row with no `CHAR` is `space`, which is a
+    /// character rather than a gap. `a192` is the fourth: it is the name ADR 0311 found pdfTeX
+    /// using for something else entirely, and here it is what Table D.6 says it is.
+    #[test]
+    fn the_dingbats_set_is_annex_d6s_own_table() {
+        let dingbats = SymbolicEncoding::ZapfDingbats;
+        assert_eq!(dingbats.glyph_name(0o041), "a1");
+        assert_eq!(dingbats.character_for("a1"), Some('\u{2701}'));
+        assert_eq!(dingbats.glyph_name(0o040), "space");
+        assert_eq!(dingbats.character_for("space"), Some(' '));
+        assert_eq!(dingbats.glyph_name(0o332), "a192");
+        assert_eq!(dingbats.character_for("a192"), Some('\u{279A}'));
+        assert_eq!(
+            dingbats.character_for("agrave"),
+            None,
+            "a name of the Latin set is not one of this one's"
+        );
+        assert_eq!(
+            dingbats.character_for(""),
+            None,
+            "an unencoded code names nothing"
+        );
+    }
+
+    /// `Symbol` needs no such table, because §9.10.2's second method already answers for it.
+    ///
+    /// Table D.5 names its glyphs `alpha`, `universal`, `weierstrass` — names the Adobe Glyph List
+    /// holds — where Table D.6 names its own `a1` and `a192`, which it does not. That asymmetry is
+    /// why [`SymbolicEncoding::character_for`] answers for one of the two fonts and not the other,
+    /// and it is a fact about two published lists rather than a choice, so it is asserted rather
+    /// than described.
+    #[test]
+    fn the_symbol_sets_names_are_all_in_the_list_the_clause_names() {
+        let unlisted: Vec<&str> = (0..=255_u8)
+            .map(|code| SymbolicEncoding::Symbol.glyph_name(code))
+            .filter(|name| !name.is_empty() && super::text_for(name).is_none())
+            .collect();
+        assert!(
+            unlisted.is_empty(),
+            "\u{a7}9.10.2 cannot name: {unlisted:?}"
+        );
+        let dingbats = (0..=255_u8)
+            .map(|code| SymbolicEncoding::ZapfDingbats.glyph_name(code))
+            .filter(|name| !name.is_empty() && super::text_for(name).is_none())
+            .count();
+        assert_eq!(
+            dingbats, 187,
+            "and every dingbat but the space is outside it"
         );
     }
 }

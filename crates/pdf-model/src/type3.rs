@@ -262,6 +262,38 @@ impl Type3Font {
         Self::text_from_the_code(code, out)
     }
 
+    /// Which of §9.10.2's methods could have named a code and did not, or `None` where one did.
+    ///
+    /// The Type 3 half of [`pdf_font::LoadedFont::naming_gap`], whose documentation states the
+    /// rule both follow: the answer is the highest-priority method the clause states that this
+    /// font could have answered with, because the clause ranks them itself. Only two of them
+    /// can apply here — a Type 3 font is a simple font, so the composite route is out by the
+    /// clause's own first sentence, and §9.6.5.3 leaves its `/Encoding` as the whole of its
+    /// glyph selection.
+    #[must_use]
+    pub fn naming_gap(&self, code: u32) -> Option<pdf_font::NamingGap> {
+        let mut discarded = String::new();
+        if self.text(code, &mut discarded) {
+            return discarded
+                .is_empty()
+                .then_some(pdf_font::NamingGap::EmptyMapping);
+        }
+        if !self.to_unicode.is_empty() {
+            return Some(pdf_font::NamingGap::IncompleteToUnicode);
+        }
+        match u8::try_from(code)
+            .ok()
+            .and_then(|code| self.encoding.get(&code))
+        {
+            Some(name) => Some(pdf_font::NamingGap::UnlistedName(name.clone())),
+            // §9.6.5.3 makes `/Differences` "the complete character encoding for this font" and
+            // its NOTE adds that "Type 3 fonts do not support the concept of a default glyph
+            // name", so a code the encoding does not name has no name anywhere — and no glyph
+            // either.
+            None => Some(pdf_font::NamingGap::UnnamedGlyph),
+        }
+    }
+
     /// §9.10.2's last resort, where the name is one the Adobe Glyph List does not know.
     ///
     /// **A choice and not a reading**, and the clause states the licence in the same sentence

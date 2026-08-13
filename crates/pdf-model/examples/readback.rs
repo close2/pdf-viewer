@@ -42,6 +42,7 @@ fn main() {
     // §9.10.2 cannot name prints an empty line and looks exactly like a page with no text.
     println!(
         "--- {} glyph(s) marked the page; {} code(s) §9.10.2 could not name",
-        interpretation.glyphs, interpretation.codes_without_a_character
+        interpretation.glyphs,
+        interpretation.codes_without_a_character.total()
     );
 }

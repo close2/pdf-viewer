@@ -258,6 +258,70 @@ impl From<substitute::Format> for Program {
     }
 }
 
+/// Why ISO 32000-2 §9.10.2 could not say what a character code represents.
+///
+/// The clause states three methods a processor can use "in the priority given" and ends by naming
+/// the outcome when all of them fail:
+///
+/// > If these methods fail to produce a Unicode value, there is no way to determine what the
+/// > character code represents in which case a PDF processor may choose a character code of
+/// > their choosing.
+///
+/// A variant here says **which method was the highest-priority one this font could have answered
+/// with**, so that a population of unnamed codes can be read as the sum of its causes rather than
+/// as one number — and the two kinds are what a reader of that population needs to tell apart:
+/// [`Self::UnaddressableCid`] and [`Self::UnlistedName`] are the sentence above happening, and
+/// [`Self::IncompleteToUnicode`] and [`Self::EmptyMapping`] are a statement the file made and left
+/// short. See [`LoadedFont::naming_gap`].
+/// **Exhaustive on purpose**, where the errors beside it are not: a caller of this counts a
+/// population, and a variant added later must break every such tally rather than be folded into
+/// a wildcard arm that would silently mis-attribute it.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum NamingGap {
+    /// A mapping answered for this code with no characters at all.
+    ///
+    /// §9.10.3's `beginbfchar` "define[s] the mapping from character codes to Unicode character
+    /// sequences expressed in UTF-16BE encoding", and a sequence of length zero is a mapping that
+    /// says the code means nothing. Kept apart from [`Self::IncompleteToUnicode`] because the
+    /// producer *did* state something about this code: a reader has an answer and it is empty.
+    EmptyMapping,
+    /// The font carries a `/ToUnicode` `CMap` with no entry for this code.
+    ///
+    /// §9.10.2's first method applied and the producer's own table did not answer. §9.10.3 makes
+    /// that table a statement about the codes it holds and requires nothing about completeness,
+    /// so this is a gap in the *file* rather than in the clause.
+    IncompleteToUnicode,
+    /// A simple font's glyph selection used a name that neither list §9.10.2 names holds.
+    ///
+    /// The clause's second method sends a reader to the Adobe Glyph List and the Adobe Glyph
+    /// List for New Fonts, and a producer's private label — pdfTeX's `/aNNN` after the code — is
+    /// in neither. Carries the name, because what a name *is* decides whether the gap is the
+    /// clause's or ours.
+    UnlistedName(String),
+    /// A composite font using a registered character collection whose table has no character for
+    /// the CID this code selects.
+    ///
+    /// §9.10.2's third method applied — the collection's `registry-ordering-UCS2` `CMap` was
+    /// found and read — and it holds nothing for this CID.
+    UnnamedCid,
+    /// A composite font §9.10.2's third method excludes by name, with no `/ToUnicode` at all.
+    ///
+    /// The clause's third method is for a font using a predefined `CMap` "(except Identity -H and
+    /// Identity -V )" or one of the registered collections; an `Identity` ordering is neither, and
+    /// §9.7.4.2 states why nothing else can be asked — a CID indexes the glyphs of the font that
+    /// defined it and says nothing about any character. This is the clause's "there is no way",
+    /// and no reading of the standard closes it.
+    UnaddressableCid,
+    /// A simple font that selected its glyph by code, and whose program does not name it.
+    ///
+    /// §9.6.5.4's route for a symbolic `TrueType` uses no glyph name, so the clause's second
+    /// method has nothing to look up; §9.10.2's closing permission is then all that is left, and
+    /// the program's own `post` table and `cmap` (see [`LoadedFont::text_from_program`]) named
+    /// nothing either — a `post` of version 3.0 holds no names, and a `(3, 0)` subtable inverts
+    /// to codes rather than to characters.
+    UnnamedGlyph,
+}
+
 /// Why a font could not be used.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
@@ -355,6 +419,14 @@ pub struct LoadedFont {
     /// Held beside `to_unicode` rather than folded into it because the two are keyed
     /// differently — see [`Meaning`] — and because the clause ranks them, `/ToUnicode` first.
     collection: Option<tounicode::ToUnicode>,
+    /// The character set this font's own encoding belongs to, for the two symbolic standard-14
+    /// fonts.
+    ///
+    /// `Some` only where this crate resolved the font *as* §9.6.2.2's `Symbol` or `ZapfDingbats` —
+    /// a document naming one and embedding nothing — because that is the font whose character set
+    /// Annex D documents. An embedded program brings its own built-in encoding (§9.6.5.1), which
+    /// the annex says nothing about, so it is left `None` rather than assumed to be this one.
+    symbolic_set: Option<encoding::SymbolicEncoding>,
     /// The glyph name each code selects, for simple fonts.
     ///
     /// The fallback for extraction when there is no `/ToUnicode`: a glyph name identifies
@@ -612,6 +684,7 @@ impl LoadedFont {
             substituted: requested.is_some(),
             to_unicode: to_unicode(document, dict),
             collection: None,
+            symbolic_set: requested.and_then(|request| symbolic_set(request.family)),
             glyph_names: names,
             notdef,
             outlines: RefCell::new(BTreeMap::new()),
@@ -742,6 +815,9 @@ impl LoadedFont {
                 Some(Meaning::ByCid(table)) => Some(table),
                 _ => None,
             },
+            // §9.6.5.1 gives the two symbolic standard-14 fonts *simple* built-in encodings, and
+            // a composite font has none of them.
+            symbolic_set: None,
             glyph_names: None,
             // A composite font's substitute is §9.7.6.3's CID 0, applied in `glyph_for`.
             notdef: None,
@@ -815,7 +891,17 @@ impl LoadedFont {
                     .get(code)
                     .map(Cow::as_ref)
                     .filter(|name| !name.is_empty())
-                    .and_then(encoding::text_for);
+                    .and_then(|name| {
+                        // The clause's own second method first, and Annex D's character set
+                        // where that list does not hold the name — which for `ZapfDingbats` is
+                        // every name it has. See `SymbolicEncoding::character_for`, and ADR 0318
+                        // for why the annex is a route to a character and not a convention.
+                        encoding::text_for(name).or_else(|| {
+                            self.symbolic_set
+                                .and_then(|set| set.character_for(name))
+                                .map(String::from)
+                        })
+                    });
             }
             table
         });
@@ -828,6 +914,80 @@ impl LoadedFont {
             return true;
         }
         self.text_from_program(code, out)
+    }
+
+    /// Which of §9.10.2's methods could have named a code and did not, or `None` where one did.
+    ///
+    /// [`Self::text`] answers *whether* the clause named a code; this answers **why not**, and
+    /// it exists because the refusal is a population rather than a case: ADR 0311 counted the
+    /// codes a corpus page shows that no method can name, and the count on its own cannot say
+    /// whether a reader lost them to a question the standard leaves unanswerable or to a route
+    /// this program does not walk. Those two have different consequences, which is
+    /// `CLAUDE.md` principle 5's distinction between misreading a clause and a clause defining
+    /// nothing.
+    ///
+    /// The answer is **the highest-priority method the clause states that this font could have
+    /// answered with**, because the clause itself ranks them: "[a] PDF processor can use these
+    /// methods, in the priority given". A font carrying a `/ToUnicode` that omits the code has
+    /// failed at the first method whatever its glyph names say, and reporting the last thing
+    /// tried would describe every gap the same way — every route ends at the same declined
+    /// permission.
+    ///
+    /// Asked by [`Self::text`]'s own route rather than by a copy of it, so the census cannot come
+    /// to describe an extraction the code no longer does. The readback it produces is thrown
+    /// away, and its `String` allocates only where a method answered — which is the branch that
+    /// returns `None` and counts nothing.
+    #[must_use]
+    pub fn naming_gap(&self, code: Code) -> Option<NamingGap> {
+        let mut discarded = String::new();
+        if self.text(code, &mut discarded) {
+            // A method answered, and a caller reading text back has characters only if the
+            // answer had any: §9.10.3's destination may be a sequence, and a producer may write
+            // an empty one.
+            return discarded.is_empty().then_some(NamingGap::EmptyMapping);
+        }
+        // The clause's first method, and a font that carries the table has taken it: the
+        // producer stated what its codes mean and left this one out. Distinguished from a font
+        // with no table at all because they are different facts about the file — one is a
+        // producer's incomplete statement, the other is no statement.
+        if !self.to_unicode.is_empty() {
+            return Some(NamingGap::IncompleteToUnicode);
+        }
+        // The clause's second method: "[i]f the font is a simple font and the glyph selection
+        // algorithm … uses a glyph name, that name can be looked up in the Adobe Glyph List and
+        // Adobe Glyph List for New Fonts". A name was used and neither list holds it.
+        if let Some(name) = self.selected_glyph_name(code) {
+            return Some(NamingGap::UnlistedName(name.to_owned()));
+        }
+        match &self.mapping {
+            // The clause's third method, whose own first sentence says which composite fonts it
+            // is for — the predefined `CMap`s "(except Identity -H and Identity -V )" and the
+            // registered collections. `self.collection` is exactly that test, resolved when the
+            // font was loaded.
+            CodeMapping::Composite { .. } | CodeMapping::Substituted { .. } => {
+                Some(if self.collection.is_some() {
+                    NamingGap::UnnamedCid
+                } else {
+                    NamingGap::UnaddressableCid
+                })
+            }
+            // A simple font that used no name at all: a symbolic `TrueType` selecting by code
+            // through a `cmap` subtable (§9.6.5.4), whose program then named nothing either.
+            CodeMapping::Named(_) => Some(NamingGap::UnnamedGlyph),
+        }
+    }
+
+    /// The glyph name a simple font's encoding selects for a code, where it selects one.
+    ///
+    /// §9.6.5's glyph selection for a simple font is by name, and this is the name that was
+    /// used — the same table [`Self::text`] takes §9.10.2's second method from, so the two
+    /// cannot disagree about whether a name existed.
+    fn selected_glyph_name(&self, code: Code) -> Option<&str> {
+        self.glyph_names
+            .as_ref()?
+            .get(usize::try_from(code.value()).ok()?)
+            .map(Cow::as_ref)
+            .filter(|name| !name.is_empty())
     }
 
     /// §9.10.2's last resort: the name the *font program* gives the glyph that was drawn.
@@ -1873,12 +2033,20 @@ fn substitute_encoding_names(
     request: substitute::Request,
     name: &str,
 ) -> Result<GlyphNames, FontError> {
-    let symbolic = match request.family {
+    encoding_names(document, dict, name, symbolic_set(request.family), true)
+}
+
+/// Which of Annex D's two symbolic character sets a substituted family belongs to.
+///
+/// One reader for both of the questions that need it — which glyph names the codes select
+/// (§9.6.5.1), and which characters those names stand for (Annex D.6) — so that a font cannot be
+/// `ZapfDingbats` for one and not for the other.
+fn symbolic_set(family: substitute::Family) -> Option<encoding::SymbolicEncoding> {
+    match family {
         substitute::Family::Symbol => Some(encoding::SymbolicEncoding::Symbol),
         substitute::Family::ZapfDingbats => Some(encoding::SymbolicEncoding::ZapfDingbats),
         _ => None,
-    };
-    encoding_names(document, dict, name, symbolic, true)
+    }
 }
 
 /// One code table, built by asking a face for every name the encoding states.

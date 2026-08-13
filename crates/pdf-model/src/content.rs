@@ -360,7 +360,12 @@ pub struct Interpretation {
     ///
     /// Counts a code the *page* showed. A code shown inside a Type 3 glyph description is how
     /// that glyph is painted rather than text of the page (§9.6.4), and is not counted here.
-    pub codes_without_a_character: usize,
+    ///
+    /// **Split by cause since the four-hundred-and-eighty-third session**, because the total on
+    /// its own could not say whether a reader lost a code to a question the standard leaves
+    /// unanswerable or to a route this program does not walk. [`UnnamedCodes::total`] is what
+    /// this field used to be.
+    pub codes_without_a_character: UnnamedCodes,
     /// ISO 32000-2 §14.9's accessibility spans over [`Self::text`], in the order they closed.
     ///
     /// One entry per marked-content sequence stating an `/Alt`, an `/E` or a `/Lang`, in
@@ -467,6 +472,63 @@ pub struct ArtifactSpan {
     pub range: std::ops::Range<usize>,
     /// What Table 363 said about it.
     pub artifact: crate::structure::Artifact,
+}
+
+/// Codes a page showed that ISO 32000-2 §9.10.2 could not name, by which method could have.
+///
+/// [`Interpretation::codes_without_a_character`] was one number when ADR 0311 added it, and a
+/// number is where this question stops being answerable: a code no method named can be the
+/// unanswerable question the clause states in its own words — "there is no way to determine what
+/// the character code represents" — or a route this program does not walk, and the two have
+/// different consequences. Each field is a [`pdf_font::NamingGap`] variant, which carries the
+/// reading behind it; the sum is [`Self::total`], and `examples/unnamed_code_census` is what reads
+/// the split over a corpus. ADR 0318, which used it to close one of the six.
+///
+/// **A count and never a report**, on ADR 0152's trade, exactly as the single number was: a
+/// shortfall in the readback is not a shortfall in the picture, and a report on each of the
+/// documents behind it would cost the oracle that many judged pages — most of which draw
+/// perfectly.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct UnnamedCodes {
+    /// [`pdf_font::NamingGap::EmptyMapping`]: a mapping whose answer is no characters.
+    pub empty_mapping: usize,
+    /// [`pdf_font::NamingGap::IncompleteToUnicode`]: a `/ToUnicode` that omits the code.
+    pub incomplete_to_unicode: usize,
+    /// [`pdf_font::NamingGap::UnlistedName`]: a glyph name neither published list holds.
+    pub unlisted_name: usize,
+    /// [`pdf_font::NamingGap::UnnamedCid`]: a registered collection with nothing for the CID.
+    pub unnamed_cid: usize,
+    /// [`pdf_font::NamingGap::UnaddressableCid`]: an `Identity` ordering and no `/ToUnicode`.
+    pub unaddressable_cid: usize,
+    /// [`pdf_font::NamingGap::UnnamedGlyph`]: a glyph selected by code that nothing names.
+    pub unnamed_glyph: usize,
+}
+
+impl UnnamedCodes {
+    /// Every code counted here, which is what [`Interpretation::codes_without_a_character`] was
+    /// before the split.
+    #[must_use]
+    pub const fn total(&self) -> usize {
+        self.empty_mapping
+            .saturating_add(self.incomplete_to_unicode)
+            .saturating_add(self.unlisted_name)
+            .saturating_add(self.unnamed_cid)
+            .saturating_add(self.unaddressable_cid)
+            .saturating_add(self.unnamed_glyph)
+    }
+
+    /// Counts one code against the method that could have named it.
+    fn count(&mut self, gap: &pdf_font::NamingGap) {
+        let slot = match gap {
+            pdf_font::NamingGap::EmptyMapping => &mut self.empty_mapping,
+            pdf_font::NamingGap::IncompleteToUnicode => &mut self.incomplete_to_unicode,
+            pdf_font::NamingGap::UnlistedName(_) => &mut self.unlisted_name,
+            pdf_font::NamingGap::UnnamedCid => &mut self.unnamed_cid,
+            pdf_font::NamingGap::UnaddressableCid => &mut self.unaddressable_cid,
+            pdf_font::NamingGap::UnnamedGlyph => &mut self.unnamed_glyph,
+        };
+        *slot = slot.saturating_add(1);
+    }
 }
 
 /// One §14.7.5.2 marked-content sequence's extent in a page's readback.
@@ -914,6 +976,20 @@ impl Font {
             return true;
         }
         false
+    }
+
+    /// Which of §9.10.2's methods could have named a code and did not, for a code that read
+    /// back as nothing.
+    ///
+    /// Both kinds of font answer it — a page mixes them freely — and what differs is which of the
+    /// clause's methods could have applied, which is the question the answer is about. §9.3.3's
+    /// code 32 is not consulted here: this is asked only where [`Self::text`] has already
+    /// declined, and that rule is inside it.
+    fn naming_gap(&self, code: Code) -> Option<pdf_font::NamingGap> {
+        match self {
+            Self::Program(font) => font.naming_gap(code),
+            Self::Type3(font) => font.naming_gap(code.value()),
+        }
     }
 }
 
@@ -1974,7 +2050,7 @@ impl<'a> Interpreter<'a> {
             glyphs: 0,
             codes_without_a_glyph: 0,
             codes_reaching_a_blank_glyph: 0,
-            codes_without_a_character: 0,
+            codes_without_a_character: UnnamedCodes::default(),
             operations: 0,
             fonts: BTreeMap::new(),
             text: String::new(),
@@ -2386,7 +2462,7 @@ struct Interpreter<'a> {
     codes_reaching_a_blank_glyph: usize,
     /// Codes shown that §9.10.2 could not name; see
     /// `Interpretation::codes_without_a_character`.
-    codes_without_a_character: usize,
+    codes_without_a_character: UnnamedCodes,
     operations: usize,
     /// Fonts already loaded, keyed by resource name.
     ///
@@ -6308,13 +6384,29 @@ impl Interpreter<'_> {
 
             let start = self.text.len();
             let read = self.read_back(&font, code, reversing.then_some(&mut pieces));
-            if read == Some(Readback::Nothing) {
+            if read == Some(Readback::Nothing)
+                && let Some(gap) = font.naming_gap(code)
+            {
                 // §9.10.2 exhausted on a code the page *showed*. Counted rather than reported,
                 // for ADR 0152's reason one column over — a report would cost the oracle a
                 // judged page (trap 11) for a shortfall in the readback and not in the picture
                 // — but counted rather than nothing at all, because a refusal that says nothing
                 // is indistinguishable from a page with no text on it.
-                self.codes_without_a_character = self.codes_without_a_character.saturating_add(1);
+                //
+                // Counted *by cause*, because the total cannot say whether the clause has no
+                // answer or this program did not take one it states; `UnnamedCodes` has the
+                // argument. `PDFVIEWER_TRACE_UNNAMED_CODE=1` names each one on stderr, the same
+                // idiom the missing-glyph trace below uses, and it is what shows the glyph name
+                // behind an `UnlistedName` — the one variant where what the name *is* decides
+                // whose gap it is.
+                if std::env::var_os("PDFVIEWER_TRACE_UNNAMED_CODE").is_some() {
+                    eprintln!(
+                        "UNNAMED font=/{} code={} gap={gap:?}",
+                        state.text.font_name,
+                        code.value()
+                    );
+                }
+                self.codes_without_a_character.count(&gap);
             }
 
             // Glyph space to text space: scale by the font size, apply horizontal scaling and

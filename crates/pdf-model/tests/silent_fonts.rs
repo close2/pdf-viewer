@@ -154,7 +154,7 @@ fn a_page_whose_codes_no_method_can_name_says_how_many() {
     assert_eq!(
         (
             interpretation.glyphs,
-            interpretation.codes_without_a_character,
+            interpretation.codes_without_a_character.total(),
             interpretation.text.trim()
         ),
         (29, 28, "1"),
@@ -188,7 +188,52 @@ fn a_page_that_reads_back_nothing_is_distinguishable_from_a_page_with_no_text() 
         interpretation.text
     );
     assert_eq!(
-        interpretation.codes_without_a_character, 616,
+        interpretation.codes_without_a_character.total(),
+        616,
         "and every code the page showed is one §9.10.2 could not name"
+    );
+}
+
+/// A `ZapfDingbats` page reads back its dingbats, and none of its codes is left unnamed.
+///
+/// The other side of the two tests above, and the reason the census `doc/todo/21` §5 asked for was
+/// worth taking: 114 of the corpus's 1342 unnamed codes were this font, whose glyph names the
+/// Adobe Glyph List does not hold and whose characters ISO 32000-2 prints itself in Table D.6
+/// (ADR 0318). **Both halves of the defect are here**, and only one of them was visible as a
+/// count: codes 191 and up read back as nothing at all, and codes 0x21 to 0x7E read back as
+/// *ASCII* — §9.10.2's closing permission taken for a font whose set the standard documents, so
+/// the page's first dingbat came back as `!`.
+///
+/// The document is a specimen sheet, which is what makes it the witness: beside each dingbat it
+/// prints, in Helvetica, the name and the Unicode value that dingbat has — so the page states the
+/// expected answer next to the glyph, and the assertion below reads both out of one line. That
+/// agreement is **evidence** and not the source: the table these characters come from is ISO
+/// 32000-2's own Annex D.6, and a specimen sheet published in 2000 agreeing with it is what
+/// `CLAUDE.md` principle 5 says such agreement is worth.
+#[test]
+fn a_dingbats_page_reads_back_the_characters_annex_d6_states() {
+    let Some(interpretation) = page_one("ZapfDingbats.pdf") else {
+        return;
+    };
+    assert_eq!(
+        interpretation.codes_without_a_character.total(),
+        0,
+        "every code of the page is one Annex D.6 names"
+    );
+    for (dingbat, name, scalar) in [
+        ('\u{2701}', "a1", 0x2701_u32),
+        ('\u{2723}', "a30", 0x2723),
+        ('\u{2792}', "a158", 0x2792),
+    ] {
+        let stated = format!("{dingbat} {name} [x{scalar:04X}]");
+        assert!(
+            interpretation.text.contains(&stated),
+            "the page prints its own answer beside the glyph, and we read back {stated:?}: {:?}",
+            interpretation.text.get(..400)
+        );
+    }
+    assert!(
+        !interpretation.text.contains("! a1 "),
+        "and no dingbat reads back as the ASCII byte of its code"
     );
 }
