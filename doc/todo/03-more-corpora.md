@@ -6,7 +6,8 @@ a chunk a round, the way `doc/todo/00` takes a page off the ambiguous ranking.
 Priority: 03 — the standing band, deliberately.
 Corpus: 974 pdf.js documents **plus 108 in three submodules** and whatever `tools/safedocs` has
 been asked for — **65 944 as of the four-hundred-and-thirty-third**, 145 archives, 93 GB, the
-manifest below
+manifest below — **plus 267 in `openpreserve/format-corpus`, fetched and surveyed but not taken
+into the tree** (`doc/oracle-and-corpus.md` §2b, §2c)
 Code: `tools/safedocs`, `doc/corpora/*`, `doc/oracle-and-corpus.md` §2
 
 ## What exists now (ADR 0258)
@@ -76,6 +77,15 @@ session surveyed **all of it** and this section's job has changed with it: the f
 spent, because there is no longer anywhere nobody has been in this corpus. What a round takes next is
 either a *different* corpus (SafeDocs' issue-tracker set, 31 GB in six archives) or a *population*
 out of the one on disk.
+
+**The four-hundred-and-sixty-seventh took a different corpus rather than more of this one, and the
+lesson is about which kind is worth a round.** `openpreserve/format-corpus`'s
+`pdf-handbuilt-test-corpus` is 89 files that each carry **one** deliberate structural defect and all
+draw the same *Hello PDF-world!*, so a blank render *is* the finding and no reference is needed to
+say so — 0.1 MB of files against 93 GB of crawl, and it produced a defect the crawl cannot reach
+(ADR 0302). **A corpus built to be diagnostic outranks a corpus built to be large**, when what a
+round wants is a defect rather than a rate. `doc/oracle-and-corpus.md` §2b has the survey and the
+one-line ink assertion that reads it.
 
 **`manifest.tsv` holds 65 968 rows and the cache holds 65 944 documents**: archive `0050` was fetched
 twice, once by session 425's stride and once whole, so its 24 members are recorded twice. Every count
@@ -278,19 +288,30 @@ worth knowing before reading the next one:
   else together. 7 more are `doc/todo/21` §3's font-with-no-outline and 4 are §11.4.4's
   non-isolated group. The remaining 8 are singletons and are listed in ADR 0261.
 
-### 2. `openpreserve/format-corpus` is owed a licence reading, not a decision
+### 2. ~~`openpreserve/format-corpus` is owed a licence reading, not a decision~~ — read in the four-hundred-and-sixty-seventh; **the decision is the owner's and is stated below**
 
-Examined in the four-hundred-and-twenty-second and declined: GitHub detects no licence, the
-`README.md` says "[a]ll items are CC0 licenced **unless otherwise stated**", and per-file `.md`
-sidecars are where such a statement would be. Two facts for whoever reads it:
+**The reading is done and the corpus has been surveyed** (ADR 0302). The whole of it —
+what each of the five PDF directories states about its own licence, the recipe that fetches
+them, and what surveying 267 of their files produced — is
+[`doc/oracle-and-corpus.md`](../oracle-and-corpus.md) §2b and §2c, because that is where
+populations live. What belongs here is the question and nothing else:
 
-- **the `/pdf/` directory `doc/test-docs.md` names does not exist.** Its PDF material is
-  `pdfCabinetOfHorrors` (9.6 MB, 30 files), `pdf-handbuilt-test-corpus` (0.1 MB, 90 files),
-  `govdocs1-error-pdfs` (62.7 MB, 55 files) and `fully-featured-pdf` (22.8 MB, 9 files);
-- a sparse checkout of the first two costs **9.7 MB**, in the same shape `pdfbox` uses.
+> **May `openpreserve/format-corpus` be added as a fourth submodule under `doc/corpora/`,
+> sparse-checked out to `pdfCabinetOfHorrors` and `pdf-handbuilt-test-corpus` and nothing
+> else?**
 
-The reading is: open the sidecars for the directories being taken and check that none states
-other terms. That is an hour, not a round.
+Everything a decision needs is in §2c. The short of it: only `pdfCabinetOfHorrors` carries an
+explicit in-directory CC0 statement; `pdf-handbuilt-test-corpus` states nothing and points at a
+deposited research artefact (DOI 10.22000/53); and the other three are **not** on the table —
+`govdocs1-error-pdfs` states other terms outright, `fully-featured-pdf` embeds third-party media,
+and `jhove-errors` has no sidecar at all while consisting of published journal articles a third
+party is in no position to dedicate to the public domain.
+
+A yes costs **0 bytes** of history — a submodule is pinned by commit — and buys a test the right to
+name a path in those two directories, the way `crates/pdf-model/tests/contents_entry.rs` names one
+in `pdf-differences`. A no costs nothing already spent: ADR 0302's regression test builds its own
+fixtures and names no external file. **Nothing in this tree depends on the corpus either way**, and
+`corpus-cache/` is where a round that wants it puts it.
 
 ### 3. The promotion budget, and why it is mostly moot
 
@@ -371,6 +392,26 @@ Applied here it splits, and the split is the useful half:
   image row and has no todo of its own. `0100547`, `2100434`, `4100238`, `6100743`.
 - **The array-formed page groups are all four-component `ICCBased`**, which is `doc/todo/23`'s row
   and now has a number: 14 of 4000.
+
+### 7. What the four-hundred-and-sixty-seventh diagnosed and did not take
+
+- **A page tree node with no `/Kids` becomes a leaf, and the blank page it yields is silent.**
+  `T02-02_005_page-tree-no-kids.pdf` states `/Pages << /Count 1 >>` with no children while object 2
+  sits beside it stating a `/Contents`; `Pages::get(0)` hands back the `/Pages` dictionary itself,
+  which has no content stream, so the page draws blank and the survey calls it **complete**. The
+  leaf rule is deliberate and argued where it lives — `page.rs`: "[t]rusting `/Type` instead would
+  drop pages from files that omit it", which is right about the files that motivated it. What is not
+  argued is the *silence*: §7.7.3.2 Table 30 makes `/Kids` **required** in a page tree node, so a
+  dictionary that states `/Count` and no `/Kids` has said in the same breath that it is a node and
+  that it has no children. The two candidate readings are "no first page" (loud, and costs the files
+  the leaf rule was written for) and "a leaf that reports" — and which one is right wants the
+  population first: how many of the 65 944 have a node with a `/Count` and no `/Kids`. Nothing
+  measures that today.
+- **A `Tf` whose size operand is a lone `.`** — `T02-05-01_006_font-size-operator-missing.pdf`
+  writes `/F0 . Tf` and this reader sets a size of **zero**, so the text is invisible and nothing is
+  said. §7.3.3's number syntax is what decides whether `.` is a real at all, and if it is not, the
+  `Tf` has one operand rather than two and §9.3.1's "there is no initial value" makes the show a
+  reported loss instead of an invisible one. One clause reading, no code until it is read.
 
 ## What not to do
 

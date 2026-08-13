@@ -2646,7 +2646,10 @@ impl Interpreter<'_> {
         form_depth: usize,
     ) {
         let mut lexer = pdf_syntax::Lexer::new(content);
-        let mut operands: Vec<Object> = Vec::new();
+        // What the stream has stated since the last operator. §7.8.2 makes an operator's own
+        // operands the ones that *immediately precede* it, which is a distinction only a
+        // malformed stream can show: `operands_before` is what turns this into that slice.
+        let mut pending: Vec<Object> = Vec::new();
         let mut state = initial.clone();
         let mut stack: Vec<GraphicsState> = Vec::new();
 
@@ -2723,7 +2726,7 @@ impl Interpreter<'_> {
                     } else if matches!(other, pdf_syntax::Token::ArrayClose) {
                         array_depth = array_depth.saturating_sub(1);
                     }
-                    if operands.len() < MAX_OPERANDS {
+                    if pending.len() < MAX_OPERANDS {
                         // An inline dictionary is one operand, assembled here because the
                         // content lexer yields tokens rather than objects. §14.6.2: "[i]f all
                         // of the values in a property list dictionary are direct objects, the
@@ -2738,7 +2741,7 @@ impl Interpreter<'_> {
                         } else {
                             token_to_object(other)
                         };
-                        operands.push(object);
+                        pending.push(object);
                     } else {
                         // Dropping operands silently truncates the page: a `TJ` array is
                         // one operand per run *and* per kerning adjustment, so a single
@@ -2765,9 +2768,19 @@ impl Interpreter<'_> {
             // for both circumstances, and it is what lets the colour the figure is *used*
             // with reach the marks inside it.
             if self.uncoloured && is_colour_operator(operator.as_slice()) {
-                operands.clear();
+                pending.clear();
                 continue;
             }
+
+            // §7.8.2: "In PDF, all of the operands needed by an operator shall immediately
+            // precede that operator. Operators do not return results, and operands shall not
+            // be left over when an operator finishes execution." A conforming stream leaves
+            // nothing over, so on one of those this slice is everything `pending` holds and
+            // the sentence costs nothing. What it decides is the malformed stream, where the
+            // operands an operator is given are the *last* of them rather than the first —
+            // `T02-05-01_008_Font-set-operator-missing.pdf` writes `/F0 36. (Hello
+            // PDF-world!) Tj`, whose `Tj` was reading the name and drawing nothing.
+            let operands: &[Object] = operands_before(&pending, operator.as_slice());
 
             match operator.as_slice() {
                 // --- graphics state ---
@@ -2788,15 +2801,15 @@ impl Interpreter<'_> {
                     // and files with one extra `Q` render correctly everywhere else.
                 }
                 b"cm" => {
-                    if let Some(matrix) = matrix_from(&operands) {
+                    if let Some(matrix) = matrix_from(operands) {
                         state.transform = matrix.then(state.transform);
                     }
                 }
-                b"gs" => self.apply_ext_gstate(&operands, resources, &mut state, in_text),
+                b"gs" => self.apply_ext_gstate(operands, resources, &mut state, in_text),
 
                 // --- line parameters ---
                 b"w" => {
-                    if let Some(width) = number_at(&operands, 0) {
+                    if let Some(width) = number_at(operands, 0) {
                         // ISO 32000-2 §8.4.3.2: the line width "shall be a non-negative
                         // number expressed in user space units". A negative one is outside
                         // the parameter's stated domain and the clause states no recovery,
@@ -2808,52 +2821,52 @@ impl Interpreter<'_> {
                     }
                 }
                 b"J" => {
-                    if let Some(code) = integer_at(&operands, 0) {
+                    if let Some(code) = integer_at(operands, 0) {
                         state.stroke.cap = line_cap(code);
                     }
                 }
                 b"j" => {
-                    if let Some(code) = integer_at(&operands, 0) {
+                    if let Some(code) = integer_at(operands, 0) {
                         state.stroke.join = line_join(code);
                     }
                 }
                 b"M" => {
-                    if let Some(limit) = number_at(&operands, 0) {
+                    if let Some(limit) = number_at(operands, 0) {
                         state.stroke.miter_limit = miter_limit(limit);
                     }
                 }
-                b"d" => set_dash(&operands, &mut state.stroke),
+                b"d" => set_dash(operands, &mut state.stroke),
                 // Rendering intent and flatness affect nothing this renderer does.
                 // --- path construction ---
                 b"m" => {
-                    if let (Some(x), Some(y)) = (number_at(&operands, 0), number_at(&operands, 1)) {
+                    if let (Some(x), Some(y)) = (number_at(operands, 0), number_at(operands, 1)) {
                         current = Point::new(x, y);
                         start = current;
                         begin_subpath(&mut path, current);
                     }
                 }
                 b"l" => {
-                    if let (Some(x), Some(y)) = (number_at(&operands, 0), number_at(&operands, 1)) {
+                    if let (Some(x), Some(y)) = (number_at(operands, 0), number_at(operands, 1)) {
                         current = Point::new(x, y);
                         path.push(PathCommand::LineTo(current));
                     }
                 }
                 b"c" => {
-                    if let Some(points) = points_from(&operands, 3) {
+                    if let Some(points) = points_from(operands, 3) {
                         path.push(PathCommand::CurveTo(points[0], points[1], points[2]));
                         current = points[2];
                     }
                 }
                 b"v" => {
                     // The first control point is the current point.
-                    if let Some(points) = points_from(&operands, 2) {
+                    if let Some(points) = points_from(operands, 2) {
                         path.push(PathCommand::CurveTo(current, points[0], points[1]));
                         current = points[1];
                     }
                 }
                 b"y" => {
                     // The second control point is the endpoint.
-                    if let Some(points) = points_from(&operands, 2) {
+                    if let Some(points) = points_from(operands, 2) {
                         path.push(PathCommand::CurveTo(points[0], points[1], points[1]));
                         current = points[1];
                     }
@@ -2863,7 +2876,7 @@ impl Interpreter<'_> {
                     current = start;
                 }
                 b"re" => {
-                    if let Some(values) = numbers_from(&operands, 4) {
+                    if let Some(values) = numbers_from(operands, 4) {
                         let (x, y, w, h) = (values[0], values[1], values[2], values[3]);
                         // Table 58 states `re` as `x y m` and three `l`s and an `h`, so the
                         // `m` it begins with overrides a preceding one exactly as a written
@@ -2944,21 +2957,21 @@ impl Interpreter<'_> {
                 // matching `Default` space, where the resources name one, which is why
                 // these resolve the space rather than naming it directly.
                 b"g" | b"G" => {
-                    if let Some(grey) = number_at(&operands, 0) {
+                    if let Some(grey) = number_at(operands, 0) {
                         let space = self.device_space("DeviceGray", resources);
                         let colour = self.colour(&space, &[grey], state.black_point);
                         assign_colour(&mut state, operator.as_slice() == b"g", colour, space);
                     }
                 }
                 b"rg" | b"RG" => {
-                    if let Some(values) = numbers_from(&operands, 3) {
+                    if let Some(values) = numbers_from(operands, 3) {
                         let space = self.device_space("DeviceRGB", resources);
                         let colour = self.colour(&space, &values, state.black_point);
                         assign_colour(&mut state, operator.as_slice() == b"rg", colour, space);
                     }
                 }
                 b"k" | b"K" => {
-                    if let Some(values) = numbers_from(&operands, 4) {
+                    if let Some(values) = numbers_from(operands, 4) {
                         let space = self.device_space("DeviceCMYK", resources);
                         let colour = self.colour(&space, &values, state.black_point);
                         assign_colour(&mut state, operator.as_slice() == b"k", colour, space);
@@ -2966,11 +2979,11 @@ impl Interpreter<'_> {
                 }
                 b"cs" | b"CS" => {
                     let fill = operator.as_slice() == b"cs";
-                    self.set_colour_space(&operands, resources, &mut state, fill);
+                    self.set_colour_space(operands, resources, &mut state, fill);
                 }
                 b"sc" | b"scn" | b"SC" | b"SCN" => {
                     let fill = matches!(operator.as_slice(), b"sc" | b"scn");
-                    self.set_colour(&operands, resources, &mut state, fill);
+                    self.set_colour(operands, resources, &mut state, fill);
                 }
 
                 // --- text ---
@@ -2990,41 +3003,41 @@ impl Interpreter<'_> {
                     self.end_text_object(&mut text_object, &mut state);
                 }
                 b"Tf" => {
-                    if let Some(name) = name_at(&operands, 0) {
+                    if let Some(name) = name_at(operands, 0) {
                         state.text.font = self.font(resources, &name);
                         state.text.font_name.clone_from(&name);
                     }
-                    if let Some(size) = number_at(&operands, 1) {
+                    if let Some(size) = number_at(operands, 1) {
                         state.text.size = size;
                     }
                 }
                 b"Tc" => {
-                    if let Some(value) = number_at(&operands, 0) {
+                    if let Some(value) = number_at(operands, 0) {
                         state.text.char_spacing = value;
                     }
                 }
                 b"Tw" => {
-                    if let Some(value) = number_at(&operands, 0) {
+                    if let Some(value) = number_at(operands, 0) {
                         state.text.word_spacing = value;
                     }
                 }
                 b"Tz" => {
-                    if let Some(percent) = number_at(&operands, 0) {
+                    if let Some(percent) = number_at(operands, 0) {
                         state.text.horizontal_scale = percent / 100.0;
                     }
                 }
                 b"TL" => {
-                    if let Some(value) = number_at(&operands, 0) {
+                    if let Some(value) = number_at(operands, 0) {
                         state.text.leading = value;
                     }
                 }
                 b"Ts" => {
-                    if let Some(value) = number_at(&operands, 0) {
+                    if let Some(value) = number_at(operands, 0) {
                         state.text.rise = value;
                     }
                 }
                 b"Tr" => {
-                    if let Some(mode) = integer_at(&operands, 0) {
+                    if let Some(mode) = integer_at(operands, 0) {
                         // Table 104 defines eight modes and no default for anything else.
                         // Silently keeping an out-of-range value would draw nothing at all,
                         // since none of the three operations would match it — a whole text
@@ -3040,13 +3053,13 @@ impl Interpreter<'_> {
                     }
                 }
                 b"Td" => {
-                    if let (Some(x), Some(y)) = (number_at(&operands, 0), number_at(&operands, 1)) {
+                    if let (Some(x), Some(y)) = (number_at(operands, 0), number_at(operands, 1)) {
                         text_object.line = Transform::translate(x, y).then(text_object.line);
                         text_object.matrix = text_object.line;
                     }
                 }
                 b"TD" => {
-                    if let (Some(x), Some(y)) = (number_at(&operands, 0), number_at(&operands, 1)) {
+                    if let (Some(x), Some(y)) = (number_at(operands, 0), number_at(operands, 1)) {
                         // `TD` is `Td` with the side effect of setting the leading.
                         state.text.leading = -y;
                         text_object.line = Transform::translate(x, y).then(text_object.line);
@@ -3054,7 +3067,7 @@ impl Interpreter<'_> {
                     }
                 }
                 b"Tm" => {
-                    if let Some(matrix) = matrix_from(&operands) {
+                    if let Some(matrix) = matrix_from(operands) {
                         text_object.line = matrix;
                         text_object.matrix = matrix;
                     }
@@ -3065,7 +3078,7 @@ impl Interpreter<'_> {
                     text_object.matrix = text_object.line;
                 }
                 b"Tj" => {
-                    if let Some(bytes) = string_at(&operands, 0) {
+                    if let Some(bytes) = string_at(operands, 0) {
                         self.show_text(&bytes, &state, &mut text_object, resources, form_depth);
                     }
                 }
@@ -3073,7 +3086,7 @@ impl Interpreter<'_> {
                     // The array operand is not reconstructed by the content lexer, so the
                     // strings and the numeric adjustments between them arrive as separate
                     // operands in order — which is enough to render them correctly.
-                    for operand in &operands {
+                    for operand in operands {
                         match operand {
                             Object::String(bytes) => {
                                 self.show_text(
@@ -3112,32 +3125,32 @@ impl Interpreter<'_> {
                     text_object.line =
                         Transform::translate(0.0, -state.text.leading).then(text_object.line);
                     text_object.matrix = text_object.line;
-                    if let Some(bytes) = string_at(&operands, 0) {
+                    if let Some(bytes) = string_at(operands, 0) {
                         self.show_text(&bytes, &state, &mut text_object, resources, form_depth);
                     }
                 }
                 b"\"" => {
                     // `aw ac string "` sets word and character spacing, then shows.
-                    if let Some(word) = number_at(&operands, 0) {
+                    if let Some(word) = number_at(operands, 0) {
                         state.text.word_spacing = word;
                     }
-                    if let Some(character) = number_at(&operands, 1) {
+                    if let Some(character) = number_at(operands, 1) {
                         state.text.char_spacing = character;
                     }
                     text_object.line =
                         Transform::translate(0.0, -state.text.leading).then(text_object.line);
                     text_object.matrix = text_object.line;
-                    if let Some(bytes) = string_at(&operands, 2) {
+                    if let Some(bytes) = string_at(operands, 2) {
                         self.show_text(&bytes, &state, &mut text_object, resources, form_depth);
                     }
                 }
 
                 // --- XObjects ---
-                b"Do" => self.draw_xobject(&operands, resources, &state, form_depth),
+                b"Do" => self.draw_xobject(operands, resources, &state, form_depth),
 
                 // --- shadings and inline images ---
                 b"sh" => {
-                    let name = name_at(&operands, 0).unwrap_or_default();
+                    let name = name_at(operands, 0).unwrap_or_default();
                     self.paint_shading(&name, resources, &state);
                 }
                 // §8.9.7: an image written into the content stream rather than as an
@@ -3179,7 +3192,7 @@ impl Interpreter<'_> {
                     // Absolute colorimetry reproduces the source's measured colours,
                     // including its own paper white and black; compensating for the black
                     // point would defeat that, so the specification forbids it here.
-                    if let Some(name) = name_at(&operands, 0) {
+                    if let Some(name) = name_at(operands, 0) {
                         state.black_point = if name == "AbsoluteColorimetric" {
                             BlackPoint::Off
                         } else {
@@ -3193,9 +3206,9 @@ impl Interpreter<'_> {
                 // resource dictionary's `/Properties`; an inline dictionary cannot carry
                 // one, so it governs nothing.
                 b"BDC" => {
-                    let tag = name_at(&operands, 0);
+                    let tag = name_at(operands, 0);
                     let hides = tag.as_deref() == Some("OC")
-                        && name_at(&operands, 1).is_some_and(|name| {
+                        && name_at(operands, 1).is_some_and(|name| {
                             self.unresolved_resource(resources, "Properties", &name)
                                 .is_some_and(|oc| !self.shows_optional_content(&oc))
                         });
@@ -3251,7 +3264,7 @@ impl Interpreter<'_> {
                     }
                 }
                 b"BMC" => {
-                    let tag = name_at(&operands, 0);
+                    let tag = name_at(operands, 0);
                     // The generic forms: `/Artifact BMC` states an artifact with no property
                     // list, and `/ReversedChars BMC` is the form §14.8.2.5.3's own EXAMPLE uses.
                     let reversed = tag.as_deref() == Some("ReversedChars");
@@ -3392,7 +3405,7 @@ impl Interpreter<'_> {
                 }
             }
 
-            operands.clear();
+            pending.clear();
         }
 
         // An unclosed `BT` is malformed but harmless here; noted so it is not invisible.
@@ -7537,6 +7550,59 @@ fn inline_array(lexer: &mut pdf_syntax::Lexer<'_>, depth: usize) -> Vec<Object> 
         }
     }
     out
+}
+
+/// The operands one operator is given, out of everything the stream has stated since the
+/// last one.
+///
+/// ISO 32000-2 §7.8.2 states the rule this implements:
+///
+/// > In PDF, all of the operands needed by an operator shall immediately precede that
+/// > operator. Operators do not return results, and operands shall not be left over when an
+/// > operator finishes execution.
+///
+/// So an operator's operands are the *last* `n` of what precedes it, not the first. On a
+/// conforming stream nothing is ever left over and the two readings are the same slice; the
+/// sentence decides only what a malformed one means, and there the difference is total —
+/// reading from the front shifts every operand by however many the file left behind, which
+/// silently mis-draws a mark or, where the shifted operand has the wrong type, drops it with
+/// nothing reported.
+///
+/// `count_of` returns [`None`] for the operators whose own table states no fixed number, and
+/// those are given everything: `TJ` and `d` take an array the content lexer flattens into one
+/// operand per element, and `sc`, `scn`, `SC` and `SCN` take as many components as the current
+/// colour space has (§8.6.8, Table 73). A leftover operand in front of one of those is
+/// indistinguishable from one of its own, so nothing here can improve on reading them whole.
+fn operands_before<'a>(pending: &'a [Object], operator: &[u8]) -> &'a [Object] {
+    let Some(count) = count_of(operator) else {
+        return pending;
+    };
+    let start = pending.len().saturating_sub(count);
+    pending.get(start..).unwrap_or(pending)
+}
+
+/// How many operands an operator takes, where its own table states a fixed number.
+///
+/// Each count is the operand list in the table Annex A's summary points at for that operator
+/// — Table 56 and 57 for the graphics state, 58 and 59 for paths, 60 for clipping, 73 for
+/// colour, 74 for shading, 87 for `XObject`s, 103, 105, 106 and 107 for text, 111 for a Type 3
+/// glyph's metrics, 33 for compatibility and 352 for marked content.
+///
+/// An operator this interpreter does not implement reaches here too, and gets [`None`]: it is
+/// reported rather than run, so how many operands it wanted is not a question anything asks.
+const fn count_of(operator: &[u8]) -> Option<usize> {
+    Some(match operator {
+        b"q" | b"Q" | b"h" | b"n" | b"f" | b"F" | b"f*" | b"S" | b"s" | b"B" | b"B*" | b"b"
+        | b"b*" | b"W" | b"W*" | b"BT" | b"ET" | b"T*" | b"EMC" | b"BX" | b"EX" | b"BI" => 0,
+        b"w" | b"J" | b"j" | b"M" | b"i" | b"ri" | b"gs" | b"Tc" | b"Tw" | b"Tz" | b"TL"
+        | b"Ts" | b"Tr" | b"Tj" | b"'" | b"cs" | b"CS" | b"g" | b"G" | b"sh" | b"Do" | b"MP"
+        | b"BMC" => 1,
+        b"m" | b"l" | b"Td" | b"TD" | b"Tf" | b"d0" | b"DP" | b"BDC" => 2,
+        b"rg" | b"RG" | b"\"" => 3,
+        b"v" | b"y" | b"re" | b"k" | b"K" => 4,
+        b"cm" | b"c" | b"Tm" | b"d1" => 6,
+        _ => return None,
+    })
 }
 
 /// Reads operand `index` as an integer code.

@@ -52,8 +52,14 @@ and *ratchets none of them*.
 | **SafeDocs `CC-MAIN-2021-31`, 79 archives `50 + 100k`, first 24 of each** (session 425) | **1896** | **1802** | **86** → 85 | crawled web, no grant — never committed |
 | **SafeDocs `CC-MAIN-2021-31`, 4 whole archives `0100 + 2000k`** (session 430) | **4000** | **3917** → 3923 | **70** → 64 | crawled web, no grant — never committed |
 | **SafeDocs `CC-MAIN-2021-31`, all 145 archives** (session 433) | **65 944** | **64 507** | **1144** → 1138 → 905 → 851 → **824** | crawled web, no grant — never committed |
+| **`openpreserve/format-corpus`, five directories** (session 467) | **267** | 239 → 238 | **21** → 22 | **read, not decided** — §2b |
 
-**The last row is the whole population, and the first survey to find a hang** (ADR 0269). **Its reported column is the only figure in this table that four later rounds moved**, each re-surveying all 65 944 whole: 1138 after session 434's substitution rule, 905 after the four-hundred-and-thirty-sixth made the press the document's own — 233 documents becoming complete — 851 after the four-hundred-and-fortieth took a soft mask's group off §11.4.7's route, and **824** after the four-hundred-and-forty-first closed §11.3.5.3's row (ADRs 0270, 0272, 0276, 0277). The four-hundred-and-forty-fifth did **not** re-run it — 93 GB is not a closing round's instrument — so 824 is session 441's printed number and is labelled as one rather than re-claimed.
+**The bottom row is not a sample of anything and is read in §2b** — 267 hand-made and
+hand-collected files, examined in the four-hundred-and-sixty-seventh session and left off this disk's
+tracked tree because §2c's licence question is the owner's; its one moved figure is ADR 0302's, and
+the rise is a new report rather than a regression.
+
+**The row above it is the whole SafeDocs population, and the first survey to find a hang** (ADR 0269). **Its reported column is the only figure in this table that four later rounds moved**, each re-surveying all 65 944 whole: 1138 after session 434's substitution rule, 905 after the four-hundred-and-thirty-sixth made the press the document's own — 233 documents becoming complete — 851 after the four-hundred-and-fortieth took a soft mask's group off §11.4.7's route, and **824** after the four-hundred-and-forty-first closed §11.3.5.3's row (ADRs 0270, 0272, 0276, 0277). The four-hundred-and-forty-fifth did **not** re-run it — 93 GB is not a closing round's instrument — so 824 is session 441's printed number and is labelled as one rather than re-claimed.
 **65 944 documents in 1139.3 s: 173 unopenable, 45 locked, 23 encrypted beyond us, 52 pageless,
 1144 incomplete, 2 slow**, with 51 272 codes reaching no glyph in silence over 635 documents — a
 baseline for this population, never a ratchet. **The four-hundred-and-thirty-fourth session read
@@ -188,6 +194,85 @@ reading beside them: two are right-to-left text in painting order and in present
 new documents), and two are the one place this tree and PDFBox make different **choices** under
 the same permission, where PDFBox reads a two-byte code as a Unicode value and this tree will
 not.
+
+### 2b. `openpreserve/format-corpus` — examined, **not** taken into the tree
+
+**The last row of the table above is a population on nobody's disk but this machine's**, and that is
+deliberate: §2c below is a licence question this project has not answered, and until it is answered
+the corpus is fetched, surveyed and deleted rather than pinned as a submodule. Nothing in the tree
+depends on it and no gate names it. What is recorded here is the recipe, so that the row is
+reproducible by anyone who wants it:
+
+```sh
+git clone --depth 1 --filter=blob:none --sparse \
+          https://github.com/openpreserve/format-corpus.git corpus-cache/openpreserve
+git -C corpus-cache/openpreserve sparse-checkout set \
+          pdfCabinetOfHorrors pdf-handbuilt-test-corpus govdocs1-error-pdfs \
+          fully-featured-pdf jhove-errors
+tools/safedocs survey --dir corpus-cache/openpreserve/pdfCabinetOfHorrors     # and each of the five
+```
+
+702 MB on disk, 267 PDFs; `corpus-cache/` is `.gitignore`d, which is the same line that keeps
+SafeDocs out. `/pdf/`, which `doc/test-docs.md` used to name, does not exist.
+
+**`pdf-handbuilt-test-corpus` is an instrument rather than a sample**, and it is the reason this
+chunk was worth a round. Its 89 files each carry **one** deliberate structural defect against
+ISO 32000-1's requirements — a header without a version, a trailer without a `/Root`, an `xref`
+whose offsets are wrong, a `Tf` with its keyword deleted — and every one of them draws the same
+*Hello PDF-world!*. So a file that comes back blank is a file whose defect cost a mark, which turns
+a survey into an assertion:
+
+```sh
+for f in corpus-cache/openpreserve/pdf-handbuilt-test-corpus/*.pdf; do
+  cargo run --release -p pdf-model --example render_at -- "$f" 1 1 /tmp/p.png >/dev/null 2>&1 &&
+  magick /tmp/p.png -alpha off -colorspace Gray -format "%[fx:255*(1-mean)]\n" info:
+done
+```
+
+The intact page reads **0.807367** and most of the files reproduce it exactly. **Fourteen read 0**,
+and nine of those say why; the whole finding is the other **five, which are blank in silence**. Two
+of the five are right — Table 31 makes a page stating no `/Contents` empty, and a file whose
+text-showing operator was deleted has nothing to show. The three that remain are a page tree node
+with no `/Kids` and a `Tf` whose size operand is a lone `.` (both `doc/todo/03` §7), and ADR 0302's
+— a show operator that disappeared because its operands were read from the wrong end.
+
+**The other four directories are ordinary populations** and produced nothing new:
+`pdfCabinetOfHorrors` (24, archival horrors: encryption, embedded video, a corrupt byte) reports a
+JPEG whose `/Height` was altered and an `/Im0` that is not a stream, both of which are the file's
+stated defect; `govdocs1-error-pdfs` (54, `.gov` crawl files that broke somebody else's software)
+reports four unparsable CFF programs, a truncated `head` table and an undecodable `/Contents`;
+`jhove-errors` (99, real published papers that JHOVE calls invalid) reports one `/Font` a page
+names and does not define and one `/ExtGState` likewise; `fully-featured-pdf` (1) is complete.
+**Nothing failed to open for a reason that is this tree's**, for the fourth population running.
+
+### 2c. The licence question `openpreserve/format-corpus` raises, read but not decided
+
+**Read in the four-hundred-and-sixty-seventh session; the decision is the project owner's.** The
+repository's root `README.md` says "All items are CC0 licenced unless otherwise stated", and
+`doc/todo/03` has said since the four-hundred-and-twenty-second that the work owed is to open the
+per-directory sidecars and find out whether any of them states otherwise. They do, and the result
+splits the five directories three ways:
+
+| directory | what its own files state |
+|---|---|
+| `pdfCabinetOfHorrors` | **CC0, explicitly**: its `readme.md` ends "All files in this folder: Creative Commons CC0: Public Domain Dedication." |
+| `pdf-handbuilt-test-corpus` | **nothing**, so the root default would apply — but its `README.md` points at a deposited research artefact (DOI 10.22000/53, ipres2017) whose own terms are not restated |
+| `govdocs1-error-pdfs` | **otherwise stated**: "All PDF files in this folder and subfolders are copied from Govdocs1", quoting Govdocs1's own "may be (to the best of our knowledge) freely redistributed" — a statement of belief and a citation request, not a grant |
+| `fully-featured-pdf` | **nothing**, and the file embeds third-party media (an MP3, a QuickTime movie, a U3D model) the README does not license |
+| `jhove-errors` | **no sidecar at all**, and its 99 files are published journal articles and theses — Springer, Wiley, university repositories. A third party cannot dedicate those to the public domain, so the root default is unreliable here rather than merely silent |
+
+**The question for the owner is one sentence**: may `openpreserve/format-corpus` be added as a
+fourth submodule under `doc/corpora/`, sparse-checked out to `pdfCabinetOfHorrors` and
+`pdf-handbuilt-test-corpus` and nothing else? A yes permits a test to name a path in those two
+directories the way `crates/pdf-model/tests/contents_entry.rs` names one in `pdf-differences`, at a
+cost of **0 bytes** into this history — a submodule is pinned by commit and carries none — and it
+permits `doc/todo/02` §2 to gain a line if the population ever earns one. A no costs this round
+nothing that has already been spent: ADR 0302's regression test builds its own fixtures and names no
+external file, which is the pattern `hostile_functions.rs` set.
+
+**What is not on the table either way**: `govdocs1-error-pdfs`, `fully-featured-pdf` and
+`jhove-errors`, for the reasons in the table. And no file from any of the five is a candidate for
+committing outright; `doc/third-party-data.md`'s rule binds here exactly as it binds SafeDocs.
 
 ### 3. What the corpus still names
 
