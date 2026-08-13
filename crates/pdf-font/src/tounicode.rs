@@ -17,6 +17,13 @@
 //! mapping to consecutive characters, and is kept *as a range* — expanding it would let a
 //! single `<0000> <FFFF>` line allocate sixty-five thousand strings, which is a decoding
 //! bomb rather than a font.
+//!
+//! # A `CMap` built on another
+//!
+//! §9.10.3 states it as the one dictionary entry that means anything here: `/UseCMap` "may be
+//! used if the CMap is based on another ToUnicode CMap", and Table 118 says the referencing
+//! `CMap` "shall specify only the character mappings that differ from the referenced CMap". So
+//! a map carries an optional base, consulted after its own mappings and never before them.
 
 use std::collections::BTreeMap;
 
@@ -29,16 +36,31 @@ pub struct ToUnicode {
     singles: BTreeMap<u32, Box<str>>,
     /// Spans of codes mapping to consecutive characters: low, high, and the first scalar.
     ranges: Vec<(u32, u32, u32)>,
+    /// The `CMap` this one only states its *differences* from (§9.10.3, Table 118).
+    ///
+    /// Boxed because the type is otherwise recursive, and owned rather than shared because a
+    /// chain is at most a handful of maps deep and each is read once per font.
+    base: Option<Box<ToUnicode>>,
 }
 
 impl ToUnicode {
-    /// Parses a `/ToUnicode` `CMap` stream.
+    /// Parses a `/ToUnicode` `CMap` stream that builds on nothing.
     ///
     /// A malformed `CMap` yields whatever was understood before the damage rather than
     /// nothing: text extraction degrades to missing characters, which is visible, instead
     /// of to silence.
     #[must_use]
     pub fn parse(bytes: &[u8]) -> Self {
+        Self::parse_on(bytes, None)
+    }
+
+    /// Parses a `/ToUnicode` `CMap` stream that states only its differences from `base`.
+    ///
+    /// The base is what §9.10.3's `/UseCMap` — or the `usecmap` operator §9.7.5.4 a) requires
+    /// that entry to agree with — names, resolved by the caller, which is the only party able
+    /// to fetch a stream or a file.
+    #[must_use]
+    pub fn parse_on(bytes: &[u8], base: Option<Self>) -> Self {
         /// Bounds the entries a single `CMap` may contribute.
         const MAX_SINGLES: usize = 1 << 16;
         /// Bounds the ranges, which are cheap individually but not unbounded.
@@ -51,7 +73,10 @@ impl ToUnicode {
             Ranges,
         }
 
-        let mut map = Self::default();
+        let mut map = Self {
+            base: base.map(Box::new),
+            ..Self::default()
+        };
         let mut lexer = Lexer::new(bytes);
         // Operands seen since the last keyword. A CMap section is introduced by a count
         // followed by a keyword, and the count is not trustworthy — the terminating
@@ -201,7 +226,12 @@ impl ToUnicode {
                 }
             }
         }
-        false
+        // Table 118: a referencing `CMap` "shall specify only the character mappings that
+        // differ from the referenced CMap", so the base is what a code this file says nothing
+        // about means — and it is consulted only here, after everything this file does say.
+        self.base
+            .as_ref()
+            .is_some_and(|base| base.append(code, out))
     }
 
     /// Returns the single character a code represents, when it represents exactly one.
@@ -220,13 +250,18 @@ impl ToUnicode {
                 return char::from_u32(first.checked_add(code.saturating_sub(low))?);
             }
         }
-        None
+        self.base.as_ref().and_then(|base| base.char_for(code))
     }
 
     /// Whether the `CMap` said nothing at all.
+    ///
+    /// A file that states no mapping of its own but names a base has still said something,
+    /// which is exactly the shape §9.10.3's `/UseCMap` sentence describes.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.singles.is_empty() && self.ranges.is_empty()
+        self.singles.is_empty()
+            && self.ranges.is_empty()
+            && self.base.as_ref().is_none_or(|base| base.is_empty())
     }
 }
 
@@ -336,5 +371,27 @@ mod tests {
     fn an_absent_cmap_is_empty_rather_than_wrong() {
         assert!(ToUnicode::parse(b"").is_empty());
         assert!(ToUnicode::parse(b"begincmap endcmap").is_empty());
+    }
+
+    /// Table 118: a referencing `CMap` "shall specify only the character mappings that differ
+    /// from the referenced CMap". So a code the file states answers from the file, and one it
+    /// does not answers from the base.
+    #[test]
+    fn a_base_answers_the_codes_the_file_states_nothing_about() {
+        let base = ToUnicode::parse(b"1 beginbfrange\n<0000> <00FF> <0041>\nendbfrange\n");
+        let map = ToUnicode::parse_on(b"1 beginbfchar\n<0002> <005A>\nendbfchar\n", Some(base));
+        assert_eq!(map.char_for(2), Some('Z'), "the file's own mapping wins");
+        assert_eq!(map.char_for(3), Some('D'), "and the base answers the rest");
+    }
+
+    /// A file whose only statement is the base it builds on has still said something, which is
+    /// what §9.10.3's `/UseCMap` sentence describes.
+    #[test]
+    fn a_file_that_only_names_a_base_is_not_empty() {
+        let base = ToUnicode::parse(b"1 beginbfchar\n<0001> <0041>\nendbfchar\n");
+        let map = ToUnicode::parse_on(b"begincmap endcmap", Some(base));
+        assert!(!map.is_empty());
+        assert_eq!(map.char_for(1), Some('A'));
+        assert!(ToUnicode::parse_on(b"begincmap endcmap", Some(ToUnicode::default())).is_empty());
     }
 }

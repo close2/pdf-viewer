@@ -87,17 +87,47 @@ pub fn exists(name: &str) -> bool {
 /// not Adobe's.
 #[must_use]
 pub fn cid_to_unicode(registry: &str, ordering: &str) -> Option<crate::tounicode::ToUnicode> {
-    if let Some(held) = ucs2_cache().lock().ok().and_then(|held| {
-        held.get(&(registry.to_owned(), ordering.to_owned()))
-            .cloned()
-    }) {
+    unicode_cmap(&format!("{registry}-{ordering}-UCS2"))
+}
+
+/// One of Adobe's `CMap`s read as a `/ToUnicode` map, by its published name.
+///
+/// The same files [`cid_to_unicode`] reads, reached the other way round: by the name a
+/// document states rather than by the collection a descendant declares. §9.10.3 permits a
+/// `/ToUnicode` `CMap` to be "based on another ToUnicode CMap", and the ones a producer can
+/// name without carrying them are these.
+///
+/// A name whose file states no `bfchar` or `bfrange` — every CID `CMap` in the set — parses to
+/// an empty map and is answered as `None`, so naming one buys nothing rather than being read as
+/// a mapping it is not.
+#[must_use]
+pub fn unicode_cmap(name: &str) -> Option<crate::tounicode::ToUnicode> {
+    resolve_unicode(name, 0)
+}
+
+/// [`unicode_cmap`], bounding the `usecmap` chain a file may build.
+fn resolve_unicode(name: &str, depth: u32) -> Option<crate::tounicode::ToUnicode> {
+    if depth > MAX_DEPTH {
+        return None;
+    }
+    if let Some(held) = ucs2_cache()
+        .lock()
+        .ok()
+        .and_then(|held| held.get(name).cloned())
+    {
         return held;
     }
-    let built = inflate(&format!("{registry}-{ordering}-UCS2"))
-        .map(|source| crate::tounicode::ToUnicode::parse(&source))
+    let built = inflate(name)
+        .map(|source| {
+            // Adobe's own half-width and vertical variants state only their differences and
+            // name the file they differ from, exactly as §9.10.3 lets a producer do.
+            let used =
+                used_by(&source).and_then(|used| resolve_unicode(&used, depth.saturating_add(1)));
+            crate::tounicode::ToUnicode::parse_on(&source, used)
+        })
         .filter(|table| !table.is_empty());
     if let Ok(mut held) = ucs2_cache().lock() {
-        let _ = held.insert((registry.to_owned(), ordering.to_owned()), built.clone());
+        let _ = held.insert(name.to_owned(), built.clone());
     }
     built
 }
@@ -136,7 +166,11 @@ fn resolve(name: &str, depth: u32) -> Option<CMap> {
 /// Read here rather than by the parser because the parser is handed bytes and has no way to
 /// fetch what they reference; [`crate::cmap::CMap::references_another`] is its half of the
 /// same fact, and is what refuses an embedded `CMap` whose reference cannot be found.
-fn used_by(source: &[u8]) -> Option<String> {
+///
+/// Shared with the embedded form: §9.7.5.4 a) requires an in-file `usecmap` reference to be
+/// named by the stream dictionary's `/UseCMap` as well, so on a conforming file the two say the
+/// same thing and reading the file's own statement can only agree with the dictionary's.
+pub(crate) fn used_by(source: &[u8]) -> Option<String> {
     let at = source
         .windows(b"usecmap".len())
         .position(|window| window == b"usecmap")?;
@@ -181,7 +215,10 @@ fn cache() -> &'static Mutex<HashMap<String, Option<CMap>>> {
 
 /// The same memo for §9.10.2's CID tables, which are the largest files here — 19 000 lines
 /// for Adobe-Japan1 — and are asked for once per font rather than once per document.
-type Ucs2Cache = Mutex<HashMap<(String, String), Option<crate::tounicode::ToUnicode>>>;
+///
+/// Keyed by the published file name rather than by a registry-and-ordering pair, because
+/// [`unicode_cmap`] reaches the same files by name and the two must share one memo.
+type Ucs2Cache = Mutex<HashMap<String, Option<crate::tounicode::ToUnicode>>>;
 fn ucs2_cache() -> &'static Ucs2Cache {
     static CACHE: OnceLock<Ucs2Cache> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))

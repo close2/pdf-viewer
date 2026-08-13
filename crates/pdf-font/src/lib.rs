@@ -1451,10 +1451,15 @@ fn composite_cmap(document: &Document, dict: &Dictionary, name: &str) -> Result<
 /// > If the embedded `CMap` file contains a `usecmap` reference, the `CMap` indicated there
 /// > shall also be identified by the `UseCMap` entry in the `CMap` stream dictionary.
 ///
-/// A file that breaks that rule is refused, because what it inherits cannot be found.
+/// **Because the clause requires the two to agree, the file's own statement is read where the
+/// dictionary is silent** — on a conforming file it says the same thing, and on a file that
+/// omitted the entry it is the only statement there is. The refusal is kept for the case its
+/// reason actually describes: a name this binary does not carry, where what the map inherits
+/// cannot be found and an unknown share of its codes would silently be missing.
 ///
 /// No corpus document exercises any of this — none of the fourteen embedded `CMap`s references
-/// another — so the tests are synthetic, which is trap 8's advice rather than an accident.
+/// another — so the tests are synthetic, which is trap 8's advice rather than an accident. The
+/// `/ToUnicode` form is the one a document does exercise; see [`read_to_unicode`].
 fn read_cmap(
     document: &Document,
     object: &Object,
@@ -1483,7 +1488,12 @@ fn read_cmap(
         })?;
 
     let used = match document.get_key(&stream.dict, "UseCMap") {
-        Object::Null => None,
+        // §9.7.5.4 a) requires an in-file `usecmap` reference to be named by this entry as
+        // well, so on a conforming file the two say the same thing and the file's own
+        // statement is what a file that omitted the entry has left. Resolved rather than
+        // refused where the name is one this binary carries; the refusal below still fires
+        // where it is not, because then what the map inherits genuinely cannot be found.
+        Object::Null => predefined::used_by(&data).and_then(|name| predefined::cmap(&name)),
         Object::Name(named) if named.as_bytes() == b"Identity-H" => Some(CMap::identity()),
         Object::Name(named) if named.as_bytes() == b"Identity-V" => Some(CMap::identity_vertical()),
         Object::Name(named) => {
@@ -1756,15 +1766,63 @@ fn collection_meaning(document: &Document, descendant: &Dictionary) -> Option<Me
     predefined::cid_to_unicode(&registry, &ordering).map(Meaning::ByCid)
 }
 
+/// Reads a font dictionary's `/ToUnicode` `CMap` and whatever it builds on (§9.10.3).
 fn to_unicode(document: &Document, dict: &Dictionary) -> tounicode::ToUnicode {
-    let object = document.get_key(dict, "ToUnicode");
+    read_to_unicode(document, &document.get_key(dict, "ToUnicode"), 0)
+}
+
+/// Bounds the chain of `CMap`s a `/ToUnicode` may build on, which a document could make cyclic.
+///
+/// The same bound [`read_cmap`] puts on the `/Encoding` form, for the same reason.
+const MAX_TO_UNICODE_DEPTH: u32 = 4;
+
+/// One `/ToUnicode` stream, with the `CMap` it states only its differences from beneath it.
+///
+/// §9.10.3 names the one dictionary entry that means anything here:
+///
+/// > The only pertinent entry in the CMap stream dictionary (see "Table 118 -Additional entries
+/// > in a CMap stream dictionary") is UseCMap , which may be used if the CMap is based on
+/// > another ToUnicode CMap.
+///
+/// A **name** is one of Adobe's published files, which this binary carries (see
+/// [`predefined::unicode_cmap`]); a **stream** is another `/ToUnicode` `CMap`, read the same way.
+///
+/// **And the file's own `usecmap` operator is read where the dictionary is silent**, which is
+/// what `issue5010.pdf` needs. §9.7.5.4 a) requires the two statements to agree —
+///
+/// > If the embedded CMap file contains a usecmap reference, the CMap indicated there shall
+/// > also be identified by the UseCMap entry in the CMap stream dictionary.
+///
+/// — so following the operator can never contradict a conforming file, and it is the only
+/// statement a file that omits the entry has made. `issue5010.pdf` is that file: a Korean
+/// `Identity-H` font whose `/ToUnicode` states five mappings of its own and `/Adobe-Korea1-UCS2
+/// usecmap` for the rest, with no `/UseCMap` in the stream dictionary. Every code its page shows
+/// is in the *rest*, and §9.10.2's third method cannot help — the descendant's registry is
+/// `Unidocs`, so there is no `Unidocs-Korea1-UCS2` to construct — so the page read back as
+/// nothing at all.
+fn read_to_unicode(document: &Document, object: &Object, depth: u32) -> tounicode::ToUnicode {
+    if depth > MAX_TO_UNICODE_DEPTH {
+        return tounicode::ToUnicode::default();
+    }
     let Some(stream) = object.as_stream() else {
         return tounicode::ToUnicode::default();
     };
-    document
-        .decoded_stream_data(stream)
-        .map(|bytes| tounicode::ToUnicode::parse(&bytes))
-        .unwrap_or_default()
+    let Some(bytes) = document.decoded_stream_data(stream) else {
+        return tounicode::ToUnicode::default();
+    };
+
+    let base = match document.get_key(&stream.dict, "UseCMap") {
+        Object::Name(named) => predefined::unicode_cmap(&String::from_utf8_lossy(named.as_bytes())),
+        Object::Null => {
+            predefined::used_by(&bytes).and_then(|name| predefined::unicode_cmap(&name))
+        }
+        referenced => Some(read_to_unicode(
+            document,
+            &referenced,
+            depth.saturating_add(1),
+        )),
+    };
+    tounicode::ToUnicode::parse_on(&bytes, base)
 }
 
 /// Resolves a simple font's character codes to glyphs in a *substitute* font.

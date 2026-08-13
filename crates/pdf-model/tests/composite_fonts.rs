@@ -587,3 +587,34 @@ fn a_two_byte_code_is_not_read_as_a_character_when_nothing_names_it() {
     let text = page_one_text(&document, "PDFBOX-4322-Empty-ToUnicode-reduced.pdf");
     assert_eq!(text.trim(), "");
 }
+
+/// A `/ToUnicode` `CMap` that states only its differences from another one (§9.10.3).
+///
+/// > The only pertinent entry in the CMap stream dictionary (see "Table 118 -Additional entries
+/// > in a CMap stream dictionary") is UseCMap , which may be used if the CMap is based on
+/// > another ToUnicode CMap.
+///
+/// `issue5010.pdf` is that shape and states the relationship the *other* way §9.7.5.4 a) allows
+/// it to be written — `/Adobe-Korea1-UCS2 usecmap` inside the file, with no `/UseCMap` in the
+/// stream dictionary, which that clause requires to be there as well. Its `/ToUnicode` states
+/// five mappings of its own, all for codes `<46FB>`–`<4704>`, and the page shows none of them:
+/// every one of its twelve codes is answered by `Adobe-Korea1-UCS2` alone.
+///
+/// **Discriminating**: §9.10.2's other routes cannot reach these characters. The descendant's
+/// `/CIDSystemInfo` names the registry `Unidocs`, so the third method's `registry-ordering-UCS2`
+/// name is `Unidocs-Korea1-UCS2` and nobody publishes one; the font is composite, so the second
+/// method does not apply; and the program is a CID-keyed CFF with no glyph names to fall back
+/// on. Before the base was read this page read back the empty string.
+///
+/// The expected value is derived rather than copied: the codes are CIDs (`Identity-H`), and
+/// `data/cmaps/Adobe-Korea1-UCS2` — Adobe's own published file, which §9.10.2 step d) names as
+/// the source — maps CIDs 2635, 3104, 2093, 160, 3352, 2635, 3340, 2976, 3286, 1732, 2633 and
+/// 3104 to exactly these characters.
+#[test]
+fn a_to_unicode_cmap_built_on_a_published_one_reads_back_through_it() {
+    let Some(document) = corpus_document("issue5010.pdf") else {
+        return;
+    };
+    let text = page_one_text(&document, "issue5010.pdf");
+    assert_eq!(text.trim(), "인터뷰●홍인혜카피라이터");
+}

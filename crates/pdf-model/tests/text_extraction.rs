@@ -133,8 +133,20 @@ fn fold(text: &str) -> String {
 /// about spaces, so it gets the same treatment: the character is removed from our text and from
 /// the reference's alike, which leaves a genuinely hyphenated word matching itself and costs
 /// only the ability to notice a hyphen that should not be there.
+///
+/// **U+00AD goes with it, and there the file has said so rather than left it to be guessed.**
+/// §14.8.2.3 names the soft hyphen as the representation of exactly this character — the one a
+/// line break introduced, which "may be represented as a soft hyphen, mapped to the Unicode
+/// value U+00AD" — and requires a writer to "distinguish explicitly between soft and hard
+/// hyphens". So a producer that writes one has stated the very fact the paragraph above has to
+/// infer for a hyphen-minus, and dropping it is the same rule with a stronger warrant.
+/// `bug1997343.pdf` is the witness: a tagged LaTeX document whose six line-broken words read
+/// back as `in\u{ad}cluding`, `fol\u{ad}low`, `mathemat\u{ad}ics` and three more, against a
+/// reference that rejoins them.
 fn without_hyphens(text: &str) -> String {
-    text.chars().filter(|c| *c != '-').collect()
+    text.chars()
+        .filter(|c| *c != '-' && *c != '\u{00AD}')
+        .collect()
 }
 
 /// The words a reference extraction contains, as units to look for.
@@ -368,11 +380,21 @@ fn pdfjs_corpus() -> Vec<PathBuf> {
 /// recorded since the eighth session rather than a defect: `Interpretation::glyphs` exists
 /// precisely because a font with no `/ToUnicode`, no AGL-known glyph names and no `cmap` a
 /// reader can invert draws perfectly good letters that nothing can name. `issue918.pdf` is the
-/// archetype and the largest entry on the list — 1327 glyphs, 193 reference words, and a
+/// archetype and was the largest entry on the list — 1327 glyphs, 193 reference words, and a
 /// readback of nothing but the spaces the placement pass inferred. Its Type 3 fonts name their
 /// glyphs `/a45`, `/a66`, `/a97` …, which is the character code in decimal and is not a name
 /// §9.10.2 can resolve; the file states no `/ToUnicode` at all. `simpletype3font.pdf`,
 /// `complex_ttf_font.pdf`, `issue1350.pdf` and `issue19802.pdf` are the same shape.
+///
+/// **`issue918.pdf` reads back 186 of those 193 words now, and the sentence above went on
+/// saying otherwise long after it stopped being true** — which is worth leaving visible rather
+/// than editing away: §9.10.2's closing permission, the code itself where it is a printable
+/// ASCII byte, answers `/a65` for `A` and every other Latin letter dvips numbered that way, and
+/// it landed in the three-hundred-and-twenty-eighth session. What it cannot answer is a code
+/// *outside* 0x21–0x7E, which is where the seven that are left live: `Václav`'s `á` is one
+/// glyph at an OT1 code, and `signifier`'s `fi` is another. `pdftotext` answers those with
+/// U+001C and U+001E, which are not characters either, so the two readers fail the same
+/// question differently rather than one of them being right.
 ///
 /// **Seven are right-to-left scripts read back in the order the content stream draws them.**
 /// `issue10301.pdf` draws Hebrew that reads `אבג` and we return `גבא`; `ArabicCIDTrueType.pdf`,
@@ -467,7 +489,27 @@ fn pdfjs_corpus() -> Vec<PathBuf> {
 /// every Helvetica has that glyph. Held by name because a reference that drops characters cannot
 /// be the numerator, and this is the one entry on this list whose readback is *better* than
 /// `pdftotext`'s rather than worse.
-const TEXT_BELOW_FLOOR: [&str; 23] = [
+///
+/// # One left in the four-hundred-and-sixty-third, and three of the four *below* this list were read
+///
+/// `issue5010.pdf` is gone: its `/ToUnicode` states five mappings for codes its page never shows
+/// and `/Adobe-Korea1-UCS2 usecmap` for the rest, which §9.10.3 permits — "UseCMap , which may be
+/// used if the CMap is based on another ToUnicode CMap" — and which nothing here followed, so the
+/// page read back the empty string. ADR 0298.
+///
+/// That round also listed, for the first time, every document scoring under 100% rather than
+/// under the floor, because the band between them had never been named. It is **four documents
+/// and seventeen words**, and none of the four is a wrong glyph:
+///
+/// - `bug1997343.pdf` (8): four are §14.9.4's `/ActualText` — a structure element saying `LaTeX`
+///   where the glyphs spell `LATEX`, which this tree reads and the reference does not — and four
+///   are the soft hyphens [`without_hyphens`] now folds.
+/// - `issue918.pdf` (7): the Type 3 codes outside printable ASCII described above.
+/// - `issue20489.pdf` (1): `Date>SCALE` is two labels forty lines apart that `pdftotext`'s column
+///   analysis ran into one word.
+/// - `issue1350.pdf` (1): the reference reads `beginnerÕs`, which is MacRomanEncoding 0xD5 taken
+///   as Latin-1; this tree reads `beginner’s`.
+const TEXT_BELOW_FLOOR: [&str; 22] = [
     "ArabicCIDTrueType.pdf",
     "bug1865341.pdf",
     "PDFJS-7562-reduced.pdf",
@@ -487,7 +529,6 @@ const TEXT_BELOW_FLOOR: [&str; 23] = [
     "issue19802.pdf",
     "issue2017r.pdf",
     "issue2537r.pdf",
-    "issue5010.pdf",
     "issue5677.pdf",
     "issue5874.pdf",
     "issue9915_reduced.pdf",
