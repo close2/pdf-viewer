@@ -89,8 +89,9 @@ pub type IssuerAndSerial<'a> = (&'a [u8], &'a [u8]);
 ///
 /// Table 260 names three families for a PDF signature — "RSA Algorithm Support", "DSA Algorithm
 /// Support" and "ECDSA Algorithm Support ( defined by Internet RFC 5480 )" — and this program
-/// verifies the first. The other two reach a person as the object identifier the file states,
-/// which is why the unrecognised arm carries it rather than dropping it.
+/// verifies the first two. The third reaches a person as the object identifier the file states,
+/// which is why the unrecognised arm carries it rather than dropping it, and ADR 0314 is the
+/// argument for stopping there rather than half-writing a curve.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SignatureAlgorithm<'a> {
     /// RSASSA-PKCS1-v1_5 — `rsaEncryption` or one of the `<hash>WithRSAEncryption` identifiers of
@@ -101,6 +102,11 @@ pub enum SignatureAlgorithm<'a> {
     /// so treating it as this one would verify the wrong construction. It arrives as
     /// [`Self::Unrecognised`].
     RsaPkcs1V15,
+    /// DSA — `id-dsa`, `id-dsa-with-sha1`, or one of the `id-dsa-with-sha2` arc's identifiers.
+    ///
+    /// Which digest was used is not read from here: `SignerInfo`'s own `digestAlgorithm` states
+    /// it, and [`Digest`] is what reads that. See [`crate::dsa::is_dsa`].
+    Dsa,
     /// Anything else, as the identifier the file wrote.
     Unrecognised(&'a [u8]),
 }
@@ -113,6 +119,9 @@ impl<'a> SignatureAlgorithm<'a> {
     /// prefix test would silently verify as PKCS #1 v1.5.
     #[must_use]
     pub fn from_oid(oid: &'a [u8]) -> Self {
+        if crate::dsa::is_dsa(oid) {
+            return Self::Dsa;
+        }
         match oid {
             // `pkcs-1` is 1.2.840.113549.1.1; the last octet is `rsaEncryption` (1) and the
             // `<hash>WithRSAEncryption` identifiers for MD2 (2), MD5 (4), SHA-1 (5), SHA-256 (11),
@@ -133,13 +142,22 @@ impl<'a> SignatureAlgorithm<'a> {
     }
 }
 
-/// The digest algorithms Table 260 and Table 256 name, and nothing else.
+/// The digest algorithms ISO 32000-2's Table 260 and Table 256 name, and nothing else.
 ///
 /// Table 260 lists what each `/SubFilter` supports — "SHA1 ( PDF 1.3 ) SHA256 (PDF 1.6) SHA384
 /// (PDF 1.7) SHA512 (PDF 1.7) RIPEMD160 (PDF 1.7 )" — and Table 256's `/DigestMethod` adds the
 /// MD5 that was PDF 1.5's default. All six are here because a program that recognised five would
-/// be silent about the sixth rather than wrong about it, and silence is what this round is
-/// removing.
+/// be silent about the sixth rather than wrong about it.
+///
+/// **Six is the base standard's list and is no longer the whole of it.** ISO/TS 32001:2022 section
+/// 5.1.4 adds four more to Table 260's Message Digest row for `adbe.pkcs7.detached`,
+/// `ETSI.CAdES.detached` and `ETSI.RFC3161` — "SHA3-256 (PDF 2.x)", "SHA3-384 (PDF 2.x)",
+/// "SHA3-512 (PDF 2.x)" and "SHAKE256 (PDF 2.x)", the last of them pinned to `id-shake256` so that
+/// its output length is fixed at 512 bits — and its section 5.1.3 adds the same four to Table
+/// 256's `/DigestMethod`. **None of the four is computed here**, so a signature stating one is
+/// reported by the identifier it wrote rather than checked. That is a gap with a number rather than
+/// a silence, and `doc/todo/51` carries it; nothing in the 67 460 documents this round read states
+/// one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Digest {
     /// MD5, Table 256's default for PDF 1.5 to 1.7 and deprecated with PDF 2.0.
@@ -711,17 +729,24 @@ pub(crate) mod fixtures {
 
     /// One value with the given identifier and contents, in X.690's shortest length form.
     ///
-    /// The fixtures reach a few hundred bytes once three certificates are in them, so the
-    /// one-octet long form is spelled as well — and that is all: a builder that went further
-    /// would be a second encoder to keep right.
+    /// Two length forms are spelled, and the second arrived with the DSA fixture: a real
+    /// certificate is over a thousand octets, so `0x82` and two length octets are reachable and
+    /// the assertion below is where a third form would announce itself.
     fn primitive(identifier: u8, contents: &[u8]) -> Vec<u8> {
         let mut out = vec![identifier];
         if contents.len() < 128 {
             out.push(u8::try_from(contents.len()).unwrap_or(0));
-        } else {
-            assert!(contents.len() < 256, "the fixtures are all short");
+        } else if contents.len() < 256 {
             out.push(0x81);
             out.push(u8::try_from(contents.len()).unwrap_or(0));
+        } else {
+            assert!(contents.len() < 65536, "the fixtures are all short");
+            out.push(0x82);
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "the assertion above is what bounds this to two octets"
+            )]
+            out.extend_from_slice(&(contents.len() as u16).to_be_bytes());
         }
         out.extend_from_slice(contents);
         out
@@ -830,6 +855,70 @@ pub(crate) mod fixtures {
                 attribute(ID_CONTENT_TYPE, primitive(0x06, ID_DATA)),
                 attribute(ID_MESSAGE_DIGEST, primitive(0x04, &[0xFF; 32])),
             ])),
+        )
+    }
+
+    /// A detached signature whose signer states DSA, over a real certificate and a real signature.
+    ///
+    /// **The one fixture built from something other than made-up octets, and it has to be**: this
+    /// is what carries Table 260's second algorithm family through
+    /// [`crate::signature::Signature::authenticity`] end to end — the algorithm match, the
+    /// certificate lookup by issuer and serial number, [`crate::x509`]'s reading of a `Dss-Parms`
+    /// key, and [`crate::dsa`]'s arithmetic. No corpus document does any of that (see
+    /// `crate::dsa`'s fixtures for the population), so a hand-built pair is the only witness there
+    /// is.
+    ///
+    /// The signer states **no signed attributes**, which RFC 5652 permits and which makes the
+    /// signature one over the content itself — for a detached signature, the byte range. That is
+    /// what lets a fixture use a signature made once over bytes chosen here: with signed
+    /// attributes the digest would have to be in the attributes that are themselves signed, and
+    /// nothing in this tree holds the private key to close that circle.
+    pub(crate) fn detached_dsa(
+        certificate: &[u8],
+        issuer: &[u8],
+        serial: &[u8],
+        signature: &[u8],
+    ) -> Vec<u8> {
+        // `SignerInfo`, positionally: version, sid, digestAlgorithm, signatureAlgorithm, signature.
+        let signer = tagged(
+            0x30,
+            &[
+                primitive(0x02, &[0x01]),
+                tagged(
+                    0x30,
+                    &[tagged(0x30, &[issuer.to_vec()]), primitive(0x02, serial)],
+                ),
+                sha256_algorithm(),
+                // `id-dsa-with-sha256`, the identifier RFC 5758 section 3.1 assigns.
+                tagged(
+                    0x30,
+                    &[primitive(
+                        0x06,
+                        &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x02],
+                    )],
+                ),
+                primitive(0x04, signature),
+            ],
+        );
+        let body = tagged(
+            0x30,
+            &[
+                primitive(0x02, &[0x01]),
+                tagged(0x31, &[sha256_algorithm()]),
+                tagged(0x30, &[primitive(0x06, ID_DATA)]),
+                tagged(0xA0, &[certificate.to_vec()]),
+                tagged(0x31, &[signer]),
+            ],
+        );
+        tagged(
+            0x30,
+            &[
+                primitive(
+                    0x06,
+                    &[0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x02],
+                ),
+                tagged(0xA0, &[body]),
+            ],
         )
     }
 

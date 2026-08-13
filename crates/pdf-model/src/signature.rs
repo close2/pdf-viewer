@@ -15,15 +15,16 @@
 //!    compared with the digest the signature value records. No certificate, no trust decision and
 //!    no network — the file and a hash function. [`Signature::integrity`] **answers this**.
 //! 2. **Does the signature verify under the signer's public key?** That needs the key out of an
-//!    X.509 certificate ([`crate::x509`]) and an RSA verification ([`crate::pkcs1`]).
-//!    [`Signature::authenticity`] **answers this** where the key is RSA, which is Table 260's
-//!    first of three algorithm families; the other two are named by their object identifiers.
+//!    X.509 certificate ([`crate::x509`]) and the arithmetic of whichever family Table 260 names:
+//!    RSA ([`crate::pkcs1`]) or DSA ([`crate::dsa`]). [`Signature::authenticity`] **answers this**
+//!    for both. Table 260's third family, ECDSA — with the `EdDSA` ISO/TS 32002 adds beside it — is
+//!    named by the object identifier the file states and verified by nothing (ADR 0314).
 //! 3. **Is the signer trusted, and had the certificate been revoked?** A trust store and a
 //!    network (§12.8.3.4.6's CRLs and OCSP). **Not answered**, and reported.
 //!
-//! ADR 0215 separated the three and answered the first; ADR 0229 answered the second. The
-//! separation is the point of both: the whole clause used to be refused on question 3's
-//! infrastructure, which questions 1 and 2 do not need.
+//! ADR 0215 separated the three and answered the first; ADR 0229 answered the second for RSA and
+//! ADR 0314 for DSA. The separation is the point of all three: the whole clause used to be refused
+//! on question 3's infrastructure, which questions 1 and 2 do not need.
 //!
 //! # What each answer proves, which is not the same thing
 //!
@@ -63,6 +64,7 @@
 //! corpus document exercises.
 
 use crate::cms::{self, CmsError, Digest, SignatureAlgorithm, SignedData};
+use crate::dsa::{self, DsaError};
 use crate::pkcs1::{self, Pkcs1Error};
 use crate::x509::{self, X509Error};
 use pdf_syntax::{Dictionary, Document, Object};
@@ -282,6 +284,8 @@ pub enum Authenticity {
     Verified {
         /// The digest algorithm the signature named, and this one recomputed with.
         digest: Digest,
+        /// Which of Table 260's algorithm families did the verifying.
+        family: Family,
         /// The key's width in bits, which is the number Table 260 puts a ceiling on.
         key_bits: usize,
         /// What the signature was computed over, which decides what this proves.
@@ -295,6 +299,8 @@ pub enum Authenticity {
     NotUnderThatKey {
         /// The digest algorithm the signature named.
         digest: Digest,
+        /// Which of Table 260's algorithm families was tried.
+        family: Family,
         /// The key's width in bits.
         key_bits: usize,
         /// What the signature was computed over.
@@ -311,30 +317,77 @@ pub enum Authenticity {
     },
     /// The signer's certificate would not parse.
     CertificateUnreadable(X509Error),
-    /// The certificate's public key is not RSA, named by the identifier it states.
+    /// The certificate's public key is neither RSA nor DSA, named by the identifier it states.
     ///
-    /// Table 260 also names DSA and ECDSA, so this is a gap in this program rather than a defect
-    /// in the file — which is why the algorithm is carried out to a person by its number.
+    /// Table 260 also names ECDSA, so this is a gap in this program rather than a defect in the
+    /// file — which is why the algorithm is carried out to a person by its number.
     KeyNotVerifiable {
         /// The algorithm's object identifier as dotted decimal, or its octets in hexadecimal
         /// where the encoding is not a well-formed identifier.
         algorithm: String,
     },
-    /// The signature algorithm is not RSASSA-PKCS1-v1_5, named the same way.
+    /// The signature algorithm is neither RSASSA-PKCS1-v1_5 nor DSA, named the same way.
     AlgorithmNotVerifiable {
         /// The algorithm's object identifier as dotted decimal.
         algorithm: String,
     },
+    /// The signature's algorithm and the signer's key are from two different families.
+    ///
+    /// A file stating a DSA signature over an RSA key, or the other way round, has not written
+    /// something this program should guess at: the two identifiers are both the producer's own
+    /// claims about the same signature and they contradict each other. Both are carried, because
+    /// which of the pair is wrong is not something a reader here can know.
+    KeyDoesNotMatchAlgorithm {
+        /// The `SignerInfo`'s `signatureAlgorithm`, as dotted decimal.
+        algorithm: String,
+        /// The certificate's `subjectPublicKeyInfo` algorithm, as dotted decimal.
+        key: String,
+    },
     /// The key or the signature is outside [`crate::pkcs1`]'s budgets, or is not shaped like RSA.
     Refused(Pkcs1Error),
-    /// The signature states a digest algorithm outside Table 260's and Table 256's six.
-    UnknownDigest,
+    /// The same for [`crate::dsa`]'s.
+    RefusedDsa(DsaError),
+    /// The signature states a digest algorithm this program does not compute.
+    ///
+    /// All six that ISO 32000-2's Table 260 and Table 256 name are implemented; the four ISO/TS
+    /// 32001 adds to both — SHA3-256, SHA3-384, SHA3-512 and SHAKE256 — are not, and neither is
+    /// anything outside either list. The identifier is carried so that which of those a file used
+    /// is a question a person can answer.
+    UnknownDigest {
+        /// The digest algorithm's object identifier as dotted decimal.
+        algorithm: String,
+    },
     /// The dictionary states no `/Contents`.
     NoSignatureValue,
     /// The `/ByteRange` does not name bytes of this file, so there was nothing to hash.
     RangeNotInThisFile,
     /// The signature value could not be read as §12.8.3.3's CMS object.
     Unreadable(CmsError),
+}
+
+/// Which of Table 260's three algorithm families a signature was checked with.
+///
+/// The table names three and this program verifies two, so the third has no arm here: an ECDSA
+/// signature never reaches a verification to be named after. It reaches
+/// [`Authenticity::AlgorithmNotVerifiable`] with its own object identifier, which is a stronger
+/// thing to print than a word this tree would have had to invent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Family {
+    /// "RSA Algorithm Support", as RFC 8017's RSASSA-PKCS1-v1_5.
+    Rsa,
+    /// "DSA Algorithm Support", as FIPS 186-4 section 4.7.
+    Dsa,
+}
+
+impl Family {
+    /// The family's name, for a sentence a person reads.
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Rsa => "RSA (PKCS #1 v1.5)",
+            Self::Dsa => "DSA",
+        }
+    }
 }
 
 /// A requirement §12.8.3.4 places on a `PAdES` signature that a file does not meet.
@@ -598,9 +651,10 @@ impl Signature {
             Ok(cms) => cms,
             Err(error) => return Authenticity::Unreadable(error),
         };
-        if !matches!(cms.algorithm(), SignatureAlgorithm::RsaPkcs1V15) {
+        let algorithm = cms.algorithm();
+        if let SignatureAlgorithm::Unrecognised(oid) = algorithm {
             return Authenticity::AlgorithmNotVerifiable {
-                algorithm: name(cms.signature_algorithm),
+                algorithm: name(oid),
             };
         }
         let Some(certificate) = signer_certificate(&cms) else {
@@ -612,18 +666,15 @@ impl Signature {
             Ok(certificate) => certificate,
             Err(error) => return Authenticity::CertificateUnreadable(error),
         };
-        let x509::PublicKey::Rsa(key) = certificate.public_key else {
-            let x509::PublicKey::Unverifiable { algorithm } = certificate.public_key else {
-                return Authenticity::NoSignerCertificate {
-                    certificates: cms.certificates.len(),
-                };
-            };
+        if let x509::PublicKey::Unverifiable { algorithm } = certificate.public_key {
             return Authenticity::KeyNotVerifiable {
                 algorithm: name(algorithm),
             };
-        };
+        }
         let Some(digest) = cms.digest else {
-            return Authenticity::UnknownDigest;
+            return Authenticity::UnknownDigest {
+                algorithm: name(cms.digest_algorithm),
+            };
         };
         // RFC 5652 section 5.4 decides what is hashed, and [`Signed`] documents what each one proves.
         let attributes = cms.signed_attributes_encoding();
@@ -635,19 +686,43 @@ impl Signature {
             (None, Some(content)) => (Signed::EncapsulatedContent, digest.compute(&[content])),
             (None, None) => (Signed::TheDocumentsBytes, digest.compute(&signed)),
         };
-        let key_bits = key.bits();
-        match pkcs1::verify(key, cms.signature, digest, &computed) {
-            Ok(true) => Authenticity::Verified {
+        // The pair rather than either alone: a `SignerInfo` naming DSA over a certificate holding
+        // an RSA key is two claims by one producer that contradict each other, and picking the one
+        // to believe would be this program inventing a fact.
+        let (family, verified) = match (algorithm, certificate.public_key) {
+            (SignatureAlgorithm::RsaPkcs1V15, x509::PublicKey::Rsa(key)) => (
+                Family::Rsa,
+                pkcs1::verify(key, cms.signature, digest, &computed)
+                    .map_err(Authenticity::Refused)
+                    .map(|verified| (verified, key.bits())),
+            ),
+            (SignatureAlgorithm::Dsa, x509::PublicKey::Dsa(key)) => (
+                Family::Dsa,
+                dsa::verify(key, cms.signature, &computed)
+                    .map_err(Authenticity::RefusedDsa)
+                    .map(|verified| (verified, key.bits())),
+            ),
+            _ => {
+                return Authenticity::KeyDoesNotMatchAlgorithm {
+                    algorithm: name(cms.signature_algorithm),
+                    key: key_algorithm_name(&certificate),
+                };
+            }
+        };
+        match verified {
+            Ok((true, key_bits)) => Authenticity::Verified {
                 digest,
+                family,
                 key_bits,
                 over,
             },
-            Ok(false) => Authenticity::NotUnderThatKey {
+            Ok((false, key_bits)) => Authenticity::NotUnderThatKey {
                 digest,
+                family,
                 key_bits,
                 over,
             },
-            Err(error) => Authenticity::Refused(error),
+            Err(answer) => answer,
         }
     }
 
@@ -668,14 +743,13 @@ impl Signature {
             Ok(certificate) => certificate,
             Err(error) => return Authenticity::CertificateUnreadable(error),
         };
+        // **Table 260 says "No" to DSA for this `/SubFilter`**, in the `adbe.x509.rsa_sha1` column
+        // of its "DSA Algorithm Support" row, so a `/Cert` carrying a DSA key is a file departing
+        // from the table rather than a case this program owes an implementation. It is named by
+        // its identifier like any other key this signature format may not carry.
         let x509::PublicKey::Rsa(key) = certificate.public_key else {
-            let x509::PublicKey::Unverifiable { algorithm } = certificate.public_key else {
-                return Authenticity::NoSignerCertificate {
-                    certificates: self.chain.len(),
-                };
-            };
             return Authenticity::KeyNotVerifiable {
-                algorithm: name(algorithm),
+                algorithm: key_algorithm_name(&certificate),
             };
         };
         // §12.8.3.3.1 has a producer pad `/Contents` with zeros to fill the space allocated for
@@ -697,6 +771,7 @@ impl Signature {
                 Ok(true) => {
                     return Authenticity::Verified {
                         digest,
+                        family: Family::Rsa,
                         key_bits,
                         over: Signed::TheDocumentsBytes,
                     };
@@ -710,6 +785,7 @@ impl Signature {
             // having failed with when none of the six matched.
             Authenticity::NotUnderThatKey {
                 digest: Digest::Sha1,
+                family: Family::Rsa,
                 key_bits,
                 over: Signed::TheDocumentsBytes,
             },
@@ -792,6 +868,19 @@ fn name(oid: &[u8]) -> String {
             out
         })
     })
+}
+
+/// The identifier of the algorithm a certificate's key is for, as dotted decimal.
+///
+/// The two families this program reads are named by the identifier the standard that defines them
+/// assigns rather than by the octets the certificate happened to write, because [`crate::x509`]
+/// keeps the key and not the identifier once it has recognised one. They are the same number.
+fn key_algorithm_name(certificate: &x509::Certificate<'_>) -> String {
+    match certificate.public_key {
+        x509::PublicKey::Rsa(_) => name(x509::RSA_ENCRYPTION),
+        x509::PublicKey::Dsa(_) => name(dsa::ID_DSA),
+        x509::PublicKey::Unverifiable { algorithm } => name(algorithm),
+    }
 }
 
 /// §12.8.6's permissions dictionary. Table 263.
@@ -1671,8 +1760,8 @@ fn census(document: &Document) -> Vec<(String, i64)> {
 #[cfg(test)]
 mod tests {
     use super::{
-        Authenticity, Coverage, Integrity, Modification, PadesDeparture, Signature, Signed, legal,
-        permissions, security_store, signatures,
+        Authenticity, Coverage, Family, Integrity, Modification, PadesDeparture, Signature, Signed,
+        legal, permissions, security_store, signatures,
     };
     use crate::cms::{Digest, fixtures};
     use crate::x509::fixtures::{CERTIFICATE, EC_CERTIFICATE, PKCS1_SIGNATURE, hex};
@@ -2091,6 +2180,7 @@ mod tests {
             signature.authenticity(file),
             Authenticity::Verified {
                 digest: Digest::Sha256,
+                family: Family::Rsa,
                 key_bits: 2048,
                 over: Signed::TheDocumentsBytes,
             },
@@ -2102,6 +2192,7 @@ mod tests {
             signature.authenticity(b"the signed byteS"),
             Authenticity::NotUnderThatKey {
                 digest: Digest::Sha1,
+                family: Family::Rsa,
                 key_bits: 2048,
                 over: Signed::TheDocumentsBytes,
             }
@@ -2180,6 +2271,106 @@ mod tests {
             changes: None,
             certification: false,
         }
+    }
+
+    /// **Table 260's second algorithm family, all the way through.**
+    ///
+    /// The `dsa` module's own tests exercise FIPS 186-4 section 4.7 on a key and a signature; this
+    /// exercises everything between a signature dictionary and that call — the `SignerInfo`'s
+    /// `signatureAlgorithm` being recognised as DSA, the signer's certificate being found among
+    /// the ones the value carries by RFC 5652's issuer and serial number, `x509` reading a
+    /// `Dss-Parms` key out of it, and the answer naming the family rather than assuming RSA.
+    ///
+    /// **No corpus document could stand in.** 67 460 were read for this round — `doc/pdf.js`'s
+    /// 974, `doc/corpora`'s 275 and the `SafeDocs` crawl's 66 211 — and their 811 signature
+    /// dictionaries name RSA and, once, ECDSA. Not one names DSA, which `CLAUDE.md`'s trap 8 says
+    /// is a fact about documents rather than about the standard.
+    #[test]
+    fn a_dsa_signature_verifies_through_the_whole_path_a_document_takes() {
+        let file = b"the signed bytes";
+        let certificate = hex(crate::dsa::fixtures::CERTIFICATE);
+        let parsed = crate::x509::parse(&certificate).expect("a certificate");
+        let signature = Signature {
+            timestamp: false,
+            handler: Some("Adobe.PPKLite".to_owned()),
+            sub_filter: Some("adbe.pkcs7.detached".to_owned()),
+            byte_range: vec![(0, file.len() as u64)],
+            contents: fixtures::detached_dsa(
+                &certificate,
+                parsed.issuer,
+                parsed.serial_number,
+                &hex(crate::dsa::fixtures::SIGNATURE),
+            ),
+            certificate_chain: false,
+            chain: Vec::new(),
+            name: None,
+            signed_at: None,
+            location: None,
+            reason: None,
+            contact: None,
+            changes: None,
+            certification: false,
+        };
+        assert_eq!(
+            signature.authenticity(file),
+            Authenticity::Verified {
+                digest: Digest::Sha256,
+                family: Family::Dsa,
+                key_bits: 2048,
+                over: Signed::TheDocumentsBytes,
+            },
+            "the signer states no signed attributes, so RFC 5652 signs the byte range itself"
+        );
+        // And question 2 settles question 1 in this shape, which is what `Signed` records.
+        assert_eq!(
+            signature.authenticity(b"the signed byteS"),
+            Authenticity::NotUnderThatKey {
+                digest: Digest::Sha256,
+                family: Family::Dsa,
+                key_bits: 2048,
+                over: Signed::TheDocumentsBytes,
+            }
+        );
+    }
+
+    /// A DSA signature over an RSA key is two claims by one producer that disagree.
+    ///
+    /// Neither is believed and neither is guessed at: before the four-hundred-and-seventy-ninth
+    /// session there was one family and the question could not arise, and with two it can.
+    #[test]
+    fn a_signature_algorithm_and_a_key_from_different_families_are_both_reported() {
+        let file = b"the signed bytes";
+        let certificate = hex(CERTIFICATE);
+        let parsed = crate::x509::parse(&certificate).expect("a certificate");
+        let signature = Signature {
+            timestamp: false,
+            handler: Some("Adobe.PPKLite".to_owned()),
+            sub_filter: Some("adbe.pkcs7.detached".to_owned()),
+            byte_range: vec![(0, file.len() as u64)],
+            // A DSA `signatureAlgorithm` over the *RSA* certificate and its signature.
+            contents: fixtures::detached_dsa(
+                &certificate,
+                parsed.issuer,
+                parsed.serial_number,
+                &hex(PKCS1_SIGNATURE),
+            ),
+            certificate_chain: false,
+            chain: Vec::new(),
+            name: None,
+            signed_at: None,
+            location: None,
+            reason: None,
+            contact: None,
+            changes: None,
+            certification: false,
+        };
+        assert_eq!(
+            signature.authenticity(file),
+            Authenticity::KeyDoesNotMatchAlgorithm {
+                algorithm: "2.16.840.1.101.3.4.3.2".to_owned(),
+                key: "1.2.840.113549.1.1.1".to_owned(),
+            }
+        );
     }
 
     /// §12.8.5's document timestamp commits to the same digest in RFC 3161's `TSTInfo`.

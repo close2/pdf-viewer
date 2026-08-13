@@ -7,9 +7,20 @@
 //! > methods, including RSA encryption, DSA signatures, and SHA-1 and MD5 digests.
 //!
 //! and Table 260 states the sizes: "RSA Algorithm Support | Up to 1024-bit (PDF 1.3) Up to
-//! 2048-bit (PDF 1.5) Up to 4096-bit (PDF 1.5)". This module is the RSA half of that, and the
-//! other two algorithms Table 260 names — DSA and ECDSA — are **not** here and are reported by
-//! name rather than skipped ([`crate::signature::Authenticity`]). ADR 0229 has the decision.
+//! 2048-bit (PDF 1.5) Up to 4096-bit (PDF 1.5)". This module is the RSA half of that. ADR 0229 has
+//! the decision.
+//!
+//! **Table 260 names three algorithm families and this tree now verifies two**: DSA is
+//! [`crate::dsa`] since the four-hundred-and-seventy-ninth session, and ECDSA — with the `EdDSA`
+//! that ISO/TS 32002 adds beside it — is refused with an argument rather than half-written (ADR
+//! 0314). Both refusals are reported by the object identifier the file states rather than skipped
+//! ([`crate::signature::Authenticity`]).
+//!
+//! **`id-RSASSA-PSS` is not this construction and is deliberately not treated as it.** It shares
+//! RFC 8017's `pkcs-1` arc and states a different padding, so a reader that matched the arc would
+//! verify the wrong thing; it reaches [`crate::cms::SignatureAlgorithm::Unrecognised`] and is
+//! named by number. Six of the 801 signatures in the `SafeDocs` population use it, which is twice
+//! ECDSA's share — see `doc/todo/51`.
 //!
 //! # What is verified, and by which construction
 //!
@@ -39,7 +50,8 @@
 //! is written to run in constant time and nothing needs to be.
 //!
 //! What is left is integer arithmetic against published test vectors, under this crate's
-//! `#![forbid(unsafe_code)]`, with every loop bounded by a constant rather than by the file.
+//! `#![forbid(unsafe_code)]`, with every loop bounded by a constant rather than by the file. That
+//! arithmetic is [`crate::bigint`] and lived here until a second caller needed it (ADR 0314).
 //!
 //! # The budgets, and what each costs
 //!
@@ -52,6 +64,7 @@
 //! Both are stated as this program's budgets rather than as anything the standard says, and both
 //! are reported: [`Pkcs1Error`] names which one a file exceeded.
 
+use crate::bigint::{Integer, Modulus, modpow, significant_bits};
 use crate::cms::Digest;
 
 /// The widest modulus this module will exponentiate, in bits.
@@ -60,7 +73,7 @@ use crate::cms::Digest;
 /// than the standard describes is a file to report rather than a file to refuse silently, and one
 /// larger than *this* is refused with [`Pkcs1Error::ModulusTooLarge`]. The cost of the headroom is
 /// one kilobyte of stack per big integer.
-pub const MAX_MODULUS_BITS: usize = 8192;
+pub const MAX_MODULUS_BITS: usize = crate::bigint::MAX_BITS;
 
 /// The largest public exponent this module will raise a signature to, in bits.
 ///
@@ -69,9 +82,6 @@ pub const MAX_MODULUS_BITS: usize = 8192;
 /// this leaves room for eight times as many bits as the larger of them needs while keeping the
 /// worst case at 512 modular multiplications.
 pub const MAX_EXPONENT_BITS: usize = 256;
-
-/// How many 64-bit limbs [`MAX_MODULUS_BITS`] is.
-const MAX_LIMBS: usize = MAX_MODULUS_BITS / 64;
 
 /// What stopped a signature from being verified — a statement about the file, in every case.
 ///
@@ -127,23 +137,7 @@ impl PublicKey<'_> {
     /// Zero for a modulus of zero, which [`verify`] refuses anyway.
     #[must_use]
     pub fn bits(&self) -> usize {
-        let leading = self
-            .modulus
-            .iter()
-            .take_while(|&&byte| byte == 0)
-            .count()
-            .min(self.modulus.len());
-        let Some(rest) = self.modulus.get(leading..) else {
-            return 0;
-        };
-        let Some(&first) = rest.first() else {
-            return 0;
-        };
-        // Whole octets after the leading one, plus that one's significant bits.
-        rest.len()
-            .saturating_sub(1)
-            .saturating_mul(8)
-            .saturating_add(8usize.saturating_sub(first.leading_zeros() as usize))
+        significant_bits(self.modulus)
     }
 }
 
@@ -261,335 +255,9 @@ fn sequence(contents: &[u8]) -> Result<Vec<u8>, Pkcs1Error> {
     Ok(der_value(0x30, contents))
 }
 
-/// A big unsigned integer of at most [`MAX_LIMBS`] limbs, least significant first.
-///
-/// Fixed size rather than a `Vec`: the bound is [`MAX_MODULUS_BITS`] and a fixed array makes
-/// every loop's trip count a constant of this module rather than a number out of the file, which
-/// is what `CLAUDE.md` principle 3 asks of arithmetic over untrusted input.
-#[derive(Clone, Copy)]
-struct Integer {
-    limbs: [u64; MAX_LIMBS],
-}
-
-impl std::fmt::Debug for Integer {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "Integer({} bits)", self.bits())
-    }
-}
-
-impl Integer {
-    /// Zero.
-    fn zero() -> Self {
-        Self {
-            limbs: [0; MAX_LIMBS],
-        }
-    }
-
-    /// A big-endian byte string as an integer, or `None` where it needs more than [`MAX_LIMBS`].
-    ///
-    /// Leading zero octets are ignored, which is what makes an X.509 `INTEGER`'s sign octet
-    /// harmless here: RFC 5280's serial numbers and moduli are written with a leading `0x00` when
-    /// the high bit is set, and the value is the same number either way.
-    fn from_be_bytes(bytes: &[u8]) -> Option<Self> {
-        let leading = bytes
-            .iter()
-            .take_while(|&&byte| byte == 0)
-            .count()
-            .min(bytes.len());
-        let significant = bytes.get(leading..).unwrap_or(&[]);
-        if significant.len().div_ceil(8) > MAX_LIMBS {
-            return None;
-        }
-        let mut out = Self::zero();
-        for (index, byte) in significant.iter().rev().enumerate() {
-            let limb = index / 8;
-            let shift = u32::try_from(index % 8).unwrap_or(0).saturating_mul(8);
-            if let Some(slot) = out.limbs.get_mut(limb) {
-                *slot |= u64::from(*byte) << shift;
-            }
-        }
-        Some(out)
-    }
-
-    /// The integer as exactly `length` big-endian octets, zero-padded on the left.
-    ///
-    /// Truncating on the left where the value needs more, which cannot happen for a value reduced
-    /// modulo an `n` of that many octets — and which would produce a block that fails the
-    /// comparison rather than one that passes it.
-    fn be_bytes(&self, length: usize) -> Vec<u8> {
-        let mut out = vec![0u8; length];
-        for index in 0..length {
-            let limb = index / 8;
-            let shift = u32::try_from(index % 8).unwrap_or(0).saturating_mul(8);
-            let byte = self.limbs.get(limb).map_or(0, |value| {
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    reason = "one octet of a limb is wanted, and the shift selects it"
-                )]
-                {
-                    (value >> shift) as u8
-                }
-            });
-            if let Some(slot) = out
-                .len()
-                .checked_sub(1)
-                .and_then(|last| last.checked_sub(index))
-                .and_then(|at| out.get_mut(at))
-            {
-                *slot = byte;
-            }
-        }
-        out
-    }
-
-    /// Whether every limb is zero.
-    fn is_zero(&self) -> bool {
-        self.limbs.iter().all(|&limb| limb == 0)
-    }
-
-    /// The number of significant bits.
-    fn bits(&self) -> usize {
-        for index in (0..MAX_LIMBS).rev() {
-            let limb = self.limbs.get(index).copied().unwrap_or(0);
-            if limb != 0 {
-                return index
-                    .saturating_mul(64)
-                    .saturating_add(64usize.saturating_sub(limb.leading_zeros() as usize));
-            }
-        }
-        0
-    }
-
-    /// Bit `index`, counting from the least significant.
-    fn bit(&self, index: usize) -> bool {
-        let shift = u32::try_from(index % 64).unwrap_or(0);
-        self.limbs
-            .get(index / 64)
-            .is_some_and(|limb| (limb >> shift) & 1 == 1)
-    }
-
-    /// Whether this is strictly less than `other`, comparing whole arrays.
-    ///
-    /// The comparison walks all [`MAX_LIMBS`] limbs rather than the used length, so it does not
-    /// depend on either value's `length` field being normalised.
-    fn less_than(&self, other: &Self) -> bool {
-        for index in (0..MAX_LIMBS).rev() {
-            let mine = self.limbs.get(index).copied().unwrap_or(0);
-            let theirs = other.limbs.get(index).copied().unwrap_or(0);
-            if mine != theirs {
-                return mine < theirs;
-            }
-        }
-        false
-    }
-}
-
-/// `a * b + c + d`, as `(high, low)`.
-///
-/// The bound is what makes every carry in this module fit: with all four at `u64::MAX` the sum is
-/// `(2^64 - 1)^2 + 2 * (2^64 - 1) = 2^128 - 1`, so a `u128` holds it exactly and no intermediate
-/// wraps. The wrapping spellings are therefore descriptions of arithmetic that cannot wrap, and
-/// not permissions for it to.
-fn multiply_accumulate(a: u64, b: u64, c: u64, d: u64) -> (u64, u64) {
-    let wide = u128::from(a)
-        .wrapping_mul(u128::from(b))
-        .wrapping_add(u128::from(c))
-        .wrapping_add(u128::from(d));
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "the two halves of a 128-bit product are wanted, and each is taken exactly"
-    )]
-    {
-        ((wide >> 64) as u64, wide as u64)
-    }
-}
-
-/// An odd modulus, with the constant Montgomery reduction needs.
-struct Modulus {
-    value: Integer,
-    /// `-n^-1 mod 2^64`, the quantity each reduction step multiplies by.
-    inverse: u64,
-    /// How many limbs the modulus occupies, which is every loop's trip count below.
-    limbs: usize,
-}
-
-impl Modulus {
-    /// An odd modulus greater than one, or `None`.
-    ///
-    /// Montgomery reduction needs `n` odd — it works modulo `2^64` in each step, and an even `n`
-    /// has no inverse there. RFC 8017 section 3.1 makes an RSA modulus a product of odd primes, so this
-    /// refuses nothing a real key could be.
-    fn new(value: &Integer) -> Option<Self> {
-        let low = value.limbs.first().copied().unwrap_or(0);
-        if low & 1 == 0 || value.bits() < 2 {
-            return None;
-        }
-        // Newton's iteration for the inverse modulo `2^64`: `x` doubles its correct bits each
-        // step, so five steps take one correct bit (odd numbers are their own inverse mod 2) to
-        // sixty-four. Every operation is deliberately modulo `2^64`, which is what wrapping is.
-        let mut inverse = 1u64;
-        for _ in 0..6 {
-            inverse = inverse.wrapping_mul(2u64.wrapping_sub(low.wrapping_mul(inverse)));
-        }
-        Some(Self {
-            limbs: value.bits().div_ceil(64).min(MAX_LIMBS),
-            inverse: inverse.wrapping_neg(),
-            value: *value,
-        })
-    }
-
-    /// `a * b * R^-1 mod n`, where `R` is `2^(64 * limbs)` — one Montgomery multiplication.
-    ///
-    /// The coarsely-integrated operand scanning form: each pass over `b`'s limbs multiplies,
-    /// accumulates and reduces by one limb, so the accumulator never grows past `limbs + 2` and
-    /// no division is performed anywhere in this module.
-    fn multiply(&self, a: &Integer, b: &Integer) -> Integer {
-        let limbs = self.limbs;
-        let mut t = [0u64; MAX_LIMBS + 2];
-        for index in 0..limbs {
-            let multiplier = b.limbs.get(index).copied().unwrap_or(0);
-            let mut carry = 0u64;
-            for place in 0..limbs {
-                let (high, low) = multiply_accumulate(
-                    a.limbs.get(place).copied().unwrap_or(0),
-                    multiplier,
-                    t.get(place).copied().unwrap_or(0),
-                    carry,
-                );
-                if let Some(slot) = t.get_mut(place) {
-                    *slot = low;
-                }
-                carry = high;
-            }
-            let (sum, overflow) = t.get(limbs).copied().unwrap_or(0).overflowing_add(carry);
-            if let Some(slot) = t.get_mut(limbs) {
-                *slot = sum;
-            }
-            if let Some(slot) = t.get_mut(limbs.saturating_add(1)) {
-                *slot = u64::from(overflow);
-            }
-            // One limb of the reduction: adding `m * n` clears `t[0]`, which is what makes the
-            // whole accumulator shift down by a limb without a division.
-            let m = t.first().copied().unwrap_or(0).wrapping_mul(self.inverse);
-            let (mut carry, _) = multiply_accumulate(
-                m,
-                self.value.limbs.first().copied().unwrap_or(0),
-                t.first().copied().unwrap_or(0),
-                0,
-            );
-            for place in 1..limbs {
-                let (high, low) = multiply_accumulate(
-                    m,
-                    self.value.limbs.get(place).copied().unwrap_or(0),
-                    t.get(place).copied().unwrap_or(0),
-                    carry,
-                );
-                if let Some(slot) = t.get_mut(place.saturating_sub(1)) {
-                    *slot = low;
-                }
-                carry = high;
-            }
-            let (sum, overflow) = t.get(limbs).copied().unwrap_or(0).overflowing_add(carry);
-            if let Some(slot) = t.get_mut(limbs.saturating_sub(1)) {
-                *slot = sum;
-            }
-            let top = t
-                .get(limbs.saturating_add(1))
-                .copied()
-                .unwrap_or(0)
-                .wrapping_add(u64::from(overflow));
-            if let Some(slot) = t.get_mut(limbs) {
-                *slot = top;
-            }
-        }
-        let mut out = Integer::zero();
-        for place in 0..limbs {
-            if let (Some(slot), Some(&value)) = (out.limbs.get_mut(place), t.get(place)) {
-                *slot = value;
-            }
-        }
-        // The result is below `2 * n`, so at most one subtraction brings it below `n`. The extra
-        // limb `t[limbs]` carries the case where it does not fit in `limbs` limbs at all.
-        if t.get(limbs).copied().unwrap_or(0) != 0 || !out.less_than(&self.value) {
-            self.subtract(&mut out);
-        }
-        out
-    }
-
-    /// `value -= n`, in place, wrapping is not reachable because the caller has compared first.
-    fn subtract(&self, value: &mut Integer) {
-        let mut borrow = 0u64;
-        for place in 0..self.limbs {
-            let mine = value.limbs.get(place).copied().unwrap_or(0);
-            let theirs = self.value.limbs.get(place).copied().unwrap_or(0);
-            let (first, under) = mine.overflowing_sub(theirs);
-            let (result, again) = first.overflowing_sub(borrow);
-            if let Some(slot) = value.limbs.get_mut(place) {
-                *slot = result;
-            }
-            borrow = u64::from(under || again);
-        }
-    }
-
-    /// `value = 2 * value mod n`, in place.
-    ///
-    /// The one operation that needs no multiplication, and the whole of how a value enters the
-    /// Montgomery domain: doubling `64 * limbs` times multiplies by `R`.
-    fn double(&self, value: &mut Integer) {
-        let mut carry = 0u64;
-        for place in 0..self.limbs {
-            let limb = value.limbs.get(place).copied().unwrap_or(0);
-            if let Some(slot) = value.limbs.get_mut(place) {
-                *slot = (limb << 1) | carry;
-            }
-            carry = limb >> 63;
-        }
-        // A carry out of the top means the doubled value is at least `2^(64 * limbs)`, which is
-        // larger than `n`, so the subtraction is owed whatever the comparison says.
-        if carry != 0 || !value.less_than(&self.value) {
-            self.subtract(value);
-        }
-    }
-
-    /// `value * R mod n` — the Montgomery form of a value already reduced modulo `n`.
-    fn to_montgomery(&self, value: &Integer) -> Integer {
-        let mut out = *value;
-        for _ in 0..self.limbs.saturating_mul(64) {
-            self.double(&mut out);
-        }
-        out
-    }
-}
-
-/// `base^exponent mod n`, left to right over the exponent's bits.
-///
-/// Square-and-multiply in the Montgomery domain, so the only reduction anywhere is
-/// [`Modulus::multiply`]'s. The trip count is the exponent's bit length, which [`verify`] has
-/// already bounded by [`MAX_EXPONENT_BITS`].
-fn modpow(base: &Integer, exponent: &Integer, modulus: &Modulus) -> Integer {
-    let mut one = Integer::zero();
-    if let Some(slot) = one.limbs.first_mut() {
-        *slot = 1;
-    }
-    let mut accumulator = modulus.to_montgomery(&one);
-    let multiplier = modulus.to_montgomery(base);
-    let bits = exponent.bits();
-    for index in (0..bits).rev() {
-        accumulator = modulus.multiply(&accumulator, &accumulator);
-        if exponent.bit(index) {
-            accumulator = modulus.multiply(&accumulator, &multiplier);
-        }
-    }
-    // Multiplying by one in the Montgomery domain is the conversion back out of it.
-    modulus.multiply(&accumulator, &one)
-}
-
 #[cfg(test)]
-mod tests {
-    use super::{
-        Integer, MAX_EXPONENT_BITS, MAX_MODULUS_BITS, Modulus, Pkcs1Error, PublicKey, encode,
-        modpow, verify,
-    };
+pub(crate) mod tests {
+    use super::{MAX_EXPONENT_BITS, MAX_MODULUS_BITS, Pkcs1Error, PublicKey, encode, verify};
     use crate::cms::Digest;
 
     /// A 2048-bit RSA modulus, and below it a signature made with the matching private key.
@@ -600,7 +268,7 @@ mod tests {
     /// *these* two hundred lines compute them. Nothing about the vector decides what is correct;
     /// it decides only whether the arithmetic here is the arithmetic the RFC states, which is a
     /// question a hand-checked small case cannot settle at 2048 bits.
-    const MODULUS: &str = "\
+    pub(crate) const MODULUS: &str = "\
         c56a39fbe4fd00ac43c8080e81b5b2a314c57647dd5317854109d621e44713ca\
         fabd7fbe5275f933f5956fd158c8fe6dab374475949366675f4feff22689459f\
         d676925b9b55a1dec6274debe37905a3f843d322bf4495164ec6e626f8c0f198\
@@ -627,73 +295,6 @@ mod tests {
             .chunks(2)
             .filter_map(|pair| u8::from_str_radix(std::str::from_utf8(pair).ok()?, 16).ok())
             .collect()
-    }
-
-    /// `a^b mod m` on numbers small enough to check by hand or with a calculator.
-    ///
-    /// Every modulus here is odd, which is not a convenience: [`Modulus::new`] refuses an even one
-    /// because Montgomery reduction has no inverse modulo `2^64` for it, and RFC 8017 section 3.1 makes
-    /// an RSA modulus a product of odd primes. The first draft of this test used 1000 and the
-    /// refusal is what it found.
-    #[test]
-    fn modular_exponentiation_agrees_with_arithmetic() {
-        let cases: [(u64, u64, u64, u64); 5] = [
-            (2, 10, 1001, 23),
-            (3, 0, 7, 1),
-            (5, 3, 13, 8),
-            (7, 65537, 9, 4),
-            (123_456_789, 3, 1_000_000_007, 350_575_129),
-        ];
-        for (base, exponent, modulus, expected) in cases {
-            let reduced =
-                Modulus::new(&Integer::from_be_bytes(&modulus.to_be_bytes()).expect("small"))
-                    .expect("odd");
-            let result = modpow(
-                &Integer::from_be_bytes(&base.to_be_bytes()).expect("small"),
-                &Integer::from_be_bytes(&exponent.to_be_bytes()).expect("small"),
-                &reduced,
-            );
-            assert_eq!(
-                result.be_bytes(8),
-                expected.to_be_bytes(),
-                "{base}^{exponent} mod {modulus}"
-            );
-        }
-    }
-
-    /// `x^3` reached two ways at 2048 bits, which is where a carry bug lives if there is one.
-    #[test]
-    fn a_wide_modulus_exponentiates_consistently() {
-        let bytes = hex(MODULUS);
-        let modulus =
-            Modulus::new(&Integer::from_be_bytes(&bytes).expect("fits")).expect("odd and large");
-        let mut base = Integer::from_be_bytes(&[0x9Au8; 250]).expect("fits");
-        while !base.less_than(&modulus.value) {
-            modulus.subtract(&mut base);
-        }
-        let one = Integer::from_be_bytes(&[1]).expect("small");
-        let squared = modpow(
-            &base,
-            &Integer::from_be_bytes(&[2]).expect("small"),
-            &modulus,
-        );
-        let cubed = modpow(
-            &base,
-            &Integer::from_be_bytes(&[3]).expect("small"),
-            &modulus,
-        );
-        let by_hand = modulus.multiply(
-            &modulus.multiply(
-                &modulus.to_montgomery(&squared),
-                &modulus.to_montgomery(&base),
-            ),
-            &one,
-        );
-        assert_eq!(
-            cubed.be_bytes(256),
-            by_hand.be_bytes(256),
-            "x^3 is x^2 times x, however it is reached"
-        );
     }
 
     /// The block RFC 8017 section 9.2 describes, checked against the clause's own description of it.

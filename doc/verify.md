@@ -113,6 +113,15 @@ cargo run --release -p pdf-model --example cell_header_census -- doc/pdf.js/test
   # says the algorithm is the feature and the entry is the exception (ADR 0312). It also prints the
   # two counts that decided what was *not* taken: 0 of 6197 TH state /Short, and no document's
   # tables outgrow the grid `TableStack` keeps
+cargo run --release -p pdf-model --example signature_algorithm_census -- @/tmp/paths
+  # Table 260's three algorithm families as documents actually state them, over as large a
+  # population as this machine can reach — `find corpus-cache doc/corpora doc/pdf.js/test/pdfs
+  # -name '*.pdf' > /tmp/paths` is 67 460 files and about a minute, and the `@` form exists because
+  # a command line holds a fortieth of them. Three identifiers per signature, because a producer can
+  # get them out of step: the `SignerInfo`'s `signatureAlgorithm`, its `digestAlgorithm`, and the
+  # algorithm of the key in the certificate that `SignerInfo` names. It is what ranked this round's
+  # work (ADR 0314) and what would rank the next: it prints the population of `id-RSASSA-PSS`,
+  # of ECDSA, and of DSA — which is nought
 cargo run --release -p pdf-model --example luminosity_mask_census -- doc/pdf.js/test/pdfs/*.pdf
   # what a §11.5.3 mask group is painted *with*, against what its /CS declares — 87 groups on
   # this corpus, 39 blending in /DeviceCMYK and 36 in /DeviceGray, and not one setting a `k`
@@ -264,14 +273,16 @@ cd fuzz && cargo +nightly fuzz run cms          -- -runs=50000   # §12.8.3.3's 
   # forms. Clean at 1 000 000 in the three-hundred-and-seventy-seventh (ADR 0215) and again in the
   # three-hundred-and-ninety-second, after its `SignerInfo` gained a signature and an identifier
 cd fuzz && cargo +nightly fuzz run x509         -- -runs=1000000  # the signer's certificate and
-  # the RSA verification over the key inside it: `pdf_model::x509` walks RFC 5280's structure and
-  # `pdf_model::pkcs1` runs the tree's only loop whose trip count comes out of a number in the
-  # file. The property that matters is the last one — the target verifies against a digest *it*
-  # chose, so `Ok(true)` would be a defect in the comparison rather than a lucky input.
+  # the two verifications that run on the key inside it: `pdf_model::x509` walks RFC 5280's
+  # structure and `pdf_model::pkcs1` and `pdf_model::dsa` run the tree's only loops whose trip
+  # counts come out of numbers in the file. The property that matters is the last one — the target
+  # verifies against a digest *it* chose, so `Ok(true)` would be a defect in the comparison rather
+  # than a lucky input.
   # **Seed its corpus** with the 22 certificates the corpus's signatures carry:
   #   python3 fuzz/seed_x509.py fuzz/corpus/x509 doc/pdf.js/test/pdfs/*.pdf
-  # plus any certificate at all — the round's two vectors are an RSA and a P-256 one from
-  # `openssl req -new -x509`. Clean at 1 000 000 in the three-hundred-and-ninety-second (ADR 0229)
+  # plus any certificate at all — the vectors are an RSA, a P-256 and (since the
+  # four-hundred-and-seventy-ninth session) a DSA one from `openssl req -new -x509`, and the DSA
+  # one is what reaches `dsa::verify` at all. Clean at 1 000 000 in the three-hundred-and-ninety-second (ADR 0229)
 ```
 
 **Two measurements that are not gates, and each says why in its own header.**

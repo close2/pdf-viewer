@@ -6,19 +6,22 @@
 //! stranger wrote, takes two integers out of it, and does arithmetic with them. ADR 0229
 //! committed to this target with the code.
 //!
-//! **Two readers and one arithmetic, and the arithmetic is the new thing.** `pdf_model::der` and
-//! `pdf_model::cms` have their own target (`cms`); what is here is `pdf_model::x509`, which walks
-//! RFC 5280's structure, and `pdf_model::pkcs1`, which is the only place in this tree that runs a
-//! loop whose trip count comes out of a number in the file. Four properties:
+//! **Two readers and two arithmetics.** `pdf_model::der` and `pdf_model::cms` have their own
+//! target (`cms`); what is here is `pdf_model::x509`, which walks RFC 5280's structure, and the two
+//! modules that run a loop whose trip count comes out of a number in the file —
+//! `pdf_model::pkcs1` and, from the four-hundred-and-seventy-ninth session, `pdf_model::dsa`
+//! (ADR 0314). Four properties:
 //!
 //! **Parsing and verifying terminate and never panic.** The fuzz profile keeps overflow checks
 //! on, so the workspace's `arithmetic_side_effects` rule is checked here as well — and this is
 //! the module with 128-limb carries in it, where a wrapping bug would otherwise be silent.
 //!
-//! **Every bound holds and is observable.** `pkcs1::MAX_MODULUS_BITS` and
-//! `pkcs1::MAX_EXPONENT_BITS` are time and space budgets over numbers the file states, and each
-//! is refused by name rather than by running out. A modulus or exponent past one of them must
-//! come back as a `Pkcs1Error`.
+//! **Every bound holds and is observable.** `pkcs1::MAX_MODULUS_BITS`, `pkcs1::MAX_EXPONENT_BITS`
+//! and `dsa::MAX_SUBGROUP_BITS` are time and space budgets over numbers the file states, and each
+//! is refused by name rather than by running out. A modulus or exponent past one of them must come
+//! back as a `Pkcs1Error`; a `q` past its bound as a `DsaError`. The DSA one is the sharper of the
+//! three: `q` is the exponent of two modular exponentiations, so an unbounded `q` in a hostile
+//! certificate is unbounded work.
 //!
 //! **Nothing that comes back outlives or outgrows its input**, which is `x509`'s whole design:
 //! every field is a sub-slice of the caller's buffer and nothing is decoded into an owned type.
@@ -31,6 +34,7 @@
 
 use libfuzzer_sys::fuzz_target;
 use pdf_model::cms::Digest;
+use pdf_model::dsa::{self, MAX_SUBGROUP_BITS};
 use pdf_model::pkcs1::{self, MAX_EXPONENT_BITS, MAX_MODULUS_BITS};
 use pdf_model::x509::{self, PublicKey};
 
@@ -59,11 +63,35 @@ fuzz_target!(|data: &[u8]| {
     let _ = certificate.is_named_by(certificate.issuer, certificate.serial_number);
     let _ = certificate.is_named_by(&[], &[]);
 
+    // A digest this target chose. No signature the fuzzer produces is over it, so the only
+    // acceptable answers below are `Ok(false)` and a named refusal.
+    let digest = Digest::Sha256.compute(&[b"a digest nobody signed"]);
+
     let key = match certificate.public_key {
         PublicKey::Rsa(key) => {
             inside(key.modulus);
             inside(key.exponent);
             key
+        }
+        PublicKey::Dsa(key) => {
+            inside(key.p);
+            inside(key.q);
+            inside(key.g);
+            inside(key.y);
+            for signature in [data, &[][..], &[0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x01]] {
+                match dsa::verify(key, signature, &digest) {
+                    Ok(false) => {}
+                    Ok(true) => {
+                        panic!("a DSA signature verified against a digest that was never signed")
+                    }
+                    Err(error) => {
+                        if key.subgroup_bits() > MAX_SUBGROUP_BITS {
+                            assert_eq!(error, dsa::DsaError::SubgroupTooLarge);
+                        }
+                    }
+                }
+            }
+            return;
         }
         PublicKey::Unverifiable { algorithm } => {
             inside(algorithm);
@@ -74,9 +102,6 @@ fuzz_target!(|data: &[u8]| {
         }
     };
 
-    // A digest this target chose. No signature the fuzzer produces is over it, so the only
-    // acceptable answers are `Ok(false)` and a named refusal.
-    let digest = Digest::Sha256.compute(&[b"a digest nobody signed"]);
     for signature in [data, &[][..], &vec![0xFF; key.modulus.len()]] {
         match pkcs1::verify(key, signature, Digest::Sha256, &digest) {
             Ok(false) => {}

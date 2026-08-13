@@ -33,13 +33,13 @@
 //! using the word.
 
 use crate::der::{DerError, INTEGER, OCTET_STRING, Reader, SEQUENCE, Value};
-use crate::pkcs1;
+use crate::{dsa, pkcs1};
 
 /// RFC 8017's `rsaEncryption`, `1.2.840.113549.1.1.1`.
 ///
-/// The one public-key algorithm identifier this program acts on, because it is the one it can
-/// verify. Everything else is carried to the report as the object identifier the file states —
-/// see [`PublicKey::Unverifiable`] and [`dotted`].
+/// One of the two public-key algorithm identifiers this program acts on, the other being
+/// [`crate::dsa::ID_DSA`]. Everything else is carried to the report as the object identifier the
+/// file states — see [`PublicKey::Unverifiable`] and [`dotted`].
 pub const RSA_ENCRYPTION: &[u8] = &[0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x01];
 
 /// RFC 5280's `id-ce-subjectKeyIdentifier`, `2.5.29.14`.
@@ -73,6 +73,20 @@ pub enum X509Error {
     /// The key is `rsaEncryption` but its `RSAPublicKey` is not a modulus and an exponent.
     #[error("the certificate's RSA public key is malformed")]
     MalformedRsaKey,
+    /// The key is `id-dsa` but its `Dss-Parms` or its `DSAPublicKey` is not shaped like one.
+    #[error("the certificate's DSA public key is malformed")]
+    MalformedDsaKey,
+    /// The key is `id-dsa` and states no domain parameters, so there is nothing to verify with.
+    ///
+    /// RFC 3279 section 2.3.2 permits their absence and says where they come from instead — the
+    /// issuer's certificate, or "other means" — and ends with a `MUST`: "[i]f the
+    /// `subjectPublicKeyInfo` `AlgorithmIdentifier` field omits the parameters component, the CA signed
+    /// the subject with a signature algorithm other than DSA, and the subject's DSA parameters are
+    /// not available through other means, then clients MUST reject the certificate." This program
+    /// walks no chain and has no other means, so it rejects — by name, and never by guessing at
+    /// parameters somebody else's key might have used.
+    #[error("the certificate's DSA public key states no domain parameters")]
+    NoDsaParameters,
 }
 
 /// A public key, as far as this program can act on one.
@@ -80,12 +94,15 @@ pub enum X509Error {
 pub enum PublicKey<'a> {
     /// RFC 8017's `rsaEncryption`, with the two integers [`crate::pkcs1::verify`] needs.
     Rsa(pkcs1::PublicKey<'a>),
+    /// RFC 3279's `id-dsa`, with the four integers [`crate::dsa::verify`] needs.
+    Dsa(dsa::PublicKey<'a>),
     /// Any other algorithm, carried as the object identifier the certificate states.
     ///
     /// **Named by its number and not by a word**, which is `CLAUDE.md` principle 5 applied to a
-    /// document this tree does not hold: Table 260 says a PDF signature may be DSA or ECDSA and
-    /// says nothing about which identifier spells either, so printing the file's own digits is the
-    /// only claim that can be checked. [`dotted`] is what turns the encoding into them.
+    /// document this tree does not hold: Table 260 says a PDF signature may be ECDSA and says
+    /// nothing about which identifier spells one, so printing the file's own digits is the only
+    /// claim that can be checked. [`dotted`] is what turns the encoding into them. This is where a
+    /// certificate's `id-ecPublicKey` arrives, and ADR 0314 is why it stops there.
     Unverifiable {
         /// The `AlgorithmIdentifier`'s object identifier, as encoded.
         algorithm: &'a [u8],
@@ -283,19 +300,32 @@ fn read_public_key(spki: Value<'_>) -> Result<PublicKey<'_>, X509Error> {
     let Some(bits) = parts.next_value()? else {
         return Err(X509Error::NoPublicKey);
     };
-    if oid != RSA_ENCRYPTION {
-        return Ok(PublicKey::Unverifiable { algorithm: oid });
+    if oid == RSA_ENCRYPTION {
+        return read_rsa_key(bits);
     }
-    // X.690 clause 8.6.2.2: a `BIT STRING`'s first contents octet says how many bits of the last
-    // one are unused. A key is a whole number of octets, so that octet is zero and the rest is the
-    // encapsulated `RSAPublicKey`.
-    let Some((&unused, encapsulated)) = bits.contents.split_first() else {
-        return Err(X509Error::MalformedRsaKey);
-    };
-    if unused != 0 {
-        return Err(X509Error::MalformedRsaKey);
+    if dsa::is_dsa(oid) {
+        // `AlgorithmIdentifier ::= SEQUENCE { algorithm, parameters ANY OPTIONAL }`, and for
+        // `id-dsa` the parameters are `Dss-Parms`. The member after the identifier is therefore
+        // read out of the *algorithm* value rather than out of the key.
+        let mut members = algorithm.children()?;
+        let _identifier = members.next_value()?;
+        return read_dsa_key(members.next_value()?, bits);
     }
-    // `RSAPublicKey ::= SEQUENCE { modulus INTEGER, publicExponent INTEGER }` (RFC 8017 section A.1.1).
+    Ok(PublicKey::Unverifiable { algorithm: oid })
+}
+
+/// The contents of a `BIT STRING` that carries a whole number of octets.
+///
+/// X.690 clause 8.6.2.2: the first contents octet says how many bits of the last one are unused. A
+/// key is a whole number of octets, so that octet is zero and the rest is the encapsulated value.
+fn key_octets<'a>(bits: &Value<'a>) -> Option<&'a [u8]> {
+    let (&unused, encapsulated) = bits.contents.split_first()?;
+    (unused == 0).then_some(encapsulated)
+}
+
+/// `RSAPublicKey ::= SEQUENCE { modulus INTEGER, publicExponent INTEGER }` (RFC 8017 section A.1.1).
+fn read_rsa_key(bits: Value<'_>) -> Result<PublicKey<'_>, X509Error> {
+    let encapsulated = key_octets(&bits).ok_or(X509Error::MalformedRsaKey)?;
     let mut inner = Reader::new(encapsulated)?;
     let Some(key) = inner.next_value()? else {
         return Err(X509Error::MalformedRsaKey);
@@ -310,6 +340,47 @@ fn read_public_key(spki: Value<'_>) -> Result<PublicKey<'_>, X509Error> {
     Ok(PublicKey::Rsa(pkcs1::PublicKey {
         modulus: modulus.contents,
         exponent: exponent.contents,
+    }))
+}
+
+/// RFC 3279 section 2.3.2's `Dss-Parms ::= SEQUENCE { p INTEGER, q INTEGER, g INTEGER }` and the
+/// `DSAPublicKey ::= INTEGER` the `BIT STRING` encapsulates.
+///
+/// That clause states where `y` sits: "The DSA public key MUST be ASN.1 DER encoded as an INTEGER;
+/// this encoding shall be used as the contents (i.e., the value) of the `subjectPublicKey`
+/// component (a BIT STRING) of the `SubjectPublicKeyInfo` data element."
+fn read_dsa_key<'a>(
+    parameters: Option<Value<'a>>,
+    bits: Value<'a>,
+) -> Result<PublicKey<'a>, X509Error> {
+    let parameters = parameters.ok_or(X509Error::NoDsaParameters)?;
+    if parameters.identifier != SEQUENCE {
+        return Err(X509Error::NoDsaParameters);
+    }
+    let mut numbers = parameters.children()?;
+    let (Some(p), Some(q), Some(g)) = (
+        numbers.next_value()?,
+        numbers.next_value()?,
+        numbers.next_value()?,
+    ) else {
+        return Err(X509Error::MalformedDsaKey);
+    };
+    let encapsulated = key_octets(&bits).ok_or(X509Error::MalformedDsaKey)?;
+    let mut inner = Reader::new(encapsulated)?;
+    let Some(y) = inner.next_value()? else {
+        return Err(X509Error::MalformedDsaKey);
+    };
+    if [p.identifier, q.identifier, g.identifier, y.identifier]
+        .iter()
+        .any(|&identifier| identifier != INTEGER)
+    {
+        return Err(X509Error::MalformedDsaKey);
+    }
+    Ok(PublicKey::Dsa(dsa::PublicKey {
+        p: p.contents,
+        q: q.contents,
+        g: g.contents,
+        y: y.contents,
     }))
 }
 

@@ -1,56 +1,84 @@
-# A signature's third question, DSA and ECDSA, public-key handlers, `/R` 5
+# RSASSA-PSS, ECDSA and EdDSA, four digests, the third question, public-key handlers, `/R` 5
 
-Status: **one of three questions left, and it is the one that is a project**; two algorithm families
-of Table 260's three are unimplemented and named at runtime.
+Status: **two of Table 260's three algorithm families are verified**; what is left of question 2 is
+the elliptic-curve family, one RSA *padding*, and four hash functions — and question 3 is still a
+project.
 Priority: 51
-Corpus: 1 document (`/R` 5); 9 carry a signature dictionary, 10 between them, **all ten RSA**
-Clauses: §12.8.3, §7.6.5, §7.6.4.3, Table 21
+Corpus: 1 document (`/R` 5). For the signature populations, **run the census rather than reading a
+number here**:
+
+```sh
+find corpus-cache doc/corpora doc/pdf.js/test/pdfs -name '*.pdf' > /tmp/paths
+cargo run --release -p pdf-model --example signature_algorithm_census -- @/tmp/paths
+```
+
+Clauses: §12.8.3, §7.6.5, §7.6.4.3, Table 21, Table 256, Table 260; ISO/TS 32001 §5.1, ISO/TS 32002 §5.1
 Code: `crates/pdf-model/src/signature.rs`, `crates/pdf-model/src/cms.rs`,
 `crates/pdf-model/src/der.rs`, `crates/pdf-model/src/x509.rs`, `crates/pdf-model/src/pkcs1.rs`,
-`crates/pdf-syntax/src/crypt.rs`
+`crates/pdf-model/src/dsa.rs`, `crates/pdf-model/src/bigint.rs`, `crates/pdf-syntax/src/crypt.rs`
 
 ## Signature validation (§12.8.3) — 5 ledger rows, and it used to be 17
 
 **This file used to say the whole clause needed "a trust store and a network". That was true of one
 of the three questions a signature asks and false of the other two**; the three-hundred-and-seventy-seventh
-session separated them and answered the first (ADR 0215), and the three-hundred-and-ninety-second
-answered the second (ADR 0229).
+session separated them and answered the first (ADR 0215), the three-hundred-and-ninety-second
+answered the second for RSA (ADR 0229), and the four-hundred-and-seventy-ninth answered it for DSA
+and refused the elliptic-curve family with an argument (ADR 0314).
 
 | | asks | needs | state |
 |---|---|---|---|
 | **1. Integrity** | has the document changed since it was signed? | the file and a hash function | **answered** |
-| **2. Authenticity** | does the signature verify under the signer's public key? | an X.509 certificate parser and RSA, DSA or ECDSA | **answered for RSA**; the other two below |
+| **2. Authenticity** | does the signature verify under the signer's public key? | an X.509 certificate parser and RSA, DSA or ECDSA | **answered for RSA and DSA**; the rest below |
 | **3. Trust** | is the signer anyone to believe, and was the certificate revoked? | a trust store, a certification path, a network | open, and it is a project |
 
-Question 1 is `Signature::integrity`, question 2 is `Signature::authenticity`. All ten of the
-corpus's signature dictionaries verify — 1024-bit ×3, 2048-bit ×6, 4096-bit ×1, in 4.583 ms between
-them — and each stops verifying when one bit of its signature value is turned over.
+Question 1 is `Signature::integrity`, question 2 is `Signature::authenticity`.
 
-### What is left of question 2: two of Table 260's three algorithm families
+### What is left of question 2, in the order the population ranks it
 
-**The row this file was missing.** Table 260 names three, not two: "RSA Algorithm Support", "DSA
-Algorithm Support | Up to 4096-bits (PDF 1.6)" and "ECDSA Algorithm Support ( defined by Internet
-RFC 5480 )". This file listed RSA and ECDSA and forgot DSA for fifteen sessions.
+**Everything here is *reported* at runtime by the object identifier the file states**, never
+skipped: `Authenticity::AlgorithmNotVerifiable`, `Authenticity::KeyNotVerifiable` and
+`Authenticity::UnknownDigest` each carry the number, printed as dotted decimal by `x509::dotted`
+rather than as a word, because this tree holds ISO 32000-2 and not the documents that assign those
+numbers.
 
-Neither is implemented and both are **named at runtime by the object identifier the file states** —
-`Authenticity::KeyNotVerifiable` and `Authenticity::AlgorithmNotVerifiable`, printed as dotted
-decimal by `x509::dotted` rather than as a word, because this tree holds ISO 32000-2 and not the
-documents that assign those numbers.
+**1. RSASSA-PSS (`id-RSASSA-PSS`, `1.2.840.113549.1.1.10`) — and it is first because the census put
+it there.** It is the commonest thing this program declines: more real signatures use it than use
+ECDSA, and it is *inside* the family Table 260's "RSA Algorithm Support" row names, which states key
+sizes and no padding at all. It needs **no dependency and no external constant**: RFC 8017 section
+8.1.2's `EMSA-PSS-VERIFY` and section B.2.1's MGF1, over the modular exponentiation
+`crate::bigint` already performs, plus the `RSASSA-PSS-params` an `AlgorithmIdentifier` carries
+(hash, mask generation function, salt length, trailer field). It is deliberately **not** treated as
+PKCS #1 v1.5 today — same arc, different padding — and that stays true whatever is built.
 
-**No corpus document needs either.** All eleven signature values the nine signed documents hold are
-RSA, checked by reading the `signatureAlgorithm` out of each. So this is spec-track work with no
-demand-track witness, and ADR 0229 says what would change the dependency answer the day one arrives:
+**2. ECDSA and EdDSA — refused, with the argument in ADR 0314 rather than left as a to-do.** The
+short form:
 
-- **ECDSA** is where ADR 0031's argument for taking a reviewed implementation *does* have an
-  instance — five curves' field arithmetic, point addition, doubling and inversion — so take
-  `p256`/`p384` (and `p224`/`p521`/`p192` as RFC 5480's list requires) rather than writing it, and
-  argue the packages then rather than now.
-- **DSA** is a modular exponentiation over the big integer `pdf_model::pkcs1` already has, plus a
-  modular inverse; `rsa`'s RustCrypto sibling `dsa` is on the old `digest` 0.10 line and would cost
-  the second hash stack ADR 0229 declined. In tree is the likelier answer, and it needs a witness
-  before it needs code.
-- **RSASSA-PSS** (`id-RSASSA-PSS`, `1.2.840.113549.1.1.10`) is deliberately *not* treated as
-  PKCS #1 v1.5 — it is the same OID arc and a different padding — and reaches the same report.
+- The standard family names **eight curves**, not five: ISO/TS 32002 Table 3 gives P-256, P-384,
+  P-521, brainpoolP256r1, brainpoolP384r1 and brainpoolP512r1 for ECDSA, and its Table 4 adds
+  Ed25519 (SHA512) and Ed448 (SHAKE256) for EdDSA, which is a second and unrelated group law.
+- **Their domain parameters are in no document this tree holds.** That, and not the size of the
+  arithmetic, is why nothing was written: a curve constant transcribed from memory is exactly what
+  `CLAUDE.md` principle 5 forbids, and a self-consistency check proves a constant was not mistyped
+  rather than that it is the curve the world means.
+- `p256` + `p384` cover two of the six ECDSA curves and neither Edwards one; TS 32002 section 5.1.3
+  requires `namedCurve` and permits a processor to "ignore or handle in an implementation-dependent
+  manner" a document signed with a curve outside those tables, which caps the set without making it
+  small.
+- **Two of the three ECDSA witnesses are BSI TR-03111 *plain* ECDSA** (`0.4.0.127.0.7.1.1.4.1.3`),
+  whose signature value is `r ‖ s` as fixed-width octets rather than RFC 3279's DER `Dss-Sig-Value`
+  — so a package that closed the DER-encoded case would still decline them.
+
+What would change it: a population that makes the family more than a rounding error, or a decision
+to accept the whole `elliptic-curve` stack with its package count and licence position argued in
+`doc/stack.md`. Take the curves TS 32002 Table 3 lists, not the ones a crate happens to publish.
+
+**3. ISO/TS 32001's four digests.** §5.1.4 adds SHA3-256, SHA3-384, SHA3-512 and SHAKE256 to Table
+260's Message Digest row and §5.1.3 adds the same four to Table 256's `/DigestMethod`, with
+SHAKE256 pinned to `id-shake256` so its output is fixed at 512 bits. `cms::Digest` computes the six
+the base standard names and none of these; a signature stating one reports the identifier. This is
+the cheapest of the three to close and the only one that needs a **new dependency** — a SHA-3
+implementation on this tree's `digest` 0.11 line — so it is a `doc/stack.md` question rather than an
+arithmetic one. No corpus document states one.
 
 ### What question 3 would take, and it is still a project
 
@@ -77,8 +105,8 @@ cipher. The standard security handler (§7.6.3, §7.6.4) is complete in both dir
 revision and method, so this is the *other* handler family and nothing in the corpus asks.
 
 **And the three-hundred-and-ninety-second session read this against what it built, with a result
-that is smaller than it sounds.** `der`, `cms` and now `x509` are the parsing half of §7.6.5 —
-perhaps half of that half. What the clause needs on top is RFC 5652's `EnvelopedData` rather than
+that is smaller than it sounds.** `der`, `cms` and `x509` are the parsing half of §7.6.5 — perhaps
+half of that half. What the clause needs on top is RFC 5652's `EnvelopedData` rather than
 `SignedData`, which is a different structure with recipient information in it; an RSA *decryption*
 rather than a verification, which is a private-key operation and therefore the one place in this
 subject where constant time matters and ADR 0229's "there is no secret" argument reverses; and a way

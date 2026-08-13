@@ -446,8 +446,8 @@ fn changed(integrity: pdf_model::signature::Integrity) -> String {
                 .to_owned()
         }
         Integrity::UnknownDigest => {
-            "that signature records a digest made with an algorithm outside Table 260's six, so \
-             whether the document changed was not checked"
+            "that signature records a digest made with an algorithm this program does not \
+             compute, so whether the document changed was not checked"
                 .to_owned()
         }
         Integrity::RangeNotInThisFile => {
@@ -479,36 +479,48 @@ fn verifies(
     Some(match authenticity {
         Authenticity::Verified {
             key_bits,
+            family,
             over: Signed::TheDocumentsBytes,
             ..
         } => format!(
-            "and that signature verifies under the {key_bits}-bit RSA key in a certificate the \
+            "and that signature verifies under the {key_bits}-bit {} key in a certificate the \
              file itself carries, directly over the bytes its /ByteRange names — so those bytes \
-             are the ones that were signed and nothing has changed since"
+             are the ones that were signed and nothing has changed since",
+            family.name()
         ),
         // **The pairing, and the reason this program computes both answers before saying either.**
         // A signature that verifies over attributes recording a digest the file no longer
         // produces is not a broken signature; it is a real one whose document was re-saved
         // underneath it. Four of the corpus's ten are exactly that.
-        Authenticity::Verified { key_bits, .. }
-            if matches!(integrity, Integrity::Changed { .. }) =>
-        {
+        Authenticity::Verified {
+            key_bits, family, ..
+        } if matches!(integrity, Integrity::Changed { .. }) => {
             format!(
-                "and that signature does verify under the {key_bits}-bit RSA key in a certificate \
+                "and that signature does verify under the {key_bits}-bit {} key in a certificate \
                  the file itself carries — but what it signs is the digest above, which these \
                  bytes no longer produce. The signature is a real one and the document under it \
-                 is not the document it was made over"
+                 is not the document it was made over",
+                family.name()
             )
         }
-        Authenticity::Verified { key_bits, .. } => format!(
-            "and that signature verifies under the {key_bits}-bit RSA key in a certificate the \
+        Authenticity::Verified {
+            key_bits, family, ..
+        } => format!(
+            "and that signature verifies under the {key_bits}-bit {} key in a certificate the \
              file itself carries, over the attributes that record the digest above (RFC 5652 \
-            section 5.4) — so that digest is the signer's"
+            section 5.4) — so that digest is the signer's",
+            family.name()
         ),
-        Authenticity::NotUnderThatKey { key_bits, over, .. } => format!(
-            "and that signature does NOT verify under the {key_bits}-bit RSA key in the \
+        Authenticity::NotUnderThatKey {
+            key_bits,
+            family,
+            over,
+            ..
+        } => format!(
+            "and that signature does NOT verify under the {key_bits}-bit {} key in the \
              certificate the file carries{} — the value, the key and the bytes are not three that \
              belong together, and nothing here can say which of them moved",
+            family.name(),
             if over.binds_the_document() {
                 ", over the bytes its /ByteRange names"
             } else {
@@ -526,19 +538,28 @@ fn verifies(
         ),
         Authenticity::KeyNotVerifiable { algorithm } => format!(
             "and the signer's certificate holds a public key of algorithm {algorithm}, which this \
-             program does not verify: it verifies RSA (PKCS #1 v1.5), and Table 260 names DSA and \
-             ECDSA beside it"
+             program does not verify: it verifies two of Table 260's three families, RSA (PKCS #1 \
+             v1.5) and DSA, and not the ECDSA the table names beside them"
         ),
         Authenticity::AlgorithmNotVerifiable { algorithm } => format!(
             "and that signature states signature algorithm {algorithm}, which this program does \
-             not verify: it verifies RSASSA-PKCS1-v1_5 only"
+             not verify: it verifies RSASSA-PKCS1-v1_5 and DSA"
+        ),
+        Authenticity::KeyDoesNotMatchAlgorithm { algorithm, key } => format!(
+            "and that signature states signature algorithm {algorithm} while the signer's \
+             certificate holds a key of algorithm {key} — two statements by the same producer \
+             that contradict each other, so there is nothing to check the signature against"
         ),
         Authenticity::Refused(error) => {
             format!("and that signature was not checked against the signer's key: {error}")
         }
-        Authenticity::UnknownDigest => "and it names a digest algorithm outside Table 260's six, \
-             so it was not checked against the signer's key either"
-            .to_owned(),
+        Authenticity::RefusedDsa(error) => {
+            format!("and that signature was not checked against the signer's key: {error}")
+        }
+        Authenticity::UnknownDigest { algorithm } => format!(
+            "and it names digest algorithm {algorithm}, which this program does not compute, so \
+             it was not checked against the signer's key either"
+        ),
         Authenticity::NoSignatureValue
         | Authenticity::RangeNotInThisFile
         | Authenticity::Unreadable(_) => return None,
@@ -616,8 +637,8 @@ mod tests {
         // verify; the digest it signs is not the one these bytes make. Saying only the first
         // would be a viewer vouching for a document that had been re-saved under its signature.
         assert!(
-            said.contains("does verify under the 2048-bit RSA key"),
-            "{said}"
+            said.contains("does verify under the 2048-bit RSA (PKCS #1 v1.5) key"),
+            "the family is named since Table 260's second one was implemented: {said}"
         );
         assert!(
             said.contains("the document under it is not the document it was made over"),
