@@ -13,6 +13,11 @@ can and cannot open a window on, and where the build lands.
 - If a proposed fix looks wrong for this setup, say so instead of running it.
 - Verify claims by running them. Report failures with their output; never assert that
   something works without having checked.
+- **A commit that lands on `main` keeps its body.** Four commits arrived by cherry-pick carrying
+  only their title and trailers — the pick dropped the message body, and `git log` on `main` is
+  opaque for them where every neighbour explains itself. The argument survives in the ADR, but a
+  reader of the log should not need to know that. Before pushing a pick, `git log -1 --format=%b`
+  must print the body you expect.
 
 ## The machine, the account and the display
 

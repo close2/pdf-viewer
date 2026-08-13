@@ -31,6 +31,15 @@ misquotations of the standard (ADR 0249).
 Priority: 01 — the population with no gate, and it has paid on every session that touched it
 Code: `doc/conformance/ledger.toml`, checked by `cargo test -p conformance`
 
+**A sweep round commits one prose sweep as a program before running any of them.** Two of the
+fifteen are commands (`conformance --bin entries`, `--bin quotations`) and thirteen are still
+descriptions, and a description is what let the fifteenth go unrun for twenty-four rounds and then
+be rebuilt from its own paragraph (ADR 0319) — `CLAUDE.md`'s "write down the command, not the
+answer" failing in the direction it was written for. The cheapest moment to commit one is the
+round that next has to run it, because that round has to reconstruct it anyway; at one per sweep
+round the backlog is gone in thirteen, without ever being a marathon. A sweep that is genuinely
+twenty lines of Python belongs under `tools/conformance` with the two that already live there.
+
 ## Why
 
 All 823 subclauses of the eight technical clauses have been read against this code since the

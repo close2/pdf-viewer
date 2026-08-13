@@ -35,6 +35,12 @@ Question 1 is `Signature::integrity`, question 2 is `Signature::authenticity`.
 
 ### What is left of question 2, in the order the population ranks it
 
+**And the order binds: no further zero-witness algorithm family before a witnessed one.** DSA went
+in with zero corpus signatures using it while PSS — the commonest thing this program declines, at
+twice ECDSA's share — sat behind it in this file. The work was sound (ADR 0314) and the ordering
+was not: on `CLAUDE.md`'s two tracks, a second consecutive spec-side item in one family while the
+demand side of the same family has real witnesses is the balance this file exists to keep.
+
 **Everything here is *reported* at runtime by the object identifier the file states**, never
 skipped: `Authenticity::AlgorithmNotVerifiable`, `Authenticity::KeyNotVerifiable` and
 `Authenticity::UnknownDigest` each carry the number, printed as dotted decimal by `x509::dotted`

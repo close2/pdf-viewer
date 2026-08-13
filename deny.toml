@@ -81,9 +81,9 @@ allow-git = [
     # 0.4.0 and missing for fully decoded coefficients upstream; the second half was found
     # here and fixed in `2a1abd14`, offered upstream and not yet merged there. Worst sample
     # error against the reference software: 87 levels to 1. Pinned by revision in Cargo.lock,
-    # and it goes back to crates.io the moment a release carries both halves — three halves
-    # since the three-hundred-and-ninety-sixth session, which found a reduced-resolution
-    # decode still allocating the full-resolution image and fixed it on a branch of the same
-    # fork that has not been pushed yet (ADR 0233).
+    # and it goes back to crates.io the moment a release carries all three halves — the third
+    # being `1dc833f7`, a reduced-resolution decode that no longer allocates the
+    # full-resolution image, pushed to the fork and offered upstream with the others
+    # (ADR 0233).
     "https://github.com/close2/hayro",
 ]

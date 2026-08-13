@@ -42,6 +42,16 @@ cargo test -p conformance -- --nocapture
 what you want is the state, and run the list above when what you want is a gate to fail. Either
 way the numbers come off the run, never off a document.
 
+**A merge is a round of its own, and it runs this sequence on `main`.** Green in a worktree
+establishes nothing about `main`: a parallel round's gates are the truth about a tree that
+branched before its neighbours' files existed. The proof is in this tree — eleven
+`clippy::pedantic` warnings lived on `main` for five rounds while four rounds truthfully recorded
+the lint run silent in their own worktrees, and two more parallel rounds broke the quotation gate
+the same way, on merge (`doc/history.md`'s 455–484 block summary). So whoever merges a worktree
+round into `main` owns this section for the merged result, before the next round branches from
+it. There is no exemption for a merge that "only touched docs" — the five-round breakage was in
+an example file nobody thought about either.
+
 **This sequence used to be more than twice as slow**, until the three-hundred-and-eighty-fifth
 session measured every step of it and changed four things; ADR 0222 has the table and the
 argument, and `Cargo.toml`'s profiles carry the reasoning beside the settings. Five notes bind

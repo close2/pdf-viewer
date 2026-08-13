@@ -248,15 +248,14 @@ hayro-jbig2 = { version = "0.3.0", default-features = false, features = ["std"] 
 # worst sample error over the corpus falls from **87 levels to 1**, and 3.4 M differing samples
 # to 5 900. Go back to crates.io the moment a release carries both; `deny.toml` says the same.
 #
-# **A third fix is written and this `rev` is what it is waiting for.** `close2/hayro` branch
-# `feat/reduced-resolution-allocates-less`, commit `1dc833f7`, is committed in `tmp/hayro` and
-# has not been pushed: a decode asked for a reduced resolution level still reserved a
-# coefficient for every sample of the full-resolution image, which is 3.4 GB of address space
-# for `issue19517.pdf` however small a raster is wanted and a dead worker inside
-# `pdf_sandbox::lockdown`'s gigabyte. Moving this `rev` to it is step 0 of `doc/todo/24`, and
-# nothing in `pdf-sandbox` may ask for a reduced level before it moves. ADR 0233 and
+# **The third fix is in this `rev`, which was `doc/todo/24`'s step 0.** `close2/hayro`
+# `1dc833f7`, pushed and offered upstream with the one above: a decode asked for a reduced
+# resolution level still reserved a coefficient for every sample of the full-resolution image,
+# which was 3.4 GB of address space for `issue19517.pdf` however small a raster was wanted and
+# a dead worker inside `pdf_sandbox::lockdown`'s gigabyte. `pdf-sandbox` may now ask for a
+# reduced level, and `doc/todo/24` lists the edits that follow. ADR 0233 and
 # `doc/JPEG2000_FEEDBACK.md` §10 have the measurements.
-hayro-jpeg2000 = { git = "https://github.com/close2/hayro", rev = "2a1abd14fbb09fbe0d34e2d4efbf25884f2eb21b", version = "0.4.0", default-features = false, features = ["std"] }
+hayro-jpeg2000 = { git = "https://github.com/close2/hayro", rev = "1dc833f7e87dd6849a358d74af3586d7955e1e03", version = "0.4.0", default-features = false, features = ["std"] }
 
 # Cryptography, for ISO 32000-2 §7.6's standard security handler. Five primitives, all
 # from RustCrypto, all named by the clause that needs them: RC4 and AES for §7.6.3.2's

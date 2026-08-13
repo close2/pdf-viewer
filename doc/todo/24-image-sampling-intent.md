@@ -1,9 +1,9 @@
 # Carry an image *and its sampling intent* to the backends
 
 Status: **the vocabulary is built and one of the three consumers is on it** (session 370, ADR
-0210). Two remain. Neither is blocked by the display list, and — since session 396 — neither is
-blocked by a missing API either: the JPEG 2000 one is blocked on **one revision reaching the
-fork this workspace pins**, and the edits that follow it are listed below.
+0210). Two remain. Neither is blocked by the display list, and — since the rev moved to `1dc833f7` —
+the JPEG 2000 one is not blocked at all: the fork this workspace pins carries the
+reduced-resolution fix, and the edits that follow it are listed below, ready to take.
 Priority: 24
 Corpus: 1 document on the corpus gate (`issue19517.pdf`); the rest is one backend's
 Clauses: §7.4.9, §8.7.4.5.3, §8.9.6.3, §10.7.4
@@ -50,17 +50,15 @@ reserved a coefficient for every sample of the **full**-resolution image — one
 3.4 GB for this file however small a raster was asked for. Resident size never showed it; address
 space did, and address space is what `pdf_sandbox::lockdown`'s gigabyte bounds.
 
-**The fix is written, measured and committed on a branch that cannot be pushed from here**:
-`close2/hayro`, `feat/reduced-resolution-allocates-less`, commit `1dc833f7`, in `tmp/hayro`. All
-183 of the crate's own asset tests are byte-identical to snapshots from unpatched `main`.
-`doc/JPEG2000_FEEDBACK.md` §10 is what the owner reads before pushing it.
+**Step 0 is done.** The owner pushed `feat/reduced-resolution-allocates-less` to `close2/hayro`
+and the workspace manifest's `rev` for `hayro-jpeg2000` is `1dc833f7` — all 183 of the crate's
+own asset tests byte-identical to snapshots from unpatched `main`, per its commit message. The
+pull request offering both fixes upstream is the owner's; nothing here waits on it. What was true
+until this move is worth keeping in one sentence: against `2a1abd14` every edit below turned an
+accurate refusal into a worker killed by `RLIMIT_AS`, which is why nothing below was committed
+first.
 
-**Step 0, and it is not ours**: the owner pushes that branch and opens the pull request; the
-workspace manifest's `rev` for `hayro-jpeg2000` moves to it. Until then nothing below may be
-committed, because against `2a1abd14` every one of these edits turns an accurate refusal into a
-worker killed by `RLIMIT_AS`.
-
-Then, in order, and each of them verified against a `[patch]` build in session 396:
+Now, in order, and each of them verified against a `[patch]` build in session 396:
 
 1. **`pdf-sandbox`'s `jpx` steps down resolution levels until `MAX_SAMPLES` is met.** Parse with
    `target_resolution: None`, and while the sample count is over the bound re-parse asking for
