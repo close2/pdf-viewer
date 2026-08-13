@@ -393,7 +393,7 @@ Applied here it splits, and the split is the useful half:
 - **The array-formed page groups are all four-component `ICCBased`**, which is `doc/todo/23`'s row
   and now has a number: 14 of 4000.
 
-### 7. What the four-hundred-and-sixty-seventh diagnosed and did not take
+### 7. What the four-hundred-and-sixty-seventh diagnosed, one of which is now taken
 
 - **A page tree node with no `/Kids` becomes a leaf, and the blank page it yields is silent.**
   `T02-02_005_page-tree-no-kids.pdf` states `/Pages << /Count 1 >>` with no children while object 2
@@ -407,11 +407,15 @@ Applied here it splits, and the split is the useful half:
   the leaf rule was written for) and "a leaf that reports" — and which one is right wants the
   population first: how many of the 65 944 have a node with a `/Count` and no `/Kids`. Nothing
   measures that today.
-- **A `Tf` whose size operand is a lone `.`** — `T02-05-01_006_font-size-operator-missing.pdf`
-  writes `/F0 . Tf` and this reader sets a size of **zero**, so the text is invisible and nothing is
-  said. §7.3.3's number syntax is what decides whether `.` is a real at all, and if it is not, the
-  `Tf` has one operand rather than two and §9.3.1's "there is no initial value" makes the show a
-  reported loss instead of an invisible one. One clause reading, no code until it is read.
+- ~~**A `Tf` whose size operand is a lone `.`**~~ — **read and taken in the
+  four-hundred-and-sixty-eighth** (ADR 0303). §7.3.3 writes both numeric forms as "one or more
+  decimal digits", so a run holding none is no number at all; the lexer returns the `Keyword` it
+  lexically is, and everything downstream was already written — the parser refuses a keyword where an
+  object belongs, and the interpreter reports one it does not recognise. The population was counted
+  on both sides over all four corpora on this disk, 67 293 documents: **twelve** change a report and
+  nine of those were already reporting; **three** display lists of 11 349 move and only one of the
+  three changes a pixel — `issue9252.pdf`, whose producer wrote `. .59 .84 rg` meaning zero and whose
+  word is now black rather than teal, because a guess that happened to be right is still a guess.
 
 ## What not to do
 

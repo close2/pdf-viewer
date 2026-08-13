@@ -490,6 +490,29 @@ mod tests {
         }
     }
 
+    /// §7.3.3 admits no object spelled `.`, so nothing may be parsed from one.
+    ///
+    /// Both numeric forms are stated as "one or more decimal digits", so a run of regular
+    /// characters holding none is not a numeric object; the lexer returns it as the keyword
+    /// it is and this is what the parser then does with it. The pair is the point (trap 8):
+    /// the two dictionaries differ in one character, and the conforming half has to read as
+    /// a number for the refusal of the other half to mean anything.
+    ///
+    /// Reading `.` as zero is what a fallback would do, and in a `/MediaBox` or a `/Matrix`
+    /// that is a page the wrong size rather than a file the reader complained about.
+    #[test]
+    fn a_number_with_no_digit_is_refused_rather_than_read_as_zero() {
+        let conforming = dictionary("<< /Rotate 0 >>");
+        assert_eq!(conforming.get("Rotate"), Some(&Object::Integer(0)));
+
+        let mut parser = Parser::at(b"<< /Rotate . >>", 0, Limits::default());
+        let refused = parser.parse_object();
+        assert!(
+            matches!(refused, Err(crate::SyntaxError::Unexpected { ref found, .. }) if found == "."),
+            "`.` is no object and has to be said so, not read as zero: {refused:?}"
+        );
+    }
+
     /// §7.3.7: "Multiple entries in the same dictionary shall not have the same key."
     ///
     /// A requirement on the *file*, with no recovery stated, so keeping the first is a

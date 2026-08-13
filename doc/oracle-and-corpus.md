@@ -52,12 +52,12 @@ and *ratchets none of them*.
 | **SafeDocs `CC-MAIN-2021-31`, 79 archives `50 + 100k`, first 24 of each** (session 425) | **1896** | **1802** | **86** → 85 | crawled web, no grant — never committed |
 | **SafeDocs `CC-MAIN-2021-31`, 4 whole archives `0100 + 2000k`** (session 430) | **4000** | **3917** → 3923 | **70** → 64 | crawled web, no grant — never committed |
 | **SafeDocs `CC-MAIN-2021-31`, all 145 archives** (session 433) | **65 944** | **64 507** | **1144** → 1138 → 905 → 851 → **824** | crawled web, no grant — never committed |
-| **`openpreserve/format-corpus`, five directories** (session 467) | **267** | 239 → 238 | **21** → 22 | **read, not decided** — §2b |
+| **`openpreserve/format-corpus`, five directories** (session 467) | **267** | 239 → 237 | **21** → 22 → 23 | **read, not decided** — §2b |
 
 **The bottom row is not a sample of anything and is read in §2b** — 267 hand-made and
 hand-collected files, examined in the four-hundred-and-sixty-seventh session and left off this disk's
-tracked tree because §2c's licence question is the owner's; its one moved figure is ADR 0302's, and
-the rise is a new report rather than a regression.
+tracked tree because §2c's licence question is the owner's; its moved figures are ADRs 0302's and
+0303's, and both rises are new reports rather than regressions.
 
 **The row above it is the whole SafeDocs population, and the first survey to find a hang** (ADR 0269). **Its reported column is the only figure in this table that four later rounds moved**, each re-surveying all 65 944 whole: 1138 after session 434's substitution rule, 905 after the four-hundred-and-thirty-sixth made the press the document's own — 233 documents becoming complete — 851 after the four-hundred-and-fortieth took a soft mask's group off §11.4.7's route, and **824** after the four-hundred-and-forty-first closed §11.3.5.3's row (ADRs 0270, 0272, 0276, 0277). The four-hundred-and-forty-fifth did **not** re-run it — 93 GB is not a closing round's instrument — so 824 is session 441's printed number and is labelled as one rather than re-claimed.
 **65 944 documents in 1139.3 s: 173 unopenable, 45 locked, 23 encrypted beyond us, 52 pageless,
@@ -230,11 +230,12 @@ done
 ```
 
 The intact page reads **0.807367** and most of the files reproduce it exactly. **Fourteen read 0**,
-and nine of those say why; the whole finding is the other **five, which are blank in silence**. Two
-of the five are right — Table 31 makes a page stating no `/Contents` empty, and a file whose
-text-showing operator was deleted has nothing to show. The three that remain are a page tree node
-with no `/Kids` and a `Tf` whose size operand is a lone `.` (both `doc/todo/03` §7), and ADR 0302's
-— a show operator that disappeared because its operands were read from the wrong end.
+and nine of those said why; the whole finding was the other **five, blank in silence**. Two of the
+five are right — Table 31 makes a page stating no `/Contents` empty, and a file whose text-showing
+operator was deleted has nothing to show. Of the three that were left, two have been taken: ADR
+0302's, a show operator that disappeared because its operands were read from the wrong end, and ADR
+0303's, a `Tf` whose size operand is a lone `.` that this lexer read as a number. **The one that
+remains is a page tree node with no `/Kids`** (`doc/todo/03` §7).
 
 **The other four directories are ordinary populations** and produced nothing new:
 `pdfCabinetOfHorrors` (24, archival horrors: encryption, embedded video, a corrupt byte) reports a

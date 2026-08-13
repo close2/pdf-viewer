@@ -67,6 +67,9 @@ pub enum Token {
     /// `}`
     BraceClose,
     /// A bare keyword such as `obj`, `endobj`, `stream`, `true`, `xref`.
+    ///
+    /// Also every run of regular characters that spells no object at all, which by §7.3.3
+    /// includes a run holding no decimal digit — `.` and `-` are keywords here, not zeroes.
     Keyword(Vec<u8>),
 }
 
@@ -378,14 +381,41 @@ impl<'a> Lexer<'a> {
         out
     }
 
-    /// Reads a number.
+    /// Reads a number, or the keyword a run stating no digit lexically is.
     ///
     /// Accepts the malformed forms that occur in practice: multiple signs, a sign after
-    /// digits, several decimal points. Anything unparseable becomes `Integer(0)`, matching
-    /// what other viewers do — a number that cannot be read is treated as zero rather
-    /// than aborting the page.
+    /// digits, several decimal points. A run that states no digit at all is not a number
+    /// and is returned as the keyword it lexically is; see the condition below for why.
+    ///
+    /// A run that *does* state a digit and still salvages nothing — `.-1`, where the sign
+    /// arrives after the point and before any digit — keeps the older reading of zero.
+    /// That is a different question from this one and the corpus offers no witness for it.
     fn read_number(&mut self) -> Token {
         let raw = self.read_regular_run();
+
+        // §7.3.3 states both numeric forms in terms of digits. An integer:
+        //
+        // > An integer shall be written as one or more decimal digits optionally preceded by
+        // > a sign.
+        //
+        // and a real:
+        //
+        // > A real value shall be written as one or more decimal digits with an optional
+        // > sign and a leading, trailing, or embedded PERIOD (2Eh) (decimal point).
+        //
+        // So a run holding no decimal digit is neither, however many signs and points it
+        // carries: `.` is not a numeric object, and neither is `-`. What it *is* is a run of
+        // regular characters (§7.2.3) that does not spell an object, which is what `Keyword`
+        // is for — and the parser then decides what one means where it stands, an error in a
+        // file body and an unrecognised operator in a content stream (§7.8.2).
+        //
+        // Reading it as zero instead is the plausible fallback trap 5 forbids, and it cost a
+        // mark: `/F0 . Tf` set a text font size of nought, so the show that followed drew
+        // nothing and nothing was said about it.
+        if !raw.iter().any(u8::is_ascii_digit) {
+            return Token::Keyword(raw);
+        }
+
         let text: String = raw.iter().map(|&byte| char::from(byte)).collect();
 
         if !text.contains('.')
@@ -413,6 +443,9 @@ impl<'a> Lexer<'a> {
                 Token::Integer(value as i64)
             }
             Some(value) => Token::Real(value),
+            // A digit is present — the condition above saw to that — but nothing before it
+            // could be read as one. See this function's doc comment for why that keeps the
+            // older reading rather than joining the case above.
             None => Token::Integer(0),
         }
     }
@@ -531,10 +564,34 @@ mod tests {
     fn malformed_numbers_salvage_a_leading_value() {
         assert_eq!(tokens(b"--5"), vec![Token::Integer(-5)]);
         assert_eq!(tokens(b"1.2.3"), vec![Token::Real(1.2)]);
+    }
+
+    /// §7.3.3 writes both numeric forms as "one or more decimal digits", so a run stating
+    /// none is not a numeric object at all. It is a run of regular characters that does not
+    /// spell one, which is a keyword — and the parser refuses it where an object was
+    /// expected instead of inventing a zero nobody wrote.
+    #[test]
+    fn a_run_with_no_digit_is_not_a_number() {
+        for run in [&b"."[..], b"-", b"+", b"--", b"-.", b".-"] {
+            assert_eq!(
+                tokens(run),
+                vec![Token::Keyword(run.to_vec())],
+                "{} states no digit and is therefore no number",
+                String::from_utf8_lossy(run)
+            );
+        }
+        // The forms §7.3.3's own EXAMPLE 2 prints stay numbers, which is what the condition
+        // has to leave alone: each of them states a digit.
         assert_eq!(
-            tokens(b"-"),
-            vec![Token::Integer(0)],
-            "no digits at all becomes zero"
+            tokens(b"34.5 -3.62 +123.6 4. -.002 0"),
+            vec![
+                Token::Real(34.5),
+                Token::Real(-3.62),
+                Token::Real(123.6),
+                Token::Real(4.0),
+                Token::Real(-0.002),
+                Token::Integer(0),
+            ]
         );
     }
 
