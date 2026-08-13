@@ -64,8 +64,8 @@ use render_cpu::CpuRasterizer;
 use render_quorra::{PresentFrame, QuorraPresenter};
 use viewer_core::{
     Answer, Command, DocumentId, Edit, Entered, Event, Find, FindDirection, FocusMove, PageTarget,
-    PointerAction, Purpose, Query, RenderRequest, Rendered, RestrictionLevel, Selection, Viewer,
-    Zoom,
+    PointerAction, PresentationMode, Purpose, Query, RenderRequest, Rendered, RestrictionLevel,
+    Selection, Viewer, Zoom,
 };
 use viewer_ui::chrome::{About, Chrome, Content, FindBar, Hit, Sidebar, Tab};
 use viewer_ui::software::SoftwareSurface;
@@ -3628,20 +3628,23 @@ impl App {
         Some(list)
     }
 
-    /// Starts or stops driving §12.4.4's clock, which is the whole of what presentation mode is
-    /// in this program.
+    /// Enters or leaves §12.4.4's presentation mode: the clock, and the mode the core keeps.
     ///
-    /// ADR 0135 decided that `viewer-core` has no presentation *state*: "is a presentation
-    /// running" is answered by whether something is driving the clock, and a host that stops
-    /// presenting stops ticking. So this is a host field and a key, and nothing crosses the
-    /// boundary but `Command::Tick`.
+    /// **Two things now, where ADR 0135 had one.** That session decided `viewer-core` had no
+    /// presentation *state* — "is a presentation running" was answered by whether something was
+    /// driving the clock — and ADR 0316 amended it on §12.4.4.2, which conditions a state machine
+    /// on the mode itself: NOTE 3 respects the navigation nodes "only when in presentation mode",
+    /// and a person stepping through a slide show by hand drives no clock at all. So the key sends
+    /// `Command::Present` as well, and what the core does with it is the nodes, the groups NOTE 2
+    /// asks to be saved, and the `/Trans` of a page turned to by hand.
     ///
-    /// Full screen is deliberately not part of it. §12.4.4.1 says a processor "may allow a
+    /// Full screen is deliberately still not part of it. §12.4.4.1 says a processor "may allow a
     /// document to be displayed in the form of a presentation or slide show" and says nothing
-    /// about a window; what the clause states is the advance timing and the transition, and those
-    /// are what this draws.
+    /// about a window; what the clause states is the advance timing, the transition and the
+    /// states, and those are what this drives.
     fn present_or_stop(&mut self) {
         if self.presentation.take().is_some() {
+            self.dispatch(Command::Present(PresentationMode::Off));
             println!("presentation: stopped — no clock is being driven");
             self.redraw();
             return;
@@ -3652,8 +3655,10 @@ impl App {
             wake: now,
             playing: None,
         });
+        self.dispatch(Command::Present(PresentationMode::On));
         println!(
-            "presentation: running — §12.4.4's /Dur advances the page and its /Trans is drawn"
+            "presentation: running — §12.4.4's /Dur advances the page, its /Trans is drawn, and \
+             the arrow keys walk §12.4.4.2's states before they turn the page"
         );
         self.redraw();
     }
@@ -4699,6 +4704,7 @@ fn describe_command(command: &Command) -> String {
         Command::Restrict(level) => format!("restrictions {level:?}"),
         Command::Delegate(appearances) => format!("widget appearances {appearances:?}"),
         Command::Tick { millis } => format!("tick {millis} ms"),
+        Command::Present(mode) => format!("presentation {mode:?}"),
         Command::Focus(id) => format!("focus {id:?}"),
         Command::Resize {
             width,

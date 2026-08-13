@@ -594,6 +594,35 @@ impl ViewState {
         self.optional_content.as_ref()
     }
 
+    /// §12.4.4.2 NOTE 2: the optional content state, to be given back when a presentation ends.
+    ///
+    /// > Interactive PDF processors need to save the state of optional content groups when a user
+    /// > enters presentation mode and restore it when presentation mode ends.
+    ///
+    /// and the NOTE says what for: "transient changes to bullets do not affect the printing of the
+    /// document". A presentation's steps are §12.6.4.13's actions on §8.11's groups (NOTE 1), so
+    /// what a person saw during the slide show would otherwise be the document's state afterwards.
+    ///
+    /// The whole configuration rather than a map of states, because it is a function of the
+    /// document and of what has been performed against it and nothing else, so giving it back *is*
+    /// restoring the groups. `None` is a document with no `/OCProperties`, which §8.11.4.2 makes
+    /// decisive and which has no state to save.
+    #[must_use]
+    pub fn optional_content_snapshot(&self) -> Option<OptionalContent> {
+        self.optional_content.clone()
+    }
+
+    /// Puts back what [`Self::optional_content_snapshot`] took.
+    ///
+    /// Returns whether anything changed, so a caller can decide whether the page has to be
+    /// interpreted again rather than comparing two configurations itself — the same shape
+    /// [`Self::set_widget_appearances`] has, and for the same reason: §8.11 decides what is drawn.
+    pub fn restore_optional_content(&mut self, snapshot: Option<OptionalContent>) -> bool {
+        let changed = self.optional_content != snapshot;
+        self.optional_content = snapshot;
+        changed
+    }
+
     /// Puts the pointer on an annotation, or takes it off every annotation.
     ///
     /// A viewer calls this from its own hit testing: §12.5.5 speaks of the cursor being "into

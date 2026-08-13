@@ -228,6 +228,21 @@ pub(crate) fn trigger(open: &mut Open, annotation: ObjectId, event: Trigger) -> 
     perform(open, &actions, None, None, "this annotation")
 }
 
+/// §12.4.4.2: performs the action sequence a navigation node names.
+///
+/// Table 165 makes `/NA` and `/PA` "an action (which may be the first in a sequence of actions)",
+/// which is §12.6.2's chain and therefore the same thing a link's `/A` is — so this is the same
+/// [`perform`] and not a second reading of the same clause. What the node's own subclause adds is
+/// one sentence about the sequence: "[t]ransition effects, similar to the page transitions
+/// described earlier, may be specified as transition actions that are part of the NA or PA
+/// sequence", which is `Outcome::transitions` and needs nothing here.
+pub(crate) fn navigate(open: &mut Open, actions: &[Action]) -> Outcome {
+    if actions.is_empty() {
+        return Outcome::default();
+    }
+    perform(open, actions, None, None, "this navigation node")
+}
+
 /// Table 198's two page-scoped events, which nothing raised until the two-hundred-and-fourth
 /// session.
 ///

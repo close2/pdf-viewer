@@ -38,13 +38,40 @@ pub enum Command {
         /// Annex O's fragment identifier — the text after `#`, or nothing.
         fragment: Option<String>,
     },
+    /// §12.4.4: the host has entered or left presentation mode.
+    ///
+    /// **The third host-supplied policy value, beside [`Self::Restrict`] and [`Self::Delegate`],
+    /// and it is here because §12.4.4.2 makes a *state machine* depend on it.** That clause's
+    /// NOTE 3 says an interactive processor "needs to respect navigation nodes only when in
+    /// presentation mode", so whether an arrow key steps through a page's own states or turns the
+    /// page is decided by something no state machine over a file can see: full screen is chrome
+    /// and chrome is the host's (rule 5), so the host is the only party that knows.
+    ///
+    /// **This is not a second way to say something the host can already say.** A host that drives
+    /// [`Self::Tick`] is running §12.4.4.1's clock, and this crate went on deducing "a
+    /// presentation is running" from that until §12.4.4.2 was read properly (ADR 0135, amended by
+    /// ADR 0316): a presentation a person steps through by hand sends no ticks at all, so the
+    /// deduction answers *no* for exactly the case the clause is about.
+    ///
+    /// Two things happen when it arrives, both the clause's:
+    ///
+    /// - Entering makes the page's `/PresSteps` node current, in every open document, and saves
+    ///   §8.11's group states. NOTE 2: "[i]nteractive PDF processors need to save the state of
+    ///   optional content groups when a user enters presentation mode and restore it when
+    ///   presentation mode ends."
+    /// - Leaving restores them and leaves no current node.
+    ///
+    /// Applies to every open document and to every one opened afterwards, until it is sent again,
+    /// which is [`Self::Delegate`]'s rule and for [`Self::Delegate`]'s reason: it is a fact about
+    /// the *window* rather than about any one file.
+    Present(PresentationMode),
     /// Time has passed, in milliseconds — ISO 32000-2 §12.4.4.1's `/Dur`, driven by the host.
     ///
     /// **Rule 3: this crate has no clock.** A presentation advances by itself, and the only way
     /// a state machine with no clock can know that a second went by is to be told. A host
     /// showing a presentation sends these; a host reading a document sends none, and nothing
-    /// advances — which is why *whether a presentation is running* is not a state this crate
-    /// keeps. Full screen is chrome, and chrome is the host's (rule 5).
+    /// advances. What a tick does *not* say is whether a presentation is running — that is
+    /// [`Self::Present`], because a person stepping through a slide show by hand sends no ticks.
     ///
     /// > If no Dur entry is specified in the page object, the page shall not advance
     /// > automatically.
@@ -463,6 +490,26 @@ pub enum RestrictionLevel {
     /// — it is a statement the *file* would be making about bytes nobody signed. Turning a
     /// restriction off is the reader's; making the file lie is not.
     Off,
+}
+
+/// Whether §12.4.4's presentation is running, as the host has said.
+///
+/// Two states rather than four, and unlike [`RestrictionLevel`] that is not an instalment: the
+/// clause has two — "when a user enters presentation mode" and "when presentation mode ends" —
+/// and a third would be a state no sentence of §12.4.4 produces and no host answers, which is
+/// what `doc/todo/38` forbids.
+///
+/// What this crate does with it is §12.4.4.2's, and full screen is deliberately not part of it.
+/// §12.4.4.1 says a processor "may allow a document to be displayed in the form of a presentation
+/// or slide show" and says nothing whatever about a window; what the clause states is the advance
+/// timing, the transition and the current navigation node, and those are what change here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PresentationMode {
+    /// A document being read. The default, and what every host that never sends this gets.
+    #[default]
+    Off,
+    /// A presentation is running: §12.4.4.2's nodes are respected and a page turn plays `/Trans`.
+    On,
 }
 
 /// What [`Command::Select`] asks for.

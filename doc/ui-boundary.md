@@ -14,7 +14,12 @@ first `Event` since the vocabulary was frozen**: `Command::Find` and `Event::Sea
 document-wide `search`, which `Query::Find` is not — that one answers for the page showing, out of a
 readback that exists, and this one interprets pages nobody is looking at. Six consumers failed to
 compile and `PDFV_EVENT_KIND_COUNT` moved 15 → **16** for the first time, which is what a C caller's
-`pdfv_abi_check` is for (ADR 0250).
+`pdfv_abi_check` is for (ADR 0250). **And the four-hundred-and-eighty-first added a `Command` and no
+`Event`**: `Command::Present(PresentationMode)` is §12.4.4.2's own condition, which that clause
+requires and no state machine over a file can deduce (ADR 0316). Two consumers failed to compile —
+`viewer-confined`'s wire protocol and `viewer-ui`'s trace line, the two that match `Command`
+exhaustively — and the C ABI did not, because commands there are *functions* and
+`PDFV_EVENT_KIND_COUNT` stayed where it was.
 Read by: anybody writing a host, adding a `Command`, `Event` or `Query`, or asking what the
 crate boundary permits. `doc/HANDOVER.md`'s reader table points a round writing a host here, and ADRs 0116 to 0121
 are the argument.
@@ -104,7 +109,17 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
   `Undo`, `Redo`, `Save`, **`Extract { name }`**, **`Find(Find)`** — Annex O's `search` and a find
   bar's *next*, one page per step because rule 4 forbids blocking and rule 3 leaves no clock to
   budget with; 5.84 s is what a 1023-page sweep costs and no host may be blocked for it (ADR 0250) —
-  `Supply { purpose, bytes }`, **`Restrict(RestrictionLevel)`**, `Tick { millis }`, `RenderReady { token, rendered }`.
+  `Supply { purpose, bytes }`, **`Restrict(RestrictionLevel)`**, **`Present(PresentationMode)`**,
+  `Tick { millis }`, `RenderReady { token, rendered }`.
+  **`Present` is the third policy value and the four-hundred-and-eighty-first session's**, on
+  §12.4.4.2's NOTE 3: that clause conditions a *state machine* — the current navigation node it
+  opens by requiring — on being in presentation mode, and whether a window is showing a slide show
+  is a fact no state machine over a file can see. It amends ADR 0135's "there is no presentation
+  state in this crate", which deduced the mode from `Tick` and therefore answered *no* for exactly
+  the case the clause is about: a person stepping through a slide show by hand drives no clock.
+  Two states, `Off` (the default) and `On`; the forward and backward *requests* are the `GoTo`
+  this vocabulary already had, because "the user requests to navigate forward (such as an arrow key
+  press)" is what that message already means. ADR 0316.
   **`Restrict` is the one policy value in the crate**, and rule 2 is the whole reason it exists:
   how much of what a document asserts over its reader this program obeys is the *reader's*,
   never the file's and never a deduction from it. Two levels, `On` (the default) and `Off`; the

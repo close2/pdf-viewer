@@ -41,12 +41,14 @@
 //! a presentation is read here and a caller with a clock drives all three of these from the
 //! values.
 //!
-//! **A caller does drive them, since the hundred-and-fiftieth session and the
-//! three-hundred-and-ninety-third.** `viewer_core::viewer` advances a `/Dur` on
-//! `Command::Tick` (ADR 0135), and `viewer_core::transition` shapes the frames of a `/Trans` at a
-//! fraction of the way through, which `viewer-ui` draws (ADR 0230) — seven of Table 164's twelve
-//! styles, with the other five reported by name. What still has no control is §12.4.4.2's own
-//! subject: nothing steps through a page's navigation nodes.
+//! **A caller does drive all three, since the hundred-and-fiftieth session, the
+//! three-hundred-and-ninety-third and the four-hundred-and-eighty-first.** `viewer_core::viewer`
+//! advances a `/Dur` on `Command::Tick` (ADR 0135); `viewer_core::transition` shapes the frames of
+//! a `/Trans` at a fraction of the way through, which `viewer-ui` draws (ADR 0230) — seven of
+//! Table 164's twelve styles, with the other five reported by name; and
+//! `viewer_core::presentation` is §12.4.4.2's own state machine, the current navigation node that
+//! clause opens by requiring, moved by `Command::GoTo` while `Command::Present` says a
+//! presentation is running (ADR 0316).
 //!
 //! That division is the same one Table 99's `/Order` and `/ListMode` are read under (§8.11.4.3):
 //! the document's own words belong to this crate, and what a window does with them does not.
@@ -289,6 +291,17 @@ pub struct Node {
     pub forward: Vec<Action>,
     /// Table 165's `/PA`: what to perform "when a user navigates backward".
     pub backward: Vec<Action>,
+    /// Table 165's `/Dur` (§12.4.4.2): the seconds after which a presentation advances to the
+    /// next node.
+    ///
+    /// > The maximum number of seconds before the interactive PDF processor shall automatically
+    /// > advance forward to the next navigation node. If this entry is not specified, no
+    /// > automatic advance shall occur.
+    ///
+    /// So `None` is the clause's "no automatic advance shall occur" and is not zero — the same
+    /// distinction [`display_duration`] draws one clause up, and the same relationship between
+    /// the two: this one advances a *node* and that one advances the page.
+    pub duration: Option<f32>,
 }
 
 /// A page's navigation nodes, from its `/PresSteps`, in `/Next` order.
@@ -325,6 +338,11 @@ pub fn steps(document: &Document, page: &Dictionary) -> Vec<Node> {
         out.push(Node {
             forward: crate::action::read(document, node.get("NA").unwrap_or(&Object::Null)),
             backward: crate::action::read(document, node.get("PA").unwrap_or(&Object::Null)),
+            duration: node
+                .get("Dur")
+                .map(|entry| document.resolve(entry))
+                .and_then(|entry| entry.as_number())
+                .map(narrow),
         });
         entry = node.get("Next").cloned().unwrap_or(Object::Null);
     }
@@ -507,6 +525,36 @@ mod tests {
         );
         assert!((unknown.duration - 2.0).abs() < f32::EPSILON);
         assert_eq!(unknown.direction, Direction::None);
+    }
+
+    /// Table 165's `/Dur` (§12.4.4.2), and the difference between stating it and not.
+    ///
+    /// > The maximum number of seconds before the interactive PDF processor shall automatically
+    /// > advance forward to the next navigation node. If this entry is not specified, no automatic
+    /// > advance shall occur.
+    ///
+    /// Two nodes differing in that one entry, which is the only way to assert the second sentence:
+    /// `None` is a node that waits for a person and zero would be a node that advances at once.
+    #[test]
+    fn a_navigation_node_states_its_own_advance_timing_or_states_none() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /PresSteps 4 0 R >>",
+            "<< /Type /NavNode /Dur 2.5 /Next 5 0 R >>",
+            "<< /Type /NavNode /Prev 4 0 R >>",
+        ]);
+        let pages = crate::page::Pages::new(&doc);
+        let page = pages.get(0).expect("one page");
+        let nodes = steps(&doc, &page.dict);
+        assert_eq!(nodes.len(), 2);
+        let stated = nodes.first().and_then(|node| node.duration);
+        assert!(stated.is_some_and(|seconds| (seconds - 2.5).abs() < f32::EPSILON));
+        assert_eq!(
+            nodes.get(1).and_then(|node| node.duration),
+            None,
+            "\"no automatic advance shall occur\""
+        );
     }
 
     /// A page with no `/PresSteps` has no states to walk, which is every corpus page.

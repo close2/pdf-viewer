@@ -1,9 +1,11 @@
 # A presentation player
 
-Status: seven of Table 164's twelve styles are drawn; five are reported by name.
+Status: seven of Table 164's twelve styles are drawn; five are reported by name. §12.4.4.2's states
+are walked.
 Priority: 32
 Clauses: §12.4.4
-Code: `crates/viewer-core/src/transition.rs`, `crates/viewer-ui/src/bin/pdf-viewer.rs`
+Code: `crates/viewer-core/src/transition.rs`, `crates/viewer-core/src/presentation.rs`,
+`crates/viewer-ui/src/bin/pdf-viewer.rs`
 
 §12.4.4's whole presentation is read — Table 164's transition styles, `/Dur`'s auto-advance,
 §12.4.4.2's sub-page navigation — the core has *advanced* a slide show since the hundred-and-fiftieth
@@ -29,15 +31,22 @@ What is left, in the order the cost rises:
 Each is reported by name today rather than drawn as a cut, which is the rule that keeps this
 honest debt rather than a silence.
 
-Two other things this clause still owes:
+One other thing this clause still owes:
 
-- **§12.4.4.2's sub-page navigation has no control.** `navigation::steps` reads the `/PresSteps`
-  chain and `ViewState::perform_all` performs a node's actions; nothing walks them, because the
-  arrow keys turn pages. A presentation that is running should step *within* a page first.
-- **Full screen.** Chrome, and therefore the host's — §12.4.4.2's NOTE 3 says a processor "needs
-  to respect navigation nodes only when in presentation mode", and this program's presentation
-  mode is a clock rather than a window state.
+- **Full screen.** Chrome, and therefore the host's. It is the *window*, and deliberately not the
+  mode: §12.4.4.2's NOTE 3 asks a processor to respect navigation nodes "only when in presentation
+  mode", and since the four-hundred-and-eighty-first session that condition is a value a host states
+  — `Command::Present(PresentationMode)`, ADR 0316 — rather than a window this program does not
+  have. So what is left here is a host drawing a page with no chrome round it, which no clause asks
+  for.
+
+**§12.4.4.2's states are walked**, since that same session: the current navigation node the clause
+opens by requiring, `/PresSteps` on arrival, `/NA` then `/Next`, `/PA` then `/Prev`, Table 165's
+per-node `/Dur` — which nothing had read — and NOTE 2's save and restore of §8.11's groups across
+the mode. `crates/viewer-core/src/presentation.rs`.
 
 **No corpus document exercises any of it**: `pdf-model/examples/presentation_census` walks the page
-tree of all 978 documents this tree opens and finds no `/Trans`, no `/Dur` and no `/PresSteps`, so
-every witness is hand-built (`examples/presentation_fixture` writes one).
+tree of every document this tree opens and finds no `/Trans`, no `/Dur` and no `/PresSteps`, so
+every witness is hand-built — `examples/presentation_fixture` writes one, whose fourth slide is the
+one with states, and `viewer-core/tests/sub_page_navigation.rs` writes the pair that differs in the
+single entry.

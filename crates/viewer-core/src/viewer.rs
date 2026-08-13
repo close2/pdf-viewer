@@ -38,6 +38,22 @@ use crate::readback::ReadbackCache;
 /// precision limit, and a degenerate one is a target that cannot exist.
 const MAX_PIXELS: u64 = 1 << 28;
 
+/// Why the page is being turned, which ISO 32000-2 §12.4.4 makes two different questions.
+///
+/// Not a message and deliberately not one: a host says which page it wants, and whether the
+/// request came from a person is something this crate knows without being told — every command is
+/// a person's, and the one turn that is not comes from §12.4.4.1's own clock.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Turn {
+    /// A person asked: an arrow key, a link, a panel row, a fragment identifier.
+    ///
+    /// §12.4.4.2's "the user requests to navigate", which is what a page's navigation nodes
+    /// answer before the page does.
+    Requested,
+    /// §12.4.4.1's `/Dur` ran out, which is a presentation advancing itself and not a request.
+    Automatic,
+}
+
 /// A host's name for one open document.
 ///
 /// The host's rather than the viewer's, so that a host can open a file and refer to it in the
@@ -74,6 +90,21 @@ pub struct Viewer {
     ///
     /// The bound on a cascade. See [`Self::page_events`].
     raising: bool,
+    /// Whether §12.4.4.2's navigation nodes are being walked right now.
+    ///
+    /// The same bound one clause over, and the clause itself says why one is needed: "[i]f NA
+    /// specifies an action that navigates to another page, the following actions for navigating to
+    /// another page take place, and Next should not be present". *Should*, addressed to a
+    /// producer — so a file that states both has stated a walk that arrives at a page whose own
+    /// `/PresSteps` would walk again, and a reader may not take a producer's advice as a bound.
+    stepping: bool,
+    /// Whether the host says §12.4.4's presentation is running.
+    ///
+    /// Held here rather than per document for [`Self::delegated`]'s reason: it is a fact about the
+    /// *window*, and a program showing a slide show is showing one whatever it has open. What it
+    /// decides is §12.4.4.2's NOTE 3 — whether the navigation nodes are respected at all — and it
+    /// is a value only a host can supply, because full screen is chrome and chrome is the host's.
+    presenting: crate::PresentationMode,
     /// Whether the host takes whole-page pixels from this crate — which is what [`MAX_PIXELS`]
     /// bounds, and the only case in which it should be applied.
     ///
@@ -113,6 +144,8 @@ impl Viewer {
             scale: if scale > 0.0 { scale } else { 1.0 },
             next_token: 0,
             raising: false,
+            stepping: false,
+            presenting: crate::PresentationMode::default(),
             holds_rasters: true,
             restrictions: crate::RestrictionLevel::default(),
             delegated: pdf_model::view::WidgetAppearances::default(),
@@ -320,30 +353,8 @@ impl Viewer {
                 self.scale = if scale > 0.0 { scale } else { 1.0 };
                 events.push(damage(self.viewport));
             }
-            Command::GoTo(target) => {
-                let Some(open) = self.focused_mut() else {
-                    return;
-                };
-                let Some(index) = resolve(open, target) else {
-                    return;
-                };
-                if index == open.page_index {
-                    return;
-                }
-                let left = open.page_index;
-                open.page_index = index;
-                // A new page starts at its top: carrying a scroll position across a page turn
-                // would land a reader in the middle of a page they have not seen.
-                open.scroll = (0.0, 0.0);
-                // §12.4.4.1's clock is a property of the page, so a turn restarts it — which is
-                // also NOTE 1's "[t]he user can advance the page manually before the specified
-                // time has expired" doing the right thing without a second rule.
-                open.shown_for = 0.0;
-                self.announce_page(events);
-                if let Some(id) = self.focused {
-                    self.page_events(id, Some(left), events);
-                }
-            }
+            Command::GoTo(target) => self.go_to(target, Turn::Requested, events),
+            Command::Present(mode) => self.present(mode),
             Command::Activate(object) => self.activate(object, events),
             Command::Tick { millis } => self.tick(millis, events),
             Command::Zoom { zoom, at } => self.set_zoom(zoom, at, events),
@@ -401,6 +412,12 @@ impl Viewer {
     ) {
         match Open::new(bytes, password) {
             Ok(mut open) => {
+                // A document opened *during* a presentation arrives in the mode the host is in:
+                // §12.4.4.2's node is a property of the page being shown and NOTE 2's saved groups
+                // of the document, so both are taken here rather than only on `Command::Present`.
+                if self.presenting == crate::PresentationMode::On {
+                    crate::presentation::enter(&mut open);
+                }
                 let pages = open.page_count;
                 let mut notes = crate::notes::about(&open.document);
                 // Annex O's open parameters, and this is where the annex puts them: §O.2.2 says
@@ -818,8 +835,13 @@ impl Viewer {
             let left = open.page_index;
             open.page_index = target;
             open.scroll = (0.0, 0.0);
+            // §12.4.4.1's clock is the page's, and an action that jumped has changed the page.
+            open.shown_for = 0.0;
             self.announce_page(events);
             self.page_events(id, Some(left), events);
+            // §12.4.4.2 names this one: "the navigation request was for random access (such as by
+            // clicking on a link)", which the clause treats as forward.
+            self.arrive(id, true, Turn::Requested, events);
         }
     }
 
@@ -1891,50 +1913,139 @@ impl Viewer {
         }));
     }
 
-    /// Says which page is showing, where there is one.
-    /// §12.4.4.1's `/Dur`: advances the page when it has been shown for as long as it asked.
+    /// §12.4.4: enters or leaves presentation mode, in every open document.
     ///
-    /// > the maximum length of time, in seconds, that the page shall be displayed before the
-    /// > presentation automatically advances to the next page.
+    /// Nothing at all when the mode is already what the host says it is, which is what lets a host
+    /// send it on every frame if that is what its own state is easiest to mirror from.
+    fn present(&mut self, mode: crate::PresentationMode) {
+        if self.presenting == mode {
+            return;
+        }
+        self.presenting = mode;
+        for open in self.documents.values_mut() {
+            match mode {
+                crate::PresentationMode::On => crate::presentation::enter(open),
+                // §12.4.4.2 NOTE 2's restore changes what is *drawn*, so it invalidates the
+                // display list rather than only the pixels made from it — the same thing
+                // `Command::SetGroup` does, and for the same clause's reason.
+                crate::PresentationMode::Off => {
+                    if crate::presentation::leave(open) {
+                        open.stale();
+                    }
+                }
+            }
+        }
+    }
+
+    /// Shows another page, or — during a presentation — another *state* of the page being shown.
     ///
-    /// A *maximum*, which is why the comparison is `>=` and why any page turn resets the clock.
-    /// The last page does not advance and does not loop: §12.4.4 says nothing about what follows
-    /// the end, and looping is a decision a host can make with a `GoTo` and this crate cannot
-    /// unmake.
-    fn tick(&mut self, millis: u32, events: &mut Vec<Event>) {
+    /// §12.4.4.2 puts a decision in front of every page turn a person asks for: "[i]f the user
+    /// requests to navigate forward (such as an arrow key press) **and there is a current
+    /// navigation node**", what happens is the node's own actions and not a page turn. So a
+    /// presentation steps through a page's states first and turns the page when they run out,
+    /// which is what NOTE 1's bullet points are for.
+    ///
+    /// `turn` is why the page is being turned, and it decides two things that are not the same
+    /// question: §12.4.4.1's own clock is not a person requesting anything, so it never steps
+    /// within a page — it advances the page, which is what `/Dur` says it does.
+    fn go_to(&mut self, target: PageTarget, turn: Turn, events: &mut Vec<Event>) {
+        let requested = match target {
+            PageTarget::Next => Some(true),
+            PageTarget::Previous => Some(false),
+            _ => None,
+        };
+        if turn == Turn::Requested
+            && self.presenting == crate::PresentationMode::On
+            && let Some(forward) = requested
+        {
+            let stepped = self.focused_mut().and_then(|open| {
+                crate::presentation::step(open, forward)
+                    .map(|actions| interact::navigate(open, &actions))
+            });
+            if let (Some(outcome), Some(id)) = (stepped, self.focused) {
+                self.apply(id, outcome, events);
+                return;
+            }
+        }
+
         let Some(open) = self.focused_mut() else {
             return;
         };
-        // Milliseconds in, seconds out, because the clause counts in seconds and a host counts
-        // in whatever its event loop gives it. `f32` loses exactness above sixteen million
-        // milliseconds — four and a half hours on one page — and what is being measured is a
-        // duration a person perceives, which `pdf_model::navigation` narrows for the same reason.
-        let seconds =
-            f32::from(u16::try_from(millis.min(u32::from(u16::MAX))).unwrap_or(u16::MAX)) / 1000.0;
-        open.shown_for += seconds;
-        let Some((_, page)) = open.current.as_ref() else {
+        let Some(index) = resolve(open, target) else {
             return;
         };
-        let Some(duration) = pdf_model::navigation::display_duration(&open.document, &page.dict)
-        else {
-            return;
-        };
-        if open.shown_for < duration || open.page_index.saturating_add(1) >= open.page_count {
+        if index == open.page_index {
             return;
         }
-        self.act(Command::GoTo(PageTarget::Next), events);
+        let left = open.page_index;
+        open.page_index = index;
+        // A new page starts at its top: carrying a scroll position across a page turn
+        // would land a reader in the middle of a page they have not seen.
+        open.scroll = (0.0, 0.0);
+        // §12.4.4.1's clock is a property of the page, so a turn restarts it — which is
+        // also NOTE 1's "[t]he user can advance the page manually before the specified
+        // time has expired" doing the right thing without a second rule.
+        open.shown_for = 0.0;
+        self.announce_page(events);
+        let Some(id) = self.focused else {
+            return;
+        };
+        self.page_events(id, Some(left), events);
+        // §12.4.4.2 makes random access forward — "[i]f the navigation request was forward, or if
+        // the navigation request was for random access (such as by clicking on a link)" — so only
+        // a request that names a page *behind* this one is backward.
+        let forward = !matches!(target, PageTarget::Previous)
+            && !matches!(target, PageTarget::Relative(delta) if delta < 0);
+        self.arrive(id, forward, turn, events);
+    }
 
-        // §12.4.4.1: "the transition style that shall be used when moving to this page from
-        // another during a presentation". *This* page, so it is the page arrived at whose
-        // `/Trans` plays, and it is named here rather than on every page turn because a turn is
-        // only part of a presentation when something is driving the clock — which is the one
-        // thing this crate can tell from a `Tick`.
-        //
-        // The page is fetched rather than read from `Open::current`, because `current` is filled
-        // during interpretation and interpretation happens in `settle` — after this. Reading it
-        // here would name the transition of the page just *left*, which is the same off-by-one
-        // §12.4.4.1's own wording rules out. One page-tree walk per automatic advance, which is
-        // at most one a second and not the per-item loop ADR 0124 was about.
+    /// What §12.4.4 says happens on arriving at a page, where a presentation is running.
+    ///
+    /// The last paragraph of §12.4.4.2, then its step (c): the page's own navigation node becomes
+    /// current and one request is performed against it, and then "[a]ny page transitions specified
+    /// by the Trans entry of the page dictionary shall be performed".
+    ///
+    /// **The two are gated differently, and the difference is what a host has said.** The node
+    /// walk needs [`crate::PresentationMode::On`], because walking the nodes changes §8.11's
+    /// groups and NOTE 2's obligation to put them back is discharged by entering the mode; a host
+    /// that only drives the clock has saved nothing to restore. The transition needs either that
+    /// or an automatic advance, because §12.4.4.1's `/Dur` running out *is* a presentation running
+    /// — which is ADR 0135's reading and the one thing a tick alone does say.
+    fn arrive(&mut self, id: DocumentId, forward: bool, turn: Turn, events: &mut Vec<Event>) {
+        // A nested arrival is the outer one's business, and that is not only a bound on the
+        // cascade: the clause's step (c) is about "the new page", so an `/NA` that jumped again
+        // has one transition to perform and not one per page it passed through.
+        if self.stepping {
+            return;
+        }
+        self.stepping = true;
+        if self.presenting == crate::PresentationMode::On {
+            let outcome = self
+                .focused_mut()
+                .map(|open| {
+                    let actions = crate::presentation::arrived(open, forward);
+                    interact::navigate(open, &actions)
+                })
+                .unwrap_or_default();
+            self.apply(id, outcome, events);
+        }
+        if turn == Turn::Automatic || self.presenting == crate::PresentationMode::On {
+            self.play_transition(events);
+        }
+        self.stepping = false;
+    }
+
+    /// §12.4.4.1's `/Trans`: names the transition of the page a presentation has arrived at.
+    ///
+    /// > The transition style that shall be used when moving to this page from another during a
+    /// > presentation
+    ///
+    /// *This* page, so it is the page arrived at whose `/Trans` plays, and the page is fetched
+    /// from the tree rather than read from `Open::current`, because `current` is filled during
+    /// interpretation and interpretation happens in `settle` — after this. Reading it here would
+    /// name the transition of the page just *left*, which is the same off-by-one §12.4.4.1's own
+    /// wording rules out. One page-tree walk per advance.
+    fn play_transition(&mut self, events: &mut Vec<Event>) {
         let (Some(id), Some(open)) = (self.focused, self.focused()) else {
             return;
         };
@@ -1960,6 +2071,60 @@ impl Viewer {
                 transition,
             });
         }
+    }
+
+    /// Says which page is showing, where there is one.
+    /// §12.4.4.1's `/Dur`: advances the page when it has been shown for as long as it asked.
+    ///
+    /// > the maximum length of time, in seconds, that the page shall be displayed before the
+    /// > presentation automatically advances to the next page.
+    ///
+    /// A *maximum*, which is why the comparison is `>=` and why any page turn resets the clock.
+    /// The last page does not advance and does not loop: §12.4.4 says nothing about what follows
+    /// the end, and looping is a decision a host can make with a `GoTo` and this crate cannot
+    /// unmake.
+    fn tick(&mut self, millis: u32, events: &mut Vec<Event>) {
+        // Milliseconds in, seconds out, because the clause counts in seconds and a host counts
+        // in whatever its event loop gives it. `f32` loses exactness above sixteen million
+        // milliseconds — four and a half hours on one page — and what is being measured is a
+        // duration a person perceives, which `pdf_model::navigation` narrows for the same reason.
+        let seconds =
+            f32::from(u16::try_from(millis.min(u32::from(u16::MAX))).unwrap_or(u16::MAX)) / 1000.0;
+        let Some(open) = self.focused_mut() else {
+            return;
+        };
+        open.shown_for += seconds;
+
+        // Table 165's `/Dur` first, because it is the inner of the two clocks: "[t]he maximum
+        // number of seconds before the interactive PDF processor shall automatically advance
+        // forward to the next navigation node". An advance forward is exactly the request an
+        // arrow key makes, so it is made here rather than described a second time.
+        if self.presenting == crate::PresentationMode::On {
+            let due = self
+                .focused_mut()
+                .is_some_and(|open| crate::presentation::node_due(open, seconds));
+            if due {
+                self.go_to(PageTarget::Next, Turn::Requested, events);
+            }
+        }
+
+        let Some(open) = self.focused_mut() else {
+            return;
+        };
+        let Some((_, page)) = open.current.as_ref() else {
+            return;
+        };
+        let Some(duration) = pdf_model::navigation::display_duration(&open.document, &page.dict)
+        else {
+            return;
+        };
+        if open.shown_for < duration || open.page_index.saturating_add(1) >= open.page_count {
+            return;
+        }
+        // §12.4.4.1's own advance, which is a page turn and never a step within a page: `/Dur` is
+        // "the maximum length of time … that the page shall be displayed before the presentation
+        // automatically advances to the **next page**".
+        self.go_to(PageTarget::Next, Turn::Automatic, events);
     }
 
     fn announce_page(&mut self, events: &mut Vec<Event>) {

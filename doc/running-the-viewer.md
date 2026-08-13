@@ -136,11 +136,20 @@ binaries. The hundred-and-forty-second session was reported as "still lags" agai
 hours and six commits old, one of which was the 40× page-turn fix. A stale executable is a
 measurement of the past.
 
-**`p` runs §12.4.4's presentation**, which is the whole of what presentation mode is here: the
-window drives the clock, a page with a `/Dur` advances by itself, and the page arrived at has its
-`/Trans` **drawn** — seven of Table 164's twelve styles, with the other five named in a note rather
-than cut in silence (ADR 0230). Press it again to stop. No corpus document states a `/Trans`, so
-the thing to open is a fixture:
+**`p` runs §12.4.4's presentation**: the window drives the clock, a page with a `/Dur` advances by
+itself, and the page arrived at has its `/Trans` **drawn** — seven of Table 164's twelve styles,
+with the other five named in a note rather than cut in silence (ADR 0230). Press it again to stop.
+
+**And it is a mode rather than only a clock, since ADR 0316.** `p` sends
+`Command::Present(PresentationMode::On)`, which is §12.4.4.2's own condition — NOTE 3 respects a
+page's navigation nodes "only when in presentation mode" — so while it is running the **arrow keys
+walk a page's states before they turn the page**, a page turned by hand plays its `/Trans` where
+only the clock's advance used to, and §8.11's groups are put back as they were when the
+presentation stops. Full screen is still not part of it: what the clause states is the timing, the
+transition and the states, and those are what this drives.
+
+No corpus document states a `/Trans`, a `/Dur` or a `/PresSteps`, so the thing to open is a
+fixture — whose fourth slide is the one with states:
 
 ```sh
 cargo run --release -p pdf-model --example presentation_fixture -- /tmp/slides.pdf

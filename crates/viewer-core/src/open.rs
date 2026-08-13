@@ -106,6 +106,26 @@ pub(crate) struct Open {
     /// Accumulated from [`crate::Command::Tick`] and reset by every page change, because the
     /// clause makes the duration a property of *this* page rather than of the presentation.
     pub(crate) shown_for: f32,
+    /// §12.4.4.2's current navigation node, as a position in this page's `/Next` chain.
+    ///
+    /// > An interactive PDF processor shall maintain a current navigation node.
+    ///
+    /// `None` is the clause's own other state — "(Otherwise, there is no current node.)" — and is
+    /// what every document has while nothing is presenting, because NOTE 3 respects the nodes
+    /// "only when in presentation mode". `crate::presentation` is the whole of what moves it.
+    pub(crate) node: Option<usize>,
+    /// How long the current navigation node has been shown, in seconds — Table 165's `/Dur` clock.
+    ///
+    /// A second clock beside [`Self::shown_for`] because the standard states two maxima: a page's
+    /// `/Dur` advances the page and a node's advances the node.
+    pub(crate) node_shown_for: f32,
+    /// §8.11's group states as presentation mode found them (§12.4.4.2 NOTE 2).
+    ///
+    /// `None` while nothing is presenting *and* for a presenting document with no `/OCProperties`,
+    /// which §8.11.4.2 makes decisive — and the two are the same answer here, because restoring
+    /// "no optional content" onto a document that has none changes nothing. What says whether a
+    /// presentation is running is the viewer's own mode, never this field.
+    pub(crate) saved_groups: Option<pdf_model::optional_content::OptionalContent>,
     /// The page that was interpreted last, and its drawing commands.
     ///
     /// One page rather than a cache of them. A display list is the expensive artefact and
@@ -400,6 +420,9 @@ impl Open {
             scroll: (0.0, 0.0),
             current: None,
             shown_for: 0.0,
+            node: None,
+            node_shown_for: 0.0,
+            saved_groups: None,
             interpreted: None,
             revision: 0,
             shown: None,

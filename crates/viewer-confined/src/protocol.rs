@@ -28,7 +28,8 @@ use pdf_sandbox::lockdown::{Confinement, LandlockLevel, SystemCalls};
 use pdf_syntax::{Name, ObjectId};
 use viewer_core::{
     Answer, Command, DocumentId, Edit, Event, Extraction, Find, FindDirection, FocusMove, Found,
-    PageGeometry, PageTarget, PointerAction, Purpose, Query, RestrictionLevel, Selection, Zoom,
+    PageGeometry, PageTarget, PointerAction, PresentationMode, Purpose, Query, RestrictionLevel,
+    Selection, Zoom,
 };
 
 use crate::Reply;
@@ -723,6 +724,7 @@ mod command_kind {
     pub(super) const SUPPLY: u8 = 20;
     pub(super) const DELEGATE: u8 = 21;
     pub(super) const FIND: u8 = 22;
+    pub(super) const PRESENT: u8 = 23;
 }
 
 /// Encodes one command.
@@ -791,6 +793,15 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
             writer.u8(k::RESTRICT).u8(match level {
                 RestrictionLevel::On => 0,
                 RestrictionLevel::Off => 1,
+            });
+        }
+        // §12.4.4's mode crosses for the reason every other policy does: the confined process
+        // holds the document and therefore §12.4.4.2's current navigation node, and whether a
+        // presentation is running is a fact about a window on the other side of the pipe.
+        Command::Present(mode) => {
+            writer.u8(k::PRESENT).u8(match mode {
+                PresentationMode::Off => 0,
+                PresentationMode::On => 1,
             });
         }
         // §6.3.2.2's instruction crosses the confinement like every other policy: the confined
@@ -937,6 +948,16 @@ pub(crate) fn decode_command(bytes: &[u8]) -> Result<Command, ProtocolError> {
             value => {
                 return Err(ProtocolError::Unrecognised {
                     what: "a restriction level",
+                    value: u32::from(value),
+                });
+            }
+        }),
+        k::PRESENT => Command::Present(match reader.u8("a presentation mode")? {
+            0 => PresentationMode::Off,
+            1 => PresentationMode::On,
+            value => {
+                return Err(ProtocolError::Unrecognised {
+                    what: "a presentation mode",
                     value: u32::from(value),
                 });
             }
@@ -2483,6 +2504,8 @@ mod tests {
             Command::Scroll { dx: -1.5, dy: 2.5 },
             Command::Restrict(RestrictionLevel::Off),
             Command::Restrict(RestrictionLevel::On),
+            Command::Present(PresentationMode::On),
+            Command::Present(PresentationMode::Off),
             Command::Edit(Edit::SetField {
                 field: "A.NOM".to_owned(),
                 value: Entered::Text("typed".to_owned()),
