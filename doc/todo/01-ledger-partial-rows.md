@@ -1755,6 +1755,34 @@ and the question in two rows of two different families, which is the seventh fai
 than about the standard. No grep above finds it: the sentence names a clause, not a capability, a
 blocker or a retired string.
 
+### Its second run, and the row that hid a `shall` behind a true sentence
+
+Re-run in the four-hundred-and-eightieth session on the tree twenty sessions later: **182 rows in
+the population, 24 stating an entry their own code does not name, 43 entries** — 8 named nowhere
+and 35 only elsewhere. Read that shape before reading the rows: the *entries* fell and the "named
+only elsewhere" share rose, because a row whose `code` array has gone stale beside a crate that
+grew a second file reads exactly like a defect and is not one. **The sweep is a reading list and
+not a gate** — the fourteenth's own lesson, and this run is the second document of it.
+
+**The hit that was work is §12.5.6.2's `/IRT` and `/RT`**, and the reason it survived fifteen
+sweeps is that the row's sentence about them is *true*: they "reach a comments pane rather than a
+raster", which is exactly what a relationship and a reply type do. What that sentence stopped
+anybody reading is the paragraph four below Table 172, where the same two entries make a **group**
+and hand it nine shared entries — "the corresponding entries in the subordinate annotations shall
+be ignored. These entries are Contents (or RC and DS ), M , C , T , Popup , CreationDate , Subj ,
+and Open ." Two of those are not a pane at all: `/C` is ink and `/Contents` is what §12.5.6.6 draws.
+
+The corpus has **one** `/IRT` in 34 835 annotations, so it could not rank this and never would
+have. ISO 32000-2's own PDF has 2074, 322 of them `/RT /Group`, and **213 popup windows hanging
+off a subordinate that came up blank** — the erratum's words are in the primary. ADR 0315.
+
+**The lesson for the sweep is about its *hits*, not its population.** Question two prints an entry
+the row's own files do not name; what decides whether that is work is whether the row's disposal of
+it is a claim about *the entry* or about *the clause*. "Not a rendering question" was the first
+kind and was wrong; "reaches a comments pane" was the second kind, was right about the entry, and
+was silent about the paragraph the entry points at. **Read what the clause does with an entry, not
+only what its table says the entry is.**
+
 ## What is still owed, named
 
 - **The `partial` rows not yet re-read against the code**, which the previous round put at ~47 of

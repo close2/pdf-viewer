@@ -649,7 +649,7 @@ impl Open {
         };
         // Either end of Table 172's `/Popup`: a click lands on the *markup* annotation, and a
         // host with a close button on the window has the popup itself.
-        let popup = pdf_model::popup::popup_of(dict).unwrap_or(annotation);
+        let popup = pdf_model::popup::popup_of(&self.document, dict).unwrap_or(annotation);
         let Some(state) = pdf_model::popup::popups(&self.document, page, &self.view)
             .iter()
             .find(|window| window.annotation == popup)

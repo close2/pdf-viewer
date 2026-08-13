@@ -27,6 +27,12 @@
 //! page's `/Annots` does not also list**, which is why this walks `/Annots` and does not chase
 //! Table 172's entry from the other end: the two routes reach the same 128.
 //!
+//! **And the parent may not be the annotation whose entries those are**, since the
+//! four-hundred-and-eightieth session: §12.5.6.2 makes all four of Table 186's overrides *group
+//! attributes*, so where the parent is a subordinate in a group the primary's apply and "the
+//! corresponding entries in the subordinate annotations shall be ignored". `crate::markup` is that
+//! sentence, and 213 of ISO 32000-2's own 2552 windows hang off a subordinate.
+//!
 //! **A second entry opens the same window and is §12.5.6.4's**, read here since the
 //! four-hundred-and-fifty-ninth session; `opens_with_the_page` has the argument. The corpus
 //! cannot rank it — `examples/open_annotation_census` finds 28 text annotations, exactly one
@@ -167,9 +173,16 @@ pub fn popups(document: &Document, page: &Page, view: &crate::view::ViewState) -
 /// this annotation." An indirect reference, so an inline dictionary is not one — and the caller
 /// wants the object anyway, because §12.5.1's activation names an annotation rather than a
 /// dictionary.
+///
+/// **`/Popup` is one of §12.5.6.2's group attributes**, so a subordinate annotation's own is
+/// ignored and the window a click on it exhibits is the group's — the primary's. That is the
+/// clause's own sentence read literally: a group is "a set of annotations … grouped so that they
+/// function as a single unit when a user interacts with them", and one window for the unit is what
+/// that means for the one interaction §12.5.1 defines.
 #[must_use]
-pub fn popup_of(annotation: &Dictionary) -> Option<ObjectId> {
-    annotation.get("Popup")?.as_reference()
+pub fn popup_of(document: &Document, annotation: &Dictionary) -> Option<ObjectId> {
+    let source = crate::markup::group_source(document, annotation);
+    source.get("Popup")?.as_reference()
 }
 
 /// Reads one popup dictionary, or `None` where its `/Rect` states no rectangle.
@@ -182,19 +195,26 @@ fn read(document: &Document, id: ObjectId, dict: &Dictionary) -> Option<Popup> {
         .and_then(pdf_syntax::Object::as_reference);
     let resolved = document.get_key(dict, "Parent");
     let source = resolved.as_dict().unwrap_or(dict);
+    // **Two clauses compose here, and the second was unread until the four-hundred-and-eightieth
+    // session.** Table 186 makes the parent's `Contents`, `M`, `C` and `T` override the popup's;
+    // §12.5.6.2 makes all four *group attributes*, so where the parent is a subordinate in a group
+    // "the corresponding entries in the subordinate annotations shall be ignored" and the
+    // primary's are what this window shows. 213 of ISO 32000-2's own popups hang off a
+    // subordinate, and the erratum text a reader is looking for is in the primary.
+    let source = crate::markup::group_source(document, source);
     let rect = rectangle(document, dict)?;
     Some(Popup {
         annotation: id,
         parent,
         rect,
         open: opens_with_the_page(document, dict, resolved.as_dict()),
-        title: text(document, source, "T"),
+        title: text(document, &source, "T"),
         // Table 166's `/Contents` first, and Table 172's `/RC` only where there is none: NOTE 1
         // makes the two "textually equivalent" where both are present, and the plain string is
         // the one this crate can hand over without reading a specification it does not have.
-        text: text(document, source, "Contents").or_else(|| rich_text(document, source)),
-        modified: text(document, source, "M"),
-        colour: colour(document, source),
+        text: text(document, &source, "Contents").or_else(|| rich_text(document, &source)),
+        modified: text(document, &source, "M"),
+        colour: colour(document, &source),
     })
 }
 
@@ -221,6 +241,10 @@ fn read(document: &Document, id: ObjectId, dict: &Dictionary) -> Option<Popup> {
 /// none of them states an entry that opens it, so an `/Open` on one of those subtypes is a key the
 /// standard does not define — of which the corpus has none, counted by
 /// `examples/open_annotation_census`.
+/// **The parent's half is a group attribute and the subtype is not**, which is why the two are
+/// read from different dictionaries: §12.5.6.2 puts `Open` on its list and says nothing about
+/// `Subtype`, so a subordinate text annotation is still a text annotation and the entry that opens
+/// its group's window is the primary's.
 fn opens_with_the_page(
     document: &Document,
     popup: &Dictionary,
@@ -234,7 +258,7 @@ fn opens_with_the_page(
             .get_key(parent, "Subtype")
             .as_name()
             .is_some_and(|subtype| subtype.as_bytes() == b"Text")
-            && is_open(document, parent)
+            && is_open(document, &crate::markup::group_source(document, parent))
     })
 }
 
@@ -474,6 +498,82 @@ mod tests {
         assert_eq!(popup.parent, Some(pdf_syntax::ObjectId::new(4, 0)));
     }
 
+    /// §12.5.6.2's group attributes reach through Table 186's override.
+    ///
+    /// A **pair** differing only in `/RT`, because the corpus cannot rank this one:
+    /// `examples/annotation_group_census` finds a single `/IRT` in the 964 openable documents and
+    /// no popup on it (trap 8). The witness is ISO 32000-2's own PDF, where 213 windows hang off a
+    /// subordinate and the erratum's words are in the primary — a caret carrying the replacement
+    /// text, a strike-out carrying an empty `/RC` and the popup a reader clicks.
+    ///
+    /// > Some entries in the primary annotation are treated as "group attributes" that shall apply
+    /// > to the group as a whole; the corresponding entries in the subordinate annotations shall
+    /// > be ignored. These entries are Contents (or RC and DS ), M , C , T , Popup , CreationDate ,
+    /// > Subj , and Open .
+    #[test]
+    fn a_window_on_a_group_shows_the_primarys_words() {
+        let grouped = "4 0 obj << /Type /Annot /Subtype /Caret /Rect [10 10 30 30] \
+                       /Contents (the replacement) /T (the editor) /C [1 0 0] \
+                       /M (D:20260812120000Z) >> endobj\n\
+                       5 0 obj << /Type /Annot /Subtype /StrikeOut /Rect [10 10 90 30] \
+                       /IRT 4 0 R /RT /Group /Popup 6 0 R /T (nobody) /C [0 1 0] >> endobj\n\
+                       6 0 obj << /Type /Annot /Subtype /Popup /Rect [40 40 200 140] \
+                       /Parent 5 0 R /Open true >> endobj\n";
+        // The reply half of the same entry pair: `/RT /R` is not a group, so nothing is shared and
+        // the window is the empty one the file describes.
+        let reply = grouped.replace("/RT /Group ", "/RT /R ");
+        assert_ne!(grouped, reply, "the pair must differ in the rule alone");
+
+        for (objects, text, title, colour) in [
+            (
+                grouped,
+                Some("the replacement"),
+                Some("the editor"),
+                (1.0_f32, 0.0_f32, 0.0_f32),
+            ),
+            (reply.as_str(), None, Some("nobody"), (0.0, 1.0, 0.0)),
+        ] {
+            let document = document("4 0 R 5 0 R 6 0 R", objects);
+            let view = crate::view::ViewState::of(&document);
+            let popups = popups(&document, &page(&document), &view);
+            assert_eq!(popups.len(), 1, "{objects}");
+            assert_eq!(popups[0].text.as_deref(), text, "{objects}");
+            assert_eq!(popups[0].title.as_deref(), title, "{objects}");
+            assert_eq!(
+                popups[0].colour.map(|c| (c.r, c.g, c.b)),
+                Some(colour),
+                "{objects}"
+            );
+        }
+    }
+
+    /// And Table 172's `/Popup` is itself a group attribute, so a click exhibits one window.
+    ///
+    /// §12.5.6.2: a group is "a set of annotations … grouped so that they function as a single
+    /// unit when a user interacts with them", and `/Popup` is on the list of nine — so the window
+    /// a subordinate opens is the primary's and not the one the subordinate names.
+    #[test]
+    fn a_subordinates_own_popup_entry_is_ignored() {
+        let document = document(
+            "4 0 R 5 0 R 6 0 R 7 0 R",
+            "4 0 obj << /Type /Annot /Subtype /Caret /Rect [10 10 30 30] /Popup 7 0 R \
+             /Contents (the replacement) >> endobj\n\
+             5 0 obj << /Type /Annot /Subtype /StrikeOut /Rect [10 10 90 30] /IRT 4 0 R \
+             /RT /Group /Popup 6 0 R >> endobj\n\
+             6 0 obj << /Type /Annot /Subtype /Popup /Rect [40 40 200 140] /Parent 5 0 R >> \
+             endobj\n\
+             7 0 obj << /Type /Annot /Subtype /Popup /Rect [50 50 210 150] /Parent 4 0 R >> \
+             endobj\n",
+        );
+        let subordinate = document.get(pdf_syntax::ObjectId::new(5, 0));
+        let dict = subordinate.as_dict().expect("an annotation dictionary");
+        assert_eq!(
+            popup_of(&document, dict),
+            Some(pdf_syntax::ObjectId::new(7, 0)),
+            "the primary's window, not the subordinate's own /Popup 6 0 R"
+        );
+    }
+
     #[test]
     fn a_popup_with_no_parent_states_its_own_text() {
         // NOTE 3: "The Contents entry for a popup annotation is relevant only if it has no
@@ -588,7 +688,10 @@ mod tests {
         );
         let parent = document.get(pdf_syntax::ObjectId::new(4, 0));
         let dict = parent.as_dict().expect("an annotation dictionary");
-        assert_eq!(popup_of(dict), Some(pdf_syntax::ObjectId::new(5, 0)));
+        assert_eq!(
+            popup_of(&document, dict),
+            Some(pdf_syntax::ObjectId::new(5, 0))
+        );
     }
 
     /// Table 172's `/RC`, where the file states one and no `/Contents` — §12.5.6.2:

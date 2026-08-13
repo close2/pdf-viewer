@@ -824,7 +824,10 @@ fn text_icon(
 
     let box_ = largest_square_within(rect);
     let side = box_[2] - box_[0];
-    let background = colour(document, annotation, "C")?;
+    // §12.5.6.2 makes `/C` a group attribute, so a subordinate's own is ignored and the primary's
+    // is the ink. `crate::markup` has the sentence and the list of ten.
+    let shared = crate::markup::group_source(document, annotation);
+    let background = colour(document, &shared, "C")?;
     if background != Colour::None {
         stream.set_colour(background, false);
         let radius = side * icon::BACKGROUND_RADIUS;
@@ -908,7 +911,10 @@ fn square_or_circle(
         return Err(CLOUDY);
     }
     let rect = rectangle(document, annotation)?;
-    let border = Border::read(document, annotation, annotation, "C")?;
+    // §12.5.6.2's group attributes: `/C` is on the list and `/IC` is not, so they are read from
+    // two dictionaries where this annotation is a group's subordinate.
+    let shared = crate::markup::group_source(document, annotation);
+    let border = Border::read(document, annotation, &shared, "C")?;
     let interior = colour(document, annotation, "IC")?;
     if !border.strokes() && interior == Colour::None {
         return Ok(Painted::EMPTY);
@@ -949,7 +955,9 @@ fn polygon(
     let endings = line_endings(document, annotation)?;
 
     let closed = subtype == b"Polygon";
-    let border = Border::read(document, annotation, annotation, "C")?;
+    // §12.5.6.2: `/C` is a group attribute and `/IC` is not.
+    let shared = crate::markup::group_source(document, annotation);
+    let border = Border::read(document, annotation, &shared, "C")?;
     let interior = if closed {
         colour(document, annotation, "IC")?
     } else {
@@ -1066,8 +1074,11 @@ fn text_markup(
     }
 
     // Table 166's `/C`, which §12.5.6.10 gives no entry of its own for. A markup with no
-    // colour states no mark, which is empty rather than unsupported.
-    let colour = colour(document, annotation, "C")?;
+    // colour states no mark, which is empty rather than unsupported. §12.5.6.2 makes it a group
+    // attribute, and this is the subtype a group's subordinate usually is — a strike-out beside
+    // the caret that replaces it.
+    let shared = crate::markup::group_source(document, annotation);
+    let colour = colour(document, &shared, "C")?;
     if colour == Colour::None {
         return Ok(Painted::EMPTY);
     }
@@ -1216,7 +1227,9 @@ impl Quad {
 /// scribble twice, so the entry that can carry curves wins and the page is not marked twice.
 /// `an_ink_annotations_path_is_drawn_and_outranks_its_ink_list` is where that is recorded.
 fn ink(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Outcome {
-    let border = Border::read(document, annotation, annotation, "C")?;
+    // §12.5.6.2: `/C` is a group attribute.
+    let shared = crate::markup::group_source(document, annotation);
+    let border = Border::read(document, annotation, &shared, "C")?;
     if !border.strokes() {
         return Ok(Painted::EMPTY);
     }
@@ -1296,7 +1309,9 @@ fn line(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Ou
     let (Some(start), Some(end)) = (ends.first().copied(), ends.get(1).copied()) else {
         return Err(Refusal::Missing("/L"));
     };
-    let border = Border::read(document, annotation, annotation, "C")?;
+    // §12.5.6.2: `/C` is a group attribute and `/IC` below is not.
+    let shared = crate::markup::group_source(document, annotation);
+    let border = Border::read(document, annotation, &shared, "C")?;
     if !border.strokes() {
         return drawn(Painted::EMPTY);
     }
@@ -2795,7 +2810,9 @@ fn undrawn_decoration(document: &Document, annotation: &Dictionary) -> Option<Re
              clause states the colour to draw them in",
         ));
     }
-    Border::read(document, annotation, annotation, "C")
+    // §12.5.6.2: `/C` is a group attribute, and this refusal turns on whether there is a colour.
+    let shared = crate::markup::group_source(document, annotation);
+    Border::read(document, annotation, &shared, "C")
         .is_ok_and(|border| border.width > 0.0)
         .then_some(Refusal::NotDerivable(
             "Table 177's /BS gives its border a width, and no clause states the colour",
@@ -2826,11 +2843,18 @@ fn free_text_layout(
     retyped: Option<&str>,
     asked: Asked,
 ) -> Result<Option<variable_text::LaidOut>, Refusal> {
+    // §12.5.6.2 makes `/Contents` and `/RC` group attributes, so a free text annotation that is a
+    // group's subordinate displays the primary's words: "the corresponding entries in the
+    // subordinate annotations shall be ignored". No document in any population this project
+    // measures does that — `examples/annotation_group_census` finds one `/RT /Group` in the corpus
+    // and none of them free text — and the rule is applied anyway, because the list is the
+    // clause's rather than the corpus's.
+    let shared = crate::markup::group_source(document, annotation);
     let text = match retyped {
         Some(retyped) => retyped.to_owned(),
-        None => variable_text::string(document, &[annotation], "Contents")
+        None => variable_text::string(document, &[&shared], "Contents")
             .filter(|contents| !contents.is_empty())
-            .or_else(|| crate::popup::rich_text(document, annotation))
+            .or_else(|| crate::popup::rich_text(document, &shared))
             .unwrap_or_default(),
     };
     if text.is_empty() && asked == Asked::default() {

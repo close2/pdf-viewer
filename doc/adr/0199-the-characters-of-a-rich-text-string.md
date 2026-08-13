@@ -21,6 +21,12 @@ three-hundred-and-twelfth session (ADR 0191). The row's reason expired thirty se
 sweep found it, which is this shape's median. `/Subj`, `/IRT`, `/RT` and `/IT` genuinely reach a
 comments pane and stay owed; `/RC` names the window that exists.
 
+**Two of those four were not what this ADR said, and the four-hundred-and-eightieth session found
+it** (ADR 0315). `/IRT` and `/RT` are a reply relationship *and* a group: §12.5.6.2 gives a group
+nine shared entries, two of which — `/C` and `/Contents` — are ink rather than a pane. So this
+paragraph made the same mistake one row further down that the sweep above was built to catch, and
+it made it in an ADR, where nothing checks. `/Subj` and `/IT` stand.
+
 ## Decision
 
 ### The characters, and none of the formatting
@@ -93,7 +99,9 @@ input.
 
 - **What stays owed** is the other half of the same sentence: `/Subj`, `/IRT`, `/RT` and `/IT`,
   and an `/RC` on an annotation that names no popup window to display it in. Those need a comments
-  pane, which is a panel this host does not draw.
+  pane, which is a panel this host does not draw. **`/IRT` and `/RT` came off that list in the
+  four-hundred-and-eightieth session** and only their reply half is still a panel's; ADR 0315 has
+  §12.5.6.2's group and the nine entries it shares.
 
 - `xmp::unescape` became `pub(crate)`. XML's five predefined entities and its numeric references
   are the format's, not the packet's, and two copies of that table would be two tables that drift.

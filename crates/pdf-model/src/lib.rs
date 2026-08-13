@@ -54,6 +54,7 @@ mod icon;
 pub mod image;
 pub mod inline_image;
 pub mod link;
+mod markup;
 pub mod measurement;
 pub mod mesh;
 pub mod metadata;
