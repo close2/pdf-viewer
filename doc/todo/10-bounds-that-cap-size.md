@@ -288,8 +288,23 @@ assumed, and the split is not even:
   refusals for those paths (`image::MAX_SAMPLES`, `icc::MAX_PROFILE`, the codec bounds) stay
   exactly as they are.
 - **It cuts across `doc/todo/41`'s decoded-stream cache and `doc/todo/47`'s search**, which want to
-  *keep* a decoded stream rather than stream past it. 41 is priced and refused today, so there is
-  no conflict yet; a round taking either owes the other a sentence.
+  *keep* a decoded stream rather than stream past it. This entry read "41 is priced and refused
+  today, so there is no conflict yet"; **41 was taken in the four-hundred-and-eighty-second
+  session** (ADR 0317) and here is the sentence it owes, **as evidence rather than as a decision** —
+  the choice between these four roads is the owner's and that round did not take one.
+
+  **The measurement says the two designs disagree about content streams and agree about everything
+  else.** What repeats over a document-wide sweep of ISO 32000-2 is not the content streams — those
+  are read once each, forwards, which is exactly D's good case — but the *resources*: 8 798 of
+  12 586 filtered decodes are a second decode of something already decoded, 830 MB of re-inflation
+  against 46 MB of first decodes, and the three largest are font programs inflated 1993, 1486 and
+  808 times. A font program is a random-access parse, and D's own list above already says streaming
+  buys it nothing. So the cache's value and D's value come from different streams: a streaming lexer
+  over content streams would leave 23.4% of a sweep exactly where ADR 0317 found it, and the memo
+  removes nothing D was going to remove.
+
+  What stays real is narrower than "cuts across": a round doing D must not route font, image and
+  profile streams through the window, and the memo is now one more reason those paths stay whole.
 - **One behaviour must survive it.** `flate` deliberately keeps partial output from a truncated
   stream, because "a partially-inflated content stream still renders most of a page". Streaming
   makes that the natural case rather than a special one — but §3.2's defect is that the same code

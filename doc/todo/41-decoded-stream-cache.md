@@ -1,9 +1,10 @@
 # A decoded-stream cache
 
-Status: **priced twice and not taken.** 0.7% over the pdf.js corpus, **78% on one web document** —
-recorded so nobody prices it on one population again.
+Status: **taken in the four-hundred-and-eighty-second session** (ADR 0317), after being priced
+twice on populations that could not see it. What is left is one narrower question, at the bottom.
 Priority: 41
-Code: `crates/pdf-syntax/src/filter.rs`, `crates/pdf-syntax/src/document.rs`
+Code: `crates/pdf-syntax/src/document.rs` (`DECODED_BUDGET`, `DecodedStreams`),
+`crates/pdf-syntax/src/filter.rs`
 
 Measured over one interpretation of every corpus page (session 128): 6220 inflations of 38.08 MB.
 Among the streams above 4 KB — 722 calls, 35.0 MB, 92% of the bytes — **35 are repeats costing
@@ -36,3 +37,28 @@ profile*, keyed by the stream's `ObjectId`, in `Interpreter::icc_spaces`. It nee
 argument, no liveness invariant and no bound on decoded bytes — the three things this item still
 owes — and it took that page from 34 450 ms to about 1 550. A general decoded-stream cache would
 have taken it further, and the same distance costs the three arguments above.
+
+## And the third population is the one a reader is in, which is where it was worth taking
+
+**0.7% was measured over a corpus walked one page per document, and a decode repeats between
+pages.** Nothing in a one-page walk can show a font program being inflated once per page that
+uses it. Over one sweep of ISO 32000-2's 1023 pages, 23.4% of the wall clock is decoding
+something already decoded — 830 MB of re-inflation against 46 MB of first decodes, and three
+streams are 3.2 s of the 3.9. ADR 0317 has the census, the budget's derivation and the callgrind
+A/B (−36.5% of a hundred-page sweep's instructions, −2.4% on a two-page document with two
+repeats in it).
+
+**The three arguments this file said were owed are the three the ADR makes**: the budget is
+derived from the owner's stated band less what the readback already spends, eviction is
+least-recently-used and counted, and the liveness invariant is an entry that *holds* the
+allocation its key names — which is what makes the address a key rather than a guess, and is
+exactly the hazard the paragraph above met at 4 KB.
+
+## What is still open, and it is one line rather than a design
+
+**A refusal is not memoised.** `FilterRefusal::TooLarge` costs up to `Limits::max_stream_len` of
+inflation to reach, and a document naming one bomb stream from every page pays that per page —
+an amplification that predates this cache and that this cache is placed to remove. It is left out
+because a refusal holds no decoded bytes, so charging it to a *byte* budget needs a per-entry
+overhead constant, and this project does not invent constants. Whoever takes it owes that
+derivation, and a document that does it to measure against.

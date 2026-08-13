@@ -263,9 +263,10 @@ a cold sweep and 100% of a repeat, and that is worth 5.5% of the wall clock** �
 5.81 s, medians of three — so a sweep's seconds are not in `Document::get`. **`resolve` is called
 ten times as often as `get` and mostly touches no cache**, because most objects are not references;
 only `get` takes a borrow, which puts the borrow count at about **1 070 a page for 6 ms of work**.
-And **`decoded_stream_data` is not memoised at all**: 12 717 calls over one sweep and **11 975 over
+And **`decoded_stream_data` was not memoised at all**: 12 717 calls over one sweep and **11 975 over
 the second sweep of the same document**, which is a filter chain re-run. `document.rs`'s module
-comment claimed otherwise and is corrected; `doc/todo/47` carries the question.
+comment claimed otherwise and was corrected; the section below is what the four-hundred-and-eighty-
+second session found when it priced those calls.
 
 **What `RefCell` → `RwLock` cost**, which is what made a `&Document` shareable between threads:
 
@@ -280,6 +281,47 @@ The launch's *whole* figure is deliberately not quoted against itself: `EventLoo
 55 ms across those twenty-four launches and **which end of that range a run landed on depended on
 whether it was the first launch after the X server went idle**, not on the binary — reversing the
 order reversed the apparent difference.
+
+## What §7.4's filter chain costs when a document is read end to end
+
+**Counted before anything was built**, four-hundred-and-eighty-second session (ADR 0317), with a
+temporary counter build in `Document::decoded_stream_data_reported` — the call sequence keyed by the
+address and length of the encoded bytes, so a repeat is a repeat of the same allocation. One sweep
+of `interpret_with` over ISO 32000-2's 1023 pages, `--profile gates`:
+
+| | |
+|---|---|
+| calls, of which filtered | 12 734 / 12 586, over **3 936 distinct streams** |
+| calls that decode something already decoded | **8 798** |
+| of the sweep's wall clock, inside `decoded_stream_data` | **24.6%** |
+| of the sweep's wall clock, decoding *again* | **23.4%** |
+| decoded bytes | 877 MB, of which **830 MB is re-inflation of 46 MB** |
+
+Three streams are 3.2 s of the 3.9 — 193 KB inflated 1993 times, 136 KB 1486 times, 96 KB 808 times.
+They are the document's font programs, and a font program is decoded once per *use*. **This is the
+same measurement `doc/todo/41` took at 0.7% and it is not a contradiction**: that one walked a corpus
+one page per document, where nothing can repeat. The counts are deterministic; the two *shares* are
+one run's ratio, taken inside the process so both halves meet the same machine — a quieter run of
+the same build put them at 29.5% and 28.1%.
+
+**What the memo buys, in instructions**, because the machine carried a load average of 20 to 30 that
+session and a wall clock on it is not evidence — seven interleaved samples an arm gave medians of
+9.75 s against 6.73 s with ranges of 9 s and 8 s, which is the right direction and no number. Two
+binaries from one tree, `DECODED_BUDGET` set to 0 for the off arm, under callgrind:
+
+| | instructions | |
+|---|---|---|
+| ISO 32000-2, 100 pages, no cache | 4 933 481 135 | |
+| ISO 32000-2, 100 pages, 4 MiB | **3 133 405 696** | **−36.5%** |
+| the same again | 3 132 945 345 | 0.015% apart |
+| `issue6961.pdf`, 2 pages, 276 decodes of which 2 repeat, no cache | 942 918 105 | |
+| the same, 4 MiB | **920 371 576** | **−2.4%** |
+
+The readback both arms produce is byte-identical, which is `doc/todo/47`'s gate. Peak resident over a
+full sweep is **213.6 / 214.0 MB with the cache against 211.6 / 209.6 without** — the budget, and
+nothing else. A least-recently-used replay of the recorded sequence says what the bound gives up:
+1 MiB saves 21.4% of the sweep, 4 MiB saves 23.1%, and an unbounded cache holding the whole 46.6 MB
+working set saves 23.4%.
 
 ## What cross-page parallelism buys, and at what memory
 

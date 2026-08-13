@@ -1,12 +1,14 @@
-# A cold document-wide search is 4.79 s on 1023 pages, and a fifth of it is the page tree
+# A cold document-wide search, and a fifth of it is the page tree
 
 Status: **raised by the project owner on 2026-08-09**, on reading session 414's report:
 *"Is the search implemented single threaded? 6.19s doesn't sound that fast. Can we easily improve
 this? … Any improvement must be reasonable. Improving the search speed is a goal, but not a
 requirement if the cost is too high (for instance in code quality or possibly also memory usage)."*
 **Half answered in the four-hundred-and-twentieth session** (ADR 0256): the *repeated* search is
-750× cheaper and the window's is **0.021 s** against about five seconds, and the *cold* search is
-unchanged. What is left is the cold one, and this file now says where its time goes.
+750× cheaper and the window's is **0.021 s** against about five seconds, and the *cold* search was
+unchanged. **The cold one moved in the four-hundred-and-eighty-second** (ADR 0317), by memoising
+§7.4's filter chain — a third of the instructions off a hundred-page sweep. What is left of it is
+§7.7.3.2's page tree, below.
 Priority: 47 — performance, measured, and explicitly **not** a requirement: the owner has priced
 the trade in advance and code quality and memory both outrank the seconds
 Corpus: every document; the cost scales with the *document*, not with the needle
@@ -43,10 +45,11 @@ one.
 
 **Candidate 1, "interpret less", is answered rather than tried**, and the measurement is why: a
 text-only narrowing of the walk could remove at most part of the 80.4%, and the cache removes
-*all* of both halves for every page after the first. What it cannot do is help a *first* search,
-which is the only thing left on this file — and a second extraction path would be the wrong way to
-buy that, for the reason this file has always given: it can diverge from what the page draws, and
-then a search finds words the reader cannot see.
+*all* of both halves for every page after the first. What it cannot do is help a *first* search
+— and a second extraction path would be the wrong way to buy that, for the reason this file has
+always given: it can diverge from what the page draws, and then a search finds words the reader
+cannot see. **What did help a first search was inside the 80.4% rather than beside it**, and it is
+the section below: the same font program inflated once a page.
 
 **Candidate 2, parallelism, is measured and declined for now** — the four-hundred-and-twenty-fourth
 session, ADR 0260. The blocker this file named was not one: **N documents in N threads needs nothing
@@ -59,28 +62,34 @@ rather than a lock. `pdf-model/examples/parallel_sweep` is the instrument.
 
 **Candidate 4, skipping pages by scanning bytes, is still unsound** for the reason it always was.
 
-## And a second one, found by counting: nothing memoises a decoded stream
+## And a second one, found by counting: nothing memoised a decoded stream — now something does
 
-**`Document::decoded_stream_data` runs 12 717 times over one sweep of ISO 32000-2 and 11 975 times
+**`Document::decoded_stream_data` ran 12 717 times over one sweep of ISO 32000-2 and 11 975 times
 over the *second* sweep of the same document** (ADR 0260's counter build). That is §7.4's filter
 chain re-run — a flate inflate per content stream, per font program, per image — on a document
-nothing has changed. `document.rs`'s module comment claimed decoded streams were cached and was
-corrected in the same session; what is memoised is §7.5.7's object streams, whose contents are
-objects rather than bytes.
+nothing has changed.
 
-Two things a round taking this owes, and the second is why it was not taken in the round that found
-it:
+**Taken in the four-hundred-and-eighty-second session, and it is the first thing on this file that
+makes a *cold* search faster.** The two things the round owed were the two this file asked for. What
+it is worth, measured before anything was built: **24.6% of a cold sweep is inside
+`decoded_stream_data` and 23.4% of it is decoding something already decoded** — 830 MB of
+re-inflation against 46 MB of first decodes, three font programs accounting for 3.2 s of the 3.9.
+The budget is 4 MiB per open document, derived from the owner's band less what the readback already
+spends and from a least-recently-used replay that says 4 MiB is 0.3 points short of unbounded.
+ADR 0317 has the census, the derivation, the liveness invariant that makes an address a legitimate
+key, and the callgrind A/B: **4 933 481 135 → 3 133 405 696 instructions over a hundred-page sweep,
+−36.5%**, with the readback byte-identical.
 
-- **A byte budget, stated in one place, with eviction and a count of what it evicted** — the shape
-  ADR 0256 already built for the readback, and for the same reason: a decompression bomb's decoded
-  form is exactly what a cache would hold.
-- **Measure what it is worth first.** A fully warm *object* cache is worth 5.5% of a sweep, which is
-  the standing warning about this file's whole subject: the obvious cache was not where the seconds
-  were. `interpret_with` is 80.4% of a cold sweep and how much of that is inflate is not known.
+**Wall clock was not the instrument and the reason is worth keeping.** The machine carried a load
+average of 20 to 30 that session, and seven interleaved samples an arm gave medians of 9.75 s
+against 6.73 s with ranges of 9 s and 8 s — the right direction and no evidence at all. A
+measurement that has to survive a busy machine counts instructions.
 
 ## What is left: the page tree, and it is not a cache question
 
-**A fifth of a cold search is walking §7.7.3.2's tree from the root, once per page.** `Pages::get`
+**A fifth of a cold search is walking §7.7.3.2's tree from the root, once per page** — and it is
+more than a fifth now, because the section above took a third of the instructions off the other
+half and this one lost nothing. Re-measure the split before quoting the share again. `Pages::get`
 descends for every index — 1.10 ms on the thousandth page of ISO 32000-2 — so a sequential sweep is
 the access pattern a tree walk is worst at, and it is the same walk `Open::page` makes on every page
 turn. `Pages::new` is *not* the cost (2.7 µs), so hoisting the index out of `Open::page` buys

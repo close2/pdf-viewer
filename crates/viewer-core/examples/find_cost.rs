@@ -14,11 +14,15 @@
 //!   interpretation of the page that walk found, timed directly rather than inferred.
 //!
 //! ```sh
-//! cargo run --profile gates -p viewer-core --example find_cost -- file.pdf needle [repeats] [split]
+//! cargo run --profile gates -p viewer-core --example find_cost -- \
+//!     file.pdf needle [repeats] [split] [pages]
 //! ```
 //!
 //! The split is the expensive part of the run and is printed only when the fourth argument asks
 //! for it: it opens the document a second time so that no cache above can pay for either half.
+//! A fifth argument stops it after that many pages, which is what makes the split runnable under
+//! callgrind — a thousand pages of it is an hour of simulation, and a hundred is a minute of one
+//! and enough to show any cost that is per page.
 //!
 //! The needle should be one the document does **not** contain: a miss reads the whole plan, which
 //! is the worst case and the only one whose cost is a property of the document rather than of
@@ -97,7 +101,11 @@ fn main() {
     }
 
     if arguments.next().as_deref() == Some("split") {
-        split(&bytes);
+        let limit = arguments
+            .next()
+            .and_then(|count| count.parse().ok())
+            .unwrap_or(usize::MAX);
+        split(&bytes, limit);
     }
 }
 
@@ -145,7 +153,7 @@ fn sweep_once(viewer: &mut Viewer, needle: &str) -> (Duration, usize, bool) {
 /// A step is `Pages::get` — §7.7.3.2's tree walked from the root, once per page — and then
 /// `interpret_with` on the leaf it found. Both are timed here against a document opened for this
 /// purpose alone, so that the viewer's own caches above cannot pay for either.
-fn split(bytes: &[u8]) {
+fn split(bytes: &[u8], limit: usize) {
     let Ok(document) = pdf_syntax::Document::open(bytes.to_vec()) else {
         println!("  split: the document would not open a second time");
         return;
@@ -153,7 +161,7 @@ fn split(bytes: &[u8]) {
     let pages = pdf_model::Pages::new(&document);
     let state = pdf_model::view::ViewState::of(&document);
     let (mut walking, mut interpreting, mut readback) = (Duration::ZERO, Duration::ZERO, 0_usize);
-    for index in 0..pages.len() {
+    for index in 0..pages.len().min(limit) {
         let started = Instant::now();
         let Some(page) = pages.get(index) else {
             continue;
@@ -167,6 +175,9 @@ fn split(bytes: &[u8]) {
     // `Open::page` builds a fresh `Pages` on every call, so the index it costs to *have* is part
     // of a step as much as the leaf walk is. Timed apart because the two have different answers:
     // one is a catalogue lookup and a `/Count`, the other descends §7.7.3.2's tree.
+    // Deliberately *not* narrowed by `limit`: this one is the cost of one `Pages::new`, and the
+    // count is its sample size rather than a number of steps. Keeping it whole is also what keeps
+    // a limited run comparable with an unlimited one.
     let started = Instant::now();
     let mut indexed = 0_usize;
     for _ in 0..pages.len() {
@@ -193,5 +204,12 @@ fn split(bytes: &[u8]) {
         share(walking),
         share(interpreting),
         readback
+    );
+    // §7.4's filter chain is inside the interpretation above, and a sweep asks it for the same
+    // font program once a page. What that cache answered is therefore part of this split.
+    let held = document.decoded_streams();
+    println!(
+        "  streams: {} decoded held, {} bytes of {} budget, {} hits, {} misses, {} evicted",
+        held.streams, held.bytes, held.budget, held.hits, held.misses, held.evicted
     );
 }

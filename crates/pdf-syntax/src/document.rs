@@ -11,9 +11,10 @@
 //! ordinary streams**; the four-hundred-and-twenty-fourth session counted the calls and
 //! found [`Document::decoded_stream_data`] running 12 717 times over one sweep of ISO
 //! 32000-2 and 11 975 times over the *second* sweep of the same document, which is a filter
-//! chain re-run rather than a cache read. What is memoised is §7.5.7's object streams,
-//! whose contents are objects. `doc/todo/47` carries the question of whether the rest
-//! should be, which is a question about a byte budget.
+//! chain re-run rather than a cache read. It is true again as of the
+//! four-hundred-and-eighty-second, which measured what those re-runs cost and gave them a
+//! byte budget: [`DECODED_BUDGET`] and [`Document::decoded_streams`] are the shape, ADR 0317
+//! the argument.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::{Arc, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -31,6 +32,30 @@ use crate::xref::{Location, XrefTable};
 /// `1 0 obj 2 0 R endobj` pointing back at itself is a cycle, and a chain of a thousand
 /// references is hostile rather than merely unusual.
 const MAX_REFERENCE_DEPTH: usize = 64;
+
+/// How many bytes of decoded stream data one open document may hold.
+///
+/// **4 MiB, and both halves of that are derived rather than chosen.**
+///
+/// *The ceiling* is the project owner's band — "1 GB is definitely too much, below 10 MB is
+/// definitely ok" (ADR 0256) — less the 4 MiB the readback cache already spends on an open
+/// document. Two per-document caches of 4 MiB is 8 MB, which is inside the band the owner
+/// stated, and this one is the second of them rather than the first.
+///
+/// *The floor* is what the measurement says a smaller one would give up. Replaying one cold
+/// sweep of ISO 32000-2's 1023 pages — 12 586 filtered decodes over 3 936 distinct streams —
+/// through a least-recently-used simulation at each budget:
+///
+/// | budget | of the sweep's own wall clock, saved | evictions |
+/// |---|---|---|
+/// | 1 MiB | 21.4% | 4 568 |
+/// | 4 MiB | **23.1%** | 3 715 |
+/// | 64 MiB (the whole working set, 46.6 MB) | 23.4% | 0 |
+///
+/// So 4 MiB is within 0.3 percentage points of an unbounded cache on the largest document
+/// this project owns, and the bound costs a document nothing it can notice. What it buys is
+/// in ADR 0317 and in the A/B on [`Document::decoded_streams`].
+pub const DECODED_BUDGET: usize = 4 * 1024 * 1024;
 
 /// An open PDF file.
 ///
@@ -77,6 +102,8 @@ pub struct Document {
     /// whose cross-reference table is wrong, and a reader that repairs one in silence is a
     /// reader nobody can ask what it repaired. Reported by [`Document::misfiled_objects`].
     misfiled: RwLock<BTreeSet<u32>>,
+    /// §7.4's filter chain already run, under [`DECODED_BUDGET`]. See [`DecodedStreams`].
+    decoded: RwLock<DecodedStreams>,
     /// ISO 32000-2 §7.6's security handler, absent when the trailer has no `/Encrypt`.
     ///
     /// > The absence of this entry from the trailer dictionary means that a PDF processor
@@ -220,6 +247,7 @@ impl Document {
             loading: RwLock::new(HashMap::new()),
             headers: RwLock::new(None),
             misfiled: RwLock::new(BTreeSet::new()),
+            decoded: RwLock::new(DecodedStreams::with_budget(DECODED_BUDGET)),
             encryption: None,
             encrypt_object: None,
         }
@@ -259,6 +287,10 @@ impl Document {
             Encryption::new(&dict, &id_first, password, &|object| self.resolve(object))?;
         write(&self.cache).clear();
         write(&self.expanded_streams).clear();
+        // Anything decoded on the way to the key was decoded from ciphertext, so what is held
+        // is a filter chain's opinion of bytes that were never plaintext. The two lines above
+        // drop the objects for that reason and this one drops their decoded form.
+        write(&self.decoded).clear();
         self.encryption = Some(encryption);
         Ok(())
     }
@@ -807,9 +839,21 @@ impl Document {
             return Ok(Arc::clone(&stream.data));
         }
 
+        // The parameters are read before the loop rather than inside it, because they are half
+        // of what identifies a decode and the memo below has to be keyed on all of it. It is
+        // the same work in the same order — `decode_parms` was already called once per filter.
+        let chain: Vec<(Vec<u8>, Option<Dictionary>)> = filters
+            .into_iter()
+            .enumerate()
+            .map(|(index, filter)| (filter, self.decode_parms(&stream.dict, index)))
+            .collect();
+
+        if let Some(held) = write(&self.decoded).get(&stream.data, &chain) {
+            return Ok(held);
+        }
+
         let mut data: Arc<[u8]> = Arc::clone(&stream.data);
-        for (index, filter) in filters.iter().enumerate() {
-            let parms = self.decode_parms(&stream.dict, index);
+        for (filter, parms) in &chain {
             data = crate::filter::decode_with_parms_reported(
                 filter,
                 &data,
@@ -821,7 +865,17 @@ impl Document {
                 why,
             })?;
         }
+        write(&self.decoded).put(&stream.data, chain, &data);
         Ok(data)
+    }
+
+    /// What this document's decoded-stream cache is holding, and how it has been used.
+    ///
+    /// An instrument rather than something a reader draws with; `viewer-core/examples/find_cost`
+    /// prints it after a sweep. See [`DecodedStreams`] for what the numbers mean.
+    #[must_use]
+    pub fn decoded_streams(&self) -> DecodedStreamCache {
+        read(&self.decoded).report()
     }
 
     /// Whether the file *states* that this stream holds nothing, ISO 32000-2 §7.3.8.1.
@@ -1007,6 +1061,216 @@ fn is_signature_dictionary(dict: &Dictionary) -> bool {
     }
 }
 
+/// One stream's decoded bytes, and what proves the key still names that stream.
+struct DecodedEntry {
+    /// The encoded bytes the key was taken from, held for as long as the entry is.
+    ///
+    /// **This field is the whole soundness argument and it is not a copy of anything.** The key
+    /// is an address, and an address is only an identity while the allocation lives: a freed
+    /// buffer's address is handed to the next allocation, which would make a lookup for a
+    /// *different* stream find these bytes. Holding the `Arc` makes that impossible — the
+    /// allocation cannot be freed while the entry that names it exists, so no two live entries
+    /// can share a key and nothing allocated after an entry can collide with it. `doc/todo/41`
+    /// records the census where exactly this went wrong: below 4 KB its counts were worthless
+    /// "[because] an address freed with one document is handed to the next".
+    encoded: Arc<[u8]>,
+    /// §7.4's filter chain, with its parameters, as it was when these bytes were produced.
+    ///
+    /// Compared on every hit. One `Arc<[u8]>` of encoded bytes can be shared by two `Stream`s
+    /// with different dictionaries — `pdf_model::thumbnail::significant` builds one such — and
+    /// two chains over one buffer are two different decodes.
+    chain: Vec<(Vec<u8>, Option<Dictionary>)>,
+    /// What that chain produced.
+    data: Arc<[u8]>,
+    /// The value of [`DecodedStreams::clock`] when this entry was last read or written.
+    used: u64,
+}
+
+/// The decoded streams one open document is holding, under a byte budget.
+///
+/// # Why a document memoises this at all
+///
+/// A resource is decoded once per *use*, not once per document: a font program referenced by
+/// eight hundred pages is inflated eight hundred times, and one sweep of ISO 32000-2 spends
+/// 24.6% of its wall clock in [`Document::decoded_stream_data`] of which 23.4% is decoding
+/// something it had already decoded — 830 MB of re-inflation against 46 MB of first decodes.
+/// `doc/todo/41` priced this at 0.7% over the pdf.js corpus and was right about that
+/// population: a corpus interpreted one page per document has nothing to repeat. What repeats
+/// is what a *reader* does — turning pages, and searching a document from end to end.
+///
+/// # The lock, and why a hit takes the exclusive one
+///
+/// [`Document::get`] is asked 829 times a page and this is asked 12; a hit updates the
+/// recency stamp, so it takes the write lock, which adds 12 586 exclusive acquisitions to a
+/// sweep that already takes 61 836 for the object cache (ADR 0260's first table). Keeping
+/// recency in an atomic so that a hit could share the read lock would buy a parallel sweep
+/// something and cost every reader a less obvious structure than this one; the viewer sweeps on
+/// one thread, and ADR 0260 declined the parallel sweep on memory rather than on locking.
+struct DecodedStreams {
+    /// What is held, by the address and length of the encoded bytes.
+    held: HashMap<(usize, usize), DecodedEntry>,
+    /// How many bytes that is, counted as it changes rather than summed on every insertion.
+    bytes: usize,
+    /// The ceiling those bytes are held under.
+    budget: usize,
+    /// A counter that only goes up, which is what "least recently used" is ordered by.
+    clock: u64,
+    /// How many lookups since the document opened were answered without running a filter.
+    hits: u64,
+    /// How many were not.
+    misses: u64,
+    /// How many entries the budget has dropped.
+    evicted: u64,
+}
+
+/// The address and length of some encoded bytes, which is what a decode is keyed by.
+///
+/// Two values, because a length is a cheap disagreement to find and the address alone is what
+/// [`DecodedEntry::encoded`] has to work to make trustworthy.
+fn allocation(data: &Arc<[u8]>) -> (usize, usize) {
+    (Arc::as_ptr(data).cast::<u8>().addr(), data.len())
+}
+
+impl DecodedStreams {
+    /// A cache holding at most `budget` bytes.
+    ///
+    /// The budget is a parameter so that eviction can be exercised on a budget of a few bytes,
+    /// and so that a measurement can build the same tree with the cache off; every document
+    /// opens with [`DECODED_BUDGET`].
+    fn with_budget(budget: usize) -> Self {
+        Self {
+            held: HashMap::new(),
+            bytes: 0,
+            budget,
+            clock: 0,
+            hits: 0,
+            misses: 0,
+            evicted: 0,
+        }
+    }
+
+    /// What this chain produced from these bytes before, marking it most recently used.
+    fn get(
+        &mut self,
+        encoded: &Arc<[u8]>,
+        chain: &[(Vec<u8>, Option<Dictionary>)],
+    ) -> Option<Arc<[u8]>> {
+        self.clock = self.clock.saturating_add(1);
+        let clock = self.clock;
+        let entry = self.held.get_mut(&allocation(encoded));
+        let Some(entry) = entry.filter(|entry| entry.chain == chain) else {
+            self.misses = self.misses.saturating_add(1);
+            return None;
+        };
+        entry.used = clock;
+        self.hits = self.hits.saturating_add(1);
+        Some(Arc::clone(&entry.data))
+    }
+
+    /// Keeps a decode, dropping least-recently-used entries until it fits.
+    ///
+    /// The charge is the decoded bytes **plus the encoded ones**, because the entry holds both
+    /// and an accounting that ignored the pin would understate what the cache costs for any
+    /// stream the document's object cache is not already holding.
+    ///
+    /// A decode too large for the whole budget is not kept, rather than emptying the cache to
+    /// hold one entry that the next insertion would drop.
+    fn put(
+        &mut self,
+        encoded: &Arc<[u8]>,
+        chain: Vec<(Vec<u8>, Option<Dictionary>)>,
+        data: &Arc<[u8]>,
+    ) {
+        let size = data.len().saturating_add(encoded.len());
+        if size > self.budget {
+            return;
+        }
+        self.clock = self.clock.saturating_add(1);
+        let key = allocation(encoded);
+        if let Some(previous) = self.held.remove(&key) {
+            self.bytes = self
+                .bytes
+                .saturating_sub(previous.data.len().saturating_add(previous.encoded.len()));
+        }
+        while self.bytes.saturating_add(size) > self.budget {
+            if !self.evict() {
+                return;
+            }
+        }
+        self.bytes = self.bytes.saturating_add(size);
+        self.held.insert(
+            key,
+            DecodedEntry {
+                encoded: Arc::clone(encoded),
+                chain,
+                data: Arc::clone(data),
+                used: self.clock,
+            },
+        );
+    }
+
+    /// Drops the least recently used entry, answering whether there was one.
+    ///
+    /// A scan rather than a second index ordered by use, for the reason `viewer-core`'s readback
+    /// cache gives: two maps kept in step are more lines and one more thing to get wrong, and
+    /// this walks a few thousand `u64`s against the inflation that filled the entry it drops.
+    fn evict(&mut self) -> bool {
+        let Some(oldest) = self
+            .held
+            .iter()
+            .min_by_key(|(_, entry)| entry.used)
+            .map(|(key, _)| *key)
+        else {
+            return false;
+        };
+        if let Some(entry) = self.held.remove(&oldest) {
+            self.bytes = self
+                .bytes
+                .saturating_sub(entry.data.len().saturating_add(entry.encoded.len()));
+            self.evicted = self.evicted.saturating_add(1);
+        }
+        true
+    }
+
+    /// Forgets everything, keeping the tally of what has happened.
+    fn clear(&mut self) {
+        self.held.clear();
+        self.bytes = 0;
+    }
+
+    /// What this cache is holding, for a caller that wants to say so.
+    fn report(&self) -> DecodedStreamCache {
+        DecodedStreamCache {
+            streams: self.held.len(),
+            bytes: self.bytes,
+            budget: self.budget,
+            hits: self.hits,
+            misses: self.misses,
+            evicted: self.evicted,
+        }
+    }
+}
+
+/// What one open document's decoded-stream cache is holding, and how it has been used.
+///
+/// The bound this project asks of a memory budget is that it be *legible* rather than small,
+/// so the number can be read off. Reported by [`Document::decoded_streams`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DecodedStreamCache {
+    /// How many decoded streams are held.
+    pub streams: usize,
+    /// How many bytes that is, counting each entry's encoded bytes as well as its decoded ones.
+    pub bytes: usize,
+    /// The ceiling those bytes are held under, which is [`DECODED_BUDGET`] for every document.
+    pub budget: usize,
+    /// How many lookups since the document opened were answered without running a filter.
+    pub hits: u64,
+    /// How many were not.
+    pub misses: u64,
+    /// How many entries the budget has dropped.
+    pub evicted: u64,
+}
+
 /// Why a stream's data could not be handed over decoded.
 ///
 /// Three answers to one question, and only [`Document::decoded_stream_data_reported`] keeps
@@ -1162,6 +1426,132 @@ mod tests {
         // A dictionary with a `/Contents` and no `/Type` is an annotation or a page, both
         // of which carry ordinary encrypted values under that key.
         assert!(!is_signature_dictionary(&Dictionary::new()));
+    }
+
+    /// A stream carrying `encoded` under the named filters, and nothing else.
+    fn hex_stream(encoded: &Arc<[u8]>, filters: &[&str]) -> Stream {
+        let mut dict = Dictionary::new();
+        let named = |name: &str| Object::Name(Name::new(name.as_bytes().to_vec()));
+        dict.insert(
+            Name::new(b"Filter".to_vec()),
+            match filters {
+                [one] => named(one),
+                many => Object::Array(many.iter().map(|name| named(name)).collect()),
+            },
+        );
+        Stream {
+            dict,
+            data: Arc::clone(encoded),
+            decryption_failed: false,
+        }
+    }
+
+    /// A stream asked for twice runs §7.4's chain once, which is what the budget buys.
+    #[test]
+    fn a_stream_decoded_twice_is_decoded_once() {
+        let document = Document::empty();
+        let encoded: Arc<[u8]> = Arc::from(b"414243>".as_slice());
+        let stream = hex_stream(&encoded, &["ASCIIHexDecode"]);
+
+        let first = document.decoded_stream_data(&stream).expect("hex decodes");
+        let second = document.decoded_stream_data(&stream).expect("and again");
+        assert_eq!(&*first, b"ABC");
+        assert_eq!(first, second);
+
+        let held = document.decoded_streams();
+        assert_eq!((held.hits, held.misses), (1, 1));
+        assert_eq!(held.budget, DECODED_BUDGET);
+        // The charge is the decoded bytes plus the encoded ones the entry pins.
+        assert_eq!(held.bytes, 3 + 7);
+    }
+
+    /// One buffer, two filter chains, two decodes — and the key alone cannot tell them apart.
+    ///
+    /// `pdf_model::thumbnail::significant` builds a second `Stream` over another's `data`, so
+    /// "same allocation" is not "same decode" and the chain is compared on every hit. Hex of
+    /// hex is the smallest pair that makes the difference visible: one pass yields the second
+    /// program's source and two yield its output.
+    #[test]
+    fn the_same_bytes_under_a_different_chain_are_a_different_decode() {
+        let document = Document::empty();
+        let encoded: Arc<[u8]> = Arc::from(b"3431343234333e>".as_slice());
+        let once = hex_stream(&encoded, &["ASCIIHexDecode"]);
+        let twice = hex_stream(&encoded, &["ASCIIHexDecode", "ASCIIHexDecode"]);
+
+        assert_eq!(
+            &*document.decoded_stream_data(&once).expect("one pass"),
+            b"414243>"
+        );
+        assert_eq!(
+            &*document.decoded_stream_data(&twice).expect("two passes"),
+            b"ABC",
+            "a hit on the address alone would have answered with the first chain's bytes"
+        );
+        assert_eq!(document.decoded_streams().hits, 0, "neither is the other");
+    }
+
+    /// The key is an address, and an entry holds the allocation that address names.
+    ///
+    /// Without that, a buffer freed with one stream and re-allocated for the next would make a
+    /// lookup for the *second* stream find the *first* one's decoded bytes — a wrong answer
+    /// produced by the allocator, which is the failure `doc/todo/41`'s census already met at
+    /// small sizes. The loop is what makes the hazard likely rather than what makes it real:
+    /// an allocator that hands back the same address is doing nothing wrong.
+    #[test]
+    fn a_stream_cannot_inherit_the_decoded_bytes_of_one_whose_buffer_it_reuses() {
+        let document = Document::empty();
+        for index in 0..64_u8 {
+            let hex = format!("{index:02X}{index:02X}{index:02X}>");
+            let encoded: Arc<[u8]> = Arc::from(hex.as_bytes());
+            let stream = hex_stream(&encoded, &["ASCIIHexDecode"]);
+            let decoded = document.decoded_stream_data(&stream).expect("hex decodes");
+            assert_eq!(
+                &*decoded,
+                &[index, index, index],
+                "this stream's own bytes, whatever address its buffer landed on"
+            );
+        }
+    }
+
+    /// The budget is a ceiling, and what goes is what was wanted longest ago.
+    #[test]
+    fn the_budget_drops_the_least_recently_used_decode_rather_than_growing() {
+        let chain = |name: &str| vec![(name.as_bytes().to_vec(), None)];
+        let bytes = |size: usize| -> Arc<[u8]> { Arc::from(vec![b'x'; size].as_slice()) };
+        // Room for two of these three (each charged 5 encoded + 5 decoded) and not the third.
+        let mut cache = DecodedStreams::with_budget(25);
+        let (first, second, third) = (bytes(5), bytes(5), bytes(5));
+        cache.put(&first, chain("A"), &bytes(5));
+        cache.put(&second, chain("A"), &bytes(5));
+        assert!(cache.get(&first, &chain("A")).is_some());
+        cache.put(&third, chain("A"), &bytes(5));
+
+        assert!(cache.get(&second, &chain("A")).is_none(), "the oldest went");
+        assert!(
+            cache.get(&first, &chain("A")).is_some(),
+            "the wanted one stayed"
+        );
+        assert!(cache.get(&third, &chain("A")).is_some());
+        let held = cache.report();
+        assert_eq!((held.streams, held.bytes, held.evicted), (2, 20, 1));
+        assert!(held.bytes <= held.budget, "the ceiling is a ceiling");
+    }
+
+    /// A decode too large for the whole budget is declined rather than emptying the cache.
+    #[test]
+    fn a_decode_that_cannot_fit_does_not_empty_the_cache_on_its_way_out() {
+        let chain = vec![(b"A".to_vec(), None)];
+        let bytes = |size: usize| -> Arc<[u8]> { Arc::from(vec![b'x'; size].as_slice()) };
+        let mut cache = DecodedStreams::with_budget(25);
+        let (small, large) = (bytes(5), bytes(5));
+        cache.put(&small, chain.clone(), &bytes(5));
+        cache.put(&large, chain.clone(), &bytes(30));
+        assert!(cache.get(&large, &chain).is_none(), "it never went in");
+        assert!(
+            cache.get(&small, &chain).is_some(),
+            "and took nothing with it"
+        );
+        assert_eq!(cache.report().evicted, 0);
     }
 
     /// Table 255 makes `/Type` optional, so a signature that omits it is still one.
