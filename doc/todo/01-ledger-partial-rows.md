@@ -13,7 +13,9 @@ with a fifteenth found beside them — the `implemented` neighbour one of the fo
 **Fifteen sweeps**, twelve run every round, a thirteenth run once and declined
 (ADR 0265), a fourteenth built in the four-hundred-and-thirty-seventh, and **the fifteenth built
 in the four-hundred-and-sixtieth** — the first that ignores what a row says and asks instead who
-reads the entries the clause states (ADR 0295) — a `partial` row
+reads the entries the clause states (ADR 0295), and **the first of the fifteen to be a committed
+program rather than a description**, `cargo run --release -p conformance --bin entries` since the
+four-hundred-and-eighty-fourth (ADR 0319) — a `partial` row
 whose note names nothing owed, which breaks the ledger's own definition of the status. Its first
 run printed 16 rows and seven were defects, two of them statuses: §9.3, `partial` on an expired
 reason for **365 sessions**, which the four-hundred-and-forty-second beat with §11.6's **424**. **The ninth sweep is the first to check that a citation names the *right* table**,
@@ -1782,6 +1784,46 @@ it is a claim about *the entry* or about *the clause*. "Not a rendering question
 kind and was wrong; "reaches a comments pane" was the second kind, was right about the entry, and
 was silent about the paragraph the entry points at. **Read what the clause does with an entry, not
 only what its table says the entry is.**
+
+### Its third run, and the first one a program did
+
+**The sweep was never committed.** It was described here and rebuilt from the description by the
+four-hundred-and-eightieth session before it could be run at all, which is the failure `CLAUDE.md`'s
+"what is written down is the command that counts it" exists to prevent — and a reconstruction is not
+the same instrument twice, which is why this run's numbers are not the previous two's. It is
+`conformance::entries` now, with the invocation `doc/todo/02` §4 states:
+
+```sh
+cargo run --release -p conformance --bin entries
+```
+
+**And it gained the one filter the second run's lesson asks for.** That run ended by saying a hit is
+work only where the row's disposal of the entry is a claim about *the entry* rather than about *the
+clause* — a question no program can settle. What a program can settle is the case with no claim at
+all: **the row's own note never writes the key**. So each reported entry says whether the note names
+it, and the ones it does not are the list to read first.
+
+Its first run as a program: **215 rows in the population, 41 stating an entry their own `code` does
+not name, 102 entries — 30 named nowhere in the tree and 72 only elsewhere, of which 43 are not named
+by the row's own note either.** The population is larger than the reconstruction's for two reasons
+worth knowing before comparing the numbers: the arrival vocabulary is seven phrases rather than five,
+and a clause's tables are taken from its **own** text rather than from its span, which excludes a
+parent row from owning every subclause's table.
+
+**The hit that was work is §12.6.4.2's `/SD`**, and it is the sixth refusal shape for the third time
+in twenty-five rounds. Table 202 gives a go-to action a structure destination beside its page
+destination and says which wins — "[i]f present, the structure destination should take precedence
+over destination in the D entry" — and `grep '"SD"' crates/` found **nothing**, in a tree whose
+§12.3.2.3 row has read `implemented` since the algorithm that resolves a structure element to a page
+landed. The capability was there, the entry that turns it on was wired to nothing, and §12.6.4.2's
+own note said "`/SD`, the structure destination alternative, resolves through §12.3.2.3 like any
+other" — a true sentence about `Destination::read` and a false one about this clause. ADR 0319.
+
+**Two things about the output that are the instrument rather than the tree.** Table 165's `/name` and
+Table 200's `/DS`, `/DP` and `/dictionary` are `doc/md/` shifting a table's columns, which the
+four-hundred-and-sixtieth and -eighty-first sessions both met; and a row whose `code` array has gone
+stale beside a crate that grew a second file prints an entry the right reader does name. Neither is
+worth tightening the sweep for — read the hit, as with every sweep here.
 
 ## What is still owed, named
 

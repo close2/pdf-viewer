@@ -304,10 +304,39 @@ impl Destination {
                 if kind.as_bytes() != b"GoTo" {
                     return None;
                 }
-                Self::read(document, action.get("D")?)
+                Self::of_go_to(document, action)
             }
             _ => None,
         }
+    }
+
+    /// The destination a §12.6.4.2 go-to action states, from Table 202's two entries in the
+    /// clause's own order.
+    ///
+    /// `/D` is required and `/SD` is optional, and the table states which wins:
+    ///
+    /// > (Optional; PDF 2.0) The structure destination to jump to (see 12.3.2.3, "Structure
+    /// > destinations"). If present, the structure destination should take precedence over
+    /// > destination in the D entry.
+    ///
+    /// **This is the entry `doc/todo/01`'s fifteenth sweep found nothing reading**, while
+    /// §12.3.2.3's own row has been `implemented` since the algorithm that resolves a structure
+    /// element to a page landed: the capability arrived and the entry that turns it on was never
+    /// wired to it, which is `doc/habits.md`'s sixth refusal shape and the third finding of that
+    /// shape (ADRs 0295, 0315, 0319). Nothing else in the standard states an `/SD`: Table 203's
+    /// is a remote go-to's, which `CLAUDE.md` excludes.
+    ///
+    /// The precedence is a `should` rather than a `shall`, and that is exactly why an `/SD` this
+    /// reader cannot read as a destination falls back to `/D` instead of refusing: `/D` is the
+    /// required entry and jumping to it is conforming. An `/SD` that *is* a destination always
+    /// resolves, because §12.3.2.3 ends its own algorithm with "the page reference shall be
+    /// assumed to be the first page in the document".
+    #[must_use]
+    pub fn of_go_to(document: &Document, action: &Dictionary) -> Option<Self> {
+        action
+            .get("SD")
+            .and_then(|entry| Self::read(document, entry))
+            .or_else(|| Self::read(document, action.get("D")?))
     }
 
     /// The zero-based index of the page this destination displays, or `None`.
@@ -790,6 +819,47 @@ mod tests {
             index("[5 0 R /Fit]"),
             None,
             "an object that is not a page or an element"
+        );
+    }
+
+    /// Table 202's precedence, on a pair of actions differing only in `/SD`.
+    ///
+    /// Trap 8's shape, said out loud: 1187 documents on this disk state ten `/SD` between two
+    /// files and **not one of the ten names a page or a view its own `/D` does not**
+    /// (`examples/structure_destination_census`), so the corpus cannot rank this sentence and
+    /// the witness has to be built. The pair differs in the single entry, which is what makes
+    /// the test about the entry rather than about a jump.
+    #[test]
+    fn a_go_to_actions_structure_destination_takes_precedence_over_its_page_destination() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 5 0 R >>",
+            "<< /Type /Pages /Count 2 /Kids [3 0 R 4 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+            "<< /Type /StructElem /S /P /K [<< /Type /MCR /Pg 4 0 R /MCID 0 >>] >>",
+            "<< /Type /Action /S /GoTo /D [3 0 R /Fit] >>",
+            "<< /Type /Action /S /GoTo /D [3 0 R /Fit] /SD [5 0 R /FitH 500] >>",
+            "<< /Type /Action /S /GoTo /D [3 0 R /Fit] /SD 99 0 R >>",
+        ]);
+        let pages = crate::page::Pages::new(&doc);
+        let jump = |number: u32| {
+            let object = doc.get(pdf_syntax::ObjectId::new(number, 0));
+            let action = object.as_dict().expect("an action dictionary").clone();
+            let destination = Destination::of_go_to(&doc, &action).expect("a destination");
+            (destination.page_index(&doc, &pages), destination.view)
+        };
+
+        assert_eq!(jump(6), (Some(0), View::Fit), "the /D alone");
+        assert_eq!(
+            jump(7),
+            (Some(1), View::FitH { top: Some(500.0) }),
+            "the /SD takes precedence, page and view together"
+        );
+        assert_eq!(
+            jump(8),
+            (Some(0), View::Fit),
+            "an /SD that is no destination leaves the required /D, which is what a `should` \
+             permits"
         );
     }
 

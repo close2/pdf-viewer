@@ -62,6 +62,21 @@ as user `AI` via `sudo -u AI`, reaching `/home/cl/projects/pdf-viewer` through t
 - **Build directory**: `AI` builds into `/home/AI/cargo-target/pdf-viewer` via `~/.cargo/config.toml`,
   so the two users never fight over `target/`. Do not "fix" this. `pdfref` needs `--work-dir` for
   the same reason.
+- **A build script's `env!("CARGO_MANIFEST_DIR")` is baked at *its* compile time, and the shared
+  build directory outlives a checkout.** `pdf-font`'s and `tools/conformance`'s build scripts read
+  it, and a binary compiled from a worktree or a scratchpad copy that no longer exists fails with
+  an absurd message naming a path under `/tmp` — "data/cmaps is readable: No such file or
+  directory". It is not the tree. `touch` the build script's source and rebuild. Two rounds of the
+  four-hundred-and-fifties lost time to it.
+- **`sccache` is the `rustc-wrapper` and it is not earning its place here.** The project owner
+  installed and activated it in `~/.cargo/config.toml`; `sccache --show-stats` reads **0.17% on
+  Rust** over 6530 compilations, because this workspace's crates change on nearly every round and a
+  cache keyed on the source is asked about a source that moved. It is not free either — it caches
+  *compilation*, which is exactly what makes the stale-build-script hazard above likelier. Leave
+  it: it is the owner's switch and it costs little. **What it must not be allowed to do is make a
+  measurement**: a round timing a build says which wrapper was in place, and a round measuring the
+  program rather than the build is unaffected, because `sccache` touches compilation and nothing
+  the binary does.
 - **`cargo-fuzz` needs `+nightly`** explicitly; `rust-toolchain.toml` pins stable 1.97.1
   deliberately. `cargo-deny` is in the agent's `~/.cargo/bin` — **and so is `cargo-fuzz`, which is
   not on `PATH`**, so `which cargo-fuzz` answers nothing and `cargo fuzz` fails with "no such

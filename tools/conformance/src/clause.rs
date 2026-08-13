@@ -365,6 +365,17 @@ impl ClauseIndex {
         &self.headings
     }
 
+    /// The conversion's text over one byte range, empty where the range is not a valid one.
+    ///
+    /// A [`Heading`]'s span is public and the text it indexes was not, so anything wanting the
+    /// words of a clause had to be a method here. The fifteenth sweep wants them —
+    /// [`crate::entries`] reads the tables a clause prints — and a range that does not land on a
+    /// character boundary is a caller's mistake rather than a reason to panic in a checker.
+    #[must_use]
+    pub fn text_in(&self, span: Range<usize>) -> &str {
+        self.text.get(span).unwrap_or_default()
+    }
+
     /// Whether the standard has this clause.
     #[must_use]
     pub fn contains(&self, number: &ClauseNumber) -> bool {

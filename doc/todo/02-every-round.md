@@ -169,6 +169,14 @@ share and the two that break it:
   the misses that match the standard for at least five words and then diverge — a claim this
   project invented shares no words with it and a misquotation shares most of them. ADR 0249, and
   it is not a gate for a reason the ADR prices.
+- **One asks who reads an *entry the clause states***, and it is the only sweep that reads no reason
+  at all: `cargo run --release -p conformance --bin entries`, seconds, over `ledger.toml`, the
+  standard's own tables and the source roots. It exists for the refusal shape every other sweep
+  passes — a row that retires its refusal by naming a capability that arrived, and then nobody asks
+  whether the *entry* that turns the capability on was wired to it. **It was described here and not
+  committed for twenty-four rounds**, so the round that wanted it rebuilt it from the description,
+  which is `CLAUDE.md`'s own rule failing in the direction it was written for. Three findings so far
+  (ADRs 0295, 0315, 0319); read the hits whose entry the row's own **note** does not name first.
 - **One reads *these documents'* quotation marks**, on the same discriminator and for the same
   reason: `cargo run --release -p conformance --bin quotations`, seconds, over every Markdown file
   this project wrote under `doc/`. Its first run found three sentences quoted as the standard's that

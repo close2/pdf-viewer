@@ -615,3 +615,206 @@ hosts got in these thirty rounds was surface and correction.
 against the four-hundred-and-fifteenth's recorded numbers: tests **1493 → 1619**, citations
 **6032 → 6559**, quotations **576 → 631**, ledger **400 implemented / 252 partial → 410 / 244** over
 875 unmoved rows, quorra **912 / 36 / 9 / 17 → 917 / 35 / 5 / 17**, and **29 ADRs** (0252 to 0280).
+
+## The thirty rounds from the four-hundred-and-fifty-fifth
+
+**What the thirty have in common is one sentence, and it is the previous block's finding one step
+further along:**
+
+> **The instruments went quiet and the work did not. Almost nothing these thirty rounds found could
+> be seen by anything this project runs.**
+
+The block before this one found that the corpus which *ranks* the work had stopped being the corpus
+that *measures* it. This is what comes after that. What measures this program is a raster of page
+one of 974 documents judged against three other renderers, and the words on that page compared with
+`pdftotext`'s — and over thirty rounds those instruments were very nearly still, while the program
+gained a popup window, a screen reader's table headers, an editable annotation, a presentation's
+state machine, a second signature algorithm family, a fourth corpus, two decoded-stream and
+reduced-raster memos, and eleven corrected readings of the standard.
+
+The numbers say it without interpretation:
+
+- **The oracle's 1794 verdicts moved in exactly one round of the thirty.** 905 agree / 68
+  contradicted / 786 ambiguous entering the block and 906 / 67 / 786 leaving it, and the single
+  movement is the four-hundred-and-seventy-second's `knockout_blend_multiply.pdf`. **Four rounds ran
+  the whole gate set twice**, by stashing their own change — 457, 464, 472, 476 — and three of the
+  four reported every line identical.
+- **The corpus gate's incomplete count ended where it started, at 65**, having risen twice on the
+  way. Both rises were a *report* arriving (468's lexer, 470's page-tree node), which trap 5 says is
+  not a regression, and both were absorbed by the four-hundred-and-seventy-second's reading of
+  §11.4.6.
+- **The pdf.js text gate moved once, by five words** (463), and the frozen PDFBox comparison beside
+  it never moved at all. Five further rounds were about text — 464, 467, 468, 476, 483 — and each
+  is recorded as identical, because both gates strip whitespace from the comparison and trim every
+  token to its alphanumeric core. `issue4304.pdf`, 895 bytes and named *Words that should have
+  spaces between them*, had read back `Wordsthatshouldhavespacesbetweenthem.` for **fifty-nine
+  sessions after its picture was fixed**, and no gate here can see a space.
+- **Twenty-two of the run's twenty-nine preceding session records contain a sentence saying the
+  gates did not move**, and
+  three say outright that nothing in the tree could have seen the change. The four-hundred-and-fifty-
+  seventh puts it best about its own work: "the change is correct, it moves pixels on a real page,
+  and the whole instrument park is blind to it."
+
+**A viewer is not a rasteriser, and every instrument that ranks this project is a rasteriser's.**
+That sentence is the block, and the five findings below are what the rounds did about it.
+
+### 1. The instrument came first, and it was built for the occasion
+
+**Seventeen new census examples in thirty rounds** — `black_point`, `border_precedence`,
+`open_annotation`, `file_attachment`, `content_budget`, `kidless_node`, `free_text`, `table_header`,
+`element_bounds`, `cell_header`, `signature_algorithm`, `unnamed_code`, `annotation_group`,
+`sub_pixel_width`, `mesh`, `uncovered_share`, `accessibility_cost` — nearly one every other round,
+and in almost every case the round could not have judged its own work without one. Trap 11's "count
+the condition before believing it" stopped being advice and became the shape of a round.
+
+**And the counting refuted the round more often than it confirmed it.** The four-hundred-and-sixty-
+ninth priced three capability items and the census killed the obvious design for the one it took:
+56 of 67 free-text appearance streams have no marked-content region, so §12.7.4.3's splice would
+have *appended* a new note to a stream still drawing the old one. The four-hundred-and-sixtieth's
+census refused a document-wide attachment list, at 78 to 123 ms of page-tree walk on a launch path
+`CLAUDE.md` forbids one on. The four-hundred-and-sixty-first found eleven `/BlackPoint`s where a doc
+comment had claimed two. The four-hundred-and-seventy-ninth's found **no DSA signature at all** in
+67 460 documents, and, unasked, that `id-RSASSA-PSS` is twice as common as the ECDSA the round had
+been sent to consider.
+
+### 2. Running the program became a routine, because for nine rounds it was the only instrument
+
+**Six rounds drove the real window under `Xvfb`** (459, 460, 462, 469, 475, 480) and **three read
+the answer off a live AT-SPI bus** (465, 466, 477). Every one of the nine was a `shall` addressed to
+what a processor *shows*, and no gate in this tree renders chrome or speaks a page:
+
+- A sticky note saying `/Open true` showed its icon, **no window and no report**, for a hundred and
+  forty-seven sessions after the window existed (459).
+- A paperclip was drawn over an embedded file **no part of this program could reach** (460).
+- A popup window came up blank on 213 of ISO 32000-2's own 2552 windows, because the words were in
+  the primary annotation of a group and this reader took them from the subordinate (480).
+- A page turned **by hand** during a presentation played no transition at all (481).
+- Every table header cell in every document reached a screen reader as a *column*'s header; over 978
+  documents the axes are Row 3114, Column 1670, Both 1181 (465). And a data cell reached the bus as
+  *23* where the document says *Monday, Sydney: 23* (477).
+
+Twice the bus found what twelve unit tests could not: a `TH` whose words are in a `P` inside it has
+an empty name, and the subtree is what an assistive technology wants (477, and the same shape in
+0214 and 0301).
+
+### 3. A hand-built diagnostic corpus, where 0.1 MB found what 93 GB could not
+
+The new instrument class of the block, and it produced **three defects in three consecutive rounds**
+(467, 468, 470; ADRs 0302, 0303, 0305). `openpreserve/format-corpus`'s `pdf-handbuilt-test-corpus`
+is 89 files of 360 KB, each carrying *one* deliberate structural defect and all drawing the same
+*Hello PDF-world!* — so the measurement is not a survey's five questions but **the ink**: the intact
+page reads 0.807367 and sixty-odd files reproduce it exactly. Fourteen read zero, nine of them
+saying why, and the five that were blank *in silence* are the finding. Two were right to be blank;
+the other three were:
+
+- an operator reading its operands from the front of everything since the last operator rather than
+  the back, against §7.8.2's "shall immediately precede" — 466 rounds old, invisible on every
+  conforming stream, and a blank page in silence on one malformed one;
+- a lexer reading `.` and `-` as `Integer(0)`, on a comment saying that is "what other viewers do",
+  which is principle 5's forbidden direction written down and unchallenged for 467 sessions;
+- a `/Type /Pages` node with no `/Kids` drawn as a page.
+
+**Zero of the 65 944 crawled web documents state the third construct**, which is what decided the
+shape of its fix rather than merely permitting it. The corpus is **spent as an instrument** now —
+all five silent blanks are accounted for — and what it taught is in `doc/todo/03` §1: a corpus built
+to be *diagnostic* answers questions a corpus built to be *large* cannot ask.
+
+### 4. The claims that stopped being true are one phenomenon, and its condition is that no program reads the sentence
+
+Ten of the thirty rounds found a claim that was true when written. They look like several
+phenomena and they are one, and the tell is uniform: **every one of them lived in prose no program
+reads.**
+
+| what was claimed | where | how long |
+|---|---|---|
+| `MAX_OPERATIONS` counts operators | a comment beside the constant | it counted lexer tokens, and truncated a 50 MB drawing at 19% while stating 814 705 *fewer* operators than the bound (471) |
+| `/SD` "resolves through §12.3.2.3 like any other" | §12.6.4.2's ledger row | nothing in the tree named the entry (484) |
+| Table 187's `/FS` is "not a rendering question" | §12.5.6.15's ledger row | the clause says what activating one does (460) |
+| `/IRT` and `/RT` "reach a comments pane rather than a raster" | §12.5.6.2's ledger row | true of both, and silent about the nine entries they group (480) |
+| "a residue of colour management rather than of fonts" | an oracle group named `CONTRADICTED_SUBSTITUTED_FONT` | 455 sessions, with the diagnosis in the note (461) |
+| §9.10.3's "Table 118's `/UseCMap` is read" | a ledger row | true of a different function reading a different entry of a different `CMap` (463) |
+| three sentences quoted as ISO 32000-2's | ADRs and `crates/` prose | the standard does not contain them (474) |
+| `/Ascent` and `/Descent` unread; `/CapHeight` costed | §9.8.1's row, `cie_to_srgb`, `Tree::element_by_id` | each a claim about the corpus that a census refuted (461, 477) |
+
+**Two of the ten were found by a program, and both programs were built in this block.** The
+four-hundred-and-seventy-fourth wrote `conformance::prose` and its `quotations` binary — the first
+thing ever to compare this project's own Markdown with the standard, thirteen corrections on its
+first run. The four-hundred-and-eighty-fourth committed the fifteenth sweep as
+`conformance::entries`, which had been described in `doc/todo/01` and rebuilt from that description
+by the round before it. **Two of fifteen sweeps are commands; thirteen are still prose**, and the
+prose ones are exactly the ones that go unrun.
+
+The closing round's own reconciliation is the same phenomenon four more times, and every instance is
+a sentence with no reader: `doc/crate-map.md` says "one row per crate" and had none for
+`render-quorra` — the third rasteriser and **the one the window presents with**; `doc/HANDOVER.md`
+said "two backends"; `doc/todo/README.md` said nothing reads the sixth population of quotation, ten
+rounds after 474 built the thing that reads it; and `tools/state.sh` — the one command this project
+says prints the numbers — filtered the corpus gate's silence lines with a pattern that misses the
+third, added one round earlier.
+
+### 5. Eleven rounds in parallel worktrees: parallelise the reading, never the measuring
+
+Sessions 473 to 477 ran five at a time and 478 to 483 ran six, which no earlier run of this project
+did. What it bought is eleven rounds in the wall clock of two. What it cost is worth stating exactly,
+because none of it is about correctness:
+
+- **Green in a worktree is not green on `main`, and the proof is in this tree.** The
+  four-hundred-and-seventy-ninth added `examples/signature_algorithm_census.rs` and `src/dsa.rs`
+  carrying **eleven `clippy::pedantic` warnings**. The four rounds after it each recorded
+  `clippy --workspace --all-targets` silent, and each was telling the truth *about its own worktree*,
+  which had branched before those files existed. `doc/todo/02` §2 calls that run "must be silent of
+  lints" and CI makes warnings errors: the workspace's lint gate was broken for five rounds and the
+  closing round is where it was found. Two other parallel rounds broke the quotation gate the same
+  way, on merge.
+- **The clock is unusable and three rounds said so rather than averaging it.** The
+  four-hundred-and-seventy-seventh: "the same release binary read 56 ms and 151 ms for the same
+  work". The four-hundred-and-seventy-eighth: "[t]here is no clock in this round worth quoting and
+  the document says so instead". The four-hundred-and-eighty-second, with the load average between
+  20 and 72: medians of 9.75 s against 6.73 s **with ranges of 9 s and 8 s** — "the right direction
+  and no evidence whatever". All three fell back on **callgrind**, whose instruction counts do not
+  move with the machine and whose two repeats landed 0.015% apart.
+- **The shared build directory lies.** The four-hundred-and-seventy-fourth's
+  `cargo clippy --workspace` failed with `unresolved import conformance::prose` — an error about a
+  module that exists — because a parallel round's `conformance` build was in
+  `/home/AI/cargo-target/pdf-viewer` beside it; the same commands under a private
+  `CARGO_TARGET_DIR` were clean every time.
+- **A worktree can be cut from a stale base.** The four-hundred-and-seventy-third spent its first
+  half hour measuring a tree **98 commits behind `main`**, on which the document it was sent to
+  diagnose still drew as a fraction of itself. "A worktree round's first command should be
+  `git rev-list --count HEAD..main`."
+
+**The rule the run establishes**: parallel rounds are safe for reading a clause, writing code and
+running a ratchet, and unusable for a stopwatch — and **a merge needs its own gate run**, which in
+this block it did not get.
+
+### What the project knows now that it did not thirty rounds ago
+
+- **That its gates measure a raster and its work has moved off the raster.** Not a criticism of the
+  oracle, which is the robustness instrument and did its job: it held 1794 verdicts steady through
+  thirty rounds of change, which is exactly what a regression instrument is for. What it cannot do
+  is rank the next thirty.
+- **That a defect can be invisible because a *clip* absorbed it.** §12.5.4's underline sat on the
+  bottom edge of `/Rect`, `Constructed::bounded` cut away the half outside, and the reader saw an
+  underline half the width the document asked for — "not a report, a refusal or a distance from a
+  reference" (458). Ask what a construction's clip absorbs.
+- **That a bound must count what its name says, and a bound that refuses must say so** (471). The
+  best line in the block is what fell out of it: a `MAX_OPERATIONS` counting the wrong unit had been
+  **hiding a real cycle behind a false refusal**, and correcting the unit made one document reach
+  `MAX_FORM_DEPTH` — the bound that is genuinely load-bearing — and extract the title its producer
+  wrote.
+- **That the transparency clauses keep being cheaper than they read**, for the seventh and eighth
+  time: §11.4.6's initial backdrop needed no construction at all, and two of the three documents
+  the item named were not that item (472).
+- **That a count which stops falling is an answer.** §9.10.2's 1342 unnamed codes split by cause,
+  and three of the four large populations turn out to be the clause's own "there is no way" (483).
+- **That `doc/md/` goes on being the thing to suspect first.** Table 164's `/Di`, Table 200's
+  columns, Table 165's first row, Table 29's `/OpenAction`, Table 179's `OpenArrow`, Table 384's
+  `/Scope`, bit 8's *chang es* — seven more instances in thirty rounds, every one settled with
+  `pdftotext -layout` over the PDF before anything was edited.
+
+**The block's own arithmetic**, read off the gates in the four-hundred-and-eighty-fourth against the
+numbers the four-hundred-and-fifty-fifth and -sixth recorded: tests **1634 → 1763**, citations
+**6843 → 7206** and quotations **683 → 728** (the four-hundred-and-sixty-seventh's and the
+four-hundred-and-seventy-first's figures), ledger **875 rows, 417
+implemented / 240 partial → 418 / 239**, oracle **905 / 68 / 786 → 906 / 67 / 786**, corpus
+**65 → 65 incomplete**, quorra **915 / 37 / 5 / 17 → 918 / 37 / 1 / 18**, and **30 ADRs** (0290 to 0319).

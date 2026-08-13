@@ -87,7 +87,8 @@ impl Counts {
             (&mut self.authenticity, other.authenticity),
         ] {
             for (key, count) in theirs {
-                *map.entry(key).or_default() = map.get(&key).copied().unwrap_or(0) + count;
+                let slot = map.entry(key).or_default();
+                *slot = slot.saturating_add(count);
             }
         }
         self.unverifiable_documents
@@ -155,8 +156,10 @@ fn every_signature(document: &Document) -> Vec<Signature> {
 
 /// Every signature one document states, read for the three identifiers it carries.
 fn census(path: &str, bytes: &[u8], document: &Document) -> Counts {
-    let mut counts = Counts::default();
-    counts.opened = 1;
+    let mut counts = Counts {
+        opened: 1,
+        ..Counts::default()
+    };
     let signatures = every_signature(document);
     if signatures.is_empty() {
         return counts;
@@ -168,7 +171,8 @@ fn census(path: &str, bytes: &[u8], document: &Document) -> Counts {
             .sub_filter
             .clone()
             .unwrap_or_else(|| "(none)".into());
-        *counts.sub_filters.entry(sub_filter).or_default() += 1;
+        let slot = counts.sub_filters.entry(sub_filter).or_default();
+        *slot = slot.saturating_add(1);
         let answer = signature.authenticity(bytes);
         let unverifiable = matches!(
             answer,
@@ -176,7 +180,8 @@ fn census(path: &str, bytes: &[u8], document: &Document) -> Counts {
                 | Authenticity::AlgorithmNotVerifiable { .. }
                 | Authenticity::KeyDoesNotMatchAlgorithm { .. }
         );
-        *counts.authenticity.entry(verdict(&answer)).or_default() += 1;
+        let slot = counts.authenticity.entry(verdict(&answer)).or_default();
+        *slot = slot.saturating_add(1);
         match signature.signed_data() {
             Ok(cms) => {
                 counts.readable = counts.readable.saturating_add(1);
@@ -192,7 +197,8 @@ fn census(path: &str, bytes: &[u8], document: &Document) -> Counts {
                     }
                     SignatureAlgorithm::Unrecognised(oid) => identifier(oid),
                 };
-                *counts.signature_algorithms.entry(named).or_default() += 1;
+                let slot = counts.signature_algorithms.entry(named).or_default();
+                *slot = slot.saturating_add(1);
                 let digest = match cms.digest {
                     Some(digest) => format!(
                         "{} ({})",
@@ -201,10 +207,11 @@ fn census(path: &str, bytes: &[u8], document: &Document) -> Counts {
                     ),
                     None => identifier(cms.digest_algorithm),
                 };
-                *counts.digest_algorithms.entry(digest).or_default() += 1;
+                let slot = counts.digest_algorithms.entry(digest).or_default();
+                *slot = slot.saturating_add(1);
                 // The signer's own certificate, not every certificate the value carries: a chain
                 // holds its issuers' keys too, and those say nothing about how this was signed.
-                let key = cms
+                let key = match cms
                     .certificates
                     .iter()
                     .filter_map(|value| x509::read(*value).ok())
@@ -213,8 +220,8 @@ fn census(path: &str, bytes: &[u8], document: &Document) -> Counts {
                         None => cms
                             .signer_key_identifier
                             .is_some_and(|id| certificate.key_identifier == Some(id)),
-                    })
-                    .map(|certificate| match certificate.public_key {
+                    }) {
+                    Some(certificate) => match certificate.public_key {
                         PublicKey::Rsa(key) => {
                             format!("1.2.840.113549.1.1.1 (rsaEncryption, {}-bit)", key.bits())
                         }
@@ -224,12 +231,15 @@ fn census(path: &str, bytes: &[u8], document: &Document) -> Counts {
                             key.subgroup_bits()
                         ),
                         PublicKey::Unverifiable { algorithm } => identifier(algorithm),
-                    })
-                    .unwrap_or_else(|| "(the signer's certificate was not found)".into());
-                *counts.key_algorithms.entry(key).or_default() += 1;
+                    },
+                    None => "(the signer's certificate was not found)".to_owned(),
+                };
+                let slot = counts.key_algorithms.entry(key).or_default();
+                *slot = slot.saturating_add(1);
             }
             Err(error) => {
-                *counts.unreadable.entry(error.to_string()).or_default() += 1;
+                let slot = counts.unreadable.entry(error.to_string()).or_default();
+                *slot = slot.saturating_add(1);
             }
         }
         if unverifiable {

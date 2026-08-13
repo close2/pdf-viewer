@@ -585,13 +585,13 @@ mod tests {
             (3, "2.16.840.1.101.3.4.3.3"),
             (4, "2.16.840.1.101.3.4.3.4"),
         ] {
-            let oid = [&super::ID_DSA_WITH_SHA2[..], &[last]].concat();
+            let oid = [super::ID_DSA_WITH_SHA2, &[last]].concat();
             assert_eq!(dotted(&oid).as_deref(), Some(expected));
             assert!(is_dsa(&oid));
         }
         // The arc itself is not a signature algorithm, and neither is one component further on.
         assert!(!is_dsa(super::ID_DSA_WITH_SHA2));
-        assert!(!is_dsa(&[&super::ID_DSA_WITH_SHA2[..], &[1, 1]].concat()));
+        assert!(!is_dsa(&[super::ID_DSA_WITH_SHA2, &[1, 1]].concat()));
         // RSA and ECDSA are not DSA, which a prefix test over `1.2.840` would have said they were.
         assert!(!is_dsa(&[
             0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x01

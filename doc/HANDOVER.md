@@ -62,11 +62,16 @@ It **draws** what a page says: geometry, colour, images, shadings, patterns, emb
 transparency groups, soft masks, and annotations both from stored appearance streams and
 constructed where the standard states one — including §12.5.6.4's seven icons, whose artwork is
 this processor's own because the clause requires one and draws none, and §12.5.6.15's four and
-§12.5.6.16's two, whose clauses only *recommend* one and whose names name objects. Two backends
-(CPU and GPU) that agree to the channel, over `test-scenes`' fixtures **and over real pages at a
-real window's resolution**, which is where they did not (ADR 0127). The GPU backend **bands a
-target the device cannot draw in one pass**, because Vello's working buffers are fixed constants
-with no knob and a page of small text at a laptop's resolution can exceed them. JBIG2 and
+§12.5.6.16's two, whose clauses only *recommend* one and whose names name objects — and a markup
+annotation drawn from **the group it belongs to** rather than from itself, which is §12.5.6.2's
+nine shared entries. **Three rasterisers behind one display list**: `render-cpu` is the correctness
+oracle, `render-gpu` is Vello and the backend it is compared against — they agree to the channel
+over `test-scenes`' fixtures **and over real pages at a real window's resolution**, which is where
+they did not (ADR 0127) — and `render-quorra` is the third, over the document renderer this project
+commissioned (`doc/RENDER_LIBRARY.md`), **what the window actually presents with**, held against the
+processor's raster over the whole corpus at the page's own scale and at four times it. The Vello
+backend **bands a target the device cannot draw in one pass**, because its working buffers are fixed
+constants with no knob and a page of small text at a laptop's resolution can exceed them. JBIG2 and
 JPEG 2000 in a confined worker. Encryption at every revision and method §7.6 states, in both
 directions. §12.3.2's destinations, §12.3.3's outline, §12.4.2's page labels, §12.5.6.5's links
 performing eleven of §12.6's actions, §14.9's accessibility entries, §12.4.4's whole presentation
@@ -110,7 +115,9 @@ costs is [`doc/performance.md`](performance.md)'s first section, and the open ha
 `pdf-render` display list so that both backends draw it: §12.3.3's outline, where a click
 **activates the item** and the document decides whether that is a jump or a URI; §8.11.4.3's
 layers, where a switch turns one on unless Table 99's `/Locked` forbids it; §7.11.4's embedded
-files, where a click writes the file beside the document — and where a document stating §12.3.5's
+files, where a click writes the file beside the document — as does a click on §12.5.6.15's
+paperclip, because §7.11.4.1 gives an embedded file two homes and a file hung on a *page's* own
+annotation is in the one the name tree does not list — and where a document stating §12.3.5's
 `/Collection` gets its folder tree and the schema's columns instead of a flat list, because a
 collection is how a document *arranges* its files rather than a new population of them (ADR 0202);
 §14.3.3's `/Info`; §12.3.4's thumbnails, one row per page with the miniature fitted above
@@ -128,9 +135,13 @@ lesson in [`doc/habits.md`](habits.md)'s ledger section rather than a fact about
 them, with no type from a windowing or graphics library anywhere in its API.
 [`doc/ui-boundary.md`](ui-boundary.md) is the whole story; ADRs 0116 to 0121.
 
-**Six consumers on that boundary, and not one of them has needed a new message.** That is the
-boundary's own evidence, and it is what let the C ABI be frozen — `doc/todo/30` made freezing
-conditional on two Rust consumers shaking the API out first.
+**Six consumers on that boundary, and not one of them has ever asked for a new message.** That is
+the boundary's own evidence, and it is what let the C ABI be frozen — `doc/todo/30` made freezing
+conditional on two Rust consumers shaking the API out first. **A *clause* has asked for one, which
+is the other direction and is why the sentence is worded about consumers**: §12.4.4.2 conditions its
+whole state machine on being in presentation mode, and full screen is chrome, so `Command::Present`
+is a statement only a host can make (ADR 0316). `doc/ui-boundary.md` holds the test a message has to
+pass.
 
 - **`viewer-ui`'s winit window**, and a **headless test harness**.
 - **`viewer-confined`'s `pdf-view-worker`** — a `Viewer` and `render-cpu` behind seccomp-BPF,
@@ -213,7 +224,10 @@ valid.**
 **And it speaks a page.** `viewer-accessibility` maps §14.8.4's standard structure types onto
 `accesskit::Role`, and `accesskit_unix` puts the result on AT-SPI — where a real client walks it
 off the bus, `Frame` → `DocumentFrame` → the page named by §12.4.2's own label → §14.7's elements,
-with §14.9.3's `/Alt` where the document states one and a `StatusBar` group carrying **what the
+with §14.9.3's `/Alt` where the document states one, a table cell announced with **the headers that
+describe it** — Table 384's `/Headers` where a producer wrote one and §14.8.4.8.3's own search where
+none did — a `TH` carrying the axis §14.8.5.7 gives it rather than a guess, an element placed by
+Table 379's `/BBox` where its content marked no text, and a `StatusBar` group carrying **what the
 page could not draw**, because the person who cannot see the page is the one for whom a count in
 the title bar is no answer. An untagged page says that it is one rather than being given an
 invented reading order. The one async runtime this tree has is confined to that crate, it is
@@ -685,9 +699,14 @@ are no longer here.
   back to in-process decoding when the worker fails to start.
 - **A font is reported as a whole, and that is not fine-grained enough.** `FontError` is the only
   channel a font has, so a font that maps *some* of its document's codes draws those and says
-  nothing about the rest. The general case needs a report where a glyph is *shown*, which needs
-  `LoadedFont` to distinguish "this code has no glyph" from "this code's glyph is blank", which a
-  space legitimately is. Not hard; not done; measure the volume first.
+  nothing about the rest. `LoadedFont` distinguishes "this code has no glyph" from "this code's
+  glyph is blank", which a space legitimately is, and the corpus gate prints both counts — **and a
+  third, which is the one nobody had**: a code no method of §9.10.2 could name, which is the
+  *reading* band rather than the drawing one and is two orders of magnitude wider (ADR 0311).
+  `examples/unnamed_code_census` splits it by which method the font could have answered with (ADR
+  0318). **None of the three is a report**, deliberately, on ADR 0152's arithmetic: a report takes
+  a page off the oracle's judged set, and these are shortfalls in the readback of pages that mostly
+  draw perfectly. The volume is measured; what to do with it is not settled.
 - **`doc/md/` is the specification in a form code can read** — markdown conversions of the 14
   PDFs. **This entry said "committed" and had been false since the three-hundred-and-eleventh
   session**: `.gitignore` covers `/doc/md/` and `/doc/*.pdf`, and what is tracked is the encrypted
@@ -735,10 +754,11 @@ are no longer here.
 
 ## How the project got here
 
-**[`doc/history.md`](history.md)** — one line per session, with the ADR that argues each, and **two**
-block summaries: what the twenty rounds from the three-hundred-and-fifteenth had in common, and what
-the thirty from the four-hundred-and-sixteenth did. **It ends at the four-hundred-and-forty-fifth and
-a round appends nothing to it** — this sentence said "a round appends one row to it; a *closing*
-round appends the summary as well" for ten rounds after ADR 0281 moved the record to
-[`doc/history/`](history/README.md), one file per round. Where a future closing round's block
-summary goes is not decided; nothing has closed a block since.
+**[`doc/history.md`](history.md)** — one line per session, with the ADR that argues each, and the
+**block summaries**: what the twenty rounds from the three-hundred-and-fifteenth had in common, what
+the thirty from the four-hundred-and-sixteenth did, and what the thirty from the
+four-hundred-and-fifty-fifth did. **Its table ends at the four-hundred-and-forty-fifth and an
+ordinary round appends nothing to it** — this sentence said "a round appends one row to it" for ten
+rounds after ADR 0281 moved the record to [`doc/history/`](history/README.md), one file per round.
+**A *closing* round is the one exception and it appends its block summary here**, which that file's
+own preamble states: a summary is about a run of rounds and belongs beside the others.

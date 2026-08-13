@@ -936,7 +936,10 @@ fn one(document: &Document, dict: &Dictionary) -> Option<Action> {
     let kind = document.get_key(dict, "S");
     let kind = kind.as_name()?;
     Some(match kind.as_bytes() {
-        b"GoTo" => Action::GoTo(Destination::read(document, dict.get("D")?)?),
+        // Table 202's `/SD` first and `/D` behind it, which is the order the table states:
+        // `Destination::of_go_to` carries the sentence and the reason a malformed `/SD` falls
+        // back rather than refusing.
+        b"GoTo" => Action::GoTo(Destination::of_go_to(document, dict)?),
         b"SetOCGState" => Action::SetOcgState(set_ocg_state(document, dict)),
         b"Hide" => Action::Hide(hide(document, dict)),
         b"Named" => Action::Named(Named::read(document.get_key(dict, "N").as_name()?)?),

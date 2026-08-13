@@ -78,7 +78,7 @@ section_tests() {
 section_corpus() {
     gate_binaries
     run "corpus (974 pdf.js documents, page one)" \
-        '^[0-9]+ documents in|codes reaching' \
+        '^[0-9]+ documents in|^  codes ' \
         cargo test --profile gates -p pdf-model --test corpus -- --ignored --nocapture
 }
 
