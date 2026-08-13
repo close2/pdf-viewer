@@ -52,7 +52,7 @@ pub use geom::{Path, PathCommand, Point, Rect, Size, Transform};
 pub use outline::{marked_bounds, stroked_bounds};
 pub use paint::{
     BlendMode, Color, DeferredImage, FillRule, Grid, Image, ImageAtDeviceScale, ImageSource,
-    LineCap, LineJoin, Paint, Stroke, thinnest_line,
+    LineCap, LineJoin, Paint, Reduction, Stroke, thinnest_line,
 };
 pub use repeat::{Repeats, Tiles, repeated_subpaths, without_subpaths};
 pub use shading::{

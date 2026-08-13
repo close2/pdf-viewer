@@ -20,6 +20,10 @@ use quorra_scene::{ResourceId, SceneBuilder};
 use crate::QuorraRasterError;
 use crate::cache::ResourceCaches;
 
+/// The factor pair that stands for an image uploaded whole, as its own key in the
+/// resource cache: one source sample per output sample, in both axes.
+const WHOLE: (u32, u32) = (1, 1);
+
 /// The walk's state: the device and caches it uploads through, and the per-list
 /// clip and mask tables it resolves against.
 pub(crate) struct Encoder<'a> {
@@ -620,28 +624,29 @@ impl<'a> Encoder<'a> {
 
         // Samples the display list deferred are produced here, where the device scale is
         // known — §11.6.5.2's mask on a grid of its own, at the grid `pdf_render` derives from
-        // the placement so that no backend picks its own. A produced raster is *transient*
-        // rather than cached: it belongs to this placement, and the cache is keyed by the
-        // display list's own image.
+        // the placement so that no backend picks its own. Those stay *transient*: the samples
+        // are made for this placement and their `Arc` is this frame's, so there is no identity
+        // for a cache to be keyed by and an entry would be a leak with a lookup on it.
         let resolved = source.at(placement);
         let image: &Image = &resolved;
         let deferred = matches!(source, ImageSource::AtDeviceScale(_));
 
         // The two decisions RENDER_LIBRARY.md section 4.5 settles on this side of the boundary: area
         // averaging for minification, and the resolved smoothing for the placement.
-        let (id, smoothed) = match image.area_averaged(placement) {
-            Some(reduced) => {
-                let smoothed = reduced.is_smoothed(placement);
-                let id = self.device.upload_image(&spec(&reduced))?;
-                self.transient.push(id.into());
-                (id, smoothed)
+        let (id, smoothed) = if deferred {
+            let reduced = image.area_averaged(placement);
+            let uploaded: &Image = reduced.as_ref().unwrap_or(image);
+            let id = self.device.upload_image(&spec(uploaded))?;
+            self.transient.push(id.into());
+            (id, uploaded.is_smoothed(placement))
+        } else {
+            match image.reduction(placement) {
+                Some(reduction) => (
+                    self.reduced_image(image, placement, reduction)?,
+                    reduction.smoothed,
+                ),
+                None => (self.cached_image(image)?, image.is_smoothed(placement)),
             }
-            None if deferred => {
-                let id = self.device.upload_image(&spec(image))?;
-                self.transient.push(id.into());
-                (id, image.is_smoothed(placement))
-            }
-            None => (self.cached_image(image)?, image.is_smoothed(placement)),
         };
         let filter = if smoothed {
             quorra_scene::ImageFilter::Linear
@@ -802,11 +807,47 @@ impl<'a> Encoder<'a> {
     }
 
     fn cached_image(&mut self, image: &Image) -> Result<quorra_scene::ImageId, QuorraRasterError> {
-        if let Some(id) = self.caches.image(&image.data) {
+        if let Some(id) = self.caches.image(&image.data, WHOLE) {
             return Ok(id);
         }
         let id = self.device.upload_image(&spec(image))?;
-        self.caches.store_image(&image.data, id);
+        self.caches.store_image(&image.data, WHOLE, id);
+        Ok(id)
+    }
+
+    /// The reduced grid `reduction` describes, uploaded once and kept under the *source's*
+    /// identity together with the factors that produced it.
+    ///
+    /// **This raster used to be transient, and that was 57% of a scrolled page's frame.**
+    /// [`pdf_render::Image::area_averaged`] costs one pass over the *source* samples, so on a
+    /// scanned page it is the largest thing in the frame and it does not shrink with the
+    /// window: 8.5 to 9.8 ms of a 12.7 to 16.8 ms redraw of one 2700×3450 page, recomputed
+    /// identically on every scroll step because the page, the scale and the samples were all
+    /// unchanged (ADR 0297, `doc/todo/45`'s witness). Keying it needs no new memory argument:
+    /// the entry's own bytes are the device's and are already inside `evict_settled`'s budget,
+    /// and its pin is released the frame after the display list holding those samples goes.
+    ///
+    /// What it costs in readability is this function and one wider key — against
+    /// `Image::reduction`, which is the whole of the exactness argument: every byte of the
+    /// raster is a function of the source samples and the two factors, both of which are in
+    /// the key.
+    fn reduced_image(
+        &mut self,
+        image: &Image,
+        placement: Transform,
+        reduction: pdf_render::Reduction,
+    ) -> Result<quorra_scene::ImageId, QuorraRasterError> {
+        if let Some(id) = self.caches.image(&image.data, reduction.factors) {
+            return Ok(id);
+        }
+        // `Image::reduction` answered `Some`, so `area_averaged` does too — they ask one
+        // function. Written as "the reduced grid, or the samples themselves" rather than as an
+        // unreachable branch, because that is the sentence the fallback would mean anyway and
+        // it draws the same picture at a finer grid.
+        let reduced = image.area_averaged(placement);
+        let uploaded: &Image = reduced.as_ref().unwrap_or(image);
+        let id = self.device.upload_image(&spec(uploaded))?;
+        self.caches.store_image(&image.data, reduction.factors, id);
         Ok(id)
     }
 

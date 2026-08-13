@@ -363,6 +363,77 @@ impl BlendMode {
     }
 }
 
+/// What reducing an image under one placement would produce, decided without producing it.
+///
+/// [`Image::reduction`] answers it and [`Image::area_averaged`] carries it out, which is the
+/// split that lets a backend cache a reduced raster: every field here is a function of the
+/// source samples and the placement, so two placements with the same [`Reduction::factors`]
+/// over the same source ask for the same bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Reduction {
+    /// How many whole source samples share one device pixel, across and down.
+    ///
+    /// At least one of the two is greater than one — a reduction that reduces nothing is
+    /// [`Image::reduction`]'s `None` rather than a factor pair of ones.
+    pub factors: (u32, u32),
+    /// Width of the reduced grid in samples.
+    pub width: u32,
+    /// Height of the reduced grid in samples.
+    pub height: u32,
+    /// What [`Image::is_smoothed`] answers about the *reduced* grid under the same placement.
+    pub smoothed: bool,
+}
+
+/// How many whole source samples of an axis `samples` long share one device pixel, where the
+/// axis covers `device` pixels.
+///
+/// One where nothing gathers — including where the placement is degenerate or not a number,
+/// which is a collapsed image rather than a reduced one.
+///
+/// **`samples` must not be zero**: the clamp's minimum would then exceed its maximum, and
+/// `f32::clamp` panics outright on that. [`Image::reduction`] is the only caller and rules it
+/// out with [`Image::is_consistent`] before asking.
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "an image's dimensions are bounded well below f32's exact integer range \
+              by the decoder's own sample limit"
+)]
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "the ratio is clamped to 1.0 ..= the dimension it came from before the \
+              cast, so it is a positive number no larger than a u32 the image's own \
+              width or height already is"
+)]
+fn factor(samples: u32, device: f32) -> u32 {
+    if !device.is_finite() || device <= 0.0 {
+        return 1;
+    }
+    ((samples as f32) / device)
+        .floor()
+        .clamp(1.0, samples as f32) as u32
+}
+
+/// Whether a backend should filter between the samples of a `width` × `height` grid.
+///
+/// One statement of the rule, asked by [`Image::is_smoothed`] about an image's own grid and by
+/// [`Image::reduction`] about the reduced one — which is a grid no `Image` exists for yet.
+fn smoothed(width: u32, height: u32, interpolate: bool, placement: Transform) -> bool {
+    if interpolate {
+        return true;
+    }
+    let across = crate::geom::length(placement.a, placement.b);
+    let down = crate::geom::length(placement.c, placement.d);
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "an image's dimensions are bounded well below f32's exact integer range \
+                  by the decoder's own sample limit, and a pixel either way cannot change \
+                  which side of this comparison a real image falls"
+    )]
+    let magnified = across > width as f32 || down > height as f32;
+    !magnified
+}
+
 /// Decoded image samples, ready to draw.
 ///
 /// Always straight-alpha RGBA8, whatever the document's colour space and bit depth were:
@@ -442,58 +513,60 @@ impl Image {
     /// disagreement about every magnified image.
     #[must_use]
     pub fn is_smoothed(&self, placement: Transform) -> bool {
-        if self.interpolate {
-            return true;
-        }
-        let across = crate::geom::length(placement.a, placement.b);
-        let down = crate::geom::length(placement.c, placement.d);
-        #[expect(
-            clippy::cast_precision_loss,
-            reason = "an image's dimensions are bounded well below f32's exact integer range \
-                      by the decoder's own sample limit, and a pixel either way cannot change \
-                      which side of this comparison a real image falls"
-        )]
-        let magnified = across > self.width as f32 || down > self.height as f32;
-        !magnified
+        smoothed(self.width, self.height, self.interpolate, placement)
     }
 
-    /// How many whole source samples share one device pixel along each image axis.
+    /// The grid [`Image::area_averaged`] would produce under `placement`, without producing it.
     ///
-    /// `placement` maps the unit square onto the device, so [`crate::geom::length`] of each
-    /// column is the device length of that edge of the image — which holds under rotation and
-    /// skew as well as under a plain scale, and is the same quantity [`Image::is_smoothed`]
-    /// measures, by the same function for the reason that function gives.
+    /// `None` where it would produce none: an image whose dimensions and buffer disagree, or
+    /// one no device pixel gathers two samples of.
     ///
-    /// A factor is the *floor* of the ratio, so dividing the grid by it leaves between one
-    /// and two source samples per device pixel: enough for a four-tap filter to see all of
-    /// them, which is what makes [`Image::area_averaged`] and the backends' own bilinear
-    /// filters complementary rather than redundant.
-    fn reduction(&self, placement: Transform) -> (u32, u32) {
-        #[expect(
-            clippy::cast_precision_loss,
-            reason = "an image's dimensions are bounded well below f32's exact integer range \
-                      by the decoder's own sample limit"
-        )]
-        #[expect(
-            clippy::cast_possible_truncation,
-            clippy::cast_sign_loss,
-            reason = "the ratio is clamped to 1.0 ..= the dimension it came from before the \
-                      cast, so it is a positive number no larger than a u32 this image's own \
-                      width or height already is"
-        )]
-        fn factor(samples: u32, device: f32) -> u32 {
-            if !device.is_finite() || device <= 0.0 {
-                return 1;
-            }
-            ((samples as f32) / device)
-                .floor()
-                .clamp(1.0, samples as f32) as u32
+    /// **This is the cache key a backend needs and cannot otherwise have.** The reduced
+    /// samples are a pure function of the source samples and the two factors, so a backend
+    /// holding a reduced raster can decide whether the one it holds is the one this placement
+    /// asks for *before* paying the reduction's cost — which is per source sample and is
+    /// therefore the whole of a scanned page's redraw (ADR 0297). Answering it is two vector
+    /// lengths and two divisions.
+    #[must_use]
+    pub fn reduction(&self, placement: Transform) -> Option<Reduction> {
+        // Consistency is asked **before** the factors rather than beside them, and that
+        // ordering is load-bearing: `factor` clamps a ratio into `1.0 ..= width`, and
+        // `f32::clamp` panics outright when its minimum exceeds its maximum — which a
+        // zero-width image makes it do.
+        if !self.is_consistent() {
+            return None;
         }
 
-        (
+        // `placement` maps the unit square onto the device, so `geom::length` of each column
+        // is the device length of that edge of the image — which holds under rotation and
+        // skew as well as under a plain scale, and is the same quantity `is_smoothed`
+        // measures, by the same function for the reason that function gives.
+        //
+        // A factor is the *floor* of the ratio, so dividing the grid by it leaves between one
+        // and two source samples per device pixel: enough for a four-tap filter to see all of
+        // them, which is what makes `area_averaged` and the backends' own bilinear filters
+        // complementary rather than redundant.
+        let factors = (
             factor(self.width, crate::geom::length(placement.a, placement.b)),
             factor(self.height, crate::geom::length(placement.c, placement.d)),
-        )
+        );
+        if factors.0 <= 1 && factors.1 <= 1 {
+            return None;
+        }
+        // `div_ceil`, so the samples at a right or bottom edge keep an output cell rather
+        // than being dropped.
+        let width = self.width.div_ceil(factors.0);
+        let height = self.height.div_ceil(factors.1);
+        Some(Reduction {
+            factors,
+            width,
+            height,
+            // The reduced grid's own answer to the question `is_smoothed` asks, by the same
+            // function: a backend that reused this raster would otherwise have to re-derive
+            // it from dimensions it no longer holds. It is not implied by the factors —
+            // a factor clamped to 1 in one axis leaves that axis magnified.
+            smoothed: smoothed(width, height, self.interpolate, placement),
+        })
     }
 
     /// Averages each block of samples that would share one device pixel, or `None` if none do.
@@ -553,23 +626,10 @@ impl Image {
     /// rayon's split on an image too small to repay it.
     #[must_use]
     pub fn area_averaged(&self, placement: Transform) -> Option<Self> {
-        // Consistency is asked **before** the reduction rather than beside it, and that
-        // ordering is load-bearing: `Self::reduction` clamps a ratio into `1.0 ..= width`,
-        // and `f32::clamp` panics outright when its minimum exceeds its maximum — which a
-        // zero-width image makes it do. `is_consistent` is what rules that out, and the two
-        // callers that asked it first were the only reason this was not reachable.
-        if !self.is_consistent() {
-            return None;
-        }
-        let (kx, ky) = self.reduction(placement);
-        if kx <= 1 && ky <= 1 {
-            return None;
-        }
-
-        // `div_ceil`, so the samples at a right or bottom edge keep an output cell rather
-        // than being dropped.
-        let width = self.width.div_ceil(kx);
-        let height = self.height.div_ceil(ky);
+        // Every refusal this function makes — an inconsistent image, a placement no pixel of
+        // which gathers two samples — is `Self::reduction`'s, so that a backend asking which
+        // raster it would get and a backend asking for the raster cannot disagree.
+        let Reduction { width, height, .. } = self.reduction(placement)?;
 
         // The block boundaries are then *proportional* rather than fixed multiples of the
         // factor, so the blocks tile the source grid exactly and no two differ by more than
@@ -1161,6 +1221,80 @@ mod resampling {
             };
             assert!(
                 source.area_averaged(Transform::scale(4.0, 4.0)).is_none(),
+                "{width}x{height}"
+            );
+        }
+    }
+
+    /// What a backend is told it would get is what it gets, over every regime of the two axes.
+    ///
+    /// The cache in `render-quorra` keeps a reduced raster under [`Image::reduction`]'s answer
+    /// and never looks at the raster again, so a `Reduction` that disagreed with
+    /// [`Image::area_averaged`] in any field would serve a raster of the wrong size or filter
+    /// it the wrong way, on a hit, silently. The two regimes are asked *per axis* on purpose:
+    /// `smoothed` is not a function of the factors, because an axis whose factor clamps to one
+    /// is an axis that may be magnified while the other is reduced.
+    #[test]
+    fn a_reduction_describes_the_raster_the_averaging_produces() {
+        let source = image(60, 36, |x, y| ((x * 3) ^ (y * 5)) as u8);
+        let placements = [
+            drawn_at(20.0, 12.0),
+            drawn_at(20.0, 36.0),
+            drawn_at(60.0, 12.0),
+            drawn_at(600.0, 12.0),
+            drawn_at(7.0, 5.0),
+            drawn_at(60.0, 36.0),
+            drawn_at(120.0, 72.0),
+        ];
+        for placement in placements {
+            let across = placement.a;
+            match (source.reduction(placement), source.area_averaged(placement)) {
+                (Some(reduction), Some(reduced)) => {
+                    assert_eq!(
+                        (reduction.width, reduction.height),
+                        (reduced.width, reduced.height),
+                        "the grid at {across}"
+                    );
+                    assert_eq!(
+                        reduction.smoothed,
+                        reduced.is_smoothed(placement),
+                        "the filter at {across}"
+                    );
+                    assert!(
+                        reduction.factors.0 > 1 || reduction.factors.1 > 1,
+                        "a reduction that reduces nothing is `None` at {across}"
+                    );
+                }
+                (None, None) => {}
+                (reduction, reduced) => panic!(
+                    "at {across}: reduction {} and averaging {}",
+                    if reduction.is_some() {
+                        "answered"
+                    } else {
+                        "declined"
+                    },
+                    if reduced.is_some() {
+                        "answered"
+                    } else {
+                        "declined"
+                    },
+                ),
+            }
+        }
+    }
+
+    /// An image the factors cannot be computed for declines both questions, and does not panic.
+    #[test]
+    fn an_image_with_no_samples_has_no_reduction_either() {
+        for (width, height) in [(0u32, 0u32), (0, 8), (8, 0)] {
+            let source = Image {
+                width,
+                height,
+                data: Vec::new().into(),
+                interpolate: false,
+            };
+            assert!(
+                source.reduction(Transform::scale(4.0, 4.0)).is_none(),
                 "{width}x{height}"
             );
         }

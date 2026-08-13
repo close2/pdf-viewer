@@ -2,13 +2,15 @@
 
 Status: **open**, opened by the three-hundred-and-ninetieth session, which built the instrument
 (ADR 0227) and then ran it. **Two of its four items were closed by the three-hundred-and-ninety-
-first** (ADR 0228) and this file is what is left.
+first** (ADR 0228) and what item 2 left behind was closed by the four-hundred-and-sixty-second
+(ADR 0297); this file is what is left.
 Priority: 45 — performance, and each item below is *measured* rather than suspected. `doc/todo/44`
 was the instrument; this is what it found, and it is the successor to that file rather than a
 restatement of it.
 Corpus: —, the witness is the project owner's own `tmp/windows/NorthAmerican.30MB.pdf` (65 pages,
 30 MB), which is outside the corpus
-Code: `crates/viewer-ui/src/bin/pdf-viewer.rs`, `doc/QUORRA_FEEDBACK.md`
+Code: `crates/viewer-ui/src/bin/pdf-viewer.rs`, `crates/render-quorra/src/cache.rs`,
+`crates/pdf-render/src/paint.rs`, `doc/QUORRA_FEEDBACK.md`
 
 ## The measurement everything below comes from
 
@@ -48,13 +50,26 @@ cost is per *source sample*, so a 388-command page with one photograph on it cos
 cell and the output rows are divided across rayon above a measured floor: 22.4 ms → 2.9 on a
 2700×3450 image, byte-identical, every gate unmoved. ADR 0228 §§1–2.
 
-**What it left behind, and it is a real question rather than a leftover**: the reduced raster is
-still *transient*, recomputed on every frame that draws the image. On this witness that costs
-nothing — each page is drawn once — but a scroll, a selection, a caret blink or a resize redraws
-the same page, and at 2.9 ms an image that is the whole page. A cache keyed by the source image's
-`Arc` identity **and the reduction factors** would be exact, because those two decide every output
-byte. What it needs before it is worth building is a witness: a redraw-heavy session measured with
-`--trace=frames`, which nothing in this project has taken.
+### 2a. ~~And the reduced raster is recomputed on every redraw~~ — **closed, session 462**
+
+The witness this asked for is a *scroll* rather than a page turn, and taking it is the whole of why
+it had not been taken: this file's own measurement is 38 page turns, and a page turn draws each page
+once. Two `+` and twenty `Down` on the same document redraw one page twenty times, and each step
+cost 12.7 to 16.8 ms of which **8.5 to 9.8 was `Image::area_averaged`** on a display list of one
+command — the work is per *source* sample, so it does not shrink with the window and the twenty
+steps recompute the same 1350×1725 raster from the same `Arc`.
+
+`render-quorra` keeps it now, keyed by the source's `Arc` identity and the reduction factors, which
+`pdf_render::Image::reduction` answers without producing the raster. Median frame **15.0 → 4.8 ms**,
+uploads **23 → 2**, three runs an arm; every gate unmoved and the 4× lane byte-identical. ADR 0297.
+
+**What is left of it is the other two backends.** `render-cpu` and `render-gpu` still recompute per
+draw, and `Image::reduction` is available to both. It matters for one host rather than for the
+window: `viewer-confined`'s `pdf-view-worker` rasterises with `render-cpu` and returns pixels, so a
+confined host redrawing a scanned page pays the 9 ms the window no longer does. Neither has a
+per-frame resource cache to hang an entry on, so each would need its own bound and its own liveness
+rule — which is why this was not done in the same round, and it wants a measurement in *that* host
+before it is worth the lines.
 
 ## 3. Four fifths of a frame is inside `Device::render`, and the largest part of it is CPU
 

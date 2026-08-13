@@ -671,6 +671,33 @@ publication's 2 ms was not §14.7's tree at all — that query is 0.13 to 0.25 m
 `App::place_window`, two synchronous X11 round trips for a window position a page turn cannot
 change; it is asked at bridge-up, `Moved` and `Resized` now.
 
+**And what a page turn cannot see is a *redraw*, which is the four-hundred-and-sixty-second
+session's** (ADR 0297). A page turn draws each page once, so the reduction above was paid once a page
+and looked free; a scroll draws the same page again. Same document under `Xvfb` at 1200×1500, an
+800×1000 window, two `+` to put the page past the window and then twenty `Down` — twenty redraws of
+one page at one scale — with the two release binaries built from the same tree and run alternately,
+three runs an arm:
+
+| over 23 frames | before | after |
+|---|---|---|
+| median frame | 15.2 / 15.0 / 15.0 ms | **4.7 / 4.8 / 4.8 ms** |
+| median scene | 8.9 / 8.9 / 8.9 ms | **0.0 / 0.0 / 0.0 ms** |
+| sum, scene | 197.9 / 197.3 / 203.6 ms | **16.9 / 15.7 / 16.3 ms** |
+| sum, frame | 359.6 / 358.4 / 369.3 ms | **155.3 / 159.4 / 158.9 ms** |
+| resource uploads | 23 | **2** |
+
+A scratch build of two `Instant`s attributed the 8.9 ms exactly: `area_averaged` on the page's one
+2700×3450 photograph, 8.5 to 9.8 ms, against an `upload_image` of **0.002** and a `transfer` median
+of 0.8 — the cost is one pass over the *source* samples on the host and nothing else. It is kept
+now, in `render-quorra`'s resource cache, keyed by the source's `Arc` identity **and the reduction
+factors**, which `pdf_render::Image::reduction` answers without producing the raster. Two uploads
+rather than twenty-three is the reduction being produced once per magnification instead of once per
+frame. Every gate is unmoved and the 4× coverage lane is byte-identical, refusal for refusal — which
+is the run that would show a retained raster crowding the budget, and it shows nothing. **What the
+same run says about a claim in this file**: there is one resource refusal at 4× today
+(`22060_A1_01_Plans.pdf`), where section 3b records zero; it predates this change by both arms of the
+A/B, and it is what a ratcheted count looks like when nothing is ratcheting it.
+
 **What is left is quorra's and is reported rather than changed**: `encode` is 45% of a page turn,
 is host processor time, and is the only phase of `Device::render` that tracks the scene's size —
 **3.86 µs a command plus 3.84 ms** by least squares over 38 frames spanning 388 to 3675 commands.
