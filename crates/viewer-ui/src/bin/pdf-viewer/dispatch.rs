@@ -152,6 +152,12 @@ impl App {
                 self.retitle();
             }
             Event::NeedsRender(request) => {
+                // Page one's display list arriving is the launch milestone between
+                // `document joined` and the first frame: interpretation, which the trace
+                // behind `doc/todo/44` showed as seven unnamed seconds on a 58 009-command
+                // page. Every request after the first is the steady state, and the method
+                // keeps only the first (ADR 0332).
+                self.launch.interpreted(request.list.commands().len());
                 self.request = Some(request);
                 self.acknowledged = false;
                 // §12.4.4: the page a transition moves *to* is the one whose list has just

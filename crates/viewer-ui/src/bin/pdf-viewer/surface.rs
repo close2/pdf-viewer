@@ -188,6 +188,7 @@ impl App {
                 // changes, because it is a field write and tracking the change would be
                 // more state than the thing it saved.
                 presenter.set_coverage(coverage_for(target.transform));
+                let handed = std::time::Instant::now();
                 let outcome = presenter.present(PresentFrame {
                     width,
                     height,
@@ -198,6 +199,12 @@ impl App {
                 // Read back whatever the frame cost before anything is decided about it: a
                 // refusal has an accounting too, and it is the one a person most wants.
                 stages.gpu = presenter.last_frame();
+                // The first frame's scene translation is a launch milestone — the other
+                // half, with interpretation, of what used to sit unnamed between `document
+                // joined` and `first present` (ADR 0332). The method keeps only the first
+                // and computes the mark from quorra's own `scene` measurement, because the
+                // boundary is inside the call above.
+                self.launch.scene_built(handed, stages.gpu.scene);
                 match outcome {
                     Ok(()) => Ok(()),
                     // Swapchain states are events, not failures: nothing was presented,

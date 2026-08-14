@@ -19,7 +19,11 @@ pub(crate) struct Launch {
     /// Taken as the first statement of `main`, so nothing before it is invisible.
     pub(crate) began: std::time::Instant,
     /// Each milestone and how long after `began` it was reached.
-    marks: Vec<(&'static str, std::time::Duration)>,
+    ///
+    /// Owned strings rather than `&'static str` because two milestones carry a number of
+    /// their own — the interpreted command count is what says whether a slow launch was a
+    /// large page, and a step name that cannot say so is the hole `doc/todo/44` closed.
+    marks: Vec<(String, std::time::Duration)>,
     /// Whether the timeline has been printed, which happens once, at the first present.
     reported: bool,
 }
@@ -36,7 +40,51 @@ impl Launch {
 
     /// Records that `step` has just finished.
     pub(crate) fn mark(&mut self, step: &'static str) {
-        self.marks.push((step, self.began.elapsed()));
+        self.marks.push((step.to_owned(), self.began.elapsed()));
+    }
+
+    /// Records that page one's display list exists — interpretation is over, `commands`
+    /// commands.
+    ///
+    /// **This is the milestone the table jumped over** (ADR 0332): between `document joined`
+    /// and `first present` sits the whole interpretation of page one, which on the document
+    /// that raised `doc/todo/44` was seven unnamed seconds for 58 009 commands. The caller is
+    /// the render-request handler, which cannot know it is on the launch path — every later
+    /// request is the steady state and the frame log's business — so only the first request
+    /// is kept, and nothing is kept once the timeline has closed.
+    pub(crate) fn interpreted(&mut self, commands: usize) {
+        if self.reported
+            || self
+                .marks
+                .iter()
+                .any(|(step, _)| step.starts_with("interpreted"))
+        {
+            return;
+        }
+        self.marks
+            .push((format!("interpreted, {commands} cmd"), self.began.elapsed()));
+    }
+
+    /// Records that the first frame's display lists have been translated into a GPU scene.
+    ///
+    /// The boundary is relayed rather than fabricated: scene building and device submission
+    /// happen inside one `QuorraPresenter::present` call, so this host cannot take a clock
+    /// reading between them — but `FrameCost::scene` is quorra's own measurement of the
+    /// translation from the moment that call began, so the mark is `handed` (when this host
+    /// handed the frame over) plus that duration. First frame only, as above.
+    pub(crate) fn scene_built(&mut self, handed: std::time::Instant, scene: std::time::Duration) {
+        if self.reported
+            || self
+                .marks
+                .iter()
+                .any(|(step, _)| step == "first scene built")
+        {
+            return;
+        }
+        let at = handed
+            .saturating_duration_since(self.began)
+            .saturating_add(scene);
+        self.marks.push(("first scene built".to_owned(), at));
     }
 
     /// The first frame has reached the window: closes the timeline and, under `--trace`, prints it.
@@ -49,7 +97,8 @@ impl Launch {
             return;
         }
         self.reported = true;
-        self.marks.push(("first present", self.began.elapsed()));
+        self.marks
+            .push(("first present".to_owned(), self.began.elapsed()));
         if !trace.on(Topic::Launch) {
             return;
         }
