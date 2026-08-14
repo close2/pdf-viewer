@@ -29,6 +29,12 @@
 //! four-hundred-and-eighteenth session; Errata Collection 3 struck that sentence outright, and
 //! [`pdf_font::standard`] carries the reading that replaces it.)
 //!
+//! **And it is addressed by character, not by character code.** A document's text selects glyphs
+//! through §9.6.5's encoding, which is 256 codes wide; a panel's text has no codes at all, so it
+//! asks [`pdf_font::LoadedFont::character_glyph`] what the face itself states — which is four and
+//! a half times as many characters as any encoding of it can name, and is why an outline title in
+//! Greek or Cyrillic is words rather than boxes (ADR 0326).
+//!
 //! # Coordinates
 //!
 //! Device pixels of the window, **y downwards**, which is the raster's space and not the page's
@@ -115,7 +121,7 @@ const DIMMED: Color = Color {
     a: 1.0,
 };
 
-/// How wide the box standing for a character §9.6.2.2's fourteen state no code for is, in ems.
+/// How wide the box standing for a character §9.6.2.2's fourteen have no glyph for is, in ems.
 ///
 /// **A choice, and it is this host's own** — the standard says nothing about an interface's own
 /// text. The argument for the number is that §9.6.2.2's Courier advances *every* code by exactly
@@ -258,9 +264,27 @@ impl Chrome {
     /// (trap 5, and `doc/todo/27`). It gets a box: the standard states no artwork for an
     /// interface's own text, so this is a documented choice and not a reading, and it is the one
     /// every text engine makes for the same reason.
+    ///
+    /// **And a character with no code may still be one the face has**, which is the arm below the
+    /// first and the reason `doc/todo/27`'s "coverage" question was smaller than it looked: of the
+    /// 54 corpus documents whose panels lost a character, 41 lose none at all once the face is
+    /// asked by character, and the commonest thing it had been drawing boxes for was an accented
+    /// Latin letter. ADR 0326, `pdf-model --example interface_font_census`.
     fn set(face: &pdf_font::LoadedFont, character: char) -> (Set, f32) {
         if let Some(code) = face.code_for(character) {
             return (Set::Glyph(code), face.advance(code));
+        }
+        // **The face knows more characters than any encoding of it can name**, and until the
+        // four-hundred-and-ninety-first session this line was not here, so it did not matter that
+        // it did. A code is one byte (§9.7.1: "each byte of a string to be shown selects one
+        // glyph"), so the route above reaches the 149 characters §9.6.5.2's `StandardEncoding`
+        // names and stops — while the compiled-in Helvetica is Liberation Sans, whose `cmap`
+        // states 668, Greek and Cyrillic among them. A panel's text has no character *codes* at
+        // all, so asking the face by character is not a way round the encoding: there is no
+        // encoding in the question. `pdf-model --example interface_font_census` is the
+        // measurement and ADR 0326 the argument.
+        if let Some(glyph) = face.character_glyph(character) {
+            return (Set::Character(character), glyph.advance);
         }
         if character.is_whitespace() {
             // A space this face cannot spell — U+00A0 and U+3000 are the ones documents write —
@@ -298,7 +322,12 @@ impl Chrome {
             .sum()
     }
 
-    /// How many of a string's characters this face states no code for.
+    /// How many of a string's characters this face has no glyph for at all.
+    ///
+    /// **This asked how many it states no *code* for until the four-hundred-and-ninety-first
+    /// session**, which was the same question only for as long as a code was the sole way to
+    /// reach a glyph. It is the count of boxes either way — [`Self::set`] decides — and what
+    /// changed is that a character the `cmap` states now draws instead of counting.
     ///
     /// [`Self::text`] draws a box for one, which says *that* something is missing and cannot say
     /// how much; this is what lets a caller say how many — which is what §12.5.6.14's popup does
@@ -354,6 +383,29 @@ impl Chrome {
                         });
                     }
                 }
+                Set::Character(character) => {
+                    if let Some(path) = face
+                        .character_glyph(character)
+                        .and_then(|glyph| glyph.outline)
+                    {
+                        list.push(Command::Fill {
+                            path,
+                            transform: Transform {
+                                a: size,
+                                b: 0.0,
+                                c: 0.0,
+                                d: -size,
+                                e: x,
+                                f: at.1,
+                            },
+                            fill_rule: FillRule::NonZero,
+                            paint: Paint::Solid(colour),
+                            clip: None,
+                            mask: None,
+                            blend: pdf_render::BlendMode::Normal,
+                        });
+                    }
+                }
                 Set::Blank => {}
                 Set::Missing => missing_box(list, (x, at.1), size, colour),
             }
@@ -365,15 +417,22 @@ impl Chrome {
 
 /// What stands for one character on a line of chrome.
 ///
-/// Three cases rather than two, because a space and a character with no glyph at all are
-/// different silences: one of them is what the document meant.
+/// Four cases rather than two, because a space and a character with no glyph at all are
+/// different silences — one of them is what the document meant — and because a character with a
+/// glyph and no *code* is a third thing again.
 #[derive(Debug, Clone, Copy)]
 enum Set {
     /// The face states a code for it, and this is it.
     Glyph(pdf_font::Code),
+    /// No code names it and the face's own `cmap` states a glyph for it anyway.
+    ///
+    /// Carries the character rather than the glyph so that this stays [`Copy`] and so that both
+    /// arms are the same shape: [`Chrome::set`] settles what is drawn and what it costs, and
+    /// [`Chrome::text`] asks the face for the outline, exactly as it does for a code.
+    Character(char),
     /// Nothing is drawn and the line still moves.
     Blank,
-    /// [`missing_box`], because §9.6.2.2's fourteen have no code for it.
+    /// [`missing_box`], because §9.6.2.2's fourteen have no glyph for it by either route.
     Missing,
 }
 
@@ -2011,11 +2070,12 @@ const POPUP_PAPER: Color = Color {
 ///   is accepted as one too, because a reader that obeyed the writer's rule as if it were its own
 ///   would show a paragraph break as a space.
 ///
-/// **A character this interface's own font states no code for is counted and said out loud.**
-/// `Chrome::text` skips one silently, which is right for a glyph in a title it is eliding and
-/// wrong for the text of a note: six of the corpus's seven open popups are in Chinese, and a
-/// blank window would be this program telling a person the note is empty. Trap 5, in an
-/// interface.
+/// **A character this interface's own font has no glyph for is counted and said out loud.**
+/// [`Chrome::text`] draws a box for one (ADR 0195), which says *that* something is there and
+/// cannot say how much: six of the corpus's seven open popups are in Chinese, and a window of
+/// boxes with no count is this program showing a note it cannot read without saying so. Trap 5,
+/// in an interface. (This sentence said `Chrome::text` "skips one silently" for the
+/// hundred-and-seventy-five sessions after that stopped being true.)
 pub fn popup_windows(
     chrome: &Chrome,
     windows: &[viewer_core::PopupWindow],

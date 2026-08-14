@@ -259,6 +259,23 @@ pub enum FontError {
     },
 }
 
+/// One glyph reached by character rather than by character code.
+///
+/// What [`LoadedFont::character_glyph`] answers with, and the two halves are returned together
+/// deliberately: a caller drawing text of its own has to place the next character, so a route
+/// that gave it an outline without an advance would leave it measuring in one space and drawing
+/// in another.
+#[derive(Debug, Clone)]
+pub struct CharacterGlyph {
+    /// The outline in em units, y upwards, or `None` where the glyph makes no mark.
+    ///
+    /// A blank glyph and an absent one are different statements — the face has a `space` and has
+    /// no 日 — which is why this is `Some(CharacterGlyph)` with no outline rather than `None`.
+    pub outline: Option<Arc<Path>>,
+    /// The advance the font program states for it, in ems.
+    pub advance: f32,
+}
+
 /// A font ready to produce glyph outlines.
 pub struct LoadedFont {
     /// The embedded font program, which the reader borrows from on each use.
@@ -1121,13 +1138,65 @@ impl LoadedFont {
             Some(glyph) => glyph,
             None => self.notdef.filter(|_| self.substitutes_notdef(code))?,
         };
+        self.cached_outline(glyph)
+    }
 
+    /// One glyph's outline, through the cache both routes into this font share.
+    ///
+    /// Separated from [`Self::outline`] because [`Self::character_glyph`] arrives at a glyph
+    /// without a code and must not build a second cache to do it: a face drawing an interface's
+    /// own text reuses the same few dozen glyphs exactly as a page does.
+    fn cached_outline(&self, glyph: u16) -> Option<Arc<Path>> {
         if let Some(cached) = self.outlines.borrow().get(&glyph) {
             return cached.clone();
         }
         let built = self.build_outline(glyph);
         self.outlines.borrow_mut().insert(glyph, built.clone());
         built
+    }
+
+    /// What this font's *program* draws for a character, for a caller that has no code.
+    ///
+    /// **This is not a route a document's text may take, and the distinction is the whole of why
+    /// it exists.** A document selects a glyph by character code — §9.6.5's encoding for a simple
+    /// font, §9.7.6's `CMap` for a composite one — and drawing a glyph the file did not select
+    /// would be inventing what the page says. What has no code at all is the text a *program*
+    /// draws for itself: a panel of §12.3.3's outline titles, §8.11.4.3's layer names, §12.4.2's
+    /// page labels. There is no font dictionary behind those and therefore no encoding, so the
+    /// question they ask is the one this answers — which glyph does this face state for this
+    /// character — and [`Self::code_for`] cannot answer it, because a simple font's encoding is
+    /// 256 codes wide and a panel's text is not.
+    ///
+    /// `None` where the program states no glyph for the character, and `None` for every program
+    /// with no `cmap` at all: a bare CFF or a Type 1 program is keyed by glyph *name*, which is a
+    /// different question, and none of the compiled-in faces so keyed carries anything outside
+    /// the standard Latin character set for it to find (ADR 0270). A caller reports the absence —
+    /// `viewer_ui::chrome` draws a box for it (ADR 0195).
+    ///
+    /// The advance is the program's own, from `hmtx`, because there is no `/Widths` array to
+    /// disagree with: an interface's text is nothing a document stated a width for.
+    ///
+    /// **A `cmap` entry naming [`NOTDEF_GLYPH`] answers nothing**, on this crate's own reading of
+    /// what glyph 0 is: a statement of absence rather than a glyph. Drawing it would put a
+    /// designer's box on the screen while telling the caller the character was set, which is
+    /// exactly the confident wrong mark a placeholder exists to avoid.
+    #[must_use]
+    pub fn character_glyph(&self, character: char) -> Option<CharacterGlyph> {
+        let program = FontRef::new(&self.data).ok()?;
+        let glyph = program.charmap().map(character)?;
+        if glyph.to_u32() == u32::from(NOTDEF_GLYPH) {
+            return None;
+        }
+        let advance = program
+            .glyph_metrics(Size::unscaled(), LocationRef::default())
+            .advance_width(glyph)?
+            / self.units_per_em;
+        Some(CharacterGlyph {
+            outline: u16::try_from(glyph.to_u32())
+                .ok()
+                .and_then(|glyph| self.cached_outline(glyph)),
+            advance,
+        })
     }
 
     /// Whether §9.6.5.2's substitution applies to `code`.
@@ -1551,6 +1620,52 @@ mod tests {
         // A face the clause does not name is a substitute rather than a refusal, which is the
         // same answer a document's own unrecognised `/BaseFont` gets.
         LoadedFont::standard("Garamond").expect("a substitute, not an error");
+    }
+
+    /// The compiled-in face states characters no encoding of it can name.
+    ///
+    /// The whole of [`LoadedFont::character_glyph`]'s reason, pinned so that it cannot be
+    /// re-optimised away: a simple font's encoding is 256 codes wide, so [`LoadedFont::code_for`]
+    /// answers for the Latin set §9.6.5.2 names and for nothing else — while the face behind it
+    /// is Liberation Sans, whose `cmap` states Greek and Cyrillic too. A caller with a character
+    /// and no code (a panel of §12.3.3's titles) was being told the face has no Д.
+    ///
+    /// The negative half matters as much: the same face states no CJK, so a route that answered
+    /// *something* for 日 would be drawing a wrong glyph rather than reporting an absence.
+    #[test]
+    fn a_character_no_encoding_can_name_may_still_be_in_the_face() {
+        let font = LoadedFont::standard("Helvetica").expect("one of §9.6.2.2's fourteen");
+        for character in ['Д', 'щ', 'Ω', 'ż', 'é'] {
+            assert!(
+                font.code_for(character).is_none(),
+                "{character:?} has a code, so it is not this test's subject any more"
+            );
+            let glyph = font
+                .character_glyph(character)
+                .unwrap_or_else(|| panic!("the compiled-in face states no {character:?}"));
+            assert!(
+                glyph
+                    .outline
+                    .is_some_and(|outline| !outline.commands().is_empty()),
+                "{character:?} is an empty path"
+            );
+            assert!(
+                glyph.advance > 0.0,
+                "{character:?} advances {} em",
+                glyph.advance
+            );
+        }
+        for character in ['日', 'ก', 'א'] {
+            assert!(
+                font.character_glyph(character).is_none(),
+                "the compiled-in face claims a glyph for {character:?}"
+            );
+        }
+        // Ten of the fourteen are bare CFF programs with no `cmap` at all, and this route has
+        // nothing to ask them: they are keyed by glyph name, and their charsets hold the standard
+        // Latin character set and nothing else (ADR 0270).
+        let mono = LoadedFont::standard("Courier").expect("one of §9.6.2.2's fourteen");
+        assert!(mono.character_glyph('Д').is_none());
     }
 
     /// Every PDF in `doc/`, which is the corpus these tests are written against.

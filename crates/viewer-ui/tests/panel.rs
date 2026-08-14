@@ -188,6 +188,73 @@ fn a_title_this_interfaces_font_cannot_set_draws_a_box_for_each_character() {
     );
 }
 
+/// A title no *encoding* of the interface's face can name, which the face itself states anyway.
+///
+/// The other half of `doc/todo/27` and the whole of ADR 0326. §9.6.5's encoding is 256 codes wide
+/// and the compiled-in Helvetica states 668 characters, so a panel that asked for a code got a box
+/// for every accented Latin letter, every Greek letter and every Cyrillic letter in a document's
+/// own text — 41 of the 54 corpus documents whose panels lost anything lost only these.
+///
+/// Three assertions, because each fails for a different wrong fix: nothing is counted as missing,
+/// nothing is *drawn* as a box (the panel's only even-odd fill is one), and the row is measured
+/// with the face's own advances rather than with the placeholder's one width.
+#[test]
+fn a_title_no_encoding_can_name_is_set_from_the_face_rather_than_boxed() {
+    let chrome = Chrome::new().expect("§9.6.2.2's fourteen are compiled in");
+    let title = "Résumé — Пример";
+    let outline = Outline {
+        items: vec![item(title, 10, Vec::new())],
+        stated_count: None,
+    };
+    let mut panel = Sidebar::default();
+    panel.toggle();
+    let shown = panel.draw(&chrome, only(&outline), HEIGHT, 1.0);
+    assert!(ink(&shown, 26..46) > 40, "the row drew nothing at all");
+    assert_eq!(
+        chrome.without_a_code(title, Style::default()),
+        0,
+        "a character the face states is not a character the interface is short of"
+    );
+
+    let boxes = shown
+        .commands()
+        .iter()
+        .filter(|command| {
+            matches!(
+                command,
+                pdf_render::Command::Fill {
+                    fill_rule: pdf_render::FillRule::EvenOdd,
+                    ..
+                }
+            )
+        })
+        .count();
+    assert_eq!(boxes, 0, "{boxes} placeholder boxes on a row of words");
+
+    // The face's own advances, asked of `pdf-font` directly rather than of the panel: a row
+    // measured at 0.6 em a character is a row of placeholders whatever it draws.
+    let face = pdf_font::LoadedFont::standard("Helvetica").expect("the same face the panel uses");
+    let expected: f32 = title
+        .chars()
+        .map(|character| {
+            face.code_for(character).map_or_else(
+                || {
+                    face.character_glyph(character)
+                        .expect("the face states this character")
+                        .advance
+                },
+                |code| face.advance(code),
+            )
+        })
+        .sum::<f32>()
+        * 12.0;
+    let width = chrome.width(title, 12.0, Style::default());
+    assert!(
+        (width - expected).abs() < 0.01,
+        "the row measures {width} where the face states {expected}"
+    );
+}
+
 /// A click follows a destination, a click on the triangle discloses, and neither does the other.
 #[test]
 fn a_click_lands_on_the_row_it_was_aimed_at() {

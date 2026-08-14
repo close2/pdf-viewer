@@ -126,6 +126,15 @@ cargo run --release -p pdf-model --example luminosity_mask_census -- doc/pdf.js/
   # what a §11.5.3 mask group is painted *with*, against what its /CS declares — 87 groups on
   # this corpus, 39 blending in /DeviceCMYK and 36 in /DeviceGray, and not one setting a `k`
   # colour, which is what turned a report's condition into the departure itself (ADR 0217)
+cargo run --release -p pdf-model --example interface_font_census -- doc/pdf.js/test/pdfs/*.pdf
+  # which characters a *program's own* text needs — §12.3.3's outline titles, §8.11.4.3's layer
+  # names, §7.11.4's file names, §14.3.3's `/Info`, §14.3.2's XMP, §12.4.2's page labels and
+  # §12.5.6.14's popups — and which of them the compiled-in fourteen state, asked **both** ways:
+  # by character code, which is 256 wide, and by character, which is what the face's own `cmap`
+  # answers. The gap is the finding (ADR 0326). It also prints what is still a box, by script,
+  # which is the demand any further answer to `doc/todo/27` has to cover. Deliberately not routed
+  # through `viewer_ui::chrome`, which is the code under test — `viewer-ui --example
+  # chrome_coverage` is that question, and trap 8 is why they are two examples
 cargo run --release -p pdf-model --example spec_annotation_census -- doc/*.pdf
   # what the fourteen specification PDFs' annotations are, which is what the Markdown conversion
   # under doc/md/ dropped: 12 545 annotations, 11 462 of them in ISO 32000-2, and in three of the

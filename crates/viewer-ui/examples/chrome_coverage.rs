@@ -1,16 +1,21 @@
 //! How much of what a document says about *itself* this program's own font can set.
 //!
-//! `doc/todo/27` names a silence: [`viewer_ui::chrome::Chrome::text`] draws nothing for a
-//! character §9.6.2.2's Helvetica states no code for, and [`viewer_ui::chrome::Chrome::width`]
-//! gives it no advance, so a panel row whose text is Japanese is an empty row. §12.5.6.14's popup
-//! window says so since the three-hundred-and-twelfth session; every other string this host draws
-//! from a document — §12.3.3's outline titles, §8.11.4.3's layer names, §7.11.4's file names,
-//! §14.3.3's `/Info` values and §14.3.2's XMP properties — was **unmeasured**.
+//! `doc/todo/27` named a silence: [`viewer_ui::chrome::Chrome::text`] used to draw nothing for a
+//! character §9.6.2.2's Helvetica cannot set and [`viewer_ui::chrome::Chrome::width`] gave it no
+//! advance, so a panel row whose text is Japanese was an empty row. It is a box now (ADR 0195),
+//! and this counts them — over §12.3.3's outline titles, §8.11.4.3's layer names, §7.11.4's file
+//! names, §14.3.3's `/Info` values and §14.3.2's XMP properties, all of which were unmeasured
+//! before the three-hundred-and-sixteenth session.
 //!
 //! This is that measurement, over whatever documents are named on the command line (the corpus,
 //! usually). It opens each one through `viewer-core` and asks the four queries the sidebar asks,
 //! so what it counts is the strings this host actually draws rather than every string in the
 //! file.
+//!
+//! **It asks `Chrome`, which is what makes it this host's question rather than the binary's.**
+//! `pdf-model --example interface_font_census` is the other one: what *the compiled-in faces*
+//! state, asked of `pdf-font` directly, so that a change to how `Chrome` reaches a glyph is
+//! measured by something outside it (ADR 0326).
 //!
 //! ```sh
 //! cargo run --release -p viewer-ui --example chrome_coverage -- doc/pdf.js/test/pdfs/*.pdf
