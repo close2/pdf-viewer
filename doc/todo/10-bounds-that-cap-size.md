@@ -61,7 +61,10 @@ draws *whole* rather than merely *more*. `Document::open` on the 49.6 MB file is
 
 **Two residues from that table, and they are this file's now rather than ADR 0306's.** We are the
 fastest of the three and **the least frugal by a factor of four to twenty** — 381 MB against
-`mutool`'s 97 MB and `pdftoppm`'s 20 MB — on a document whose content stream is 66 MB decoded. And
+`mutool`'s 97 MB and `pdftoppm`'s 20 MB — on a document whose content stream is **147 972 263
+bytes**, 141 MiB, decoded in one part. (This sentence said 66 MB for nine rounds; ADR 0362
+measured it twice from either arm of a spike, and `lexer.rs`'s own comment had said 141 MiB since
+ADR 0341.) And
 the earlier measurement in this section, taken by splitting the file into seven chunks, recorded
 **1.30–1.33 s and 215 MB**, so interpreting it whole costs about 20% more time and 75% more memory
 than interpreting it in pieces. Both are questions for §5's road D, which is the entry that changes
@@ -228,7 +231,7 @@ argument and the table is the arithmetic.
 | **A** deadline + callback | unbounded *time* | one parameter on `interpret`, one check at `run.rs`'s existing increment site, two boundary messages, and a rule pinning the gates | **no** — the check point is where 471 left it |
 | **B** ship the confinement | unbounded *anything*, by killing | a tier change (`doc/todo/34`), a `try_reserve`/`Refused` path for the ceiling breach, worker restart, Linux-only | **cheaper** — see below |
 | **C** resumable interpretation | unbounded *latency* | a state-machine rewrite of `Interpreter::run`, against an oracle of 1794 pages | **no** |
-| **D** stream the decompression | the *allocation* | the sink, the lexer's `&[u8]`, and `inline_image::scan`'s lookahead — **the producer is already written** | **half-built, and its prize is a third smaller** |
+| **D** stream the decompression | the *allocation* | the sink, the lexer's `&[u8]`, and `inline_image::scan`'s lookahead — **the producer is already written** | **half-built, and measured in 527: the bomb costs 6 MB and the witness reads identically** |
 
 **D is half-built and nobody set out to build it.** §5 D below says "`filter::flate` already holds a
 *streaming* decoder — `flate2::read::ZlibDecoder`, an `io::Read` — and then calls `read_to_end`".
@@ -241,16 +244,21 @@ must report in already exists, because D's own caveat — "a streaming rewrite t
 [damage from the bound] is the same bug with better memory behaviour" — was separated in 471 and
 made reliable in 508.
 
-**And D's prize shrank in the same measurement.** What it removes is now:
+**And D's prize shrank in the same measurement — then grew again when somebody built it.** What it
+removes is now:
 
-| | before ADR 0354 | after | what D would leave |
+| | before ADR 0354 | after | what D leaves, **measured** |
 |---|---|---|---|
-| Bomb B, 1.85 MB of file | 1811 MB | **1031 MB** (the bound, exactly) | a window — 64 KiB |
-| `Entwurf.pdf`, 66 MB content stream | 429 MB | **381 MB** | about 315 MB |
+| Bomb B, 1.85 MB of file | 1811 MB | **1031 MB** (the bound, exactly) | **6 MB**, and all 950 M operators read |
+| `Entwurf.pdf`, 141 MiB content stream | 429 MB | **381 MB** | **98 MB** for decode + lex; about 193 MB with the display list |
 
-So D is still the only road that changes the *kind* of the quantity, and it is now worth a third
-less than it was. The 315 MB it would leave on the witness is the display list and the raster, which
-no road in this file touches.
+So D is still the only road that changes the *kind* of the quantity, and the last column is a
+spike's `VmHWM` rather than an estimate (ADR 0362, `examples/window_lexer_spike`). **The two
+right-hand figures in the old table — "a window" and "about 315 MB" — were a prediction, and the
+second was wrong for a reason worth keeping**: it assumed the witness's peak was the display list
+and the raster, and `massif` says the peak is *two copies of the decoded content stream*, with the
+display list arriving at about 99 MB after they are freed. The 141 MiB in the row is measured too;
+this table said 66 MB.
 
 **B is cheaper for a reason that is not about B.** ADR 0306 derived `max_stream_len` = 1 GiB partly
 from "a decode costs about twice its output […] 2L has to fit in the 3 GiB the raster leaves". The
@@ -264,10 +272,11 @@ the three in the table above, unchanged.
 **A and C are untouched**, and that is worth stating rather than leaving to inference: nothing in
 471, 508 or 519 went near `Interpreter::run`'s shape or put a clock anywhere near `pdf-model`.
 
-**The order in the last paragraph of this section still holds and is now one step further along**:
-§3's defects, then D's measurement. **D's measurement is what a round taking it still owes** — the
-one at the end of D below, a window-fed lexer run on Bomb B and on the witness — and this round did
-not take it, because the defect it found while re-reading was round-sized and D is not.
+**The order in the last paragraph of this section still holds and is now two steps further along**:
+§3's defects, then D's measurement, then D. **D's measurement is done** — a window-fed lexer run on
+both bombs and on the witness, ADR 0362 — and it said yes: the bomb costs a window and the witness
+is read to the same token for +4.10% instructions. What D still owes is the rewrite, and
+[`14`](14-stream-the-decompression.md) carries the four decisions with a number in front of each.
 
 ## 5.1 The four roads themselves
 
@@ -299,7 +308,7 @@ and A, which nobody chose.
 
 | road | file | one line |
 |---|---|---|
-| **D** | [`14-stream-the-decompression.md`](14-stream-the-decompression.md) | removes the allocation; the producer half is already written (ADR 0343), the sink is not |
+| **D** | [`14-stream-the-decompression.md`](14-stream-the-decompression.md) | removes the allocation; the producer half is written (ADR 0343), the sink is measured and not yet built (ADR 0362) |
 | **B** | [`15-ship-the-confinement.md`](15-ship-the-confinement.md) | hands the bound to the kernel; a tier change and two defects, and its arithmetic objection is answered |
 | **C** | [`16-resumable-interpretation.md`](16-resumable-interpretation.md) | always interruptible; a state-machine rewrite against an oracle of 1794 pages, and it contains A |
 

@@ -2854,6 +2854,7 @@ version = "0.1.0"
 dependencies = [
  "criterion",
  "crypto-bigint",
+ "flate2",
  "iai-callgrind",
  "md-5",
  "pdf-font",

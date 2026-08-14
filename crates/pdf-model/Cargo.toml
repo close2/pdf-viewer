@@ -35,6 +35,7 @@ zune-jpeg.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true
+flate2.workspace = true
 iai-callgrind.workspace = true
 pdfref.workspace = true
 png.workspace = true
