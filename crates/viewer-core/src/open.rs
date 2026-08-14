@@ -234,6 +234,16 @@ pub(crate) struct Open {
     /// `Event::Extracted`. `None` for every fragment that names no embedded file, which is every
     /// fragment anybody writes.
     pub(crate) opening_file: Option<String>,
+    /// Table Annex O.4's `highlight`, one entry per time the fragment stated it.
+    ///
+    /// A *list* because §O.2 makes a fragment a sequence of parameters and states no rule against
+    /// two of these, and because each is measured against the page that was showing when it was
+    /// read — `#page=3&highlight=…&page=7&highlight=…` names a rectangle on each of two pages, and
+    /// a single field could only have kept the last. Emptied by nothing: the annex says a document
+    /// is *opened* with the rectangle highlighted, so it is a property of how this document was
+    /// opened rather than of what a person is doing, and nothing in this vocabulary asks for it
+    /// to be taken away.
+    pub(crate) highlights: Vec<Highlighted>,
     /// Which of §12.5.6.14's popup windows a person has opened or closed, by annotation.
     ///
     /// **The file states only the first frame.** Table 186's `/Open` is "[a] flag specifying
@@ -251,6 +261,28 @@ pub(crate) struct Open {
     /// is a string comparison rather than a thousand interpretations. `crate::readback::BUDGET`
     /// is the ceiling and [`Self::stale`] is the one place that empties it.
     pub(crate) readbacks: crate::readback::Readbacks,
+}
+
+/// One rectangle ISO 32000-2 Annex O's `highlight` parameter named, and the page it named it on.
+///
+/// Table Annex O.4: "Open the document with the specified rectangle highlighted." The rectangle is
+/// kept in **default user space**, normalised, rather than in device pixels: the window it will be
+/// drawn in has not been resized yet when a fragment is read, and a magnification or a scroll
+/// afterwards must not move it off the ink it points at. `Viewer::query` maps it the same way
+/// §12.5.1's focus ring and §12.5.6.14's popups are mapped, through the one arithmetic ADR 0118
+/// keeps in one place.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Highlighted {
+    /// Which page, zero-based — the one the fragment had selected when it stated the rectangle.
+    ///
+    /// §O.2's left-to-right rule is what makes this a page rather than a document-wide rectangle:
+    /// each row of Table Annex O.4 measures "from the top left corner of the page", and which page
+    /// that is depends on the parameters before it — the same dependence the annex spells out for
+    /// `comment` in a NOTE.
+    pub(crate) page: usize,
+    /// `[x0, y0, x1, y1]` in default user space, normalised so that the first corner is the lower
+    /// left as the page's own coordinates count.
+    pub(crate) rect: [f32; 4],
 }
 
 /// One thing a person did, **resolved**, as the log records it.
@@ -440,6 +472,7 @@ impl Open {
             pending_selection: None,
             searching: None,
             opening_file: None,
+            highlights: Vec::new(),
             popups: BTreeMap::new(),
             readbacks: crate::readback::Readbacks::default(),
         }
@@ -985,8 +1018,78 @@ impl Open {
             Parameter::EmbeddedFile(name) => {
                 self.opening_file = Some(String::from_utf8_lossy(name).into_owned());
             }
-            // The two [`Parameter::unhonoured`] names never reach here.
-            Parameter::Highlight { .. } | Parameter::Fdf(_) => {}
+            // Table Annex O.4's `highlight` and `fdf`, each in a method of its own for the
+            // reason `nameddest` and `structelem` are: the reading is longer than the arm.
+            Parameter::Highlight {
+                left,
+                right,
+                top,
+                bottom,
+            } => self.highlight(*left, *right, *top, *bottom),
+            Parameter::Fdf(uri) => self.import_from(uri, notes),
+        }
+    }
+
+    /// Annex O's `highlight`, kept until a host asks where it is on the screen.
+    ///
+    /// Table Annex O.4: "Open the document with the specified rectangle highlighted. Each argument
+    /// shall be an integer or floating point value representing the rectangle measured from the top
+    /// left corner of the page. The nature of the highlighting is implementation-dependent."
+    ///
+    /// **Not the selection**, and the annex is what says so: the two neighbouring parameters that
+    /// point a person at something both say *selected* — `comment`'s "with the specified comment
+    /// selected", `search`'s "selecting the first matching word" — and this one says *highlighted*,
+    /// with a nature left to the processor that the other two are not given. So it is a shape of
+    /// its own, kept here and answered by `Query::Highlight`; what it then looks like is the
+    /// host's, which is exactly what "implementation-dependent" leaves open and what this boundary
+    /// already does with every other quadrilateral it hands over (ADR 0357).
+    ///
+    /// The corners go through the same conversion `zoom` and `viewrect` take, because the clause
+    /// states one rule for all three: default user space's units with the page's top-left corner
+    /// as the origin.
+    fn highlight(&mut self, left: f32, right: f32, top: f32, bottom: f32) {
+        let (x0, y0) = self.in_default_user_space(left, top);
+        let (x1, y1) = self.in_default_user_space(right, bottom);
+        // Normalised, because the annex names four edges and states no order between them: a URI
+        // that writes its bottom above its top has still named a rectangle.
+        self.highlights.push(Highlighted {
+            page: self.page_index,
+            rect: [x0.min(x1), y0.min(y1), x0.max(x1), y0.max(y1)],
+        });
+    }
+
+    /// Annex O's `fdf`: §12.7.8's form data, asked of the host that owns the filesystem.
+    ///
+    /// Table Annex O.4: "Open the document and then import the data from the specified FDF or XFDF
+    /// file. The URI shall be either a relative or absolute URI to an FDF or XFDF file."
+    ///
+    /// **The same request §12.7.6.4's action makes**, and it is made the same way: this crate has
+    /// no filesystem (`doc/ui-boundary.md`'s rule 2), so the name crosses as `Event::NeedsFile`
+    /// with the purpose the bytes are wanted for and a host resolves it — against the document's
+    /// own URI for a relative one, and by whatever policy it has for an absolute one. That division
+    /// is the annex's too: §O.1 defines these as a *URI's* parameters, and resolving a URI
+    /// reference is the business of whoever holds the base.
+    ///
+    /// The format is the file name's, read once for both clauses by
+    /// [`pdf_model::action::data_format`]. ISO 19444-1's XFDF is the same data in XML and would
+    /// need an XML parser, which is a dependency rather than a clause — so it is declined by name
+    /// here exactly as `crate::interact::request_file` declines it for the action.
+    fn import_from(&mut self, uri: &[u8], notes: &mut Vec<String>) {
+        // Lossy for the reason [`text`] is: the annex states no character encoding for the
+        // argument, and what a host resolves is a name a person typed.
+        let file = String::from_utf8_lossy(uri).into_owned();
+        let format = pdf_model::action::data_format(&file);
+        if format == pdf_model::action::DataFormat::Fdf {
+            notes.push(format!(
+                "this URI's fragment asks for the form data in {file}, which the host is being \
+                 asked for"
+            ));
+            self.importing = Some(ImportData { file, format });
+        } else {
+            notes.push(format!(
+                "this URI's fragment asks for the form data in {file}, which is not §12.7.8's \
+                 FDF, and no other data format is read"
+            ));
         }
     }
 

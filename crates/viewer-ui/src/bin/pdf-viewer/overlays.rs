@@ -47,6 +47,32 @@ const CARET: Color = Color {
 /// How wide the caret is, in device pixels.
 const CARET_WIDTH: f32 = 2.0;
 
+/// The colour a selection is washed in.
+///
+/// A choice this host has to make and a native one does not: GTK draws the theme's foreground and
+/// Qt draws `QPalette::Highlight`, and there is no platform here to ask.
+const SELECTION: Color = Color {
+    r: 140.0 / 255.0,
+    g: 180.0 / 255.0,
+    b: 1.0,
+    a: 1.0,
+};
+
+/// The colour ISO 32000-2 Annex O's `highlight` rectangle is washed in.
+///
+/// Table Annex O.4 says "[t]he nature of the highlighting is implementation-dependent" outright,
+/// so this is the one overlay whose colour the standard *hands* to a processor rather than leaving
+/// unsaid. A third hue for the same reason the find bar's is a second one: "the rectangle the URI
+/// asked for", "where else the word is" and "what you have selected" are three different
+/// statements, and a person should not have to work out which wash is which. Green, because the
+/// other two are blue and yellow.
+const ANNEX_O_HIGHLIGHT: Color = Color {
+    r: 0.60,
+    g: 1.0,
+    b: 0.62,
+    a: 1.0,
+};
+
 impl App {
     /// Draws the outstanding request onto the surface and presents it.
     ///
@@ -92,7 +118,37 @@ impl App {
             Topic::Selection,
             format_args!("SELECTION quads {}", quads.len()),
         );
-        highlight_list(&quads, width, height)
+        highlight_list(&quads, SELECTION, width, height)
+    }
+
+    /// ISO 32000-2 Annex O's `highlight`: the rectangle the URI's fragment asked to be shown.
+    ///
+    /// Table Annex O.4: "Open the document with the specified rectangle highlighted." The core
+    /// answers with the shapes on the page being shown, in this window's own device pixels, and
+    /// the annex leaves what they look like to a processor — so this host washes them in a colour
+    /// of its own, exactly as it does a selection and a search's matches. Under everything else
+    /// for the same reason the matches are: it belongs to the page rather than to what a person is
+    /// doing now.
+    ///
+    /// `None` for every document opened without a fragment naming one, which is nearly all of
+    /// them, and for a page other than the one the rectangle was measured on.
+    pub(crate) fn annex_o_highlight_list(
+        &self,
+        edge: f32,
+        width: u32,
+        height: u32,
+    ) -> Option<pdf_render::DisplayList> {
+        let Answer::Highlighted(mut quads) = self.viewer.query(Query::Highlight) else {
+            return None;
+        };
+        // Device pixels of the *page's* viewport, which begins where the panel ends — the same one
+        // addition `selection_list` and `matches_list` make.
+        for quad in &mut quads {
+            for x in quad.iter_mut().step_by(2) {
+                *x += edge;
+            }
+        }
+        highlight_list(&quads, ANNEX_O_HIGHLIGHT, width, height)
     }
 
     /// §12.5.6.14's popup windows, over the page and under the sidebar.
@@ -208,7 +264,7 @@ impl App {
                 *x += edge;
             }
         }
-        highlight_list(&quads, width, height)
+        highlight_list(&quads, SELECTION, width, height)
     }
 
     /// The caret: a line where the next character will be drawn, while a field has the keyboard.
@@ -259,9 +315,11 @@ impl App {
     }
 }
 
-/// Lays the selection's shapes over the page.
+/// Lays a list of shapes over the page, washed in one colour.
 ///
-/// The selection quads as a display list in the window's own pixels.
+/// Three overlays are the same drawing — what is selected, where else the find bar's string is,
+/// and Annex O's highlighted rectangle — and they differ only in the colour, which is why that is
+/// the argument and why there is one of these rather than three.
 ///
 /// The quadrilaterals arrive from `viewer-core` in device pixels of this window, so nothing here
 /// composes a transform: that is the whole point of chrome crossing as geometry rather than as
@@ -282,6 +340,7 @@ impl App {
 /// the non-zero rule one path is one shape, so those slivers stop darkening twice as well.
 pub(crate) fn highlight_list(
     quads: &[[f32; 8]],
+    colour: Color,
     width: u32,
     height: u32,
 ) -> Option<pdf_render::DisplayList> {
@@ -293,7 +352,6 @@ pub(crate) fn highlight_list(
         reason = "window dimensions are far below f32's exact integer range"
     )]
     let mut list = pdf_render::DisplayList::new(Size::new(width as f32, height as f32));
-    let colour = Color::rgb(140.0 / 255.0, 180.0 / 255.0, 1.0);
     let mut path = Path::new();
     for quad in quads {
         for (index, corner) in quad.chunks_exact(2).enumerate() {
@@ -328,6 +386,8 @@ pub(crate) fn highlight_list(
 /// call: each of these is built for this frame and dropped after it.
 #[derive(Default)]
 pub(crate) struct Overlays {
+    /// Annex O's highlighted rectangle, under everything: it says how the document was opened.
+    annex_o_highlight: Option<pdf_render::DisplayList>,
     /// Every occurrence of the find bar's string on this page, under the selection.
     matches: Option<pdf_render::DisplayList>,
     /// What is selected on the page, which belongs to the page and so is under everything else.
@@ -353,6 +413,7 @@ impl Overlays {
     /// Builds every one of them for this frame.
     pub(crate) fn of(app: &App, edge: f32, width: u32, height: u32) -> Self {
         Self {
+            annex_o_highlight: app.annex_o_highlight_list(edge, width, height),
             matches: app.matches_list(edge, width, height),
             selection: app.selection_list(edge, width, height),
             field_selection: app.field_selection_list(edge, width, height),
@@ -369,6 +430,7 @@ impl Overlays {
     /// then the sidebar, then the modal card on top — the order the Vello host drew them in.
     pub(crate) fn lists(&self) -> Vec<&pdf_render::DisplayList> {
         [
+            self.annex_o_highlight.as_ref(),
             self.matches.as_ref(),
             self.selection.as_ref(),
             self.field_selection.as_ref(),

@@ -1,10 +1,10 @@
 # A fragment that says where to open
 
-Status: **nine of the eleven are carried out since the four-hundred-and-seventy-fifth session; two
-are reported by name.** Annex O is no longer `silent` — §O.1 and §O.2 are `implemented`, §O.2.1 and
-§O.2.2 are `partial`, and the ledger's `silent` count is 0 for the first time since ADR 0206 found
-these five rows. ADRs 0209, 0250, 0310.
-Priority: 39 — capability, and what is left of it is two parameters with two different blockers
+Status: **all eleven parameters are carried out since the five-hundred-and-twenty-second session,
+and `Parameter::unhonoured` names none.** §O.1, §O.2 and §O.2.2 are `implemented`; §O.2.1 is
+`partial` for one sentence of Table Annex O.3's `ef` row and nothing else, which is what is left of
+this item. ADRs 0209, 0250, 0310, 0357.
+Priority: 39 — capability, and what is left of it is one sentence about a second document
 Clauses: Annex O (§O.2.1, §O.2.2), §12.7.8, §7.11.4
 Code: `crates/pdf-model/src/fragment.rs`, `crates/viewer-core/src/open.rs`,
 `crates/viewer-host/src/policy.rs`
@@ -16,12 +16,12 @@ Code: `crates/pdf-model/src/fragment.rs`, `crates/viewer-core/src/open.rs`,
 
 `pdf_model::fragment::Fragment::parse` reads all eleven parameters from the text after `#`, in the
 order §O.2 makes normative, naming what it could not read rather than dropping it.
-`viewer_core::Open::apply_fragment` carries out **`page`, `nameddest`, `structelem`, `comment`,
-`ef`, `zoom`, `view`, `viewrect` and `search`**, immediately after Table 29's `/OpenAction` as
-§O.2.2 asks. `Command::Open` carries the fragment undecoded, and `pdf-viewer doc.pdf#page=5` is the
-first caller.
+`viewer_core::Open::apply_fragment` carries out **all eleven** — `page`, `nameddest`, `structelem`,
+`comment`, `ef`, `zoom`, `view`, `viewrect`, `highlight`, `search` and `fdf` — immediately after
+Table 29's `/OpenAction` as §O.2.2 asks. `Command::Open` carries the fragment undecoded, and
+`pdf-viewer doc.pdf#page=5` is the first caller.
 
-**Two parameters have come off the refused list, and neither for the reason the list gave.**
+**Four parameters have come off the refused list, and not one for the reason the list gave.**
 `search` in the four-hundred-and-fourteenth, when `viewer_core::Command::Find` became a
 document-wide search: the plan is made as the document opens and the *host* walks it, one page per
 `Find::Continue`, because reading all 1023 pages of ISO 32000-2 is 5.84 s of interpretation and
@@ -29,34 +29,31 @@ document-wide search: the plan is made as the document opens and the *host* walk
 own — any of the words matching is a match — and the search does not wrap, because "the first
 matching word **in the document**" would otherwise mean nothing (ADR 0250). `ef` in the
 four-hundred-and-seventy-fifth, when nothing arrived at all: its reason was two claims joined by an
-"and", and only the second was ever about `ef` (ADR 0310).
+"and", and only the second was ever about `ef` (ADR 0310). And `highlight` and `fdf` in the
+five-hundred-and-twenty-second (ADR 0357): the first because a refusal that ends "no host has asked
+for one to draw" is answered by the *annex* asking — ADR 0316's precedent, sharpened by the fact
+that no host can answer this question for itself, since no host sees the fragment — and the second
+because `Event::NeedsFile` had reached three hosts while "no host supplies one yet" stood in the
+code.
 
-## The two that are left, and what each actually needs
+## What is refused, and two limits that are not refusals of this annex
 
-Each is `reported` at runtime — [`Parameter::unhonoured`] names it and the host prints it — so
-nothing here is silent.
+Nothing in Table Annex O.3 or Table Annex O.4 is refused. `Parameter::unhonoured` answers `None`
+for every one of the eleven and is kept for the decay in the other direction — a format withdrawn
+or a dependency lost has somewhere to say so, and `tools/state.sh annex-o` reads that function
+whichever way it answers.
 
-- **`highlight`** — a shape this vocabulary has nowhere to put, and the annex is what says the
-  obvious substitute is wrong. Table Annex O.4: "Open the document with the specified rectangle
-  highlighted … The nature of the highlighting is implementation-dependent." The tempting reading is
-  that this program's *selection* is the highlight — it already crosses as geometry, a
-  `Selected::quads` is already a list of quadrilaterals and a rectangle is one — and the annex
-  refuses it: its two neighbouring parameters that point a person at something both say **selected**
-  (`comment`'s "with the specified comment selected", `search`'s "selecting the first matching
-  word"), and this one says **highlighted**, with an implementation-dependent nature the other two
-  are not given. So carrying it out is a new `Query` answering a rectangle in device pixels — the
-  form `Query::Selection` and `Query::Focus` already take — and **it should not be added before a
-  host asks**, which is ADR 0164's test. This entry read "a concept this vocabulary lacks" for a
-  hundred and six sessions; the reason is now derived from the annex rather than from the program,
-  which is what `doc/habits.md`'s first shape asks for.
-- **`fdf`** — a fetch, and **`CLAUDE.md` does not close it**: the exclusion list excludes authoring,
-  multimedia, XFA and script behaviour, and says nothing about a network. Principle 3 keeps the
-  filesystem and the network out of the crate that reads PDFs, which is a statement about
-  `pdf-model` rather than about a host. "Open the document and then import the data from the
-  specified FDF or XFDF file", where the argument is a URI: the shape is `Event::NeedsFile` and
-  `Command::Supply { purpose: ImportData }` — what §12.7.6.4's import action already uses — plus a
-  host that has a URI to resolve it against. §12.7.8's reader is what receives the bytes and it is
-  built. Checked in the four-hundred-and-seventy-fifth and the reason stands unchanged.
+Two limits are worth naming because they are *not* refusals of this annex and a later round should
+not read them as ones:
+
+- **XFDF.** `fdf`'s URI may name "an FDF or XFDF file", and ISO 19444-1's XML spelling is declined
+  by name for want of an XML parser — which is a dependency rather than a clause, is the decision
+  §12.7.6.4 already took, and is now taken once for both by `pdf_model::action::data_format`. It
+  belongs to §12.7.6.4's row.
+- **Where a host looks for the file.** `viewer_host::resolve_import` is the policy: a single path
+  component beside the open document, so a *relative* URI imports and an absolute one is refused
+  out loud. That is a statement about these three hosts rather than about the annex, and a host
+  with a network and a base URI would satisfy the same `Event::NeedsFile`.
 
 ## What `ef` still owes, which is one sentence rather than the parameter
 
@@ -74,6 +71,9 @@ choose to prompt the user or even prevent opening of the file". `doc/todo/38`'s 
 
 ## What not to do
 
+- **Not a fourth copy of the highlight.** `Query::Highlight` answers the rectangle in device pixels
+  through `Viewer::device_quad`, which is ADR 0118's one arithmetic; a host draws it in a colour of
+  its own and computes nothing.
 - **Not a URI parser.** RFC 3986 splitting is the host's; what crosses is the fragment alone. The
   rule `pdf-viewer` uses is in ADR 0209: the filesystem decides, not the punctuation.
 - **Not a second reading of Table 149.** `View::from_keyword` is the one place, with §12.3.2.2's

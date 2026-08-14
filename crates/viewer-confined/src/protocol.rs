@@ -1759,6 +1759,10 @@ mod query_kind {
     // §12.5.6.6's annotation at a point, carried since the four-hundred-and-first session: the way
     // in to typing on the one markup subtype whose text is the annotation. ADR 0238.
     pub(super) const FREE_TEXT_AT: u8 = 29;
+    // Annex O's highlighted rectangle, carried since the five-hundred-and-twenty-second session:
+    // the fragment identifier's own shape, which no host can derive because no host sees the
+    // fragment. ADR 0357.
+    pub(super) const HIGHLIGHT: u8 = 30;
 }
 
 /// Encodes one question.
@@ -1826,6 +1830,9 @@ pub(crate) fn encode_query(query: Query<'_>) -> Result<Vec<u8>, Uncarried> {
         }
         Query::Focus => {
             writer.u8(k::FOCUS);
+        }
+        Query::Highlight => {
+            writer.u8(k::HIGHLIGHT);
         }
         Query::Frame => {
             writer.u8(k::FRAME);
@@ -1914,6 +1921,7 @@ pub(crate) enum PlainQuery {
     Selection,
     LogicalSelection,
     Focus,
+    Highlight,
     Frame,
     Reports,
     Outline,
@@ -1952,6 +1960,7 @@ impl OwnedQuery {
                 PlainQuery::Selection => Query::Selection,
                 PlainQuery::LogicalSelection => Query::LogicalSelection,
                 PlainQuery::Focus => Query::Focus,
+                PlainQuery::Highlight => Query::Highlight,
                 PlainQuery::Frame => Query::Frame,
                 PlainQuery::Reports => Query::Reports,
                 PlainQuery::Outline => Query::Outline,
@@ -2012,6 +2021,7 @@ pub(crate) fn decode_query(bytes: &[u8]) -> Result<OwnedQuery, ProtocolError> {
         k::SELECTION => OwnedQuery::Plain(PlainQuery::Selection),
         k::LOGICAL_SELECTION => OwnedQuery::Plain(PlainQuery::LogicalSelection),
         k::FOCUS => OwnedQuery::Plain(PlainQuery::Focus),
+        k::HIGHLIGHT => OwnedQuery::Plain(PlainQuery::Highlight),
         k::FRAME => OwnedQuery::Plain(PlainQuery::Frame),
         k::REPORTS => OwnedQuery::Plain(PlainQuery::Reports),
         k::OUTLINE => OwnedQuery::Plain(PlainQuery::Outline),
@@ -2074,6 +2084,8 @@ mod answer_kind {
     pub(super) const FIELDS: u8 = 29;
     // §12.5.6.6's annotation and its `/Contents`, since the four-hundred-and-first. ADR 0238.
     pub(super) const FREE_TEXT: u8 = 30;
+    // Annex O's highlighted rectangles, since the five-hundred-and-twenty-second. ADR 0357.
+    pub(super) const HIGHLIGHTED: u8 = 31;
 }
 
 /// Encodes one answer.
@@ -2161,6 +2173,12 @@ pub(crate) fn encode_answer(answer: &Answer<'_>) -> Result<Vec<u8>, Uncarried> {
                 for quad in occurrence {
                     writer.quad(*quad);
                 }
+            }
+        }
+        Answer::Highlighted(quads) => {
+            writer.u8(k::HIGHLIGHTED).usize(quads.len());
+            for quad in quads {
+                writer.quad(*quad);
             }
         }
         Answer::FreeText { annotation, text } => {
@@ -2317,6 +2335,9 @@ pub(crate) fn decode_answer(bytes: &[u8]) -> Result<Reply, ProtocolError> {
         k::FOUND => {
             let what = "a search result";
             Reply::Found(reader.list(what, |reader| read_quads(reader, what))?)
+        }
+        k::HIGHLIGHTED => {
+            Reply::Highlighted(read_quads(&mut reader, "Annex O's highlighted rectangles")?)
         }
         k::FREE_TEXT => Reply::FreeText {
             annotation: reader.object("a free text annotation")?,
@@ -2766,7 +2787,7 @@ mod tests {
     /// Every question `viewer-core` states, encoded and read back.
     ///
     /// **The list used to have two halves** — what crossed and what was refused by name — and the
-    /// second half is empty since the three-hundred-and-eighty-sixth session. All twenty-nine are
+    /// second half is empty since the three-hundred-and-eighty-sixth session. All thirty are
     /// here, written out rather than generated, so that a question added to `viewer-core` makes
     /// `encode_query`'s match fail to compile and somebody then notices there is no round trip
     /// for it.
@@ -2798,6 +2819,7 @@ mod tests {
             Query::Selection,
             Query::LogicalSelection,
             Query::Focus,
+            Query::Highlight,
             Query::Frame,
             Query::Reports,
             Query::Outline,
@@ -2813,7 +2835,7 @@ mod tests {
             Query::Fields,
             Query::AccessibilityTree,
         ];
-        assert_eq!(carried.len(), 29, "every question `viewer-core` states");
+        assert_eq!(carried.len(), 30, "every question `viewer-core` states");
         for query in carried {
             let encoded = encode_query(query).unwrap();
             let read = decode_query(&encoded).unwrap();

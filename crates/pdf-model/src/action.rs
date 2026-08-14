@@ -1003,20 +1003,34 @@ fn reset_form(document: &Document, dict: &Dictionary) -> ResetForm {
 fn import_data(document: &Document, dict: &Dictionary) -> Option<Action> {
     // §7.11.1's two forms and Table 43's `/UF`-over-`/F` rule are `file_spec`'s.
     let file = file_specification(document, dict, "F")?;
-    // The extension, case-insensitively: §12.7.8.1 states the letters and nothing about their
-    // case, and a file specification is written by whichever platform exported the data.
-    let extension = std::path::Path::new(&file)
+    let format = data_format(&file);
+    Some(Action::ImportData(ImportData { file, format }))
+}
+
+/// What the name of a file holding form data says it holds.
+///
+/// The extension, case-insensitively: §12.7.8.1 states the letters and nothing about their case,
+/// and the name is written by whichever platform exported the data.
+///
+/// **Two clauses ask this and they ask it of different strings**, which is why it is a function
+/// rather than four lines inside [`import_data`]: §12.7.6.4's action names a file specification,
+/// and Annex O's `fdf` parameter names a URI — "[t]he URI shall be either a relative or absolute
+/// URI to an FDF or XFDF file" — and the two would otherwise hold two opinions about what an
+/// `.xfdf` is. Which of the formats this program *reads* is neither clause's business and is
+/// answered where the bytes arrive.
+#[must_use]
+pub fn data_format(name: &str) -> DataFormat {
+    let extension = std::path::Path::new(name)
         .extension()
         .map(|extension| extension.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let format = if extension.eq_ignore_ascii_case("fdf") {
+    if extension.eq_ignore_ascii_case("fdf") {
         DataFormat::Fdf
     } else if extension.eq_ignore_ascii_case("xfdf") {
         DataFormat::Xfdf
     } else {
         DataFormat::Other
-    };
-    Some(Action::ImportData(ImportData { file, format }))
+    }
 }
 
 /// Table 209's `/D` and `/B`, with `/F` deciding that this is another file's thread.

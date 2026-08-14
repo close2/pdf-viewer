@@ -269,10 +269,11 @@ ChromeOverlay::ChromeOverlay(QWidget* parent) : QWidget(parent)
 }
 
 void ChromeOverlay::setShapes(QVector<QtQuad> selection, QVector<QtQuad> matches,
-                              QVector<QtQuad> focus, qreal scale)
+                              QVector<QtQuad> highlights, QVector<QtQuad> focus, qreal scale)
 {
     selection_ = std::move(selection);
     matches_ = std::move(matches);
+    highlights_ = std::move(highlights);
     focus_ = std::move(focus);
     scale_ = scale > 0.0 ? scale : 1.0;
     update();
@@ -280,7 +281,7 @@ void ChromeOverlay::setShapes(QVector<QtQuad> selection, QVector<QtQuad> matches
 
 void ChromeOverlay::paintEvent(QPaintEvent*)
 {
-    if (selection_.isEmpty() && matches_.isEmpty() && focus_.isEmpty()) {
+    if (selection_.isEmpty() && matches_.isEmpty() && highlights_.isEmpty() && focus_.isEmpty()) {
         return;
     }
     QPainter painter(this);
@@ -297,6 +298,17 @@ void ChromeOverlay::paintEvent(QPaintEvent*)
     // paying off rather than being defended. ADR 0246.
     const QPalette& colours = palette();
     painter.setPen(Qt::NoPen);
+
+    // ISO 32000-2 Annex O's highlighted rectangle, under everything else: the annex leaves its
+    // nature to a processor, and what this one has to offer is the platform's own colour at the
+    // faintest of the three weights — it is a statement about how the document was opened rather
+    // than about what a person is doing in it.
+    QColor asked = colours.color(QPalette::Highlight);
+    asked.setAlphaF(0.18f);
+    painter.setBrush(asked);
+    for (const QtQuad& quad : highlights_) {
+        painter.drawPath(pathOf(quad, scale_));
+    }
 
     // Every other occurrence of the find bar's string, under the selection and fainter. The
     // standard says nothing whatever about what a match looks like, so this is a choice: the same
@@ -622,12 +634,16 @@ void MainWindow::applyUpdates()
         for (const QtQuad& quad : host_->matches()) {
             matches.push_back(quad);
         }
+        QVector<QtQuad> highlights;
+        for (const QtQuad& quad : host_->highlights()) {
+            highlights.push_back(quad);
+        }
         QVector<QtQuad> focus;
         for (const QtQuad& quad : host_->focus()) {
             focus.push_back(quad);
         }
-        page_->chrome()->setShapes(std::move(selection), std::move(matches), std::move(focus),
-                                   page_->devicePixelRatioF());
+        page_->chrome()->setShapes(std::move(selection), std::move(matches), std::move(highlights),
+                                   std::move(focus), page_->devicePixelRatioF());
     }
     if (update.title) {
         setWindowTitle(text(host_->title()));

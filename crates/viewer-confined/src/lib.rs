@@ -449,6 +449,8 @@ pub enum Reply {
     },
     /// Where a string occurs, one entry per occurrence.
     Found(Vec<Vec<[f32; 8]>>),
+    /// Annex O's highlighted rectangles on the page being shown.
+    Highlighted(Vec<[f32; 8]>),
     /// Whether anything has been edited.
     Dirty(bool),
     /// The focused annotation and the quadrilateral covering it.

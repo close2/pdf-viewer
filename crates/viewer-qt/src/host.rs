@@ -519,6 +519,19 @@ impl Host {
         }
     }
 
+    /// ISO 32000-2 Annex O's `highlight`: the rectangles the URI's fragment named.
+    ///
+    /// Table Annex O.4: "Open the document with the specified rectangle highlighted … [t]he nature
+    /// of the highlighting is implementation-dependent." So the shapes cross and the colour is
+    /// Qt's, which is the whole argument for chrome crossing as geometry. Empty for every document
+    /// opened without a fragment naming one.
+    pub(crate) fn highlights(&self) -> Vec<QtQuad> {
+        match self.viewer.query(Query::Highlight) {
+            Answer::Highlighted(quads) => quads.iter().copied().map(quad).collect(),
+            _ => Vec::new(),
+        }
+    }
+
     /// A step of the search reported. Says what it found, and how much is left to read.
     fn searched(&mut self, found: Option<viewer_core::Found>, remaining: usize, wrapped: bool) {
         self.pages_left = remaining;

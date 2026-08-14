@@ -99,9 +99,10 @@ public:
     ///
     /// `matches` is every occurrence of the find bar's string on this page and `selection` is the
     /// one a person is on — two lists rather than one, because they say different things and are
-    /// drawn in different weights of the same platform colour.
-    void setShapes(QVector<QtQuad> selection, QVector<QtQuad> matches, QVector<QtQuad> focus,
-                   qreal scale);
+    /// drawn in different weights of the same platform colour. `highlights` is Annex O's, which
+    /// says how the document was opened rather than what is being done to it now.
+    void setShapes(QVector<QtQuad> selection, QVector<QtQuad> matches, QVector<QtQuad> highlights,
+                   QVector<QtQuad> focus, qreal scale);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -109,6 +110,7 @@ protected:
 private:
     QVector<QtQuad> selection_;
     QVector<QtQuad> matches_;
+    QVector<QtQuad> highlights_;
     QVector<QtQuad> focus_;
     qreal scale_ = 1.0;
 };

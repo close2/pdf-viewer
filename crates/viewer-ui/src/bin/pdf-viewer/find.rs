@@ -5,12 +5,6 @@
 //! the page on the screen out of a readback that already exists. The first is what the note says
 //! and the second is what the yellow shows.
 
-use std::sync::Arc;
-
-use pdf_render::{
-    BlendMode, Color, Command as DrawCommand, FillRule, Paint, Path, PathCommand, Point, Size,
-    Transform,
-};
 use viewer_core::{Answer, Command, Find, FindDirection, Query};
 use winit::keyboard::{Key, NamedKey};
 
@@ -62,7 +56,7 @@ impl App {
                 *x += edge;
             }
         }
-        match_list(&quads, width, height)
+        crate::overlays::highlight_list(&quads, MATCH, width, height)
     }
 
     /// A step of the search reported: what it found, and how much is left to read.
@@ -177,45 +171,18 @@ impl App {
     }
 }
 
-/// The shapes over every occurrence of a search string, in the window's own pixels.
+/// The colour every occurrence of a search string is washed in.
 ///
-/// A paler yellow than [`highlight_list`](crate::overlays::highlight_list)'s blue selection and
-/// multiplied over the page for the
-/// same reason: the glyphs underneath have to stay readable. **The colour is a choice** — the
-/// standard describes no find bar and says nothing about what a match looks like — and it is
-/// chosen to be a different *hue* from the selection rather than a different weight of it, so
-/// that "where else the word is" and "which one you are on" cannot be confused at a glance. The
-/// two native hosts made the other choice, one hue at two alphas, because a platform hands them a
-/// selection colour and no second one; this host has no theme to ask and so may pick both.
-fn match_list(quads: &[[f32; 8]], width: u32, height: u32) -> Option<pdf_render::DisplayList> {
-    if quads.is_empty() {
-        return None;
-    }
-    #[expect(
-        clippy::cast_precision_loss,
-        reason = "window dimensions are far below f32's exact integer range"
-    )]
-    let mut list = pdf_render::DisplayList::new(Size::new(width as f32, height as f32));
-    let mut path = Path::new();
-    for quad in quads {
-        for (index, corner) in quad.chunks_exact(2).enumerate() {
-            let point = Point::new(corner[0], corner[1]);
-            path.push(if index == 0 {
-                PathCommand::MoveTo(point)
-            } else {
-                PathCommand::LineTo(point)
-            });
-        }
-        path.push(PathCommand::Close);
-    }
-    list.push(DrawCommand::Fill {
-        path: Arc::new(path),
-        transform: Transform::IDENTITY,
-        fill_rule: FillRule::NonZero,
-        paint: Paint::Solid(Color::rgb(1.0, 0.87, 0.35)),
-        clip: None,
-        mask: None,
-        blend: BlendMode::Multiply,
-    });
-    Some(list)
-}
+/// A paler yellow than [`overlays::SELECTION`](crate::overlays)'s blue and multiplied over the
+/// page for the same reason: the glyphs underneath have to stay readable. **The colour is a
+/// choice** — the standard describes no find bar and says nothing about what a match looks like —
+/// and it is chosen to be a different *hue* from the selection rather than a different weight of
+/// it, so that "where else the word is" and "which one you are on" cannot be confused at a glance.
+/// The two native hosts made the other choice, one hue at two alphas, because a platform hands
+/// them a selection colour and no second one; this host has no theme to ask and so may pick both.
+const MATCH: pdf_render::Color = pdf_render::Color {
+    r: 1.0,
+    g: 0.87,
+    b: 0.35,
+    a: 1.0,
+};

@@ -268,12 +268,17 @@ fn a_view_rectangle_is_measured_from_the_top_left_corner_of_the_page() {
     );
 }
 
-/// Trap 5, in Annex O's own words. A parameter this program cannot carry out is named, and the
-/// rest of the fragment still runs: §O.2's rule is that the parameters are executed in order, not
-/// that one of them can cancel the others.
+/// Trap 5, in Annex O's own words. A parameter this reader could not read is named, and the rest
+/// of the fragment still runs: §O.2's rule is that the parameters are executed in order, not that
+/// one of them can cancel the others.
+///
+/// **This test used to be about `highlight`**, which `Parameter::unhonoured` reported by name
+/// until the five-hundred-and-twenty-second session carried it out (ADR 0357). What it is about is
+/// the *channel*, so it now uses a parameter this annex does not define at all — `pagemode` is
+/// another reader's, and a URI that mixes the two has still said something about this document.
 #[test]
-fn a_parameter_this_program_refuses_is_named_and_the_others_still_run() {
-    let Some((viewer, events)) = opened("vertical.pdf", "highlight=1,2,3,4&page=2") else {
+fn a_parameter_this_program_cannot_read_is_named_and_the_others_still_run() {
+    let Some((viewer, events)) = opened("vertical.pdf", "pagemode=bookmarks&page=2") else {
         eprintln!("skipped: doc/pdf.js is not checked out");
         return;
     };
@@ -284,7 +289,190 @@ fn a_parameter_this_program_refuses_is_named_and_the_others_still_run() {
     );
     let notes = notes(&events);
     assert!(
-        notes.iter().any(|note| note.contains("highlight")),
+        notes.iter().any(|note| note.contains("pagemode")),
+        "{notes:?}"
+    );
+}
+
+/// Table Annex O.4's `highlight` in §O.2.2, reported by name until the five-hundred-and-twenty-second
+/// session and carried out since it (ADR 0357):
+///
+/// > Open the document with the specified rectangle highlighted. Each argument shall be an integer
+/// > or floating point value representing the rectangle measured from the top left corner of the
+/// > page. The nature of the highlighting is implementation-dependent.
+///
+/// The nature being implementation-dependent is why this crosses as geometry: `Query::Highlight`
+/// answers with the rectangle in device pixels of the viewport and a host washes it in its own
+/// colour, exactly as it does a selection.
+///
+/// **The expected pixels are derived rather than written down.** `vertical.pdf`'s pages are
+/// `/MediaBox [0 0 249.45 321.02]` with no `/Rotate`, so the page's top-left corner in default
+/// user space is (0, 321.02) and `Query::PageGeometry` says where that corner landed on the screen
+/// and at what magnification. A rectangle measured from the *bottom* left would come back
+/// `321.02 - top - height` further down, which is what this test can tell apart.
+#[test]
+fn a_highlighted_rectangle_is_measured_from_the_page_corner_and_crosses_as_a_quadrilateral() {
+    let Some((mut viewer, events)) = opened("vertical.pdf", "highlight=10,60,20,80") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    settle(&mut viewer, &events);
+    let geometry = geometry(&viewer, 0);
+    let Answer::Highlighted(quads) = viewer.query(Query::Highlight) else {
+        panic!("a fragment that named a rectangle has one to answer with");
+    };
+    let [quad] = quads.as_slice() else {
+        panic!("one rectangle was named: {quads:?}");
+    };
+    let scale = geometry.scale;
+    let (left, top) = (
+        geometry.origin.0 + 10.0 * scale,
+        geometry.origin.1 + 20.0 * scale,
+    );
+    let (right, bottom) = (
+        geometry.origin.0 + 60.0 * scale,
+        geometry.origin.1 + 80.0 * scale,
+    );
+    // Clockwise from the top-left as it appears on the screen, which is the form every other
+    // quadrilateral this crate answers with takes.
+    let expected = [left, top, right, top, right, bottom, left, bottom];
+    for (corner, want) in quad.iter().zip(expected) {
+        assert!(
+            (corner - want).abs() < 0.5,
+            "{quad:?} against {expected:?} at scale {scale}"
+        );
+    }
+}
+
+/// The rectangle belongs to the page the fragment had selected when it named it.
+///
+/// Every row of Table Annex O.4 measures "from the top left corner of the page", and §O.2 makes
+/// the parameters run left to right — so `page=2&highlight=…` is a rectangle on page 2, and page 1
+/// has nothing to draw. The same dependence the annex spells out for `comment` in a NOTE.
+#[test]
+fn a_highlighted_rectangle_belongs_to_the_page_it_was_named_on() {
+    let Some((mut viewer, events)) = opened("vertical.pdf", "page=2&highlight=10,60,20,80") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    settle(&mut viewer, &events);
+    assert_eq!(page(&viewer), 1, "the second page, one-based in the URI");
+    let Answer::Highlighted(here) = viewer.query(Query::Highlight) else {
+        panic!("the page it was named on has it");
+    };
+    assert_eq!(here.len(), 1, "{here:?}");
+
+    let events: Vec<Event> = viewer
+        .handle(Command::GoTo(viewer_core::PageTarget::Index(0)))
+        .collect();
+    settle(&mut viewer, &events);
+    let Answer::Highlighted(elsewhere) = viewer.query(Query::Highlight) else {
+        panic!("the answer is a list on every page, empty or not");
+    };
+    assert!(
+        elsewhere.is_empty(),
+        "page one was never highlighted: {elsewhere:?}"
+    );
+}
+
+/// Table Annex O.4's `fdf` in §O.2.2, reported by name until the five-hundred-and-twenty-second
+/// session (ADR 0357):
+///
+/// > Open the document and then import the data from the specified FDF or XFDF file. The URI shall
+/// > be either a relative or absolute URI to an FDF or XFDF file.
+///
+/// **The fetch is the host's and always was**, which is what the old refusal described rather than
+/// what stood in its way: this crate has no filesystem (`doc/ui-boundary.md`'s rule 2), so the name
+/// crosses as `Event::NeedsFile` with the purpose §12.7.6.4's import action already uses, and a
+/// host resolves it — against the document's own URI for a relative one, by its own policy for an
+/// absolute one. This test *is* that host, which is the only way a headless one can be.
+///
+/// `form_two_pages.pdf` states a text field called `Text1` (§12.7.4.2's fully qualified name), and
+/// the FDF below is §12.7.8.2's own construction — a `/FDF` dictionary whose `/Fields` array names
+/// that field and gives it a `/V`.
+#[test]
+fn the_fdf_a_fragment_names_is_asked_for_and_imported() {
+    let Some((mut viewer, events)) = opened("form_two_pages.pdf", "fdf=answers.fdf") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    let asked: Vec<(viewer_core::Purpose, String)> = events
+        .iter()
+        .filter_map(|event| match event {
+            Event::NeedsFile { purpose, name, .. } => Some((*purpose, name.clone())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        asked,
+        vec![(viewer_core::Purpose::ImportData, "answers.fdf".to_owned())],
+        "the URI's fragment asked this host for the file, by the name it was written with"
+    );
+
+    // What the file itself says the field holds, so that the assertion below is about the import
+    // rather than about a value that was there already.
+    assert_ne!(value_of(&viewer, "Text1"), "Ada Lovelace");
+
+    // §12.7.8.2's header, its `/FDF` dictionary and §12.7.8.2.4's trailer, which is all an FDF
+    // file is. Written here rather than taken from the corpus for the reason the whole of this
+    // annex's testing has: no document carries a fragment identifier, and none of the 964 carries
+    // an FDF beside it either.
+    let fdf: &[u8] = b"%FDF-1.2\n1 0 obj\n<< /FDF << /Fields \
+        [ << /T (Text1) /V (Ada Lovelace) >> ] >> >>\nendobj\n\
+        trailer\n<< /Root 1 0 R >>\n%%EOF\n";
+    let events: Vec<Event> = viewer
+        .handle(Command::Supply {
+            purpose: viewer_core::Purpose::ImportData,
+            bytes: Some(fdf.to_vec()),
+        })
+        .collect();
+    settle(&mut viewer, &events);
+
+    assert_eq!(
+        value_of(&viewer, "Text1"),
+        "Ada Lovelace",
+        "§12.7.8's imported value is what the field says now"
+    );
+}
+
+/// What a field of the form on the page being shown says now, by §12.7.4.2's qualified name.
+fn value_of(viewer: &Viewer, field: &str) -> String {
+    let Answer::Fields(fields) = viewer.query(Query::Fields) else {
+        panic!("this document has a form");
+    };
+    fields
+        .iter()
+        .find(|shown| shown.name.qualified == field)
+        .expect("the field this test is about")
+        .value
+        .as_ref()
+        .map(|value| value.text.clone())
+        .unwrap_or_default()
+}
+
+/// A `fdf` naming something this program does not read is declined **by name**.
+///
+/// ISO 19444-1's XFDF is the same data in XML and would need an XML parser, which is a dependency
+/// rather than a clause — the decision `interact::request_file` already takes for §12.7.6.4's
+/// action, taken once for both by `pdf_model::action::data_format`. Trap 5: nothing is asked of
+/// the host and a person is told why.
+#[test]
+fn an_xfdf_a_fragment_names_is_declined_by_name() {
+    let Some((_, events)) = opened("form_two_pages.pdf", "fdf=answers.xfdf") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, Event::NeedsFile { .. })),
+        "nothing is asked for a format nothing reads"
+    );
+    let notes = notes(&events);
+    assert!(
+        notes
+            .iter()
+            .any(|note| note.contains("answers.xfdf") && note.contains("FDF")),
         "{notes:?}"
     );
 }

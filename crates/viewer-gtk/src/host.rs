@@ -79,6 +79,13 @@ struct Chrome {
     /// *which one you are on*. Drawn first and fainter, so the current occurrence reads as the
     /// one the platform's own selection colour is over.
     matches: Vec<[f32; 8]>,
+    /// Annex O's `highlight`: the rectangles the URI's fragment named, in the same pixels.
+    ///
+    /// Table Annex O.4 leaves what one looks like to a processor — "[t]he nature of the
+    /// highlighting is implementation-dependent" — and this platform's honest answer is the same
+    /// one it gives a match: the theme's own colour at an alpha of its own, because GTK exposes no
+    /// second colour to ask for.
+    highlights: Vec<[f32; 8]>,
     /// §12.5.1's ring, in the same pixels.
     focus: Option<[f32; 8]>,
     /// Device pixels per logical pixel, because GTK draws in logical ones.
@@ -520,10 +527,18 @@ impl Host {
                 _ => Vec::new(),
             }
         };
+        // Annex O's highlighted rectangle, if the URI this document was opened from named one.
+        // Answered from a list the fragment filled when the document opened, so it costs a filter
+        // over that list and nothing else.
+        let highlights = match self.viewer.query(Query::Highlight) {
+            Answer::Highlighted(quads) => quads,
+            _ => Vec::new(),
+        };
         {
             let mut chrome = self.chrome.borrow_mut();
             chrome.selection = selection;
             chrome.matches = matches;
+            chrome.highlights = highlights;
             chrome.focus = focus;
             chrome.scale = f64::from(self.scale);
         }
@@ -1321,6 +1336,21 @@ fn draw_chrome(
     } else {
         1.0
     };
+    if !chrome.highlights.is_empty() {
+        // Annex O's rectangle, under both of the others: it says how the document was *opened*,
+        // where a match and a selection say what is happening now. Fainter still, for the same
+        // reason the matches are fainter than the selection.
+        cr.set_source_rgba(
+            f64::from(colour.red()),
+            f64::from(colour.green()),
+            f64::from(colour.blue()),
+            0.18,
+        );
+        for quad in &chrome.highlights {
+            trace_quad(cr, *quad, scale);
+        }
+        cr.fill()?;
+    }
     if !chrome.matches.is_empty() {
         // Fainter than the selection and in the same colour, which is this platform's answer to
         // "what does a match look like": GTK exposes no accent colour to application code, so

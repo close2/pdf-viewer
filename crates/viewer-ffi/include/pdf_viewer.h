@@ -494,6 +494,9 @@ int32_t pdfv_report(const pdfv_viewer *viewer, size_t index, char *out, size_t c
 
 int32_t pdfv_selection_text(const pdfv_viewer *viewer, char *out, size_t cap, size_t *needed);
 int32_t pdfv_selection_quads(const pdfv_viewer *viewer, pdfv_quads **quads);
+/* Annex O's `highlight`: the rectangles the URI's fragment asked to be shown highlighted, on the
+   page being shown. Empty unless a fragment named one — the annex leaves the look to you. */
+int32_t pdfv_highlight_quads(const pdfv_viewer *viewer, pdfv_quads **quads);
 void    pdfv_quads_free(pdfv_quads *quads);
 size_t  pdfv_quads_len(const pdfv_quads *quads);
 /* `into` takes eight floats: [x0, y0, … x3, y3], device pixels of the viewport, y downwards. */

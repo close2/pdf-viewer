@@ -26,7 +26,8 @@
 //! Reading and acting are also where the two halves of this annex divide honestly:
 //! [`Parameter::unhonoured`] says which of the eleven this *program* cannot carry out and why,
 //! which is a claim about this tree rather than about the standard, and it decays the way a ledger
-//! row does.
+//! row does. It names none of them today — four parameters have stood on that list and all four
+//! came off it — and the function is kept because the decay runs both ways.
 //!
 //! # The grammar, and the two things the annex does not state
 //!
@@ -282,9 +283,16 @@ pub enum Parameter {
     /// wordList written without them is still a list of words and is read as one, because the
     /// alternative is refusing a URI over punctuation the annex asks a *writer* for.
     Search(Vec<Vec<u8>>),
-    /// Table Annex O.4's `fdf`: §12.7.8's form data, fetched from somewhere else. §O.2.2.
+    /// Table Annex O.4's `fdf`: §12.7.8's form data, named from outside the document. §O.2.2.
     ///
     /// > The URI shall be either a relative or absolute URI to an FDF or XFDF file.
+    ///
+    /// A URI rather than a file name, and this reader keeps it as the bytes it was written as: a
+    /// *relative* one is resolved against the document's own URI and an absolute one names
+    /// somewhere else entirely, and both of those are decisions about a machine rather than about
+    /// a document. `viewer_core::Event::NeedsFile` is where the name goes and a host is what
+    /// answers it — the same division §12.7.6.4's import action already takes, whose file
+    /// specification is equally a name this crate never resolves.
     Fdf(Vec<u8>),
 }
 
@@ -313,7 +321,8 @@ impl Parameter {
     ///
     /// `None` means it is carried out. **A claim about this tree rather than about the standard**,
     /// in the shape [`crate::requirements::Kind::unmet`] already uses: a sentence rather than a
-    /// boolean, one reason per arm, and it decays — which it has now done twice. `Search` came off
+    /// boolean, one reason per arm, and it decays — which it has now done for all four of the
+    /// parameters that were ever on this list. `Search` came off
     /// this list in the four-hundred-and-fourteenth session, where it had read "this program has no
     /// document-wide search" and `viewer_core::Command::Find` is one; `EmbeddedFile` came off it in
     /// the four-hundred-and-seventy-fifth, where it had read "opening an embedded file is the
@@ -329,15 +338,28 @@ impl Parameter {
     /// reach a host, which is precisely what "the host's decision" describes rather than what
     /// stands in its way. ADR 0310.
     ///
-    /// The two that are refused are refused for two different reasons. `Fdf` wants something from
-    /// outside the document — a URI fetched, which principle 3 does not let the part of this
-    /// program that reads PDFs do and which no host of it supplies yet. `Highlight` wants a shape
-    /// this vocabulary has nowhere to put: the annex asks for a *rectangle* to be highlighted, and
-    /// it means something other than selection by that, because it says "selected" for `comment`
-    /// and for `search` and says "highlighted" here.
+    /// **The last two came off in the five-hundred-and-twenty-second, and every one of the eleven
+    /// is carried out**, which is what this function now answers and why it has no arm left that
+    /// names a reason. `Highlight` had read that the annex's rectangle "is a shape of its own, and
+    /// no host has asked for one to draw": the shape is `viewer_core::Query::Highlight` and the
+    /// annex is what asks for it, on the same argument ADR 0316 took for §12.4.4.2 — a clause may
+    /// ask for a message where a host cannot see what the question is about, and no host sees this
+    /// URI's fragment. `Fdf` had read that "fetching a URI is the host's, and no host supplies one
+    /// yet", of which the first half is a description of the division rather than a blocker and the
+    /// second stopped being true when `Event::NeedsFile` reached three hosts: §12.7.6.4's file
+    /// arrives that way already, and `fdf` names one for the same purpose.
+    ///
+    /// **The shape stays although nothing uses it**, and that is the point rather than an
+    /// oversight: the answer decays in both directions, so a parameter this program stops being
+    /// able to carry out — a format withdrawn, a dependency lost — has somewhere to say so, and
+    /// `tools/state.sh annex-o` reads this function whichever way it answers.
     #[must_use]
+    #[expect(
+        clippy::needless_return,
+        reason = "`tools/state.sh annex-o` reads this function as text: the variants named before                   `return None` are the ones carried out and each arm after it is a parameter with                   its reason. The keyword is what keeps that contract readable now that there is                   nothing after it, and what the next refusal will be written in front of."
+    )]
     pub fn unhonoured(&self) -> Option<&'static str> {
-        Some(match self {
+        match self {
             Self::Page(_)
             | Self::NamedDestination(_)
             | Self::StructureElement(_)
@@ -346,14 +368,10 @@ impl Parameter {
             | Self::Zoom { .. }
             | Self::View(_)
             | Self::ViewRect { .. }
-            | Self::Search(_) => return None,
-            Self::Highlight { .. } => {
-                "the annex highlights a rectangle rather than selecting one — it says \"selected\" \
-                 for `comment` and `search` and leaves this one's nature to a processor — so it is \
-                 a shape of its own, and no host has asked for one to draw"
-            }
-            Self::Fdf(_) => "fetching a URI is the host's, and no host supplies one yet",
-        })
+            | Self::Highlight { .. }
+            | Self::Search(_)
+            | Self::Fdf(_) => return None,
+        }
     }
 
     /// Reads one parameter's arguments, or `None` where they are not what the table states.
@@ -853,28 +871,33 @@ mod tests {
         assert_eq!(parse("search=\"\"").parameters, Vec::new());
     }
 
-    /// Nine of the eleven are carried out and two are named, and the two are named *here* so that
-    /// a host reporting them needs no list of its own.
+    /// All eleven are carried out, and this is where a host learns that it has nothing to report.
     ///
-    /// **Two have moved sides**, which is what [`Parameter::unhonoured`]'s own comment says it is
+    /// **Four have moved sides**, which is what [`Parameter::unhonoured`]'s own comment says it is
     /// for: `search` in the four-hundred-and-fourteenth session, when
-    /// `viewer_core::Command::Find` became a document-wide search, and `ef` in the
+    /// `viewer_core::Command::Find` became a document-wide search; `ef` in the
     /// four-hundred-and-seventy-fifth, when its refusal turned out to be about the parameters
-    /// *after* it rather than about itself (ADR 0310).
+    /// *after* it rather than about itself (ADR 0310); and `highlight` and `fdf` in the
+    /// five-hundred-and-twenty-second, the first because the annex is what asks for the shape a
+    /// host draws and the second because `viewer_core::Event::NeedsFile` reached three hosts
+    /// (ADR 0357).
     #[test]
-    fn the_two_this_program_cannot_carry_out_name_themselves() {
+    fn every_parameter_the_annex_defines_is_carried_out() {
         let read = parse(
             "page=1&nameddest=a&structelem=b&comment=c&zoom=100&view=Fit&viewrect=0,0,1,1\
              &ef=d&highlight=0,1,2,3&search=x&fdf=f.fdf",
         );
-        let (honoured, refused): (Vec<_>, Vec<_>) = read
+        let refused: Vec<_> = read
             .parameters
             .iter()
-            .partition(|parameter| parameter.unhonoured().is_none());
+            .filter(|parameter| parameter.unhonoured().is_some())
+            .map(Parameter::name)
+            .collect();
+        assert_eq!(refused, Vec::<&str>::new());
         assert_eq!(
-            honoured
+            read.parameters
                 .iter()
-                .map(|parameter| parameter.name())
+                .map(Parameter::name)
                 .collect::<Vec<_>>(),
             [
                 "page",
@@ -885,21 +908,11 @@ mod tests {
                 "view",
                 "viewrect",
                 "ef",
-                "search"
+                "highlight",
+                "search",
+                "fdf"
             ]
         );
-        assert_eq!(
-            refused
-                .iter()
-                .map(|parameter| parameter.name())
-                .collect::<Vec<_>>(),
-            ["highlight", "fdf"]
-        );
-        assert!(refused.iter().all(|parameter| {
-            parameter
-                .unhonoured()
-                .is_some_and(|reason| !reason.is_empty())
-        }));
     }
 
     /// A fragment is a person's instruction, and half of one is still worth carrying out. Nothing

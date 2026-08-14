@@ -276,6 +276,25 @@ pub enum Query<'a> {
     /// [`Answer::None`] where nothing is focused, or where the focused annotation states no
     /// usable `/Rect`.
     Focus,
+    /// Annex O's `highlight`: the rectangles the URI's fragment asked to be shown highlighted.
+    ///
+    /// Table Annex O.4: "Open the document with the specified rectangle highlighted. … The nature
+    /// of the highlighting is implementation-dependent." That last sentence is the whole reason
+    /// this is a question rather than something drawn into the page: the annex leaves the *look*
+    /// to a processor, and this boundary already leaves it to the platform — a host draws these in
+    /// its own colour the way it draws a selection and a search's matches.
+    ///
+    /// **A question no host can answer for itself**, which is `doc/ui-boundary.md`'s test for a
+    /// new message: the fragment reaches this crate undecoded inside [`crate::Command::Open`], and
+    /// the mapping from Annex O's coordinates — default user space's units, the page's top-left
+    /// corner as the origin — into device pixels is the arithmetic ADR 0118 keeps in one place. A
+    /// host holds neither half. What makes it legitimate for a *clause* to ask rather than a host
+    /// is ADR 0316's precedent, and ADR 0357 is the argument for this one.
+    ///
+    /// Only the ones on the page being shown, each measured from that page's own corner. An empty
+    /// list — not [`Answer::None`] — where the fragment named none, which is every URI that says
+    /// nothing about a rectangle.
+    Highlight,
     /// §12.5.6.14's popup windows that are open on the page being shown.
     ///
     /// The clause makes a popup "a window … for entry and editing" with "no appearance stream", so
@@ -458,6 +477,13 @@ pub enum Answer<'a> {
     /// the viewport — the same form [`Selected::quads`] takes, because a host draws them the same
     /// way and in its own colour.
     Found(Vec<Vec<[f32; 8]>>),
+    /// Annex O's highlighted rectangles on the page being shown, in device pixels.
+    ///
+    /// `[x0, y0, … x3, y3]` apiece, the same form [`Selected::quads`] takes and drawn the same
+    /// way — in the host's own colour, which is what Table Annex O.4's "[t]he nature of the
+    /// highlighting is implementation-dependent" leaves open. Empty where the fragment named no
+    /// rectangle for this page.
+    Highlighted(Vec<[f32; 8]>),
     /// Whether anything has been edited.
     Dirty(bool),
     /// The focused annotation and the quadrilateral covering it, in device pixels.

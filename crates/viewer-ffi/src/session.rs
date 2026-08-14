@@ -343,6 +343,23 @@ impl Session {
         }
     }
 
+    /// Annex O's highlighted rectangles on the page being shown.
+    ///
+    /// Table Annex O.4's `highlight`, which a URI's fragment states and this program cannot draw
+    /// for a caller: "[t]he nature of the highlighting is implementation-dependent", so the shapes
+    /// cross and the colour is the caller's. Empty where the fragment named none, which is why
+    /// this cannot fail for an open document.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no document is focused.
+    pub fn highlight_quads(&self) -> Result<Quads, Status> {
+        match self.viewer.query(Query::Highlight) {
+            Answer::Highlighted(quads) => Ok(Quads::new(quads)),
+            _ => Err(Status::NoAnswer),
+        }
+    }
+
     /// Which annotation holds §12.5.1's focus, and where it is on the screen.
     ///
     /// Named for the *annotation* rather than for the query, because [`Self::focus`] is already

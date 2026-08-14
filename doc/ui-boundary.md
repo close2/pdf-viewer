@@ -19,7 +19,13 @@ compile and `PDFV_EVENT_KIND_COUNT` moved 15 → **16** for the first time, whic
 requires and no state machine over a file can deduce (ADR 0316). Two consumers failed to compile —
 `viewer-confined`'s wire protocol and `viewer-ui`'s trace line, the two that match `Command`
 exhaustively — and the C ABI did not, because commands there are *functions* and
-`PDFV_EVENT_KIND_COUNT` stayed where it was.
+`PDFV_EVENT_KIND_COUNT` stayed where it was. **And the five-hundred-and-twenty-second added a
+`Query` and an `Answer`**: `Query::Highlight` is Annex O's `highlight` parameter, whose rectangle a
+host cannot place for itself because no host sees the fragment — it arrives inside `Command::Open`
+undecoded — and whose *look* the annex hands to a processor outright ("[t]he nature of the
+highlighting is implementation-dependent"), which is this boundary's own rule stated by the
+standard. Three consumers failed to compile and the C ABI gained its hundred-and-twelfth entry
+point (ADR 0357).
 Read by: anybody writing a host, adding a `Command`, `Event` or `Query`, or asking what the
 crate boundary permits. `doc/HANDOVER.md`'s reader table points a round writing a host here, and ADRs 0116 to 0121
 are the argument.
@@ -57,7 +63,7 @@ Six consumers: `viewer-ui`'s `pdf-viewer.rs` (winit + vello, tier 2),
 `viewer-core/tests/headless.rs` (no display at all, tier 1), `viewer-confined`'s `pdf-view-worker`
 (a process with no filesystem, tier 1), **`viewer-gtk`'s `pdf-viewer-gtk` — a real GTK4
 application, tier 1** (ADR 0244) and **`viewer-qt`'s `pdf-viewer-qt` — a real Qt 6 Widgets
-application with a C++ bridge, tier 1** (ADR 0246) and **`viewer-ffi`'s C ABI — 111 entry points, a
+application with a C++ bridge, tier 1** (ADR 0246) and **`viewer-ffi`'s C ABI — 112 entry points, a
 hand-written header and a C program that drives it, tier 1** (ADR 0247). The first two could not
 prove the interface alone — one is a toolkit, the other is not a program — and the last three are
 what `doc/todo/30` calls the proof the answers are enough for *somebody else's widgets*: a
@@ -77,8 +83,8 @@ reviewer has to check, and two promises in two places with a test on each is wha
 0246, 0247).
 
 **What the third host cost.** Not the vocabulary either, and not a word in a crate root: it cost
-the three amendments below and nothing else. `viewer-ffi/src/abi.rs` holds one lint lift, 111
-`#[unsafe(no_mangle)]` attributes and 103 signatures, and **no `unsafe` block anywhere in the
+the three amendments below and nothing else. `viewer-ffi/src/abi.rs` holds one lint lift, 112
+`#[unsafe(no_mangle)]` attributes and 104 signatures, and **no `unsafe` block anywhere in the
 crate**; its own test asserts that and that every crate touching PDF bytes still *forbids* the
 permission (ADR 0247).
 
@@ -149,7 +155,8 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
   field's value (ADR 0225),
   **`FreeTextAt { at }`** — §12.5.6.6's annotation at a point and its `/Contents`, which is how a
   host aims a keyboard at one (ADR 0238) —
-  `Selection`, **`LogicalSelection`** (§14.8.2.5), **`Focus`** (§12.5.1's ring), `Find`, `Dirty`, `Outline`, `Layers`, `Attachments`, `AccessibilityTree`,
+  `Selection`, **`LogicalSelection`** (§14.8.2.5), **`Focus`** (§12.5.1's ring),
+  **`Highlight`** (Annex O's rectangle, ADR 0357), `Find`, `Dirty`, `Outline`, `Layers`, `Attachments`, `AccessibilityTree`,
   **`Opening`** (Table 29's `/PageMode` and `/PageLayout`), **`Properties`** (§14.3.3's Table 349),
   `Preferences`, `Frame`, `Reports`. **`Selection` answers in device pixels
   and produces no events**: a drag emits `Damage` and never `NeedsRender`, which is what keeps
@@ -231,9 +238,9 @@ unchanged: 974 corpus documents digested before and after, an empty diff.
 **The vocabulary is complete**, and ten sessions of building on it added five messages rather than
 changing any — ten now, with `Query::Caret` in the three-hundred-and-seventy-first,
 `Query::Offset` and `Query::FieldSelection` in the three-hundred-and-eighty-eighth,
-`Query::Fields` in the three-hundred-and-ninety-eighth and `Query::FreeTextAt` in the
-four-hundred-and-first, and it is the
-same rule those five followed: a *question* a host cannot answer for itself, never a second way to
+`Query::Fields` in the three-hundred-and-ninety-eighth, `Query::FreeTextAt` in the
+four-hundred-and-first and `Query::Highlight` in the five-hundred-and-twenty-second, and it is the
+same rule those six followed: a *question* a host cannot answer for itself, never a second way to
 say something it can — `Command::Activate`, `Command::Extract`, `Event::Extracted`, `Query::Opening`,
 `Query::Properties`, each because a *clause* needed a channel — with one variant **removed** the
 session after it was added, because the fuller reading of §12.3.3 made it a path nobody takes
@@ -296,7 +303,7 @@ is set in the same Helvetica on a machine with no fonts installed.
 - `viewer-gpu` (new, later) — tier 2. The only crate that may name `raw-window-handle`, `wgpu` or
   `vello` in its API.
 - `viewer-ffi` — **exists** since the four-hundred-and-eleventh, and it is the last host
-  `doc/todo/30` names. **111 `extern "C"` entry points since the five-hundred-and-eleventh**, which
+  `doc/todo/30` names. **112 `extern "C"` entry points since the five-hundred-and-twenty-second**, which
   is the whole of this vocabulary — the pointer and the selection, §12.7's form and the four edits,
   save and extract, the other two panels, §12.4.4's clock and the three policy values (ADR 0346) —
   a hand-written `include/pdf_viewer.h`, and

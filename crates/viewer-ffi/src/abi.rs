@@ -1278,6 +1278,34 @@ pub unsafe extern "C" fn pdfv_selection_quads(
     }
 }
 
+/// ISO 32000-2 Annex O's highlighted rectangles on the page being shown, or nothing.
+///
+/// Table Annex O.4's `highlight` parameter of the fragment the document was opened with — "[o]pen
+/// the document with the specified rectangle highlighted … [t]he nature of the highlighting is
+/// implementation-dependent", which is why this hands over shapes and not a picture. A caller that
+/// passed no fragment, or one naming no rectangle for this page, gets an empty list. Release it
+/// with [`pdfv_quads_free`].
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_highlight_quads(
+    viewer: *const Session,
+    quads: *mut *mut Quads,
+) -> c_int {
+    let (Some(viewer), Some(quads)) = (viewer.as_ref(), quads.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    match viewer.highlight_quads() {
+        Ok(found) => {
+            *quads = Box::into_raw(Box::new(found));
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
 /// Releases a list of shapes. A null pointer is ignored.
 ///
 /// # Safety

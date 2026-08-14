@@ -290,6 +290,7 @@ impl Viewer {
                     object,
                     quad,
                 }),
+            Query::Highlight => Answer::Highlighted(self.highlight_quads(open)),
             Query::Popups => Answer::Popups(self.popup_windows(open)),
             Query::Selection => self.selected(open).map_or(Answer::None, Answer::Selected),
             Query::LogicalSelection => {
@@ -479,6 +480,25 @@ impl Viewer {
                         found: None,
                         remaining,
                         wrapped: false,
+                    });
+                }
+                // Annex O's `fdf`, if the fragment named one — "[o]pen the document and then
+                // import the data from the specified FDF or XFDF file". **Last of the four
+                // things a fragment can start**, which is the annex's own order: the `fdf`
+                // parameter "is recommended to be the last parameter so that the document can
+                // open directly to the appropriate view", and the view is what everything above
+                // has just settled. The name crosses as the document's own words, exactly as
+                // §12.7.6.4's does, and a host is what resolves or refuses it (rule 2).
+                if let Some(name) = self
+                    .documents
+                    .get(&id)
+                    .and_then(|open| open.importing.as_ref())
+                    .map(|import| import.file.clone())
+                {
+                    events.push(Event::NeedsFile {
+                        document: id,
+                        purpose: Purpose::ImportData,
+                        name,
                     });
                 }
             }
@@ -1244,6 +1264,23 @@ impl Viewer {
         let (x0, x1) = (values[0].min(values[2]), values[0].max(values[2]));
         let (y0, y1) = (values[1].min(values[3]), values[1].max(values[3]));
         Some((object, self.device_quad(open, [x0, y0, x1, y1])?))
+    }
+
+    /// ISO 32000-2 Annex O's highlighted rectangles that are on the page being shown.
+    ///
+    /// Table Annex O.4 measures each "from the top left corner of the page", so a rectangle
+    /// belongs to one page and answering for another would put it over the wrong ink. The pages
+    /// that are not showing are dropped rather than reported: the fragment stated the rectangle
+    /// once, and turning to page 7 is not a question about the rectangle on page 3.
+    ///
+    /// Empty rather than absent where there is nothing, which is [`Answer::Found`]'s convention
+    /// for the same kind of answer: a host draws a list, and a list of none draws nothing.
+    fn highlight_quads(&self, open: &Open) -> Vec<[f32; 8]> {
+        open.highlights
+            .iter()
+            .filter(|highlighted| highlighted.page == open.page_index)
+            .filter_map(|highlighted| self.device_quad(open, highlighted.rect))
+            .collect()
     }
 
     /// §12.5.6.14's open popup windows, placed on the screen.

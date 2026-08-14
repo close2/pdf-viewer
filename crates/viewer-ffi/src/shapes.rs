@@ -1,10 +1,10 @@
 //! The quadrilaterals this boundary hands over, as one owned handle.
 //!
 //! **`doc/ui-boundary.md`'s rule is that interactive chrome crosses as geometry rather than as
-//! pixels** — a selection highlight, a field's selection, a search hit — "so that a native host can
-//! draw them in macOS's selection colour, KDE's accent or the Windows highlight brush". Four of
-//! `viewer_core`'s answers are the same shape, `[x0, y0, … x3, y3]` in device pixels of the
-//! viewport, and a C caller wants one way to read all four rather than four.
+//! pixels** — a selection highlight, a field's selection, a search hit, Annex O's own rectangle — "so
+//! that a native host can draw them in macOS's selection colour, KDE's accent or the Windows
+//! highlight brush". Five of `viewer_core`'s answers are the same shape, `[x0, y0, … x3, y3]` in
+//! device pixels of the viewport, and a C caller wants one way to read all five rather than five.
 //!
 //! Owned, for [`crate::events`]'s reason: `Answer::Selected` borrows the viewer, and a caller
 //! holding that borrow while it calls back in is the aliasing hazard nothing on this side would

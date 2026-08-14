@@ -245,6 +245,8 @@ pub mod ffi {
         fn focus(self: &Host) -> Vec<QtQuad>;
         /// Every occurrence of the find bar's string on the page being shown.
         fn matches(self: &Host) -> Vec<QtQuad>;
+        /// Annex O's `highlight`: what the URI's fragment asked to be shown highlighted.
+        fn highlights(self: &Host) -> Vec<QtQuad>;
         /// The find bar's string changed. Highlights this page; searches nothing.
         fn retype(self: &mut Host, needle: &str);
         /// The next occurrence anywhere in the document, or the previous one.
