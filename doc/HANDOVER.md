@@ -378,8 +378,12 @@ own cross-reference table had hidden started rendering (ADR 0148).
 *reading of the specification* rather than finding a defect. `issue6621.pdf` and `issue7901.pdf`
 were both code that was right about the clause it cited.
 
-**A contradicted page's group names a hypothesis, not a diagnosis — nine for nine on being
-wrong**, the newest being `calrgb.pdf`'s four pages, which spent four hundred and fifty-five
+**A contradicted page's group names a hypothesis, not a diagnosis — ten for ten on being
+wrong**, the newest being `issue9940.pdf`, whose group had said for hundreds of sessions that
+`mupdf` and `ghostscript` "take its components for `DeviceRGB`" — and no renderer does: ours and
+`poppler`'s are §8.6.5.3 plus IEC 61966-2-1 to the level, the pair that contradicts us moves *one
+channel*, and the `DeviceRGB` reading moves all three (ADR 0349). The one before it is
+`calrgb.pdf`'s four pages, which spent four hundred and fifty-five
 sessions inside `CONTRADICTED_SUBSTITUTED_FONT` differing from each other in one entry no voting
 renderer reads. The one before it, `issue4304.pdf` in the four-hundred-and-fifth session, spent a
 hundred and eighty sessions in the same group while the difference was six

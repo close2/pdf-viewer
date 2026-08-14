@@ -185,9 +185,38 @@ pub(crate) fn embedded_program(
                 ),
             });
         }
+        // **The signature decides here too, and this door did not ask it.** This module's own
+        // first paragraph says the reader is chosen "by the bytes' own signature rather than by
+        // the key's spelling", and `/FontFile3` above asks; `/FontFile` assumed Type 1 from the
+        // key alone until the five-hundred-and-fourteenth session, which is the rule stated in
+        // one place and applied in two of three.
+        //
+        // `issue5751.pdf` is the witness the oracle supplied: a `CIDFontType0` whose descriptor
+        // writes `/FontFile`, whose stream states only `/Length`, and whose first bytes are
+        // `01 00 04 03` followed by the Name INDEX string `MyriadArabic-Regular` — a bare CFF.
+        // Read as Type 1 it is `InvalidFontFormat` and the page draws nothing where four
+        // reference renderers draw *Open Access*.
+        //
+        // Three statements the file makes disagree with the key, and the standard supplies all
+        // three. Table 124 gives `/FontFile` "Type 1 font program, in the original (noncompact)
+        // format" and says it "may appear in the font descriptor for a Type1 or MMType1 font
+        // dictionary" — this is neither. Table 125 makes `/Length1`, `/Length2` and `/Length3`
+        // "Required for Type 1 font programs" and the stream states none of them. And §9.7.4.2
+        // puts a Type 0 CIDFont's CFF under `/FontFile3`. The bytes are the only one of the four
+        // a producer cannot mislabel, so they are what is believed — the same choice, for the
+        // same reason, that `/FontFile3` makes above by ignoring its `/Subtype`.
+        //
+        // Type 1's own formats cannot collide with it: a PFA begins `%!`, a PFB `80 01`, and
+        // neither can begin `01 00`. So this reroutes a program that could not be read at all
+        // and leaves every readable one where it was.
+        let program = if is_bare_cff(&decoded.data) {
+            Program::BareCff
+        } else {
+            Program::Type1
+        };
         return Ok(Embedded {
             data: decoded.data,
-            program: Program::Type1,
+            program,
         });
     }
     Err(FontError::NotEmbedded {
@@ -278,4 +307,72 @@ fn units_per_em(data: &[u8], program: Program, name: &str) -> Result<f32, FontEr
         });
     }
     Ok(f32::from(units))
+}
+
+#[cfg(test)]
+mod font_file_signature {
+    use pdf_syntax::{Document, ObjectId};
+
+    use super::{Program, embedded_program};
+
+    /// A two-object document: object 1 is a font descriptor whose `/FontFile` is object 2.
+    fn descriptor_with_font_file(program: &[u8]) -> Document {
+        let mut out = Vec::from(*b"%PDF-1.7\n");
+        let mut offsets = Vec::new();
+
+        offsets.push(out.len());
+        out.extend_from_slice(b"1 0 obj\n<< /Flags 4 /FontFile 2 0 R >>\nendobj\n");
+
+        offsets.push(out.len());
+        out.extend_from_slice(
+            format!("2 0 obj\n<< /Length {} >>\nstream\n", program.len()).as_bytes(),
+        );
+        out.extend_from_slice(program);
+        out.extend_from_slice(b"\nendstream\nendobj\n");
+
+        let xref_at = out.len();
+        out.extend_from_slice(b"xref\n0 3\n0000000000 65535 f \n");
+        for offset in &offsets {
+            out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+        }
+        out.extend_from_slice(
+            format!("trailer\n<< /Size 3 /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n").as_bytes(),
+        );
+        Document::open(out).expect("the fixture is a valid PDF")
+    }
+
+    fn program_of(bytes: &[u8]) -> Program {
+        let document = descriptor_with_font_file(bytes);
+        let descriptor = document
+            .get(ObjectId {
+                number: 1,
+                generation: 0,
+            })
+            .as_dict()
+            .expect("object 1 is the descriptor")
+            .clone();
+        embedded_program(&document, &descriptor, "/F1")
+            .expect("the descriptor embeds a program")
+            .program
+    }
+
+    /// `/FontFile` names a Type 1 program in Table 120 and Table 124, and this module chooses a
+    /// reader by the bytes rather than by the key — so a stream whose header is a CFF's is read
+    /// as one. `issue5751.pdf` is the corpus witness: a `CIDFontType0` whose descriptor writes
+    /// `/FontFile`, whose stream states no `/Length1`, and whose first bytes are a CFF header.
+    /// Read from the key it was `InvalidFontFormat` and the page drew nothing.
+    #[test]
+    fn a_font_file_whose_bytes_are_a_cff_is_read_as_one() {
+        // A CFF header: major 1, minor 0, header size 4, offset size 3.
+        assert_eq!(program_of(b"\x01\x00\x04\x03rest"), Program::BareCff);
+    }
+
+    /// The other side of the same rule: neither of Type 1's own two packagings can begin `01 00`,
+    /// so believing the signature reroutes only a program that could not be read at all.
+    #[test]
+    fn a_font_file_that_really_is_type_1_is_untouched() {
+        assert_eq!(program_of(b"%!PS-AdobeFont-1.0: Fixture\n"), Program::Type1);
+        // The PFB segment header, which is the other way a Type 1 program arrives.
+        assert_eq!(program_of(b"\x80\x01\x20\x00\x00\x00rest"), Program::Type1);
+    }
 }

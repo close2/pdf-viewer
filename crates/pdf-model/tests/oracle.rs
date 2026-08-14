@@ -364,41 +364,78 @@ const CONTRADICTED_IMAGE_SAMPLE_AT_THE_PIXEL_CENTRE: [&str; 1] = ["colorkeymask.
 /// page that is nothing but edges.
 const CONTRADICTED_ANTIALIASED_EDGES: [&str; 2] = ["colors.pdf page 1", "colors.pdf page 2"];
 
-/// Contradicted, where the difference is a `CalRGB` space converted rather than assumed.
+/// Contradicted, where the difference was said to be a `CalRGB` space converted rather than
+/// assumed.
 ///
-/// 1 page. `issue9940.pdf` draws its cover art through
-/// `[/Indexed [/DeviceN [/IBM /None /None /None] [/CalRGB …] tint] 255 table]`, and the
-/// alternate space is the whole of the disagreement: we and `poppler` convert a `CalRGB`
-/// through CIE XYZ as §8.6.5.3 defines it, while `mupdf` and `ghostscript` take its
-/// components for `DeviceRGB` — so their page is pinker than ours by a few levels across
-/// every pixel the image covers, which is 6.8% of the page.
+/// **Empty since the five-hundred-and-fourteenth session, and the emptying is a correction.** The
+/// group held `issue9940.pdf` page 1 on this sentence: "we and `poppler` convert a `CalRGB` through
+/// CIE XYZ as §8.6.5.3 defines it, while `mupdf` and `ghostscript` take its components for
+/// `DeviceRGB`". ADR 0296 flagged it as the one unmeasured sentence in the neighbourhood, because
+/// the same claim had just been disproved on `calrgb.pdf`. Measured, it is disproved here too:
+/// **nobody takes the components for `DeviceRGB`.** The page is
+/// [`CONTRADICTED_CALRGB_TO_SCREEN`]'s mechanism and has moved there. **Tenth for ten on a group's
+/// name naming a hypothesis rather than a diagnosis.**
 ///
-/// Four pages of `calrgb.pdf` sat in `CONTRADICTED_SUBSTITUTED_FONT` on a sentence pointing
-/// here — "a residue of colour management rather than of fonts" — and the
-/// four-hundred-and-sixty-first session measured them and gave them
-/// [`CONTRADICTED_CALRGB_TO_SCREEN`] instead. **They are not this page's mechanism**: on
-/// `calrgb.pdf` no renderer takes the components for `DeviceRGB`, and what differs there is
-/// §10.3's second half rather than §8.6.5.3's first. This page's own claim above is
-/// unmeasured against that distinction and is where a round wanting one should start.
+/// # The instrument, which needed no page of the corpus
 ///
-/// It is listed separately from the substituted-font group because this page has no
-/// substituted font to be confused with, and because the argument is ADR 0012's rather than
-/// anyone's arithmetic: §8.6.5.3 gives a `CalRGB` a white point, a gamma and a matrix into
-/// XYZ, and a renderer that ignores all three is not reading the clause.
+/// The page draws its cover art through
+/// `[/Indexed [/DeviceN [/IBM /None /None /None] [/CalRGB …] tint] 255 table]`, so the claim is
+/// about one link of a four-link chain and cannot be read off the page. It can be asked directly:
+/// a 100 × 100 fixture filling itself with `0.5 0.25 0.75 sc` in *this file's own* `/CalRGB`
+/// dictionary — `/WhitePoint [0.9505 1 1.089]`, `/Gamma [2.20003 …]`, `/Matrix [0.9505 0.00002 0
+/// −0.00002 1 0 0 0.00002 1.08899]` — put to all four renderers. The two readings are arithmetic
+/// rather than anybody's output: §8.6.5.3's decoding gives `X Y Z = (0.20686, 0.04737, 0.57830)`,
+/// and IEC 61966-2-1's XYZ → sRGB transform on it gives **(151, 0, 205)**, while taking the
+/// components for `DeviceRGB` gives **(128, 64, 191)**.
+///
+/// | | centre pixel |
+/// |---|---|
+/// | **the closed form, §8.6.5.3 + XYZ → sRGB** | **(151, 0, 205)** |
+/// | ours | (151, 0, 205) |
+/// | `poppler` | (151, 0, 205) |
+/// | `mupdf` | (166, 0, 205) |
+/// | `ghostscript` | (166, 0, 207) |
+/// | **the closed form, components as `DeviceRGB`** | **(128, 64, 191)** |
+///
+/// Ours and `poppler`'s are the closed form exactly. `mupdf` and `ghostscript` are 15 levels away
+/// **in red alone** — and the `DeviceRGB` reading would have moved all three channels, by −23, +64
+/// and −14. So the sentence named a mechanism whose signature is not the one the page has.
+///
+/// The page then says the same thing, over 484 704 pixels rather than one: the per-channel means of
+/// the five panels are `R − G` of −2.05 for ours, `poppler` and `hayro` and **+2.02 and +1.72** for
+/// `mupdf` and `ghostscript`, with the green and blue means agreeing across all five to 0.6 of 255.
+/// One channel moves. That is the swatch's shape at page scale, and it is why the page looks pinker
+/// in two of the five panels.
+///
+/// **What the specification determines** is [`CONTRADICTED_CALRGB_TO_SCREEN`]'s reading and is not
+/// repeated here: §8.6.5.3 defines components-to-XYZ exactly and every renderer agrees there, and
+/// §10.3.1 puts the rest — "[t]he specific method by which the CIE-based destination colour space
+/// is established is beyond the scope of this document" — outside the standard.
 ///
 /// The `None` colourants are not the cause, though they look like one. §8.6.6.5 is explicit:
 /// "when the DeviceN colour space reverts to its alternate colour space, those components
 /// shall be passed to the tint transformation function", which is what happens here — the
 /// space never reaches a device colourant, so it always reverts.
-const CONTRADICTED_CALIBRATED_COLOUR: [&str; 1] = ["issue9940.pdf page 1"];
+const CONTRADICTED_CALIBRATED_COLOUR: [&str; 0] = [];
 
 /// Contradicted, where the difference is the half of the journey §10.3.1 puts beyond itself.
 ///
-/// 4 pages, and they are **one page four times**. They spent four hundred and fifty-five sessions
+/// Four pages of `calrgb.pdf`, which are **one page four times**, and one of `issue9940.pdf`, which
+/// arrived by the same route one group over. The four spent four hundred and fifty-five sessions
 /// in [`CONTRADICTED_SUBSTITUTED_FONT`] on that group's membership rule — the page names a font
 /// nobody embedded — under a two-sentence note calling them "a residue of colour management rather
 /// than of fonts" with no number behind it. The four-hundred-and-sixty-first session measured them.
-/// **Ninth for nine on a group's name naming a hypothesis rather than a diagnosis.**
+/// **Ninth for nine on a group's name naming a hypothesis rather than a diagnosis** — and the fifth
+/// member made it ten for ten, which [`CONTRADICTED_CALIBRATED_COLOUR`] records because that is the
+/// group whose name was wrong.
+///
+/// **`issue9940.pdf` page 1 joined in the five-hundred-and-fourteenth session**, which asked ADR
+/// 0296's parting question — whether a `CalRGB` reached through an `/Indexed` `/DeviceN` alternate
+/// is a different path — with a fixture carrying that file's own `/CalRGB` dictionary. It is not a
+/// different path: ours and `poppler`'s swatch is §8.6.5.3 plus IEC 61966-2-1 to the level, `mupdf`
+/// and `ghostscript` sit 15 levels away in red alone, and the reading the group used to carry —
+/// components taken for `DeviceRGB` — is the one closed form nobody produces. The measurement and
+/// the page-scale corroboration are under [`CONTRADICTED_CALIBRATED_COLOUR`].
 ///
 /// # The four pages differ from each other in one entry, and four renderers ignore it
 ///
@@ -513,11 +550,12 @@ const CONTRADICTED_CALIBRATED_COLOUR: [&str; 1] = ["issue9940.pdf page 1"];
 /// raster, in `poppler`'s, in `mupdf`'s or in `ghostscript`'s, so the choice is the one four
 /// independent readers of the clause make. `cargo run --release -p pdf-model --example
 /// black_point_census` counts how many corpus spaces state one at all.
-const CONTRADICTED_CALRGB_TO_SCREEN: [&str; 4] = [
+const CONTRADICTED_CALRGB_TO_SCREEN: [&str; 5] = [
     "calrgb.pdf page 1",
     "calrgb.pdf page 5",
     "calrgb.pdf page 11",
     "calrgb.pdf page 12",
+    "issue9940.pdf page 1",
 ];
 
 /// Contradicted, where the references space the glyphs by no width the document states.
@@ -572,8 +610,11 @@ const CONTRADICTED_NEGATIVE_LINE_WIDTH: [&str; 1] = ["issue19633.pdf page 1"];
 
 /// Contradicted, where the difference is how `DeviceCMYK` becomes a pixel.
 ///
-/// 4 pages in 3 documents, and the group with the most evidence behind it of any here —
-/// none of which is anybody's rendering.
+/// Five pages in four documents, and the group with the most evidence behind it of any here —
+/// none of which is anybody's rendering. (This line said "4 pages in 3 documents" from the
+/// hundred-and-sixtieth session, which is the session whose own heading below records
+/// `transparent.pdf` joining as the fourth document; the array underneath it has said five all
+/// along, and the five-hundred-and-fourteenth read the array.)
 ///
 /// # What the pages are
 ///
@@ -737,6 +778,24 @@ const CONTRADICTED_SUBPIXEL_IMAGE: [&str; 1] = ["issue4436r.pdf page 1"];
 /// These stay listed rather than being excused, because the gate should keep watching them:
 /// if `jbig2dec` is fixed they will leave this list, and if our decode changes they will
 /// change too.
+///
+/// **Re-checked in the five-hundred-and-fourteenth session, on the page that heads the ranking**
+/// — `bitmap-symbol-context-reuse.pdf` sits 28.91 of 255 from its *nearest* reference and 178.13
+/// from its furthest, which is the whole contradicted list's head by either number. Asked again,
+/// the three references say what this note says, in words rather than in pixels:
+///
+/// ```text
+/// poppler  Syntax Error (681): Too many symbols in JBIG2 symbol dictionary
+/// mupdf    jbig2dec warning: segment marks bitmap coding context as retained (NYI) (segment 1)
+///          library error: cannot decode jbig2 image
+/// gs       jbig2dec WARNING segment marks bitmap coding context as retained (NYI) (segment 0x01)
+/// ```
+///
+/// `mupdf` and `ghostscript` print the *same library's* sentence — one string, two programs — and
+/// `poppler`'s own decoder fails for an unrelated reason. So the pair the verdict rests on is
+/// `poppler` and `ghostscript` agreeing on a page **neither of them decoded**, which is trap 9's
+/// second shape sitting on top of its third. There is no consensus here to be contradicted by, and
+/// the reason it takes a log rather than a raster to see that is the reason this note exists.
 const CONTRADICTED_SHARED_JBIG2_DECODER: [&str; 7] = [
     "bitmap-halftone-composite.pdf page 1",
     "bitmap-refine-page-subrect.pdf page 1",
@@ -897,6 +956,81 @@ const CONTRADICTED_REFERENCES_DREW_NOTHING: [&str; 2] = [
     "issue11549_reduced.pdf page 1",
     "issue11740_reduced.pdf page 1",
 ];
+
+/// Contradicted on a page this tree *reports*, which is where the ranking's head has been sitting
+/// with no group at all.
+///
+/// # Why this list is not one of the ratcheted ones, and why it exists anyway
+///
+/// The gate holds only pages we claim to draw completely, for the reason the module comment gives:
+/// a page whose interpretation reports an unsupported font or an undecodable image is *expected* to
+/// differ from a renderer that implements it, and `corpus.rs` owns those. That argument is right and
+/// is not being reopened. What it also does, silently, is keep the contradicted list's **largest**
+/// disagreements out of every group in this file — ranked by our worst measurement over the bound it
+/// is held to, the two pages below were the first and the twelfth of sixty-eight, one of them by a
+/// factor of ten over anything gated. So they are diagnosed here and held by a staleness check
+/// rather than by a ratchet: a name that stops being contradicted fails the build, and a page that
+/// stops *reporting* while still contradicted joins the gated list one assertion above and fails
+/// there. Neither direction is unwatched; only the arrival of a *new* reported page is, and that is
+/// exactly the population `corpus.rs` counts.
+///
+/// # `xobject-image.pdf` page 1 — three renderers, three pictures, no two for the same reason
+///
+/// 1462 bytes, hand-written, and every one of its five panels is a flat rectangle: ours and
+/// `hayro`'s red, `mupdf`'s black, `poppler`'s and `ghostscript`'s white. The gate reads the last
+/// two as a consensus and prints mean 127.75 of 1.00, worst tile 127.75 of 5.00, differing 50.00%
+/// of 1.00% and similarity 0.4054 of 0.9900 — every bound failed, by the widest margin on the list.
+/// Asked in words rather than in pixels, the three references say three different things:
+///
+/// ```text
+/// poppler  Syntax Error (1274): Missing 'endstream' or incorrect stream length
+///          Syntax Error: Unknown operator 'endstream'
+/// mupdf    warning: PDF stream Length incorrect
+///          warning: padding truncated image
+/// gs       Incorrect /Length for stream object ... recoverable image error ... bad DecodeParms
+/// ```
+///
+/// The file gives them two independent things to fail at, and they fail at different ones. Its
+/// content stream is `500 0 0 400 0 0 cm\n/SomeImage Do\n`, 33 bytes, under a `/Length 14` that
+/// stops in the middle of the `cm` — so **`poppler` never reaches the image at all**: it reads
+/// fourteen bytes, meets `endstream` where an operator belongs, and stops. Its blank page is about
+/// Table 5's `/Length`, which "shall be the number of bytes", and about nothing else on this page.
+/// `ghostscript` repairs the length, reaches the image, and refuses *it*. So the two renderers
+/// whose agreement contradicts us agree on white for two unrelated reasons — trap 9's fourth shape
+/// under its second — and `mupdf`, the one reference that both repairs the stream and draws the
+/// image, produces a third picture that neither of them produces.
+///
+/// # What the image is, and the one thing the standard does not say
+///
+/// The XObject states `/Width 200 /Height 100 /ColorSpace /DeviceRGB` and its `DCTDecode` data is a
+/// **1 × 1** JPEG of one red sample — the file says so in a comment, `convert -size 1x1 xc:red`. The
+/// `cm` maps the unit square to 500 × 400 on a 200 × 100 page, so the visible part of the image is
+/// its bottom-left corner.
+///
+/// Two clauses point in two directions and neither addresses a file that contradicts itself.
+/// §8.9.3: "The image dictionary shall specify the width, height, and number of bits per component
+/// explicitly", and Table 87 makes `/Width` and `/Height` required. §7.4.8, of the encoder's
+/// parameters: "The values of these parameters, which include the dimensions of the image and the
+/// number of components per sample, are entirely under the control of the encoder and shall be
+/// stored in the encoded data. DCTDecode may obtain the parameter values it requires directly from
+/// the encoded data." In a conforming file the two agree; where they do not, the standard states no
+/// recovery, so every renderer here is choosing.
+///
+/// The three choices are visible in the three pictures, and each is coherent:
+///
+/// | | reads the image as | visible result |
+/// |---|---|---|
+/// | ours, `hayro` | the codestream's 1 × 1 grid | the red sample over the whole region |
+/// | `mupdf` | the dictionary's 200 × 100 grid, padded | black, because the visible corner is padding |
+/// | `ghostscript` | neither — it refuses the image | white |
+///
+/// `mupdf`'s own log names its choice ("padding truncated image") and the arithmetic confirms it:
+/// the visible corner is source rows 75 to 99, so the one real sample — row 0, column 0 — falls
+/// outside it and every visible sample is pad. This tree's choice is `image::contradicted_frame`'s,
+/// which draws the codestream's samples **and reports the contradiction beside them**, so the page
+/// is on `corpus.rs`'s list saying in words what the picture cannot: that a 200 × 100 picture was
+/// described and one red sample was supplied.
+const CONTRADICTED_ON_A_PAGE_WE_REPORT: [&str; 1] = ["xobject-image.pdf page 1"];
 
 /// Contradicted for drawing a link's border, where the two references that agree agree for two
 /// unrelated reasons — and neither of them is a reading of the clause.
@@ -1358,16 +1492,40 @@ const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 0] = [];
 /// | `issue6108.pdf` p1 | `/Arial`, 12 pt | 11.023 | 11.356 | 66 | 70 |
 /// | `issue7580.pdf` p1 | `/ArialMT`, 18 pt | 14.954 | 15.435 | 99 | 105 |
 /// | `issue9243.pdf` p1 | `/Helvetica-Bold` | 18.630 | 20.179 | 50 | 54 |
-/// | `bug850854.pdf` p1 | `/Helvetica` | 13.217 | 13.586 | | |
-/// | `bug847420.pdf` p1 | `/Arial,Italic` | 12.955 | 13.224 | | |
-/// | `issue6069.pdf` p1 | `/Arial` | 12.650 | 12.869 | | |
-/// | `issue11403_reduced.pdf` p1 | `/Helvetica` | 14.710 | 14.841 | | |
+/// | `bug850854.pdf` p1 | `/Helvetica` | 13.217 | 13.586 | 110 (`B`) | 117 |
+/// | `bug847420.pdf` p1 | `/Arial,Italic` | 12.955 | 13.224 | 77 (`T`) | 82 |
+/// | `issue6069.pdf` p1 | `/Arial` | 12.650 | 12.869 | 77 (`M`) | 82 |
+/// | `issue11403_reduced.pdf` p1 | `/Helvetica` | 14.710 | 14.841 | 99 (`E`) | 105 |
 ///
 /// 66/96 and 99/144 are 0.6875 exactly, 70/96 and 105/144 are 0.729167 exactly — the two font
 /// files' own numbers, at two point sizes, arrived at without comparing anything to anybody. **So
 /// the whole of this group's remaining sans-face difference is one metric**, and the ink deficit
 /// it produces runs 1.0% on `issue11403_reduced.pdf` to 7.7% on `issue9243.pdf`, which is a page
 /// of nothing but capitals and therefore the pure case.
+///
+/// **The table's bottom four cells were empty until the five-hundred-and-fourteenth session**, which
+/// is to say four of the seven sans pages carried this diagnosis on the strength of their `/BaseFont`
+/// and their ink alone — the membership rule this group's own history keeps catching. They are filled
+/// now, one capital per page at 8× through `render_at` against `pdftoppm -cropbox -r 576` and
+/// `mutool draw -r 576`, and every one of them lands on 0.942857 of the reference's to within half a
+/// row: 82 × 0.942857 = 77.3, 117 × 0.942857 = 110.3, 105 × 0.942857 = 99.0. Each capital sits on
+/// the *same baseline* as the references' — 240, 240, 240 and 264 device rows — and is short only at
+/// the top, which is what a cap height is and what a smaller point size would not be.
+///
+/// **Two of the four had to be measured twice, and the reason is `doc/todo/00`'s own warning that a
+/// band of rows is a hypothesis about what is in it.** The whole line's ink box on `issue6069.pdf` is
+/// 106 rows in ours and 107 in both references — no difference at all — because the line's tallest
+/// ink is the ascender of `h`, `l` and `d` and the dot of `i`, which the two faces place alike; the
+/// difference is confined to the capital, and a crop of 55 columns is what shows it. On
+/// `issue11403_reduced.pdf` the leading `2.` reads 101 against 104, a ratio of 0.971 that fits nothing
+/// — a digit's height is not a cap height in either face — and the `E` of *Eat* two glyphs later is
+/// the exact 99 against 105. **A page-level box cannot test a per-glyph metric**, which is ADR 0174's
+/// lesson arriving in a different instrument.
+///
+/// (One thing seen while cropping and worth a line, because it is evidence about a reference rather
+/// than about us: on `issue11403_reduced.pdf` `mupdf` draws a stray acute accent 32 device columns to
+/// the left of the line — its ink box starts at column 125 where `poppler`'s starts at 157 and ours at
+/// 159 — so the pair the gate calls agreement here differs by a mark one of them invented.)
 ///
 /// The advances are untouched by it, which is the half Table 109 does state and which was checked
 /// on the same rasters: `issue7580.pdf`'s ink spans 1463 device columns against 1461 and 1462,
@@ -8223,6 +8381,30 @@ fn check_the_ratchets(results: &[Examined]) {
         &GEOMETRY,
         "A page box, /Rotate or /UserUnit is being read differently from every reference, \
          so the comparison cannot even proceed.",
+    );
+
+    // A page this tree reports cannot fail the ratchet above — `named` filters on `complete`,
+    // for the reason the module comment gives — so the diagnoses in
+    // `CONTRADICTED_ON_A_PAGE_WE_REPORT` are held the way a stale `AMBIGUOUS_*` group is held
+    // instead: a name that stops being contradicted fails here. The other direction needs
+    // nothing, because a page that stops *reporting* while still contradicted arrives in the
+    // gated list and fails there.
+    let contradicted_anywhere: Vec<&str> = results
+        .iter()
+        .filter(|e| matches!(e.verdict, Verdict::Contradicted(_)))
+        .map(|e| e.name.as_str())
+        .collect();
+    let stale_reported: Vec<&str> = CONTRADICTED_ON_A_PAGE_WE_REPORT
+        .iter()
+        .copied()
+        .filter(|name| !contradicted_anywhere.contains(name))
+        .collect();
+    assert!(
+        stale_reported.is_empty(),
+        "{} page(s) in CONTRADICTED_ON_A_PAGE_WE_REPORT are no longer contradicted: \
+         {stale_reported:?}\nDelete them from the group: a diagnosis that outlives what it \
+         diagnosed is the staleness this file's own history is made of.",
+        stale_reported.len()
     );
 
     // The ambiguous bucket, watched in both directions since the hundred-and-seventy-sixth

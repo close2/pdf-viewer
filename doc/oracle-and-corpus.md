@@ -457,6 +457,20 @@ symbolic face costs a quarter of its ink.
 pixel-moving work later — same five negative names in the same order, same two positive ones — which
 is what that alarm is for.
 
+**And the ranking the gate prints is not the ranking `doc/habits.md` asks for**, which the
+five-hundred-and-fourteenth session found by taking the other one. `rank_the_contradicted` orders by
+*distance from the nearest reference*, borrowed unchanged from the ambiguous bucket; habits says to
+rank by **our worst measurement over the bound it is held to**, and the two disagree at the head. By
+ratio the first and twelfth of the sixty-eight were `xobject-image.pdf` page 1 at **127.75×** and
+`issue5751.pdf` page 1 at **12.66×**, each failing all four bounds — and **neither was on the printed
+ranking or in any group in `oracle.rs`**, because both are pages this tree *reports* and
+`check_the_ratchets` filters on `complete`. That filter is right and its argument is the oracle
+module's own; what nobody had noticed is that it also kept the list's largest disagreements out of
+every diagnosis in the file. Both are diagnosed now — the second was a defect and is fixed, the first
+is `CONTRADICTED_ON_A_PAGE_WE_REPORT` — and the ranking itself is left as it is, with the reason in
+ADR 0349. **Take both orderings: one names the page the references are furthest from, the other names
+the page furthest outside what it is held to.**
+
 ### 3c. The bound those thirty-eight fail was never derived, and it is left where it is
 
 **The four-hundred-and-seventh session asked the question §3b's last paragraph raises** — a bound a
@@ -493,7 +507,12 @@ of it is `hayro`, which shares `skrifa` with this tree, so it is not evidence ab
 status is unchanged and now has a reason beside it.
 
 **Two cautions the contradicted list earned.** A page may be contradicted for a reason other than
-the one its group names — **nine for nine, so far, on the group being wrong**. The newest is
+the one its group names — **ten for ten, so far, on the group being wrong**. The newest is
+`issue9940.pdf` in the five-hundred-and-fourteenth, whose `CONTRADICTED_CALIBRATED_COLOUR` had said
+that `mupdf` and `ghostscript` take a `CalRGB`'s components for `DeviceRGB`; a swatch carrying that
+file's own `/CalRGB` dictionary says nobody does, ours and `poppler`'s reproduce §8.6.5.3 plus IEC
+61966-2-1 exactly, and the page is `CONTRADICTED_CALRGB_TO_SCREEN`'s §10.3.1 (ADR 0349). The one
+before it is
 `calrgb.pdf` pages 1, 5, 11 and 12, which sat in `CONTRADICTED_SUBSTITUTED_FONT` from the sixth
 session under a note naming *another* group's mechanism, and which differ from one another only in
 a `/BlackPoint` no voting renderer reads (ADR 0296) — the tell being that all four printed metrics
