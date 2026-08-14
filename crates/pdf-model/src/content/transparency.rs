@@ -875,7 +875,19 @@ impl Interpreter<'_> {
             });
             return None;
         }
-        let Some(content) = self.document.decoded_stream_data(&request.group) else {
+        // §11.6.5.1: "The group shall be defined by a transparency group XObject (see 11.6.6,
+        // 'Transparency group XObjects') designated by the G entry in the soft-mask
+        // dictionary" — a form `XObject`, so §7.8.2's rule for a damaged prefix reaches here
+        // too. **What makes it the same rule and not the sampled function's** (ADR 0356) is
+        // that this clause states the mask's value where the group painted nothing: the
+        // transfer function of 0.0 for `Alpha`, `/BC`'s luminosity for `Luminosity`. A place
+        // the damage took is a place the group did not paint, and the clause already answers
+        // for one of those — where a sampled function's missing samples are values it has no
+        // answer for and interpolates from. Places, not values, so the prefix is drawn.
+        let Some(content) = self.content_stream(
+            &request.group,
+            "a soft mask's transparency group /G (§11.6.5.1)",
+        ) else {
             self.note(Unsupported::SoftMask {
                 detail: "/SMask names an undecodable /G".to_owned(),
             });

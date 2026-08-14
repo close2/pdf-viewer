@@ -143,6 +143,38 @@ pub enum Unsupported {
         /// The name, as the content stream wrote it, and what the lookup found instead.
         detail: String,
     },
+    /// One of §7.8.2's *other* content streams, drawn as far as its damage.
+    ///
+    /// §7.8.2 defines what a content stream is, and the definition is the whole argument:
+    ///
+    /// > A content stream is a PDF stream object whose data consists of a sequence of
+    /// > instructions describing the graphical elements to be painted on a page.
+    ///
+    /// and then names the objects that are one without being a page's `/Contents`:
+    ///
+    /// > Content streams shall also be used to package sequences of instructions as
+    /// > self-contained graphical elements, such as forms (see 8.10, "Form XObjects"), patterns
+    /// > (8.7, "Patterns"), certain fonts (9.6.4, "Type 3 fonts"), and annotation appearances
+    /// > (12.5.5, "Appearance streams").
+    ///
+    /// So ADR 0343's reading of a damaged `/Contents` transfers to all five word for word: a
+    /// prefix of a sequence of instructions is a shorter sequence of the same kind, made of
+    /// bytes the producer's own encoder emitted, and the marks it does not make are simply
+    /// absent rather than standing in place of the producer's. That is the opposite of a
+    /// damaged *font program*, whose prefix is a table directory pointing at bytes that are not
+    /// there — trap 5's substitutive test, which these five pass and that one fails.
+    ///
+    /// **The tenth place this program reports while drawing**, and trap 5's test is met in both
+    /// directions: draw nothing and a form, a pattern cell, a glyph or an annotation vanishes
+    /// whole where the file carries most of it; say nothing and the page is
+    /// indistinguishable from one whose producer drew less. [`crate::page::ContentIssue::Damaged`]
+    /// is the same sentence for the stream Table 31 names — a separate variant because that one
+    /// is indexed by its position in `/Contents` and these are reached by resource name.
+    /// ADR 0359.
+    DamagedContentStream {
+        /// Which stream, why it stopped, and how much of it is on the page.
+        stream: DamagedStream,
+    },
     /// Optional content whose visibility could not be decided, so it was drawn.
     ///
     /// ISO 32000-2 §8.11. Only a visibility expression nested past the interpreter's bound
@@ -154,6 +186,22 @@ pub enum Unsupported {
         /// What could not be decided.
         detail: String,
     },
+}
+
+/// A content stream that decoded only as far as its damage, on its way to being drawn.
+///
+/// [`Unsupported::DamagedContentStream`]'s payload as a value of its own, because one of the five
+/// places that report it cannot report where it reads: §12.7.4.3's regeneration reads an
+/// annotation's appearance stream and hands back a *spliced copy* of those bytes, so what the
+/// decode found has to travel from the read to the draw. ADR 0359.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct DamagedStream {
+    /// Which of §7.8.2's kinds it was, and how the page reached it.
+    pub detail: String,
+    /// Why the decode stopped short.
+    pub damage: pdf_syntax::Damage,
+    /// How many bytes did decode, which is what was drawn.
+    pub kept: usize,
 }
 
 /// The result of interpreting a page.

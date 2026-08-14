@@ -18,6 +18,20 @@ can and cannot open a window on, and where the build lands.
   opaque for them where every neighbour explains itself. The argument survives in the ADR, but a
   reader of the log should not need to know that. Before pushing a pick, `git log -1 --format=%b`
   must print the body you expect.
+- **`git stash` is shared between worktrees, and a parallel round will take yours.** `refs/stash`
+  lives in the *common* git directory rather than in the worktree, so every round running at the
+  same time pushes onto one stack. A round that stashed its changes to measure a baseline, and
+  popped them back afterwards, got a neighbour's half-finished `pdf-font` edit instead — because
+  the neighbour had pushed in between and `pop` takes `stash@{0}`. Both trees were wrong and
+  neither said so.
+
+  So **do not `git stash` here**. To take a before-and-after measurement, use a patch of your own:
+  `git diff > x.patch`, `git apply -R x.patch`, measure, `git apply x.patch` — plus a copy of any
+  *untracked* file, which `git diff` does not carry. If a stash has already gone wrong, the popped
+  commit is still reachable (`pop` prints its SHA, and `git fsck` finds it): `git checkout --` the
+  files it applied, then `git stash store -m "<its original message>" <sha>` puts it back at
+  `stash@{0}` with the stack order restored, and `git stash pop stash@{1}` recovers yours.
+  Found in the five-hundred-and-twenty-fourth session.
 
 ## The machine, the account and the display
 

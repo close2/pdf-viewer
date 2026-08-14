@@ -472,7 +472,7 @@ oracle's judged set for nothing. **The condition on all three is `is_hidden()`**
 hidden content "as if there were no `Do` operator to invoke it", and a `Do` that was never invoked
 cannot have failed.
 
-**Nine places report *while* drawing, each deliberate**, and the test for adding a tenth is that
+**Ten places report *while* drawing, each deliberate**, and the test for adding an eleventh is that
 suppressing either statement loses information: `/NeedAppearances` (stale appearances drawn
 because they are all the file offers); §11.6.5.2's `/Matte` where pre-blending cannot be undone
 (refusing would draw a rectangle of pure matte colour); a constructed appearance drawing what its
@@ -488,7 +488,11 @@ its damage, whose prefix is the producer's own bytes and whose shortfall would o
 page cut short look like a page meant to be sparse (ADR 0343); and an image whose decoded samples
 stop short of the grid §7.3.8.2 infers from its own dictionary, where the samples that arrived are
 the producer's own and the rest of the grid is left unpainted rather than read as zero — 99.3% of
-`178360.pdf`'s stencil used to be marked in the fill colour for want of this (ADR 0356).
+`178360.pdf`'s stencil used to be marked in the fill colour for want of this (ADR 0356); and the
+*other four* content streams §7.8.2 names beside a page's `/Contents` — a form `XObject`, a tiling
+pattern's cell, a Type 3 glyph description and an annotation appearance — whose prefixes this tree
+had always drawn and never mentioned, one sentence of one clause away from the row above them
+(ADR 0359).
 
 **The additive-or-substitutive test is what decides the other direction too**, and ADR 0343 is
 where it drew a line through one clause: the *same* damaged-prefix rule that is right for a
@@ -496,7 +500,11 @@ content stream is wrong for a font program, because §7.8.2 makes the first "a s
 instructions" — a prefix of which is a shorter sequence of the same kind — while a font program is
 a table directory whose offsets point forward, so its prefix yields glyphs the producer never
 wrote, standing in place of the right ones. **Ask what a prefix of the thing *is* before deciding
-whether to draw one.**
+whether to draw one.** And ask it of *each consumer separately*: ADR 0359 carried the content-stream
+half of that answer to the four objects §7.8.2 names in the paragraph after the sentence ADR 0343
+quoted, and found the argument stronger for a Type 3 glyph description than for a page — Table 110
+makes `d0`/`d1` the first operator, so a prefix cannot lose the glyph's own declaration, and
+`/Widths` rather than the description carries the advance.
 
 **ADR 0356 found a better question one clause along, and a sharper form of the test.** Ask first
 whether the standard states the thing's *extent*: §7.3.8.2 infers an image's length from its own

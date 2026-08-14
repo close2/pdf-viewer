@@ -4841,7 +4841,19 @@ const AMBIGUOUS_CALRGB_TO_SCREEN: [&str; 8] = [
 /// premise exactly, one axis over: on five-point type five glyph rasterisers cannot agree more
 /// closely than the tolerance allows, and here they cannot even agree with *themselves* until the
 /// resolution is eight times the page's.
-const AMBIGUOUS_DENSE_TEXT_AT_PAPER_SIZE: [&str; 181] = [
+///
+/// # And two that left this group in the five-hundred-and-twenty-fourth, by being *reported*
+///
+/// `comments.pdf` page 1 and `highlights.pdf` page 1 are the same PLDI paper as the rest of their
+/// runs, and their diagnosis above still describes them. They are gone from the list because the
+/// oracle stopped judging them: ADR 0359 made a damaged form `XObject` loud, and both pages draw an
+/// ink annotation whose appearance invokes a form whose flate stream ends 851 bytes in — mid-path,
+/// after a completed `S`. That is trap 11's price stated in its own units: a page that reports is a
+/// page this gate no longer sees, and here three of them went (`issue3885.pdf` page 1 is the third
+/// and was never in a group). Nothing about the pages moved — `examples/display_list_digest` is
+/// byte-identical over all 974 documents across the change — so what was lost is *judging* rather
+/// than agreement, and the entries go rather than stand as a diagnosis of pages nothing diagnoses.
+const AMBIGUOUS_DENSE_TEXT_AT_PAPER_SIZE: [&str; 179] = [
     "issue14297.pdf page 1",
     "issue6127.pdf page 3",
     "issue7014.pdf page 1",
@@ -4861,7 +4873,6 @@ const AMBIGUOUS_DENSE_TEXT_AT_PAPER_SIZE: [&str; 181] = [
     "bug1992868.pdf page 12",
     "bug1992868.pdf page 13",
     "bug1992868.pdf page 14",
-    "comments.pdf page 1",
     "comments.pdf page 2",
     "comments.pdf page 3",
     "comments.pdf page 4",
@@ -4875,7 +4886,6 @@ const AMBIGUOUS_DENSE_TEXT_AT_PAPER_SIZE: [&str; 181] = [
     "comments.pdf page 12",
     "comments.pdf page 13",
     "comments.pdf page 14",
-    "highlights.pdf page 1",
     "highlights.pdf page 2",
     "highlights.pdf page 3",
     "highlights.pdf page 4",

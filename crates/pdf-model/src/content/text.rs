@@ -1067,7 +1067,23 @@ impl Interpreter<'_> {
             return;
         }
 
-        let Some(data) = self.document.decoded_stream_data(&glyph) else {
+        // Table 110's `/CharProcs`: each value "shall be a content stream that constructs and
+        // paints the glyph for that character. The stream shall include as its first operator
+        // either d0 or d1 , followed by operators describing one or more graphics objects." So
+        // §7.8.2's prefix rule reaches a glyph description, and this clause makes the prefix
+        // *faithful* in a way the general argument does not: `d0`/`d1` is required to be first,
+        // so any prefix carrying a mark carries the glyph's own declaration ahead of it, and
+        // Table 110's `/Widths` — not the description — supplies the advance, so what the
+        // damage costs is marks inside this glyph and never the position of the next one.
+        // Named by the glyph rather than by the code, because §9.6.4 step b) keys `/CharProcs`
+        // that way and two codes may reach one description. `glyph` above returned `Some`, so
+        // the encoding does name this code; the fallback is unreachable and is written rather
+        // than unwrapped because nothing in the type system says so.
+        let name = font.glyph_name(code).unwrap_or("?").to_owned();
+        let Some(data) = self.content_stream(
+            &glyph,
+            &format!("a Type 3 glyph description /{name} (§9.6.4)"),
+        ) else {
             self.note(Unsupported::Font {
                 detail: format!("Type 3 glyph for code {code} could not be decoded"),
             });

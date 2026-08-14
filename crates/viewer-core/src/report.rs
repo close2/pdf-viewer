@@ -56,6 +56,12 @@ pub(crate) fn describe(item: &Unsupported) -> String {
         Unsupported::MissingResource { category, detail } => {
             format!("the document names a /{category} resource it does not define: {detail}")
         }
+        // Drawn as well, and worded so: the bytes on the page are the producer's own and what
+        // is missing is everything past the damage (§7.8.2, ADR 0359).
+        Unsupported::DamagedContentStream { stream } => format!(
+            "{} decoded only {} byte(s) before it was {:?}, and the rest of it is not on the page",
+            stream.detail, stream.kept, stream.damage
+        ),
         Unsupported::OptionalContent { detail } => {
             format!(
                 "optional content was drawn because its visibility could not be decided: {detail}"

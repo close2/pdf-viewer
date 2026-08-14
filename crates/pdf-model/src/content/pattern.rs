@@ -747,7 +747,7 @@ impl Interpreter<'_> {
         match self.document.get_key(&dict, "PatternType").as_integer() {
             Some(1) => {
                 return self
-                    .tiling(&object, &dict, tint, state, fill)
+                    .tiling(name, &object, &dict, tint, state, fill)
                     .map(PatternPaint::Tiling);
             }
             Some(2) => {}
@@ -795,6 +795,7 @@ impl Interpreter<'_> {
     /// Reads a tiling pattern's cell and how it repeats.
     fn tiling(
         &mut self,
+        name: &str,
         object: &Object,
         dict: &Dictionary,
         tint: &[f32],
@@ -802,7 +803,14 @@ impl Interpreter<'_> {
         fill: bool,
     ) -> Option<Rc<Tiling>> {
         let stream = object.as_stream()?;
-        let content = self.document.decoded_stream_data(stream)?;
+        // §8.7.3.1: "The appearance of the pattern cell shall be defined by a content stream
+        // containing the painting operators needed to paint one instance of the cell." So the
+        // cell is §7.8.2's sequence of instructions, a prefix of it is a cell with fewer marks
+        // in the same places, and the tiling replicates that shorter cell at the file's own
+        // `/XStep` and `/YStep` — nothing stands in place of the marks the damage took.
+        // See [`Interpreter::content_stream`].
+        let content =
+            self.content_stream(stream, &format!("a tiling pattern /{name} (§8.7.3.1)"))?;
 
         // `/XStep` and `/YStep` may differ from the cell's bounding box, which is how a
         // pattern tiles with gaps or with overlap. Zero would mean an infinite number of

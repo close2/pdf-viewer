@@ -104,7 +104,12 @@ impl Interpreter<'_> {
             return;
         }
 
-        let Some(data) = self.document.decoded_stream_data(&stream) else {
+        // §8.10.1 makes a form "a self-contained description of any sequence of graphics
+        // objects", which is §7.8.2's content stream under another name — so a form that
+        // decoded only part-way is drawn to where its damage is and reported for the rest.
+        // See [`Interpreter::content_stream`].
+        let Some(data) = self.content_stream(&stream, &format!("a form XObject /{name} (§8.10)"))
+        else {
             self.note(Unsupported::Operator {
                 operator: format!("undecodable form /{name}"),
             });

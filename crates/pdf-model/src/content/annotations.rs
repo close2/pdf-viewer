@@ -301,6 +301,12 @@ impl Interpreter<'_> {
         page_resources: &Dictionary,
         view_clip: Option<ClipId>,
     ) {
+        // §12.5.5's stream decoded only as far as its damage, said beside what it drew rather
+        // than where it was read — see `crate::annotation::Appearance::damaged` for why the two
+        // are different places, and [`Interpreter::content_stream`] for the clause.
+        if let Some(stream) = appearance.damaged.clone() {
+            self.note(Unsupported::DamagedContentStream { stream });
+        }
         let data = match &appearance.content {
             crate::annotation::Content::Stored(stream) => {
                 let Some(data) = self.document.decoded_stream_data(stream) else {

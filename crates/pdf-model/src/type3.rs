@@ -174,6 +174,17 @@ impl Type3Font {
             .cloned()
     }
 
+    /// The glyph name §9.6.4 step a) maps a code to, which is what step b) then looks up.
+    ///
+    /// Separate from [`Self::glyph`] because a report about a glyph description names the
+    /// *glyph* rather than the code that reached it: `/CharProcs` is keyed by name, and two
+    /// codes may reach one description.
+    #[must_use]
+    pub fn glyph_name(&self, code: u32) -> Option<&str> {
+        let code = u8::try_from(code).ok()?;
+        self.encoding.get(&code).map(String::as_str)
+    }
+
     /// A code's advance width, in text-space units where one em is 1.0.
     ///
     /// Table 110 on `/Widths`: the values "shall be interpreted in glyph space as specified

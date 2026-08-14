@@ -519,11 +519,14 @@ is the round's own lesson:
   bytes that are not there. Trap 5's substitutive test (ADR 0106) then decides it: the wrong
   glyphs stand *in place of* the right ones. **Trap 1 in one page — the command count rose and
   the picture got worse.**
-- **An image, an ICC profile and a function are unexamined**, and each wants the same two
+- ~~**An image, an ICC profile and a function are unexamined**~~, and each wants the same two
   questions: is a prefix of this a smaller one of the same kind, and are the marks it makes
   additive or substitutive? A round taking this should point the census at
   `govdocs1-error-pdfs` first, where 29 of 54 documents carry one and every file is small enough
-  to open by hand.
+  to open by hand. **All three answered in the five-hundred-and-twenty-first** (§10 and ADR 0356),
+  and the *other* four content streams in the five-hundred-and-twenty-fourth (ADR 0359). What the
+  method left standing is the two questions themselves, which are now the ones §10's last paragraph
+  asks of the roles nobody has read.
 
 ### 10. The chunk the five-hundred-and-twenty-first took: the same population, by consumer
 
@@ -564,15 +567,41 @@ Three answers, one per consumer §9 named, each in ADR 0356:
   prefix is a directory describing bytes that are not there, and a missing `rTRC` reads as no curve
   at all rather than as a failure.
 
-**What this chunk leaves, and it is one report rather than a reading.** A damaged **form
-`XObject`, tiling pattern, appearance stream or Type 3 glyph description** is still silent, and
-§7.8.2's argument for a page's `/Contents` covers all of them word for word — they are content
-streams and this tree already draws their prefixes. 46 of the crawl's damaged streams and 7 of the
-pdf.js corpus's 57 are form `XObject`s, and `comments.pdf` and `highlights.pdf` are witnesses a
-round can open by hand. A round taking it places a report in five call sites
-(`content/xobject.rs`, `content/pattern.rs`, `content/transparency.rs`, `appearance.rs`,
-`type3.rs`), each of which reads its stream through `Document::decoded_stream_data` and drops the
-damage by design; the report's own vocabulary already exists as `ContentIssue::Damaged`.
+~~**What this chunk leaves, and it is one report rather than a reading.**~~ **Taken in the
+five-hundred-and-twenty-fourth** (ADR 0359). A damaged **form `XObject`, tiling pattern, appearance
+stream or Type 3 glyph description** was still silent, and §7.8.2's argument for a page's
+`/Contents` covers all of them word for word — they are content streams and this tree already draws
+their prefixes. 46 of the crawl's damaged streams and 7 of the pdf.js corpus's 57 are form
+`XObject`s, and `comments.pdf` and `highlights.pdf` were the witnesses.
+
+**Two corrections that entry earns for the next round, both about the list rather than the rule.**
+It named `appearance.rs` and `type3.rs`, and neither is where the stream is read: the appearance is
+decoded in `annotation.rs` (the drawn copy passes through `content/annotations.rs`, and §12.7.4.3's
+regeneration *splices* the bytes, so a report at the draw would go quiet for exactly the fields a
+reader has typed in), and the glyph description is decoded in `content/text.rs`. `type3.rs`'s
+`decoded_stream_data` is the font's **`/ToUnicode` CMap**, which is not a content stream at all,
+costs no mark and is correctly silent — its missing codes are already counted in
+`codes_without_a_character`. And the count of kinds is **five**, not four, because §11.6.5.1's `/G`
+is a form too and is the one of them whose answer had to be derived rather than carried over.
+
+### 11. What the same census still leaves, one round later
+
+The role table's remaining silences are no longer content streams. Each wants ADR 0356's two
+questions — is a prefix of this a smaller one of the same kind, and are its marks places or values?
+— and no round has asked them:
+
+- **unclassified, 296 of the crawl's 2260**, which is now the largest role with anything owed and
+  is not one thing: an `Indexed` palette, a `/JS`, a `/ToUnicode`, a Type 3 glyph description, an
+  appearance. **Much of it is no longer silent** — ADR 0359's 295 reports over the crawl far
+  outnumber the 46 damaged form `XObject`s, and the excess is glyph descriptions, patterns and
+  appearances landing in this bucket — so what it wants is *splitting* rather than a reading, and
+  the split is a dictionary question the way `Role::of`'s other arms are.
+- **an object stream, 144**, §7.5.7. The objects that parse are read, which is a prefix rule
+  already taken without anyone writing down why it is the right one — a `/First` and an offset
+  table point forward, which is the *font program's* shape rather than the content stream's, and
+  that deserves a reading.
+- **a cross-reference stream, 10**, §7.5.8, which reaches the recovery scan. Probably the same
+  answer as the object stream and for the same reason.
 
 ## What not to do
 

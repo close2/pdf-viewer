@@ -86,6 +86,16 @@ pub(crate) struct Appearance {
     /// The annotation's blend mode name, from `/BM`, if it names one and the appearance is
     /// constructed.
     pub blend: Option<String>,
+    /// Where the stored stream this appearance came from stopped decoding, if it did.
+    ///
+    /// §12.5.5 makes an appearance a form `XObject`, which §7.8.2 makes a content stream, so the
+    /// rule for a damaged one reaches it and the prefix is drawn. The
+    /// shortfall is carried here rather than reported at the decode because §12.7.4.3's
+    /// regeneration reads these bytes and hands back a *spliced copy* of them: a report taken
+    /// where the drawn stream is finally decoded would miss exactly the annotations whose
+    /// variable text a reader has changed. `None` for every construction, which is written
+    /// here rather than read from a file.
+    pub damaged: Option<crate::content::DamagedStream>,
 }
 
 /// What an entry in `/Annots` asks the page to draw.
@@ -804,6 +814,8 @@ fn decided(
         Normal::StateNotDefined => return Decision::Nothing,
     };
 
+    let damaged = appearance_damage(document, &stored, &name);
+
     // §12.5.5's algorithm maps the appearance's transformed bounding box onto `/Rect`, and the
     // two are the same kind of thing: a box in a coordinate space. **A missing operand makes
     // the map the identity, whichever operand it is.** The hundred-and-twenty-fifth session
@@ -895,6 +907,7 @@ fn decided(
             stroke_alpha: 1.0,
             blend: blend_mode(document, annotation),
             content,
+            damaged,
         }),
         owed,
     }
@@ -956,9 +969,37 @@ fn construct(
                 bytes: content,
                 resources: constructed.resources,
             },
+            // Written here from the annotation's own entries, so there is no stream that could
+            // have been short of anything.
+            damaged: None,
         }),
         owed,
     }
+}
+
+/// Where a stored appearance stream stopped decoding, if it did (§7.8.2, §12.5.5).
+///
+/// §12.5.5 says what the thing is, and that is the whole argument:
+///
+/// > Each appearance stream is a form XObject (see 8.10, "Form XObjects"): a self-contained
+/// > content stream that shall be rendered inside the annotation rectangle.
+///
+/// So §7.8.2's rule reaches it: a prefix of a sequence of instructions is a shorter sequence of
+/// the same kind, the prefix is drawn, and the shortfall is named. Asked *here*, at the only
+/// point that still holds the stream — §12.7.4.3's regeneration replaces the appearance's content
+/// with a spliced copy of these bytes, so a report taken where the drawn stream is decoded would
+/// go quiet for exactly the fields whose variable text a reader has changed.
+fn appearance_damage(
+    document: &Document,
+    stored: &Stream,
+    name: &str,
+) -> Option<crate::content::DamagedStream> {
+    let decoded = document.decoded_stream_data_reported(stored).ok()?;
+    Some(crate::content::DamagedStream {
+        detail: format!("a {name} annotation's appearance stream (§12.5.5)"),
+        damage: decoded.damage?,
+        kept: decoded.data.len(),
+    })
 }
 
 /// Table 166's `/BM`, which applies to a stored appearance as much as to a constructed one.

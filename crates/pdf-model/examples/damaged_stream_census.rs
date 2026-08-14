@@ -19,6 +19,11 @@
 //!   prefix of a thing is a smaller thing of the same kind is a question about what the thing is,
 //!   and the answer differs for a form `XObject`, an image, a profile and a function. A count per
 //!   role is what says which of those arguments is worth a round.
+//! - **How many of them the program says anything about**, added in the five-hundred-and-twenty-fourth
+//!   session: every page of every document holding a damaged stream is interpreted, and the reports
+//!   that name damage are counted. It is the only line here that measures *this tree* rather than
+//!   the files — which is why it is printed beside the population and never instead of it — and it
+//!   is the before-and-after ADR 0359 is judged on.
 //! - **How many streams are shorter than the file's own arithmetic says they are**, damaged or
 //!   not. ISO 32000-2 §7.3.8.2 makes the extent of a stream inferable from the object's own
 //!   attributes — "streams are used to represent many objects from whose attributes a length can
@@ -228,6 +233,20 @@ struct Tally {
     documents_with_damage: usize,
     /// Damaged streams by the consumer that reads them, indexed by [`Role::index`].
     damaged_by_role: [usize; 12],
+    /// Reports naming damage, over every page of every document holding a damaged stream.
+    ///
+    /// Distinct reports rather than damaged streams: `Interpreter::note` keys by the report, so
+    /// one form drawn a hundred times is one of these. What it measures is how much of the
+    /// population above the program is willing to say out loud.
+    damage_reports: usize,
+    /// Of those, the ones ADR 0359 added — §7.8.2's four kinds that are not a page's `/Contents`.
+    ///
+    /// Split out rather than left in the total because the total on its own cannot be compared
+    /// against a tree that does not have them: subtract this and what remains is what ADR 0343's
+    /// route alone said, which is the before to this line's after.
+    other_content_stream_reports: usize,
+    /// Documents where at least one of those was made.
+    documents_reporting_damage: usize,
     /// Image `XObject`s whose decoded samples fall short of `/Width` × `/Height`, §7.3.8.2.
     short_images: usize,
     /// Documents holding at least one of those.
@@ -256,6 +275,9 @@ impl Tally {
         for (slot, count) in self.damaged_by_role.iter_mut().zip(other.damaged_by_role) {
             *slot += count;
         }
+        self.damage_reports += other.damage_reports;
+        self.other_content_stream_reports += other.other_content_stream_reports;
+        self.documents_reporting_damage += other.documents_reporting_damage;
         self.short_images += other.short_images;
         self.documents_with_short_images += other.documents_with_short_images;
         self.short_functions += other.short_functions;
@@ -307,6 +329,11 @@ fn main() {
             println!("    {count} damaged: {}", role.label());
         }
     }
+    println!(
+        "  and this program names damage in {} reports over {} of those documents, {} of them \
+         one of §7.8.2's four other content streams (ADR 0359)",
+        total.damage_reports, total.documents_reporting_damage, total.other_content_stream_reports,
+    );
     println!(
         "  short of their stated extent (§7.3.8.2): {} images in {} documents, \
          {} sampled functions in {} documents",
@@ -438,6 +465,10 @@ fn examine(path: &Path) -> Tally {
     let damaged_here = every_stream(&document, &pages, &name, &mut tally);
     if !damaged_here.is_empty() {
         tally.documents_with_damage = 1;
+        let (all, others) = reports_naming_damage(&document, &pages);
+        tally.damage_reports = all;
+        tally.other_content_stream_reports = others;
+        tally.documents_reporting_damage = usize::from(all > 0);
     }
 
     // Page one's `/Contents`, which is where `doc/todo/03` §8's question was asked.
@@ -480,14 +511,53 @@ fn examine(path: &Path) -> Tally {
             .push(format!("{name}: /Contents undecodable, nothing survived"));
     } else if !damaged_here.is_empty() {
         let (number, damage, kept, role) = damaged_here[0];
+        // Whether the tree is silent about this document is now a question rather than an
+        // assumption: ADR 0359 made four of §7.8.2's five content streams loud, so the line has
+        // to say which of the two it is or it would go on asserting the older answer.
+        let said = if tally.damage_reports > 0 {
+            format!("{} report(s) name damage", tally.damage_reports)
+        } else {
+            "nothing says so".to_owned()
+        };
         tally.witnesses.push(format!(
-            "{name}: object {number} {damage:?} in {}, {kept} bytes kept, and nothing says so \
+            "{name}: object {number} {damage:?} in {}, {kept} bytes kept, and {said} \
              ({} damaged streams)",
             role.label(),
             damaged_here.len()
         ));
     }
     tally
+}
+
+/// How many reports naming damage this program makes over every page of a document.
+///
+/// The two it can make: [`ContentIssue::Damaged`] for a part of a page's `/Contents` (ADR 0343)
+/// and [`pdf_model::Unsupported::DamagedContentStream`] for the four other content streams §7.8.2
+/// names (ADR 0359). **Every page, not page one** — a form `XObject` or an appearance is reached
+/// through whatever page draws it, and `comments.pdf`'s damaged form is not on the first.
+///
+/// Asked only of documents that hold a damaged stream, which is what keeps it affordable: 726 of
+/// the crawl's 65 944 do.
+fn reports_naming_damage(document: &Document, pages: &pdf_model::Pages) -> (usize, usize) {
+    let (mut reports, mut others) = (0, 0);
+    for index in 0..pages.len() {
+        let Some(page) = pages.get(index) else {
+            continue;
+        };
+        for item in &pdf_model::interpret(document, &page).unsupported {
+            match item {
+                pdf_model::Unsupported::DamagedContentStream { .. } => {
+                    reports += 1;
+                    others += 1;
+                }
+                pdf_model::Unsupported::Content {
+                    issue: ContentIssue::Damaged { .. },
+                } => reports += 1,
+                _ => {}
+            }
+        }
+    }
+    (reports, others)
 }
 
 /// How short a Type 0 function's stream is of its sample array, ISO 32000-2 §7.10.2.

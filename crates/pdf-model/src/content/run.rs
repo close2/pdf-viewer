@@ -14,7 +14,7 @@ use super::colour::{BlackPoint, assign_colour};
 use super::font::Font;
 use super::marked::Marked;
 use super::path::{begin_subpath, close_subpath};
-use super::report::{ArtifactSpan, MarkedSpan, Unsupported};
+use super::report::{ArtifactSpan, DamagedStream, MarkedSpan, Unsupported};
 use super::text::TextObject;
 use super::{
     GraphicsState, Interpreter, MAX_OPERANDS, MAX_OPERATIONS, MAX_STATE_DEPTH, line_cap, line_join,
@@ -24,6 +24,40 @@ use super::{
 impl Interpreter<'_> {
     pub(super) fn note(&mut self, item: Unsupported) {
         self.unsupported.insert(item.clone(), item);
+    }
+
+    /// Decodes one of §7.8.2's self-contained content streams, saying so where it is damaged.
+    ///
+    /// > Content streams shall also be used to package sequences of instructions as
+    /// > self-contained graphical elements, such as forms (see 8.10, "Form XObjects"), patterns
+    /// > (8.7, "Patterns"), certain fonts (9.6.4, "Type 3 fonts"), and annotation appearances
+    /// > (12.5.5, "Appearance streams").
+    ///
+    /// Every one of those is "a sequence of instructions" by the same clause's first sentence,
+    /// so §7.4.1's two halves are owed here exactly as they are for a page's `/Contents`: the
+    /// prefix a damaged filter produced goes on the page, and that it is only a prefix goes in
+    /// the report. `what` says which kind and which resource, because each of the five costs a
+    /// different mark and a report that did not distinguish them could not be acted on.
+    ///
+    /// `None` where nothing decoded at all. The caller words that one itself: there the whole
+    /// element is missing rather than the end of it, and the five callers already had five
+    /// different sentences for it.
+    pub(super) fn content_stream(
+        &mut self,
+        stream: &pdf_syntax::Stream,
+        what: &str,
+    ) -> Option<Arc<[u8]>> {
+        let decoded = self.document.decoded_stream_data_reported(stream).ok()?;
+        if let Some(damage) = decoded.damage {
+            self.note(Unsupported::DamagedContentStream {
+                stream: DamagedStream {
+                    detail: what.to_owned(),
+                    damage,
+                    kept: decoded.data.len(),
+                },
+            });
+        }
+        Some(decoded.data)
     }
 
     /// Executes a content stream with the given initial state.
