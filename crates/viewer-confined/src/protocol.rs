@@ -3306,6 +3306,7 @@ mod tests {
                 quads: Vec::new(),
                 header_scope: None,
                 bounds: None,
+                control: None,
                 headers: Vec::new(),
             },
             // A `Figure` marks no text, so Table 379's `/BBox` is the only place it has — and
@@ -3319,6 +3320,7 @@ mod tests {
                 quads: vec![[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]],
                 header_scope: None,
                 bounds: Some([8.0, 9.0, 10.0, 11.0]),
+                control: None,
                 headers: Vec::new(),
             },
             // A `TH` whose axis Table 384 states, because a header cell that crossed as a
@@ -3332,6 +3334,23 @@ mod tests {
                 quads: Vec::new(),
                 header_scope: Some(pdf_model::structure::HeaderScope::Row),
                 bounds: None,
+                control: None,
+                headers: Vec::new(),
+            },
+            // §14.8.4.7.2's `Form`, which is one widget annotation: the control it names is
+            // what makes a screen reader say "check box, ticked" instead of "group", so a
+            // field that did not cross would be the whole of this feature lost on this
+            // boundary.
+            AccessibilityNode {
+                parent: Some(0),
+                role: "Form".to_owned(),
+                name: String::new(),
+                substituted: false,
+                language: None,
+                quads: Vec::new(),
+                header_scope: None,
+                bounds: Some([12.0, 13.0, 14.0, 15.0]),
+                control: Some(pdf_model::form::Control::CheckBox { on: true }),
                 headers: Vec::new(),
             },
             // And a `TD` that §14.8.4.8.3's search gave the header beside it, because a cell
@@ -3345,6 +3364,7 @@ mod tests {
                 quads: Vec::new(),
                 header_scope: None,
                 bounds: None,
+                control: None,
                 headers: vec![2],
             },
         ];

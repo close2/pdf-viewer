@@ -1542,15 +1542,34 @@ impl Viewer {
         else {
             return Vec::new();
         };
-        crate::accessibility::nodes(&open.document, page, interpreted.language.as_deref())
+        let gathered =
+            crate::accessibility::nodes(&open.document, page, interpreted.language.as_deref());
+        // §14.7.5.3's object references, answered once for the page. Both readings are skipped
+        // entirely where no element states one, which is nearly every page: `annotation_rectangles`
+        // walks `/Annots` and `form::fields` walks §12.7.4.1's field tree, and neither is worth
+        // paying for an answer nothing will look at.
+        let referenced = gathered
+            .iter()
+            .any(|(_, element)| !element.objects.is_empty());
+        let (places, controls) = if referenced {
+            referenced_objects(open, &pages, interpreted.page)
+        } else {
+            (BTreeMap::new(), BTreeMap::new())
+        };
+        let page = crate::accessibility::Readback {
+            text: &interpreted.text,
+            marked: &interpreted.marked,
+            described: &interpreted.described,
+            places: &places,
+            controls: &controls,
+        };
+        gathered
             .into_iter()
             .map(|(parent, gathered)| {
                 crate::accessibility::finish(
                     gathered,
                     parent,
-                    &interpreted.text,
-                    &interpreted.marked,
-                    &interpreted.described,
+                    &page,
                     |start, end| self.device_quads(open, (start, end)),
                     |rect| self.device_rect(open, rect),
                 )
@@ -2272,6 +2291,34 @@ fn content_bounds(list: &DisplayList) -> Option<Rect> {
         union = Some(union.map_or(bounds, |box_| box_.union(bounds)));
     }
     union
+}
+
+/// What §14.7.5.3's object references can name on this page: §12.5.2's rectangles and §12.7's
+/// controls.
+///
+/// Both are keyed by the annotation, which is what an object reference names, and both are the
+/// same readings the rest of this crate uses — `form::fields` with **this view's** state, so a
+/// check box a person has just ticked answers `on` in the accessibility tree exactly as it does
+/// in [`Answer::Form`].
+fn referenced_objects(
+    open: &Open,
+    pages: &pdf_model::Pages,
+    index: usize,
+) -> (
+    BTreeMap<ObjectId, [f32; 4]>,
+    BTreeMap<ObjectId, pdf_model::form::Control>,
+) {
+    let Some(shown) = pages.get(index) else {
+        return (BTreeMap::new(), BTreeMap::new());
+    };
+    let places = pdf_model::structure::annotation_rectangles(&open.document, &shown.dict);
+    let mut controls = BTreeMap::new();
+    for field in pdf_model::form::fields(&open.document, &shown, &open.view) {
+        for widget in &field.widgets {
+            controls.insert(widget.annotation, field.control.clone());
+        }
+    }
+    (places, controls)
 }
 
 /// Every annotation object on a page, in `/Annots` order.

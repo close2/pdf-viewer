@@ -31,7 +31,7 @@
 //! counts and the terminal prints. They go into the tree as a [`accesskit::Role::Status`] group,
 //! which is AT-SPI's `StatusBar`: advisory, findable, and not an alert that interrupts.
 
-use accesskit::{Node, NodeId, Rect, Role, Tree, TreeId, TreeUpdate};
+use accesskit::{Node, NodeId, Rect, Role, Toggled, Tree, TreeId, TreeUpdate};
 use viewer_core::AccessibilityNode;
 
 /// The window, and the root of the tree.
@@ -191,13 +191,24 @@ fn elements(view: &PageView, out: &mut Vec<(NodeId, Node)>) -> Vec<NodeId> {
         if !published.get(index).copied().unwrap_or(false) {
             continue;
         }
-        let mapping = crate::role::map(&node.role, !node.name.trim().is_empty(), node.header_scope);
+        let mapping = crate::role::map(
+            &node.role,
+            !node.name.trim().is_empty(),
+            node.header_scope,
+            node.control.as_ref(),
+        );
         let mut built = Node::new(mapping.role);
         if mapping.speaks && !node.name.is_empty() {
             say(&mut built, &node.name);
         }
         if let Some(level) = mapping.level {
             built.set_level(usize::try_from(level).unwrap_or(usize::MAX));
+        }
+        // §12.7.5.2's two toggling buttons, whose state is half of what the control means. AT-SPI
+        // reads this as the `checked` state, which is what a screen reader announces after the
+        // control's name.
+        if let Some(on) = mapping.toggled {
+            built.set_toggled(if on { Toggled::True } else { Toggled::False });
         }
         let mut description: Vec<String> = Vec::new();
         if let Some(name) = mapping.unmapped {

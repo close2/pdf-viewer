@@ -1444,6 +1444,7 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
             quads,
             header_scope,
             bounds,
+            control,
             headers,
         } = node;
         writer
@@ -1459,6 +1460,15 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
             }
             None => {
                 writer.u8(0);
+            }
+        }
+        // §12.7's control for the widget behind §14.7.5.3's object reference, where the element
+        // names one. `control_kind::NONE` is the absence, so the discriminant carries the option
+        // rather than a flag byte in front of it.
+        match control {
+            Some(control) => encode_control(writer, control),
+            None => {
+                writer.u8(control_kind::NONE);
             }
         }
         writer.usize(headers.len());
@@ -1503,6 +1513,7 @@ pub(super) fn decode_accessibility(
             language: reader.option_string("a node's language")?,
             header_scope: read_scope(reader)?,
             bounds: reader.option_rect("a node's stated bounding box")?,
+            control: decode_optional_control(reader)?,
             // §14.8.4.8.3's header cells, checked the same way the parent link is: a header is a
             // cell the search walked *out to*, so it is always a node already read, and one that
             // is not would be a confined side pointing a host at something it has not been given.
@@ -1729,8 +1740,36 @@ fn encode_control(writer: &mut Writer, control: &Control) {
 
 /// Reads one back.
 fn decode_control(reader: &mut Reader<'_>) -> Result<Control, ProtocolError> {
-    let what = "a form control";
-    Ok(match reader.u8(what)? {
+    let kind = reader.u8("a form control")?;
+    decode_control_kind(reader, kind)?.ok_or_else(|| unrecognised("a form control", kind))
+}
+
+/// Reads a control that may be absent, which is what an element naming no widget encodes as.
+///
+/// `control_kind::NONE` is the absence rather than a flag byte in front of the discriminant: the
+/// enumeration already needs one byte and a field's control is never optional on the wire, so the
+/// two callers differ only in whether zero is a value they accept.
+fn decode_optional_control(reader: &mut Reader<'_>) -> Result<Option<Control>, ProtocolError> {
+    let what = "a structure element's form control";
+    let kind = reader.u8(what)?;
+    if kind == control_kind::NONE {
+        return Ok(None);
+    }
+    match decode_control_kind(reader, kind)? {
+        Some(control) => Ok(Some(control)),
+        None => Err(unrecognised(what, kind)),
+    }
+}
+
+/// One control's body, given the discriminant already read.
+///
+/// `None` for a discriminant this build does not define, which each caller reports in its own
+/// words — the two describe different things and a shared message would name the wrong one.
+fn decode_control_kind(
+    reader: &mut Reader<'_>,
+    kind: u8,
+) -> Result<Option<Control>, ProtocolError> {
+    Ok(Some(match kind {
         control_kind::PUSH_BUTTON => Control::PushButton,
         control_kind::CHECK_BOX => Control::CheckBox {
             on: reader.bool("a check box's state")?,
@@ -1769,8 +1808,8 @@ fn decode_control(reader: &mut Reader<'_>) -> Result<Control, ProtocolError> {
         }),
         control_kind::SIGNATURE => Control::Signature,
         control_kind::UNSTATED => Control::Unstated,
-        value => return Err(unrecognised(what, value)),
-    })
+        _ => return Ok(None),
+    }))
 }
 
 /// An optional count, as a flag and a fixed-width number.
@@ -1792,6 +1831,11 @@ fn decode_count(reader: &mut Reader<'_>, what: &'static str) -> Result<Option<u3
 
 /// [`Control`]'s discriminants: §12.7.5's four types, with buttons split as §12.7.5.2 splits them.
 mod control_kind {
+    /// No control at all, which is every structure element that names no widget annotation.
+    ///
+    /// Never written for a [`super::Control`] itself: a field always has one of the seven below,
+    /// `UNSTATED` included.
+    pub(super) const NONE: u8 = 0;
     pub(super) const PUSH_BUTTON: u8 = 1;
     pub(super) const CHECK_BOX: u8 = 2;
     pub(super) const RADIO_BUTTON: u8 = 3;

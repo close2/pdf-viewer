@@ -9,7 +9,8 @@
     reason = "a test asserts; a failed assertion is the point"
 )]
 
-use accesskit::{Node, NodeId, Role};
+use accesskit::{Node, NodeId, Role, Toggled};
+use pdf_model::form::{ChoiceControl, Control, TextControl};
 use pdf_model::structure::HeaderScope;
 use viewer_accessibility::{PageView, tree};
 use viewer_core::AccessibilityNode;
@@ -25,7 +26,16 @@ fn element(parent: Option<usize>, role: &str, name: &str) -> AccessibilityNode {
         quads: Vec::new(),
         header_scope: None,
         bounds: None,
+        control: None,
         headers: Vec::new(),
+    }
+}
+
+/// One `Form`, with the §12.7.5 control of the widget its object reference names.
+fn form(control: Option<Control>) -> AccessibilityNode {
+    AccessibilityNode {
+        control,
+        ..element(None, "Form", "")
     }
 }
 
@@ -364,5 +374,108 @@ fn a_header_cell_whose_text_is_in_a_child_is_still_named() {
     assert!(
         note.contains("headers, most specific first: Sydney"),
         "{note}"
+    );
+}
+
+/// §14.8.4.7.2's `Form` becomes the control its widget is, with the state a toggling one has.
+///
+/// Table 368 makes the type "[e]ither an association between content enclosed by the Form
+/// structure element and a corresponding widget annotation or a mechanism to include a widget
+/// annotation in the structure tree", and requires one per widget: "[i]n a tagged PDF, Form shall
+/// be used for each PDF widget annotation that belongs to the real content of the document". So
+/// it is a control, and a group was the wrong answer for all 272 of the corpus's.
+#[test]
+fn a_form_element_becomes_the_control_its_widget_annotation_is() {
+    let combo = |combo: bool, editable: bool| {
+        Control::Choice(ChoiceControl {
+            combo,
+            editable,
+            ..ChoiceControl::default()
+        })
+    };
+    let text = |multiline: bool, password: bool| {
+        Control::Text(TextControl {
+            multiline,
+            password,
+            ..TextControl::default()
+        })
+    };
+    let role = |control: Option<Control>| {
+        let nodes = [form(control)];
+        node(&tree::build(&view(&nodes, &[])), NodeId(16)).role()
+    };
+
+    assert_eq!(role(Some(Control::PushButton)), Role::Button);
+    assert_eq!(role(Some(Control::CheckBox { on: false })), Role::CheckBox);
+    assert_eq!(
+        role(Some(Control::RadioButton {
+            on: false,
+            no_toggle_to_off: false,
+            in_unison: false,
+        })),
+        Role::RadioButton
+    );
+    assert_eq!(role(Some(text(false, false))), Role::TextInput);
+    assert_eq!(role(Some(text(true, false))), Role::MultilineTextInput);
+    // Table 231 bit 14 before bit 13: a control that echoed a password because the file also
+    // asked for multiple lines is the one mistake here that cannot be taken back.
+    assert_eq!(role(Some(text(true, true))), Role::PasswordInput);
+    assert_eq!(role(Some(combo(false, false))), Role::ListBox);
+    assert_eq!(role(Some(combo(true, false))), Role::ComboBox);
+    assert_eq!(role(Some(combo(true, true))), Role::EditableComboBox);
+
+    // §12.7.5.5's signature and a field stating no `/FT` keep the group and say why, which is
+    // this crate's rule for every distinction the platform cannot carry.
+    for control in [Control::Signature, Control::Unstated] {
+        let nodes = [form(Some(control))];
+        let built = tree::build(&view(&nodes, &[]));
+        assert_eq!(node(&built, NodeId(16)).role(), Role::Group);
+        assert!(
+            node(&built, NodeId(16)).description().is_some(),
+            "a loss the platform cannot carry is named rather than silent"
+        );
+    }
+    // And a `Form` this program could not follow to a widget.
+    let nodes = [form(None)];
+    let built = tree::build(&view(&nodes, &[]));
+    assert_eq!(node(&built, NodeId(16)).role(), Role::Group);
+    assert!(node(&built, NodeId(16)).description().is_some());
+}
+
+/// A check box says whether it is ticked, which is half of what the control means.
+///
+/// §12.7.5.2.3's field "toggles between two states, on and off", and `pdf_model::form` has already
+/// resolved which through Table 226's `/V` and this view's own edits — so a box a person has just
+/// clicked reaches the bus as clicked.
+#[test]
+fn a_toggling_button_carries_its_state_and_nothing_else_does() {
+    let toggled = |control: Control| {
+        let nodes = [form(Some(control))];
+        node(&tree::build(&view(&nodes, &[])), NodeId(16)).toggled()
+    };
+    assert_eq!(toggled(Control::CheckBox { on: true }), Some(Toggled::True));
+    assert_eq!(
+        toggled(Control::CheckBox { on: false }),
+        Some(Toggled::False)
+    );
+    assert_eq!(
+        toggled(Control::RadioButton {
+            on: true,
+            no_toggle_to_off: true,
+            in_unison: false,
+        }),
+        Some(Toggled::True)
+    );
+    // §12.7.5.3's text field is neither on nor off, and saying `false` would be an answer to a
+    // question the clause does not ask.
+    assert_eq!(toggled(Control::Text(TextControl::default())), None);
+    assert_eq!(toggled(Control::PushButton), None);
+    assert_eq!(
+        node(
+            &tree::build(&view(&[element(None, "P", "a paragraph")], &[])),
+            NodeId(16)
+        )
+        .toggled(),
+        None
     );
 }

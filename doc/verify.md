@@ -256,6 +256,13 @@ cd fuzz && cargo +nightly fuzz run sfnt          -- -runs=50000   # §9.6.3's tw
 # 384's stated array, which is one document each for the two routes (ADR 0312). **And the bus is
 # what found the defect that round's tests could not**: a `TH` whose words are in a `P` inside it
 # has an empty `Name`, so the header sentence named nothing — every cell in that document.
+# **`GetState` answers `au`, an array of 32-bit words** — decode it as 64-bit and every state comes
+# back naming a different one, which looks like a plausible answer rather than an error (ADR 0338).
+# It is where §12.7.5.2's toggling buttons arrive: `Toggled::True` becomes AT-SPI's `checked`.
+# **`annotation-button-widget.pdf` is the witness for §14.8.4.7.2's controls, and it labels its own
+# answers**: each of its nine `Form` elements sits beside a paragraph reading "Check box, checked",
+# "Radio button, unselected" and so on, so the walk is checked against the document rather than
+# against this program. `prefilled_f1040.pdf` is the same feature at scale — 242 `Form` elements.
 # **Orca is not installed on this machine**, so
 # what a person on a desktop still has to do is run one and listen.
 cd fuzz && cargo +nightly fuzz run fragment      -- -runs=50000   # Annex O's fragment identifier,

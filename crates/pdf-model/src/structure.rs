@@ -2353,6 +2353,66 @@ fn rectangle(document: &Document, list: &Dictionary) -> Option<[f32; 4]> {
     normalised_rectangle(document, &document.get_key(list, "BBox"))
 }
 
+/// Where §12.5.2 puts each annotation the page lists, in **default user space**.
+///
+/// # Why this is in §14.7's module
+///
+/// §14.7.5.3 is the clause that needs it. An object reference makes a structure element's content
+/// "an entire PDF object, such as an `XObject` directly or indirectly referenced by a page
+/// description or an annotation" — and for one of those two the standard states outright where the
+/// object is. ISO 32000-2 §12.5.2, Table 166, makes `/Rect` "(Required)" and
+///
+/// > defining the location of the annotation on the page in default user space units
+///
+/// so an element whose content *is* an annotation has a place even when it marked no text, which
+/// is exactly the population [`Tree::bounds`] could not reach: 333 of the corpus's 1675 placeless
+/// elements that state no Table 379 `/BBox` are placed by this, and every `Form` element among
+/// them (`pdf-model --example element_bounds_census`).
+///
+/// # The other half of that sentence has no answer, and it is not an oversight
+///
+/// An `XObject`'s place is the transformation matrix in force at the `Do` that painted it, which
+/// lives in the content stream rather than in the object — and NOTE 2 says the same thing from the
+/// producer's side: an object rendered "multiple times on the same page" needs only "a single
+/// object reference", so the reference cannot be naming one of the places. Nothing is invented for
+/// it here.
+///
+/// # Only the annotations the page itself lists
+///
+/// §12.5.2 makes `/Annots` "an array of annotation dictionaries", and membership in it is the one
+/// available check that the referenced object *is* an annotation of *this* page. Table 166 makes
+/// `/Type` optional, so a `/Rect` read off any dictionary that happens to carry one would place an
+/// element from a `/Rect` the standard never promised — the shape ADR 0215 paid for when a
+/// signature dictionary stating no `/Type` was read as not being one.
+///
+/// A map rather than a lookup per element, because a page is asked about once and its `/Annots`
+/// array is walked once for however many object references its structure tree states.
+#[must_use]
+pub fn annotation_rectangles(
+    document: &Document,
+    page: &Dictionary,
+) -> BTreeMap<ObjectId, [f32; 4]> {
+    let mut out = BTreeMap::new();
+    let entry = document.get_key(page, "Annots");
+    let Some(array) = entry.as_array() else {
+        return out;
+    };
+    for item in array {
+        // The reference is the identity an object reference names; a `/Annots` entry written
+        // inline has none, and §14.7.5.3's `/Obj` could not have named it.
+        let Some(object) = item.as_reference() else {
+            continue;
+        };
+        let Some(dict) = document.get(object).as_dict().cloned() else {
+            continue;
+        };
+        if let Some(rect) = crate::annotation::rectangle(document, &dict, "Rect") {
+            out.insert(object, rect);
+        }
+    }
+    out
+}
+
 /// A four-number array as a rectangle, normalised the way a page's boxes are.
 ///
 /// Shared by Table 363's artifact `/BBox` and Table 379's layout one: both are "the rectangle
@@ -2802,7 +2862,7 @@ pub fn document_language(document: &Document) -> Option<String> {
 mod tests {
     use super::{
         CellFacts, Checked, Child, FieldRole, HeaderScope, MAX_TABLE_COLUMNS, ParentTree,
-        StandardType, TableGrid, TableStack, Tree, actual_text,
+        StandardType, TableGrid, TableStack, Tree, actual_text, annotation_rectangles,
     };
     use pdf_syntax::{Document, Object};
     use std::collections::BTreeSet;
@@ -3725,6 +3785,53 @@ mod tests {
             None,
             "the attribute is optional, and an element stating none has said nothing"
         );
+    }
+
+    /// §12.5.2's rectangle for the annotations §14.7.5.3's object reference can name.
+    ///
+    /// Four objects on the page's `/Annots`: one whose corners are the usual way round, one whose
+    /// are diagonally opposite the other way — §7.9.5 permits it — one stating no `/Rect` at all,
+    /// and one that is not a dictionary. And a fifth object that *is* an annotation dictionary
+    /// with a rectangle and is **not** on the page's array, which answers nothing: an element
+    /// placed from it would be placed from a page it is not on.
+    #[test]
+    fn a_pages_annotations_state_where_they_are() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+             /Annots [4 0 R 5 0 R 6 0 R 7 0 R] >>",
+            "<< /Type /Annot /Subtype /Widget /Rect [10 20 60 80] >>",
+            "<< /Type /Annot /Subtype /Text /Rect [60 80 10 20] >>",
+            "<< /Type /Annot /Subtype /Text >>",
+            "42",
+            "<< /Type /Annot /Subtype /Text /Rect [0 0 5 5] >>",
+        ]);
+        let page = doc.get(pdf_syntax::ObjectId::new(3, 0));
+        let page = page.as_dict().expect("a page");
+        let places = annotation_rectangles(&doc, page);
+
+        assert_eq!(
+            places.get(&pdf_syntax::ObjectId::new(4, 0)),
+            Some(&[10.0, 20.0, 60.0, 80.0])
+        );
+        assert_eq!(
+            places.get(&pdf_syntax::ObjectId::new(5, 0)),
+            Some(&[10.0, 20.0, 60.0, 80.0]),
+            "§7.9.5 states a rectangle as a pair of diagonally opposite corners, in no order"
+        );
+        assert_eq!(
+            places.get(&pdf_syntax::ObjectId::new(6, 0)),
+            None,
+            "Table 166 makes /Rect required, and a file that omits it has said nothing"
+        );
+        assert_eq!(places.get(&pdf_syntax::ObjectId::new(7, 0)), None);
+        assert_eq!(
+            places.get(&pdf_syntax::ObjectId::new(8, 0)),
+            None,
+            "an annotation this page does not list is not this page's"
+        );
+        assert_eq!(places.len(), 2);
     }
 
     /// §14.8.5.7's four assumptions, and the grid they are asked about.

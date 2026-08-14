@@ -3,10 +3,12 @@
 Status: **built and verified on a real bus** in the three-hundred-and-seventy-sixth session
 (ADR 0214); a `TH`'s axis closed on one in the four-hundred-and-sixty-fifth (ADR 0300),
 Table 379's `/BBox` in the four-hundred-and-sixty-sixth (ADR 0301), a cell's `/Headers` in
-the four-hundred-and-seventy-seventh (ADR 0312) and **the empty answer every page but the first
-few of a large tagged document got** in the four-hundred-and-ninetieth (ADR 0325).
+the four-hundred-and-seventy-seventh (ADR 0312), **the empty answer every page but the first
+few of a large tagged document got** in the four-hundred-and-ninetieth (ADR 0325), and
+**§14.7.5.3's object reference — a place and a control** in the five-hundred-and-third (ADR 0338).
 Priority: 31 — capability
-Clauses: §14.7, §14.7.5.3, §14.7.5.4, §14.8.4, §14.8.4.8.3, §14.8.5.4.3, §14.8.5.7, §14.9
+Clauses: §12.5.2, §12.7.5, §14.7, §14.7.5.3, §14.7.5.4, §14.8.4, §14.8.4.7.2, §14.8.4.8.3,
+§14.8.5.4.3, §14.8.5.7, §14.9
 Code: `crates/viewer-accessibility/` (`role.rs`, `tree.rs`, `bridge.rs`),
 `crates/viewer-core/src/accessibility.rs`, `crates/pdf-model/src/structure.rs`,
 `crates/viewer-ui/src/bin/pdf-viewer.rs` (`App::attend`, `App::speak`)
@@ -24,6 +26,14 @@ could not draw. The launch path is unmoved and the runtime is confined to one Li
 §14.8.5.7's assumption from the cell's place in the grid where it does not, `RowHeader` or
 `ColumnHeader` on the bus. `examples/table_header_census` is what says it was worth doing: of the
 corpus's 5965 header cells, 3114 are a **row**'s and were all being announced as a column's.
+
+**And an element whose content *is* an annotation has a place and, where it is a widget, a
+control.** §14.7.5.3's object reference is what names it; §12.5.2's `/Rect` says where the
+annotation is and §12.7.5 says which of the four field types the widget belongs to, so
+§14.8.4.7.2's `Form` reaches AT-SPI as a check box, a radio button, an entry or a list rather than
+as a group — with §12.7.5.2's toggling state beside it. `examples/element_bounds_census` is what
+says it was worth doing: 333 of the 1675 corpus elements that mark no text and state no `/BBox` are
+placed by the annotation, and **all 272 `Form` elements name a widget the field tree reaches**.
 
 **And a cell says which header cells describe it** — Table 384's `/Headers` where the producer
 wrote one, expanded by the entry's own recursion, and §14.8.4.8.3's search where it did not, in the
@@ -71,15 +81,17 @@ search rather than from the array**.
   description instead, which is a choice about a platform and is argued in `tree::headers`. The
   upstream question is one question for all three: `Table`, `TableCell` and the relation set.
 
-- **An element that marks no text and states no `/BBox` still has no place.** Table 379's
-  rectangle is read since ADR 0301 and it answers for 61 of the 1700 corpus elements whose content
-  produced no text; the other 1639 have nothing the standard states about where they are. 576 of
-  them reach the page only through §14.7.5.3's `/OBJR`, and **that is the strongest remaining
-  route**: an object reference names an annotation, §12.5.2's `/Rect` says where an annotation is,
-  and `AccessibilityNode` does not carry the object — the same missing link the `Form` item below
-  needs. The rest would need a bound taken from the *marks* rather than from the document, which is
-  a different kind of answer and wants an argument before it wants code: the display list records
-  no `/MCID`, so nothing today can say which commands an element's content items made.
+- ~~An element that marks no text and states no `/BBox` still has no place~~ — **the strongest
+  route is taken** (ADR 0338), and it was the same missing link the `Form` entry needed: an object
+  reference names an annotation and §12.5.2 states where an annotation is. What is left is what no
+  clause answers. Of the 1675 corpus elements that mark no text and state no Table 379 `/BBox`, 333
+  are now placed and **1342 are not** — `P`, `Div`, `Span`, `TD` and `Figure` elements that name no
+  annotation. A bound for those has to come from the *marks* rather than from the document, which
+  is a different kind of answer and wants an argument before it wants code: the display list
+  records no `/MCID`, so nothing today can say which commands an element's content items made.
+  **An `XObject` object reference is refused rather than pending**: its place is the matrix in
+  force at the `Do` that painted it, and Table 358's NOTE 2 says one reference suffices however
+  many times the object is drawn — so the reference is not naming a position.
 
 - **Whether a stated `/BBox` should win over the shapes that were drawn.** `tree::place` prefers
   the quads where an element has both, on the conservative reading — the marks are what is on the
@@ -88,11 +100,15 @@ search rather than from the array**.
   how often that happens or by how much; `element_bounds_census` has the walk and would need the
   text layer beside it.
 
-- **A `Form` element's control role.** §14.8.4.7.2 makes the `Form` structure type *one widget
-  annotation*, and a screen reader wants `CheckBox`, `TextInput`, `RadioButton` — which needs the
-  annotation behind §14.7.5.3's `/OBJR` and §12.7's field type. `Tree::print_field` reads
-  §14.8.5.6's `PrintField` attribute, which is the *printed* form of a field and not this; the
-  route is the object reference, and `AccessibilityNode` does not carry one. `Role::Group` today.
+- ~~A `Form` element's control role~~ — **closed in the five-hundred-and-third session**
+  (ADR 0338), and checked on a real bus against a document that labels its own answers.
+  `AccessibilityNode::control` carries `pdf_model::form::Control` for the widget behind
+  §14.7.5.3's `/OBJR`, and `viewer_accessibility::role` reads it for `Form` and nothing else, on
+  Table 368's own division of the annotations between `Link`, `Annot` and `Form`. Two things it
+  leaves: **§12.7.5.5's signature field has no role in either vocabulary** and keeps a group with
+  the loss named in its description; and `Tree::print_field`'s §14.8.5.6 `PrintField` — the
+  *printed* form of a field, for a form that was flattened — is still read by nobody, which is a
+  separate entry rather than this one, and 0 corpus elements state it.
 
 - **AT-SPI's `Text` interface.** A paragraph crosses as a node with a name, so an assistive
   technology reads it whole. Moving through it by word, character or line — and reporting a
@@ -103,7 +119,10 @@ search rather than from the array**.
 - **Actions.** The tree declares none, so a conforming client requests none; one that arrives
   anyway reaches `Bridge::requested` and `pdf-viewer` prints it by name. The first worth carrying
   out is `ScrollIntoView` on an element, which is `Command::Scroll` and a rectangle this crate
-  already has.
+  already has. **This entry got sharper in the five-hundred-and-third session and nothing else
+  changed about it**: a check box now announces itself as a check box and says whether it is
+  ticked, which invites exactly the request this tree declines. `Command::Activate` on the widget
+  is the answer and `AccessibilityNode::control` is already the evidence that the node is one.
 
 - **The question costs tens of milliseconds on a thousand-page document**, and a screen reader asks
   it on every page turn — against the 0.13–0.25 ms ADR 0228 recorded on a five-page one.

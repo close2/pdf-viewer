@@ -54,8 +54,22 @@
 //! walk below descends from the root **only into the subtree the page occupies** — the ancestors
 //! it must pass through and nothing beside them. What was a walk of the document is a walk of the
 //! page. ADR 0325.
+//!
+//! # What an object reference is worth, which is two answers rather than none
+//!
+//! §14.7.5.3's `/OBJR` makes an element's content "an entire PDF object", and for a long time this
+//! walk took one fact from it: that the element is on this page. Everything else about such an
+//! element was empty — no shapes, because it marked no text, and a generic group on the far side
+//! whatever the object was.
+//!
+//! Two clauses answer for the annotation half of that sentence, and both do it in the space Table
+//! 379's rectangle is already mapped from. §12.5.2 states where the annotation is; §12.7 states
+//! what control a widget annotation belongs to. So an element whose content *is* an annotation
+//! gets [`AccessibilityNode::bounds`], and one whose content is a widget gets
+//! [`AccessibilityNode::control`] — which is what turns §14.8.4.7.2's `Form` from a group into a
+//! check box. ADR 0338.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use pdf_model::accessibility::Described;
 use pdf_model::content::MarkedSpan;
@@ -145,24 +159,64 @@ pub struct AccessibilityNode {
     /// grid, which is one a document put outside a `TR`. The second of those is not the same as a
     /// column header and is deliberately not reported as one: a host says it does not know.
     pub header_scope: Option<HeaderScope>,
-    /// Where the **document says** the element is: Table 379's `/BBox`, in the same device pixels
-    /// [`Self::quads`] are in.
+    /// Where the **document says** the element is, in the same device pixels [`Self::quads`] are
+    /// in.
     ///
-    /// §14.8.5.4.3 makes it "the rectangle that completely encloses its visible content", and it
-    /// is a different kind of statement from [`Self::quads`]: those are the shapes *this program*
+    /// A different kind of statement from [`Self::quads`]: those are the shapes *this program*
     /// found by drawing the element's text, and this is what the producer wrote down. The two are
-    /// carried side by side rather than merged, because an element whose content is a picture has
-    /// the second and not the first — 60 of the 61 corpus elements that state a `/BBox` and mark
-    /// no text are `Figure`s — and a host that wants somewhere to point a magnifier can take
-    /// whichever it has.
+    /// carried side by side rather than merged, because an element whose content is a picture or a
+    /// form control has the second and not the first, and a host that wants somewhere to point a
+    /// magnifier can take whichever it has.
     ///
-    /// `[x0, y0, x1, y1]` with y increasing downwards, because the mapping from the clause's
+    /// # Two clauses answer, in this order
+    ///
+    /// **Table 379's `/BBox` first**, which §14.8.5.4.3 makes "the rectangle that completely
+    /// encloses its visible content" — the element's own statement about itself.
+    ///
+    /// **Then §12.5.2's annotation rectangle**, for an element whose own content item is
+    /// §14.7.5.3's object reference to an annotation this page lists. Table 166 makes `/Rect`
+    /// required and "defining the location of the annotation on the page in default user space
+    /// units", so where the element's content *is* an annotation the document has said where the
+    /// element is without using a layout attribute at all — the union of the rectangles where the
+    /// element names more than one, which Table 368's `Annot` permits. The `/BBox` wins because it
+    /// is a statement about the *element* and this one is a statement about its content.
+    ///
+    /// `pdf-model --example element_bounds_census`, over 1245 documents: 2079 elements produced no
+    /// text, 404 of them state a `/BBox`, and **333 of the remainder are placed by an annotation
+    /// rectangle** — among them every one of the 272 `Form` elements, which mark no text by nature.
+    ///
+    /// `[x0, y0, x1, y1]` with y increasing downwards, because the mapping from those clauses'
     /// default user space runs through the same flip [`Self::quads`] take: §7.7.3.3's `/Rotate`
     /// and the crop box's origin first, then the viewport's magnification and centring.
     ///
-    /// `None` for an element stating none, which is all but 132 of the corpus's 133 114 elements
-    /// — so the ordinary answer here is nothing, and that is not a failure.
+    /// `None` for an element neither clause answers for, which is most of them, and that is not a
+    /// failure.
     pub bounds: Option<[f32; 4]>,
+    /// Which of §12.7.5's controls the widget annotation behind this element is, where it names
+    /// one.
+    ///
+    /// §14.8.4.7.2's `Form` is the structure type this exists for. Table 368 makes it "[e]ither an
+    /// association between content enclosed by the Form structure element and a corresponding
+    /// widget annotation or a mechanism to include a widget annotation in the structure tree", and
+    /// requires one per widget: "[i]n a tagged PDF, Form shall be used for each PDF widget
+    /// annotation that belongs to the real content of the document". So a `Form` is a *control*,
+    /// and a host that announced it as a group would tell a person there is a box on the page
+    /// without saying it is a check box, what it is called, or whether it is ticked.
+    ///
+    /// The route is §14.7.5.3's object reference, which is the only thing that names the widget,
+    /// and the answer is `pdf_model::form`'s — the same [`pdf_model::form::Control`] a host
+    /// already builds a native control from in [`crate::FormField`], with the same view state
+    /// behind it, so a check box a person has just ticked answers `on`.
+    ///
+    /// Carried for **any** element whose own object reference names a widget of a field on this
+    /// page, rather than only for a `Form`: which type *should* name one is §14.8.4.7.2's
+    /// question and a host's to apply, and a file that puts the reference on some other element
+    /// has stated a fact this crate has no reason to withhold.
+    ///
+    /// `None` for every element that names no widget, which is all but 272 of the corpus's 166 115
+    /// (`pdf-model --example element_bounds_census`) — and for a widget the field tree does not
+    /// reach, which §12.7.4.2 makes "simply a Widget annotation" belonging to no field.
+    pub control: Option<pdf_model::form::Control>,
     /// The header cells that describe this one, as indices into the answer.
     ///
     /// §14.8.4.8.3 gives a table cell its headers twice over — Table 384's `/Headers`, an array of
@@ -210,6 +264,13 @@ pub(crate) struct Gathered {
     /// gives it a `/Pg`, and an element whose only content item is an annotation on this page is
     /// on this page. Without it, such an element would be pruned as belonging elsewhere.
     pub(crate) on_page: bool,
+    /// The objects the element's **own** §14.7.5.3 object references name, on this page.
+    ///
+    /// Its own rather than its descendants', which is the same division [`Self::own`] makes and
+    /// for a sharper reason: what these answer is where the element is and what control it is, and
+    /// both are statements about the object that *is* this element's content item. An ancestor's
+    /// extent is a different question, and the standard states no union for it.
+    pub(crate) objects: Vec<ObjectId>,
     /// §14.9.3's `/Alt` or §14.9.5's `/E`, where the element itself states one.
     pub(crate) phrase: Option<String>,
     /// §14.9.2's `/Lang`, where the element itself states one.
@@ -483,6 +544,7 @@ fn walk(
                         mcids: Vec::new(),
                         own: Vec::new(),
                         on_page: false,
+                        objects: Vec::new(),
                         phrase,
                         language: language.clone(),
                         header_scope,
@@ -531,13 +593,21 @@ fn walk(
                 }
             }
             // §14.7.5.3's object reference is an annotation or an XObject rather than text on
-            // this page's readback. It is not skipped silently: it contributes no `/MCID`, so
-            // its element is answered with whatever `/Alt` it states and no quads, which is a
-            // true statement about what this program can locate — and Table 358's `/Pg` is what
+            // this page's readback. It contributes no `/MCID`, so its element gets no quads — but
+            // it is not the dead end this comment used to describe: where the object is one of the
+            // page's annotations, §12.5.2 states where it is and §12.7 states what control it is,
+            // and both reach [`AccessibilityNode`] through `objects`. Table 358's `/Pg` is what
             // keeps such an element from being pruned as belonging to another page.
-            Child::Object { page: on, .. } => {
+            Child::Object { object, page: on } => {
                 if on.is_some_and(|object| object != page) {
                     continue;
+                }
+                // The element that *contains* the reference, for the reason `Gathered::objects`
+                // gives: this is a statement about its own content item and not its ancestors'.
+                if let Some(index) = parent
+                    && let Some((_, entry)) = out.get_mut(index)
+                {
+                    entry.objects.push(object);
                 }
                 let mut at = parent;
                 while let Some(index) = at {
@@ -603,25 +673,53 @@ pub(crate) fn ranges(marked: &[MarkedSpan], mcids: &[i64]) -> Vec<(usize, usize)
     out
 }
 
+/// What one page says, beside each element: the readback, and what its object references name.
+///
+/// One value rather than five arguments because it is the *page's* half of the answer and every
+/// element of the page is finished against the same one.
+pub(crate) struct Readback<'a> {
+    /// The page's text, as [`crate::Interpretation::text`] read it back.
+    pub(crate) text: &'a str,
+    /// §14.7.5.2's marked-content sequences, with the range of the readback each covers.
+    pub(crate) marked: &'a [MarkedSpan],
+    /// §14.9's substitutions the interpreter recorded inside those sequences.
+    pub(crate) described: &'a [Described],
+    /// §12.5.2's `/Rect` for each annotation this page lists, in **default user space**.
+    ///
+    /// [`pdf_model::structure::annotation_rectangles`] is what reads it, and the mapping into the
+    /// viewport is [`finish`]'s `place` — the same one Table 379's rectangle takes, because both
+    /// clauses state their rectangle in the same space.
+    pub(crate) places: &'a BTreeMap<ObjectId, [f32; 4]>,
+    /// §12.7's control for each widget annotation of a field with a widget on this page.
+    pub(crate) controls: &'a BTreeMap<ObjectId, pdf_model::form::Control>,
+}
+
 /// Turns a gathered element into what crosses the boundary.
 pub(crate) fn finish(
     gathered: Gathered,
     parent: Option<usize>,
-    text: &str,
-    marked: &[MarkedSpan],
-    described: &[Described],
+    page: &Readback<'_>,
     quads: impl Fn(usize, usize) -> Vec<[f32; 8]>,
     place: impl Fn([f32; 4]) -> Option<[f32; 4]>,
 ) -> AccessibilityNode {
     let substituted = gathered.phrase.is_some();
     let name = gathered.phrase.unwrap_or_else(|| {
         // The element's own content items, not its descendants': see `AccessibilityNode::name`.
-        spoken(text, described, &ranges(marked, &gathered.own))
+        spoken(
+            page.text,
+            page.described,
+            &ranges(page.marked, &gathered.own),
+        )
     });
     let mut all = Vec::new();
-    for (start, end) in ranges(marked, &gathered.mcids) {
+    for (start, end) in ranges(page.marked, &gathered.mcids) {
         all.extend(quads(start, end));
     }
+    // Table 379's rectangle first, then §12.5.2's: see `AccessibilityNode::bounds` for why that
+    // order and not the other.
+    let stated = gathered
+        .bounds
+        .or_else(|| referenced_rectangle(&gathered.objects, page.places));
     AccessibilityNode {
         parent,
         role: gathered.role,
@@ -630,7 +728,39 @@ pub(crate) fn finish(
         language: gathered.language,
         quads: all,
         header_scope: gathered.header_scope,
-        bounds: gathered.bounds.and_then(place),
+        bounds: stated.and_then(place),
+        control: gathered
+            .objects
+            .iter()
+            .find_map(|object| page.controls.get(object).cloned()),
         headers: gathered.headers,
     }
+}
+
+/// The rectangle §12.5.2 gives the annotations an element's own object references name.
+///
+/// The union where there is more than one, because Table 368 permits it — an `Annot` element
+/// referencing several requires only that "they shall be of the same annotation type" — and a
+/// magnifier pointed at one of several would be pointed at the wrong one as often as not.
+///
+/// `None` where the element names no object, and where none of the objects it names is an
+/// annotation of this page: an `XObject` reference is the clause's other case and has no rectangle
+/// of its own, which [`pdf_model::structure::annotation_rectangles`] states.
+fn referenced_rectangle(
+    objects: &[ObjectId],
+    places: &BTreeMap<ObjectId, [f32; 4]>,
+) -> Option<[f32; 4]> {
+    let mut union: Option<[f32; 4]> = None;
+    for rect in objects.iter().filter_map(|object| places.get(object)) {
+        union = Some(match union {
+            None => *rect,
+            Some(so_far) => [
+                so_far[0].min(rect[0]),
+                so_far[1].min(rect[1]),
+                so_far[2].max(rect[2]),
+                so_far[3].max(rect[3]),
+            ],
+        });
+    }
+    union
 }

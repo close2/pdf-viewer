@@ -17,7 +17,7 @@
 //! | `Sub` | `Group` | no sub-block role anywhere in AccessKit |
 //! | `Lbl` | `Label` | inside a list this is the bullet, and `Role::ListMarker` would say so — but §14.8.4.7.2 makes `Lbl` general ("content that distinguishes it from other content inside the same parent element"), and a line number in a `Sub` is not a marker |
 //! | `Annot` | `Group` | AccessKit has no role for "content associated with an annotation", and which annotation it is is §14.7.5.3's `/OBJR`, which this program locates but does not classify |
-//! | `Form` | `Group` | §14.8.4.7.2 makes this **one widget annotation**, not a form — so `Role::Form` would be wrong twice over. What it *should* become is the field's own control role, which needs the widget behind the `/OBJR` and §12.7's field type. Named in `doc/todo/31` |
+//! | `Form` naming no widget | `Group` | see below |
 //! | `RB`, `RP`, `WT`, `WP` | `Label` | AccessKit has `Ruby` and `RubyAnnotation` and nothing for the base text, the punctuation or warichu's halves |
 //! | `Warichu` | `Group` | no warichu role |
 //! | `LBody` | `GenericContainer` | no list-item-body role; a list item's content belongs to the item, which is what the platform filter does with this one |
@@ -43,6 +43,44 @@
 //! course of pagination, layout, or other mechanical processes or introduced by the document
 //! author for decoration". A running head read aloud on every page is what tagging exists to
 //! prevent, so an artifact's text is dropped rather than promoted.
+//!
+//! # A `Form` is a control, and §14.8.4.7.2 says which one
+//!
+//! Table 368 makes the `Form` structure type "[e]ither an association between content enclosed by
+//! the Form structure element and a corresponding widget annotation or a mechanism to include a
+//! widget annotation in the structure tree", and requires one per widget: "[i]n a tagged PDF, Form
+//! shall be used for each PDF widget annotation that belongs to the real content of the document."
+//! So it is **one widget annotation**, which is why [`Role::Form`] — a container *of* fields — has
+//! never been the answer, and why [`Role::Group`] was not either: a person is told there is
+//! something on the page and not that it is a check box.
+//!
+//! §12.7.5's four field types are what the platform has words for, and
+//! [`viewer_core::AccessibilityNode::control`] carries them here through §14.7.5.3's object
+//! reference. All 272 of the corpus's `Form` elements name a widget whose field type is readable
+//! (`pdf-model --example element_bounds_census`), which is what makes this worth the wire field.
+//!
+//! | §12.7.5 | becomes |
+//! |---|---|
+//! | a push button, §12.7.5.2.2 | [`Role::Button`] |
+//! | a check box, §12.7.5.2.3 | [`Role::CheckBox`], with `toggled` set from the field's value |
+//! | a radio button, §12.7.5.2.4 | [`Role::RadioButton`], likewise |
+//! | a text field, §12.7.5.3 | [`Role::PasswordInput`] under Table 231 bit 14, else [`Role::MultilineTextInput`] under bit 13, else [`Role::TextInput`] |
+//! | a choice field, §12.7.5.4 | [`Role::EditableComboBox`] under Table 233 bits 18 and 19, [`Role::ComboBox`] under bit 18, else [`Role::ListBox`] |
+//! | a signature field, §12.7.5.5 | [`Role::Group`], described — see below |
+//! | a field stating no `/FT` | [`Role::Group`], described |
+//!
+//! **Password before multiline**, because the two flags say different kinds of thing and only one
+//! of them is about secrecy: Table 231 bit 14 makes the field "intended for entering a secure
+//! password that should not be echoed visibly to the screen", and a control that echoed a password
+//! because the file also set bit 13 would be the one mistake here that cannot be taken back. A file
+//! setting both has said something Table 231 does not contemplate, and this is the safe reading of
+//! it rather than a claim about which bit wins.
+//!
+//! **A signature field keeps [`Role::Group`] and says so.** §12.7.5.5 makes it "a form field that
+//! contains a digital signature", and neither AccessKit nor AT-SPI has a role for one; the nearest
+//! candidates — a button, a text input — would each assert something about what a person may do
+//! with it that this program does not implement. So the loss is named in the description, the way
+//! every other loss in this module is.
 //!
 //! # A header cell's axis, and the one value the platform has no word for
 //!
@@ -72,6 +110,7 @@
 //! `doc/todo/31` records it as owed to the platform rather than to this crate.
 
 use accesskit::Role;
+use pdf_model::form::Control;
 use pdf_model::structure::{HeaderScope, StandardType};
 
 /// What one structure type becomes.
@@ -109,6 +148,17 @@ pub struct Mapping {
     /// axes, or one whose axis could not be determined — and it becomes the node's description
     /// rather than its name, so it is advisory rather than read in place of the cell's content.
     pub note: Option<&'static str>,
+    /// Whether §12.7.5.2's toggling button is on, for a `Form` naming one and nothing else.
+    ///
+    /// A check box announced without its state says there is a box and not whether it is ticked,
+    /// which is the whole of what the control means. §12.7.5.2.3 makes the field one that "toggles
+    /// between two states, on and off" and Table 226's `/V` is which — already resolved through
+    /// this view's own state by `pdf_model::form`, so a box a person has just clicked answers with
+    /// what they did.
+    ///
+    /// `None` for every control that does not toggle, which is what
+    /// [`accesskit::Toggled`] has no value for: a text field is neither on nor off.
+    pub toggled: Option<bool>,
 }
 
 /// Maps one element's structure type onto the platform's vocabulary.
@@ -121,8 +171,18 @@ pub struct Mapping {
 /// [`viewer_core::AccessibilityNode::header_scope`] answers with and which decides between two
 /// roles the platform keeps apart. It is ignored for every other type, because the entry "shall
 /// only have an effect for structure elements of type of TH".
+///
+/// `control` is §12.7.5's field type for the widget annotation behind §14.7.5.3's object
+/// reference, which [`viewer_core::AccessibilityNode::control`] answers with. It is read for
+/// `Form` and nothing else, because §14.8.4.7.2 makes that the type a widget belongs to — see this
+/// module's own documentation.
 #[must_use]
-pub fn map(role: &str, speaking: bool, scope: Option<HeaderScope>) -> Mapping {
+pub fn map(
+    role: &str,
+    speaking: bool,
+    scope: Option<HeaderScope>,
+    control: Option<&Control>,
+) -> Mapping {
     let Some(standard) = StandardType::read(role) else {
         return Mapping {
             role: Role::Group,
@@ -130,6 +190,7 @@ pub fn map(role: &str, speaking: bool, scope: Option<HeaderScope>) -> Mapping {
             unmapped: Some(role.to_owned()),
             speaks: true,
             note: None,
+            toggled: None,
         };
     };
     #[expect(
@@ -161,7 +222,8 @@ pub fn map(role: &str, speaking: bool, scope: Option<HeaderScope>) -> Mapping {
         StandardType::Emphasis => (Role::Emphasis, None),
         StandardType::Strong => (Role::Strong, None),
         StandardType::Link => (Role::Link, None),
-        StandardType::Annotation | StandardType::Form => (Role::Group, None),
+        StandardType::Annotation => (Role::Group, None),
+        StandardType::Form => (form_role(control), None),
         // Table 369, ruby and warichu.
         StandardType::Ruby => (Role::Ruby, None),
         StandardType::RubyText => (Role::RubyAnnotation, None),
@@ -201,7 +263,82 @@ pub fn map(role: &str, speaking: bool, scope: Option<HeaderScope>) -> Mapping {
         level,
         unmapped: None,
         speaks,
-        note: header_note(&standard, scope),
+        note: header_note(&standard, scope).or_else(|| form_note(&standard, control)),
+        toggled: form_toggled(&standard, control),
+    }
+}
+
+/// Which of the platform's controls §14.8.4.7.2's `Form` becomes.
+///
+/// The table in this module's documentation, in code. Two of the arms are decisions rather than
+/// lookups and both are argued there: password before multiline, and a signature field keeping
+/// [`Role::Group`].
+fn form_role(control: Option<&Control>) -> Role {
+    match control {
+        // A `Form` this program could not follow to a widget, and §12.7.5.5's signature, which
+        // neither vocabulary has a word for. `form_note` says which of the three happened.
+        None | Some(Control::Signature | Control::Unstated) => Role::Group,
+        Some(Control::PushButton) => Role::Button,
+        Some(Control::CheckBox { .. }) => Role::CheckBox,
+        Some(Control::RadioButton { .. }) => Role::RadioButton,
+        Some(Control::Text(text)) => {
+            if text.password {
+                Role::PasswordInput
+            } else if text.multiline {
+                Role::MultilineTextInput
+            } else {
+                Role::TextInput
+            }
+        }
+        // Table 233 bit 18 decides list against combo and bit 19 whether the combo may be typed
+        // into. The table restricts the second to the first — "[t]his flag shall be used only if
+        // the Combo flag is set" — and `pdf_model::form` carries a file that breaks that rule
+        // rather than correcting it, so the list box arm ignores it here too.
+        Some(Control::Choice(choice)) => match (choice.combo, choice.editable) {
+            (true, true) => Role::EditableComboBox,
+            (true, false) => Role::ComboBox,
+            (false, _) => Role::ListBox,
+        },
+    }
+}
+
+/// Whether §12.7.5.2's toggling button is on, for the two field types that have a state.
+fn form_toggled(standard: &StandardType, control: Option<&Control>) -> Option<bool> {
+    if *standard != StandardType::Form {
+        return None;
+    }
+    match control {
+        Some(Control::CheckBox { on } | Control::RadioButton { on, .. }) => Some(*on),
+        _ => None,
+    }
+}
+
+/// What a `Form` element's node says where the platform has no control to give it.
+fn form_note(standard: &StandardType, control: Option<&Control>) -> Option<&'static str> {
+    if *standard != StandardType::Form {
+        return None;
+    }
+    match control {
+        None => Some(
+            "this document marks a Form structure element (ISO 32000-2 §14.8.4.7.2), which is one \
+             widget annotation, but names no widget of a form field on this page, so which \
+             control it is is not known",
+        ),
+        Some(Control::Signature) => Some(
+            "this is a signature field (ISO 32000-2 §12.7.5.5); this platform has a role for no \
+             such control, so it is given as a group",
+        ),
+        Some(Control::Unstated) => Some(
+            "this form field states no field type (ISO 32000-2 Table 226 makes FT required for a \
+             terminal field), so which control it is is not known",
+        ),
+        Some(
+            Control::PushButton
+            | Control::CheckBox { .. }
+            | Control::RadioButton { .. }
+            | Control::Text(_)
+            | Control::Choice(_),
+        ) => None,
     }
 }
 
@@ -249,6 +386,7 @@ fn filtered_out(role: Role) -> bool {
 mod tests {
     use super::{Mapping, map};
     use accesskit::Role;
+    use pdf_model::form::Control;
     use pdf_model::structure::StandardType;
 
     /// Every one of §14.8.4's forty-one types maps, and none of them lands on `Unknown`.
@@ -307,7 +445,7 @@ mod tests {
                 StandardType::read(name).is_some(),
                 "{name} is one of §14.8.4's own names"
             );
-            let mapping = map(name, false, None);
+            let mapping = map(name, false, None, None);
             assert_eq!(mapping.unmapped, None, "{name} is standard");
             assert_ne!(
                 mapping.role,
@@ -320,13 +458,13 @@ mod tests {
     /// §14.8.4.5's `Hn` carries its level, and `H` deliberately does not.
     #[test]
     fn a_numbered_heading_carries_its_level_and_an_unnumbered_one_does_not() {
-        assert_eq!(map("H1", true, None).level, Some(1));
-        assert_eq!(map("H6", true, None).level, Some(6));
+        assert_eq!(map("H1", true, None, None).level, Some(1));
+        assert_eq!(map("H6", true, None, None).level, Some(6));
         // "with n being a sequence of digits representing an unsigned integer greater than or
         // equal to 1" — so a level nobody enumerated is still a level.
-        assert_eq!(map("H17", true, None).level, Some(17));
-        assert_eq!(map("H", true, None).role, Role::Heading);
-        assert_eq!(map("H", true, None).level, None);
+        assert_eq!(map("H17", true, None, None).level, Some(17));
+        assert_eq!(map("H", true, None, None).role, Role::Heading);
+        assert_eq!(map("H", true, None, None).level, None);
     }
 
     /// A role the platform filters out never carries the element's text away with it.
@@ -334,22 +472,51 @@ mod tests {
     fn a_filtered_role_never_carries_text() {
         // `NonStruct` is the type whose clause asks to be ignored, and the mapping obeys that
         // where there is nothing to lose.
-        assert_eq!(map("NonStruct", false, None).role, Role::GenericContainer);
-        assert_eq!(map("LBody", false, None).role, Role::GenericContainer);
+        assert_eq!(
+            map("NonStruct", false, None, None).role,
+            Role::GenericContainer
+        );
+        assert_eq!(map("LBody", false, None, None).role, Role::GenericContainer);
         // And keeps the node where there is.
-        assert_eq!(map("NonStruct", true, None).role, Role::Label);
-        assert_eq!(map("LBody", true, None).role, Role::Label);
+        assert_eq!(map("NonStruct", true, None, None).role, Role::Label);
+        assert_eq!(map("LBody", true, None, None).role, Role::Label);
     }
 
     /// §14.8.2.2's artifact keeps its filtered role and is never spoken.
     #[test]
     fn an_artifact_is_not_spoken_even_when_it_has_text() {
-        let Mapping { role, speaks, .. } = map("Artifact", true, None);
+        let Mapping { role, speaks, .. } = map("Artifact", true, None, None);
         assert_eq!(role, Role::GenericContainer);
         assert!(
             !speaks,
             "§14.8.2.2 makes an artifact content that is not the document's"
         );
+    }
+
+    /// The control is read for `Form` and for no other type.
+    ///
+    /// §14.8.4.7.2 makes `Form` the type a widget annotation belongs to, and Table 368 forbids the
+    /// neighbouring `Annot` the same job: "Annot shall not be used for link annotations … or
+    /// widget annotations (see the Form structure element)". A file that puts an object reference
+    /// on some other element has said something the standard does not describe, and the mapping
+    /// does not act on it.
+    #[test]
+    fn a_control_changes_a_form_and_nothing_else() {
+        let control = Control::CheckBox { on: true };
+        assert_eq!(
+            map("Form", false, None, Some(&control)).role,
+            Role::CheckBox
+        );
+        assert_eq!(map("Form", false, None, Some(&control)).toggled, Some(true));
+        for name in ["Annot", "P", "Figure", "Link"] {
+            let with = map(name, false, None, Some(&control));
+            assert_eq!(
+                with.role,
+                map(name, false, None, None).role,
+                "{name} is not §14.8.4.7.2's widget type"
+            );
+            assert_eq!(with.toggled, None, "{name}");
+        }
     }
 
     /// A type §14.8.4 does not define is named rather than defaulted.
@@ -358,7 +525,7 @@ mod tests {
     /// arriving here is §14.8.4.1's requirement unmet by the document.
     #[test]
     fn a_type_outside_the_standard_set_is_carried_rather_than_dropped() {
-        let mapping = map("Advertising", true, None);
+        let mapping = map("Advertising", true, None, None);
         assert_eq!(mapping.role, Role::Group);
         assert_eq!(mapping.unmapped.as_deref(), Some("Advertising"));
     }

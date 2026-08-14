@@ -2702,6 +2702,167 @@ fn a_header_cell_crosses_with_the_axis_it_describes() {
     );
 }
 
+/// A tagged page whose structure reaches three annotations through §14.7.5.3's object references.
+///
+/// Two of them are widget annotations wrapped in §14.8.4.7.2's `Form` — a check box that is on and
+/// a multi-line text field — and the third is a text annotation wrapped in an `Annot`. None of the
+/// three marks any text, which is the whole point: before §12.5.2's rectangle was read, all three
+/// crossed with no place at all, and the two `Form`s crossed as generic groups.
+///
+/// The page states a §14.7.5.4 parent tree keyed for all four elements, so the walk takes the
+/// route ADR 0325 built rather than the fallback.
+fn with_a_form() -> Vec<u8> {
+    use std::fmt::Write as _;
+    let content = "BT /F1 12 Tf 10 10 Td /P <</MCID 0>> BDC (a caption) Tj EMC ET\n";
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 6 0 R \
+          /MarkInfo << /Marked true >> /AcroForm << /Fields [12 0 R 13 0 R] >> >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Contents 4 0 R \
+          /Resources << /Font << /F1 5 0 R >> >> /StructParents 0 \
+          /Annots [12 0 R 13 0 R 14 0 R] >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{content}endstream\nendobj\n\
+         5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n\
+         6 0 obj\n<< /Type /StructTreeRoot /K [7 0 R 8 0 R 9 0 R 10 0 R] /ParentTree 11 0 R >>\
+         \nendobj\n\
+         7 0 obj\n<< /Type /StructElem /S /Form /P 6 0 R /Pg 3 0 R \
+          /K [<< /Type /OBJR /Obj 12 0 R >>] /Alt (agree to the terms) >>\nendobj\n\
+         8 0 obj\n<< /Type /StructElem /S /Form /P 6 0 R /Pg 3 0 R \
+          /K [<< /Type /OBJR /Obj 13 0 R >>] /Alt (your surname) >>\nendobj\n\
+         9 0 obj\n<< /Type /StructElem /S /Annot /P 6 0 R /Pg 3 0 R \
+          /K [<< /Type /OBJR /Obj 14 0 R >>] /Alt (a note in the margin) >>\nendobj\n\
+         10 0 obj\n<< /Type /StructElem /S /P /P 6 0 R /Pg 3 0 R /K [0] >>\nendobj\n\
+         11 0 obj\n<< /Nums [0 [10 0 R] 1 7 0 R 2 8 0 R 3 9 0 R] >>\nendobj\n\
+         12 0 obj\n<< /Type /Annot /Subtype /Widget /F 4 /FT /Btn /T (agree) /V /Yes \
+          /Rect [10 60 30 80] /StructParent 1 \
+          /AP << /N << /Yes 15 0 R /Off 15 0 R >> >> >>\nendobj\n\
+         13 0 obj\n<< /Type /Annot /Subtype /Widget /F 4 /FT /Tx /T (surname) /Ff 4096 \
+          /V (Ada) /DA (/F1 0 Tf 0 g) /Rect [40 20 160 40] /StructParent 2 >>\nendobj\n\
+         14 0 obj\n<< /Type /Annot /Subtype /Text /F 4 /Name /Note /Contents (a note) \
+          /Rect [170 70 190 90] /StructParent 3 >>\nendobj\n\
+         15 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 20 20] /Length 0 >>\
+         \nstream\n\nendstream\nendobj\n",
+        content.len(),
+    );
+
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// An element whose content item is §14.7.5.3's object reference is placed by §12.5.2's rectangle,
+/// and a `Form` says which of §12.7.5's controls it is.
+///
+/// §14.7.5.3 makes an object reference the form a content item takes
+///
+/// > When a structure element's content consists of an entire PDF object, such as an XObject
+/// > directly or indirectly referenced by a page description or an annotation
+///
+/// and for the annotation half of that sentence Table 166 states where the object is —
+/// "defining the location of the annotation on the page in default user space units" — so an
+/// element that marks no text and states no Table 379 `/BBox` still has a place. 333 of the 1675
+/// corpus elements in that position are placed this way (`pdf-model --example
+/// element_bounds_census`).
+///
+/// The control is §14.8.4.7.2's, whose Table 368 makes `Form` "[e]ither an association between
+/// content enclosed by the Form structure element and a corresponding widget annotation or a
+/// mechanism to include a widget annotation in the structure tree" — one widget, and therefore one
+/// control rather than a group.
+///
+/// **The expected rectangles are written out from the clause's own space**, which is trap 12a's
+/// rule: `/Rect` is in default user space with y pointing up from the bottom of a 100-unit page,
+/// and the viewport's origin and scale come from [`Query::PageGeometry`].
+#[test]
+fn an_element_reached_through_an_object_reference_is_placed_and_says_what_control_it_is() {
+    use pdf_model::form::Control;
+
+    let mut viewer = Viewer::new(400, 300, 1.0);
+    let events: Vec<Event> = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: with_a_form(),
+            password: None,
+            fragment: None,
+        })
+        .collect();
+    let first = request(&events).clone();
+    serve(&mut viewer, &first);
+
+    let Answer::Geometry(geometry) = viewer.query(Query::PageGeometry(0)) else {
+        panic!("a page has a geometry");
+    };
+    let Answer::Accessibility(nodes) = viewer.query(Query::AccessibilityTree) else {
+        panic!("the query always answers");
+    };
+    let node = |name: &str| {
+        nodes
+            .iter()
+            .find(|node| node.name == name)
+            .unwrap_or_else(|| panic!("{name} is on the page: {nodes:?}"))
+            .clone()
+    };
+    // A rectangle stated in default user space, on the screen: y up becomes y down about the
+    // page's own height.
+    let placed = |rect: [f32; 4]| {
+        Some([
+            geometry.origin.0 + rect[0] * geometry.scale,
+            geometry.origin.1 + (100.0 - rect[3]) * geometry.scale,
+            geometry.origin.0 + rect[2] * geometry.scale,
+            geometry.origin.1 + (100.0 - rect[1]) * geometry.scale,
+        ])
+    };
+
+    let check_box = node("agree to the terms");
+    assert!(
+        check_box.quads.is_empty(),
+        "a widget annotation marks no text: {check_box:?}"
+    );
+    assert_eq!(check_box.bounds, placed([10.0, 60.0, 30.0, 80.0]));
+    assert_eq!(
+        check_box.control,
+        Some(Control::CheckBox { on: true }),
+        "§12.7.5.2.3's field toggles between two states and Table 226's /V says which"
+    );
+
+    let text = node("your surname");
+    assert_eq!(text.bounds, placed([40.0, 20.0, 160.0, 40.0]));
+    let Some(Control::Text(control)) = text.control else {
+        panic!("§12.7.5.3's text field: {text:?}");
+    };
+    assert!(
+        control.multiline,
+        "Table 231 bit 13 is set, so the field 'may contain multiple lines of text'"
+    );
+    assert!(!control.password);
+
+    // §14.7.5.3's other annotation: placed the same way, and no control, because it is not a
+    // widget and §12.7 has nothing to say about it.
+    let margin = node("a note in the margin");
+    assert_eq!(margin.bounds, placed([170.0, 70.0, 190.0, 90.0]));
+    assert_eq!(margin.control, None);
+
+    // And the paragraph, which the text layer places and no annotation describes.
+    let caption = node("a caption");
+    assert!(!caption.quads.is_empty());
+    assert_eq!(caption.bounds, None);
+    assert_eq!(caption.control, None);
+}
+
 /// §14.8.4.8.3's search gives each cell the header cells that describe it.
 ///
 /// > To find headers for any data or header cell, begin from the current cell position and use
