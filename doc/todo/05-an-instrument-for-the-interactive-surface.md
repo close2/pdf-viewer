@@ -1,8 +1,9 @@
 # An instrument for the interactive surface
 
-Status: **instrument 1 built (ADR 0333); instruments 2 and 3 remain** — ADR 0323 is the design,
-with the measured reference-vs-reference spread the tolerance rests on. One round per remaining
-instrument, in the order below.
+Status: **instruments 1 and 2 built (ADRs 0333, 0334); the ratchet remains** — ADR 0323 is the
+design, with the measured reference-vs-reference spread the tolerance rests on. Each built
+instrument's first-run numbers are in its session's history file, not here. One round for the
+remaining instrument, below.
 Priority: 05 — standing band, because it is an instrument like 00 and 01 rather than a feature
 Corpus: the denominator is stated per instrument in ADR 0323, with every refusal printed by reason
 Clauses: §9.10 (extraction), §12.7 (forms), §7.5.6 (the incremental update a save appends),
@@ -53,12 +54,21 @@ text-domain entry.
    itself. **What remains of this item**: the ratchet, once held; and the two self-inverse
    properties ADR 0323 puts beside the drag half (`Query::Offset` of `Query::Caret`'s point,
    `Selection::All` byte-for-byte against `Interpretation::text`), which no round has written.
-2. **The save round-trip.** One synthetic `Edit::FreeText` per document plus `Edit::SetField`
-   wherever a text field exists; the three exact assertions corpus-wide; refusals counted,
-   printed, and ratcheted — under the default `Restrict(On)` a policy refusal is the policy
-   working and must stay legible. The oracle-over-saved-files sample last, priced when built;
-   encrypted documents are outside the cached-render half only (§7.6.3.2's fresh IV makes their
-   saves non-deterministic, ADR 0129).
+2. **The save round-trip — built (ADR 0334).** One synthetic `Edit::FreeText` per document
+   plus `Edit::SetField` wherever a text field exists; the three exact assertions corpus-wide
+   in `crates/pdf-model/tests/save_round_trip.rs`, with poppler asked through poppler-glib
+   (no poppler CLI prints an annotation or a field value) and mupdf through its raw object
+   layer; refusals counted and printed by reason — under the default `Restrict(On)` a policy
+   refusal is the policy working and stays its own census, with `Restrict(Off)` run over
+   exactly the differing population. A reference that cannot read the *original* is excluded
+   by reason rather than counted as a disagreement. Nothing is cached (the saved file's hash
+   is new whenever the writer changes, so `pdfref`'s key never amortises) and nothing needed
+   sampling — the questions are object reads, not renders. **Still owed from this item:**
+   ratcheting the census counts once they have held across rounds, a §2 line by the standing
+   rule below, and the oracle-over-saved-files sample, which stays unbuilt at the price ADR
+   0334 states (about two minutes of reference CPU per writer-change, unamortisable by
+   construction; encrypted documents outside that half only, ADR 0129).
+
 3. **The accessibility ratchet.** Counts in `tools/state.sh`, the first being *pages that
    answer at all* — the count that makes `doc/todo/31`'s 8192-element truncation
    corpus-visible — then structure/`/Alt`/headers/untagged-honesty, ratcheted in both
