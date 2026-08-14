@@ -559,10 +559,22 @@ evidence. Four ways for that to fail.
   with each other to under a level, because they run the same ICC profile. What settled it was
   *this tree's own* A2B evaluator pointed at `default_cmyk.icc`. **When two references agree
   suspiciously closely, ask what data they are both reading, and evaluate it yourself.** ADR 0048.
-- **Shared code, wider than `jbig2dec`.** One `ldd`: `pdftoppm`, `mutool` and `gs` all link the
-  same `libfreetype.so.6`, while we use `skrifa` and `tiny-skia`. On a page whose difference is a
-  letter's edges the three references are one rasteriser. Recorded on `Reference::independence`
-  and acted on nowhere — marking all three `Shared` for text would leave nothing to vote.
+- **Shared code, wider than `jbig2dec` — and wider than this entry said.** `objdump -p | grep
+  NEEDED`, which is what a binary asks for rather than `ldd`'s transitive closure: all three link
+  the same `libjpeg.so.8` and the same `libopenjp2.so.7`, so **on a JPEG or JPEG 2000 page the
+  three voting references are one decoder**; `poppler` and `gs` share `liblcms2`; `mupdf` and `gs`
+  share `jbig2dec`; `poppler` and `mupdf` share `libfreetype.so.6` and **`gs` does not** — it
+  carries its own statically linked copy, 194 `FT_*` symbols defined and none undefined, and the
+  `ldd` that founded this entry was reaching FreeType through `libfontconfig`. Same family, not
+  the same object. Recorded on `Reference::independence` and acted on nowhere — marking all three
+  `Shared` for text would leave nothing to vote.
+- **And the ambiguous bucket measures the font half of it.** Over all 786 ambiguous pages, the
+  closest of the ten renderer pairs is `ours + hayro` on 651, and on 612 of the 670 text ones;
+  median ours-to-`hayro` 1.94 of 255 against 5.39 for the closest two that vote. `hayro` is a
+  separate interpreter that shares `skrifa` with us and is the one reference that may not vote.
+  **An `ambiguous` text page is usually two camps, and the voting camp is the one that cannot
+  agree with itself.** That is not evidence we are right — agreement with `hayro` never is — it
+  is what the verdict is made of.
 - **Two answers to two different questions.** `mupdf` constructs no link appearance while
   `ghostscript` renders for paper. Their agreement is a coincidence of two unrelated reasons.
 - **And a fifth, found in the hundred-and-seventy-sixth: two references sharing a decoder can

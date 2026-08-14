@@ -2316,9 +2316,17 @@ const AMBIGUOUS_SHARED_JBIG2_DECODER: [&str; 19] = [
 /// ours vs poppler      0.0399     ghostscript vs poppler    0.0682
 /// ```
 ///
-/// Three of our four distances are below every distance between two references. A diagnosis that
-/// removes a candidate is worth what one that finds a defect is, and unlike reading the picture
-/// it is checkable. ADR 0161.
+/// **Two** of our four distances are below every distance between two references, and a third is
+/// below all but one — this paragraph said three, which its own table refutes, and the
+/// five-hundred-and-eighteenth session corrected it by re-measuring: `ours vs ghostscript` at
+/// 0.0353 is above `mupdf vs poppler`'s 0.0267. A diagnosis that removes a candidate is worth
+/// what one that finds a defect is, and unlike reading the picture it is checkable. ADR 0161.
+///
+/// **And it is the head of `rank_the_manufactured_ambiguity`**, at 35.12 bounds between the
+/// closest two references against our own 5.03 from the nearest — the largest consensus failure
+/// in the bucket. That is the same reading from the other side: no pair of them is anywhere near
+/// agreeing, so the verdict carries no information about us and the pairwise table above is the
+/// whole of what can be said.
 /// **`issue7200.pdf` page 1 is the eighth, and it is the family's cleanest result.** Added in the
 /// two-hundred-and-third session at 3.81 bounds, from the top of the ranking. One command:
 /// `pdfimages` says a **501×583 four-bit indexed image at 80 ppi** — a whole page of Lorem ipsum
@@ -3351,10 +3359,41 @@ const AMBIGUOUS_SUB_PIXEL_LINE_WORK: [&str; 10] = [
 /// Two routes, neither required, and this tree takes the second: `substitute.rs` ranks the
 /// name, §9.8.3.2's PANOSE and Table 121's flags (ADR 0086), against whatever faces the machine
 /// has — deliberately, because ADR 0133 compiled in §9.6.2.2's fourteen and drew the boundary
-/// there. **We do not take the first route at all**, and these two pages are what that costs:
-/// a substitute's glyphs are narrower than the widths the document states, so the difference
-/// appears as letter spacing. On `bug1671312_ArialNarrow.pdf` we are the only renderer that
-/// finds a *narrow* face at all, and the four that do not draw a better-fitting line.
+/// there. **We do not take the first route at all**, and these two pages are what that costs.
+///
+/// # And this note had the direction backwards on `bug1671312_ArialNarrow.pdf`
+///
+/// It said "we are the only renderer that finds a *narrow* face at all, and the four that do
+/// not draw a better-fitting line", which cannot both be true of one page and is not: **ours is
+/// the wide one.** Corrected in the five-hundred-and-eighteenth session, by four measurements
+/// that agree and by the picture, which says it in one look — our letters *collide* where the
+/// other four have clean gaps between them.
+///
+/// The file is 1913 bytes and states a whole Table 120 descriptor for a non-embedded
+/// `/ArialNarrow`: `/StemV 66`, `/StemH 66`, `/AvgWidth 362`, `/MaxWidth 833`,
+/// `/FontBBox [-250 -210 1000 1054]`, `/Flags 32`, and 224 `/Widths`.
+///
+/// - **The advances and the extent are ours already.** The ink's bounding box is x[10, 149]
+///   y[15, 34] in ours against x[10, 147] y[15, 34] in `poppler`'s and `mupdf`'s — 1.4% wider
+///   over a 138-pixel line and the same rows — so §9.2.4's advances and the cap height are
+///   honoured and are not what differs.
+/// - **Inside that same box we mark 983 pixels against `poppler`'s 844, `mupdf`'s 825,
+///   `hayro`'s 812 and `ghostscript`'s 702.** Ink over the page: ours 18.45, `poppler` 15.52,
+///   `mupdf` 15.32, `hayro` 14.97, `ghostscript` 12.71 — ours 19% to 45% heavier than four
+///   renderers that sit within 2.9 of each other.
+/// - **At 576 dpi the modal dark run across the x-height band is 14 device pixels in ours and
+///   12 in `poppler`'s**, against the `/StemV 66` the file states, which at 20 pt and eight
+///   times is **10.56**. Both substitutes are heavier than the descriptor asks for and ours is
+///   three times as far over it.
+/// - **`hayro` is with the other three**, 10.41 from us, which is the whole argument: it shares
+///   `skrifa` with this tree and nothing else, so the choice of face is not a rasteriser
+///   question. Four renderers find a condensed face and we do not.
+///
+/// So a substitute's glyphs can be *wider* than the widths the document states as easily as
+/// narrower, and then the difference appears as collision rather than as letter spacing. §9.8.1
+/// still states no `shall` and the page is still `ambiguous` for that reason — but the document
+/// is the witness `doc/todo/21` item 4 says would open the question, and it is now recorded
+/// there.
 ///
 /// The measurement says the references are no closer to each other than to us. Mean absolute
 /// difference on `non-embedded-NuptialScript.pdf`:
@@ -3542,6 +3581,29 @@ const AMBIGUOUS_SUBSTITUTED_FACE: [&str; 9] = [
 /// levels over a large share of each plate's samples, and whether it is a second defect or the
 /// last place of two `f32` pipelines is not established. `jpeg2000.rs`'s own list is where that
 /// question is written down, and it fails first if either end of it moves. ADR 0161, ADR 0190.
+///
+/// # And `issue5475.pdf` is second on `rank_the_manufactured_ambiguity`, which adds a reading
+///
+/// **31.63 bounds between the closest two references, and 0.00 between us and the nearest** —
+/// the largest consensus failure in the bucket on a page where our own distance is zero. Mean
+/// absolute difference over the 512 × 512 raster says what that is made of:
+///
+/// ```text
+/// ours vs mupdf   0.0002      poppler vs mupdf        9.0293
+/// ours vs hayro   0.3506      ghostscript vs mupdf   14.5610
+/// ours vs poppler 9.0294      ghostscript vs poppler 19.0794
+/// ```
+///
+/// Ours and `mupdf` are **two ten-thousandths of a level apart over 262 144 pixels** and the
+/// three voting references span 9 to 19 among themselves.
+///
+/// **All three of them link the same `libopenjp2.so.7`** — `objdump -p`, the
+/// five-hundred-and-eighteenth session, `Reference::independence` — so this is not three
+/// decoders disagreeing. It is one decoder and three *callers* of it, differing in what they ask
+/// for and what they do with the samples afterwards, and the result is that no consensus can
+/// form at all. Trap 9's fifth shape without the shared code even having failed: shared code
+/// manufactures the absence of a consensus here, and the thing that settles the page is
+/// `tests/jpeg2000.rs`, which asks ISO/IEC 15444-5's own software and no renderer.
 const AMBIGUOUS_IRREVERSIBLE_JPEG_2000: [&str; 2] = ["S2.pdf page 1", "issue5475.pdf page 1"];
 
 /// Ambiguous, and the file has broken the one rule Table 73 states about `scn`.
@@ -4041,48 +4103,6 @@ const AMBIGUOUS_MARKUP_ARTWORK: [&str; 1] = ["bug1538111.pdf page 1"];
 /// glyph with a folded corner, `poppler`'s a pinned note, `mupdf`'s a lined box.
 const AMBIGUOUS_ICON_ARTWORK: [&str; 1] = ["rc_annotation.pdf page 1"];
 
-/// Ambiguous, and it is the glyph-rasterisation floor with the geometry to settle it.
-///
-/// `copy_paste_ligatures.pdf` is 143×15 device pixels: one line of text with ligatures, and
-/// nothing else. It sat at 2.81 bounds from the nearest reference on a page where a single glyph
-/// is 2% of the ink.
-///
-/// Step 6's closed form says who is measuring the outlines. `poppler` at 72, 576 and 2304 dpi
-/// gives 40.81, 43.17, **43.26**, so the glyphs cover 43.3 of 255. At the page's own scale:
-///
-/// ```text
-/// ours 43.32   hayro 43.55   poppler 40.81   mupdf 40.88   ghostscript 61.38
-///              └ the limit is 43.26
-/// ```
-///
-/// **Ours is on the geometry to three figures.** `poppler` and `mupdf` are 5.7% under it at 72
-/// dpi and converge on it by 576 — which is hinting, a thing that exists to make small text
-/// legible and by construction moves ink; `ghostscript` is 42% over, which is §10.7.4 as written
-/// applied to stems a fraction of a pixel wide. The verdict is `ambiguous` because five
-/// renderers disagree by more than any bound can call, on a page of fifteen rows.
-/// # Two more, both of them one word on a page the size of a postage stamp
-///
-/// `endchar.pdf` is 40×50 device pixels and draws a single `É` from an embedded `/FontFile3`
-/// whose name is its own hypothesis — the CFF `endchar` operator's four-argument form, which
-/// composes an accented character out of two glyphs. **All five renderers compose it**, so the
-/// hypothesis is answered and what is left is one outline's edges. `poppler` at 2304 dpi gives
-/// 60.98 and at 72 gives 59.06; ours 59.39, `ghostscript` 59.66, `mupdf` 58.16, `hayro` 62.84 —
-/// five renderers spanning 4.7 levels about a limit of 61.0, on a page where one glyph is all
-/// the ink there is.
-///
-/// `issue16316.pdf` is 60×10 device pixels: the word *Experimentation* in an embedded
-/// `NimbusRomNo9L`. Its crop box is **59.813 × 9.375 points**, which has no whole-pixel answer
-/// at all, and the five renderers give it three different rasters — 60×10 (ours, `poppler`,
-/// `mupdf`), 60×9 (`ghostscript`) and 59×9 (`hayro`). `CLAUDE.md` names this among the places
-/// the standard defines nothing: "how a fractional page becomes a whole number of pixels" is a
-/// documented choice, and ours is `TargetSpec::for_page`'s rounding *up* so that the raster
-/// contains the page (ADR 0064).
-///
-/// Among the three that agree about the raster, step 6's closed form settles the rest:
-/// `poppler` at 576 and 2304 dpi gives 43.81 and 43.79, so the outlines cover **43.8**, and at
-/// the page's own scale ours is 42.02 against `mupdf`'s 41.09 and `poppler`'s 41.03. Ours is
-/// nearest the geometry and the two `libfreetype` references are 6% under it, which is hinting
-/// — the same result `copy_paste_ligatures.pdf` gives above, on a page of ten rows.
 /// Ambiguous, and the page has no fonts at all — the words are paths.
 ///
 /// `issue12213.pdf` is 449×72 and reads *blue [shield] of california*. `pdffonts` lists **no
@@ -5083,6 +5103,35 @@ const AMBIGUOUS_JPEG_COMPONENT_IDS: [&str; 1] = ["issue11931.pdf page 1"];
 /// other way.
 const AMBIGUOUS_RECOVERED_PAGE_TREE: [&str; 1] = ["issue21436.pdf page 1"];
 
+/// Ambiguous, and it is §11.4's group compositing with one renderer alone in it.
+///
+/// `transparency_group.pdf` page 1 came off §3a's ranking in the three-hundred-and-thirty-third
+/// session at 0.50 from the nearest reference and 3.76 from the furthest. **Three commands**: two
+/// overlapping ellipses filled with axial shadings inside a §11.4.7 transparency group, which is
+/// what the corpus put the file there to exercise.
+///
+/// ```text
+///                 72 dpi    576 dpi
+/// mupdf          30.2985   30.2768
+/// poppler        29.6131   29.5573
+/// ours (1x/8x)   29.5207   29.5512
+/// ```
+///
+/// Both ladders are flat from the start — a page of large smooth fills has no edges to converge
+/// — and they end **0.72 of 255 apart**, so there is no consensus to sit inside or outside.
+/// What decides the grouping is who is with whom: at the page's own scale ours is 29.5207,
+/// `hayro` 29.5058 and `poppler` 29.6131, while `mupdf` is 30.2985 and `ghostscript` 30.4637.
+/// **Three renderers within 0.09 and two others 0.9 above them**, and the four-panel strip shows
+/// where it lives: the region where the two ellipses overlap is visibly darker in `mupdf`'s.
+///
+/// So this is §11.4.7's page group and §11.6.6's blending space in one picture, and the clause is
+/// what says nobody can be checked against anybody: an isolated group's backdrop is "a
+/// transparent backdrop" and what a processor composites it onto afterwards is the *device's*
+/// space, which §10.3.1 puts beyond the standard. `doc/todo/23` holds the departures this tree
+/// reports by name; this page reports none, and the difference is a compositing space rather than
+/// a missing mark.
+const AMBIGUOUS_TRANSPARENCY_GROUP: [&str; 1] = ["transparency_group.pdf page 1"];
+
 /// Ambiguous, and it is a **blur test** where five renderers give five answers to one clause.
 ///
 /// `issue19634.pdf` is Skia's own `blurSmallRadii`: a 100 × 100 page drawing *guest* five times,
@@ -5114,35 +5163,6 @@ const AMBIGUOUS_RECOVERED_PAGE_TREE: [&str; 1] = ["issue21436.pdf page 1"];
 /// than the eight-bit quantisation of the mask at its brightest, which this image reaches at
 /// 110 of 255. The page stays `ambiguous` because two renderers are 2× and 6× away, which is a
 /// statement about them.
-/// Ambiguous, and it is §11.4's group compositing with one renderer alone in it.
-///
-/// `transparency_group.pdf` page 1 came off §3a's ranking in the three-hundred-and-thirty-third
-/// session at 0.50 from the nearest reference and 3.76 from the furthest. **Three commands**: two
-/// overlapping ellipses filled with axial shadings inside a §11.4.7 transparency group, which is
-/// what the corpus put the file there to exercise.
-///
-/// ```text
-///                 72 dpi    576 dpi
-/// mupdf          30.2985   30.2768
-/// poppler        29.6131   29.5573
-/// ours (1x/8x)   29.5207   29.5512
-/// ```
-///
-/// Both ladders are flat from the start — a page of large smooth fills has no edges to converge
-/// — and they end **0.72 of 255 apart**, so there is no consensus to sit inside or outside.
-/// What decides the grouping is who is with whom: at the page's own scale ours is 29.5207,
-/// `hayro` 29.5058 and `poppler` 29.6131, while `mupdf` is 30.2985 and `ghostscript` 30.4637.
-/// **Three renderers within 0.09 and two others 0.9 above them**, and the four-panel strip shows
-/// where it lives: the region where the two ellipses overlap is visibly darker in `mupdf`'s.
-///
-/// So this is §11.4.7's page group and §11.6.6's blending space in one picture, and the clause is
-/// what says nobody can be checked against anybody: an isolated group's backdrop is "a
-/// transparent backdrop" and what a processor composites it onto afterwards is the *device's*
-/// space, which §10.3.1 puts beyond the standard. `doc/todo/23` holds the departures this tree
-/// reports by name; this page reports none, and the difference is a compositing space rather than
-/// a missing mark.
-const AMBIGUOUS_TRANSPARENCY_GROUP: [&str; 1] = ["transparency_group.pdf page 1"];
-
 const AMBIGUOUS_MASKED_BLUR: [&str; 1] = ["issue19634.pdf page 1"];
 
 /// Ambiguous, and ours is on `poppler`'s limit while `mupdf` is 0.14 of 255 below both.
@@ -5602,40 +5622,6 @@ const AMBIGUOUS_INSIDE_A_ROUNDING_ERROR: [&str; 3] = [
     "issue15150.pdf page 1",
 ];
 
-/// Ambiguous, and step 6's two ladders bracket ours inside a fifth of a level.
-///
-/// Three pages the three-hundred-and-fifty-sixth session took off §3a's ranking. Each has two
-/// clusters at the page's own scale — which is the shape that looks like a defect — and on each
-/// the ladders say the clusters are one renderer's first rung rather than two readings of the
-/// file.
-///
-/// ```text
-///                                72 dpi     576 dpi
-/// images_1bit_grayscale  poppler 13.5551   13.3466
-///                        mupdf   13.5348   13.3913
-///                        ours    13.3326   13.3466
-///
-/// decodeACSuccessive     poppler  6.58517   6.42541
-///                        mupdf    6.46243   6.40702
-///                        ours     6.39351   6.40981
-///
-/// ccitt_EndOfBlock_false poppler 86.3513   85.7700
-///                        mupdf   85.4370   85.5363
-///                        ours    85.5844   85.6742
-/// ```
-///
-/// - **`images_1bit_grayscale.pdf`**: ours at eight times **equals `poppler`'s limit to six
-///   figures** — 13.3466 both — and at the page's own scale ours is byte-for-byte
-///   `ghostscript`'s (13.3550 each).
-/// - **`decodeACSuccessive.pdf`** is a progressive JPEG's AC successive approximation, and the
-///   three ladders end within **0.018 of 255** with ours between the other two. At 72 dpi ours and
-///   `hayro` are equal to five decimals.
-/// - **`ccitt_EndOfBlock_false.pdf`** is §7.4.6's `/EndOfBlock false`, and ours lands **between**
-///   the two limits — 0.096 under `poppler`'s and 0.138 over `mupdf`'s, which are 0.234 apart. At
-///   72 dpi ours is byte-for-byte `ghostscript`'s again (85.7282 each).
-///
-/// The panels are not all one size on two of the three — 595 × 842, 596 × 842 and 595 × 841 — so
-/// the numbers above are means, for `doc/todo/00`'s reason.
 /// Ambiguous, and it took a scope decision rather than a fix — §10.5's transfer function.
 ///
 /// `issue6931_reduced.pdf` page 1 says, in words, *The color should be red*, and it is the entry
@@ -5670,6 +5656,40 @@ const AMBIGUOUS_INSIDE_A_ROUNDING_ERROR: [&str; 3] = [
 /// 3.6, which is the ordinary difference between five CMYK-to-RGB conversions of one photograph.
 const AMBIGUOUS_TRANSFER_FUNCTION_UNAPPLIED: [&str; 1] = ["issue6931_reduced.pdf page 1"];
 
+/// Ambiguous, and step 6's two ladders bracket ours inside a fifth of a level.
+///
+/// Three pages the three-hundred-and-fifty-sixth session took off §3a's ranking. Each has two
+/// clusters at the page's own scale — which is the shape that looks like a defect — and on each
+/// the ladders say the clusters are one renderer's first rung rather than two readings of the
+/// file.
+///
+/// ```text
+///                                72 dpi     576 dpi
+/// images_1bit_grayscale  poppler 13.5551   13.3466
+///                        mupdf   13.5348   13.3913
+///                        ours    13.3326   13.3466
+///
+/// decodeACSuccessive     poppler  6.58517   6.42541
+///                        mupdf    6.46243   6.40702
+///                        ours     6.39351   6.40981
+///
+/// ccitt_EndOfBlock_false poppler 86.3513   85.7700
+///                        mupdf   85.4370   85.5363
+///                        ours    85.5844   85.6742
+/// ```
+///
+/// - **`images_1bit_grayscale.pdf`**: ours at eight times **equals `poppler`'s limit to six
+///   figures** — 13.3466 both — and at the page's own scale ours is byte-for-byte
+///   `ghostscript`'s (13.3550 each).
+/// - **`decodeACSuccessive.pdf`** is a progressive JPEG's AC successive approximation, and the
+///   three ladders end within **0.018 of 255** with ours between the other two. At 72 dpi ours and
+///   `hayro` are equal to five decimals.
+/// - **`ccitt_EndOfBlock_false.pdf`** is §7.4.6's `/EndOfBlock false`, and ours lands **between**
+///   the two limits — 0.096 under `poppler`'s and 0.138 over `mupdf`'s, which are 0.234 apart. At
+///   72 dpi ours is byte-for-byte `ghostscript`'s again (85.7282 each).
+///
+/// The panels are not all one size on two of the three — 595 × 842, 596 × 842 and 595 × 841 — so
+/// the numbers above are means, for `doc/todo/00`'s reason.
 const AMBIGUOUS_OURS_ON_THE_LIMIT: [&str; 3] = [
     "images_1bit_grayscale.pdf page 1",
     "decodeACSuccessive.pdf page 1",
@@ -6322,6 +6342,119 @@ const AMBIGUOUS_GRADIENT_ON_A_TIGHT_BOUND: [&str; 2] =
 const AMBIGUOUS_GRADIENT_QUANTISATION: [&str; 2] =
     ["bug852992_reduced.pdf page 1", "issue7821.pdf page 1"];
 
+/// Ambiguous, and it is the glyph-rasterisation floor with the geometry to settle it.
+///
+/// `copy_paste_ligatures.pdf` is 143×15 device pixels: one line of text with ligatures, and
+/// nothing else. It sat at 2.81 bounds from the nearest reference on a page where a single glyph
+/// is 2% of the ink.
+///
+/// Step 6's closed form says who is measuring the outlines. `poppler` at 72, 576 and 2304 dpi
+/// gives 40.81, 43.17, **43.26**, so the glyphs cover 43.3 of 255. At the page's own scale:
+///
+/// ```text
+/// ours 43.32   hayro 43.55   poppler 40.81   mupdf 40.88   ghostscript 61.38
+///              └ the limit is 43.26
+/// ```
+///
+/// **Ours is on the geometry to three figures.** `poppler` and `mupdf` are 5.7% under it at 72
+/// dpi and converge on it by 576 — which is hinting, a thing that exists to make small text
+/// legible and by construction moves ink; `ghostscript` is 42% over, which is §10.7.4 as written
+/// applied to stems a fraction of a pixel wide. The verdict is `ambiguous` because five
+/// renderers disagree by more than any bound can call, on a page of fifteen rows.
+/// # Two more, both of them one word on a page the size of a postage stamp
+///
+/// `endchar.pdf` is 40×50 device pixels and draws a single `É` from an embedded `/FontFile3`
+/// whose name is its own hypothesis — the CFF `endchar` operator's four-argument form, which
+/// composes an accented character out of two glyphs. **All five renderers compose it**, so the
+/// hypothesis is answered and what is left is one outline's edges. `poppler` at 2304 dpi gives
+/// 60.98 and at 72 gives 59.06; ours 59.39, `ghostscript` 59.66, `mupdf` 58.16, `hayro` 62.84 —
+/// five renderers spanning 4.7 levels about a limit of 61.0, on a page where one glyph is all
+/// the ink there is.
+///
+/// `issue16316.pdf` is 60×10 device pixels: the word *Experimentation* in an embedded
+/// `NimbusRomNo9L`. Its crop box is **59.813 × 9.375 points**, which has no whole-pixel answer
+/// at all, and the five renderers give it three different rasters — 60×10 (ours, `poppler`,
+/// `mupdf`), 60×9 (`ghostscript`) and 59×9 (`hayro`). `CLAUDE.md` names this among the places
+/// the standard defines nothing: "how a fractional page becomes a whole number of pixels" is a
+/// documented choice, and ours is `TargetSpec::for_page`'s rounding *up* so that the raster
+/// contains the page (ADR 0064).
+///
+/// Among the three that agree about the raster, step 6's closed form settles the rest:
+/// `poppler` at 576 and 2304 dpi gives 43.81 and 43.79, so the outlines cover **43.8**, and at
+/// the page's own scale ours is 42.02 against `mupdf`'s 41.09 and `poppler`'s 41.03. Ours is
+/// nearest the geometry and the two `libfreetype` references are 6% under it, which is hinting
+/// — the same result `copy_paste_ligatures.pdf` gives above, on a page of ten rows.
+///
+/// # Everything above this line spent sessions attached to a different group
+///
+/// The paragraphs above are this group's diagnosis and they were **not above this group**: an
+/// edit that inserted a new `const` between a doc comment and the const it documented welded
+/// two notes into one and left this array bare. A reader of `AMBIGUOUS_OUTLINED_TEXT` got four
+/// pages' worth of argument for a group of one, and `AMBIGUOUS_GLYPH_COVERAGE` — three pages —
+/// said nothing at all. `doc/todo/00`'s "what a group must say" forbids a group that names no
+/// clause, and a group that says nothing whatever is the same failure with nothing left to
+/// correct.
+///
+/// **It had happened three times**, and the other two were `AMBIGUOUS_MASKED_BLUR` and
+/// `AMBIGUOUS_OURS_ON_THE_LIMIT`. All three are put back where they belong, and
+/// [`every_group_of_pages_carries_a_diagnosis_naming_one_of_them`] is what makes the next one
+/// fail the build instead of being found by eye.
+///
+/// # Re-measured, because a note nothing checks is a claim rather than a measurement
+///
+/// The three pages are the smallest rasters in the bucket: **143 × 14**, **15 × 34** and
+/// **60 × 9** device pixels. On a page nine rows tall a glyph's edge is not a detail of the
+/// page, it *is* the page — so a half-pixel of phase between two rasterisers moves a fifth of
+/// every pixel, and every whole-page measure reads it as a large difference.
+///
+/// Ink as `(1 − mean) × 255` over each renderer's own uncropped raster, at the page's own
+/// scale and at four and eight times it (`doc/todo/00` steps 5b and 6):
+///
+/// ```text
+/// copy_paste_ligatures.pdf   72 dpi   288 dpi   576 dpi
+///   ours (1x/4x/8x)          40.431    43.496    43.126
+///   poppler                  40.807    43.164    43.174
+///   mupdf                    40.879    43.190    43.191
+///   ghostscript              61.383    44.995    43.221
+///
+/// issue16316.pdf
+///   ours (1x/4x/8x)          42.023    43.467    43.532
+///   poppler                  41.030    43.138    43.813
+///   mupdf                    41.085    43.252    43.836
+///   ghostscript              45.882    43.467    43.970
+/// ```
+///
+/// **Two reference ladders converge to 0.017 of 255 of each other on the first page** and to
+/// 0.023 on the second, and ours ends 0.05 and 0.28 under them. On `issue16316.pdf` ours at
+/// 72 dpi is **1.51 under its own limit where `poppler` is 2.78 and `mupdf` 2.75 under
+/// theirs**, which is the nearest of the four.
+///
+/// **Our 40.43 here and the 43.32 four paragraphs up are the same render**, and the difference
+/// is `doc/todo/00` step 3's: that figure came off `<stem>-p1-ours.png`, which is our raster
+/// after `normalise::to_common_size` cropped its last row away, and dropping a blank row from a
+/// fifteen-row page raises the mean by a fifteenth. The ladder above is `examples/render_at`'s
+/// output, uncropped, which is the only place our own page size can be read.
+///
+/// So the *coverage* is agreed — the five renderers' inks sit within 0.6 of 255 on
+/// `copy_paste_ligatures.pdf` once `ghostscript` is set aside, and within 1.9 on `endchar.pdf`
+/// — and the group's name is a claim the measurement does not support. What differs is
+/// **where** the covered pixels are, which is §10.7.4's closing sentence:
+///
+/// > Scan conversion of character glyphs may be performed by a different algorithm from the
+/// > preceding one.
+///
+/// That is `AMBIGUOUS_GLYPH_SCAN_CONVERSION`'s clause. The group is kept separate rather than
+/// folded into it because its distinguishing property is a fact about the *raster* rather than
+/// about the glyphs: these are the pages where that clause's licence is worth the whole page,
+/// and they are the ones a ranking by our own distance keeps offering.
+///
+/// # And `ghostscript` on `copy_paste_ligatures.pdf` is a renderer rather than a page
+///
+/// Its 72 dpi ink is **61.38 against four renderers within 0.56 of each other** and its own
+/// 576 dpi value is 43.22, so it descends 18 levels onto the same geometry as everybody else:
+/// its excess at the page's own scale is scan conversion of an embedded `TimesNewRomanPSMT`
+/// subset and not a substituted face, which the four-panel strip invites and the ladder
+/// refuses. Nothing is reported and no warning is printed.
 const AMBIGUOUS_GLYPH_COVERAGE: [&str; 3] = [
     "copy_paste_ligatures.pdf page 1",
     "endchar.pdf page 1",
@@ -7485,6 +7618,119 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .collect()
 }
 
+/// Every group of pages in this file carries a diagnosis, and it is a diagnosis of *those*
+/// pages.
+///
+/// # The defect it exists for, which happened three times before anybody noticed
+///
+/// A group is an array of page names with the argument about them in the doc comment above it.
+/// Rust attaches a doc comment to whatever item follows it — so an edit that inserts a new
+/// `const` between an existing comment and the const it documented silently welds two notes
+/// together and leaves an array with none. It is invisible to `rustc`, to `clippy` and to every
+/// gate in this tree, because nothing here is wrong: the comment is well formed and the array
+/// compiles.
+///
+/// It had happened to [`AMBIGUOUS_GLYPH_COVERAGE`], [`AMBIGUOUS_MASKED_BLUR`] and
+/// [`AMBIGUOUS_OURS_ON_THE_LIMIT`] — seven pages between them, each with its argument written
+/// down and filed above a group it does not describe, and each group left silent. That is
+/// `doc/todo/00`'s "a diagnosis that outlives what it diagnosed is this project's oldest
+/// failure" in its other direction, and the handover's trap 1 one file over: **no gate can
+/// check a comment**, so the one check that can be mechanised is worth having.
+///
+/// # What it checks, and why that rule and not a stricter one
+///
+/// For every non-empty `AMBIGUOUS_*` and `CONTRADICTED_*` array: the doc comment above it names
+/// at least one of the documents in it. That is deliberately weak. A group of 370 pages cannot
+/// name them all, several notes cite a *neighbouring* group's page on purpose to say how the
+/// two differ, and a rule that forbade either would be a rule this file has to fight. What the
+/// weak rule catches is the whole of the failure above: a welded comment names none of the
+/// array under it, because it was written about the array above it.
+///
+/// An empty array is exempt and keeps its note — `AMBIGUOUS_SUBTRACTIVE_MASK_GROUP` is empty
+/// because its page left the bucket, and the argument for why is the reason to keep the entry.
+///
+/// # Why it reads the source text
+///
+/// A doc comment is not visible to the program it documents, so there is nothing else to read.
+/// `include_str!` of this file's own path is exact and costs nothing at run time; the parse is
+/// deliberately literal — a `const NAME: [&str; N] = [` line, the string literals under it, and
+/// the run of `///` lines immediately above.
+#[test]
+fn every_group_of_pages_carries_a_diagnosis_naming_one_of_them() {
+    let source = include_str!("oracle.rs");
+    let lines: Vec<&str> = source.lines().collect();
+    let mut silent: Vec<(&str, usize)> = Vec::new();
+    let mut groups = 0usize;
+
+    for (index, line) in lines.iter().enumerate() {
+        let Some(name) = group_name(line) else {
+            continue;
+        };
+        let members = group_members(&lines, index);
+        if members.is_empty() {
+            continue;
+        }
+        groups += 1;
+        let comment: String = lines[..index]
+            .iter()
+            .rev()
+            .take_while(|above| above.trim_start().starts_with("///"))
+            .copied()
+            .collect::<Vec<&str>>()
+            .join("\n");
+        if !members.iter().any(|document| comment.contains(document)) {
+            silent.push((name, index + 1));
+        }
+    }
+
+    assert!(
+        groups > 50,
+        "the parse found only {groups} groups, which is fewer than this file holds — \
+         the check is reading the source wrongly rather than the file being small"
+    );
+    assert!(
+        silent.is_empty(),
+        "these groups' doc comments name none of their own pages, which is what a comment \
+         welded onto the group above looks like — move the diagnosis back over the array it \
+         is about:\n{}",
+        silent
+            .iter()
+            .map(|(name, line)| format!("  {name} at line {line}"))
+            .collect::<Vec<String>>()
+            .join("\n")
+    );
+}
+
+/// The name of the group a line declares, or `None` where the line declares no group.
+fn group_name(line: &str) -> Option<&str> {
+    let rest = line.strip_prefix("const ")?;
+    let name = rest.split(':').next()?;
+    (name.starts_with("AMBIGUOUS_") || name.starts_with("CONTRADICTED_")).then_some(name)
+}
+
+/// The documents named in the array declared at `index`, without their page numbers.
+///
+/// Reads forward to the line ending the array rather than counting brackets, because every
+/// declaration in this file is either one line or a list of one string literal per line.
+fn group_members<'a>(lines: &[&'a str], index: usize) -> Vec<&'a str> {
+    let mut members = Vec::new();
+    for line in &lines[index..] {
+        for piece in line.split('"').skip(1).step_by(2) {
+            if let Some(document) = piece.split(" page ").next()
+                && Path::new(document)
+                    .extension()
+                    .is_some_and(|ext| ext == "pdf")
+            {
+                members.push(document);
+            }
+        }
+        if line.trim_end().ends_with("];") {
+            break;
+        }
+    }
+    members
+}
+
 /// The ambiguous pages nobody has diagnosed, one name per line.
 ///
 /// # Why this list exists at all
@@ -7618,12 +7864,40 @@ struct Examined {
     /// How far we sit from the nearest and furthest reference, in bounds. `None` where the
     /// comparison never happened.
     distance: Option<Distance>,
+    /// How far the *closest pair of references* sits outside the bound, in multiples of it.
+    ///
+    /// `ambiguous` is the verdict for a page on which no two voting references agreed, and
+    /// until the five-hundred-and-eighteenth session nothing said **by how much** they
+    /// missed. That number is the one trap 9's fifth shape moves: two references sharing a
+    /// decoder can manufacture the *absence* of a consensus, and where they do, this is
+    /// large. Below 1 on an ambiguous page is impossible by construction; a little above 1
+    /// is trap 12's arithmetic, and 20 is a renderer that failed.
+    ///
+    /// `None` where fewer than two references were compared with each other.
+    consensus_missed_by: Option<f64>,
     /// Processor time spent in our own pipeline, and in the three external renderers.
     ///
     /// Summed across the run and reported, because "where does this gate's time go" is
     /// otherwise answered by intuition — and the intuitive answer, that three subprocesses
     /// must dominate a Rust render, is wrong here by a factor this measures.
     spent: Spent,
+}
+
+impl Examined {
+    /// A page the gate reached no comparison on, so there is nothing to measure.
+    ///
+    /// The four early exits from [`examine`] differ only in their verdict, and writing the
+    /// two `None`s out four times is how a field added later gets missed at one of them.
+    fn unjudged(name: String, verdict: Verdict, complete: bool, spent: Spent) -> Self {
+        Self {
+            name,
+            verdict,
+            complete,
+            distance: None,
+            consensus_missed_by: None,
+            spent,
+        }
+    }
 }
 
 /// Wall-clock spent on one page, split by who spent it.
@@ -7869,13 +8143,7 @@ fn examine(work: &Work, work_root: &Path, available: &[Reference], cache: &Cache
         match rendered {
             Ok(rendered) => rendered,
             Err(detail) => {
-                return Examined {
-                    name,
-                    verdict: Verdict::NoRender(detail),
-                    complete: false,
-                    distance: None,
-                    spent,
-                };
+                return Examined::unjudged(name, Verdict::NoRender(detail), false, spent);
             }
         }
     };
@@ -7888,13 +8156,7 @@ fn examine(work: &Work, work_root: &Path, available: &[Reference], cache: &Cache
             Ok(references) => references,
             Err(detail) => {
                 let _ = std::fs::remove_dir_all(&work_dir);
-                return Examined {
-                    name,
-                    verdict: Verdict::NotComparable(detail),
-                    complete,
-                    distance: None,
-                    spent,
-                };
+                return Examined::unjudged(name, Verdict::NotComparable(detail), complete, spent);
             }
         }
     };
@@ -7902,13 +8164,7 @@ fn examine(work: &Work, work_root: &Path, available: &[Reference], cache: &Cache
     let outvoted = match reconcile(&mut ours, &mut references) {
         Ok(outvoted) => outvoted,
         Err(verdict) => {
-            return Examined {
-                name,
-                verdict,
-                complete,
-                distance: None,
-                spent,
-            };
+            return Examined::unjudged(name, verdict, complete, spent);
         }
     };
 
@@ -7925,18 +8181,14 @@ fn examine(work: &Work, work_root: &Path, available: &[Reference], cache: &Cache
         match pdfref::triangulate_with(&ours, &references, &tolerance, Judgement::CORPUS) {
             Ok(triangulation) => triangulation,
             Err(e) => {
-                return Examined {
-                    name,
-                    verdict: Verdict::NotComparable(format!("{e}")),
-                    complete,
-                    distance: None,
-                    spent,
-                };
+                let verdict = Verdict::NotComparable(format!("{e}"));
+                return Examined::unjudged(name, verdict, complete, spent);
             }
         };
 
     let verdict = verdict_of(&triangulation, outvoted.as_deref());
     let distance = Distance::of(&triangulation);
+    let consensus_missed_by = consensus_missed_by(&triangulation);
     if matches!(verdict, Verdict::Agrees) {
         // Nothing to look at, and three thousand agreeing pages of PNGs is a gigabyte.
         let _ = std::fs::remove_dir_all(&work_dir);
@@ -7965,8 +8217,24 @@ fn examine(work: &Work, work_root: &Path, available: &[Reference], cache: &Cache
         verdict,
         complete,
         distance,
+        consensus_missed_by,
         spent,
     }
+}
+
+/// How far the closest pair of references sits outside the bound, in multiples of it.
+///
+/// The minimum rather than a mean, because the question is whether *any* two of them came
+/// close to agreeing: a consensus needs one pair and no more. `None` where fewer than two
+/// references were compared with each other, which is a page the gate could not judge.
+fn consensus_missed_by(triangulation: &pdfref::Triangulation) -> Option<f64> {
+    triangulation
+        .between_references
+        .iter()
+        .map(|(_, _, comparison)| outside_by(comparison, &triangulation.judged_by))
+        .fold(None::<f64>, |best, missed| {
+            Some(best.map_or(missed, |b: f64| b.min(missed)))
+        })
 }
 
 /// Renders one page with every available reference.
@@ -8544,6 +8812,7 @@ fn report(results: &[Examined], elapsed: std::time::Duration, cache: &Cache) {
     summary("no render", &|e| matches!(e.verdict, Verdict::NoRender(_)));
 
     rank_the_undiagnosed(results);
+    rank_the_manufactured_ambiguity(results);
     rank_the_contradicted(results);
 }
 
@@ -8597,6 +8866,53 @@ fn rank_the_contradicted(results: &[Examined]) {
         println!(
             "    {:>6.2} nearest {:>7.2} furthest  {}",
             distance.nearest, distance.furthest, examined.name
+        );
+    }
+}
+
+/// The ten ambiguous pages on which the *references* missed each other by the most.
+///
+/// # The number nothing printed
+///
+/// Every other ranking in this file measures **us**. This one measures the verdict: an
+/// `ambiguous` page is one where no two voting references agreed, and
+/// [`Examined::consensus_missed_by`] says by how much the closest pair missed. It is the
+/// instrument trap 9's fifth shape asks for and did not have — *shared code does not only
+/// manufacture agreement; it can also manufacture the absence of one, and the second is
+/// invisible where the first is at least listed.*
+///
+/// Read it with [`rank_the_undiagnosed`], which is ordered by our own distance. The two
+/// disagree at the head on purpose, and the five-hundred-and-eighteenth session's reading of
+/// this one is in `doc/todo/00-ambiguous-bucket.md`:
+///
+/// - **Very large** is a renderer that failed. The bucket's head is
+///   `bitmap-refine-tpgron.pdf`, where `mupdf` renders the page black and `ghostscript`
+///   renders it white — 255.00 of 255 apart from each other, which is the whole range —
+///   because both are `jbig2dec` giving up on a refinement region in two different ways.
+///   `AMBIGUOUS_SHARED_JBIG2_DECODER` by name.
+/// - **Moderate with us outside it** is usually the closest pair agreeing through a *shared
+///   gap* rather than through a reading. On `bug766086.pdf` the closest pair is `mupdf` and
+///   `ghostscript`, and the thing they agree about is drawing no link border — for two
+///   unrelated reasons, which is trap 9's fourth shape. On `bug1743245.pdf` it is the same
+///   two, and what they share is ignoring §10.7.5's stroke-adjustment sentence.
+/// - **A little above 1** is trap 12's arithmetic: a pair that missed by a rounding step.
+///
+/// Nothing here is a ratchet and nothing here decides a verdict. It is a place to look.
+fn rank_the_manufactured_ambiguity(results: &[Examined]) {
+    let mut ranked: Vec<(&Examined, f64)> = results
+        .iter()
+        .filter(|e| e.complete && matches!(e.verdict, Verdict::Ambiguous(_)))
+        .filter_map(|e| e.consensus_missed_by.map(|missed| (e, missed)))
+        .collect();
+    ranked.sort_by(|(_, a), (_, b)| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
+    println!("\n  ambiguous, and the closest two references missed each other by the most:");
+    for (examined, missed) in ranked.iter().take(10) {
+        let ours = examined
+            .distance
+            .map_or_else(|| "  -  ".to_owned(), |d| format!("{:5.2}", d.nearest));
+        println!(
+            "    {missed:>7.2} between them, {ours} ours  {}",
+            examined.name
         );
     }
 }

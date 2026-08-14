@@ -44,6 +44,115 @@ session is that the tree is far enough along for this to be the work.
   the *worst* reference, and on nineteen JBIG2 pages that is a `mupdf` which drew a black
   rectangle. `Distance::nearest` is the number that accuses us; `Distance::furthest` beside it
   says whether the references are the ones disagreeing.
+- **A second ranking, of the verdict rather than of us**, since the five-hundred-and-eighteenth
+  session: `rank_the_manufactured_ambiguity`, the ten ambiguous pages on which the **closest two
+  voting references** sit furthest outside the bound. Every other instrument in this file
+  measures our page; this one measures how hard the consensus failed, and until it existed
+  nothing did — which is trap 9's fifth shape stated as an instrument rather than as a caution.
+  Below 1 is impossible here by construction; a little above 1 is trap 12's arithmetic; twenty is
+  a renderer that failed.
+
+## What the two rankings say when read together
+
+**Taken in the five-hundred-and-eighteenth session over all 786.** The gate's own ranking is in
+bounds (`outside_by` over all four measures); the by-hand sweep beside it is mean absolute
+difference over all ten renderer pairs plus each panel's ink, from artefacts already on disk with
+nothing rendered again. Two orderings, and the first is the new one:
+
+| ordering | what its head is |
+|---|---|
+| the closest **voting pair**, in bounds — what the gate prints | `jp2k-resetprob.pdf` **35.12** (ours 5.03), `issue5475.pdf` **31.63** (ours **0.00**), `bitmap-refine-tpgron.pdf` 28.91, then seven more `bitmap-*-refine` pages at 28.58 |
+| our nearest **over** the closest voting pair, in levels of 255 | `issue4260_reduced.pdf` **8.27**, `bug1743245.pdf` **5.34**, `bug1671312_ArialNarrow.pdf` 3.69, `bug766086.pdf` 2.98 |
+
+**Two JPEG 2000 pages at the very head, and that is the `objdump` finding arriving as a
+measurement.** All three voting references link the same `libopenjp2.so.7`, so on a `JPXDecode`
+page they are one decoder with three callers — and on `issue5475.pdf` the three of them span 9 to
+19 of 255 among themselves while **ours and `mupdf` are 0.0002 apart over 262 144 pixels**. Shared
+code manufacturing the *absence* of a consensus without the shared code having failed, which is
+trap 9's fifth shape one step further than the JBIG2 pages that named it. What settles that page
+is `tests/jpeg2000.rs`, which asks ISO/IEC 15444-5's own software and no renderer at all.
+
+Below them the whole of `AMBIGUOUS_SHARED_JBIG2_DECODER`, which is the instrument reproducing by
+itself the finding it was built from: on `bitmap-refine-tpgron.pdf` `mupdf` paints the sheet black
+at ink **255.000** and `ghostscript` paints it white at **0.000**, the full range apart.
+
+**The second ordering's head is not an accusation, and that is the calibration to keep.** A ratio
+above 1 means we sit further from every voting reference than the closest two sit from each other
+— the shape step 1 reads as *we are alone* — and it is true of **56 of the 786**. The top two are
+pages where a clause says we are right and the closest pair agrees by **sharing a departure**:
+
+- `issue4260_reduced.pdf` (`AMBIGUOUS_ZERO_AREA_FILL`) — ink ours **19.79**, `hayro` 19.83,
+  `ghostscript` 6.30, `poppler` 3.52, `mupdf` 2.17, reproducing that group's own note to a
+  hundredth. §10.7.4 asks for the pixel to be painted "no matter how small the intersection is";
+  the closest voting pair is `poppler` and `mupdf` at 1.92, and what they agree about is painting
+  a fifth of it.
+- `bug1743245.pdf` (`AMBIGUOUS_STROKE_ADJUSTMENT`) — the closest voting pair is `mupdf` and
+  `ghostscript` at **4.12** where every other pair is 22 to 28, and the thing those two share is
+  ignoring §10.7.5's "the stroke shall be rendered as a single-pixel line".
+- `bug766086.pdf` (`AMBIGUOUS_LINK_BORDER`) — the same two at **3.03**, agreeing about drawing no
+  link border for two unrelated reasons, which is trap 9's fourth shape. Ours and `poppler` draw
+  it and their inks agree to **0.09 of 255**; the other three are 7.5 lighter, which is the
+  border, and the four-panel strip shows exactly that.
+
+**So a high ratio means "the closest two references agree through a gap" at least as often as it
+means anything about us.** Read it with the picture, never alone.
+
+## The bucket is two camps, and the camp that votes is the one that cannot agree with itself
+
+**Measured in the five-hundred-and-eighteenth over all 786 pages**, every one of the ten renderer
+pairs:
+
+| population | closest pair is `ours + hayro` | median ours-to-`hayro` | median closest voting pair | median widest voting pair |
+|---|---|---|---|---|
+| all 786 | **651** | 1.92 | 5.34 | 9.24 |
+| the 670 judged as text | **612** | 1.94 | 5.39 | 9.28 |
+| the 116 judged as vector | 39 | 0.30 | 2.09 | 8.03 |
+
+`hayro` is a separate interpreter written by other people; what it shares with this tree is
+`skrifa` and not an interpretation. **On nine text pages in ten it is closer to us than any two of
+the three voting references are to each other**, and it is the one reference that may not vote.
+That is trap 9's third shape — three C renderers, one FreeType — measured over a population
+instead of asserted from one `ldd`, and it says what the verdict `ambiguous` is *made of* on a
+text page: not five renderers scattered, but two camps, with the voting camp internally 2.8×
+wider than the gap between us and the renderer that abstains.
+
+**It is not evidence that we are right, and the direction of inference matters here more than
+anywhere.** Agreement with `hayro` is worth nothing and `Reference::independence` says so; what
+the number establishes is that the *absence of consensus* on these pages is a property of the
+references, so an `ambiguous` verdict carries no information about our page unless something else
+supplies it. The closed forms in steps 5 and 6 are that something else, and this table is an
+argument for taking them rather than a substitute for one.
+
+**The instrument's own assumption was checked rather than assumed.** Our panels and `hayro`'s
+carry an alpha channel and the three C references' do not, which is step 5's `-alpha off` trap and
+would manufacture exactly this result if any panel were transparent. All **4535** panels on disk
+were tested and **not one pixel is less than fully opaque**, so dropping the channel is the same
+operation as `-alpha off` here. A population result that the instrument's own known defect would
+also produce has to have that defect ruled out before it is written down.
+
+## A group's diagnosis can migrate to the group above it, and three had
+
+**Found in the five-hundred-and-eighteenth, and it is this file's oldest rule failing in a
+direction nobody had watched.** A group is an array of page names with its argument in the doc
+comment above it, and Rust attaches a doc comment to whatever item follows. So an edit that
+inserts a new `const` between an existing comment and the const it documented welds two notes
+together and leaves an array with **none** — invisible to `rustc`, to `clippy` and to every gate,
+because nothing is malformed.
+
+It had happened three times, to **`AMBIGUOUS_GLYPH_COVERAGE` (3 pages), `AMBIGUOUS_MASKED_BLUR`
+(1) and `AMBIGUOUS_OURS_ON_THE_LIMIT` (3)**. Seven pages whose argument was written down, in this
+tree, filed above a group it does not describe — so a reader of `AMBIGUOUS_OUTLINED_TEXT` got four
+pages' worth of diagnosis for a group of one, and three groups said nothing at all while
+"0 undiagnosed" was true by the ratchet's definition. All three are moved back, and
+`every_group_of_pages_carries_a_diagnosis_naming_one_of_them` fails the build on the next one: for
+every non-empty group, the comment above it must name at least one document in it. Deliberately
+weak — a group of 370 pages cannot name them all and several notes cite a neighbour's page on
+purpose — and it catches the whole of this failure, because a welded comment names none of the
+array under it.
+
+**The lesson is the sharper half.** "0 undiagnosed" counts names against a list; it cannot see a
+diagnosis that is present, correct and pointing at the wrong pages. A count is not a picture, one
+directory over.
 
 ## How to take one
 

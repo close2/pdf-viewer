@@ -137,6 +137,46 @@ another program's font sits. **What would open it is a document** — a `/FontDe
 usable `/CapHeight` for a non-embedded face, which no corpus page has yet been shown to do.
 `/CapHeight` is on §9.8.1's ledger row's list of Table 120 entries this tree does not read.
 
+### The witness arrived, and it is about *width* rather than cap height
+
+**`bug1671312_ArialNarrow.pdf`, found in the five-hundred-and-eighteenth session** at the head of
+the ambiguous bucket's new ratio ranking — the pages where we sit further from every voting
+reference than the closest two sit from each other. It is 1913 bytes, one line of text at 20 pt in
+a non-embedded `/ArialNarrow`, and it states the whole of Table 120:
+
+```text
+/StemV 66  /StemH 66  /AvgWidth 362  /MaxWidth 833  /CapHeight 922  /Ascent 922
+/XHeight 461  /Descent -210  /ItalicAngle 0  /Flags 32
+/FontBBox [-250 -210 1000 1054]  /MissingWidth 238   and 224 /Widths
+```
+
+**Its `/CapHeight` is not usable and that half of item 4 stays shut**: 922 is also its `/Ascent`,
+and Arial's cap height is 716 — the producer wrote the ascent into both entries, so a processor
+scaling to it would draw capitals a fifth too tall. A witness has to state a *usable* number, and
+this is the sharper form of item 4's condition.
+
+**The width half is open, and this is the page that opens it.** Four measurements agree and
+the picture says it in one look — our letters collide where the other four have clean gaps:
+
+- the ink's bounding box is x[10, 149] y[15, 34] in ours against x[10, 147] y[15, 34] in
+  `poppler`'s and `mupdf`'s, so §9.2.4's advances and the extent are already honoured;
+- inside that box we mark **983 pixels against 844, 825, 812 and 702**, and our page ink is
+  **18.45 of 255 against 15.52, 15.32, 14.97 and 12.71** — 19% to 45% heavier than four
+  renderers within 2.9 of each other;
+- at 576 dpi the modal dark run across the x-height band is **14 device pixels in ours and 12 in
+  `poppler`'s**, where the `/StemV 66` the file states is **10.56** at that scale;
+- **`hayro` is with the other three**, 10.41 of 255 from us, and it shares `skrifa` with this
+  tree and nothing else — so this is the choice of face and not the rasteriser.
+
+So `substitute.rs` selects a face by name, PANOSE and Table 121's flags and reads none of the
+*width* metrics the descriptor states, and on a condensed face that costs a line whose glyphs are
+wider than the advances the document gives them. **`/StemV`, `/AvgWidth`, `/MaxWidth` and
+`/FontBBox` join `/CapHeight` on §9.8.1's ledger row's list of Table 120 entries this tree does not
+read** — and unlike the cap height, closing this one would be scaling to a number *the file*
+states rather than to where another program's font sits, which is the distinction ADR 0267 turned
+on. It is recorded and not taken: §9.8.1 states no `shall`, the fix is a substitution *policy*
+rather than a line, and one witness is a witness rather than a population.
+
 ## 5. A page that draws its text and can name none of it — counted, split, and one part closed
 
 **The refusal is settled and the reading is in ADR 0311.** `french_diacritics.pdf` was the

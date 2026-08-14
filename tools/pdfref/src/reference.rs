@@ -76,24 +76,67 @@ impl Reference {
     ///
     /// # Why `mupdf` and `ghostscript` are still independent here
     ///
-    /// They share `jbig2dec`, and only that. On the overwhelming majority of pages — every
-    /// page without a JBIG2 image — they are two implementations of everything that matters.
-    /// Marking them `Shared` wholesale would throw away the evidence of a thousand pages to
-    /// describe seven, so the sharing is recorded where it applies, in `oracle.rs`'s
-    /// `CONTRADICTED_SHARED_JBIG2_DECODER`, rather than here.
+    /// On the overwhelming majority of pages they are two implementations of everything that
+    /// matters. Marking them `Shared` wholesale would throw away the evidence of a thousand
+    /// pages to describe a few dozen, so each piece of sharing is recorded where it applies —
+    /// in `oracle.rs`'s `CONTRADICTED_SHARED_JBIG2_DECODER` and the groups beside it — rather
+    /// than here.
+    ///
+    /// **This paragraph said "they share `jbig2dec`, and only that" and it was wrong**, which
+    /// the five-hundred-and-eighteenth session found by asking the question the sentence
+    /// answers. `ldd` prints the transitive closure; `objdump -p | grep NEEDED` prints what a
+    /// binary actually asks for, and it is a different list:
+    ///
+    /// ```text
+    ///                     poppler   mupdf   ghostscript
+    ///   libfreetype.so.6     yes     yes      no — its own copy, below
+    ///   libjpeg.so.8         yes     yes      yes
+    ///   libopenjp2.so.7      yes     yes      yes
+    ///   libz.so.1            yes     yes      yes
+    ///   liblcms2.so.2        yes     no       yes
+    ///   libjbig2dec.so.0     no      yes      yes
+    /// ```
+    ///
+    /// So `jbig2dec` is the *narrowest* thing those two share rather than the only one, and
+    /// two of the wider ones are decoders: **on a `DCTDecode` page and on a `JPXDecode` page
+    /// all three voting references are one decoder.** Where that bites is the same place
+    /// `jbig2dec` bites and in both directions — a consensus of three that is really a
+    /// consensus of one, or, where the shared decoder fails, three answers that cannot form a
+    /// consensus at all. `AMBIGUOUS_IRREVERSIBLE_JPEG_2000` and
+    /// `AMBIGUOUS_A_REFERENCE_DECODED_THE_IMAGE_WRONG` are where the second has been named so
+    /// far; `tests/jpeg2000.rs` is the answer that needs no reference, because it checks every
+    /// corpus codestream against ISO/IEC 15444-5's own software.
     ///
     /// `hayro` is the opposite case. What we share with it — the font rasteriser, the
     /// deflate implementation, the JPEG decoder, and both new image codecs — is not one
     /// format's decoder but the substrate of nearly every page, so there is no useful subset
     /// on which it votes.
     ///
-    /// # And all three of them share `libfreetype`
+    /// # And all three of them are `FreeType`, though not all three link it
     ///
-    /// Found with one `ldd` in the fortieth session: `pdftoppm`, `mutool` and `gs` on this
-    /// machine all link the same `libfreetype.so.6`, while this tree rasterises glyphs with
-    /// `skrifa` and `tiny-skia`. So on a page whose difference is a letter's edges, the three
-    /// are one rasteriser and we are the only second opinion — the same shape as `jbig2dec`
-    /// above and far more widely reachable.
+    /// Found with one `ldd` in the fortieth session and corrected with one `objdump` in the
+    /// five-hundred-and-eighteenth. `pdftoppm` and `mutool` link `libfreetype.so.6`; **`gs`
+    /// does not** — `libgs.so.10` names no `FreeType` in its `NEEDED` list, *defines* 194 `FT_*`
+    /// symbols of its own and leaves none undefined, so it carries a statically linked copy
+    /// and the `ldd` line was reaching it through `libfontconfig`. It is not the same copy
+    /// either: the system library exports `FT_Palette_Select` and Ghostscript's does not, which
+    /// is a build configuration rather than a version.
+    ///
+    /// The substance survives the correction and is worth more for being measured: all three
+    /// rasterise glyphs with `FreeType`'s code while this tree uses `skrifa` and `tiny-skia`, so
+    /// on a page whose difference is a letter's edges the three are one family and we are the
+    /// only second opinion — the same shape as `jbig2dec` above and far more widely reachable.
+    ///
+    /// **And the ambiguous bucket measures it.** Over the oracle's 786 ambiguous pages, taking
+    /// the mean absolute difference of all ten renderer pairs from the artefacts already on
+    /// disk, the closest pair of the ten is `ours + hayro` on **651** of them — and on the 670
+    /// judged as text, on **612**. The median distances are ours-to-`hayro` **1.94** of 255
+    /// against **5.39** for the closest two of the three that vote. `hayro` shares `skrifa`
+    /// with this tree and nothing else about a page; it is a separate interpreter written by
+    /// other people, and it is the one reference that is not allowed to vote. So an `ambiguous`
+    /// text page in that bucket is usually **two camps, and the voting camp is the one that
+    /// cannot agree with itself** — which is not evidence that we are right, and is exactly
+    /// what the verdict is made of. `doc/todo/00-ambiguous-bucket.md` has the run.
     ///
     /// It is recorded here and **not** acted on, for the same reason `jbig2dec` is not:
     /// marking three references `Shared` for text would leave the gate with nothing to vote
