@@ -1,0 +1,167 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 400] /Resources << /Shading << /Sh1 5 0 R >> >> /Contents 4 0 R >>
+endobj
+4 0 obj
+<< /Length 7 >>
+stream
+/Sh1 sh
+endstream
+endobj
+5 0 obj
+<< /Type /Shading /ShadingType 1 /ColorSpace /DeviceRGB /Domain [0 1 0 1] /Matrix [400 0 0 400 0 0] /Function 6 0 R >>
+endobj
+6 0 obj
+<< /FunctionType 4 /Domain [0 1 0 1] /Range [0 1 0 1 0 1] /Length 1605 >>
+stream
+{
+% BBP Math for Pi (leaves 3.141 on stack)
+4 1 div 2 4 div sub 1 5 div sub 1 6 div sub
+4 9 div 2 12 div sub 1 13 div sub 1 14 div sub 16 div
+add 1000.0 mul truncate 1000.0 div
+
+% Move Pi out of the way
+3 1 roll
+
+% Scale coords 0-1 to 0-100
+100.0 mul exch 100.0 mul exch
+
+% Push initial boolean (false)
+false
+3 1 roll
+
+% Rect 10,25 85,95
+2 copy
+dup 85 ge exch 95 le and
+exch
+dup 10 ge exch 25 le and
+and
+4 3 roll
+or
+3 1 roll
+
+% Rect 10,25 45,55
+2 copy
+dup 45 ge exch 55 le and
+exch
+dup 10 ge exch 25 le and
+and
+4 3 roll
+or
+3 1 roll
+
+% Rect 10,25 5,15
+2 copy
+dup 5 ge exch 15 le and
+exch
+dup 10 ge exch 25 le and
+and
+4 3 roll
+or
+3 1 roll
+
+% Rect 20,25 5,95
+2 copy
+dup 5 ge exch 95 le and
+exch
+dup 20 ge exch 25 le and
+and
+4 3 roll
+or
+3 1 roll
+
+% Rect 28,33 5,15
+2 copy
+dup 5 ge exch 15 le and
+exch
+dup 28 ge exch 33 le and
+and
+4 3 roll
+or
+3 1 roll
+
+% Rect 40,48 5,95
+2 copy
+dup 5 ge exch 95 le and
+exch
+dup 40 ge exch 48 le and
+and
+4 3 roll
+or
+3 1 roll
+
+% Rect 70,75 5,95
+2 copy
+dup 5 ge exch 95 le and
+exch
+dup 70 ge exch 75 le and
+and
+4 3 roll
+or
+3 1 roll
+
+% Rect 55,75 45,55
+2 copy
+dup 45 ge exch 55 le and
+exch
+dup 55 ge exch 75 le and
+and
+4 3 roll
+or
+3 1 roll
+
+% Rect 55,60 45,95
+2 copy
+dup 45 ge exch 95 le and
+exch
+dup 55 ge exch 60 le and
+and
+4 3 roll
+or
+3 1 roll
+
+% Rect 82,90 5,95
+2 copy
+dup 5 ge exch 95 le and
+exch
+dup 82 ge exch 90 le and
+and
+4 3 roll
+or
+3 1 roll
+
+
+% pop x and y
+pop pop
+
+% Use Pi to determine color
+% if true (inside shape): 3.141 - 3.141 = 0.0 (Black)
+% if false (outside shape): 3.141 / 3.141 = 1.0 (White)
+{ dup sub } { dup div } ifelse
+
+% We need RGB (3 values)
+dup dup
+}
+endstream
+endobj
+xref
+0 7
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000121 00000 n 
+0000000251 00000 n 
+0000000307 00000 n 
+0000000441 00000 n 
+trailer
+<< /Size 7 /Root 1 0 R >>
+startxref
+2153
+%%EOF

@@ -1,3 +1,9 @@
+> **Second editor's note, five-hundred-and-twenty-sixth session.** This file is about corpora that
+> come from *elsewhere*. Documents the project owner makes for this project live in
+> [`doc/corpora-own/`](corpora-own/README.md), which that file's own rule keeps narrow: a PDF is
+> committed only where the artefact itself is the evidence, and everything else stays a fixture
+> built in code by `crates/test-scenes`.
+
 > **Editor's note, four-hundred-and-twenty-second session.** This file is the project owner's source
 > material and is left as written. Three of its claims were checked against the repositories and the
 > bucket while acting on it, and two did not hold: `openpreserve/format-corpus` has **no `/pdf/`
