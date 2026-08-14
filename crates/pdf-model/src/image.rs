@@ -450,11 +450,13 @@ pub fn decode_parts(
     )?;
 
     let image = Image {
-        // The grid the samples are actually on, which for every codec but one is the
-        // dictionary's. A JPEG 2000 codestream over the worker's budget comes back at a
-        // reduced resolution level (§7.4.9 NOTE 3), and an image occupies the unit square
-        // whatever its resolution (§8.9.5.1), so the raster's own grid is the only honest
-        // one to build at — declaring the dictionary's would shear every row.
+        // The grid the samples are actually on, which is the dictionary's unless a
+        // self-describing codestream stated another. A JPEG 2000 codestream over the worker's
+        // budget comes back at a reduced resolution level (§7.4.9 NOTE 3), and a JPEG frame
+        // carries its own dimensions (§7.4.8) that a malformed dictionary can contradict; an
+        // image occupies the unit square whatever its resolution (§8.9.5.1), so the raster's
+        // own grid is the only honest one to build at — declaring the dictionary's would
+        // shear every row.
         width: raster_width,
         height: raster_height,
         data: Arc::from(rgba.as_slice()),
@@ -503,8 +505,8 @@ pub fn decode_parts(
 struct SamplesOnGrid {
     /// Straight-alpha RGBA8, row by row on [`Self::grid`].
     rgba: Vec<u8>,
-    /// The grid the samples are actually on — the dictionary's for every codec but a
-    /// reduced JPEG 2000 decode; see [`samples_of`].
+    /// The grid the samples are actually on, which is the dictionary's except where a
+    /// self-describing codestream states another; see [`samples_of`].
     grid: (u32, u32),
     /// §11.6.5.2's `/SMaskInData`: the opacity arrived inside the codestream and is already
     /// in the alpha channel, so no `/SMask` may be applied on top of it.
@@ -520,10 +522,11 @@ struct SamplesOnGrid {
 /// route a stream takes is a question about its filter chain and nothing else, while
 /// everything around it is about masks.
 ///
-/// The grid is the dictionary's for every arm but one: a `JPXDecode` codestream over the
-/// confined worker's budget is decoded at a reduced resolution level (§7.4.9 NOTE 3), so
-/// that arm answers with the grid the codec produced rather than letting the caller assume
-/// the dictionary's.
+/// The grid is the dictionary's for every arm but two, and both are codestreams that state
+/// their own: a `JPXDecode` codestream over the confined worker's budget is decoded at a
+/// reduced resolution level (§7.4.9 NOTE 3), and a `DCTDecode` frame carries the dimensions
+/// §7.4.8 puts in the encoded data, which a malformed file can contradict. Both answer with
+/// the grid the codec produced rather than letting the caller assume the dictionary's.
 ///
 /// The third part of the answer is §11.6.5.2's `/SMaskInData`, which only `JPXDecode` can
 /// carry: an opacity that arrived inside the codestream is already in the alpha channel, and
@@ -548,12 +551,19 @@ fn samples_of(
     } = at;
     match source.codec.as_deref() {
         Some(b"DCTDecode" | b"DCT") => {
-            let (mut rgba, components) = decode_jpeg(&source.data, width, height)?;
+            // The codestream's grid rather than the dictionary's, on §7.4.8's own statement of
+            // where a JPEG's dimensions live; [`decode_jpeg`] has the reading and says why the
+            // two disagreeing costs no mark.
+            let DecodedJpeg {
+                samples: mut rgba,
+                components,
+                grid,
+            } = decode_jpeg(&source.data)?;
             apply_decode_to_channels(document, dict, components, &mut rgba);
             convert_channels(at, is_mask, components, &mut rgba, into)?;
             Ok(SamplesOnGrid {
                 rgba,
-                grid: (width, height),
+                grid,
                 opacity_included: false,
             })
         }
@@ -1809,7 +1819,54 @@ fn ycck_to_cmyk(pixels: &mut [u8]) {
     }
 }
 
-fn decode_jpeg(data: &[u8], width: u32, height: u32) -> Result<(Vec<u8>, usize), ImageError> {
+/// What a `DCTDecode` codestream answered with.
+struct DecodedJpeg {
+    /// Straight-alpha RGBA8 for one and three components; four components stay four, with `k`
+    /// in the fourth byte until [`convert_channels`] runs.
+    samples: Vec<u8>,
+    /// How many components the frame carries, which is what interprets [`Self::samples`].
+    components: usize,
+    /// The grid the *codestream* states, which is not always the dictionary's.
+    grid: (u32, u32),
+}
+
+/// Decodes §7.4.8's `DCTDecode` codestream.
+///
+/// # The dictionary's `/Width` and `/Height` do not have to agree with the codestream's
+///
+/// Table 87 requires both of them and a producer that writes two different numbers has written
+/// a file no clause describes. What §7.4.8 does say is where a JPEG's own dimensions live, and
+/// it puts them in the data:
+///
+/// > The values of these parameters, which include the dimensions of the image and the number
+/// > of components per sample, are entirely under the control of the encoder and shall be
+/// > stored in the encoded data. DCTDecode may obtain the parameter values it requires directly
+/// > from the encoded data.
+///
+/// So the samples arrive on the codestream's grid and there is no second reading of them
+/// available. The dictionary's numbers cost nothing to disagree with, because §8.9.5.1 puts
+/// every image in the same place whatever its resolution — "the unit square of user space,
+/// bounded by user coordinates (0, 0) and (1, 1), corresponds to the boundary of the image in
+/// image space" — which is the same sentence §8.9.6.3 leans on when it lets an explicit mask
+/// and its base image have different `/Width` and `/Height` outright. A grid is a sampling
+/// density here and not a size on the page.
+///
+/// **This used to refuse the image outright**, on a comment saying the two "must agree,
+/// because the display list carries the dictionary's and the samples carry the JPEG's". The
+/// display list has carried the raster's own grid since a reduced JPEG 2000 decode needed it
+/// to, so the premise had expired; the refusal cost a whole photograph where the disagreement
+/// was one row of 1227 (`pdfCabinetOfHorrors/veraPDFHiResChangedHeight.pdf`, whose stated
+/// defect is exactly that).
+///
+/// Compare §7.4.9, where the same disagreement is still a refusal and should be: that clause
+/// states the constraint this one does not — "Width and Height shall match the corresponding
+/// width and height values in the JPEG 2000 data".
+///
+/// # Errors
+///
+/// See [`ImageError`]. The grid the codestream states is bounded by [`MAX_SAMPLES`] here,
+/// because it is no longer the dictionary's grid that [`decode_parts`] already checked.
+fn decode_jpeg(data: &[u8]) -> Result<DecodedJpeg, ImageError> {
     // `ZCursor` is the reader `zune-jpeg` wants; a bare slice does not implement its
     // trait because the decoder needs to seek.
     let mut decoder =
@@ -1822,6 +1879,23 @@ fn decode_jpeg(data: &[u8], width: u32, height: u32) -> Result<(Vec<u8>, usize),
     let info = decoder.info().ok_or_else(|| ImageError::Malformed {
         detail: "JPEG has no frame".to_owned(),
     })?;
+    let grid = (u32::from(info.width), u32::from(info.height));
+    // A frame stating no samples in either axis is not an image at all, and the loops below
+    // would answer it with an empty raster rather than saying so. `zune-jpeg` refuses it at the
+    // header today — "Image width or height is set to zero, cannot continue" — so this states
+    // the bound where the grid is chosen rather than being the only thing enforcing it.
+    if info.width == 0 || info.height == 0 {
+        return Err(ImageError::Malformed {
+            detail: format!("JPEG frame is {}x{}", info.width, info.height),
+        });
+    }
+    // The dictionary's grid passed [`MAX_SAMPLES`] in `decode_parts`; this one has not, and
+    // since the samples are built on it rather than on the dictionary's it is the one that
+    // decides what this allocates. A codestream may state up to 65535 in each axis.
+    let samples = u64::from(grid.0).saturating_mul(u64::from(grid.1));
+    if samples > MAX_SAMPLES {
+        return Err(ImageError::TooLarge { samples });
+    }
     // **Four components stay four**, whichever of the two ways a codestream spells them.
     //
     // `zune-jpeg`'s default output is RGB, and its own conversions for both four-component inputs
@@ -1880,17 +1954,6 @@ fn decode_jpeg(data: &[u8], width: u32, height: u32) -> Result<(Vec<u8>, usize),
     }
     let count = usize::from(info.width).saturating_mul(usize::from(info.height));
 
-    // The dictionary and the JPEG both state the dimensions; they must agree, because the
-    // display list carries the dictionary's and the samples carry the JPEG's.
-    if u32::from(info.width) != width || u32::from(info.height) != height {
-        return Err(ImageError::Malformed {
-            detail: format!(
-                "JPEG is {}x{} but the dictionary says {width}x{height}",
-                info.width, info.height
-            ),
-        });
-    }
-
     // Filled with 255 so that alpha is already set and the loops below touch three bytes per
     // pixel instead of four.
     //
@@ -1933,7 +1996,11 @@ fn decode_jpeg(data: &[u8], width: u32, height: u32) -> Result<(Vec<u8>, usize),
         }
     }
 
-    Ok((out, components))
+    Ok(DecodedJpeg {
+        samples: out,
+        components,
+        grid,
+    })
 }
 
 /// Applies §8.9.5.2's map to a raster that is already eight-bit RGB.
@@ -2324,6 +2391,47 @@ pub fn unapplied_mask(
         | MaskEntry::ColourKey(_)
         | MaskEntry::Explicit(_) => None,
     }
+}
+
+/// Names a `DCTDecode` frame whose dimensions the dictionary contradicts, for the caller to
+/// report *beside* the drawing.
+///
+/// [`decode_jpeg`] builds the raster on the grid the codestream states, and its own comment has
+/// the reading: §7.4.8 puts a JPEG's dimensions in the encoded data and states no requirement
+/// that the dictionary agree. That decides what to *draw*. What it does not decide is whether
+/// to say anything, and the answer is yes, because the dictionary's numbers are a statement the
+/// file made about this image and the page now shows something else: `xobject-image.pdf`
+/// describes a 200×100 picture and its codestream holds one red sample, so the page is a flat
+/// red rectangle that no reader could otherwise know was not the picture. Suppressing either
+/// half — the drawing or the report — loses information, which is the test `doc/HANDOVER.md`
+/// sets for reporting while drawing.
+///
+/// Asked of the codestream rather than of the dictionary alone, for the same reason
+/// [`unapplied_mask`] is asked of the entry: a report that reads only what the file says can
+/// outlive the gap it describes. The cost is one marker scan per `DCTDecode` image — headers
+/// only, no entropy decoding — which is why it is not asked of any other codec: §7.4.9's
+/// mismatch is a refusal inside [`decode_jpx`] and the rest carry no dimensions of their own.
+#[must_use]
+pub fn contradicted_frame(document: &Document, stream: &Stream) -> Option<String> {
+    let width = positive_integer(document, &stream.dict, "Width").ok()?;
+    let height = positive_integer(document, &stream.dict, "Height").ok()?;
+    let source = document.image_stream(stream)?;
+    if !matches!(source.codec.as_deref(), Some(b"DCTDecode" | b"DCT")) {
+        return None;
+    }
+    let mut decoder = zune_jpeg::JpegDecoder::new(zune_jpeg::zune_core::bytestream::ZCursor::new(
+        &*source.data,
+    ));
+    decoder.decode_headers().ok()?;
+    let info = decoder.info()?;
+    (u32::from(info.width) != width || u32::from(info.height) != height).then(|| {
+        format!(
+            "the JPEG frame is {}x{} where the dictionary says {width}x{height} (§7.4.8 puts \
+             the dimensions in the encoded data); its samples are drawn on their own grid, so \
+             the image is the codestream's rather than the one the dictionary describes",
+            info.width, info.height
+        )
+    })
 }
 
 /// Whether this image carries a mask of its own, which supersedes the graphics state's.

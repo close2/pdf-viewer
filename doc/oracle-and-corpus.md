@@ -257,7 +257,10 @@ made 0.1 MB of files worth three rounds against 93 GB of crawl.
 **The other four directories are ordinary populations** and produced nothing new:
 `pdfCabinetOfHorrors` (24, archival horrors: encryption, embedded video, a corrupt byte) reports a
 JPEG whose `/Height` was altered and an `/Im0` that is not a stream, both of which are the file's
-stated defect; `govdocs1-error-pdfs` (54, `.gov` crawl files that broke somebody else's software)
+stated defect — **and the first of the two was a defect of this tree as well, found in the
+five-hundred-and-fifth by the ink ranking of `doc/todo/03` §8**: the altered `/Height` cost the
+whole photograph until §7.4.8 was read, and the file now draws pixel-identical to the intact one
+while still reporting the contradiction (ADR 0340); `govdocs1-error-pdfs` (54, `.gov` crawl files that broke somebody else's software)
 reports four unparsable CFF programs, a truncated `head` table and an undecodable `/Contents`;
 `jhove-errors` (99, real published papers that JHOVE calls invalid) reports one `/Font` a page
 names and does not define and one `/ExtGState` likewise; `fully-featured-pdf` (1) is complete.

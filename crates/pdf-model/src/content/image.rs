@@ -222,6 +222,15 @@ impl Interpreter<'_> {
                 name: format!("{name}: {detail}"),
             });
         }
+        // §7.4.8 puts a JPEG's dimensions in the codestream and this tree draws them from
+        // there, so an image whose dictionary says something else is *drawn* rather than
+        // refused — and said out loud all the same, because the picture on the page is then
+        // not the one the file described. `image::contradicted_frame` has the reading.
+        if let Some(detail) = crate::image::contradicted_frame(self.document, stream) {
+            self.note(Unsupported::Image {
+                name: format!("{name}: {detail}"),
+            });
+        }
         // §8.9.6.2 with §8.7.3.3: a stencil "does not specify colours; instead, it
         // designates places where the current colour is painted", and the current colour may
         // be a *pattern*, which is not a colour this or any other command can carry.

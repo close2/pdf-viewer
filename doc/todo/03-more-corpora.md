@@ -4,7 +4,9 @@ Status: **standing**, and it became standing rather than one-off in the four-hun
 session, which built the three pieces `doc/test-docs.md` asked for. What is left is the *taking*:
 a chunk a round, the way `doc/todo/00` takes a page off the ambiguous ranking.
 Priority: 03 — the standing band, deliberately.
-Corpus: 974 pdf.js documents **plus 275 in four submodules** and whatever `tools/safedocs` has
+Corpus: 974 pdf.js documents **plus 275 in four submodules** — of which
+`pdfCabinetOfHorrors` and `govdocs1-error-pdfs` were taken as a chunk in the
+five-hundred-and-fifth, §8 below — and whatever `tools/safedocs` has
 been asked for — **65 944 as of the four-hundred-and-thirty-third**, 145 archives, 93 GB, the
 manifest below. The fourth submodule is three directories of `openpreserve/format-corpus`, taken in
 the four-hundred-and-seventieth (`doc/oracle-and-corpus.md` §2b, §2c; ADR 0305)
@@ -420,6 +422,41 @@ and three were defects, taken in three consecutive rounds. Thirteen of its 89 fi
 today and every one of them either reports or is right. A round wanting a finding from this
 direction should point the same ink assertion at `pdfCabinetOfHorrors` or `govdocs1-error-pdfs`,
 where the files do *not* share a page and the method therefore needs a reference again.
+
+### 8. Both of those were taken in the five-hundred-and-fifth, and the method transfers
+
+**Taken: `pdfCabinetOfHorrors` (24) and `govdocs1-error-pdfs` (54), 78 documents**, with page one
+rendered against `pdftoppm`, `mutool` and `gs` at 72 dpi — every one of them told to use the crop
+box, which is trap 3 and not optional — and ranked by **our ink minus the lightest live
+reference's**, which is `doc/todo/00` step 7's number applied to a population that has no
+ambiguous bucket. Both survey lines reproduce the four-hundred-and-sixty-seventh's exactly.
+
+**The ranking separated one row from the rest by two orders of magnitude**, which is what makes
+the method worth repeating on a corpus whose files share nothing: `veraPDFHiResChangedHeight.pdf`
+at −94.953 against a next-largest of −1.719, and everything below −0.65 a document this tree
+already reports on. The two largest *silent* negatives, `032270` and `427330` at −0.643 and
+−0.623, were opened side by side against two references and are the same page three times —
+which is the second half of what the number is for: it says where to look **and** where not to.
+
+The defect is ADR 0340's and the reading is §7.4.8's. Two things it leaves for a later round:
+
+- **A corrupt flate content stream, and whether a truncated recovery is ever right.**
+  `govdocs1-error-pdfs/error_set_2/498264.pdf` inflates 18 bytes of its page-one content —
+  `q\n30 31.16 552 729` — and then fails after 79 of 2649 input bytes with zlib's "invalid
+  distance too far back". `poppler` carries on past it and recovers three lines of a heading;
+  `mupdf`, `ghostscript` and this tree draw nothing, and this tree reports `Undecodable`. **The
+  question is a decision rather than a defect**: no clause asks a reader to invent the rest of a
+  damaged stream, and §7.4.4.2 describes a well-formed one, so "keep what decoded before the
+  error" would be a *choice* about robustness and has to be argued as one. Whoever takes it
+  should note that the 18 bytes here would not have helped, so the population matters more than
+  the witness: the crawl's 32 undecodable `/Contents` parts (ADR 0269's table) are where to
+  measure what such a rule would buy.
+- **`pdfCabinetOfHorrors` has one report left and it is the file's own defect**, a `/Im0` naming
+  an object that is not a stream, which every reference draws blank too. So this corpus is spent
+  in the same sense the handbuilt one is, and `govdocs1-error-pdfs`' six reports are all named
+  populations — four unparsable font programs, one truncated `head`, one undecodable
+  `/Contents`. **What is not spent is the instrument**: the ink ranking against three references
+  found a whole-page defect in 78 files, and no survey line moved when it was fixed.
 
 ## What not to do
 

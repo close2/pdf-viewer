@@ -1,10 +1,14 @@
-//! How many components a `DCTDecode` codestream has, and what says so.
+//! What a `DCTDecode` codestream states about itself, and who is believed when the dictionary
+//! disagrees.
 //!
-//! ISO 32000-2 §7.4.8 puts the number in one place:
+//! ISO 32000-2 §7.4.8 puts both facts in one place:
 //!
 //! > The values of these parameters, which include the dimensions of the image and the number of
 //! > components per sample, are entirely under the control of the encoder and shall be stored in
 //! > the encoded data.
+//!
+//! The component count is the first half of that sentence's subject and the dimensions are the
+//! second; the tests below are in that order.
 //!
 //! Table 13's `/ColorTransform` is a *different* fact, and the clause states it in terms of the
 //! first — "If the image has three colour components, RGB values shall be transformed to YCbCr
@@ -90,9 +94,12 @@ fn three_component_jpeg(transform: Option<u8>) -> Vec<u8> {
 
 /// A one-page PDF whose page is one image `XObject`, drawn over the whole page.
 ///
+/// `stated` is what the image dictionary's `/Width` and `/Height` say, which is a separate
+/// statement from the codestream's own and need not agree with it.
+///
 /// Built as bytes rather than through the string helper the other fixtures use, because a
 /// codestream is not text and a `String` cannot hold one.
-fn pdf_with_image(codestream: &[u8], colour_space: &str) -> Vec<u8> {
+fn pdf_with_image(codestream: &[u8], colour_space: &str, stated: (u32, u32)) -> Vec<u8> {
     let content = b"q 8 0 0 8 0 0 cm /Im0 Do Q";
     let mut objects: Vec<Vec<u8>> = Vec::new();
     objects.push(b"<< /Type /Catalog /Pages 2 0 R >>".to_vec());
@@ -106,9 +113,11 @@ fn pdf_with_image(codestream: &[u8], colour_space: &str) -> Vec<u8> {
     stream.extend_from_slice(content);
     stream.extend_from_slice(b"\nendstream");
     objects.push(stream);
+    let (stated_width, stated_height) = stated;
     let mut image = format!(
-        "<< /Type /XObject /Subtype /Image /Width 8 /Height 8 /BitsPerComponent 8 \
-         /ColorSpace {colour_space} /Filter /DCTDecode /Length {} >>\nstream\n",
+        "<< /Type /XObject /Subtype /Image /Width {stated_width} /Height {stated_height} \
+         /BitsPerComponent 8 /ColorSpace {colour_space} /Filter /DCTDecode /Length {} >>\n\
+         stream\n",
         codestream.len()
     )
     .into_bytes();
@@ -140,24 +149,37 @@ fn pdf_with_image(codestream: &[u8], colour_space: &str) -> Vec<u8> {
     out
 }
 
-/// The samples the page's one image carries, or the reports that stopped it being drawn.
-fn first_sample(bytes: Vec<u8>) -> Result<(u8, u8, u8), String> {
+/// The page's one image if it was drawn, and everything the interpreter reported about it.
+///
+/// The two are separate answers because they are separate facts: an image can be drawn *and*
+/// reported, which is what a codestream contradicting its dictionary is.
+fn interpret_one(bytes: Vec<u8>) -> (Option<pdf_render::ImageSource>, String) {
     let document = Document::open(bytes).expect("the fixture is a valid PDF");
     let page = pdf_model::Pages::new(&document).get(0).expect("page one");
     let interpretation = pdf_model::interpret(&document, &page);
-    if !interpretation.is_complete() {
-        return Err(format!("{:?}", interpretation.unsupported));
-    }
-    let image = interpretation
+    let drawn = interpretation
         .display_list
         .commands()
         .iter()
         .find_map(|command| match command {
             pdf_render::Command::Image { image, .. } => Some(image.clone()),
             _ => None,
-        })
-        .expect("the page draws one image");
-    let placed = image.at(pdf_render::Transform::IDENTITY);
+        });
+    (drawn, format!("{:?}", interpretation.unsupported))
+}
+
+/// The page's one image, or the reports that stopped it being drawn.
+fn first_image(bytes: Vec<u8>) -> Result<pdf_render::ImageSource, String> {
+    match interpret_one(bytes) {
+        (Some(image), reported) if reported == "[]" => Ok(image),
+        (_, reported) => Err(reported),
+    }
+}
+
+/// The samples the page's one image carries, or the reports that stopped it being drawn.
+fn first_sample(bytes: Vec<u8>) -> Result<(u8, u8, u8), String> {
+    let source = first_image(bytes)?;
+    let placed = source.at(pdf_render::Transform::IDENTITY);
     Ok((placed.data[0], placed.data[1], placed.data[2]))
 }
 
@@ -168,8 +190,12 @@ fn first_sample(bytes: Vec<u8>) -> Result<(u8, u8, u8), String> {
 /// channels and the whole image was reported `malformed` instead of drawn.
 #[test]
 fn a_three_component_frame_marked_transform_zero_is_three_components() {
-    let sample = first_sample(pdf_with_image(&three_component_jpeg(Some(0)), "/DeviceRGB"))
-        .expect("a three-component codestream with an Adobe APP14 marker draws");
+    let sample = first_sample(pdf_with_image(
+        &three_component_jpeg(Some(0)),
+        "/DeviceRGB",
+        (8, 8),
+    ))
+    .expect("a three-component codestream with an Adobe APP14 marker draws");
     assert_eq!(
         sample,
         (128, 128, 128),
@@ -185,8 +211,12 @@ fn a_three_component_frame_marked_transform_zero_is_three_components() {
 /// refusing. Files spell this: `zune-jpeg` reads such a frame as `YCbCr`, and so must we.
 #[test]
 fn a_three_component_frame_marked_transform_two_is_not_converted_as_ycck() {
-    let sample = first_sample(pdf_with_image(&three_component_jpeg(Some(2)), "/DeviceRGB"))
-        .expect("a three-component codestream marked transform 2 draws");
+    let sample = first_sample(pdf_with_image(
+        &three_component_jpeg(Some(2)),
+        "/DeviceRGB",
+        (8, 8),
+    ))
+    .expect("a three-component codestream marked transform 2 draws");
     assert_eq!(
         sample,
         (128, 128, 128),
@@ -200,7 +230,87 @@ fn a_three_component_frame_marked_transform_two_is_not_converted_as_ycck() {
 /// the marker was what decided.
 #[test]
 fn the_same_frame_without_an_app14_marker_decodes_identically() {
-    let sample = first_sample(pdf_with_image(&three_component_jpeg(None), "/DeviceRGB"))
-        .expect("a three-component codestream with no Adobe marker draws");
+    let sample = first_sample(pdf_with_image(
+        &three_component_jpeg(None),
+        "/DeviceRGB",
+        (8, 8),
+    ))
+    .expect("a three-component codestream with no Adobe marker draws");
     assert_eq!(sample, (128, 128, 128));
+}
+
+/// The grid a `DCTDecode` image is built on is the codestream's, not the dictionary's.
+///
+/// The same clause the module quotes says the dimensions are "entirely under the control of the
+/// encoder and shall be stored in the encoded data", and a decoder has nowhere else to read them
+/// from. A dictionary that states something different has contradicted the data rather than
+/// described it, and the samples still land where §8.9.5.1 puts every image whatever its
+/// resolution: "the unit square of user space, bounded by user coordinates (0, 0) and (1, 1),
+/// corresponds to the boundary of the image in image space".
+///
+/// This tree refused the image outright until the five-hundred-and-fifth session, where
+/// `pdfCabinetOfHorrors/veraPDFHiResChangedHeight.pdf` — a valid file with one digit of its
+/// `/Height` altered on purpose — lost a whole photograph over one row in 1227.
+///
+/// **The contradiction is still reported**, and both halves are asserted here because either one
+/// alone would be a different decision: drawn and silent is what a page showing one red sample
+/// where 200×100 were described would be, and reported without drawing is what this session
+/// found.
+#[test]
+fn a_dictionary_that_contradicts_the_frames_dimensions_does_not_cost_the_image() {
+    let (drawn, reported) = interpret_one(pdf_with_image(
+        &three_component_jpeg(None),
+        "/DeviceRGB",
+        (8, 9),
+    ));
+    let image = drawn.expect("a dictionary stating one row more than the frame holds still draws");
+    let pdf_render::ImageSource::Decoded(decoded) = &image else {
+        panic!("a DCTDecode image is decoded rather than deferred to the device scale");
+    };
+    assert_eq!(
+        (decoded.width, decoded.height),
+        (8, 8),
+        "the frame states 8x8 and the samples are on that grid, whatever /Height says"
+    );
+    let placed = image.at(pdf_render::Transform::IDENTITY);
+    assert_eq!(
+        (placed.data[0], placed.data[1], placed.data[2]),
+        (128, 128, 128),
+        "and the samples are the frame's, unshifted by the row that does not exist"
+    );
+    assert!(
+        reported.contains("the JPEG frame is 8x8 where the dictionary says 8x9"),
+        "the page says what it drew instead of what the dictionary described, and it said \
+         {reported}"
+    );
+}
+
+/// A frame this tree will not build a raster for, so that the case above is a *reading* rather
+/// than a decoder that stopped checking.
+///
+/// §7.4.9 states for `JPXDecode` the constraint §7.4.8 does not state for `DCTDecode` — "Width
+/// and Height shall match the corresponding width and height values in the JPEG 2000 data" — and
+/// that mismatch is still a refusal, in [`pdf_model::image`]'s JPEG 2000 arm. What is checked
+/// here is the other bound the codestream's grid now carries alone: a frame stating no samples
+/// is not an image, and reaching the sample loops with it would answer with an empty raster
+/// instead of saying so. `zune-jpeg` answers this one first today — "Image width or height is
+/// set to zero, cannot continue" — which is why the assertion is on the report reaching the
+/// page rather than on which layer wrote it.
+#[test]
+fn a_frame_stating_no_samples_is_refused_rather_than_drawn_empty() {
+    let mut codestream = three_component_jpeg(None);
+    // SOF0's height, big-endian, at the two bytes after the marker, its length and the sample
+    // precision. `three_component_jpeg` writes `FF C0 00 11 08 <height> <width> …`.
+    let sof = codestream
+        .windows(2)
+        .position(|pair| pair == [0xFF, 0xC0])
+        .expect("the fixture writes one SOF0 marker");
+    codestream[sof + 5] = 0;
+    codestream[sof + 6] = 0;
+    let reported = first_image(pdf_with_image(&codestream, "/DeviceRGB", (8, 8)))
+        .expect_err("a frame of no rows is refused");
+    assert!(
+        reported.contains("malformed image"),
+        "the refusal reaches the page rather than being silent, and it was {reported}"
+    );
 }
