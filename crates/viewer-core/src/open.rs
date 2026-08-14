@@ -13,7 +13,7 @@ use pdf_model::outline::Outline;
 use pdf_model::page_label::PageLabels;
 use pdf_model::view::ViewState;
 use pdf_model::{Page, Pages};
-use pdf_render::{DisplayList, Raster, Rect, Size, TargetSpec};
+use pdf_render::{DisplayList, Point, Raster, Rect, Size, TargetSpec};
 use pdf_syntax::Document;
 
 use crate::command::Zoom;
@@ -546,7 +546,7 @@ impl Open {
                     .map(|quad| {
                         let mut mapped = [0.0; 8];
                         for (corner, out) in quad.chunks_exact(2).zip(mapped.chunks_exact_mut(2)) {
-                            let point = back.apply(pdf_render::Point {
+                            let point = back.apply(Point {
                                 x: corner[0],
                                 y: corner[1],
                             });
@@ -1092,7 +1092,12 @@ impl Open {
     ///
     /// `bounds` is what the page's contents cover, in the display list's own space, and is only
     /// consulted by the three `/FitB` forms — "the smallest rectangle enclosing all of its
-    /// contents", which no page dictionary states and only a display list can answer.
+    /// contents", which no page dictionary states and only a display list can answer. **It is
+    /// bounded by the page**, which is the same clause's parenthesis:
+    ///
+    /// > (If any side of the bounding box lies outside the page's crop box, the corresponding
+    /// > side of the crop box shall be used instead; see 14.11.2, "Page boundaries" for further
+    /// > discussion of the crop box.)
     ///
     /// Returns whether anything changed, which is what decides a redraw.
     pub(crate) fn apply_view(
@@ -1111,7 +1116,7 @@ impl Open {
         // The box each form fits: the page for five of them, its contents for the `/FitB`
         // family. A `/FitB` on a page whose contents cover nothing falls back to the page,
         // because the alternative is a magnification of infinity.
-        let content = bounds.filter(|box_| box_.max.x > box_.min.x && box_.max.y > box_.min.y);
+        let content = content_box(bounds, size);
         let (fit_width, fit_height) = match view {
             View::FitB | View::FitBH { .. } | View::FitBV { .. } => content
                 .map_or((size.width, size.height), |box_| {
@@ -1267,6 +1272,35 @@ pub(crate) fn raster_extent(size: Size, magnification: f32) -> (u32, u32) {
     (extent(size.width), extent(size.height))
 }
 
+/// The box the `/FitB` forms magnify to fit: what the page's contents cover, cut to the page.
+///
+/// §12.3.2.2 states the bounding box and then bounds it, in the same paragraph:
+///
+/// > The page's bounding box is the smallest rectangle enclosing all of its contents. (If any
+/// > side of the bounding box lies outside the page's crop box, the corresponding side of the
+/// > crop box shall be used instead; see 14.11.2, "Page boundaries" for further discussion of
+/// > the crop box.)
+///
+/// The cut is the part a display list makes necessary. `pdf_model::interpret` puts the box the
+/// page is displayed in *at the origin* rather than clipping the content to it, so the list
+/// carries every mark the stream made, including the ones off the edge — and `content_bounds`
+/// unions all of them. Without this, a `/FitB` on a page whose producer left ink outside the
+/// crop box would magnify to fit ink this viewer never draws. In the list's own space the
+/// displayed box is `0,0 … width,height`, so the clause's "corresponding side of the crop box"
+/// is that rectangle's side.
+///
+/// `None` where nothing survives the cut, which is the same answer as a page covering nothing:
+/// the three forms fall back to the page box, because the alternative is a magnification of
+/// infinity.
+fn content_box(bounds: Option<Rect>, size: Size) -> Option<Rect> {
+    bounds
+        .map(|box_| Rect {
+            min: Point::new(box_.min.x.max(0.0), box_.min.y.max(0.0)),
+            max: Point::new(box_.max.x.min(size.width), box_.max.y.min(size.height)),
+        })
+        .filter(|box_| box_.max.x > box_.min.x && box_.max.y > box_.min.y)
+}
+
 /// How many times a fit steps down before it settles for the extra pixel.
 ///
 /// One step has always been enough — the loop's condition is what decides, and this is the
@@ -1321,8 +1355,46 @@ fn text(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::raster_extent;
-    use pdf_render::{DisplayList, Size, TargetSpec};
+    use super::{content_box, raster_extent};
+    use pdf_render::{DisplayList, Point, Rect, Size, TargetSpec};
+
+    /// §12.3.2.2's bounding box is cut to the page, and the clause says so in the sentence
+    /// after the one every implementation quotes.
+    ///
+    /// The display list is not clipped to the box the page is displayed in — `interpret` puts
+    /// that box at the origin — so ink outside it reaches `content_bounds` and would otherwise
+    /// decide a `/FitB`'s magnification. Three cases: a box inside the page is its own answer,
+    /// a box hanging off every side becomes the page's, and a box *entirely* outside leaves
+    /// the forms with nothing, which is the same fallback as a page covering nothing.
+    #[test]
+    fn a_bounding_box_is_cut_to_the_page_it_is_on() {
+        let page = Size {
+            width: 200.0,
+            height: 100.0,
+        };
+        let box_ = |x0: f32, y0: f32, x1: f32, y1: f32| {
+            Some(Rect {
+                min: Point::new(x0, y0),
+                max: Point::new(x1, y1),
+            })
+        };
+        assert_eq!(
+            content_box(box_(10.0, 20.0, 30.0, 40.0), page),
+            box_(10.0, 20.0, 30.0, 40.0),
+            "a bounding box inside the page is the bounding box"
+        );
+        assert_eq!(
+            content_box(box_(-50.0, -10.0, 260.0, 130.0), page),
+            box_(0.0, 0.0, 200.0, 100.0),
+            "every side outside the page takes the page's side instead"
+        );
+        assert_eq!(
+            content_box(box_(210.0, 20.0, 260.0, 40.0), page),
+            None,
+            "ink entirely off the page leaves the /FitB forms the page box"
+        );
+        assert_eq!(content_box(None, page), None);
+    }
 
     /// The extent this crate computes and the extent a frame is drawn at must be the
     /// same number, at every magnification — not merely rounded the same way.

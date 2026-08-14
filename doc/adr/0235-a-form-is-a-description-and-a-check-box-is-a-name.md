@@ -151,10 +151,18 @@ label. Answering from `/I` alone would have been the easier code and the wrong c
   agreeing and 69 contradicted pages, quorra's 916 agreeing and the text gate's 99.2% are all
   unchanged, which is what the narrowing above is for: no gate sets a field's value, so no gate can
   see `appearance_state` at all.
-- **`RadiosInUnison` crosses and is not obeyed**, and the division is deliberate: turning on every
+- ~~**`RadiosInUnison` crosses and is not obeyed**, and the division is deliberate: turning on every
   button of a set that shares an on state is a decision for whatever handles the press, and this
-  tree's own host has the flag rather than the behaviour. Named in `doc/todo/37` rather than left to
-  be discovered.
+  tree's own host has the flag rather than the behaviour.~~ Named in `doc/todo/37` rather than left
+  to be discovered — **and wrong in both directions, which the five-hundred-and-eleventh session
+  read out of the clause** (ADR 0346). The flag being *set* was already obeyed by construction, `/V`
+  being a name and a widget being on when its `/AP /N` holds a stream under it; what was *not*
+  obeyed is the flag being **clear**, where §12.7.5.2.3 requires that "at most one radio button in a
+  field shall be set at a time" and this tree turned them all on. The requirement is stated in the
+  check box subclause, attached to `/Opt`, which is why a round reading the radio-button subclause
+  never met it. That round corrected two ledger rows and `doc/todo/30` and left this consequence
+  standing; the five-hundred-and-seventeenth's retired-claim sweep found it here, which is ADR
+  0265's rule and this ADR's turn to keep it.
 
 ## What this leaves open, and it is written in `doc/todo/37`
 

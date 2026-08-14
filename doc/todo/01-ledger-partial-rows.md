@@ -33,10 +33,12 @@ misquotations of the standard (ADR 0249).
 Priority: 01 — the population with no gate, and it has paid on every session that touched it
 Code: `doc/conformance/ledger.toml`, checked by `cargo test -p conformance`
 
-**A sweep round commits one prose sweep as a program before running any of them.** Five of the
+**A sweep round commits one prose sweep as a program before running any of them.** Six of the
 fifteen are commands (`conformance --bin entries`, `--bin quotations`, `--bin unread` since the
-four-hundred-and-eighty-ninth, `--bin blockers` since the five-hundred-and-first, and — since the
-five-hundred-and-tenth — `--bin capabilities`, the third sweep) and ten are still
+four-hundred-and-eighty-ninth, `--bin blockers` since the five-hundred-and-first, `--bin
+capabilities` since the five-hundred-and-tenth, and — since the five-hundred-and-seventeenth —
+`--bin retired`, the fourth sweep, which is the only one whose population cannot be derived and
+which therefore takes its nouns as arguments, ADR 0352) and nine are still
 descriptions, and a description is what let the fifteenth go unrun for twenty-four rounds and then
 be rebuilt from its own paragraph (ADR 0319) — `CLAUDE.md`'s "write down the command, not the
 answer" failing in the direction it was written for. The cheapest moment to commit one is the
@@ -2116,7 +2118,8 @@ insertion's own clause block.
   the signature family landing, plus the band from commit 185 to 202** (§12.5.6.23 through
   §9.6). **Nothing below commit 202 is unread now** apart from rows read and kept, whose
   evidence is recorded in their notes; the band from commit 213 (§12.7.6.4) onward holds the
-  rest, and what replaces the blame order as a
+  rest — **and the five-hundred-and-seventeenth read that band to commit 409**, which the section
+  below records. What replaces the blame order as a
   way in is `doc/habits.md`'s six refusal shapes, the sixth of which was added by the round that
   emptied it.
 - **The fourteenth sweep's own vocabulary.** Nine of its sixteen hits are rows that *do* name a debt
@@ -2126,3 +2129,110 @@ insertion's own clause block.
 - **§14.8.6.3's enclosure requirement** — Errata Collection 3 requires a `math` element under a
   `Formula` structure element and the namespace on every MathML type *and attribute*, and `Tree::role`
   checks neither. `doc/todo/48` carries it and this round walked past it in the same family.
+
+## All fifteen run again in the five-hundred-and-seventeenth, the fourth committed as a program, and both of its defects were in ADRs
+
+Six rounds since the last full sweep — the C caller's vocabulary and the flag obeyed backwards
+(511), a quorra release's chord floor and round cap (512), the Arabic witness read out (513), the
+door that did not ask the signature (514) and the wave beside them. Over `ledger.toml`, `crates/`,
+`tools/`, `fuzz/` and — for the fourth sweep, now wider than `doc/adr/` — every Markdown document
+under `doc/` this project wrote bar `doc/history/`:
+
+- **Retired claim (sweep 4), as a program** (`cargo run --release -p conformance --bin retired --
+  <noun> …`, ADR 0352). First run over seventeen nouns: **544 mentions, 7 nouns carrying both
+  shapes, 2 defects and both in `doc/adr/`.** ADR 0235's consequence still read "`RadiosInUnison`
+  crosses and is not obeyed" six rounds after the five-hundred-and-eleventh read that sentence out
+  of §12.7.5.2.3 — **and that round's own record names ADR 0235 as the fourth place carrying the
+  claim**, having corrected the other three. ADR 0337's "what this does not do" still filed
+  `freetext_no_appearance.pdf` under `doc/todo/21`'s per-character fallback, which ADR 0348 read
+  out in the five-hundred-and-thirteenth while correcting `doc/todo/21`, `doc/todo/22` and
+  §12.7.4.3's row. **What the program adds over the grep is the order**: a mention is a
+  *correction* or a *standing claim*, and a noun carrying both is where every finding this sweep
+  has ever had lives. **And the run taught the program one rule**: a sentence
+  containing Markdown's `~~` is a retirement whatever words are inside it, because this project
+  strikes the retired sentence and writes the correction *after* it, in the next sentence. **And
+  it taught its own noise shape**: a noun that is also an ordinary
+  English word costs the run its signal — `prefix` returned 262 mentions and `joining` 36, nearly
+  all of them threads and lists being joined. The nouns that paid were the ones a session invented.
+- **Blockers (program)**: ledger 20 sentences — 6 expired, 9 holding, 5 naming no clause; source 26
+  — 9, 10, 7. 0 defects; every printed-expired hit a correction quoting the wording it retired or a
+  contrastive "while §X says" (§10.7.4's zero-width stroke against §8.4.3.2 is the live one, and it
+  is a documented choice rather than a wait).
+- **Unread (program)**: 63 rows claim, 172 keys; 53 confirmed, 119 quoted over 51 rows, 54 by the
+  row's own code — identical to the five-hundred-and-tenth's five numbers, which is the cheapest
+  evidence there is that a population has not drifted. 0 defects.
+- **Capabilities (program)**: ledger 47 sentences — 33 witnessed by the tree, 40 about the program,
+  7 about one crate; source 141 — 115, 77, 64. 0 defects; every source hit a true statement about a
+  boundary a crate keeps.
+- **Entries (program)**: 236 rows in the population, 113 entries reported over 45 rows — 32 named
+  nowhere, 81 only elsewhere, 37 not named by the row's own note. The known populations (the
+  excluded sound and movie actions, §12.11.1's `/RH` which §12.11.5's row disposes of by name), and
+  **one worked**: §12.8.2.3's Table 258 `/Msg`, the one entry of the usage-rights table nothing
+  quotes, which is the producer's stated *reason* for the rights and belongs beside the sentence
+  `notes.rs` already prints. Named on the row rather than built.
+- **Quotations (program)**: 3123 quotations in 483 documents, 1462 verbatim, 23 diverging, **0
+  defects** — every divergence an `…` elision or the conversion's own shape.
+- **Caller sweep (5)**: 286 distinct `pub fn` names in `pdf-model` — the same population as the
+  five-hundred-and-tenth — with a session-local extraction whose *level* is not comparable across
+  runs (101 unnamed by the eight hosts, 82 by no host, tool or fuzz target). The three known
+  populations.
+- **Arithmetic (6)**: two hits, §7.9.2 and §O, read and kept before. Clean.
+- **`inapplicable` (7)**: 43 of 80 rows name source vocabulary under a session-local stop-list; none
+  wrong, and no row in the population changed since the five-hundred-and-tenth's read.
+- **Citations (8)**: 5 hits and **1 defect**. §8.9.6.1's `doc/todo/20`, §12.7's and
+  `viewer-gtk/src/controls.rs`'s `doc/todo/37` are the known correction-quoting-its-pointer shape;
+  **`crates/viewer-ffi/src/form.rs`'s `doc/todo/37` is a plain citation, written in the
+  five-hundred-and-eleventh to a file the four-hundred-and-ninth deleted**. The audit it names is
+  ADR 0235's, and the comment says so now. Worth recording about the instrument as well: a sweep
+  over paths reads a *test fixture's* path as a citation, which is why the three under
+  `tools/conformance` are not read.
+- **Table numbers (9)**: 1104 citations checked, 80 suspects, **0 defects** — every suspect read
+  down to the known prose shape (a table named and then a key of the dictionary it describes, or a
+  table's *value* beside its entry), and the parser under-collects a flag table's names, which is
+  the known instrument shape.
+- **Parent counts (10)**: 17 counted claims, 0 defects — the known convention (a count excluding the
+  family's own `General` row) and counts about the *clause* rather than the family.
+- **Ledger quotation marks (11)**: 1243 spans of 4+ words under a session-local normaliser, 719
+  verbatim in `doc/md/`, 30 matching five words and diverging, **0 defects** — every one an `…`
+  elision, §8.4.4's correction quoting its retired wording, or the conversion's broken words
+  ("hierarch y", "implementationdependent").
+- **Sweep 14**: 19 hits under a session-local debt vocabulary. Eleven are the known shape (a debt
+  named in words the vocabulary does not hold); **§12.3.2 was in both this list and the blame band**
+  and is corrected below.
+- **The errata (12)**: "151 struck passage(s) of 4 words or more that doc/md/ still carries as
+  current text" over all fourteen PDFs, unchanged, so the population is still read to the end; every
+  landing is a known in-place annotation.
+
+### Twelve rows read off the blame list, the band from commit 213
+
+Oldest first: §12.7.6.4, §14.8.2.1, §7.6.4.3.2, §12.3.2, §8.11, §9.8.2, §12.8.2.3, §12.3.2.2,
+§12.3.4, §12.7.3, §12.5.6.5, §12.2. **Two were wrong, one hid a `shall` nothing had read, and one
+status moved.**
+
+| row | shape | was | is |
+|---|---|---|---|
+| **§14.8.2.1** | 5, 7 | "a selection is still taken in content order, and the map between the two offsets is what remains" | `Tree::logical_range` **is** that map, answered by `Query::LogicalSelection` and copied by since the four-hundred-and-thirteenth — and §14.8.2.5's own row has said so in those words ever since. Every rule this clause states is a pointer to a subclause and all six are answered — **`implemented`** |
+| **§12.3.2.2** | new, and it is a `shall` | `partial` "for `Target::Number` alone" | the integer form *is* read and `page_index_in_target` resolves it against §12.6.4.4's embedded target; what cannot be resolved is a page in a file this reader does not open, which is §12.6.4.3's refusal. **And the clause bounds the bounding box in the same paragraph** — "[i]f any side of the bounding box lies outside the page's crop box, the corresponding side of the crop box shall be used instead" — which nothing had read: `interpret` puts the displayed box at the *origin* rather than clipping to it, so a `/FitB` magnified to fit ink the viewer never draws. `open::content_box` cuts it |
+| §12.3.2 | 14th sweep's | `partial` above a note naming nothing owed | its one unsettled child named, and §12.3.2.2's wait with it |
+| §12.7.6.4 | precision | what is owed is "any other data format that it supports" | what is owed is **XFDF**, which the clause names; the open-ended tail is satisfied by supporting what one supports |
+
+**The nine kept rows each record the evidence that kept them** — the grep for `AllCap` and
+`SmallCap` (nothing names either, and every `Script` in the tree is part of *PostScript*), the grep
+for `"CO"`, `crypt.rs`'s shared conversion and its overlay of the password on the padding string,
+§8.11.4.4 still naming what is missing, `Query::Preferences` still answering Table 147 whole —
+which is what moves the blame pointer without a stamp.
+
+**§12.5.6.5 is the one that was read *whole* rather than from its correction onwards**, which is
+this file's own sixth shape and the row that produced it. Both halves agree now, six rounds after
+the two-hundred-and-seventy-eighth found them disagreeing.
+
+## What is still owed, named
+
+- **The `partial` rows not yet re-read against the code.** Nothing between commits 202 and 409 of
+  673 is unread now: the five-hundred-and-seventeenth took the band from 213 (§12.7.6.4) to 409
+  (§12.2), twelve rows. **What is left under the fold is one row** — §12.6.4.4, at commit 184,
+  last written by the session that built the clause it describes — plus the read-and-kept set,
+  whose evidence is in their notes. **The next band begins at §7.9, commit 413.**
+- **A noun that is an ordinary English word is a noun the fourth sweep cannot rank.** `prefix` and
+  `joining` between them produced 298 of the first run's 544 mentions and not one finding. Choosing
+  the invented nouns first is free; widening the program's matching would only make it worse.

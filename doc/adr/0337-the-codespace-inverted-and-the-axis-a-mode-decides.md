@@ -145,7 +145,16 @@ load-bearing checks — `the_pdf_widths_agree_with_the_font_programs_own_advance
 
 ## What this does not do
 
-**`doc/todo/21`'s per-character fallback is still owed.** `freetext_no_appearance.pdf` remains
+~~**`doc/todo/21`'s per-character fallback is still owed.**~~ `freetext_no_appearance.pdf` remains
 the one corpus document whose `/DA` value is refused: `/Helv`, a paragraph of Arabic, and no
 Helvetica has the glyphs. Nothing here reaches it — that one is about a *simple* font that
 cannot draw part of a value, and ADR 0112 decided what happens then.
+
+**And it is not the per-character fallback's witness either**, which the five-hundred-and-thirteenth
+session read out (ADR 0348) and the five-hundred-and-seventeenth's retired-claim sweep found still
+filed that way here. No compiled-in face carries one Arabic glyph — Liberation Sans's `cmap` maps
+the whole range to glyph 0 and its `GSUB` has no `arab` script — so a chain asked per character
+finds nothing to chain to, and even with glyphs it would draw isolated forms left to right. What
+that document needs is a glyph source, Unicode's joining-form selection and right-to-left ordering
+**together or not at all**. `doc/todo/21` and `doc/todo/22` carry the corrected filing; this
+paragraph did not until now.

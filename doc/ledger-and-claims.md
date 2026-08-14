@@ -4,7 +4,7 @@ Status: **standing** — `tools/state.sh` prints the counts; the failure modes l
 Read by: whoever is about to write or correct a ledger row, or to believe one.
 
 `doc/PLAN.md` §5a owns the ledger's format, statuses and checker; `doc/todo/01-ledger-partial-rows.md`
-owns the sweeps — fifteen now, five of them committed programs — and what each run found — the eleventh is new in the
+owns the sweeps — fifteen now, six of them committed programs — and what each run found — the eleventh is new in the
 four-hundred-and-thirteenth and is the first that reads a row's *quotation marks* (ADR 0249), and
 the twelfth lives in `tools/spec-errata` and asks the same spans whether an erratum struck one
 (ADR 0254). The counts below were read off `cargo run -p conformance --bin ledger` in the

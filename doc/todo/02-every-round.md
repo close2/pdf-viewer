@@ -206,6 +206,14 @@ share and the two that break it:
   that decays) or about *one crate* (usually a boundary it keeps on purpose); the dominant
   noise is a true boundary statement, which a witness does not disprove. Read the sentence
   before believing a hit.
+- **One asks where else a claim a round *retired* is still written**: `cargo run --release
+  -p conformance --bin retired -- <noun> …`, seconds, over `ledger.toml`, the source roots and
+  every Markdown document under `doc/` bar `doc/history/` — the fourth sweep as a program (ADR
+  0352). It is the one sweep that cannot derive its own population, because what was retired is
+  what the last rounds decided, so the nouns are arguments and the rule is `doc/todo/01`'s: give
+  it the *mechanism*, not the sentence. Each mention is printed as a correction or as a standing
+  claim, and **a noun carrying both is the shape to read first** — somebody wrote the retirement
+  here and not there.
 - **One reads *these documents'* quotation marks**, on the same discriminator and for the same
   reason: `cargo run --release -p conformance --bin quotations`, seconds, over every Markdown file
   this project wrote under `doc/`. Its first run found three sentences quoted as the standard's that

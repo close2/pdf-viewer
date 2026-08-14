@@ -53,6 +53,7 @@ pub mod entries;
 pub mod ledger;
 pub mod prose;
 pub mod quote;
+pub mod retired;
 pub mod toml_subset;
 pub mod unread;
 
