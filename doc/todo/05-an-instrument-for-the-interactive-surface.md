@@ -1,13 +1,16 @@
 # An instrument for the interactive surface
 
-Status: **design settled, nothing built** — ADR 0323 is the design, with the measured
-reference-vs-reference spread the tolerance rests on. One round per instrument remains, in the
-order below.
+Status: **instrument 1 built (ADR 0333); instruments 2 and 3 remain** — ADR 0323 is the design,
+with the measured reference-vs-reference spread the tolerance rests on. One round per remaining
+instrument, in the order below.
 Priority: 05 — standing band, because it is an instrument like 00 and 01 rather than a feature
 Corpus: the denominator is stated per instrument in ADR 0323, with every refusal printed by reason
 Clauses: §9.10 (extraction), §12.7 (forms), §7.5.6 (the incremental update a save appends),
 §14.7–§14.9 (the tree a screen reader walks), §12.3.2/§12.6 (what a click does)
-Code: none yet; ADR 0323 names the `Query`/`Command` surfaces each instrument exercises
+Code: instrument 1 is `tools/pdfref/src/extract.rs` (the extractors and their cache),
+`crates/pdf-model/tests/text_extraction.rs` (the verdict and the derivation) and
+`crates/viewer-core/tests/headless.rs` (the drag half); ADR 0323 names the `Query`/`Command`
+surfaces the other two exercise
 
 ## Why
 
@@ -39,12 +42,17 @@ text-domain entry.
 
 ## The build items, one round each, in this order
 
-1. **Selection geometry.** The frame audit, the unique-word matcher, the two bounds re-derived
-   by the instrument over its real population before they gate — then the drag half in
-   `viewer-core`'s headless harness, with the drag's endpoints taken from the *reference's* box
-   (trap 12a's rule: the point comes from outside the code under test). Lands as an `--ignored`
-   test in `pdf-model`'s `text_extraction` binary — §2's line runs it with no new line — with
-   the reference output under `pdfref`'s cache rules, the invocation in the key.
+1. **Selection geometry — built (ADR 0333).** The frame audit, the unique-word
+   matcher, the two bounds re-derived by the instrument itself
+   (`PDFVIEWER_SELECTION_SPREAD=1`, an environment guard on ADR 0282's rule), and the drag half
+   in `viewer-core`'s headless harness with both endpoints from the reference's box. It runs in
+   §2's existing `text_extraction` line with no new line, printing and **not yet gating**: the
+   per-word bounds (horizontal edges 0.5 pt, vertical centres half the word's height) and the
+   verdict distribution enter §2 only once they have held across rounds — the rule below — and
+   the first full run's figures are session 498's history file, reprinted by the gate line
+   itself. **What remains of this item**: the ratchet, once held; and the two self-inverse
+   properties ADR 0323 puts beside the drag half (`Query::Offset` of `Query::Caret`'s point,
+   `Selection::All` byte-for-byte against `Interpretation::text`), which no round has written.
 2. **The save round-trip.** One synthetic `Edit::FreeText` per document plus `Edit::SetField`
    wherever a text field exists; the three exact assertions corpus-wide; refusals counted,
    printed, and ratcheted — under the default `Restrict(On)` a policy refusal is the policy

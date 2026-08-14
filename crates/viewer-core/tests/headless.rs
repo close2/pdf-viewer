@@ -5359,3 +5359,227 @@ fn an_edit_forgets_every_page_the_search_had_read() {
         "four pages interpreted again: {reread:?}"
     );
 }
+
+/// A word and its box as `pdftotext -bbox -cropbox` states it: points, origin at the crop
+/// box's top-left corner, y growing down.
+struct ReferenceWord {
+    text: String,
+    x0: f32,
+    y0: f32,
+    x1: f32,
+    y1: f32,
+}
+
+/// One `name="number"` attribute of one of `pdftotext`'s XML tags.
+fn bbox_number(tag: &str, name: &str) -> Option<f32> {
+    tag.split_once(&format!("{name}=\""))?
+        .1
+        .split('"')
+        .next()?
+        .parse()
+        .ok()
+}
+
+/// Runs `pdftotext -bbox -cropbox` over page one of a committed document, bounded.
+///
+/// The reference the drag's endpoints come from — trap 12a's rule that a test needing a point
+/// takes it from outside the code under test, applied to the whole drag: `pdf-model`'s
+/// corpus instrument (ADR 0323) judges these boxes against our text layer at scale, and this
+/// harness composes the rest of the journey — device pixels in, selected text out — from the
+/// same reference's answer. `-cropbox` because §14.11.2.1's crop box is the displayed frame
+/// and `pdftotext`'s default is the media box (ADR 0323 Finding 1).
+fn reference_word_boxes(path: &Path) -> Option<(f32, f32, Vec<ReferenceWord>)> {
+    let out = std::env::temp_dir().join(format!(
+        "viewer-core-bbox-{}-{:?}.html",
+        std::process::id(),
+        std::thread::current().id()
+    ));
+    let mut child = std::process::Command::new("pdftotext")
+        .args(["-bbox", "-cropbox", "-f", "1", "-l", "1", "-q"])
+        .arg(path)
+        .arg(&out)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .ok()?;
+    // Bounded, as every external process in this tree is: a committed document should be
+    // seconds, and a poll loop is what the standard library offers instead of a deadline.
+    let started = std::time::Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) if status.success() => break,
+            Ok(Some(_)) | Err(_) => return None,
+            Ok(None) if started.elapsed() > std::time::Duration::from_secs(30) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(10)),
+        }
+    }
+    let html = std::fs::read_to_string(&out).ok()?;
+    let _ = std::fs::remove_file(&out);
+
+    let (mut width, mut height) = (0.0, 0.0);
+    let mut words = Vec::new();
+    for line in html.lines() {
+        let line = line.trim_start();
+        if line.starts_with("<page ") {
+            width = bbox_number(line, "width")?;
+            height = bbox_number(line, "height")?;
+        } else if let Some(open) = line.strip_prefix("<word ") {
+            let text = open.split_once('>')?.1.strip_suffix("</word>")?;
+            words.push(ReferenceWord {
+                text: text.to_owned(),
+                x0: bbox_number(open, "xMin")?,
+                y0: bbox_number(open, "yMin")?,
+                x1: bbox_number(open, "xMax")?,
+                y1: bbox_number(open, "yMax")?,
+            });
+        }
+    }
+    Some((width, height, words))
+}
+
+/// A drag across the reference's word box selects that word — ADR 0323's instrument 1, the
+/// composed half.
+///
+/// The corpus instrument in `pdf-model`'s `text_extraction` binary judges where our text layer
+/// *says* the words are against `pdftotext -bbox -cropbox`; this test drives the drag itself
+/// through the real boundary — `Command::Pointer` press, drag, release, `Query::Selection` —
+/// with **both endpoints taken from the reference's box and neither from this tree's own
+/// geometry**. That is trap 12a's rule, and it is what makes this the check that catches
+/// `user_space_at`'s mirror on its first run: a viewer that flipped the y axis the wrong way
+/// would select the mirror of the reference's word, and the mirror of a word is not the word.
+///
+/// The viewport is resized to the page's own point size at scale 1, so the map from the
+/// reference's frame (y down from the page's top) to device pixels is the identity up to the
+/// reported origin — the y flip is entirely the viewer's to get right on the way back in.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one composed journey — reference box to device pixels to selection — and \
+              splitting it would hide which half a failure is in"
+)]
+fn a_drag_across_the_references_word_box_selects_the_word() {
+    let path: PathBuf = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc/PDF20_AN001-BPC.pdf");
+    let Some((ref_width, ref_height, words)) = reference_word_boxes(&path) else {
+        panic!("pdftotext is required for this test; it comes with poppler");
+    };
+
+    let (mut viewer, events) = opened(800, 1000);
+    let request0 = request(&events).clone();
+    serve(&mut viewer, &request0);
+    let Answer::Geometry(geometry) = viewer.query(Query::PageGeometry(0)) else {
+        panic!("the page on the screen has a geometry");
+    };
+    // The frame audit in miniature: the reference's page size and ours must be the same frame
+    // before a box from one is used as a point in the other (ADR 0323 Finding 1). This
+    // document states no /Rotate and no /UserUnit, so the two sizes agree directly.
+    assert!(
+        (geometry.page.width - ref_width).abs() < 1.0
+            && (geometry.page.height - ref_height).abs() < 1.0,
+        "pdftotext answers a {ref_width}x{ref_height} page where the viewer shows {:?}",
+        geometry.page
+    );
+
+    // The page's own point size as the viewport, so device pixels and points coincide.
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a page's extent in points is positive and far below u32's range"
+    )]
+    let events: Vec<Event> = viewer
+        .handle(Command::Resize {
+            width: ref_width.ceil() as u32,
+            height: ref_height.ceil() as u32,
+            scale: 1.0,
+        })
+        .collect();
+    let resized = request(&events).clone();
+    serve(&mut viewer, &resized);
+    let Answer::Geometry(geometry) = viewer.query(Query::PageGeometry(0)) else {
+        panic!("the resized page still has a geometry");
+    };
+    assert!(
+        (geometry.scale - 1.0).abs() < 0.01,
+        "at the page's own size the fit is the identity: {}",
+        geometry.scale
+    );
+
+    // The three longest words that occur exactly once and carry no markup escapes — unique so
+    // that finding the text proves the *place*, which is the whole question.
+    let mut unique: Vec<&ReferenceWord> = words
+        .iter()
+        .filter(|word| {
+            word.text.chars().all(char::is_alphanumeric)
+                && word.text.chars().count() >= 4
+                && words.iter().filter(|other| other.text == word.text).count() == 1
+        })
+        .collect();
+    unique.sort_by_key(|word| std::cmp::Reverse(word.text.len()));
+    unique.truncate(3);
+    assert!(
+        !unique.is_empty(),
+        "page one of the note has unique words to drag across"
+    );
+
+    for word in unique {
+        // The reference's frame is y-down from the page's top, which is the raster's own
+        // orientation: a point in it maps to the viewport through origin and scale alone,
+        // and the flip back to PDF's y-up space is the viewer's job — the one under test.
+        let device = |x: f32, y: f32| {
+            (
+                geometry.origin.0 + x * geometry.scale,
+                geometry.origin.1 + y * geometry.scale,
+            )
+        };
+        let mid = f32::midpoint(word.y0, word.y1);
+        let (start, end) = (device(word.x0 - 2.0, mid), device(word.x1 + 2.0, mid));
+
+        viewer
+            .handle(Command::Pointer {
+                at: start,
+                action: PointerAction::Pressed,
+            })
+            .for_each(drop);
+        viewer
+            .handle(Command::Pointer {
+                at: end,
+                action: PointerAction::Dragged,
+            })
+            .for_each(drop);
+        viewer
+            .handle(Command::Pointer {
+                at: end,
+                action: PointerAction::Released,
+            })
+            .for_each(drop);
+
+        let Answer::Selected(selection) = viewer.query(Query::Selection) else {
+            panic!("dragging across {:?} selected nothing", word.text);
+        };
+        let selected: String = selection
+            .text
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .collect();
+        assert!(
+            selected.contains(&word.text),
+            "the drag across the reference's box for {:?} selected {:?}",
+            word.text,
+            selection.text
+        );
+        // A drag two points past each edge must not have swept the line: the box the
+        // reference states is the box the selection grew from.
+        assert!(
+            selected.chars().count() <= word.text.chars().count() + 8,
+            "the drag across {:?} took half the line: {:?}",
+            word.text,
+            selection.text
+        );
+        viewer
+            .handle(Command::Select(Selection::None))
+            .for_each(drop);
+    }
+}

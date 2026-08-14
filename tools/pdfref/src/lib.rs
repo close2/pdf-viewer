@@ -39,6 +39,7 @@
 
 pub mod cache;
 pub mod digest;
+pub mod extract;
 pub mod normalise;
 pub mod png_io;
 pub mod reference;
@@ -50,6 +51,7 @@ use pdf_render::Raster;
 use raster_compare::Comparison;
 
 pub use cache::Cache;
+pub use extract::{ExtractionCache, ExtractionError, Extractor};
 pub use normalise::Normalisation;
 pub use reference::Reference;
 

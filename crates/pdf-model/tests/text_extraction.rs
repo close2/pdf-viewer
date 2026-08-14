@@ -1006,3 +1006,928 @@ fn percentage(matched: usize, words: usize) -> f64 {
         matched as f64 / words as f64 * 100.0
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// ADR 0323's instrument 1: selection and extraction geometry.
+//
+// Everything above compares *which characters* a page reads back as; nothing anywhere compared
+// *where they are* — and the quadrilateral a drag is turned into is built from exactly that
+// geometry (`Interpretation::text_layer`). The instrument below judges those word boxes against
+// `pdftotext -bbox -cropbox`, matched by unique text, with the frame audited before any box is
+// compared and every exclusion printed by reason, because a document the instrument cannot
+// judge is a document off the judged set (trap 11's arithmetic).
+//
+// The verdict is bounded and split by axis, on ADR 0323's measurement: horizontal edges are a
+// specification quantity (§9.4.4's glyph positioning arithmetic — the references agree to a
+// ten-thousandth of a point); the vertical *extent* of a word box is each extractor's own
+// ascent/descent convention and is deliberately unjudged; the vertical *centre* is judged
+// relative to the word's own height. Reading order is deliberately not part of any of it
+// (ADR 0323 Finding 4). The bounds are re-derived by this binary itself —
+// `the_selection_bounds_against_the_references_own_spread` below — so the derivation lives
+// next to the bound.
+// ---------------------------------------------------------------------------------------------
+
+use pdfref::{ExtractionCache, ExtractionError, Extractor};
+
+/// The horizontal bound, in points, on each of a matched word's two vertical edges.
+///
+/// From ADR 0323 Finding 2: over 13 130 matched word pairs the two references' own horizontal
+/// spread is p99 0.14 pt, and 0.5 pt admits it with the same headroom `Tolerance`'s raster
+/// bounds carry. Re-derive it rather than trusting this comment:
+///
+/// ```sh
+/// PDFVIEWER_SELECTION_SPREAD=1 cargo test --profile gates -p pdf-model \
+///     --test text_extraction -- --ignored --nocapture the_selection_bounds
+/// ```
+const HORIZONTAL_BOUND: f64 = 0.5;
+
+/// The vertical-centre bound, as a fraction of the matched word's own height.
+///
+/// From ADR 0323 Finding 3: vertical *edges* are convention against convention (the two
+/// references' box-height ratio is median 1.29 on identical glyphs) and are excluded from the
+/// verdict; centres relative to the word's height agree to p99 0.455, which half the word's
+/// height admits. The height a delta is relative to is the mean of the two boxes' heights,
+/// stated here because the two conventions differ by a third and the choice moves the number.
+/// The same derivation run as [`HORIZONTAL_BOUND`] reprints it.
+const VERTICAL_CENTRE_BOUND: f64 = 0.5;
+
+/// One point per axis before two statements of the page's frame count as the same frame.
+///
+/// The harness's one-pixel-per-axis rule at 72 dpi, applied to the page's *size*: ADR 0323's
+/// Finding 1 found three mechanisms by which a positional extractor answers in a different
+/// frame — `MediaBox` against `CropBox`, Table 31's `/UserUnit`, `/Rotate` — and a document
+/// whose frames cannot be reconciled is refused by name rather than judged.
+const FRAME_TOLERANCE: f64 = 1.0;
+
+/// A word and its box in the reference frame: **the displayed page in unscaled points** —
+/// origin at the displayed page's top-left corner, y growing down, `/Rotate` applied,
+/// `/UserUnit` *not* applied.
+///
+/// The frame is `pdftotext -bbox -cropbox`'s own — established by measurement, and not the
+/// frame its `<page>` element states; see [`Frame::reference_point`] for the witnesses.
+/// Everything else — `mutool`'s `/UserUnit`-scaled frame and this tree's display-list space —
+/// is normalised *into* it explicitly.
+struct WordBox {
+    /// The word, folded by [`fold`].
+    text: String,
+    x0: f64,
+    y0: f64,
+    x1: f64,
+    y1: f64,
+}
+
+impl WordBox {
+    fn height(&self) -> f64 {
+        self.y1 - self.y0
+    }
+
+    fn centre_y(&self) -> f64 {
+        f64::midpoint(self.y0, self.y1)
+    }
+}
+
+/// One page of one extractor's answer: the page's stated size, and its words.
+struct ExtractedPage {
+    width: f64,
+    height: f64,
+    words: Vec<WordBox>,
+}
+
+/// Undoes the XML escaping both extractors' output formats apply.
+fn unescaped(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find('&') {
+        out.push_str(&rest[..start]);
+        let tail = &rest[start..];
+        let Some(end) = tail.find(';') else {
+            out.push_str(tail);
+            return out;
+        };
+        match &tail[1..end] {
+            "amp" => out.push('&'),
+            "lt" => out.push('<'),
+            "gt" => out.push('>'),
+            "quot" => out.push('"'),
+            "apos" => out.push('\''),
+            code => {
+                let parsed = code.strip_prefix("#x").map_or_else(
+                    || code.strip_prefix('#').and_then(|d| d.parse::<u32>().ok()),
+                    |hex| u32::from_str_radix(hex, 16).ok(),
+                );
+                match parsed.and_then(char::from_u32) {
+                    Some(c) => out.push(c),
+                    // Not an entity this format writes; kept as it came.
+                    None => out.push_str(&tail[..=end]),
+                }
+            }
+        }
+        rest = &tail[end + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// One `name="value"` attribute of an XML tag, unparsed.
+fn attribute<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
+    let start = tag.find(&format!("{name}=\""))? + name.len() + 2;
+    let rest = tag.get(start..)?;
+    rest.get(..rest.find('"')?)
+}
+
+/// A `name="number"` attribute of an XML tag.
+fn number(tag: &str, name: &str) -> Option<f64> {
+    attribute(tag, name)?.parse().ok()
+}
+
+/// Parses `pdftotext -bbox`'s XHTML: one `<word>` element per word, already in the reference
+/// frame.
+fn poppler_page(html: &str) -> Option<ExtractedPage> {
+    let mut page: Option<ExtractedPage> = None;
+    for line in html.lines() {
+        let line = line.trim_start();
+        if line.starts_with("<page ") {
+            if page.is_some() {
+                // -f 1 -l 1 asks for one page; a second one means the question changed.
+                return None;
+            }
+            page = Some(ExtractedPage {
+                width: number(line, "width")?,
+                height: number(line, "height")?,
+                words: Vec::new(),
+            });
+        } else if let Some(open) = line.strip_prefix("<word ")
+            && let Some(page) = page.as_mut()
+        {
+            let text = open.get(open.find('>')? + 1..)?.strip_suffix("</word>")?;
+            page.words.push(WordBox {
+                text: fold(&unescaped(text)),
+                x0: number(open, "xMin")?,
+                y0: number(open, "yMin")?,
+                x1: number(open, "xMax")?,
+                y1: number(open, "yMax")?,
+            });
+        }
+    }
+    page
+}
+
+/// Parses `mutool draw -F stext`'s XML into words, in **`mutool`'s own frame**: points from the
+/// top-left of the page as displayed — rotated by `/Rotate` and scaled by `/UserUnit`, which is
+/// what [`normalised_into_the_reference_frame`] undoes.
+///
+/// `stext` states characters, not words, so words are built here: characters of one `<line>`
+/// accumulate and whitespace closes a word, which is the same convention `pdftotext` applies
+/// on its side of the match.
+fn mupdf_page(xml: &str) -> Option<ExtractedPage> {
+    let mut page: Option<ExtractedPage> = None;
+    // The word being accumulated: text, and the running box.
+    let mut word: Option<WordBox> = None;
+    for line in xml.lines() {
+        let line = line.trim_start();
+        if line.starts_with("<page ") {
+            if page.is_some() {
+                return None;
+            }
+            page = Some(ExtractedPage {
+                width: number(line, "width")?,
+                height: number(line, "height")?,
+                words: Vec::new(),
+            });
+        } else if line.starts_with("</line>") {
+            if let (Some(page), Some(done)) = (page.as_mut(), word.take()) {
+                page.words.push(done);
+            }
+        } else if line.starts_with("<char ")
+            && let Some(page) = page.as_mut()
+        {
+            let text = unescaped(attribute(line, "c")?);
+            if text.chars().all(char::is_whitespace) {
+                if let Some(done) = word.take() {
+                    page.words.push(done);
+                }
+                continue;
+            }
+            let quad = attribute(line, "quad")?;
+            let mut corners = quad.split_ascii_whitespace().filter_map(|n| n.parse().ok());
+            let (mut x0, mut y0) = (f64::INFINITY, f64::INFINITY);
+            let (mut x1, mut y1) = (f64::NEG_INFINITY, f64::NEG_INFINITY);
+            for _ in 0..4 {
+                let (x, y): (f64, f64) = (corners.next()?, corners.next()?);
+                (x0, y0) = (x0.min(x), y0.min(y));
+                (x1, y1) = (x1.max(x), y1.max(y));
+            }
+            match word.as_mut() {
+                Some(word) => {
+                    word.text.push_str(&fold(&text));
+                    word.x0 = word.x0.min(x0);
+                    word.y0 = word.y0.min(y0);
+                    word.x1 = word.x1.max(x1);
+                    word.y1 = word.y1.max(y1);
+                }
+                None => {
+                    word = Some(WordBox {
+                        text: fold(&text),
+                        x0,
+                        y0,
+                        x1,
+                        y1,
+                    });
+                }
+            }
+        }
+    }
+    page
+}
+
+/// The page's frame as this tree reads it: the crop box in points, `/Rotate`, `/UserUnit`.
+///
+/// ISO 32000-2 §7.7.3.3 Table 31 is the source of all three, and each is one of the three
+/// mechanisms ADR 0323's Finding 1 measured. What the audit and the normalisation need is
+/// exactly this triple and nothing else about the page.
+struct Frame {
+    /// Crop-box width and height, unrotated, in points.
+    width: f64,
+    height: f64,
+    rotate: u16,
+    user_unit: f64,
+}
+
+impl Frame {
+    fn of(page: &pdf_model::Page) -> Option<Self> {
+        // The display list's own space is built from `/ViewArea`'s box (§12.2), which Table
+        // 147 defaults to the crop box and 0 of the 974 corpus documents move. `pdftotext`
+        // knows nothing of viewer preferences, so the one document that did state one would
+        // be normalised into a frame the reference is not answering in — refused instead.
+        if page
+            .display_box
+            .iter()
+            .zip(&page.crop_box)
+            .any(|(view, crop)| (view - crop).abs() > 0.01)
+        {
+            return None;
+        }
+        Some(Self {
+            width: f64::from(page.crop_box[2] - page.crop_box[0]),
+            height: f64::from(page.crop_box[3] - page.crop_box[1]),
+            rotate: page.rotate,
+            user_unit: f64::from(page.user_unit),
+        })
+    }
+
+    /// The page's size as displayed — rotated and `/UserUnit`-scaled — which is the frame
+    /// `mutool` states its coordinates in.
+    fn displayed(&self) -> (f64, f64) {
+        if self.rotate == 90 || self.rotate == 270 {
+            (self.height * self.user_unit, self.width * self.user_unit)
+        } else {
+            (self.width * self.user_unit, self.height * self.user_unit)
+        }
+    }
+
+    /// The displayed height in unscaled points, which the y flip below is about.
+    fn displayed_height_in_points(&self) -> f64 {
+        if self.rotate == 90 || self.rotate == 270 {
+            self.width
+        } else {
+            self.height
+        }
+    }
+
+    /// Maps a display-space point (y up, rotated, `/UserUnit`-scaled) into the reference
+    /// frame: **the displayed page in unscaled points**, y down from its top-left corner —
+    /// rotated by `/Rotate`, *not* scaled by `/UserUnit`.
+    ///
+    /// That frame is `pdftotext -bbox`'s own, and it was established by measurement rather
+    /// than read anywhere, because the reference's two statements disagree: its `<page>`
+    /// element states the **unrotated** crop box size while its `<word>` coordinates are in
+    /// the **rotated** frame. `hello_world_rotated.pdf` (`/Rotate 90`) is the witness — page
+    /// stated 612x792, the word boxes matching `mutool`'s 792x612 frame to the point — with
+    /// `issue14415.pdf` (180) and `bug1947248_text.pdf` (`/UserUnit 3`, boxes unscaled)
+    /// pinning the other two mechanisms. This instrument's own first run caught it, on
+    /// exactly trap 3's rule: check what question a reference answers before reading its
+    /// answer — and a reference's stated frame and its coordinates can answer different ones.
+    /// ADR 0323's Finding 1 read the *size* lines and was right about them; the coordinates
+    /// rotate where the size does not.
+    ///
+    /// So the map from our display space is the `/UserUnit` division and the y flip about the
+    /// displayed height — trap 12a's flip, made explicit where it happens — and no rotation
+    /// at all, because the display list's space is already the displayed page's.
+    fn reference_point(&self, x: f64, y: f64) -> (f64, f64) {
+        let (x, y) = (x / self.user_unit, y / self.user_unit);
+        (x, self.displayed_height_in_points() - y)
+    }
+
+    /// Maps a point in `mutool`'s frame into the reference frame.
+    ///
+    /// `mutool` answers in the same displayed frame with the same y direction and differs by
+    /// exactly one mechanism: it multiplies Table 31's `/UserUnit` in and `pdftotext` does
+    /// not.
+    fn reference_point_from_mupdf(&self, x: f64, y: f64) -> (f64, f64) {
+        (x / self.user_unit, y / self.user_unit)
+    }
+}
+
+/// This tree's words on a page, in the reference frame.
+///
+/// A word is a maximal whitespace-free run of [`pdf_model::Interpretation::text`], and its box
+/// is the union of the [`pdf_model::content::Placed`] quads whose readback spans intersect it —
+/// the same geometry a drag's selection shapes are built from, which is what makes this the
+/// thing worth judging. A word none of whose codes carries geometry (an invisible mode places
+/// its glyphs, so that is not the common case) is skipped.
+fn our_words(interpretation: &pdf_model::Interpretation, frame: &Frame) -> Vec<WordBox> {
+    let text = &interpretation.text;
+    let mut words = Vec::new();
+    let mut start: Option<usize> = None;
+    let bytes: Vec<(usize, char)> = text.char_indices().collect();
+    let mut runs: Vec<(usize, usize)> = Vec::new();
+    for &(at, c) in &bytes {
+        if c.is_whitespace() {
+            if let Some(from) = start.take() {
+                runs.push((from, at));
+            }
+        } else if start.is_none() {
+            start = Some(at);
+        }
+    }
+    if let Some(from) = start {
+        runs.push((from, text.len()));
+    }
+
+    for (from, to) in runs {
+        let (mut x0, mut y0) = (f64::INFINITY, f64::INFINITY);
+        let (mut x1, mut y1) = (f64::NEG_INFINITY, f64::NEG_INFINITY);
+        let mut placed_any = false;
+        for placed in &interpretation.text_layer {
+            if placed.span.start >= to || placed.span.end <= from || placed.span.is_empty() {
+                continue;
+            }
+            placed_any = true;
+            for corner in placed.quad.chunks_exact(2) {
+                let (x, y) = frame.reference_point(f64::from(corner[0]), f64::from(corner[1]));
+                (x0, y0) = (x0.min(x), y0.min(y));
+                (x1, y1) = (x1.max(x), y1.max(y));
+            }
+        }
+        if placed_any {
+            words.push(WordBox {
+                text: fold(&text[from..to]),
+                x0,
+                y0,
+                x1,
+                y1,
+            });
+        }
+    }
+    words
+}
+
+/// Pairs the words whose folded text occurs exactly once on each side.
+///
+/// Matching by unique text is what makes the comparison independent of both sides'
+/// segmentation and order: a word an extractor split differently simply fails to match, which
+/// Finding 5 prices as a printed matched fraction rather than as a verdict, and a word that
+/// occurs twice proves nothing about *which* occurrence is which. Words under three characters
+/// are dropped for the same reason [`reference_words`] drops them.
+fn unique_matches<'a>(
+    ours: &'a [WordBox],
+    reference: &'a [WordBox],
+) -> Vec<(&'a WordBox, &'a WordBox)> {
+    let once = |words: &'a [WordBox]| -> BTreeMap<&'a str, &'a WordBox> {
+        let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
+        for word in words {
+            if word.text.chars().count() >= 3 {
+                *counts.entry(word.text.as_str()).or_default() += 1;
+            }
+        }
+        words
+            .iter()
+            .filter(|word| counts.get(word.text.as_str()) == Some(&1))
+            .map(|word| (word.text.as_str(), word))
+            .collect()
+    };
+    let ours = once(ours);
+    let reference = once(reference);
+    ours.into_iter()
+        .filter_map(|(text, word)| reference.get(text).map(|matched| (word, *matched)))
+        .collect()
+}
+
+/// One matched pair's measurements, in the vocabulary the bounds are stated in.
+struct PairDelta {
+    /// Left edge against left edge, in points.
+    dx0: f64,
+    /// Right edge against right edge, in points.
+    dx1: f64,
+    /// Vertical centre against vertical centre, in points.
+    dcy: f64,
+    /// [`Self::dcy`] relative to the mean of the two boxes' heights.
+    relative_centre: f64,
+}
+
+impl PairDelta {
+    fn of(left: &WordBox, right: &WordBox) -> Option<Self> {
+        let height = f64::midpoint(left.height(), right.height());
+        if height <= 0.0 {
+            // A degenerate box measures nothing; `stext` writes zero-height quads for some
+            // combining marks and this instrument declines to divide by them.
+            return None;
+        }
+        let dcy = (left.centre_y() - right.centre_y()).abs();
+        Some(Self {
+            dx0: (left.x0 - right.x0).abs(),
+            dx1: (left.x1 - right.x1).abs(),
+            dcy,
+            relative_centre: dcy / height,
+        })
+    }
+
+    /// Whether the pair is inside both bounds: horizontal edges tight, vertical centre
+    /// relative to the word's height, vertical extent deliberately unjudged.
+    fn in_bounds(&self) -> bool {
+        self.dx0 <= HORIZONTAL_BOUND
+            && self.dx1 <= HORIZONTAL_BOUND
+            && self.relative_centre <= VERTICAL_CENTRE_BOUND
+    }
+}
+
+/// The `p`-th percentile of an unsorted sample, by nearest rank.
+fn percentile(sample: &mut [f64], p: f64) -> f64 {
+    if sample.is_empty() {
+        return f64::NAN;
+    }
+    sample.sort_by(f64::total_cmp);
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss,
+        reason = "a rank in a sample whose length fits in memory"
+    )]
+    let rank = ((p / 100.0 * sample.len() as f64).ceil() as usize).clamp(1, sample.len()) - 1;
+    sample[rank]
+}
+
+/// Prints one measure's spread in the derivation's own format.
+fn print_spread(name: &str, sample: &mut [f64]) {
+    println!(
+        "  {name}: median {:.4}  p90 {:.4}  p99 {:.4}  max {:.4}",
+        percentile(sample, 50.0),
+        percentile(sample, 90.0),
+        percentile(sample, 99.0),
+        percentile(sample, 100.0),
+    );
+}
+
+/// Where an extraction is remembered: the reference cache's directory, one level down.
+///
+/// The same variable and default as the oracle's render cache, because it is the same kind of
+/// memory under the same rules (trap 10a) — `PDFREF_CACHE` names a directory, and only the
+/// literal `off` disables it.
+fn extraction_cache() -> ExtractionCache {
+    let default = Path::new(env!("CARGO_TARGET_TMPDIR")).join("pdfref-cache");
+    let root = match std::env::var("PDFREF_CACHE") {
+        Ok(value) if value.eq_ignore_ascii_case("off") => return ExtractionCache::disabled(),
+        Ok(value) if !value.trim().is_empty() => PathBuf::from(value),
+        _ => default,
+    };
+    ExtractionCache::at(root.join("extraction"))
+}
+
+/// Why a document is off the judged set. Every one of these is printed with its count,
+/// because a refusal costs the instrument a document and that arithmetic is trap 11's.
+type Refusal = &'static str;
+
+/// Runs one extractor over one page through the cache, folding failure kinds into refusals.
+fn extracted(
+    cache: &ExtractionCache,
+    extractor: Extractor,
+    path: &Path,
+    work_dir: &Path,
+) -> Result<ExtractedPage, Refusal> {
+    let text = cache
+        .extract(extractor, path, 1, work_dir)
+        .map_err(|error| match (extractor, error) {
+            (Extractor::PopplerBoxes, ExtractionError::TimedOut { .. }) => {
+                "pdftotext exceeded its budget"
+            }
+            (Extractor::PopplerBoxes, _) => "pdftotext refused the document",
+            (Extractor::MuPdfText, ExtractionError::TimedOut { .. }) => {
+                "mutool exceeded its budget"
+            }
+            (Extractor::MuPdfText, _) => "mutool refused the document",
+        })?;
+    let page = match extractor {
+        Extractor::PopplerBoxes => poppler_page(&text),
+        Extractor::MuPdfText => mupdf_page(&text),
+    };
+    match extractor {
+        Extractor::PopplerBoxes => page.ok_or("pdftotext produced no page"),
+        Extractor::MuPdfText => page.ok_or("mutool produced no page"),
+    }
+}
+
+/// This tree's frame for a document's page one, or the refusal naming why not.
+fn our_frame(path: &Path) -> Result<(Document, pdf_model::Page), Refusal> {
+    let bytes = std::fs::read(path).map_err(|_| "unreadable file")?;
+    let document = Document::open(bytes).map_err(|_| "unopenable to this tree")?;
+    let page = {
+        let pages = pdf_model::Pages::new(&document);
+        pages.get(0).ok_or("no page one")?
+    };
+    Ok((document, page))
+}
+
+/// What one document contributed: a refusal by reason, or its matched pairs.
+enum Contribution {
+    Refused(Refusal),
+    Judged {
+        name: String,
+        pairs: Vec<PairDelta>,
+        /// How many of the reference's words found a unique match — Finding 5's printed
+        /// fraction, kept as the two counts so the caller can aggregate honestly.
+        matched: usize,
+        reference_words: usize,
+    },
+}
+
+/// Judges one corpus document's page one against `pdftotext -bbox -cropbox`.
+fn judge_against_poppler(path: &Path, cache: &ExtractionCache, work_dir: &Path) -> Contribution {
+    let name = path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .into_owned();
+    let (document, page) = match our_frame(path) {
+        Ok(opened) => opened,
+        Err(reason) => return Contribution::Refused(reason),
+    };
+    let Some(frame) = Frame::of(&page) else {
+        return Contribution::Refused("a /ViewArea departs from the crop box");
+    };
+    let reference = match extracted(cache, Extractor::PopplerBoxes, path, work_dir) {
+        Ok(page) => page,
+        Err(reason) => return Contribution::Refused(reason),
+    };
+    // The frame audit. `pdftotext -bbox -cropbox` *states* the unrotated, unscaled crop box
+    // as its page size — even though its word boxes are in the rotated frame, which is the
+    // measured quirk `Frame::reference_point` records — so the unrotated crop is what the
+    // stated size is audited against. A mismatch means the reference read a different box
+    // than §7.7.3.3's crop for this page, and judging across it would manufacture spread
+    // (ADR 0323 Finding 1).
+    if (reference.width - frame.width).abs() > FRAME_TOLERANCE
+        || (reference.height - frame.height).abs() > FRAME_TOLERANCE
+    {
+        return Contribution::Refused("frame mismatch against pdftotext");
+    }
+    if reference.words.is_empty() {
+        return Contribution::Refused("no words in the reference");
+    }
+    let interpretation = pdf_model::interpret(&document, &page);
+    let ours = our_words(&interpretation, &frame);
+    if ours.is_empty() {
+        return Contribution::Refused("no words in our readback");
+    }
+    let paired = unique_matches(&ours, &reference.words);
+    if paired.is_empty() {
+        return Contribution::Refused("no unique matches");
+    }
+    let matched = paired.len();
+    let reference_words = reference.words.len();
+    Contribution::Judged {
+        name,
+        pairs: paired
+            .iter()
+            .filter_map(|(ours, reference)| PairDelta::of(ours, reference))
+            .collect(),
+        matched,
+        reference_words,
+    }
+}
+
+/// The word boxes this tree's text layer places agree with `pdftotext`'s, where the two frames
+/// agree and the words match uniquely — ADR 0323's instrument 1, geometry half.
+///
+/// **Prints, and does not yet ratchet.** ADR 0323's rule (and `doc/todo/05`'s): an
+/// instrument's numbers enter `doc/todo/02` §2 only once they have held across rounds. What is
+/// asserted today is that the instrument has a population — a judged set that silently went
+/// empty would otherwise print a perfect verdict over nothing.
+///
+/// The verdict per matched word, from the measured reference-vs-reference spread this binary
+/// re-derives (see [`HORIZONTAL_BOUND`] and [`VERTICAL_CENTRE_BOUND`]): horizontal edges
+/// within 0.5 pt, vertical centres within half the word's height, vertical extent and reading
+/// order deliberately unjudged (ADR 0323 Findings 3 and 4).
+#[test]
+#[ignore = "needs the pdf.js submodule and runs pdftotext per document"]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one pass and its report; splitting the printing from the counting would separate \
+              the numbers from the arithmetic that justifies them"
+)]
+fn the_word_boxes_we_place_agree_with_the_references() {
+    let corpus = pdfjs_corpus();
+    if corpus.is_empty() {
+        println!("doc/pdf.js is not checked out: skipped");
+        return;
+    }
+    assert!(
+        Extractor::PopplerBoxes.is_available(),
+        "pdftotext is required for this test; it comes with poppler"
+    );
+    let cache = extraction_cache();
+    let work_dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("extract");
+
+    let started = Instant::now();
+    let contributions: Vec<Contribution> = corpus
+        .par_iter()
+        .map(|path| judge_against_poppler(path, &cache, &work_dir))
+        .collect();
+
+    let mut refusals: BTreeMap<Refusal, usize> = BTreeMap::new();
+    let mut judged = 0usize;
+    let (mut pairs_total, mut pairs_in_bounds) = (0usize, 0usize);
+    let mut horizontal: Vec<f64> = Vec::new();
+    let mut relative_centres: Vec<f64> = Vec::new();
+    let mut matched_fractions: Vec<f64> = Vec::new();
+    // (fraction in bounds, name, matched pairs, worst horizontal delta) per judged document.
+    let mut ranked: Vec<(f64, String, usize, f64)> = Vec::new();
+
+    for contribution in contributions {
+        match contribution {
+            Contribution::Refused(reason) => *refusals.entry(reason).or_default() += 1,
+            Contribution::Judged {
+                name,
+                pairs,
+                matched,
+                reference_words,
+            } => {
+                judged += 1;
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "word counts on one page are far below f64's exact integer limit"
+                )]
+                matched_fractions.push(matched as f64 / reference_words.max(1) as f64);
+                let in_bounds = pairs.iter().filter(|pair| pair.in_bounds()).count();
+                pairs_total += pairs.len();
+                pairs_in_bounds += in_bounds;
+                let worst_dx = pairs
+                    .iter()
+                    .map(|pair| pair.dx0.max(pair.dx1))
+                    .fold(0.0f64, f64::max);
+                for pair in &pairs {
+                    horizontal.push(pair.dx0);
+                    horizontal.push(pair.dx1);
+                    relative_centres.push(pair.relative_centre);
+                }
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "word counts on one page are far below f64's exact integer limit"
+                )]
+                ranked.push((
+                    in_bounds as f64 / pairs.len().max(1) as f64,
+                    name,
+                    pairs.len(),
+                    worst_dx,
+                ));
+            }
+        }
+    }
+
+    ranked.sort_by(|left, right| left.0.total_cmp(&right.0));
+    println!("documents furthest out of bounds:");
+    for (fraction, name, pairs, worst_dx) in ranked.iter().take(10) {
+        println!(
+            "  {name}: {:.1}% of {pairs} matched words in bounds, worst horizontal delta \
+             {worst_dx:.2} pt",
+            fraction * 100.0
+        );
+    }
+    println!("\nspread of our boxes against pdftotext's, over every matched pair:");
+    print_spread("horizontal edge delta (pt)  ", &mut horizontal);
+    print_spread("vertical centre / word height", &mut relative_centres);
+    println!(
+        "matched-unique fraction per judged document: median {:.2}, p10 {:.2} (Finding 5: \
+         segmentation is each extractor's own, so only unique matches are compared)",
+        percentile(&mut matched_fractions.clone(), 50.0),
+        percentile(&mut matched_fractions, 10.0),
+    );
+
+    // Trap 11's arithmetic, stated in the gate's own output: every refusal is a document the
+    // instrument does not judge, by name and reason, so the judged set cannot shrink silently.
+    let refused: usize = refusals.values().sum();
+    println!(
+        "\n{judged} of {} documents judged in {:.1}s; {refused} refused, each a document off \
+         the judged set:",
+        corpus.len(),
+        started.elapsed().as_secs_f64(),
+    );
+    for (reason, count) in &refusals {
+        println!("  {count:4}  {reason}");
+    }
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "corpus word counts are far below f64's exact integer limit"
+    )]
+    let fraction = pairs_in_bounds as f64 / pairs_total.max(1) as f64;
+    println!(
+        "verdict: {pairs_in_bounds}/{pairs_total} matched words in bounds ({:.2}%), horizontal \
+         edges within {HORIZONTAL_BOUND} pt and vertical centres within {VERTICAL_CENTRE_BOUND} \
+         of the word's height; {} of {judged} documents fully in bounds",
+        fraction * 100.0,
+        ranked.iter().filter(|(f, ..)| *f >= 1.0).count(),
+    );
+
+    let stats = cache.statistics();
+    println!(
+        "extraction cache: {} hits, {} misses, {} remembered timeouts",
+        stats.hits, stats.misses, stats.remembered_timeouts
+    );
+
+    assert!(judged > 0, "the instrument has no population");
+    assert!(pairs_total > 0, "no word was matched anywhere");
+}
+
+/// The environment variable that asks for the derivation below; `--ignored` alone must not.
+const SELECTION_SPREAD_IS_ASKED_FOR: &str = "PDFVIEWER_SELECTION_SPREAD";
+
+/// One document's contribution to the derivation: a refusal, or the matched pairs plus the
+/// height ratios Finding 3 reports.
+enum Spread {
+    Refused(Refusal),
+    Measured(Vec<PairDelta>, Vec<f64>),
+}
+
+/// Where [`HORIZONTAL_BOUND`] and [`VERTICAL_CENTRE_BOUND`] come from, re-derived from the
+/// corpus rather than remembered — `pdftotext -bbox -cropbox` against `mutool draw -F stext`,
+/// two positional extractors sharing no code, over the same matcher and the same frame audit
+/// the verdict uses.
+///
+/// It prints, and asserts only that it had a population: a number here is evidence for moving
+/// a bound, never itself a gate (the same rule as the raster derivation's, and `oracle.rs`
+/// states it at length). The guard is an environment variable for ADR 0282's reason —
+/// `-- --ignored` runs every ignored test in the binary, and a derivation that walked the
+/// corpus beside the gate under `rayon` would double the gate line's wall clock. The guard is
+/// here rather than in an invocation because an invocation can be copied without its guard and
+/// a test cannot be run without itself.
+#[test]
+#[ignore = "runs pdftotext and mutool per corpus document; run explicitly, in release"]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one pass and its report; splitting the printing from the counting would separate \
+              the numbers from the arithmetic that justifies them"
+)]
+fn the_selection_bounds_against_the_references_own_spread() {
+    if std::env::var_os(SELECTION_SPREAD_IS_ASKED_FOR).is_none() {
+        println!(
+            "skipped: this is a derivation rather than a gate — set \
+             {SELECTION_SPREAD_IS_ASKED_FOR}=1 to run it."
+        );
+        return;
+    }
+    let corpus = pdfjs_corpus();
+    if corpus.is_empty() {
+        println!("doc/pdf.js is not checked out: skipped");
+        return;
+    }
+    for extractor in [Extractor::PopplerBoxes, Extractor::MuPdfText] {
+        assert!(
+            extractor.is_available(),
+            "{} is required for this derivation; it comes with {}",
+            extractor.program(),
+            extractor.package_hint()
+        );
+    }
+    let cache = extraction_cache();
+    let work_dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("extract");
+
+    let spread_of = |path: &Path| -> Spread {
+        let (_, page) = match our_frame(path) {
+            Ok(opened) => opened,
+            Err(reason) => return Spread::Refused(reason),
+        };
+        let Some(frame) = Frame::of(&page) else {
+            return Spread::Refused("a /ViewArea departs from the crop box");
+        };
+        let poppler = match extracted(&cache, Extractor::PopplerBoxes, path, &work_dir) {
+            Ok(page) => page,
+            Err(reason) => return Spread::Refused(reason),
+        };
+        let mupdf = match extracted(&cache, Extractor::MuPdfText, path, &work_dir) {
+            Ok(page) => page,
+            Err(reason) => return Spread::Refused(reason),
+        };
+        // The audit, against each extractor's own *stated* size: `pdftotext` states the
+        // unrotated, unscaled crop box (while its boxes are in the rotated frame — the quirk
+        // `Frame::reference_point` records), and `mutool` states the page as displayed. The
+        // two statements differ by exactly the mechanisms Finding 1 names, and each is
+        // checked against what this tree reads out of §7.7.3.3's entries rather than against
+        // the other extractor.
+        if (poppler.width - frame.width).abs() > FRAME_TOLERANCE
+            || (poppler.height - frame.height).abs() > FRAME_TOLERANCE
+        {
+            return Spread::Refused("frame mismatch against pdftotext");
+        }
+        let (displayed_width, displayed_height) = frame.displayed();
+        if (mupdf.width - displayed_width).abs() > FRAME_TOLERANCE
+            || (mupdf.height - displayed_height).abs() > FRAME_TOLERANCE
+        {
+            return Spread::Refused("frame mismatch against mutool");
+        }
+        if poppler.words.is_empty() || mupdf.words.is_empty() {
+            return Spread::Refused("no words in one of the references");
+        }
+        let normalised: Vec<WordBox> = mupdf
+            .words
+            .iter()
+            .map(|word| {
+                let corners = [
+                    frame.reference_point_from_mupdf(word.x0, word.y0),
+                    frame.reference_point_from_mupdf(word.x1, word.y1),
+                ];
+                WordBox {
+                    text: word.text.clone(),
+                    x0: corners[0].0.min(corners[1].0),
+                    y0: corners[0].1.min(corners[1].1),
+                    x1: corners[0].0.max(corners[1].0),
+                    y1: corners[0].1.max(corners[1].1),
+                }
+            })
+            .collect();
+        let matches = unique_matches(&poppler.words, &normalised);
+        if matches.is_empty() {
+            return Spread::Refused("no unique matches");
+        }
+        let ratios = matches
+            .iter()
+            .filter(|(poppler, mupdf)| poppler.height() > 0.0 && mupdf.height() > 0.0)
+            .map(|(poppler, mupdf)| poppler.height() / mupdf.height())
+            .collect();
+        Spread::Measured(
+            matches
+                .iter()
+                .filter_map(|(poppler, mupdf)| PairDelta::of(poppler, mupdf))
+                .collect(),
+            ratios,
+        )
+    };
+
+    let started = Instant::now();
+    let spreads: Vec<Spread> = corpus.par_iter().map(|path| spread_of(path)).collect();
+
+    let mut refusals: BTreeMap<Refusal, usize> = BTreeMap::new();
+    let mut judged = 0usize;
+    let mut horizontal: Vec<f64> = Vec::new();
+    let mut centres: Vec<f64> = Vec::new();
+    let mut relative_centres: Vec<f64> = Vec::new();
+    let mut height_ratios: Vec<f64> = Vec::new();
+    for spread in spreads {
+        match spread {
+            Spread::Refused(reason) => *refusals.entry(reason).or_default() += 1,
+            Spread::Measured(pairs, ratios) => {
+                judged += 1;
+                for pair in pairs {
+                    horizontal.push(pair.dx0);
+                    horizontal.push(pair.dx1);
+                    centres.push(pair.dcy);
+                    relative_centres.push(pair.relative_centre);
+                }
+                height_ratios.extend(ratios);
+            }
+        }
+    }
+
+    println!(
+        "pdftotext -bbox -cropbox against mutool -F stext: {} matched word pairs over {judged} \
+         documents in {:.1}s",
+        relative_centres.len(),
+        started.elapsed().as_secs_f64()
+    );
+    let refused: usize = refusals.values().sum();
+    println!("{refused} documents refused, each off the derivation's population:");
+    for (reason, count) in &refusals {
+        println!("  {count:4}  {reason}");
+    }
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "pair counts are far below f64's exact integer limit"
+    )]
+    let rejected = |sample: &[f64], bound: f64| {
+        100.0 * sample.iter().filter(|d| **d > bound).count() as f64 / sample.len().max(1) as f64
+    };
+    let horizontal_rejects = rejected(&horizontal, HORIZONTAL_BOUND);
+    let vertical_rejects = rejected(&relative_centres, VERTICAL_CENTRE_BOUND);
+    println!("\nthe references' own spread, which the bounds must admit:");
+    print_spread("horizontal edge delta (pt)  ", &mut horizontal);
+    print_spread("vertical centre delta (pt)  ", &mut centres);
+    print_spread("vertical centre / word height", &mut relative_centres);
+    print_spread("word-box height ratio        ", &mut height_ratios);
+    println!(
+        "\nshare of reference pairs outside each bound: horizontal {HORIZONTAL_BOUND} pt \
+         rejects {horizontal_rejects:.2}%, vertical centre {VERTICAL_CENTRE_BOUND} of the \
+         word's height rejects {vertical_rejects:.2}% \
+         (the vertical *extent* is excluded from any verdict on this table's own evidence: \
+         the height ratio row is convention against convention, ADR 0323 Finding 3)"
+    );
+
+    assert!(judged > 0, "the derivation has no population");
+    assert!(!horizontal.is_empty(), "no word was matched anywhere");
+}
