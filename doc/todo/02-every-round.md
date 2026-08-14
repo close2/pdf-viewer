@@ -199,6 +199,13 @@ share and the two that break it:
   filters — a correction quoting the wording it retired, a past tense no grep can see, and a
   clause named as the route to something outside the standard — are in the module doc. Read the
   sentence before believing a hit.
+- **One asks whether the tree names a capability a note says is absent**: `cargo run --release
+  -p conformance --bin capabilities`, seconds, over `ledger.toml` and the source roots — the
+  third sweep as a program (ADR 0345). A hit carries the witness path where any source file
+  names the lacking noun, and says whether the claim is about *the program* (the population
+  that decays) or about *one crate* (usually a boundary it keeps on purpose); the dominant
+  noise is a true boundary statement, which a witness does not disprove. Read the sentence
+  before believing a hit.
 - **One reads *these documents'* quotation marks**, on the same discriminator and for the same
   reason: `cargo run --release -p conformance --bin quotations`, seconds, over every Markdown file
   this project wrote under `doc/`. Its first run found three sentences quoted as the standard's that

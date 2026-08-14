@@ -33,15 +33,15 @@ misquotations of the standard (ADR 0249).
 Priority: 01 — the population with no gate, and it has paid on every session that touched it
 Code: `doc/conformance/ledger.toml`, checked by `cargo test -p conformance`
 
-**A sweep round commits one prose sweep as a program before running any of them.** Four of the
+**A sweep round commits one prose sweep as a program before running any of them.** Five of the
 fifteen are commands (`conformance --bin entries`, `--bin quotations`, `--bin unread` since the
-four-hundred-and-eighty-ninth, and — since the five-hundred-and-first — `--bin blockers`, the
-first sweep) and eleven are still
+four-hundred-and-eighty-ninth, `--bin blockers` since the five-hundred-and-first, and — since the
+five-hundred-and-tenth — `--bin capabilities`, the third sweep) and ten are still
 descriptions, and a description is what let the fifteenth go unrun for twenty-four rounds and then
 be rebuilt from its own paragraph (ADR 0319) — `CLAUDE.md`'s "write down the command, not the
 answer" failing in the direction it was written for. The cheapest moment to commit one is the
 round that next has to run it, because that round has to reconstruct it anyway; at one per sweep
-round the backlog is gone in eleven, without ever being a marathon. A sweep that is genuinely
+round the backlog is gone in ten, without ever being a marathon. A sweep that is genuinely
 twenty lines of Python belongs under `tools/conformance` with the four that already live there.
 
 ## Why
@@ -2014,16 +2014,109 @@ boundary confirmed — which is what moves the blame pointer without a stamp.
 reads it as a standard type — so the fifth sweep listing `standard_role` as unnamed by hosts is
 the two-crate split, not an unasked question.
 
+## All fifteen run again in the five-hundred-and-tenth, the third sweep committed as a program, and the generator caught re-stamping a retired sentence
+
+Twelve rounds since the last full sweep — the codespace inversion (502), the reference's two
+answers (503), the function grid (504), the refused photograph (505), the borrowed token (506),
+the map's two answers (507), the damaged prefix (508) and the rest of the wave. Over
+`ledger.toml`, `crates/`, `tools/`, `fuzz/` and, for the fourth sweep, `doc/adr/`:
+
+- **Capability reasons (sweep 3), as a program** (`cargo run --release -p conformance --bin
+  capabilities`, ADR 0345). First run: **ledger 47 sentences — 34 witnessed by the tree, 40
+  about the program, 7 about one crate; source 142 — 116 witnessed, 78 program, 64 crate.**
+  What the program adds over the grep is the two judgements each run redid by hand: the lacking
+  noun grepped against the tree with the witness printed, and the program-versus-crate subject
+  tell. **One ledger hit was live**: §14.7.6.3's "a validity mechanism for a processor that
+  edits, which this is not" — expired since the hundred-and-thirty-fifth session made this an
+  editing program, kept as a *choice* on the clause's own words (deprecated with PDF 2.0, and
+  the increment is a "may"). The fifth failure shape, in an `implemented` row.
+- **Retired claim (sweep 4)**, over the twelve rounds' nouns — `save_round_trip`,
+  `crypto-bigint`, `addressable_codes`, `annotation_rectangles`, `Sampled`, `DeferredColours`,
+  `FUNCTION_GRID`, `contradicted_frame`, `fixed_format_number`, `elements_on_page`,
+  `page_object`, `Corrupt`, `truncated` — clean; the rounds' corrections were made everywhere,
+  §7.4.4.1's and §7.4.4.2's rows already carrying the five-hundred-and-eighth's rework. **Run
+  over the retired exclusion wordings it paid twice, and the second is a mechanism**:
+  `Exclusion::Xfa`'s doc still read "deprecated by ISO 32000-2 itself and specified outside it"
+  (amended in `CLAUDE.md` a hundred and fifty sessions ago), and the ledger header's own status
+  definition still read "we do not create files" — because **the header is generated and the
+  retired sentence lived in the generator**, `bin/ledger.rs`'s `PREAMBLE`, which stamped it back
+  over the correction session 137 made in the file. `doc/ledger-and-claims.md` had recorded the
+  header as corrected ever since. A correction to generated text is not a correction until it
+  reaches the template.
+- **Blockers (program)**: ledger 20 sentences — 6 expired, 9 holding, 5 naming no clause;
+  source 26 — 9, 10, 7. 0 defects; every expired hit a correction quoting retired wording or a
+  contrastive "while §X".
+- **Unread (program)**: 63 rows claim, 172 keys; 53 confirmed, 119 quoted over 51 rows, 54 by
+  the row's own code — the known one-short-key population, 0 defects.
+- **Entries (program)**: 232 rows in the population, 44 stating an entry their own `code` does
+  not name, 108 entries — 29 named nowhere, 79 only elsewhere, 37 not named by the row's own
+  note. The known populations (excluded actions, pronunciation's declined permission); nothing
+  worked.
+- **Quotations (program)**: 3049 quotations in 470 documents, 1441 verbatim, 22 diverging, 0
+  defects — every divergence a correction quoting retired wording or another document's
+  five-word overlap.
+- **Caller sweep (5)**: 286 distinct `pub fn` names in `pdf-model`, 92 named by no host, 77 by
+  no host, tool or fuzz target — the same three known populations, the wave's new names
+  (`contradicted_frame`, `decode_parts`, `field_locks`) all reached by `pdf-model` itself or a
+  test.
+- **Arithmetic (sweep 6)**: two hits, §7.9.2 and §O, read and kept before. Clean.
+- **`inapplicable` (sweep 7)**: 66 of 80 rows name source vocabulary on a session-local loose
+  stop-list, and **no row in the population changed since the five-hundred-and-first's run** —
+  checked with `git diff` over the ledger's status lines, which is the cheap way to carry a
+  clean read forward.
+- **Citations (sweep 8)**: 3 hits, all the known correction-quoting-its-pointer shape
+  (`doc/todo/20`, `doc/todo/37` twice).
+- **Table numbers (sweep 9)**: 1024 citations checked, 61 suspects — most of them the
+  session-local parser's own stop-list eating `/Name`, `/Type` and `/Style` and the known
+  split-header tables — and **one defect**: `spec_annotation_census.rs` said "Table 353's
+  `/MarkInfo`", the catalog's Table 29 entry attributed to the table its value points at,
+  which is the four-hundred-and-eighty-ninth's ten-defect block shape one more time.
+- **Parent counts (sweep 10)**: 4 hits, 0 defects — §11.7's and §11.7.4's corrections quoting
+  their retired counts, §12.4's and §14.3's histories accurate against their children.
+- **Ledger quotation marks (sweep 11)**: 1245 spans of 4+ words under a session-local
+  normaliser, 695 verbatim, 34 matching five words and diverging, **0 defects** — every one an
+  `…` elision, the conversion's broken words ("hierarch y", "text-tospeech",
+  "implementationdependent"), or §8.4.4's correction quoting its retired wording.
+- **Sweep 14**: 15 hits under a session-local debt vocabulary, every one naming its debt in
+  words outside that vocabulary ("writer-side", "Counted, not parsed", "which needs the
+  validator"). 0 defects.
+- **The errata (sweep 12)**: "151 struck passage(s) of 4 words or more that doc/md/ still
+  carries as current text" over all fourteen PDFs, unchanged — the population is still read to
+  the end.
+
+### Twelve rows read off the blame list: §12.8.\*'s four freed rows, then the band from commit 185
+
+Oldest first: §12.8.2.1, §12.8.4.1, §12.8.4.5, §12.8.5.3 — the four the five-hundred-and-first
+left to the parallel signature round, free again now that the family landed — then §12.5.6.23,
+§7.10.2, §8.6.4.4, §7.11.3, §12.7.8.3.4, §12.7.8.3.1, §11.7.4.4 and §9.6. **Two were wrong,
+reading §9.6 found two more beside it, and three moved to `implemented`**:
+
+| row | shape | was | is |
+|---|---|---|---|
+| **§9.6** | 5 | `partial` for "the one thing actually left: §9.6.5's MacExpertEncoding, the one name Table 112 permits and Annex D's tables here do not cover" | false since the four-hundred-and-fifty-first transcribed Table D.4 (ADR 0286) and corrected §D and §D.4, leaving the §9.6 family carrying the refusal — **`implemented`** |
+| **§9.6.5**, **§9.6.5.1** | 5, 7 | both said "MacExpertEncoding is the one named encoding absent: a font naming it is refused and reported" | three rows, one mechanism, the corrected pair in another family — both **`implemented`**, with `name_keyed.rs`'s permitted-names test as evidence |
+| **§12.5.6.23** | 5 | redaction's second phase excluded because "`CLAUDE.md` excludes writing files" | the exclusion's pre-amendment wording; the conclusion stands on the amended exclusion's own terms — §7.5.6's append-only update cannot express a phase whose verb is *destroy* |
+
+The ten kept rows each record the evidence that kept them — §7.10.2's absent `/Order` reader,
+§7.11.3's absent `/EP` reader, §12.8.4.1's `security_store` counting while `authenticity` reads
+the CMS's own certificates — which is what moves the blame pointer without a stamp.
+
+**And the round's own tooling misfire is worth its sentence**: the script appending the kept
+rows' evidence had a doubled backslash in its note-matching regex, so five sentences landed at
+the end of the *next* backslash-free note — caught by grepping the file rather than trusting
+the exit status, which is `doc/todo/02` §6's rule, and re-landed by a script that asserts each
+insertion's own clause block.
+
 ## What is still owed, named
 
 - **The `partial` rows not yet re-read against the code**, which stood at ~47 of 244 and which
   the four-hundred-and-eighty-ninth took down by seventeen — the whole commit-138-to-165 band of
-  the blame list — **and the five-hundred-and-first by thirteen more, the band from commit 165
-  to 185 minus §12.8.\*'s four**, which the parallel signature round owns. **Nothing above
-  commit 110 is unread now**: the twenty rows
-  still blaming there are the seventeen the four-hundred-and-forty-second read and kept plus the
-  three this round and the last one did, and keeping a row edits nothing. The band from commit 185
-  to 300 holds the rest, and what replaces the blame order as a
+  the blame list — the five-hundred-and-first by thirteen more, the band from commit 165
+  to 185 minus §12.8.\*'s four, **and the five-hundred-and-tenth by twelve: those four, freed by
+  the signature family landing, plus the band from commit 185 to 202** (§12.5.6.23 through
+  §9.6). **Nothing below commit 202 is unread now** apart from rows read and kept, whose
+  evidence is recorded in their notes; the band from commit 213 (§12.7.6.4) onward holds the
+  rest, and what replaces the blame order as a
   way in is `doc/habits.md`'s six refusal shapes, the sixth of which was added by the round that
   emptied it.
 - **The fourteenth sweep's own vocabulary.** Nine of its sixteen hits are rows that *do* name a debt

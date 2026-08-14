@@ -4,7 +4,7 @@ Status: **standing** — `tools/state.sh` prints the counts; the failure modes l
 Read by: whoever is about to write or correct a ledger row, or to believe one.
 
 `doc/PLAN.md` §5a owns the ledger's format, statuses and checker; `doc/todo/01-ledger-partial-rows.md`
-owns the sweeps — fifteen now, four of them committed programs — and what each run found — the eleventh is new in the
+owns the sweeps — fifteen now, five of them committed programs — and what each run found — the eleventh is new in the
 four-hundred-and-thirteenth and is the first that reads a row's *quotation marks* (ADR 0249), and
 the twelfth lives in `tools/spec-errata` and asks the same spans whether an erratum struck one
 (ADR 0254). The counts below were read off `cargo run -p conformance --bin ledger` in the
@@ -124,7 +124,12 @@ review describes what the code *should* do (ADRs 0056, 0057, 0060). The defences
 
 **`writer-side`'s 7 rows were re-read in the hundred-and-thirty-seventh session** against the
 amended definition — `CLAUDE.md` excludes *authoring*, not writing — and `ledger.toml`'s header
-now carries that definition rather than "we do not create files". **Six stay and one moved**:
+now carries that definition rather than "we do not create files". **That last sentence was false
+from some regeneration after it was written until the five-hundred-and-tenth session**: the
+header is *generated*, its vocabulary lives in `tools/conformance`'s `PREAMBLE` and `Status`
+docs, nobody amended the generator, and the next `--bin ledger` run stamped the retired sentence
+back over the corrected file. A correction to generated text is not a correction until it
+reaches the template (ADR 0345). **Six stay and one moved**:
 §7.2.2's "Representation" binds this tree now that it writes, and all three of its requirements
 are met by construction. ADR 0122.
 

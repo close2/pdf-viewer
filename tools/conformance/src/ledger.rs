@@ -89,7 +89,15 @@ pub enum Status {
     /// fifty-seven sessions in this status wrongly (ADR 0204). A status whose *definition*
     /// names a device the standard does not is a status that invites the mistake.
     Inapplicable,
-    /// The requirement addresses a PDF writer, and we do not create files.
+    /// The requirement addresses a PDF generator.
+    ///
+    /// **The wording was "we do not create files" until the five-hundred-and-tenth session**,
+    /// which is the exclusion's form from before the hundred-and-thirty-seventh amended it:
+    /// this program has written since the hundred-and-thirty-fifth, and what it writes is
+    /// §7.5.6's incremental update. `CLAUDE.md` excludes *authoring*, not writing, and
+    /// `ledger.toml`'s header carried the retired sentence because this enum is where the
+    /// generated header's vocabulary lives — the generator held the sentence a session had
+    /// corrected in the file, and stamped it back (ADR 0345).
     WriterSide,
     /// Covered by principle 5's closed exclusion list, which the row must name.
     OutOfScope,
@@ -160,11 +168,19 @@ impl FromStr for Status {
 pub enum Exclusion {
     /// Clause 13, multimedia and 3D: a media engine, not a rendering question.
     Multimedia,
-    /// XFA, deprecated by ISO 32000-2 itself and specified outside it.
+    /// XFA, on Annex K's own permission: "a PDF processor may choose to not implement this
+    /// feature" (§K.1).
+    ///
+    /// **This doc comment said "deprecated by ISO 32000-2 itself and specified outside it"
+    /// until the five-hundred-and-tenth session**, the exact wording `CLAUDE.md` amended after
+    /// the three-hundred-and-sixtieth found Annex K normative and *inside* the standard —
+    /// §K's own row quotes the correction, and this copy one directory from the ledger was
+    /// never swept with it (ADR 0345).
     Xfa,
     /// JavaScript and script-driven form behaviour. Field *appearance* is not excluded.
     Script,
-    /// Writer-side requirements: we do not create files.
+    /// Writer-side requirements: they address a PDF generator, and this program's one form
+    /// of writing is §7.5.6's incremental update (see [`Status::WriterSide`]).
     WriterSide,
 }
 

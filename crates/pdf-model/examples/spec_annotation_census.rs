@@ -219,7 +219,7 @@ impl Census {
 
 /// What §14.7 says about one document, and how much of it this tree's reader returns.
 struct Structure {
-    /// Table 353's `/MarkInfo /Marked`.
+    /// The catalog's `/MarkInfo` (Table 29), whose value is Table 353; its `/Marked` flag.
     marked: bool,
     /// Whether the catalog states a `/StructTreeRoot` this tree can open.
     tree: bool,
