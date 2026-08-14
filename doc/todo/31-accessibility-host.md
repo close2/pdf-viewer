@@ -5,14 +5,18 @@ Status: **built and verified on a real bus** in the three-hundred-and-seventy-si
 Table 379's `/BBox` in the four-hundred-and-sixty-sixth (ADR 0301), a cell's `/Headers` in
 the four-hundred-and-seventy-seventh (ADR 0312), **the empty answer every page but the first
 few of a large tagged document got** in the four-hundred-and-ninetieth (ADR 0325), and
-**§14.7.5.3's object reference — a place and a control** in the five-hundred-and-third (ADR 0338).
+**§14.7.5.3's object reference — a place and a control** in the five-hundred-and-third (ADR 0338),
+and **page one of ten tagged documents, answered against a page-tree node instead of the page**,
+in the five-hundred-and-seventh (ADR 0342) — found by the census that round built, which is what
+`tools/state.sh accessibility` now prints.
 Priority: 31 — capability
 Clauses: §12.5.2, §12.7.5, §14.7, §14.7.5.3, §14.7.5.4, §14.8.4, §14.8.4.7.2, §14.8.4.8.3,
 §14.8.5.4.3, §14.8.5.7, §14.9
 Code: `crates/viewer-accessibility/` (`role.rs`, `tree.rs`, `bridge.rs`),
 `crates/viewer-core/src/accessibility.rs`, `crates/pdf-model/src/structure.rs`,
 `crates/viewer-ui/src/bin/pdf-viewer.rs` (`App::attend`, `App::speak`)
-Instruments: `pdf-model --example element_bounds_census`,
+Instruments: `tools/state.sh accessibility` — the corpus-scale census of what a screen reader is
+told (ADR 0342) — `pdf-model --example element_bounds_census`,
 `pdf-model --example cell_header_census`, `viewer-core --example accessibility_cost`
 
 The item this file used to hold — "the answer exists and nothing asks" — is closed.
@@ -54,6 +58,22 @@ search rather than from the array**.
   leaves, both stated in the ADR and neither a corpus witness: a page of a *large* document that
   states no `/StructParents` still falls back to the whole-tree walk and so still answers empty,
   and a `/StructParents` array shorter than the page's sequences loses what it does not name.
+
+  **Both had no number beside them until the five-hundred-and-seventh session, and the first now
+  has one** (ADR 0342): `tools/state.sh accessibility` classifies every empty answer, and every
+  page that takes the whole-tree fallback is a document whose *entire* tree is smaller than the
+  walk's bound — so each is the file naming nothing on that page rather than the bound running
+  out, and the residue has **no witness in this population**. The census names one the day a
+  document exhibits it, which is what a count is for. The `/StructParents`-array half is not
+  visible to that census and stays as recorded.
+
+- **An answer cut at [`MAX_NODES`] says nothing about having been cut**, which is trap 5 inside a
+  bound rather than inside a feature: `Answer::Accessibility` is a `Vec` and a host cannot tell a
+  page of 8192 elements from a page truncated to them. **No page's answer reaches the bound**, over
+  every page of every tagged document this project holds — counted by the census since ADR 0342,
+  and the count is what will say when it stops being true. What it would cost is a flag on the
+  answer and a wire field beside it, the shape `pdf_model::structure::Reading::truncated` already
+  has one crate down.
 
 - **Table 384's `/Short`, which nothing states.** "Contains a short form of the content of a TH
   structure element's content", and its EXAMPLE is precisely this feature: "for each table cell the

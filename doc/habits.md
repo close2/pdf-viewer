@@ -679,6 +679,17 @@ changes what it touches.
   switched off everywhere it is not switched on**, and **a clause whose operators are implemented
   can still be unread** (`J`/`j`/`M` from the first commit; Table 57's `/LC`/`/LJ`/`/ML` for
   twenty-three sessions).
+- **A lookup table with a deliberate many-to-one entry has no inverse, and reading one backwards
+  fails in the direction nothing checks.** `Pages::indices` answers *object → index* and holds an
+  entry for an intermediate `/Pages` node as well as for each page, because a destination may name
+  a node — its own doc comment says so. Three call sites wanted *index → object* and got it by
+  scanning the map for the first matching value, so on a document whose node has the lower object
+  number the answer was a node that is not a page: every Table 355 `/Pg` comparison failed and page
+  one of ten tagged documents, ISO 14289-1 among them, told a screen reader the page has no
+  structure. **The map answered, the answer was well formed, and it named the wrong kind of
+  object** — which is why no test and no report saw it for the whole life of the code. Ask what a
+  map's entries *mean* before reading one the other way, and take the identity from whatever states
+  it (`Page::id`, here). ADR 0342.
 - **A cache that reports a perfect hit rate can still be missing.** `render-cpu`'s mask cache
   answered every one of the 303 lookups page 6 made and built 303 identical page-wide masks,
   because the key was the leaf's `ClipId` — a *name* — and the page states one region. **Instrument

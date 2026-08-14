@@ -1,17 +1,20 @@
 # An instrument for the interactive surface
 
-Status: **instruments 1 and 2 built (ADRs 0333, 0334); the ratchet remains** — ADR 0323 is the
-design, with the measured reference-vs-reference spread the tolerance rests on. Each built
-instrument's first-run numbers are in its session's history file, not here. One round for the
-remaining instrument, below.
+Status: **all three built (ADRs 0333, 0334, 0342); what is left is the standing rule at the foot
+of this file and the three named remainders under the items.** ADR 0323 is the design, with the
+measured reference-vs-reference spread the tolerance rests on. Each instrument's first-run numbers
+are in its session's history file, not here. **The file stays open for the rule rather than for
+the build**: no instrument's numbers have held across rounds yet, so none of them gates, and this
+is where that promise is kept.
 Priority: 05 — standing band, because it is an instrument like 00 and 01 rather than a feature
 Corpus: the denominator is stated per instrument in ADR 0323, with every refusal printed by reason
 Clauses: §9.10 (extraction), §12.7 (forms), §7.5.6 (the incremental update a save appends),
 §14.7–§14.9 (the tree a screen reader walks), §12.3.2/§12.6 (what a click does)
 Code: instrument 1 is `tools/pdfref/src/extract.rs` (the extractors and their cache),
 `crates/pdf-model/tests/text_extraction.rs` (the verdict and the derivation) and
-`crates/viewer-core/tests/headless.rs` (the drag half); ADR 0323 names the `Query`/`Command`
-surfaces the other two exercise
+`crates/viewer-core/tests/headless.rs` (the drag half); instrument 2 is
+`crates/pdf-model/tests/save_round_trip.rs`; instrument 3 is
+`crates/viewer-core/tests/accessibility_census.rs`, asked by `tools/state.sh accessibility`
 
 ## Why
 
@@ -69,10 +72,20 @@ text-domain entry.
    0334 states (about two minutes of reference CPU per writer-change, unamortisable by
    construction; encrypted documents outside that half only, ADR 0129).
 
-3. **The accessibility ratchet.** Counts in `tools/state.sh`, the first being *pages that
-   answer at all* — the count that makes `doc/todo/31`'s 8192-element truncation
-   corpus-visible — then structure/`/Alt`/headers/untagged-honesty, ratcheted in both
-   directions like the oracle's lists.
+3. **The accessibility ratchet — built (ADR 0342).** `tools/state.sh accessibility` over
+   `crates/viewer-core/tests/accessibility_census.rs`: page one of every document in
+   `doc/pdf.js/test/pdfs` **and in `doc/`**, plus every page of every document that states a
+   structure tree — the specifications are in the population because the corpus's tagged
+   documents are 17 pages at their largest and the first count needs a document big enough for a
+   bound to run out. *Pages that answer at all* comes first and an empty answer is **classified**
+   by §14.7.5.4 rather than counted, into the file naming elements for a page that answers
+   nothing (the defect class), the page stating no `/StructParents`, and the file naming nothing.
+   Then structure by two predicates, `/Alt`, placement, headers, controls, and untagged honesty.
+   Nothing is ratcheted yet, by the rule below; two *decisions* are asserted from the first run —
+   no panic, and no untagged page given a structure it does not state (ADR 0214).
+   **What remains of this item:** the ratchet itself once the counts have held, and a §2 line with
+   it. Its first run found a defect on the page-object join and `doc/todo/31`'s two residues now
+   have numbers — both in ADR 0342.
 
 Each instrument's numbers enter `doc/todo/02` §2 only once they have held across rounds, never
 before.

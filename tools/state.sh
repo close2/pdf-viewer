@@ -96,6 +96,16 @@ section_text() {
         cargo test --profile gates -p pdf-model --test text_extraction -- --ignored --nocapture
 }
 
+# ADR 0323's third instrument, and the only one of the three with no reference to disagree with
+# it: nobody else puts a comparable tree on AT-SPI. So it is a ratchet, and the filter keeps its
+# counts and the *classes* of silence rather than the per-page witnesses, which the run prints
+# under each class for whoever is reading it rather than watching it.
+section_accessibility() {
+    run "the accessibility tree (§14.7–§14.9, a ratchet: no reference to disagree with)" \
+        '^[0-9]+ documents in|^(structure|pages that answer|elements reached|untagged pages)|^  [a-z§]' \
+        cargo test --profile gates -p viewer-core --test accessibility_census -- --ignored --nocapture
+}
+
 section_quorra() {
     gate_binaries
     run "quorra against the CPU oracle" \
@@ -163,7 +173,7 @@ section_disk() {
     du -sh /home/AI/cargo-target/pdf-viewer/tmp/pdfref-cache 2>/dev/null
 }
 
-all="ledger conformance annex-o counts binaries disk tests corpus oracle text quorra dates xmp jpeg2000"
+all="ledger conformance annex-o counts binaries disk tests corpus oracle text accessibility quorra dates xmp jpeg2000"
 quick="ledger conformance annex-o counts binaries disk"
 
 case ${1-} in
@@ -184,6 +194,7 @@ for section in $sections; do
     corpus) section_corpus ;;
     oracle) section_oracle ;;
     text) section_text ;;
+    accessibility) section_accessibility ;;
     quorra) section_quorra ;;
     dates) section_dates ;;
     xmp) section_xmp ;;

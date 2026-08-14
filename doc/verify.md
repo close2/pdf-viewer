@@ -113,6 +113,15 @@ cargo run --release -p pdf-model --example cell_header_census -- doc/pdf.js/test
   # says the algorithm is the feature and the entry is the exception (ADR 0312). It also prints the
   # two counts that decided what was *not* taken: 0 of 6197 TH state /Short, and no document's
   # tables outgrow the grid `TableStack` keeps
+tools/state.sh accessibility
+  # ADR 0323's third instrument, and the only one of the three with nobody to disagree with it: no
+  # other implementation puts a comparable tree on AT-SPI, so it is a **ratchet** and says so. Page
+  # one of every corpus document and of every specification in `doc/`, plus every page of every
+  # document that states a structure tree, through `Query::AccessibilityTree` — with an *empty*
+  # answer classified by §14.7.5.4 rather than counted, because an empty answer is also what an
+  # untagged page honestly gives. It found a defect on its first run (ADR 0342). The counts are
+  # printed and not yet ratcheted, by ADR 0323's rule; `crates/viewer-core/tests/accessibility_census.rs`
+  # is the instrument and its two un-ignored tests keep the classification from rotting between runs
 cargo run --release -p pdf-model --example signature_algorithm_census -- @/tmp/paths
   # Table 260's three algorithm families as documents actually state them, over as large a
   # population as this machine can reach — `find corpus-cache doc/corpora doc/pdf.js/test/pdfs

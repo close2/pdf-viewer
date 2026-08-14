@@ -1456,11 +1456,8 @@ impl Viewer {
                 let Some(page) = open.shown_page() else {
                     return;
                 };
-                let Some(page_id) = pdf_model::Pages::new(&open.document)
-                    .indices()
-                    .into_iter()
-                    .find(|(_, index)| *index == open.page_index)
-                    .map(|(object, _)| object)
+                let Some(page_id) =
+                    page_object(&pdf_model::Pages::new(&open.document), open.page_index)
                 else {
                     return;
                 };
@@ -1505,12 +1502,8 @@ impl Viewer {
         let interpreted = open.interpreted.as_ref()?;
         let tree = pdf_model::structure::Tree::of(&open.document)?;
         // As `accessibility` does, and for the same reason: Table 355's `/Pg` names a page
-        // *object* and what this crate holds is an index, so the page tree is inverted once.
-        let page = pdf_model::Pages::new(&open.document)
-            .indices()
-            .into_iter()
-            .find(|(_, index)| *index == interpreted.page)
-            .map(|(object, _)| object)?;
+        // *object* and what this crate holds is an index.
+        let page = page_object(&pdf_model::Pages::new(&open.document), interpreted.page)?;
         tree.logical_range(
             &open.document,
             page,
@@ -1529,17 +1522,9 @@ impl Viewer {
         let Some(interpreted) = open.interpreted.as_ref() else {
             return Vec::new();
         };
-        // Table 355's `/Pg` names a page *object*, and what this crate holds is an index — so the
-        // page tree is walked once to invert it. Session 141's `Pages::indices` is what makes
-        // that one walk rather than one per element; `Pages::index_of` in a loop is the defect
-        // ADR 0124 is about.
+        // Table 355's `/Pg` names a page *object*, and what this crate holds is an index.
         let pages = pdf_model::Pages::new(&open.document);
-        let Some(page) = pages
-            .indices()
-            .into_iter()
-            .find(|(_, index)| *index == interpreted.page)
-            .map(|(object, _)| object)
-        else {
+        let Some(page) = page_object(&pages, interpreted.page) else {
             return Vec::new();
         };
         let gathered =
@@ -2319,6 +2304,26 @@ fn referenced_objects(
         }
     }
     (places, controls)
+}
+
+/// Which object the page at `index` **is**, for the clauses that name a page object.
+///
+/// Table 355's `/Pg`, Table 358's and §12.5.1's tab order all name a page object, while this
+/// crate holds an index — so the two have to be joined, and where that join is made turns out to
+/// matter. It used to be made by *inverting* [`pdf_model::Pages::indices`], and that map
+/// deliberately holds an intermediate `/Pages` node as well, "answering with the first page
+/// beneath it" — so the inverse lookup handed back whichever of the two object numbers came
+/// first, and where a node's is lower than page one's it handed back **a node that is not a
+/// page**. Every `/Pg` comparison then failed, and §14.7's whole answer for that page was empty:
+/// the same silence an untagged page gives, on ten of this project's own tagged documents
+/// including ISO 14289-1 — found by ADR 0342's census, which is what it was built to see.
+///
+/// [`pdf_model::Page::id`] is "which object the page *is*", which is the question, and one
+/// descent to the leaf is cheaper than the whole-tree walk the map costs. The map keeps its own
+/// direction — object to index — where the node entry is exactly what a destination naming a
+/// node needs.
+fn page_object(pages: &pdf_model::Pages, index: usize) -> Option<ObjectId> {
+    pages.get(index).and_then(|page| page.id)
 }
 
 /// Every annotation object on a page, in `/Annots` order.

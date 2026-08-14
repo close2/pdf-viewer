@@ -14,6 +14,9 @@ pdf-syntax.workspace = true
 
 [dev-dependencies]
 render-cpu.workspace = true
+# The accessibility census walks every page of every document this project holds; rule 4 forbids
+# this crate threads it was not handed, and a test that runs it over a corpus is not the crate.
+rayon.workspace = true
 
 [lints]
 workspace = true

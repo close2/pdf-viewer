@@ -2221,6 +2221,60 @@ fn a_tagged_page_answers_with_its_structure_and_an_untagged_one_says_so() {
     ));
 }
 
+/// A page whose *page-tree node* has the lower object number still answers with its structure.
+///
+/// `pdf_model::Pages::indices` answers object → index and holds an entry for an intermediate
+/// `/Pages` node as well as for each page, "answering with the first page beneath it" — so
+/// inverting it by scanning for an index hands back whichever object number is lower, and where a
+/// node's is lower than page one's the answer is a node rather than a page. Table 355's `/Pg`
+/// comparisons then all failed and page one of ten of this project's own tagged documents — ISO
+/// 14289-1 among them, which is PDF/UA — answered a screen reader with the silence an untagged
+/// page gives. ADR 0342, found by `tests/accessibility_census.rs` on its first run.
+///
+/// The fixture is asserted to still *exhibit* the hazard before the answer is judged: a document
+/// whose object numbers were renumbered would pass this test while testing nothing.
+#[test]
+fn page_one_answers_where_its_page_tree_node_has_the_lower_object_number() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc/PDF20_AN002-AF.pdf");
+    let bytes = std::fs::read(&path).expect("the application note is in doc/");
+    let document = pdf_syntax::Document::open(bytes.clone()).expect("the application note opens");
+    let pages = pdf_model::Pages::new(&document);
+    let page_one = pages.get(0).and_then(|page| page.id).expect("page one");
+    let scanned = pages
+        .indices()
+        .into_iter()
+        .find(|(_, index)| *index == 0)
+        .map(|(object, _)| object);
+    assert_ne!(
+        scanned,
+        Some(page_one),
+        "the fixture no longer exhibits the hazard: nothing lower than page one answers for index 0"
+    );
+
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password: None,
+            fragment: None,
+        })
+        .for_each(drop);
+    let Answer::Accessibility(nodes) = viewer.query(Query::AccessibilityTree) else {
+        panic!("the query always answers");
+    };
+    assert!(
+        !nodes.is_empty(),
+        "page one of a tagged document answered with no structure at all"
+    );
+    assert!(
+        nodes
+            .iter()
+            .any(|node| node.substituted && !node.name.trim().is_empty()),
+        "the page's figure states §14.9.3's /Alt and it should be spoken: {nodes:?}"
+    );
+}
+
 /// Every page of a large tagged document answers with its own elements, not the first page's.
 ///
 /// **Two thirds of ISO 32000-2's 1023 pages answered with nothing**, and nothing said so: the
