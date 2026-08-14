@@ -91,11 +91,30 @@ pub fn lookup(
     key: &TreeKey<'_>,
     resolve: &dyn Fn(&Object) -> Object,
 ) -> Option<Object> {
+    lookup_unresolved(root, key, resolve).map(|found| resolve(&found))
+}
+
+/// [`lookup`], with the value left **as the tree states it**: a reference stays a reference.
+///
+/// Almost every consumer of a name or number tree wants the value itself, which is why
+/// [`lookup`] resolves before it answers. ISO 32000-2 §14.7.5.4's structural parent tree is the
+/// exception, and it is the reason this exists: its values *are* references — "the value shall be
+/// an indirect reference to the parent structure element" — so a caller asking which structure
+/// element a content item belongs to is asking for an identity, and resolving throws exactly that
+/// away. Two elements of one document can be equal dictionaries; they are never the same object.
+///
+/// `resolve` is still needed, because descending the tree follows references whatever the value
+/// turns out to be.
+pub fn lookup_unresolved(
+    root: &Dictionary,
+    key: &TreeKey<'_>,
+    resolve: &dyn Fn(&Object) -> Object,
+) -> Option<Object> {
     let mut visited = std::collections::BTreeSet::new();
     descend(root, key, resolve, 0, &mut visited)
 }
 
-/// One level of the walk; see [`lookup`].
+/// One level of the walk; see [`lookup`]. Answers the value unresolved.
 fn descend(
     node: &Dictionary,
     key: &TreeKey<'_>,
@@ -117,7 +136,7 @@ fn descend(
                 continue;
             };
             if key.compare(&resolve(candidate)) == Some(std::cmp::Ordering::Equal) {
-                return Some(resolve(value));
+                return Some(value.clone());
             }
         }
     }

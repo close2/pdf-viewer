@@ -772,6 +772,199 @@ impl Tree {
         document.resolve(&found).as_dict().cloned()
     }
 
+    /// The structure elements this page's content items name, through §14.7.5.4's parent tree.
+    ///
+    /// §14.7.5.4 is the *only* route from content to structure the standard states — a stream
+    /// cannot contain object references, so a marked-content sequence has no way of naming the
+    /// element it belongs to, and the structural parent tree is the mechanism the clause provides
+    /// instead. What it holds for a page is:
+    ///
+    /// > For a content stream containing marked-content sequences that are content items, the
+    /// > value shall be an array of indirect references to the sequences' parent structure
+    /// > elements.
+    ///
+    /// So a consumer asking what is on *one* page does not have to walk down from the root: the
+    /// document has already written the answer down, keyed by the page's own `/StructParents`.
+    /// [`Self::ancestry`] is the other half — the elements above these — and the two together are
+    /// the subtree a page occupies.
+    ///
+    /// # The three kinds of content item this looks for
+    ///
+    /// §14.7.5.1.1 makes a content item a marked-content sequence or a whole object, and Table 359
+    /// keys each kind differently: the sequences of one content stream share the stream's
+    /// `/StructParents`, and each object carries its own `/StructParent`. The objects a page can
+    /// hold are its annotations and the `XObject`s its resources name — the clause's own EXAMPLE 1
+    /// is a form `XObject` — so all three are asked, and a form's resources are followed for the
+    /// `XObject`s drawn inside it.
+    ///
+    /// # Why a generous answer costs nothing, and why `None` is not an empty one
+    ///
+    /// An `XObject` a page's resources name may never be drawn, and an annotation may belong to
+    /// another element than the one this returns. Neither matters: this answers which elements a
+    /// page *may* reach, and whether one of them has a content item on the page is decided
+    /// afterwards by the content items themselves — Table 355's and Table 358's `/Pg`. Missing an
+    /// element is what would cost, which is why the question is asked three ways.
+    ///
+    /// Which is exactly why a page stating no `/StructParents` answers `None` rather than the
+    /// annotations' elements alone. §14.7.5.4's Table 359 makes the entry
+    ///
+    /// > Required for all content streams containing marked-content sequences that are structural
+    /// > content items
+    ///
+    /// so a page without one has said nothing about its sequences, and a set built from its
+    /// annotations would be a *complete-looking* answer that silently omitted every paragraph on
+    /// the page. Found by comparing this route against the whole-tree walk over the corpus, on a
+    /// document whose pages carry widget annotations and no `/StructParents` at all; ADR 0325.
+    #[must_use]
+    pub fn elements_on_page(
+        &self,
+        document: &Document,
+        page: &Dictionary,
+    ) -> Option<BTreeSet<ObjectId>> {
+        // "For a content stream containing marked-content sequences that are content items, the
+        // value shall be an array of indirect references to the sequences' parent structure
+        // elements."
+        let key = document.get_key(page, "StructParents").as_integer()?;
+        let Some(Object::Array(items)) = self.parent_tree_entry(document, key) else {
+            return None;
+        };
+        let mut out: BTreeSet<ObjectId> = items
+            .iter()
+            .take(MAX_CHILDREN)
+            .filter_map(Object::as_reference)
+            .collect();
+        // "For an object identified as a content item by means of an object reference …, the
+        // value shall be an indirect reference to the parent structure element."
+        if let Object::Array(annotations) = document.get_key(page, "Annots") {
+            for annotation in annotations.iter().take(MAX_CHILDREN) {
+                let resolved = document.resolve(annotation);
+                let Some(dict) = resolved.as_dict() else {
+                    continue;
+                };
+                out.extend(self.object_owner(document, dict));
+            }
+        }
+        let mut visited = BTreeSet::new();
+        self.xobject_owners(document, page, 0, &mut visited, &mut out);
+        Some(out)
+    }
+
+    /// Every element at or above one of `elements`, following §14.7.2's Table 355 `/P`:
+    ///
+    /// > The structure element or the structure tree root that is the immediate parent of this
+    /// > structure element in the structure hierarchy.
+    ///
+    /// The entry is *required* and "shall be an indirect reference", and that second half is what
+    /// makes this answerable at all: a chain of identities rather than of dictionaries, so a walk
+    /// coming down from the root can recognise the elements it must descend into. Bounded by
+    /// [`MAX_ANCESTRY`], and a chain that meets an element already in the set stops there — the
+    /// set is the union of the paths to one root.
+    ///
+    /// The root itself is not in the answer, which is the other half of the sentence quoted above:
+    /// it is one of the two things a `/P` may name, it is not a structure element, and no walk
+    /// needs to be told to enter it.
+    #[must_use]
+    pub fn ancestry(
+        &self,
+        document: &Document,
+        elements: &BTreeSet<ObjectId>,
+    ) -> BTreeSet<ObjectId> {
+        let mut out: BTreeSet<ObjectId> = BTreeSet::new();
+        for element in elements {
+            let mut at = *element;
+            for _ in 0..MAX_ANCESTRY {
+                let resolved = document.get(at);
+                let Some(dict) = resolved.as_dict() else {
+                    break;
+                };
+                // Table 354 makes `/Type` required on the structure tree root and Table 355 makes
+                // it optional on an element, so this is the one comparison that can tell the top
+                // of the chain from the rest of it.
+                if document
+                    .get_key(dict, "Type")
+                    .as_name()
+                    .is_some_and(|kind| kind.as_bytes() == b"StructTreeRoot")
+                {
+                    break;
+                }
+                if !out.insert(at) {
+                    break;
+                }
+                let Some(above) = dict.get("P").and_then(Object::as_reference) else {
+                    break;
+                };
+                at = above;
+            }
+        }
+        out
+    }
+
+    /// The parent tree entry a `/StructParent` or `/StructParents` key names, **unresolved**.
+    ///
+    /// Unresolved because the entry's whole content is identity: §14.7.5.4 makes both forms of
+    /// value references to structure elements, and a resolved dictionary cannot be told from an
+    /// equal one somewhere else in the tree.
+    fn parent_tree_entry(&self, document: &Document, key: i64) -> Option<Object> {
+        let parent_tree = document.get_key(&self.root, "ParentTree");
+        let parent_tree = parent_tree.as_dict()?;
+        tree::lookup_unresolved(parent_tree, &tree::TreeKey::Number(key), &|object| {
+            document.resolve(object)
+        })
+    }
+
+    /// The element an object content item belongs to, from its own `/StructParent`.
+    fn object_owner(&self, document: &Document, object: &Dictionary) -> Option<ObjectId> {
+        let key = document.get_key(object, "StructParent").as_integer()?;
+        self.parent_tree_entry(document, key)?.as_reference()
+    }
+
+    /// [`Self::object_owner`] for every `XObject` a resource dictionary names, and for those the
+    /// forms among them name in turn.
+    ///
+    /// §14.7.5.4's EXAMPLE 1 is exactly this shape — a form `XObject` stating `/StructParent 6`,
+    /// drawn by the page's content stream and named by the page's resource dictionary — and a form
+    /// may draw another. The visited set is what makes a form that names itself terminate, which
+    /// §8.10.1 does not forbid a file from writing.
+    fn xobject_owners(
+        &self,
+        document: &Document,
+        node: &Dictionary,
+        depth: usize,
+        visited: &mut BTreeSet<ObjectId>,
+        out: &mut BTreeSet<ObjectId>,
+    ) {
+        if depth >= MAX_DEPTH {
+            return;
+        }
+        let resources = document.get_key(node, "Resources");
+        let Some(resources) = resources.as_dict() else {
+            return;
+        };
+        let xobjects = document.get_key(resources, "XObject");
+        let Some(xobjects) = xobjects.as_dict() else {
+            return;
+        };
+        for (_, value) in xobjects.iter().take(MAX_CHILDREN) {
+            if let Some(id) = value.as_reference()
+                && !visited.insert(id)
+            {
+                continue;
+            }
+            let resolved = document.resolve(value);
+            let Object::Stream(stream) = &resolved else {
+                continue;
+            };
+            out.extend(self.object_owner(document, &stream.dict));
+            self.xobject_owners(
+                document,
+                &stream.dict,
+                depth.saturating_add(1),
+                visited,
+                out,
+            );
+        }
+    }
+
     /// §14.8.2.5.1's logical content order, for one page.
     ///
     /// > Logical content order -the ordering for semantic purposes -shall be defined by a
@@ -986,7 +1179,12 @@ impl Tree {
     /// [`Child`]: an element's *identity* is a fact about how the walk got there rather than
     /// about what the element is, and every other consumer of `children` wants the four forms
     /// §14.7.5.1.1 defines and nothing beside them.
-    fn identified_children(
+    ///
+    /// It is public because a second walk needs the same fact for a different reason: a caller
+    /// that already knows *which* elements a page reaches — [`Self::elements_on_page`] — has to
+    /// recognise them among their siblings, and a dictionary is not an identity.
+    #[must_use]
+    pub fn identified_children(
         &self,
         document: &Document,
         element: Option<&Dictionary>,
@@ -2607,6 +2805,7 @@ mod tests {
         StandardType, TableGrid, TableStack, Tree, actual_text,
     };
     use pdf_syntax::{Document, Object};
+    use std::collections::BTreeSet;
 
     /// Builds a document from object bodies numbered from 1.
     fn document(objects: &[&str]) -> Document {
@@ -2670,6 +2869,74 @@ mod tests {
             "the second entry, indexed rather than taken first"
         );
         assert!(parents.element(&doc, 2).is_none());
+    }
+
+    /// §14.7.5.4's three routes from a page to the elements its content items belong to.
+    ///
+    /// One fixture per kind of content item the clause names, because each is keyed differently
+    /// and a reader that found two of the three would look right on nearly every file: the page's
+    /// own `/StructParents` array for its marked-content sequences, the annotation's
+    /// `/StructParent` for §14.7.5.3's object reference, and the form `XObject`'s — which is the
+    /// clause's own EXAMPLE 1. The three elements are siblings under one `Sect`, so `ancestry`
+    /// has something to add that `elements_on_page` cannot know.
+    #[test]
+    fn a_page_finds_its_elements_through_the_structural_parent_tree() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /StructParents 0 \
+             /Annots [10 0 R] /Resources << /XObject << /Fm 11 0 R >> >> >>",
+            "<< /Type /StructTreeRoot /K [5 0 R] /ParentTree 9 0 R >>",
+            "<< /Type /StructElem /S /Sect /P 4 0 R /Pg 3 0 R /K [6 0 R 7 0 R 8 0 R] >>",
+            "<< /Type /StructElem /S /P /P 5 0 R /Pg 3 0 R /K [0] >>",
+            "<< /Type /StructElem /S /Form /P 5 0 R \
+             /K [<< /Type /OBJR /Obj 10 0 R /Pg 3 0 R >>] >>",
+            "<< /Type /StructElem /S /Figure /P 5 0 R \
+             /K [<< /Type /OBJR /Obj 11 0 R /Pg 3 0 R >>] >>",
+            "<< /Nums [0 [6 0 R] 1 7 0 R 2 8 0 R] >>",
+            "<< /Type /Annot /Subtype /Widget /Rect [0 0 1 1] /StructParent 1 >>",
+            "<< /Type /XObject /Subtype /Form /Length 0 /StructParent 2 >>\nstream\n\nendstream",
+        ]);
+        let tree = Tree::of(&doc).expect("a structure tree root");
+        let page = crate::page::Pages::new(&doc).get(0).expect("page one");
+
+        let reference = |number| pdf_syntax::ObjectId {
+            number,
+            generation: 0,
+        };
+        let found = tree
+            .elements_on_page(&doc, &page.dict)
+            .expect("the page states `/StructParents`");
+        assert_eq!(
+            found,
+            [reference(6), reference(7), reference(8)]
+                .into_iter()
+                .collect::<BTreeSet<_>>(),
+            "the sequence's element, the annotation's and the form XObject's"
+        );
+
+        // Table 355's `/P`, which is what a walk coming down from the root needs: the `Sect` is
+        // not named by the parent tree and every one of the three is under it.
+        assert_eq!(
+            tree.ancestry(&doc, &found),
+            [reference(5), reference(6), reference(7), reference(8)]
+                .into_iter()
+                .collect::<BTreeSet<_>>()
+        );
+
+        // A page that states no `/StructParents` answers `None` — "the file has not said" —
+        // rather than an empty set, which would be a page asserting that it has no structure.
+        // The difference is what a caller decides whether to prune on.
+        let plain = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+            "<< /Type /StructTreeRoot /K [5 0 R] >>",
+            "<< /Type /StructElem /S /P /P 4 0 R >>",
+        ]);
+        let bare = Tree::of(&plain).expect("a structure tree root");
+        let page = crate::page::Pages::new(&plain).get(0).expect("page one");
+        assert_eq!(bare.elements_on_page(&plain, &page.dict), None);
     }
 
     /// §14.7.2's tree, walked from the root, with §14.7.3's role map applied.

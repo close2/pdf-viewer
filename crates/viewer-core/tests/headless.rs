@@ -2221,6 +2221,78 @@ fn a_tagged_page_answers_with_its_structure_and_an_untagged_one_says_so() {
     ));
 }
 
+/// Every page of a large tagged document answers with its own elements, not the first page's.
+///
+/// **Two thirds of ISO 32000-2's 1023 pages answered with nothing**, and nothing said so: the
+/// walk started at the structure tree root, gathered the *document's* elements until the bound on
+/// one page's answer stopped it, and pruned to the page afterwards — so every page past the first
+/// few pages' worth of elements got an empty list, which is the same answer an untagged page
+/// gives. §14.7.5.4 states the route that has no such shape — the page's own `/StructParents` is
+/// the key into the structural parent tree, and
+///
+/// > For a content stream containing marked-content sequences that are content items, the value
+/// > shall be an array of indirect references to the sequences' parent structure elements.
+///
+/// so the page names its own elements and §14.7.2's Table 355 `/P` places them. ADR 0325.
+///
+/// The pages are sampled across the document rather than taken from the front, because the defect
+/// was invisible at the front: pages 1 and 40 were right throughout. Each page's answer is also
+/// required to differ from the page before's, which is what says these are *its* elements rather
+/// than a tree handed out unchanged.
+#[test]
+fn every_page_of_a_large_tagged_document_answers_with_its_own_elements() {
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc/ISO_32000-2_sponsored_EC3.pdf");
+    let bytes = std::fs::read(&path).expect("the specification is in doc/");
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password: None,
+            fragment: None,
+        })
+        .for_each(drop);
+
+    let mut answers: Vec<(usize, Vec<String>)> = Vec::new();
+    for page in [1_usize, 150, 400, 1022] {
+        viewer
+            .handle(Command::GoTo(PageTarget::Index(page)))
+            .for_each(drop);
+        let Answer::Accessibility(nodes) = viewer.query(Query::AccessibilityTree) else {
+            panic!("the query always answers");
+        };
+        assert!(
+            !nodes.is_empty(),
+            "page {page} of a tagged document answered with no structure at all"
+        );
+        // Parent-first, which is what makes an index into the list a usable parent link — and
+        // which a pruned walk could break where the whole-tree one did not.
+        for (index, node) in nodes.iter().enumerate() {
+            if let Some(parent) = node.parent {
+                assert!(parent < index, "page {page}, node {index} names {parent}");
+            }
+        }
+        assert!(
+            nodes
+                .iter()
+                .any(|node| !node.name.trim().is_empty() && !node.quads.is_empty()),
+            "page {page}: no element both speaks and has a place on the page"
+        );
+        answers.push((page, nodes.iter().map(|node| node.name.clone()).collect()));
+    }
+    for pair in answers.windows(2) {
+        let ([before, after], ..) = (pair, ()) else {
+            continue;
+        };
+        assert_ne!(
+            before.1, after.1,
+            "pages {} and {} answered with the same elements",
+            before.0, after.0
+        );
+    }
+}
+
 /// A two-page tagged document whose own `/RoleMap` renames one of §14.8.4's types.
 ///
 /// Three things in one fixture, because they are three properties of one answer: §14.7.3's role

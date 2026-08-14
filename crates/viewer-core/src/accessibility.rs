@@ -38,11 +38,29 @@
 //! ADR 0134 said this did and what the three-hundred-and-seventy-sixth session found it did not:
 //! a thousand-page document handed a screen reader every element in the file, with text and
 //! quadrilaterals on none but one page's.
+//!
+//! # How the page's elements are *found*, which is not the same question
+//!
+//! Keeping the right elements is one thing; reaching them is another, and this walked the whole
+//! document's tree to do it. [`MAX_NODES`] then stopped the walk after the first few pages' worth
+//! of elements, so every page past those answered with **nothing** — ISO 32000-2's page 400 and
+//! two thirds of its 1023 pages, and nothing said so. A screen reader heard silence and could not
+//! tell it from an untagged page.
+//!
+//! §14.7.5.4 states the route that does not have this shape: the structural parent tree, keyed by
+//! the page's own `/StructParents`, names the elements this page's content items belong to
+//! directly. [`pdf_model::structure::Tree::elements_on_page`] asks it and
+//! [`pdf_model::structure::Tree::ancestry`] follows Table 355's `/P` up from each answer, so the
+//! walk below descends from the root **only into the subtree the page occupies** — the ancestors
+//! it must pass through and nothing beside them. What was a walk of the document is a walk of the
+//! page. ADR 0325.
+
+use std::collections::BTreeSet;
 
 use pdf_model::accessibility::Described;
 use pdf_model::content::MarkedSpan;
 use pdf_model::structure::{Child, HeaderScope, StandardType, TableStack, Tree};
-use pdf_syntax::{Dictionary, Document};
+use pdf_syntax::{Dictionary, Document, ObjectId};
 
 /// How deep a structure tree is walked before the walk is abandoned.
 ///
@@ -224,25 +242,85 @@ pub(crate) struct Gathered {
 /// says nothing about its own structure, which is exactly what §14.7 leaves it to say.
 pub(crate) fn nodes(
     document: &Document,
-    page: pdf_syntax::ObjectId,
+    page: ObjectId,
     default_language: Option<&str>,
 ) -> Vec<(Option<usize>, Gathered)> {
     let Some(tree) = Tree::of(document) else {
         return Vec::new();
     };
+    // §14.7.5.4's parent tree: which elements this page's content items name, and what is above
+    // them. `None` where the page has not said — Table 359 requires `/StructParents` of "all
+    // content streams containing marked-content sequences that are structural content items", so
+    // a page lacking one has left the question unanswered and the whole tree is what is left.
+    let owners = document
+        .get(page)
+        .as_dict()
+        .and_then(|dict| tree.elements_on_page(document, dict));
+    let within = owners
+        .as_ref()
+        .map(|owners| tree.ancestry(document, owners));
+    let gathering = gather(document, &tree, page, default_language, within.as_ref());
+    // The two chains a document states are `/K` downwards and `/P` upwards, and nothing checks
+    // that they agree. Where they do not, an element the parent tree named is not where its own
+    // ancestry says it is, and the walk above stepped over it — so the walk that needs no
+    // agreement is run instead. It is what this function did for every page until ADR 0325, and
+    // it is the right answer to a file whose two statements about itself differ.
+    //
+    // Asked of the walk that was actually made: a walk the bound stopped reached less than the
+    // page's subtree for a reason of its own, and answering it with the walk that has the same
+    // bound would be the same shortfall twice.
+    let agreed = owners
+        .as_ref()
+        .is_none_or(|owners| owners.iter().all(|id| gathering.reached.contains(id)));
+    if !agreed && !gathering.bounded {
+        return gather(document, &tree, page, default_language, None).nodes;
+    }
+    gathering.nodes
+}
+
+/// One walk's result: what it gathered, which elements it reached, and whether it ran out of room.
+struct Gathering {
+    /// The page's elements, pruned and parent-first.
+    nodes: Vec<(Option<usize>, Gathered)>,
+    /// Every element the walk entered, by identity, **before** the pruning.
+    ///
+    /// What [`nodes`] checks §14.7.5.4's answer against: an element the parent tree named and this
+    /// set does not hold is one the walk did not reach.
+    reached: BTreeSet<ObjectId>,
+    /// Whether [`MAX_NODES`] stopped the walk before the tree ran out.
+    ///
+    /// Not derivable from [`Self::nodes`], which is what makes it a field: pruning happens after
+    /// the bound, so a walk that gathered 8192 elements of another page's and kept none of them
+    /// answers with an empty list that looks exactly like a page with no structure.
+    bounded: bool,
+}
+
+/// One walk of the tree, pruned to `within` where the page's own subtree is known.
+///
+/// Answers a [`Gathering`], whose other two fields are what [`nodes`] checks the pruning against.
+fn gather(
+    document: &Document,
+    tree: &Tree,
+    page: ObjectId,
+    default_language: Option<&str>,
+    within: Option<&BTreeSet<ObjectId>>,
+) -> Gathering {
     let mut out: Vec<(Option<usize>, Gathered)> = Vec::new();
+    let mut reached: BTreeSet<ObjectId> = BTreeSet::new();
     // §14.8.4.8.3's tables, kept as the walk descends: a cell's place in its grid is what
     // §14.8.5.7 assumes a header's axis from, and it is not knowable from the cell alone.
     let mut tables = TableStack::new();
     walk(
         document,
-        &tree,
+        tree,
         None,
         None,
         page,
         default_language,
         0,
+        within,
         &mut tables,
+        &mut reached,
         &mut out,
     );
     // §14.8.4.8.3's headers, once the whole tree has been seen — see `Gathered::headers`.
@@ -251,7 +329,13 @@ pub(crate) fn nodes(
             entry.headers = headers;
         }
     }
-    prune(out)
+    // The bound, read before the pruning throws away the only evidence that it was reached.
+    let bounded = out.len() >= MAX_NODES;
+    Gathering {
+        nodes: prune(out),
+        reached,
+        bounded,
+    }
 }
 
 /// Drops the elements that have nothing on this page, and repairs the parent links.
@@ -327,6 +411,13 @@ fn spoken(text: &str, described: &[Described], spans: &[(usize, usize)]) -> Stri
 }
 
 /// One element and everything below it, appended to `out` parent-first.
+///
+/// `within` is §14.7.5.4's answer to "which elements does this page occupy", and a child outside
+/// it is stepped over rather than descended into — the page's subtree instead of the document's.
+/// `None` descends into everything, which is what a file that named no elements for this page
+/// gets and what the inside of a **table** gets whatever the page said: §14.8.5.7 assumes a header
+/// cell's axis from its place in the table's grid, and a table continued from the page before has
+/// that place only if the rows before it were counted.
 #[expect(
     clippy::too_many_arguments,
     reason = "a walk of a tree carries what it is walking, where it is, and what it inherits; \
@@ -337,18 +428,32 @@ fn walk(
     tree: &Tree,
     element: Option<&Dictionary>,
     parent: Option<usize>,
-    page: pdf_syntax::ObjectId,
+    page: ObjectId,
     language: Option<&str>,
     depth: usize,
+    within: Option<&BTreeSet<ObjectId>>,
     tables: &mut TableStack,
+    reached: &mut BTreeSet<ObjectId>,
     out: &mut Vec<(Option<usize>, Gathered)>,
 ) {
     if depth >= MAX_DEPTH || out.len() >= MAX_NODES {
         return;
     }
-    for child in tree.children(document, element) {
+    for (child, id) in tree.identified_children(document, element) {
         match child {
             Child::Element(dict) => {
+                // Table 355 makes `/P` an indirect reference, so every element the parent tree
+                // can name is one this walk reaches through a reference too: an element with no
+                // identity is inside its parent's `/K` and is neither named by §14.7.5.4 nor an
+                // ancestor of anything that is.
+                if let Some(within) = within
+                    && id.is_none_or(|id| !within.contains(&id))
+                {
+                    continue;
+                }
+                if let Some(id) = id {
+                    reached.insert(id);
+                }
                 // §14.9.2.3's hierarchy: the innermost stated `/Lang` wins, and an element that
                 // states none inherits what encloses it.
                 let language =
@@ -365,6 +470,12 @@ fn walk(
                 let index = out.len();
                 let header_scope = header_scope(document, tree, &dict, &role, depth, index, tables);
                 let bounds = tree.bounds(document, &dict);
+                // Inside a table the pruning stops, for the reason this function's own comment
+                // gives: a grid missing the rows on the page before places every cell wrong.
+                let below = match StandardType::read(&role) {
+                    Some(StandardType::Table) => None,
+                    _ => within,
+                };
                 out.push((
                     parent,
                     Gathered {
@@ -387,7 +498,9 @@ fn walk(
                     page,
                     language.as_deref(),
                     depth.saturating_add(1),
+                    below,
                     tables,
+                    reached,
                     out,
                 );
             }

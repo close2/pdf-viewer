@@ -2,10 +2,11 @@
 
 Status: **built and verified on a real bus** in the three-hundred-and-seventy-sixth session
 (ADR 0214); a `TH`'s axis closed on one in the four-hundred-and-sixty-fifth (ADR 0300),
-Table 379's `/BBox` in the four-hundred-and-sixty-sixth (ADR 0301) and a cell's `/Headers` in
-the four-hundred-and-seventy-seventh (ADR 0312).
+Table 379's `/BBox` in the four-hundred-and-sixty-sixth (ADR 0301), a cell's `/Headers` in
+the four-hundred-and-seventy-seventh (ADR 0312) and **the empty answer every page but the first
+few of a large tagged document got** in the four-hundred-and-ninetieth (ADR 0325).
 Priority: 31 — capability
-Clauses: §14.7, §14.8.4, §14.8.4.8.3, §14.8.5.4.3, §14.8.5.7, §14.9
+Clauses: §14.7, §14.7.5.3, §14.7.5.4, §14.8.4, §14.8.4.8.3, §14.8.5.4.3, §14.8.5.7, §14.9
 Code: `crates/viewer-accessibility/` (`role.rs`, `tree.rs`, `bridge.rs`),
 `crates/viewer-core/src/accessibility.rs`, `crates/pdf-model/src/structure.rs`,
 `crates/viewer-ui/src/bin/pdf-viewer.rs` (`App::attend`, `App::speak`)
@@ -34,15 +35,15 @@ search rather than from the array**.
 
 ## What is left
 
-- **The answer for any page but the first of a large tagged document is empty**, found while
-  pricing the round above and not looked into. `viewer_core::accessibility::walk` stops at
-  `MAX_NODES` = 8192 elements of the **whole document's** tree and prunes to the page afterwards,
-  so ISO 32000-2's page 1 answers with 17 nodes and its page 400 answers with **none at all** —
-  `viewer-core --example accessibility_cost <file> 400` prints both. A screen reader on a
-  thousand-page tagged document therefore hears nothing past the first few pages, and nothing says
-  so. The bound is not the defect; walking the whole tree to answer for one page is, and the fix is
-  the same one the cost item below wants: reach the page's elements through §14.7.5.4's parent tree
-  instead of walking down from the root.
+- ~~The answer for any page but the first of a large tagged document is empty~~ — **closed in the
+  four-hundred-and-ninetieth session** (ADR 0325), and checked on a real bus. The page's elements
+  are found through
+  §14.7.5.4's parent tree — `Tree::elements_on_page` for the three keyings the clause
+  distinguishes, `Tree::ancestry` for Table 355's `/P` above them — and the walk descends from the
+  root only into the subtree the page occupies, which keeps §14.8.2.5's order. Two things it
+  leaves, both stated in the ADR and neither a corpus witness: a page of a *large* document that
+  states no `/StructParents` still falls back to the whole-tree walk and so still answers empty,
+  and a `/StructParents` array shorter than the page's sequences loses what it does not name.
 
 - **Table 384's `/Short`, which nothing states.** "Contains a short form of the content of a TH
   structure element's content", and its EXAMPLE is precisely this feature: "for each table cell the
@@ -106,13 +107,17 @@ search rather than from the array**.
 
 - **The question costs tens of milliseconds on a thousand-page document**, and a screen reader asks
   it on every page turn — against the 0.13–0.25 ms ADR 0228 recorded on a five-page one.
-  `viewer_core::accessibility::nodes` walks the **whole document's** structure tree and prunes
-  afterwards, resolving §14.7.3's role map per element as it goes. Two obvious levers — reach the
-  page's elements through §14.7.5.4's parent tree instead of walking down, or memoise the role map
-  — and neither has been priced. This belongs to whoever takes `doc/todo/45` next as much as it
-  belongs here. **`viewer-core --example accessibility_cost` is the stopwatch** since ADR 0301,
-  which is what the entry needed: the four-hundred-and-sixty-fifth measured this by hand and left
-  nothing anybody could rerun.
+  **The first of the two levers this entry named is taken** (ADR 0325): the walk no longer descends
+  the whole document's tree, so what is left to price is what remains — the ancestors' `/K` arrays,
+  every child of which is resolved to find out whether it is one of the page's, and §14.7.3's role
+  map resolved per element. **Nothing here has been measured since**, deliberately: the round that
+  made the change ran beside nine others and a stopwatch would have measured the machine. Two
+  candidates for whoever takes it, both recorded rather than taken — memoise the role map, and skip
+  a child whose reference is outside the page's set *before* resolving it, which ADR 0325 rejects
+  as written because §14.7.5.1.1's content items may themselves be indirect. This belongs to
+  whoever takes `doc/todo/45` next as much as it belongs here. **`viewer-core --example
+  accessibility_cost` is the stopwatch** since ADR 0301, which is what the entry needed: the
+  four-hundred-and-sixty-fifth measured this by hand and left nothing anybody could rerun.
 
   **And a stopwatch is the wrong instrument for a small change on a busy machine**, which ADR 0312
   found the hard way with five other rounds building beside it: the same binary read 56 ms and
