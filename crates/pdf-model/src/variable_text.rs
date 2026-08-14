@@ -30,10 +30,18 @@
 //!
 //! # Where it is not implemented, it says so
 //!
-//! A `/DA` naming a font `/DR` does not define is refused by name, exactly as a content stream
-//! naming a font its `/Resources` lacks already is — the clause makes the match a requirement
-//! on the writer and states no recovery, and inventing a font from a resource *name* would put
-//! glyphs on the page the document never described.
+//! **This section said a `/DA` naming a font `/DR` does not define was refused by name, and had
+//! been false since the hundred-and-twenty-third session**, when ADR 0112 gave that case a
+//! stand-in and a report — a free text annotation's text *is* its appearance, so refusing drew a
+//! blank page. [`substituted_font`] and [`Resolution`] are what actually happens, and the
+//! asymmetry between a font the document named and one this module inferred is stated there.
+//!
+//! What is refused whole, each because the clause's own answer is a refusal rather than a
+//! shortfall: a `/DA` with no `Tf` ([`Owed::NoFont`]), a font that will not load or whose codes
+//! cannot be reached from a character ([`Owed::FontUnusable`]), and a composite font whose
+//! `CMap` asks for §9.7.5.1's writing mode 1 ([`Owed::VerticalWritingMode`]). A refusal here
+//! leaves whatever appearance stream the file itself states standing, which is why it is the
+//! right answer where a wrong axis or a wrong glyph would be the alternative.
 
 use pdf_syntax::{Dictionary, Document, Lexer, Object, Token};
 use std::fmt::Write as _;
@@ -156,6 +164,12 @@ pub(crate) enum Owed {
     FontNotInResources(String),
     /// The named font could not be loaded, or is one this crate cannot address by character.
     FontUnusable(String),
+    /// The `/DA` names a composite font whose `CMap` sets §9.7.5.1's writing mode 1.
+    ///
+    /// The name is carried so the report can say which. A whole refusal rather than a report
+    /// beside a drawing: the clause makes the mode decide which metrics place the next glyph,
+    /// and this module places them along one axis.
+    VerticalWritingMode(String),
     /// `/DR` defines no font under the `/DA`'s name, **and** the one stood in for it cannot
     /// encode the value. Both halves, because either alone misnames what happened.
     InventedFontFellShort {
@@ -190,6 +204,10 @@ impl Owed {
                  does not define"
             ),
             Self::FontUnusable(detail) => format!("its /DA's font is unusable: {detail}"),
+            Self::VerticalWritingMode(name) => format!(
+                "its /DA names the font /{name}, whose CMap sets §9.7.5.1's writing mode 1, and \
+                 the variable text of §12.7.4.3 is laid out along the horizontal axis here"
+            ),
             Self::InventedFontFellShort { name, characters } => format!(
                 "its /DA names the font /{name}, which the interactive form dictionary's /DR \
                  does not define, and the standard font stood in for it states no code for \
@@ -368,10 +386,9 @@ fn standard_abbreviation(name: &str) -> Option<&'static str> {
 ///
 /// # Errors
 ///
-/// [`Owed::FontUnusable`] where the font will not load, or is composite: every route into this
-/// crate's text drawing needs a code, and a composite font's codes cannot be produced from a
-/// character without inverting a `CMap`'s codespace ranges (§9.7.6.2). Named rather than guessed
-/// at.
+/// [`Owed::FontUnusable`] where the font will not load or cannot be addressed by character, and
+/// [`Owed::VerticalWritingMode`] where its `CMap` asks for §9.7.5.1's writing mode 1. Both are
+/// named rather than guessed at.
 fn set_in(
     document: &Document,
     request: &Request,
@@ -380,10 +397,18 @@ fn set_in(
     let (dict, resolution) = resolve_font(document, request.resources, font_name);
     let font = pdf_font::LoadedFont::load(document, &dict, font_name)
         .map_err(|error| Owed::FontUnusable(error.to_string()))?;
+    // **The whole layout below is horizontal**, and §9.7.5.1 makes the writing mode decide
+    // "which metrics shall be used when glyphs are painted from that font". A field's text
+    // placed along x with a font whose displacement is `w1` and whose glyphs sit at `-v` would
+    // be a confident wrong mark rather than a partial one, and refusing here leaves the
+    // document's own appearance stream standing where it has one.
+    if font.is_vertical() {
+        return Err(Owed::VerticalWritingMode(font_name.to_owned()));
+    }
     if !font.addresses_characters() {
         return Err(Owed::FontUnusable(format!(
-            "/{font_name} is a composite font, and this crate cannot yet address one by \
-             character"
+            "/{font_name}'s /Encoding CMap states more codes than can be inverted, so no \
+             character of the value can be turned into one (§9.7.6.2)"
         )));
     }
 
@@ -779,7 +804,7 @@ impl Metrics {
     /// answers *how tall is this line* for a selection highlight, and this one answers *where in
     /// its box does this field's text sit*, which is the choice those two constants record.
     fn read(document: &Document, dict: &Dictionary) -> Self {
-        let descriptor = document.get_key(dict, "FontDescriptor");
+        let descriptor = descriptor_of(document, dict);
         let read = |key: &str| {
             descriptor
                 .as_dict()
@@ -802,9 +827,69 @@ impl Metrics {
     }
 }
 
+/// One position in the laid-out value: a code the font draws, or a break that draws nothing.
+///
+/// **Not a [`pdf_font::Code`] with a sentinel value, and the difference is a defect this shape
+/// removes.** A line break used to travel through the layout as the code for a line feed, which
+/// is sound exactly as long as no font gives that code a glyph. §9.6.5.1's `/Differences` lets a
+/// simple font's encoding put one there, and §9.7.6.2 lets a composite font's `CMap` state a
+/// one-byte code 10 outright — and either would have had a *character of the value* laid out as
+/// a break, dropped by [`show`] and never drawn, with nothing reported. The enum makes the two
+/// unmistakable to the compiler, which is the construction principle 4 asks for over a comment
+/// warning about the collision.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Placed {
+    /// §12.7.5.3's line break: [`wrap`] ends a line at it and [`show`] writes nothing for it.
+    Break,
+    /// A character code of the `/DA`'s font, from [`pdf_font::LoadedFont::code_for`].
+    Shown(pdf_font::Code),
+}
+
+impl Placed {
+    /// The code to draw, or `None` for a break.
+    fn code(self) -> Option<pdf_font::Code> {
+        match self {
+            Self::Break => None,
+            Self::Shown(code) => Some(code),
+        }
+    }
+
+    /// Whether §9.3.3's word spacing applies here, which it never does to a break.
+    fn takes_word_spacing(self) -> bool {
+        self.code().is_some_and(pdf_font::Code::takes_word_spacing)
+    }
+}
+
+/// The font descriptor a font dictionary reaches, following a Type 0 font to its descendant.
+///
+/// Table 119 lists six entries for a Type 0 font dictionary and `/FontDescriptor` is not among
+/// them: the descriptor belongs to Table 115's `CIDFont`, which §9.7.4.1 says "shall be used
+/// only as a descendant of a Type 0 font". So a reader of Table 120's `/Ascent` and `/Descent`
+/// that stopped at the dictionary the `/DA` names would find nothing for *every* composite font
+/// and fall back to [`DEFAULT_ASCENT`] without ever saying that the document had stated a pair.
+///
+/// One indirection deep and no further: a descendant is a `CIDFont`, and Table 115 gives it no
+/// descendants of its own.
+fn descriptor_of(document: &Document, dict: &Dictionary) -> Object {
+    let stated = document.get_key(dict, "FontDescriptor");
+    if stated.as_dict().is_some() {
+        return stated;
+    }
+    let descendants = document.get_key(dict, "DescendantFonts");
+    descendants
+        .as_array()
+        .and_then(<[Object]>::first)
+        .map(|first| document.resolve(first))
+        .map_or(Object::Null, |descendant| {
+            descendant.as_dict().map_or(Object::Null, |descendant| {
+                document.get_key(descendant, "FontDescriptor")
+            })
+        })
+}
+
 /// The codes a value became, and the characters that produced none.
 struct Encoded {
-    codes: Vec<pdf_font::Code>,
+    codes: Vec<Placed>,
     /// The distinct characters the font states no code for, ready for a report.
     missing: String,
     /// Whether [`MAX_CODES`] was reached and the rest of the value dropped.
@@ -844,9 +929,9 @@ fn encode(font: &pdf_font::LoadedFont, text: &str, asked: Asked) -> Encoded {
     let mut marks: [Option<usize>; 3] = [None; 3];
     let mut offsets = Vec::new();
     // A carriage return, a line feed and the pair are all one line break, and none of them is
-    // a glyph. They travel through the layout as `BREAK` and `show` drops them. Read from the
-    // value as it stands rather than from a normalised copy, so that a caret's offset means
-    // the same thing here as it does to the host that sent it.
+    // a glyph. They travel through the layout as `Placed::Break` and `show` drops them. Read
+    // from the value as it stands rather than from a normalised copy, so that a caret's offset
+    // means the same thing here as it does to the host that sent it.
     let mut after_return = false;
     let mut end = text.len();
     for (at, character) in text.char_indices() {
@@ -875,13 +960,13 @@ fn encode(font: &pdf_font::LoadedFont, text: &str, asked: Asked) -> Encoded {
             }
         };
         let produced = if character == '\n' {
-            Some(BREAK)
+            Some(Placed::Break)
         } else {
             match font
                 .code_for(character)
                 .or_else(|| substitutable(character, font))
             {
-                Some(code) => Some(code),
+                Some(code) => Some(Placed::Shown(code)),
                 None if missing.contains(character) => None,
                 None => {
                     missing.push(character);
@@ -945,12 +1030,6 @@ fn substitutable(character: char, font: &pdf_font::LoadedFont) -> Option<pdf_fon
         .flatten()
 }
 
-/// The code standing for a line break, which is never shown.
-///
-/// A line feed's own code, which `show` drops and `wrap` treats as the end of a line. It is
-/// never drawn, so nothing depends on whether the font gives code 10 a glyph.
-const BREAK: pdf_font::Code = pdf_font::Code::single_byte(b'\n');
-
 /// Measures a run of codes the way the interpreter will draw it.
 ///
 /// §9.4.4's displacement, with the parameters the `/DA` set: `(w0 × size + Tc + Tw) × Th`,
@@ -963,11 +1042,11 @@ struct Measure<'a> {
 
 impl Measure<'_> {
     /// The displacement a run of codes produces at a given size.
-    fn width(&self, codes: &[pdf_font::Code], size: f32) -> f32 {
+    fn width(&self, codes: &[Placed], size: f32) -> f32 {
         let scale = self.appearance.horizontal_scaling;
         codes
             .iter()
-            .filter(|code| **code != BREAK)
+            .filter_map(|placed| placed.code())
             .map(|code| {
                 let word = if code.takes_word_spacing() {
                     self.appearance.word_spacing
@@ -976,7 +1055,7 @@ impl Measure<'_> {
                 };
                 (self
                     .font
-                    .advance(*code)
+                    .advance(code)
                     .mul_add(size, self.appearance.character_spacing)
                     + word)
                     * scale
@@ -991,13 +1070,7 @@ impl Measure<'_> {
 /// found by halving rather than solved, because line breaking is not a continuous function of
 /// the size — a size that fits on three lines may not fit on four — and because the same
 /// search then serves the single-line and multiline cases.
-fn auto_size(
-    measure: &Measure,
-    codes: &[pdf_font::Code],
-    shape: Shape,
-    width: f32,
-    height: f32,
-) -> f32 {
+fn auto_size(measure: &Measure, codes: &[Placed], shape: Shape, width: f32, height: f32) -> f32 {
     let fits = |size: f32| {
         let lines = match shape {
             Shape::Multiline => wrap(measure, codes, size, width),
@@ -1068,7 +1141,7 @@ fn write_lines(
         // The caret sits on the first line the offset reaches the end of, which decides the one
         // case the offset alone cannot: a soft wrap puts the same position at the end of one line
         // and the start of the next, and this is the end of the earlier one. A hard break is not
-        // ambiguous — `BREAK` occupies an index of its own, so the position after it is past this
+        // ambiguous — a break occupies an index of its own, so the position after it is past this
         // line's end and lands on the next.
         if marks.caret.is_none()
             && let Some(at) = written.caret.filter(|at| *at <= line.end)
@@ -1138,7 +1211,7 @@ fn write_lines(
 /// opinion about where the glyphs are.
 fn nearest_boundary(
     measure: &Measure,
-    codes: &[pdf_font::Code],
+    codes: &[Placed],
     size: f32,
     x: f32,
     point: f32,
@@ -1174,7 +1247,7 @@ struct Marks {
 /// [`encode`], because that is the space a line is measured in.
 #[derive(Clone, Copy)]
 struct Written<'a> {
-    codes: &'a [pdf_font::Code],
+    codes: &'a [Placed],
     caret: Option<usize>,
     selection: Option<(usize, usize)>,
     point: Option<[f32; 2]>,
@@ -1213,7 +1286,7 @@ impl Written<'_> {
 /// into those combs", so the room is a count rather than a length.
 fn overflows(
     measure: &Measure,
-    codes: &[pdf_font::Code],
+    codes: &[Placed],
     lines: &[std::ops::Range<usize>],
     set: Set,
     leading: f32,
@@ -1226,7 +1299,7 @@ fn overflows(
             lines
                 .iter()
                 .flat_map(|line| line_codes(codes, line))
-                .filter(|code| **code != BREAK)
+                .filter(|placed| !matches!(placed, Placed::Break))
                 .count()
                 .saturating_sub(usize::try_from(cells).unwrap_or(usize::MAX))
                 > 0
@@ -1257,19 +1330,14 @@ fn overflows(
 /// implementation that measured the whole line per character would turn a long field value
 /// into a quadratic cost twenty-one times over. Principle 3's rule about a document's own
 /// numbers driving a loop.
-fn wrap(
-    measure: &Measure,
-    codes: &[pdf_font::Code],
-    size: f32,
-    width: f32,
-) -> Vec<std::ops::Range<usize>> {
+fn wrap(measure: &Measure, codes: &[Placed], size: f32, width: f32) -> Vec<std::ops::Range<usize>> {
     let mut lines = Vec::new();
     let mut start = 0_usize;
     let mut last_space: Option<usize> = None;
     let mut reached = 0.0_f32;
 
     for (index, code) in codes.iter().enumerate() {
-        if *code == BREAK {
+        if matches!(code, Placed::Break) {
             lines.push(start..index);
             start = index.saturating_add(1);
             last_space = None;
@@ -1300,10 +1368,7 @@ fn wrap(
 /// Empty for a range no slice of `codes` answers, which cannot happen for a range this module
 /// produced — every one of them is built from the same slice's own indices — and which is
 /// answered without a panic rather than with one.
-fn line_codes<'a>(
-    codes: &'a [pdf_font::Code],
-    line: &std::ops::Range<usize>,
-) -> &'a [pdf_font::Code] {
+fn line_codes<'a>(codes: &'a [Placed], line: &std::ops::Range<usize>) -> &'a [Placed] {
     codes.get(line.clone()).unwrap_or_default()
 }
 
@@ -1330,7 +1395,11 @@ fn comb(
     let cells = count(usize::try_from(cell_count).unwrap_or(usize::MAX)).max(1.0);
     let cell = width / cells;
     let codes = written.codes;
-    let shown: Vec<pdf_font::Code> = codes.iter().copied().filter(|c| *c != BREAK).collect();
+    let shown: Vec<Placed> = codes
+        .iter()
+        .copied()
+        .filter(|placed| !matches!(placed, Placed::Break))
+        .collect();
     let used = count(shown.len());
 
     let first = match request.quadding {
@@ -1365,7 +1434,13 @@ fn comb(
     // stopped fitting.
     let slot_of = |at: usize| {
         let filled = codes.get(..at.min(codes.len())).unwrap_or_default();
-        first + count(filled.iter().filter(|code| **code != BREAK).count())
+        first
+            + count(
+                filled
+                    .iter()
+                    .filter(|placed| !matches!(placed, Placed::Break))
+                    .count(),
+            )
     };
     let edge = |slot: f32| cell.mul_add(slot.min(cells), 0.0) + box_[0];
 
@@ -1400,7 +1475,7 @@ fn comb(
                 at = index;
                 break;
             }
-            if *code != BREAK {
+            if !matches!(code, Placed::Break) {
                 seen = seen.saturating_add(1);
             }
         }
@@ -1419,25 +1494,47 @@ fn comb(
 /// parentheses and the reverse solidus — plus every byte outside the printable ASCII range as
 /// a three-digit octal escape, which the same subclause defines and which keeps the stream
 /// free of bytes a text editor would mangle.
-fn show(stream: &mut String, codes: &[pdf_font::Code]) {
+///
+/// **A code is its bytes rather than a byte**, which is §9.7.6.2's doing: a composite font's
+/// code is one to four bytes, most significant first, and the interpreter reading this stream
+/// back splits the operand by the same `CMap`'s codespace ranges that produced the code. A
+/// two-byte code written as one byte would decode to something else entirely, which is the
+/// failure this function had while nothing could produce such a code.
+fn show(stream: &mut String, codes: &[Placed]) {
     stream.push('(');
-    for code in codes {
-        if *code == BREAK {
-            continue;
-        }
-        let byte = u8::try_from(code.value()).unwrap_or(b'?');
-        match byte {
-            b'(' | b')' | b'\\' => {
-                stream.push('\\');
-                stream.push(char::from(byte));
-            }
-            0x20..=0x7e => stream.push(char::from(byte)),
-            other => {
-                let _ = write!(stream, "\\{other:03o}");
+    for code in codes.iter().filter_map(|placed| placed.code()) {
+        for byte in code_bytes(code) {
+            match byte {
+                b'(' | b')' | b'\\' => {
+                    stream.push('\\');
+                    stream.push(char::from(byte));
+                }
+                0x20..=0x7e => stream.push(char::from(byte)),
+                other => {
+                    let _ = write!(stream, "\\{other:03o}");
+                }
             }
         }
     }
     stream.push_str(") Tj\n");
+}
+
+/// A code's bytes, most significant first, as many of them as §9.7.6.2 gives it.
+///
+/// > A sequence of one or more bytes shall be extracted from the string and matched against the
+/// > codespace ranges in the CMap.
+///
+/// The inverse of that extraction, and the only place this crate turns a code back into the
+/// bytes a string states it with. A simple font's code is one byte by §9.7.1, which is the same
+/// arithmetic with a length of one.
+fn code_bytes(code: pdf_font::Code) -> impl Iterator<Item = u8> {
+    let value = code.value().to_be_bytes();
+    let length = usize::from(code.length()).min(value.len());
+    // The low `length` bytes, which is where `value_of` put them.
+    value
+        .into_iter()
+        .skip(value.len().saturating_sub(length))
+        .take(length)
 }
 
 /// A parsed `/DA` string (§12.7.4.3, Table 228).

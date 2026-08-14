@@ -58,6 +58,22 @@ pub(crate) type CodeTable = [Option<u16>; 256];
 /// same way.
 pub const NOTDEF_GLYPH: u16 = 0;
 
+/// How many codes [`LoadedFont::addressable_codes`] will walk before declining a font.
+///
+/// **A bound rather than a rule, and it is measured rather than picked.** §9.7.5.2's Table 116
+/// says of `Identity-H` that "[i]t maps 2-byte character codes ranging from 0 to 65,535", which
+/// is the most any `CMap` of one- and two-byte codes can state and the largest inverse this
+/// program has reason to build; the registered `CMap`s this binary carries are sparse and state
+/// far fewer, which `every_registered_cmap_is_inside_the_addressable_bound` checks over all of
+/// them rather than asserting here. Twice the Identity figure therefore admits every one of them
+/// with a whole one-byte set to spare.
+///
+/// What it excludes is a `CMap` whose ranges cover a three- or four-byte codespace densely.
+/// Those are refused as a whole and reported (§12.7.4.3's `Owed::FontUnusable`), because
+/// principle 3's rule is that a document's own numbers may not drive an unbounded loop and
+/// because a table that stopped early would answer with the wrong reason.
+const MAX_ADDRESSABLE_CODES: u64 = 1 << 17;
+
 /// How a font maps character codes to glyphs.
 #[derive(Debug)]
 pub(crate) enum CodeMapping {
@@ -341,7 +357,11 @@ pub struct LoadedFont {
     /// Lazy rather than built at load time because nothing on a page needs it: only a
     /// constructed appearance (§12.7.4.3) writes a string this crate has to encode, and a
     /// document may load hundreds of fonts without containing one form field.
-    codes_by_character: OnceCell<BTreeMap<char, u8>>,
+    ///
+    /// `None` inside the cell is the answer for a font that cannot be addressed this way at all
+    /// — see [`Self::addressable_codes`] — and is cached like any other, because the walk that
+    /// establishes it is the expensive one.
+    codes_by_character: OnceCell<Option<BTreeMap<char, Code>>>,
     /// Each code's character through the Adobe Glyph List, resolved once.
     ///
     /// §9.10.2's second method — a glyph name looked up in the AGL — runs for every character
@@ -1340,14 +1360,18 @@ impl LoadedFont {
 
     /// Whether [`Self::code_for`] can answer for this font at all.
     ///
-    /// A simple font's codes are one byte and the whole set can be walked; a composite font's
-    /// lengths come from its `CMap`'s codespace ranges (§9.7.6.2) and inverting that is a
-    /// different question. The distinction is public so a caller can report *which* of the two
-    /// refusals it hit — "this font lacks that character" and "this font cannot be addressed by
-    /// character" are not the same statement.
+    /// The distinction is public so a caller can report *which* of the two refusals it hit —
+    /// "this font lacks that character" and "this font cannot be addressed by character" are not
+    /// the same statement.
+    ///
+    /// **This answered `false` for every composite font until the five-hundred-and-second
+    /// session**, on the true observation that a `CMap`'s codespace ranges decide a code's length
+    /// (§9.7.6.2) and the false conclusion that nothing could invert them.
+    /// [`crate::cmap::CMap::each_addressable_code`] does, and the one case left is a `CMap`
+    /// stating more codes than that walk will visit.
     #[must_use]
-    pub const fn addresses_characters(&self) -> bool {
-        matches!(self.mapping, CodeMapping::Named(_))
+    pub fn addresses_characters(&self) -> bool {
+        self.addressable_codes().is_some()
     }
 
     /// The code that draws a character, for a font this crate can address that way.
@@ -1362,41 +1386,63 @@ impl LoadedFont {
     /// field's value arrives as a §7.9.2.2 text string and has to leave as bytes in the
     /// font's own encoding. Every other route through this crate starts from a code the
     /// document already wrote.
-    ///
-    /// `None` for a composite font. A `CMap`'s codespace ranges decide how many bytes a code
-    /// occupies (§9.7.6.2), and inverting the code-to-CID mapping is a different question from
-    /// inverting a 256-entry table; a caller reports the refusal rather than guessing a length.
     #[must_use]
     pub fn code_for(&self, character: char) -> Option<Code> {
-        let CodeMapping::Named(_) = &self.mapping else {
-            return None;
-        };
+        self.addressable_codes()?.get(&character).copied()
+    }
+
+    /// The codes this font can be addressed by, keyed by the character each one draws.
+    ///
+    /// Two populations, and which one a font has is the whole of the difference between a
+    /// simple font and a composite one. A simple font's codes are the 256 §9.7.1 gives it —
+    /// "each byte of a string to be shown selects one glyph" — and the whole set can be walked.
+    /// A composite font's are whatever its `CMap` states and its codespace admits, which is
+    /// [`crate::cmap::CMap::each_addressable_code`].
+    ///
+    /// `None` where the walk declined, which is one case: a `CMap` stating more codes than
+    /// [`MAX_ADDRESSABLE_CODES`]. Nothing is answered from a table that stopped early, because a
+    /// caller cannot tell "no code for this character" from "the search gave up" and would
+    /// report the first while the second is true.
+    fn addressable_codes(&self) -> Option<&BTreeMap<char, Code>> {
         self.codes_by_character
-            .get_or_init(|| {
-                let mut map = BTreeMap::new();
-                let mut meaning = String::new();
+            .get_or_init(|| self.build_addressable_codes())
+            .as_ref()
+    }
+
+    /// Builds the table [`Self::addressable_codes`] hands out, once.
+    fn build_addressable_codes(&self) -> Option<BTreeMap<char, Code>> {
+        let mut map = BTreeMap::new();
+        let mut meaning = String::new();
+        let mut consider = |code: Code| {
+            meaning.clear();
+            if !self.text(code, &mut meaning) {
+                return;
+            }
+            let mut characters = meaning.chars();
+            // A code standing for more than one character — an `ffi` ligature's `/ToUnicode`
+            // entry — cannot answer "which code draws this character", because using it would
+            // draw the other characters too.
+            let (Some(single), None) = (characters.next(), characters.next()) else {
+                return;
+            };
+            if self.glyph_for(code).is_none() {
+                return;
+            }
+            map.entry(single).or_insert(code);
+        };
+        match &self.mapping {
+            CodeMapping::Named(_) => {
                 for byte in 0..=u8::MAX {
-                    let code = Code::single_byte(byte);
-                    if self.glyph_for(code).is_none() {
-                        continue;
-                    }
-                    meaning.clear();
-                    if !self.text(code, &mut meaning) {
-                        continue;
-                    }
-                    let mut characters = meaning.chars();
-                    // A code standing for more than one character — an `ffi` ligature's
-                    // `/ToUnicode` entry — cannot answer "which code draws this character",
-                    // because using it would draw the other characters too.
-                    if let (Some(single), None) = (characters.next(), characters.next()) {
-                        map.entry(single).or_insert(byte);
-                    }
+                    consider(Code::single_byte(byte));
                 }
-                map
-            })
-            .get(&character)
-            .copied()
-            .map(Code::single_byte)
+            }
+            CodeMapping::Composite { cmap, .. } | CodeMapping::Substituted { cmap, .. } => {
+                if !cmap.each_addressable_code(MAX_ADDRESSABLE_CODES, &mut consider) {
+                    return None;
+                }
+            }
+        }
+        Some(map)
     }
 
     /// The glyph a *character selector* reaches, skipping the code that selected it.
@@ -1575,8 +1621,48 @@ impl OutlinePen for PathPen {
 
 #[cfg(test)]
 mod tests {
-    use super::{CidToGlyph, Code, CodeMapping, LoadedFont, Program};
+    use super::{CidToGlyph, Code, CodeMapping, LoadedFont, MAX_ADDRESSABLE_CODES, Program};
     use pdf_syntax::{Dictionary, Document};
+
+    /// Every registered `CMap` this binary carries can be inverted, which is the bound's evidence.
+    ///
+    /// [`MAX_ADDRESSABLE_CODES`] is a number in a source file, and what makes it the right number
+    /// is that the population it has to admit fits inside it. That population is §9.7.5.2's
+    /// registered `CMap`s — 239 files, compiled in since the hundred-and-fifty-sixth session — and
+    /// this walks all of them rather than asserting anything about their contents. A round that
+    /// adds a `CMap` to the binary and pushes one past the limit hears about it here instead of
+    /// in a field that silently reports the wrong reason.
+    ///
+    /// `Identity-H` and `Identity-V` are not among the names and are the largest of all: Table
+    /// 116 gives each 65 536 codes, which is asserted beside them.
+    #[test]
+    fn every_registered_cmap_is_inside_the_addressable_bound() {
+        let mut counted = 0_u32;
+        for name in crate::predefined::names() {
+            let Some(cmap) = crate::predefined::cmap(name) else {
+                panic!("/{name} is listed and does not parse");
+            };
+            let mut codes = 0_u64;
+            assert!(
+                cmap.each_addressable_code(MAX_ADDRESSABLE_CODES, |_| codes =
+                    codes.saturating_add(1)),
+                "/{name} states more codes than MAX_ADDRESSABLE_CODES"
+            );
+            counted = counted.saturating_add(1);
+        }
+        assert!(counted > 200, "only {counted} registered CMaps were walked");
+        for identity in [
+            crate::cmap::CMap::identity(),
+            crate::cmap::CMap::identity_vertical(),
+        ] {
+            let mut codes = 0_u64;
+            assert!(
+                identity.each_addressable_code(MAX_ADDRESSABLE_CODES, |_| codes =
+                    codes.saturating_add(1))
+            );
+            assert_eq!(codes, 1 << 16, "Table 116's own count");
+        }
+    }
 
     /// [`LoadedFont::standard`] answers with §9.6.2.2's metrics and drawable glyphs, no file.
     ///
@@ -1743,12 +1829,20 @@ mod tests {
     ///
     /// The property that matters for §12.7.4.3, stated the only way it can be: the inverse
     /// is not a bijection — two codes may draw the same character, and the first one wins —
-    /// so the round trip has to start and end at the *character*. Run over every simple font
-    /// on a first page of the specification corpus, so it is a statement about real encodings
-    /// rather than about one constructed table.
+    /// so the round trip has to start and end at the *character*. Run over every font on a
+    /// first page of the specification corpus, so it is a statement about real encodings rather
+    /// than about one constructed table.
+    ///
+    /// **And for a composite font the string is checked as well as the code**, because there the
+    /// two are different claims: the code has a length, and a decoder splits the bytes by
+    /// §9.7.6.2's codespace ranges rather than by what the writer intended. So each code's own
+    /// bytes go back through [`LoadedFont::decode`] and must come out as that one code. This
+    /// half of the test was `code_for(…).is_none()` — the refusal composite fonts got until the
+    /// five-hundred-and-second session — and the corpus fonts it skipped are now its subject.
     #[test]
     fn a_code_for_a_character_means_that_character() {
         let mut checked = 0usize;
+        let mut composite = 0usize;
         for path in corpus() {
             let bytes = std::fs::read(&path).expect("corpus file is readable");
             let Ok(document) = Document::open(bytes) else {
@@ -1758,42 +1852,47 @@ mod tests {
                 let Ok(font) = LoadedFont::load(&document, &dict, &name) else {
                     continue;
                 };
-                if !matches!(font.mapping, CodeMapping::Named(_)) {
-                    assert!(
-                        font.code_for('A').is_none(),
-                        "{name} is composite and must refuse rather than guess a code length"
-                    );
+                let simple = matches!(font.mapping, CodeMapping::Named(_));
+                let Some(table) = font.addressable_codes() else {
                     continue;
-                }
-                let mut meaning = String::new();
-                for byte in 0..=u8::MAX {
-                    meaning.clear();
-                    if !font.text(Code::single_byte(byte), &mut meaning) {
-                        continue;
-                    }
-                    let mut characters = meaning.chars();
-                    let (Some(character), None) = (characters.next(), characters.next()) else {
-                        continue;
-                    };
-                    let Some(code) = font.code_for(character) else {
-                        continue;
-                    };
+                };
+                for (&character, &code) in table {
                     let mut back = String::new();
                     assert!(
                         font.text(code, &mut back),
                         "{name}: code {code:?} means nothing"
                     );
                     assert_eq!(
-                        back, meaning,
+                        back.chars().collect::<Vec<_>>(),
+                        vec![character],
                         "{name}: code {code:?} does not draw {character:?}"
                     );
+                    let string: Vec<u8> = code
+                        .value()
+                        .to_be_bytes()
+                        .into_iter()
+                        .skip(4usize.saturating_sub(usize::from(code.length())))
+                        .collect();
+                    assert_eq!(
+                        font.decode(&string),
+                        vec![code],
+                        "{name}: the string for {character:?} does not decode back to its code"
+                    );
                     checked = checked.saturating_add(1);
+                    if !simple {
+                        composite = composite.saturating_add(1);
+                    }
                 }
             }
         }
         assert!(
             checked > 1000,
             "only {checked} codes checked; the corpus is not present"
+        );
+        assert!(
+            composite > 100,
+            "only {composite} composite codes checked; the corpus does not exercise the inverse \
+             this test is half about"
         );
     }
 

@@ -652,6 +652,90 @@ impl CMap {
     pub fn has_mappings(&self) -> bool {
         self.mappings.iter().any(|mapping| !mapping.is_empty())
     }
+
+    /// Visits every code this `CMap` states a mapping for that its own codespace admits.
+    ///
+    /// The inverse direction of [`Self::next_code`], and the only way to ask a composite font
+    /// which codes exist: §12.7.4.3 has a processor *write* a string in a font's own codes, and
+    /// a code is a length as well as a value (§9.7.6.2), so nothing outside the `CMap` can
+    /// produce one.
+    ///
+    /// **A code is offered only if a decoder reading its own bytes back would extract exactly
+    /// it**, which is [`Self::extracted`] and is the whole of what inverting the codespace
+    /// ranges amounts to. A mapping alone does not make a code usable: a `CMap` stating
+    /// `<00> <FF>` as its codespace and a two-byte `cidrange` maps codes no string can ever
+    /// contain, because §9.7.6.2 matches the first byte against the one-byte ranges and stops
+    /// there. Writing such a code would produce a string that draws two other glyphs.
+    ///
+    /// **Visited shortest length first**, which is the order §9.7.6.2 extracts codes in, and
+    /// within one length the individually stated codes ascending and then the ranges in file
+    /// order — [`Mapping::get`]'s own precedence. So a caller keeping the first code that means
+    /// a character keeps the one this `CMap` answers with.
+    ///
+    /// Returns `false` without visiting anything where the mappings state more than `limit`
+    /// codes. All or nothing on purpose: a partial inverse would tell a caller that the font has
+    /// no code for a character it has a code for, and the report would then name the wrong
+    /// reason (`CLAUDE.md` trap 5).
+    #[must_use]
+    pub fn each_addressable_code(&self, limit: u64, mut visit: impl FnMut(Code)) -> bool {
+        if self.stated_code_count() > limit {
+            return false;
+        }
+        for (index, mapping) in self.mappings.iter().enumerate() {
+            let Ok(length) = u8::try_from(index.saturating_add(1)) else {
+                continue;
+            };
+            let mut offer = |value: u32| {
+                if let Some(code) = self.extracted(value, length) {
+                    visit(code);
+                }
+            };
+            for &value in mapping.singles.keys() {
+                offer(value);
+            }
+            for &(low, high, _) in &mapping.ranges {
+                for value in low..=high {
+                    offer(value);
+                }
+            }
+        }
+        true
+    }
+
+    /// How many codes the character mappings state, as the walk above would visit them.
+    ///
+    /// An upper bound on the work rather than a count of usable codes — the codespace test is
+    /// applied per code and cannot be summed — which is exactly what a bound against a limit
+    /// needs to be. Saturating throughout: a single `cidrange` may span the whole four-byte
+    /// space, and a total that overflowed would report a small number for the largest input
+    /// there is.
+    fn stated_code_count(&self) -> u64 {
+        self.mappings.iter().fold(0_u64, |total, mapping| {
+            let singles = u64::try_from(mapping.singles.len()).unwrap_or(u64::MAX);
+            let ranges = mapping.ranges.iter().fold(0_u64, |sum, &(low, high, _)| {
+                sum.saturating_add(u64::from(high.saturating_sub(low)).saturating_add(1))
+            });
+            total.saturating_add(singles).saturating_add(ranges)
+        })
+    }
+
+    /// The code [`Self::next_code`] extracts from a value's own bytes, where it extracts that one.
+    ///
+    /// `None` where the codespace ranges give those bytes a different length or reject them
+    /// outright, which is the whole of the test described above.
+    fn extracted(&self, value: u32, length: u8) -> Option<Code> {
+        let wanted = Code {
+            value,
+            length,
+            in_codespace: true,
+        };
+        let bytes = value.to_be_bytes();
+        // A value wider than the length it is claimed for keeps its low bytes here and is then
+        // rejected below, because what those bytes decode to is not the value asked about.
+        let skip = bytes.len().checked_sub(usize::from(length))?;
+        let head = bytes.get(skip..)?;
+        (self.next_code(head) == wanted).then_some(wanted)
+    }
 }
 
 /// Reads a code from a `CMap` hex string, which is one to four bytes most significant first.
@@ -914,5 +998,81 @@ mod tests {
         let code = Code::single_byte(32);
         assert_eq!(code.value(), 32);
         assert!(code.takes_word_spacing());
+    }
+
+    /// Every code offered for inversion is one this same `CMap` would extract from its bytes.
+    ///
+    /// The property in its general form, over the three shapes a `CMap` states codes in — a
+    /// `cidchar`, a `cidrange`, and two codespace ranges of different lengths in one file.
+    /// §12.7.4.3 writes a string in these codes, and §9.7.6.2 is what reads it back.
+    #[test]
+    fn every_addressable_code_decodes_back_to_itself() {
+        let map = CMap::parse(
+            b"2 begincodespacerange <00> <7F> <8140> <9FFC> endcodespacerange
+              1 begincidchar <20> 1 endcidchar
+              2 begincidrange <41> <5A> 2 <8140> <8150> 40 endcidrange",
+            None,
+        );
+        let mut seen = Vec::new();
+        assert!(map.each_addressable_code(1 << 16, |code| seen.push(code)));
+        assert!(!seen.is_empty(), "the fixture offers no codes at all");
+        for code in seen {
+            let bytes: Vec<u8> = code
+                .value
+                .to_be_bytes()
+                .into_iter()
+                .skip(4 - usize::from(code.length))
+                .collect();
+            assert_eq!(map.next_code(&bytes), code, "{code:?} does not round-trip");
+        }
+    }
+
+    /// A mapping the codespace does not admit offers nothing (§9.7.6.2).
+    ///
+    /// The codespace is one byte wide, so a decoder matches the first byte and stops; the
+    /// two-byte `cidrange` beside it maps codes no string can ever contain. Writing one would
+    /// produce two one-byte codes that select two other glyphs — which is the failure this
+    /// filter exists for, and which no corpus document can show because none has a `/DA` naming
+    /// a composite font at all.
+    #[test]
+    fn a_code_the_codespace_excludes_is_never_offered() {
+        let map = CMap::parse(
+            b"1 begincodespacerange <00> <FF> endcodespacerange
+              2 begincidrange <41> <42> 1 <0041> <0042> 9 endcidrange",
+            None,
+        );
+        let mut seen = Vec::new();
+        assert!(map.each_addressable_code(1 << 16, |code| seen.push(code)));
+        assert_eq!(
+            seen,
+            vec![
+                Code {
+                    value: 0x41,
+                    length: 1,
+                    in_codespace: true
+                },
+                Code {
+                    value: 0x42,
+                    length: 1,
+                    in_codespace: true
+                }
+            ],
+            "only the codes a one-byte codespace admits"
+        );
+    }
+
+    /// A `CMap` stating more codes than the limit is declined whole, and visits nothing.
+    ///
+    /// All or nothing, because a partial inverse would tell a caller that the font has no code
+    /// for a character it has a code for.
+    #[test]
+    fn a_cmap_beyond_the_limit_offers_nothing_at_all() {
+        let map = CMap::identity();
+        let mut seen = 0_u32;
+        assert!(!map.each_addressable_code(1 << 8, |_| seen = seen.saturating_add(1)));
+        assert_eq!(seen, 0);
+        // The same map inside a limit that admits it: Table 116's own 65 536 codes.
+        assert!(map.each_addressable_code(1 << 16, |_| seen = seen.saturating_add(1)));
+        assert_eq!(seen, 1 << 16);
     }
 }

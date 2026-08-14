@@ -102,6 +102,10 @@ struct Counts {
     /// and a `/DA` is a `/DA`: an annotation whose descriptor the two rules disagree about moves
     /// its baseline exactly as a field's does.
     free_text: usize,
+    /// Objects whose `/DA` names a Table 119 Type 0 font, which §9.7.6.2's inverse now reaches.
+    composite: usize,
+    /// Of those, the ones whose `CMap` asks for §9.7.5.1's writing mode 1, which is refused.
+    composite_vertical: usize,
 }
 
 impl Counts {
@@ -120,6 +124,10 @@ impl Counts {
             .list_boxes_without_appearance
             .saturating_add(counts.list_boxes_without_appearance);
         self.free_text = self.free_text.saturating_add(counts.free_text);
+        self.composite = self.composite.saturating_add(counts.composite);
+        self.composite_vertical = self
+            .composite_vertical
+            .saturating_add(counts.composite_vertical);
         for (verdict, count) in &counts.verdicts {
             let total = self.verdicts.entry(*verdict).or_default();
             *total = total.saturating_add(*count);
@@ -146,6 +154,8 @@ struct Census {
     bare_list_boxes: Vec<String>,
     /// Documents with a combo box whose appearance §12.7.4.3 therefore constructs.
     bare_combo_boxes: Vec<String>,
+    /// Documents whose `/DA` names a composite font, which is `doc/todo/22`'s last edge.
+    composite_fonts: Vec<String>,
 }
 
 impl Census {
@@ -178,7 +188,10 @@ impl Census {
             self.bare_combo_boxes.push(name.clone());
         }
         if counts.list_boxes_without_appearance > 0 {
-            self.bare_list_boxes.push(name);
+            self.bare_list_boxes.push(name.clone());
+        }
+        if counts.composite > 0 {
+            self.composite_fonts.push(name);
         }
         self.totals.add(&counts);
     }
@@ -210,6 +223,14 @@ impl Census {
                 files.into_iter().collect::<Vec<_>>().join(" ")
             );
         }
+        println!(
+            "\n§9.7 + §12.7.4.3: {} object(s) whose /DA names a composite font, {} of them in \
+             §9.7.5.1's writing mode 1, over {} document(s): {}",
+            totals.composite,
+            totals.composite_vertical,
+            self.composite_fonts.len(),
+            self.composite_fonts.join(" ")
+        );
         println!(
             "\n§12.7.5.4: {} combo-box widget(s), {} of them with no /AP /N stream: {}",
             totals.combo_boxes,
@@ -306,6 +327,7 @@ fn walk(
                 let counter = counts.verdicts.entry(verdict).or_default();
                 *counter = counter.saturating_add(1);
                 record(verdict, name, moving);
+                take_composite(document, dict, &mut counts);
             }
         }
         // §12.5.6.6 sends a free text annotation's `/DA` to §12.7.4.3 as well — "[t]he default
@@ -324,6 +346,7 @@ fn walk(
             let counter = counts.verdicts.entry(verdict).or_default();
             *counter = counter.saturating_add(1);
             record(verdict, name, moving);
+            take_composite(document, dict, &mut counts);
         }
     }
     counts
@@ -404,15 +427,9 @@ fn interactive_form(document: &Document) -> Option<Dictionary> {
 
 /// Where one widget's baseline comes from under each of the two rules.
 fn baseline(document: &Document, widget: &Dictionary) -> Baseline {
-    let Some(appearance) = inherited(document, widget, "DA") else {
-        return Baseline::NoDescriptor;
-    };
-    let Some(font_name) = font_of(&appearance) else {
-        return Baseline::NoDescriptor;
-    };
-    let Some(font) = resource_font(document, &font_name) else {
-        // A `/DA` naming a font `/DR` does not define is laid out in a stand-in, and a stand-in
-        // this crate invents states no descriptor.
+    // A `/DA` naming no font, or naming one `/DR` does not define, is laid out in a stand-in,
+    // and a stand-in this crate invents states no descriptor.
+    let Some((_, font)) = da_font(document, widget) else {
         return Baseline::NoDescriptor;
     };
     let descriptor = document.get_key(&font, "FontDescriptor");
@@ -456,6 +473,42 @@ fn inherited(document: &Document, widget: &Dictionary, key: &str) -> Option<Vec<
     }
     let form = interactive_form(document)?;
     document.get_key(&form, key).as_string().map(<[u8]>::to_vec)
+}
+
+/// Counts one object's `/DA` font if it is composite, and whether it writes vertically.
+///
+/// **The population `doc/todo/22`'s last edge is about.** §12.7.4.3 lays a value out in the font
+/// its `/DA` names, and until the five-hundred-and-second session a Type 0 one was refused by
+/// name because a code cannot be produced from a character without inverting §9.7.6.2's
+/// codespace ranges. The count says how much of the corpus that reached, then and now.
+///
+/// The writing mode is asked of `pdf_font` rather than of the `/Encoding` name, because the
+/// program's own reading is what decides the refusal: a stream `CMap` states `/WMode` in its
+/// file and in its dictionary, and neither is a name ending in `V`.
+fn take_composite(document: &Document, widget: &Dictionary, counts: &mut Counts) {
+    let Some((name, font)) = da_font(document, widget) else {
+        return;
+    };
+    if document
+        .get_key(&font, "Subtype")
+        .as_name()
+        .map(pdf_syntax::Name::as_bytes)
+        != Some(b"Type0")
+    {
+        return;
+    }
+    counts.composite = counts.composite.saturating_add(1);
+    if pdf_font::LoadedFont::load(document, &font, &name).is_ok_and(|font| font.is_vertical()) {
+        counts.composite_vertical = counts.composite_vertical.saturating_add(1);
+    }
+}
+
+/// The `/DA`'s font name and the dictionary `/DR` gives it, which two questions here both need.
+fn da_font(document: &Document, widget: &Dictionary) -> Option<(String, Dictionary)> {
+    let appearance = inherited(document, widget, "DA")?;
+    let name = font_of(&appearance)?;
+    let font = resource_font(document, &name)?;
+    Some((name, font))
 }
 
 /// The font name a `/DA`'s `Tf` operand names.

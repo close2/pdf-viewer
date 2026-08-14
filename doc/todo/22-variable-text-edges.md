@@ -1,9 +1,10 @@
 # §12.7.4.3's remaining edges
 
-Status: partly reported, partly unreached. **Table 231's `DoNotScroll` closed in the
-three-hundred-and-thirty-eighth session** (ADR 0197) and **the baseline's guard and the list box's
-cost both closed in the four-hundred-and-third** (ADR 0240); what those left is one query's shape
-and one clause with no witness.
+Status: **one document, and it is `doc/todo/21`'s.** Table 231's `DoNotScroll` closed in the
+three-hundred-and-thirty-eighth session (ADR 0197), the baseline's guard and the list box's cost
+both closed in the four-hundred-and-third (ADR 0240), and **the composite `/DA` font closed in the
+five-hundred-and-second** (ADR 0337). What is left of this file is one refusal that belongs to
+another item, and the reasoning behind three closed ones.
 Priority: 22
 Corpus: 1 document
 Clauses: §12.7.4.3, §12.7.5.3, §12.7.5.4, §9.6.5.2, §9.7.6.2
@@ -26,11 +27,13 @@ therefore names a font this binary carries, and the value is drawn in the face t
 documented choice about a malformed file, and one that buys ADR 0133's own argument — those pages
 reproduce where no fonts are installed.
 
-Still owed, and it is one file:
+Still owed, and it is one file — **and it is the only thing this item still owes**:
 
 - `freetext_no_appearance.pdf` (`/Helv`, a paragraph of Arabic) declines, and the `/Differences`
   route cannot help it: the AGL names those characters `afii…` and no Helvetica has the glyphs.
-  **That one is `doc/todo/21`'s per-character fallback**, where it is the only witness left.
+  **That one is `doc/todo/21`'s per-character fallback**, where it is the only witness left. When
+  `21` takes it, this file has nothing left to own and goes; until then it is kept for the closed
+  arguments below, which are the reason a later round will not reopen any of them.
 
 Closed and kept here for the reasoning:
 
@@ -43,14 +46,24 @@ Closed and kept here for the reasoning:
   anything, so both stand in and both say so, which is the case the table is narrow enough to
   leave alone.
 
-## A composite `/DA` font — 0 documents, and the last of the clause's edges
+## ~~A composite `/DA` font~~ — **done in the five-hundred-and-second session**
 
-A **composite** `/DA` font needs §9.7.6.2's codespace ranges inverted, to turn a character back
-into the code the font wants. `variable_text::set_in` refuses one by name today
-(`Owed::FontUnusable`), so it is reported rather than silent, and **no corpus document states
-one** — measured, not assumed. Trap 8's rule applies in the direction that keeps it open: a corpus
-cannot rank a requirement no document exercises, so this waits for a spec-track round or a witness
-rather than for the corpus to ask.
+ADR 0337. The refusal's stated reason — a character cannot become a code without inverting
+§9.7.6.2's codespace ranges — was true and was not a reason, which is the lesson worth keeping
+from it: *a note that names the clause making something hard has not said why it is not done.* It
+stood for four hundred sessions.
+
+`CMap::each_addressable_code` inverts them, and the inversion is a **test** rather than a
+construction: a code is offered only if the same `CMap` would extract exactly it from its own
+bytes, so a file whose codespace is one byte wide and whose `cidrange` states two-byte codes
+offers nothing rather than a code no string can contain. `variable_text::show` then writes a code
+as the one to four bytes it occupies. Two refusals replace the one: a `CMap` stating more codes
+than the bounded walk visits, and §9.7.5.1's writing mode 1 — the clause makes the mode decide
+*which metrics* place a glyph, and this layout has one axis.
+
+**Still 0 corpus objects**, which `examples/variable_text_census` now counts alongside the
+baseline and the list box, so the fixtures are pairs differing in one entry and the corpus is
+silent about all of it.
 
 `/DS` and `/RV` are XFA, which `CLAUDE.md` excludes.
 

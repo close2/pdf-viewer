@@ -2191,3 +2191,228 @@ fn a_fields_baseline_reads_a_zero_descent_as_a_face_with_no_descenders() {
         "a one-em line moves the baseline six points down, not {dropped}"
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// A composite `/DA` font (§9.7, §12.7.4.3)
+//
+// **Trap 8's territory, and measured to be so**: `examples/variable_text_census` finds no corpus
+// document whose `/DA` names a Type 0 font, so every rule below is defended by these fixtures and
+// by nothing else. They come in pairs differing in one entry, which is the only construction that
+// says *which* rule a difference is about.
+//
+// The descendant embeds no font program, deliberately. §9.7.4.2's substituted route is reached
+// through `/ToUnicode`, so the glyph *shapes* are this machine's — and the **advances are not**:
+// `/W` and `/DW` are the document's own statement (§9.7.4.3), so every position asserted here is
+// the file's arithmetic rather than the installed face's.
+// ---------------------------------------------------------------------------------------------
+
+/// A one-page form whose `/DR` defines one composite font, assembled from §9.7's own parts.
+///
+/// `encoding` is written verbatim as Table 119's `/Encoding` — a predefined name, or `7 0 R` for
+/// the `CMap` stream this writes. An empty `to_unicode` omits the entry rather than writing an
+/// empty stream, because the absence is what one of the fixtures below is about.
+fn composite_form(
+    annotation: &str,
+    encoding: &str,
+    cmap: &str,
+    to_unicode: &str,
+    descendant: &str,
+) -> Vec<u8> {
+    let (width, height) = PAGE;
+    let unicode_entry = if to_unicode.is_empty() {
+        ""
+    } else {
+        "/ToUnicode 8 0 R"
+    };
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R] \
+         /DR << /Font << /Comp 6 0 R >> >> >> >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {width} {height}] \
+         /Resources << >> /Contents 4 0 R /Annots [5 0 R] >>\nendobj\n\
+         4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n\
+         5 0 obj\n{annotation}\nendobj\n\
+         6 0 obj\n<< /Type /Font /Subtype /Type0 /BaseFont /Helvetica /Encoding {encoding} \
+         /DescendantFonts [9 0 R] {unicode_entry} >>\nendobj\n\
+         7 0 obj\n<< /Type /CMap /CMapName /Fixture-H \
+         /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> \
+         /Length {} >>\nstream\n{cmap}\nendstream\nendobj\n\
+         8 0 obj\n<< /Length {} >>\nstream\n{to_unicode}\nendstream\nendobj\n\
+         9 0 obj\n<< /Type /Font /Subtype /CIDFontType2 /BaseFont /Helvetica \
+         /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> \
+         {descendant} >>\nendobj\n",
+        cmap.len().saturating_add(1),
+        to_unicode.len().saturating_add(1)
+    );
+
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// An embedded `CMap` file (§9.7.5.3) with one codespace range and one `cidrange`.
+fn cmap_program(codespace: &str, cid_range: &str) -> String {
+    format!(
+        "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n\
+         /CMapName /Fixture-H def\n/CMapType 1 def\n/WMode 0 def\n\
+         1 begincodespacerange\n{codespace}\nendcodespacerange\n\
+         1 begincidrange\n{cid_range}\nendcidrange\n\
+         endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n"
+    )
+}
+
+/// A `/ToUnicode` `CMap` (§9.10.3) mapping one run of codes to consecutive characters.
+fn to_unicode_program(codespace: &str, bf_range: &str) -> String {
+    format!(
+        "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n\
+         1 begincodespacerange\n{codespace}\nendcodespacerange\n\
+         1 beginbfrange\n{bf_range}\nendbfrange\n\
+         endcmap\nend\nend\n"
+    )
+}
+
+/// The widget every composite fixture below hangs the same value on.
+const COMPOSITE_WIDGET: &str = "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 \
+                                /FT /Tx /T (field) /V (AB) /DA (/Comp 12 Tf 0 g) >>";
+
+/// The same two glyphs, spelled in one-byte codes and in two-byte codes (§9.7.6.2).
+///
+/// > A sequence of one or more bytes shall be extracted from the string and matched against the
+/// > codespace ranges in the CMap. That is, the first byte shall be matched against 1-byte
+/// > codespace ranges; if no match is found, a second byte shall be extracted, and the 2-byte
+/// > code shall be matched against 2-byte codespace ranges.
+///
+/// §12.7.4.3 has this processor *write* the string, so the sentence has to be obeyed in reverse:
+/// the codespace decides how many bytes the code for a character occupies, and the same two
+/// characters are a two-byte string in one of these files and a four-byte string in the other.
+///
+/// **The pair differs in one thing** — the bounds of the `begincodespacerange`, carried through
+/// the `cidrange` and the `bfrange`, which state codes of that same length — while the CIDs, the
+/// widths and the value are identical. So the picture must be identical too, and it is the
+/// picture that is asserted rather than the bytes: a reader that wrote one byte where the
+/// codespace asks for two produces a string that decodes to entirely different codes.
+#[test]
+fn a_composite_da_fonts_codes_are_as_long_as_its_codespace_says() {
+    let (narrow_reports, narrow) = draw(composite_form(
+        COMPOSITE_WIDGET,
+        "7 0 R",
+        &cmap_program("<00> <FF>", "<41> <5A> 1"),
+        &to_unicode_program("<00> <FF>", "<41> <5A> <0041>"),
+        "/DW 1000 /W [1 [500 500]]",
+    ));
+    let (wide_reports, wide) = draw(composite_form(
+        COMPOSITE_WIDGET,
+        "7 0 R",
+        &cmap_program("<0000> <FFFF>", "<0041> <005A> 1"),
+        &to_unicode_program("<0000> <FFFF>", "<0041> <005A> <0041>"),
+        "/DW 1000 /W [1 [500 500]]",
+    ));
+
+    assert!(narrow_reports.is_empty(), "{narrow_reports:?}");
+    assert!(wide_reports.is_empty(), "{wide_reports:?}");
+    let (start, end) = ink_span(&narrow);
+    assert_eq!(
+        (start, end),
+        ink_span(&wide),
+        "one value, two codespaces, two different places"
+    );
+    // **The span says whose advances placed the glyphs.** The pen starts at the box's left edge
+    // and moves 500/1000 of an em at 12 points, which is the document's `/W`; the right edge is
+    // the second glyph's own outline, which is this machine's face. A reader that took the
+    // advances from the face instead — Helvetica's `A` is 722 — would put the pair five points
+    // further along, which is outside this range and inside a generous one.
+    assert!(
+        (20..=22).contains(&start) && (29..=35).contains(&end),
+        "the /W widths did not place the two glyphs: {start}..{end}"
+    );
+}
+
+/// A composite font whose codes stand for nothing reports rather than drawing (§9.10.2).
+///
+/// The same file as the one-byte fixture above with the `/ToUnicode` entry removed, which is the
+/// only difference. A CID is an index into the descendant's own glyphs, so with no program
+/// embedded and no registered collection named there is nothing a character can be turned into
+/// — §9.7.4.2's "CIDs shall not participate in glyph selection" from one side and §9.10.2 from
+/// the other. Trap 5: the field draws nothing and the page says why.
+#[test]
+fn a_composite_da_font_that_names_no_characters_is_reported() {
+    let (reports, raster) = draw(composite_form(
+        COMPOSITE_WIDGET,
+        "7 0 R",
+        &cmap_program("<00> <FF>", "<41> <5A> 1"),
+        "",
+        "/DW 1000 /W [1 [500 500]]",
+    ));
+    assert!(
+        reports.iter().any(|report| report.contains("/Comp")),
+        "the font that could not be used is not named: {reports:?}"
+    );
+    assert!(
+        inked_columns(&raster).is_empty(),
+        "nothing can be drawn for a value no code spells"
+    );
+}
+
+/// A `/DA` naming a vertical composite font is refused by name (§9.7.5.1).
+///
+/// > A CMap shall specify the writing mode … for any CIDFont with which the CMap is combined.
+/// > The writing mode determines which metrics shall be used when glyphs are painted from that
+/// > font.
+///
+/// §12.7.4.3's layout here places glyphs along one axis and measures them with §9.4.4's `w0`;
+/// a `CMap` in writing mode 1 says that is the wrong displacement and that each glyph sits at
+/// `-v` from the position. Drawing it horizontally would be a confident wrong mark rather than
+/// a partial one, so the whole appearance is refused — which also leaves a document's own
+/// stored stream standing where it has one.
+///
+/// The pair differs in one byte of one name: Table 116's two Identity `CMap`s differ only in
+/// their writing mode.
+#[test]
+fn a_vertical_composite_da_font_is_refused_and_says_which() {
+    let identity_unicode = to_unicode_program("<0000> <FFFF>", "<0041> <005A> <0041>");
+    let (horizontal_reports, horizontal) = draw(composite_form(
+        COMPOSITE_WIDGET,
+        "/Identity-H",
+        "",
+        &identity_unicode,
+        "/DW 1000 /W [65 [500 500]]",
+    ));
+    let (vertical_reports, vertical) = draw(composite_form(
+        COMPOSITE_WIDGET,
+        "/Identity-V",
+        "",
+        &identity_unicode,
+        "/DW 1000 /W [65 [500 500]]",
+    ));
+
+    assert!(horizontal_reports.is_empty(), "{horizontal_reports:?}");
+    assert!(
+        !inked_columns(&horizontal).is_empty(),
+        "the horizontal half of the pair has to draw, or the pair proves nothing"
+    );
+    assert!(
+        vertical_reports
+            .iter()
+            .any(|report| report.contains("writing mode 1") && report.contains("/Comp")),
+        "a vertical /DA font must be refused by name: {vertical_reports:?}"
+    );
+    assert!(
+        inked_columns(&vertical).is_empty(),
+        "a refusal draws nothing rather than drawing along the wrong axis"
+    );
+}
