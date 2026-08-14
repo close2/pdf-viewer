@@ -11,6 +11,14 @@
 
 #![forbid(unsafe_code)]
 
+mod ocr;
+
+pub use ocr::{
+    OCR_ASCENT, OCR_BASELINE, OCR_CID_COUNT, OCR_DESCENT, OCR_FIRST_WORD, OCR_FONT_SIZE, OCR_PAGE,
+    OCR_SECOND_WORD, OCR_SECOND_X, OCR_TEXT_X, OcrFont, ocr_advance_for_gid, ocr_gid_for_cid,
+    scanned_ocr_pdf,
+};
+
 use std::sync::Arc;
 
 use pdf_render::display_list::Clip;
@@ -1275,11 +1283,6 @@ pub fn unaligned_full_bleed() -> DisplayList {
 /// Once `pdf-syntax` exists, this same file becomes a parser fixture, and the display
 /// list will be produced *from* it rather than written alongside it.
 #[must_use]
-#[expect(
-    clippy::arithmetic_side_effects,
-    reason = "object indices and the cross-reference size are bounded by a four-element \
-              literal array, so no operation here can overflow"
-)]
 pub fn basic_pdf() -> Vec<u8> {
     // Mirrors `basic()`. Any edit here needs the matching edit there.
     let content = b"1 0 0 rg\n\
@@ -1316,6 +1319,20 @@ pub fn basic_pdf() -> Vec<u8> {
         .concat(),
     ];
 
+    assemble_pdf(&objects)
+}
+
+/// Writes numbered objects into a whole file: header, bodies, classic table, trailer.
+///
+/// Object `n` is `objects[n - 1]`, and the catalogue is object 1 — the two conventions every
+/// builder here shares, so cross-references between fixture objects can be written as
+/// literals.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "object indices and the cross-reference size are bounded by the fixture's own \
+              handful of objects, so no operation here can overflow"
+)]
+fn assemble_pdf(objects: &[Vec<u8>]) -> Vec<u8> {
     // The header's binary comment marks the file as containing 8-bit data, which is what
     // tells tools not to treat it as text. Required by the specification for any file
     // with binary content, and harmless here.

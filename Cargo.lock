@@ -4352,6 +4352,7 @@ dependencies = [
  "pdf-syntax",
  "rayon",
  "render-cpu",
+ "test-scenes",
 ]
 
 [[package]]

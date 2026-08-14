@@ -5799,3 +5799,96 @@ fn a_drag_across_the_references_word_box_selects_the_word() {
             .for_each(drop);
     }
 }
+
+/// A drag across a hollow-font OCR layer selects the word under a full-height band.
+///
+/// The CSDK 22 shape (ADR 0350): an invisible text layer whose embedded `CIDFontType2`
+/// carries real metrics and **no glyph outlines** — the shape on which a reader that derives
+/// character boxes from the outlines paints no selection overlay at all, because every box
+/// has zero height (old `PDFium`'s `FPDFText_GetCharBox` did). This tree's band is Table 120's
+/// `/Ascent`/`/Descent` (ADR 0216), so the drag must select the word and every quad the host
+/// is handed to paint must be the descriptor's 11.1 pt tall, not 0.
+///
+/// The drag's endpoints come from the fixture's own stated layout — trap 12a's rule that the
+/// point comes from the document rather than from the code under test, available here in its
+/// strongest form because this test's author *is* the document's producer.
+#[test]
+fn a_drag_across_a_hollow_ocr_layer_selects_under_a_full_height_band() {
+    use test_scenes::{
+        OCR_ASCENT, OCR_BASELINE, OCR_DESCENT, OCR_FIRST_WORD, OCR_FONT_SIZE, OCR_PAGE, OCR_TEXT_X,
+        OcrFont, ocr_advance_for_gid, ocr_gid_for_cid, scanned_ocr_pdf,
+    };
+
+    let (page_width, page_height) = OCR_PAGE;
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "the fixture's page is 300x200 points"
+    )]
+    let mut viewer = Viewer::new(page_width as u32, page_height as u32, 1.0);
+    let events: Vec<Event> = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: scanned_ocr_pdf(OcrFont::HollowEmbedded, 3),
+            password: None,
+            fragment: None,
+        })
+        .collect();
+    serve(&mut viewer, &request(&events).clone());
+    let Answer::Geometry(geometry) = viewer.query(Query::PageGeometry(0)) else {
+        panic!("the scanned page has a geometry");
+    };
+    assert!(
+        (geometry.scale - 1.0).abs() < 0.01,
+        "at the page's own size the fit is the identity: {}",
+        geometry.scale
+    );
+
+    // The word's extent, from the fixture's own statements: /W widths for CIDs 1..=6, the
+    // descriptor's ascent and descent, all at 12 pt (§9.4.4's arithmetic).
+    let word_width: f32 = (1..=6)
+        .map(|cid| f32::from(ocr_advance_for_gid(ocr_gid_for_cid(cid))) / 1000.0 * OCR_FONT_SIZE)
+        .sum();
+    let band_height = (OCR_ASCENT - OCR_DESCENT) / 1000.0 * OCR_FONT_SIZE;
+    let band_middle = OCR_BASELINE + (OCR_ASCENT + OCR_DESCENT) / 2000.0 * OCR_FONT_SIZE;
+
+    // User space to viewport: scale, origin, and the y flip about the page's height.
+    let device = |x: f32, y: f32| {
+        (
+            geometry.origin.0 + x * geometry.scale,
+            geometry.origin.1 + (page_height - y) * geometry.scale,
+        )
+    };
+    let start = device(OCR_TEXT_X - 2.0, band_middle);
+    let end = device(OCR_TEXT_X + word_width + 2.0, band_middle);
+    for (at, action) in [
+        (start, PointerAction::Pressed),
+        (end, PointerAction::Dragged),
+        (end, PointerAction::Released),
+    ] {
+        viewer
+            .handle(Command::Pointer { at, action })
+            .for_each(drop);
+    }
+
+    let Answer::Selected(selection) = viewer.query(Query::Selection) else {
+        panic!("dragging across the invisible word selected nothing");
+    };
+    assert_eq!(
+        selection.text.trim(),
+        OCR_FIRST_WORD,
+        "the drag selects exactly the word under it"
+    );
+    assert!(
+        !selection.quads.is_empty(),
+        "a selection the host cannot paint is the defect under test"
+    );
+    for quad in &selection.quads {
+        let height = (quad[1] - quad[7]).abs();
+        assert!(
+            (height - band_height * geometry.scale).abs() < 0.1,
+            "the highlight is the descriptor's {band_height} pt band, not the outlines' 0: \
+             {height}"
+        );
+    }
+}
