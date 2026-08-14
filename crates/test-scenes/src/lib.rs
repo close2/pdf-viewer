@@ -12,12 +12,14 @@
 #![forbid(unsafe_code)]
 
 mod ocr;
+mod type4;
 
 pub use ocr::{
     OCR_ASCENT, OCR_BASELINE, OCR_CID_COUNT, OCR_DESCENT, OCR_FIRST_WORD, OCR_FONT_SIZE, OCR_PAGE,
     OCR_SECOND_WORD, OCR_SECOND_X, OCR_TEXT_X, OcrFont, ocr_advance_for_gid, ocr_gid_for_cid,
     scanned_ocr_pdf,
 };
+pub use type4::{TYPE4_PAGE, TYPE4_SPLIT, Type4Comments, type4_comment_pair};
 
 use std::sync::Arc;
 

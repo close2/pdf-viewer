@@ -11,7 +11,7 @@ would lose what it witnesses. That is a narrow test, and each entry below says w
 
 | file | bytes | who made it | why it is here |
 |---|---|---|---|
-| `type4_pi.pdf` | 2357 | the project owner, 2026-08-14 | A §7.10.5 PostScript calculator function that computes π by the BBP series and paints digits as rectangles — **written by hand, with comments**, which is exactly the construction this program refused. Reproducing it in code would reproduce a *reading* of it; the file is the thing that found the defect. |
+| `type4_pi.pdf` | 2357 | the project owner, 2026-08-14 | A §7.10.5 PostScript calculator function that computes π by the BBP series and paints digits as rectangles — **written by hand, with comments**, which is the construction this program refused until ADR 0361. Reproducing it in code would reproduce a *reading* of it; the file is the thing that found the defect. Named by `pdf-model`'s `shadings::the_owners_pi_file_paints_the_digits_its_program_computes`, which asks it for the picture: five digit strokes black, three background points white, so a page that is blank, inverted, mirrored or shifted fails. |
 
 **Licence and provenance.** These are the project's own work, made by the project owner and
 committed with their permission, so `doc/third-party-data.md`'s questions do not arise for them —

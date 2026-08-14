@@ -68,9 +68,9 @@ note = "Table 1's six white-space characters exactly, including NUL, and Table 2
 clause = "7.2.4"
 title = "Comments"
 status = "implemented"
-code = ["crates/pdf-syntax/src/lexer.rs"]
-test = ["crates/pdf-syntax/src/lexer.rs::every_byte_value_terminates"]
-note = "\"PDF processors shall treat comments as single white-space characters for the purposes of lexical conversion … That is, a comment separates the token preceding it from the one following it.\" Which is why `Lexer::skip_whitespace` skips both and is the only skipping function: a caller that skipped white space without skipping a comment would join two tokens. A comment runs to the EOL marker and *not* through it, so the marker is then consumed as the white space §7.2.3 makes it. `%PDF-n.m` and `%%EOF` are §7.5's and are read there; every other comment has no semantics, as the clause says outright."
+code = ["crates/pdf-syntax/src/lexer.rs", "crates/pdf-model/src/function.rs"]
+test = ["crates/pdf-syntax/src/lexer.rs::every_byte_value_terminates", "crates/pdf-model/src/function.rs::a_comment_runs_to_the_end_of_its_line"]
+note = "\"PDF processors shall treat comments as single white-space characters for the purposes of lexical conversion … That is, a comment separates the token preceding it from the one following it.\" Which is why `Lexer::skip_whitespace` skips both and is the only skipping function: a caller that skipped white space without skipping a comment would join two tokens. A comment runs to the EOL marker and *not* through it, so the marker is then consumed as the white space §7.2.3 makes it. `%PDF-n.m` and `%%EOF` are §7.5's and are read there; every other comment has no semantics, as the clause says outright. **The clause has a second reader and it was wrong for the tree's whole life**: §7.10.5's type 4 programs are not lexed by `lexer.rs`, and `function.rs` split a program on white space *before* looking for a PERCENT SIGN — which destroys the very line this clause ends a comment at — then skipped one token as an approximation. A rule implemented twice is a rule that can be right once (ADR 0361)."
 
 [[clause]]
 clause = "7.3"
@@ -945,15 +945,15 @@ title = "Type 4 (PostScript calculator) functions"
 status = "implemented"
 code = ["crates/pdf-model/src/function.rs"]
 test = ["crates/pdf-model/src/function.rs::arithmetic_follows_postscript_stack_order", "crates/pdf-model/tests/shadings.rs"]
-note = "Type 4, the PostScript calculator: a small language, evaluated here rather than approximated. It is what `Separation` and `DeviceN` tint transforms are usually written in, and `postscript_type4_many_outputs.pdf` is the corpus's controlled experiment on it (see `oracle.rs`'s `CONTRADICTED_DEVICE_CMYK_CONVERSION`, which used it to prove something about `DeviceCMYK` instead)."
+note = "Type 4, the PostScript calculator: a small language, evaluated here rather than approximated. It is what `Separation` and `DeviceN` tint transforms are usually written in, and `postscript_type4_many_outputs.pdf` is the corpus's controlled experiment on it (see `oracle.rs`'s `CONTRADICTED_DEVICE_CMYK_CONVERSION`, which used it to prove something about `DeviceCMYK` instead). The subclause's own lexical requirement — a comment, which §7.2.4 ends at a line — is §7.10.5.1's row, and was the tree's one defect in this clause family (ADR 0361)."
 
 [[clause]]
 clause = "7.10.5.1"
 title = "General"
 status = "implemented"
 code = ["crates/pdf-model/src/function.rs"]
-test = ["crates/pdf-model/src/function.rs::a_program_with_an_unknown_operator_is_refused", "crates/pdf-model/tests/shadings.rs"]
-note = "The framing: a program in braces, with the input on the stack and the output taken from the top."
+test = ["crates/pdf-model/src/function.rs::a_program_with_an_unknown_operator_is_refused", "crates/pdf-model/src/function.rs::a_comments_words_are_not_instructions", "crates/pdf-model/tests/shadings.rs::a_type_4_program_paints_the_same_page_with_and_without_its_comments"]
+note = "The framing: a program in braces, with the input on the stack and the output taken from the top. **And the list of what the subset contains, which nobody had read against the tokenizer**: \"This subset is comprised of the following PostScript language features\" — expressions over numbers and booleans, **comments**, no composite data structures, no procedures, no variables or names. Comments are admitted by that list and were mishandled until the five-hundred-and-twenty-sixth session, when the project owner's `doc/corpora-own/type4_pi.pdf` refused whole; the same list is what makes cutting each line at its first PERCENT SIGN correct rather than merely convenient, since a language with no strings has no other place to put one. ADR 0361, whose census — `cargo run --release -p pdf-model --example type4_comment_census` — found how rarely a *producer* comments a program, and therefore that this fell almost entirely on files written by hand."
 
 [[clause]]
 clause = "7.10.5.2"

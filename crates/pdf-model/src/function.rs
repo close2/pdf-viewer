@@ -899,16 +899,68 @@ pub enum Operator {
     Roll,
 }
 
+/// The program with §7.2.4's comments cut out, one line at a time.
+///
+/// ISO 32000-2 §7.2.4 defines what a comment is, and its extent is the whole point:
+///
+/// > The comment consists of all characters after the PERCENT SIGN and up to but not including
+/// > the end-of-the-line marker.
+///
+/// > PDF processors shall treat comments as single white-space characters for the purposes of
+/// > lexical conversion … That is, a comment separates the token preceding it from the one
+/// > following it.
+///
+/// So each line is cut at its first PERCENT SIGN and a LINE FEED is written in the comment's
+/// place: dropping the comment without leaving white space behind would join the token before
+/// it to the one after, which is the same defect one step smaller.
+///
+/// **Cutting at the first PERCENT SIGN is safe here and would not be in PostScript at large**,
+/// and §7.10.5.1's own list of what the subset contains is why — it admits comments and denies
+/// the one construction that could hide a PERCENT SIGN from this rule:
+///
+/// > This subset is comprised of the following PostScript language features: … No composite
+/// > data structures (such as strings or arrays)
+///
+/// With no string literals in the language, no PERCENT SIGN in a type 4 program can be
+/// anything but the start of a comment. §7.2.3's end-of-line marker is a CARRIAGE RETURN, a
+/// LINE FEED or the two together, so the cut ends at either byte.
+///
+/// This is done *before* the program is split on white space, and that order is the whole fix:
+/// splitting first destroys the line boundary the clause defines a comment by, and every
+/// approximation available afterwards is wrong. Skipping one token after the PERCENT SIGN —
+/// what this code did until the five-hundred-and-twenty-sixth session — refuses a program
+/// loudly when the word after the sign is not an operator (`% BBP Math for Pi` compiled `Math`)
+/// and, worse, *silently compiles the rest of the comment's words as instructions* when they
+/// happen to be numbers or operator names.
+fn without_comments(program: &str) -> String {
+    let mut out = String::with_capacity(program.len());
+    for line in program.split(['\r', '\n']) {
+        out.push_str(
+            line.find('%')
+                .map_or(line, |at| line.get(..at).unwrap_or_default()),
+        );
+        out.push('\n');
+    }
+    out
+}
+
 /// Compiles a type 4 program into a flat instruction list.
+///
+/// ISO 32000-2 §7.10.5.2 states the syntax the tokens are read under: the operand syntax
+/// "shall follow PDF conventions rather than PostScript language conventions", and
+///
+/// > The entire code stream defining the function shall be enclosed in braces { }
+///
+/// with braces also delimiting `if` and `ifelse`'s expressions. Braces are therefore spaced
+/// apart from their neighbours before the split, since §7.2.3 makes them delimiters rather
+/// than white space — `{2 mul}` is three tokens.
 fn compile_postscript(source: &[u8]) -> Result<Vec<Instruction>, FunctionError> {
     /// Bounds the program, so a hostile stream cannot compile to an enormous list.
     const MAX_INSTRUCTIONS: usize = 1 << 16;
 
     let text = String::from_utf8_lossy(source);
-    let spaced = text
-        .replace('{', " { ")
-        .replace('}', " } ")
-        .replace('%', " % ");
+    let code = without_comments(&text);
+    let spaced = code.replace('{', " { ").replace('}', " } ");
     let mut tokens = spaced.split_whitespace().peekable();
 
     // The whole program is wrapped in one pair of braces, which is consumed here so the
@@ -945,11 +997,6 @@ fn compile_block(
     while let Some(token) = tokens.next() {
         match token {
             "}" => return Ok(()),
-            "%" => {
-                // A comment runs to end of line, which whitespace splitting has already
-                // destroyed; skipping one token is the closest safe approximation.
-                tokens.next();
-            }
             "{" => {
                 // A procedure, which must be followed by another procedure and `ifelse`,
                 // or by `if`. Both are compiled to jumps around the bodies.
@@ -1477,6 +1524,92 @@ mod tests {
         assert!(
             compile_postscript(b"{ 1 { 2 } }").is_err(),
             "a procedure needs if or ifelse"
+        );
+    }
+
+    /// §7.10.5.1 admits comments, and §7.2.4 ends one at the end of its line.
+    ///
+    /// The words inside a comment are not tokens of the program, whatever they spell. Until
+    /// the five-hundred-and-twenty-sixth session the compiler split the whole stream on white
+    /// space first and then skipped a single token after each PERCENT SIGN, which made the
+    /// first of these refuse the program and the second and third compile a program the file
+    /// does not contain.
+    #[test]
+    fn a_comment_runs_to_the_end_of_its_line() {
+        // The project owner's own file, whose first line is exactly this shape: the word
+        // after the sign is not an operator, so the old rule reached `Math` and refused.
+        assert_eq!(
+            calculator(
+                "{\n% BBP Math for Pi (leaves 3.141 on stack)\n7 3 sub\n}",
+                &[]
+            ),
+            vec![4.0]
+        );
+        // The silent half, and the reason this is a defect rather than an inconvenience:
+        // every word after the first was compiled, so the comment added two instructions.
+        assert_eq!(
+            calculator("{\n% add 100 mul here\n7 3 sub\n}", &[]),
+            vec![4.0]
+        );
+        // A comment need not start a line, and the token before it must survive.
+        assert_eq!(calculator("{ 7 3 sub % subtract\n}", &[]), vec![4.0]);
+        // A CARRIAGE RETURN ends a line as much as a LINE FEED does (§7.2.3), and this is the
+        // shape of the one commented type 4 program in 67 461 documents: a `Separation` tint
+        // transform naming its CMYK components, with CARRIAGE RETURN endings and not one LINE
+        // FEED anywhere (`SafeDocs` cc-main-2021-31 5097152.pdf object 19, ADR 0361). A cut
+        // that looked only for LINE FEED would read the whole program as one comment.
+        assert_eq!(
+            calculator("{\r0 %c\r0 %m\r0 %y\r3 index %k\r5 -1 roll pop\r}", &[0.25]),
+            vec![0.0, 0.0, 0.0, 0.25]
+        );
+        // A comment separates the tokens either side of it rather than joining them: with
+        // the comment removed and nothing left in its place, this would read `4dup`.
+        assert_eq!(calculator("{ 4% squared\ndup mul }", &[]), vec![16.0]);
+        // A brace inside a comment is text, not structure.
+        assert_eq!(
+            calculator("{ 1 % { two } if\n7 3 sub }", &[]),
+            vec![1.0, 4.0]
+        );
+    }
+
+    /// The half of the same defect that reported nothing, which is the expensive half.
+    ///
+    /// Every comment here is one whose words are *all* valid tokens, which is what a comment
+    /// looks like when it quotes the arithmetic below it. Skipping one token after the PERCENT
+    /// SIGN then compiled the rest into the program: no error, no report, and a function that
+    /// computes something the file does not contain — in a shading or a tint transform, a
+    /// plausible picture in the wrong colours.
+    #[test]
+    fn a_comments_words_are_not_instructions() {
+        // Old rule: `mul` compiled, so the result was 4 × nothing = 0.
+        assert_eq!(calculator("{ 7 3 sub % 100 mul\n}", &[]), vec![4.0]);
+        // Old rule: `1 add` compiled, so the result was one too many.
+        assert_eq!(calculator("{ 7 3 sub % add 1 add\n}", &[]), vec![4.0]);
+        // Old rule: `2 mul` compiled ahead of the line it describes.
+        assert_eq!(calculator("{ % dup 2 mul\n7 3 sub }", &[]), vec![4.0]);
+        // A brace inside such a comment took the block structure with it.
+        assert_eq!(calculator("{ 1 % { 2 } if\n7 3 sub }", &[]), vec![1.0, 4.0]);
+    }
+
+    /// A comment cannot change what a program computes, whatever it says.
+    ///
+    /// The unit-level half of the fixture pair in `test-scenes`: two programs written out
+    /// separately, differing only in comments, compiling to the same instructions.
+    #[test]
+    fn commenting_a_program_does_not_change_it() {
+        let commented = "{\n\
+             % dup mul squares the input\n\
+             dup mul\n\
+             % 1 add\n\
+             1 add\n\
+             }";
+        let plain = "{\n\
+             dup mul\n\
+             1 add\n\
+             }";
+        assert_eq!(
+            compile_postscript(commented.as_bytes()).expect("compiles"),
+            compile_postscript(plain.as_bytes()).expect("compiles")
         );
     }
 

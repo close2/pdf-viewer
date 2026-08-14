@@ -18,6 +18,7 @@ use std::fmt::Write as _;
 use pdf_render::{Rasterizer, TargetSpec};
 use pdf_syntax::Document;
 use render_cpu::CpuRasterizer;
+use test_scenes::{TYPE4_PAGE, TYPE4_SPLIT, Type4Comments, type4_comment_pair};
 
 /// Pixel budget, far above the small pages these tests build.
 const GENEROUS: u64 = 1 << 30;
@@ -845,4 +846,143 @@ fn a_pattern_in_an_annotation_appearance_is_placed_in_the_appearances_own_space(
         right_blue > 220 && right_red < 40,
         "and ends blue at its right edge, got ({right_red}, _, {right_blue})"
     );
+}
+
+/// §7.10.5.1 admits comments, so a commented program and a bare one are one function.
+///
+/// > This subset is comprised of the following PostScript language features: … Comments
+///
+/// The two arms are written out separately in `test-scenes` and differ in nothing else, so
+/// anything but an identical raster is the compiler reading a comment as code. It did until the
+/// five-hundred-and-twenty-sixth session, and both shapes are in the commented arm: a prose
+/// comment, which was refused outright, and one quoting a formula (`% dup 3 mul`), whose words
+/// were compiled into the program with nothing reported.
+///
+/// The ink is asserted as well as the equality, because two arms that both refused to draw
+/// would also be identical — which is exactly what the old code did to the loud shape.
+#[test]
+fn a_type_4_program_paints_the_same_page_with_and_without_its_comments() {
+    let commented = render(type4_comment_pair(Type4Comments::Present));
+    let bare = render(type4_comment_pair(Type4Comments::Absent));
+
+    assert_eq!(
+        (commented.width, commented.height),
+        (bare.width, bare.height)
+    );
+    assert_eq!(
+        commented.data, bare.data,
+        "a comment changed what the function computes"
+    );
+
+    // What the program says: black left of the split, white right of it.
+    let (width, height) = TYPE4_PAGE;
+    assert_eq!((commented.width, commented.height), (width, height));
+    let middle = height / 2;
+    for raster in [&commented, &bare] {
+        assert_eq!(
+            pixel(raster, TYPE4_SPLIT / 2, middle),
+            (0, 0, 0, 255),
+            "x below the split is 0, which is black"
+        );
+        assert_eq!(
+            pixel(raster, TYPE4_SPLIT + TYPE4_SPLIT / 2, middle),
+            (255, 255, 255, 255),
+            "x above the split is 1, which is white"
+        );
+    }
+}
+
+/// The project owner's `doc/corpora-own/type4_pi.pdf`, which is what found the defect.
+///
+/// A §7.10.5 program that computes π by the first two terms of the BBP series and paints its
+/// digits as rectangles, hand-written with a comment above every step. Before the
+/// five-hundred-and-twenty-sixth session the whole shading was refused — `% BBP Math for Pi …`
+/// left `Math` looking like an operator — so the page came out blank with one report.
+///
+/// The rectangles the program tests are its own comments' (`% Rect 10,25 85,95` is x ∈ [10, 25],
+/// y ∈ [85, 95] on a 0–100 square that `/Matrix` scales onto the 400-point page), and together
+/// they spell `3.141`: three bars and a stem, a full stop, a stem, a four, a stem. The samples
+/// below are the centres of five of them and three points of the background between them, so
+/// this fails on a page that is blank, inverted, mirrored or shifted.
+#[test]
+fn the_owners_pi_file_paints_the_digits_its_program_computes() {
+    let path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc/corpora-own/type4_pi.pdf");
+    let bytes = std::fs::read(&path).expect("the witness is tracked in this repository");
+    let raster = render(bytes);
+
+    // The program's square is 0–100 in both axes over a 400-point page, and the raster's y runs
+    // the other way from the page's: pixel = (4x, 400 − 4y).
+    let at = |x: u32, y: u32| {
+        pixel(
+            &raster,
+            x.saturating_mul(4),
+            400_u32.saturating_sub(y.saturating_mul(4)),
+        )
+    };
+
+    for (x, y, what) in [
+        (17, 90, "the top bar of the 3"),
+        (30, 10, "the full stop"),
+        (44, 50, "the 1"),
+        (65, 50, "the 4's crossbar"),
+        (86, 50, "the last 1"),
+    ] {
+        assert_eq!(
+            at(x, y),
+            (0, 0, 0, 255),
+            "{what} is inside the shape: black"
+        );
+    }
+    for (x, y, what) in [
+        (5, 50, "left of the 3"),
+        (36, 50, "between the full stop and the 1"),
+        (95, 50, "right of the last 1"),
+    ] {
+        assert_eq!(
+            at(x, y),
+            (255, 255, 255, 255),
+            "{what} is background: white"
+        );
+    }
+}
+
+/// π itself, which the picture above cannot state: the value the file's own comment claims.
+///
+/// The program's arithmetic is the BBP series' first two terms, and it is quoted here with the
+/// comment that made the file fail. 4/1 − 2/4 − 1/5 − 1/6 = 3.13333…, plus
+/// (4/9 − 2/12 − 1/13 − 1/14)/16 = 0.0080891…, is 3.1414224… — within 2 × 10⁻⁴ of π — and the
+/// program's own `1000 mul truncate 1000 div` is what makes that the exact 3.141 its comment
+/// promises. `/Range` is stated wide enough to carry it, since §7.10.5.3 clips the output to it.
+#[test]
+#[expect(
+    clippy::approx_constant,
+    reason = "3.141 is the truncation the program performs, not a stand-in for π: the whole \
+              point is that the file's own comment claims this value and the picture spells it"
+)]
+fn the_owners_bbp_series_evaluates_to_pi_to_three_places() {
+    let program = "{ pop\n\
+         % BBP Math for Pi (leaves 3.141 on stack)\n\
+         4 1 div 2 4 div sub 1 5 div sub 1 6 div sub\n\
+         4 9 div 2 12 div sub 1 13 div sub 1 14 div sub 16 div\n\
+         add 1000.0 mul truncate 1000.0 div\n\
+         }";
+    let body = format!(
+        "1 0 obj\n<< /FunctionType 4 /Domain [0 1] /Range [0 10] /Length {} >>\n\
+         stream\n{program}\nendstream\nendobj\n",
+        program.len().saturating_add(1)
+    );
+    let mut source = String::from("%PDF-1.7\n");
+    source.push_str(&body);
+    source.push_str("trailer\n<< /Root 1 0 R >>\n");
+
+    let document = Document::open(source.into_bytes()).expect("opens");
+    let object = pdf_syntax::Object::Reference(pdf_syntax::ObjectId {
+        number: 1,
+        generation: 0,
+    });
+    let function =
+        pdf_model::function::Function::parse(&document, &object).expect("the program compiles");
+
+    assert_eq!(function.eval(&[0.0]), vec![3.141]);
 }

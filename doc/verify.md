@@ -132,6 +132,16 @@ cargo run --release -p pdf-model --example signature_algorithm_census -- @/tmp/p
   # work and then ADR 0322's — `id-RSASSA-PSS`, which it found being declined six times, is
   # verified since the four-hundred-and-eighty-seventh session — and what would rank the next:
   # it prints the population of ECDSA, and of DSA — which is nought
+cargo run --release -p pdf-model --example type4_comment_census -- @/tmp/paths
+  # every §7.10.5 program in a population, classified by what the old comment rule did to it:
+  # `refused` where a word left in a comment was not an operator, `silent` where the words were
+  # compiled into the program with nothing reported, `harmless` where the two agree. Both arms go
+  # through the *current* compiler and the old rule is reproduced as a text transform, so nothing
+  # of it has to be kept alive. It is what priced ADR 0361 — and what said the defect fell on
+  # hand-written files rather than on generated ones, which is a fact about producers that no
+  # reading of the clause could have given. Documents are prefiltered on `/FunctionType` in their
+  # own bytes, which §7.5.7 makes sound: a function dictionary is a stream's, and no stream may
+  # live in an object stream
 cargo run --release -p pdf-model --example luminosity_mask_census -- doc/pdf.js/test/pdfs/*.pdf
   # what a §11.5.3 mask group is painted *with*, against what its /CS declares — 87 groups on
   # this corpus, 39 blending in /DeviceCMYK and 36 in /DeviceGray, and not one setting a `k`
