@@ -1,8 +1,8 @@
-# RSASSA-PSS, ECDSA and EdDSA, four digests, the third question, public-key handlers, `/R` 5
+# ECDSA and EdDSA, four digests, the third question, public-key handlers, `/R` 5
 
-Status: **two of Table 260's three algorithm families are verified**; what is left of question 2 is
-the elliptic-curve family, one RSA *padding*, and four hash functions — and question 3 is still a
-project.
+Status: **two of Table 260's three algorithm families are verified, the RSA one under both of RFC
+8017's paddings**; what is left of question 2 is the elliptic-curve family and four hash functions
+— and question 3 is still a project.
 Priority: 51
 Corpus: 1 document (`/R` 5). For the signature populations, **run the census rather than reading a
 number here**:
@@ -15,20 +15,23 @@ cargo run --release -p pdf-model --example signature_algorithm_census -- @/tmp/p
 Clauses: §12.8.3, §7.6.5, §7.6.4.3, Table 21, Table 256, Table 260; ISO/TS 32001 §5.1, ISO/TS 32002 §5.1
 Code: `crates/pdf-model/src/signature.rs`, `crates/pdf-model/src/cms.rs`,
 `crates/pdf-model/src/der.rs`, `crates/pdf-model/src/x509.rs`, `crates/pdf-model/src/pkcs1.rs`,
-`crates/pdf-model/src/dsa.rs`, `crates/pdf-model/src/bigint.rs`, `crates/pdf-syntax/src/crypt.rs`
+`crates/pdf-model/src/pss.rs`, `crates/pdf-model/src/dsa.rs`, `crates/pdf-model/src/bigint.rs`,
+`crates/pdf-syntax/src/crypt.rs`
 
 ## Signature validation (§12.8.3) — 5 ledger rows, and it used to be 17
 
 **This file used to say the whole clause needed "a trust store and a network". That was true of one
 of the three questions a signature asks and false of the other two**; the three-hundred-and-seventy-seventh
 session separated them and answered the first (ADR 0215), the three-hundred-and-ninety-second
-answered the second for RSA (ADR 0229), and the four-hundred-and-seventy-ninth answered it for DSA
-and refused the elliptic-curve family with an argument (ADR 0314).
+answered the second for RSA (ADR 0229), the four-hundred-and-seventy-ninth answered it for DSA
+and refused the elliptic-curve family with an argument (ADR 0314), and the
+four-hundred-and-eighty-seventh answered it for the RSA family's other padding, RSASSA-PSS
+(ADR 0322).
 
 | | asks | needs | state |
 |---|---|---|---|
 | **1. Integrity** | has the document changed since it was signed? | the file and a hash function | **answered** |
-| **2. Authenticity** | does the signature verify under the signer's public key? | an X.509 certificate parser and RSA, DSA or ECDSA | **answered for RSA and DSA**; the rest below |
+| **2. Authenticity** | does the signature verify under the signer's public key? | an X.509 certificate parser and RSA, DSA or ECDSA | **answered for RSA — both paddings — and DSA**; the rest below |
 | **3. Trust** | is the signer anyone to believe, and was the certificate revoked? | a trust store, a certification path, a network | open, and it is a project |
 
 Question 1 is `Signature::integrity`, question 2 is `Signature::authenticity`.
@@ -36,10 +39,12 @@ Question 1 is `Signature::integrity`, question 2 is `Signature::authenticity`.
 ### What is left of question 2, in the order the population ranks it
 
 **And the order binds: no further zero-witness algorithm family before a witnessed one.** DSA went
-in with zero corpus signatures using it while PSS — the commonest thing this program declines, at
-twice ECDSA's share — sat behind it in this file. The work was sound (ADR 0314) and the ordering
+in with zero corpus signatures using it while PSS — then the commonest thing this program declined,
+at twice ECDSA's share — sat behind it in this file. The work was sound (ADR 0314) and the ordering
 was not: on `CLAUDE.md`'s two tracks, a second consecutive spec-side item in one family while the
-demand side of the same family has real witnesses is the balance this file exists to keep.
+demand side of the same family has real witnesses is the balance this file exists to keep. The
+four-hundred-and-eighty-seventh session paid that debt: `pdf_model::pss` verifies `id-RSASSA-PSS`
+and the census's six witnesses all answer `Verified` (ADR 0322).
 
 **Everything here is *reported* at runtime by the object identifier the file states**, never
 skipped: `Authenticity::AlgorithmNotVerifiable`, `Authenticity::KeyNotVerifiable` and
@@ -47,17 +52,11 @@ skipped: `Authenticity::AlgorithmNotVerifiable`, `Authenticity::KeyNotVerifiable
 rather than as a word, because this tree holds ISO 32000-2 and not the documents that assign those
 numbers.
 
-**1. RSASSA-PSS (`id-RSASSA-PSS`, `1.2.840.113549.1.1.10`) — and it is first because the census put
-it there.** It is the commonest thing this program declines: more real signatures use it than use
-ECDSA, and it is *inside* the family Table 260's "RSA Algorithm Support" row names, which states key
-sizes and no padding at all. It needs **no dependency and no external constant**: RFC 8017 section
-8.1.2's `EMSA-PSS-VERIFY` and section B.2.1's MGF1, over the modular exponentiation
-`crate::bigint` already performs, plus the `RSASSA-PSS-params` an `AlgorithmIdentifier` carries
-(hash, mask generation function, salt length, trailer field). It is deliberately **not** treated as
-PKCS #1 v1.5 today — same arc, different padding — and that stays true whatever is built.
-
-**2. ECDSA and EdDSA — refused, with the argument in ADR 0314 rather than left as a to-do.** The
-short form:
+**1. ECDSA and EdDSA — refused, with the argument in ADR 0314 rather than left as a to-do.**
+(RSASSA-PSS stood here until the four-hundred-and-eighty-seventh session closed it: `crates/pdf-model/src/pss.rs`
+is RFC 8017 sections 8.1.2 and 9.1.2 with Appendix B.2.1's MGF1 over `crate::bigint`, reading the
+`RSASSA-PSS-params` from the `AlgorithmIdentifier`, kept separate from PKCS #1 v1.5 as this file
+insisted — ADR 0322.) The short form on the elliptic-curve family:
 
 - The standard family names **eight curves**, not five: ISO/TS 32002 Table 3 gives P-256, P-384,
   P-521, brainpoolP256r1, brainpoolP384r1 and brainpoolP512r1 for ECDSA, and its Table 4 adds
@@ -78,7 +77,7 @@ What would change it: a population that makes the family more than a rounding er
 to accept the whole `elliptic-curve` stack with its package count and licence position argued in
 `doc/stack.md`. Take the curves TS 32002 Table 3 lists, not the ones a crate happens to publish.
 
-**3. ISO/TS 32001's four digests.** §5.1.4 adds SHA3-256, SHA3-384, SHA3-512 and SHAKE256 to Table
+**2. ISO/TS 32001's four digests.** §5.1.4 adds SHA3-256, SHA3-384, SHA3-512 and SHAKE256 to Table
 260's Message Digest row and §5.1.3 adds the same four to Table 256's `/DigestMethod`, with
 SHAKE256 pinned to `id-shake256` so its output is fixed at 512 bits. `cms::Digest` computes the six
 the base standard names and none of these; a signature stating one reports the identifier. This is

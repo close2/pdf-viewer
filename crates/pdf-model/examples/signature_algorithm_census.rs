@@ -120,6 +120,9 @@ fn verdict(answer: &Authenticity) -> String {
         Authenticity::AlgorithmNotVerifiable { algorithm } => {
             format!("AlgorithmNotVerifiable {algorithm}")
         }
+        Authenticity::PssParametersNotVerifiable { statement } => {
+            format!("PssParametersNotVerifiable: {statement}")
+        }
         Authenticity::Refused(_) => "Refused".into(),
         Authenticity::UnknownDigest { algorithm } => format!("UnknownDigest {algorithm}"),
         Authenticity::KeyDoesNotMatchAlgorithm { algorithm, key } => {
@@ -179,6 +182,7 @@ fn census(path: &str, bytes: &[u8], document: &Document) -> Counts {
             Authenticity::KeyNotVerifiable { .. }
                 | Authenticity::AlgorithmNotVerifiable { .. }
                 | Authenticity::KeyDoesNotMatchAlgorithm { .. }
+                | Authenticity::PssParametersNotVerifiable { .. }
         );
         let slot = counts.authenticity.entry(verdict(&answer)).or_default();
         *slot = slot.saturating_add(1);
@@ -191,6 +195,9 @@ fn census(path: &str, bytes: &[u8], document: &Document) -> Counts {
                             "{} (RSASSA-PKCS1-v1_5)",
                             identifier(cms.signature_algorithm)
                         )
+                    }
+                    SignatureAlgorithm::RsaPss => {
+                        format!("{} (RSASSA-PSS)", identifier(cms.signature_algorithm))
                     }
                     SignatureAlgorithm::Dsa => {
                         format!("{} (DSA)", identifier(cms.signature_algorithm))

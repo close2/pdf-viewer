@@ -18,9 +18,9 @@
 //!
 //! **`id-RSASSA-PSS` is not this construction and is deliberately not treated as it.** It shares
 //! RFC 8017's `pkcs-1` arc and states a different padding, so a reader that matched the arc would
-//! verify the wrong thing; it reaches [`crate::cms::SignatureAlgorithm::Unrecognised`] and is
-//! named by number. Six of the 801 signatures in the `SafeDocs` population use it, which is twice
-//! ECDSA's share — see `doc/todo/51`.
+//! verify the wrong thing. It is [`crate::pss`], since the four-hundred-and-eighty-seventh
+//! session (ADR 0322); the one thing the two schemes share is [`rsavp1`], because RFC 8017
+//! itself invokes that primitive by name from both.
 //!
 //! # What is verified, and by which construction
 //!
@@ -159,6 +159,28 @@ pub fn verify(
     digest: Digest,
     message_digest: &[u8],
 ) -> Result<bool, Pkcs1Error> {
+    let (message, modulus_bits) = rsavp1(key, signature)?;
+    let length = modulus_bits.div_ceil(8);
+    let expected = encode(digest, message_digest, length)?;
+    Ok(message.be_bytes(length) == expected)
+}
+
+/// RFC 8017 section 5.2.2's `RSAVP1` primitive, with section 8.2.2 step 1's length check ahead
+/// of it: `m = s^e mod n`, returned beside the modulus's width in bits.
+///
+/// **Shared by both of the RFC's signature schemes, because the RFC itself shares it**: section
+/// 8.2.2 step 2.b and section 8.1.2 step 2.b both read "m = RSAVP1 ((n, e), s)", so this is the
+/// one construction [`verify`] and [`crate::pss::verify`] have in common — everything after it
+/// is a different padding and stays in its own module.
+///
+/// The length check belongs with the primitive rather than with either scheme: `k` is the
+/// modulus's length in octets, both schemes state the same step 1 over it, and a signature of
+/// any other length cannot equal an encoded block whatever it contains.
+///
+/// # Errors
+///
+/// A [`Pkcs1Error`] naming the budget or shape refusal; see [`verify`].
+pub(crate) fn rsavp1(key: PublicKey<'_>, signature: &[u8]) -> Result<(Integer, usize), Pkcs1Error> {
     let modulus = Integer::from_be_bytes(key.modulus).ok_or(Pkcs1Error::ModulusTooLarge)?;
     let exponent = Integer::from_be_bytes(key.exponent).ok_or(Pkcs1Error::ExponentTooLarge)?;
     if exponent.bits() > MAX_EXPONENT_BITS {
@@ -170,26 +192,17 @@ pub fn verify(
     let Some(modulus) = Modulus::new(&modulus) else {
         return Err(Pkcs1Error::ModulusNotOdd);
     };
-    // RFC 8017 section 8.2.2 step 1, and the reason the length is checked rather than the value: `k` is
-    // the modulus's length in octets, which is what `i2osp` will produce, so a signature of any
-    // other length cannot equal the encoded block whatever it contains.
-    let length = key.modulus.len().saturating_sub(
-        key.modulus
-            .iter()
-            .take_while(|&&byte| byte == 0)
-            .count()
-            .min(key.modulus.len()),
-    );
-    if signature.len() != length {
+    let modulus_bits = modulus.value.bits();
+    if signature.len() != modulus_bits.div_ceil(8) {
         return Err(Pkcs1Error::SignatureLength);
     }
     let value = Integer::from_be_bytes(signature).ok_or(Pkcs1Error::ModulusTooLarge)?;
+    // Section 5.2.2 step 1: "If the signature representative s is not between 0 and n - 1,
+    // output "signature representative out of range" and stop."
     if !value.less_than(&modulus.value) {
         return Err(Pkcs1Error::SignatureNotReduced);
     }
-    let expected = encode(digest, message_digest, length)?;
-    let recovered = modpow(&value, &exponent, &modulus).be_bytes(length);
-    Ok(recovered == expected)
+    Ok((modpow(&value, &exponent, &modulus), modulus_bits))
 }
 
 /// RFC 8017 section 9.2's `EMSA-PKCS1-v1_5-ENCODE`, for an encoded message of `length` octets.

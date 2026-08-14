@@ -89,9 +89,10 @@ pub type IssuerAndSerial<'a> = (&'a [u8], &'a [u8]);
 ///
 /// Table 260 names three families for a PDF signature — "RSA Algorithm Support", "DSA Algorithm
 /// Support" and "ECDSA Algorithm Support ( defined by Internet RFC 5480 )" — and this program
-/// verifies the first two. The third reaches a person as the object identifier the file states,
-/// which is why the unrecognised arm carries it rather than dropping it, and ADR 0314 is the
-/// argument for stopping there rather than half-writing a curve.
+/// verifies the first two, the RSA family under both of RFC 8017's paddings. The third reaches a
+/// person as the object identifier the file states, which is why the unrecognised arm carries it
+/// rather than dropping it, and ADR 0314 is the argument for stopping there rather than
+/// half-writing a curve.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SignatureAlgorithm<'a> {
     /// RSASSA-PKCS1-v1_5 — `rsaEncryption` or one of the `<hash>WithRSAEncryption` identifiers of
@@ -99,9 +100,16 @@ pub enum SignatureAlgorithm<'a> {
     /// `digestAlgorithm` states anyway.
     ///
     /// `id-RSASSA-PSS` is deliberately **not** here: it is the same arc and a different padding,
-    /// so treating it as this one would verify the wrong construction. It arrives as
-    /// [`Self::Unrecognised`].
+    /// so treating it as this one would verify the wrong construction. It is [`Self::RsaPss`].
     RsaPkcs1V15,
+    /// RSASSA-PSS — RFC 8017 Appendix A.2.3's `id-RSASSA-PSS`, the same key family under the
+    /// salted padding [`crate::pss`] verifies.
+    ///
+    /// Which hash, mask generation function and salt length apply is not stated by the
+    /// identifier: the `AlgorithmIdentifier`'s own parameters carry RFC 8017's
+    /// `RSASSA-PSS-params`, which [`SignedData::signature_algorithm_parameters`] hands over and
+    /// [`crate::pss::parameters`] reads.
+    RsaPss,
     /// DSA — `id-dsa`, `id-dsa-with-sha1`, or one of the `id-dsa-with-sha2` arc's identifiers.
     ///
     /// Which digest was used is not read from here: `SignerInfo`'s own `digestAlgorithm` states
@@ -121,6 +129,9 @@ impl<'a> SignatureAlgorithm<'a> {
     pub fn from_oid(oid: &'a [u8]) -> Self {
         if crate::dsa::is_dsa(oid) {
             return Self::Dsa;
+        }
+        if oid == crate::pss::ID_RSASSA_PSS {
+            return Self::RsaPss;
         }
         match oid {
             // `pkcs-1` is 1.2.840.113549.1.1; the last octet is `rsaEncryption` (1) and the
@@ -334,6 +345,13 @@ pub struct SignedData<'a> {
     /// this program does with it. Kept whether or not it is recognised, so that a signature this
     /// program cannot verify can still say by what number it declines.
     pub signature_algorithm: &'a [u8],
+    /// That `AlgorithmIdentifier`'s parameters value, where the producer wrote one.
+    ///
+    /// For most algorithms the member is an ignorable `NULL`, and for `id-RSASSA-PSS` it is the
+    /// whole point: RFC 8017 Appendix A.2.3 puts the scheme's hash, mask generation function,
+    /// salt length and trailer field here, as `RSASSA-PSS-params` —
+    /// [`crate::pss::parameters`] is the reader.
+    pub signature_algorithm_parameters: Option<Value<'a>>,
     /// The first signer's `signature`, the octets that verification is over.
     pub signature: &'a [u8],
     /// The contents of the first signer's `signedAttrs [0] IMPLICIT`, where it states one.
@@ -553,6 +571,7 @@ fn read_signed_data(signed: Value<'_>) -> Result<SignedData<'_>, CmsError> {
         digest: Digest::from_oid(parsed.digest_algorithm),
         digest_algorithm: parsed.digest_algorithm,
         signature_algorithm: parsed.signature_algorithm,
+        signature_algorithm_parameters: parsed.signature_algorithm_parameters,
         signature: parsed.signature,
         signed_attributes: parsed.signed_attributes,
         signer_issuer_and_serial: parsed.issuer_and_serial,
@@ -568,6 +587,7 @@ fn read_signed_data(signed: Value<'_>) -> Result<SignedData<'_>, CmsError> {
 struct Signer<'a> {
     digest_algorithm: &'a [u8],
     signature_algorithm: &'a [u8],
+    signature_algorithm_parameters: Option<Value<'a>>,
     signature: &'a [u8],
     signed_attributes: Option<&'a [u8]>,
     issuer_and_serial: Option<IssuerAndSerial<'a>>,
@@ -610,6 +630,7 @@ fn read_signer_info(info: Value<'_>) -> Result<Signer<'_>, CmsError> {
     let mut signer = Signer {
         digest_algorithm,
         signature_algorithm: &[],
+        signature_algorithm_parameters: None,
         signature: &[],
         signed_attributes: None,
         issuer_and_serial: read_signer_identifier(sid)?,
@@ -629,11 +650,17 @@ fn read_signer_info(info: Value<'_>) -> Result<Signer<'_>, CmsError> {
         read_attributes(member, true, &mut signer)?;
         next = members.next_value()?;
     }
-    if let Some(member) = next
-        && let Some(oid) = member.children()?.next_value()?
-        && let Some(identifier) = oid.object_identifier()
-    {
-        signer.signature_algorithm = identifier;
+    if let Some(member) = next {
+        let mut parts = member.children()?;
+        if let Some(oid) = parts.next_value()?
+            && let Some(identifier) = oid.object_identifier()
+        {
+            signer.signature_algorithm = identifier;
+            // `AlgorithmIdentifier ::= SEQUENCE { algorithm, parameters ANY OPTIONAL }` — the
+            // member after the identifier, kept for the one algorithm whose parameters decide
+            // the whole scheme (RFC 8017's `RSASSA-PSS-params`).
+            signer.signature_algorithm_parameters = parts.next_value()?;
+        }
     }
     if let Some(member) = members.next_value()?
         && member.identifier == OCTET_STRING
@@ -897,6 +924,90 @@ pub(crate) mod fixtures {
                         &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x02],
                     )],
                 ),
+                primitive(0x04, signature),
+            ],
+        );
+        let body = tagged(
+            0x30,
+            &[
+                primitive(0x02, &[0x01]),
+                tagged(0x31, &[sha256_algorithm()]),
+                tagged(0x30, &[primitive(0x06, ID_DATA)]),
+                tagged(0xA0, &[certificate.to_vec()]),
+                tagged(0x31, &[signer]),
+            ],
+        );
+        tagged(
+            0x30,
+            &[
+                primitive(
+                    0x06,
+                    &[0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x02],
+                ),
+                tagged(0xA0, &[body]),
+            ],
+        )
+    }
+
+    /// A detached signature whose signer states `id-RSASSA-PSS`, over a real certificate and a
+    /// real PSS signature.
+    ///
+    /// The counterpart of [`detached_dsa`] for the RSA family's *other* padding, and what
+    /// carries it through [`crate::signature::Signature::authenticity`] end to end: the
+    /// algorithm identifier recognised as PSS rather than as PKCS #1 v1.5, RFC 8017 Appendix
+    /// A.2.3's `RSASSA-PSS-params` read out of the `signatureAlgorithm`'s own parameters —
+    /// SHA-256, MGF1 with SHA-256, a 32-octet salt, trailer field 1, spelled out rather than
+    /// defaulted because the six real PSS signatures in the `SafeDocs` population spell theirs —
+    /// the certificate lookup by issuer and serial number, and [`crate::pss`]'s arithmetic.
+    ///
+    /// The signer states **no signed attributes**, for [`detached_dsa`]'s reason: RFC 5652 then
+    /// signs the content itself — the byte range — which is what lets a fixture use a signature
+    /// made once over bytes chosen here.
+    pub(crate) fn detached_pss(
+        certificate: &[u8],
+        issuer: &[u8],
+        serial: &[u8],
+        signature: &[u8],
+    ) -> Vec<u8> {
+        // RSASSA-PSS-params, each member in its explicit context tag.
+        let mgf1_oid = &[0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x08];
+        let parameters = tagged(
+            0x30,
+            &[
+                tagged(0xA0, &[sha256_algorithm()]),
+                tagged(
+                    0xA1,
+                    &[tagged(
+                        0x30,
+                        &[primitive(0x06, mgf1_oid), sha256_algorithm()],
+                    )],
+                ),
+                tagged(0xA2, &[primitive(0x02, &[32])]),
+                tagged(0xA3, &[primitive(0x02, &[1])]),
+            ],
+        );
+        let pss_algorithm = tagged(
+            0x30,
+            &[
+                primitive(
+                    0x06,
+                    &[0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0A],
+                ),
+                parameters,
+            ],
+        );
+        // `SignerInfo`, positionally: version, sid, digestAlgorithm, signatureAlgorithm,
+        // signature.
+        let signer = tagged(
+            0x30,
+            &[
+                primitive(0x02, &[0x01]),
+                tagged(
+                    0x30,
+                    &[tagged(0x30, &[issuer.to_vec()]), primitive(0x02, serial)],
+                ),
+                sha256_algorithm(),
+                pss_algorithm,
                 primitive(0x04, signature),
             ],
         );

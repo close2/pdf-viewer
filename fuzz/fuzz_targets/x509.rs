@@ -7,10 +7,11 @@
 //! committed to this target with the code.
 //!
 //! **Two readers and two arithmetics.** `pdf_model::der` and `pdf_model::cms` have their own
-//! target (`cms`); what is here is `pdf_model::x509`, which walks RFC 5280's structure, and the two
+//! target (`cms`); what is here is `pdf_model::x509`, which walks RFC 5280's structure, and the
 //! modules that run a loop whose trip count comes out of a number in the file —
-//! `pdf_model::pkcs1` and, from the four-hundred-and-seventy-ninth session, `pdf_model::dsa`
-//! (ADR 0314). Four properties:
+//! `pdf_model::pkcs1`, from the four-hundred-and-seventy-ninth session `pdf_model::dsa` (ADR
+//! 0314), and from the four-hundred-and-eighty-seventh `pdf_model::pss`, whose salt length is a
+//! number the file states (ADR 0322). Four properties:
 //!
 //! **Parsing and verifying terminate and never panic.** The fuzz profile keeps overflow checks
 //! on, so the workspace's `arithmetic_side_effects` rule is checked here as well — and this is
@@ -36,6 +37,7 @@ use libfuzzer_sys::fuzz_target;
 use pdf_model::cms::Digest;
 use pdf_model::dsa::{self, MAX_SUBGROUP_BITS};
 use pdf_model::pkcs1::{self, MAX_EXPONENT_BITS, MAX_MODULUS_BITS};
+use pdf_model::pss;
 use pdf_model::x509::{self, PublicKey};
 
 fuzz_target!(|data: &[u8]| {
@@ -120,6 +122,25 @@ fuzz_target!(|data: &[u8]| {
                 if exponent_bits > MAX_EXPONENT_BITS && key.bits() <= MAX_MODULUS_BITS {
                     assert_eq!(error, pkcs1::Pkcs1Error::ExponentTooLarge);
                 }
+            }
+        }
+
+        // The same key under the RSA family's other padding: RSASSA-PSS shares RSAVP1 and its
+        // budgets with the arm above, and its own unmasking must never say "consistent" for a
+        // digest nobody signed either. Two salt lengths, because the second is the shape a
+        // hostile parameter block would state.
+        for salt_length in [32usize, usize::MAX] {
+            let parameters = pss::Parameters {
+                hash: Digest::Sha256,
+                mgf_hash: Digest::Sha256,
+                salt_length,
+            };
+            match pss::verify(key, signature, parameters, &digest) {
+                Ok(false) => {}
+                Ok(true) => {
+                    panic!("a PSS signature verified against a digest that was never signed")
+                }
+                Err(_) => {} // the same named refusals the arm above already checked
             }
         }
     }

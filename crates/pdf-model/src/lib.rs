@@ -66,6 +66,7 @@ pub mod page;
 pub mod page_label;
 pub mod pkcs1;
 pub mod popup;
+pub mod pss;
 pub mod requirements;
 pub mod restriction;
 pub mod retrieval;

@@ -538,12 +538,16 @@ fn verifies(
         ),
         Authenticity::KeyNotVerifiable { algorithm } => format!(
             "and the signer's certificate holds a public key of algorithm {algorithm}, which this \
-             program does not verify: it verifies two of Table 260's three families, RSA (PKCS #1 \
-             v1.5) and DSA, and not the ECDSA the table names beside them"
+             program does not verify: it verifies two of Table 260's three families, RSA (both \
+             PKCS #1 v1.5 and RSASSA-PSS) and DSA, and not the ECDSA the table names beside them"
         ),
         Authenticity::AlgorithmNotVerifiable { algorithm } => format!(
             "and that signature states signature algorithm {algorithm}, which this program does \
-             not verify: it verifies RSASSA-PKCS1-v1_5 and DSA"
+             not verify: it verifies RSASSA-PKCS1-v1_5, RSASSA-PSS and DSA"
+        ),
+        Authenticity::PssParametersNotVerifiable { statement } => format!(
+            "and that signature states id-RSASSA-PSS with parameters this program cannot verify \
+             under — {statement} — so it was not checked against the signer's key"
         ),
         Authenticity::KeyDoesNotMatchAlgorithm { algorithm, key } => format!(
             "and that signature states signature algorithm {algorithm} while the signer's \

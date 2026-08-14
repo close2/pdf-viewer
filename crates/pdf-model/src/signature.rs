@@ -16,9 +16,10 @@
 //!    no network — the file and a hash function. [`Signature::integrity`] **answers this**.
 //! 2. **Does the signature verify under the signer's public key?** That needs the key out of an
 //!    X.509 certificate ([`crate::x509`]) and the arithmetic of whichever family Table 260 names:
-//!    RSA ([`crate::pkcs1`]) or DSA ([`crate::dsa`]). [`Signature::authenticity`] **answers this**
-//!    for both. Table 260's third family, ECDSA — with the `EdDSA` ISO/TS 32002 adds beside it — is
-//!    named by the object identifier the file states and verified by nothing (ADR 0314).
+//!    RSA — under both of RFC 8017's paddings, [`crate::pkcs1`] and [`crate::pss`] — or DSA
+//!    ([`crate::dsa`]). [`Signature::authenticity`] **answers this** for both families. Table
+//!    260's third, ECDSA — with the `EdDSA` ISO/TS 32002 adds beside it — is named by the object
+//!    identifier the file states and verified by nothing (ADR 0314).
 //! 3. **Is the signer trusted, and had the certificate been revoked?** A trust store and a
 //!    network (§12.8.3.4.6's CRLs and OCSP). **Not answered**, and reported.
 //!
@@ -66,6 +67,7 @@
 use crate::cms::{self, CmsError, Digest, SignatureAlgorithm, SignedData};
 use crate::dsa::{self, DsaError};
 use crate::pkcs1::{self, Pkcs1Error};
+use crate::pss;
 use crate::x509::{self, X509Error};
 use pdf_syntax::{Dictionary, Document, Object};
 
@@ -326,10 +328,24 @@ pub enum Authenticity {
         /// where the encoding is not a well-formed identifier.
         algorithm: String,
     },
-    /// The signature algorithm is neither RSASSA-PKCS1-v1_5 nor DSA, named the same way.
+    /// The signature algorithm is none of RSASSA-PKCS1-v1_5, RSASSA-PSS and DSA, named the same
+    /// way.
     AlgorithmNotVerifiable {
         /// The algorithm's object identifier as dotted decimal.
         algorithm: String,
+    },
+    /// The signature states `id-RSASSA-PSS` with parameters this program cannot verify under.
+    ///
+    /// RFC 8017 Appendix A.2.3 parameterises the scheme inside the `AlgorithmIdentifier` —
+    /// `RSASSA-PSS-params`, with a hash, a mask generation function, a salt length and a trailer
+    /// field — and [`crate::pss::parameters`] refuses what it cannot act on rather than
+    /// defaulting on the file's behalf: a mask generation function other than MGF1, a hash the
+    /// scheme does not admit, a trailer field other than 1, or an encoding that is not the
+    /// structure at all. A hash this program simply does not *compute* is
+    /// [`Self::UnknownDigest`] instead, because that is what that variant says.
+    PssParametersNotVerifiable {
+        /// What the parameters state, with any object identifier as dotted decimal.
+        statement: String,
     },
     /// The signature's algorithm and the signer's key are from two different families.
     ///
@@ -344,6 +360,10 @@ pub enum Authenticity {
         key: String,
     },
     /// The key or the signature is outside [`crate::pkcs1`]'s budgets, or is not shaped like RSA.
+    ///
+    /// Both RSA paddings report through this variant, because the budgets are the shared
+    /// primitive's: [`crate::pss::verify`] refuses with the same [`Pkcs1Error`]s
+    /// [`crate::pkcs1::verify`] does.
     Refused(Pkcs1Error),
     /// The same for [`crate::dsa`]'s.
     RefusedDsa(DsaError),
@@ -365,16 +385,21 @@ pub enum Authenticity {
     Unreadable(CmsError),
 }
 
-/// Which of Table 260's three algorithm families a signature was checked with.
+/// Which of Table 260's three algorithm families a signature was checked with — and, for the RSA
+/// family, which of RFC 8017's two paddings.
 ///
-/// The table names three and this program verifies two, so the third has no arm here: an ECDSA
-/// signature never reaches a verification to be named after. It reaches
+/// The table names three families and this program verifies two, so the third has no arm here:
+/// an ECDSA signature never reaches a verification to be named after. It reaches
 /// [`Authenticity::AlgorithmNotVerifiable`] with its own object identifier, which is a stronger
-/// thing to print than a word this tree would have had to invent.
+/// thing to print than a word this tree would have had to invent. RSA has two arms because the
+/// table's "RSA Algorithm Support" row states key sizes and no padding, and the sentence a
+/// person reads should say which construction did the verifying.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Family {
     /// "RSA Algorithm Support", as RFC 8017's RSASSA-PKCS1-v1_5.
     Rsa,
+    /// The same family under RFC 8017's other padding, RSASSA-PSS ([`crate::pss`]).
+    RsaPss,
     /// "DSA Algorithm Support", as FIPS 186-4 section 4.7.
     Dsa,
 }
@@ -385,6 +410,7 @@ impl Family {
     pub fn name(self) -> &'static str {
         match self {
             Self::Rsa => "RSA (PKCS #1 v1.5)",
+            Self::RsaPss => "RSA (RSASSA-PSS)",
             Self::Dsa => "DSA",
         }
     }
@@ -628,11 +654,19 @@ impl Signature {
     ///    `/Cert` for a §12.8.3.2 signature, which carries no CMS object at all;
     /// 2. reads its `subjectPublicKeyInfo` ([`crate::x509`]);
     /// 3. digests whatever RFC 5652 section 5.4 says the signature is over ([`Signed`]);
-    /// 4. verifies with RFC 8017 section 8.2.2's encode-and-compare ([`crate::pkcs1`]).
+    /// 4. verifies with the construction the `signatureAlgorithm` states — RFC 8017 section
+    ///    8.2.2's encode-and-compare ([`crate::pkcs1`]), its section 9.1.2's `EMSA-PSS-VERIFY`
+    ///    ([`crate::pss`]), or FIPS 186-4 section 4.7 ([`crate::dsa`]).
     ///
     /// Read [`Authenticity`] before reading a result. [`Authenticity::Verified`] is not "valid":
     /// the certificate it verified against arrived in the same file as the signature.
     #[must_use]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one arm per verifying construction, each a few lines of the same shape; \
+                  splitting them apart would scatter the one match that keeps a signature \
+                  algorithm and a key from being paired wrongly"
+    )]
     pub fn authenticity(&self, file: &[u8]) -> Authenticity {
         if self.contents.is_empty() {
             return Authenticity::NoSignatureValue;
@@ -671,37 +705,70 @@ impl Signature {
                 algorithm: name(algorithm),
             };
         }
-        let Some(digest) = cms.digest else {
-            return Authenticity::UnknownDigest {
-                algorithm: name(cms.digest_algorithm),
-            };
-        };
-        // RFC 5652 section 5.4 decides what is hashed, and [`Signed`] documents what each one proves.
+        // RFC 5652 section 5.4 decides what is hashed, and [`Signed`] documents what each one
+        // proves. The digest *algorithm* is the one thing the constructions disagree about —
+        // PKCS #1 v1.5 and DSA take the `SignerInfo`'s own `digestAlgorithm`, while RSASSA-PSS
+        // is parameterised by the hash its `RSASSA-PSS-params` state — so what is signed is
+        // settled here and each arm below digests it with the algorithm its scheme names.
         let attributes = cms.signed_attributes_encoding();
-        let (over, computed) = match (&attributes, cms.encapsulated) {
-            (Some(attributes), _) => (
-                Signed::SignedAttributes,
-                digest.compute(&[attributes.as_slice()]),
-            ),
-            (None, Some(content)) => (Signed::EncapsulatedContent, digest.compute(&[content])),
-            (None, None) => (Signed::TheDocumentsBytes, digest.compute(&signed)),
+        let over = match (&attributes, cms.encapsulated) {
+            (Some(_), _) => Signed::SignedAttributes,
+            (None, Some(_)) => Signed::EncapsulatedContent,
+            (None, None) => Signed::TheDocumentsBytes,
+        };
+        let compute = |algorithm: Digest| match (&attributes, cms.encapsulated) {
+            (Some(attributes), _) => algorithm.compute(&[attributes.as_slice()]),
+            (None, Some(content)) => algorithm.compute(&[content]),
+            (None, None) => algorithm.compute(&signed),
         };
         // The pair rather than either alone: a `SignerInfo` naming DSA over a certificate holding
         // an RSA key is two claims by one producer that contradict each other, and picking the one
         // to believe would be this program inventing a fact.
-        let (family, verified) = match (algorithm, certificate.public_key) {
-            (SignatureAlgorithm::RsaPkcs1V15, x509::PublicKey::Rsa(key)) => (
-                Family::Rsa,
-                pkcs1::verify(key, cms.signature, digest, &computed)
-                    .map_err(Authenticity::Refused)
-                    .map(|verified| (verified, key.bits())),
-            ),
-            (SignatureAlgorithm::Dsa, x509::PublicKey::Dsa(key)) => (
-                Family::Dsa,
-                dsa::verify(key, cms.signature, &computed)
-                    .map_err(Authenticity::RefusedDsa)
-                    .map(|verified| (verified, key.bits())),
-            ),
+        let (digest, family, verified) = match (algorithm, certificate.public_key) {
+            (SignatureAlgorithm::RsaPkcs1V15, x509::PublicKey::Rsa(key)) => {
+                let Some(digest) = cms.digest else {
+                    return Authenticity::UnknownDigest {
+                        algorithm: name(cms.digest_algorithm),
+                    };
+                };
+                (
+                    digest,
+                    Family::Rsa,
+                    pkcs1::verify(key, cms.signature, digest, &compute(digest))
+                        .map_err(Authenticity::Refused)
+                        .map(|verified| (verified, key.bits())),
+                )
+            }
+            (SignatureAlgorithm::RsaPss, x509::PublicKey::Rsa(key)) => {
+                let parameters = match pss::parameters(cms.signature_algorithm_parameters) {
+                    Ok(parameters) => parameters,
+                    Err(problem) => return pss_parameter_answer(problem),
+                };
+                // RFC 8017 section 9.1.2 step 2's `mHash` is computed with the parameters' own
+                // hash — RFC 5652's `digestAlgorithm` describes the `message-digest` attribute,
+                // which is question 1's comparison, not this one's.
+                (
+                    parameters.hash,
+                    Family::RsaPss,
+                    pss::verify(key, cms.signature, parameters, &compute(parameters.hash))
+                        .map_err(Authenticity::Refused)
+                        .map(|verified| (verified, key.bits())),
+                )
+            }
+            (SignatureAlgorithm::Dsa, x509::PublicKey::Dsa(key)) => {
+                let Some(digest) = cms.digest else {
+                    return Authenticity::UnknownDigest {
+                        algorithm: name(cms.digest_algorithm),
+                    };
+                };
+                (
+                    digest,
+                    Family::Dsa,
+                    dsa::verify(key, cms.signature, &compute(digest))
+                        .map_err(Authenticity::RefusedDsa)
+                        .map(|verified| (verified, key.bits())),
+                )
+            }
             _ => {
                 return Authenticity::KeyDoesNotMatchAlgorithm {
                     algorithm: name(cms.signature_algorithm),
@@ -868,6 +935,44 @@ fn name(oid: &[u8]) -> String {
             out
         })
     })
+}
+
+/// What a person is told about `RSASSA-PSS-params` this program could not verify under.
+///
+/// Two channels rather than one, on the difference the variants' own documentation states: a
+/// hash this program does not *compute* is [`Authenticity::UnknownDigest`], exactly as it would
+/// be anywhere else a digest identifier arrives, while a parameter the scheme itself does not
+/// admit — MD5 or RIPEMD-160 as the hash, a mask generation function other than MGF1, a trailer
+/// field other than 1, or no readable `RSASSA-PSS-params` at all — is
+/// [`Authenticity::PssParametersNotVerifiable`] with the file's own numbers in the sentence.
+fn pss_parameter_answer(problem: pss::ParameterProblem<'_>) -> Authenticity {
+    use pss::ParameterProblem;
+    match problem {
+        ParameterProblem::HashNotComputed(oid) => Authenticity::UnknownDigest {
+            algorithm: name(oid),
+        },
+        ParameterProblem::HashNotAdmitted(oid) => Authenticity::PssParametersNotVerifiable {
+            statement: format!(
+                "hash algorithm {}, which RFC 8017's OAEP-PSSDigestAlgorithms set does not admit \
+                 for PSS",
+                name(oid)
+            ),
+        },
+        ParameterProblem::MaskGenerationNotMgf1(oid) => Authenticity::PssParametersNotVerifiable {
+            statement: format!(
+                "mask generation function {}, where RFC 8017 defines only MGF1",
+                name(oid)
+            ),
+        },
+        ParameterProblem::TrailerFieldNotOne => Authenticity::PssParametersNotVerifiable {
+            statement: "a trailer field other than the 1 RFC 8017 requires".to_owned(),
+        },
+        ParameterProblem::Malformed => Authenticity::PssParametersNotVerifiable {
+            statement: "no readable RSASSA-PSS-params, which RFC 8017 Appendix A.2.3 requires \
+                        of this algorithm identifier"
+                .to_owned(),
+        },
+    }
 }
 
 /// The identifier of the algorithm a certificate's key is for, as dotted decimal.
@@ -2327,6 +2432,63 @@ mod tests {
             Authenticity::NotUnderThatKey {
                 digest: Digest::Sha256,
                 family: Family::Dsa,
+                key_bits: 2048,
+                over: Signed::TheDocumentsBytes,
+            }
+        );
+    }
+
+    /// **The RSA family's other padding, all the way through.**
+    ///
+    /// The `pss` module's own tests exercise RFC 8017 sections 8.1.2 and 9.1.2 on a key and a
+    /// signature; this exercises everything between a signature dictionary and that call — the
+    /// `SignerInfo`'s `signatureAlgorithm` recognised as `id-RSASSA-PSS` rather than folded into
+    /// PKCS #1 v1.5's arc, the `RSASSA-PSS-params` read out of that identifier's own parameters,
+    /// the certificate lookup, and the answer naming the padding. The six real PSS signatures in
+    /// the `SafeDocs` population are the demand witness; a fixture is still needed for the
+    /// *positive* path over bytes this test chose, because nobody here holds those signers'
+    /// private keys.
+    #[test]
+    fn a_pss_signature_verifies_through_the_whole_path_a_document_takes() {
+        let file = b"the signed bytes";
+        let certificate = crate::pss::fixtures::hex(crate::pss::fixtures::CERTIFICATE);
+        let parsed = crate::x509::parse(&certificate).expect("a certificate");
+        let signature = Signature {
+            timestamp: false,
+            handler: Some("Adobe.PPKLite".to_owned()),
+            sub_filter: Some("ETSI.CAdES.detached".to_owned()),
+            byte_range: vec![(0, file.len() as u64)],
+            contents: fixtures::detached_pss(
+                &certificate,
+                parsed.issuer,
+                parsed.serial_number,
+                &crate::pss::fixtures::hex(crate::pss::fixtures::SIGNATURE_SHA256_SALT32),
+            ),
+            certificate_chain: false,
+            chain: Vec::new(),
+            name: None,
+            signed_at: None,
+            location: None,
+            reason: None,
+            contact: None,
+            changes: None,
+            certification: false,
+        };
+        assert_eq!(
+            signature.authenticity(file),
+            Authenticity::Verified {
+                digest: Digest::Sha256,
+                family: Family::RsaPss,
+                key_bits: 2048,
+                over: Signed::TheDocumentsBytes,
+            },
+            "the signer states no signed attributes, so RFC 5652 signs the byte range itself"
+        );
+        assert_eq!(
+            signature.authenticity(b"the signed byteS"),
+            Authenticity::NotUnderThatKey {
+                digest: Digest::Sha256,
+                family: Family::RsaPss,
                 key_bits: 2048,
                 over: Signed::TheDocumentsBytes,
             }

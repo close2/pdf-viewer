@@ -119,9 +119,10 @@ cargo run --release -p pdf-model --example signature_algorithm_census -- @/tmp/p
   # -name '*.pdf' > /tmp/paths` is 67 460 files and about a minute, and the `@` form exists because
   # a command line holds a fortieth of them. Three identifiers per signature, because a producer can
   # get them out of step: the `SignerInfo`'s `signatureAlgorithm`, its `digestAlgorithm`, and the
-  # algorithm of the key in the certificate that `SignerInfo` names. It is what ranked this round's
-  # work (ADR 0314) and what would rank the next: it prints the population of `id-RSASSA-PSS`,
-  # of ECDSA, and of DSA — which is nought
+  # algorithm of the key in the certificate that `SignerInfo` names. It is what ranked ADR 0314's
+  # work and then ADR 0322's — `id-RSASSA-PSS`, which it found being declined six times, is
+  # verified since the four-hundred-and-eighty-seventh session — and what would rank the next:
+  # it prints the population of ECDSA, and of DSA — which is nought
 cargo run --release -p pdf-model --example luminosity_mask_census -- doc/pdf.js/test/pdfs/*.pdf
   # what a §11.5.3 mask group is painted *with*, against what its /CS declares — 87 groups on
   # this corpus, 39 blending in /DeviceCMYK and 36 in /DeviceGray, and not one setting a `k`
@@ -282,9 +283,9 @@ cd fuzz && cargo +nightly fuzz run cms          -- -runs=50000   # §12.8.3.3's 
   # forms. Clean at 1 000 000 in the three-hundred-and-seventy-seventh (ADR 0215) and again in the
   # three-hundred-and-ninety-second, after its `SignerInfo` gained a signature and an identifier
 cd fuzz && cargo +nightly fuzz run x509         -- -runs=1000000  # the signer's certificate and
-  # the two verifications that run on the key inside it: `pdf_model::x509` walks RFC 5280's
-  # structure and `pdf_model::pkcs1` and `pdf_model::dsa` run the tree's only loops whose trip
-  # counts come out of numbers in the file. The property that matters is the last one — the target
+  # the verifications that run on the key inside it: `pdf_model::x509` walks RFC 5280's
+  # structure and `pdf_model::pkcs1`, `pdf_model::pss` and `pdf_model::dsa` run the tree's only
+  # loops whose trip counts come out of numbers in the file. The property that matters is the last one — the target
   # verifies against a digest *it* chose, so `Ok(true)` would be a defect in the comparison rather
   # than a lucky input.
   # **Seed its corpus** with the 22 certificates the corpus's signatures carry:
