@@ -177,6 +177,33 @@ states rather than to where another program's font sits, which is the distinctio
 on. It is recorded and not taken: §9.8.1 states no `shall`, the fix is a substitution *policy*
 rather than a line, and one witness is a witness rather than a population.
 
+### What pdf.js did about the neighbouring question, supplied by the owner
+
+The project owner supplied `https://github.com/mozilla/pdf.js/pull/12725`, which lets a document
+**override the built-in widths of a standard font**. Two things about it, and the second is why it
+is written down here rather than acted on:
+
+- **It is about the neighbouring question, not this one.** That PR is the *advance* — which width a
+  glyph is given — and this tree already honours the file's advances on this very witness (the ink
+  boxes agree to two device pixels, above). What `bug1671312_ArialNarrow.pdf` shows is the glyph's
+  own *shape* being too wide inside a correct advance: 14 device pixels of stem where the file's
+  `/StemV 66` is 10.56. So the PR answers a question this tree has already answered, and the answer
+  it gives is evidence that the *direction* — the file's number beats the face's — is the one
+  others take too.
+- **Its own justification is exactly what `CLAUDE.md` principle 5 forbids adopting**, and the
+  commit message says so in its own words: "[t]here doesn't seem to be anything definitive about
+  this in the spec, but from experimenting, it seems acrobat lets PDFs override the widths of the
+  standard fonts." An experiment against Acrobat is a fact about Acrobat. **The clause is the thing
+  to find**, and finding it is what a round taking this owes first — §9.6.2.2 and Table 109 on what
+  `/Widths` binds (and what ISO 32000-2 changed about the standard 14 fonts' implicit metrics,
+  which is a PDF 2.0 difference and therefore a place where quoting ISO 32000-1 would be wrong),
+  §9.8.1 and Table 120 on what the descriptor's `/StemV`, `/AvgWidth` and `/MaxWidth` state, and
+  §9.6.4 on what a processor owes when it substitutes.
+
+**If the clause says nothing about the shape half**, that is a documented choice under
+`CLAUDE.md`'s "where the standard defines nothing" rule — a substitution policy stated as a choice,
+with the witness measured before and after — and never "this is what pdf.js does".
+
 ## 5. A page that draws its text and can name none of it — counted, split, and one part closed
 
 **The refusal is settled and the reading is in ADR 0311.** `french_diacritics.pdf` was the
