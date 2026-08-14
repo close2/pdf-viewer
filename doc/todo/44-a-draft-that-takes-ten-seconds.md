@@ -4,8 +4,10 @@ Status: **half taken** — the owner asked whether displaying this document can 
 supplied a trace; session 497 closed the trace's hole, attributed the interpretation with
 callgrind, and priced the encode cache (ADR 0332). Session 506 then took §2's lexer candidate
 *and* its number-parsing second (ADR 0341): interpreting this document lost 39.8% of its
-instructions, byte-identical readback on this document and on ISO 32000-2. What is left
-is §3's encode cache, which is an upstream ask first.
+instructions, byte-identical readback on this document and on ISO 32000-2. What is left is §3's
+encode cache — **upstream priced it at `87898c69` (their ADR 0045: replay 0.154 ms against
+1.538 re-encoded), built neither ask, and asked one question back; §3.1 is the state of that
+conversation and this tree's answer.**
 Priority: 44
 Corpus: none — `tmp/Entwurf.pdf` is the owner's own document (49.7 MB, one page, 58 009 display
 commands), outside the tree like `doc/todo/28`'s, with its trace beside it as
@@ -103,6 +105,42 @@ display list never changed after the first frame.
   composition — with the host-side retained page scene beside ADR 0297's precedent once the
   reuse exists to feed. quorra's `Options::instrument_encode` (its ADR 0023, unused here) can
   subdivide `encode` first if the ask wants finer numbers.
+
+### 3.1 What `87898c69` answered, and the question this tree owes back (session 512, ADR 0347)
+
+Quorra's ADR 0045 priced the reuse and **built neither ask**, each for a stated reason:
+
+- **The identical-frame replay is measured at 0.154 ms against 1.538 re-encoded** (their dense-text
+  archetype, minima, RADV) — the 233.8 ms median `encode` of this document's trace going to
+  approximately nothing, the fully-culled frames' 112–190 ms with it. It is unbuilt because a
+  device-side cache keyed on scene identity would **miss every frame of this host**: the frame's
+  scene carries the background and the overlays, rebuilt with fresh `Arc`s per frame
+  (obstacle (a), confirmed independently from their side).
+- **Obstacle (b) is corrected rather than confirmed: zoom reuse is not available at any price.**
+  The linear part of the device transform is inside every atlas key, the flattening and the lane
+  choice, and the quantised sub-pixel phase is the fractional translation — a zoom step is a
+  genuinely different rasterisation of every glyph. What building the page scene in page space
+  under `Viewport`'s existing affine buys is the **`scene` phase only** (median 50.2 ms here),
+  and that needs nothing from upstream — §2.3 of the brief was already that contract. This
+  file's earlier sentence "a zoom step … under reuse that survives a transform change it is the
+  same ~60 ms" is therefore **withdrawn**; what reuse takes is the case the trace is actually
+  full of, 28 frames of one document at one view.
+
+**Their question back**: *can the host draw the page and the overlays as two `render` calls into
+the same target?* If yes, replay needs no new scene vocabulary; if no, the reason why is the
+specification for fragment composition, designed from that reason rather than from the general
+shape.
+
+**This tree's answer is no, for a reason `present.rs` can name** (`render_quorra::present::build`):
+the frame is deliberately **one scene** — background rect, page commands, overlays — because the
+selection overlay is `Multiply` fills (ADR 0176) that must composite against the page beneath
+them. Two `render` calls would need the second's root pass to begin over the target's existing
+pixels rather than over a cleared backdrop (their `PassLoad::Clear` is the first pass onto every
+plan today), and §11.3.5's implicit blend group would need the target's content as its backdrop.
+That — a root over stated content, or a composable retained fragment — is the specification
+upstream asked for, and carrying it across is the next step of this item. Not designed here: it
+is a change to the contract between the two trees, so it is theirs to shape from this reason
+(the same order `Device::warm_for` followed, in reverse).
 
 ## 4. What is left
 

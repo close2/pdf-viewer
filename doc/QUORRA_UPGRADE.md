@@ -6,14 +6,14 @@ is what came back, what it costs to take, and what is now available and unused. 
 number below names the command that produced it and the machine it ran on, because two of
 the three sections that matter are measurements and one of those is not portable.
 
-> **This file is about `2c9bdd0` and stays that way.** The tree pins `a7babab` since the
-> four-hundred-and-seventy-eighth session — fourteen commits further on, six of them carrying
-> ADRs, and the one with the number on it sizes every plan to what it marks. What that release
-> required (nothing), what it did on this machine (four lanes, and no page refused for frame bytes
-> at any scale), and what was declined from it (`Device::warm_for`) are `QUORRA_FEEDBACK.md`
-> §22 and §9.2. **§6 below is the section to read against the current tree**: its three
-> sheet-capacity refusals are the three that are still refused at 4×, and the packer that shipped
-> in the same range (ADR 0034) did not move them, exactly as that ADR predicts about itself.
+> **This file's original body is about `2c9bdd0` and stays that way.** The tree pinned `a7babab`
+> in the four-hundred-and-seventy-eighth session (`QUORRA_FEEDBACK.md` §22 and §9.2 record what
+> that release required, did, and declined) and pins **`87898c69`** since the five-hundred-and-
+> twelfth — twenty-five commits further on, whose own section is at the end of this file rather
+> than woven into a record that was true when written. **§6 below decayed and its successor is in
+> that section**: of its three sheet-capacity refusals, upstream measured the multi-sheet fix at
+> `5483996` and declined it with the numbers written down, and two of the three pages now refuse
+> for this tree's own §11 constructions before any sheet is packed (ADR 0327).
 
 **Where the revisions sit.** `a35dc70` is pushed. The two commits after it — `6f777e8` and
 `2c9bdd0` — are the answer to §14.2 and are the reason to take a second bump rather than
@@ -214,3 +214,90 @@ does, by clipping a shading to the region that survives the clip before handing 
   to be asked for: `Device::warm_for(width, height)`, or a hint on `Options`. That is a
   change to the contract between us, so it is yours to want before it is ours to build.
 - **§19 is still yours**, and unchanged: no page of the corpus emits a `Command::Rect`.
+
+---
+
+## `87898c69`, taken in the five-hundred-and-twelfth session (2026-08-14)
+
+Twenty-five commits past `a7babab`, and the second bump in a row that cost this tree **not one
+line of source**: `Cargo.lock`'s two hashes, `clippy --workspace --all-targets` silent, every
+test compiling. (`SceneError` and its three reason enums moved to `quorra-scene/src/error.rs`
+upstream, with their crate-root paths kept — which is why the move is invisible here.)
+
+The range, oldest first, merges elided:
+
+| | |
+|---|---|
+| `1fdbceb` | a child the clip leaves nothing to contribute is not emitted (quorra ADR 0041) |
+| `2c78b5f` | `warm_for`'s 24.7 → 10.3 ms **retracted** — the first frame was paying two in-frame pipeline compiles, now warmed (ADR 0040) |
+| `d594566` | **the §21.1 round cap**: the near cap was the inward half-disc wound against the body — a hole, not absent ink |
+| `4e6246d` | a WGSL compile failure is a typed refusal naming its span, not a silent test hang; `Device::warm_up() -> WarmUp` (ADR 0042) |
+| `5483996` | multi-sheet passes **measured and declined**: a second sheet re-refuses one page on bytes and prices the others at ¼ GB of per-frame upload |
+| `1af2722` | the warm set compiles the presenting lanes in the surface's negotiated format (ADR 0043) |
+| `f1873da` | `surface_measure.rs`: the brief's §6.2 measured presenting for the first time — execute is ~4% of a dense-text frame |
+| `0b60cb9` | §19 priced: a rectangle costs 0.13–0.49 µs more as a `Fill` than as a `Rect`; recogniser found wired to shaded fills only, upstream |
+| `7cf99f0` | the scene fuzzer learns the post-M5 vocabulary; found nothing over 4 000 seeds, with invariants beyond "did not panic" |
+| `89f034e`–`2f99117` | shader-copy enforcement, `encode.rs` split into `scratch`/`clips`/`rare`, two `bool`s become named enums — internal |
+| `4839b52` | §11.3.5's implicit blend group written once (`ChildOp::implicit_blend_group`); found a blended-stroke-in-knockout asymmetry, left open and named |
+| `33ce2b8` | **the §21.2 chord floor** (ADR 0044): a cubic's flattening bound is the tighter of ¼ px and 1/32 of its own extent — 16 chords a turn, on §10.7.2 NOTE 2 |
+| `195a89d` | the glyph key probed once instead of three times; −33% on the zoom example's encode (correction to ADR 0024) |
+| `7896874` | **encode reuse priced** (ADR 0045): replaying a retained `Encoded` is 0.154 ms against 1.538 re-encoded — not built, one question asked back |
+| `87898c6` | closing round: §6.2's presenting bar met at 1.816 ms minimum on their machine; documents reconciled |
+
+### What it did on this machine, all four lanes
+
+The four-lane debt of `doc/todo/02-every-round.md` §2, run whole; verdicts only, no clocks — the
+machine carried parallel rounds throughout.
+
+| | agree | differ | refused | not comparable |
+|---|---:|---:|---:|---:|
+| scale 1, `cpu` | 934 | 20 | 2 | 18 |
+| scale 1, `gpu` | 933 | 21 | 2 | 18 |
+| scale 4, `cpu` | 936 | 10 | 5 | 23 |
+| scale 4, `gpu` | 937 | 9 | 5 | 23 |
+
+Against §22.2's table at `a7babab` (918/917/931/932 agreeing): **seventeen pages joined the CPU
+oracle at scale 1 and none left, at any scale, on either lane** — fifteen prose pages from the
+chord floor (the whole `tracemonkey` family among them: the population a flattening floor reaches
+is glyph bowls, cubics two to five device pixels across), plus `extgstate.pdf` and
+`inks_basic.pdf` from the round cap. `DIFFERS_AT_THE_EDGES` is 7 names from 24. The refusal
+deltas are **not** this release's: `issue18032.pdf` (scale 1: 1 → 2; scale 4: 4 → 5) is session
+492's own §11.4.6 refusal, stated before any scene is built and therefore at every scale — the
+4× ratchet simply had not been run since 492 wrote it. Both lanes refuse the same five pages at
+4×, which continues §22.2's finding.
+
+### The two §21 gates are written, which is what §22.7 said to do first
+
+`sub_pixel_marks` re-run at this pin: the 40 × 5 round-capped rule reads −0.1% from Table 53's
+own area (was −8.9%), the one-pixel dot −2.1% (was the inscribed square at −36.1%).
+`render-quorra/tests/sub_pixel_coverage.rs`'s round-cap and dot rows now gate **both** backends —
+the rows held against the processor only since the four-hundred-and-fifty-fifth session.
+`QUORRA_FEEDBACK.md` §21.4 has the numbers and the two corrections that came back with them.
+
+### What it does *not* carry: `doc/todo/44` §3's two asks, answered rather than shipped
+
+Quorra's ADR 0045 priced the retained encode (see the table row above) and **built neither ask**:
+
+- **Scene-fragment composition is deliberately unbuilt**, pending one question this tree now owes
+  an answer to: *can the host draw the page and the overlays as two `render` calls into the same
+  target?* If yes, a device-side replay keyed on scene identity needs no new vocabulary; if no,
+  the reason why is the specification for fragment composition. `doc/todo/44` §3 carries the
+  question and what an answer must check.
+- **The root affine does not buy zoom reuse, at any price** — their correction of our §3, not a
+  refusal of it: the linear part of the device transform is inside every atlas key, the
+  flattening and the lane choice, and the sub-pixel phase is the fractional translation. Building
+  the page scene in page space under `Viewport`'s existing affine buys the *scene* phase only
+  (median 50.2 ms on the owner's document), which needs nothing from upstream.
+
+`Options::instrument_encode` stays unused here, rightly: upstream attributed `recording` at 78.3%
+of a steady encode with callgrind on their side, which is the finer number the instrument existed
+to reach.
+
+### The frame path on the owner's document, before and after
+
+`tmp/Entwurf.pdf` (58 009 commands) under `Xvfb`/llvmpipe, both pins alternated A/B/A/B, structure
+only: the shares are unchanged — `encode` is ~90% of `device` at the median on both pins,
+`transfer` ~0.1 ms, `execute` single-digit, `elsewhere` small; steady frames upload 40 resources
+and cull identically. The quiet runs' medians agree between pins to within run-to-run spread, and
+the one discordant run was a load spike (its own arm's other run disagrees with it by 3×). No
+wall-clock claim; the machine was shared.

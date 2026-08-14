@@ -240,50 +240,6 @@ fn agrees_with_the_area(
     }
 }
 
-/// What the **processor** owes a mark, where the device does not draw one at all.
-///
-/// Everything else in this file holds both backends to the shape's own area, which is what makes
-/// it a gate on the clause rather than on one library. Two marks cannot be gated that way today
-/// and each is a measurement rather than a suspicion, taken with
-/// `render-quorra/examples/sub_pixel_marks`:
-///
-/// - **the device draws no round cap at all**, at any width — a 40-unit rule 5 units wide with
-///   round caps carries 200.157 of ink on it against the 219.635 its own area states, which is the
-///   butt-capped answer to the last digit;
-/// - **and it flattens a small circle into a polygon inscribed in it** — §8.5.3.2's dot at one
-///   device pixel reads 0.5020 against `pi/4`, which is the inscribed *square*, and at two pixels
-///   2.8235, which is the inscribed octagon.
-///
-/// Both are quorra's own and are written up in `doc/QUORRA_FEEDBACK.md` with the reproduction.
-/// Asserting them here would ratchet a defect rather than a requirement, which is exactly what
-/// this file's own comment says it declined to do for the processor before ADR 0226.
-fn the_processor_agrees_with_the_area(
-    list: &DisplayList,
-    measure: fn(&pdf_render::Raster) -> f32,
-    tolerance: f32,
-    area: f32,
-    what: &str,
-) {
-    let target = TargetSpec::for_page(list, 1.0, 1 << 30).expect("a page of a stated size");
-    let drawn = measure(
-        &render_cpu::CpuRasterizer::new()
-            .rasterize(list, target)
-            .expect("a scene of one mark"),
-    );
-    assert!(
-        drawn > 0.0,
-        "§10.7.4: no shape ever disappears, and {what} did on the processor"
-    );
-    let error = (drawn - area).abs() / area;
-    assert!(
-        error < tolerance,
-        "{what} drew {drawn:.4} of ink on the processor, {:.1}% from its own area of {area} — run \
-         `cargo run --release -p render-quorra --example sub_pixel_marks` for both backends' \
-         ladders",
-        error * 100.0
-    );
-}
-
 /// A rule of `length` at `degrees` from the x axis, centred on [`TURNED`], with `cap` at each end.
 fn capped_rule(degrees: f32, length: f32, width: f32, cap: LineCap) -> DisplayList {
     let (sin, cos) = degrees.to_radians().sin_cos();
@@ -421,6 +377,13 @@ fn a_turned_sub_pixel_rule_carries_its_area_on_both_backends() {
 ///
 /// The last rung is five units wide — far above the quantum — and is the control: the construction
 /// must leave an ordinary stroke exactly where the stroker put it.
+///
+/// **The round-cap rows gate both backends since the five-hundred-and-twelfth session**, which is
+/// the row this file had been holding against the processor only. The device used to draw no round
+/// cap at all — the near cap was the *inward* half-disc wound against the body, cancelling the far
+/// one under the non-zero rule — and quorra's `d594566` (taken at `87898c69`) builds the cap fan
+/// from the outward direction the stroker already has. Measured before flipping:
+/// `sub_pixel_marks` reads the device at −0.1% on the 40 × 5 rule that used to be −8.9%.
 #[test]
 fn a_sub_pixel_rules_cap_carries_its_own_area() {
     for degrees in [0.0_f32, 30.0] {
@@ -430,13 +393,7 @@ fn a_sub_pixel_rules_cap_carries_its_own_area() {
                     format!("a {width}-unit rule {length} long at {degrees} degrees, {cap:?}");
                 let list = capped_rule(degrees, length, width, cap);
                 let area = capped_area(length, width, cap);
-                // The device draws no round cap at all, which is quorra's own and is measured
-                // rather than assumed — see `the_processor_agrees_with_the_area`.
-                if cap == LineCap::Square {
-                    agrees_with_the_area(&list, total_ink, TOLERANCE, area, &what);
-                } else {
-                    the_processor_agrees_with_the_area(&list, total_ink, TOLERANCE, area, &what);
-                }
+                agrees_with_the_area(&list, total_ink, TOLERANCE, area, &what);
             }
         }
     }
@@ -456,11 +413,17 @@ fn a_sub_pixel_rules_cap_carries_its_own_area() {
 ///
 /// 1.0 is the boundary, where nothing is widened and the rasteriser draws the document's own
 /// circle; 2.0 is above it and must be untouched.
+///
+/// **Gates both backends since the five-hundred-and-twelfth session.** The device used to flatten
+/// a small circle into a polygon inscribed in it — the one-pixel dot read 0.5020 against `pi/4`,
+/// the inscribed *square* exactly — and quorra's ADR 0044 (taken at `87898c69`) bounds a cubic's
+/// flattening by 1/32 of its own device extent, flooring a full turn at 16 chords, on §10.7.2's
+/// own NOTE 2. Measured before flipping: the device reads −0.1% to −4.1% on these rungs.
 #[test]
 fn a_degenerate_subpaths_dot_carries_its_own_area() {
     for width in [0.2_f32, 0.5, 1.0, 2.0] {
         let list = capped_rule(0.0, 0.0, width, LineCap::Round);
-        the_processor_agrees_with_the_area(
+        agrees_with_the_area(
             &list,
             total_ink,
             TOLERANCE,

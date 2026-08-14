@@ -260,7 +260,7 @@ const REFUSED: [&str; 2] = ["bug1721218_reduced.pdf", "issue18032.pdf"];
 /// four pages over the 256 MiB frame budget by 4 % to 20 % is a list that moves the moment
 /// anything is allocated more tightly, and quorra's ADRs 0036 to 0039 allocated every plan, mask
 /// and root to what it marks. **Not one page of this corpus is refused for frame bytes at any
-/// scale now**, and what is left is two kinds of refusal that no allocation strategy reaches:
+/// scale now**, and what is left is three kinds of refusal that no allocation strategy reaches:
 ///
 /// - `22060_A1_01_Plans.pdf` — 72 sampled images at 4× — already holds 522 014 748 resident
 ///   *resource* bytes, and the next upload would take it to 548 104 348 against the 536 870 912
@@ -268,21 +268,34 @@ const REFUSED: [&str; 2] = ["bug1721218_reduced.pdf", "issue18032.pdf"];
 ///   the frame's, and it is the one refusal here a **larger number** would take off rather than a
 ///   tighter allocation. Nobody has raised it, because a budget raised to admit one page is a
 ///   budget chosen by that page.
-/// - The other three exceed the **16 384 × 16 384 texture** this adapter allows for the
-///   rasterised-coverage sheet. That is a device capability, not a policy, and quorra's
-///   `QUORRA_UPGRADE.md` section 6 records the fix as a frame using more than one sheet pass —
-///   which nothing in this tree can work around and no budget can grant.
+/// - `bug1703683_page2_reduced.pdf` and `issue1905.pdf` exceed the **16 384 × 16 384 texture**
+///   this adapter allows for the rasterised-coverage sheet. That is a device capability, not a
+///   policy. Quorra measured a multi-sheet fix at its `5483996` and **declined it with the
+///   numbers written down**: a second sheet takes one of these pages to 287 MB — refused again,
+///   on bytes — and the others to a quarter-gigabyte of per-frame upload, a page drawn at a cost
+///   its own brief calls a failure. The ceiling that bites is that a clipped shape becomes one
+///   coverage tile of its own device bounds; the open work upstream is on the tiling side.
+/// - `bug1721218_reduced.pdf` and `issue18032.pdf` are this tree's own named refusals — the
+///   §11.6.6/§11.7.2 group compositing in a four-component blending space and §11.4.6's
+///   non-isolated knockout group ([`REFUSED`]'s two, ADR 0327) — which refuse *before the scene
+///   is built* and therefore at every scale. `issue18032.pdf` joined this list in the
+///   five-hundred-and-twelfth session, but the hole is the four-hundred-and-ninety-second's:
+///   that round added the refusal and re-ran the default lane only, and no round between it and
+///   this one ran the 4× lane this list is measured at. (`bug1721218_reduced.pdf` was already
+///   here for the sheet; its *reason* changed in the same session, preempting the texture
+///   refusal it still also has.)
 ///
 /// So this list is held to equality for the same reason [`REFUSED`] is, and it is a **stronger**
 /// statement than that one: a page arriving here is a hole in the backend that only appears under
 /// magnification, and a page leaving it is a hole closed. It is checked on the default lane only,
-/// because the two lanes put *different tiles* in the coverage sheet that three of these four
+/// because the two lanes put *different tiles* in the coverage sheet that two of these five
 /// refuse for — the encoder chooses per command (quorra's ADR 0029) — so the sheet a frame
 /// commits is a property of the lane, and a lane's refusals are its own.
-const REFUSED_AT_FOUR: [&str; 4] = [
+const REFUSED_AT_FOUR: [&str; 5] = [
     "22060_A1_01_Plans.pdf",
     "bug1703683_page2_reduced.pdf",
     "bug1721218_reduced.pdf",
+    "issue18032.pdf",
     "issue1905.pdf",
 ];
 
@@ -290,12 +303,28 @@ const REFUSED_AT_FOUR: [&str; 4] = [
 ///
 /// Structural similarity above 0.99 — `raster_compare`'s own vector threshold — is the
 /// statement that the same shapes are in the same places, so what is left is coverage at a
-/// boundary. Twenty of these are one document family (`tracemonkey.pdf` and its variants and
-/// relatives) sitting at mean 1.52 with a worst tile of 5.09, which is a page of dense text
-/// measured against a different glyph rasteriser: `real_pages.rs` measures the specification's
-/// own pages at 1.18 and this is the same floor on a heavier page. **This group is the floor,
-/// not a defect list** — what would make it one is a page arriving in it whose similarity is
-/// high because the difference is uniform.
+/// boundary. This group used to be dominated by one document family (`tracemonkey.pdf` and
+/// its variants and relatives, a page of dense text measured against a different glyph
+/// rasteriser), and that family is gone now — see the seventeen below. **This group is the
+/// floor, not a defect list** — what would make it one is a page arriving in it whose
+/// similarity is high because the difference is uniform.
+///
+/// **Seventeen left at once in the five-hundred-and-twelfth session, on quorra's
+/// `87898c69`, and every one is the two rasterisers agreeing rather than either moving
+/// toward the other.** Two upstream changes, each derived from the standard's own words
+/// rather than from any renderer's output. Fifteen — the six `tracemonkey*` pages,
+/// `bug1885505.pdf`, `bug1992868.pdf`, `chrome-text-selection-markedContent.pdf`,
+/// `issue14438.pdf`, `issue15012.pdf`, `issue18911.pdf`, `issue19239.pdf`, `issue7014.pdf`
+/// and `issue7492.pdf` — are quorra's ADR 0044: a cubic's flattening bound is now the
+/// tighter of the fixed quarter-pixel tolerance and 1/32 of the cubic's own device extent,
+/// which floors a full turn at 16 chords. §10.7.2's own NOTE 2 is the argument — "the
+/// purpose of the flatness tolerance is to control the precision of curve rendering, not to
+/// draw inscribed polygons" — and the population the floor reaches is glyph outlines, whose
+/// bowls at body size are cubics two to five device pixels across, which is why what moved
+/// is prose. The other two, `extgstate.pdf` and `inks_basic.pdf`, are quorra's round-cap
+/// fix (its `d594566`): the near cap of an open subpath was the *inward* half-disc wound
+/// against the body it sat inside, punching a Table 53-sized hole that summed ink could not
+/// see; the cap fan is now built from the outward direction the stroker already has.
 ///
 /// `issue4260_reduced.pdf` — once the worst page in the run at similarity 0.49, a grid of
 /// zero-height rectangles drawn blank — arrived here from the shape list when the backend
@@ -344,31 +373,14 @@ const REFUSED_AT_FOUR: [&str; 4] = [
 /// stroke ink**, and quorra was drawing all of it. Once the processor draws a turned sub-pixel rule
 /// one device pixel wide with the width it gave up in the paint's alpha (ADR 0268), the page's own
 /// ink goes 5.0782 → 5.1550 and the two backends have nothing left to differ about.
-const DIFFERS_AT_THE_EDGES: [&str; 24] = [
+const DIFFERS_AT_THE_EDGES: [&str; 7] = [
     "bug1743245.pdf",
-    "bug1885505.pdf",
-    "bug1992868.pdf",
-    "chrome-text-selection-markedContent.pdf",
     "endchar.pdf",
-    "extgstate.pdf",
-    "inks_basic.pdf",
     "issue11473.pdf",
-    "issue14438.pdf",
-    "issue15012.pdf",
-    "issue18911.pdf",
-    "issue19239.pdf",
     "issue2177.pdf",
     "issue2884_reduced.pdf",
-    "issue7014.pdf",
-    "issue7492.pdf",
     "issue8187.pdf",
     "pr12564.pdf",
-    "tracemonkey.pdf",
-    "tracemonkey_a11y.pdf",
-    "tracemonkey_annotation_on_page_8.pdf",
-    "tracemonkey_freetext.pdf",
-    "tracemonkey_with_annotations.pdf",
-    "tracemonkey_with_editable_annotations.pdf",
 ];
 
 /// Pages where the difference is **structural**: similarity at or below 0.99.

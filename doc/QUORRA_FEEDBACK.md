@@ -1971,6 +1971,15 @@ The one thing that would change the answer here has not changed either: a host i
 knows its size before its first frame — a print path, `viewer-confined`'s worker, a fixed-size
 viewer. When one exists, `warm_for` is one line and this section closes.
 
+**2026-08-14, at `87898c69`: the number this section stopped quoting was retracted at the source,
+and the mechanism was found.** Quorra's ADR 0040 could not reproduce 24.7 → 10.3 ms in five
+configurations — a 46 MB texture is created in sixty *micro*seconds on RADV, since the memory
+commits when the GPU first touches it — and what a layered first frame was actually paying was
+two pipeline compiles (`Composite`, `Blit`) inside itself. The warm set compiles both now, and
+its ADR 0043 extends the same fix to a presenting host's negotiated surface format, which was
+§22.7's other prediction. The answer to `warm_for` is still *no*, still free to call, and its
+table may no longer be quoted — quorra's ADR 0040 says so about itself.
+
 ## 20.5 The remaining refusals are unmoved, and that is expected — **and §22 moved them**
 
 `ab219d0` fixes coverage rather than capacity, so the twelve refusals §20.4 listed at 4× are the
@@ -2028,7 +2037,7 @@ allocation the page is refused for, and only running it says.
 
 ---
 
-## 21. Two marks the device does not draw, both `O(w²)` and both found by one instrument — **open, and a defect report rather than an ask**
+## 21. Two marks the device does not draw, both `O(w²)` and both found by one instrument — **both answered at `87898c69`, and verified here (§21.4)**
 
 Written at the end of this viewer's four-hundred-and-fifty-fifth session, whose subject was the
 same two marks on *our* side: §8.4.3.3's projecting caps and §8.5.3.2's dot, whose areas go as the
@@ -2115,6 +2124,35 @@ between the revisions say it should be: they touch `quorra-scene`'s builder and 
 shader and nothing in `raster.rs`. Checking rather than assuming cost one command, and it is the
 half of ADR 0283's lesson that runs the other way — a claim about somebody else's code can also
 *survive* their release, and only running it says which.
+
+### 21.4 What came back — `d594566` and quorra's ADR 0044, taken at `87898c69` in the five-hundred-and-twelfth session
+
+**Both answered, and each with a correction to this document's reading that is worth keeping.**
+
+§21.1's hypothesis was right about the cause and understated the effect: the far cap was a
+*correct* outward semicircle and the near cap was the **inward** one, wound against the body it
+lies inside — so under the non-zero rule the two cancel, a hole is punched where a cap belongs,
+and an instrument that sums ink reads exactly the butt-capped answer. A visible wrong mark, not
+absent ink. `cap_fan` now builds the semicircle from the outward direction the stroker already
+has, so the ambiguity at exactly `π` cannot arise.
+
+§21.2's clause was wrong and the correction strengthens the report: §10.7.3 is *smoothness*, a
+shading's colour error. Flatness is **§10.7.2**, which licenses a device tolerance outright and
+whose own NOTE 2 says where the licence stops — "the purpose of the flatness tolerance is to
+control the precision of curve rendering, not to draw inscribed polygons". Quorra's ADR 0044
+bounds a cubic by the tighter of the fixed tolerance and 1/32 of the cubic's own device extent,
+which floors a full turn at 16 chords — the two remedies §21.2 offered turn out to be one
+mechanism, since a relative bound held through the subdivision terminates at a chord *angle*.
+
+**Re-measured here at `87898c69`, same instrument**: the 40 × 5 round-capped rule reads 219.4042
+against its own 219.6349 (−0.1%, was −8.9%); the short 0.5 × 1.0 rule 1.2706 against 1.2854
+(−1.2%, was −60.9%); the one-pixel dot 0.7686 against 0.7854 (−2.1%, was the inscribed square at
+−36.1%); the two-pixel dot 3.0588 against 3.1416 (−2.6%, was the octagon at −10.1%). So §21.3's
+held rows are written: `sub_pixel_coverage.rs`'s round-cap and dot tests gate **both** backends
+now, which is what that section said it was waiting for. On the corpus the same two changes moved
+seventeen pages onto the CPU oracle at scale 1 — fifteen prose pages from the chord floor, whose
+population is glyph bowls two to five device pixels across, plus `extgstate.pdf` and
+`inks_basic.pdf` from the cap — and none moved off, at either scale.
 
 ---
 

@@ -96,7 +96,11 @@ summary says so in a line of its own now, and the two ways out are quorra's. ADR
 **What is still ours in this row**: this host builds a fresh `quorra_scene::Scene` every frame, so
 nothing inside `encode` *can* be reused. A retained scene is the lever, it is named in
 `doc/performance.md` as one of `RENDER_LIBRARY.md`'s five, and the number it would have to beat is
-3.86 µs a command.
+3.86 µs a command. **Priced upstream at `87898c69`** (quorra's ADR 0045: an identical frame
+replayed is 0.154 ms against 1.538 re-encoded; their own callgrind puts `recording` at 78.3% of a
+steady encode, over 40% of it a pure function of scene and viewport) — and the state of the
+conversation, including the one question this tree answered back, is `doc/todo/44` §3.1 rather
+than a second copy here.
 
 ## 4. There is no second machine
 
