@@ -45,6 +45,15 @@ character its chosen face lacks — or a face this binary carries that is addres
 §9.6.2.2's fourteen are not: they are name-keyed CFF, which §9.7.4.2 leaves unreachable for a
 composite font.
 
+**And `freetext_no_appearance.pdf` is not this section's witness either**, which `doc/todo/22`
+filed here for a long time and session 513 read out (ADR 0348). A per-character chain would draw
+that value's Arabic in isolated forms left-to-right even where it found every glyph — trap 1's
+wrong-but-plausible page, worse than the refusal it would replace. What that document needs is a
+glyph source (no compiled-in face has one Arabic glyph — measured; Liberation Sans's `cmap` maps
+the whole Arabic range to glyph 0 and its `GSUB` has no `arab` script), Unicode's joining-form
+selection and right-to-left ordering, **together or not at all**; the cost of each is ADR 0348's.
+So this section's mechanism stays owed with no witness at all, exactly as its own heading says.
+
 ## 2. A substitute that cannot be addressed — 40 fonts
 
 Composite fonts naming an `Identity` ordering, where the codes are indices into a font nobody

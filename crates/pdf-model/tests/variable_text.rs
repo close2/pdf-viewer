@@ -606,6 +606,43 @@ fn a_stand_in_draws_the_whole_value_or_none_of_it() {
     );
 }
 
+/// The Arabic free text annotation declines whole and names both halves (§12.5.6.6, §12.7.4.3).
+///
+/// `freetext_no_appearance.pdf` is the one corpus document §12.7.4.3's construction refuses: a
+/// paragraph of Arabic under `/DA (/Helv 10 Tf 0 g)`, no `/AP`, no `/DR`, and the page has no
+/// other content at all — so what this test pins is that the page stays *blank with a report*
+/// rather than becoming a partial or reordered drawing. Both alternatives were looked at and are
+/// worse (trap 1): `pdftoppm` lays out what its Latin face can represent and draws the value's
+/// full stops scattered over an otherwise empty page, and a face with the glyphs but without
+/// Unicode's joining-form selection and right-to-left ordering would draw isolated forms
+/// left-to-right — a wrong-but-plausible page that reports nothing. ADR 0348 is the reading of
+/// what drawing this value would actually take, and why nothing in this binary can start it: no
+/// compiled-in face has one Arabic glyph.
+///
+/// The refusal is machine-independent twice over, which is what lets a picture assertion live in
+/// a gate: the value has more distinct missing characters than the invented `/Differences` has
+/// free codes, and the Adobe Glyph List `read-fonts` carries has no name for any of them — so
+/// `named_glyphs_reach_more` cannot reach an installed face on any machine.
+#[test]
+fn the_arabic_free_text_declines_whole_and_names_both_halves() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../doc/pdf.js/test/pdfs/freetext_no_appearance.pdf");
+    let Ok(bytes) = std::fs::read(path) else {
+        // The pdf.js corpus is an optional submodule; without it there is nothing to open.
+        return;
+    };
+    let (reports, raster) = draw(bytes);
+    assert!(
+        inked_columns(&raster).is_empty(),
+        "the refusal is whole: a partial drawing of this value is trap 1's archetype"
+    );
+    assert_eq!(reports.len(), 1, "{reports:?}");
+    assert!(
+        reports[0].contains("/Helv") && reports[0].contains("not drawn at all"),
+        "the report names the undefined name and the wholeness of the refusal: {reports:?}"
+    );
+}
+
 /// A check box shows Table 192's caption only in its on state (§12.7.5.2.3).
 ///
 /// The clause makes `/AS` decide, so the two fixtures differ in nothing but that name. An

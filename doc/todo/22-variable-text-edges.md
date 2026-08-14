@@ -29,11 +29,23 @@ reproduce where no fonts are installed.
 
 Still owed, and it is one file — **and it is the only thing this item still owes**:
 
-- `freetext_no_appearance.pdf` (`/Helv`, a paragraph of Arabic) declines, and the `/Differences`
-  route cannot help it: the AGL names those characters `afii…` and no Helvetica has the glyphs.
-  **That one is `doc/todo/21`'s per-character fallback**, where it is the only witness left. When
-  `21` takes it, this file has nothing left to own and goes; until then it is kept for the closed
-  arguments below, which are the reason a later round will not reopen any of them.
+- `freetext_no_appearance.pdf` (`/Helv`, a paragraph of Arabic) declines, and the refusal is now
+  read, costed and pinned (ADR 0348, session 513). **The `/Differences` route is shut
+  machine-independently** — measured, where this file used to guess at the mechanism: the value
+  has 36 distinct missing characters against the invented array's 31 free codes, and the Adobe
+  Glyph List `read-fonts` carries has *no name at all* for an Arabic character (zero `afii`
+  entries), so `named_glyphs_reach_more` can reach no face on any machine. **And it is more than
+  `doc/todo/21`'s per-character fallback**, which is the correction this entry needed: a chain of
+  faces asked per character would draw isolated forms left-to-right even where it found every
+  glyph — the wrong-but-plausible page, worse than the blank. Drawing this value takes an Arabic
+  glyph source this binary does not have (no compiled-in face has one Arabic glyph — measured,
+  against the standing assumption that Liberation Sans carries them), joining-form selection and
+  right-to-left ordering, together or not at all; ADR 0348 has the cost of each and the order
+  they depend in. `pdftoppm` draws this witness as its full stops scattered on an empty page,
+  which is ADR 0112's rejected construction, looked at.
+  `tests/variable_text.rs::the_arabic_free_text_declines_whole_and_names_both_halves` pins the
+  blank and the report. Until a round takes ADR 0348's list whole, this file is kept for the
+  closed arguments below, which are the reason a later round will not reopen any of them.
 
 Closed and kept here for the reasoning:
 

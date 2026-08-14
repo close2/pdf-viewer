@@ -21,6 +21,12 @@ is `doc/PLAN.md` §1; `doc/crate-map.md` says which crate each choice lives in.
 **Not used:** `rustybuzz`. PDF content streams carry already-positioned glyphs; shaping
 them again would move glyphs away from where the document specifies. It may return later,
 scoped strictly to text *we* generate (annotations, form fields with non-embedded fonts).
+**And if it does return for that scope, `rustybuzz` is not its shape** (ADR 0348, on
+§12.7.4.3's one Arabic witness): it would bring `ttf-parser`, a second sfnt stack beside
+`skrifa`/`read-fonts` — the same shape ADR 0229 declined a second hash stack for — while
+`read-fonts`, already here, parses the `GSUB` such work would execute. What actually blocks
+shaping the one witness is not machinery at all: **no compiled-in face has one Arabic glyph**,
+so the shaper question is moot until a glyph source exists, and the ADR prices both.
 
 ## The public-key *constructions* are in the tree; the arithmetic under them no longer is
 
