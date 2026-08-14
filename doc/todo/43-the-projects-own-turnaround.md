@@ -121,3 +121,30 @@ that a gate's own printed timings are not a substitute — the oracle's `process
 rows read a factor of two high for thirty-nine rounds, and one of them was quoted *in this file* as
 evidence for the regression it was a symptom of. A number a gate prints about itself is only as good as
 what else is in its process.
+
+## The compiler cache, opened by the five-hundred-and-ninth
+
+`sccache` has been the `rustc-wrapper` since the four-hundred-and-eighty-fourth session and had never
+been read as a *turnaround* question, only as a curiosity with a bad hit rate. It belongs in this file
+because a worktree round builds into a fresh directory, which is precisely the case a compilation cache
+exists for — and this project had switched it off by accident. ADR 0344 is the measurement; three things
+belong here because they are about a round's wall clock rather than about the cache.
+
+- **An exported `CARGO_TARGET_DIR` is the switch, and `--target-dir` is the same thing without the
+  cost.** `sccache` folds every `CARGO_*` environment variable into its Rust cache key, so a per-worktree
+  export gives each round a cache nothing else will ever read. Same source, same warm cache, fresh target
+  directory: **79.01 % of Rust compilations hit** when the directory is named on the command line and
+  **0.00 %** when it is exported, three samples of each, exactly reproducible. This costs nothing to fix
+  and needs no agreement from a parallel round.
+- **The wall clock it buys is not measurable here, and that is a finding rather than a gap.** Three
+  samples of each condition: 117.3 / 227.7 / 117.7 s cached against 167.3 / 156.5 / 218.6 s uncached. The
+  spread inside a condition exceeds the difference between them, because several rounds share
+  twenty-four cores. What is countable is 335 of 780 compiler invocations skipped. **This file's whole
+  denominator has that problem** — every number above was taken on a machine that may or may not have had
+  a neighbour on it, and none of them says which. A round re-taking any of them should say what else was
+  running, and prefer a counter to a clock where one exists.
+- **Three-eighths of a round's compilation is outside any compiler cache.** Binaries and test harnesses
+  are refused by `sccache` (`crate-type`), and so is every workspace-member `clippy` check
+  (`multiple input files`, because cargo composes `sccache clippy-driver rustc …` and the parser sees two
+  inputs). That is the same population §1 and the gate-binary row are about: **the remaining prize is
+  fewer and cheaper links, not a better cache**, and this is now measured rather than assumed.

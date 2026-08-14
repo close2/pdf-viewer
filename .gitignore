@@ -31,8 +31,13 @@ github-token.txt
 # that the citation checker reads. Free to obtain from the PDF Association, not free to
 # redistribute — so the repository carries them only inside doc/specifications.zip, which is
 # encrypted and is tracked (ADR 0187, NOTICE section 3). What `unzip` puts here is ignored.
+#
+# `/doc/md` carries no trailing slash deliberately: a worktree round symlinks it to the main
+# checkout's copy rather than unzipping a second one, and a pattern ending in `/` matches a
+# directory but not a symlink to one — so the specifications showed up as untracked, which is
+# exactly the state this rule exists to prevent.
 /doc/*.pdf
-/doc/md/
+/doc/md
 
 # What `tools/spec-errata` emits from those PDFs: the annotations the conversion dropped, which
 # are the errata themselves. Derived from the same documents under the same licence, so it goes

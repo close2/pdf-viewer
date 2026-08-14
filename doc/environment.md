@@ -66,22 +66,46 @@ as user `AI` via `sudo -u AI`, reaching `/home/cl/projects/pdf-viewer` through t
   silently would be worse than none.
 - **Build directory**: `AI` builds into `/home/AI/cargo-target/pdf-viewer` via `~/.cargo/config.toml`,
   so the two users never fight over `target/`. Do not "fix" this. `pdfref` needs `--work-dir` for
-  the same reason.
+  the same reason. A round that wants a build directory of its own — a worktree round does, so that
+  parallel rounds do not queue on one build lock — asks for it with `--target-dir` and **not** with
+  an exported `CARGO_TARGET_DIR`; the `sccache` note below says what the export costs.
 - **A build script's `env!("CARGO_MANIFEST_DIR")` is baked at *its* compile time, and the shared
   build directory outlives a checkout.** `pdf-font`'s and `tools/conformance`'s build scripts read
   it, and a binary compiled from a worktree or a scratchpad copy that no longer exists fails with
   an absurd message naming a path under `/tmp` — "data/cmaps is readable: No such file or
   directory". It is not the tree. `touch` the build script's source and rebuild. Two rounds of the
   four-hundred-and-fifties lost time to it.
-- **`sccache` is the `rustc-wrapper` and it is not earning its place here.** The project owner
-  installed and activated it in `~/.cargo/config.toml`; `sccache --show-stats` reads **0.17% on
-  Rust** over 6530 compilations, because this workspace's crates change on nearly every round and a
-  cache keyed on the source is asked about a source that moved. It is not free either — it caches
-  *compilation*, which is exactly what makes the stale-build-script hazard above likelier. Leave
-  it: it is the owner's switch and it costs little. **What it must not be allowed to do is make a
-  measurement**: a round timing a build says which wrapper was in place, and a round measuring the
-  program rather than the build is unaffected, because `sccache` touches compilation and nothing
-  the binary does.
+- **`sccache` is the `rustc-wrapper`, and `export CARGO_TARGET_DIR=…` is what makes it useless.**
+  It is activated for user `AI` in `~/.cargo/config.toml` (`build.rustc-wrapper`, an absolute path
+  to `~/.cargo/bin/sccache`, which is **not on `PATH`** — `which sccache` answers nothing while
+  every build goes through it, ADR 0264 again). `/home/cl/projects/render-lib` inherits the same
+  wrapper: its own `.cargo/config.toml` overrides only `build.target-dir`, and `cargo build -v`
+  there prints the wrapper in front of `rustc`.
+
+  **`sccache`'s Rust cache key includes every environment variable whose name begins with
+  `CARGO_`.** So a round that exports its own `CARGO_TARGET_DIR` — one per worktree, which is how
+  parallel rounds avoid sharing a build lock — gives itself a private cache namespace that nothing
+  will ever read again. It is not the *path* that does this and not the changing source: the same
+  build, the same warm cache, a fresh target directory named on the command line instead of in the
+  environment, moves the hit rate from nothing to most of it. ADR 0344 has the A/B and the four
+  reasons the rest of the compilation is uncacheable in principle.
+
+  **So: name the target directory on the command line (`cargo … --target-dir <dir>`) or in a
+  `.cargo/config.toml`, never in the environment.** Both are invisible to `sccache`; the export is
+  not. This costs nothing and needs no agreement from anyone else's round.
+
+  `sccache --show-stats` is the instrument and its *categories* are the answer, not its headline
+  rate: `Cache hits (Rust)` against `Cache misses (Rust)`, and `Non-cacheable reasons` underneath —
+  `crate-type` is every binary and every test harness, `multiple input files` is every
+  workspace-member `clippy` check. `sccache --zero-stats` first, but only against a server of your
+  own (`SCCACHE_DIR=… SCCACHE_SERVER_PORT=… sccache --start-server`): the default one is shared
+  with every round running at the same time, and zeroing it destroys their measurement as well as
+  yours.
+
+  Two older cautions still hold. It caches *compilation*, which is what makes the stale-build-script
+  hazard above likelier. And **it must not be allowed to make a measurement**: a round timing a
+  build says which wrapper was in place, and a round measuring the program rather than the build is
+  unaffected, because `sccache` touches compilation and nothing the binary does.
 - **`cargo-fuzz` needs `+nightly`** explicitly; `rust-toolchain.toml` pins stable 1.97.1
   deliberately. `cargo-deny` is in the agent's `~/.cargo/bin` — **and so is `cargo-fuzz`, which is
   not on `PATH`**, so `which cargo-fuzz` answers nothing and `cargo fuzz` fails with "no such
