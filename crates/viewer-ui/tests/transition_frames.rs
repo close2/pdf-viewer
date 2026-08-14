@@ -131,9 +131,13 @@ fn both_backends_draw_the_same_transition_frame() {
     );
     let frame =
         viewer_core::transition::frame(&wipe(), viewport, PROGRESS).expect("a /Wipe is shaped");
-    let list = frame
-        .draw(viewport, &outgoing, &incoming)
-        .expect("two images and one clip");
+    // In an `Arc` because that is how a window's frame is handed to the presenter: the page's
+    // identity is what a reused scene is keyed on, so it is an identity that can be pinned.
+    let list = std::sync::Arc::new(
+        frame
+            .draw(viewport, &outgoing, &incoming)
+            .expect("two images and one clip"),
+    );
     let target = TargetSpec {
         width: WINDOW.0,
         height: WINDOW.1,

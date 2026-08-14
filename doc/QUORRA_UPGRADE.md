@@ -326,3 +326,46 @@ scene must stop being rebuilt when nothing changed. Today `present` builds a fre
 `SceneBuilder`, re-runs `Encoder` over the page's display list and rebuilds every overlay
 on every frame; the retained handle can only replay an encode of a scene that is still
 the same scene.
+
+---
+
+## `580fa4ac`, taken in the five-hundred-and-sixteenth session (2026-08-14)
+
+Eight commits past `87898c69`, and **the first bump this tree has had to reach for rather than
+merely take** — nothing broke, and nothing in the release is compulsory; what it carries is an
+addition that does nothing at all for a caller who ignores it.
+The bump itself is still two hashes: `cargo update -p quorra-gpu -p quorra-scene`, then
+`cargo build --workspace --all-targets` clean and `clippy --workspace --all-targets` silent with
+not one line of this tree touched. Every line that moved, moved to **take** `render_retained`,
+and ADR 0351 is that adoption.
+
+The range, oldest first, merges elided:
+
+| | |
+|---|---|
+| `a906359` | `--remap-path-prefix` measured against sccache and **declined**: the cache key already carries the paths cargo derives from the target directory, and a per-checkout `RUSTFLAGS` un-shares every registry dependency (their traps section; this tree's ADR 0344 found the same thing from the other end) |
+| `a22442e` | **`RetainedScene` and `Device::render_retained`** (quorra ADR 0048): the handle owns the `Scene` and the encode of its last frame; `EncodeKey` enumerates every other input an encode reads and compares it by bits; `Frame::encode_source` is the observable; nineteen tests, one per entry of the invalidation list |
+| `8d74c41` | that release's numbers and survival table into their `PLAN.md` and `HANDOVER.md` |
+| `6b75e00` | **a blended stroke inside a knockout group is replaced, not blended**: `encode_stroke` wrapped a non-Normal blend in §11.3.5's implicit group on the blend mode alone, where the fill and image arms also require the enclosing style to be `Over`. Worst deviation from §11.4.6's own line, on their fixture: 112.95 of 255 → 0.87 |
+| `cff170e` | that fix's documents |
+| `a85cc47` | **the rectangle lane stops depending on which command drew it** (their ADR 0047): `rect_hint` was computed for every outline and read on the shaded-fill arm only, so a *solid* fill of a rectangle — the only form a document rectangle arrives in, which is this tree's §19 — took the atlas or the coverage sheet. 0.466 → 0.210 ms of encode on their p99 rectangle page, 0 of 8 022 576 bytes differing |
+| `5f7c8c8` | that fix's documents, and a shared-target-directory trap |
+| `580fa4a` | closing round: `surface_measure` re-run post-merge on RADV |
+
+**Two of these move pixels and neither moved this tree's**, which upstream measured on this
+tree's own corpus before publishing (one copy, flipping only the `[patch]`): identical verdicts at
+both scales for `6b75e00` — the corpus does not reach a blended stroke overlapping what a knockout
+group already holds, so their fixture had to be built rather than found — and five pages in 951
+moving a mean by 0.0001–0.0021 with every worst tile unchanged for `a85cc47`. This tree's own four
+lanes at this pin are in ADR 0351.
+
+### What it required of this tree
+
+Nothing, to compile. Everything in ADR 0351, to be worth taking. The three obstacles
+`QUORRA_RETAINED_FRAME.md` §3 names were all real; **one of them is stronger than that document
+states**, and the correction has gone back in `QUORRA_FEEDBACK.md` §23: it is not only that a
+reused frame has nothing to release, it is that the *rebuild* frame must not release its own
+transients either, because the retained handle names them until something replaces the scene.
+
+`Options::instrument_encode` stays unused, and now for a second reason: a replayed frame's encode
+subdivision is zero by construction.

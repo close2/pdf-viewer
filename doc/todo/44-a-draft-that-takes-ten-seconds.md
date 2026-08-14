@@ -1,13 +1,16 @@
 # A draft that takes ten seconds to appear, and a third of a second per frame after that
 
-Status: **half taken** — the owner asked whether displaying this document can be improved and
-supplied a trace; session 497 closed the trace's hole, attributed the interpretation with
-callgrind, and priced the encode cache (ADR 0332). Session 506 then took §2's lexer candidate
-*and* its number-parsing second (ADR 0341): interpreting this document lost 39.8% of its
-instructions, byte-identical readback on this document and on ISO 32000-2. What is left is §3's
-encode cache — **upstream priced it at `87898c69` (their ADR 0045: replay 0.154 ms against
-1.538 re-encoded), built neither ask, and asked one question back; §3.1 is the state of that
-conversation and this tree's answer.**
+Status: **taken** — both levers this file measured are built. The owner asked whether displaying
+this document can be improved and supplied a trace; session 497 closed the trace's hole,
+attributed the interpretation with callgrind, and priced the encode cache (ADR 0332). Session 506
+took §2's lexer candidate *and* its number-parsing second (ADR 0341): interpreting this document
+lost 39.8% of its instructions, byte-identical readback on this document and on ISO 32000-2.
+**Session 516 took §3** — upstream built the retained encode at `580fa4ac` (their ADR 0048, after
+pricing it at `87898c69`), and this tree adopted it in ADR 0351: a frame whose page, placement,
+window, medium and chrome are the last frame's builds no scene and encodes nothing. §3.2 is what
+it did. What is left of this file is §3.1's second half — the page-space construction that would
+buy the `scene` phase back across *zoom* steps, which needs nothing from upstream and which the
+trace this file is about does not exercise.
 Priority: 44
 Corpus: none — `tmp/Entwurf.pdf` is the owner's own document (49.7 MB, one page, 58 009 display
 commands), outside the tree like `doc/todo/28`'s, with its trace beside it as
@@ -142,17 +145,55 @@ upstream asked for, and carrying it across is the next step of this item. Not de
 is a change to the contract between the two trees, so it is theirs to shape from this reason
 (the same order `Device::warm_for` followed, in reverse).
 
+### 3.2 Taken at `580fa4ac` (session 516, ADR 0351) — and the residue is what §3 computed
+
+Upstream built the retained encode: `RetainedScene` is a handle the caller holds, owning the
+`Scene` and the encode of its last frame, and `Device::render_retained` replays that encode when
+nothing an encode reads has moved. `doc/QUORRA_RETAINED_FRAME.md` is the migration they wrote for
+this tree; ADR 0351 is what it cost and the four judgements inside it. The shape here:
+`render-quorra`'s `FrameSlot` keys the frame's scene on the page display list's `Arc` identity and
+placement, the window, the medium, and the chrome by value — so the *page* is reused by identity
+and the chrome, which this host rebuilds every frame, by content.
+
+Re-run on this document, under `Xvfb` on `llvmpipe`, 25 frames that change nothing (`Up` with the
+page already at the top), three runs an arm alternating, both arms at the same quorra revision so
+the adoption is the only variable. Medians of the two quiet runs an arm, in ms:
+
+| | frame | `scene` | `encode` | `transfer` | `execute` | `elsewhere` | `settle` |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| before | 128.8 / 126.9 | 14.2 / 17.3 | 81.6 / 81.9 | 0.3 | 28.0 / 26.2 | 2.4 / 2.3 | 0.8 / 0.7 |
+| after | **29.3 / 31.3** | **0.0** | **0.0** | 0.3 | 28.0 / 29.9 | 0.8 / 0.9 | **0.0** |
+
+**What is left is `execute` and a fraction**, which is the sentence §3 wrote before anything was
+built. Its ≈56–60 ms was arithmetic on the owner's RADV trace and this is the software adapter, so
+the number is a different machine's and only the structure carries across — and `execute` being
+unmoved is quorra's own llvmpipe finding, which is what makes the residue believable rather than a
+measurement that lost something. Without a clock: **24 of 25 frames replayed**, uploads went
+58 989 → 58 029 (40 a frame to none), and the handle held **3 830 032 bytes** for this page.
+The launch table is unmoved, as a first frame that reuses nothing requires.
+
 ## 4. What is left
 
-Choose what to build, from the numbers above — `CLAUDE.md` forbids optimising what nobody
-measured, and everything here now is. The two levers are independent and address the two
-different costs: the lexer (the ten seconds, once per open) and the encode reuse (the third of a
-second, every frame). Neither is small; both have their measurement in this file.
+Both levers this file measured are built: the lexer (the ten seconds, once per open — §2, ADR
+0341) and the encode reuse (the third of a second, every frame — §3.2, ADR 0351). What is left is
+one item and it is *not* on this document's own critical path, which is why the file stays open
+rather than closing:
+
+- **The page scene built in page space under `Viewport`'s root affine.** It buys the `scene` phase
+  across *zoom* steps and nothing else — §3.1's second bullet is upstream's correction, and it is
+  final: a zoom step is a genuinely different rasterisation of every glyph, so no design reuses an
+  encode across one. It needs nothing from quorra. The reason it is not urgent is this file's own
+  measurement: the trace is 28 frames of one document at one view, and §3.2's re-run says a
+  *still* window now pays `execute` and nothing else. A person zooming is a different population,
+  and `doc/todo/45` is where a witness for it would come from.
 
 ## Cross-references
 
 `doc/todo/45` (where a frame goes — quorra's `encode` was already its open row; §3 above is that
 row priced on a second document), `doc/todo/42` (the launch path; its items are the program's own
 startup, where this document's cost is one page's interpretation — different lever, same gate),
-ADR 0297 (a per-frame recomputation kept out of the loop once before, and where the key would
-live), ADR 0332 (this round's argument).
+ADR 0297 (a per-frame recomputation kept out of the loop once before, and whose key shape §3.2's
+took), ADR 0332 (the round that priced this), ADR 0351 (the round that took §3),
+`doc/QUORRA_RETAINED_FRAME.md` (the migration upstream wrote for it) and `doc/QUORRA_FEEDBACK.md`
+§23 (what went back: one correction to that document, one declined item, and the answer to the
+question it asked).

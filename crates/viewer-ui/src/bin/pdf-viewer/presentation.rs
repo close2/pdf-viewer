@@ -276,16 +276,21 @@ impl App {
     /// A transition frame is already in the window's pixels — it is two page rasters placed by
     /// [`viewer_core::transition`] — so it draws at the identity transform where a page draws
     /// through its own placement.
+    /// **The frame is handed over in an `Arc` because that is the identity the presenter reuses
+    /// a scene by** (ADR 0351): `render_quorra::PresentFrame::page` pins what it is given, so a
+    /// display list drawn once and dropped cannot have its address recycled under the entry
+    /// keyed on it. A transition frame is a fresh list on every frame of the animation, so each
+    /// one is a fresh `Arc` and each one rebuilds — which is what a moving picture is.
     pub(crate) fn frame_to_draw(
         &mut self,
         request: &RenderRequest,
         target: TargetSpec,
         width: u32,
         height: u32,
-    ) -> (Option<pdf_render::DisplayList>, TargetSpec) {
+    ) -> (Option<Arc<pdf_render::DisplayList>>, TargetSpec) {
         if let Some(frame) = self.transition_frame(width, height) {
             return (
-                Some(frame),
+                Some(Arc::new(frame)),
                 TargetSpec {
                     width,
                     height,

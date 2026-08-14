@@ -80,6 +80,9 @@ pub struct QuorraRasterizer {
     device: quorra_gpu::Device,
     background: Color,
     caches: cache::ResourceCaches,
+    /// The window frame [`QuorraRasterizer::rasterize_frame`] last drew, kept for the next one.
+    slot: present::FrameSlot,
+    last: FrameCost,
 }
 
 impl QuorraRasterizer {
@@ -120,6 +123,8 @@ impl QuorraRasterizer {
             device: quorra_gpu::Device::headless(options)?,
             background: Color::WHITE,
             caches: cache::ResourceCaches::new(),
+            slot: present::FrameSlot::default(),
+            last: FrameCost::default(),
         })
     }
 
@@ -162,6 +167,12 @@ impl QuorraRasterizer {
     /// The medium is the bottom of the scene rather than imposed afterwards, as it is on the
     /// surface path: a window has an opaque background, and this is a window's frame.
     ///
+    /// **It reuses its scene exactly as the surface path does** (ADR 0351) — the same
+    /// [`present::FrameSlot`], the same key — which is what lets a test look at a replayed frame
+    /// at all: `Device::render_retained` replays into a `Readback` target as readily as onto a
+    /// swapchain, and quorra's own survival table says the target is not part of the question.
+    /// [`QuorraRasterizer::last_frame`] says which of the two this call was.
+    ///
     /// # Errors
     ///
     /// As [`Rasterizer::rasterize`], plus whatever the overlays' own commands refuse.
@@ -171,49 +182,32 @@ impl QuorraRasterizer {
         &mut self,
         frame: &PresentFrame<'_>,
     ) -> Result<Raster, QuorraRasterError> {
-        self.caches.begin_frame();
-        let mut builder = quorra_scene::SceneBuilder::new();
-        let mut transient: Vec<ResourceId> = Vec::new();
-        let built = present::build(
+        let began = std::time::Instant::now();
+        self.last = FrameCost::default();
+        let drawn = self.slot.render(
             &mut self.device,
             &mut self.caches,
             self.background,
-            &mut builder,
             frame,
-            &mut transient,
+            quorra_gpu::Target::Readback,
+            &mut self.last,
         );
-
-        let rendered = built.and_then(|()| {
-            let scene = builder.finish();
-            let viewport = quorra_gpu::Viewport::full(
-                frame.width,
-                frame.height,
-                quorra_scene::Affine::IDENTITY,
-            );
-            Ok(self
-                .device
-                .render(&scene, &viewport, quorra_gpu::Target::Readback)?)
-        });
-
-        let mut release_error: Option<quorra_gpu::DeviceError> = None;
-        for id in transient.drain(..) {
-            if let Err(error) = self.device.release(id) {
-                release_error.get_or_insert(error);
-            }
-        }
-        self.caches.evict_settled(&mut self.device)?;
-        let readback = rendered?;
-        if let Some(error) = release_error {
-            return Err(error.into());
-        }
+        self.last.total = began.elapsed();
         Ok(Raster {
             width: frame.width,
             height: frame.height,
             // Opaque throughout: the medium is the bottom of this scene, so straight and
             // premultiplied alpha are the same bytes and no imposition is owed.
             format: RasterFormat::Rgba8,
-            data: readback.into_raster()?.into_pixels(),
+            data: drawn?.into_raster()?.into_pixels(),
         })
+    }
+
+    /// What the last [`Self::rasterize_frame`] cost, stage by stage — including whether it
+    /// encoded its scene or replayed one, which is the observable this whole path is tested by.
+    #[must_use]
+    pub fn last_frame(&self) -> FrameCost {
+        self.last
     }
 }
 
@@ -284,6 +278,11 @@ impl QuorraRasterizer {
         list: &DisplayList,
         target: TargetSpec,
     ) -> Result<Vec<u8>, QuorraRasterError> {
+        // A single-list rasterisation is a different scene, and this path evicts: an entry the
+        // retained window frame's scene still names could go, leaving that scene holding
+        // released ids. Discarding it first is three lines against a class of reasoning about
+        // an instance used both ways, which nothing in this tree does but nothing forbids.
+        self.slot.discard(&mut self.device)?;
         self.caches.begin_frame();
         let mut builder = quorra_scene::SceneBuilder::new();
         let mut transient: Vec<ResourceId> = Vec::new();

@@ -2304,3 +2304,94 @@ Two consequences, both for whoever takes the next bump rather than for this docu
 - **§21.1 should be re-run first thing after that bump**, and if the round cap deposits its area,
   `render-quorra/tests/sub_pixel_coverage.rs` gains the row it has been holding against the
   processor only, which is what §21.3 says it is waiting for.
+
+## 23. The retained frame, taken — one correction, one declined item, and the answer §5 asked for
+
+Written in the five-hundred-and-sixteenth session, against `580fa4ac`. `doc/QUORRA_RETAINED_FRAME.md`
+is the document this answers; ADR 0351 is what this tree built from it. **It works, and the two
+claims that mattered both held on this side**: a replayed frame is byte-identical to the encode it
+replaces on the scene *this* tree builds (a medium, a placed page and chrome over it, not your
+archetypes), and `Frame::encode_source` is the right observable — it caught two of this migration's
+own mistakes before any pixel did.
+
+### 23.1 A correction to §3's item 1: a reused frame is the easy half
+
+Your item 1 says of `device.release`:
+
+> **On a frame that reused its scene there is nothing to release** — the `transient` vector is
+> empty, because nothing was uploaded — so the loop must simply not run, which follows for free
+> once the scene build is skipped.
+
+True, and it is not the whole hazard. **The frame that *builds* must not release its transients
+either.** `Encoder` puts a resource on that list for every split clip outline, every flattened
+dash, every soft mask and every image; releasing them at the end of the frame that made them
+leaves the handle holding a scene whose resources are gone, and the next re-encode of that scene
+is refused by name — correctly, by your own design, and the window stops drawing. It is not a
+theoretical order: a release *after* the render also bumps the generation the encode you just
+stored was keyed under, so the frame after every rebuild re-encodes before anything can settle.
+
+So the transient list is not "released later", it is **owned by the retained scene** and released
+when the scene is replaced. Worth a line in your §3, because a host that follows the document
+exactly gets a refusal on the second frame after every page turn and has to work out why.
+
+**The same argument reaches a second thing your document does mention in passing** —
+`caches.evict_settled`. You say the eviction "in the steady state releases nothing", which is true
+here too, but the reason it is safe is not the steady state: this tree's cache protects an entry
+*this frame looked up*, and a reused frame looks nothing up. Running it on a reused frame would
+make the live page's own outlines evictable and reach the same refusal from the other side. The
+fix generalises the fix above: the cache's frame clock now counts **scenes** rather than frames —
+`begin_frame` and `evict_settled` are the rebuild's, and nothing else's.
+
+### 23.2 §7's item 4, the raster stand-in: declined, with the reason
+
+> Cache the CPU-raster stand-in image instead of uploading it per frame.
+
+Not taken, and it is not an omission. `PresentFrame::raster` is a `&Raster` — bytes the processor
+produced with `CpuRasterizer::rasterize` for *this* frame. There is no `Arc` to key on and no
+allocation to pin, and an address would be the ABA bug this tree's `cache.rs` exists to refuse, on
+a `Vec<u8>` freed and reallocated at the same size every frame. So a frame carrying a stand-in is
+always a new key and never replays; what that costs is one upload and one encode per fallback
+frame, against a full CPU rasterisation of the whole page on that same frame, which is what the
+fallback path *is*. The reuse worth having there is of the rasterisation, and it is this tree's
+`doc/todo/45` rather than yours.
+
+The comment you cite at `scene.rs:874` is about a *page image* whose samples arrive in an `Arc`
+from the display list, which is a different object with a different lifetime. That one is cached,
+and has been since ADR 0297.
+
+### 23.3 The question §5 asked back: do the overlays change while the page does not?
+
+> **If your overlays genuinely change on frames where the page does not** — a selection being
+> dragged, a caret blinking — then this document's reuse gets you nothing on those frames […] Tell
+> that side whether the case is real, and how often, before either of us builds it.
+
+**The case is real, and it is rarer than it sounds — but the two instances are not alike, and only
+one of them is a case for fragment composition.**
+
+- **A dragged selection**: real, and every frame of the drag rebuilds. The page's scene is
+  unchanged and its 58 009 commands are re-encoded to put a few dozen `Multiply` rectangles over
+  it. This is the case candidate (B) would take, and it is the only one this tree can name where
+  the arithmetic is clearly on your side.
+- **A blinking caret**: real in shape, and it does **not** blink here — `overlays.rs`'s caret is
+  drawn from the focused field's state and nothing animates it. So it is not evidence.
+- **A find bar's matches, the sidebar, the modal card**: these change on a keystroke or a click,
+  not per frame. They are rebuilt every frame and *compare equal* every frame, which the value
+  comparison ADR 0351 uses turns into a hit. Not a case.
+
+**So: one case, and it is a gesture rather than a steady state.** A drag is bounded by a person's
+hand — tens of frames, not the thousands a still window now replays — and what it costs today is
+what every frame cost before this release. That is not nothing, and this tree is not asking for
+(B) yet: it would rather spend the next round of this conversation on the case where a *selection
+drag* is the whole population, measured, than ask you to build vocabulary for a case nobody has
+put a number on. If you want the number, say so and it will be taken with `--trace=frames` on the
+owner's own document.
+
+### 23.4 Two small things, neither a request
+
+- **`RetainedScene::retained_bytes` is in this tree's `FrameCost` and in the trace's summary**,
+  which is what §6 asked a host to budget with. Nothing here refuses to retain a large encode
+  either; one handle per *visible* frame is the posture, and this tree holds exactly one.
+- **`Frame::encode_source` earned its place immediately.** Both of §23.1's mistakes present as a
+  frame loop that encodes when it means to replay, and neither is visible in a wall clock on a
+  shared machine. An enum was the difference between finding them in a test and finding them in a
+  trace six months later.

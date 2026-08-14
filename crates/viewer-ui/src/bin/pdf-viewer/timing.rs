@@ -232,10 +232,19 @@ impl FrameLog {
                 unusual = format!("{unusual} {name} {:.1}", ms(spent));
             }
         }
+        // Whether this frame's device commands were encoded or replayed, one character wide,
+        // beside the number it explains. A frame loop that means to reuse its scene and does
+        // not is the one defect ADR 0351 can have, and reading it off a small `encode` is
+        // exactly the inference quorra's `EncodeSource` exists so that nobody has to make.
+        let source = match stages.gpu.encode_source {
+            Some(quorra_gpu::EncodeSource::Replayed) => " replayed",
+            Some(quorra_gpu::EncodeSource::Encoded) => " encoded",
+            None => "",
+        };
         trace.say(
             Topic::Frames,
             format_args!(
-                "frame p{} {}cmd {outcome} {:.1} | host {:.1} scene {:.1} device {:.1} \
+                "frame p{} {}cmd {outcome} {:.1} | host {:.1} scene {:.1} device {:.1}{source} \
                  settle {:.1}{unusual} | {} up, {} culled",
                 stages.page,
                 stages.commands,
@@ -269,11 +278,13 @@ impl FrameLog {
             ),
             (
                 "device",
-                "quorra's render: encoding, transfers, and the passes it already waits on",
+                "quorra's render: encoding, transfers, and the passes it already waits on — \
+                 followed by whether it encoded this frame's scene or replayed one (ADR 0351)",
             ),
             (
                 "settle",
-                "the frame's transient resources released and settled cache entries evicted",
+                "the replaced scene's transients released and settled cache entries evicted — \
+                 a rebuild's work, so zero on a frame that reused its scene",
             ),
             (
                 "fallback",
@@ -346,6 +357,34 @@ impl FrameLog {
             .map(|frame| frame.gpu.uploads)
             .max()
             .unwrap_or(0);
+        // **The claim ADR 0351 has to keep, as a count rather than as a shape in the medians.**
+        // A run whose frames are mostly unchanged should replay mostly, and the bytes are what
+        // that reuse is being held at — the number `doc/QUORRA_RETAINED_FRAME.md` section 6 says to
+        // budget a resident page against, which nothing but the device can compute.
+        let replayed = self
+            .samples
+            .iter()
+            .filter(|frame| {
+                matches!(
+                    frame.gpu.encode_source,
+                    Some(quorra_gpu::EncodeSource::Replayed)
+                )
+            })
+            .count();
+        let retained = self
+            .samples
+            .iter()
+            .map(|frame| frame.gpu.retained_bytes)
+            .max()
+            .unwrap_or(0);
+        trace.more(
+            Topic::Frames,
+            format_args!(
+                "{replayed} of {} frame(s) replayed a retained encode; the handle held at most \
+                 {retained} byte(s)",
+                self.samples.len()
+            ),
+        );
         let measured = self.samples.iter().any(|frame| frame.gpu.execute_measured);
         trace.more(
             Topic::Frames,

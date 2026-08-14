@@ -171,7 +171,7 @@ impl App {
         // and it is a display list, so everything below this line is unchanged by it — which is
         // the point of shaping a frame in `viewer_core::transition` rather than compositing here.
         let (playing, target) = self.frame_to_draw(&request, target, width, height);
-        let list = playing.as_ref().map_or(&*request.list, |frame| frame);
+        let list = playing.as_ref().unwrap_or(&request.list);
 
         let chrome = Overlays::of(self, edge, width, height);
         let overlays = chrome.lists();
