@@ -15,17 +15,24 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use pdf_render::{Color, Point, Ramp, Shading, ShadingKind, Transform};
+use pdf_render::{Color, ColourGrid, Point, Ramp, Shading, ShadingKind, Transform};
 use pdf_syntax::{Dictionary, Document, Object, ObjectId};
 
 use crate::colour::{ColourSpace, Compositing};
 use crate::function::Function;
 
-/// Samples across each axis of a function-based shading.
+/// The most cells a function-based shading's grid will carry, whatever the device asks for.
 ///
 /// Type 1 shadings are an arbitrary function of two variables, so unlike the other types
-/// they cannot be reduced to a ramp. This grid is what the display list carries instead.
-const FUNCTION_GRID: u32 = 128;
+/// they cannot be reduced to a ramp: the display list carries the function's ingredients
+/// ([`FunctionColours`]) and a backend asks for the grid its device wants. That request is a
+/// number a *magnification* controls — a full page at 16× is hundreds of millions of cells —
+/// and each cell is a function evaluation plus a colour conversion, so this bounds the work
+/// and the memory the way `image::MAX_MASK_GRID` bounds a mask's raster. ISO 32000-2 §10.7.3
+/// says a bound of this kind is the device's to set: "each output device may have internal
+/// limits". 2^22 cells is 2048×2048 — sixteen times the old fixed grid per axis — and 64 MB
+/// of transient `Color` at the limit.
+const MAX_FUNCTION_CELLS: u64 = 1 << 22;
 
 /// Why a shading could not be built.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -525,39 +532,121 @@ fn function_based(
         .unwrap_or_default();
     let rectangle = <[f32; 4]>::try_from(values.as_slice()).unwrap_or([0.0, 1.0, 0.0, 1.0]);
 
-    let [x0, x1, y0, y1] = rectangle;
-    let mut pixels = Vec::with_capacity(
-        usize::try_from(FUNCTION_GRID)
-            .unwrap_or(0)
-            .saturating_mul(usize::try_from(FUNCTION_GRID).unwrap_or(0)),
-    );
-    for row in 0..FUNCTION_GRID {
-        for column in 0..FUNCTION_GRID {
-            let fx = fraction(column);
-            let fy = fraction(row);
-            let x = x0 + fx * (x1 - x0);
-            let y = y0 + fy * (y1 - y0);
-            pixels.push(colour_from(&functions, &[x, y], space, into));
-        }
-    }
+    // A conversion's alpha is the space's rather than the value's — the one colour space
+    // whose colours are not opaque, §8.6.6.4's `/None` colourant, discards its output for
+    // *every* tint — so one evaluation at the domain's corner answers §11.4.6's opacity
+    // question for the whole domain, without the function being evaluated anywhere else
+    // before a device asks for its grid.
+    let [x0, _, y0, _] = rectangle;
+    let opaque = colour_from(&functions, &[x0, y0], space, into).a >= 1.0;
 
     Ok(ShadingKind::Sampled {
         domain: rectangle,
-        width: FUNCTION_GRID,
-        height: FUNCTION_GRID,
-        pixels: pixels.into(),
+        source: pdf_render::DeferredColours::new(Arc::new(FunctionColours {
+            functions,
+            space: space.clone(),
+            into,
+            domain: rectangle,
+            opaque,
+        })),
     })
 }
 
-/// Position of a grid index across the domain, in `0.0..=1.0`.
-fn fraction(index: u32) -> f32 {
-    #[expect(
-        clippy::cast_precision_loss,
-        reason = "FUNCTION_GRID is a small constant, exactly representable"
-    )]
-    {
-        index as f32 / FUNCTION_GRID.saturating_sub(1).max(1) as f32
+/// ISO 32000-2 §8.7.4.5.2's function of two variables, evaluated at the grid a device asks.
+///
+/// > In Type 1 (function-based) shadings, the colour at every point in the domain is defined
+/// > by a specified mathematical function.
+///
+/// *Every point* has no resolution, so the display list carries this — the function group,
+/// the colour space and the compositing target, everything an evaluation needs and nothing
+/// borrowed from the document — and a backend asks for the grid its device wants through
+/// `pdf_render::ColoursAtDeviceScale`. Self-contained for ADR 0210's reason: `Document`
+/// caches behind `RefCell` and is not `Sync`, and a display list is drawn on every core.
+struct FunctionColours {
+    /// The shading's `/Function` group: one 2-in n-out function, or n 2-in 1-out ones.
+    functions: Vec<Function>,
+    /// The shading's colour space, resolved when the shading was built.
+    space: ColourSpace,
+    /// What the colours are being composited into (ADR 0220).
+    into: Compositing,
+    /// The domain rectangle the grid covers, as `[x0, x1, y0, y1]`.
+    domain: [f32; 4],
+    /// Whether every colour the space can produce is opaque; see `function_based`.
+    opaque: bool,
+}
+
+impl std::fmt::Debug for FunctionColours {
+    /// The shape of the source, never the function's samples: a type 0 function carries its
+    /// whole sample stream, and a display list is printed by `Command`'s own derive.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FunctionColours")
+            .field("functions", &self.functions.len())
+            .field("domain", &self.domain)
+            .finish_non_exhaustive()
     }
+}
+
+impl pdf_render::ColoursAtDeviceScale for FunctionColours {
+    /// The function evaluated at each cell's centre, on a grid no finer than asked.
+    ///
+    /// The centre is §10.7.4's rule for reading a raster back — "the point whose coordinate
+    /// values have fractional parts of one-half" — applied in the writing direction: when the
+    /// grid is the device's own, each device pixel then carries the function's value at that
+    /// pixel's centre, which is as close to "the colour at every point" as a raster gets.
+    fn colours(&self, grid: pdf_render::Grid) -> ColourGrid {
+        let cells = cells_within_budget(grid);
+        let [x0, x1, y0, y1] = self.domain;
+        let mut pixels =
+            Vec::with_capacity((cells.width as usize).saturating_mul(cells.height as usize));
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "cell indices are bounded by MAX_FUNCTION_CELLS, far inside f32's \
+                      exact integer range"
+        )]
+        let centre = |index: u32, cells: u32| -> f32 {
+            (2.0 * index as f32 + 1.0) / (2.0 * cells.max(1) as f32)
+        };
+        for row in 0..cells.height {
+            let y = y0 + centre(row, cells.height) * (y1 - y0);
+            for column in 0..cells.width {
+                let x = x0 + centre(column, cells.width) * (x1 - x0);
+                pixels.push(colour_from(
+                    &self.functions,
+                    &[x, y],
+                    &self.space,
+                    self.into,
+                ));
+            }
+        }
+        ColourGrid {
+            width: cells.width,
+            height: cells.height,
+            pixels: pixels.into(),
+        }
+    }
+
+    fn is_opaque(&self) -> bool {
+        self.opaque
+    }
+}
+
+/// The grid a request will actually be answered at: no finer than asked, no more than fits.
+///
+/// The request is a number a magnification controls, so [`MAX_FUNCTION_CELLS`] bounds it
+/// the way `image::MAX_MASK_GRID` bounds a deferred mask — halving both axes until the
+/// product fits, so the grid keeps the shape of the request.
+fn cells_within_budget(grid: pdf_render::Grid) -> pdf_render::Grid {
+    let mut cells = pdf_render::Grid {
+        width: grid.width.max(1),
+        height: grid.height.max(1),
+    };
+    while u64::from(cells.width).saturating_mul(u64::from(cells.height)) > MAX_FUNCTION_CELLS
+        && (cells.width > 1 || cells.height > 1)
+    {
+        cells.width = (cells.width / 2).max(1);
+        cells.height = (cells.height / 2).max(1);
+    }
+    cells
 }
 
 /// Reads a six-number matrix, defaulting to the identity.

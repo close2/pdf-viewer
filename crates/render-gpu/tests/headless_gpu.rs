@@ -291,6 +291,33 @@ fn the_gpu_refuses_a_four_component_page() {
         .expect("the correctness oracle draws what the device refuses");
 }
 
+/// §8.7.4.5.2's sampled shading is refused **by name** on this backend.
+///
+/// A function-based shading's colours resolve to a grid at the device's own resolution
+/// (`Shading::sampled_at`), and a grid is not a brush any Vello gradient can express. The
+/// sibling backends draw it their own way — a pattern on the CPU, an image clipped to the
+/// path on quorra, which is what the window presents with — and this backend reports, which
+/// keeps the two honestly different: the comparison harness excludes a page a backend says
+/// it cannot draw instead of blaming the difference on the GPU. This fails if the refusal
+/// ever becomes silent, and the CPU draw beside it fails if the oracle stops covering what
+/// the device refuses.
+#[test]
+fn the_gpu_refuses_a_sampled_shading_by_name() {
+    let list = test_scenes::sampled_shading();
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+    let refusal = gpu()
+        .rasterize(&list, target)
+        .expect_err("a device-resolved grid is not a brush")
+        .to_string();
+    assert!(
+        refusal.contains("Sampled"),
+        "the refusal names the kind it cannot draw: {refusal}"
+    );
+    CpuRasterizer::new()
+        .rasterize(&list, target)
+        .expect("the correctness oracle draws what the device refuses");
+}
+
 /// §11.4.6's non-isolated knockout group is refused **by name** on this backend.
 ///
 /// Each element composites with the group's *initial* backdrop — here the group's own,

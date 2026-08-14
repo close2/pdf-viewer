@@ -56,8 +56,8 @@ pub use paint::{
 };
 pub use repeat::{Repeats, Tiles, repeated_subpaths, without_subpaths};
 pub use shading::{
-    Corners, MeshRaster, Radial, RadialRaster, Ramp, Shading, ShadingKind, Stop, Triangle,
-    blend_parameter,
+    ColourGrid, ColoursAtDeviceScale, Corners, DeferredColours, MeshRaster, Radial, RadialRaster,
+    Ramp, Shading, ShadingKind, Stop, Triangle, blend_parameter,
 };
 pub use soft_mask::{SoftMask, SoftMaskId, SoftMaskKind, Transfer};
 pub use strips::{

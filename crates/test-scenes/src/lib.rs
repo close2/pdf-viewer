@@ -1117,6 +1117,108 @@ pub fn radial_cone() -> DisplayList {
     list
 }
 
+/// The closed form behind [`sampled_shading`]: the colour at domain point `(x, y)`.
+///
+/// Stated once, here, so that a test can evaluate the same arithmetic the scene draws and
+/// take its expected pixel values from it rather than from any backend — twelve full waves
+/// across each axis of the unit domain, red across and green down, over a constant blue.
+///
+/// Twelve is chosen against the grid this scene used to be resolved at: interpolating a
+/// wave of twelve periods linearly between 128 samples is off by up to
+/// `(1/127)²/8 × (24π)² ≈ 0.044` of full scale — eleven eight-bit levels — where sampling
+/// it at one cell per device pixel of [`sampled_shading`]'s 400-pixel domain is off by under
+/// a level. A defect that resolves the grid anywhere but at the device is that many levels
+/// from the closed form, which is what makes the scene's exact-value tests able to fail.
+#[must_use]
+pub fn sampled_colour_at(x: f32, y: f32) -> Color {
+    let wave = |v: f32| 0.5 + 0.5 * (v * 12.0 * std::f32::consts::TAU).sin();
+    Color::rgba(wave(x), wave(y), 0.3, 1.0)
+}
+
+/// [`sampled_colour_at`] evaluated at the centres of whatever grid a device asks for.
+///
+/// A test implementor of `pdf_render`'s deferred-colours vocabulary: the display list names
+/// the colours and the backend resolves them once it knows the scale, exactly as
+/// `pdf-model`'s function-based shading does — cell `(i, j)` of an `n × m` grid carries the
+/// closed form at `((2i + 1) / 2n, (2j + 1) / 2m)`, §10.7.4's centre rule.
+#[derive(Debug)]
+struct SampledWaves;
+
+impl pdf_render::ColoursAtDeviceScale for SampledWaves {
+    fn colours(&self, grid: pdf_render::Grid) -> pdf_render::ColourGrid {
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "grid axes are device pixel counts, far inside f32's exact range"
+        )]
+        let centre = |index: u32, cells: u32| (2.0 * index as f32 + 1.0) / (2.0 * cells as f32);
+        let mut pixels = Vec::new();
+        for row in 0..grid.height {
+            for column in 0..grid.width {
+                pixels.push(sampled_colour_at(
+                    centre(column, grid.width),
+                    centre(row, grid.height),
+                ));
+            }
+        }
+        pdf_render::ColourGrid {
+            width: grid.width,
+            height: grid.height,
+            pixels: pixels.into(),
+        }
+    }
+
+    fn is_opaque(&self) -> bool {
+        true
+    }
+}
+
+/// How large [`sampled_shading`]'s page is, in PDF units.
+pub const SAMPLED_PAGE: f32 = 420.0;
+
+/// A sampled (type 1, function-based) shading resolved at the device's own grid.
+///
+/// The unit domain is drawn across 400 of the page's 420 units, which is the magnitude
+/// where a grid fixed when the display list was built stops being the function: at 128
+/// cells the waves of [`sampled_colour_at`] interpolate eleven levels wrong, and at one
+/// cell per device pixel they are exact to a level. The filled shape ends in a diagonal
+/// edge, so the comparison also covers the pixels where the two constructions the backends
+/// use — a padded pattern on the CPU, an image clipped to the path on quorra — meet
+/// fractional coverage. The path stays inside the domain's own extent because what happens
+/// *beyond* the domain is a stated divergence between those constructions, and this scene
+/// is about the resolution.
+#[must_use]
+pub fn sampled_shading() -> DisplayList {
+    let mut list = DisplayList::new(Size::new(SAMPLED_PAGE, SAMPLED_PAGE));
+
+    // (10, 10) to (410, 410) with the top-right corner cut off diagonally.
+    let mut path = Path::new();
+    path.push(PathCommand::MoveTo(Point::new(10.0, 10.0)));
+    path.push(PathCommand::LineTo(Point::new(410.0, 10.0)));
+    path.push(PathCommand::LineTo(Point::new(410.0, 300.0)));
+    path.push(PathCommand::LineTo(Point::new(210.0, 410.0)));
+    path.push(PathCommand::LineTo(Point::new(10.0, 410.0)));
+    path.push(PathCommand::Close);
+
+    list.push(Command::Fill {
+        path: Arc::new(path),
+        transform: Transform::IDENTITY,
+        fill_rule: FillRule::NonZero,
+        paint: Paint::Shading(Arc::new(pdf_render::Shading {
+            kind: Arc::new(pdf_render::ShadingKind::Sampled {
+                domain: [0.0, 1.0, 0.0, 1.0],
+                source: pdf_render::DeferredColours::new(Arc::new(SampledWaves)),
+            }),
+            // The unit domain onto (10, 10)–(410, 410) of the page.
+            transform: Transform::new(400.0, 0.0, 0.0, 400.0, 10.0, 10.0),
+        })),
+        clip: None,
+        mask: None,
+        blend: BlendMode::Normal,
+    });
+
+    list
+}
+
 /// A page filled edge to edge, on a page whose pixel width is not a multiple of the
 /// GPU row alignment.
 ///

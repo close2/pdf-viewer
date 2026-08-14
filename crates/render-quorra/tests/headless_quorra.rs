@@ -44,7 +44,11 @@ fn quorra() -> QuorraRasterizer {
 }
 
 fn compare(what: &str, list: &pdf_render::DisplayList) -> Comparison {
-    let target = TargetSpec::for_page(list, 1.0, GENEROUS).expect("target fits the budget");
+    compare_at(what, list, 1.0)
+}
+
+fn compare_at(what: &str, list: &pdf_render::DisplayList, scale: f32) -> Comparison {
+    let target = TargetSpec::for_page(list, scale, GENEROUS).expect("target fits the budget");
     let cpu = CpuRasterizer::new()
         .rasterize(list, target)
         .expect("the CPU oracle draws every fixture");
@@ -515,6 +519,33 @@ fn cpu_and_quorra_agree_on_a_radial_cone() {
     assert_within_tolerance(
         "radial cone",
         compare("radial cone", &test_scenes::radial_cone()),
+    );
+}
+
+/// §8.7.4.5.2's sampled shading, resolved at the device grid by two constructions.
+///
+/// `test_scenes::sampled_shading` has the geometry: a function with detail a fixed grid
+/// loses, filled through a shape ending in a diagonal edge. The two backends build the
+/// draw differently — the CPU stretches the grid as a padded `tiny-skia` pattern, quorra
+/// uploads it as an image clipped to the path — so this is trap 2's scene at both the
+/// magnitude and the fractional coverage where those constructions can part. What holds
+/// them together is `Shading::sampled_at`: one derivation of the grid, in `pdf-render`,
+/// which is the only reason a comparison here is evidence about the drawing rather than
+/// about two resolutions.
+///
+/// At two scales, because the grid is the device's: a backend resolving at a frozen grid
+/// draws the same wrong picture at every zoom, and the 4× run is where it parts from one
+/// that re-resolves — the exact values are pinned against the closed form in
+/// `render-cpu/tests/sampled_shading.rs`, so what this adds is the second construction.
+#[test]
+fn cpu_and_quorra_agree_on_a_sampled_shading() {
+    let list = test_scenes::sampled_shading();
+    // Edge-heavy at the diagonal, so the boundary scenes' wider differing-channel bound.
+    assert_within("sampled shading", compare("sampled shading", &list), 0.06);
+    assert_within(
+        "sampled shading at 4x",
+        compare_at("sampled shading at 4x", &list, 4.0),
+        0.06,
     );
 }
 

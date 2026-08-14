@@ -1,7 +1,8 @@
 # The three sandboxed image codecs — what they are, what the sandbox is for, and what would replace them
 
 Not a todo. Shared background for [34](34-sandbox-the-interpreter.md),
-[35](35-confinement-off-linux.md) and [24](24-image-sampling-intent.md), written in the
+[35](35-confinement-off-linux.md) and what was todo 24 — the sampling-intent vocabulary,
+closed across ADRs 0210, 0321 and 0339 — written in the
 **three-hundred-and-eleventh session** when the project owner asked whether the code that needs
 `pdf-sandbox` could be replaced by safe alternatives, and how hard the algorithms would be to
 implement here.

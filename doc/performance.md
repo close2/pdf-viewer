@@ -789,9 +789,9 @@ The same section retracts something this side printed: the trace's `elsewhere` r
 timestamp-query duration from a host wall clock, so it is a bound rather than a duration, and the
 summary now says so.
 
-**Still open, each priced and each with a file**: carrying an image *and its sampling intent* to
-the backends, which is one `pdf-render` change unblocking three refusals
-([todo 24](todo/24-image-sampling-intent.md)); a clip chain as one crop and one intersect on the
+**Still open, each priced and each with a file** — the first of the three this list used to
+carry, an image *and its sampling intent* to the backends, closed across ADRs 0210, 0321 and
+0339 and its file is gone: a clip chain as one crop and one intersect on the
 corpus's worst page ([todo 40](todo/40-mask-chain-crop.md)), which the
 three-hundred-and-ninety-ninth session unblocked and re-priced rather than took — and whose
 *copying* half the four-hundred-and-ninety-third then took byte-identically (ADR 0328), leaving

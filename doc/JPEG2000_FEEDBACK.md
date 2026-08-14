@@ -312,7 +312,7 @@ checkout; the owner pushes it to `origin` and opens the pull request; this tree 
 fork until the maintainers take it. That is exactly how §8 was closed, and it means a defect found
 here in any hayro crate is fixable rather than only reportable — which changes what may be written
 in a todo file. **"Blocked on an API `hayro-jpeg2000` does not have" is no longer a blocker, it is a
-branch** (`doc/todo/24`'s reduced-resolution decode is the standing example).
+branch** (the reduced-resolution decode ADR 0321 records is the standing example).
 
 Two things that do not change: the fix must be right for *hayro's* users and not only for this
 viewer — a maintainer is being asked to carry it — and this tree's own gates decide whether it

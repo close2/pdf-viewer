@@ -14,17 +14,19 @@
 //! The specification's seven types describe three different things. Axial (2) and radial
 //! (3) are the two the underlying rasterisers implement natively, so they stay distinct.
 //! Function-based shadings (1) are an arbitrary function of two variables and reduce to a
-//! grid of samples. The four mesh types (4, 5, 6, 7) all describe the same thing — patches
-//! of smoothly varying colour — and differ only in how the file writes them down; Coons
-//! and tensor patches are subdivided into the triangles that types 4 and 5 give directly,
-//! so all four arrive here as triangles.
+//! grid of samples — on a grid the *device* chooses, through [`DeferredColours`], because
+//! the function machinery lives above this crate and the resolution question has no answer
+//! until something says how large the domain will be drawn. The four mesh types (4, 5, 6, 7)
+//! all describe the same thing — patches of smoothly varying colour — and differ only in how
+//! the file writes them down; Coons and tensor patches are subdivided into the triangles
+//! that types 4 and 5 give directly, so all four arrive here as triangles.
 //!
 //! Nothing is lost by that grouping except the name of the type, which no backend needs.
 
 use std::sync::Arc;
 
 use crate::geom::{Point, Transform};
-use crate::paint::Color;
+use crate::paint::{Color, Grid};
 
 /// A colour transition, together with the space it is defined in.
 #[derive(Debug, Clone, PartialEq)]
@@ -62,7 +64,7 @@ impl Shading {
             ShadingKind::Axial { ramp, .. } | ShadingKind::Radial { ramp, .. } => {
                 ramp.stops.iter().all(|stop| opaque(&stop.colour))
             }
-            ShadingKind::Sampled { pixels, .. } => pixels.iter().all(opaque),
+            ShadingKind::Sampled { source, .. } => source.is_opaque(),
             // A parametric mesh's colours are all in its ramp, and its corners hold none.
             ShadingKind::Mesh { triangles, ramp } => match ramp {
                 Some(ramp) => ramp.stops.iter().all(|stop| opaque(&stop.colour)),
@@ -128,16 +130,11 @@ impl Shading {
                 ramp: ramp(colours),
                 extend: *extend,
             },
-            ShadingKind::Sampled {
-                domain,
-                width,
-                height,
-                pixels,
-            } => ShadingKind::Sampled {
+            // A sampled shading's colours do not exist yet, so the alpha travels with the
+            // producer and reaches each colour as it is produced.
+            ShadingKind::Sampled { domain, source } => ShadingKind::Sampled {
                 domain: *domain,
-                width: *width,
-                height: *height,
-                pixels: pixels.iter().map(scale).collect(),
+                source: source.faded(alpha),
             },
             // A parametric mesh carries its colours in the ramp, so that is where the alpha
             // goes; a corner holding a parameter has none to scale.
@@ -164,6 +161,154 @@ impl Shading {
             kind: Arc::new(kind),
             transform: self.transform,
         }
+    }
+
+    /// For a [`ShadingKind::Sampled`] shading: its colours, resolved for the device.
+    ///
+    /// `page_to_device` maps the space [`Self::transform`] targets onto the device. The grid
+    /// is [`Grid::for_placement`]'s answer for the placement carrying the unit square onto
+    /// the transformed domain rectangle — derived here and nowhere else, because a
+    /// resolution decision made per backend is a decision the backends can disagree about,
+    /// which is the same reason [`Grid::for_placement`] itself lives in this crate.
+    ///
+    /// `None` for every other kind, which is how a backend that draws sampled shadings its
+    /// own way (as a pattern, as a clipped image) shares the one grid while keeping its own
+    /// drawing.
+    #[must_use]
+    pub fn sampled_at(&self, page_to_device: Transform) -> Option<ColourGrid> {
+        let ShadingKind::Sampled { domain, source } = self.kind.as_ref() else {
+            return None;
+        };
+        // The unit square onto the domain rectangle, then the shading's own matrix and the
+        // caller's map carry it to the device — the same composition every backend draws
+        // the resolved grid under, so the cells asked for are the pixels covered.
+        let [x0, x1, y0, y1] = *domain;
+        let onto_domain = Transform::new(x1 - x0, 0.0, 0.0, y1 - y0, x0, y0);
+        let placement = onto_domain.then(self.transform).then(page_to_device);
+        Some(source.colours(Grid::for_placement(placement)))
+    }
+}
+
+/// Colours on a grid, standing in for §8.7.4.5.2's function of two variables.
+///
+/// Row-major with row zero at the domain's `y_min` edge, which is where the shading's own
+/// coordinates put it: a backend stretches the grid over the domain rectangle and the
+/// shading's transform carries any flip the page states.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ColourGrid {
+    /// Cells across the domain, at least one.
+    pub width: u32,
+    /// Cells down the domain, at least one.
+    pub height: u32,
+    /// Row-major colours, `width * height` of them.
+    pub pixels: Arc<[Color]>,
+}
+
+/// A sampled shading's colours, produced once the device grid is known.
+///
+/// The same contract as [`crate::ImageAtDeviceScale`], one paint over: [`Self::colours`] is
+/// asked for a grid and answers with colours **no finer than it** in either axis — a producer
+/// bounding its own work (§10.7.3 permits "internal limits") answers coarser, and the caller
+/// draws whatever grid comes back stretched over the domain. It is infallible for the same
+/// reason that trait is: everything checkable without evaluating was checked and reported by
+/// the interpreter, and what remains is drawn as well as it can be.
+///
+/// Implementations are `Send + Sync` because a display list is drawn on every core.
+pub trait ColoursAtDeviceScale: std::fmt::Debug + Send + Sync {
+    /// The colours, on a grid no finer than `grid` in either axis.
+    fn colours(&self, grid: Grid) -> ColourGrid;
+
+    /// Whether every colour [`Self::colours`] can produce is fully opaque, answered without
+    /// producing any.
+    ///
+    /// A method rather than the pessimistic constant [`crate::ImageSource::is_opaque`]
+    /// returns for a deferred image, because the two facts differ: a deferred image exists
+    /// *because* a second raster contributes per-sample alpha, while a sampled shading's
+    /// colours are almost always opaque — and §11.4.6's knockout question, which
+    /// [`Shading::is_opaque`] answers with this, would otherwise report a difference on
+    /// every page a function-based shading touches.
+    fn is_opaque(&self) -> bool;
+}
+
+/// A shared [`ColoursAtDeviceScale`], so that a shading carrying one stays cloneable.
+#[derive(Clone)]
+pub struct DeferredColours(Arc<dyn ColoursAtDeviceScale>);
+
+impl DeferredColours {
+    /// Wraps a producer of colours.
+    #[must_use]
+    pub fn new(source: Arc<dyn ColoursAtDeviceScale>) -> Self {
+        Self(source)
+    }
+
+    /// The colours, on a grid no finer than `grid`.
+    #[must_use]
+    pub fn colours(&self, grid: Grid) -> ColourGrid {
+        self.0.colours(grid)
+    }
+
+    /// Whether every colour this can produce is fully opaque, without producing any.
+    #[must_use]
+    pub fn is_opaque(&self) -> bool {
+        self.0.is_opaque()
+    }
+
+    /// This source with every produced colour's alpha scaled by `alpha`.
+    ///
+    /// How [`Shading::with_alpha`] reaches colours that do not exist yet: §11.6.4.4's
+    /// constant alpha travels with the producer and is applied to each colour as it is
+    /// produced.
+    fn faded(&self, alpha: f32) -> Self {
+        Self(Arc::new(Faded {
+            source: self.clone(),
+            alpha,
+        }))
+    }
+}
+
+impl std::fmt::Debug for DeferredColours {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("DeferredColours").field(&self.0).finish()
+    }
+}
+
+impl PartialEq for DeferredColours {
+    /// Two deferred sources are the same one when they are the same object.
+    ///
+    /// [`crate::paint::DeferredImage`]'s argument, unchanged: comparing the colours would
+    /// mean producing them, and identity is what the display list's own `PartialEq` — which
+    /// exists so a test can say a list was rebuilt unchanged — needs.
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+/// A deferred source with a constant alpha applied to whatever it produces.
+#[derive(Debug)]
+struct Faded {
+    source: DeferredColours,
+    alpha: f32,
+}
+
+impl ColoursAtDeviceScale for Faded {
+    fn colours(&self, grid: Grid) -> ColourGrid {
+        let inner = self.source.colours(grid);
+        ColourGrid {
+            width: inner.width,
+            height: inner.height,
+            pixels: inner
+                .pixels
+                .iter()
+                .map(|colour| Color {
+                    a: colour.a * self.alpha,
+                    ..*colour
+                })
+                .collect(),
+        }
+    }
+
+    fn is_opaque(&self) -> bool {
+        self.alpha >= 1.0 && self.source.is_opaque()
     }
 }
 
@@ -200,22 +345,30 @@ pub enum ShadingKind {
         /// Whether the shading continues beyond each circle.
         extend: (bool, bool),
     },
-    /// Colour is an arbitrary function of position, sampled on a grid (PDF type 1).
+    /// Colour is an arbitrary function of position, resolved on the device's grid (PDF type 1).
     ///
-    /// Reduced to samples because the display list must not hold a PDF function: the
-    /// function machinery lives above this crate, and a display list has to be plain data
-    /// so it can cross a process boundary. The grid is generous enough that the
-    /// interpolation between samples is not visible at ordinary magnifications, and this
-    /// is the one place in the display list where resolution is baked in.
+    /// ISO 32000-2 §8.7.4.5.2:
+    ///
+    /// > In Type 1 (function-based) shadings, the colour at every point in the domain is
+    /// > defined by a specified mathematical function. The function need not be smooth or
+    /// > continuous.
+    ///
+    /// *Every point* is finer than any grid, and the function itself cannot travel: the
+    /// function machinery lives above this crate, and the interpreter deliberately does not
+    /// know the device scale — a display list is re-rasterisable at any zoom without being
+    /// interpreted again. So the display list carries a *producer* instead, the same shape
+    /// [`crate::ImageAtDeviceScale`] gives a raster the file does not hold (ADR 0210), and a
+    /// backend resolves it through [`Shading::sampled_at`] once it knows how many device
+    /// pixels the domain covers. Until the display list carried this, the grid was fixed at
+    /// 128 cells per axis when the list was built — the one place in the display list where
+    /// resolution was baked in, and exactly the interpret-time decision the deferred image
+    /// removed for a soft mask.
     Sampled {
-        /// The rectangle the samples cover, as `[x0, x1, y0, y1]`.
+        /// The rectangle the function is defined over, as Table 78's `/Domain` order
+        /// `[x_min, x_max, y_min, y_max]`.
         domain: [f32; 4],
-        /// Samples across the domain.
-        width: u32,
-        /// Samples down the domain.
-        height: u32,
-        /// Row-major samples, `width * height` of them.
-        pixels: Arc<[Color]>,
+        /// The colours, produced once a device has said how many cells the domain covers.
+        source: DeferredColours,
     },
     /// Colour varies smoothly across triangles (PDF types 4, 5, 6 and 7).
     Mesh {

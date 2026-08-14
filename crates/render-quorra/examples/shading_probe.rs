@@ -63,12 +63,11 @@ fn main() {
                                 ramp.stops.len()
                             ),
                             ShadingKind::Radial { .. } => println!("  Radial"),
-                            ShadingKind::Sampled {
-                                domain,
-                                width,
-                                height,
-                                ..
-                            } => println!("  Sampled domain={domain:?} grid={width}x{height}"),
+                            ShadingKind::Sampled { domain, .. } => {
+                                println!(
+                                    "  Sampled domain={domain:?} (grid resolved at the device)"
+                                );
+                            }
                             ShadingKind::Mesh { triangles, .. } => {
                                 println!("  Mesh {} triangles", triangles.len());
                             }

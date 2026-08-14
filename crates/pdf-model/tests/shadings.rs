@@ -72,6 +72,11 @@ fn assemble(body: &str) -> Vec<u8> {
 
 /// Renders a fixture at one pixel per unit and returns the pixels.
 fn render(bytes: Vec<u8>) -> pdf_render::Raster {
+    render_at(bytes, 1.0)
+}
+
+/// Renders a fixture at `scale` pixels per unit and returns the pixels.
+fn render_at(bytes: Vec<u8>, scale: f32) -> pdf_render::Raster {
     let document = Document::open(bytes).expect("the fixture is a valid PDF");
     let page = pdf_model::Pages::new(&document).get(0).expect("page one");
     let interpretation = pdf_model::interpret(&document, &page);
@@ -81,7 +86,7 @@ fn render(bytes: Vec<u8>) -> pdf_render::Raster {
         interpretation.unsupported
     );
     let list = interpretation.display_list;
-    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+    let target = TargetSpec::for_page(&list, scale, GENEROUS).expect("valid target");
     // A transparent background, so that alpha says exactly whether anything was painted.
     // The default white one would make every pixel opaque and every such assertion
     // vacuous — which is how the first draft of these tests managed to pass while
@@ -344,6 +349,52 @@ fn a_function_based_shadings_domain_is_a_parallelogram_and_marks_nothing_outside
              domain and must paint"
         );
     }
+}
+
+/// ISO 32000-2 §8.7.4.5.2: a type 1 shading's colour is the function's, at every point.
+///
+/// > In Type 1 (function-based) shadings, the colour at every point in the domain is
+/// > defined by a specified mathematical function. The function need not be smooth or
+/// > continuous.
+///
+/// The function here is exactly the discontinuity that sentence licenses — red below
+/// `x = 0.5`, blue at and above it — drawn across 400 device pixels, so the step falls at
+/// device x = 200. Resolved at the device's grid, each pixel carries the function's value
+/// at its own centre: column 199 (centre 199.5, domain 0.49875) is pure red and column 200
+/// (centre 200.5, domain 0.50125) pure blue. The 128-cell grid the display list used to
+/// carry put a sample every 3.15 device pixels and interpolated between the pair
+/// straddling the step, so both of those columns were mixtures — the two constructions
+/// cannot be confused, and this walks the whole route: file, interpreter, display list,
+/// backend.
+#[test]
+fn a_function_based_shadings_discontinuity_lands_at_the_device_pixel() {
+    // `pop` discards y; `0.5 lt` asks whether x is below the step.
+    let function = "7 0 obj\n<< /FunctionType 4 /Domain [0 1 0 1] /Range [0 1 0 1 0 1] \
+                    /Length 42 >>\n\
+                    stream\n{ pop 0.5 lt { 1 0 0 } { 0 0 1 } ifelse }\nendstream\nendobj\n";
+    let shading = "<< /ShadingType 1 /ColorSpace /DeviceRGB /Domain [0 1 0 1] \
+                   /Matrix [100 0 0 100 0 0] /Function 7 0 R >>";
+    let raster = render_at(pdf_with_extra(shading, "/Sh0 sh", function), 4.0);
+
+    // Columns either side of the step, well inside the page vertically.
+    let (r, g, b, a) = pixel(&raster, 199, 200);
+    assert_eq!(a, 255, "the domain covers this pixel");
+    assert!(
+        r >= 253 && g <= 2 && b <= 2,
+        "device column 199's centre is at domain 0.49875, below the step, so the clause \
+         makes it pure red; a grid fixed at 128 cells interpolates 35% of blue in here. \
+         Got ({r}, {g}, {b})"
+    );
+    let (r, _, b, _) = pixel(&raster, 200, 200);
+    assert!(
+        b >= 253 && r <= 2,
+        "device column 200's centre is at domain 0.50125, at the step and past it, so the \
+         clause makes it pure blue. Got ({r}, _, {b})"
+    );
+
+    // And away from the step both regimes agree, which pins the colours themselves.
+    assert_eq!(pixel(&raster, 100, 200), (255, 0, 0, 255));
+    assert_eq!(pixel(&raster, 300, 200), (0, 0, 255, 255));
 }
 
 /// A radial shading with two different radii, which is PDF's general case.

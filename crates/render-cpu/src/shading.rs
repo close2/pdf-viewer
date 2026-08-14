@@ -51,9 +51,15 @@ const CUTOFF: f32 = 0.0005;
 ///
 /// A sampled shading becomes a pattern, and `tiny-skia` patterns *borrow* their pixels, so
 /// the caller lends somewhere to keep them. Everything else leaves `scratch` untouched.
+///
+/// `page_to_device` maps page space onto the device and is read only by the sampled kind,
+/// whose colours are produced at the grid the device turns out to want
+/// (`Shading::sampled_at`); the gradients position themselves in the path's space and never
+/// ask how large they are drawn.
 pub(crate) fn shader<'a>(
     shading: &Shading,
     page_to_path: Transform,
+    page_to_device: Transform,
     scratch: &'a mut Option<tiny_skia::Pixmap>,
 ) -> Option<tiny_skia::Shader<'a>> {
     let transform = crate::convert::transform(shading.transform.then(page_to_path));
@@ -87,7 +93,7 @@ pub(crate) fn shader<'a>(
             tiny_skia::SpreadMode::Pad,
             transform,
         ),
-        ShadingKind::Sampled { .. } => sampled_shader(shading, transform, scratch),
+        ShadingKind::Sampled { .. } => sampled_shader(shading, transform, page_to_device, scratch),
         // Meshes carry a colour — or §8.7.4.5.5's parametric value — per triangle corner,
         // which no shader can express; `fill_mesh` rasterises them instead. A kind added
         // later lands here too, and returning None makes the caller report it rather than
@@ -132,18 +138,17 @@ fn transparent_stop(position: f32, colour: Color) -> tiny_skia::GradientStop {
 }
 
 /// Builds a pattern shader over a sampled shading's grid.
+///
+/// The grid is the device's: `Shading::sampled_at` derives it from how many device pixels
+/// the domain covers under `page_to_device`, so zooming re-resolves the function rather than
+/// magnifying a raster fixed when the display list was built.
 fn sampled_shader<'a>(
     shading: &Shading,
     transform: tiny_skia::Transform,
+    page_to_device: Transform,
     scratch: &'a mut Option<tiny_skia::Pixmap>,
 ) -> Option<tiny_skia::Shader<'a>> {
-    let ShadingKind::Sampled {
-        domain,
-        width,
-        height,
-        pixels,
-    } = shading.kind.as_ref()
-    else {
+    let ShadingKind::Sampled { domain, .. } = shading.kind.as_ref() else {
         return None;
     };
 
@@ -151,12 +156,13 @@ fn sampled_shader<'a>(
     // coordinates onto it and then carried into the shading's own space.
     let [x0, x1, y0, y1] = *domain;
     let (span_x, span_y) = (x1 - x0, y1 - y0);
-    if span_x == 0.0 || span_y == 0.0 || *width == 0 || *height == 0 {
+    if span_x == 0.0 || span_y == 0.0 {
         return None;
     }
 
-    let mut pixmap = tiny_skia::Pixmap::new(*width, *height)?;
-    for (destination, colour) in pixmap.pixels_mut().iter_mut().zip(pixels.iter()) {
+    let grid = shading.sampled_at(page_to_device)?;
+    let mut pixmap = tiny_skia::Pixmap::new(grid.width, grid.height)?;
+    for (destination, colour) in pixmap.pixels_mut().iter_mut().zip(grid.pixels.iter()) {
         *destination = crate::convert::color(*colour).premultiply().to_color_u8();
     }
 
@@ -165,10 +171,10 @@ fn sampled_shader<'a>(
         reason = "grid dimensions are bounded well inside f32's exact integer range"
     )]
     let to_domain = tiny_skia::Transform::from_row(
-        span_x / *width as f32,
+        span_x / grid.width as f32,
         0.0,
         0.0,
-        span_y / *height as f32,
+        span_y / grid.height as f32,
         x0,
         y0,
     );

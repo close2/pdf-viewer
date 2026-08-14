@@ -105,6 +105,10 @@ impl CpuRasterizer {
     /// draws a gradient in the right shape and the wrong place, which no metric
     /// short of looking at the page detects.
     ///
+    /// `page_to_device` is the other direction and answers the other question: how many
+    /// device pixels a sampled shading's domain covers, which is where its colours are
+    /// produced (`Shading::sampled_at`). Only that kind reads it.
+    ///
     /// # Errors
     ///
     /// Returns [`CpuRasterError::UnsupportedPaint`] for a paint variant this backend
@@ -117,12 +121,15 @@ impl CpuRasterizer {
         paint: &Paint,
         blend: tiny_skia::BlendMode,
         page_to_path: Transform,
+        page_to_device: Transform,
         scratch: &'a mut Option<tiny_skia::Pixmap>,
     ) -> Result<tiny_skia::Paint<'a>, CpuRasterError> {
         let shader = match paint {
             Paint::Solid(colour) => tiny_skia::Shader::SolidColor(convert::color(*colour)),
-            Paint::Shading(shading) => shading::shader(shading, page_to_path, scratch)
-                .ok_or_else(|| CpuRasterError::UnsupportedPaint(format!("{shading:?}")))?,
+            Paint::Shading(shading) => {
+                shading::shader(shading, page_to_path, page_to_device, scratch)
+                    .ok_or_else(|| CpuRasterError::UnsupportedPaint(format!("{shading:?}")))?
+            }
             other => return Err(CpuRasterError::UnsupportedPaint(format!("{other:?}"))),
         };
         Ok(tiny_skia::Paint {
@@ -451,7 +458,13 @@ impl CpuRasterizer {
             if dashed {
                 style.dash = None;
             }
-            let brush = self.paint(paint, blend, page_to_path(transform)?, &mut scratch)?;
+            let brush = self.paint(
+                paint,
+                blend,
+                page_to_path(transform)?,
+                to_device.of(Transform::IDENTITY),
+                &mut scratch,
+            )?;
             if !draw_sub_pixel_rule(
                 pixmap,
                 (&geometry, &converted),
@@ -476,7 +489,13 @@ impl CpuRasterizer {
             && let Some(converted) = convert::path(&dots)
         {
             let mut scratch = None;
-            let mut brush = self.paint(paint, blend, page_to_path(transform)?, &mut scratch)?;
+            let mut brush = self.paint(
+                paint,
+                blend,
+                page_to_path(transform)?,
+                to_device.of(Transform::IDENTITY),
+                &mut scratch,
+            )?;
             if let Some(mark) = enlarged {
                 // The mark was built at `mark.width` above, so this is the area it gave up.
                 brush.shader.apply_opacity(mark.coverage);
@@ -1337,7 +1356,13 @@ impl CpuRasterizer {
         // A sampled shading's pixels are borrowed by its shader, so they need somewhere to
         // live for exactly as long as this call.
         let mut scratch = None;
-        let brush = self.paint(paint, blend, page_to_path(transform)?, &mut scratch)?;
+        let brush = self.paint(
+            paint,
+            blend,
+            page_to_path(transform)?,
+            to_device.of(Transform::IDENTITY),
+            &mut scratch,
+        )?;
         let split = pdf_render::split_collapsed_fill(source, at);
         if let Some(split) = &split
             && !split.marks.is_empty()

@@ -597,13 +597,7 @@ impl<'a> Encoder<'a> {
             BlendMode,
         ),
     ) -> Result<(), QuorraRasterError> {
-        let ShadingKind::Sampled {
-            domain,
-            width,
-            height,
-            pixels,
-        } = shading.kind.as_ref()
-        else {
+        let ShadingKind::Sampled { domain, .. } = shading.kind.as_ref() else {
             // The caller matched Sampled before dispatching here.
             return Err(QuorraRasterError::Unsupported(format!(
                 "shading {:?}",
@@ -612,29 +606,39 @@ impl<'a> Encoder<'a> {
         };
         let [x0, x1, y0, y1] = *domain;
         let (span_x, span_y) = (x1 - x0, y1 - y0);
-        if span_x == 0.0 || span_y == 0.0 || *width == 0 || *height == 0 {
+        if span_x == 0.0 || span_y == 0.0 {
             return Err(QuorraRasterError::Unsupported(
                 "a sampled shading with a degenerate domain".into(),
             ));
         }
 
+        // The colours are produced here, where the device scale is known — the grid
+        // `pdf_render` derives from the domain's own placement, so no backend picks its own
+        // (`Shading::sampled_at`). Transient for the deferred image's reason: the grid is
+        // this placement's and its `Arc` is this frame's, so there is no identity for a
+        // cache to be keyed by.
+        let grid = shading
+            .sampled_at(self.target.transform)
+            .ok_or_else(|| QuorraRasterError::Unsupported(format!("shading {:?}", shading.kind)))?;
+
         // The grid's row 0 sits at the domain's y0; quorra's image convention puts
         // the data's first row at unit y = 1 (ISO 32000-2 §8.9.5), so the rows
         // reverse on the way in.
-        let row_len = (*width as usize).saturating_mul(4);
-        let mut data = Vec::with_capacity(row_len.saturating_mul(*height as usize));
-        for row in (0..*height as usize).rev() {
-            let start = row.saturating_mul(*width as usize);
-            for c in pixels
-                .get(start..start.saturating_add(*width as usize))
+        let row_len = (grid.width as usize).saturating_mul(4);
+        let mut data = Vec::with_capacity(row_len.saturating_mul(grid.height as usize));
+        for row in (0..grid.height as usize).rev() {
+            let start = row.saturating_mul(grid.width as usize);
+            for c in grid
+                .pixels
+                .get(start..start.saturating_add(grid.width as usize))
                 .unwrap_or(&[])
             {
                 data.extend_from_slice(&byte_colour(*c));
             }
         }
         let image = self.device.upload_image(&quorra_scene::ImageSpec {
-            width: *width,
-            height: *height,
+            width: grid.width,
+            height: grid.height,
             data: Arc::from(data.as_slice()),
         })?;
         self.transient.push(image.into());
