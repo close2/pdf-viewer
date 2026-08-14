@@ -286,6 +286,16 @@ sha2 = "0.11.0"
 sha1 = "0.11.0"
 ripemd = "0.2.0"
 
+# §12.8.3's signature verifications — RFC 8017's two RSA paddings and FIPS 186-4's DSA — run
+# their modular arithmetic on this rather than on the in-tree limb arrays that preceded it
+# (ADR 0331, an owner decision superseding ADR 0314's in-tree choice; the verifiers and their
+# budgets stay in `pdf-model`, only the arithmetic moved). Same RustCrypto supplier as every
+# cipher and digest above, `Apache-2.0 OR MIT` like them, three packages this tree did not
+# already have (itself, `ctutils`, `cmov`). No default features: `alloc` is the one feature the
+# heap-allocated `BoxedUint` needs, and the default `rand` would pull a random-number stack into
+# code that only ever verifies public numbers.
+crypto-bigint = { version = "0.7.5", default-features = false, features = ["alloc"] }
+
 # §7.6.4.1 requires a password to be processed with the SASLprep profile (Internet RFC
 # 4013) of stringprep (Internet RFC 3454) before it is used. That is Unicode normalisation,
 # a character-class mapping and a BiDi check — data rather than algorithm, and exactly the

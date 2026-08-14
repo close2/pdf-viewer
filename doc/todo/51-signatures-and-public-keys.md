@@ -52,30 +52,42 @@ skipped: `Authenticity::AlgorithmNotVerifiable`, `Authenticity::KeyNotVerifiable
 rather than as a word, because this tree holds ISO 32000-2 and not the documents that assign those
 numbers.
 
-**1. ECDSA and EdDSA — refused, with the argument in ADR 0314 rather than left as a to-do.**
+**1. ECDSA and EdDSA — refused-for-now, re-grounded in the four-hundred-and-ninety-sixth session
+(ADR 0331) after the owner's arithmetic decision killed the refusal's heaviest premise.**
 (RSASSA-PSS stood here until the four-hundred-and-eighty-seventh session closed it: `crates/pdf-model/src/pss.rs`
 is RFC 8017 sections 8.1.2 and 9.1.2 with Appendix B.2.1's MGF1 over `crate::bigint`, reading the
 `RSASSA-PSS-params` from the `AlgorithmIdentifier`, kept separate from PKCS #1 v1.5 as this file
-insisted — ADR 0322.) The short form on the elliptic-curve family:
+insisted — ADR 0322. And `crate::bigint` itself is a seam over RustCrypto's `crypto-bigint` since
+the four-hundred-and-ninety-sixth, by owner decision — ADR 0331.) The short form on the
+elliptic-curve family, on 2026-08-14's measurements:
 
 - The standard family names **eight curves**, not five: ISO/TS 32002 Table 3 gives P-256, P-384,
   P-521, brainpoolP256r1, brainpoolP384r1 and brainpoolP512r1 for ECDSA, and its Table 4 adds
   Ed25519 (SHA512) and Ed448 (SHAKE256) for EdDSA, which is a second and unrelated group law.
-- **Their domain parameters are in no document this tree holds.** That, and not the size of the
-  arithmetic, is why nothing was written: a curve constant transcribed from memory is exactly what
-  `CLAUDE.md` principle 5 forbids, and a self-consistency check proves a constant was not mistyped
-  rather than that it is the curve the world means.
-- `p256` + `p384` cover two of the six ECDSA curves and neither Edwards one; TS 32002 section 5.1.3
+- **"Their domain parameters are in no document this tree holds" no longer decides anything.**
+  It was ADR 0314's first premise; once the owner accepted reviewed *arithmetic* as a dependency
+  (ADR 0331), reviewed *constants* in a curve crate stand on the same footing. Do not cite that
+  sentence as the blocker again — the blockers below are the live ones.
+- **Stable-line coverage refuses.** `p256`/`p384`/`p521` 0.14.0 are now stable on this tree's
+  `digest` 0.11 line (measured in ADR 0331's scratch crate — the pre-release objection has
+  expired for the NIST curves, at about twenty new packages for the first one). But the Brainpool
+  pair is release-candidate-only on that line (`bp256` 0.14.0-rc; its stable 0.6 is the old hash
+  line), brainpoolP512r1 has no crate at all, and Ed448 none either. TS 32002 section 5.1.3
   requires `namedCurve` and permits a processor to "ignore or handle in an implementation-dependent
-  manner" a document signed with a curve outside those tables, which caps the set without making it
-  small.
-- **Two of the three ECDSA witnesses are BSI TR-03111 *plain* ECDSA** (`0.4.0.127.0.7.1.1.4.1.3`),
-  whose signature value is `r ‖ s` as fixed-width octets rather than RFC 3279's DER `Dss-Sig-Value`
-  — so a package that closed the DER-encoded case would still decline them.
+  manner" a document signed with a curve outside those tables, which caps the set without making
+  it small.
+- **The witnesses are now identified by curve** (ADR 0331 extracted the three signers'
+  certificates): the one DER-encoded `ecdsa-with-SHA256` signature is **P-256**; the two BSI
+  TR-03111 *plain* signatures (`0.4.0.127.0.7.1.1.4.1.3`, `r ‖ s` as fixed-width octets rather
+  than RFC 3279's DER `Dss-Sig-Value`) are one **brainpoolP256r1** and one **P-256**. The plain
+  encoding is defined in BSI TR-03111, a document this tree does not hold — a principle-5 blocker
+  independent of any crate. So the stable packages would close **one signature of 811**.
 
-What would change it: a population that makes the family more than a rounding error, or a decision
-to accept the whole `elliptic-curve` stack with its package count and licence position argued in
-`doc/stack.md`. Take the curves TS 32002 Table 3 lists, not the ones a crate happens to publish.
+What would change it: a stable Brainpool pair on the current line **plus** the BSI TR-03111 text
+in `doc/` (which would close all three witnesses at once), or a population that makes the family
+more than a rounding error. Take the curves TS 32002 Table 3 lists, not the ones a crate happens
+to publish — and EdDSA's zero witnesses queue it behind the witnessed three, by this file's own
+ordering rule above.
 
 **2. ISO/TS 32001's four digests.** §5.1.4 adds SHA3-256, SHA3-384, SHA3-512 and SHAKE256 to Table
 260's Message Digest row and §5.1.3 adds the same four to Table 256's `/DigestMethod`, with

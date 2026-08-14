@@ -288,8 +288,9 @@ pub fn verify(
         return Ok(false);
     }
 
-    // Step 2. `w = s^-1 mod q` — FIPS 186-4 Appendix C.1 is the stated route and
-    // `Modulus::invert` says why Fermat's is an equivalent one here.
+    // Step 2. `w = s^-1 mod q` — FIPS 186-4 Appendix C.1 states the extended Euclidean algorithm
+    // and admits "an algorithm that produces an equivalent result"; `Modulus::invert` is
+    // `crypto-bigint`'s, which is one.
     let Some(w) = q.invert(&s) else {
         return Ok(false);
     };
@@ -318,31 +319,13 @@ pub fn verify(
 /// approves makes `N` a multiple of eight, so the shift is zero in practice; it is written for the
 /// general case because a file states `q` and this program does not get to assume its width.
 ///
-/// `None` where the digest needs more limbs than [`crate::bigint`] holds, which no hash function
-/// this program computes can produce.
+/// `None` where the digest is wider than [`crate::bigint`] holds, which no hash function this
+/// program computes can produce.
 fn truncated_digest(message_digest: &[u8], subgroup_bits: usize) -> Option<Integer> {
     let outlen = message_digest.len().saturating_mul(8);
-    let mut value = Integer::from_be_bytes(message_digest)?;
+    let value = Integer::from_be_bytes(message_digest)?;
     let drop = outlen.saturating_sub(subgroup_bits.min(outlen));
-    for _ in 0..drop {
-        shift_right(&mut value);
-    }
-    Some(value)
-}
-
-/// `value /= 2`, in place — the one operation [`crate::bigint`] has no reason to offer.
-///
-/// It exists here rather than there because dividing an integer by two is not modular arithmetic:
-/// it is how a digest wider than `q` loses its low bits, and nothing else in this tree needs it.
-fn shift_right(value: &mut Integer) {
-    let mut carry = 0u64;
-    for index in (0..value.limbs.len()).rev() {
-        let limb = value.limbs.get(index).copied().unwrap_or(0);
-        if let Some(slot) = value.limbs.get_mut(index) {
-            *slot = (limb >> 1) | (carry << 63);
-        }
-        carry = limb & 1;
-    }
+    Some(value.shifted_right(drop))
 }
 
 /// A DSA key and a signature made with it, built once with `openssl` and pasted in.

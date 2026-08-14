@@ -40,18 +40,15 @@
 //! module is safe in one direction: assuming the wrong padding, the wrong digest or the wrong
 //! algorithm produces "does not verify", never a false "verifies".
 //!
-//! # Why this is in the tree rather than a dependency
+//! # Why the construction is in the tree and the arithmetic is not
 //!
-//! ADR 0229 argues it against the `rsa` crate, and the short form is that the argument ADR
-//! 0031 made for taking the *ciphers* has no instance here: **there is no secret.** A signature
-//! verification is `s^e mod n` over three numbers a stranger wrote into the file, none of them
-//! ours and none of them private, so the class of defect wide review buys protection from —
-//! timing and cache side channels on key material — has nothing to act on. Nothing in this module
-//! is written to run in constant time and nothing needs to be.
-//!
-//! What is left is integer arithmetic against published test vectors, under this crate's
-//! `#![forbid(unsafe_code)]`, with every loop bounded by a constant rather than by the file. That
-//! arithmetic is [`crate::bigint`] and lived here until a second caller needed it (ADR 0314).
+//! The *scheme* — encode-and-compare, the budgets, the refusal names — stays here: ADR 0229
+//! declined the `rsa` crate because a whole-scheme dependency parses keys and signatures with a
+//! strict DER stack this corpus contradicts, and that reasoning stands (ADR 0331 re-measured it).
+//! The *arithmetic* under it is `RustCrypto`'s `crypto-bigint` since the four-hundred-and-ninety-
+//! sixth session, by the project owner's decision: [`crate::bigint`] is the seam, and ADR 0331
+//! has the argument. ADR 0229's observation survives the port — **there is no secret** in a
+//! verification, every number came out of the file, and nothing here needs constant time.
 //!
 //! # The budgets, and what each costs
 //!

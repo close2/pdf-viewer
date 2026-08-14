@@ -213,8 +213,9 @@ finds the certificate the `SignerInfo` names among the ones the signature itself
 key with `pdf_model::x509` and verifies with `pdf_model::pkcs1`, `pdf_model::pss` or
 `pdf_model::dsa` — RFC 8017's RSASSA-PKCS1-v1_5 and RSASSA-PSS, the latter over the
 `RSASSA-PSS-params` the signature's own algorithm identifier carries, and FIPS 186-4's DSA: two of
-Table 260's three algorithm families, the RSA one under both of its paddings, in tree, no
-dependency taken (ADRs 0229, 0314, 0322). The third is elliptic-curve, and it is **refused with an
+Table 260's three algorithm families, the RSA one under both of its paddings. The constructions,
+budgets and refusal names are this tree's; the modular arithmetic under them is RustCrypto's
+`crypto-bigint`, by owner decision (ADRs 0229, 0314, 0322, 0331). The third is elliptic-curve, and it is **refused with an
 argument rather than half-written**: ISO/TS 32002 makes it eight curves across two group laws whose
 domain parameters are in no document this tree holds, and every one of them is named at runtime by
 the identifier the file states. The sentences the program uses keep every

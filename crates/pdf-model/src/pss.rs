@@ -53,9 +53,10 @@
 //! field other than the 1 that Appendix A.2.3 says "SHALL be 1 for this version of the document,
 //! which represents the trailer field with hexadecimal value 0xbc". ADR 0322 has the decision.
 //!
-//! There is no dependency and no new arithmetic: the modular exponentiation is
-//! [`crate::bigint`]'s, on ADR 0229's argument — a signature verification has no secret in it,
-//! so nothing here runs in constant time and nothing needs to.
+//! There is no arithmetic of this module's own: the modular exponentiation is
+//! [`crate::bigint`]'s — `crypto-bigint` behind this crate's budgets since ADR 0331 — and ADR
+//! 0229's argument still holds: a signature verification has no secret in it, so nothing here
+//! runs in constant time and nothing needs to.
 
 use crate::cms::Digest;
 use crate::der::{INTEGER, SEQUENCE, Value};

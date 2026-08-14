@@ -1,7 +1,13 @@
 # ADR 0314 — The family whose parameters are in the file
 
-Status: accepted, 2026-08-13 (session 479). Answers Table 260's second algorithm family and
-refuses its third with an argument. Follows ADR 0215 (question 1) and ADR 0229 (question 2, RSA).
+Status: accepted, 2026-08-13 (session 479); **superseded in part by ADR 0331, 2026-08-14 (session
+496, an owner decision)**. What is superseded: Decision 3's in-tree arithmetic — `bigint.rs` is a
+seam over `crypto-bigint` now — and Decision 2's first premise, that the elliptic-curve domain
+parameters being in no document this tree holds blocks the family: a reviewed curve crate carries
+them as reviewed constants, on the same footing as the arithmetic. Decision 2's *refusal* stands on
+ADR 0331's re-measured grounds (stable-line coverage and one closable witness in 811), and
+Decisions 1 and 4 stand entire. Answers Table 260's second algorithm family. Follows ADR 0215
+(question 1) and ADR 0229 (question 2, RSA).
 
 ## Context
 

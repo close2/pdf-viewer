@@ -8,6 +8,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+# §12.8.3's signature arithmetic: `bigint.rs` is a seam over this crate's `BoxedUint`, keeping
+# the budgets and refusal names ours while the multiplications are reviewed code. ADR 0331.
+crypto-bigint.workspace = true
 # Table 45's `/CheckSum` is an MD5 of an embedded file's bytes, and §7.6's algorithms already
 # brought the crate into the tree.
 md-5.workspace = true

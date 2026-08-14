@@ -1,7 +1,11 @@
 # ADR 0229 — A key that arrived in the same envelope
 
 Status: accepted, 2026-08-08 (session 392). Answers the second of the three questions ADR 0215
-separated.
+separated. **Decision 1's "write the RSA half in tree" is superseded in part by ADR 0331 (session
+496, an owner decision): the construction, budgets and refusals stay in tree, the modular
+arithmetic under them is `crypto-bigint`'s.** Decisions 2 to 4, and Decision 1's case against the
+whole-scheme `rsa`/`x509-cert` packages, stand — ADR 0331 re-measured that table and the stable
+`rsa` line is still on the second hash stack.
 
 ## Context
 

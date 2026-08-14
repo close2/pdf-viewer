@@ -1,40 +1,49 @@
-//! Fixed-size modular arithmetic over numbers a stranger wrote into a file.
+//! Modular arithmetic over numbers a stranger wrote into a file — `crypto-bigint`, behind
+//! this crate's own budgets.
 //!
 //! **This module knows nothing about signatures.** It is the integer arithmetic two of them need:
 //! [`crate::pkcs1`]'s `s^e mod n` (RFC 8017 section 5.2.2) and [`crate::dsa`]'s `g^u1 y^u2 mod p mod q`
 //! (FIPS 186-4 section 4.7). It lived inside `pkcs1` until the four-hundred-and-seventy-ninth
-//! session and moved out when a second caller arrived, rather than being reached into from one
-//! module by another — ADR 0314.
+//! session and moved out when a second caller arrived (ADR 0314).
 //!
-//! # What the shape buys, and it is a security property rather than a style
+//! # The arithmetic is a dependency's, and that is a decision
 //!
-//! Every value is [`MAX_LIMBS`] limbs whatever the file says, so **every loop's trip count is a
-//! constant of this module** and none is a number out of the document. `CLAUDE.md` principle 3
-//! asks exactly that of arithmetic over untrusted input: memory safety does not bound work, and a
-//! `Vec`-backed integer would let a modulus in a hostile file choose how long a verification takes.
-//! What it costs is one kilobyte of stack per integer.
+//! Until the four-hundred-and-ninety-sixth session this module *was* the arithmetic: a fixed-size
+//! limb array, Montgomery multiplication and square-and-multiply, written in tree on ADR 0229's
+//! argument that a verification has no secret to leak. The project owner decided otherwise after
+//! reading ADR 0314, and ADR 0331 carries the reasoning: `RustCrypto`'s `crypto-bigint` is the
+//! reviewed implementation of exactly these operations, it sits on the same supplier line as every
+//! cipher and digest this tree already takes, and what review buys a *verifier* is not
+//! side-channel resistance but a second set of eyes on carry propagation — the one class of defect
+//! a wrong-arithmetic test vector can miss and a forgery can hit.
 //!
-//! **There is no division anywhere in this module.** Entering the Montgomery domain is repeated
-//! doubling, every reduction is one pass of the multiplication itself, and [`Modulus::reduce`] —
-//! the one operation that looks like a division — is a shift-and-subtract over the value's bits.
+//! What stays this module's is everything that is a statement about a PDF file rather than about
+//! mathematics: the conversion between the file's big-endian octet strings and integers, the
+//! [`MAX_BITS`] budget both callers restate, and the refusal shapes (an even or trivial modulus,
+//! a number too wide to hold). Every multiplication, exponentiation, reduction and inversion below
+//! is one call into `crypto-bigint`.
 //!
 //! # There is no secret here
 //!
-//! Nothing in this module runs in constant time and nothing needs to: every number it touches is
-//! public — a modulus, a public key, a signature value, a digest — and all of them came out of a
-//! file anyone can read. ADR 0229 has the argument in full; it is why this arithmetic is in the
-//! tree at all rather than taken from a dependency.
+//! Nothing in this module needs to run in constant time: every number it touches is public — a
+//! modulus, a public key, a signature value, a digest — and all of them came out of a file anyone
+//! can read (ADR 0229's argument, which survives the port). The `_vartime` spellings below say so
+//! deliberately: `crypto-bigint` offers both, and taking the constant-time form would claim a
+//! property nothing here relies on.
+
+use crypto_bigint::modular::{BoxedMontyForm, BoxedMontyParams};
+use crypto_bigint::{BoxedUint, Odd, Resize};
 
 /// The widest number this module holds, in bits.
 ///
 /// Twice Table 260's largest key ("Up to 4096-bit (PDF 1.5)"), so that a key beyond the standard
 /// is reported by name rather than refused by running out of room, and one beyond this is refused
 /// by name too. Both callers restate it as their own budget: [`crate::pkcs1::MAX_MODULUS_BITS`]
-/// and [`crate::dsa::MAX_MODULUS_BITS`].
+/// and [`crate::dsa::MAX_MODULUS_BITS`]. The budget is this program's, not the dependency's:
+/// `crypto-bigint`'s heap-allocated integers would hold whatever a hostile file wrote, and the
+/// point of the bound is that work stays a constant of this module rather than a number out of
+/// the document.
 pub(crate) const MAX_BITS: usize = 8192;
-
-/// How many 64-bit limbs [`MAX_BITS`] is.
-pub(crate) const MAX_LIMBS: usize = MAX_BITS / 64;
 
 /// The significant bits of a big-endian byte string, ignoring leading zero octets.
 ///
@@ -59,10 +68,15 @@ pub(crate) fn significant_bits(bytes: &[u8]) -> usize {
         .saturating_add(8usize.saturating_sub(first.leading_zeros() as usize))
 }
 
-/// A big unsigned integer of at most [`MAX_LIMBS`] limbs, least significant first.
-#[derive(Clone, Copy)]
+/// A big unsigned integer of at most [`MAX_BITS`] bits.
+///
+/// A [`BoxedUint`] whose precision was chosen from the encoded value's own significant octets, so
+/// a 2048-bit key computes at 2048 bits rather than at the budget's ceiling. The precision is a
+/// public fact about a public number; see the module documentation for why nothing here is
+/// constant-time.
+#[derive(Clone)]
 pub(crate) struct Integer {
-    pub(crate) limbs: [u64; MAX_LIMBS],
+    value: BoxedUint,
 }
 
 impl std::fmt::Debug for Integer {
@@ -73,22 +87,14 @@ impl std::fmt::Debug for Integer {
 
 impl Integer {
     /// Zero.
+    #[cfg(test)]
     pub(crate) fn zero() -> Self {
         Self {
-            limbs: [0; MAX_LIMBS],
+            value: BoxedUint::zero_with_precision(64),
         }
     }
 
-    /// One.
-    pub(crate) fn one() -> Self {
-        let mut out = Self::zero();
-        if let Some(slot) = out.limbs.first_mut() {
-            *slot = 1;
-        }
-        out
-    }
-
-    /// A big-endian byte string as an integer, or `None` where it needs more than [`MAX_LIMBS`].
+    /// A big-endian byte string as an integer, or `None` where it needs more than [`MAX_BITS`].
     ///
     /// Leading zero octets are ignored, which is what makes an X.509 `INTEGER`'s sign octet
     /// harmless here: RFC 5280's serial numbers and moduli are written with a leading `0x00` when
@@ -100,18 +106,18 @@ impl Integer {
             .count()
             .min(bytes.len());
         let significant = bytes.get(leading..).unwrap_or(&[]);
-        if significant.len().div_ceil(8) > MAX_LIMBS {
+        if significant.len() > MAX_BITS / 8 {
             return None;
         }
-        let mut out = Self::zero();
-        for (index, byte) in significant.iter().rev().enumerate() {
-            let limb = index / 8;
-            let shift = u32::try_from(index % 8).unwrap_or(0).saturating_mul(8);
-            if let Some(slot) = out.limbs.get_mut(limb) {
-                *slot |= u64::from(*byte) << shift;
-            }
-        }
-        Some(out)
+        let precision = u32::try_from(significant.len())
+            .ok()?
+            .saturating_mul(8)
+            .max(64);
+        // Cannot fail: the slice fits the precision by construction, and `from_be_slice` rounds
+        // the precision up to a whole limb itself.
+        BoxedUint::from_be_slice(significant, precision)
+            .ok()
+            .map(|value| Self { value })
     }
 
     /// The integer as exactly `length` big-endian octets, zero-padded on the left.
@@ -120,362 +126,147 @@ impl Integer {
     /// modulo an `n` of that many octets — and which would produce a block that fails the
     /// comparison rather than one that passes it.
     pub(crate) fn be_bytes(&self, length: usize) -> Vec<u8> {
+        let raw = self.value.to_be_bytes();
         let mut out = vec![0u8; length];
-        for index in 0..length {
-            let limb = index / 8;
-            let shift = u32::try_from(index % 8).unwrap_or(0).saturating_mul(8);
-            let byte = self.limbs.get(limb).map_or(0, |value| {
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    reason = "one octet of a limb is wanted, and the shift selects it"
-                )]
-                {
-                    (value >> shift) as u8
-                }
-            });
-            if let Some(slot) = out
-                .len()
-                .checked_sub(1)
-                .and_then(|last| last.checked_sub(index))
-                .and_then(|at| out.get_mut(at))
-            {
-                *slot = byte;
-            }
+        let take = raw.len().min(length);
+        let source = raw.get(raw.len().saturating_sub(take)..).unwrap_or(&[]);
+        if let Some(slot) = out.get_mut(length.saturating_sub(take)..) {
+            slot.copy_from_slice(source);
         }
         out
     }
 
-    /// Whether every limb is zero.
+    /// Whether the value is zero.
     pub(crate) fn is_zero(&self) -> bool {
-        self.limbs.iter().all(|&limb| limb == 0)
+        self.value.is_zero().into()
     }
 
     /// The number of significant bits.
     pub(crate) fn bits(&self) -> usize {
-        for index in (0..MAX_LIMBS).rev() {
-            let limb = self.limbs.get(index).copied().unwrap_or(0);
-            if limb != 0 {
-                return index
-                    .saturating_mul(64)
-                    .saturating_add(64usize.saturating_sub(limb.leading_zeros() as usize));
-            }
-        }
-        0
+        usize::try_from(self.value.bits()).unwrap_or(usize::MAX)
     }
 
-    /// Bit `index`, counting from the least significant.
-    pub(crate) fn bit(&self, index: usize) -> bool {
-        let shift = u32::try_from(index % 64).unwrap_or(0);
-        self.limbs
-            .get(index / 64)
-            .is_some_and(|limb| (limb >> shift) & 1 == 1)
-    }
-
-    /// Whether this is strictly less than `other`, comparing whole arrays.
+    /// Whether this is strictly less than `other`.
     ///
-    /// The comparison walks all [`MAX_LIMBS`] limbs rather than the used length, so it does not
-    /// depend on either value's width being normalised.
+    /// `crypto-bigint` compares across differing precisions, so neither value's width needs
+    /// normalising first.
     pub(crate) fn less_than(&self, other: &Self) -> bool {
-        for index in (0..MAX_LIMBS).rev() {
-            let mine = self.limbs.get(index).copied().unwrap_or(0);
-            let theirs = other.limbs.get(index).copied().unwrap_or(0);
-            if mine != theirs {
-                return mine < theirs;
-            }
-        }
-        false
+        self.value < other.value
     }
 
-    /// Whether the two are the same number.
+    /// Whether the two are the same number, whatever their precisions.
     pub(crate) fn equals(&self, other: &Self) -> bool {
-        self.limbs == other.limbs
+        self.value.cmp_vartime(&other.value) == std::cmp::Ordering::Equal
+    }
+
+    /// `self >> bits`, losing the low bits — how a digest wider than a DSA `q` is truncated.
+    ///
+    /// The unbounded form, so a shift as wide as the value produces zero rather than wrapping the
+    /// shift amount the way `wrapping_shr` would.
+    pub(crate) fn shifted_right(&self, bits: usize) -> Self {
+        Self {
+            value: self
+                .value
+                .unbounded_shr_vartime(u32::try_from(bits).unwrap_or(u32::MAX)),
+        }
     }
 }
 
-/// `a * b + c + d`, as `(high, low)`.
-///
-/// The bound is what makes every carry in this module fit: with all four at `u64::MAX` the sum is
-/// `(2^64 - 1)^2 + 2 * (2^64 - 1) = 2^128 - 1`, so a `u128` holds it exactly and no intermediate
-/// wraps. The wrapping spellings are therefore descriptions of arithmetic that cannot wrap, and
-/// not permissions for it to.
-fn multiply_accumulate(a: u64, b: u64, c: u64, d: u64) -> (u64, u64) {
-    let wide = u128::from(a)
-        .wrapping_mul(u128::from(b))
-        .wrapping_add(u128::from(c))
-        .wrapping_add(u128::from(d));
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "the two halves of a 128-bit product are wanted, and each is taken exactly"
-    )]
-    {
-        ((wide >> 64) as u64, wide as u64)
-    }
-}
-
-/// An odd modulus, with the constant Montgomery reduction needs.
+/// An odd modulus greater than one, holding the Montgomery parameters `crypto-bigint` computes
+/// once per modulus.
 pub(crate) struct Modulus {
+    /// The modulus itself, which callers compare signature values against.
     pub(crate) value: Integer,
-    /// `-n^-1 mod 2^64`, the quantity each reduction step multiplies by.
-    inverse: u64,
-    /// How many limbs the modulus occupies, which is every loop's trip count below.
-    limbs: usize,
+    /// The precomputed Montgomery form parameters, shared by every operation below.
+    params: BoxedMontyParams,
 }
 
 impl Modulus {
     /// An odd modulus greater than one, or `None`.
     ///
-    /// Montgomery reduction needs `n` odd — it works modulo `2^64` in each step, and an even `n`
-    /// has no inverse there. RFC 8017 section 3.1 makes an RSA modulus a product of odd primes and
-    /// FIPS 186-4 section 4.1 makes DSA's `p` and `q` prime, so this refuses nothing a real key
-    /// could be; both callers report the refusal by name rather than working around it.
+    /// Montgomery reduction needs `n` odd — it works modulo a power of two, where an even `n` has
+    /// no inverse. RFC 8017 section 3.1 makes an RSA modulus a product of odd primes and FIPS
+    /// 186-4 section 4.1 makes DSA's `p` and `q` prime, so this refuses nothing a real key could
+    /// be; both callers report the refusal by name rather than working around it.
     pub(crate) fn new(value: &Integer) -> Option<Self> {
-        let low = value.limbs.first().copied().unwrap_or(0);
-        if low & 1 == 0 || value.bits() < 2 {
+        if value.bits() < 2 {
             return None;
         }
-        // Newton's iteration for the inverse modulo `2^64`: `x` doubles its correct bits each
-        // step, so five steps take one correct bit (odd numbers are their own inverse mod 2) to
-        // sixty-four. Every operation is deliberately modulo `2^64`, which is what wrapping is.
-        let mut inverse = 1u64;
-        for _ in 0..6 {
-            inverse = inverse.wrapping_mul(2u64.wrapping_sub(low.wrapping_mul(inverse)));
-        }
+        let odd = Odd::new(value.value.clone()).into_option()?;
         Some(Self {
-            limbs: value.bits().div_ceil(64).min(MAX_LIMBS),
-            inverse: inverse.wrapping_neg(),
-            value: *value,
+            // `new_vartime` rather than `new`: the modulus is public (module documentation).
+            params: BoxedMontyParams::new_vartime(odd),
+            value: value.clone(),
         })
     }
 
-    /// `a * b * R^-1 mod n`, where `R` is `2^(64 * limbs)` — one Montgomery multiplication.
+    /// The modulus's precision, which every Montgomery-form operand must share.
+    fn precision(&self) -> u32 {
+        self.params.bits_precision()
+    }
+
+    /// `value` at the modulus's precision, as the Montgomery form the parameters expect.
     ///
-    /// The coarsely-integrated operand scanning form: each pass over `b`'s limbs multiplies,
-    /// accumulates and reduces by one limb, so the accumulator never grows past `limbs + 2` and
-    /// no division is performed anywhere in this module.
-    pub(crate) fn multiply(&self, a: &Integer, b: &Integer) -> Integer {
-        let limbs = self.limbs;
-        let mut t = [0u64; MAX_LIMBS + 2];
-        for index in 0..limbs {
-            let multiplier = b.limbs.get(index).copied().unwrap_or(0);
-            let mut carry = 0u64;
-            for place in 0..limbs {
-                let (high, low) = multiply_accumulate(
-                    a.limbs.get(place).copied().unwrap_or(0),
-                    multiplier,
-                    t.get(place).copied().unwrap_or(0),
-                    carry,
-                );
-                if let Some(slot) = t.get_mut(place) {
-                    *slot = low;
-                }
-                carry = high;
-            }
-            let (sum, overflow) = t.get(limbs).copied().unwrap_or(0).overflowing_add(carry);
-            if let Some(slot) = t.get_mut(limbs) {
-                *slot = sum;
-            }
-            if let Some(slot) = t.get_mut(limbs.saturating_add(1)) {
-                *slot = u64::from(overflow);
-            }
-            // One limb of the reduction: adding `m * n` clears `t[0]`, which is what makes the
-            // whole accumulator shift down by a limb without a division.
-            let m = t.first().copied().unwrap_or(0).wrapping_mul(self.inverse);
-            let (mut carry, _) = multiply_accumulate(
-                m,
-                self.value.limbs.first().copied().unwrap_or(0),
-                t.first().copied().unwrap_or(0),
-                0,
-            );
-            for place in 1..limbs {
-                let (high, low) = multiply_accumulate(
-                    m,
-                    self.value.limbs.get(place).copied().unwrap_or(0),
-                    t.get(place).copied().unwrap_or(0),
-                    carry,
-                );
-                if let Some(slot) = t.get_mut(place.saturating_sub(1)) {
-                    *slot = low;
-                }
-                carry = high;
-            }
-            let (sum, overflow) = t.get(limbs).copied().unwrap_or(0).overflowing_add(carry);
-            if let Some(slot) = t.get_mut(limbs.saturating_sub(1)) {
-                *slot = sum;
-            }
-            let top = t
-                .get(limbs.saturating_add(1))
-                .copied()
-                .unwrap_or(0)
-                .wrapping_add(u64::from(overflow));
-            if let Some(slot) = t.get_mut(limbs) {
-                *slot = top;
-            }
-        }
-        let mut out = Integer::zero();
-        for place in 0..limbs {
-            if let (Some(slot), Some(&value)) = (out.limbs.get_mut(place), t.get(place)) {
-                *slot = value;
-            }
-        }
-        // The result is below `2 * n`, so at most one subtraction brings it below `n`. The extra
-        // limb `t[limbs]` carries the case where it does not fit in `limbs` limbs at all.
-        if t.get(limbs).copied().unwrap_or(0) != 0 || !out.less_than(&self.value) {
-            self.subtract(&mut out);
-        }
-        out
+    /// Callers hand values already below `n`, so the narrowing resize drops nothing; a caller
+    /// that broke that contract is caught by `try_resize` and reduced first, which is the honest
+    /// repair rather than a silent wrong answer.
+    fn form(&self, value: &Integer) -> BoxedMontyForm {
+        let at_precision = Resize::try_resize(&value.value, self.precision())
+            .unwrap_or_else(|| self.reduce(value).value.resize(self.precision()));
+        BoxedMontyForm::new(at_precision, &self.params)
     }
 
-    /// `value -= n`, in place; wrapping is not reachable because the caller has compared first.
-    pub(crate) fn subtract(&self, value: &mut Integer) {
-        let mut borrow = 0u64;
-        for place in 0..self.limbs {
-            let mine = value.limbs.get(place).copied().unwrap_or(0);
-            let theirs = self.value.limbs.get(place).copied().unwrap_or(0);
-            let (first, under) = mine.overflowing_sub(theirs);
-            let (result, again) = first.overflowing_sub(borrow);
-            if let Some(slot) = value.limbs.get_mut(place) {
-                *slot = result;
-            }
-            borrow = u64::from(under || again);
-        }
-    }
-
-    /// `value = 2 * value mod n`, in place, for a `value` already below `n`.
+    /// `value mod n`, for a `value` of any size.
     ///
-    /// The one operation that needs no multiplication, and the whole of how a value enters the
-    /// Montgomery domain: doubling `64 * limbs` times multiplies by `R`.
-    pub(crate) fn double(&self, value: &mut Integer) {
-        let mut carry = 0u64;
-        for place in 0..self.limbs {
-            let limb = value.limbs.get(place).copied().unwrap_or(0);
-            if let Some(slot) = value.limbs.get_mut(place) {
-                *slot = (limb << 1) | carry;
-            }
-            carry = limb >> 63;
-        }
-        // A carry out of the top means the doubled value is at least `2^(64 * limbs)`, which is
-        // larger than `n`, so the subtraction is owed whatever the comparison says.
-        if carry != 0 || !value.less_than(&self.value) {
-            self.subtract(value);
-        }
-    }
-
-    /// `value = value + 1 mod n`, in place, for a `value` already below `n`.
-    ///
-    /// One conditional subtraction is enough: `value < n` makes `value + 1` at most `n`.
-    fn increment(&self, value: &mut Integer) {
-        let mut carry = 1u64;
-        for place in 0..self.limbs {
-            let limb = value.limbs.get(place).copied().unwrap_or(0);
-            let (sum, overflow) = limb.overflowing_add(carry);
-            if let Some(slot) = value.limbs.get_mut(place) {
-                *slot = sum;
-            }
-            carry = u64::from(overflow);
-            if carry == 0 {
-                break;
-            }
-        }
-        if carry != 0 || !value.less_than(&self.value) {
-            self.subtract(value);
-        }
-    }
-
-    /// `value * R mod n` — the Montgomery form of a value already reduced modulo `n`.
-    pub(crate) fn to_montgomery(&self, value: &Integer) -> Integer {
-        let mut out = *value;
-        for _ in 0..self.limbs.saturating_mul(64) {
-            self.double(&mut out);
-        }
-        out
-    }
-
-    /// `value mod n`, for a `value` of any size — the one place a division would ordinarily be.
-    ///
-    /// Shift-and-subtract from the top bit down, which is the schoolbook long division with the
-    /// quotient thrown away: the running remainder is always below `n`, so doubling it and adding
-    /// the next bit needs at most one subtraction each. FIPS 186-4 section 4.7 needs exactly this
-    /// once — `v = ((g^u1 y^u2) mod p) mod q` reduces a `p`-sized number by a much smaller `q` —
-    /// and the cost is one pass per bit of `value`, on a path that runs once per signature.
+    /// FIPS 186-4 section 4.7 needs exactly this once — `v = ((g^u1 y^u2) mod p) mod q` reduces a
+    /// `p`-sized number by a much smaller `q` — and both callers use it to bring a file's numbers
+    /// below their modulus before exponentiating.
     pub(crate) fn reduce(&self, value: &Integer) -> Integer {
-        let mut out = Integer::zero();
-        for index in (0..value.bits()).rev() {
-            self.double(&mut out);
-            if value.bit(index) {
-                self.increment(&mut out);
-            }
+        let divisor = self.params.modulus().as_nz_ref();
+        Integer {
+            value: value.value.rem_vartime(divisor),
         }
-        out
     }
 
     /// `a * b mod n` for two values already below `n`.
-    ///
-    /// Montgomery multiplication divides by `R` once, so putting one operand *into* the domain
-    /// first cancels it exactly: `MontMul(aR, b) = a b R R^-1 = a b`.
     pub(crate) fn multiply_reduced(&self, a: &Integer, b: &Integer) -> Integer {
-        self.multiply(&self.to_montgomery(a), b)
-    }
-
-    /// `n - 2`, which is the exponent Fermat's little theorem inverts by.
-    ///
-    /// `n` is odd and at least three here — [`Modulus::new`] refuses anything smaller — so the
-    /// subtraction cannot borrow past the top.
-    fn minus_two(&self) -> Integer {
-        let mut out = self.value;
-        let mut borrow = 2u64;
-        for place in 0..self.limbs {
-            let limb = out.limbs.get(place).copied().unwrap_or(0);
-            let (result, under) = limb.overflowing_sub(borrow);
-            if let Some(slot) = out.limbs.get_mut(place) {
-                *slot = result;
-            }
-            borrow = u64::from(under);
-            if borrow == 0 {
-                break;
-            }
+        // Montgomery-form multiplication cannot overflow — the product is reduced modulo `n` by
+        // construction — so the operator the lint sees is not integer arithmetic at all.
+        #[expect(
+            clippy::arithmetic_side_effects,
+            reason = "BoxedMontyForm's Mul is a modular multiplication and cannot wrap"
+        )]
+        Integer {
+            value: (self.form(a) * self.form(b)).retrieve(),
         }
-        out
     }
 
-    /// `value^-1 mod n`, **where `n` is prime** — Fermat's little theorem, `value^(n-2)`.
+    /// `value^-1 mod n`, or `None` where no inverse exists.
     ///
-    /// FIPS 186-4 Appendix C.1 states the extended Euclidean algorithm for this and admits "an
-    /// algorithm that produces an equivalent result"; this is one, and it is the one that needs no
-    /// division. What it costs is a primality assumption, and that assumption is safe *here* in
-    /// the only direction that matters: `q` is prime in any real DSA key, and for a `q` that is
-    /// not, `value^(q-2)` is simply not the inverse, `v` is not `r'`, and the signature does not
-    /// verify. The mistake is closed rather than open.
-    ///
-    /// `value` must already be below `n`, which is [`modpow`]'s precondition and not a new one.
-    ///
-    /// `None` for zero, which has no inverse under any modulus.
+    /// FIPS 186-4 Appendix C.1 states the extended Euclidean algorithm and admits "an algorithm
+    /// that produces an equivalent result"; `crypto-bigint`'s inversion is one. Where the previous
+    /// in-tree arithmetic answered a non-invertible value with a number that was simply not the
+    /// inverse — safe, because `v` then fails to equal `r'` — this answers `None`, and the one
+    /// caller treats that as "does not verify", which is the same verdict said sooner.
     pub(crate) fn invert(&self, value: &Integer) -> Option<Integer> {
-        if value.is_zero() {
-            return None;
-        }
-        Some(modpow(value, &self.minus_two(), self))
+        self.form(value)
+            .invert_vartime()
+            .into_option()
+            .map(|inverse| Integer {
+                value: inverse.retrieve(),
+            })
     }
 }
 
-/// `base^exponent mod n`, left to right over the exponent's bits.
+/// `base^exponent mod n`.
 ///
-/// Square-and-multiply in the Montgomery domain, so the only reduction anywhere is
-/// [`Modulus::multiply`]'s. The trip count is the exponent's bit length, which every caller bounds
-/// before arriving here — an unbounded exponent is unbounded work over a number a stranger chose.
-/// `base` must already be below `n`; [`Modulus::reduce`] is how a caller makes sure of it.
+/// One `crypto-bigint` exponentiation. The trip count is the exponent's bit length, which every
+/// caller bounds before arriving here — an unbounded exponent is unbounded work over a number a
+/// stranger chose. `base` need not be below `n`; [`Modulus::form`] reduces one that is not.
 pub(crate) fn modpow(base: &Integer, exponent: &Integer, modulus: &Modulus) -> Integer {
-    let one = Integer::one();
-    let mut accumulator = modulus.to_montgomery(&one);
-    let multiplier = modulus.to_montgomery(base);
-    let bits = exponent.bits();
-    for index in (0..bits).rev() {
-        accumulator = modulus.multiply(&accumulator, &accumulator);
-        if exponent.bit(index) {
-            accumulator = modulus.multiply(&accumulator, &multiplier);
-        }
+    Integer {
+        value: modulus.form(base).pow(&exponent.value).retrieve(),
     }
-    // Multiplying by one in the Montgomery domain is the conversion back out of it.
-    modulus.multiply(&accumulator, &one)
 }
 
 #[cfg(test)]
@@ -491,8 +282,8 @@ mod tests {
     /// `a^b mod m` on numbers small enough to check by hand or with a calculator.
     ///
     /// Every modulus here is odd, which is not a convenience: [`Modulus::new`] refuses an even one
-    /// because Montgomery reduction has no inverse modulo `2^64` for it. The first draft of this
-    /// test used 1000 and the refusal is what it found.
+    /// because Montgomery reduction has no inverse modulo a power of two for it. The first draft
+    /// of this test used 1000 and the refusal is what it found.
     #[test]
     fn modular_exponentiation_agrees_with_arithmetic() {
         let cases: [(u64, u64, u64, u64); 5] = [
@@ -519,17 +310,14 @@ mod tests {
         }
     }
 
-    /// `x^3` reached two ways at 2048 bits, which is where a carry bug lives if there is one.
+    /// `x^3` reached two ways at 2048 bits, which is where a mapping bug would live if there were
+    /// one: the cube by one exponentiation against the square multiplied back by the base.
     #[test]
     fn a_wide_modulus_exponentiates_consistently() {
         let bytes = wide_modulus();
         let modulus =
             Modulus::new(&Integer::from_be_bytes(&bytes).expect("fits")).expect("odd and large");
-        let mut base = Integer::from_be_bytes(&[0x9Au8; 250]).expect("fits");
-        while !base.less_than(&modulus.value) {
-            modulus.subtract(&mut base);
-        }
-        let one = Integer::one();
+        let base = modulus.reduce(&Integer::from_be_bytes(&[0x9Au8; 250]).expect("fits"));
         let squared = modpow(
             &base,
             &Integer::from_be_bytes(&[2]).expect("small"),
@@ -540,13 +328,7 @@ mod tests {
             &Integer::from_be_bytes(&[3]).expect("small"),
             &modulus,
         );
-        let by_hand = modulus.multiply(
-            &modulus.multiply(
-                &modulus.to_montgomery(&squared),
-                &modulus.to_montgomery(&base),
-            ),
-            &one,
-        );
+        let by_hand = modulus.multiply_reduced(&squared, &base);
         assert_eq!(
             cubed.be_bytes(256),
             by_hand.be_bytes(256),
@@ -567,10 +349,10 @@ mod tests {
                 "{value} mod 1001"
             );
         }
-        // And a value far wider than the modulus: 250 octets of `0xFF` is `2^2000 - 1`, so the
-        // shift-and-subtract runs two thousand times. The independent answer comes from the
-        // *other* operation in this module — `2^2000 mod 1001`, less one — so agreement is
-        // between two constructions rather than between this one and itself.
+        // And a value far wider than the modulus: 250 octets of `0xFF` is `2^2000 - 1`. The
+        // independent answer comes from the *other* operation in this module — `2^2000 mod 1001`,
+        // less one — so agreement is between two constructions rather than between this one and
+        // itself.
         let reduced = modulus.reduce(&Integer::from_be_bytes(&[0xFFu8; 250]).expect("fits"));
         assert!(reduced.less_than(&modulus.value), "a remainder is below n");
         let power = modpow(
@@ -593,10 +375,10 @@ mod tests {
         );
     }
 
-    /// Fermat's inverse, checked by multiplying back — and refused for zero.
+    /// An inverse, checked by multiplying back — and refused for zero.
     #[test]
     fn an_inverse_multiplies_back_to_one() {
-        // 1009 is prime, which is what Fermat's little theorem needs.
+        // 1009 is prime, so every non-zero residue has an inverse.
         let modulus = Modulus::new(&Integer::from_be_bytes(&1009u64.to_be_bytes()).expect("small"))
             .expect("odd");
         for value in [1u64, 2, 3, 500, 1008] {
@@ -615,14 +397,26 @@ mod tests {
         );
     }
 
-    /// A modulus wider than the array cannot be built, and an even one cannot either.
+    /// A modulus wider than the budget cannot be built, and an even one cannot either.
     #[test]
     fn the_bound_and_the_oddness_are_both_refusals() {
         assert!(Integer::from_be_bytes(&vec![0xFFu8; (MAX_BITS / 8) + 1]).is_none());
         assert!(Integer::from_be_bytes(&vec![0xFFu8; MAX_BITS / 8]).is_some());
         let even = Integer::from_be_bytes(&[0x10, 0x00]).expect("small");
         assert!(Modulus::new(&even).is_none(), "Montgomery needs an odd n");
-        assert!(Modulus::new(&Integer::one()).is_none(), "and n > 1");
+        assert!(
+            Modulus::new(&Integer::from_be_bytes(&[0x01]).expect("small")).is_none(),
+            "and n > 1"
+        );
+    }
+
+    /// A right shift keeps the high bits and zeroes out at the value's own width.
+    #[test]
+    fn a_shift_drops_the_low_bits_and_bottoms_out_at_zero() {
+        let value = Integer::from_be_bytes(&[0x12, 0x34]).expect("small");
+        assert_eq!(value.shifted_right(4).be_bytes(2), [0x01, 0x23]);
+        assert_eq!(value.shifted_right(16).be_bytes(2), [0x00, 0x00]);
+        assert!(value.shifted_right(4096).is_zero(), "far past the width");
     }
 
     /// A width is the number's, not its encoding's.
