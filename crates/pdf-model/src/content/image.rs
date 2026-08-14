@@ -231,6 +231,16 @@ impl Interpreter<'_> {
                 name: format!("{name}: {detail}"),
             });
         }
+        // §7.3.8.2 infers an image's extent from its own dictionary, so a stream that decodes to
+        // fewer bytes than the grid needs is a picture the file describes and does not carry.
+        // The samples it does carry are drawn and the rest of the grid is left unpainted, which
+        // is why this is a report beside the drawing rather than a refusal:
+        // `image::short_of_its_grid` has the reading.
+        if let Some(detail) = crate::image::short_of_its_grid(self.document, stream, resources) {
+            self.note(Unsupported::Image {
+                name: format!("{name}: {detail}"),
+            });
+        }
         // §8.9.6.2 with §8.7.3.3: a stencil "does not specify colours; instead, it
         // designates places where the current colour is painted", and the current colour may
         // be a *pattern*, which is not a colour this or any other command can carry.

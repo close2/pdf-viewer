@@ -788,12 +788,35 @@ fn unpack(data: &[u8], width: u32, height: u32, samples: &Samples) -> Result<Vec
 
     let mut out = Vec::with_capacity(width_usize.saturating_mul(height_usize).saturating_mul(4));
 
+    // §7.3.8.2 puts this image's extent among the lengths "from whose attributes a length can
+    // be inferred", and its EXAMPLE is this arithmetic: a 10-row, 20-column, 8-bit, one-component
+    // image "requires exactly 200 bytes of image data", and "[a]n error occurs … if the decoded
+    // data does not contain 200 bytes". So a stream that stops short carries samples for part of
+    // the grid and none at all for the rest, and the two halves are treated differently for the
+    // reason ADR 0343 gives one clause over: the samples the producer wrote are drawn where they
+    // belong, and the ones the file never carried are left **unpainted** rather than read as
+    // zero. Reading them as zero is what painted a solid stencil over `178360.pdf`'s page — 359
+    // bytes of a 50 048-byte `/ImageMask`, the remaining 99.3% of it marking the page in the fill
+    // colour, which no reference renderer draws. `short_of_its_grid` says so out loud.
+    let sample_bits = components.max(1).saturating_mul(bits as usize).max(1);
     for y in 0..height_usize {
+        let start = y.saturating_mul(row_bytes);
+        let available = data.len().saturating_sub(start).min(row_bytes);
         let row = data
-            .get(y.saturating_mul(row_bytes)..y.saturating_mul(row_bytes).saturating_add(row_bytes))
+            .get(start..start.saturating_add(available))
             .unwrap_or_default();
+        // Whole samples only: a sample whose last bits are past the end of the data was never
+        // written, and half of one is not a colour.
+        let carried = available
+            .saturating_mul(8)
+            .checked_div(sample_bits)
+            .unwrap_or(0);
 
         for x in 0..width_usize {
+            if x >= carried {
+                out.extend_from_slice(&[0, 0, 0, 0]);
+                continue;
+            }
             // §8.9.6.4: "An image sample shall be masked (not painted) if all of its colour
             // components before decoding … fall within the specified ranges". A masked
             // sample keeps its position and loses its opacity; nothing else about it is
@@ -2430,6 +2453,80 @@ pub fn contradicted_frame(document: &Document, stream: &Stream) -> Option<String
              the dimensions in the encoded data); its samples are drawn on their own grid, so \
              the image is the codestream's rather than the one the dictionary describes",
             info.width, info.height
+        )
+    })
+}
+
+/// Names an image whose decoded samples fall short of the grid its dictionary states, for the
+/// caller to report *beside* the drawing.
+///
+/// ISO 32000-2 §7.3.8.2 makes the extent of such a stream inferable from the object itself:
+///
+/// > Finally, streams are used to represent many objects from whose attributes a length can be
+/// > inferred. All of these constraints shall be consistent.
+///
+/// and its EXAMPLE is an image, with the arithmetic and the verdict spelled out — a 10-row,
+/// 20-column, 8-bit, one-component image "requires exactly 200 bytes of image data", and "[a]n
+/// error occurs if Length is too small, if an explicit EOD marker occurs too soon, or if the
+/// decoded data does not contain 200 bytes."
+///
+/// [`unpack`] draws the samples the file did carry and leaves the rest of the grid unpainted;
+/// this is the other half, and the pair is the test `doc/HANDOVER.md` sets for reporting while
+/// drawing — suppressing either loses information. Without the report a page missing the bottom
+/// nine tenths of a picture is indistinguishable from a page whose picture is that shape.
+///
+/// Asked only of the streams whose decoded bytes *are* samples. [`Document::image_stream`] names
+/// the codec it stopped in front of, and where there is one the length belongs to `DCTDecode`,
+/// `JPXDecode`, `JBIG2Decode` or `CCITTFaxDecode` rather than to this arithmetic: a codestream
+/// states its own extent, which is why §7.4.8's disagreement has [`contradicted_frame`] of its
+/// own.
+#[must_use]
+pub fn short_of_its_grid(
+    document: &Document,
+    stream: &Stream,
+    resources: &Dictionary,
+) -> Option<String> {
+    let dict = &stream.dict;
+    let width = positive_integer(document, dict, "Width").ok()? as usize;
+    let height = positive_integer(document, dict, "Height").ok()? as usize;
+    let source = document.image_stream(stream)?;
+    if source.codec.is_some() {
+        return None;
+    }
+
+    // §8.9.6.2: a stencil mask is one bit per sample and carries no colour space, so its
+    // arithmetic is fixed rather than read.
+    let is_mask = matches!(document.get_key(dict, "ImageMask"), Object::Boolean(true));
+    let (bits, components) = if is_mask {
+        (1usize, 1usize)
+    } else {
+        let bits = usize::try_from(
+            document
+                .get_key(dict, "BitsPerComponent")
+                .as_integer()
+                .unwrap_or(8),
+        )
+        .ok()?;
+        let space = document.get_key(dict, "ColorSpace");
+        let resolved = crate::colour::ColourSpace::parse(document, &space, resources)?;
+        (bits, resolved.components())
+    };
+
+    // §8.9.5.1: "Each row of samples shall begin on a byte boundary", so the rounding up is per
+    // row and the total is not simply the whole grid's bits.
+    let row = width
+        .checked_mul(components)?
+        .checked_mul(bits)?
+        .checked_add(7)?
+        / 8;
+    let need = row.checked_mul(height)?;
+    let have = source.data.len();
+    (have < need).then(|| {
+        format!(
+            "its samples stop at {have} bytes where {width}x{height} at {bits} bits and \
+             {components} component(s) needs {need} (§7.3.8.2 infers the extent from the \
+             dictionary); what the stream carries is drawn and the rest of the grid is left \
+             unpainted"
         )
     })
 }

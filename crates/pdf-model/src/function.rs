@@ -570,6 +570,8 @@ impl Function {
             f64::from((1u32 << bits).saturating_sub(1))
         };
 
+        holds_the_sample_array(&data, total, bits)?;
+
         let mut samples = Vec::with_capacity(total);
         let mut reader = BitReader::new(&data);
         for index in 0..total {
@@ -619,6 +621,44 @@ impl Function {
         let program = compile_postscript(&data)?;
         Ok(Kind::PostScript(program.into()))
     }
+}
+
+/// Whether a Type 0 function's stream is long enough for the array it describes.
+///
+/// ISO 32000-2 §7.10.2:
+///
+/// > The stream data shall be long enough to contain the entire sample array, as indicated by
+/// > Size , Range , and BitsPerSample ; see 7.3.8.2, "Stream extent".
+///
+/// Without it the bit reader answers 0 for every sample the stream does not hold — a value nobody
+/// wrote, mapped through `/Decode` and interpolated into the samples beside it, so a tint
+/// transform or a shading is evaluated over a function the file never carried. That is the
+/// substitutive half of trap 5's test: a short sample table does not draw part of a gradient, it
+/// draws a different one. So the function is refused and its caller reports it, where §7.8.2's
+/// content stream keeps its prefix (ADR 0343) because a prefix of *that* is a shorter sequence of
+/// the same kind.
+///
+/// `total` is Size × Range's pairs, which is the sample count the clause names.
+///
+/// # Errors
+///
+/// [`FunctionError::Malformed`], naming both numbers.
+fn holds_the_sample_array(data: &[u8], total: usize, bits: u32) -> Result<(), FunctionError> {
+    let need = total
+        .checked_mul(bits as usize)
+        .map(|width| width.div_ceil(8))
+        .ok_or_else(|| FunctionError::Malformed {
+            detail: "the sample array overflows".to_owned(),
+        })?;
+    if data.len() < need {
+        return Err(FunctionError::Malformed {
+            detail: format!(
+                "the sample array needs {need} bytes and the stream holds {}",
+                data.len()
+            ),
+        });
+    }
+    Ok(())
 }
 
 impl Sampled {

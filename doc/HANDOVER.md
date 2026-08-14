@@ -472,7 +472,7 @@ oracle's judged set for nothing. **The condition on all three is `is_hidden()`**
 hidden content "as if there were no `Do` operator to invoke it", and a `Do` that was never invoked
 cannot have failed.
 
-**Eight places report *while* drawing, each deliberate**, and the test for adding a ninth is that
+**Nine places report *while* drawing, each deliberate**, and the test for adding a tenth is that
 suppressing either statement loses information: `/NeedAppearances` (stale appearances drawn
 because they are all the file offers); §11.6.5.2's `/Matte` where pre-blending cannot be undone
 (refusing would draw a rectangle of pure matte colour); a constructed appearance drawing what its
@@ -483,9 +483,12 @@ the entry a refusal refuses is additive or substitutive**, and a cloudy `/BE` st
 refusal because a different border is not an extra mark (ADR 0106); a `/DA` font `/DR` lacks,
 laid out in a stand-in **that declines where it cannot draw the whole value** (ADR 0112); a
 `DCTDecode` frame that contradicts its dictionary, drawn on the codestream's own grid because
-§7.4.8 puts the dimensions there (ADR 0340); and a `/Contents` part that decoded only as far as
+§7.4.8 puts the dimensions there (ADR 0340); a `/Contents` part that decoded only as far as
 its damage, whose prefix is the producer's own bytes and whose shortfall would otherwise make a
-page cut short look like a page meant to be sparse (ADR 0343).
+page cut short look like a page meant to be sparse (ADR 0343); and an image whose decoded samples
+stop short of the grid §7.3.8.2 infers from its own dictionary, where the samples that arrived are
+the producer's own and the rest of the grid is left unpainted rather than read as zero — 99.3% of
+`178360.pdf`'s stencil used to be marked in the fill colour for want of this (ADR 0356).
 
 **The additive-or-substitutive test is what decides the other direction too**, and ADR 0343 is
 where it drew a line through one clause: the *same* damaged-prefix rule that is right for a
@@ -494,6 +497,18 @@ instructions" — a prefix of which is a shorter sequence of the same kind — w
 a table directory whose offsets point forward, so its prefix yields glyphs the producer never
 wrote, standing in place of the right ones. **Ask what a prefix of the thing *is* before deciding
 whether to draw one.**
+
+**ADR 0356 found a better question one clause along, and a sharper form of the test.** Ask first
+whether the standard states the thing's *extent*: §7.3.8.2 infers an image's length from its own
+dictionary and §7.10.2 states a sample array's outright, so both are decidable without knowing
+whether a filter failed — a short stream is short however it got that way, and a producer's own
+arithmetic being wrong is the same defect as a truncation. Then ask whether the prefix's marks are
+**places** or **values**. An image's missing samples are places on the page, and a place with no
+sample can be left unpainted; a function's are values of a mapping evaluated over its whole domain,
+where a missing value is read, decoded and interpolated into the ones beside it. So one is drawn
+and reported and the other is refused, from one clause family. An ICC profile needed neither,
+because Table 65 states the whole recovery for a profile a reader cannot use — what it needed was
+not to be *parsed*.
 
 ### 6. Colour: one conversion, and the specification often has no answer
 

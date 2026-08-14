@@ -505,8 +505,11 @@ Three things it says, and the second is the finding:
   ranking put at −1.719 without anyone asking why.
 
 **What is left, and it is a real item rather than a formality.** The other 96% of damaged streams
-are still silent. Whether each deserves a report is a *separate* question per consumer and must
-be argued per consumer, because the answer is not uniform — which is the round's own lesson:
+are still silent — **and that fraction was wrong, which §10 corrects with the same census broken
+down by consumer**: 841 of the 2260 are a page's `/Contents`, not 90, because 90 counts only the
+documents whose *page one* holds one. Whether each of the rest deserves a report is a *separate*
+question per consumer and must be argued per consumer, because the answer is not uniform — which
+is the round's own lesson:
 
 - **A font program is refused**, and the witness made the argument rather than the other way
   round. `issue13316_reduced.pdf`'s corrupt `/FontFile2` yields 863 bytes that parse and draw
@@ -521,6 +524,55 @@ be argued per consumer, because the answer is not uniform — which is the round
   additive or substitutive? A round taking this should point the census at
   `govdocs1-error-pdfs` first, where 29 of 54 documents carry one and every file is small enough
   to open by hand.
+
+### 10. The chunk the five-hundred-and-twenty-first took: the same population, by consumer
+
+**§9's own instruction, followed**: point the census at `govdocs1-error-pdfs` first, where 29 of 54
+documents carry a damaged stream and every file is small enough to open by hand. Taken as the
+first step of a chunk that then ran over `format-corpus`'s 167, the 974 and all 65 944 crawled
+documents — one process per archive, 145 archives, 0 failures. `examples/damaged_stream_census`
+gained a **role** per damaged stream, read off the entry the standard makes required of that
+object, and the two *extent* arithmetics §7.3.8.2 and §7.10.2 state. Its three older lines
+reproduce the five-hundred-and-eighth's numbers to the digit, which is what says the instrument
+did not move under this round's changes. A baseline for this population, never a ratchet.
+
+**The 2260 damaged streams, by the consumer that reads them** (ADR 0356 has the table with what
+each does today): `/Contents` **841**, an image **529**, a font program **371**, unclassified 296,
+an object stream 144, a form `XObject` **46**, an ICC profile 19, a cross-reference stream 10, a
+metadata stream 2, a function 2.
+
+**And the population that matters more than damage, which is why §9's question had a better
+predicate**: a stream short of the extent the file's own attributes infer is wrong whether a filter
+failed or the producer simply wrote too little. **54 images in 8 of the 65 944**, 51 in 2 of the
+167, **0 of the 974**, and **not one** short sampled function anywhere on this disk.
+
+Three answers, one per consumer §9 named, each in ADR 0356:
+
+- **An image** drew its missing samples as **zero** — black rows, and a *marked* page for an
+  `/ImageMask`, whose §8.9.6.2 default paints where the sample is 0. `178360.pdf` is the witness
+  and it was already in this file: session 505's ink ranking put it in the positive tail as "ours
+  40.7, `poppler` 26.2" without anyone asking why, and the why is a 133 × 2944 stencil corrupt 359
+  bytes into the 50 048 its grid needs, **99.3% of it marked in the fill colour**. What the stream
+  carries is drawn where it belongs, the rest of the grid is left unpainted, and
+  `image::short_of_its_grid` reports it beside the drawing.
+- **A sampled function** is refused, on §7.10.2's own sentence. A prefix of one is not a smaller
+  function: its missing samples are *values* of a mapping evaluated over the whole domain, read as
+  0 and interpolated into the real samples beside them. No corpus on this disk reaches it, so it is
+  pinned by a hand-built pair (`tests/sampled_function_extent.rs`).
+- **An ICC profile** needed no report: Table 65 states the whole recovery for a profile a reader
+  cannot use, and `colour.rs` already took it. What it needed was not to be *parsed* — a tag table's
+  prefix is a directory describing bytes that are not there, and a missing `rTRC` reads as no curve
+  at all rather than as a failure.
+
+**What this chunk leaves, and it is one report rather than a reading.** A damaged **form
+`XObject`, tiling pattern, appearance stream or Type 3 glyph description** is still silent, and
+§7.8.2's argument for a page's `/Contents` covers all of them word for word — they are content
+streams and this tree already draws their prefixes. 46 of the crawl's damaged streams and 7 of the
+pdf.js corpus's 57 are form `XObject`s, and `comments.pdf` and `highlights.pdf` are witnesses a
+round can open by hand. A round taking it places a report in five call sites
+(`content/xobject.rs`, `content/pattern.rs`, `content/transparency.rs`, `appearance.rs`,
+`type3.rs`), each of which reads its stream through `Document::decoded_stream_data` and drops the
+damage by design; the report's own vocabulary already exists as `ContentIssue::Damaged`.
 
 ## What not to do
 

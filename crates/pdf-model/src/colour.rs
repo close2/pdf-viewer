@@ -385,42 +385,7 @@ impl ColourSpace {
                     .unwrap_or([-100.0, 100.0, -100.0, 100.0]);
                 Some(Self::Lab { range })
             }
-            b"ICCBased" => {
-                let stream = items.get(1).map(|item| document.resolve(item))?;
-                let stream = stream.as_stream()?;
-
-                // The profile itself is the document's own statement of what its numbers
-                // mean, so it wins over everything below.
-                if let Some(data) = document.decoded_stream_data(stream)
-                    && let Some(profile) = crate::icc::Profile::parse(&data)
-                {
-                    return Some(Self::Icc {
-                        profile: Box::new(profile),
-                    });
-                }
-
-                // `/Alternate` is the producer's own statement of what to use when the
-                // profile cannot be applied. Preferring it over a guess from `/N` is what
-                // the specification asks for and is free: a document saying its profile
-                // stands in for `Lab` or a `Separation` gets that, rather than whichever
-                // device space happens to have the same component count.
-                if let Some(alternate) = stream.dict.get("Alternate")
-                    && let Some(space) =
-                        Self::parse_at(document, alternate, resources, depth.saturating_add(1))
-                {
-                    return Some(space);
-                }
-
-                // Failing that, the device space with the same component count — which is
-                // the fallback the specification itself describes.
-                match document.get_key(&stream.dict, "N").as_integer() {
-                    Some(1) => Some(Self::Gray),
-                    Some(4) => Some(Self::Cmyk),
-                    // Three is the common case, and an absent or nonsensical `/N` is far
-                    // more likely to be RGB than anything else.
-                    _ => Some(Self::Rgb),
-                }
-            }
+            b"ICCBased" => Self::parse_icc_based(document, items.get(1)?, resources, depth),
             b"Indexed" | b"I" => Self::parse_indexed(document, items, resources, depth),
             b"Separation" | b"DeviceN" => {
                 let is_separation = family.as_slice() == b"Separation";
@@ -464,6 +429,65 @@ impl ColourSpace {
                 })
             }
             _ => None,
+        }
+    }
+
+    /// Reads an `ICCBased` space: ISO 32000-2 §8.6.5.5, Table 65.
+    ///
+    /// Three answers in the order the clause ranks them — the profile, the `/Alternate`, and the
+    /// device space `/N` implies — which is what makes the first one's condition worth stating
+    /// here rather than inside the profile parser.
+    fn parse_icc_based(
+        document: &Document,
+        object: &Object,
+        resources: &Dictionary,
+        depth: usize,
+    ) -> Option<Self> {
+        let stream = document.resolve(object);
+        let stream = stream.as_stream()?;
+
+        // The profile itself is the document's own statement of what its numbers mean, so it
+        // wins over everything below.
+        //
+        // **Except where the stream decoded only as far as its damage** (§7.4.1, and
+        // [`pdf_syntax::Decoded::damage`]), which is ADR 0343's argument one clause over: a
+        // profile is a tag table whose offsets point forward, so a prefix of one is a directory
+        // describing bytes that are not there — an `A2B1` tag that fell off the end leaves the
+        // curve-and-matrix branch reading `rTRC` as no curve at all, which is a tone response
+        // nobody wrote standing in place of the producer's. Table 65 states where to go instead,
+        // and it states the whole of it, which is why a damaged profile needs no report of its
+        // own: `/Alternate` "shall be used in case the one specified in the stream data is not
+        // supported", and where that entry is absent "the colour space that shall be used is
+        // DeviceGray , DeviceRGB , or DeviceCMYK , depending on whether the value of N is 1 , 3 ,
+        // or 4". Both are below.
+        if let Ok(decoded) = document.decoded_stream_data_reported(stream)
+            && decoded.damage.is_none()
+            && let Some(profile) = crate::icc::Profile::parse(&decoded.data)
+        {
+            return Some(Self::Icc {
+                profile: Box::new(profile),
+            });
+        }
+
+        // `/Alternate` is the producer's own statement of what to use when the profile cannot
+        // be applied. Preferring it over a guess from `/N` is what the specification asks for
+        // and is free: a document saying its profile stands in for `Lab` or a `Separation` gets
+        // that, rather than whichever device space happens to have the same component count.
+        if let Some(alternate) = stream.dict.get("Alternate")
+            && let Some(space) =
+                Self::parse_at(document, alternate, resources, depth.saturating_add(1))
+        {
+            return Some(space);
+        }
+
+        // Failing that, the device space with the same component count — which is the fallback
+        // the specification itself describes.
+        match document.get_key(&stream.dict, "N").as_integer() {
+            Some(1) => Some(Self::Gray),
+            Some(4) => Some(Self::Cmyk),
+            // Three is the common case, and an absent or nonsensical `/N` is far more likely to
+            // be RGB than anything else.
+            _ => Some(Self::Rgb),
         }
     }
 
