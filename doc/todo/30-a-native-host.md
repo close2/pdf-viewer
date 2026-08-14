@@ -4,7 +4,10 @@ Status: **all three built.** GTK4 in the four-hundred-and-eighth session (`crate
 ADR 0244); Qt in the four-hundred-and-tenth (`crates/viewer-qt`, ADR 0246), and with it
 `crates/viewer-host`; **the C ABI in the four-hundred-and-eleventh** (`crates/viewer-ffi`,
 ADR 0247), with its three amendments taken first. **This file absorbed `doc/todo/37` in the
-four-hundred-and-ninth**, whose one open decision was taken (ADR 0245).
+four-hundred-and-ninth**, whose one open decision was taken (ADR 0245). **And its remaining surface
+was taken in the five-hundred-and-eleventh** (ADR 0346): the ABI's entry points are the whole
+vocabulary now, Table 229 bit 26 is obeyed, and ADR 0245's scale question is answered with the
+messages that already existed.
 Priority: 30 — what is left is *surface* rather than architecture, and the file says which
 Code: `crates/viewer-gtk`, `crates/viewer-qt`, `crates/viewer-host`, `crates/viewer-ffi`
 
@@ -55,36 +58,50 @@ them**:
 ## What is left, and none of it is architecture
 
 **Every item below is a function to add to the C ABI, a widget to place, or a clause to obey.** No
-new message, and no new decision about the boundary.
+new message, and no new decision about the boundary. **Four of the five are closed in the
+five-hundred-and-eleventh** (ADR 0346), and what remains of this file is the two struck items' own
+tails — Qt's measurement being on the far side of a `cxx` bridge, and §12.7.5.4's list box drawing
+nothing — plus the standing note about where the `unsafe` is.
 
-- **The ABI is 43 entry points and not the whole vocabulary**, and two rounds have now shown what
-  that costs rather than predicting it. The four-hundred-and-twelfth: `Edit::SetField`'s value
-  changed shape, five Rust consumers failed to compile, and this crate did not notice because
-  `Command::Edit` is on the list below — `PDFV_EVENT_KIND_COUNT` **15** before and after. The
-  four-hundred-and-fourteenth is the other half: a document-wide search added a *kind*, so the count
-  moved **15 → 16** and an old caller's `pdfv_abi_check` refuses at startup naming the number rather
-  than meeting a message it has no arm for. Four entry points came with it — `pdfv_find_start`,
-  `pdfv_find_continue`, `pdfv_find_stop`, `pdfv_event_searched` (ADR 0250). What a C caller cannot
-  do yet:
-  `Command::Pointer` and `Command::Select` (and therefore selection, the caret and §12.5.6.6's
-  drag), `Query::Fields` and `Command::Edit` (the form), `Command::Save` and `Command::Extract`
-  (and the `Saved`/`Extracted` events' bytes, which want a byte-buffer accessor rather than a
-  string one), `Query::Layers` and `Query::Attachments` (the other two panels, which are already
-  `viewer_host::panel` rows and would flatten exactly as the outline does), `Command::Tick` and
-  §12.4.4's transitions, `Command::Restrict` and `Command::Delegate`. Each is a *symbol*, and a
-  symbol added later costs a compiled caller nothing — which is the property the shape was chosen
-  for and the reason stopping at 39 is honest rather than half-built.
-- **The scale a native form host draws the page at.** ADR 0245 left this as the third decision and
-  the second host settled the half that was in doubt: it is **not** a GTK theme's accident. Qt
-  places 13 of 76 controls wider than their `/Rect` (worst +66 on 18 px) and all 76 taller (worst
-  +20 on 14 px) where GTK places 11 wider and all 76 taller. *Every* control is taller than its
-  rectangle on both toolkits, so a platform control's minimum size is a property of platform
-  controls. **Nothing new may be needed at all**: a host that zooms until the worst `/Rect` fits has
-  answered it with the messages that exist, and `Query::Fields` already gives it every widget's
-  rectangle in device pixels. Establishing that is a round's work and no host has done it.
-- **Table 229 bit 26's `RadiosInUnison` crosses and is not obeyed** (from `doc/todo/37`). Turning on
-  every button of a set that shares an on state is a decision for whatever handles the press, and
-  all the hosts have the flag rather than the behaviour.
+- ~~**The ABI is 43 entry points and not the whole vocabulary.**~~ **Closed in the
+  five-hundred-and-eleventh** (ADR 0346): 43 → **111**, and the list this entry carried is all of
+  it — `Command::Pointer` and `Command::Select` with the selection, the caret and §12.5.6.6's drag;
+  `Query::Fields` and all four `Edit`s; `Command::Save` and `Command::Extract` with a **byte**
+  accessor apiece, because a file is not text and the NUL idiom would cut one at its first zero
+  byte; §8.11.4.3's layers and §7.11.4's files as a second flattened panel; §12.4.4's clock and its
+  transitions; and the three policy values. **`PDFV_EVENT_KIND_COUNT` is 16 before and after**,
+  which is the third demonstration in three rounds of what the shape was chosen for: a `Command` is
+  a symbol, a `Query` is a symbol, and only an `Event` is a number. Two enumerations are now
+  *answered with* — `ControlKind` and `RowKind` — and each has a count and a name of its own rather
+  than a place in `pdfv_abi_check`, because an event arrives unasked and a control kind is the
+  answer to a call the caller wrote. **And a `#define` had been missing since the count last moved**:
+  `PDFV_EVENT_SEARCHED` was never added in the four-hundred-and-fourteenth, so a C caller wrote `15`
+  by hand — `header_and_library_agree.rs` compares the header against a *hand-written* map, and a
+  constant absent from both sides agrees with itself.
+- ~~**The scale a native form host draws the page at.**~~ **Answered in the
+  five-hundred-and-eleventh, and it needed no message** (ADR 0346). `viewer_host::ControlFit` is the
+  one piece that did not exist: a control's minimum does not change with the page's magnification
+  and its `/Rect` does, in proportion, so the magnification at which everything fits is the current
+  one times the worst ratio of minimum to asked. `Query::Fields` gives the rectangles,
+  the toolkit gives the minimums, `Zoom::Scale` applies the answer. Driven under `Xvfb` on
+  `160F-2019.pdf`: `11 of 76 control(s) wider than their /Rect (worst +85 on 120 px), 76 taller
+  (worst +22 on 12 px); every control fits at 3.278`, and after `w` sends it, `0 of 76 … 0 taller`.
+  **Two things are left of it, and both are small.** `viewer-qt` still measures in `cpp/window.cpp`,
+  so feeding the shared arithmetic means carrying the `(asked, minimum)` pairs across the `cxx`
+  bridge — a bridge change rather than a decision. And *when* to apply it is deliberately not
+  decided: a viewer that magnified a page by itself because a form is on it would be answering a
+  question nobody asked, so `w` offers it and nothing takes it.
+- ~~**Table 229 bit 26's `RadiosInUnison` crosses and is not obeyed.**~~ **Obeyed since the
+  five-hundred-and-eleventh, and this entry was wrong about it in both directions** (ADR 0346). The
+  half it describes — turning on every button of a set that shares an on state — was already
+  happening, by construction and without the flag ever being read: `/V` is a name and a widget is on
+  when its `/AP /N` holds it. What was *not* obeyed is §12.7.5.2.3's requirement for the flag being
+  **clear**, "at most one radio button in a field shall be set at a time", and this tree turned them
+  all on. The sentence is in the **check box** subclause, attached to `/Opt`, which is why a round
+  reading §12.7.5.2.4 for a radio button's flag would not have found it. Which button stays on is a
+  documented choice — the first in `/Kids` — because the clause states none and a file that gave two
+  buttons one name cannot say. No corpus witness in either direction over 1293 documents
+  (`field_flag_census`, which counts bit 26 by field type since that round).
 - ~~**§12.7.5.4's list box is the one place the boundary genuinely limits a host.**~~ **Closed in
   the four-hundred-and-twelfth** (ADR 0248), and it was the only thing on this list that changed
   `viewer-core`. `Edit::SetField`'s value is `pdf_model::view::Entered` now — characters,
@@ -116,8 +133,8 @@ Adding `egui` buys a widget set for a large dependency and no architectural proo
 
 `doc/todo/30` used to say `viewer-ffi` would be "the **only** crate in the tree permitted `unsafe`".
 Two crates lift `deny(unsafe_code)` and no more: `viewer-qt`, for `#[cxx::bridge]`'s expansion, with
-**one** hand-written token; and `viewer-ffi`, whose `src/abi.rs` holds one lint lift, 43
-`#[unsafe(no_mangle)]` attributes and 39 signatures, and **no `unsafe` block at all**. Each has a
+**one** hand-written token; and `viewer-ffi`, whose `src/abi.rs` holds one lint lift, 111
+`#[unsafe(no_mangle)]` attributes and 103 signatures, and **no `unsafe` block at all**. Each has a
 test that reads its own sources back, and `viewer-ffi`'s additionally asserts that `pdf-syntax`,
 `pdf-model`, `pdf-font`, `pdf-render`, `render-cpu`, `viewer-core` and `viewer-host` still hold
 `#![forbid(unsafe_code)]` — the compiler-enforced rule this file promised would survive, checked

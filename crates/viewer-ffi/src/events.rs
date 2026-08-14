@@ -9,9 +9,10 @@
 //! Everything in this module is safe Rust. [`crate::abi`] is the only place that turns an index
 //! and a pointer into a call on one of these.
 
+use pdf_model::navigation::{Dimension, Direction, Motion, Style};
 use viewer_core::{Event, Extraction, RenderRequest};
 
-use crate::kinds::EventKind;
+use crate::kinds::{EventKind, PurposeKind};
 use crate::status::Status;
 
 /// What a step of a document-wide search reported, flattened for C.
@@ -242,6 +243,223 @@ impl Events {
             Event::NeedsRender(request) => Ok(request.clone()),
             _ => Err(Status::WrongKind),
         }
+    }
+
+    /// Which document the event at `index` is about.
+    ///
+    /// **Exhaustive over [`Event`] with no catch-all**, which is what makes it worth having as one
+    /// accessor rather than a field on every other: fifteen of the sixteen kinds name a document,
+    /// and the sixteenth is [`Event::Damage`], which is about the *viewport*. A message added to
+    /// `viewer-core` fails to compile here until somebody says which of the two it is.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::OutOfRange`] where there is no such event; [`Status::WrongKind`] for
+    /// [`Event::Damage`], which names no document.
+    pub fn document(&self, index: usize) -> Result<u64, Status> {
+        Ok(match self.events.get(index).ok_or(Status::OutOfRange)? {
+            Event::Opened { document, .. }
+            | Event::OpenFailed { document, .. }
+            | Event::PasswordRequired { document }
+            | Event::Closed(document)
+            | Event::PageChanged { document, .. }
+            | Event::OpenUri { document, .. }
+            | Event::NeedsFile { document, .. }
+            | Event::Transition { document, .. }
+            | Event::Dirty { document, .. }
+            | Event::Saved { document, .. }
+            | Event::Extracted { document, .. }
+            | Event::Refused { document, .. }
+            | Event::Reported { document, .. }
+            | Event::Searched { document, .. } => document.0,
+            Event::NeedsRender(request) => request.document.0,
+            Event::Damage(_) => return Err(Status::WrongKind),
+        })
+    }
+
+    /// The bytes of an [`Event::Saved`] or an [`Event::Extracted`].
+    ///
+    /// **One accessor for two kinds, and that is the point rather than a shortcut.** `doc/todo/30`
+    /// named this as wanting "a byte-buffer accessor rather than a string one": both events carry a
+    /// `Vec<u8>` that is a *file*, and a file is not text — §7.5.6's update is a PDF and an
+    /// embedded one may be anything at all, so passing either through the NUL-terminated idiom
+    /// `pdfv_events_describe` uses would truncate it at the first zero byte.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::OutOfRange`] or [`Status::WrongKind`], as [`Self::opened`].
+    pub fn bytes(&self, index: usize) -> Result<&[u8], Status> {
+        match self.events.get(index).ok_or(Status::OutOfRange)? {
+            Event::Saved { bytes, .. } | Event::Extracted { bytes, .. } => Ok(bytes),
+            _ => Err(Status::WrongKind),
+        }
+    }
+
+    /// [`Event::Extracted`]: the file's name, and whether a person asked for it.
+    ///
+    /// The second is §O.2.1's distinction and not decoration: a URI's `ef` parameter extracts a
+    /// file that nobody pressed anything for, and the annex says "a PDF processor may choose to
+    /// prompt the user or even prevent opening of the file" for exactly that case (ADR 0310). A
+    /// caller writing bytes to disk needs to know which of the two it has.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::OutOfRange`] or [`Status::WrongKind`].
+    pub fn extracted(&self, index: usize) -> Result<(&str, bool), Status> {
+        match self.events.get(index).ok_or(Status::OutOfRange)? {
+            Event::Extracted { name, asked, .. } => {
+                Ok((name.as_str(), matches!(asked, Extraction::Asked)))
+            }
+            _ => Err(Status::WrongKind),
+        }
+    }
+
+    /// [`Event::OpenUri`]: the resolved URI a §12.6.4.8 link asks for.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::OutOfRange`] or [`Status::WrongKind`].
+    pub fn open_uri(&self, index: usize) -> Result<&str, Status> {
+        match self.events.get(index).ok_or(Status::OutOfRange)? {
+            Event::OpenUri { uri, .. } => Ok(uri.as_str()),
+            _ => Err(Status::WrongKind),
+        }
+    }
+
+    /// [`Event::NeedsFile`]: what the bytes are wanted for, and the document's own words for the
+    /// file.
+    ///
+    /// **A name and not a path.** Resolving it — or refusing to — is the caller's decision, for
+    /// rule 2's reason: a document naming a file is a document asking this machine for something.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::OutOfRange`] or [`Status::WrongKind`].
+    pub fn needs_file(&self, index: usize) -> Result<(PurposeKind, &str), Status> {
+        match self.events.get(index).ok_or(Status::OutOfRange)? {
+            Event::NeedsFile { purpose, name, .. } => {
+                Ok((PurposeKind::of(*purpose), name.as_str()))
+            }
+            _ => Err(Status::WrongKind),
+        }
+    }
+
+    /// [`Event::Damage`]: the part of the viewport that no longer shows what it should.
+    ///
+    /// `[x0, y0, x1, y1]` in device pixels. A bound on what changed rather than a promise that
+    /// everything inside it did.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::OutOfRange`] or [`Status::WrongKind`].
+    pub fn damage(&self, index: usize) -> Result<[f32; 4], Status> {
+        match self.events.get(index).ok_or(Status::OutOfRange)? {
+            Event::Damage(rect) => Ok([rect.min.x, rect.min.y, rect.max.x, rect.max.y]),
+            _ => Err(Status::WrongKind),
+        }
+    }
+
+    /// [`Event::Dirty`]: whether the document now differs from the file it was opened from.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::OutOfRange`] or [`Status::WrongKind`].
+    pub fn dirty(&self, index: usize) -> Result<bool, Status> {
+        match self.events.get(index).ok_or(Status::OutOfRange)? {
+            Event::Dirty { dirty, .. } => Ok(*dirty),
+            _ => Err(Status::WrongKind),
+        }
+    }
+
+    /// [`Event::Transition`]: Table 164's numbers, without the style.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::OutOfRange`] or [`Status::WrongKind`].
+    pub fn transition(&self, index: usize) -> Result<TransitionNumbers, Status> {
+        match self.events.get(index).ok_or(Status::OutOfRange)? {
+            Event::Transition { transition, .. } => Ok(TransitionNumbers {
+                seconds: transition.duration,
+                vertical: matches!(transition.dimension, Dimension::Vertical),
+                outward: matches!(transition.motion, Motion::Outward),
+                directed: matches!(transition.direction, Direction::Degrees(_)),
+                degrees: match transition.direction {
+                    Direction::Degrees(degrees) => degrees,
+                    Direction::None => 0.0,
+                },
+                scale: transition.scale,
+                opaque: transition.opaque,
+            }),
+            _ => Err(Status::WrongKind),
+        }
+    }
+
+    /// [`Event::Transition`]: Table 164's `/S`, as the table spells it.
+    ///
+    /// **A name rather than a number this ABI invented**, unlike every other enumeration here, and
+    /// the reason is in the entry: `/S` *is* a name in the file, and Table 164's thirteenth case is
+    /// `pdf_model::navigation::Style::Unrecognised` — "[a] name Table 164 does not define, kept as
+    /// the file wrote it". A number would have had to lose that one, and losing it is exactly what
+    /// ADR 0230 refuses: a caller that cannot animate an unknown style falls back to the table's
+    /// own default and can say which style it could not play.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::OutOfRange`] or [`Status::WrongKind`].
+    pub fn transition_style(&self, index: usize) -> Result<String, Status> {
+        match self.events.get(index).ok_or(Status::OutOfRange)? {
+            Event::Transition { transition, .. } => Ok(style_name(&transition.style)),
+            _ => Err(Status::WrongKind),
+        }
+    }
+}
+
+/// Table 164's numbers for one transition, flattened for C.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "one field per entry Table 164 states, which is what the table is. Folding them into \
+              enums would invent a taxonomy the standard does not have and would make a reader \
+              look up which of this crate's names /Dm went into — the reason \
+              `pdf_model::form::TextControl` gives for the same shape"
+)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TransitionNumbers {
+    /// `/D`, the effect's own length in seconds. Zero for `R`, whose row says "the D entry shall
+    /// be ignored".
+    pub seconds: f32,
+    /// `/Dm`: `V` rather than the default `H`.
+    pub vertical: bool,
+    /// `/M`: `O` rather than the default `I`.
+    pub outward: bool,
+    /// Whether `/Di` states an angle at all, as against the name `None`.
+    pub directed: bool,
+    /// `/Di` in degrees counterclockwise from a left-to-right direction, where `directed`.
+    ///
+    /// The table's own warning, worth carrying: the angle "differs from the page object's Rotate
+    /// entry, which is measured clockwise from the top".
+    pub degrees: f32,
+    /// `/SS`, the scale a `Fly` starts or ends at.
+    pub scale: f32,
+    /// `/B`, whether a `Fly`'s flown-in area is rectangular and opaque.
+    pub opaque: bool,
+}
+
+/// Table 164's own spelling of a style.
+fn style_name(style: &Style) -> String {
+    match style {
+        Style::Split => "Split".to_owned(),
+        Style::Blinds => "Blinds".to_owned(),
+        Style::Box => "Box".to_owned(),
+        Style::Wipe => "Wipe".to_owned(),
+        Style::Dissolve => "Dissolve".to_owned(),
+        Style::Glitter => "Glitter".to_owned(),
+        Style::Replace => "R".to_owned(),
+        Style::Fly => "Fly".to_owned(),
+        Style::Push => "Push".to_owned(),
+        Style::Cover => "Cover".to_owned(),
+        Style::Uncover => "Uncover".to_owned(),
+        Style::Fade => "Fade".to_owned(),
+        Style::Unrecognised(name) => String::from_utf8_lossy(name.as_bytes()).into_owned(),
     }
 }
 

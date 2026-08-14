@@ -22,8 +22,67 @@
               doing nothing"
 )]
 
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+/// A one-page document with §12.7's two commonest fields, written out beside the test binary.
+///
+/// **The form half of this gate needs a form, and the application note has none.** The other
+/// candidate was a corpus document — `issue17492.pdf` is what `viewer-gtk` and `viewer-qt` were
+/// driven against — and it is refused for trap 8's reason turned around: `doc/pdf.js` is optional
+/// in a checkout, and a gate that skipped when it is absent would be a gate that quietly stops
+/// running. Eleven objects of hand-written PDF cost nothing and are always there.
+///
+/// The check box carries `/AP /N << /Yes … /Off … >>` because that is the whole point of the
+/// exercise: §12.7.5.2.3 makes `/V` "a name object representing the check box's appearance state",
+/// and `Yes` is the *file's* invention — a C caller has to be handed it by
+/// `pdfv_field_widget_text`, and a guess would tick nothing.
+fn form_fixture() -> Vec<u8> {
+    let appearance = |colour: &str| {
+        let contents = format!("{colour} 0 0 20 20 re f");
+        format!(
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 20 20] /Length {} >>\nstream\n\
+             {contents}\nendstream",
+            contents.len().saturating_add(1)
+        )
+    };
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R 6 0 R] \
+         /DA (/Helv 0 Tf 0 g) >> >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Resources << >> \
+         /Contents 4 0 R /Annots [5 0 R 6 0 R] >>\nendobj\n\
+         4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n\
+         5 0 obj\n<< /Type /Annot /Subtype /Widget /FT /Tx /T (typed) /V (hello) \
+         /Rect [10 10 90 30] /F 4 >>\nendobj\n\
+         6 0 obj\n<< /Type /Annot /Subtype /Widget /FT /Btn /T (ticked) /Rect [110 10 130 30] \
+         /F 4 /AS /Off /AP << /N << /Yes 7 0 R /Off 8 0 R >> >> >>\nendobj\n\
+         7 0 obj\n{}\nendobj\n\
+         8 0 obj\n{}\nendobj\n",
+        appearance("0 0 1 rg"),
+        appearance("1 1 1 rg"),
+    );
+
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
 
 /// Where the workspace's build output is, found from this test binary rather than assumed.
 ///
@@ -118,8 +177,11 @@ fn a_c_program_opens_a_document_turns_a_page_asks_a_query_and_gets_pixels() {
     );
 
     let document = crate_root.join("../../doc/PDF20_AN001-BPC.pdf");
+    let form = artefacts.join("pdfv_form_fixture.pdf");
+    std::fs::write(&form, form_fixture()).expect("the fixture is written beside the test binary");
     let ran = Command::new(&program)
         .arg(&document)
+        .arg(&form)
         .output()
         .expect("the program runs");
     let said = String::from_utf8_lossy(&ran.stdout).into_owned();
@@ -130,10 +192,15 @@ fn a_c_program_opens_a_document_turns_a_page_asks_a_query_and_gets_pixels() {
         String::from_utf8_lossy(&ran.stderr)
     );
 
-    // The numbers it printed, checked here rather than in the C, so that a change to the ABI that
-    // still *runs* cannot pass by printing something else. The application note is five pages,
-    // its outline is fourteen rows, its third page is where a search for "black point" lands, and
-    // the page after it draws.
+    what_it_printed(&said);
+}
+
+/// The numbers the C program printed, checked here rather than in the C.
+///
+/// So that a change to the ABI that still *runs* cannot pass by printing something else. The
+/// application note is five pages, its outline is fourteen rows, its third page is where a search
+/// for "black point" lands, and the page after it draws.
+fn what_it_printed(said: &str) {
     for expected in [
         "abi 1 (header 1), 16 event kind(s) (header 16)",
         "Opened says document 1 has 5 page(s)",
@@ -147,6 +214,28 @@ fn a_c_program_opens_a_document_turns_a_page_asks_a_query_and_gets_pixels() {
         "after the search: page 3 of 5",
         "after the turn: page 4 of 5, drawn in ",
         "frame: page 4, 708x1000, format 0, 2832000 byte(s)",
+        // What the five-hundred-and-eleventh session added, each line read off the library. The
+        // two counted enumerations, the name it gives a number it does not define, and the refusal
+        // an enumeration this ABI *takes* answers with are the whole of what C has in place of a
+        // build failure — so they are asserted rather than printed.
+        "control kinds 8 (header 8), row kinds 4 (header 4), unknown is unknown",
+        "an undefined pointer action: the message at that index is not of the kind this accessor \
+         reads",
+        // The note states no optional content and no `/EmbeddedFiles` tree. Both answer an
+        // **empty list** rather than `PDFV_NO_ANSWER`, which is `viewer-core`'s existing choice
+        // and worth pinning here rather than assuming: a document with no layers has answered the
+        // question, and the two would be the same picture in a panel and different sentences in a
+        // status bar.
+        "layers: 0 row(s)",
+        "attachments: 0 row(s)",
+        // §12.7's form, on the fixture beside the test binary. Two fields, the check box ticked
+        // with the name the library handed over, and the edit read back rather than assumed.
+        "form: 2 field(s)",
+        "[0] Entry flags 0",
+        "ticking ticked with the state Yes",
+        "after the edit: 1 widget(s) on",
+        "dirty after the edit: 1",
+        "dirty after the undo: 0",
         "ok",
     ] {
         assert!(

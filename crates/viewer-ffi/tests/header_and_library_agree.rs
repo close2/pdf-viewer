@@ -24,7 +24,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use viewer_ffi::{EventKind, PageTargetKind, PixelFormat, Status};
+use viewer_ffi::{
+    ControlKind, DelegateKind, EventKind, FocusKind, MarkupKind, PageTargetKind, PixelFormat,
+    PointerKind, PresentKind, PurposeKind, RestrictKind, RowKind, SelectKind, Status, TextKind,
+};
 
 /// The header, with every comment removed.
 ///
@@ -125,7 +128,7 @@ fn every_entry_point_is_declared_once_in_the_header_and_nowhere_else() {
     let exported = exported_names();
     assert_eq!(
         exported.len(),
-        43,
+        111,
         "the count `unsafe_position.rs` also states"
     );
     let missing: Vec<&String> = exported.difference(&declared).collect();
@@ -150,6 +153,20 @@ fn every_entry_point_is_declared_once_in_the_header_and_nowhere_else() {
 fn every_constant_in_the_header_is_the_number_the_library_gives_it() {
     let defined = defined_constants(&header_without_comments());
     let mut expected: BTreeMap<String, i64> = BTreeMap::new();
+    the_identity_and_the_statuses(&mut expected);
+    the_event_kinds(&mut expected);
+    the_argument_enumerations(&mut expected);
+    the_answered_enumerations(&mut expected);
+    the_field_flags(&mut expected);
+
+    assert_eq!(
+        defined, expected,
+        "the header's numbers and the library's have come apart"
+    );
+}
+
+/// `PDFV_ABI_VERSION`, the event-kind count, and every `pdfv_status`.
+fn the_identity_and_the_statuses(expected: &mut BTreeMap<String, i64>) {
     expected.insert(
         "PDFV_ABI_VERSION".to_owned(),
         i64::from(viewer_ffi::abi::PDFV_ABI_VERSION),
@@ -171,6 +188,10 @@ fn every_constant_in_the_header_is_the_number_the_library_gives_it() {
     ] {
         expected.insert(name.to_owned(), i64::from(status.code()));
     }
+}
+
+/// The sixteen kinds an event arrives as, which is the one enumeration `pdfv_abi_check` counts.
+fn the_event_kinds(expected: &mut BTreeMap<String, i64>) {
     for (name, kind) in [
         ("PDFV_EVENT_OPENED", EventKind::Opened),
         ("PDFV_EVENT_OPEN_FAILED", EventKind::OpenFailed),
@@ -187,9 +208,21 @@ fn every_constant_in_the_header_is_the_number_the_library_gives_it() {
         ("PDFV_EVENT_EXTRACTED", EventKind::Extracted),
         ("PDFV_EVENT_REFUSED", EventKind::Refused),
         ("PDFV_EVENT_REPORTED", EventKind::Reported),
+        // **This row did not exist until the five-hundred-and-eleventh session, and neither did
+        // the `#define`.** `Event::Searched` moved `PDFV_EVENT_KIND_COUNT` from 15 to 16 in the
+        // four-hundred-and-fourteenth and no constant was added for the kind itself, so a C caller
+        // switching on kinds had to write `15` by hand — and this test could not see it, because
+        // it compares the constants the header *has* against the ones it is told to expect and
+        // nobody told it to expect this one. The lesson is the map's rather than the header's: a
+        // table of expectations is only as complete as the person who wrote it.
+        ("PDFV_EVENT_SEARCHED", EventKind::Searched),
     ] {
         expected.insert(name.to_owned(), i64::from(kind.code()));
     }
+}
+
+/// The enumerations this ABI *takes*, which refuse a number they do not define.
+fn the_argument_enumerations(expected: &mut BTreeMap<String, i64>) {
     for (name, kind) in [
         ("PDFV_PAGE_INDEX", PageTargetKind::Index),
         ("PDFV_PAGE_FIRST", PageTargetKind::First),
@@ -210,13 +243,154 @@ fn every_constant_in_the_header_is_the_number_the_library_gives_it() {
     ] {
         expected.insert(name.to_owned(), kind as i64);
     }
+    // The enumerations the five-hundred-and-eleventh session added, each read off its own
+    // discriminant rather than written twice.
+    for (name, kind) in [
+        ("PDFV_POINTER_MOVED", PointerKind::Moved),
+        ("PDFV_POINTER_PRESSED", PointerKind::Pressed),
+        ("PDFV_POINTER_DRAGGED", PointerKind::Dragged),
+        ("PDFV_POINTER_RELEASED", PointerKind::Released),
+    ] {
+        expected.insert(name.to_owned(), kind as i64);
+    }
+    for (name, kind) in [
+        ("PDFV_SELECT_ALL", SelectKind::All),
+        ("PDFV_SELECT_NONE", SelectKind::None),
+    ] {
+        expected.insert(name.to_owned(), kind as i64);
+    }
+    for (name, kind) in [
+        ("PDFV_FOCUS_NEXT", FocusKind::Next),
+        ("PDFV_FOCUS_PREVIOUS", FocusKind::Previous),
+        ("PDFV_FOCUS_NONE", FocusKind::None),
+    ] {
+        expected.insert(name.to_owned(), kind as i64);
+    }
+    for (name, kind) in [
+        ("PDFV_RESTRICT_ON", RestrictKind::On),
+        ("PDFV_RESTRICT_OFF", RestrictKind::Off),
+    ] {
+        expected.insert(name.to_owned(), kind as i64);
+    }
+    for (name, kind) in [
+        ("PDFV_PRESENT_OFF", PresentKind::Off),
+        ("PDFV_PRESENT_ON", PresentKind::On),
+    ] {
+        expected.insert(name.to_owned(), kind as i64);
+    }
+    for (name, kind) in [
+        ("PDFV_DELEGATE_DRAWN", DelegateKind::Drawn),
+        ("PDFV_DELEGATE_DELEGATED", DelegateKind::Delegated),
+    ] {
+        expected.insert(name.to_owned(), kind as i64);
+    }
+    for (name, kind) in [
+        ("PDFV_MARKUP_HIGHLIGHT", MarkupKind::Highlight),
+        ("PDFV_MARKUP_UNDERLINE", MarkupKind::Underline),
+        ("PDFV_MARKUP_STRIKE_OUT", MarkupKind::StrikeOut),
+        ("PDFV_MARKUP_SQUIGGLY", MarkupKind::Squiggly),
+    ] {
+        expected.insert(name.to_owned(), kind as i64);
+    }
+    expected.insert(
+        "PDFV_PURPOSE_IMPORT_DATA".to_owned(),
+        i64::from(PurposeKind::ImportData.code()),
+    );
+    // Table 164's two two-valued entries, which `pdfv_event_transition` answers as numbers.
+    for (name, value) in [
+        ("PDFV_DIMENSION_HORIZONTAL", 0),
+        ("PDFV_DIMENSION_VERTICAL", 1),
+        ("PDFV_MOTION_INWARD", 0),
+        ("PDFV_MOTION_OUTWARD", 1),
+    ] {
+        expected.insert(name.to_owned(), value);
+    }
+}
+
+/// The enumerations this ABI *answers with*, each named and each with a count of its own.
+fn the_answered_enumerations(expected: &mut BTreeMap<String, i64>) {
     expected.insert(
         "PDFV_FORMAT_RGBA8".to_owned(),
         i64::from(PixelFormat::Rgba8.code()),
     );
-
-    assert_eq!(
-        defined, expected,
-        "the header's numbers and the library's have come apart"
+    for (name, kind) in [
+        ("PDFV_CONTROL_ENTRY", ControlKind::Entry),
+        ("PDFV_CONTROL_CHECK", ControlKind::Check),
+        ("PDFV_CONTROL_RADIO", ControlKind::Radio),
+        ("PDFV_CONTROL_PUSH", ControlKind::Push),
+        ("PDFV_CONTROL_COMBO", ControlKind::Combo),
+        ("PDFV_CONTROL_LIST", ControlKind::List),
+        ("PDFV_CONTROL_SIGNATURE", ControlKind::Signature),
+        ("PDFV_CONTROL_UNSTATED", ControlKind::Unstated),
+    ] {
+        expected.insert(name.to_owned(), i64::from(kind.code()));
+    }
+    expected.insert(
+        "PDFV_CONTROL_KIND_COUNT".to_owned(),
+        i64::from(ControlKind::COUNT),
     );
+    for (name, kind) in [
+        ("PDFV_ROW_ACTIVATE", RowKind::Activate),
+        ("PDFV_ROW_TOGGLE", RowKind::Toggle),
+        ("PDFV_ROW_EXTRACT", RowKind::Extract),
+        ("PDFV_ROW_INERT", RowKind::Inert),
+    ] {
+        expected.insert(name.to_owned(), i64::from(kind.code()));
+    }
+    expected.insert("PDFV_ROW_KIND_COUNT".to_owned(), i64::from(RowKind::COUNT));
+    for (name, kind) in [
+        ("PDFV_TEXT_QUALIFIED", TextKind::Qualified),
+        ("PDFV_TEXT_SHOWN", TextKind::Shown),
+        ("PDFV_TEXT_PARTIAL", TextKind::Partial),
+        ("PDFV_TEXT_LABEL", TextKind::Label),
+        ("PDFV_TEXT_EXPORT", TextKind::Export),
+    ] {
+        expected.insert(name.to_owned(), kind as i64);
+    }
+}
+
+/// `pdfv_field_control`'s flag word.
+fn the_field_flags(expected: &mut BTreeMap<String, i64>) {
+    // Written out here rather than derived, because the numbers
+    // *are* the ABI: a bit that moved would be a caller acting on the wrong flag, and a loop over
+    // `1 << n` would agree with whatever the source said rather than with what was published.
+    for (name, bit) in [
+        ("PDFV_FIELD_READ_ONLY", viewer_ffi::form::FLAG_READ_ONLY),
+        ("PDFV_FIELD_REQUIRED", viewer_ffi::form::FLAG_REQUIRED),
+        ("PDFV_FIELD_NO_EXPORT", viewer_ffi::form::FLAG_NO_EXPORT),
+        ("PDFV_FIELD_MULTILINE", viewer_ffi::form::FLAG_MULTILINE),
+        ("PDFV_FIELD_PASSWORD", viewer_ffi::form::FLAG_PASSWORD),
+        ("PDFV_FIELD_FILE_SELECT", viewer_ffi::form::FLAG_FILE_SELECT),
+        (
+            "PDFV_FIELD_DO_NOT_SPELL_CHECK",
+            viewer_ffi::form::FLAG_DO_NOT_SPELL_CHECK,
+        ),
+        (
+            "PDFV_FIELD_DO_NOT_SCROLL",
+            viewer_ffi::form::FLAG_DO_NOT_SCROLL,
+        ),
+        ("PDFV_FIELD_COMB", viewer_ffi::form::FLAG_COMB),
+        ("PDFV_FIELD_RICH_TEXT", viewer_ffi::form::FLAG_RICH_TEXT),
+        (
+            "PDFV_FIELD_NO_TOGGLE_TO_OFF",
+            viewer_ffi::form::FLAG_NO_TOGGLE_TO_OFF,
+        ),
+        (
+            "PDFV_FIELD_RADIOS_IN_UNISON",
+            viewer_ffi::form::FLAG_RADIOS_IN_UNISON,
+        ),
+        ("PDFV_FIELD_ON", viewer_ffi::form::FLAG_ON),
+        ("PDFV_FIELD_EDITABLE", viewer_ffi::form::FLAG_EDITABLE),
+        (
+            "PDFV_FIELD_MULTI_SELECT",
+            viewer_ffi::form::FLAG_MULTI_SELECT,
+        ),
+        (
+            "PDFV_FIELD_COMMIT_ON_SEL",
+            viewer_ffi::form::FLAG_COMMIT_ON_SELECTION,
+        ),
+        ("PDFV_FIELD_OBSCURED", viewer_ffi::form::FLAG_OBSCURED),
+    ] {
+        expected.insert(name.to_owned(), i64::from(bit));
+    }
 }

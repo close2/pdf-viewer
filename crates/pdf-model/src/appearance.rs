@@ -3340,9 +3340,108 @@ impl Field {
             .map(|appearances| document.get_key(appearances, "N"));
         match states.as_ref().and_then(Object::as_dict) {
             Some(states) if states.get(&String::from_utf8_lossy(&named)).is_none() => OFF.to_vec(),
+            _ if self.an_earlier_button_answers_to(document, annotation, &named) => OFF.to_vec(),
             _ => named,
         }
     }
+
+    /// Table 229 bit 26 read the way round that needs code: whether this button must stay **off**
+    /// because a button before it in `/Kids` answers to the same state name.
+    ///
+    /// ISO 32000-2 §12.7.5.2.1 makes this a requirement rather than a courtesy — "[f]or button
+    /// fields, bits 15, 16, 17, and 26 shall indicate the intended behaviour of the button field.
+    /// An interactive PDF processor shall follow the intended behaviour" — and Table 229's own
+    /// row states both halves:
+    ///
+    /// > (PDF 1.5) If set, a group of radio buttons within a radio button field that use the same
+    /// > value for the on state will turn on and off in unison; that is if one is checked, they are
+    /// > all checked. If clear, the buttons are mutually exclusive (the same behaviour as HTML
+    /// > radio buttons).
+    ///
+    /// **The half that needs code is the second, and this tree had it backwards for want of
+    /// noticing.** `/V` is a name and a widget is on when its `/AP /N` holds a stream under that
+    /// name, so two widgets sharing a name go on together *by construction* — the flag being
+    /// **set** was already obeyed, by an implementation that had never read it. What was not obeyed
+    /// is §12.7.5.2.3's sentence for the flag being clear:
+    ///
+    /// > For radio buttons, the same behaviour shall occur only if the `RadiosInUnison` flag is
+    /// > set. If it is not set, at most one radio button in a field shall be set at a time.
+    ///
+    /// **Which one is a documented choice, because the clause states none and the file cannot.**
+    /// The value is a name; a producer that gave two buttons the same name has written a document
+    /// whose own `/V` cannot distinguish them, and Table 230 is the standard's instrument for a
+    /// producer that wants them distinguishable — "the names used to represent the on state in the
+    /// AP dictionary of each annotation may use numerical position (starting with 0) … This allows
+    /// distinguishing between the annotations even if two or more of them have the same value in
+    /// the Opt array". So the choice is the **first** kid that answers to the name, which is the
+    /// field's own order and the order Table 230's `/Opt` is indexed by.
+    ///
+    /// **It binds a value this reader replaced and not the file's own `/AS`.** The rule is about
+    /// what happens when a button is turned *on*, and the caller that turns one on is this program;
+    /// a file that states `/AS` on two widgets has said which of its own buttons are on, and
+    /// §12.7.5.2.3 gives that entry precedence — overriding it would be inventing a correction to a
+    /// document rather than obeying a clause about a reader. [`Field::is_on`]'s first branch is the
+    /// only caller, and `crate::appearance::appearance_state` reaches the drawing path through the
+    /// same function, so the description a host reads and the picture the page draws cannot
+    /// disagree about which button went on.
+    fn an_earlier_button_answers_to(
+        &self,
+        document: &Document,
+        annotation: &Dictionary,
+        state: &[u8],
+    ) -> bool {
+        if self.flags & FLAG_PUSHBUTTON != 0
+            || self.flags & FLAG_RADIO == 0
+            || self.flags & FLAG_RADIOS_IN_UNISON != 0
+            || state == OFF
+        {
+            return false;
+        }
+        // §12.7.5.2.4: "[t]he Kids entry in the radio button field's field dictionary holds an
+        // array of widget annotations representing the individual buttons in the set." Taken from
+        // the nearest ancestor that states one, which is the walk `/Ff` and `/FT` already took; a
+        // field whose one widget is merged into it states none, and a set of one has nothing to be
+        // exclusive with.
+        let kids = self
+            .ancestry
+            .iter()
+            .map(|source| document.get_key(source, "Kids"))
+            .find(|value| value.as_array().is_some());
+        let Some(kids) = kids.as_ref().and_then(Object::as_array) else {
+            return false;
+        };
+        for kid in kids {
+            let resolved = document.resolve(kid);
+            let Some(button) = resolved.as_dict() else {
+                continue;
+            };
+            if !holds_state(document, button, state) {
+                continue;
+            }
+            // The first kid holding the name is the one that stays on. Two kids whose whole
+            // dictionaries are equal are indistinguishable in every respect the standard names, so
+            // comparing them as values rather than as references is not a weaker test than
+            // comparing identities — it answers "off" for the second of the pair either way.
+            return button != annotation;
+        }
+        false
+    }
+}
+
+/// Whether a widget's `/AP /N` states a stream under this appearance state.
+///
+/// §12.7.5.2.3 makes those keys the states a button has: each state "can have a separate
+/// appearance, which shall be defined by an appearance stream in the appearance dictionary of the
+/// field's widget annotation".
+fn holds_state(document: &Document, widget: &Dictionary, state: &[u8]) -> bool {
+    let appearances = document.get_key(widget, "AP");
+    let Some(appearances) = appearances.as_dict() else {
+        return false;
+    };
+    let normal = document.get_key(appearances, "N");
+    normal
+        .as_dict()
+        .is_some_and(|states| states.get(&String::from_utf8_lossy(state)).is_some())
 }
 
 impl Field {

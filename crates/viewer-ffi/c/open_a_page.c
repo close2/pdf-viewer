@@ -8,7 +8,10 @@
  * the library rather than asserted here.
  *
  *   cc -I../include open_a_page.c -o open_a_page -lpdf_viewer_ffi -L<where the cdylib is>
- *   ./open_a_page <file.pdf>
+ *   ./open_a_page <file.pdf> [<form.pdf>]
+ *
+ * The second argument is optional and is where §12.7's half runs: a form has to come from a
+ * document that has one, and the five-page application note the first argument names does not.
  *
  * `tests/a_c_program_drives_the_abi.rs` builds and runs exactly this, and skips when there is no
  * C compiler on the machine.
@@ -157,10 +160,221 @@ static int draw_what_was_asked(pdfv_viewer *viewer, pdfv_events *events, size_t 
     return 1;
 }
 
+/* §8.11.4.3's layers and §7.11.4's files, printed. Both are the same handle. */
+static void say_panel(const char *what, pdfv_panel *panel)
+{
+    size_t rows = pdfv_panel_len(panel);
+    printf("%s: %zu row(s)\n", what, rows);
+    for (size_t row = 0; row < rows && row < 4; ++row) {
+        size_t needed = 0;
+        (void)pdfv_panel_text(panel, row, 0, NULL, 0, &needed);
+        char *label = malloc(needed);
+        if (label == NULL) {
+            return;
+        }
+        (void)pdfv_panel_text(panel, row, 0, label, needed, &needed);
+        uint32_t kind = 0;
+        uint32_t number = 0;
+        uint16_t generation = 0;
+        bool on = false;
+        bool locked = false;
+        uint32_t depth = 0;
+        bool expanded = false;
+        (void)pdfv_panel_action(panel, row, &kind, &number, &generation, &on, &locked);
+        (void)pdfv_panel_depth(panel, row, &depth, &expanded);
+        printf("  [%zu] depth %u, %s, object %u %u, on %d, locked %d: %s\n", row, depth,
+               pdfv_row_kind_name(kind), number, generation, on ? 1 : 0, locked ? 1 : 0, label);
+        free(label);
+    }
+}
+
+/* One of a field's strings, printed inline. Returns 1 when there was one. */
+static int say_field_string(const pdfv_fields *fields, size_t field, uint32_t which,
+                            const char *label)
+{
+    size_t needed = 0;
+    int32_t asked = pdfv_field_name(fields, field, which, NULL, 0, &needed);
+    if (asked != PDFV_BUFFER_TOO_SMALL && asked != PDFV_OK) {
+        return 0;
+    }
+    char *text = malloc(needed);
+    if (text == NULL) {
+        return 0;
+    }
+    if (pdfv_field_name(fields, field, which, text, needed, &needed) == PDFV_OK) {
+        printf(" %s=%s", label, text);
+    }
+    free(text);
+    return 1;
+}
+
+/*
+ * §12.7's form, walked and then *changed*: the one thing a C caller could not do at all before the
+ * five-hundred-and-eleventh session. Returns 1 on success.
+ *
+ * The interesting step is the last: a check box's value is the name Table 170's appearance
+ * dictionary is keyed by, and those names are the file's own invention — so a caller has to be told
+ * one, which is what `pdfv_field_widget_text(PDFV_TEXT_LABEL)` is for. Sending a guess would tick
+ * nothing.
+ */
+static int exercise_the_form(pdfv_viewer *viewer, const char *path)
+{
+    size_t len = 0;
+    uint8_t *bytes = read_file(path, &len);
+    if (bytes == NULL) {
+        return 0;
+    }
+    pdfv_events *events = NULL;
+    if (!check("pdfv_open (form)", pdfv_open(viewer, 2, bytes, len, NULL, NULL, &events))) {
+        free(bytes);
+        return 0;
+    }
+    free(bytes);
+    pdfv_events_free(events);
+
+    pdfv_fields *fields = NULL;
+    if (!check("pdfv_fields_read", pdfv_fields_read(viewer, &fields))) {
+        return 0;
+    }
+    size_t count = pdfv_fields_len(fields);
+    printf("form: %zu field(s)\n", count);
+
+    /* The check box to tick, and the name that ticks it, both learned from the library. */
+    char *ticks = NULL;
+    char *ticked_field = NULL;
+    for (size_t field = 0; field < count; ++field) {
+        uint32_t kind = 0;
+        uint32_t flags = 0;
+        (void)pdfv_field_control(fields, field, &kind, &flags);
+        printf("  [%zu] %s flags %u", field, pdfv_control_kind_name(kind), flags);
+        (void)say_field_string(fields, field, PDFV_TEXT_QUALIFIED, "name");
+        (void)say_field_string(fields, field, PDFV_TEXT_SHOWN, "shown");
+        size_t widgets = 0;
+        (void)pdfv_field_widget_count(fields, field, &widgets);
+        size_t options = 0;
+        (void)pdfv_field_option_count(fields, field, &options);
+        printf(" widgets=%zu options=%zu", widgets, options);
+        size_t needed = 0;
+        int32_t has_value = pdfv_field_value(fields, field, NULL, 0, &needed);
+        if (has_value == PDFV_NO_ANSWER) {
+            printf(" value=<none>");
+        } else {
+            char *value = malloc(needed);
+            if (value != NULL) {
+                if (pdfv_field_value(fields, field, value, needed, &needed) == PDFV_OK) {
+                    printf(" value=%s", value);
+                }
+                free(value);
+            }
+        }
+        printf("\n");
+        for (size_t widget = 0; widget < widgets; ++widget) {
+            uint32_t number = 0;
+            uint16_t generation = 0;
+            float quad[8] = {0};
+            bool on = false;
+            (void)pdfv_field_widget(fields, field, widget, &number, &generation, quad, &on);
+            printf("    widget %u %u at %.1f,%.1f on=%d\n", number, generation, (double)quad[0],
+                   (double)quad[1], on ? 1 : 0);
+            if (kind != PDFV_CONTROL_CHECK || ticks != NULL || on) {
+                continue;
+            }
+            size_t state_needed = 0;
+            (void)pdfv_field_widget_text(fields, field, widget, PDFV_TEXT_LABEL, NULL, 0,
+                                         &state_needed);
+            char *state = malloc(state_needed);
+            size_t name_needed = 0;
+            (void)pdfv_field_name(fields, field, PDFV_TEXT_QUALIFIED, NULL, 0, &name_needed);
+            char *name = malloc(name_needed);
+            if (state == NULL || name == NULL) {
+                free(state);
+                free(name);
+                continue;
+            }
+            if (pdfv_field_widget_text(fields, field, widget, PDFV_TEXT_LABEL, state,
+                                       state_needed, &state_needed) == PDFV_OK
+                && pdfv_field_name(fields, field, PDFV_TEXT_QUALIFIED, name, name_needed,
+                                   &name_needed) == PDFV_OK) {
+                ticks = state;
+                ticked_field = name;
+            } else {
+                free(state);
+                free(name);
+            }
+        }
+    }
+    pdfv_fields_free(fields);
+
+    if (ticks == NULL) {
+        fprintf(stderr, "the form fixture has no check box to tick\n");
+        return 0;
+    }
+    printf("ticking %s with the state %s\n", ticked_field, ticks);
+    pdfv_events *edited = NULL;
+    int32_t sent = pdfv_set_field_text(viewer, ticked_field, ticks, &edited);
+    free(ticks);
+    free(ticked_field);
+    if (!check("pdfv_set_field_text", sent)) {
+        return 0;
+    }
+    pdfv_events_free(edited);
+
+    /* And read it back, which is the rule a host follows after every edit: the field's own answer
+     * is the truth, never the string that was sent. */
+    if (!check("pdfv_fields_read (again)", pdfv_fields_read(viewer, &fields))) {
+        return 0;
+    }
+    size_t on_now = 0;
+    for (size_t field = 0; field < pdfv_fields_len(fields); ++field) {
+        size_t widgets = 0;
+        (void)pdfv_field_widget_count(fields, field, &widgets);
+        for (size_t widget = 0; widget < widgets; ++widget) {
+            bool on = false;
+            (void)pdfv_field_widget(fields, field, widget, NULL, NULL, NULL, &on);
+            if (on) {
+                ++on_now;
+            }
+        }
+    }
+    pdfv_fields_free(fields);
+    printf("after the edit: %zu widget(s) on\n", on_now);
+
+    bool dirty = false;
+    (void)pdfv_dirty(viewer, &dirty);
+    printf("dirty after the edit: %d\n", dirty ? 1 : 0);
+
+    /* §7.5.6's incremental update: the producer's bytes with the edit appended. */
+    pdfv_events *saved = NULL;
+    if (!check("pdfv_save", pdfv_save(viewer, &saved))) {
+        return 0;
+    }
+    size_t written = 0;
+    for (size_t index = 0; index < pdfv_events_len(saved); ++index) {
+        size_t needed = 0;
+        if (pdfv_event_bytes(saved, index, NULL, 0, &needed) == PDFV_BUFFER_TOO_SMALL) {
+            written = needed;
+        }
+    }
+    pdfv_events_free(saved);
+    printf("saved %s than the file it came from: %zu against %zu byte(s)\n",
+           written > len ? "more" : "no more", written, len);
+
+    pdfv_events *undone = NULL;
+    (void)pdfv_undo(viewer, &undone);
+    pdfv_events_free(undone);
+    (void)pdfv_dirty(viewer, &dirty);
+    printf("dirty after the undo: %d\n", dirty ? 1 : 0);
+
+    pdfv_events *closed = NULL;
+    (void)pdfv_close(viewer, 2, &closed);
+    pdfv_events_free(closed);
+    return written > len;
+}
+
 int main(int argc, char **argv)
 {
-    if (argc != 2) {
-        fprintf(stderr, "usage: open_a_page <file.pdf>\n");
+    if (argc < 2 || argc > 3) {
+        fprintf(stderr, "usage: open_a_page <file.pdf> [<form.pdf>]\n");
         return 1;
     }
 
@@ -389,12 +603,141 @@ int main(int argc, char **argv)
     printf("copied %zu byte(s) in %.0f us (%.1f GB/s); %zu of %zu pixel(s) are not white\n",
            written, copy_took, (double)written / copy_took / 1e3, inked, written / 4);
     free(pixels);
-
-    pdfv_viewer_free(viewer);
     if (inked == 0) {
         fprintf(stderr, "the page copied out is blank\n");
+        pdfv_viewer_free(viewer);
         return 1;
     }
+
+    /* --------------------------------------------------------------------------------------- */
+    /* Everything the four-hundred-and-eleventh session left out of the ABI.                     */
+    /* --------------------------------------------------------------------------------------- */
+
+    /* The two enumerations this library answers with but does not push, and the name it gives a
+     * number it does not define — which is what a caller compiled before a variant gets. */
+    printf("control kinds %u (header %u), row kinds %u (header %u), unknown is %s\n",
+           pdfv_control_kind_count(), PDFV_CONTROL_KIND_COUNT, pdfv_row_kind_count(),
+           PDFV_ROW_KIND_COUNT, pdfv_control_kind_name(PDFV_CONTROL_KIND_COUNT));
+
+    /* §12.5.5's pointer, and the question a caller asks on every move of it. */
+    pdfv_events *moved = NULL;
+    if (!check("pdfv_pointer", pdfv_pointer(viewer, 100.0f, 100.0f, PDFV_POINTER_MOVED, &moved))) {
+        pdfv_viewer_free(viewer);
+        return 1;
+    }
+    pdfv_events_free(moved);
+    bool over_a_link = false;
+    (void)pdfv_link_at(viewer, 100.0f, 100.0f, &over_a_link);
+
+    /* A selection, as text and as shapes. The shapes are what a caller draws in its own colour;
+     * the whole reason they are not baked into the frame. */
+    pdfv_events *selected = NULL;
+    if (!check("pdfv_select", pdfv_select(viewer, PDFV_SELECT_ALL, &selected))) {
+        pdfv_viewer_free(viewer);
+        return 1;
+    }
+    pdfv_events_free(selected);
+    size_t text_needed = 0;
+    (void)pdfv_selection_text(viewer, NULL, 0, &text_needed);
+    pdfv_quads *quads = NULL;
+    size_t shapes = 0;
+    if (pdfv_selection_quads(viewer, &quads) == PDFV_OK) {
+        shapes = pdfv_quads_len(quads);
+        float one[8] = {0};
+        if (shapes > 0) {
+            (void)pdfv_quads_get(quads, 0, one);
+        }
+        printf("selection: %zu byte(s) over %zu shape(s), first at %.1f,%.1f; over a link: %d\n",
+               text_needed > 0 ? text_needed - 1 : 0, shapes, (double)one[0], (double)one[1],
+               over_a_link ? 1 : 0);
+        pdfv_quads_free(quads);
+    }
+
+    /* The other two panels. A document stating neither answers an empty list rather than
+     * PDFV_NO_ANSWER — the question was answered — and PDFV_NO_ANSWER is what comes back when no
+     * document is focused at all. Both paths are printed, because a caller has to tell them
+     * apart: one is a document with no layers and the other is no document. */
+    pdfv_panel *panel = NULL;
+    int32_t layers = pdfv_layers_read(viewer, &panel);
+    if (layers == PDFV_OK) {
+        say_panel("layers", panel);
+        pdfv_panel_free(panel);
+    } else {
+        printf("layers: %s\n", pdfv_status_message(layers));
+    }
+    int32_t files = pdfv_attachments_read(viewer, &panel);
+    if (files == PDFV_OK) {
+        say_panel("attachments", panel);
+        pdfv_panel_free(panel);
+    } else {
+        printf("attachments: %s\n", pdfv_status_message(files));
+    }
+
+    /* What the page could not draw, which every layer of this library says out loud. */
+    size_t reports = 0;
+    (void)pdfv_reports_len(viewer, &reports);
+    printf("reports: %zu\n", reports);
+    for (size_t index = 0; index < reports && index < 3; ++index) {
+        size_t needed = 0;
+        (void)pdfv_report(viewer, index, NULL, 0, &needed);
+        char *note = malloc(needed);
+        if (note == NULL) {
+            break;
+        }
+        if (pdfv_report(viewer, index, note, needed, &needed) == PDFV_OK) {
+            printf("  %s\n", note);
+        }
+        free(note);
+    }
+
+    /* The three policy values and the clock, each of which only a host can supply. None of them
+     * has to produce an event, and none of these is checked for one: what is being demonstrated is
+     * that a C caller can *say* them. */
+    pdfv_events *said = NULL;
+    if (!check("pdfv_restrict", pdfv_restrict(viewer, PDFV_RESTRICT_OFF, &said))) {
+        pdfv_viewer_free(viewer);
+        return 1;
+    }
+    pdfv_events_free(said);
+    if (!check("pdfv_delegate", pdfv_delegate(viewer, PDFV_DELEGATE_DELEGATED, &said))) {
+        pdfv_viewer_free(viewer);
+        return 1;
+    }
+    pdfv_events_free(said);
+    if (!check("pdfv_present", pdfv_present(viewer, PDFV_PRESENT_ON, &said))) {
+        pdfv_viewer_free(viewer);
+        return 1;
+    }
+    pdfv_events_free(said);
+    if (!check("pdfv_tick", pdfv_tick(viewer, 1000, &said))) {
+        pdfv_viewer_free(viewer);
+        return 1;
+    }
+    /* A page with no /Dur swallows every tick — "[i]f no Dur entry is specified in the page
+     * object, the page shall not advance automatically" — so the count printed here is the
+     * clause's answer and not a defect. */
+    printf("policy: restrict, delegate, present and one tick produced %zu event(s)\n",
+           pdfv_events_len(said));
+    pdfv_events_free(said);
+    (void)pdfv_present(viewer, PDFV_PRESENT_OFF, &said);
+    pdfv_events_free(said);
+
+    /* And a number this program refuses to invent: an enumeration this ABI *takes* says so. */
+    pdfv_events *refused = NULL;
+    if (pdfv_pointer(viewer, 0.0f, 0.0f, 99u, &refused) != PDFV_WRONG_KIND) {
+        fprintf(stderr, "a pointer action this build does not define was accepted\n");
+        pdfv_viewer_free(viewer);
+        return 1;
+    }
+    printf("an undefined pointer action: %s\n", pdfv_status_message(PDFV_WRONG_KIND));
+
+    /* §12.7's form, on the document that has one. */
+    if (argc == 3 && !exercise_the_form(viewer, argv[2])) {
+        pdfv_viewer_free(viewer);
+        return 1;
+    }
+
+    pdfv_viewer_free(viewer);
     printf("ok\n");
     return 0;
 }

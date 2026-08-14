@@ -48,11 +48,13 @@
 
 #![forbid(unsafe_code)]
 
+pub mod fit;
 pub mod form;
 pub mod panel;
 pub mod policy;
 pub mod trace;
 
+pub use fit::ControlFit;
 pub use form::{ControlKind, control_kind};
 pub use panel::{PanelRow, RowAction, attachment_rows, layer_rows, outline_rows};
 pub use policy::{ImportRefusal, may_write_extracted, read_import, resolve_import};

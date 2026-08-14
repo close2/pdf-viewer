@@ -187,7 +187,10 @@ pass.
   clauses 8 and 9 in a data structure and a frame comes back by copy into the caller's own buffer;
   and **a variant added later is named, described and counted** — `pdfv_abi_check` turns "fails to
   compile in every consumer" into "fails to start, once, naming the number that moved", which is
-  weaker and is the strongest thing C admits. ADR 0247.
+  weaker and is the strongest thing C admits. **Its entry points are the whole vocabulary since ADR
+  0346**, and how that landed is the shape's own evidence: two thirds of the ABI arrived in one
+  round and `PDFV_EVENT_KIND_COUNT` did not move, because a `Command` is a symbol and only an
+  `Event` is a number. ADR 0247.
 
 **The freeze's three amendments came first and one of them was a bug.** `Answer::Field`'s password
 value was supposed to be a sentence in a doc comment; reading Table 231 bit 14 for it found a

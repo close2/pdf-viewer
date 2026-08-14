@@ -226,8 +226,8 @@ cargo run --release -p viewer-gtk --bin pdf-viewer-gtk -- doc/PDF20_AN001-BPC.pd
 is the claim `viewer-core` exists to make and which one binary linking both would stop making.
 
 What it binds: `Left`/`Right`/`Up`/`Down`/`Page_Up`/`Page_Down` to turn pages, `Home`/`End`,
-`+`/`-`/`0` to zoom, `a` to select all, `Escape` to select nothing, `s` to save, `z`/`y` to undo and
-redo, a drag to select, and the sidebar's three tabs to §12.3.3's outline, §8.11.4.3's layers and
+`+`/`-`/`0` to zoom, `w` to magnify until §12.7's controls fit their rectangles, `a` to select all,
+`Escape` to select nothing, `s` to save, `z`/`y` to undo and redo, a drag to select, and the sidebar's three tabs to §12.3.3's outline, §8.11.4.3's layers and
 §7.11.4's files — each a real `GtkListView`, with a layer's switch a real `GtkCheckButton` and an
 attachment's row writing the file beside the document. §12.7's fields are real controls placed over
 the page, and since the four-hundred-and-ninth the page underneath them is drawn **without** the
@@ -236,7 +236,11 @@ this host instructs by default. `--draw-widget-appearances` puts them back, whic
 standard asks of a processor nobody has instructed and what the two pictures in ADR 0245 were taken
 with. **The one thing left to know** is the size: a GTK control has a theme's minimum and a widget's
 `/Rect` can be smaller, so on `160F-2019.pdf` all 76 controls are taller than the rectangle they
-cover. Choosing the magnification is `doc/todo/30`'s.
+cover. **`w` is what fixes it, since the five-hundred-and-eleventh** (ADR 0346): `--trace=panel`
+prints the magnification at which every control would fit, and the key sends it as
+`Zoom::Scale` — no message the vocabulary did not already have. It is offered rather than applied,
+because a viewer that magnified a page by itself because a form is on it would be answering a
+question nobody asked.
 
 **And since the four-hundred-and-tenth there is a third program, with a third toolkit.**
 

@@ -134,13 +134,20 @@
 pub mod abi;
 
 mod events;
+pub mod form;
 mod kinds;
 mod panels;
 mod session;
+mod shapes;
 mod status;
 
-pub use events::{Events, Searched};
-pub use kinds::{EventKind, PageTargetKind, PixelFormat, ZoomKind};
-pub use panels::Outline;
+pub use events::{Events, Searched, TransitionNumbers};
+pub use form::Form;
+pub use kinds::{
+    ControlKind, DelegateKind, EventKind, FocusKind, MarkupKind, PageTargetKind, PixelFormat,
+    PointerKind, PresentKind, PurposeKind, RestrictKind, RowKind, SelectKind, TextKind, ZoomKind,
+};
+pub use panels::{Outline, Panel};
 pub use session::{FrameInfo, Session, rasterise};
+pub use shapes::Quads;
 pub use status::Status;

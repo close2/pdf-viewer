@@ -12,12 +12,14 @@ use pdf_render::Rasterizer as _;
 use pdf_render::{Raster, RasterFormat};
 use render_cpu::CpuRasterizer;
 use viewer_core::{
-    Answer, Command, DocumentId, Event, Find, FindDirection, PageTarget, Query, RenderRequest,
-    Rendered, Viewer, Zoom,
+    Answer, Command, DocumentId, Edit, Event, Find, FindDirection, PageTarget, PointerAction,
+    Query, RenderRequest, Rendered, Selection, Viewer, Zoom,
 };
 
 use crate::events::Events;
-use crate::panels::Outline;
+use crate::form::Form;
+use crate::panels::{Outline, Panel};
+use crate::shapes::Quads;
 use crate::status::Status;
 
 /// One viewer, and the whole of what a `pdfv_viewer *` points at.
@@ -279,6 +281,315 @@ impl Session {
     pub fn outline(&self) -> Result<Outline, Status> {
         match self.viewer.query(Query::Outline) {
             Answer::Outline(outline) => Ok(Outline::of(&outline)),
+            _ => Err(Status::NoAnswer),
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // The pointer, the selection and §12.5.1's focus.
+    // ---------------------------------------------------------------------------------------
+
+    /// The pointer moved, or a button went down or up, at a point in the viewport.
+    #[must_use]
+    pub fn pointer(&mut self, at: (f32, f32), action: PointerAction) -> Events {
+        self.handle(Command::Pointer { at, action })
+    }
+
+    /// Select everything the page reads back as, or nothing.
+    #[must_use]
+    pub fn select(&mut self, selection: Selection) -> Events {
+        self.handle(Command::Select(selection))
+    }
+
+    /// §12.5.1: move the input focus to the next or previous annotation on the page.
+    #[must_use]
+    pub fn focused(&mut self, moved: viewer_core::FocusMove) -> Events {
+        self.handle(Command::Focused(moved))
+    }
+
+    /// Whether activating at this viewport point would follow a §12.5.6.5 link.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no document is focused.
+    pub fn link_at(&self, at: (f32, f32)) -> Result<bool, Status> {
+        match self.viewer.query(Query::LinkAt(at)) {
+            Answer::Link(link) => Ok(link),
+            _ => Err(Status::NoAnswer),
+        }
+    }
+
+    /// The selected text, as the page reads back.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no document is focused.
+    pub fn selection_text(&self) -> Result<String, Status> {
+        match self.viewer.query(Query::Selection) {
+            Answer::Selected(selected) => Ok(selected.text.to_owned()),
+            _ => Err(Status::NoAnswer),
+        }
+    }
+
+    /// The shapes covering what is selected, in device pixels of the viewport.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no document is focused.
+    pub fn selection_quads(&self) -> Result<Quads, Status> {
+        match self.viewer.query(Query::Selection) {
+            Answer::Selected(selected) => Ok(Quads::new(selected.quads)),
+            _ => Err(Status::NoAnswer),
+        }
+    }
+
+    /// Which annotation holds §12.5.1's focus, and where it is on the screen.
+    ///
+    /// Named for the *annotation* rather than for the query, because [`Self::focus`] is already
+    /// [`Command::Focus`] — a document being made the one commands apply to, which is a different
+    /// thing entirely and was here first.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where nothing is focused or it states no usable `/Rect`.
+    pub fn focused_annotation(&self) -> Result<((u32, u16), [f32; 8]), Status> {
+        match self.viewer.query(Query::Focus) {
+            Answer::Focus { object, quad } => Ok(((object.number, object.generation), quad)),
+            _ => Err(Status::NoAnswer),
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // §12.7's form, and the four edits.
+    // ---------------------------------------------------------------------------------------
+
+    /// §12.7's fields with a widget on the page being shown.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no document is focused. A page with no widget on it answers an
+    /// empty form, which is an answer rather than a refusal.
+    pub fn fields(&self) -> Result<Form, Status> {
+        match self.viewer.query(Query::Fields) {
+            Answer::Fields(fields) => Ok(Form::of(&fields)),
+            _ => Err(Status::NoAnswer),
+        }
+    }
+
+    /// What the field at a point is called: §12.7.4.2's qualified name and §14.9.3's shown one.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no field is there.
+    pub fn field_at(&self, at: (f32, f32)) -> Result<(String, String), Status> {
+        match self.viewer.query(Query::FieldAt(at)) {
+            Answer::Field { name, .. } => Ok((name.qualified.clone(), name.shown().to_owned())),
+            _ => Err(Status::NoAnswer),
+        }
+    }
+
+    /// Where the caret sits in the field at a point, given how far into the value it is.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] in the cases [`viewer_core::Query::Caret`] answers `None` in.
+    /// Answered as `[from_x, from_y, to_x, to_y]`: a caret has no width, so what crosses is two
+    /// points, and a flat array is what the entry point writes out anyway.
+    pub fn caret(&self, at: (f32, f32), offset: usize) -> Result<[f32; 4], Status> {
+        match self.viewer.query(Query::Caret { at, offset }) {
+            Answer::Caret { from, to } => Ok([from.0, from.1, to.0, to.1]),
+            _ => Err(Status::NoAnswer),
+        }
+    }
+
+    /// How far into a field's value a point inside it is, in bytes — the caret's inverse.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] in the cases [`Self::caret`] answers it in.
+    pub fn offset(&self, at: (f32, f32), point: (f32, f32)) -> Result<usize, Status> {
+        match self.viewer.query(Query::Offset { at, point }) {
+            Answer::Offset(offset) => Ok(offset),
+            _ => Err(Status::NoAnswer),
+        }
+    }
+
+    /// The shapes covering a byte range of a field's value, one per line it touches.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] in the cases [`Self::caret`] answers it in.
+    pub fn field_selection(&self, at: (f32, f32), from: usize, to: usize) -> Result<Quads, Status> {
+        match self.viewer.query(Query::FieldSelection { at, from, to }) {
+            Answer::FieldSelection(quads) => Ok(Quads::new(quads)),
+            _ => Err(Status::NoAnswer),
+        }
+    }
+
+    /// §12.5.6.6: the free text annotation **this session added** at a point, and what it says.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no such annotation covers the point — including for every free
+    /// text annotation the file itself states, which nothing in this vocabulary can change.
+    pub fn free_text_at(&self, at: (f32, f32)) -> Result<((u32, u16), String), Status> {
+        match self.viewer.query(Query::FreeTextAt { at }) {
+            Answer::FreeText { annotation, text } => {
+                Ok(((annotation.number, annotation.generation), text))
+            }
+            _ => Err(Status::NoAnswer),
+        }
+    }
+
+    /// §12.7.4: put a value into a field, by the name §12.7.4.2 gives it.
+    #[must_use]
+    pub fn set_field(&mut self, field: String, value: pdf_model::view::Entered) -> Events {
+        self.handle(Command::Edit(Edit::SetField { field, value }))
+    }
+
+    /// §12.5.6.10: mark up what is selected, in one of the clause's four ways.
+    #[must_use]
+    pub fn markup(&mut self, kind: pdf_model::view::Markup, colour: [f32; 3]) -> Events {
+        self.handle(Command::Edit(Edit::Markup { kind, colour }))
+    }
+
+    /// §12.5.6.6: put an empty free text annotation over a rectangle a person drew.
+    #[must_use]
+    pub fn free_text(&mut self, from: (f32, f32), to: (f32, f32), colour: [f32; 3]) -> Events {
+        self.handle(Command::Edit(Edit::FreeText { from, to, colour }))
+    }
+
+    /// §12.5.6.6: say what a free text annotation this session added says.
+    #[must_use]
+    pub fn set_free_text(&mut self, number: u32, generation: u16, text: String) -> Events {
+        self.handle(Command::Edit(Edit::SetFreeText {
+            annotation: pdf_syntax::ObjectId::new(number, generation),
+            text,
+        }))
+    }
+
+    /// Undo the last edit.
+    #[must_use]
+    pub fn undo(&mut self) -> Events {
+        self.handle(Command::Undo)
+    }
+
+    /// Redo the last undone edit.
+    #[must_use]
+    pub fn redo(&mut self) -> Events {
+        self.handle(Command::Redo)
+    }
+
+    /// Whether anything has been edited since the document opened.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no document is focused.
+    pub fn dirty(&self) -> Result<bool, Status> {
+        match self.viewer.query(Query::Dirty) {
+            Answer::Dirty(dirty) => Ok(dirty),
+            _ => Err(Status::NoAnswer),
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Bytes out: §7.5.6's incremental update and §7.11.4's embedded files.
+    // ---------------------------------------------------------------------------------------
+
+    /// Write §7.5.6's incremental update for everything the log holds.
+    ///
+    /// The bytes come back on [`viewer_core::Event::Saved`], because rule 2 gives this crate no
+    /// filesystem and where a file lands is the caller's decision.
+    #[must_use]
+    pub fn save(&mut self) -> Events {
+        self.handle(Command::Save)
+    }
+
+    /// §7.11.4: take an embedded file's bytes out of the document.
+    #[must_use]
+    pub fn extract(&mut self, name: String) -> Events {
+        self.handle(Command::Extract { name })
+    }
+
+    /// The bytes the viewer asked for with [`viewer_core::Event::NeedsFile`], or a refusal.
+    #[must_use]
+    pub fn supply(&mut self, purpose: viewer_core::Purpose, bytes: Option<Vec<u8>>) -> Events {
+        self.handle(Command::Supply { purpose, bytes })
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // The other two panels, and §8.11's switch.
+    // ---------------------------------------------------------------------------------------
+
+    /// §8.11.4.3's `/Order`, flattened.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no document is focused or it states no optional content.
+    pub fn layers(&self) -> Result<Panel, Status> {
+        match self.viewer.query(Query::Layers) {
+            Answer::Layers(layers) => Ok(Panel::of_layers(&layers)),
+            _ => Err(Status::NoAnswer),
+        }
+    }
+
+    /// §7.11.4's embedded files, listed rather than extracted.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no document is focused or it states no `/EmbeddedFiles` tree.
+    pub fn attachments(&self) -> Result<Panel, Status> {
+        match self.viewer.query(Query::Attachments) {
+            Answer::Attachments(attachments) => Ok(Panel::of_attachments(&attachments)),
+            _ => Err(Status::NoAnswer),
+        }
+    }
+
+    /// §8.11: switch an optional content group on or off.
+    #[must_use]
+    pub fn set_group(&mut self, number: u32, generation: u16, on: bool) -> Events {
+        self.handle(Command::SetGroup {
+            group: pdf_syntax::ObjectId::new(number, generation),
+            on,
+        })
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // The three policy values, and §12.4.4's clock.
+    // ---------------------------------------------------------------------------------------
+
+    /// §12.4.4.1's clock, driven by the caller, because rule 3 leaves this crate none.
+    #[must_use]
+    pub fn tick(&mut self, millis: u32) -> Events {
+        self.handle(Command::Tick { millis })
+    }
+
+    /// §12.4.4: the caller has entered or left presentation mode.
+    #[must_use]
+    pub fn present(&mut self, mode: viewer_core::PresentationMode) -> Events {
+        self.handle(Command::Present(mode))
+    }
+
+    /// How much of what a document asserts about its reader this viewer obeys.
+    #[must_use]
+    pub fn restrict(&mut self, level: viewer_core::RestrictionLevel) -> Events {
+        self.handle(Command::Restrict(level))
+    }
+
+    /// §6.3.2.2's "unless otherwise instructed": who draws §12.7's widget appearances.
+    #[must_use]
+    pub fn delegate(&mut self, appearances: pdf_model::view::WidgetAppearances) -> Events {
+        self.handle(Command::Delegate(appearances))
+    }
+
+    /// Everything the focused document's current page could not draw.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no document is focused.
+    pub fn reports(&self) -> Result<Vec<String>, Status> {
+        match self.viewer.query(Query::Reports) {
+            Answer::Reports(notes) => Ok(notes.to_vec()),
             _ => Err(Status::NoAnswer),
         }
     }

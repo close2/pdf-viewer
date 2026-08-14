@@ -33,6 +33,7 @@ use viewer_core::{
 };
 
 use crate::controls::{FieldChange, Placed};
+use viewer_host::ControlFit;
 use viewer_host::panel::{self, RowAction};
 use viewer_host::trace::{Topic, Trace};
 
@@ -164,6 +165,15 @@ pub struct Host {
     /// duplication ADR 0244 photographed. `--draw-widget-appearances` restores §6.3.2.2's default,
     /// which is what taking the two pictures side by side needs.
     widget_appearances: WidgetAppearances,
+    /// The magnification at which every control on this page would fit its `/Rect`, where they do
+    /// not fit now.
+    ///
+    /// **ADR 0245's third decision, and it needed no message.** `viewer_host::ControlFit` computes
+    /// it from what `Query::Fields` already answers and what GTK already says a control's minimum
+    /// is; `w` sends it as `Zoom::Scale`. It is offered rather than applied, because a viewer that
+    /// magnified a page by itself because a form is on it would be answering a question nobody
+    /// asked — which gesture asks for it is chrome, and chrome is a host's (rule 5).
+    fit_magnification: Option<f32>,
 }
 
 impl std::fmt::Debug for Host {
@@ -233,6 +243,7 @@ impl Host {
                 needle: String::new(),
                 pages_left: 0,
                 widget_appearances,
+                fit_magnification: None,
             })
         }))
     }
@@ -573,12 +584,71 @@ impl Host {
                     logical(f64::from(height), scale),
                 );
                 placed.widget.set_size_request(asked_width, asked_height);
-                fit.record(&placed.widget, asked_width, asked_height);
+                // `measure` with `-1` in both directions is GTK's "for no particular size", which
+                // is the minimum itself; asking for a height at a width below the control's
+                // minimum is the case GTK warns about on the console.
+                let (minimum_width, ..) = placed.widget.measure(gtk4::Orientation::Horizontal, -1);
+                let (minimum_height, ..) = placed.widget.measure(gtk4::Orientation::Vertical, -1);
+                fit.record((asked_width, asked_height), (minimum_width, minimum_height));
                 write_back(placed, field.value.as_ref());
             }
         }
         self.suppress.set(false);
-        fit.say(&self.trace);
+        self.report_fit(&fit);
+    }
+
+    /// What the controls' minimum sizes say about the magnification, said once per placement.
+    ///
+    /// **ADR 0245 left this as a third decision and it needed no message.** The count is what ADR
+    /// 0244 and ADR 0246 measured by hand on the two toolkits; the magnification beside it is
+    /// `viewer_host::ControlFit`'s arithmetic over the same numbers, and pressing `w` sends it as
+    /// `Zoom::Scale`, which the vocabulary has had since the hundred-and-thirty-first session.
+    fn report_fit(&mut self, fit: &ControlFit) {
+        let (placed, wider, taller, widest, tallest) = fit.counts();
+        if placed == 0 {
+            self.fit_magnification = None;
+            return;
+        }
+        self.fit_magnification = self
+            .showing_at()
+            .and_then(|showing| fit.magnification(showing));
+        self.trace.say(
+            Topic::Panel,
+            format_args!(
+                "{wider} of {placed} control(s) wider than their /Rect (worst +{} on {} px), \
+                 {taller} taller (worst +{} on {} px){}",
+                widest.0,
+                widest.1,
+                tallest.0,
+                tallest.1,
+                match self.fit_magnification {
+                    Some(wanted) => format!("; every control fits at {wanted:.3}, which `w` sends"),
+                    None => String::from("; every control fits at this magnification"),
+                }
+            ),
+        );
+    }
+
+    /// The magnification the page is drawn at now, in the units [`Zoom::Scale`] takes.
+    ///
+    /// `PageGeometry::scale` is device pixels per user space unit — "the zoom and the display's
+    /// scale together" — and `Zoom::Scale` is *logical* pixels per user space unit, so the
+    /// display's own factor comes back out. Getting that wrong on a doubled display would put the
+    /// answer out by two, which is exactly the class of arithmetic ADR 0118 keeps in one place.
+    fn showing_at(&self) -> Option<f32> {
+        let Answer::Page { index, .. } = self.viewer.query(Query::CurrentPage) else {
+            return None;
+        };
+        let Answer::Geometry(geometry) = self.viewer.query(Query::PageGeometry(index)) else {
+            return None;
+        };
+        let display = self.scale.max(1);
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a display scale is 1, 2 or 3; the lint is about the general case"
+        )]
+        let logical = geometry.scale / display as f32;
+        (logical.is_finite() && logical > 0.0).then_some(logical)
     }
 
     /// What a control does when a person changes it.
@@ -780,6 +850,18 @@ impl Host {
                 zoom: Zoom::In,
                 at: None,
             }),
+            // ADR 0245's third decision, made with the messages that already exist: magnify until
+            // every platform control fits the `/Rect` the document states for it.
+            gtk4::gdk::Key::w => match self.fit_magnification {
+                Some(wanted) => {
+                    self.say(&format!("fitting §12.7's controls at {wanted:.3}"));
+                    self.dispatch(Command::Zoom {
+                        zoom: Zoom::Scale(wanted),
+                        at: None,
+                    });
+                }
+                None => self.say("every control on this page already fits its /Rect"),
+            },
             gtk4::gdk::Key::minus => self.dispatch(Command::Zoom {
                 zoom: Zoom::Out,
                 at: None,
@@ -986,77 +1068,6 @@ fn bounds(quad: [f32; 8]) -> (f32, f32, f32, f32) {
     let top = ys.iter().copied().fold(f32::INFINITY, f32::min);
     let bottom = ys.iter().copied().fold(f32::NEG_INFINITY, f32::max);
     (left, top, right - left, bottom - top)
-}
-
-/// How badly the platform's controls fit the rectangles the document states for them.
-///
-/// **ADR 0244's second finding, measured now that it can be seen alone.** A `/Rect` is whatever
-/// the document says; a GTK control has a *minimum* size its theme decides, and
-/// `gtk_widget_set_size_request` is a floor rather than a size — so a control whose minimum
-/// exceeds its rectangle covers the page around it. Taking the widget's own `measure` is what
-/// turns "a `GtkEntry` is about 34 logical pixels tall" into a count and a worst case, per page
-/// and per run.
-///
-/// Not a defect in `viewer-core` and not this host's to fix by shrinking a control: a platform
-/// control that a theme sizes is the whole point of using one. What it says is that a native form
-/// host also wants to choose the *scale* the page is drawn at, which is a third thing and neither
-/// this crate's nor `pdf-model`'s.
-#[derive(Debug, Default)]
-struct ControlFit {
-    /// How many controls were placed.
-    placed: usize,
-    /// How many are wider than their rectangle, and how many are taller.
-    over: (usize, usize),
-    /// The largest excess width, and the rectangle's own width beside it, in logical pixels.
-    widest: (i32, i32),
-    /// The largest excess height, and the rectangle's own height beside it.
-    tallest: (i32, i32),
-}
-
-impl ControlFit {
-    /// Measures one control against the rectangle it was asked to occupy.
-    ///
-    /// `measure` is asked with `-1` in both directions — GTK's "for no particular size" — because
-    /// asking for a height at a width smaller than the control's minimum is the case GTK warns
-    /// about on the console, and what is wanted here is the minimum itself.
-    fn record(&mut self, widget: &gtk4::Widget, width: i32, height: i32) {
-        self.placed = self.placed.saturating_add(1);
-        let (minimum_width, ..) = widget.measure(gtk4::Orientation::Horizontal, -1);
-        let (minimum_height, ..) = widget.measure(gtk4::Orientation::Vertical, -1);
-        if minimum_width > width {
-            self.over.0 = self.over.0.saturating_add(1);
-            if minimum_width.saturating_sub(width) > self.widest.0 {
-                self.widest = (minimum_width.saturating_sub(width), width);
-            }
-        }
-        if minimum_height > height {
-            self.over.1 = self.over.1.saturating_add(1);
-            if minimum_height.saturating_sub(height) > self.tallest.0 {
-                self.tallest = (minimum_height.saturating_sub(height), height);
-            }
-        }
-    }
-
-    /// Says what was measured, where anything was placed.
-    fn say(&self, trace: &Trace) {
-        if self.placed == 0 {
-            return;
-        }
-        trace.say(
-            Topic::Panel,
-            format_args!(
-                "{} of {} control(s) wider than their /Rect (worst +{} on {} px), {} taller \
-                 (worst +{} on {} px)",
-                self.over.0,
-                self.placed,
-                self.widest.0,
-                self.widest.1,
-                self.over.1,
-                self.tallest.0,
-                self.tallest.1
-            ),
-        );
-    }
 }
 
 /// Device pixels as the logical ones GTK lays out in.

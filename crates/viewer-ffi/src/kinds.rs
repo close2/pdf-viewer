@@ -8,7 +8,34 @@
 //! [`EventKind::of`] is exhaustive over `viewer_core::Event`, so a variant added to that crate
 //! fails to compile *in this file* and cannot reach a caller unnamed.
 
-use viewer_core::{Event, PageTarget, Zoom};
+//! # Two kinds of enumeration, and only one of them is counted
+//!
+//! An enumeration this ABI **takes** — [`PageTargetKind`], [`ZoomKind`], [`PointerKind`] — refuses
+//! a number it does not define, with [`crate::Status::WrongKind`]. Nothing else is possible: a
+//! caller has asked for something this build has no meaning for.
+//!
+//! An enumeration this ABI **answers with** — [`EventKind`], [`ControlKind`], [`RowKind`],
+//! [`PixelFormat`] — cannot refuse, because the number is already in the caller's hands. Each is
+//! produced by a `match` that is exhaustive over the Rust type behind it, so a variant added to
+//! `viewer-core`, `pdf-model` or `viewer-host` fails to compile *here*, which is the last place a
+//! compiler can still say so; and each has a `from_code`, so a caller that meets a number this
+//! build does not define learns that it does not rather than switching on it by accident.
+//!
+//! **Only [`EventKind`] has a count in `pdfv_abi_check`, and that is deliberate rather than an
+//! omission.** An event *arrives*: a caller receives one whether or not it asked, so a kind added
+//! later is met by a program that has no arm for it and the check has to happen before the first
+//! one turns up. A control kind and a row kind are answers to a question the caller asked, in a
+//! call it wrote, and `pdfv_control_kind_name` and `pdfv_row_kind_name` are there for the number it
+//! did not expect. Widening `pdfv_abi_check` would change the signature of the one function every
+//! compiled caller already calls in `main`, which is precisely the hazard the four shapes were
+//! chosen against.
+
+use pdf_model::view::{Markup, WidgetAppearances};
+use viewer_core::{
+    Event, FocusMove, PageTarget, PointerAction, PresentationMode, Purpose, RestrictionLevel,
+    Selection, Zoom,
+};
+use viewer_host::ControlKind as HostControl;
 
 /// What a C caller is told an event is.
 ///
@@ -282,9 +309,475 @@ impl PixelFormat {
     }
 }
 
+/// Which of §12.5.5's three situations [`viewer_core::Command::Pointer`] reports.
+///
+/// Taken, so a number outside the four is refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum PointerKind {
+    /// The pointer moved with no button down.
+    Moved = 0,
+    /// The button went down.
+    Pressed = 1,
+    /// The pointer moved with the button held, which extends a selection.
+    Dragged = 2,
+    /// The button came up, which is what activates a link.
+    Released = 3,
+}
+
+impl PointerKind {
+    /// The kind for a number, or `None` for one this build does not define.
+    #[must_use]
+    pub const fn from_code(code: u32) -> Option<Self> {
+        Some(match code {
+            0 => Self::Moved,
+            1 => Self::Pressed,
+            2 => Self::Dragged,
+            3 => Self::Released,
+            _ => return None,
+        })
+    }
+
+    /// What `viewer-core` calls it.
+    #[must_use]
+    pub const fn action(self) -> PointerAction {
+        match self {
+            Self::Moved => PointerAction::Moved,
+            Self::Pressed => PointerAction::Pressed,
+            Self::Dragged => PointerAction::Dragged,
+            Self::Released => PointerAction::Released,
+        }
+    }
+}
+
+/// What [`viewer_core::Command::Select`] asks for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum SelectKind {
+    /// Everything the page reads back as.
+    All = 0,
+    /// Nothing.
+    None = 1,
+}
+
+impl SelectKind {
+    /// The kind for a number, or `None` for one this build does not define.
+    #[must_use]
+    pub const fn from_code(code: u32) -> Option<Self> {
+        Some(match code {
+            0 => Self::All,
+            1 => Self::None,
+            _ => return None,
+        })
+    }
+
+    /// What `viewer-core` calls it.
+    #[must_use]
+    pub const fn selection(self) -> Selection {
+        match self {
+            Self::All => Selection::All,
+            Self::None => Selection::None,
+        }
+    }
+}
+
+/// Which way §12.5.1's tab key moves the focus.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum FocusKind {
+    /// The next annotation, wrapping at the end. What the tab key means.
+    Next = 0,
+    /// The previous one. What shift-tab means.
+    Previous = 1,
+    /// Nothing focused.
+    None = 2,
+}
+
+impl FocusKind {
+    /// The kind for a number, or `None` for one this build does not define.
+    #[must_use]
+    pub const fn from_code(code: u32) -> Option<Self> {
+        Some(match code {
+            0 => Self::Next,
+            1 => Self::Previous,
+            2 => Self::None,
+            _ => return None,
+        })
+    }
+
+    /// What `viewer-core` calls it.
+    #[must_use]
+    pub const fn moved(self) -> FocusMove {
+        match self {
+            Self::Next => FocusMove::Next,
+            Self::Previous => FocusMove::Previous,
+            Self::None => FocusMove::None,
+        }
+    }
+}
+
+/// How much of what a document asserts over its reader this viewer obeys.
+///
+/// Two of `CLAUDE.md`'s four levels, and the other two are a *question* rather than a level — see
+/// [`viewer_core::RestrictionLevel`], which says why shipping them as numbers nothing answers
+/// would be worse than not shipping them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum RestrictKind {
+    /// Obey what the document asserts. The default.
+    On = 0,
+    /// Ignore it and perform the operation.
+    Off = 1,
+}
+
+impl RestrictKind {
+    /// The kind for a number, or `None` for one this build does not define.
+    #[must_use]
+    pub const fn from_code(code: u32) -> Option<Self> {
+        Some(match code {
+            0 => Self::On,
+            1 => Self::Off,
+            _ => return None,
+        })
+    }
+
+    /// What `viewer-core` calls it.
+    #[must_use]
+    pub const fn level(self) -> RestrictionLevel {
+        match self {
+            Self::On => RestrictionLevel::On,
+            Self::Off => RestrictionLevel::Off,
+        }
+    }
+}
+
+/// Whether §12.4.4's presentation is running, as the host has said.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum PresentKind {
+    /// A document being read. The default.
+    Off = 0,
+    /// A presentation: §12.4.4.2's nodes are respected and a page turn plays `/Trans`.
+    On = 1,
+}
+
+impl PresentKind {
+    /// The kind for a number, or `None` for one this build does not define.
+    #[must_use]
+    pub const fn from_code(code: u32) -> Option<Self> {
+        Some(match code {
+            0 => Self::Off,
+            1 => Self::On,
+            _ => return None,
+        })
+    }
+
+    /// What `viewer-core` calls it.
+    #[must_use]
+    pub const fn mode(self) -> PresentationMode {
+        match self {
+            Self::Off => PresentationMode::Off,
+            Self::On => PresentationMode::On,
+        }
+    }
+}
+
+/// Who draws §12.7's widget appearances — §6.3.2.2's "unless otherwise instructed".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum DelegateKind {
+    /// This library draws them, which is what §6.3.2.2 asks of a processor nobody has instructed.
+    Drawn = 0,
+    /// The caller draws them, so the page is interpreted without them.
+    Delegated = 1,
+}
+
+impl DelegateKind {
+    /// The kind for a number, or `None` for one this build does not define.
+    #[must_use]
+    pub const fn from_code(code: u32) -> Option<Self> {
+        Some(match code {
+            0 => Self::Drawn,
+            1 => Self::Delegated,
+            _ => return None,
+        })
+    }
+
+    /// What `pdf-model` calls it.
+    #[must_use]
+    pub const fn appearances(self) -> WidgetAppearances {
+        match self {
+            Self::Drawn => WidgetAppearances::Drawn,
+            Self::Delegated => WidgetAppearances::Delegated,
+        }
+    }
+}
+
+/// Which of §12.5.6.10's four text markup annotations to add over what is selected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum MarkupKind {
+    /// Table 182's `Highlight`.
+    Highlight = 0,
+    /// Table 182's `Underline`.
+    Underline = 1,
+    /// Table 182's `StrikeOut`.
+    StrikeOut = 2,
+    /// Table 182's `Squiggly`.
+    Squiggly = 3,
+}
+
+impl MarkupKind {
+    /// The kind for a number, or `None` for one this build does not define.
+    #[must_use]
+    pub const fn from_code(code: u32) -> Option<Self> {
+        Some(match code {
+            0 => Self::Highlight,
+            1 => Self::Underline,
+            2 => Self::StrikeOut,
+            3 => Self::Squiggly,
+            _ => return None,
+        })
+    }
+
+    /// What `pdf-model` calls it.
+    #[must_use]
+    pub const fn markup(self) -> Markup {
+        match self {
+            Self::Highlight => Markup::Highlight,
+            Self::Underline => Markup::Underline,
+            Self::StrikeOut => Markup::StrikeOut,
+            Self::Squiggly => Markup::Squiggly,
+        }
+    }
+}
+
+/// What a file the viewer asks for is wanted for.
+///
+/// Both taken and answered — [`viewer_core::Event::NeedsFile`] states it and
+/// [`viewer_core::Command::Supply`] echoes it back — so it has both conversions, and the one from
+/// Rust is exhaustive so that a second purpose fails to compile here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum PurposeKind {
+    /// §12.7.6.4's import-data action: the file holds §12.7.8's form data.
+    ImportData = 0,
+}
+
+impl PurposeKind {
+    /// The kind for a number, or `None` for one this build does not define.
+    #[must_use]
+    pub const fn from_code(code: u32) -> Option<Self> {
+        Some(match code {
+            0 => Self::ImportData,
+            _ => return None,
+        })
+    }
+
+    /// Which purpose an event states.
+    #[must_use]
+    pub const fn of(purpose: Purpose) -> Self {
+        match purpose {
+            Purpose::ImportData => Self::ImportData,
+        }
+    }
+
+    /// What `viewer-core` calls it.
+    #[must_use]
+    pub const fn purpose(self) -> Purpose {
+        match self {
+            Self::ImportData => Purpose::ImportData,
+        }
+    }
+
+    /// The number, as C sees it.
+    #[must_use]
+    pub const fn code(self) -> u32 {
+        self as u32
+    }
+}
+
+/// Which platform control a §12.7 field is, as `viewer_host::ControlKind` decided.
+///
+/// **Answered, so it is named and counted** — and it comes from `viewer-host` rather than from
+/// `pdf_model::form` for the reason ADR 0246 gives: one variant per control a toolkit has for the
+/// job, rather than one per §12.7.5 type, because the clause's choice field is two controls and its
+/// button field is three. A C caller is a native host, so it takes that decision unchanged instead
+/// of splitting the clause's taxonomy a fourth time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum ControlKind {
+    /// §12.7.5.3's text field.
+    Entry = 0,
+    /// §12.7.5.2.3's check box.
+    Check = 1,
+    /// §12.7.5.2.4's radio button.
+    Radio = 2,
+    /// §12.7.5.2.2's push button, which holds no value.
+    Push = 3,
+    /// §12.7.5.4's combo box — Table 233 bit 18 set.
+    Combo = 4,
+    /// §12.7.5.4's list box — bit 18 clear.
+    List = 5,
+    /// §12.7.5.5's signature field.
+    Signature = 6,
+    /// Table 226 makes `/FT` required and this field states none anywhere in its ancestry.
+    Unstated = 7,
+}
+
+impl ControlKind {
+    /// How many kinds this build has.
+    ///
+    /// Not part of `pdfv_abi_check`, and the module comment says why: a control kind is an answer
+    /// to a question the caller asked, where an event kind arrives unbidden.
+    pub const COUNT: u32 = 8;
+
+    /// Which kind a control is. Exhaustive over `viewer_host::ControlKind` with no catch-all.
+    #[must_use]
+    pub const fn of(control: &HostControl) -> Self {
+        match control {
+            HostControl::Entry { .. } => Self::Entry,
+            HostControl::Check { .. } => Self::Check,
+            HostControl::Radio { .. } => Self::Radio,
+            HostControl::Push => Self::Push,
+            HostControl::Combo { .. } => Self::Combo,
+            HostControl::List { .. } => Self::List,
+            HostControl::Signature => Self::Signature,
+            HostControl::Unstated => Self::Unstated,
+        }
+    }
+
+    /// The kind for a number, or `None` for one this build does not define.
+    #[must_use]
+    pub const fn from_code(code: u32) -> Option<Self> {
+        Some(match code {
+            0 => Self::Entry,
+            1 => Self::Check,
+            2 => Self::Radio,
+            3 => Self::Push,
+            4 => Self::Combo,
+            5 => Self::List,
+            6 => Self::Signature,
+            7 => Self::Unstated,
+            _ => return None,
+        })
+    }
+
+    /// The name, NUL-terminated for `const char *`.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Entry => "Entry\0",
+            Self::Check => "Check\0",
+            Self::Radio => "Radio\0",
+            Self::Push => "Push\0",
+            Self::Combo => "Combo\0",
+            Self::List => "List\0",
+            Self::Signature => "Signature\0",
+            Self::Unstated => "Unstated\0",
+        }
+    }
+
+    /// The number, as C sees it.
+    #[must_use]
+    pub const fn code(self) -> u32 {
+        self as u32
+    }
+}
+
+/// What acting on a panel row does, as `viewer_host::RowAction` decided.
+///
+/// Answered, so it is named. The *payload* is read with a second accessor, because the four
+/// actions carry four different things and a union of them would be a struct passed by value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum RowKind {
+    /// §12.3.3: `pdfv_activate` on the row's object.
+    Activate = 0,
+    /// §8.11.4.3: `pdfv_set_group` on the row's object.
+    Toggle = 1,
+    /// §7.11.4: `pdfv_extract` on the row's name.
+    Extract = 2,
+    /// A row that does nothing — §8.11.4.3's leading text string is a heading, not a layer.
+    Inert = 3,
+}
+
+impl RowKind {
+    /// How many kinds this build has.
+    pub const COUNT: u32 = 4;
+
+    /// The kind for a number, or `None` for one this build does not define.
+    #[must_use]
+    pub const fn from_code(code: u32) -> Option<Self> {
+        Some(match code {
+            0 => Self::Activate,
+            1 => Self::Toggle,
+            2 => Self::Extract,
+            3 => Self::Inert,
+            _ => return None,
+        })
+    }
+
+    /// The name, NUL-terminated for `const char *`.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Activate => "Activate\0",
+            Self::Toggle => "Toggle\0",
+            Self::Extract => "Extract\0",
+            Self::Inert => "Inert\0",
+        }
+    }
+
+    /// The number, as C sees it.
+    #[must_use]
+    pub const fn code(self) -> u32 {
+        self as u32
+    }
+}
+
+/// Which of the strings a field, a widget or an option carries a caller is asking for.
+///
+/// One `which` argument rather than one function per string, because they are all the same
+/// two-call idiom over the same handle and index, and a function apiece would be six symbols
+/// saying one thing. A number this build does not define is refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum TextKind {
+    /// §12.7.4.2's fully qualified name, which `pdfv_set_field_text` addresses.
+    Qualified = 0,
+    /// The name §14.9.3 says a user interface shall show: Table 226's `/TU`, or the qualified
+    /// name where the field states none.
+    Shown = 1,
+    /// Table 226's `/T`, the partial name.
+    Partial = 2,
+    /// What is displayed: Table 234's option label, or a widget's `/AP /N` on-state name.
+    Label = 3,
+    /// What §12.7.6.2 would export: Table 234's export value, or Table 230's `/Opt` entry.
+    Export = 4,
+}
+
+impl TextKind {
+    /// The kind for a number, or `None` for one this build does not define.
+    #[must_use]
+    pub const fn from_code(code: u32) -> Option<Self> {
+        Some(match code {
+            0 => Self::Qualified,
+            1 => Self::Shown,
+            2 => Self::Partial,
+            3 => Self::Label,
+            4 => Self::Export,
+            _ => return None,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{EventKind, PageTargetKind, PixelFormat, ZoomKind};
+    use super::{
+        ControlKind, EventKind, FocusKind, MarkupKind, PageTargetKind, PixelFormat, PointerKind,
+        RowKind, TextKind, ZoomKind,
+    };
 
     /// The count the header states is the count this enumeration has.
     ///
@@ -334,6 +827,42 @@ mod tests {
         assert!(PageTargetKind::from_code(6).is_none());
         assert!(ZoomKind::from_code(6).is_none());
         assert_eq!(PixelFormat::of(pdf_render::RasterFormat::Rgba8).code(), 0);
+    }
+
+    /// The enumerations added in the five-hundred-and-eleventh round round-trip too.
+    ///
+    /// The same property `the_argument_enumerations_answer_to_their_own_numbers` asserts, extended
+    /// to the ones that arrived with the pointer, the form and the two panels: a number is the ABI,
+    /// so a `from_code` that disagreed with a discriminant would be a caller acting on the wrong
+    /// variant with nothing to say so.
+    #[test]
+    fn the_enumerations_that_came_with_the_form_and_the_pointer_round_trip() {
+        for code in 0..4 {
+            assert_eq!(
+                PointerKind::from_code(code).map(|kind| kind as u32),
+                Some(code)
+            );
+            assert_eq!(
+                MarkupKind::from_code(code).map(|kind| kind as u32),
+                Some(code)
+            );
+            assert_eq!(RowKind::from_code(code).map(RowKind::code), Some(code));
+        }
+        assert!(PointerKind::from_code(4).is_none());
+        assert!(MarkupKind::from_code(4).is_none());
+        assert!(FocusKind::from_code(3).is_none());
+        assert!(TextKind::from_code(5).is_none());
+        for code in 0..ControlKind::COUNT {
+            let kind = ControlKind::from_code(code).expect("below the count");
+            assert_eq!(kind.code(), code);
+            assert_eq!(kind.name().matches('\0').count(), 1);
+        }
+        assert!(ControlKind::from_code(ControlKind::COUNT).is_none());
+        for code in 0..RowKind::COUNT {
+            let kind = RowKind::from_code(code).expect("below the count");
+            assert_eq!(kind.name().matches('\0').count(), 1);
+        }
+        assert!(RowKind::from_code(RowKind::COUNT).is_none());
     }
 
     /// A page index that does not fit `usize` is refused rather than wrapped.

@@ -57,7 +57,7 @@ Six consumers: `viewer-ui`'s `pdf-viewer.rs` (winit + vello, tier 2),
 `viewer-core/tests/headless.rs` (no display at all, tier 1), `viewer-confined`'s `pdf-view-worker`
 (a process with no filesystem, tier 1), **`viewer-gtk`'s `pdf-viewer-gtk` — a real GTK4
 application, tier 1** (ADR 0244) and **`viewer-qt`'s `pdf-viewer-qt` — a real Qt 6 Widgets
-application with a C++ bridge, tier 1** (ADR 0246) and **`viewer-ffi`'s C ABI — 43 entry points, a
+application with a C++ bridge, tier 1** (ADR 0246) and **`viewer-ffi`'s C ABI — 111 entry points, a
 hand-written header and a C program that drives it, tier 1** (ADR 0247). The first two could not
 prove the interface alone — one is a toolkit, the other is not a program — and the last three are
 what `doc/todo/30` calls the proof the answers are enough for *somebody else's widgets*: a
@@ -77,8 +77,8 @@ reviewer has to check, and two promises in two places with a test on each is wha
 0246, 0247).
 
 **What the third host cost.** Not the vocabulary either, and not a word in a crate root: it cost
-the three amendments below and nothing else. `viewer-ffi/src/abi.rs` holds one lint lift, 43
-`#[unsafe(no_mangle)]` attributes and 39 signatures, and **no `unsafe` block anywhere in the
+the three amendments below and nothing else. `viewer-ffi/src/abi.rs` holds one lint lift, 111
+`#[unsafe(no_mangle)]` attributes and 103 signatures, and **no `unsafe` block anywhere in the
 crate**; its own test asserts that and that every crate touching PDF bytes still *forbids* the
 permission (ADR 0247).
 
@@ -248,7 +248,7 @@ four-hundred-and-twelfth**, on that rule and with three hosts behind it: its val
 could not say which. GTK4, Qt and the headless harness had each asked their control for single
 selection *deliberately*, which is what a message-shaped gap looks like when three people find it
 independently. Six consumers failed to compile; the C ABI did not, because `Command::Edit` is not
-among its 39 entry points, and `PDFV_EVENT_KIND_COUNT` stayed 15 (ADR 0248). **`Answer::Field` changed shape a second time in
+among its 39 entry points at the time, and `PDFV_EVENT_KIND_COUNT` stayed 15 (ADR 0248). **`Answer::Field` changed shape a second time in
 the four-hundred-and-eleventh**, for that rule's own reason and with a bug behind it: its value is
 `Option<pdf_model::view::ShownValue>` now, the characters beside Table 231 bit 14's `obscured`, and
 what the compiler failure found was `viewer-ui` writing a password field's bullets back as its next
@@ -296,7 +296,10 @@ is set in the same Helvetica on a machine with no fonts installed.
 - `viewer-gpu` (new, later) — tier 2. The only crate that may name `raw-window-handle`, `wgpu` or
   `vello` in its API.
 - `viewer-ffi` — **exists** since the four-hundred-and-eleventh, and it is the last host
-  `doc/todo/30` names. 43 `extern "C"` entry points, a hand-written `include/pdf_viewer.h`, and
+  `doc/todo/30` names. **111 `extern "C"` entry points since the five-hundred-and-eleventh**, which
+  is the whole of this vocabulary — the pointer and the selection, §12.7's form and the four edits,
+  save and extract, the other two panels, §12.4.4's clock and the three policy values (ADR 0346) —
+  a hand-written `include/pdf_viewer.h`, and
   `c/open_a_page.c` which a test compiles with `-Werror` and runs. Commands are functions rather
   than a tagged union (a union's size is part of an ABI; a symbol is not); events and answers
   arrive owned so no borrow of the viewer crosses; a render request is an opaque handle a caller
@@ -310,7 +313,11 @@ is set in the same Helvetica on a machine with no fonts installed.
 - `viewer-ui` — consumer #1 since session 132, and a tier-2 host.
 - `viewer-host` — **exists** since the four-hundred-and-tenth, and it is what a second host
   discovered: the three panel answers as one row shape, §12.7.5's field as the control it is,
-  §12.7.6.4's file policy, §O.2.1's extraction policy and the launch timeline. Toolkit-free, depended
+  §12.7.6.4's file policy, §O.2.1's extraction policy, the launch timeline, and — since the
+  five-hundred-and-eleventh — **the magnification at which a platform control fits the `/Rect` the
+  document states for it** (`fit::ControlFit`, ADR 0346), which is the piece ADR 0245's third
+  decision was missing and which needed no message: `Query::Fields` gives the rectangles, the
+  toolkit gives the minimums, and `Zoom::Scale` takes the answer. Toolkit-free, depended
   on by all three hosts since the four-hundred-and-seventy-fifth — `viewer-ui` took the dependency
   rather than keep a third copy of the decision (ADR 0310) —
   and deliberately *not* in `viewer-core` — a mapping from three answers into one row shape is a
