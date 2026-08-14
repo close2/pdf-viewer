@@ -359,6 +359,10 @@ static int exercise_the_form(pdfv_viewer *viewer, const char *path)
     printf("saved %s than the file it came from: %zu against %zu byte(s)\n",
            written > len ? "more" : "no more", written, len);
 
+    /* And the undo comes *after* the save above, which is why this says 1 rather than 0: the
+       edit is in a file now, so taking it back is itself something the file does not have. What
+       is unsaved is the distance between the log's cursor and the last save, in either
+       direction. */
     pdfv_events *undone = NULL;
     (void)pdfv_undo(viewer, &undone);
     pdfv_events_free(undone);

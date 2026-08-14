@@ -33,12 +33,15 @@ misquotations of the standard (ADR 0249).
 Priority: 01 — the population with no gate, and it has paid on every session that touched it
 Code: `doc/conformance/ledger.toml`, checked by `cargo test -p conformance`
 
-**A sweep round commits one prose sweep as a program before running any of them.** Six of the
+**A sweep round commits one prose sweep as a program before running any of them.** Seven of the
 fifteen are commands (`conformance --bin entries`, `--bin quotations`, `--bin unread` since the
 four-hundred-and-eighty-ninth, `--bin blockers` since the five-hundred-and-first, `--bin
-capabilities` since the five-hundred-and-tenth, and — since the five-hundred-and-seventeenth —
-`--bin retired`, the fourth sweep, which is the only one whose population cannot be derived and
-which therefore takes its nouns as arguments, ADR 0352) and nine are still
+capabilities` since the five-hundred-and-tenth, `--bin retired` since the
+five-hundred-and-seventeenth — the fourth sweep, which is the only one whose population cannot be
+derived and which therefore takes its nouns as arguments, ADR 0352 — and, since the
+five-hundred-and-twenty-fifth, `--bin callers`, the fifth sweep, whose *number* is its finding and
+whose level was therefore not comparable across runs while every round wrote its own script, ADR
+0360) and eight are still
 descriptions, and a description is what let the fifteenth go unrun for twenty-four rounds and then
 be rebuilt from its own paragraph (ADR 0319) — `CLAUDE.md`'s "write down the command, not the
 answer" failing in the direction it was written for. The cheapest moment to commit one is the
@@ -2226,13 +2229,122 @@ which is what moves the blame pointer without a stamp.
 this file's own sixth shape and the row that produced it. Both halves agree now, six rounds after
 the two-hundred-and-seventy-eighth found them disagreeing.
 
+## All fifteen run again in the five-hundred-and-twenty-fifth, the fifth committed as a program, and the number it prints was the finding
+
+Eight rounds since the last full sweep — the retained frame quorra asks this tree to adopt, the
+hollow font, the door that did not ask the signature, three roads becoming three items, the bound a
+`Vec` doubled past, the samples a stream stops short of, the two refusals an annex outlived and the
+clip that contains a mark. Over `ledger.toml`, `crates/`, `tools/`, `fuzz/` and — for the fourth
+sweep — every Markdown document under `doc/` this project wrote bar `doc/history/`:
+
+- **Caller sweep (5), as a program** (`cargo run --release -p conformance --bin callers`, ADR
+  0360). First run: **289 distinct `pub fn` names in `pdf-model`, 15 crates naming it in a
+  manifest; 174 named by a dependent crate, 19 by a tool or a fuzz target, 73 only inside
+  `pdf-model` itself, 21 only by a test or an example, 2 by nothing at all** — 115 that no crate
+  under `crates/` asks. What the program adds over the script is the one thing this sweep needs
+  most: **its output is a delta and a delta cannot be read off two instruments**, and the level had
+  been session-local on every run (246/85 against the previous round's 246/86; 101/82 against
+  92/77 with the population unchanged). Three judgements move into it — a consumer is a crate whose
+  *manifest* names `pdf-model`, so a dev-dependency's `src/` cannot call it; a definition and a
+  `#[cfg(test)]` item inside `src/` are not callers; the three known populations are rungs. **Two
+  defects, and the first is the sweep's own shape at one remove**: `ViewState::additions`'s doc
+  comment named "what a host asks to know whether there is anything to save" and no host asked it,
+  while `viewer_core::Open::dirty` answered that question from the undo log's *length* — so a
+  document saved and left open never took its unsaved mark off. `Open::saved_at` is the distance
+  the answer needed. The second is `Namespace::is_standard`, named rather than built: the caller it
+  waits for is `doc/todo/48`'s second owed item, and §14.8.6.2's `shall` is addressed to a document.
+- **Table numbers (sweep 9)**: 1088 citations checked, 69 suspects, **1 defect** —
+  `pdf-model/src/view.rs` wrote "Table 177's `/AP`" and, in the *same sentence*, "§12.5.6.6's Table
+  177 makes the file's own `/AP` decisive in its `/DA` row", which is the right attribution: `/AP`
+  is **Table 166**'s and Table 177 states it of nothing. The file held both forms at once, which is
+  this sweep's most durable shape.
+- **Blockers (program)**: ledger 21 sentences — 6 expired, 10 holding, 5 naming no clause; source
+  26 — 9, 10, 7. 0 defects; every printed-expired hit a correction quoting the wording it retired,
+  a past tense, or §10.7.4's documented choice against §8.4.3.2.
+- **Capabilities (program)**: ledger 47 sentences — 33 witnessed by the tree, 40 about the program,
+  7 about one crate; source 144 — 118, 78, 66. 0 defects; every source hit a true statement about a
+  boundary a crate keeps.
+- **Unread (program)**: 63 rows claim, 172 keys; **50 confirmed, 122 quoted over 52 rows, 54 by the
+  row's own code** — three keys moved from confirmed to quoted since the five-hundred-and-tenth's
+  and -seventeenth's identical five numbers, and the reason is the *ledger* rather than the tree:
+  23 notes were rewritten in the eight rounds between. The sharpest-looking hit is `/Interpolate`
+  in three rows of the §8.9 family, and all three are corrections narrating the entry as
+  *formerly* unread — the known false positive, read down before it was believed.
+- **Entries (program)**: 236 rows in the population, 113 entries over 45 rows — 31 named nowhere,
+  82 only elsewhere, 36 not named by the row's own note. The known populations (the excluded sound,
+  movie and launch actions, the conversion's shifted columns in Tables 165 and 200); nothing worked.
+  §12.5.6.19's Table 191 `/AA` is the one hit whose row says nothing about it, and §12.6.3's row
+  is where it is read.
+- **Quotations (program)**: 3223 quotations in 502 documents, 1495 verbatim, 23 diverging, **0
+  defects** — every divergence an `…` elision, an RFC's own wording, or the conversion's shape.
+- **Retired claim (sweep 4, program)**, over the eight rounds' nouns — `render_retained`,
+  `RetainedScene`, `encode_source`, `Query::Highlight`, `Answer::Highlighted`, `ImportData`,
+  `short_of_its_grid`, `intersected`, `Clip::Value`, `stated_width`, `hollow`, `NamingGap`,
+  `blockers`, `capabilities`: **164 mentions, 4 nouns carrying both shapes, 0 defects.** Every
+  correction is a round's own record of what it retired and every standing mention is a true
+  sentence about the mechanism that replaced it — which is what this sweep says when the rounds
+  that made the corrections made them everywhere.
+- **Arithmetic (6)**: two hits, §7.9.2 and §O, read and kept before. Clean.
+- **`inapplicable` (7)**: 61 of 80 rows name source vocabulary under a session-local stop-list;
+  none wrong, and **no row in the population changed since the five-hundred-and-seventeenth's
+  read** — checked with `git diff` over the ledger's status lines, which is the cheap way to carry
+  a clean read forward.
+- **Citations (8)**: 6 mentions of 3 dead paths, **0 defects** — `doc/todo/20` twice, `doc/todo/37`
+  three times and `spec-errata`'s `doc/errata.md` redirection target, all of them the known
+  correction-quoting-its-own-pointer shape, `viewer-ffi/src/form.rs` included since the
+  five-hundred-and-seventeenth turned its plain citation into one.
+- **Parent counts (10)**: 160 counted claims raw; the 35 that are checkable arithmetic — every
+  "aggregate of the N below" against the family under it — are all correct, and the rest are counts
+  about the *clause* rather than about the children. **0 defects here, and the one this round found
+  was invisible to it**: §12.6.3's count is about §12.6.4's family and not about its own.
+- **Ledger quotation marks (11)**: 1248 spans of 4+ words under a session-local normaliser, 866
+  verbatim in `doc/md/`, 47 matching five words and diverging, **0 defects** — every one an `…`
+  elision, an editorial bracket, §8.4.4's correction quoting its retired wording, or the
+  conversion's own escaping.
+- **Sweep 14**: 10 hits under a session-local debt vocabulary, every one naming its debt in words
+  outside it ("writer-side", "may be ignored", "aggregate of the two below"). **§E was in both this
+  list and the blame band** and is corrected below.
+- **The errata (12)**: "151 struck passage(s) of 4 words or more that doc/md/ still carries as
+  current text" over all fourteen PDFs, unchanged, so the population is still read to the end;
+  every landing is a known in-place annotation, `doc/todo/01`'s own records among them.
+
+### Fifteen rows read off the blame list, the band from commit 184 to 500
+
+Oldest first: §12.6.4.4 — the one row the five-hundred-and-seventeenth left under the fold — then
+§8.9.5.1, §7.9, §12.6.3, §12.5.6.7, §8.11.4.4, §8.11.4.5, §12.5.6.21, §14.11.6.2, §14.12.4,
+§12.4.3, §E, §E.1, §I and §I.2. **Two were wrong, one of them took three rows with it, and four
+statuses moved.**
+
+| row | shape | was | is |
+|---|---|---|---|
+| **§I.2** | 6 | `partial` for a writer-side sentence, above a note saying that sentence "§7.5.6's incremental update meets by leaving the header where it found it" | the note corrected and the status not — the sixth failure shape exactly. The clause's other two writer sentences are a `may` this program declines and a verb it does not have, and its one `shall` on a processor ("shall attempt to read any PDF file, even if the PDF file's version is more recent") is met by construction, because nothing on the open path consults the version — **`implemented`** |
+| **§I**, **§E.1**, **§E** | 5 | §I `partial` "for I.2's writer-side sentence"; §E.1 `partial` because its one reader-side sentence "points at Annex I … and is `partial` for the version half"; §E the aggregate of the two below | a row `partial` for a *neighbour's status* falls the moment the neighbour moves, and three did — all three **`implemented`**, in the same commit as the row they waited on |
+| **§12.6.3** | 10, across families | "every action a trigger performs is one of the **eleven** §12.6.4 types this program performs" | a count agreeing with neither neighbour: §12.6.4's row says eight of the seventeen it documents, §12.6's ten of Table 201's twenty, and the eleventh was §12.6.4.8's `/URI`, read entire and printed rather than opened |
+
+**The ten kept rows each record the evidence that kept them** — the `Action::Refused` carrying
+`GoToE`'s own name, the one reader of `"IT"` being §12.5.6.6's callout intent and of `"Measure"`
+§12.10.2's viewport, `Recommendation::Unanswerable` still answering Table 100's `User` and
+`Language`, `TrapNet` still in `STANDARD_SUBTYPES` with no corpus document stating one, nothing in
+the tree naming `DPartRoot`, and `beads_on_page` still on the new program's rung for a function
+only its own crate names — which is what moves the blame pointer without a stamp.
+
+**And the three status moves are one shape worth naming**: §E.1 and §I were `partial` because a row
+they pointed at was, and §I was `partial` because *its own child's note* said the debt was paid.
+Nothing in this file's fifteen sweeps looks for a row whose reason is a neighbour's **status**; the
+sixth's arithmetic compares statuses but only where every child is settled, and §I.2 was the one
+that was not. What found it was the blame band.
+
 ## What is still owed, named
 
-- **The `partial` rows not yet re-read against the code.** Nothing between commits 202 and 409 of
-  673 is unread now: the five-hundred-and-seventeenth took the band from 213 (§12.7.6.4) to 409
-  (§12.2), twelve rows. **What is left under the fold is one row** — §12.6.4.4, at commit 184,
-  last written by the session that built the clause it describes — plus the read-and-kept set,
-  whose evidence is in their notes. **The next band begins at §7.9, commit 413.**
+- **The `partial` rows not yet re-read against the code.** Nothing below commit 500 of 683 is
+  unread now: the five-hundred-and-twenty-fifth took the band from 184 (§12.6.4.4, the row left
+  under the fold) to 500 (§I, §I.2), fifteen rows, plus the read-and-kept set whose evidence is in
+  their notes. **The next band begins at §12.7.4, commit 511.**
 - **A noun that is an ordinary English word is a noun the fourth sweep cannot rank.** `prefix` and
   `joining` between them produced 298 of the first run's 544 mentions and not one finding. Choosing
   the invented nouns first is free; widening the program's matching would only make it worse.
+- **The fifth sweep's second population is still a by-hand run.** `--bin callers` reads functions;
+  the four-hundred-and-thirteenth ran the sweep a second way over `viewer-core`'s own vocabulary —
+  every `Command`, `Query`, `Answer`, `Event` and `Edit` variant against the crates that speak it —
+  and that is where `Query::Find` and `Query::LogicalSelection` turned out to reach no program. A
+  round that wants a sixteenth has it named here.

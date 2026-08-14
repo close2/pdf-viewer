@@ -1137,7 +1137,12 @@ impl ViewState {
 
     /// Every annotation a person added, in order.
     ///
-    /// What a save writes and what a host asks to know whether there is anything to save.
+    /// What a save writes. **This said "and what a host asks to know whether there is anything
+    /// to save" until the five-hundred-and-twenty-fifth session, and no host asked it** —
+    /// `doc/todo/01`'s fifth sweep, on the round it became a program. A host that keeps an undo
+    /// log knows what is unwritten from the log's cursor and its last save, which is where
+    /// `viewer_core::Open::dirty` answers it from; what this offers is the *contents* of the
+    /// additions, for a caller that wants to show them rather than count them.
     #[must_use]
     pub fn additions(&self) -> &[Added] {
         &self.added
@@ -1590,7 +1595,7 @@ impl ViewState {
     /// Writes every free text annotation of the file's own that a person retyped.
     ///
     /// Two entries of one object, and the second is what keeps the file consistent with itself.
-    /// Table 166's `/Contents` is what the person typed; Table 177's `/AP` is **replaced** with the
+    /// Table 166's `/Contents` is what the person typed; Table 166's `/AP` is **replaced** with the
     /// appearance this program draws for that text, because §12.5.6.6's Table 177 makes the file's
     /// own `/AP` decisive in its `/DA` row —
     ///

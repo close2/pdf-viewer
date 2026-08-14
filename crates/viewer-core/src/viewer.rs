@@ -868,7 +868,9 @@ impl Viewer {
     /// Writes §7.5.6's incremental update, or says why it could not be written.
     fn save(&mut self, events: &mut Vec<Event>) {
         let Some(id) = self.focused else { return };
-        let Some(open) = self.focused() else { return };
+        let Some(open) = self.focused_mut() else {
+            return;
+        };
         match open.view.save(&open.document) {
             Ok(written) => {
                 // Table 231 bit 14's NOTE, said out loud. `pdf_model::view::ViewState::save`
@@ -907,6 +909,18 @@ impl Viewer {
                     document: id,
                     bytes: written.bytes,
                 });
+                // What the update wrote is now in a file, so the log up to the cursor owes it
+                // nothing. Said out loud for the same reason an edit says it: `Event::Dirty` is
+                // the only thing a host has to go on, and a mark that never comes off tells a
+                // person their work is unsaved after they saved it.
+                let was = open.dirty();
+                open.saved();
+                if was {
+                    events.push(Event::Dirty {
+                        document: id,
+                        dirty: false,
+                    });
+                }
             }
             // Trap 5 on the one path where a *file* can refuse to be written: a save that
             // quietly did nothing is a person's work lost without a word.

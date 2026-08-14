@@ -1113,6 +1113,69 @@ fn a_field_is_typed_into_undone_and_redone() {
     assert!(quiet.is_empty(), "{quiet:?}");
 }
 
+/// A save writes what the log holds, so nothing is unsaved until the next edit.
+///
+/// **The mark stayed on for as long as the document stayed open**, until `doc/todo/01`'s fifth
+/// sweep found `ViewState::additions` — "what a host asks to know whether there is anything to
+/// save" — called by nothing, and the host answering that question from its own log's length
+/// instead. §7.5.6's update writes every edit before the cursor; what is unsaved is therefore
+/// the *distance* between the cursor and the last save, and an undo back to it is clean again.
+#[test]
+fn a_save_takes_the_unsaved_mark_off_and_an_edit_puts_it_back() {
+    let Some(bytes) = corpus_bytes("form_two_pages.pdf") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password: None,
+            fragment: None,
+        })
+        .for_each(drop);
+    viewer
+        .handle(Command::Edit(Edit::SetField {
+            field: "Text1".to_owned(),
+            value: Entered::Text("Ada Lovelace".to_owned()),
+        }))
+        .for_each(drop);
+    assert!(matches!(viewer.query(Query::Dirty), Answer::Dirty(true)));
+
+    let events: Vec<_> = viewer.handle(Command::Save).collect();
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, Event::Saved { .. })),
+        "{events:?}"
+    );
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, Event::Dirty { dirty: false, .. })),
+        "a save says so, or a host has nothing to take its mark off with: {events:?}"
+    );
+    assert!(matches!(viewer.query(Query::Dirty), Answer::Dirty(false)));
+
+    // A second save has nothing to announce, and an undo across the saved point is a change to
+    // the file again — the cursor's *distance* from the save is what unsaved means.
+    let quiet: Vec<_> = viewer.handle(Command::Save).collect();
+    assert!(
+        !quiet
+            .iter()
+            .any(|event| matches!(event, Event::Dirty { .. })),
+        "{quiet:?}"
+    );
+    let events: Vec<_> = viewer.handle(Command::Undo).collect();
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, Event::Dirty { dirty: true, .. })),
+        "{events:?}"
+    );
+}
+
 /// Where the caret goes, in the pixels a host draws it in.
 ///
 /// **The standard states no caret** — §12.5.6.11's caret *annotation* is a different object, and

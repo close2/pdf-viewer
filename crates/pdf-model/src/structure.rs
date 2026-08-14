@@ -2518,6 +2518,14 @@ impl Namespace {
     }
 
     /// Whether this is one of §14.8.6.1's two standard structure namespaces.
+    ///
+    /// **Nothing in the tree asks this**, which `doc/todo/01`'s fifth sweep found on the round it
+    /// became a program, and the reason is the clause it belongs to: §14.8.6.2's "all structure
+    /// elements shall be in at least one of the standard structure namespaces or in a namespace
+    /// identified in 14.8.6.3" is addressed to a *document*, so asking it is validating a file
+    /// rather than drawing one. The caller it is waiting for is `doc/todo/48`'s second owed item,
+    /// which needs exactly this predicate: the term "standard structure namespaces" is what the
+    /// clause's own exemptions are stated against.
     #[must_use]
     pub fn is_standard(&self) -> bool {
         self.name == DEFAULT_STANDARD_NAMESPACE || self.name == STANDARD_NAMESPACE_2_0

@@ -79,6 +79,11 @@ defect in the standard. ADR 0252 has the argument.
    `/Alternates`.
 2. **§14.8.6.3's enclosure requirement** — EC3 requires a `math` element under a `Formula` structure
    element and the namespace on every MathML type *and attribute*. `Tree::role` checks neither.
+   **Half the predicate is already written and has no caller**: `structure::Namespace::is_standard`
+   answers §14.8.6.1's "[t]he term standard structure namespaces refers to either of the two
+   namespaces defined above", which is the term §14.8.6.2 and §14.8.6.3 state their rules against —
+   found by `conformance --bin callers` in the five-hundred-and-twenty-fifth, on the rung where
+   nothing in the tree names a function at all.
 3. **The ledger's single-quoted spans.** `quoted_spans` collects `"` … `"` only, because an
    apostrophe would make every possessive an opening mark; §12.7.5.2.2's stale quotation was in
    single quotes and was found through the source rather than by the sweep.

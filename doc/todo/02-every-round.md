@@ -206,6 +206,13 @@ share and the two that break it:
   that decays) or about *one crate* (usually a boundary it keeps on purpose); the dominant
   noise is a true boundary statement, which a witness does not disprove. Read the sentence
   before believing a hit.
+- **One asks the question from the other end — who *calls* it?**: `cargo run --release -p
+  conformance --bin callers`, a fifth of a second, over every `pub fn` in `pdf-model` and every
+  crate, tool and fuzz target whose manifest names it — the fifth sweep as a program (ADR 0360).
+  **Its output is a delta rather than a level**: the finding has twice been that a whole new host
+  program took no name off the bottom rungs. Read the rungs from the bottom, and know the two
+  directions it is loose in — a short name shared with another type's method reads as named, and a
+  name reached through a wrapper reads as unnamed.
 - **One asks where else a claim a round *retired* is still written**: `cargo run --release
   -p conformance --bin retired -- <noun> …`, seconds, over `ledger.toml`, the source roots and
   every Markdown document under `doc/` bar `doc/history/` — the fourth sweep as a program (ADR

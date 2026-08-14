@@ -204,6 +204,14 @@ pub(crate) struct Open {
     /// may be redone. A new edit truncates the tail, which is what a single log with a cursor
     /// means and what every editor does.
     pub(crate) cursor: usize,
+    /// Where [`Self::cursor`] stood when this document was last saved.
+    ///
+    /// The two together are what "unsaved" means, and the cursor alone is not: §7.5.6's update
+    /// writes every edit before the cursor, so a document saved and not touched again owes the
+    /// file nothing however long its log is. Recording the position rather than a flag is what
+    /// makes an undo back to the saved state clean and a redo past it dirty again, which is the
+    /// same reason the log has a cursor at all.
+    pub(crate) saved_at: usize,
     /// What is selected, as byte offsets into the interpreted page's readback.
     ///
     /// Anchor first, then where the pointer is now — in that order rather than sorted, because
@@ -468,6 +476,7 @@ impl Open {
             importing: None,
             log: Vec::new(),
             cursor: 0,
+            saved_at: 0,
             selection: None,
             pending_selection: None,
             searching: None,
@@ -640,8 +649,21 @@ impl Open {
     }
 
     /// Whether anything a person did is unsaved.
+    ///
+    /// **The cursor's distance from the last save, not its distance from zero.** This asked
+    /// `cursor > 0` until the five-hundred-and-twenty-fifth session, so a document went on
+    /// saying it had unsaved work for as long as it stayed open after being saved —
+    /// `Event::Dirty` never came back false and `viewer-ui`'s title kept its mark. The model
+    /// holds the other half of the answer in `ViewState::additions` and `ViewState::edits`,
+    /// which is what `doc/todo/01`'s fifth sweep found no caller for: the question a host asks
+    /// is *what is unwritten*, and a log's length is what was **done**.
     pub(crate) fn dirty(&self) -> bool {
-        self.cursor > 0
+        self.cursor != self.saved_at
+    }
+
+    /// Records that everything up to the cursor has been written to a file.
+    pub(crate) fn saved(&mut self) {
+        self.saved_at = self.cursor;
     }
 
     /// The text position a point in the display list's coordinates selects.

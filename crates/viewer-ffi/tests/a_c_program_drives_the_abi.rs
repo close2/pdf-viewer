@@ -235,7 +235,12 @@ fn what_it_printed(said: &str) {
         "ticking ticked with the state Yes",
         "after the edit: 1 widget(s) on",
         "dirty after the edit: 1",
-        "dirty after the undo: 0",
+        // **The C program saves between the two**, so the undo takes back an edit the file
+        // already holds and the document is unsaved again. This read 0 until the
+        // five-hundred-and-twenty-fifth session, when `Open::dirty` stopped meaning "the log is
+        // not empty" and started meaning "the cursor is not where the last save left it" — the
+        // old answer was the same for a document saved and one never saved at all.
+        "dirty after the undo: 1",
         "ok",
     ] {
         assert!(
