@@ -395,12 +395,14 @@ coefficient counter meets the buffer length is what checks the partition, on eve
 
 ### What this tree does with it
 
-**Nothing yet, and deliberately.** The workspace pins `2a1abd14`, and against that revision asking
-for a reduced level would allocate 3.4 GB inside a worker with a gigabyte of address space — a
-process abort where there is currently an accurate refusal. A `path` dependency into `tmp/` cannot
-be committed. So `pdf-sandbox` still passes `target_resolution: None`, the comment beside it now
-says why in one sentence, and `doc/todo/24` states the four edits that follow the moment the fork
-carries `1dc833f7`.
+**Used, since the four-hundred-and-eighty-sixth session.** The workspace pins `1dc833f7` — the
+owner's push made the fork carry the fix — and `pdf_sandbox::decode::jpx_within_budget` steps
+down resolution levels until the sample budget is met, with the codestream's stated grid carried
+beside the raster for §7.4.9's `Width`/`Height` check. `issue19517.pdf` decodes at 3152×4202 and
+its page draws. This section said "[n]othing yet, and deliberately" while the pin was `2a1abd14`,
+against which a reduced request was a 3.4 GB allocation inside a gigabyte of address space — a
+process abort where there was an accurate refusal — and that history is kept in ADR 0233;
+ADR 0321 records the edits that followed the pin's move.
 
 ### One thing noticed and *not* offered, recorded so it is not rediscovered
 

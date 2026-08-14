@@ -150,13 +150,19 @@ fn every_thumbnail_decodes_and_is_compared_with_the_page_it_stands_for() {
         "thumbnails whose colour space is none of the clause's three forms"
     );
 
-    // A ratchet on the *disagreements*, not on the numbers: each of these three has been looked
-    // at, and in every case the thumbnail is what is wrong.
+    // A ratchet on the *disagreements*, not on the numbers: each of these four has been looked
+    // at, and in every case the thumbnail or the instrument is what is wrong, never the page.
     //
     //  - `issue11144_reduced.pdf` — a file pdf.js cut down from a larger one. The miniature is
     //    of the page as it was, and shows tables our render's page no longer has.
     //  - `issue19326.pdf` — a 1x1 thumbnail, which states one average colour and cannot agree
     //    with anything.
+    //  - `issue19517.pdf` — the other 1x1 thumbnail, comparable since session 486 made its page
+    //    draw (the reduced-resolution JPEG 2000 decode, ADR 0321), and looked at then: the
+    //    miniature is the page's own orange (254,39,0) and our render's top pixel matches it at
+    //    (255,40,0). What disagrees is the instrument — our render at the thumbnail's scale is
+    //    one pixel wide and 1.33 tall, so its second row is two-thirds white canvas — which is
+    //    the same class of statement a 1x1 comparison makes: none.
     //  - `transparency_group.pdf` — the thumbnail draws four petals; the page draws two
     //    overlapping ellipses, and **all five renderers including us draw the ellipses**
     //    (oracle: ambiguous, our worst mean 0.87 against a bound of 1.00). A stale miniature.
@@ -174,6 +180,7 @@ fn every_thumbnail_decodes_and_is_compared_with_the_page_it_stands_for() {
         [
             "issue11144_reduced.pdf",
             "issue19326.pdf",
+            "issue19517.pdf",
             "transparency_group.pdf"
         ],
         "pages whose own miniature disagrees with our render"

@@ -252,9 +252,9 @@ hayro-jbig2 = { version = "0.3.0", default-features = false, features = ["std"] 
 # `1dc833f7`, pushed and offered upstream with the one above: a decode asked for a reduced
 # resolution level still reserved a coefficient for every sample of the full-resolution image,
 # which was 3.4 GB of address space for `issue19517.pdf` however small a raster was wanted and
-# a dead worker inside `pdf_sandbox::lockdown`'s gigabyte. `pdf-sandbox` may now ask for a
-# reduced level, and `doc/todo/24` lists the edits that follow. ADR 0233 and
-# `doc/JPEG2000_FEEDBACK.md` §10 have the measurements.
+# a dead worker inside `pdf_sandbox::lockdown`'s gigabyte. `pdf-sandbox` asks for a reduced
+# level since the four-hundred-and-eighty-sixth session (ADR 0321), and that file draws.
+# ADR 0233 and `doc/JPEG2000_FEEDBACK.md` §10 have the measurements.
 hayro-jpeg2000 = { git = "https://github.com/close2/hayro", rev = "1dc833f7e87dd6849a358d74af3586d7955e1e03", version = "0.4.0", default-features = false, features = ["std"] }
 
 # Cryptography, for ISO 32000-2 §7.6's standard security handler. Five primitives, all

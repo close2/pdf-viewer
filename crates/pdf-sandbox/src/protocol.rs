@@ -18,8 +18,11 @@ use crate::{Decoded, SandboxError};
 /// cheapest place to find that out is the first thing either says. `02` since the
 /// three-hundred-and-fifteenth session, when the greeting gained the byte that says whether
 /// the system-call filter is in force — a worker from the build before it would answer a
-/// question this one asks with silence, which is exactly what the magic is for.
-const MAGIC: &[u8; 8] = b"PDFSBX02";
+/// question this one asks with silence, which is exactly what the magic is for. `03` since
+/// the four-hundred-and-eighty-sixth, when a raster response gained the codestream's own
+/// stated grid beside the raster's — a parent from the build before would read those eight
+/// bytes as sample data.
+const MAGIC: &[u8; 8] = b"PDFSBX03";
 
 /// Length of the worker's greeting: the magic, the Landlock level, the address-space limit,
 /// and whether system calls are filtered.
@@ -244,10 +247,21 @@ pub enum Colour {
 /// A decoded continuous-tone image.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Raster {
-    /// Width in pixels.
+    /// Width in pixels of the raster [`Self::data`] holds.
     pub width: u32,
-    /// Height in pixels.
+    /// Height in pixels of the raster [`Self::data`] holds.
     pub height: u32,
+    /// Width the codestream itself states, which a reduced decode does not change.
+    ///
+    /// A JPEG 2000 codestream over the decoder's budget is decoded at a reduced
+    /// resolution level (§7.4.9 NOTE 3), so [`Self::width`] is then the level's grid
+    /// rather than the image's. §7.4.9's conformance rule — "Width and Height shall match
+    /// the corresponding width and height values in the JPEG 2000 data" — is about what
+    /// the *data* says, so that statement travels beside the raster instead of being
+    /// erased by the reduction. Equal to [`Self::width`] wherever nothing was reduced.
+    pub stated_width: u32,
+    /// Height the codestream itself states; see [`Self::stated_width`].
+    pub stated_height: u32,
     /// Colour components per pixel, excluding opacity.
     pub components: u8,
     /// Whether an opacity channel follows the colour components in each pixel.
@@ -447,10 +461,12 @@ pub(crate) fn encode_response(decoded: &Decoded) -> Vec<u8> {
                     .data
                     .len()
                     .saturating_add(profile.len())
-                    .saturating_add(15),
+                    .saturating_add(23),
             );
             payload.extend_from_slice(&raster.width.to_be_bytes());
             payload.extend_from_slice(&raster.height.to_be_bytes());
+            payload.extend_from_slice(&raster.stated_width.to_be_bytes());
+            payload.extend_from_slice(&raster.stated_height.to_be_bytes());
             payload.push(raster.components);
             payload.push(u8::from(raster.has_opacity));
             payload.push(tag);
@@ -537,6 +553,16 @@ pub(crate) fn parse_response(
         }
         STATUS_RASTER => {
             let (width, height, rest) = dimensions(payload)?;
+            let (stated_width, stated_height, rest) = dimensions(rest)?;
+            // The decode can only ever *reduce* a grid, so a statement smaller than the
+            // raster is not one the worker's own code can produce — refused for the same
+            // reason every other derived field is recomputed here.
+            if stated_width < width || stated_height < height {
+                return Err(malformed(format!(
+                    "a {width}x{height} raster claims the codestream states \
+                     {stated_width}x{stated_height}"
+                )));
+            }
             let components = *rest
                 .first()
                 .ok_or_else(|| malformed("no component count".to_owned()))?;
@@ -586,6 +612,8 @@ pub(crate) fn parse_response(
             Ok(Decoded::Raster(Raster {
                 width,
                 height,
+                stated_width,
+                stated_height,
                 components,
                 has_opacity,
                 colour,
@@ -697,6 +725,9 @@ mod tests {
         let decoded = Decoded::Raster(Raster {
             width: 2,
             height: 1,
+            // Larger than the raster, as a reduced JPEG 2000 decode leaves it.
+            stated_width: 8,
+            stated_height: 4,
             components: 3,
             has_opacity: true,
             colour: Colour::Icc(vec![1, 2, 3]),
@@ -715,6 +746,8 @@ mod tests {
         let mut payload = Vec::new();
         payload.extend_from_slice(&4000u32.to_be_bytes());
         payload.extend_from_slice(&4000u32.to_be_bytes());
+        payload.extend_from_slice(&4000u32.to_be_bytes());
+        payload.extend_from_slice(&4000u32.to_be_bytes());
         payload.extend_from_slice(&[3, 0, 1]);
         payload.extend_from_slice(&0u32.to_be_bytes());
         payload.extend_from_slice(&[0; 8]);
@@ -724,6 +757,28 @@ mod tests {
         };
         assert!(matches!(
             parse_response(shape, &payload),
+            Err(SandboxError::Malformed { .. })
+        ));
+    }
+
+    /// A decode only ever reduces a grid, so a statement smaller than the raster is a lie.
+    #[test]
+    fn a_worker_cannot_state_a_grid_smaller_than_its_raster() {
+        let decoded = Decoded::Raster(Raster {
+            width: 2,
+            height: 1,
+            stated_width: 1,
+            stated_height: 1,
+            components: 3,
+            has_opacity: true,
+            colour: Colour::Rgb,
+            data: vec![10, 20, 30, 40, 50, 60, 70, 80],
+        });
+        let encoded = encode_response(&decoded);
+        let (header, payload) = encoded.split_at(RESPONSE_HEADER_LEN);
+        let shape = parse_response_header(header.try_into().unwrap()).unwrap();
+        assert!(matches!(
+            parse_response(shape, payload),
             Err(SandboxError::Malformed { .. })
         ));
     }

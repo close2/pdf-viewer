@@ -435,7 +435,11 @@ pub fn decode_parts(
             detail: "stream did not decode".to_owned(),
         })?;
 
-    let (rgba, opacity_came_with_the_samples) = samples_of(
+    let SamplesOnGrid {
+        rgba,
+        grid: (raster_width, raster_height),
+        opacity_included: opacity_came_with_the_samples,
+    } = samples_of(
         at,
         &source,
         (width, height),
@@ -446,8 +450,13 @@ pub fn decode_parts(
     )?;
 
     let image = Image {
-        width,
-        height,
+        // The grid the samples are actually on, which for every codec but one is the
+        // dictionary's. A JPEG 2000 codestream over the worker's budget comes back at a
+        // reduced resolution level (§7.4.9 NOTE 3), and an image occupies the unit square
+        // whatever its resolution (§8.9.5.1), so the raster's own grid is the only honest
+        // one to build at — declaring the dictionary's would shear every row.
+        width: raster_width,
+        height: raster_height,
         data: Arc::from(rgba.as_slice()),
         // §8.9.5.3, and Table 87's default of false. The entry is a hint about what to do
         // when the image is magnified, so it travels with the samples and the backends
@@ -462,7 +471,12 @@ pub fn decode_parts(
     } else {
         // A mask whose grid the finer of the two cannot hold leaves this function in two
         // parts, for the device to put together. Everything below is about one raster.
-        if let Some(opacity) = masks.read(document, dict, resources) {
+        // The routing is asked about the raster that exists — `(raster_width,
+        // raster_height)`, not the dictionary's statement — which is what sends a reduced
+        // JPEG 2000 base under a full-size mask here rather than into an eager combination
+        // on a grid neither raster is on.
+        if let Some(opacity) = masks.read(document, dict, resources, (raster_width, raster_height))
+        {
             return Ok(Parts::Masked {
                 base: image,
                 opacity,
@@ -485,7 +499,20 @@ pub fn decode_parts(
     }
 }
 
-/// The image's samples as straight-alpha RGBA8, and whether the opacity came with them.
+/// One decode route's answer: samples, the grid they are on, and whether opacity came along.
+struct SamplesOnGrid {
+    /// Straight-alpha RGBA8, row by row on [`Self::grid`].
+    rgba: Vec<u8>,
+    /// The grid the samples are actually on — the dictionary's for every codec but a
+    /// reduced JPEG 2000 decode; see [`samples_of`].
+    grid: (u32, u32),
+    /// §11.6.5.2's `/SMaskInData`: the opacity arrived inside the codestream and is already
+    /// in the alpha channel, so no `/SMask` may be applied on top of it.
+    opacity_included: bool,
+}
+
+/// The image's samples as straight-alpha RGBA8, the grid they are on, and whether the
+/// opacity came with them.
 ///
 /// One arm per route from bytes to colour: §7.4.8's `DCTDecode`, §7.4.7's `JBIG2Decode`,
 /// §7.4.9's `JPXDecode`, §7.4.6's `CCITTFaxDecode`, and [`unpack`] for the four filters that
@@ -493,7 +520,12 @@ pub fn decode_parts(
 /// route a stream takes is a question about its filter chain and nothing else, while
 /// everything around it is about masks.
 ///
-/// The second half of the answer is §11.6.5.2's `/SMaskInData`, which only `JPXDecode` can
+/// The grid is the dictionary's for every arm but one: a `JPXDecode` codestream over the
+/// confined worker's budget is decoded at a reduced resolution level (§7.4.9 NOTE 3), so
+/// that arm answers with the grid the codec produced rather than letting the caller assume
+/// the dictionary's.
+///
+/// The third part of the answer is §11.6.5.2's `/SMaskInData`, which only `JPXDecode` can
 /// carry: an opacity that arrived inside the codestream is already in the alpha channel, and
 /// applying `/SMask` on top of it would multiply two alphas together.
 ///
@@ -508,7 +540,7 @@ fn samples_of(
     fill: pdf_render::Color,
     colour_key: Option<&[(u32, u32)]>,
     into: Compositing,
-) -> Result<(Vec<u8>, bool), ImageError> {
+) -> Result<SamplesOnGrid, ImageError> {
     let Dictionaries {
         document,
         dict,
@@ -519,17 +551,23 @@ fn samples_of(
             let (mut rgba, components) = decode_jpeg(&source.data, width, height)?;
             apply_decode_to_channels(document, dict, components, &mut rgba);
             convert_channels(at, is_mask, components, &mut rgba, into)?;
-            Ok((rgba, false))
+            Ok(SamplesOnGrid {
+                rgba,
+                grid: (width, height),
+                opacity_included: false,
+            })
         }
-        Some(b"JBIG2Decode") => Ok((
-            decode_jbig2(at, source, width, height, is_mask, fill, into)?,
-            false,
-        )),
+        Some(b"JBIG2Decode") => Ok(SamplesOnGrid {
+            rgba: decode_jbig2(at, source, width, height, is_mask, fill, into)?,
+            grid: (width, height),
+            opacity_included: false,
+        }),
         Some(b"JPXDecode") => decode_jpx(at, source, width, height, is_mask, fill, into),
-        Some(b"CCITTFaxDecode" | b"CCF") => Ok((
-            decode_ccitt(at, source, width, height, is_mask, fill, into)?,
-            false,
-        )),
+        Some(b"CCITTFaxDecode" | b"CCF") => Ok(SamplesOnGrid {
+            rgba: decode_ccitt(at, source, width, height, is_mask, fill, into)?,
+            grid: (width, height),
+            opacity_included: false,
+        }),
         Some(other) => Err(ImageError::UnsupportedFilter {
             filter: String::from_utf8_lossy(other).into_owned(),
         }),
@@ -564,7 +602,11 @@ fn samples_of(
                     into,
                 },
             )?;
-            Ok((rgba, false))
+            Ok(SamplesOnGrid {
+                rgba,
+                grid: (width, height),
+                opacity_included: false,
+            })
         }
     }
 }
@@ -1435,8 +1477,14 @@ fn decode_ccitt(
 
 /// Decodes a JPEG 2000 image through the sandbox.
 ///
-/// ISO 32000-2 §7.4.9. Returns the samples and whether an opacity channel came with them,
-/// which decides whether an `/SMask` may still be applied.
+/// ISO 32000-2 §7.4.9. Returns the samples, the grid they are on, and whether an opacity
+/// channel came with them, which decides whether an `/SMask` may still be applied.
+///
+/// The grid is the codec's answer rather than the dictionary's, because a codestream over
+/// the confined worker's budget comes back at one of its own reduced resolution levels
+/// (§7.4.9 NOTE 3) — `issue19517.pdf`'s 12608×16806 scan decodes at 3152×4202. The
+/// dictionary's `/Width` and `/Height` are still checked, against the grid the codestream
+/// *states*, which the worker reports beside the raster for exactly that purpose.
 fn decode_jpx(
     at: Dictionaries,
     source: &ImageStream,
@@ -1445,7 +1493,7 @@ fn decode_jpx(
     is_mask: bool,
     fill: pdf_render::Color,
     into: Compositing,
-) -> Result<(Vec<u8>, bool), ImageError> {
+) -> Result<SamplesOnGrid, ImageError> {
     let Dictionaries {
         document,
         dict,
@@ -1485,12 +1533,15 @@ fn decode_jpx(
     };
 
     // §7.4.9: "Width and Height shall match the corresponding width and height values in
-    // the JPEG 2000 data."
-    if (raster.width, raster.height) != (width, height) {
+    // the JPEG 2000 data." The values *in the data* are what the codestream states, which
+    // the worker reports beside the raster — a decode at a reduced resolution level changes
+    // the raster without changing the data's statement, and comparing against the raster
+    // would fail exactly the files the reduction exists to draw.
+    if (raster.stated_width, raster.stated_height) != (width, height) {
         return Err(ImageError::Malformed {
             detail: format!(
-                "JPEG 2000 image is {}x{} but the dictionary says {width}x{height}",
-                raster.width, raster.height
+                "JPEG 2000 data states {}x{} but the dictionary says {width}x{height}",
+                raster.stated_width, raster.stated_height
             ),
         });
     }
@@ -1511,17 +1562,19 @@ fn decode_jpx(
         // §7.4.9: "If ImageMask is true, the JPEG 2000 data shall provide a single colour
         // channel with 1-bit samples." Those samples arrive scaled to eight bits, so the
         // two values are 0 and 255 and the threshold between them is anywhere in between.
+        // The raster's own grid throughout, which for a reduced decode is not the
+        // dictionary's.
         let samples: Vec<u8> = raster
             .data
             .chunks(raster.channels())
             .map(|pixel| u8::from(pixel.first().is_some_and(|value| *value >= 128)))
             .collect();
-        let packed = pack_bits(&samples, width, height);
-        return Ok((
-            unpack(
+        let packed = pack_bits(&samples, raster.width, raster.height);
+        return Ok(SamplesOnGrid {
+            rgba: unpack(
                 &packed,
-                width,
-                height,
+                raster.width,
+                raster.height,
                 &Samples {
                     bits: 1,
                     space: &ColourSpace::Mask,
@@ -1534,8 +1587,9 @@ fn decode_jpx(
                     into: Compositing::Device,
                 },
             )?,
-            use_opacity,
-        ));
+            grid: (raster.width, raster.height),
+            opacity_included: use_opacity,
+        });
     }
 
     let space = match declared_space {
@@ -1552,10 +1606,11 @@ fn decode_jpx(
         });
     }
 
-    Ok((
-        jpx_samples_to_rgba(&raster, &space, use_opacity, premultiplied, into),
-        use_opacity,
-    ))
+    Ok(SamplesOnGrid {
+        rgba: jpx_samples_to_rgba(&raster, &space, use_opacity, premultiplied, into),
+        grid: (raster.width, raster.height),
+        opacity_included: use_opacity,
+    })
 }
 
 /// Converts decoded JPEG 2000 samples into straight-alpha RGBA8.
@@ -2453,7 +2508,7 @@ enum SoftMaskEntry {
     ///
     /// The mask is carried to the backend beside the image instead, and the two are combined
     /// where the device scale is known — which is what §10.7.4 asks for in the first place.
-    /// See [`device_scaled_soft_mask`] for what makes a mask eligible.
+    /// See [`eligible_for_the_device_scale`] for what makes a mask eligible.
     AtDeviceScale,
     /// §11.6.5.2: a `DeviceGray` image whose samples are this image's opacity.
     ///
@@ -2500,10 +2555,23 @@ enum SoftMaskEntry {
 /// A `/Matte` is the fourth thing read here and the only one that does not decide whether the
 /// mask applies — see [`matte_colour`], which decides whether the pre-blending it announces
 /// can be undone in the raster this crate holds.
+///
+/// `base` is the grid of the parent image's raster as the *caller* knows it, because the
+/// routing between the two grid answers is about the two rasters that exist and there are two
+/// callers with two kinds of knowledge. [`MaskCache::read`] passes the grid the base actually
+/// decoded to — which for a JPEG 2000 image over the worker's budget is a reduced resolution
+/// level, not the dictionary's statement — so `issue19517.pdf`'s 3152×4202 base under its
+/// 12608×16806 mask routes to §10.7.4's device-scale combination instead of an 848 MB eager
+/// one. [`unapplied_soft_mask`] and [`apply_soft_mask`] pass the dictionary's own grid, the
+/// only one knowable without decoding, and those two asking the *same* question is what keeps
+/// the interpreter's report and the eager route's behaviour from drifting apart: the deferred
+/// route that consults the decoded grid never leaves a mask unapplied — it exists to apply
+/// one — so a report computed from the dictionary's grid cannot name a gap that route opened.
 fn soft_mask_entry(
     document: &Document,
     dict: &Dictionary,
     resources: &Dictionary,
+    base: (u32, u32),
 ) -> SoftMaskEntry {
     let smask = document.get_key(dict, "SMask");
     let Some(mask) = smask.as_stream() else {
@@ -2520,7 +2588,7 @@ fn soft_mask_entry(
         dimension(&mask.dict, "Width"),
         dimension(&mask.dict, "Height"),
     );
-    let (width, height) = (dimension(dict, "Width"), dimension(dict, "Height"));
+    let (width, height) = base;
 
     if matches!(
         document.get_key(&mask.dict, "ImageMask"),
@@ -2690,7 +2758,11 @@ pub fn unapplied_soft_mask(
     dict: &Dictionary,
     resources: &Dictionary,
 ) -> Option<String> {
-    match soft_mask_entry(document, dict, resources) {
+    // The dictionary's grid, deliberately: it is the only one knowable without a decode,
+    // and the eager route asks with the same one, so the report and that route cannot
+    // disagree. See `soft_mask_entry` for why the route that asks with the decoded grid
+    // cannot open a gap for this to miss.
+    match soft_mask_entry(document, dict, resources, stated_grid(document, dict)) {
         SoftMaskEntry::Unusable(reason)
         | SoftMaskEntry::Image {
             owed: Some(reason), ..
@@ -2703,6 +2775,22 @@ pub fn unapplied_soft_mask(
     }
 }
 
+/// The grid an image dictionary states for itself, for the callers that cannot know better.
+///
+/// [`decode_parts`] knows the grid its raster actually decoded to and passes that instead;
+/// this is for the two callers that must answer without decoding — the interpreter's report,
+/// and the eager route, which agree with each other by asking with the same pair.
+fn stated_grid(document: &Document, dict: &Dictionary) -> (u32, u32) {
+    let dimension = |key| {
+        document
+            .get_key(dict, key)
+            .as_integer()
+            .and_then(|value| u32::try_from(value).ok())
+            .unwrap_or(0)
+    };
+    (dimension("Width"), dimension("Height"))
+}
+
 /// Whether a soft mask's samples can be read at a grid chosen by the device.
 ///
 /// Three things decide it, and each is the clause's own restriction rather than a convenience:
@@ -2710,8 +2798,11 @@ pub fn unapplied_soft_mask(
 /// - **The stream carries no image codec.** [`unpack`]'s samples are packed rows in the file's
 ///   own bytes, so any grid can be read out of them by indexing; a `DCTDecode` or `JPXDecode`
 ///   codestream has to be decoded before a sample has a position at all, and decoding it whole
-///   is the cost this route exists to avoid. JPEG 2000 is the one format that *can* decode at a
-///   chosen resolution, and asking it to is still owed — `doc/todo/24`.
+///   is the cost this route exists to avoid. A `JPXDecode` *base image* over the worker's
+///   budget does decode at one of its own reduced levels now (§7.4.9 NOTE 3, `decode_jpx`),
+///   but that reduction answers a memory budget once, not a device's grid per draw — a
+///   codec-carrying mask on this route would decode per raster request, which is the cost the
+///   packed-bytes design refuses. No corpus document states one.
 /// - **The colour space is `DeviceGray`.** Table 143 requires it — "Required; shall be
 ///   `DeviceGray`" — and it is what makes a sample's opacity a lookup rather than a colour
 ///   conversion. `soft_mask_entry` tolerates any one-component space for the ordinary route,
@@ -2931,19 +3022,31 @@ pub struct MaskCache {
 
 impl MaskCache {
     /// Reads a mask, reusing an earlier read of the same object.
+    ///
+    /// `base` is the grid of the parent's raster as decoded, which is what the routing
+    /// decision is about; the routing runs on every call — only the *read* of the mask's
+    /// packed bytes is cached, because that is the part whose inputs are all the mask
+    /// object's own.
     fn read(
         &mut self,
         document: &Document,
         dict: &Dictionary,
         resources: &Dictionary,
+        base: (u32, u32),
     ) -> Option<SoftMaskAtDeviceScale> {
+        if !matches!(
+            soft_mask_entry(document, dict, resources, base),
+            SoftMaskEntry::AtDeviceScale
+        ) {
+            return None;
+        }
         let key = dict.get("SMask").and_then(Object::as_reference);
         if let Some(id) = key
             && let Some(mask) = self.read.get(&id)
         {
             return Some(mask.clone());
         }
-        let mask = device_scaled_soft_mask(document, dict, resources)?;
+        let mask = device_scaled_soft_mask(document, dict)?;
         if let Some(id) = key {
             self.read.insert(id, mask.clone());
         }
@@ -2951,23 +3054,17 @@ impl MaskCache {
     }
 }
 
-/// Reads a soft mask this crate will combine at device resolution, or `None`.
+/// Reads a soft mask the caller has already routed to the device-scale combination.
 ///
-/// `None` where the entry is not that kind of mask, and where its stream will not decode — the
-/// second being the one case [`unapplied_soft_mask`] does not cover and does not here either:
-/// an image visibly present and opaque beats one dropped entirely, which is the same choice
+/// [`MaskCache::read`] establishes [`SoftMaskEntry::AtDeviceScale`] before calling this, so
+/// what is left here is the read itself. `None` where the stream will not decode — the one
+/// case [`unapplied_soft_mask`] does not cover and this does not either: an image visibly
+/// present and opaque beats one dropped entirely, which is the same choice
 /// [`apply_soft_mask`] makes for the same reason.
 fn device_scaled_soft_mask(
     document: &Document,
     dict: &Dictionary,
-    resources: &Dictionary,
 ) -> Option<SoftMaskAtDeviceScale> {
-    if !matches!(
-        soft_mask_entry(document, dict, resources),
-        SoftMaskEntry::AtDeviceScale
-    ) {
-        return None;
-    }
     let smask = document.get_key(dict, "SMask");
     let mask = smask.as_stream()?;
     let mask_dict = &mask.dict;
@@ -3011,11 +3108,17 @@ fn apply_soft_mask(
     resources: &Dictionary,
     image: Image,
 ) -> Image {
+    // The dictionary's grid rather than the raster's, deliberately: this route and
+    // `unapplied_soft_mask` must answer the same question, or the interpreter's report and
+    // what actually happened drift apart. For the one image whose raster is coarser than its
+    // dictionary — a reduced JPEG 2000 decode whose deferred route declined the mask — the
+    // eager combination this admits is bounded by the same `MAX_SAMPLES` the dictionary's
+    // grid already passed, and the mask's own decode reduces the same way the base's did.
     let SoftMaskEntry::Image {
         stream: mask_stream,
         matte,
         ..
-    } = soft_mask_entry(document, dict, resources)
+    } = soft_mask_entry(document, dict, resources, stated_grid(document, dict))
     else {
         return image;
     };

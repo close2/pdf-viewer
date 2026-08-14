@@ -63,8 +63,10 @@ const IDENTICAL: usize = 14;
 /// sixteen-bit one with 65535, while this tree's decoder always produces eight bits (§7.4.9
 /// leaves the depth to the decoder and the image pipeline here is eight-bit throughout — how the
 /// two scale to eight bits is a question worth asking and not this test's). And `issue19517.pdf`
-/// object 8 declares 12608×16806 in four channels, which this decoder refuses on its own budget
-/// long before any sample exists to compare.
+/// object 8 declares 12608×16806 in four channels, beyond the confined decoder's budget, so ours
+/// comes back at a reduced resolution level (3152×4202, §7.4.9 NOTE 3) while the reference
+/// decodes the full grid — same image, two of the codestream's own versions, not comparable
+/// sample for sample.
 const NOT_COMPARABLE: usize = 3;
 
 /// Codestreams whose samples differ from `OpenJPEG`'s, held by name in both directions.

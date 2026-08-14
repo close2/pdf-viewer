@@ -26,8 +26,10 @@ JPEG 2000 offers both, and they are orthogonal rather than alternatives:
 for* — and until session 396 the codec was never told.
 
 **What it cannot help with is the other direction**, and that gap is real: magnify that image to
-1:1 and the grid asks for all 211.9 Mpx, of which a window shows about half a percent. Today that is
-decoded in full or refused.
+1:1 and the grid asks for all 211.9 Mpx, of which a window shows about half a percent. Since
+session 486 the decode is the budget's reduced level however far in the viewer zooms (ADR 0321) —
+so 1:1 shows the reduced level magnified, which is no longer a refusal and is still not the
+region's own samples.
 
 ## What the witness's own codestream says, and it is the discouraging case
 
@@ -98,5 +100,6 @@ Three things to settle before writing any of it:
   codec which cannot honour a region says so and is handed the whole thing, exactly as
   `ImageAtDeviceScale` handles a grid it cannot match.
 - **Not a reason to undo session 396.** Reduced resolution is the right answer for the common case
-  — a page viewed at page size — and it is already measured at 3336 MB → 115 MB on this witness.
-  Region decoding is the answer for the rarer case that this program currently refuses.
+  — a page viewed at page size — it is measured at 3336 MB → 115 MB on this witness, and session
+  486 committed it (ADR 0321). Region decoding is the answer for the rarer case that this program
+  now serves with the reduced level magnified rather than with the region's own samples.

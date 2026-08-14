@@ -69,12 +69,13 @@ const MAX_PIXELS: u64 = 1 << 28;
 /// largest that decodes is 2.4 million samples — so this narrows a bound nothing reaches rather
 /// than refusing anything that was drawing.
 ///
-/// This bound is *reached* by real files, and that is worth knowing rather than hiding.
+/// This bound is *reached* by real files, and what happens then depends on the codec.
 /// `issue19517.pdf` carries a 12608×16806 scan — 212 megapixels in four channels, 847 million
 /// samples, ten gigabytes to decode at full resolution — for a page that will be drawn about
-/// four megapixels. Refusing it here reports one undrawn image; the proper answer is JPEG
-/// 2000's own, which is to decode a reduced resolution level. See the note on
-/// `target_resolution` below for what that is waiting on.
+/// four megapixels. JPEG 2000 answers this itself: [`jpx`] steps down the codestream's own
+/// resolution progression until the sample count fits, so that file decodes at 3152×4202
+/// instead of being refused. Only a codestream that cannot get under the bound at any level
+/// is refused.
 const MAX_SAMPLES: u64 = 1 << 26;
 
 /// Decodes a JBIG2 image, in the embedded organisation PDF requires.
@@ -340,7 +341,69 @@ impl hayro_ccitt::Decoder for CcittRows {
     }
 }
 
-/// Decodes a JPEG 2000 image.
+/// Parses a JPEG 2000 codestream at the finest resolution level [`MAX_SAMPLES`] admits.
+///
+/// Returns the parse — no sample is decoded here, each step is a header read — together with
+/// the grid the codestream *states*, taken from the first, unreduced parse: a reduced parse
+/// answers `width()` with the level it will synthesise rather than with what the data says,
+/// and §7.4.9's conformance check on the caller's side needs the statement.
+///
+/// The loop asks for half of what the last reading offered. `target_resolution` selects the
+/// finest level *at least* that large, so the request is relative to the current size rather
+/// than an absolute: each accepted step is one more decomposition level skipped, and a
+/// request the codestream cannot better is how the loop learns the levels have run out —
+/// either because the codestream has no more of them, or because it is a palettised JP2,
+/// whose indices a reduced decode would corrupt and whose decoder therefore declines the
+/// request. Both end in the same refusal, naming the stated grid.
+///
+/// # Errors
+///
+/// Returns a description of what the decoder refused, or the refusal above.
+fn jpx_within_budget(
+    data: &[u8],
+    settings: hayro_jpeg2000::DecodeSettings,
+) -> Result<(hayro_jpeg2000::Image<'_>, (u32, u32)), String> {
+    use hayro_jpeg2000::{DecodeSettings, Image};
+
+    let mut image = Image::new(data, &settings).map_err(|error| format!("JPX: {error}"))?;
+    let stated = (image.width(), image.height());
+    // Checked before decoding rather than after: the whole point is to answer without
+    // having allocated what the answer is about.
+    let declared_channels = u64::from(image.color_space().num_channels())
+        .saturating_add(u64::from(image.has_alpha()))
+        .max(1);
+    let count = |width: u32, height: u32| {
+        u64::from(width)
+            .saturating_mul(u64::from(height))
+            .saturating_mul(declared_channels)
+    };
+    let mut samples = count(image.width(), image.height());
+    while samples > MAX_SAMPLES {
+        let target = ((image.width() / 2).max(1), (image.height() / 2).max(1));
+        let reduced_settings = DecodeSettings {
+            target_resolution: Some(target),
+            ..settings
+        };
+        let reduced =
+            Image::new(data, &reduced_settings).map_err(|error| format!("JPX: {error}"))?;
+        let reduced_samples = count(reduced.width(), reduced.height());
+        if reduced_samples >= samples {
+            return Err(format!(
+                "JPX: {}x{} in {declared_channels} channels is {} samples, beyond the \
+                 {MAX_SAMPLES} this decoder is given room for, and no resolution level of \
+                 the codestream fits it",
+                stated.0,
+                stated.1,
+                count(stated.0, stated.1)
+            ));
+        }
+        image = reduced;
+        samples = reduced_samples;
+    }
+    Ok((image, stated))
+}
+
+/// Decodes a JPEG 2000 image, stepping down resolution levels until it fits the budget.
 ///
 /// ISO 32000-2 §7.4.9: the filter reads a whole JP2 file structure, or — as the corpus
 /// shows real producers writing — a bare codestream. Samples come back at eight bits
@@ -348,11 +411,38 @@ impl hayro_ccitt::Decoder for CcittRows {
 /// (§7.4.9 and Table 87's note on `BitsPerComponent`) and everything above this is
 /// eight-bit.
 ///
+/// # A codestream over the budget is decoded at a reduced resolution level
+///
+/// §7.4.9 NOTE 3 addresses the answer to an over-budget image to this program by name:
+///
+/// > Viewing and printing applications can gain performance benefits by using the resolution
+/// > progression. If the full-resolution image is densely sampled, an application can select
+/// > and decode only the data making up a lower-resolution version, thereby spending less
+/// > time decoding.
+///
+/// So where the full image exceeds [`MAX_SAMPLES`], the codestream is re-read asking for half
+/// of what the last reading offered, until the sample count fits or the size stops shrinking —
+/// which it does when the codestream has no further decomposition levels, and for a palettised
+/// JP2, whose indices a reduced decode would corrupt and whose decoder therefore declines the
+/// request. Each step is a *header* parse, cheap by construction; no sample is decoded until
+/// the loop has settled on a grid the budget admits. The raster that leaves carries the grid it
+/// is actually on beside the grid the codestream states, because §7.4.9's "Width and Height
+/// shall match" check is against the data's statement, not against what this budget chose to
+/// synthesise — see [`Raster::stated_width`].
+///
+/// The reduction became *usable* with `close2/hayro`'s `feat/reduced-resolution-allocates-less`
+/// (the `1dc833f7` revision this workspace pins): before it, asking for a reduced level skipped
+/// the bit-planes and the wavelet but still reserved a coefficient for every sample of the
+/// full-resolution image — one 3.4 GB allocation for `issue19517.pdf` however small a raster
+/// was asked for, which [`crate::lockdown`]'s gigabyte turns into a dead worker rather than a
+/// picture. ADR 0233 has the measurements; with the fix, that file's two-levels-down decode
+/// peaks at 743 MB of address space.
+///
 /// # Errors
 ///
 /// Returns a description of what the decoder refused.
 pub(crate) fn jpx(data: &[u8], indices: bool) -> Result<Raster, String> {
-    use hayro_jpeg2000::{ColorSpace, DecodeSettings, DecoderContext, Image};
+    use hayro_jpeg2000::{ColorSpace, DecodeSettings, DecoderContext};
 
     let settings = DecodeSettings {
         // A palette in the codestream is the JPEG 2000 equivalent of an `Indexed` colour
@@ -371,41 +461,13 @@ pub(crate) fn jpx(data: &[u8], indices: bool) -> Result<Raster, String> {
         // Nothing repaired here is a *colour* decision — those all leave as `Unknown` and
         // are decided against §7.4.9 by the caller.
         strict: false,
-        // Full resolution, and **this comment used to say the lever did not exist on either
-        // side of it**. Both halves of that were out of date by the
-        // three-hundred-and-ninety-sixth session: `hayro_jpeg2000::DecodeSettings` has carried
-        // this field since December 2025, and the display list has carried the device grid
-        // since ADR 0210 — `pdf_render::Grid::for_placement` is the number and
-        // `ImageSource::AtDeviceScale` is where a `JPXDecode` stream would sit.
-        //
-        // What it is waiting on is measured and named: asking for a reduced level makes the
-        // decoder skip the bit-planes and the wavelet synthesis of the levels above it, but
-        // until `close2/hayro`'s `feat/reduced-resolution-allocates-less` it still reserved a
-        // coefficient for every sample of the *full*-resolution image — one allocation of
-        // 3.4 GB for `issue19517.pdf` however small a raster was asked for, which
-        // [`crate::lockdown`]'s gigabyte turns into a dead worker rather than a picture.
-        // Setting this before that revision is in the fork this workspace pins would trade a
-        // cheap, accurate refusal for a process abort. `doc/todo/24` and ADR 0233 carry the
-        // rest, including what `pdf-model` owes once it is.
+        // Full resolution first; `jpx_within_budget` only asks for less where the full
+        // image does not fit `MAX_SAMPLES`.
         target_resolution: None,
     };
 
-    let image = Image::new(data, &settings).map_err(|error| format!("JPX: {error}"))?;
+    let (image, (stated_width, stated_height)) = jpx_within_budget(data, settings)?;
     let (width, height) = (image.width(), image.height());
-    // Checked before decoding rather than after: the whole point is to answer without
-    // having allocated what the answer is about.
-    let declared_channels = u64::from(image.color_space().num_channels())
-        .saturating_add(u64::from(image.has_alpha()))
-        .max(1);
-    let samples = u64::from(width)
-        .saturating_mul(u64::from(height))
-        .saturating_mul(declared_channels);
-    if samples > MAX_SAMPLES {
-        return Err(format!(
-            "JPX: {width}x{height} in {declared_channels} channels is {samples} samples, \
-             beyond the {MAX_SAMPLES} this decoder is given room for"
-        ));
-    }
 
     let mut context = DecoderContext::default();
     let decoded = image
@@ -439,6 +501,8 @@ pub(crate) fn jpx(data: &[u8], indices: bool) -> Result<Raster, String> {
         return Ok(Raster {
             width,
             height,
+            stated_width,
+            stated_height,
             components: 1,
             has_opacity: false,
             colour: Colour::Unknown,
@@ -480,6 +544,8 @@ pub(crate) fn jpx(data: &[u8], indices: bool) -> Result<Raster, String> {
     Ok(Raster {
         width,
         height,
+        stated_width,
+        stated_height,
         components,
         has_opacity,
         colour,
