@@ -477,6 +477,13 @@ that attached its file to a page carried a file nothing here could reach. ADR 02
 - **Wall-clock benchmarks lie under load; count instructions instead.** One change measured as a
   24% regression and an 8.5% improvement twenty minutes apart. **A/B in one sitting**, and measure
   the baseline on this machine rather than trusting a number in this file.
+- **Take the *before* half with a patch file, never with `git stash`.** The stash stack belongs to
+  the clone and not to the worktree, so every parallel round pushes onto the same one: a neighbour's
+  `git stash` landing between a round's own push and pop makes the pop apply *their* diff and lets
+  theirs take yours. That happened in the five-hundred-and-twenty-third session and cost a recovery
+  out of `git fsck --unreachable`, whose dangling `WIP on <worktree-branch>` commits are what a lost
+  round is found in. `git diff > round.patch`, `git checkout HEAD -- <files>`, measure,
+  `git apply round.patch` — three commands that touch nothing outside the worktree.
 - **Pin the pool before counting a serial change in a program that has one.** Callgrind counts
   every thread, so a work-stealing pool's *spin* is in the total and it is not deterministic.
   `open_one` on two corpus pages read **+0.154%** and **+0.010%** for a change that removes an

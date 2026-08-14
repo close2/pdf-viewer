@@ -69,43 +69,59 @@ pub(crate) struct SimpleMetrics<'a> {
     pub(crate) units_per_em: f32,
 }
 
-/// Builds a simple font's advance table, in thousandths of an em.
+/// What the font dictionary's own `/Widths` array states, by character code.
 ///
-/// Three sources, in descending order of authority. `/Widths` is the document's own
-/// statement and always wins. Failing that — which only the standard 14 are allowed to do
-/// — the specification's published metrics for the face apply, which keeps the layout a
-/// property of the document rather than of this machine. Anything still unanswered falls
-/// to the substitute's own advances, which in practice means glyphs outside the standard
-/// character set.
+/// Separated from [`simple_widths`] because two questions need exactly this and only this —
+/// the advances a page is laid out by, and [`substitute_stretch`]'s comparison — and the two
+/// fallbacks below it would answer the second one with the substitute's own numbers, which is
+/// the comparison agreeing with itself.
 ///
-/// Resolved once here rather than at each lookup, so [`crate::LoadedFont::advance`] stays free of
-/// work and of allocation on the per-character path.
-pub(crate) fn simple_widths(
-    document: &Document,
-    dict: &Dictionary,
-    font: SimpleMetrics<'_>,
-) -> BTreeMap<u32, f32> {
+/// ISO 32000-2 §9.6.2.1, Table 109's `/Widths` row:
+///
+/// > An array of ( LastChar - FirstChar + 1) numbers, each element being the glyph width for
+/// > the character code that equals FirstChar plus the array index.
+pub(crate) fn stated_widths(document: &Document, dict: &Dictionary) -> BTreeMap<u32, f32> {
     // `/Widths` is indexed from `/FirstChar`.
     let first = document
         .get_key(dict, "FirstChar")
         .as_integer()
         .unwrap_or(0);
     let mut widths = BTreeMap::new();
-    if let Some(items) = document.get_key(dict, "Widths").as_array() {
-        for (offset, item) in items.iter().enumerate() {
-            let Some(width) = document.resolve(item).as_number() else {
-                continue;
-            };
-            let Ok(offset) = i64::try_from(offset) else {
-                continue;
-            };
-            let Ok(code) = u32::try_from(first.saturating_add(offset)) else {
-                continue;
-            };
-            widths.insert(code, narrow(width));
-        }
+    let array = document.get_key(dict, "Widths");
+    let Some(items) = array.as_array() else {
+        return widths;
+    };
+    for (offset, item) in items.iter().enumerate() {
+        let Some(width) = document.resolve(item).as_number() else {
+            continue;
+        };
+        let Ok(offset) = i64::try_from(offset) else {
+            continue;
+        };
+        let Ok(code) = u32::try_from(first.saturating_add(offset)) else {
+            continue;
+        };
+        widths.insert(code, narrow(width));
     }
+    widths
+}
 
+/// Builds a simple font's advance table, in thousandths of an em.
+///
+/// Three sources, in descending order of authority. `/Widths` is the document's own
+/// statement and always wins — [`stated_widths`] is what the caller hands in. Failing that,
+/// which only the standard 14 are allowed to do, the specification's published metrics for
+/// the face apply, which keeps the layout a property of the document rather than of this
+/// machine. Anything still unanswered falls to the substitute's own advances, which in
+/// practice means glyphs outside the standard character set.
+///
+/// Resolved once here rather than at each lookup, so [`crate::LoadedFont::advance`] stays free of
+/// work and of allocation on the per-character path.
+pub(crate) fn simple_widths(
+    stated: BTreeMap<u32, f32>,
+    font: SimpleMetrics<'_>,
+) -> BTreeMap<u32, f32> {
+    let mut widths = stated;
     let Some(request) = font.substituted.filter(|_| widths.is_empty()) else {
         return widths;
     };
@@ -121,17 +137,150 @@ pub(crate) fn simple_widths(
             }
         }
     }
-    for (code, width) in program_widths(font, |code| !widths.contains_key(&code)) {
+    for (code, width) in program_widths(font, |code, _| !widths.contains_key(&code)) {
         widths.entry(code).or_insert(width);
     }
     widths
 }
 
+/// The horizontal scale a substituted face's *outlines* are drawn at.
+///
+/// # What the standard says, and what it leaves open
+///
+/// ISO 32000-2 §9.6.2.1's Table 109 binds a document's `/Widths` to the font program the
+/// document meant:
+///
+/// > These widths shall be consistent with the actual widths given in the font program.
+///
+/// So a `/Widths` array is not only a layout instruction; it is the file's own statement of how
+/// wide the *shapes* of the absent font were. §9.8.1 says the descriptor exists for exactly this
+/// purpose —
+///
+/// > These font metrics provide information that enables a PDF processor to synthesise a
+/// > substitute font or select a similar font when the font program is unavailable.
+///
+/// — and states no `shall` about what a processor does with it, while §9.5's NOTE 5 puts the
+/// choice of substitute outside the standard altogether. So *this* is a documented choice in a
+/// place the standard leaves open, and the choice is to believe the file's own numbers rather
+/// than the face this machine happened to offer.
+///
+/// **The axis is the standard's.** Table 120's `/FontStretch` names nine values "ordered from
+/// narrowest to widest" and then says "[t]he specific interpretation of these values varies from
+/// font to font": the standard names the axis a face's width lives on and declines to number it,
+/// and `/Widths` numbers it without naming it. Scaling horizontally and leaving the vertical
+/// alone is that axis and not a general distortion.
+///
+/// # The construction
+///
+/// The **median** over the declared codes of (the width the file states) ÷ (the advance the
+/// chosen face states for the glyph that code reaches). One number per font, applied to every
+/// outline it draws; the advances themselves are untouched, because they are already the file's.
+///
+/// - A median rather than a mean, because a handful of codes reaching a differently-shaped glyph
+///   in the substitute must not move a font-wide number; over `bug1671312_ArialNarrow.pdf`'s 218
+///   comparable codes the median is 0.8201 and the mean 0.8594, and the mean is pulled by the
+///   codes whose glyph names the face answers with something unrelated.
+/// - **And a median is wrong where more than half the array is filler, which is a real shape and
+///   is written down rather than tuned around.** `issue20489.pdf`'s `/ArialUnicodeMS` declares
+///   codes 30 to 255 and states honest widths for the Latin ones its title block shows — 71 of
+///   them within a fiftieth of 0.93 — while a third of the array sits at 0.3 to 0.4, which no cut
+///   of a typeface is. The median lands at 0.688, so that page's letters are drawn narrower than
+///   its own letters ask for. A mode over the ratios answers 0.928 there and was measured; it was
+///   not taken, because on `non-embedded-NuptialScript.pdf` — a script face standing in for a
+///   serif, where the ratios are genuinely diffuse rather than a cluster plus junk — the mode
+///   picks 0.666 against the median's 0.799 and draws the line visibly too thin. Two estimators,
+///   each better on one page and worse on the other, is not a discovery about the standard, and
+///   choosing between them on which page looks nicer is the curve-fitting `CLAUDE.md` forbids. So
+///   the simpler statistic stands and the cost is recorded: ADR 0358 names the file that would
+///   settle it, which is one whose own array says which of its codes it means.
+/// - Codes stating a width of zero are skipped: a subset's `/Widths` is padded with zeros, which
+///   is a silence rather than a zero-wide glyph (the same reading
+///   `the_pdf_widths_agree_with_the_font_programs_own_advances` already takes).
+/// - A code reaching [`crate::loading::NOTDEF_GLYPH`] is skipped, because §9.6.5.2 makes that
+///   glyph what a *name the program does not have* resolves to — its advance is a statement about
+///   absence rather than about this character.
+/// - Below [`MIN_STRETCH`] nothing is applied. A file whose widths disagree with every glyph of
+///   the face by more than a factor of two is not describing a narrower cut of the same design;
+///   the likelier reading is that the codes are reaching the wrong glyphs, and halving a glyph
+///   twice over would put a confident wrong mark on the page.
+///
+/// # The rule condenses and never expands, and the asymmetry is what an advance *is*
+///
+/// §9.2.4 makes a width the glyph's **displacement** — the distance to where the next one
+/// starts — so it bounds the ink from above and not from below. A substitute whose ink is
+/// *wider* than the width the file states contradicts the file, visibly: the letters collide
+/// where the document says there is a gap. A substitute whose ink is *narrower* contradicts
+/// nothing at all; the file has said the absent font set that glyph with more room around it,
+/// and room is a spacing statement the advance already carries. Widening the shape to fill it
+/// would invent ink out of white space, which is the same mistake in the other direction and is
+/// the one trap 5 is about.
+///
+/// So a median at or above one is [`NO_STRETCH`]. Measured on the corpus before the asymmetry
+/// was written down, the three pages whose fonts wanted expanding — `issue9291.pdf` at 1.0665,
+/// `issue7835.pdf` at 1.1978 and `issue7454.pdf` — were the only ones of eleven that got
+/// *worse* against the references, and the ones that wanted condensing improved.
+///
+/// Only a *substituted* font is scaled. An embedded program's outlines are the ones the producer
+/// shipped, and a disagreement between them and `/Widths` is the producer's own — repairing it
+/// here would hide the mapping defect that check exists to find.
+fn substitute_stretch(stated: &BTreeMap<u32, f32>, font: SimpleMetrics<'_>) -> f32 {
+    if font.substituted.is_none() {
+        return NO_STRETCH;
+    }
+    let own = program_widths(font, |code, glyph| {
+        glyph != crate::loading::NOTDEF_GLYPH && stated.get(&code).is_some_and(|w| *w > 0.0)
+    });
+    let mut ratios: Vec<f32> = own
+        .iter()
+        .filter(|(_, advance)| **advance > 0.0)
+        .filter_map(|(code, advance)| Some(stated.get(code)? / advance))
+        .collect();
+    ratios.sort_by(f32::total_cmp);
+    // The median takes the value at a position rather than an average of two: the statistic is
+    // "a scale one of these glyphs actually states", and averaging two of them invents a third.
+    let Some(median) = ratios.get(ratios.len().saturating_sub(1) / 2) else {
+        return NO_STRETCH;
+    };
+    if (MIN_STRETCH..NO_STRETCH).contains(median) {
+        *median
+    } else {
+        NO_STRETCH
+    }
+}
+
+/// A simple font's advances and the scale its outlines are drawn at, from one reading.
+///
+/// The two answers travel together because they come from the same array read once: `/Widths`
+/// is where the glyphs go *and* how wide the absent font drew them ([`substitute_stretch`]),
+/// and the fallbacks [`simple_widths`] applies to the first must not reach the second.
+pub(crate) fn simple_advances(
+    document: &Document,
+    dict: &Dictionary,
+    font: SimpleMetrics<'_>,
+) -> (BTreeMap<u32, f32>, f32) {
+    let stated = stated_widths(document, dict);
+    let stretch = substitute_stretch(&stated, font);
+    (simple_widths(stated, font), stretch)
+}
+
+/// A face drawn as it is: the answer for every font that is not a substitute.
+pub(crate) const NO_STRETCH: f32 = 1.0;
+
+/// The narrowest a substituted face is condensed to.
+///
+/// Not a tuned constant but a refusal: see [`substitute_stretch`]. Half is where a horizontal
+/// scale stops being a description of a typeface and starts being evidence that the two sides of
+/// the comparison are not about the same glyphs. There is no constant at the other end, because
+/// the other end is [`NO_STRETCH`] and the argument for it is the clause's rather than a bound's.
+const MIN_STRETCH: f32 = 0.5;
+
 /// Fills a width table from the font program's own advances, for the codes `wanted` accepts.
 ///
-/// Used only when the document states no widths, which the standard 14 are allowed to do,
-/// and asked only about the codes §9.6.2.2's published metrics did not answer — which is
-/// what makes it cheap enough to evaluate a bare CFF's charstrings at load time.
+/// Two callers, asking opposite questions of the same table. [`simple_widths`] asks it for the
+/// codes nothing else answered, which only the standard 14 can have; [`substitute_stretch`] asks
+/// it for exactly the codes the document *did* state a width for, because the comparison is
+/// between the two statements. `wanted` is handed the glyph as well as the code so that the
+/// second can decline `.notdef` without this function deciding what that means.
 ///
 /// **Ten of the fourteen compiled-in standard faces are bare CFF programs, and until the
 /// four-hundred-and-fifth session this function could not read one**: it went through
@@ -141,7 +290,10 @@ pub(crate) fn simple_widths(
 /// what that cost — `/Differences [32 /.notdef …]` over a non-embedded `/Times-Roman`, so
 /// §9.2.4's horizontal displacement for the code the page uses as a space came from nowhere
 /// and the page drew *Wordsthatshouldhavespacesbetweenthem.*
-fn program_widths(font: SimpleMetrics<'_>, wanted: impl Fn(u32) -> bool) -> BTreeMap<u32, f32> {
+fn program_widths(
+    font: SimpleMetrics<'_>,
+    wanted: impl Fn(u32, u16) -> bool,
+) -> BTreeMap<u32, f32> {
     let mut widths = BTreeMap::new();
     let CodeMapping::Named(table) = font.mapping else {
         return widths;
@@ -150,7 +302,7 @@ fn program_widths(font: SimpleMetrics<'_>, wanted: impl Fn(u32) -> bool) -> BTre
         .iter()
         .enumerate()
         .filter_map(|(code, glyph)| Some((u32::try_from(code).ok()?, (*glyph)?)))
-        .filter(|(code, _)| wanted(*code))
+        .filter(|(code, glyph)| wanted(*code, *glyph))
         .collect();
 
     let advances: Vec<Option<f32>> = match font.program {
@@ -650,6 +802,107 @@ mod substituted_width_tests {
         let font = LoadedFont::load(&document, &dict, "F1").expect("a standard 14 name loads");
 
         assert!((font.advance(Code::single_byte(32)) - 0.250).abs() < 1e-6);
+    }
+}
+
+/// What a substituted face's *shape* is scaled by, and what leaves it alone (ADR 0358).
+///
+/// Every fixture here names `/Times-Roman`, so the face is [`crate::standard`]'s compiled-in
+/// one and the assertions are properties of this program rather than of this machine's font
+/// collection. Adobe's published advance for `A` in that face is 722, which is also the
+/// program's own — Table 109's "[t]hese widths shall be consistent with the actual widths given
+/// in the font program", one file over — so a fixture stating a different number is a file
+/// disagreeing with the face by exactly the fraction it writes.
+#[cfg(test)]
+mod substitute_stretch_tests {
+    use pdf_render::Transform;
+
+    use crate::fixture::font_dictionary;
+    use crate::{Code, LoadedFont};
+
+    /// A font of one code, whose `/Widths` states `width` for the capital `A`.
+    fn one_code(width: u32) -> LoadedFont {
+        let (document, dict) = font_dictionary(&format!(
+            "/BaseFont /Times-Roman /FirstChar 65 /LastChar 65 /Widths [{width}]"
+        ));
+        LoadedFont::load(&document, &dict, "F1").expect("a standard 14 name loads")
+    }
+
+    /// The width and height of a code's outline, in ems.
+    fn outline_extent(font: &LoadedFont, code: u8) -> (f32, f32) {
+        let outline = font
+            .outline(Code::single_byte(code))
+            .expect("the compiled-in face draws a capital A");
+        let bounds = outline
+            .bounds(Transform::scale(1.0, 1.0))
+            .expect("a drawn glyph has bounds");
+        (bounds.width(), bounds.height())
+    }
+
+    /// A file stating half the face's widths gets glyphs half as wide and exactly as tall.
+    ///
+    /// The A/B is one number of one fixture, which is what makes it a statement about the rule
+    /// rather than about the face: 722 is the advance the program itself states, so it must
+    /// leave the outline alone, and 361 is the same file saying the font it meant drew that
+    /// glyph in half the room.
+    #[test]
+    fn a_substitute_is_condensed_to_the_widths_the_file_states() {
+        let unchanged = one_code(722);
+        let condensed = one_code(361);
+
+        assert!(
+            (unchanged.stretch() - 1.0).abs() < 1e-3,
+            "722 is the face's own advance"
+        );
+        assert!(
+            (condensed.stretch() - 0.5).abs() < 1e-3,
+            "361 is half of it"
+        );
+
+        let (wide, tall) = outline_extent(&unchanged, b'A');
+        let (narrow, still_tall) = outline_extent(&condensed, b'A');
+        assert!(
+            (narrow - wide / 2.0).abs() < 1e-4,
+            "the glyph is drawn half as wide: {narrow} against {wide}"
+        );
+        assert!(
+            (still_tall - tall).abs() < 1e-6,
+            "Table 120's /FontStretch axis is horizontal: {still_tall} against {tall}"
+        );
+    }
+
+    /// A file whose widths no cut of the face could have is refused rather than obeyed.
+    ///
+    /// A tenth of the face's advance is not a condensed design; it is evidence that the code
+    /// reached a glyph the file was not describing, and a glyph shrunk tenfold is a confident
+    /// wrong mark. See `substitute_stretch`'s `MIN_STRETCH`.
+    #[test]
+    fn widths_no_cut_of_the_face_could_have_are_refused() {
+        assert!((one_code(72).stretch() - 1.0).abs() < 1e-6);
+    }
+
+    /// A file giving a glyph *more* room than the face needs is not asking for a wider glyph.
+    ///
+    /// §9.2.4 makes a width the displacement to the next glyph, so it bounds the ink from above
+    /// and says nothing about how much of the room the ink fills. Ten times the advance and
+    /// twice it are both room; drawing into it would invent ink out of white space.
+    #[test]
+    fn a_file_that_leaves_a_glyph_room_is_not_asking_for_a_wider_glyph() {
+        assert!((one_code(7220).stretch() - 1.0).abs() < 1e-6);
+        assert!((one_code(1444).stretch() - 1.0).abs() < 1e-6);
+        assert!((one_code(800).stretch() - 1.0).abs() < 1e-6);
+    }
+
+    /// A standard-14 font stating no `/Widths` has said nothing to compare the face against.
+    ///
+    /// Table 109 lets exactly those fonts omit the array, and §9.6.2.2's published metrics are
+    /// then where the advances come from — the same numbers the compiled-in face states, so
+    /// there is no disagreement to answer even if one asked.
+    #[test]
+    fn a_font_stating_no_widths_is_drawn_as_the_face_has_it() {
+        let (document, dict) = font_dictionary("/BaseFont /Times-Roman");
+        let font = LoadedFont::load(&document, &dict, "F1").expect("a standard 14 name loads");
+        assert!((font.stretch() - 1.0).abs() < 1e-6);
     }
 }
 

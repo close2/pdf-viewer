@@ -29,7 +29,7 @@ use crate::composite::{CidToGlyph, cid_to_glyph, collection_meaning, composite_c
 use crate::encoding;
 use crate::glyph_names::GlyphNames;
 use crate::metrics::{
-    SimpleMetrics, Vertical, composite_widths, missing_width, narrow, simple_widths,
+    NO_STRETCH, SimpleMetrics, Vertical, composite_widths, missing_width, narrow, simple_advances,
     vertical_extent,
 };
 use crate::name_keyed::simple_code_table;
@@ -312,6 +312,12 @@ pub struct LoadedFont {
     /// §9.7.4.3's second set of metrics, for a composite font in writing mode 1.
     vertical: Option<Vertical>,
     units_per_em: f32,
+    /// The horizontal scale a substituted face's outlines are drawn at.
+    ///
+    /// [`crate::metrics::NO_STRETCH`] for every font whose program the document embedded, and
+    /// for a substitute the file states no widths to compare against. See
+    /// [`crate::metrics::substitute_stretch`] for what it is derived from and why.
+    stretch: f32,
     /// Whether the glyphs are a stand-in rather than the font the document named.
     substituted: bool,
     /// What the producer said each code means, when the font says so.
@@ -397,6 +403,7 @@ impl std::fmt::Debug for LoadedFont {
             .field("program", &self.program)
             .field("mapping", &self.mapping)
             .field("units_per_em", &self.units_per_em)
+            .field("stretch", &self.stretch)
             .field("substituted", &self.substituted)
             .finish_non_exhaustive()
     }
@@ -574,7 +581,7 @@ impl LoadedFont {
             mapping: &mapping,
             units_per_em,
         };
-        let widths = simple_widths(document, dict, metrics);
+        let (widths, stretch) = simple_advances(document, dict, metrics);
         let default_width = missing_width(document, descriptor);
 
         Ok(Self {
@@ -588,6 +595,7 @@ impl LoadedFont {
             // §9.2.4: a second set of metrics "is available only for composite fonts".
             vertical: None,
             units_per_em,
+            stretch,
             substituted: requested.is_some(),
             to_unicode: to_unicode(document, dict),
             collection: None,
@@ -733,6 +741,11 @@ impl LoadedFont {
             extent: vertical_extent(document, descriptor),
             vertical: vertical.then(|| Vertical::read(document, &descendant)),
             units_per_em,
+            // A composite font's substitute is addressed by *character* through `/ToUnicode`
+            // (§9.7.4.2), so there is no code whose `/W` entry and whose face advance are two
+            // statements about one glyph — which is the comparison `substitute_stretch` is.
+            // ADR 0358 states the restriction and what would lift it.
+            stretch: NO_STRETCH,
             outlines: RefCell::new(BTreeMap::new()),
             codes_by_character: OnceCell::new(),
             agl_by_code: OnceCell::new(),
@@ -756,6 +769,21 @@ impl LoadedFont {
     #[must_use]
     pub fn is_substituted(&self) -> bool {
         self.substituted
+    }
+
+    /// The horizontal scale this font's outlines are drawn at, one being the face as it is.
+    ///
+    /// A substituted face's glyphs are as wide as *its* designer drew them, inside advances the
+    /// document states for the face it meant, so a condensed font substituted by a normal one
+    /// collides where the file says there is a gap. This is the number that closes that, derived
+    /// from the file's own `/Widths` against the chosen face's own advances — see
+    /// [`crate::metrics::substitute_stretch`], which holds the clauses and the argument.
+    ///
+    /// Always one for a font whose program the document embedded: those outlines are the
+    /// producer's own and nothing here may reshape them.
+    #[must_use]
+    pub fn stretch(&self) -> f32 {
+        self.stretch
     }
 
     /// Appends the text a character code represents, reporting whether any was found.
@@ -1468,6 +1496,7 @@ impl LoadedFont {
         let mut pen = PathPen {
             path: Path::new(),
             scale: 1.0 / self.units_per_em,
+            stretch: self.stretch,
             last: None,
         };
 
@@ -1557,13 +1586,15 @@ fn read_to_unicode(document: &Document, object: &Object, depth: u32) -> tounicod
 struct PathPen {
     path: Path,
     scale: f32,
+    /// The horizontal scale of [`crate::metrics::substitute_stretch`], applied to x alone.
+    stretch: f32,
     /// The current point, needed to elevate quadratic curves to cubics.
     last: Option<Point>,
 }
 
 impl PathPen {
     fn at(&self, x: f32, y: f32) -> Point {
-        Point::new(x * self.scale, y * self.scale)
+        Point::new(x * self.scale * self.stretch, y * self.scale)
     }
 }
 
@@ -1894,6 +1925,40 @@ mod tests {
             "only {composite} composite codes checked; the corpus does not exercise the inverse \
              this test is half about"
         );
+    }
+
+    /// An embedded program's outlines are the producer's own, at every scale but its own.
+    ///
+    /// The other half of ADR 0358's rule, and the half no fixture can state: a substituted face
+    /// is drawn to the widths the file states, and a font the document *carried* is drawn as the
+    /// producer drew it, however its `/Widths` and its charstrings disagree. Over every font
+    /// reachable from a first page in `doc/` — hundreds of real embedded programs across the
+    /// fourteen specifications — the stretch is exactly one.
+    #[test]
+    fn an_embedded_program_is_never_reshaped() {
+        let mut embedded = 0usize;
+        for path in corpus() {
+            let bytes = std::fs::read(&path).expect("corpus file is readable");
+            let Ok(document) = Document::open(bytes) else {
+                continue;
+            };
+            for (name, dict) in first_page_fonts(&document) {
+                let Ok(font) = LoadedFont::load(&document, &dict, &name) else {
+                    continue;
+                };
+                if font.substituted {
+                    continue;
+                }
+                embedded = embedded.saturating_add(1);
+                assert!(
+                    (font.stretch() - 1.0).abs() < f32::EPSILON,
+                    "{}: /{name} carries its own program and was drawn at {}",
+                    path.display(),
+                    font.stretch()
+                );
+            }
+        }
+        assert!(embedded > 20, "only {embedded} embedded fonts were checked");
     }
 
     /// The corpus must actually exercise both routes, or the tests below prove nothing.

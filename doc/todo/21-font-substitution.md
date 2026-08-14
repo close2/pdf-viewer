@@ -1,6 +1,6 @@
 # What is left of font substitution
 
-Status: reported at runtime; five distinct gaps — the first still **empty of witnesses**, the second unchanged, the third **characterised, fixed and re-measured** (ADR 0270), the fourth measured and declined, the fifth **refused on the clause's own words, counted, split by cause, and one population of it closed out of Annex D** (ADR 0311, ADR 0318).
+Status: reported at runtime; five distinct gaps — the first still **empty of witnesses**, the second unchanged, the third **characterised, fixed and re-measured** (ADR 0270), the fourth **half taken — the width on Table 109's own sentence (ADR 0358), the cap height still declined** (ADR 0267), the fifth **refused on the clause's own words, counted, split by cause, and one population of it closed out of Annex D** (ADR 0311, ADR 0318).
 Priority: 21
 Corpus: 40 documents. **The corpus gate's own three silence lines are where the counts are, and
 this file does not repeat them** (ADR 0281): `codes reaching no glyph *in silence*` and `codes
@@ -8,8 +8,8 @@ reaching a glyph the font draws blank` are the split ADR 0270 drew, the first of
 §3 below is about, and `codes §9.10.2 could not name *in silence*` is §5's, added in the
 four-hundred-and-seventy-sixth. The line's own worst-ten follows each. `doc/HANDOVER.md`'s
 not-implemented table stated the first of them wrongly for long enough to be worth this sentence.
-Clauses: §9.10.2, §9.7.4.2, §9.6.2.2, §9.6.4, §9.6.5.3, §9.6.5.4, §9.8.1, §9.8.3
-Code: `crates/pdf-font/src/substitute.rs`, `crates/pdf-font/src/substituted.rs`, `crates/pdf-model/src/content.rs`
+Clauses: §9.10.2, §9.7.4.2, §9.6.2.1, §9.6.2.2, §9.6.4 (Type 3, for §5's `/a192`), §9.6.5.3, §9.6.5.4, §9.8.1, §9.8.3
+Code: `crates/pdf-font/src/substitute.rs`, `crates/pdf-font/src/substituted.rs`, `crates/pdf-font/src/metrics.rs`, `crates/pdf-model/src/content.rs`
 
 ## 1. A per-character fallback — **0 documents, and this section was wrong about its own two**
 
@@ -119,7 +119,7 @@ closed-by-decision list; `poppler` draws them from a face this machine has.
 document whose encoding no single face of its family covers still loses whatever the face in hand
 lacks.
 
-## 4. A fourth gap, measured and deliberately not closed — the substitute's cap height
+## 4. A fourth gap, half closed — the substitute's cap height, and its width
 
 Not a code reaching no glyph but a glyph of the wrong size, and it is the only part of substitution
 this tree has a *number* for. The compiled-in Helvetica is Liberation Sans; the reference renderers
@@ -168,41 +168,44 @@ the picture says it in one look — our letters collide where the other four hav
 - **`hayro` is with the other three**, 10.41 of 255 from us, and it shares `skrifa` with this
   tree and nothing else — so this is the choice of face and not the rasteriser.
 
-So `substitute.rs` selects a face by name, PANOSE and Table 121's flags and reads none of the
-*width* metrics the descriptor states, and on a condensed face that costs a line whose glyphs are
-wider than the advances the document gives them. **`/StemV`, `/AvgWidth`, `/MaxWidth` and
-`/FontBBox` join `/CapHeight` on §9.8.1's ledger row's list of Table 120 entries this tree does not
-read** — and unlike the cap height, closing this one would be scaling to a number *the file*
-states rather than to where another program's font sits, which is the distinction ADR 0267 turned
-on. It is recorded and not taken: §9.8.1 states no `shall`, the fix is a substitution *policy*
-rather than a line, and one witness is a witness rather than a population.
+### The width half is closed, and the clause it rests on is Table 109's (ADR 0358)
 
-### What pdf.js did about the neighbouring question, supplied by the owner
+**Taken in the five-hundred-and-twenty-third session.** The clause was read first and it requires
+nothing of a substituted face's shape — not §9.5's NOTE 5, not §9.6.2.2's "[t]hese fonts, or their
+font metrics and suitable substitution fonts, shall be available to the PDF processor", not §9.8.1,
+not one row of Table 120. (**And §9.6.4 is not where a reader should look for that**, which this
+file's own clause list above implies and which cost a round ten minutes to establish: §9.6.4 is
+*Type 3 fonts*. The substitution `shall` is §9.6.2.2's and it is about *having* a face.)
 
-The project owner supplied `https://github.com/mozilla/pdf.js/pull/12725`, which lets a document
-**override the built-in widths of a standard font**. Two things about it, and the second is why it
-is written down here rather than acted on:
+What decided it instead is a sentence about the *file*, in Table 109's `/Widths` row: "[t]hese
+widths shall be consistent with the actual widths given in the font program." That binds the array
+to the program the document meant, so it states how wide the absent font's shapes *were* and not
+only where the next glyph starts. `metrics::substitute_stretch` takes the median over the declared
+codes of the stated width over the chosen face's own advance and applies it to the outline's **x**
+alone; it condenses and never expands, because §9.2.4 makes a width a displacement, which bounds
+ink from above and not from below. The witness's marked pixels go 983 → 861 against the four
+references' 844/825/812/702, its page ink 18.45 → 15.28 against their 15.52 to 12.71, and its modal
+stem at 576 dpi 14 px → 12 px against the `/StemV 66` the file states as 10.56 — a number nothing
+in the derivation touched, which is what makes it the check rather than the target.
 
-- **It is about the neighbouring question, not this one.** That PR is the *advance* — which width a
-  glyph is given — and this tree already honours the file's advances on this very witness (the ink
-  boxes agree to two device pixels, above). What `bug1671312_ArialNarrow.pdf` shows is the glyph's
-  own *shape* being too wide inside a correct advance: 14 device pixels of stem where the file's
-  `/StemV 66` is 10.56. So the PR answers a question this tree has already answered, and the answer
-  it gives is evidence that the *direction* — the file's number beats the face's — is the one
-  others take too.
-- **Its own justification is exactly what `CLAUDE.md` principle 5 forbids adopting**, and the
-  commit message says so in its own words: "[t]here doesn't seem to be anything definitive about
-  this in the spec, but from experimenting, it seems acrobat lets PDFs override the widths of the
-  standard fonts." An experiment against Acrobat is a fact about Acrobat. **The clause is the thing
-  to find**, and finding it is what a round taking this owes first — §9.6.2.2 and Table 109 on what
-  `/Widths` binds (and what ISO 32000-2 changed about the standard 14 fonts' implicit metrics,
-  which is a PDF 2.0 difference and therefore a place where quoting ISO 32000-1 would be wrong),
-  §9.8.1 and Table 120 on what the descriptor's `/StemV`, `/AvgWidth` and `/MaxWidth` state, and
-  §9.6.4 on what a processor owes when it substitutes.
+**And the pull request the owner supplied is answered by the standard rather than adopted.**
+`mozilla/pdf.js#12725` lets a document override the built-in widths of a standard font and
+justifies itself by experiment against Acrobat, which principle 5 refuses. Table 109's
+`/FontDescriptor` row states it outright — "specifying them enables a standard font to be
+overridden" — and §9.6.2.1's closing paragraph is the PDF 2.0 half of the same question, where
+quoting ISO 32000-1 would have been the error. This tree had implemented both since
+`simple_widths` was written.
 
-**If the clause says nothing about the shape half**, that is a documented choice under
-`CLAUDE.md`'s "where the standard defines nothing" rule — a substitution policy stated as a choice,
-with the witness measured before and after — and never "this is what pdf.js does".
+**What is left of item 4 is the cap height and one population.** ADR 0267's condition is unchanged
+and this file is still no witness for it (`/CapHeight 922` is its `/Ascent 922`; Arial's is 716).
+And a substituted **composite** font is deliberately outside the new rule: §9.7.4.2 leaves it
+reachable only by character through `/ToUnicode`, so no code has a `/W` entry and a face advance
+that are two statements about one glyph. **The witness that would open it** is a document with a
+`/W` array, a `/ToUnicode` and a non-embedded descendant whose collection a face on this machine
+covers. There is also a known failure of the estimator with its own witness — `issue20489.pdf`,
+whose `/Widths` is a third filler, so the median lands below the cluster its own letters are in —
+and what would settle *that* is a file whose array says which of its codes it means; ADR 0358 has
+both, with the mode that was measured and not taken.
 
 ## 5. A page that draws its text and can name none of it — counted, split, and one part closed
 
