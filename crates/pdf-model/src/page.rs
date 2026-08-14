@@ -446,6 +446,16 @@ impl Page {
                 issues.push(ContentIssue::TooLarge { part: None, limit });
                 break;
             }
+            // **The separator is reserved with the part, and the byte it saves is a copy of the
+            // whole page.** `extend_from_slice` asks for exactly the part's length on the first
+            // one, so the `push` that follows found the buffer full and doubled it — one
+            // reallocation and one copy of the entire content stream, bought with a newline.
+            // Measured on §2's Bomb A, whose 400 MB decode cost 1146 MB of resident memory in
+            // three copies: the decoded `Arc`, this buffer, and the buffer this line was about
+            // to replace. Asking for both together is one allocation of exactly the right size
+            // for the single-part page every real document has, and `reserve` keeps its
+            // amortised doubling for an array of parts. ADR 0354.
+            out.reserve(data.len().saturating_add(1));
             out.extend_from_slice(&data);
             out.push(b'\n');
         }

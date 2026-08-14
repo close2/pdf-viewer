@@ -2,7 +2,9 @@
 
 Status: **open** — asked for by the project owner, with a witness they supplied. §3's three
 defects are carried out (ADR 0306) and **the witness now draws whole**; what is open is §5, whose
-choice is the owner's, and the residue §3 now names.
+choice is the owner's, and the residue §3 now names. **§5 carries each road's price in current
+numbers** as of ADR 0354, and the sentence to read before choosing is that one road's price fell
+by a third while nobody was looking at it and another's prize shrank by the same third.
 Priority: 10 (a defect: a document this program can draw, and does not).
 Witness: `tmp/Entwurf.pdf` — **not in the repository and not addable to it**, so everything
 below is either a reproducible measurement or a general rule, and no test may name that path.
@@ -56,11 +58,21 @@ draws *whole* rather than merely *more*. `Document::open` on the 49.6 MB file is
 
 **Two residues from that table, and they are this file's now rather than ADR 0306's.** We are the
 fastest of the three and **the least frugal by a factor of four to twenty** — 381 MB against
-`mutool`'s 97 MB and `pdftoppm`'s 20 MB — on a document whose content stream is 66 MB decoded;
-nobody has attributed that. And the earlier measurement in this section, taken by splitting the
-file into seven chunks, recorded **1.30–1.33 s and 215 MB**, so interpreting it whole costs about
-20% more time and 75% more memory than interpreting it in pieces. Both are questions for §5's
-road D, which is the entry that changes the *kind* of the quantity.
+`mutool`'s 97 MB and `pdftoppm`'s 20 MB — on a document whose content stream is 66 MB decoded. And
+the earlier measurement in this section, taken by splitting the file into seven chunks, recorded
+**1.30–1.33 s and 215 MB**, so interpreting it whole costs about 20% more time and 75% more memory
+than interpreting it in pieces. Both are questions for §5's road D, which is the entry that changes
+the *kind* of the quantity.
+
+**"Nobody has attributed that" stood here until the five-hundred-and-nineteenth session, and
+`massif` attributes it in one command** — `valgrind --tool=massif --time-unit=B`, whose peak
+snapshot names the two blocks alive at it rather than a total. On §2's Bomb A they are
+`filter::flate`'s buffer and `Arc<[u8]>::copy_from_slice`, and the sum is the whole of the peak to
+within the program's own eight megabytes. **The instrument was never the difficulty**, which is
+worth writing down beside a residue that survived four rounds: `ru_maxrss` says how much, and
+`massif` says which two allocations, and the second question is the one that turns a residue into a
+defect. ADR 0354 took a third of the witness's peak off on the strength of it — 429 MB → 381 MB
+through `pdf-retrieve`, and the same through `render_at` for a byte-identical raster.
 
 **Why no test saw it.** `pdf-model/tests/hostile_budgets.rs` built its fixture from
 `"n\n".repeat(4_000_002)` — deliberately a zero-operand operator, "so this measures the bound
@@ -87,15 +99,26 @@ out the same sizes to the byte** — 389 317 and 1 847 467, both 1029:1 — whic
 comparison below a measurement rather than a memory. `bomb.py`-shaped generators are not committed
 because the description above is enough to rebuild them, and that is the point of writing it down.
 
-| | before | after ADR 0306 |
-|---|---|---|
-| **Bomb A** | 0.81 s, **831 MB**, `MAX_OPERATIONS` | 0.71 s, **831 MB**, `MAX_OPERATIONS` |
-| **Bomb B** | 3.26 s, **3694 MB**, `MAX_OPERATIONS` | 1.18 s, **1095 MB**, `TooLarge { part: Some(0), limit: 1073741824 }` |
+| | before | after ADR 0306 | after ADR 0354 |
+|---|---|---|---|
+| **Bomb A** | 0.81 s, **831 MB**, `MAX_OPERATIONS` | 0.71 s, **831 MB**, `MAX_OPERATIONS` | 0.77–0.79 s, **768 MB**, `MAX_OPERATIONS` |
+| **Bomb B** | 3.26 s, **3694 MB**, `MAX_OPERATIONS` | 1.18 s, **1095 MB**, `TooLarge { part: Some(0), limit: 1073741824 }` | 1.16–1.22 s, **1031 MB**, the same report |
 
-Bomb A is unchanged and should be: 200 million operators is 200 million operators however they are
-counted. Bomb B loses 70% of its peak, because `max_stream_len` is now a gibibyte and reaching it
-is a refusal rather than a clamp. **It is still a gibibyte commanded by 1.85 MB of file**, and no
-entry in §5 but D takes that back.
+Bomb A is unchanged between the first two columns and should be: 200 million operators is 200
+million operators however they are counted. Bomb B loses 70% of its peak in the second, because
+`max_stream_len` is now a gibibyte and reaching it is a refusal rather than a clamp.
+
+**The third column is not a continuation of the second and the two bombs' figures moved for one
+reason: `Vec::reserve` is amortised.** By the time it was measured again, Bomb B had gone back up
+to **1811 MB** — the loop that replaced `read_to_end` in the five-hundred-and-eighth session
+computed the right growth step and handed it to a method documented to take
+`max(2 × capacity, len + additional)`, so the last step before a gibibyte ceiling granted 1804 MiB.
+The measurement and the multiplication agree. Bomb B now costs **exactly the bound**, and Bomb A —
+which never reaches the bound — loses a third of its peak to the second half of the same finding:
+a whole decode ends in a buffer of up to 2*L* and `Arc<[u8]>` is a copy beside it, so the peak was
+capacity + length. ADR 0354.
+
+**It is still a gibibyte commanded by 1.85 MB of file**, and no entry in §5 but D takes that back.
 
 The clean statement, and the test to apply to every bound in the tree:
 
@@ -106,7 +129,7 @@ The clean statement, and the test to apply to every bound in the tree:
 | bound | if removed, a *small malicious* input can… | verdict |
 |---|---|---|
 | `MAX_FORM_DEPTH` 16 | recurse until the **stack** aborts the process — which the address-space ceiling cannot see, and which Rust turns into an abort rather than a report | **load-bearing, do not touch** |
-| `max_stream_len` 1 GiB + the Flate/LZW guards | turned 1.85 MB into 3.7 GB (measured); 1095 MB since ADR 0306 lowered the bound to fit the ceiling and made reaching it a refusal | **load-bearing, and still the weakest link** |
+| `max_stream_len` 1 GiB + the Flate/LZW guards | turned 1.85 MB into 3.7 GB (measured); 1095 MB since ADR 0306 lowered the bound to fit the ceiling and made reaching it a refusal, and **exactly the bound** since ADR 0354 stopped the buffer doubling past it | **load-bearing, and still the weakest link** |
 | `MAX_TILES` 4096 | state `/XStep 0.001` over 600 units — 3.6×10¹¹ empty cells, about four days; an empty cell executes no operator, so nothing else sees it (ADR 0271) | **load-bearing**, but bounds a *count* where it means to bound *work* |
 | `pdf-sandbox`'s `MAX_PIXELS`/`MAX_SAMPLES`, `RLIMIT_AS`, seccomp, Landlock | unbounded decode in the historically worst attack surface | **load-bearing** |
 | `xmp` ×5, `der`/`cms`/`x509`/`pkcs1`, `function.rs`'s `MAX_STITCH_DEPTH` (a 720-byte file overflowed every stack until session 425), `icc`, `mesh`, `image::MAX_SAMPLES`, every cycle guard | each turns a tiny file into unbounded work | **load-bearing** |
@@ -140,11 +163,15 @@ They were not architecture and did not wait for a decision, which is why they we
 
 **What is left of this section, and it is residue rather than a defect:**
 
-- **A decode still costs about twice its output.** `read_to_end` grows a `Vec` by doubling and
-  `Arc<[u8]>` is then a copy of it, so a gibibyte stream commands two, and the ceiling has three to
-  give after the raster. That is the arithmetic the new bound was derived *from* rather than a
-  contradiction, but it is the reason a bomb still costs 1095 MB. §5's road D is the only entry
-  that removes the allocation.
+- **A decode costs about twice its output, and until ADR 0354 it cost three times.** The loop
+  doubles because it cannot know where the stream ends, and `Arc<[u8]>` is then a copy of the
+  result, so the peak is *capacity plus length* — up to 3*L* where ADR 0306's derivation of the
+  gibibyte assumed 2*L*. `shrink_to_fit` before the hand-over makes it the 2*L* the ADR assumed,
+  which is why **no constant moved**: the code now costs what the number was derived from. The
+  remaining 2*L* is the copy, and it is `Arc<[u8]>`'s own — `impl From<Vec<T>> for Arc<[T]>` copies
+  and forgets, because an `Arc` needs a header the `Vec` has no room for, so it cannot be taken
+  back by an allocation trick. §5's road D is the only entry that removes it, and only for the
+  content-stream route; the resource paths want the whole buffer and are why the copy exists.
 - **The image path drops the reason.** `Document::image_stream` still calls the `Option`-returning
   `decode_with_parms`, so an image whose decode passes the bound is refused loudly as an image this
   reader could not decode rather than as one it declined to. One call site and a variant of
@@ -185,7 +212,61 @@ And two facts that constrain the design more than anything else:
   Making it *cancellable* is trivial — the check point already exists. Making it *resumable* is a
   state-machine rewrite of the tree's hottest and most-tested code.
 
-## 5. Three roads. The choice is the owner's
+## 5. Four roads. The choice is the owner's, and here is what each costs today
+
+**The prices below were re-taken in the five-hundred-and-nineteenth session against the code as it
+now stands**, because two rounds had changed the ground under them since they were written: the
+five-hundred-and-eighth replaced the inflate path with a pump (ADR 0343), and this one capped its
+buffer and removed a copy (ADR 0354). Read the table before the four sections; the sections are the
+argument and the table is the arithmetic.
+
+| road | what it removes | what it costs, in today's code | moved by 508 / 519? |
+|---|---|---|---|
+| **A** deadline + callback | unbounded *time* | one parameter on `interpret`, one check at `run.rs`'s existing increment site, two boundary messages, and a rule pinning the gates | **no** — the check point is where 471 left it |
+| **B** ship the confinement | unbounded *anything*, by killing | a tier change (`doc/todo/34`), a `try_reserve`/`Refused` path for the ceiling breach, worker restart, Linux-only | **cheaper** — see below |
+| **C** resumable interpretation | unbounded *latency* | a state-machine rewrite of `Interpreter::run`, against an oracle of 1794 pages | **no** |
+| **D** stream the decompression | the *allocation* | the sink, the lexer's `&[u8]`, and `inline_image::scan`'s lookahead — **the producer is already written** | **half-built, and its prize is a third smaller** |
+
+**D is half-built and nobody set out to build it.** §5 D below says "`filter::flate` already holds a
+*streaming* decoder — `flate2::read::ZlibDecoder`, an `io::Read` — and then calls `read_to_end`".
+**That sentence is now wrong in the direction of D**: the adapter is gone. `filter::inflate_buffer`
+holds a `flate2::Decompress` across iterations, keeps its own input cursor, writes through
+`decompress_vec`, and terminates on three named conditions — `Stopped::Whole`,
+`Stopped::Damaged(_)`, `Stopped::PastTheBound`. That *is* a pump. A window-fed decoder is that loop
+with a fixed buffer in place of a growing one and a consumer between the two, and the vocabulary it
+must report in already exists, because D's own caveat — "a streaming rewrite that does not separate
+[damage from the bound] is the same bug with better memory behaviour" — was separated in 471 and
+made reliable in 508.
+
+**And D's prize shrank in the same measurement.** What it removes is now:
+
+| | before ADR 0354 | after | what D would leave |
+|---|---|---|---|
+| Bomb B, 1.85 MB of file | 1811 MB | **1031 MB** (the bound, exactly) | a window — 64 KiB |
+| `Entwurf.pdf`, 66 MB content stream | 429 MB | **381 MB** | about 315 MB |
+
+So D is still the only road that changes the *kind* of the quantity, and it is now worth a third
+less than it was. The 315 MB it would leave on the witness is the display list and the raster, which
+no road in this file touches.
+
+**B is cheaper for a reason that is not about B.** ADR 0306 derived `max_stream_len` = 1 GiB partly
+from "a decode costs about twice its output […] 2L has to fit in the 3 GiB the raster leaves". The
+code did not obey that: a whole decode cost up to 3*L* and a bomb up to twice the bound, so a single
+stream could still command more of `INTERPRETER_ADDRESS_SPACE_LIMIT` than the arithmetic allowed.
+It obeys it now — measured `VmPeak` for Bomb B is **1041 MB against a 4 GiB ceiling**, where it was
+1821 MB. B's standing objection that "the 4 GiB ceiling is currently *smaller than* what one 2 GiB
+stream can demand" is answered by the bound rather than by the ceiling, and B's remaining costs are
+the three in the table above, unchanged.
+
+**A and C are untouched**, and that is worth stating rather than leaving to inference: nothing in
+471, 508 or 519 went near `Interpreter::run`'s shape or put a clock anywhere near `pdf-model`.
+
+**The order in the last paragraph of this section still holds and is now one step further along**:
+§3's defects, then D's measurement. **D's measurement is what a round taking it still owes** — the
+one at the end of D below, a window-fed lexer run on Bomb B and on the witness — and this round did
+not take it, because the defect it found while re-reading was round-sized and D is not.
+
+## 5.1 The four roads themselves
 
 ### A — a deadline and a host callback, in process
 
@@ -203,7 +284,8 @@ them gets today's behaviour with a far larger default.
   `interpret` being a pure function of the bytes and the view state. A deadline that fires under
   load would silently change a display list. That needs a hard rule — **off in every gate, on in
   every host** — and an assertion that holds it.
-- **Does not fix**: memory. Bomb B still costs 3.7 GB before the first check.
+- **Does not fix**: memory. Bomb B's whole peak is spent before the first check — 3.7 GB when this
+  was written, a gibibyte since ADR 0354, and every byte of it still before A's deadline can fire.
 
 ### B — ship the confinement and let the OS hold the bounds
 
@@ -238,7 +320,8 @@ and "very complicated document" becomes "many chunks" rather than a refusal.
 - **Against**: much the largest change, for the reason in §4 — a state-machine rewrite of
   `Interpreter::run`, against an oracle that compares 1794 pages. The cost of one chunk is still
   unbounded (one `sh` paints the page), so it needs A's deadline anyway for the pathological
-  operator. And it does nothing about the 3.7 GB spent before interpretation starts.
+  operator. And it does nothing about the memory spent before interpretation starts — 3.7 GB when
+  this was written and a gibibyte now, which is a smaller number and the same objection.
 
 ### D — stream the decompression, so the bomb never becomes an allocation
 
@@ -248,9 +331,16 @@ Raised by the project owner, who observed that nobody here had considered it:
 > possibly reasons it doesn't fit, but I have the impression that we haven't even considered it.
 
 **They are right that it was never considered, and the code is much closer to it than the other
-three roads are to theirs.** `filter::flate` already holds a *streaming* decoder —
-`flate2::read::ZlibDecoder`, an `io::Read` — and then calls `read_to_end` into a `Vec`. The
-decompressor streams; the consumer does not. Bomb B's 3.7 GB is that one call.
+three roads are to theirs.** When this was written, `filter::flate` held a *streaming* decoder —
+`flate2::read::ZlibDecoder`, an `io::Read` — and then called `read_to_end` into a `Vec`: the
+decompressor streamed and the consumer did not, and Bomb B's 3.7 GB was that one call.
+
+**The adapter is gone as of ADR 0343, and what replaced it is a pump**, so this paragraph now
+understates its own case. `filter::inflate_buffer` holds a `flate2::Decompress` across iterations,
+keeps its own input cursor, writes through `decompress_vec`, and stops on three named conditions.
+The producer half of a window-fed decoder is therefore written, tested and shipped; what is left is
+the *sink* — a fixed window in place of the growing `Vec`, and a consumer between the two — plus
+the lexer and the inline-image lookahead below. §5's table above prices all of it.
 
 **What it changes is the *kind* of the quantity, and that is the whole argument.** A window-fed
 lexer turns a decompression bomb from an unbounded *allocation* into unbounded *time* — and time
@@ -261,8 +351,9 @@ this file that needs **no number at all**: a window is a buffer size, not a poli
 objection is to policies stated as constants.
 
 **So D is best read as a precondition rather than a fourth alternative.** A and C bound time and
-leave §2's measured 3.7 GB untouched; B answers memory by killing the process, which is the
-blunt version of the same answer. D is the one that removes the allocation, after which the
+leave §2's measured allocation untouched — 3.7 GB when this was written, a gibibyte since ADR 0354,
+and unbounded in neither case only because a constant says so; B answers memory by killing the
+process, which is the blunt version of the same answer. D is the one that removes the allocation, after which the
 counting bounds have nothing left to justify them.
 
 **Where it fits, and where it does not** — this is the part that has to be measured rather than
@@ -332,3 +423,8 @@ with the gates pinned, then B or C as a separate decision with its own number at
   asserts it rather than a comment claiming it.
 - **A count that reports must say what it counted.** The whole of §1 is one comment that named
   operators and one loop that counted tokens.
+- **A bound on an allocation must be measured on the allocation.** ADR 0354's addition, and it is
+  the same sentence one layer down: `tests/stream_length_bound.rs` checked what a bomb is *told*
+  and was right for two rounds while the buffer behind it was twice its stated size, because a
+  refusal looks the same either way. Whatever lands, something reads `capacity` — or `ru_maxrss`,
+  or `massif`'s peak snapshot, which names the two blocks alive at it rather than a total.

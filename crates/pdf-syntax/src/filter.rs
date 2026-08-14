@@ -594,6 +594,47 @@ fn flate(data: &[u8], limits: Limits) -> Result<Decoded, FilterRefusal> {
 /// the format at a definite bit ([`Damage::Corrupt`]), or the input ended first
 /// ([`Damage::Truncated`]).
 fn inflate(data: &[u8], zlib_header: bool, limits: Limits) -> Result<Decoded, FilterRefusal> {
+    let (mut out, stopped) = inflate_buffer(data, zlib_header, limits);
+    // **The buffer's slack is resident, and [`finish`] is about to allocate the whole decode
+    // beside it.** A decode of L bytes ends in a buffer of up to 2L — the loop doubles, and it
+    // cannot know where to stop — and `Arc<[u8]>` is a copy rather than a hand-over, so the peak
+    // is capacity plus length. Releasing the slack first turns 2L + L into L + L, measured with
+    // `massif` and `ru_maxrss` on §2's Bomb A: **1145 MB → 768 MB**, and on the owner's 50 MB
+    // drawing **429 MB → 381 MB**. It is *not* a second copy for the ordinary stream — callgrind
+    // over ten opens of ISO 32000-2 and over one interpreted page reads **−0.145%** and
+    // **−0.116%**, both slightly cheaper, because the allocator shrinks a large mapping in place
+    // and the copy that follows touches fewer pages. ADR 0354.
+    out.shrink_to_fit();
+    match stopped {
+        // A stream this reader *could* have decoded and declined to: the bytes it did inflate
+        // are its prefix rather than its content, and handing them over would be the silent
+        // clamp ADR 0306 removed.
+        Stopped::PastTheBound => Err(FilterRefusal::TooLarge {
+            limit: limits.max_stream_len,
+        }),
+        Stopped::Whole => finish(&out, None, limits),
+        Stopped::Damaged(damage) => finish(&out, Some(damage), limits),
+    }
+}
+
+/// Why [`inflate_buffer`]'s loop stopped, before its bytes are judged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Stopped {
+    /// RFC 1951's final block was read: the bytes are the whole stream.
+    Whole,
+    /// The decode stopped short and the bytes before it are what the encoder wrote.
+    Damaged(Damage),
+    /// The buffer reached one byte past [`Limits::max_stream_len`].
+    PastTheBound,
+}
+
+/// The inflate loop itself, handing back the buffer rather than a decode.
+///
+/// **Split from [`inflate`] so that the buffer can be asserted on**, which is not a shape
+/// preference: the bound this function honours is a statement about an *allocation*, and an
+/// `Arc<[u8]>` has no capacity to read. `an_inflate_never_buys_a_buffer_past_the_bound` is the
+/// test, and it fails with `reserve` in place of `reserve_exact` below. ADR 0354.
+fn inflate_buffer(data: &[u8], zlib_header: bool, limits: Limits) -> (Vec<u8>, Stopped) {
     /// The smallest buffer worth asking the allocator for, and the step it grows by.
     const FLOOR: usize = 4096;
 
@@ -612,13 +653,23 @@ fn inflate(data: &[u8], zlib_header: bool, limits: Limits) -> Result<Decoded, Fi
 
     loop {
         if out.len() >= ceiling {
-            return Err(FilterRefusal::TooLarge {
-                limit: limits.max_stream_len,
-            });
+            return (out, Stopped::PastTheBound);
         }
         if out.len() == out.capacity() {
             let room = ceiling.saturating_sub(out.capacity());
-            out.reserve(out.capacity().max(FLOOR).min(room));
+            // **`reserve_exact`, and the difference between it and `reserve` is the bound.**
+            // `Vec::reserve` grows *amortised* — it takes `max(2 × capacity, len + additional)` —
+            // so the step computed here was a floor rather than a ceiling and the last step
+            // before the bound doubled straight past it. A gibibyte bound bought a 1.76 GiB
+            // buffer: §2's Bomb B peaked at 1811 MB of resident memory where the bound promises
+            // 1024 MiB, and the comment above claiming the buffer never grows past the ceiling
+            // was false for the one input it is written for. `reserve_exact` takes the step as
+            // stated, which is still a doubling everywhere below the bound — `len == capacity`
+            // here, so the step *is* the capacity — and is exactly the room left at it.
+            //
+            // `room` cannot be zero: reaching a capacity of `ceiling` means the length check
+            // above fired first, and every other capacity leaves at least one byte.
+            out.reserve_exact(out.capacity().max(FLOOR).min(room));
         }
 
         let input = data.get(consumed..).unwrap_or_default();
@@ -629,15 +680,15 @@ fn inflate(data: &[u8], zlib_header: bool, limits: Limits) -> Result<Decoded, Fi
         );
 
         match status {
-            Ok(flate2::Status::StreamEnd) => return finish(&out, None, limits),
-            Err(_) => return finish(&out, Some(Damage::Corrupt), limits),
+            Ok(flate2::Status::StreamEnd) => return (out, Stopped::Whole),
+            Err(_) => return (out, Stopped::Damaged(Damage::Corrupt)),
             Ok(flate2::Status::Ok | flate2::Status::BufError) => {
                 // No input read and no output written means the decoder can make no further
                 // progress. Output room is guaranteed above, so the only way to be here is an
                 // input that ended before RFC 1951's final block — and terminating on it is
                 // also what makes this loop provably finite.
                 if decoder.total_in() == before_in && out.len() == before_out {
-                    return finish(&out, Some(Damage::Truncated), limits);
+                    return (out, Stopped::Damaged(Damage::Truncated));
                 }
             }
         }
@@ -829,7 +880,7 @@ fn run_length(data: &[u8], limits: Limits) -> Result<Decoded, FilterRefusal> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Dictionary, Limits, Object, decode};
+    use super::{Dictionary, Limits, Object, Stopped, decode, inflate_buffer};
     use crate::object::Name;
 
     #[test]
@@ -981,6 +1032,42 @@ mod tests {
 
         let out = decode(b"FlateDecode", &compressed, None, Limits::DEFAULT).expect("valid");
         assert_eq!(&*out, b"no zlib header");
+    }
+
+    /// `max_stream_len` bounds an allocation, so the allocation is what the test reads.
+    ///
+    /// **This is the assertion `tests/stream_length_bound.rs` cannot make.** That file checks the
+    /// *report* a bomb gets, which was already right; the buffer behind it was twice the bound,
+    /// because `Vec::reserve` grows amortised and the last step before the ceiling doubled past
+    /// it. Nothing observable from outside `inflate` changes when that happens — the refusal is
+    /// the same refusal — which is why the defect survived the round that wrote the loop and the
+    /// round that measured its output. Reading `capacity()` is the only instrument that sees it,
+    /// and [`inflate_buffer`] exists to hand it over. ADR 0354.
+    #[test]
+    fn an_inflate_never_buys_a_buffer_past_the_bound() {
+        use std::io::Write as _;
+        // 4 MiB of one byte deflates to a few kilobytes: a bomb in the small, so that the test
+        // costs a bound's worth of memory rather than a bomb's.
+        let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::best());
+        encoder
+            .write_all(&vec![b'n'; 4 << 20])
+            .expect("in-memory write");
+        let compressed = encoder.finish().expect("finish");
+
+        let limits = Limits {
+            max_stream_len: 1 << 16,
+            ..Limits::DEFAULT
+        };
+        let ceiling = limits.max_stream_len + 1;
+        let (out, stopped) = inflate_buffer(&compressed, true, limits);
+
+        assert_eq!(stopped, Stopped::PastTheBound, "the bomb is past the bound");
+        assert!(
+            out.capacity() <= ceiling,
+            "a bound of {} bought a buffer of {}",
+            limits.max_stream_len,
+            out.capacity()
+        );
     }
 
     /// An unsupported filter must be visibly unsupported, not silently passed through.

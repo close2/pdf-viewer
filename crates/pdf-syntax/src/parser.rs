@@ -60,17 +60,22 @@ impl Limits {
         //
         // - **From above by the ceiling.** `pdf_sandbox`'s `INTERPRETER_ADDRESS_SPACE_LIMIT` is
         //   4 GiB, of which `MAX_PIXELS` x 4 bytes = 1 GiB is the raster's. Decoding costs
-        //   about *twice* the decoded length before the bytes are handed over — `read_to_end`
-        //   grows a `Vec` by doubling and `Arc<[u8]>` is then a copy of it — measured at
-        //   3694 MB peak for a 1.9 GB decode. So a bound of L costs about 2L, and 2L has to fit
-        //   in the 3 GiB the raster leaves. At 2 GiB it did not: one stream could ask for the
-        //   whole ceiling and leave nothing to draw with.
+        //   about *twice* the decoded length before the bytes are handed over — the inflate loop
+        //   doubles its buffer because it cannot know where the stream ends, and `Arc<[u8]>` is
+        //   then a copy of the result. So a bound of L costs about 2L, and 2L has to fit in the
+        //   3 GiB the raster leaves. At 2 GiB it did not: one stream could ask for the whole
+        //   ceiling and leave nothing to draw with.
         // - **From below by what documents contain.** The largest decoded stream in
         //   **5 047 187 streams over 65 967 crawled documents** is 483.84 MiB, and one stream in
         //   five million passes 256 MiB (`content_budget_census`). A gibibyte is twice the
         //   largest real one and refuses none of them.
         //
-        // ADR 0306.
+        // ADR 0306. **The arithmetic above was right and the code disobeyed it for two rounds**,
+        // which is why this comment no longer names `read_to_end` — that adapter left in ADR
+        // 0343, and the loop that replaced it grew through `Vec::reserve`, whose amortised
+        // `max(2 x capacity, len + additional)` doubled the buffer *past* this number. A decode
+        // of L cost up to 3L and a bomb up to 2 x this bound: 1811 MB measured for a 1.85 MB
+        // file. ADR 0354 made the code cost what this derivation assumed, and moved no number.
         max_stream_len: 1 << 30,
     };
 }
