@@ -1,9 +1,11 @@
 # A draft that takes ten seconds to appear, and a third of a second per frame after that
 
-Status: **measured** — the owner asked whether displaying this document can be improved and
+Status: **half taken** — the owner asked whether displaying this document can be improved and
 supplied a trace; session 497 closed the trace's hole, attributed the interpretation with
-callgrind, and priced the encode cache (ADR 0332). What is left is *choosing what to build*, and
-each candidate below has its number beside it.
+callgrind, and priced the encode cache (ADR 0332). Session 506 then took §2's lexer candidate
+*and* its number-parsing second (ADR 0341): interpreting this document lost 39.8% of its
+instructions, byte-identical readback on this document and on ISO 32000-2. What is left
+is §3's encode cache, which is an upstream ask first.
 Priority: 44
 Corpus: none — `tmp/Entwurf.pdf` is the owner's own document (49.7 MB, one page, 58 009 display
 commands), outside the tree like `doc/todo/28`'s, with its trace beside it as
@@ -60,11 +62,15 @@ display commands. Inclusive shares of the total:
 `doc/todo/41`'s population argument held: the 141 MiB inflates once, so the decoded-stream memo
 is not the lever here.
 
-**The candidate this names** (not built, not decided): a lexer that borrows token bytes from the
-decoded stream rather than copying each token — worth up to ~a fifth of interpretation by the
-table above, and a `pdf-syntax` API change with every parser caller in its blast radius. Number
-parsing is the second candidate at up to 15%. Measure on this document either way; the
-instruments are one command each.
+**Both candidates this section named were taken in session 506 (ADR 0341).** The lexer borrows
+its token bytes from the decoded stream (`Token<'a>`, `Keyword(&'a [u8])`), and §7.3.3's fixed
+format is parsed from the bytes directly with an exactness argument that keeps it bit-identical
+to `f64::from_str`. Measured on this document with the same instrument: 22 398 M instructions →
+17 046 M after the borrow alone (−23.9%) → 13 487 M with the number parse (**−39.8%**), the
+readback byte-identical here and over all 1023 pages of ISO 32000-2, and a corpus-normal cold
+`find_cost` sweep improved 5.97% rather than regressed. The numbers, the caller survey and the
+declined designs are ADR 0341's; the table above is kept as the measurement the decision was
+made from.
 
 ## 3. The encode cache, priced (todo/45's quorra `encode` row — pricing only, ADR 0332)
 

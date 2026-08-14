@@ -328,7 +328,7 @@ fn read_section(input: &[u8], offset: usize, base: usize, limits: Limits) -> Opt
 
     // A classic table begins with the `xref` keyword.
     let mut lexer = crate::lexer::Lexer::at(input, probe);
-    if lexer.next_token() == Some(crate::Token::Keyword(b"xref".to_vec())) {
+    if lexer.next_token() == Some(crate::Token::Keyword(b"xref")) {
         return read_classic_table(input, lexer.position(), base, limits);
     }
 

@@ -1602,7 +1602,7 @@ impl DefaultAppearance {
         };
 
         let mut lexer = Lexer::new(bytes);
-        let mut operands: Vec<Token> = Vec::new();
+        let mut operands: Vec<Token<'_>> = Vec::new();
         let mut source = String::new();
         while let Some(token) = lexer.next_token() {
             let Token::Keyword(word) = &token else {
@@ -1618,7 +1618,7 @@ impl DefaultAppearance {
     }
 
     /// Applies one operator and its operands.
-    fn take(&mut self, operator: &[u8], operands: &[Token], source: &str) {
+    fn take(&mut self, operator: &[u8], operands: &[Token<'_>], source: &str) {
         let number = |index: usize| operands.get(index).and_then(as_number);
         match operator {
             b"Tf" => {
@@ -1656,7 +1656,7 @@ impl DefaultAppearance {
 }
 
 /// Writes one operand back out in the syntax it came in.
-fn write(out: &mut String, token: &Token) {
+fn write(out: &mut String, token: &Token<'_>) {
     match token {
         Token::Integer(value) => {
             let _ = write!(out, "{value} ");
@@ -1680,7 +1680,7 @@ fn write(out: &mut String, token: &Token) {
 ///
 /// An integer beyond `i32` is not a text size, a spacing or a matrix element on any page, so
 /// narrowing it before widening loses nothing a `/DA` can legitimately state.
-fn as_number(token: &Token) -> Option<f32> {
+fn as_number(token: &Token<'_>) -> Option<f32> {
     match token {
         Token::Integer(value) => i32::try_from(*value).ok().map(|value| narrow(value.into())),
         Token::Real(value) => Some(narrow(*value)),

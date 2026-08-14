@@ -82,13 +82,13 @@ impl ToUnicode {
         // Operands seen since the last keyword. A CMap section is introduced by a count
         // followed by a keyword, and the count is not trustworthy — the terminating
         // keyword is what actually ends a section — so operands are simply buffered.
-        let mut operands: Vec<Token> = Vec::new();
+        let mut operands: Vec<Token<'_>> = Vec::new();
         let mut section: Option<Section> = None;
 
         while let Some(token) = lexer.next_token() {
             match token {
                 Token::Keyword(word) => {
-                    match word.as_slice() {
+                    match word {
                         b"beginbfchar" => section = Some(Section::Chars),
                         b"beginbfrange" => section = Some(Section::Ranges),
                         b"endbfchar" => {
@@ -127,7 +127,7 @@ impl ToUnicode {
     }
 
     /// Reads a `beginbfchar` section: pairs of source code and destination text.
-    fn take_chars(&mut self, operands: &[Token], limit: usize) {
+    fn take_chars(&mut self, operands: &[Token<'_>], limit: usize) {
         let mut index = 0usize;
         while index.saturating_add(1) < operands.len() {
             let (Some(Token::String(source)), Some(Token::String(target))) =
@@ -147,7 +147,7 @@ impl ToUnicode {
     }
 
     /// Reads a `beginbfrange` section: a low code, a high code, and a destination.
-    fn take_ranges(&mut self, operands: &[Token], singles_limit: usize, range_limit: usize) {
+    fn take_ranges(&mut self, operands: &[Token<'_>], singles_limit: usize, range_limit: usize) {
         let mut index = 0usize;
         while index.saturating_add(2) < operands.len() {
             let (Some(Token::String(low)), Some(Token::String(high))) =

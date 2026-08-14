@@ -107,7 +107,7 @@ impl Interpreter<'_> {
                     self.note(Unsupported::Operator {
                         operator: format!(
                             "{} inside an array, which §7.3.6 admits only objects into",
-                            String::from_utf8_lossy(&word)
+                            String::from_utf8_lossy(word)
                         ),
                     });
                     continue;
@@ -177,7 +177,7 @@ impl Interpreter<'_> {
             // rather than in each arm keeps the rule where the clause puts it, in one place
             // for both circumstances, and it is what lets the colour the figure is *used*
             // with reach the marks inside it.
-            if self.uncoloured && is_colour_operator(operator.as_slice()) {
+            if self.uncoloured && is_colour_operator(operator) {
                 pending.clear();
                 continue;
             }
@@ -190,9 +190,9 @@ impl Interpreter<'_> {
             // operands an operator is given are the *last* of them rather than the first —
             // `T02-05-01_008_Font-set-operator-missing.pdf` writes `/F0 36. (Hello
             // PDF-world!) Tj`, whose `Tj` was reading the name and drawing nothing.
-            let operands: &[Object] = operands_before(&pending, operator.as_slice());
+            let operands: &[Object] = operands_before(&pending, operator);
 
-            match operator.as_slice() {
+            match operator {
                 // --- graphics state ---
                 b"q" => {
                     if stack.len() < MAX_STATE_DEPTH {
@@ -346,7 +346,7 @@ impl Interpreter<'_> {
                 }
                 b"b" | b"b*" => {
                     close_subpath(&mut path);
-                    let rule = if operator.as_slice() == b"b*" {
+                    let rule = if operator == b"b*" {
                         FillRule::EvenOdd
                     } else {
                         FillRule::NonZero
@@ -370,29 +370,29 @@ impl Interpreter<'_> {
                     if let Some(grey) = number_at(operands, 0) {
                         let space = self.device_space("DeviceGray", resources);
                         let colour = self.colour(&space, &[grey], state.black_point);
-                        assign_colour(&mut state, operator.as_slice() == b"g", colour, space);
+                        assign_colour(&mut state, operator == b"g", colour, space);
                     }
                 }
                 b"rg" | b"RG" => {
                     if let Some(values) = numbers_from(operands, 3) {
                         let space = self.device_space("DeviceRGB", resources);
                         let colour = self.colour(&space, &values, state.black_point);
-                        assign_colour(&mut state, operator.as_slice() == b"rg", colour, space);
+                        assign_colour(&mut state, operator == b"rg", colour, space);
                     }
                 }
                 b"k" | b"K" => {
                     if let Some(values) = numbers_from(operands, 4) {
                         let space = self.device_space("DeviceCMYK", resources);
                         let colour = self.colour(&space, &values, state.black_point);
-                        assign_colour(&mut state, operator.as_slice() == b"k", colour, space);
+                        assign_colour(&mut state, operator == b"k", colour, space);
                     }
                 }
                 b"cs" | b"CS" => {
-                    let fill = operator.as_slice() == b"cs";
+                    let fill = operator == b"cs";
                     self.set_colour_space(operands, resources, &mut state, fill);
                 }
                 b"sc" | b"scn" | b"SC" | b"SCN" => {
-                    let fill = matches!(operator.as_slice(), b"sc" | b"scn");
+                    let fill = matches!(operator, b"sc" | b"scn");
                     self.set_colour(operands, resources, &mut state, fill);
                 }
 
@@ -786,7 +786,7 @@ impl Interpreter<'_> {
                 // can only ever remove marks a correct file does not have, and on an
                 // incorrect one it hides the defect rather than reporting it.
                 b"d0" | b"d1" => {
-                    if operator.as_slice() == b"d1" && self.glyph_depth > 0 {
+                    if operator == b"d1" && self.glyph_depth > 0 {
                         self.uncoloured = true;
                         // One shape, one colour. Table 111 says the description "is executed
                         // solely to determine the glyph's shape. Its colour shall be
@@ -872,7 +872,7 @@ fn is_colour_operator(operator: &[u8]) -> bool {
 }
 
 /// Converts a content-stream token into an operand.
-fn token_to_object(token: pdf_syntax::Token) -> Object {
+fn token_to_object(token: pdf_syntax::Token<'_>) -> Object {
     match token {
         pdf_syntax::Token::Integer(value) => Object::Integer(value),
         pdf_syntax::Token::Real(value) => Object::Real(value),
@@ -931,7 +931,7 @@ fn inline_dictionary(lexer: &mut pdf_syntax::Lexer<'_>, depth: usize) -> Diction
             // two corpus documents used to report them as unknown *operators*: an inline
             // property list's booleans were reaching the operator dispatch one token at a
             // time. §7.3.2 makes them objects wherever an object belongs.
-            pdf_syntax::Token::Keyword(word) => match word.as_slice() {
+            pdf_syntax::Token::Keyword(word) => match word {
                 b"true" => Object::Boolean(true),
                 b"false" => Object::Boolean(false),
                 _ => Object::Null,
@@ -976,7 +976,7 @@ fn inline_array(lexer: &mut pdf_syntax::Lexer<'_>, depth: usize) -> Vec<Object> 
             }
             // As in a dictionary's values: §7.3.2's booleans and §7.3.9's null lex as
             // keywords inside a content stream.
-            pdf_syntax::Token::Keyword(word) => match word.as_slice() {
+            pdf_syntax::Token::Keyword(word) => match word {
                 b"true" => Object::Boolean(true),
                 b"false" => Object::Boolean(false),
                 _ => Object::Null,

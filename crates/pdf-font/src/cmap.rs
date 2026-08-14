@@ -312,7 +312,7 @@ impl CMap {
         // Operands seen since the last keyword. A section is introduced by a count followed
         // by a keyword, and the count is not trustworthy — the terminating keyword is what
         // ends a section — so operands are simply buffered.
-        let mut operands: Vec<Token> = Vec::new();
+        let mut operands: Vec<Token<'_>> = Vec::new();
         let mut section: Option<Section> = None;
         // Whether the next integer is `/WMode`'s value.
         let mut expecting_wmode = false;
@@ -320,7 +320,7 @@ impl CMap {
         while let Some(token) = lexer.next_token() {
             match token {
                 Token::Keyword(word) => {
-                    match word.as_slice() {
+                    match word {
                         b"begincodespacerange" => section = Some(Section::Codespace),
                         b"begincidrange" => section = Some(Section::Ranges { notdef: false }),
                         b"beginnotdefrange" => section = Some(Section::Ranges { notdef: true }),
@@ -406,7 +406,7 @@ impl CMap {
     }
 
     /// Reads one section's buffered operands.
-    fn take(&mut self, section: Option<Section>, operands: &[Token]) {
+    fn take(&mut self, section: Option<Section>, operands: &[Token<'_>]) {
         match section {
             Some(Section::Codespace) => self.take_codespace(operands),
             Some(Section::Ranges { notdef }) => self.take_ranges(operands, notdef, false),
@@ -418,7 +418,7 @@ impl CMap {
     }
 
     /// Reads a `begincodespacerange` section: pairs of bounds of equal length.
-    fn take_codespace(&mut self, operands: &[Token]) {
+    fn take_codespace(&mut self, operands: &[Token<'_>]) {
         for pair in operands.chunks(2) {
             let [Token::String(low), Token::String(high)] = pair else {
                 continue;
@@ -467,7 +467,7 @@ impl CMap {
     /// destination is a character selector, which in PDF is a CID (§9.7.5.1), read from the
     /// hex string most significant byte first. Reading it as [`crate::tounicode`] would —
     /// UTF-16BE text — is the other clause's question about the same bytes.
-    fn take_chars(&mut self, operands: &[Token], notdef: bool, bf: bool) {
+    fn take_chars(&mut self, operands: &[Token<'_>], notdef: bool, bf: bool) {
         for pair in operands.chunks(2) {
             let [Token::String(source), target] = pair else {
                 continue;
@@ -488,7 +488,7 @@ impl CMap {
     }
 
     /// Reads a `begincidrange` or `beginnotdefrange` section: two bounds and a CID.
-    fn take_ranges(&mut self, operands: &[Token], notdef: bool, bf: bool) {
+    fn take_ranges(&mut self, operands: &[Token<'_>], notdef: bool, bf: bool) {
         for triple in operands.chunks(3) {
             let [Token::String(low), Token::String(high), target] = triple else {
                 continue;
@@ -760,7 +760,7 @@ fn value_of(bytes: &[u8]) -> u32 {
 ///
 /// A `cidchar` or `cidrange` states it as an integer; a `bfchar` or `bfrange` states it as a
 /// hex string, and [`CMap::take_chars`] has the clause that says to read it as a selector.
-fn selector_of(target: &Token, bf: bool) -> Option<u32> {
+fn selector_of(target: &Token<'_>, bf: bool) -> Option<u32> {
     match target {
         Token::Integer(value) => u32::try_from(*value).ok(),
         Token::String(bytes) if bf => code_of(bytes),

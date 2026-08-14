@@ -44,8 +44,16 @@ pub use class::{is_delimiter, is_regular, is_whitespace};
 /// Numbers are not converted here. `1 0 R` is three tokens, and only the parser knows
 /// whether a leading integer begins a reference, so the lexer reports what it saw and
 /// lets the parser decide.
+///
+/// A keyword *borrows* its bytes from the input; names and strings own theirs. The split
+/// is not taste but what each variant is: a keyword and a number are spans of the input
+/// verbatim, while a name's `#`-escapes and a string's backslash and hexadecimal forms
+/// are *decoded*, so their bytes may not exist in the input at all. Borrowing the
+/// verbatim spans is what removed a heap allocation per token on a content stream of
+/// twenty million tokens, where the allocator was a fifth of the whole interpretation
+/// (ADR 0341).
 #[derive(Debug, Clone, PartialEq)]
-pub enum Token {
+pub enum Token<'a> {
     /// An integer.
     Integer(i64),
     /// A real number.
@@ -66,11 +74,12 @@ pub enum Token {
     BraceOpen,
     /// `}`
     BraceClose,
-    /// A bare keyword such as `obj`, `endobj`, `stream`, `true`, `xref`.
+    /// A bare keyword such as `obj`, `endobj`, `stream`, `true`, `xref`, borrowed from
+    /// the input it was lexed from.
     ///
     /// Also every run of regular characters that spells no object at all, which by §7.3.3
     /// includes a run holding no decimal digit — `.` and `-` are keywords here, not zeroes.
-    Keyword(Vec<u8>),
+    Keyword(&'a [u8]),
 }
 
 /// A cursor over PDF bytes yielding tokens.
@@ -160,7 +169,7 @@ impl<'a> Lexer<'a> {
     /// Unrecognised bytes are consumed as a keyword rather than raising an error, so the
     /// parser sees `Keyword` and decides. That keeps recovery policy in one place instead
     /// of spread between lexer and parser.
-    pub fn next_token(&mut self) -> Option<Token> {
+    pub fn next_token(&mut self) -> Option<Token<'a>> {
         self.skip_whitespace();
         let byte = self.peek()?;
 
@@ -206,13 +215,13 @@ impl<'a> Lexer<'a> {
                     // A lone `>` is malformed. Consumed so the cursor always advances;
                     // reported as a keyword so the parser can complain about it.
                     self.position = self.position.saturating_add(1);
-                    Some(Token::Keyword(vec![b'>']))
+                    Some(Token::Keyword(b">"))
                 }
             }
             b')' => {
                 // An unmatched `)`. As above: consume and report.
                 self.position = self.position.saturating_add(1);
-                Some(Token::Keyword(vec![b')']))
+                Some(Token::Keyword(b")"))
             }
             b'+' | b'-' | b'.' | b'0'..=b'9' => Some(self.read_number()),
             _ => {
@@ -229,16 +238,18 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    /// Consumes a run of regular characters.
-    fn read_regular_run(&mut self) -> Vec<u8> {
+    /// Consumes a run of regular characters, borrowed from the input.
+    ///
+    /// Borrowed rather than copied: on the largest content stream any instrument of this
+    /// project has printed — 141 MiB carrying 20.8 million tokens, `doc/todo/44` — the
+    /// `.to_vec()` this ended in was one short-lived heap allocation per token and put the
+    /// allocator at ~20.8% of the whole interpretation (ADR 0341 has the A/B).
+    fn read_regular_run(&mut self) -> &'a [u8] {
         let start = self.position;
         while self.peek().is_some_and(is_regular) {
             self.position = self.position.saturating_add(1);
         }
-        self.input
-            .get(start..self.position)
-            .unwrap_or_default()
-            .to_vec()
+        self.input.get(start..self.position).unwrap_or_default()
     }
 
     /// Reads a name body, resolving `#xx` escapes.
@@ -390,7 +401,7 @@ impl<'a> Lexer<'a> {
     /// A run that *does* state a digit and still salvages nothing — `.-1`, where the sign
     /// arrives after the point and before any digit — keeps the older reading of zero.
     /// That is a different question from this one and the corpus offers no witness for it.
-    fn read_number(&mut self) -> Token {
+    fn read_number(&mut self) -> Token<'a> {
         let raw = self.read_regular_run();
 
         // §7.3.3 states both numeric forms in terms of digits. An integer:
@@ -416,23 +427,39 @@ impl<'a> Lexer<'a> {
             return Token::Keyword(raw);
         }
 
-        let text: String = raw.iter().map(|&byte| char::from(byte)).collect();
-
-        if !text.contains('.')
-            && let Ok(value) = text.parse::<i64>()
-        {
-            return Token::Integer(value);
+        // Almost every number a content stream states is §7.3.3's own fixed format, and
+        // the standard library's parser — correct for exponents, subnormals and worst-case
+        // roundings a PDF number never uses — was 15.1% of interpreting a dense page
+        // (ADR 0341). The fast path parses exactly the clause's grammar and nothing else;
+        // anything it declines falls through to the standing path below, unchanged.
+        match fixed_format_number(raw) {
+            Some(Fixed::Integer(value)) => return Token::Integer(value),
+            Some(Fixed::Real(value)) => return Token::Real(value),
+            None => {}
         }
-        if let Ok(value) = text.parse::<f64>() {
-            return if value.is_finite() {
-                Token::Real(value)
-            } else {
-                Token::Integer(0)
-            };
+
+        // The run is parsed in place rather than copied into a `String` first — that copy
+        // was one heap allocation per numeric token, on top of `read_regular_run`'s own
+        // (ADR 0341). `from_utf8` refuses only a run holding a byte above 127, which no
+        // numeric form contains; both parses below would refuse such a run anyway, so
+        // falling straight through to the salvage is the same answer without the detour.
+        if let Ok(text) = std::str::from_utf8(raw) {
+            if !text.contains('.')
+                && let Ok(value) = text.parse::<i64>()
+            {
+                return Token::Integer(value);
+            }
+            if let Ok(value) = text.parse::<f64>() {
+                return if value.is_finite() {
+                    Token::Real(value)
+                } else {
+                    Token::Integer(0)
+                };
+            }
         }
 
         // Salvage a leading numeric prefix from forms like `--5` or `1.2.3`.
-        match salvage_number(&text) {
+        match salvage_number(raw) {
             Some(value) if value.fract() == 0.0 && value.abs() < 9.0e15 =>
             {
                 #[expect(
@@ -451,6 +478,102 @@ impl<'a> Lexer<'a> {
     }
 }
 
+/// A number in exactly the fixed format ISO 32000-2 §7.3.3 states.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Fixed {
+    /// The clause's integer form.
+    Integer(i64),
+    /// The clause's real form.
+    Real(f64),
+}
+
+/// Parses §7.3.3's two numeric forms directly from their bytes.
+///
+/// The clause states both forms it accepts, and this function accepts precisely those:
+///
+/// > An integer shall be written as one or more decimal digits optionally preceded by a
+/// > sign.
+///
+/// > A real value shall be written as one or more decimal digits with an optional sign and
+/// > a leading, trailing, or embedded PERIOD (2Eh) (decimal point).
+///
+/// One optional leading sign, decimal digits, at most one period, nothing else. Everything
+/// outside that grammar — an exponent, a repeated sign, a second period, a byte that is no
+/// digit — is declined to the caller's standing `parse`-then-salvage path, so every
+/// malformed form keeps the reading it always had.
+///
+/// # Why the arithmetic is exact rather than approximate
+///
+/// The digits accumulate into an integer mantissa `m`, refused past 15 digits, and the
+/// value is `m / 10^f` for `f` digits after the period. `m < 10^15 < 2^53`, so `m` is
+/// exactly representable as an `f64`; so is `10^f` for `f ≤ 15`; and IEEE 754 division
+/// rounds its mathematically exact quotient once, to nearest — so the result is the
+/// correctly rounded value of the decimal the bytes state, which is the same value
+/// `f64::from_str` returns. Bit for bit, which
+/// `the_fixed_format_parse_agrees_with_the_standard_library` exercises; the reason it is
+/// worth having is the benchmark in ADR 0341, where the library parser's generality was
+/// 15.1% of interpreting a dense content stream.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "`digits` is checked against 15 before every multiply, so the mantissa holds \
+              at most 15 decimal digits and cannot overflow a u64; the counters are \
+              bounded by the run's length"
+)]
+fn fixed_format_number(raw: &[u8]) -> Option<Fixed> {
+    /// `10^f` for every fractional length the mantissa bound admits; each is a power of
+    /// ten below `2^53` and therefore exactly representable.
+    const POWERS_OF_TEN: [f64; 16] = [
+        1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13, 1e14, 1e15,
+    ];
+
+    let (negative, body) = match raw.split_first() {
+        Some((b'-', rest)) => (true, rest),
+        Some((b'+', rest)) => (false, rest),
+        _ => (false, raw),
+    };
+
+    let mut mantissa: u64 = 0;
+    let mut digits = 0usize;
+    let mut fraction: Option<usize> = None;
+    for &byte in body {
+        match byte {
+            b'0'..=b'9' => {
+                digits += 1;
+                if digits > 15 {
+                    return None;
+                }
+                mantissa = mantissa * 10 + u64::from(byte - b'0');
+                if let Some(count) = fraction.as_mut() {
+                    *count += 1;
+                }
+            }
+            b'.' if fraction.is_none() => fraction = Some(0),
+            _ => return None,
+        }
+    }
+    // "One or more decimal digits" in both forms, so a run stating none is not this
+    // function's to read — the caller has already returned such a run as a keyword.
+    if digits == 0 {
+        return None;
+    }
+
+    match fraction {
+        // Fits because the mantissa holds at most 15 decimal digits.
+        None => i64::try_from(mantissa)
+            .ok()
+            .map(|magnitude| Fixed::Integer(if negative { -magnitude } else { magnitude })),
+        Some(count) => {
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "the mantissa is below 2^53, where every integer is exactly \
+                          representable — the doc comment's exactness argument rests on it"
+            )]
+            let magnitude = mantissa as f64 / POWERS_OF_TEN.get(count).copied()?;
+            Some(Fixed::Real(if negative { -magnitude } else { magnitude }))
+        }
+    }
+}
+
 /// Extracts a usable number from a malformed numeric token.
 ///
 /// `--5` yields -5, `1.2.3` yields 1.2, `-` yields nothing. Real files contain all of
@@ -465,18 +588,21 @@ impl<'a> Lexer<'a> {
               sign versus a second decimal point — and merging them into one guard \
               obscures both, as an earlier attempt that broke `1.5` demonstrated"
 )]
-fn salvage_number(text: &str) -> Option<f64> {
+fn salvage_number(text: &[u8]) -> Option<f64> {
     let mut cleaned = String::with_capacity(text.len());
     let mut seen_dot = false;
     let mut seen_digit = false;
     let mut in_leading_signs = true;
 
-    for character in text.chars() {
-        match character {
-            '-' | '+' if in_leading_signs => {
+    // Bytes rather than `char`s, and the two walks are the same walk: every byte the loop
+    // keeps is ASCII, and any other byte — including each byte of a multi-byte sequence —
+    // terminates the number exactly where a decoded character would have.
+    for &byte in text {
+        match byte {
+            b'-' | b'+' if in_leading_signs => {
                 // Only the first sign counts; later ones in the run are dropped.
                 if cleaned.is_empty() {
-                    cleaned.push(character);
+                    cleaned.push(char::from(byte));
                 }
             }
             // Anything else that cannot extend the number terminates it. A sign after
@@ -485,18 +611,18 @@ fn salvage_number(text: &str) -> Option<f64> {
             // A sign once the number has started terminates it: `1-2` is two numbers
             // jammed together in the wild, and taking the first is closer to what was
             // meant than reading `12`.
-            '-' | '+' => break,
+            b'-' | b'+' => break,
             // A second decimal point likewise ends the number rather than being ignored.
-            '.' if seen_dot => break,
-            '.' => {
+            b'.' if seen_dot => break,
+            b'.' => {
                 in_leading_signs = false;
                 seen_dot = true;
                 cleaned.push('.');
             }
-            '0'..='9' => {
+            b'0'..=b'9' => {
                 in_leading_signs = false;
                 seen_digit = true;
-                cleaned.push(character);
+                cleaned.push(char::from(byte));
             }
             _ => break,
         }
@@ -531,7 +657,7 @@ fn hex_value(byte: u8) -> Option<u8> {
 mod tests {
     use super::{Lexer, Token};
 
-    fn tokens(input: &[u8]) -> Vec<Token> {
+    fn tokens(input: &[u8]) -> Vec<Token<'_>> {
         let mut lexer = Lexer::new(input);
         std::iter::from_fn(|| lexer.next_token()).collect()
     }
@@ -575,7 +701,7 @@ mod tests {
         for run in [&b"."[..], b"-", b"+", b"--", b"-.", b".-"] {
             assert_eq!(
                 tokens(run),
-                vec![Token::Keyword(run.to_vec())],
+                vec![Token::Keyword(run)],
                 "{} states no digit and is therefore no number",
                 String::from_utf8_lossy(run)
             );
@@ -593,6 +719,44 @@ mod tests {
                 Token::Integer(0),
             ]
         );
+    }
+
+    /// `fixed_format_number` must agree with the standard library bit for bit.
+    ///
+    /// The exactness argument is in its doc comment; this is that argument exercised
+    /// rather than trusted: every digit string up to five digits, under every sign, with
+    /// the decimal point in every position including absent, lexes to the same bits
+    /// `str::parse` produces — including the sign of `-0.0`, which `to_bits` sees and
+    /// `==` would not.
+    #[test]
+    fn the_fixed_format_parse_agrees_with_the_standard_library() {
+        for value in 0..=99_999u32 {
+            let digits = value.to_string();
+            for sign in ["", "-", "+"] {
+                for dot in (0..=digits.len()).map(Some).chain([None]) {
+                    let text = match dot {
+                        Some(at) => format!("{sign}{}.{}", &digits[..at], &digits[at..]),
+                        None => format!("{sign}{digits}"),
+                    };
+                    let lexed = tokens(text.as_bytes());
+                    match (dot, lexed.as_slice()) {
+                        (Some(_), [Token::Real(actual)]) => {
+                            let expected: f64 = text.parse().unwrap();
+                            assert_eq!(
+                                actual.to_bits(),
+                                expected.to_bits(),
+                                "{text}: {actual} against the library's {expected}"
+                            );
+                        }
+                        (None, [Token::Integer(actual)]) => {
+                            let expected: i64 = text.parse().unwrap();
+                            assert_eq!(*actual, expected, "{text}");
+                        }
+                        (_, other) => panic!("{text} lexed as {other:?}"),
+                    }
+                }
+            }
+        }
     }
 
     #[test]
@@ -677,10 +841,7 @@ mod tests {
     fn keywords_are_returned_verbatim() {
         assert_eq!(
             tokens(b"obj endobj"),
-            vec![
-                Token::Keyword(b"obj".to_vec()),
-                Token::Keyword(b"endobj".to_vec())
-            ]
+            vec![Token::Keyword(b"obj"), Token::Keyword(b"endobj")]
         );
     }
 
@@ -709,7 +870,7 @@ mod tests {
 
     #[test]
     fn unmatched_closers_are_consumed_rather_than_looping() {
-        assert_eq!(tokens(b")"), vec![Token::Keyword(vec![b')'])]);
-        assert_eq!(tokens(b">"), vec![Token::Keyword(vec![b'>'])]);
+        assert_eq!(tokens(b")"), vec![Token::Keyword(b")")]);
+        assert_eq!(tokens(b">"), vec![Token::Keyword(b">")]);
     }
 }

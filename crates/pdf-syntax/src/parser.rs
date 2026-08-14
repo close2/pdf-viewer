@@ -155,7 +155,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Parses an object whose first token has already been read.
-    fn parse_object_from(&mut self, token: Token) -> SyntaxResult<Object> {
+    fn parse_object_from(&mut self, token: Token<'a>) -> SyntaxResult<Object> {
         match token {
             Token::Integer(value) => Ok(self.integer_or_reference(value)),
             Token::Real(value) => Ok(Object::Real(value)),
@@ -171,13 +171,13 @@ impl<'a> Parser<'a> {
             }
             Token::ArrayOpen => self.parse_array(),
             Token::DictOpen => self.parse_dictionary_or_stream(),
-            Token::Keyword(word) => match word.as_slice() {
+            Token::Keyword(word) => match word {
                 b"true" => Ok(Object::Boolean(true)),
                 b"false" => Ok(Object::Boolean(false)),
                 b"null" => Ok(Object::Null),
                 _ => Err(SyntaxError::Unexpected {
                     at: self.lexer.position(),
-                    found: String::from_utf8_lossy(&word).into_owned(),
+                    found: String::from_utf8_lossy(word).into_owned(),
                     expected: "an object",
                 }),
             },
@@ -259,7 +259,7 @@ impl<'a> Parser<'a> {
         // `stream` may follow a dictionary, making it a stream object.
         let rewind = self.lexer.position();
         let mut probe = self.lexer.clone();
-        if probe.next_token() == Some(Token::Keyword(b"stream".to_vec())) {
+        if probe.next_token() == Some(Token::Keyword(b"stream")) {
             self.lexer = probe;
             return self.parse_stream_data(dict);
         }
@@ -389,7 +389,7 @@ impl<'a> Parser<'a> {
         // been delimited, and rejecting the object would lose a page over a missing
         // keyword.
         let rewind = self.lexer.position();
-        if self.lexer.next_token() != Some(Token::Keyword(b"endstream".to_vec())) {
+        if self.lexer.next_token() != Some(Token::Keyword(b"endstream")) {
             self.lexer.seek(rewind);
         }
 
@@ -424,7 +424,7 @@ impl<'a> Parser<'a> {
                 expected: "an indirect object header",
             });
         };
-        if self.lexer.next_token() != Some(Token::Keyword(b"obj".to_vec())) {
+        if self.lexer.next_token() != Some(Token::Keyword(b"obj")) {
             return Err(SyntaxError::Unexpected {
                 at,
                 found: "missing 'obj'".to_owned(),
@@ -446,7 +446,7 @@ impl<'a> Parser<'a> {
         // `endobj` is frequently missing or misplaced. The object is already complete, so
         // its absence is tolerated.
         let rewind = self.lexer.position();
-        if self.lexer.next_token() != Some(Token::Keyword(b"endobj".to_vec())) {
+        if self.lexer.next_token() != Some(Token::Keyword(b"endobj")) {
             self.lexer.seek(rewind);
         }
 

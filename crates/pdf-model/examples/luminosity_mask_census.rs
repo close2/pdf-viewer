@@ -257,7 +257,7 @@ fn read_group(document: &Document, mask: &Dictionary, stream: &pdf_syntax::Strea
             )]
             Token::Real(value) => operands.push(value as f32),
             Token::Keyword(operator) => {
-                let operator = String::from_utf8_lossy(&operator).into_owned();
+                let operator = String::from_utf8_lossy(operator).into_owned();
                 if matches!(
                     operator.as_str(),
                     "k" | "K"

@@ -440,7 +440,7 @@ fn spliced(stream: &[u8], marks: &[u8]) -> Vec<u8> {
         let pdf_syntax::Token::Keyword(word) = token else {
             continue;
         };
-        match word.as_slice() {
+        match word {
             b"BMC" | b"BDC" => depth = depth.saturating_add(1),
             b"EMC" => {
                 depth = depth.saturating_sub(1);
