@@ -291,6 +291,56 @@ fn the_gpu_refuses_a_four_component_page() {
         .expect("the correctness oracle draws what the device refuses");
 }
 
+/// §11.4.6's non-isolated knockout group is refused **by name** on this backend.
+///
+/// Each element composites with the group's *initial* backdrop — here the group's own,
+/// since the group is non-isolated — which needs that backdrop retained beside the
+/// accumulation and a scratch per element. A Vello layer begins transparent and a scene
+/// cannot read what it has drawn so far, so the refusal is the same one
+/// [`the_gpu_refuses_a_non_isolated_group`] pins, reached through the knockout shape of the
+/// command; this fails if either backdrop is ever silently substituted for the other.
+#[test]
+fn the_gpu_refuses_a_knockout_group_on_its_own_backdrop() {
+    let list = test_scenes::knockout_group_on_its_own_backdrop();
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+    let refusal = gpu()
+        .rasterize(&list, target)
+        .expect_err("Vello has no layer seeded from its backdrop")
+        .to_string();
+    assert!(
+        refusal.contains("non-isolated"),
+        "the refusal names what it needs: {refusal}"
+    );
+    CpuRasterizer::new()
+        .rasterize(&list, target)
+        .expect("the correctness oracle draws what the device refuses");
+}
+
+/// §11.6.6's group compositing in a four-component space is refused **by name** here.
+///
+/// The pair's colours are ink complements, resolved per pixel *after* the group
+/// composites, and a scene under composition cannot be read back — the page-level
+/// refusal of [`the_gpu_refuses_a_four_component_page`], one scope down. Drawing the
+/// chromatic list alone would paint the group in the complements of cyan, magenta and
+/// yellow with no black at all, which is a plausible wrong picture rather than an obvious
+/// one, so this fails if the refusal ever becomes silent.
+#[test]
+fn the_gpu_refuses_a_group_in_its_own_blending_space() {
+    let list = test_scenes::group_in_its_own_blending_space();
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+    let refusal = gpu()
+        .rasterize(&list, target)
+        .expect_err("a scene under composition cannot resolve a pair per pixel")
+        .to_string();
+    assert!(
+        refusal.contains("§11.6.6") && refusal.contains("four components"),
+        "the refusal names the clause and what it needs: {refusal}"
+    );
+    CpuRasterizer::new()
+        .rasterize(&list, target)
+        .expect("the correctness oracle draws what the device refuses");
+}
+
 /// Every one of §11.3.5's sixteen blend modes is the same function on both backends, to
 /// the channel.
 ///

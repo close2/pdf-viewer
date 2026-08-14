@@ -233,7 +233,21 @@ const MIN_STRUCTURAL_SIMILARITY: f64 = 0.99;
 /// `P' = (1 − f) × P + S`, one per backend, meeting on artwork that no fixture invented.
 /// What is left here is the one page that was here first, and its refusal is a texture
 /// capacity rather than a clause.
-const REFUSED: [&str; 1] = ["bug1721218_reduced.pdf"];
+///
+/// **Two in the four-hundred-and-ninety-second, and both are the oracle gaining a
+/// construction this backend cannot state** (ADR 0327). `bug1721218_reduced.pdf` stays, with
+/// its refusal renamed: its whole artwork is one isolated `/CS /DeviceCMYK` group that now
+/// composites in ink as a pair of element lists resolved per pixel at its `Do` (§11.6.6,
+/// §11.7.2), and a scene under composition cannot be read back — the page-level pair's two
+/// whole `Target::Readback` renders have no group-scoped analogue. The texture-capacity
+/// refusal that used to print for it has not been fixed, only preempted: the pair is refused
+/// before the scene is built. `issue18032.pdf` arrives for §11.4.6's non-isolated knockout
+/// group, whose every element composites with the group's *own* initial backdrop — a backdrop
+/// retained beside the accumulation with a scratch per element, which neither a
+/// `quorra_scene::GroupSpec` nor the staged `DestOut`/`Plus` pair (written on §11.4.5's
+/// transparent start) can express. Both frames go to the CPU backend, which draws them;
+/// `headless_quorra.rs` holds both refusals against the cross-backend scenes.
+const REFUSED: [&str; 2] = ["bug1721218_reduced.pdf", "issue18032.pdf"];
 
 /// The same list at [`MAGNIFIED`], which is the population the zoom path actually draws.
 ///

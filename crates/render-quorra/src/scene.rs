@@ -78,6 +78,46 @@ const MAX_CLIP_DEPTH: usize = 4096;
 /// A struct rather than seven arguments because two callers state them: the page's own
 /// groups, and §11.4.6's staged halves, which differ from the first only in the operator
 /// the finished group composites with.
+/// Refuses the two shapes of `Command::Group` quorra's vocabulary cannot state.
+///
+/// - **A non-isolated knockout group** (`isolated: false` beside `knockout: true`):
+///   §11.4.6 composites each element with the group's *initial* backdrop — here the
+///   group's own — which needs that backdrop retained beside the accumulation and a
+///   scratch per element. A `GroupSpec` carries the two flags but a scene states no
+///   per-element backdrop, and quorra's staged `DestOut`/`Plus` pair is written on the
+///   transparent start §11.4.5 gives (its ADRs 0025, 0032). Passing the flags through
+///   would substitute one backdrop for the other in silence.
+/// - **A group compositing in a four-component blending colour space** (§11.6.6, §11.7.2,
+///   `blending: Some`): the pair's colours are ink complements resolved per pixel after
+///   the group composites, and a scene under composition cannot be read back. The page
+///   -level pair is drawn by two whole `render` passes (ADR 0275); a group-scoped one has
+///   no lane.
+///
+/// Both go to the CPU backend, which draws them; refusing here is what keeps either from
+/// becoming a wrong picture in silence, which is trap 5.
+fn refuse_untranslatable_group(
+    isolated: bool,
+    knockout: bool,
+    in_own_space: bool,
+) -> Result<(), QuorraRasterError> {
+    if knockout && !isolated {
+        return Err(QuorraRasterError::Unsupported(
+            "a non-isolated knockout group: each element composites with the group's own \
+             initial backdrop, which a scene cannot retain beside the accumulation \
+             (ISO 32000-2 §11.4.6)"
+                .to_owned(),
+        ));
+    }
+    if in_own_space {
+        return Err(QuorraRasterError::Unsupported(
+            "a group compositing in a blending colour space of four components: the pair \
+             resolves per pixel after the group composites (ISO 32000-2 §11.6.6, §11.7.2)"
+                .to_owned(),
+        ));
+    }
+    Ok(())
+}
+
 #[derive(Clone, Copy)]
 struct GroupParts<'a> {
     /// The group's elements.
@@ -174,19 +214,23 @@ impl<'a> Encoder<'a> {
                     blend,
                     isolated,
                     knockout,
-                } => self.group(
-                    builder,
-                    GroupParts {
-                        commands,
-                        alpha: *alpha,
-                        blend: *blend,
-                        clip: *clip,
-                        mask: *mask,
-                        isolated: *isolated,
-                        knockout: *knockout,
-                    },
-                    quorra_scene::Compose::SrcOver,
-                )?,
+                    blending,
+                } => {
+                    refuse_untranslatable_group(*isolated, *knockout, blending.is_some())?;
+                    self.group(
+                        builder,
+                        GroupParts {
+                            commands,
+                            alpha: *alpha,
+                            blend: *blend,
+                            clip: *clip,
+                            mask: *mask,
+                            isolated: *isolated,
+                            knockout: *knockout,
+                        },
+                        quorra_scene::Compose::SrcOver,
+                    )?;
+                }
                 Command::Shaped { object, shape } => self.shaped(builder, object, shape)?,
                 // `Command` is non-exhaustive: a variant added upstream must fail
                 // loudly here, never fall through as a hole in the page.
@@ -201,6 +245,9 @@ impl<'a> Encoder<'a> {
     }
 
     /// One transparency group, composited by `compose` (ISO 32000-2 §11.4.1).
+    ///
+    /// See [`refuse_untranslatable_group`] for the two shapes of the command every caller
+    /// screens out before building a [`quorra_scene::GroupSpec`].
     ///
     /// `compose` is [`quorra_scene::Compose::SrcOver`] for every group a page states, and one
     /// of §11.4.6's two staged operators where this group is one half of a
@@ -312,8 +359,10 @@ impl<'a> Encoder<'a> {
             blend,
             isolated,
             knockout,
+            blending,
         } = half
         {
+            refuse_untranslatable_group(*isolated, *knockout, blending.is_some())?;
             return self.group(
                 builder,
                 GroupParts {

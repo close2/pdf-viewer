@@ -624,6 +624,9 @@ impl Interpreter<'_> {
             blend: state.blend,
             isolated,
             knockout: false,
+            // §8.7.3.1: a pattern cell's colours are resolved in the compositing already in
+            // force, so the implicit group introduces no space of its own.
+            blending: None,
         });
     }
 

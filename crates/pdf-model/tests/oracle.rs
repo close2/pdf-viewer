@@ -7017,8 +7017,34 @@ const AMBIGUOUS_HAIRLINE_BORDERS: [&str; 1] = ["issue18072.pdf page 1"];
 /// `doc/todo/00` step 6's own definition of neither having converged. Ours ends between them,
 /// 0.28 from one and 0.46 from the other. A page where one reference omits a whole class of mark
 /// is `ambiguous` by the verdict's definition and is listed rather than ranked.
-const AMBIGUOUS_PAGE_DRAWN_IN_INK: [&str; 2] = [
+///
+/// # `bug1721218_reduced.pdf`, the same shape one scope down (session 492)
+///
+/// The page states no group at all; what it draws is one isolated `/CS /DeviceCMYK` **form**
+/// group holding the whole artwork — a product photograph built from hundreds of nested
+/// groups, shadings and gray soft masks — which ADR 0327 composites in ink as a pair of its
+/// own instead of reporting (§11.6.6). So this page too reaches the gate's judgement for the
+/// first time, and the first thing to establish is again that the group's space is not what
+/// makes it ambiguous. Mean |difference| over the whole page, all five renders pairwise, in
+/// levels of 255:
+///
+/// ```text
+/// ours vs poppler   0.116      poppler vs mupdf         0.303
+/// ours vs hayro     0.147      poppler vs ghostscript   0.324
+/// ours vs mupdf     0.241      mupdf   vs ghostscript   0.328
+/// ours vs ghostscript 0.367    mupdf   vs hayro         0.130
+/// ```
+///
+/// **Ours sits nearer to `poppler` than any two references sit to each other**, and every
+/// pixel that differs from the nearest reference by more than 8 levels lies inside the
+/// artwork's own rectangle (x 242–461, y 374–522 of 612×792) — where `ghostscript` draws the
+/// chassis' perforation texture as distinct dots and saturated ports while the other four
+/// soften both, which is a sub-pixel-artwork reduction question and not a colour-space one.
+/// Four renderers, four flattenings of the same transparency stack, no consensus to hold
+/// anybody to.
+const AMBIGUOUS_PAGE_DRAWN_IN_INK: [&str; 3] = [
     "bug1703683_page2_reduced.pdf page 1",
+    "bug1721218_reduced.pdf page 1",
     "issue13520.pdf page 1",
 ];
 

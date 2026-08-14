@@ -890,6 +890,7 @@ impl Interpreter<'_> {
                     blend: BlendMode::Normal,
                     isolated: true,
                     knockout: true,
+                    blending: None,
                 });
             } else {
                 if knockout_owed {
@@ -1013,6 +1014,7 @@ impl Interpreter<'_> {
                     blend: BlendMode::Normal,
                     isolated: true,
                     knockout: true,
+                    blending: None,
                 });
             } else {
                 owed = true;

@@ -130,6 +130,7 @@ impl Interpreter<'_> {
                         blend: BlendMode::Normal,
                         isolated: true,
                         knockout: true,
+                        blending: None,
                     });
                 } else {
                     for part in parts {

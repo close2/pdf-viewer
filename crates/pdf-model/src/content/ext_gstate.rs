@@ -355,13 +355,19 @@ impl Interpreter<'_> {
         // now: `stated_shape` builds a knockout element's shape by *removing* the mask and the
         // constant, which is the clause under `/AIS false` and is exactly wrong under true.
         //
-        // So the flag is read, and a knockout group is refused while it is set. It is
-        // deliberately never cleared: the value that matters is whether any element of a
-        // knockout group was painted under it, and that is a question about the graphics
-        // state's history rather than its value. **No corpus document states the entry at
-        // all**, so the over-approximation costs no page — checked over all 974.
-        if matches!(self.document.get_key(dict, "AIS"), Object::Boolean(true)) {
-            self.alpha_is_shape = true;
+        // So the flag is read, and a knockout group is refused where an element may have
+        // been painted while it was set. Two records of it, with two scopes:
+        // `state.alpha_is_shape` is the parameter itself — set either way here, bounded by
+        // `q`/`Q` like everything else in the struct — and `self.alpha_is_shape` is the
+        // question a *group* asks when it closes, "was this stated while my content ran",
+        // which is a history rather than a value and is therefore monotone within one
+        // group's run. It used to be monotone across the whole page, and nine corpus
+        // documents state the entry: `issue18032.pdf` states it inside a form whose group
+        // draws nothing, and the page-wide flag refused a knockout group two forms later
+        // for it (ADR 0327).
+        if let Object::Boolean(flag) = self.document.get_key(dict, "AIS") {
+            state.alpha_is_shape = flag;
+            self.alpha_is_shape |= flag;
         }
 
         // §11.6.4.3's soft mask: an independent source of shape or opacity, defined by a

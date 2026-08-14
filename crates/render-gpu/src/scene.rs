@@ -163,6 +163,37 @@ fn non_isolated_group() -> GpuRasterError {
     )
 }
 
+/// Refuses the shapes of `Command::Group` this backend cannot build, before one is encoded.
+///
+/// The first two are `encode`'s standing refusals — a bare group under knockout, and
+/// §11.4.4's non-isolated group, which now includes §11.4.6's non-isolated knockout group
+/// since both need the page seeded into a layer that begins transparent. The third is
+/// §11.6.6's group compositing in a four-component space of its own: the pair's colours are
+/// ink complements, resolved per pixel *after* the group composites, and a scene under
+/// composition cannot be read back — the same refusal `render_checked` makes for §11.4.7's
+/// page pair, one scope down. Each frame goes to the CPU backend, which draws it.
+fn refuse_untranslatable_group(
+    compose: Compose,
+    isolated: bool,
+    in_own_space: bool,
+) -> Result<(), GpuRasterError> {
+    if compose == Compose::Knockout {
+        return Err(nested_group_in_knockout());
+    }
+    if !isolated {
+        return Err(non_isolated_group());
+    }
+    if in_own_space {
+        return Err(GpuRasterError::UnsupportedCommand(
+            "a group compositing in a blending colour space of four components \
+             (ISO 32000-2 §11.6.6, §11.7.2): the pair resolves per pixel, which a scene \
+             under composition cannot"
+                .to_owned(),
+        ));
+    }
+    Ok(())
+}
+
 /// Empties the area an element is about to knock out (§11.4.6).
 ///
 /// # Why not `Compose::Copy`, which is the rule itself
@@ -776,14 +807,10 @@ fn encode(
                 blend,
                 isolated,
                 knockout,
+                blending,
                 ..
             } => {
-                if spec.compose == Compose::Knockout {
-                    return Err(nested_group_in_knockout());
-                }
-                if !*isolated {
-                    return Err(non_isolated_group());
-                }
+                refuse_untranslatable_group(spec.compose, *isolated, blending.is_some())?;
                 encode_group(scene, list, commands, (*alpha, *blend), *knockout, spec)?;
             }
             other => {

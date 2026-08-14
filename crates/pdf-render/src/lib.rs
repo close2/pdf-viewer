@@ -47,7 +47,7 @@ pub use degenerate::{
     DegenerateStroke, ZERO_DASH, dash_mark, dashes_showing_direction, split_dash_marks,
     split_degenerate,
 };
-pub use display_list::{Clip, ClipId, Command, DisplayList, DisplayListError};
+pub use display_list::{Clip, ClipId, Command, DisplayList, DisplayListError, GroupBlending};
 pub use geom::{Path, PathCommand, Point, Rect, Size, Transform};
 pub use outline::{marked_bounds, stroked_bounds};
 pub use paint::{

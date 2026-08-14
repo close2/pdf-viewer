@@ -231,6 +231,7 @@ fn a_translucent_mode_2_glyph_is_one_knockout_group() {
             blend,
             isolated,
             knockout,
+            blending: None,
         },
     ] = commands
     else {
@@ -306,6 +307,7 @@ fn the_text_objects_own_knockout_group_holds_the_glyphs_parts_flat() {
         Command::Group {
             commands: parts,
             knockout: true,
+            blending: None,
             ..
         },
     ] = drawn.display_list.commands()

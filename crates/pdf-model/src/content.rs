@@ -184,6 +184,14 @@ struct GraphicsState {
     /// `None` is the initial value in the sense that matters: no document has asked for
     /// anything, so this device's own resolution stands. See `Ramp::resolution_for`.
     smoothness: Option<f32>,
+    /// §11.6.4.3's `/AIS`, Table 57's alpha source flag: whether the soft mask and the two
+    /// alpha constants state *shape* rather than opacity.
+    ///
+    /// A graphics state parameter like any other in this struct — set by `gs`, saved and
+    /// restored by `q`/`Q` — and carried here so that [`Interpreter::alpha_is_shape`] can be
+    /// seeded with the value actually in force when a group's content starts, rather than
+    /// with the whole page's history. Initially `false` (§8.4.1 Table 52).
+    alpha_is_shape: bool,
     /// Text state, which `q`/`Q` saves and restores along with everything else.
     text: TextState,
 }
@@ -250,6 +258,7 @@ impl GraphicsState {
             soft_mask: None,
             transfer: None,
             smoothness: None,
+            alpha_is_shape: false,
             fill: Color::BLACK,
             fill_pattern: None,
             stroke_pattern: None,
@@ -452,6 +461,7 @@ impl<'a> Interpreter<'a> {
             blending: page_blending_space(document, page),
             blending_changed: false,
             black_generation_stated: false,
+            nested_space_departed: false,
             blending_beyond: match page_press(document, page) {
                 PagePress::Beyond(why) => Some(why),
                 PagePress::Device | PagePress::In(_) => None,
@@ -909,13 +919,24 @@ struct Interpreter<'a> {
     /// its parent's *accumulated* content, which is what "it is not the immediate backdrop"
     /// distinguishes.
     transparent_initial_backdrop: bool,
-    /// Whether §11.6.4.3's `/AIS` has been set true anywhere on this page.
+    /// Whether §11.6.4.3's `/AIS` has been in force anywhere in the content being run.
     ///
     /// While it is, a mask and the alpha constants are *shape* rather than opacity, and
-    /// [`stated_shape`] — which builds a knockout element's shape by removing exactly those
-    /// two — states the wrong quantity. Every knockout group is therefore refused by name
-    /// while this is set. Monotone on purpose; the comment beside the entry in
-    /// [`Interpreter::apply_ext_gstate`] says why, and no corpus document states it.
+    /// `stated_shape` — which builds a knockout element's shape by removing exactly those
+    /// two — states the wrong quantity. A knockout group any of whose elements may have
+    /// been painted under it is therefore refused by name.
+    ///
+    /// Monotone **within one group's content** rather than across the page, which is the
+    /// four-hundred-and-ninety-second session's narrowing: the entry is a graphics state
+    /// parameter, so `q`/`Q` bound it, and a `gs` inside one form said nothing about a
+    /// sibling form's group — yet the page-wide flag refused every knockout group after it
+    /// (`issue18032.pdf` states it inside a form whose group draws nothing at all, two
+    /// forms before the knockout group it cost). [`Interpreter::run_transparency_group`]
+    /// seeds this from [`GraphicsState::alpha_is_shape`] — the value actually in force at
+    /// the `Do` — runs the content, reads what the run left, and restores the enclosing
+    /// value OR-ed with it, so an enclosing group still sees a nested `gs`. Within one
+    /// scope it stays an over-approximation ("stated while the content ran", not "a mark
+    /// was painted under it"), which errs toward the report.
     alpha_is_shape: bool,
     /// What the content being run is painting into, which decides what a colour becomes.
     compositing: Compositing,
@@ -948,6 +969,19 @@ struct Interpreter<'a> {
     /// Whether any `/ExtGState` on this page states Table 57's `/BG`, `/BG2`, `/UCR` or
     /// `/UCR2`, which §11.7.5.3 puts inside §10.4.2.4's conversion into a `DeviceCMYK` group.
     black_generation_stated: bool,
+    /// Whether a group changed the blending space in force, with something compositing in
+    /// it, while colours were being resolved for a space that is not the device's.
+    ///
+    /// The record a *group-scoped* pair run reads where the page-scoped construction reads
+    /// [`Interpreter::blending_changed`]: §11.6.6's departure reports fire only where the
+    /// device's components are what is composited on, so a departure met during a pair's
+    /// subtractive runs would otherwise be drawn approximately in silence. The pair run
+    /// that finds this set discards its pair and re-runs on the device, where the same
+    /// group reports ordinarily. Scoped by [`Interpreter::group_commands`] around a pair
+    /// attempt and left alone everywhere else, so that a departure inside a nested
+    /// ordinary group still reaches the pair enclosing it; a soft mask's run restores it
+    /// exactly, since a space inside a mask is the mask's own (ADR 0276).
+    nested_space_departed: bool,
     /// Why the four components §11.4.7 names cannot be sampled into a press, if they cannot.
     ///
     /// [`PagePress::Beyond`]'s reason, carried into the report. Since the

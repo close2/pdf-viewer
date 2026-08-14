@@ -190,6 +190,7 @@ pub fn transparency_group() -> DisplayList {
         blend: BlendMode::Multiply,
         isolated: true,
         knockout: false,
+        blending: None,
     });
 
     list
@@ -281,6 +282,7 @@ pub fn knockout_group() -> DisplayList {
         blend: BlendMode::Normal,
         isolated: true,
         knockout: true,
+        blending: None,
     });
 
     list
@@ -341,6 +343,7 @@ pub fn knockout_stated_shape() -> DisplayList {
             blend: BlendMode::Normal,
             isolated: true,
             knockout: false,
+            blending: None,
         }),
         shape: Box::new(Command::Group {
             commands: vec![fill(path, Color::WHITE)],
@@ -350,6 +353,7 @@ pub fn knockout_stated_shape() -> DisplayList {
             blend: BlendMode::Normal,
             isolated: true,
             knockout: false,
+            blending: None,
         }),
     };
 
@@ -372,6 +376,7 @@ pub fn knockout_stated_shape() -> DisplayList {
         blend: BlendMode::Normal,
         isolated: true,
         knockout: true,
+        blending: None,
     });
 
     list
@@ -432,6 +437,7 @@ pub fn non_isolated_group() -> DisplayList {
         blend: BlendMode::Normal,
         isolated: false,
         knockout: false,
+        blending: None,
     });
 
     list
@@ -631,6 +637,180 @@ pub fn four_component_page() -> DisplayList {
     let mut chromatic = half(true);
     chromatic.set_blending(space, half(false));
     chromatic
+}
+
+/// A non-isolated **knockout** group whose elements blend against the group's own backdrop
+/// (ISO 32000-2 §11.4.6).
+///
+/// > In a knockout group, each individual element shall be composited with the group's
+/// > initial backdrop rather than with the stack of preceding elements in the group.
+///
+/// and for a non-isolated group that backdrop is not transparency: "[a] nonisolated
+/// knockout group composites its topmost enclosing element with the group's backdrop." So a
+/// backend has to retain the backdrop beside the accumulation and composite each element
+/// against *it* — the construction ADR 0307 priced and ADR 0327 built — and every element
+/// arrives as a [`Command::Shaped`] so the weighted average's factor is stated per pixel.
+///
+/// # The arithmetic, in a 100-unit page
+///
+/// The page is opaque red, `B = (1, 0, 0)`. Element 1 is opaque blue under `Multiply`, so
+/// its composite with `B` is `(0, 0, 0)` — black only because the blend saw the page.
+/// Element 2 is green at opacity 0.3 under Normal: `0.7 × B + 0.3 × green =
+/// (178.5, 76.5, 0)`, and within its shape it **replaces** element 1's black rather than
+/// compositing over it, which is the knockout. Its left edge sits at x = 30.5 so one device
+/// column carries shape ½, where the weighted average gives `(89, 38, 0)` — the pixel that
+/// separates this construction from source-over (`(0, 38, 0)`) and from the
+/// transparent-backdrop staged pair (element 1 blue rather than black).
+///
+/// # What each backend does with it
+///
+/// `render-cpu` draws it (`group_constructions.rs` holds the pixels); `render-gpu` and
+/// `render-quorra` refuse it by name — neither can retain a backdrop beside a layer's
+/// accumulation — and their refusals are tested against this scene so they cannot become
+/// silent.
+#[must_use]
+pub fn knockout_group_on_its_own_backdrop() -> DisplayList {
+    let square = Size {
+        width: 100.0,
+        height: 100.0,
+    };
+    let fill =
+        |x0: f32, y0: f32, x1: f32, y1: f32, colour: Color, blend: BlendMode| Command::Fill {
+            path: Arc::new(rect(x0, y0, x1, y1)),
+            transform: Transform::IDENTITY,
+            fill_rule: FillRule::NonZero,
+            paint: Paint::Solid(colour),
+            clip: None,
+            mask: None,
+            blend,
+        };
+    // The element's shape half is its geometry painted opaque white under Normal, which is
+    // what `pdf-model`'s `stated_shape` derives for a solid fill.
+    let shaped =
+        |x0: f32, y0: f32, x1: f32, y1: f32, colour: Color, blend: BlendMode| Command::Shaped {
+            object: Box::new(fill(x0, y0, x1, y1, colour, blend)),
+            shape: Box::new(fill(x0, y0, x1, y1, Color::WHITE, BlendMode::Normal)),
+        };
+    let mut list = DisplayList::new(square);
+    list.push(fill(0.0, 0.0, 100.0, 100.0, RED, BlendMode::Normal));
+    list.push(Command::Group {
+        commands: vec![
+            shaped(10.0, 10.0, 60.0, 60.0, BLUE, BlendMode::Multiply),
+            shaped(
+                30.5,
+                30.0,
+                80.0,
+                80.0,
+                Color {
+                    r: 0.0,
+                    g: 1.0,
+                    b: 0.0,
+                    a: 0.3,
+                },
+                BlendMode::Normal,
+            ),
+        ],
+        alpha: 1.0,
+        clip: None,
+        mask: None,
+        blend: BlendMode::Normal,
+        isolated: false,
+        knockout: true,
+        blending: None,
+    });
+    list
+}
+
+/// An isolated group compositing in a four-component blending colour space of its own
+/// (ISO 32000-2 §11.6.6, §11.7.2).
+///
+/// §11.7.2: "all blending and compositing computations shall be done in that space", so the
+/// group's elements are two lists — the additive complements of cyan, magenta and yellow,
+/// and of black — and the pair resolves through the space's grid before the group is
+/// painted onto its parent ([`pdf_render::GroupBlending`]). The page itself states no
+/// space, which is the corpus's own shape (`bug1721218_reduced.pdf`).
+///
+/// # The arithmetic
+///
+/// The group holds paper and registration black at constant alpha ½ over it, so the covered
+/// pixels carry half of each of the four inks; the cube at `(½, ½, ½, ½)` is the mean of
+/// its sixteen corners, **(76, 66, 64)** — against the (128, 128, 128) that converting each
+/// colour first and compositing on the device gives, ADR 0251's 51-of-255 gap one scope
+/// down from the page. The inner mark's right edge sits at x = 80.5, so one device column
+/// carries a quarter of each ink and holds the grid at `(¼, ¼, ¼, ¼)`.
+///
+/// # What each backend does with it
+///
+/// `render-cpu` draws it (`group_constructions.rs`); `render-gpu` and `render-quorra`
+/// refuse it by name — the pair resolves per pixel after the group composites, which a
+/// scene under composition cannot — and their refusals are tested against this scene.
+///
+/// # Panics
+///
+/// Cannot panic: [`pdf_render::BlendingSpace::new`] returns `None` only for a grid that is
+/// not `side⁴` samples with `side` at least two, and this one is 2⁴ = 16.
+#[must_use]
+#[expect(
+    clippy::expect_used,
+    reason = "sixteen samples is a grid of side two by construction; a Result here would \
+              push an impossible error case onto every caller"
+)]
+pub fn group_in_its_own_blending_space() -> DisplayList {
+    let square = Size {
+        width: 100.0,
+        height: 100.0,
+    };
+    let fill = |x0: f32, y0: f32, x1: f32, y1: f32, colour: Color| Command::Fill {
+        path: Arc::new(rect(x0, y0, x1, y1)),
+        transform: Transform::IDENTITY,
+        fill_rule: FillRule::NonZero,
+        paint: Paint::Solid(colour),
+        clip: None,
+        mask: None,
+        blend: BlendMode::Normal,
+    };
+    // Paper is no ink and registration black is every ink, in all four components alike, so
+    // the two halves of the pair are the same two marks: complement 1 everywhere for paper,
+    // complement 0 at alpha ½ for the black.
+    let elements = || {
+        vec![
+            fill(10.0, 10.0, 90.0, 90.0, Color::WHITE),
+            fill(
+                20.0,
+                20.0,
+                80.5,
+                80.0,
+                Color {
+                    r: 0.0,
+                    g: 0.0,
+                    b: 0.0,
+                    a: 0.5,
+                },
+            ),
+        ]
+    };
+    let grid: Arc<[[f32; 3]]> = PROCESS_INKS
+        .iter()
+        .map(|corner| corner.map(|channel| f32::from(channel) / 255.0))
+        .collect();
+    let space = pdf_render::BlendingSpace::new(2, grid)
+        .expect("sixteen samples is a grid of side two on four axes");
+    let mut list = DisplayList::new(square);
+    list.push(fill(0.0, 0.0, 100.0, 100.0, Color::WHITE));
+    list.push(Command::Group {
+        commands: elements(),
+        alpha: 1.0,
+        clip: None,
+        mask: None,
+        blend: BlendMode::Normal,
+        isolated: true,
+        knockout: false,
+        blending: Some(Box::new(pdf_render::GroupBlending {
+            space,
+            black: elements(),
+        })),
+    });
+    list
 }
 
 /// All sixteen of §11.3.5's blend modes, each over the same backdrop.

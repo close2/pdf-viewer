@@ -319,6 +319,51 @@ fn quorra_refuses_a_non_isolated_group_that_blends() {
     );
 }
 
+/// §11.4.6's non-isolated knockout group is refused **by name** on this backend.
+///
+/// Each element composites with the group's *initial* backdrop — the group's own, since
+/// the group is non-isolated — which needs that backdrop retained beside the accumulation
+/// and a scratch per element. `GroupSpec` carries both of Table 145's flags, but quorra's
+/// staged `DestOut`/`Plus` pair is written on the transparent start §11.4.5 gives (its
+/// ADRs 0025, 0032), and a scene states no per-element backdrop; passing the flags through
+/// would substitute one backdrop for the other in silence, so this backend refuses before
+/// building the spec. The frame goes to the CPU backend, whose `group_constructions.rs`
+/// pins the pixels.
+#[test]
+fn quorra_refuses_a_knockout_group_on_its_own_backdrop() {
+    let list = test_scenes::knockout_group_on_its_own_backdrop();
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("target fits the budget");
+    let refusal = quorra()
+        .rasterize(&list, target)
+        .expect_err("a scene cannot retain the initial backdrop beside the accumulation")
+        .to_string();
+    assert!(
+        refusal.contains("§11.4.6") && refusal.contains("initial backdrop"),
+        "the refusal names the clause and what it needs: {refusal}"
+    );
+}
+
+/// §11.6.6's group compositing in a four-component space is refused **by name** here.
+///
+/// The page-level pair is drawn by two whole `Target::Readback` renders (ADR 0275), but a
+/// *group's* pair resolves per pixel after the group composites and before it is painted
+/// onto its parent, which a scene under composition has no lane for. Drawing either list
+/// alone would paint the group in ink complements — a plausible wrong picture — so the
+/// refusal is typed and this fails if it ever becomes silent.
+#[test]
+fn quorra_refuses_a_group_in_its_own_blending_space() {
+    let list = test_scenes::group_in_its_own_blending_space();
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("target fits the budget");
+    let refusal = quorra()
+        .rasterize(&list, target)
+        .expect_err("a scene under composition cannot resolve a pair per pixel")
+        .to_string();
+    assert!(
+        refusal.contains("§11.6.6") && refusal.contains("four components"),
+        "the refusal names the clause and what it needs: {refusal}"
+    );
+}
+
 /// One non-isolated group over a page, composited under `blend` — the geometry of
 /// [`test_scenes::non_isolated_group`] with the group's own blend mode made a parameter.
 fn a_non_isolated_group_composited_with(blend: pdf_render::BlendMode) -> pdf_render::DisplayList {
@@ -353,6 +398,7 @@ fn a_non_isolated_group_composited_with(blend: pdf_render::BlendMode) -> pdf_ren
         blend,
         isolated: false,
         knockout: false,
+        blending: None,
     });
     list
 }

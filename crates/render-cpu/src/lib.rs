@@ -555,49 +555,8 @@ impl CpuRasterizer {
             // A group is the one command that needs the mask cache mutably *while* it
             // draws, so it cannot hold a clip mask borrowed from it across the recursion.
             // It therefore resolves its own clip, twice, either side of its elements.
-            if let Command::Group {
-                commands,
-                alpha,
-                blend,
-                isolated,
-                knockout,
-                ..
-            } = command
-            {
-                // A group whose shape is needed arrives as one half of a `Command::Shaped`,
-                // where the enclosing compose is `Erase` or `Add`. A *bare* group under
-                // knockout would have to be composited by its shape and has none stated, so
-                // it is refused rather than approximated — `pdf-model` does not build that
-                // display list, and erroring is what keeps the assumption from becoming a
-                // silence if it ever does.
-                if compose == Compose::Knockout {
-                    return Err(CpuRasterError::UnsupportedCommand(
-                        "a group inside a knockout group has a shape this backend cannot \
-                         separate from its opacity (ISO 32000-2 §11.4.6)"
-                            .to_owned(),
-                    ));
-                }
-                self.draw_group(
-                    pixmap,
-                    list,
-                    Group {
-                        commands,
-                        alpha: *alpha,
-                        blend: *blend,
-                        clip: command.clip(),
-                        mask: command.mask(),
-                        isolated: *isolated,
-                        compose: if *knockout {
-                            Compose::Knockout
-                        } else {
-                            Compose::Over
-                        },
-                        into: compose,
-                    },
-                    surface,
-                    masks,
-                    depth,
-                )?;
+            if matches!(command, Command::Group { .. }) {
+                self.encode_group_command(pixmap, list, command, surface, masks, depth, compose)?;
                 continue;
             }
 
@@ -660,6 +619,79 @@ impl CpuRasterizer {
             self.draw(&mut rows, command, to_device, (clip, admits), compose)?;
         }
         Ok(())
+    }
+
+    /// Unpacks one [`Command::Group`] and hands it to [`CpuRasterizer::draw_group`].
+    ///
+    /// [`CpuRasterizer::encode`]'s group arm, split out so that the recursion stays
+    /// readable at a glance; the argument list is the recursion's own.
+    ///
+    /// # Errors
+    ///
+    /// As [`CpuRasterizer::encode`]. A *bare* group under knockout would have to be
+    /// composited by its shape and has none stated — a group whose shape is needed arrives
+    /// as one half of a [`Command::Shaped`] — so it is refused rather than approximated:
+    /// `pdf-model` does not build that display list, and erroring is what keeps the
+    /// assumption from becoming a silence if it ever does.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one arm of `encode`, carrying exactly what the recursion carries"
+    )]
+    fn encode_group_command(
+        &self,
+        pixmap: &mut tiny_skia::PixmapMut<'_>,
+        list: &DisplayList,
+        command: &Command,
+        surface: Surface,
+        masks: &mut MaskCache,
+        depth: usize,
+        compose: Compose,
+    ) -> Result<(), CpuRasterError> {
+        let Command::Group {
+            commands,
+            alpha,
+            blend,
+            isolated,
+            knockout,
+            blending,
+            ..
+        } = command
+        else {
+            // The one caller matches `Command::Group` first; anything else arriving here
+            // is a programming error, and a loud one beats a skipped command.
+            return Err(CpuRasterError::UnsupportedCommand(format!(
+                "encode_group_command was handed {command:?}"
+            )));
+        };
+        if compose == Compose::Knockout {
+            return Err(CpuRasterError::UnsupportedCommand(
+                "a group inside a knockout group has a shape this backend cannot \
+                 separate from its opacity (ISO 32000-2 §11.4.6)"
+                    .to_owned(),
+            ));
+        }
+        self.draw_group(
+            pixmap,
+            list,
+            Group {
+                commands,
+                alpha: *alpha,
+                blend: *blend,
+                clip: command.clip(),
+                mask: command.mask(),
+                isolated: *isolated,
+                compose: if *knockout {
+                    Compose::Knockout
+                } else {
+                    Compose::Over
+                },
+                into: compose,
+                blending: blending.as_deref(),
+            },
+            surface,
+            masks,
+            depth,
+        )
     }
 
     /// Draws §11.4.6's two stages for an element that states its shape (`Command::Shaped`).
@@ -757,16 +789,28 @@ impl CpuRasterizer {
             return Ok(());
         };
 
-        let mut buffer = initial_backdrop(pixmap, surface, band, &group)?;
-        self.encode(
-            &mut buffer.as_mut(),
-            list,
-            group.commands,
-            surface,
-            masks,
-            depth,
-            group.compose,
-        )?;
+        // §11.6.6, §11.7.2: a group with a blending colour space of its own is composited
+        // in it and converted out at the end — two passes over the same geometry, resolved
+        // per pixel, exactly the page-level construction in `rasterize` one scope down.
+        // §11.4.6 with `isolated: false` is the other construction with a buffer discipline
+        // of its own; everything else is one buffer and one pass.
+        let buffer = if let Some(pair) = group.blending {
+            self.composite_in_own_space(list, pair, &group, surface, masks, depth)?
+        } else if !group.isolated && group.compose == Compose::Knockout {
+            self.knockout_on_backdrop(pixmap, list, &group, surface, band, masks, depth)?
+        } else {
+            let mut buffer = initial_backdrop(pixmap, surface, band, &group)?;
+            self.encode(
+                &mut buffer.as_mut(),
+                list,
+                group.commands,
+                surface,
+                masks,
+                depth,
+                group.compose,
+            )?;
+            buffer
+        };
 
         // The elements may have evicted the soft mask this group is painted through, since
         // they share the cache; rebuilding it is what makes eviction safe here as it is for
@@ -868,6 +912,183 @@ impl CpuRasterizer {
             clip,
         );
         Ok(())
+    }
+
+    /// Composites a group's elements in the four-component space the group states, and
+    /// converts the result out (ISO 32000-2 §11.6.6, §11.7.2).
+    ///
+    /// §11.7.2: "all blending and compositing computations shall be done in that space",
+    /// and "[t]he resulting colours shall then be interpreted in the group's colour space
+    /// when the group is subsequently composited with its backdrop". The first sentence is
+    /// the two `encode` passes — §11.3.4 composites per component, so four components are
+    /// two passes of three, the same construction `rasterize` applies to §11.4.7's page —
+    /// and the second is `pdf_render::blending::resolve`, run before the caller paints the
+    /// buffer onto the parent. The group is isolated by `pdf_render::GroupBlending`'s own
+    /// guarantee, so both passes start on transparency.
+    ///
+    /// # Errors
+    ///
+    /// As [`CpuRasterizer::encode`], plus [`CpuRasterError::UnsupportedCommand`] for a
+    /// non-isolated group carrying a pair, which `pdf-model` never builds.
+    fn composite_in_own_space(
+        &self,
+        list: &DisplayList,
+        pair: &pdf_render::GroupBlending,
+        group: &Group<'_>,
+        surface: Surface,
+        masks: &mut MaskCache,
+        depth: usize,
+    ) -> Result<tiny_skia::Pixmap, CpuRasterError> {
+        if !group.isolated {
+            return Err(CpuRasterError::UnsupportedCommand(
+                "a non-isolated group cannot composite in a blending colour space of its \
+                 own: §11.6.6 inherits its space from the parent (ISO 32000-2 §11.6.6)"
+                    .to_owned(),
+            ));
+        }
+        let allocation = || CpuRasterError::Allocation {
+            width: surface.width(),
+            height: surface.rows.height,
+        };
+        let mut chromatic =
+            tiny_skia::Pixmap::new(surface.width(), surface.rows.height).ok_or_else(allocation)?;
+        self.encode(
+            &mut chromatic.as_mut(),
+            list,
+            group.commands,
+            surface,
+            masks,
+            depth,
+            group.compose,
+        )?;
+        let mut black =
+            tiny_skia::Pixmap::new(surface.width(), surface.rows.height).ok_or_else(allocation)?;
+        self.encode(
+            &mut black.as_mut(),
+            list,
+            &pair.black,
+            surface,
+            masks,
+            depth,
+            group.compose,
+        )?;
+        pdf_render::resolve_blending(chromatic.data_mut(), black.data(), &pair.space);
+        Ok(chromatic)
+    }
+
+    /// Accumulates §11.4.6's two stages for a non-isolated knockout group, whose initial
+    /// backdrop is the group's own.
+    ///
+    /// > In a knockout group, each individual element shall be composited with the group's
+    /// > initial backdrop rather than with the stack of preceding elements in the group.
+    ///
+    /// The clause's two stages, per element: a) "[c]omposite the source object with the
+    /// group's initial backdrop, disregarding the object's shape and using a source shape
+    /// value of 1.0 everywhere", then b) "[c]ompute a weighted average of this result with
+    /// the object's immediate backdrop, using the source shape as the weighting factor".
+    /// Stage a) is the element drawn onto a scratch copy of the backdrop `B` — its blend
+    /// mode, opacity and soft mask all applied, against `B` — and stage b) is
+    /// [`blend::knockout_average`], with the element's shape read per pixel off its
+    /// [`Command::Shaped`] shape half, which `pdf-model` guarantees every element carries.
+    ///
+    /// Drawing the object bakes its shape into the scratch where stage a) asks for a shape
+    /// of 1.0 everywhere, and the identity `f × E = scratch − (1 − f) × B` (see
+    /// [`blend::knockout_average`]) is what takes it back out, so the accumulation is the
+    /// clause's arithmetic and not an approximation of it. The buffer starts as `B` — the
+    /// accumulation's own initial value — and the caller's non-isolated completion then
+    /// interpolates it with the page by the group's alpha, which is the collapse of
+    /// §11.4.4's backdrop removal against §11.3.3's recompositing under the Normal blend
+    /// function (ADR 0307's formula; ADR 0237's cancellation, unchanged by knockout).
+    ///
+    /// # Errors
+    ///
+    /// As [`CpuRasterizer::encode`], plus [`CpuRasterError::UnsupportedCommand`] where a
+    /// guarantee `pdf-model` states for the combination does not hold: every element a
+    /// [`Command::Shaped`], the group's own blend Normal, composited by Over.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one arm of `draw_group`'s buffer construction, carrying what the \
+                  recursion carries plus the band the backdrop is copied to"
+    )]
+    fn knockout_on_backdrop(
+        &self,
+        pixmap: &tiny_skia::PixmapMut<'_>,
+        list: &DisplayList,
+        group: &Group<'_>,
+        surface: Surface,
+        band: Band,
+        masks: &mut MaskCache,
+        depth: usize,
+    ) -> Result<tiny_skia::Pixmap, CpuRasterError> {
+        if group.into != Compose::Over || group.blend != pdf_render::BlendMode::Normal {
+            return Err(CpuRasterError::UnsupportedCommand(
+                "a non-isolated knockout group composited by anything but §11.3.3's Normal \
+                 blend function needs Table 140's group alpha kept apart from the composite \
+                 alpha (ISO 32000-2 §11.4.4 NOTE 4, §11.4.6)"
+                    .to_owned(),
+            ));
+        }
+        let allocation = || CpuRasterError::Allocation {
+            width: surface.width(),
+            height: surface.rows.height,
+        };
+        // The group's initial backdrop, retained beside the accumulation: every element
+        // composites against *it*, not against what earlier elements left. Copied to the
+        // group's band by ADR 0328's own argument, which carries over unchanged: the only
+        // reader of this construction's result is the caller's band-rows interpolation, the
+        // per-element scratches below are clones of this buffer and so hold the same rows,
+        // and no operation moves a value between rows — so a row outside the band, which
+        // here is transparency rather than the page, can never reach the page.
+        let mut backdrop =
+            tiny_skia::Pixmap::new(surface.width(), surface.rows.height).ok_or_else(allocation)?;
+        let stride = (surface.width() as usize).saturating_mul(4);
+        let start = (band.top.saturating_sub(surface.rows.top) as usize).saturating_mul(stride);
+        let end = start.saturating_add((band.height as usize).saturating_mul(stride));
+        let source = pixmap
+            .as_ref()
+            .data()
+            .get(start..end)
+            .ok_or_else(allocation)?;
+        backdrop
+            .data_mut()
+            .get_mut(start..end)
+            .ok_or_else(allocation)?
+            .copy_from_slice(source);
+        let mut accumulated = backdrop.clone();
+        for element in group.commands {
+            let Command::Shaped { object, shape } = element else {
+                return Err(CpuRasterError::UnsupportedCommand(
+                    "an element of a non-isolated knockout group must state its shape \
+                     apart from its alpha (ISO 32000-2 §11.4.6)"
+                        .to_owned(),
+                ));
+            };
+            // Stage a): the element against the initial backdrop, in a scratch of its own.
+            let mut composed = backdrop.clone();
+            self.encode(
+                &mut composed.as_mut(),
+                list,
+                std::slice::from_ref(object),
+                surface,
+                masks,
+                depth,
+                Compose::Over,
+            )?;
+            // §11.6.4.2's shape, drawn onto transparency so its alpha *is* the shape.
+            let mut stated = tiny_skia::Pixmap::new(surface.width(), surface.rows.height)
+                .ok_or_else(allocation)?;
+            self.encode(
+                &mut stated.as_mut(),
+                list,
+                std::slice::from_ref(shape),
+                surface,
+                masks,
+                depth,
+                Compose::Over,
+            )?;
+            blend::knockout_average(&mut accumulated, &backdrop, &composed, &stated);
+        }
+        Ok(accumulated)
     }
 
     /// Evaluates a soft mask into the cache, if it is not there already (§11.5).
@@ -1335,6 +1556,9 @@ struct Group<'a> {
     /// [`Compose::Over`] everywhere except the two halves of a [`Command::Shaped`], where a
     /// group is one element of a knockout group and §11.4.6's two stages are two draws.
     into: Compose,
+    /// The four-component blending colour space the elements composite in, with the same
+    /// elements drawn in its black component — see `pdf_render::GroupBlending`.
+    blending: Option<&'a pdf_render::GroupBlending>,
 }
 
 /// Where and how an image is placed.
@@ -3269,6 +3493,7 @@ mod tests {
             isolated: false,
             compose: super::Compose::Over,
             into: super::Compose::Over,
+            blending: None,
         };
         let buffer = super::initial_backdrop(&page.as_mut(), surface, band, &group)
             .expect("a small buffer allocates");
@@ -3332,6 +3557,7 @@ mod tests {
                 blend: BlendMode::Normal,
                 isolated: true,
                 knockout: false,
+                blending: None,
             }],
             surface,
         );

@@ -407,6 +407,10 @@ fn stated_shape(command: &Command) -> Option<Command> {
             // from geometry alone — so the backdrop this is drawn over states nothing.
             isolated: true,
             knockout: false,
+            // And a shape has no colour, so it composites in no space: a pair carried by
+            // the object states which components its *colours* resolve to, and the
+            // chromatic half's geometry is the group's whole shape already.
+            blending: None,
         }),
         Command::Shaped { shape, .. } => Some((**shape).clone()),
         _ => None,
@@ -441,6 +445,86 @@ fn knockout_elements(commands: &[Command]) -> Option<Vec<Command>> {
             })
         })
         .collect()
+}
+
+/// Every element of a knockout group as a [`Command::Shaped`], for a group whose initial
+/// backdrop is **not** transparent (§11.4.6).
+///
+/// [`knockout_elements`] leaves an element whose shape *is* its coverage bare, because on a
+/// transparent backdrop one draw carries both quantities. Against the group's own backdrop a
+/// backend needs the shape of **every** element per pixel — the weighted average's factor —
+/// so each is stated, even where a single draw could have carried it. `None` where any
+/// element's shape cannot be stated, which leaves the group the report it has.
+fn stated_elements(commands: &[Command]) -> Option<Vec<Command>> {
+    commands
+        .iter()
+        .map(|command| {
+            if matches!(command, Command::Shaped { .. }) {
+                return Some(command.clone());
+            }
+            Some(Command::Shaped {
+                object: Box::new(command.clone()),
+                shape: Box::new(stated_shape(command)?),
+            })
+        })
+        .collect()
+}
+
+/// Whether two interpretations of one content stream drew the same structure.
+///
+/// The guard [`pdf_render::DisplayList::geometry_digest`] provides for §11.4.7's page pair, asked of a
+/// *group's* pair: the two lists differ only in what each colour resolved to, so their
+/// variants, nesting, clips, paths and blend modes must agree — the halves are resolved per
+/// pixel, and a command in one and not the other would be converted against a shape that
+/// never drew it. Soft masks are compared by *presence* rather than identity, because the
+/// second run registers its own copies of the same masks and the identifiers differ by
+/// construction.
+fn paired(first: &[Command], second: &[Command]) -> bool {
+    first.len() == second.len()
+        && first.iter().zip(second).all(|(left, right)| {
+            if std::mem::discriminant(left) != std::mem::discriminant(right)
+                || left.clip() != right.clip()
+                || left.mask().is_some() != right.mask().is_some()
+                || std::mem::discriminant(&left.blend()) != std::mem::discriminant(&right.blend())
+                || left.path().map(|path| path.commands().len())
+                    != right.path().map(|path| path.commands().len())
+            {
+                return false;
+            }
+            match (left, right) {
+                (
+                    Command::Group {
+                        commands: ours,
+                        blending: pair,
+                        ..
+                    },
+                    Command::Group {
+                        commands: theirs,
+                        blending: other,
+                        ..
+                    },
+                ) => pair.is_none() && other.is_none() && paired(ours, theirs),
+                (
+                    Command::Shaped {
+                        object: left_object,
+                        shape: left_shape,
+                    },
+                    Command::Shaped {
+                        object: right_object,
+                        shape: right_shape,
+                    },
+                ) => {
+                    paired(
+                        std::slice::from_ref(left_object),
+                        std::slice::from_ref(right_object),
+                    ) && paired(
+                        std::slice::from_ref(left_shape),
+                        std::slice::from_ref(right_shape),
+                    )
+                }
+                _ => true,
+            }
+        })
 }
 
 /// The first element of a knockout group whose shape this renderer cannot state, named for
@@ -551,8 +635,19 @@ pub(super) fn page_press(document: &Document, page: &Page) -> PagePress {
         return PagePress::Device;
     }
     let entry = document.get_key(attributes, "CS");
-    match ColourSpace::parse(document, &entry, &Dictionary::new()) {
-        Some(ColourSpace::Cmyk) => named_press(document, page),
+    press_for_entry(document, &entry, &page.resources)
+}
+
+/// The press a group or page `/CS` entry names, resolved against `resources`.
+///
+/// The tail of [`page_press`], split out because a *group's* `/CS` asks the same question one
+/// scope down (§11.7.2 redefines `DeviceCMYK` "within the transparency group" for an
+/// `ICCBased` CMYK space, and Table 145 subjects a device space here to §8.6.5.6's
+/// remapping) — with the
+/// resource dictionary in force at the group rather than the page's.
+fn press_for_entry(document: &Document, entry: &Object, resources: &Dictionary) -> PagePress {
+    match ColourSpace::parse(document, entry, &Dictionary::new()) {
+        Some(ColourSpace::Cmyk) => named_press(document, resources),
         Some(ColourSpace::Icc { profile }) if profile.channels() == 4 => press_or_beyond(&profile),
         // A four-component space that is not a profile — a `DeviceN` of four inks, say — names
         // components this tree has no conversion out of, so it keeps its report.
@@ -564,20 +659,20 @@ pub(super) fn page_press(document: &Document, page: &Page) -> PagePress {
     }
 }
 
-/// The press a `/DeviceCMYK` page group's four components belong to.
+/// The press a `/DeviceCMYK` group or page's four components belong to.
 ///
 /// `/DefaultCMYK` first, because §8.6.5.6 says "shall" about the operation being performed
 /// while §8.6.5.7 NOTE 3 says an output intent "can suggest" a calibration — the nearer and
 /// stronger statement wins, which is the ranking ADR 0009 recorded for a colour on its way to a
 /// pixel and this is the same ranking one clause up.
-fn named_press(document: &Document, page: &Page) -> PagePress {
+fn named_press(document: &Document, resources: &Dictionary) -> PagePress {
     // `None` cannot happen for a literal device name — `ColourSpace::by_name` falls back on the
     // device space when a `/DefaultCMYK` will not parse — and it is grouped with the plain
     // answer because a space that did not parse names no press.
     match ColourSpace::parse(
         document,
         &Object::Name(Name::new(b"DeviceCMYK".to_vec())),
-        &page.resources,
+        resources,
     ) {
         Some(ColourSpace::Cmyk) | None => {}
         Some(ColourSpace::Icc { profile }) if profile.channels() == 4 => {
@@ -608,7 +703,123 @@ fn press_or_beyond(profile: &crate::icc::Profile) -> PagePress {
     )
 }
 
+/// Where the interpreter's readback stood before a content stream was run a second time.
+///
+/// A group that composites in a four-component space is one content stream interpreted
+/// twice — §11.4.7's construction one scope down — and the second run resolves colours
+/// differently while placing the same glyphs in the same places. Everything a *reader* gets
+/// out of the page would therefore arrive twice; this records where each accumulator stood
+/// so that [`Interpreter::rewind_readback`] can put the second run's copy back off. What is
+/// deliberately **not** rewound: `operations` (the second run is real work the budget has to
+/// count), `unsupported` (keyed, so a duplicate report collapses), and the display list's
+/// clip and soft-mask tables (the second run's commands reference the entries it registered).
+struct ReadbackMark {
+    text: usize,
+    text_layer: usize,
+    described: usize,
+    artifacts: usize,
+    marked: usize,
+    associated: usize,
+    glyphs: usize,
+    codes_without_a_glyph: usize,
+    codes_reaching_a_blank_glyph: usize,
+    codes_without_a_character: super::UnnamedCodes,
+    glyph_coverage: std::collections::BTreeMap<String, super::Coverage>,
+    inferred_separators: usize,
+    text_operations: usize,
+    reversed_chars: usize,
+    text_cursor: Option<(f32, f32)>,
+}
+
 impl Interpreter<'_> {
+    /// Records where every readback accumulator stands. See [`ReadbackMark`].
+    fn readback_mark(&self) -> ReadbackMark {
+        ReadbackMark {
+            text: self.text.len(),
+            text_layer: self.text_layer.len(),
+            described: self.described.len(),
+            artifacts: self.artifacts.len(),
+            marked: self.marked.len(),
+            associated: self.associated.len(),
+            glyphs: self.glyphs,
+            codes_without_a_glyph: self.codes_without_a_glyph,
+            codes_reaching_a_blank_glyph: self.codes_reaching_a_blank_glyph,
+            codes_without_a_character: self.codes_without_a_character,
+            glyph_coverage: self.glyph_coverage.clone(),
+            inferred_separators: self.inferred_separators,
+            text_operations: self.text_operations,
+            reversed_chars: self.reversed_chars,
+            text_cursor: self.text_cursor,
+        }
+    }
+
+    /// Puts the readback back where [`Interpreter::readback_mark`] recorded it.
+    fn rewind_readback(&mut self, mark: ReadbackMark) {
+        self.text.truncate(mark.text);
+        self.text_layer.truncate(mark.text_layer);
+        self.described.truncate(mark.described);
+        self.artifacts.truncate(mark.artifacts);
+        self.marked.truncate(mark.marked);
+        self.associated.truncate(mark.associated);
+        self.glyphs = mark.glyphs;
+        self.codes_without_a_glyph = mark.codes_without_a_glyph;
+        self.codes_reaching_a_blank_glyph = mark.codes_reaching_a_blank_glyph;
+        self.codes_without_a_character = mark.codes_without_a_character;
+        self.glyph_coverage = mark.glyph_coverage;
+        self.inferred_separators = mark.inferred_separators;
+        self.text_operations = mark.text_operations;
+        self.reversed_chars = mark.reversed_chars;
+        self.text_cursor = mark.text_cursor;
+    }
+
+    /// The press an isolated group's own `/CS` asks its elements to composite in, where
+    /// this run can honour it (§11.6.6, §11.7.2).
+    ///
+    /// `None` is "composite in what the parent composites in", and it is the answer unless
+    /// **all** of the following hold, each for a stated reason:
+    ///
+    /// - **The group is isolated.** §11.6.6: "[f]or non-isolated groups, or if no group
+    ///   colour space is specified, the group colour space shall be inherited from the
+    ///   parent group or page."
+    /// - **The parent composites on the device's three components.** A group inside
+    ///   §11.4.7's four-component page, or inside another such group, already composites in
+    ///   a press — restating it is not a departure, and naming a *different* press there
+    ///   would need a per-pixel conversion between two presses this tree does not have, so
+    ///   that case keeps its report. A soft mask's group never reaches here with `Device`
+    ///   compositing unless its own derivation chose it, in which case the same
+    ///   construction answers.
+    /// - **The `/CS` names four components this tree can sample** — `/DeviceCMYK` through
+    ///   §8.6.5.6's and §14.11.5's ranking, or a four-component `ICCBased` profile
+    ///   (§11.7.2). Table 145 subjects a device space here to remapping through the
+    ///   `DefaultCMYK` entry of the *current* resource dictionary's `ColorSpace`
+    ///   subdictionary, which is why the group's resources are consulted rather than the
+    ///   page's.
+    /// - **No figure is supplying this content's colour from outside it** (§8.6.8's
+    ///   `uncoloured`): the marks inside carry a colour resolved for the *parent's*
+    ///   compositing, and reinterpreting them in ink would convert a colour that was never
+    ///   stated here.
+    /// - **No `/ExtGState` has stated Table 57's black generation**, which §11.7.5.3 puts
+    ///   inside the conversion into the space and this conversion does not read. Checked
+    ///   again after the run, since a `gs` inside the group can state one.
+    /// - **Not a knockout group.** §11.4.6's staged rewrites edit the element list after
+    ///   the runs, and editing one half of a pair would leave the other describing a
+    ///   different construction. Such a group keeps the report it has; no corpus document
+    ///   states the combination.
+    fn group_press(&self, group: &TransparencyGroup, resources: &Dictionary) -> Option<PressId> {
+        if self.compositing != Compositing::Device
+            || !group.isolated
+            || group.knockout
+            || self.uncoloured
+            || self.black_generation_stated
+        {
+            return None;
+        }
+        match press_for_entry(self.document, &group.colour_space, resources) {
+            PagePress::In(press) => Some(press),
+            PagePress::Device | PagePress::Beyond(_) => None,
+        }
+    }
+
     /// Reports a blend mode inside a mask group whose channel is more than one component.
     ///
     /// §11.3.5.2 applies a separable blend function "separately to each set of corresponding
@@ -758,7 +969,17 @@ impl Interpreter<'_> {
         // group is not an element of the knockout group the `gs` appears in, so nothing inside
         // it inherits that group's initial backdrop.
         let saved_backdrop = std::mem::replace(&mut self.transparent_initial_backdrop, false);
+        // And §11.6.4.3's `/AIS`, restored exactly rather than OR-ed back: the flag answers
+        // "was an element of the group being built painted under it", and a mask's content
+        // is not an element of anything — its marks become one alpha per pixel.
+        let saved_ais = std::mem::replace(&mut self.alpha_is_shape, state.alpha_is_shape);
+        // And the record of a space departure met on a subtractive run, for ADR 0276's
+        // reason one construction over: a space declared inside a mask is answered by
+        // §11.5.3's own derivation and says nothing about the group the `gs` sits in.
+        let saved_departed = std::mem::replace(&mut self.nested_space_departed, false);
         self.run(&content, &resources, &inner, 0);
+        self.nested_space_departed = saved_departed;
+        self.alpha_is_shape = saved_ais;
         self.transparent_initial_backdrop = saved_backdrop;
         self.blending_changed = saved_change;
         self.blending = saved_blending;
@@ -833,7 +1054,6 @@ impl Interpreter<'_> {
         inner.stroke_alpha = 1.0;
         inner.soft_mask = None;
 
-        let mark = self.list.command_count();
         let enclosing_knockout = self.inside_knockout;
         // §11.4.6's NOTE 6, which decides what *this* group's elements composite onto: this
         // group's own initial backdrop is transparent when it says so or when NOTE 6 hands it
@@ -854,16 +1074,28 @@ impl Interpreter<'_> {
         // one its parent was already composited in. Where it inherits, or where it restates
         // the space it inherited, the parent's report is the report — one departure named at
         // the point the file introduces it, rather than once per group that lives inside it.
-        let introduced = (entered != self.blending)
-            .then(|| entered.clone())
-            .flatten();
-        self.blending_changed |= entered != self.blending;
+        let changed = entered != self.blending;
+        let introduced = changed.then(|| entered.clone()).flatten();
+        self.blending_changed |= changed;
         let outside = std::mem::replace(&mut self.blending, entered);
-        self.run(content, resources, &inner, form_depth.saturating_add(1));
+        let (commands, pair, ais_inside) =
+            self.group_commands(group, content, resources, &inner, form_depth);
         self.blending = outside;
         self.inside_knockout = enclosing_knockout;
         self.transparent_initial_backdrop = enclosing_transparent;
-        let commands = self.list.split_off_commands(mark);
+        // A group that changes the space in force, with something compositing in it, is a
+        // departure the reports can only name on the device's components — so on any other
+        // compositing it is *recorded* instead, and the enclosing pair run reads the record
+        // and falls back to the device, where this same group will report ordinarily. Both
+        // directions of change count, including one whose `entered` is `None`: a group
+        // returning to the device's three components inside a four-component pair
+        // composites in the wrong space just as surely as one leaving them.
+        if changed
+            && self.compositing != Compositing::Device
+            && any_command(&commands, &command_composites)
+        {
+            self.nested_space_departed = true;
+        }
         if commands.is_empty() {
             return;
         }
@@ -944,15 +1176,36 @@ impl Interpreter<'_> {
         let knockout_shows = group.knockout && knockout_can_show(&commands);
         let mut commands = commands;
         let mut knockout = false;
-        if group.knockout
-            && !self.alpha_is_shape
-            && (group.isolated || backdrop_transparent || !any_command(&commands, &command_blends))
-        {
-            if knockout_shape_is_coverage(&commands) {
-                knockout = true;
-            } else if let Some(elements) = knockout_elements(&commands) {
+        // §11.4.6 on the group's own backdrop: "[a] nonisolated knockout group composites
+        // its topmost enclosing element with the group's backdrop." Where an element blends,
+        // that backdrop cannot be substituted by §11.4.5's transparent one — and since the
+        // four-hundred-and-ninety-second session it is *stated* instead: the group goes to
+        // the backends with `isolated: false` beside `knockout: true`, every element a
+        // `Command::Shaped`, and a backend retains the initial backdrop beside the
+        // accumulation (ADR 0327). Three conditions bound it, each the clause's:
+        // `outer.blend == Normal` because the final composite's cancellation against
+        // §11.4.4's backdrop removal is the Normal blend function's (ADR 0237's argument,
+        // unchanged by knockout); `!enclosing_knockout` because an element of a knockout
+        // group is weighted by its own shape, which `Command::Group` does not carry; and
+        // every element's shape statable, because the weighted average's factor has to
+        // come from somewhere.
+        let mut backdrop_composited = false;
+        if group.knockout && !ais_inside {
+            if group.isolated || backdrop_transparent || !any_command(&commands, &command_blends) {
+                if knockout_shape_is_coverage(&commands) {
+                    knockout = true;
+                } else if let Some(elements) = knockout_elements(&commands) {
+                    commands = elements;
+                    knockout = true;
+                }
+            } else if knockout_shows
+                && !enclosing_knockout
+                && outer.blend == BlendMode::Normal
+                && let Some(elements) = stated_elements(&commands)
+            {
                 commands = elements;
                 knockout = true;
+                backdrop_composited = true;
             }
         }
         // §11.4.4's own model, for the group NOTE 5 could not flatten: the elements
@@ -991,19 +1244,27 @@ impl Interpreter<'_> {
         // for a difference that provably does not exist. This is the same condition the
         // report fired on before the construction existed, and for the same reason.
         //
-        // Isolation is otherwise §11.4.5's, which is what a rasteriser's layer is.
-        let isolated = group.isolated
-            || knockout_shows
-            || knockout
-            || enclosing_knockout
-            || outer.blend != BlendMode::Normal
-            || !any_command(&commands, &command_blends);
+        // Isolation is otherwise §11.4.5's, which is what a rasteriser's layer is —
+        // except where the two flags together state §11.4.6's own backdrop, which is the
+        // one shape of the command in which `false` accompanies `knockout`.
+        let isolated = !backdrop_composited
+            && (group.isolated
+                || knockout_shows
+                || knockout
+                || enclosing_knockout
+                || outer.blend != BlendMode::Normal
+                || !any_command(&commands, &command_blends));
         self.note_group_departures(
             group,
             &commands,
             knockout,
             isolated,
-            introduced.as_deref(),
+            // A group drawn in its own space has no colour-space departure to report.
+            if pair.is_some() {
+                None
+            } else {
+                introduced.as_deref()
+            },
             backdrop_transparent,
         );
         // §11.6.6's final compositing: the group's shape "shall then be painted into the
@@ -1023,7 +1284,109 @@ impl Interpreter<'_> {
             mask: outer.soft_mask,
             blend: outer.blend,
             knockout,
+            blending: pair.map(Box::new),
         });
+    }
+
+    /// Runs a group's content and collects its commands — twice where the group states a
+    /// blending colour space of four components, once more where the two runs diverge.
+    ///
+    /// The first run is the one whose readback is kept, because a colour changes no glyph's
+    /// place; every run after it is rewound (see [`ReadbackMark`]). Where
+    /// [`Interpreter::group_press`] names a press, the first run resolves colours into its
+    /// chromatic half and the second into its black half — §11.4.7's construction one scope
+    /// down, see `pdf_render::GroupBlending` — and the two are paired only if their
+    /// structures agree. Two cases fall back to one run on the device's components, each
+    /// with the report it always had: a group in which **nothing composites**, where
+    /// §11.3.4's per-component question cannot change a pixel (an opaque Normal mark
+    /// carries its colour through whatever space it is carried through, which is the same
+    /// condition the report fires on), and a run that stated §11.7.5.3's black generation,
+    /// which the conversion into the space does not read.
+    ///
+    /// The third value is whether §11.6.4.3's `/AIS` was in force while the content ran —
+    /// scoped here, seeded from the state at the `Do`, because the entry is a graphics
+    /// state parameter and the page-wide flag it used to be refused knockout groups whole
+    /// forms away from any statement of it.
+    fn group_commands(
+        &mut self,
+        group: &TransparencyGroup,
+        content: &[u8],
+        resources: &Dictionary,
+        inner: &GraphicsState,
+        form_depth: usize,
+    ) -> (Vec<Command>, Option<pdf_render::GroupBlending>, bool) {
+        let mark = self.list.command_count();
+        let outer_ais = std::mem::replace(&mut self.alpha_is_shape, inner.alpha_is_shape);
+        let ink = self.group_press(group, resources);
+        let saved = self.compositing;
+        // Scoped only where a pair is being attempted: everywhere else the record has to
+        // propagate *up* to whatever pair run this group may be inside.
+        let saved_departed = if ink.is_some() {
+            std::mem::replace(&mut self.nested_space_departed, false)
+        } else {
+            self.nested_space_departed
+        };
+        if let Some(press) = ink {
+            self.compositing = Compositing::Subtractive(crate::colour::Half::Chromatic, press);
+        }
+        self.run(content, resources, inner, form_depth.saturating_add(1));
+        self.compositing = saved;
+        let mut commands = self.list.split_off_commands(mark);
+        let mut pair = None;
+        if let Some(press) = ink
+            && !commands.is_empty()
+        {
+            if !self.nested_space_departed
+                && any_command(&commands, &command_composites)
+                && !self.black_generation_stated
+            {
+                let rewind = self.readback_mark();
+                self.compositing = Compositing::Subtractive(crate::colour::Half::Black, press);
+                self.run(content, resources, inner, form_depth.saturating_add(1));
+                self.compositing = saved;
+                self.rewind_readback(rewind);
+                let black = self.list.split_off_commands(mark);
+                if paired(&commands, &black) {
+                    pair = Some(pdf_render::GroupBlending {
+                        space: crate::colour::blending_space_of(press),
+                        black,
+                    });
+                } else {
+                    // The halves diverged structurally, which no valid content stream
+                    // does; the device's components and the standing report are the
+                    // answer that was right before this construction and is still right.
+                    commands = self.rerun_on_device(content, resources, inner, form_depth, mark);
+                }
+            } else {
+                // Nothing composites, §11.7.5.3's black generation is in force, or a group
+                // inside introduced a space of its own — the last recorded rather than
+                // reported, because a report about a space can only be made where the
+                // device's components are what is being composited on, which the rerun is.
+                commands = self.rerun_on_device(content, resources, inner, form_depth, mark);
+            }
+        }
+        if ink.is_some() {
+            self.nested_space_departed = saved_departed;
+        }
+        let ais_inside = self.alpha_is_shape;
+        self.alpha_is_shape = outer_ais || ais_inside;
+        (commands, pair, ais_inside)
+    }
+
+    /// One more run of a group's content with colours resolved for the device, replacing
+    /// what a subtractive run drew. See [`Interpreter::group_commands`] for the two cases.
+    fn rerun_on_device(
+        &mut self,
+        content: &[u8],
+        resources: &Dictionary,
+        inner: &GraphicsState,
+        form_depth: usize,
+        mark: usize,
+    ) -> Vec<Command> {
+        let rewind = self.readback_mark();
+        self.run(content, resources, inner, form_depth.saturating_add(1));
+        self.rewind_readback(rewind);
+        self.list.split_off_commands(mark)
     }
 
     /// Reads a form `XObject`'s `/Group`, if it is a transparency group (§8.10.3, §11.6.6).

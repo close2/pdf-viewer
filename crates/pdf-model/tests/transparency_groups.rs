@@ -655,6 +655,32 @@ fn alpha_is_shape_refuses_the_knockout_it_would_invert() {
         !reported("1 0 0 rg 10 10 50 50 re f /GM gs 0 0 1 rg 30 30 50 50 re f")
             .contains("knockout")
     );
+
+    // The flag is a graphics state parameter, so `q`/`Q` bound it and a statement restored
+    // *before* the group's `Do` says nothing about the group's elements. It used to be
+    // monotone across the whole page, and `issue18032.pdf` is the corpus witness: `/AIS
+    // true` inside a form whose group draws nothing refused a knockout group two forms
+    // later (ADR 0327).
+    let page_scoped = |page: &str| {
+        format!(
+            "{:?}",
+            interpret(fixture(
+                knockout,
+                "[0 0 100 100]",
+                "1 0 0 rg 10 10 50 50 re f /GS gs 0 0 1 rg 30 30 50 50 re f",
+                page,
+            ))
+            .unsupported
+        )
+    };
+    assert!(
+        !page_scoped("q /GA gs Q /Fm Do").contains("/AIS"),
+        "a statement `Q` has restored before the `Do` reaches no element of the group"
+    );
+    assert!(
+        page_scoped("/GA gs /Fm Do").contains("/AIS"),
+        "one in force at the `Do` is inherited by everything the group paints"
+    );
 }
 
 /// §11.4.6's arithmetic, at the pixel, for an element whose shape is not its coverage.
@@ -879,14 +905,27 @@ fn a_non_isolated_group_reports_only_where_the_backdrop_cannot_be_stated() {
          §11.4.4's immediate one and the group is drawn on it"
     );
     assert!(
-        reported(
+        !reported(
             "/Group << /S /Transparency /K true >>",
             "1 0 0 rg 10 10 50 50 re f /GB gs 0 0 1 rg 30 30 50 50 re f",
             "/GS gs /Fm Do"
         )
         .contains("non-isolated"),
-        "§11.4.6 composites each element with the group's *initial* backdrop, which is not \
-         the pair of draws this states"
+        "§11.4.6 composites each element with the group's *initial* backdrop, and since the \
+         four-hundred-and-ninety-second session the display list states that backdrop: every \
+         element arrives shaped and the backends retain the page beside the accumulation \
+         (ADR 0327)"
+    );
+    assert!(
+        reported(
+            "/Group << /S /Transparency /K true >>",
+            "1 0 0 rg 10 10 50 50 re f /GB gs 0 0 1 rg 30 30 50 50 re f",
+            "/GB gs /Fm Do"
+        )
+        .contains("non-isolated"),
+        "a blend mode at the `Do` is still where the collapse fails, knockout or not: the \
+         final composite's cancellation against §11.4.4's backdrop removal is the Normal \
+         blend function's"
     );
 }
 
@@ -1192,11 +1231,24 @@ fn the_blending_space_is_the_one_in_force_rather_than_the_one_declared() {
         "a non-isolated group's own /CS is not the space anything composites in: {inherited}"
     );
 
-    // The same group with `/I true`, which is the first bullet's condition.
+    // The same group with `/I true`, which is the first bullet's condition — and since the
+    // four-hundred-and-ninety-second session such a group is *drawn* in the space it names
+    // rather than reported for it: its elements are interpreted twice, once per half of the
+    // four components, and the pair resolves at its `Do` (ADR 0327;
+    // `a_group_that_introduces_a_press_composites_in_it` holds the pixels).
     let isolated = reported("", &group("/I true /CS /DeviceCMYK"));
     assert!(
-        isolated.contains("blending colour space /DeviceCMYK"),
-        "an isolated group's /CS is the space its elements composite in: {isolated}"
+        !isolated.contains("blending colour space"),
+        "an isolated group's /CS is the space its elements composite in, and it composites \
+         in it: {isolated}"
+    );
+    // With §11.7.5.3's black generation over the page the conversion *into* the space is
+    // one this tree does not read, so the same group keeps the report — which is also what
+    // pins that the report names the space the elements composite in, not the entry.
+    let isolated_named = named("", &group("/I true /CS /DeviceCMYK"));
+    assert!(
+        isolated_named.contains("blending colour space /DeviceCMYK"),
+        "black generation keeps the group's departure named: {isolated_named}"
     );
 
     // §11.4.7's page group, which decides the whole page and which this tree read nothing of
@@ -2163,6 +2215,7 @@ fn a_knockout_rule_that_can_show_nothing_leaves_the_group_the_backdrop_it_has() 
             Command::Group {
                 isolated: false,
                 knockout: false,
+                blending: None,
                 ..
             }
         )),
@@ -2181,19 +2234,173 @@ fn a_knockout_rule_that_can_show_nothing_leaves_the_group_the_backdrop_it_has() 
     );
 
     // The control, and it is one entry of one content stream: a second element that composites
-    // *over* the first is what §11.4.6's rule can show, so the group goes back to the
-    // substitute and says so. Without this the assertion above would pass just as well for a
-    // renderer that had stopped implementing knockout altogether.
+    // *over* the first is what §11.4.6's rule can show, so the group stops being §11.4.4's and
+    // states its own backdrop instead — `a_knockout_groups_elements_blend_against_the_pages_own
+    // _backdrop` holds the pixels. Without a still-refused control the assertion above would
+    // pass just as well for a renderer that had stopped implementing knockout altogether, so
+    // the refusal is pinned one condition over: under a blend mode at the `Do` the collapse of
+    // §11.4.4's backdrop removal fails and the group keeps its two reports.
     let shows = interpret(fixture(
+        "/Group << /S /Transparency /I false /K true >>",
+        "[0 0 100 100]",
+        "0 1 1 rg 20 20 60 60 re f /GB gs 1 0 1 rg 30 30 60 60 re f",
+        "1 1 0 rg 0 0 100 100 re f /GB gs /Fm Do",
+    ));
+    let reported = format!("{:?}", shows.unsupported);
+    assert!(
+        reported.contains("knockout, and an element composites over another"),
+        "a knockout group composited under a blend mode of its own is still refused by \
+         name: {reported}"
+    );
+}
+
+/// §11.4.6 drawn against a backdrop that is not transparent — the construction ADR 0307
+/// priced and this session built (ADR 0327).
+///
+/// # The arithmetic, from two clauses
+///
+/// The page is opaque **yellow**, and the group states `/I false /K true`, so every
+/// element's initial backdrop is the page itself: "[a] nonisolated knockout group
+/// composites its topmost enclosing element with the group's backdrop." Element 1 is an
+/// opaque cyan fill under Normal; element 2 an opaque **magenta** fill under `Multiply`,
+/// whose §11.3.5.2 value against yellow is `(1, 1, 0) × (1, 0, 1) = (1, 0, 0)` — red. The
+/// knockout rule then replaces, within element 2's shape, everything element 1 left:
+///
+/// ```text
+/// overlap          →  E₂ = red     (not Multiply against cyan, which would be blue)
+/// element 1 alone  →  cyan
+/// element 2 alone  →  red
+/// outside          →  yellow
+/// ```
+///
+/// The overlap pixel is the whole of both clauses at once: red requires the blend to have
+/// seen the *page* (transparency would leave magenta) **and** the knockout to have
+/// discarded element 1 (compositing over it would give `cyan × magenta = blue`). Before
+/// this session the group was drawn as an isolated ordinary group and reported twice; that
+/// picture has blue in the overlap, as far from red as two channels can be.
+#[test]
+fn a_knockout_groups_elements_blend_against_the_pages_own_backdrop() {
+    let drawn = interpret(fixture(
         "/Group << /S /Transparency /I false /K true >>",
         "[0 0 100 100]",
         "0 1 1 rg 20 20 60 60 re f /GB gs 1 0 1 rg 30 30 60 60 re f",
         "1 1 0 rg 0 0 100 100 re f /Fm Do",
     ));
-    let reported = format!("{:?}", shows.unsupported);
+    assert!(drawn.is_complete(), "{:?}", drawn.unsupported);
     assert!(
-        reported.contains("knockout, and an element composites over another"),
-        "a knockout rule that can show is still refused by name: {reported}"
+        drawn.display_list.commands().iter().any(|command| matches!(
+            command,
+            Command::Group {
+                isolated: false,
+                knockout: true,
+                ..
+            }
+        )),
+        "the group states both flags: {:?}",
+        drawn.display_list.commands()
+    );
+    assert_eq!(
+        pixel(&drawn, 50, 50),
+        [255, 0, 0, 255],
+        "the overlap is element 2's composite with the page, replacing element 1's"
+    );
+    assert_eq!(
+        pixel(&drawn, 25, 75),
+        [0, 255, 255, 255],
+        "element 1 alone keeps its own composite"
+    );
+    assert_eq!(
+        pixel(&drawn, 85, 15),
+        [255, 0, 0, 255],
+        "element 2 alone is the same stage-a) composite"
+    );
+    assert_eq!(
+        pixel(&drawn, 5, 95),
+        [255, 255, 0, 255],
+        "and the page is untouched where the group does not mark"
+    );
+}
+
+/// §11.6.6's group blending colour space, drawn: a group that introduces four components
+/// on a page that states none (ADR 0327).
+///
+/// # The arithmetic
+///
+/// The group is isolated with `/CS /DeviceCMYK`, so §11.7.2 requires "all blending and
+/// compositing computations" inside it to happen in those four components, and the result
+/// to be "interpreted in the group's colour space when the group is subsequently
+/// composited with its backdrop". Its elements are paper and registration black at `ca ½`
+/// over it — per §11.3.4 the covered pixels hold half of each ink, and the conversion out
+/// is the assumed cube's mean, **(76.0, 66.1, 63.9)** of 255. Converting each colour first
+/// and compositing on the device gives 127.5, ADR 0251's 51-of-255 gap — which is exactly
+/// what this page drew, and reported, before this session.
+///
+/// The interpreter runs the group's content twice, once per half of the four components,
+/// and the readback is kept from the first run alone.
+#[test]
+fn a_group_that_introduces_a_press_composites_in_it() {
+    let drawn = interpret(fixture(
+        "/Group << /S /Transparency /I true /CS /DeviceCMYK >>",
+        "[0 0 100 100]",
+        "0 0 0 0 k 10 10 80 80 re f /GS gs 1 1 1 1 k 20 20 60 60 re f",
+        "/Fm Do",
+    ));
+    assert!(drawn.is_complete(), "{:?}", drawn.unsupported);
+    assert!(
+        drawn.display_list.commands().iter().any(|command| matches!(
+            command,
+            Command::Group {
+                isolated: true,
+                blending: Some(_),
+                ..
+            }
+        )),
+        "the group carries the pair: {:?}",
+        drawn.display_list.commands()
+    );
+    let painted = pixel(&drawn, 50, 50);
+    for (axis, want) in [76, 66, 64].into_iter().enumerate() {
+        assert!(
+            (i32::from(painted[axis]) - want).abs() <= 1,
+            "half of registration black over paper is the cube's mean: channel {axis} of \
+             {painted:?} against {want}"
+        );
+    }
+    assert_eq!(
+        pixel(&drawn, 15, 85),
+        [255, 255, 255, 255],
+        "paper alone converts to white"
+    );
+
+    // The same group with nothing compositing inside it is one run on the device — an
+    // opaque Normal mark carries its colour through whatever space it is carried through,
+    // which is the same condition the report used to fire on — so no pair is built and no
+    // report is owed.
+    let opaque = interpret(fixture(
+        "/Group << /S /Transparency /I true /CS /DeviceCMYK >>",
+        "[0 0 100 100]",
+        "0 0 0 0 k 10 10 80 80 re f 1 1 1 1 k 20 20 60 60 re f",
+        "/Fm Do",
+    ));
+    assert!(opaque.is_complete(), "{:?}", opaque.unsupported);
+    assert!(
+        !opaque
+            .display_list
+            .commands()
+            .iter()
+            .any(|command| matches!(
+                command,
+                Command::Group {
+                    blending: Some(_),
+                    ..
+                }
+            )),
+        "nothing composites, so §11.3.4 cannot change a pixel and no pair is carried"
+    );
+    assert_eq!(
+        pixel(&opaque, 50, 50),
+        [0, 0, 0, 255],
+        "registration black is the cube's last corner either way"
     );
 }
 
@@ -2223,6 +2430,59 @@ fn nested_group_fixture(outer: &str, inner: &str) -> Vec<u8> {
         INNER.len() + 1
     );
     assemble(&body)
+}
+
+/// A group that introduces a second space *inside* the pair keeps the pair off and the
+/// reports on.
+///
+/// §11.6.6's departure reports fire where the device's components are what is composited
+/// on; during a pair's subtractive runs they cannot, so a group met there that changes the
+/// space in force — with something compositing in it — is recorded, the pair is discarded,
+/// and the content re-runs on the device where both groups report ordinarily. Without the
+/// record the inner group's elements would composite in the outer group's ink with nothing
+/// said, which is trap 5's silence; `bug1721218_reduced.pdf` is the corpus shape that
+/// stays *drawn* — its inner one-component groups hold nothing that composites, so §11.3.4
+/// cannot tell the spaces apart there and the pair stands.
+///
+/// The second case is a change whose target is the device's own components: an isolated
+/// `/DeviceRGB` group inside the pair is just as much a second space, and it is the one
+/// whose report has no name to print — on the device rerun its space *is* the device's, so
+/// only the outer group reports.
+#[test]
+fn a_second_space_inside_the_pair_falls_back_to_the_device_and_reports() {
+    let outer = "/Group << /S /Transparency /I true /CS /DeviceCMYK >>";
+    for (inner, expect_inner) in [
+        (
+            "/Group << /S /Transparency /I true /CS /DeviceGray >>",
+            true,
+        ),
+        (
+            "/Group << /S /Transparency /I true /CS /DeviceRGB >>",
+            false,
+        ),
+    ] {
+        let drawn = interpret(nested_group_fixture(outer, inner));
+        let reported = format!("{:?}", drawn.unsupported);
+        assert!(
+            reported.contains("blending colour space /DeviceCMYK"),
+            "the outer group's departure is named on the device rerun: {reported}"
+        );
+        assert_eq!(
+            reported.contains("blending colour space /DeviceGray"),
+            expect_inner,
+            "and the inner group's where it has a name: {reported}"
+        );
+        assert!(
+            !drawn.display_list.commands().iter().any(|command| matches!(
+                command,
+                Command::Group {
+                    blending: Some(_),
+                    ..
+                }
+            )),
+            "no pair is carried where a second space composites inside it"
+        );
+    }
 }
 
 /// §11.4.6's NOTE 6: a non-isolated group nested in a knockout group takes the *outer* group's

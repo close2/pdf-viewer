@@ -313,6 +313,87 @@ pub(crate) fn interpolate(
     }
 }
 
+/// §11.4.6's stage b) for one element of a non-isolated knockout group: the weighted
+/// average of the element's composite with the initial backdrop and the accumulation so
+/// far, weighted by the element's shape.
+///
+/// All four pixmaps cover the same pixels, premultiplied. `accumulated` is `P`, the group's
+/// result so far (initially the backdrop itself); `backdrop` is `B`, the group's initial
+/// backdrop; `composed` is `S`, the element drawn ordinarily onto a copy of `B` — its shape
+/// baked in, where the clause's stage a) wants "a source shape value of 1.0 everywhere" —
+/// and `shape` holds the element's shape `f` in its alpha channel.
+///
+/// # The identity that recovers stage a) from an ordinary draw
+///
+/// Writing `E` for the element composited at shape 1 (stage a)'s quantity) and expanding
+/// §11.3.6's premultiplied form at source alpha `f × q` for the drawn scratch and `q` for
+/// `E`, the shape factors out of every source term:
+///
+/// ```text
+/// f × E = S − (1 − f) × B
+/// ```
+///
+/// so stage b), `P' = (1 − f) × P + f × E`, becomes
+///
+/// ```text
+/// P' = (1 − f) × (P − B) + S
+/// ```
+///
+/// — exact for every blend mode and opacity, and computable without ever drawing an
+/// object "everywhere". The parenthesis can be negative per channel, which is why the
+/// arithmetic is signed and clamped only at the end; the true result is a premultiplied
+/// colour, so each channel is clamped to the result alpha to keep rounding from breaking
+/// that invariant by one level.
+pub(crate) fn knockout_average(
+    accumulated: &mut tiny_skia::Pixmap,
+    backdrop: &tiny_skia::Pixmap,
+    composed: &tiny_skia::Pixmap,
+    shape: &tiny_skia::Pixmap,
+) {
+    for (((target, b), s), f) in accumulated
+        .pixels_mut()
+        .iter_mut()
+        .zip(backdrop.pixels().iter().copied())
+        .zip(composed.pixels().iter().copied())
+        .zip(shape.pixels().iter().copied())
+    {
+        // Where the element has no shape and drew nothing, stage b) keeps the previous
+        // result exactly; most of the surface is that, and the branch is what keeps an
+        // element's cost proportional to its marks.
+        if f.alpha() == 0 && s == b {
+            continue;
+        }
+        let weight = 1.0 - f32::from(f.alpha()) / 255.0;
+        let channel = |previous: u8, initial: u8, drawn: u8| {
+            (f32::from(previous) - f32::from(initial)).mul_add(weight, f32::from(drawn))
+        };
+        let alpha = channel(target.alpha(), b.alpha(), s.alpha()).clamp(0.0, 255.0);
+        let bounded = |value: f32| {
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "clamped to 0..=255 and offset by half a level, so the truncating \
+                          cast is the rounding and stays in range"
+            )]
+            let rounded = (value.clamp(0.0, alpha) + 0.5).min(255.0) as u8;
+            rounded
+        };
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "clamped to 0..=255 and offset by half a level"
+        )]
+        let rounded_alpha = (alpha + 0.5).min(255.0) as u8;
+        *target = tiny_skia::PremultipliedColorU8::from_rgba(
+            bounded(channel(target.red(), b.red(), s.red())),
+            bounded(channel(target.green(), b.green(), s.green())),
+            bounded(channel(target.blue(), b.blue(), s.blue())),
+            rounded_alpha,
+        )
+        .unwrap_or(*target);
+    }
+}
+
 /// Composites a layer onto a surface under a non-separable blend mode.
 ///
 /// Both pixmaps hold premultiplied eight-bit RGBA and cover the same pixels; `layer` is

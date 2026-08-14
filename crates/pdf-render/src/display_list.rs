@@ -26,6 +26,39 @@ impl ClipId {
     }
 }
 
+/// The four-component blending colour space one group's elements composite in
+/// (ISO 32000-2 §11.6.6, §11.7.2).
+///
+/// §11.7.2 states what a group's own colour space means for the marks inside it:
+///
+/// > If the colour space of a graphics object within the group is not equivalent to the
+/// > group's blending colour space, then it shall be converted to the group's colour space ,
+/// > and all blending and compositing computations shall be done in that space (see 11.3.4,
+/// > "Blending colour space"). The resulting colours shall then be interpreted in the
+/// > group's colour space when the group is subsequently composited with its backdrop.
+///
+/// Where that space has four components and the parent composites on the device's three,
+/// the same construction that draws §11.4.7's page group applies one scope down
+/// ([`crate::blending`]): the group's elements are interpreted twice, once carrying the
+/// additive complements of cyan, magenta and yellow — [`Command::Group`]'s own `commands` —
+/// and once carrying the complement of black, which is [`GroupBlending::black`]. A backend
+/// composites each list onto §11.4.5's transparent backdrop, resolves the pair through
+/// [`GroupBlending::space`] with [`crate::blending::resolve`], and only then paints the
+/// result onto the parent — which is exactly where §11.7.2's second sentence puts the
+/// interpretation of the group's accumulated colour.
+///
+/// The two lists are two interpretations of one content stream and differ only in what a
+/// colour resolved to; their geometry, clips, blend modes and nesting are identical by
+/// construction, and `pdf-model` verifies that before pairing them.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GroupBlending {
+    /// The conversion out of the group's four components, applied to the composited pair
+    /// before the group is painted onto its parent.
+    pub space: crate::blending::BlendingSpace,
+    /// The same elements, drawn in the black component of the space.
+    pub black: Vec<Command>,
+}
+
 /// A clip region: an intersected path, optionally nested inside another clip.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Clip {
@@ -223,10 +256,14 @@ pub enum Command {
         /// The step that cancels is §11.3.3 with the **Normal** blend function. Under any
         /// other, the group's own colour is needed and with it the group alpha, and the
         /// identity is false — 0.60 of full scale apart at its worst over random inputs. So
-        /// `pdf-model` emits `false` only where [`Self::blend`] is [`BlendMode::Normal`],
-        /// [`Self::knockout`] is `false` and no enclosing group is a knockout group, and
-        /// reports the groups it therefore cannot draw. A backend may rely on all three and
-        /// should refuse rather than approximate if handed anything else.
+        /// `pdf-model` emits `false` only where [`Self::blend`] is [`BlendMode::Normal`]
+        /// and no enclosing group is a knockout group, and reports the groups it therefore
+        /// cannot draw. A backend may rely on both and should refuse rather than
+        /// approximate if handed anything else.
+        ///
+        /// `false` **with [`Self::knockout`] set** is §11.4.6's non-isolated knockout
+        /// group, whose initial backdrop is the group's own — see [`Self::knockout`] for
+        /// what that asks of a backend and what `pdf-model` guarantees about its elements.
         isolated: bool,
         /// Whether the elements knock each other out (§11.4.6).
         ///
@@ -256,7 +293,41 @@ pub enum Command {
         /// read off the coverage it draws with, and `pdf-model` guarantees that: it emits
         /// this flag only where every element is one or the other, and reports the groups
         /// where a shape cannot be stated at all.
+        ///
+        /// # A non-isolated knockout group, where the two backdrops differ
+        ///
+        /// With [`Self::isolated`] `false` beside this flag, the initial backdrop every
+        /// element composites with is **the group's own backdrop** rather than
+        /// transparency — "[a] nonisolated knockout group composites its topmost enclosing
+        /// element with the group's backdrop" — and the staged reading above no longer
+        /// holds, because an element's blend mode now has that backdrop to blend against.
+        /// §11.4.6's two stages per element `i`, in premultiplied form with `B` the
+        /// initial backdrop, `P` the accumulation (which starts at `B`), `fᵢ` the
+        /// element's shape and `Eᵢ(B)` the element composited onto `B`, are
+        ///
+        /// ```text
+        /// Pᵢ = (1 − fᵢ) × Pᵢ₋₁ + fᵢ × Eᵢ(B)
+        /// ```
+        ///
+        /// so a backend has to retain `B` beside the accumulation and composite each
+        /// element against it in a scratch of its own. `pdf-model` emits the combination
+        /// only where **every** element is a [`Command::Shaped`] (the per-pixel `fᵢ` has
+        /// to come from somewhere), [`Self::blend`] is [`BlendMode::Normal`] (the
+        /// non-isolated collapse's own condition, above), and no enclosing group is a
+        /// knockout group. A backend that cannot retain the backdrop refuses the
+        /// combination rather than substituting either backdrop for the other.
         knockout: bool,
+        /// The four-component blending colour space this group's elements composite in,
+        /// or `None` for a group composited in the space its parent already composites in
+        /// (§11.6.6, §11.7.2). See [`GroupBlending`].
+        ///
+        /// `pdf-model` emits `Some` only for an isolated group, because §11.6.6 gives a
+        /// `/CS` effect for isolated groups alone — "[f]or non-isolated groups, or if no
+        /// group colour space is specified, the group colour space shall be inherited from
+        /// the parent group or page". A backend that cannot composite the pair and resolve
+        /// it must refuse the command: the colours the two lists hold are ink complements,
+        /// and drawing either list alone paints the page in them.
+        blending: Option<Box<GroupBlending>>,
     },
     /// An object of a knockout group whose shape is not the coverage it is drawn with
     /// (ISO 32000-2 §11.4.6, §11.6.4.2).
@@ -615,7 +686,18 @@ impl DisplayList {
                 path.commands().len().hash(hasher);
             }
             match command {
-                Command::Group { commands, .. } => Self::hash_commands(commands, hasher),
+                Command::Group {
+                    commands, blending, ..
+                } => {
+                    Self::hash_commands(commands, hasher);
+                    // The pair's second list is part of the geometry too: a group whose
+                    // halves diverged structurally would be resolved against a shape that
+                    // never drew it, exactly the failure this digest exists to catch.
+                    blending.is_some().hash(hasher);
+                    if let Some(pair) = blending {
+                        Self::hash_commands(&pair.black, hasher);
+                    }
+                }
                 Command::Shaped { object, shape, .. } => {
                     Self::hash_commands(std::slice::from_ref(object.as_ref()), hasher);
                     Self::hash_commands(std::slice::from_ref(shape.as_ref()), hasher);

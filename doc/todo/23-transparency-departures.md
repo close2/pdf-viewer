@@ -39,24 +39,36 @@ NOTE 6 makes a non-isolated group nested in an isolated knockout group §11.4.5'
 incomplete and the oracle's contradicted set 68 → 67: `knockout_blend_multiply.pdf` draws the
 colour §11.3.5.2 states rather than one two channels away, which all three references were
 already drawing, and `knockout_inner_backdrop.pdf` — which was drawn right all along — stops
-reporting a departure it does not have.
+reporting a departure it does not have. **The four-hundred-and-ninety-second built both of this
+file's last two constructions** (ADR 0327): §11.4.6's non-isolated knockout group is drawn on the
+oracle with the initial backdrop retained beside the accumulation, and an isolated group that
+*introduces* a sampleable four-component space composites in it as §11.4.7's pair one scope down
+— `Command::Group` carries the space and the second element list, which is word for word what
+this file priced. Corpus 65 → 63 incomplete: `issue18032.pdf` **agrees with the CPU oracle** now
+(its `/AIS` blocker was a page-wide flag a `Q`-restored statement two forms away had set, scoped
+to the group in the same round), and `bug1721218_reduced.pdf` is drawn in ink and joins
+`AMBIGUOUS_PAGE_DRAWN_IN_INK` with its own reading — nearer to `poppler` than any two references
+sit to each other. Both are refused by name on `render-gpu` and `render-quorra` and the frames go
+to the oracle, which is a backend row again only in the sense ADR 0327 prices: a scene under
+composition cannot resolve a pair per pixel or retain a backdrop beside a layer.
 Priority: 23
-Corpus: 2 documents
+Corpus: 0 documents
 Clauses: §11.3.5.3, §11.4.4, §11.5.3, §11.6.6, §11.7.5.3, §8.6.5.5, §8.6.5.6, §8.6.5.7, §11.7.2,
 §14.11.5
-Code: `crates/pdf-model/src/content.rs`, `crates/pdf-model/src/colour.rs`,
-`crates/pdf-render/src/blending.rs`, `crates/render-cpu/src/lib.rs`
+Code: `crates/pdf-model/src/content/transparency.rs`, `crates/pdf-model/src/colour.rs`,
+`crates/pdf-render/src/blending.rs`, `crates/pdf-render/src/display_list.rs`,
+`crates/render-cpu/src/lib.rs`
 
 | | corpus | web witnesses | what it is |
 |---|---|---|---|
 | ~~a non-separable blend mode on such a page (§11.3.5.3)~~ | ~~1~~ → 0 | ~~1 of 1896, 2 of 4000, 27, 28, 31~~ → **0** | **closed in the 441st, ADR 0277: the K rule is the clause's own four functions on a neutral pair, which is what the black raster is.** No display-list member, no backend arm, no refusal — the collapse went further than the round set out to take it, and the explicit route it replaced (a `Backdrop` blend function, which is Destination-Over exactly) would have cost the quorra backend all 31 |
-| a group inside the page composites in a different space (§11.6.6) — **the standing item now** | 0 | 78, 85 → **8 of 65 944** | 77 of the 85 were a mask's group counted as the page's (ADR 0276). A further **30** — 1 in the corpus, `bug1721218_reduced.pdf` — are a group that *introduces* a space on a page that states none |
+| a group inside the page composites in a different space (§11.6.6) — **the standing item now** | 0 | 78, 85 → **8 of 65 944** | 77 of the 85 were a mask's group counted as the page's (ADR 0276). A further **30** — 1 in the corpus, `bug1721218_reduced.pdf` — were a group that *introduces* a space on a page that states none, and **the four-hundred-and-ninety-second draws that shape** where the space is four components this tree can sample (ADR 0327): the corpus witness composites in ink. What the condition still fires on is a space the group-scoped pair cannot carry — a three- or one-component group inside a four-component parent (a per-pixel conversion between two presses), four components no profile backs, §11.7.5.3's black generation — each still reported by name where it composites |
 | an `/ExtGState` states `/BG`, `/BG2`, `/UCR` or `/UCR2` (§11.7.5.3) | 0 | 1 of 1896, 0 of 4000, 7 → **9 of 65 944** | **was silent until the 426th**, and 0 of 4000 could have been read as noise. **All nine state it at `soft_mask_depth` 0**, measured in the 440th, so the monotone flag costs nothing here |
 | a page group whose components are not four this tree can sample | 0 | 14 of 4000, 106 → **5 of 65 944** | what is left after ADR 0272: a `/DeviceGray` or `Lab` page group, or four components with no profile behind them, so §11.3.4 has no formula to apply and no conversion out |
 | ~~the document names the press its `DeviceCMYK` is~~ | ~~0~~ | ~~151~~ → **0** | **closed in the 436th, ADR 0272: the press is a value, and `CMYK_CORNERS` is one of them** |
 | ~~a conversion *into* the blending space~~ | ~~5~~ → 0 | ~~61~~ → 0 | **closed in the 427th, ADR 0263: a right inverse of the ink cube** |
 | ~~the four components themselves~~ | — | — | **closed in the 426th, ADR 0262: two rasters, no new format** |
-| ~~a non-isolated group NOTE 5 cannot flatten~~ | ~~6~~ → ~~3~~ → 1 | | **the non-knockout ones closed** in the 400th, ADR 0237; **two of the three knockout ones closed in the 472nd, ADR 0307** — one was §11.4.4's group wearing `/K`, the other was §11.4.5's wearing `/I false` under NOTE 6 — and what is left is `issue18032.pdf`, below |
+| ~~a non-isolated group NOTE 5 cannot flatten~~ | ~~6~~ → ~~3~~ → ~~1~~ → 0 | | **the non-knockout ones closed** in the 400th, ADR 0237; **two of the three knockout ones closed in the 472nd, ADR 0307** — one was §11.4.4's group wearing `/K`, the other was §11.4.5's wearing `/I false` under NOTE 6 — and **the last, `issue18032.pdf`, closed in the 492nd, ADR 0327**: the initial backdrop is retained beside the accumulation on the oracle, per element, which is exactly the construction ADR 0307 priced |
 | ~~a soft-mask group with such a space~~ | ~~7~~ → 0 | | **closed** in the 380th and 383rd, ADRs 0217 and 0220 |
 | ~~a knockout element whose shape is not its coverage~~ | ~~5~~ → 0 | | **closed** in the 397th, ADR 0234 |
 
@@ -65,9 +77,9 @@ reported for the press and are now reported for the next condition they meet —
 narrowing honestly rather than a condition being narrowed (trap 5).
 
 Each remaining one is refused *by name* rather than approximated, and since the four-hundred-and-
-twenty-sixth the name says **which** of the conditions fired. The corpus documents are
-`bug1721218_reduced` for a group that introduces a space, and `issue18032` for what §11.4.4
-still refuses. `knockout_blend_multiply` and `knockout_inner_backdrop` left in the
+twenty-sixth the name says **which** of the conditions fired. No corpus document is on this file
+any more: `bug1721218_reduced` and `issue18032` left in the four-hundred-and-ninety-second, both
+drawn by the oracle. `knockout_blend_multiply` and `knockout_inner_backdrop` left in the
 four-hundred-and-seventy-second.
 `personwithdog.pdf` left in the four-hundred-and-twenty-sixth, `issue12798_page1_reduced.pdf` and
 `bug1365930.pdf` in the four-hundred-and-twenty-seventh, and `bug1703683_page2_reduced.pdf`,
@@ -127,6 +139,12 @@ space and a second command list, and three backends would have to resolve the pa
 compositing the group onto its parent. Both halves of the conversion between two presses already
 exist — `Press::blending_space` out and `colour::rgb_to_ink` in — so what is missing is the display
 list's vocabulary and not the arithmetic. 8 web documents and 0 corpus ones is what it is worth.
+**Built in the four-hundred-and-ninety-second for the four-component shape** (ADR 0327):
+`pdf_render::GroupBlending` is that vocabulary word for word, the oracle resolves the pair, and
+the other two backends refuse it by name. What the row keeps is the *other* direction — a three-
+or one-component group inside a four-component parent, whose conversion out lands in the parent's
+ink per pixel, which is a conversion between two presses no sampled grid here expresses — plus
+four components no profile backs and §11.7.5.3's stated black generation.
 
 **54 of the 77 become complete and 23 keep a report they already had** — 21 of §11.4.4's
 non-isolated group, one knockout, and three that join the non-separable row above. Web blending
@@ -277,7 +295,7 @@ formulas, and the three fixtures.
 
 ### What that left behind
 
-1. **A non-isolated knockout group whose elements blend *and* whose rule can show** — the same
+1. ~~**A non-isolated knockout group whose elements blend *and* whose rule can show**~~ — the same
    sentence one clause over. §11.4.6 composites each element with the group's *initial* backdrop,
    which for a non-isolated knockout group is the page, so the two stages are not the pair
    `Command::Shaped` states. **Two of the three corpus witnesses this used to name were not this
@@ -287,11 +305,12 @@ formulas, and the three fixtures.
    construction; and `knockout_inner_backdrop.pdf` is a non-isolated group inside an **isolated**
    knockout group, which NOTE 6 gives that group's transparent initial backdrop — so it is
    §11.4.5's isolated group by definition and was being drawn correctly while reporting otherwise.
-   `issue18032.pdf` is what is left, and the arithmetic says why it is a construction rather than
-   a condition: unrolling the recurrence leaves the staged pair intact, but the Plus half's colour
-   is the element blended against the *initial* backdrop, so a backend needs that backdrop
-   retained beside the accumulation and a scratch per element. Three backends, one corpus
-   document.
+   **`issue18032.pdf` closed in the four-hundred-and-ninety-second** (ADR 0327), by exactly the
+   construction the arithmetic here priced: the display list states the pair of flags, every
+   element arrives as a `Command::Shaped`, and `render-cpu` keeps the initial backdrop beside the
+   accumulation with a scratch per element — `f × E = S − (1 − f) × B` recovering stage a)'s
+   shape-1.0 composite from an ordinary draw. One backend rather than three: the other two refuse
+   by name and the frame goes to the oracle, which is the deliberate cost recorded there.
 2. **A blend mode at the `Do`**, where the collapse genuinely fails and NOTE 4's second
    accumulator would genuinely be needed — 0.601 of full scale wrong if it is assumed anyway. No
    corpus document states one.
@@ -374,6 +393,10 @@ unsayable: a conversion *into* the blending space is a function rather than a va
 list can carry one. What it needed was not a command but a **branch decision** — §11.7.5.3 names the
 conversion's target and §10.4.2.1 ranks the algorithms, so the conversion in belongs on whichever
 branch the conversion out is on, and a right inverse of the ink cube is what that branch means here
-(ADR 0263). The residues left in the table above are the same shape one space over: each of them
-needs a *second* colour space this tree does not model, which is again not a quantity a command
-could name.
+(ADR 0263). **The seventh is the fifth's shape one scope down and closed the same way** (ADR 0327):
+a group's own four components are a second command list beside the first with the conversion out as
+a value — `pdf_render::GroupBlending` — and §11.4.6's other backdrop is a *discipline* over buffers
+a backend already has rather than a new quantity, the initial backdrop retained beside the
+accumulation. What the residues left in the table still need is a conversion **between two
+presses**, per pixel, at a group boundary — a function of a function, which really is not a
+quantity a command could name, and which no corpus document asks for.
