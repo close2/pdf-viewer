@@ -73,6 +73,34 @@ impl PartialEq<&str> for Name {
     }
 }
 
+/// Lets a [`Dictionary`] be probed with a borrowed `&[u8]` instead of an allocated key.
+///
+/// `Borrow` demands that the borrowed and the owned form agree on `Eq`, `Ord` and `Hash`. The
+/// equality half is what ISO 32000-2 §7.3.5 says a name *is*:
+///
+/// > any two name objects that, after all escaping is expanded (see below), and the resulting
+/// > sequences of bytes are not an exact binary match denote different objects
+///
+/// and the ordering and hashing halves hold by construction rather than by inspection: every one
+/// of those five traits on [`Name`] is derived, a derive on a one-field tuple struct delegates to
+/// the field, and `Arc<[u8]>` delegates to `[u8]`. So a name's ordering *is* its bytes' ordering,
+/// the `BTreeMap`'s invariant is untouched, and `borrows_exactly_as_it_compares` is the standing
+/// check that a later hand-written impl of any of the five does not break it silently.
+///
+/// What it buys, which is why a four-line impl earns a comment this long: [`Dictionary::get`] used
+/// to build a heap-allocated `Name` for the key on **every dictionary lookup in the program** —
+/// a `Vec`, then the `Arc<[u8]>` it is copied into, then both freed. One cold search of
+/// ISO 32000-2's 1023 pages makes **3 278 302** calls to it, and callgrind over two binaries from
+/// one tree puts the whole sweep at **37 642 044 068 → 36 920 639 974 instructions, −1.92%** —
+/// about 220 instructions a call, with `malloc` down 19.1% and `free` down 15.7%. The readback of
+/// every page is byte-identical, which is what says this is a speed-up and not a change. ADR 0335;
+/// `doc/performance.md` has the rest of the table.
+impl std::borrow::Borrow<[u8]> for Name {
+    fn borrow(&self) -> &[u8] {
+        &self.0
+    }
+}
+
 impl std::fmt::Display for Name {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "/{}", self.as_str().unwrap_or("<non-utf8>"))
@@ -104,9 +132,12 @@ impl Dictionary {
     }
 
     /// Looks up a key by name.
+    ///
+    /// Probes the map with the caller's own bytes through [`Name`]'s `Borrow<[u8]>`, which is
+    /// what keeps the hottest path in the program allocation-free; the impl carries the number.
     #[must_use]
     pub fn get(&self, key: &str) -> Option<&Object> {
-        self.0.get(&Name::new(key.as_bytes().to_vec()))
+        self.0.get(key.as_bytes())
     }
 
     /// Removes a key, returning its value if it was present.
@@ -116,7 +147,7 @@ impl Dictionary {
     /// dictionary keeps five of Table 87's entries and "all of the other entries … shall be
     /// ignored if present".
     pub fn remove(&mut self, key: &str) -> Option<Object> {
-        self.0.remove(&Name::new(key.as_bytes().to_vec()))
+        self.0.remove(key.as_bytes())
     }
 
     /// Looks up a key by an already-constructed name.
@@ -307,5 +338,91 @@ impl Object {
             Self::Stream(_) => "stream",
             Self::Reference(_) => "reference",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::borrow::Borrow;
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    use super::{Dictionary, Name, Object};
+
+    /// Names chosen for the three ways a byte-wise order can be got wrong: a prefix against what
+    /// extends it (`Type` / `TypeX`), a byte above 127 against one below it — names are bytes and
+    /// `#`-escapes are decoded, so a `/#80` is a real key — and the empty name, which ISO 32000-2
+    /// §7.3.5 admits outright:
+    ///
+    /// > The token SOLIDUS (a slash followed by no regular characters) introduces a unique valid
+    /// > name defined by the empty sequence of characters.
+    const SAMPLES: [&[u8]; 8] = [
+        b"",
+        b"A",
+        b"AA",
+        b"Type",
+        b"TypeX",
+        b"\x7f",
+        b"\x80",
+        b"\xff\x00",
+    ];
+
+    fn hash_of(value: &impl Hash) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        value.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    /// `Borrow<[u8]>` is only sound while `Eq`, `Ord` and `Hash` agree between the two forms, and
+    /// [`Dictionary`]'s `BTreeMap` is probed through it on every lookup in the program. The
+    /// agreement is by construction — all five traits are derived — so what this guards against is
+    /// a later hand-written impl of any of them, which would break the map's invariant silently.
+    #[test]
+    fn borrows_exactly_as_it_compares() {
+        for left in SAMPLES {
+            let name = Name::new(left);
+            assert_eq!(Borrow::<[u8]>::borrow(&name), left);
+            assert_eq!(hash_of(&name), hash_of(&left));
+            for right in SAMPLES {
+                assert_eq!(
+                    name.cmp(&Name::new(right)),
+                    left.cmp(right),
+                    "{left:?} against {right:?}"
+                );
+                assert_eq!(name == Name::new(right), left == right);
+            }
+        }
+    }
+
+    /// The lookup itself, over the same samples: what was inserted under a `Name` is what a
+    /// `&str` key finds, and no neighbouring key answers for it.
+    #[test]
+    fn a_borrowed_key_finds_what_an_owned_one_stored() {
+        let mut dict = Dictionary::new();
+        for (index, key) in SAMPLES.iter().enumerate() {
+            dict.insert(
+                Name::new(*key),
+                Object::Integer(i64::try_from(index).expect("eight fits")),
+            );
+        }
+        for (index, key) in SAMPLES.iter().enumerate() {
+            let text = std::str::from_utf8(key);
+            let Ok(text) = text else {
+                // Two samples are not UTF-8, which is exactly why `Name` is bytes; they are
+                // reachable through `get_by_name` and are covered by the ordering test above.
+                assert!(dict.get_by_name(&Name::new(*key)).is_some());
+                continue;
+            };
+            assert_eq!(
+                dict.get(text),
+                Some(&Object::Integer(i64::try_from(index).expect("eight fits"))),
+                "{text:?}"
+            );
+        }
+        assert_eq!(dict.get("Typ"), None);
+        assert_eq!(dict.get("TypeXY"), None);
+        assert_eq!(dict.remove("Type"), Some(Object::Integer(3)));
+        assert_eq!(dict.get("Type"), None);
+        assert_eq!(dict.get("TypeX"), Some(&Object::Integer(4)));
     }
 }

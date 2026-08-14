@@ -287,7 +287,8 @@ assumed, and the split is not even:
   and streaming buys them nothing — so this is an *added* route rather than a replacement, and the
   refusals for those paths (`image::MAX_SAMPLES`, `icc::MAX_PROFILE`, the codec bounds) stay
   exactly as they are.
-- **It cuts across `doc/todo/41`'s decoded-stream cache and `doc/todo/47`'s search**, which want to
+- **It cuts across `doc/todo/41`'s decoded-stream cache and the document-wide search** (ADRs 0317,
+  0330 and 0335, which closed `doc/todo/47`), which want to
   *keep* a decoded stream rather than stream past it. This entry read "41 is priced and refused
   today, so there is no conflict yet"; **41 was taken in the four-hundred-and-eighty-second
   session** (ADR 0317) and here is the sentence it owes, **as evidence rather than as a decision** —

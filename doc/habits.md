@@ -477,6 +477,14 @@ that attached its file to a page carried a file nothing here could reach. ADR 02
 - **Wall-clock benchmarks lie under load; count instructions instead.** One change measured as a
   24% regression and an 8.5% improvement twenty minutes apart. **A/B in one sitting**, and measure
   the baseline on this machine rather than trusting a number in this file.
+- **Pin the pool before counting a serial change in a program that has one.** Callgrind counts
+  every thread, so a work-stealing pool's *spin* is in the total and it is not deterministic.
+  `open_one` on two corpus pages read **+0.154%** and **+0.010%** for a change that removes an
+  allocation and can cost nothing; the diff was `crossbeam_deque::Stealer::steal` +1.24 M and
+  +5.11 M, and with `RAYON_NUM_THREADS=1` both pages read −0.003%. This is the converse of
+  `doc/performance.md`'s older rule — *quote the clock for a parallel change and the counter for a
+  serial one* — and the converse is the direction that produces a phantom regression rather than a
+  phantom win. Session 500, ADR 0335.
 - **Attribute a regression by removing the suspect, not by reading the profile.** The profile shows
   the *shape* of the extra work, not its cause; one stubbed field said 96 of 110 M.
 - **A gate's own printed timings are only as good as what else is in its process.** The oracle's

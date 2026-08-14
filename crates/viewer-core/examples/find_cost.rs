@@ -1,7 +1,7 @@
 //! What a document-wide search costs, measured in `find_step` alone rather than in a host's loop.
 //!
-//! `doc/todo/47`'s standing warning is that the first measurement of this feature was a
-//! measurement of something else: a full-document miss took 19.25 s in the window and 13 s of it
+//! The standing warning this example exists for (ADR 0250) is that the first measurement of the
+//! feature was a measurement of something else: a full-document miss took 19.25 s in the window and 13 s of it
 //! was `viewer-ui` presenting a whole frame per step. So this example drives the pump with no
 //! host at all — nothing is rendered, nothing is presented — and the number it prints is the
 //! search's.

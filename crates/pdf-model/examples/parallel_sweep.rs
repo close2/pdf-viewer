@@ -2,7 +2,7 @@
 //! N each opening their own.
 //!
 //! This is the instrument behind ADR 0260. A document-wide search is a loop over pages that
-//! walks §7.7.3.2's tree and interprets the leaf it finds (`doc/todo/47` has the split), and the
+//! walks §7.7.3.2's tree and interprets the leaf it finds (ADRs 0330 and 0335 have the split), and the
 //! question this answers is what putting that loop on more than one thread buys — against the
 //! only alternative that needs no shared state at all, which is one [`pdf_syntax::Document`] per
 //! thread.

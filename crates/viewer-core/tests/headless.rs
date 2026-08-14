@@ -5234,9 +5234,10 @@ fn run_search(
 
 /// A second search over the same ground answers exactly what the first did, out of the cache.
 ///
-/// This is the gate `doc/todo/47` names for the four-hundred-and-twentieth session's readback
-/// cache: *"a search that returns different results after the change is a defect, not a
-/// speed-up"*. The proof is in two halves and it needs both:
+/// This is the standing gate for every change to the search path — ADRs 0256, 0317, 0330 and 0335
+/// each hold it — and it is stated the same way in all four: *a search that returns different
+/// results after the change is a defect, not a speed-up*. The proof is in two halves and it needs
+/// both:
 ///
 /// - the **answers** are compared, for a needle that is in the document and for one that is not;
 /// - the **counters** say the second sweep interpreted nothing, so the second answer was computed

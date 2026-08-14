@@ -249,6 +249,16 @@ move a digit. That constant was right when ADR 0250 measured it, because a step 
 by three orders of magnitude the proxy stopped tracking what it stood for. It is a clock now, in the
 host, where `doc/ui-boundary.md`'s rule 3 permits one.
 
+**What was left of a cold sweep after that, and what took it, is three ADRs and not this
+paragraph** — §7.4's filter chain memoised (ADR 0317, −36.5% of a hundred-page sweep), §7.7.3.2's
+page tree walked without copying (ADR 0330, −12.1% of the whole), and the key a dictionary lookup
+allocated (ADR 0335, **−1.92%**: 37 642 044 068 → 36 920 639 974 instructions, with `malloc` down
+19.1% and `free` down 15.7% because `Dictionary::get` stopped building an `Arc<[u8]>` on each of
+3 278 302 lookups). All three are callgrind, two binaries from one tree, and all three produce a
+byte-identical readback. **What is left is `interpret_with` at 93.5% of the sweep**, which is the
+page being read: the only way to make it smaller is to read fewer pages, and both ways of doing
+that are refused with numbers in ADRs 0250 and 0260.
+
 ## What the object cache does, and what making it `Sync` cost
 
 **Counted rather than guessed, in the four-hundred-and-twenty-fourth session** (ADR 0260), with a
@@ -321,7 +331,7 @@ binaries from one tree, `DECODED_BUDGET` set to 0 for the off arm, under callgri
 | `issue6961.pdf`, 2 pages, 276 decodes of which 2 repeat, no cache | 942 918 105 | |
 | the same, 4 MiB | **920 371 576** | **−2.4%** |
 
-The readback both arms produce is byte-identical, which is `doc/todo/47`'s gate. Peak resident over a
+The readback both arms produce is byte-identical, which is the search path's standing gate. Peak resident over a
 full sweep is **213.6 / 214.0 MB with the cache against 211.6 / 209.6 without** — the budget, and
 nothing else. A least-recently-used replay of the recorded sequence says what the bound gives up:
 1 MiB saves 21.4% of the sweep, 4 MiB saves 23.1%, and an unbounded cache holding the whole 46.6 MB
