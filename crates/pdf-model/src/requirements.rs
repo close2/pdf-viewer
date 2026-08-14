@@ -322,7 +322,7 @@ impl Kind {
             }
             Self::DigSigValidation | Self::DigSig | Self::DigSigMdp => {
                 // §12.8 is read since the ninety-eighth session — the signature dictionary,
-                // Table 257's `/DocMDP` level, Table 258's usage rights — and what a validator
+                // Table 257's `/P` level, Table 258's usage rights — and what a validator
                 // needs is a trust store, which is the decision `doc/todo/51` holds.
                 "no signature validation or signing: §12.8 is read and reported, and verifying a \
                  signature needs a certificate store"

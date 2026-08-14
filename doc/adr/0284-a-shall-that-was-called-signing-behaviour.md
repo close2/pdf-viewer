@@ -10,7 +10,7 @@ nothing has touched in five hundred commits.
 
 > Table 235's `/Lock` and `/SV` are signing behaviour, and validating a signature is §12.8's.
 
-Half of that is right. Table 237's `/SV` constrains a processor that *signs*, and this one does
+Half of that is right. Table 235's `/SV` — whose value is Table 237's seed value dictionary — constrains a processor that *signs* (this line gave the entry to 237, corrected by session 489's sweep), and this one does
 not. `/Lock` is not the same kind of thing, and the clause says so in prose rather than in the
 table — which is exactly why it was read as the table's:
 

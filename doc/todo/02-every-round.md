@@ -187,6 +187,11 @@ share and the two that break it:
   committed for twenty-four rounds**, so the round that wanted it rebuilt it from the description,
   which is `CLAUDE.md`'s own rule failing in the direction it was written for. Three findings so far
   (ADRs 0295, 0315, 0319); read the hits whose entry the row's own **note** does not name first.
+- **One asks who *quotes* an entry a note claims is unread**: `cargo run --release -p conformance
+  --bin unread`, seconds, over `ledger.toml` and the source roots — the second sweep as a program
+  (ADR 0324). A hit is a key some source quotes as a lookup string while a note says nobody reads
+  it, sharpest where the quoting file is in the row's own `code = [...]`; the dominant noise is
+  one short key in three clauses, so read the witness path it prints before believing a hit.
 - **One reads *these documents'* quotation marks**, on the same discriminator and for the same
   reason: `cargo run --release -p conformance --bin quotations`, seconds, over every Markdown file
   this project wrote under `doc/`. Its first run found three sentences quoted as the standard's that

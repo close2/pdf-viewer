@@ -9,7 +9,7 @@
 //! This counts the population that decides whether reading `/FS` shows a person a file they
 //! could not otherwise reach: annotations of subtype `FileAttachment`, how many name an
 //! embedded stream, how many of those streams the name tree also names, and how many state
-//! Table 172's `/Contents` beside a `/Desc` in the file specification — which is the pair
+//! Table 166's `/Contents` beside a `/Desc` in the file specification — which is the pair
 //! §12.5.6.15's one `shall` decides between.
 //!
 //! ```sh
@@ -38,7 +38,7 @@ struct Counts {
     embedded: usize,
     /// Of those, the ones whose stream the `/EmbeddedFiles` tree also names.
     also_in_the_tree: usize,
-    /// Of those, the ones stating Table 172's `/Contents`.
+    /// Of those, the ones stating Table 166's `/Contents`.
     with_contents: usize,
     /// Of those, the ones whose specification also states Table 43's `/Desc`.
     with_contents_and_desc: usize,

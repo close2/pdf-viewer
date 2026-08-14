@@ -1313,7 +1313,8 @@ fn decode_jbig2(
 
 /// Decodes a CCITT fax-encoded image through the sandbox.
 ///
-/// ISO 32000-2 §7.4.6. Everything the decoder needs is in Table 11's `/DecodeParms`, and
+/// ISO 32000-2 §7.4.6. Everything the decoder needs is in the stream's `/DecodeParms` (Table
+/// 5), whose CCITT entries Table 11 defines, and
 /// every entry there has a default, so this function's whole job is to turn a dictionary that
 /// may be absent into a complete description — and to refuse the two cases where the
 /// dictionary says something this cannot honour rather than quietly doing something else.

@@ -50,7 +50,7 @@ struct Census {
     with_free_text: usize,
     /// Free text annotations altogether.
     annotations: usize,
-    /// Of those, the ones carrying an appearance stream under Table 168's `/N`.
+    /// Of those, the ones carrying an appearance stream under Table 170's `/N`.
     with_appearance: usize,
     /// Of those, the ones whose appearance stream holds §12.7.4.3's `/Tx` marked content.
     with_marked_text: usize,

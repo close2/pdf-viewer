@@ -85,7 +85,7 @@ PDF carries six files this program could not hand a person.
 > entry ( PDF 1.6 ) in the file specification dictionary (see "Table 43 -Entries in a file
 > specification dictionary") identified by the annotation's FS entry.
 
-`attachment::of_annotation` puts Table 172's `/Contents` in `Attachment::description` where the
+`attachment::of_annotation` puts Table 166's `/Contents` (this line said 172's, an ISO 32000-1-shaped misattribution session 489 corrected) in `Attachment::description` where the
 annotation states one. Where it states none there is no "this entry" to use instead, and
 §7.11.4.1's `/Desc` keeps its own clause's meaning — "a textual description of the embedded file,
 which can be displayed in the user interface". All seven of the corpus's and the standard's file

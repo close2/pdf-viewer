@@ -52,6 +52,7 @@ pub mod ledger;
 pub mod prose;
 pub mod quote;
 pub mod toml_subset;
+pub mod unread;
 
 use std::path::{Path, PathBuf};
 

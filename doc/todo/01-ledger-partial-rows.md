@@ -15,7 +15,8 @@ with a fifteenth found beside them — the `implemented` neighbour one of the fo
 in the four-hundred-and-sixtieth** — the first that ignores what a row says and asks instead who
 reads the entries the clause states (ADR 0295), and **the first of the fifteen to be a committed
 program rather than a description**, `cargo run --release -p conformance --bin entries` since the
-four-hundred-and-eighty-fourth (ADR 0319) — a `partial` row
+four-hundred-and-eighty-fourth (ADR 0319), with the second sweep following it as `--bin unread`
+in the four-hundred-and-eighty-ninth (ADR 0324) — a `partial` row
 whose note names nothing owed, which breaks the ledger's own definition of the status. Its first
 run printed 16 rows and seven were defects, two of them statuses: §9.3, `partial` on an expired
 reason for **365 sessions**, which the four-hundred-and-forty-second beat with §11.6's **424**. **The ninth sweep is the first to check that a citation names the *right* table**,
@@ -31,14 +32,15 @@ misquotations of the standard (ADR 0249).
 Priority: 01 — the population with no gate, and it has paid on every session that touched it
 Code: `doc/conformance/ledger.toml`, checked by `cargo test -p conformance`
 
-**A sweep round commits one prose sweep as a program before running any of them.** Two of the
-fifteen are commands (`conformance --bin entries`, `--bin quotations`) and thirteen are still
+**A sweep round commits one prose sweep as a program before running any of them.** Three of the
+fifteen are commands (`conformance --bin entries`, `--bin quotations`, and — since the
+four-hundred-and-eighty-ninth — `--bin unread`, the second sweep) and twelve are still
 descriptions, and a description is what let the fifteenth go unrun for twenty-four rounds and then
 be rebuilt from its own paragraph (ADR 0319) — `CLAUDE.md`'s "write down the command, not the
 answer" failing in the direction it was written for. The cheapest moment to commit one is the
 round that next has to run it, because that round has to reconstruct it anyway; at one per sweep
-round the backlog is gone in thirteen, without ever being a marathon. A sweep that is genuinely
-twenty lines of Python belongs under `tools/conformance` with the two that already live there.
+round the backlog is gone in twelve, without ever being a marathon. A sweep that is genuinely
+twenty lines of Python belongs under `tools/conformance` with the three that already live there.
 
 ## Why
 
@@ -1834,10 +1836,102 @@ four-hundred-and-sixtieth and -eighty-first sessions both met; and a row whose `
 stale beside a crate that grew a second file prints an entry the right reader does name. Neither is
 worth tightening the sweep for — read the hit, as with every sweep here.
 
+## All fifteen run again in the four-hundred-and-eighty-ninth, the second committed as a program, and the instrument caught a split
+
+Five rounds since the last full sweep, three of which were pure motion — `content.rs` into
+`content/`, `pdf-font`'s `lib.rs` into modules, `viewer-ui`'s binary into modules — beside
+`Command::Present` (ADR 0316) and the entries sweep itself (ADR 0319). Over `ledger.toml`,
+`crates/`, `tools/`, `fuzz/` and, for the fourth sweep, `doc/adr/`:
+
+- **The second sweep, as a program** (`cargo run --release -p conformance --bin unread`, ADR
+  0324). First run: **62 rows claim an entry unread, 171 keys between them — 55 confirmed
+  (quoted by no source), 116 quoted somewhere over 49 rows, 53 by the row's own code.** Most of
+  the 116 are the two known shapes at machine scale: a note quoting its own retired wording, and
+  one short key in three clauses. **One was a defect**: §7.5.5 said "`/Info` is unread because
+  §14.3.3 deprecates it" while `metadata::Information::read` takes the entry off the trailer for
+  the properties panel — the deprecated-so-unread disposal, one clause claiming another's reader
+  does not exist.
+- **Entries (sweep 15)**: 217 rows in the population; **140 entries over 43 rows before the
+  instrument correction, 106 over 42 after it** — the splits kept `content.rs` and
+  `pdf-viewer.rs` as module roots *so that citations stay valid*, and the sweep read each listed
+  path as one file, so 34 entries moved to "named only elsewhere" with nothing in the tree
+  changed. `entries::covered_by` now applies Rust's own rule — a module root `foo.rs` owns
+  `foo/` — and `unread` shares it. The remaining hits are the known populations; **the one
+  worked is §14.13's**, below.
+- **Quotations (sweep 11's prose sibling)**: 2885 quotations in 425 documents, 1366 verbatim, 21
+  diverging, **0 defects** — every divergence is a correction quoting the wording it retired, or
+  `doc/md/` losing a table row the PDF has (Table 29's `/OpenAction` default and Table 176's
+  wrapped `OpenArrow` row, both checked with `pdftotext -layout`).
+- **Ledger quotation marks (sweep 11)**: 1205 double-quoted spans of four words or more under a
+  session-local normaliser (not ADR 0249's, so the level is not comparable across runs), 633
+  verbatim in `doc/md/`; 45 matched the standard for five words and diverged, 24 of them without
+  an `…` elision, and **0 were defects** — every one read down to the conversion's own spacing,
+  an editorial `[bracket]`, or a correction quoting the wording it retired, with the two
+  closest-looking (§11.6.6's B(Cb,Cs) sentences) verbatim once the punctuation is normalised.
+- **Expired blockers (sweep 1)**: 7 over the ledger, 14 over the source roots — four of the
+  ledger's the quoted retired wording inside a correction, §12.10.2's wait on §12.10.3 and
+  §12.5.6.22's on printing real, every source hit past tense or true.
+- **Capability reasons (sweep 3)**: 32 over the ledger, 78 over the source roots, every source
+  hit a true statement about a boundary a crate keeps.
+- **Retired claim (sweep 4)**, over the five rounds' nouns and this round's own — `Present`,
+  the split paths, `/SD`, and **`silent` as a noun**. It paid three times on the last: §14.12.4.1
+  and §14.13.8 each called a neighbour "`silent`" in a ledger that has had no such row since
+  Annex O's five were built, and §14.8.6 used the word for a requirement addressed to a
+  *document*. Two ADRs also carried numbers this round's ninth-sweep corrections retired (0284's
+  Table 237, 0295's Table 172), amended in the same commit per ADR 0265's rule.
+- **Caller sweep (5)**: 280 distinct `pub fn` names in `pdf-model`, 92 named by no host, **76 by
+  no host, tool or fuzz target** — the same three known populations.
+- **Arithmetic (sweep 6)**: two hits, §7.9.2 and §O, read and kept before. Clean.
+- **`inapplicable` (sweep 7)**: 70 of 80 rows name vocabulary the source names, none wrong.
+- **Citations (sweep 8)**: 3 hits, all three the known false positive — a correction quoting the
+  `doc/todo/20` or `doc/todo/37` it retired.
+- **Table numbers (sweep 9)**: 409 headings parsed, ~1000 citations checked, 105 suspects —
+  most of them this run's own parser truncating a table the conversion splits across header
+  rows — and **ten defects, a block**: "Table 99's `/Configs`" in §8.11.1 and §8.11.4 (`/Configs`
+  is Table **98**'s, the properties dictionary's), "Table 172's `/Contents`" in §12.5.6.15 and
+  four source comments (`/Contents` is Table **166**'s), "Table 237's `/SV`" in §12.7.5.5 (Table
+  **235**'s, whose *value* is 237), "Table 354's `/StructTreeRoot`" in §14.7.2 and "Table 408's
+  `/DPartRoot`" in §14.12.4.1 (both the catalog's Table **29** entries, given to the tables their
+  values point at), "Table 168's `/N`" twice in the source (Table **170**'s appearance
+  dictionary), "Table 257's `/DocMDP` level" (the level is `/P`) and "Table 11's `/DecodeParms`"
+  (Table **5**'s, whose CCITT entries Table 11 defines).
+- **Parent counts (sweep 10)**: 10 hits, 0 defects — §11.7's and §14.11's double counts are
+  their own corrections quoting the retired numbers.
+- **Sweep 14**: 24 hits, every one naming a debt in words outside the sweep's vocabulary.
+- **The errata (sweep 12)**: "151 struck passage(s) … that doc/md/ still carries as current
+  text", unchanged, so the population is still read to the end; the quoting landings are the
+  known in-place annotations, `doc/todo/01`'s own records among them.
+
+### Seventeen rows read off the blame list, from the commit-138-to-165 band
+
+The band above commit 110 is the read-and-kept set; this round read the next seventeen, oldest
+first: §14.6.2, §14.9.2, §14.9.2.2, §14.7.4.2, §14.8.6, §14.8.6.2, §14.8.2, §14.8.2.2.1,
+§14.8.2.2.2, §14.8.2.3, §12.11.3, §12.11.5, §12.11.6, §7.7.4, §14.13, §14.13.2 and §14.13.8.
+**Six were wrong, and one turned into work**:
+
+| row | shape | was | is |
+|---|---|---|---|
+| §14.6.2 | 3, 5 | property-list contents read for optional content, `/MCID`, §14.9's four "and nothing else" | also §14.8.2.2.2's Table 363 artifact entries and §14.13.5's associated files — a list of what *is* read is maintained by nobody either |
+| §14.9.2.2 | 5 | descriptor `/Lang` shares its debt with "§9.8.3's `/Style` and `/FD`" | both have readers (`pdf_font::panose`, `substitute.rs`), which §9.8.3.2's and §9.8.3.3's own rows said all along; `/Lang` is the one left |
+| §14.8.2 | 5 | "[w]hat is left is the reading-order half, which needs a consumer" | §14.8.2.5 is `implemented` with consumers; what is left is what the children name |
+| §7.7.4 | 3, 5 | "Two are read" of Table 32's ten trees; `/Pages` and `/Templates` owed to §12.7.7 | four are read — `named_page::NamedPages` runs both trees' invariants, and the row went on owing them after it landed |
+| §14.8.6 | wording | "what is `silent` is the requirement" | the requirement addresses a *document*; the ledger's status word retired from the prose |
+| §14.13.8 | 4 | §14.12 "a `silent` row of its own" | `partial`, with `document_part::first_page` following `/DParts` from a jump's own part |
+
+**The one that turned into work is §14.13.3**, and it is ADR 0295's shape one family over: the
+row read `implemented` on `attachment::associated`, and that function had **no caller outside its
+own tests** — so a payload a producer associated with the catalog and filed under no name was a
+file no panel could list and no host could extract. `attachments` now appends the catalog's
+associated files to §7.7.4's tree, deduplicated by embedded stream because PDF/A-3 writers state
+one payload both ways, and the fixture pins both the reachable file and the deduplication. The
+structure-element and `DPart` `/AF` sites keep their rows' own debts: each needs a walk, not a
+list.
+
 ## What is still owed, named
 
-- **The `partial` rows not yet re-read against the code**, which the previous round put at ~47 of
-  244 and which is that estimate less the two this one read. **Nothing above commit 110 is unread now**: the twenty rows
+- **The `partial` rows not yet re-read against the code**, which stood at ~47 of 244 and which
+  the four-hundred-and-eighty-ninth took down by seventeen — the whole commit-138-to-165 band of
+  the blame list. **Nothing above commit 110 is unread now**: the twenty rows
   still blaming there are the seventeen the four-hundred-and-forty-second read and kept plus the
   three this round and the last one did, and keeping a row edits nothing. The band from commit 110
   to 300 holds the rest, and what replaces the blame order as a

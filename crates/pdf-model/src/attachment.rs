@@ -315,37 +315,61 @@ fn associated_under(document: &Document, dict: &Dictionary, key: &str) -> Vec<At
     out
 }
 
-/// Every attachment §7.7.4's `/EmbeddedFiles` tree names, in the tree's own order.
+/// Every attachment §7.7.4's `/EmbeddedFiles` tree names, in the tree's own order — and then
+/// the catalog's own §14.13.3 associated files, for the embedded file a document associates
+/// with itself without filing it under any name.
 ///
-/// Empty for a document with no name dictionary, no `/EmbeddedFiles` entry, or an entry that is
-/// not a name tree — none of which is an error, and all of which is 964 of the 974 corpus
-/// documents.
+/// The second population is deduplicated against the first by the embedded stream, because a
+/// producer that states one payload both ways — an `/EmbeddedFiles` entry *and* a catalog `/AF`
+/// array naming the same file specification, which is how PDF/A-3 writers do it — has filed one
+/// file twice, not two files. **The `/AF` half is here because [`associated`] had no caller
+/// outside its own tests**: the reading existed, §14.13.3's row called it implemented, and a
+/// document whose only route to a payload was the catalog's `/AF` carried a file no panel could
+/// list and no host could extract — the same shape as §12.5.6.15's `/FS` (ADR 0295), one clause
+/// family over.
+///
+/// Empty for a document that states neither — which is not an error, and is most of the corpus.
 #[must_use]
 pub fn attachments(document: &Document) -> Vec<Attachment> {
     let Ok(catalog) = document.catalog() else {
         return Vec::new();
     };
-    let names = document.get_key(&catalog, "Names");
-    let Some(names) = names.as_dict() else {
-        return Vec::new();
-    };
-    let embedded = document.get_key(names, "EmbeddedFiles");
-    let Some(embedded) = embedded.as_dict() else {
-        return Vec::new();
-    };
 
     let mut out = Vec::new();
-    for (bytes, value) in tree::name_pairs(embedded, &|object| document.resolve(object)) {
+    let names = document.get_key(&catalog, "Names");
+    if let Some(names) = names.as_dict() {
+        let embedded = document.get_key(names, "EmbeddedFiles");
+        if let Some(embedded) = embedded.as_dict() {
+            for (bytes, value) in tree::name_pairs(embedded, &|object| document.resolve(object)) {
+                if out.len() >= MAX_ATTACHMENTS {
+                    break;
+                }
+                let resolved = document.resolve(&value);
+                let Some(specification) = resolved.as_dict() else {
+                    continue;
+                };
+                if let Some(attachment) =
+                    read(document, specification, pdf_syntax::text_string(&bytes))
+                {
+                    out.push(attachment);
+                }
+            }
+        }
+    }
+
+    for attachment in associated(document, &catalog) {
         if out.len() >= MAX_ATTACHMENTS {
             break;
         }
-        let resolved = document.resolve(&value);
-        let Some(specification) = resolved.as_dict() else {
+        // One payload filed both ways is one file. The streams share an `Arc` because the
+        // document caches resolved objects by identity, which the test with both routes pins.
+        if out
+            .iter()
+            .any(|seen| Arc::ptr_eq(&seen.stream, &attachment.stream))
+        {
             continue;
-        };
-        if let Some(attachment) = read(document, specification, pdf_syntax::text_string(&bytes)) {
-            out.push(attachment);
         }
+        out.push(attachment);
     }
     out
 }
@@ -377,7 +401,7 @@ pub fn attachments(document: &Document) -> Vec<Attachment> {
 /// > Desc entry ( PDF 1.6 ) in the file specification dictionary (see "Table 43 -Entries in a
 /// > file specification dictionary") identified by the annotation's FS entry.
 ///
-/// So [`Attachment::description`] is Table 172's `/Contents` where the annotation states one.
+/// So [`Attachment::description`] is Table 166's `/Contents` where the annotation states one.
 /// Where it states none there is no "this entry" to use instead, and §7.11.4.1's `/Desc` keeps
 /// its own clause's meaning — "a textual description of the embedded file, which can be
 /// displayed in the user interface" — which is what [`read`] already put there.
@@ -640,6 +664,46 @@ mod tests {
         assert!(attachments(&doc).is_empty());
     }
 
+    /// §14.13.3: a file the catalog's `/AF` associates with the document, filed under no name.
+    ///
+    /// Table 29 gives the catalog an `/AF` and §7.7.4's name tree is a different entry, so a
+    /// document may state the association without the filing — and until this test's function
+    /// listed them, such a file was one no host could see: `associated` had no caller outside
+    /// this module's tests, while §14.13.3's ledger row read `implemented`.
+    #[test]
+    fn a_file_associated_with_the_catalog_is_listed_without_a_name_tree() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /AF [3 0 R] >>",
+            "<< /Type /Pages /Count 0 /Kids [] >>",
+            "<< /Type /Filespec /F (invoice.xml) /AFRelationship /Source /EF << /F 4 0 R >> >>",
+            "<< /Type /EmbeddedFile /Length 3 >>\nstream\nxml\nendstream",
+        ]);
+        let listed = attachments(&doc);
+        let [attachment] = listed.as_slice() else {
+            panic!("one attachment, got {listed:?}");
+        };
+        assert_eq!(attachment.name, "invoice.xml", "named by its own /F");
+        assert_eq!(attachment.relationship, super::Relationship::Source);
+    }
+
+    /// One payload filed both ways — an `/EmbeddedFiles` entry and a catalog `/AF` naming the
+    /// same file specification, which is PDF/A-3's shape — is one file, under the tree's name.
+    #[test]
+    fn a_file_filed_in_the_tree_and_associated_with_the_catalog_is_one_attachment() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /Names << /EmbeddedFiles 3 0 R >> /AF [4 0 R] >>",
+            "<< /Type /Pages /Count 0 /Kids [] >>",
+            "<< /Names [(source data) 4 0 R] >>",
+            "<< /Type /Filespec /F (invoice.xml) /AFRelationship /Source /EF << /F 5 0 R >> >>",
+            "<< /Type /EmbeddedFile /Length 3 >>\nstream\nxml\nendstream",
+        ]);
+        let listed = attachments(&doc);
+        let [attachment] = listed.as_slice() else {
+            panic!("one attachment, got {listed:?}");
+        };
+        assert_eq!(attachment.name, "source data", "the tree's key wins");
+    }
+
     /// §14.13's `/AF`, read from the two places the corpus puts it.
     ///
     /// The clause lists seven objects that may carry the array and says the same sentence about
@@ -843,7 +907,7 @@ mod tests {
         assert_eq!(
             with.description.as_deref(),
             Some("the sales figures"),
-            "Table 172's /Contents, which the clause puts ahead of Table 43's /Desc"
+            "Table 166's /Contents, which the clause puts ahead of Table 43's /Desc"
         );
 
         let silent = attached(None);

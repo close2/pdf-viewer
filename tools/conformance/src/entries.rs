@@ -458,6 +458,27 @@ fn mentions(note: &str, key: &str) -> bool {
             .any(|word| word == key)
 }
 
+/// Whether a `code = [...]` path covers one source file.
+///
+/// Equality, plus one rule Rust's own module system states: a module root `…/foo.rs` owns
+/// everything under `…/foo/`. The four-hundred-and-eighties split three of this tree's largest
+/// files into exactly that shape — `content.rs` kept as the root over `content/`,
+/// `pdf-viewer.rs` over `pdf-viewer/` — *so that every citation of the path stays valid*, and on
+/// this sweep's first run after the splits 34 entries moved from "named by the row's own code"
+/// to "named only elsewhere" without one line of the ledger or the readers changing. A row
+/// naming a module root is naming the module, and an instrument that read it as one file was
+/// measuring the split rather than the tree.
+#[must_use]
+pub fn covered_by(listed: &str, path: &str) -> bool {
+    if listed == path {
+        return true;
+    }
+    listed
+        .strip_suffix(".rs")
+        .and_then(|stem| path.strip_prefix(stem))
+        .is_some_and(|rest| rest.starts_with('/'))
+}
+
 /// Where the tree names one key, given the row that claims the clause.
 fn where_named(key: &str, row: &Row, sources: &[(PathBuf, String)]) -> Named {
     let needles: Vec<String> = FORMS.iter().map(|form| form(key)).collect();
@@ -468,7 +489,7 @@ fn where_named(key: &str, row: &Row, sources: &[(PathBuf, String)]) -> Named {
         }
         anywhere = true;
         let named = path.to_string_lossy().replace('\\', "/");
-        if row.code.iter().any(|listed| listed == &named) {
+        if row.code.iter().any(|listed| covered_by(listed, &named)) {
             return Named::ByItsOwnCode;
         }
     }
@@ -545,6 +566,30 @@ Table 104 -Text rendering modes
         };
         assert_eq!(where_named("Open", &row, &sources), Named::Elsewhere);
         assert_eq!(where_named("Popup", &row, &sources), Named::Nowhere);
+    }
+
+    /// A module root owns its directory: `content.rs` was split into `content/` with the root
+    /// kept exactly so that a citation of the path stays valid, and a reader that moved into a
+    /// submodule is still the row's own code.
+    #[test]
+    fn a_module_roots_directory_is_its_own_code() {
+        assert!(covered_by(
+            "crates/pdf-model/src/content.rs",
+            "crates/pdf-model/src/content/ext_gstate.rs"
+        ));
+        assert!(covered_by(
+            "crates/pdf-model/src/content.rs",
+            "crates/pdf-model/src/content.rs"
+        ));
+        // A sibling that happens to share the prefix as a *word* is not under the module.
+        assert!(!covered_by(
+            "crates/pdf-model/src/content.rs",
+            "crates/pdf-model/src/content_stream.rs"
+        ));
+        assert!(!covered_by(
+            "crates/pdf-model/src/content.rs",
+            "crates/pdf-model/src/popup.rs"
+        ));
     }
 
     /// The row's own reader answers, which is the only outcome that owes nothing.

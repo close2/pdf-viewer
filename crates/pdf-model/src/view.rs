@@ -2938,7 +2938,7 @@ fn write_added_appearance(document: &Document, update: &mut Update, dict: &mut D
 ///
 /// [`ViewState::write_retypings`] carries the argument for replacing rather than splicing and for
 /// building the stream dictionary afresh. What is here is the two places the new stream can go:
-/// over the object Table 168's `/N` already names, where the file states one indirectly — so the
+/// over the object Table 170's `/N` already names, where the file states one indirectly — so the
 /// update replaces an object rather than adding one and orphaning another — and into a new object
 /// otherwise.
 ///
