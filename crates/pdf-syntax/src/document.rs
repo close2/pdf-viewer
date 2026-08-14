@@ -146,6 +146,21 @@ fn write<T>(lock: &RwLock<T>) -> RwLockWriteGuard<'_, T> {
     lock.write().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// What [`Document::get_key_of`] found in the object cache before it let the lock go.
+///
+/// Three answers rather than two, because "the object has no such entry" and "the object is
+/// not the kind of thing that has entries" are different statements and its caller needs both.
+enum Held {
+    /// The entry as the dictionary states it, still unresolved. [`Object::Null`] where the
+    /// dictionary has no such key, which is what §7.3.9 makes an omitted entry.
+    Entry(Object),
+    /// The object is in hand and is not a dictionary, so it has no entries at all.
+    NotADictionary,
+    /// Nothing is in hand: the object has not been parsed yet, or it is itself a reference
+    /// and following §7.3.10's chain is [`Document::resolve`]'s job rather than this lock's.
+    Unread,
+}
+
 impl Document {
     /// Opens a document from its bytes.
     ///
@@ -449,6 +464,51 @@ impl Document {
     pub fn get_key(&self, dict: &Dictionary, key: &str) -> Object {
         dict.get(key)
             .map_or(Object::Null, |object| self.resolve(object))
+    }
+
+    /// Looks up one key **inside** an indirect object, without copying the rest of it.
+    ///
+    /// [`Self::get`] hands back a clone of the whole object, because that is the only thing a
+    /// value behind a lock can be handed back as. Where a caller wants one entry of a large
+    /// dictionary that is only a step on the way to somewhere else, the copy is the cost.
+    /// ISO 32000-2 §7.7.3.2's `/Kids` is "an array of indirect references", so a page tree's
+    /// walk steps over its neighbours, and asking each of them for Table 30's `/Count` through
+    /// `get` deep-copies a page dictionary — its `/Annots`, its `/Resources`, all of it — to
+    /// read one number. Over one sweep of ISO 32000-2 that was 17.1% of the whole search;
+    /// ADR 0330 has the A/B.
+    ///
+    /// `None` says the object is **not a dictionary**, which is a different answer from
+    /// [`Object::Null`] and is why this returns an `Option` where [`Self::get_key`] does not:
+    /// a caller that must tell "this node has no such entry" from "this is not a node" cannot
+    /// do it from a null, and the page tree is exactly such a caller — a `/Kids` entry naming
+    /// something that is not a dictionary is not a page and must not be counted as one.
+    ///
+    /// The answer is [`Self::get_key`]'s in every other respect: the entry is resolved, and an
+    /// absent one is [`Object::Null`].
+    #[must_use]
+    pub fn get_key_of(&self, id: ObjectId, key: &str) -> Option<Object> {
+        // The guard is dropped before anything is resolved, because resolving can load another
+        // object and that takes this same lock to write.
+        let held = {
+            let cache = read(&self.cache);
+            match cache.get(&id.number) {
+                Some(Object::Reference(_)) | None => Held::Unread,
+                Some(object) => object.as_dict().map_or(Held::NotADictionary, |dict| {
+                    Held::Entry(dict.get(key).cloned().unwrap_or(Object::Null))
+                }),
+            }
+        };
+        match held {
+            Held::Entry(value) => Some(self.resolve(&value)),
+            Held::NotADictionary => None,
+            // Either nothing has parsed this object yet, or it is itself a reference and
+            // §7.3.10's chain is `resolve`'s to follow. Both are the ordinary path, and the
+            // copy it makes is made once per object rather than once per lookup.
+            Held::Unread => self
+                .resolve(&Object::Reference(id))
+                .as_dict()
+                .map(|dict| self.get_key(dict, key)),
+        }
     }
 
     /// Loads an object from wherever the cross-reference table says it is.
@@ -1343,6 +1403,63 @@ mod tests {
                 });
             }
         });
+    }
+
+    /// One entry read out of an object answers exactly what reading the whole object answers.
+    ///
+    /// [`Document::get_key_of`] exists only to avoid a copy, so the property worth pinning is
+    /// that it changes no answer — over an object read for the first time and over the same
+    /// one once the cache holds it, because those are two different paths through it. The
+    /// three cases that are not a plain dictionary are what its `Option` is for: a reference
+    /// to a reference, which §7.3.10's chain makes ordinary; an object that is not a
+    /// dictionary at all, which is `None` rather than a null; and an object number the file
+    /// never defines, which is the same `None`.
+    #[test]
+    fn one_entry_of_an_object_reads_the_same_as_the_whole_of_it() {
+        let body = b"%PDF-1.7\n\
+                     1 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+                     2 0 obj\n<< /Type /Catalog /Pages 1 0 R >>\nendobj\n\
+                     3 0 obj\n<< /Type /Page /Parent 1 0 R /Rotate 4 0 R >>\nendobj\n\
+                     4 0 obj\n90\nendobj\n\
+                     5 0 obj\n1 0 R\nendobj\n\
+                     6 0 obj\n[1 2 3]\nendobj\n\
+                     trailer\n<< /Root 2 0 R >>\n";
+        let document = Document::open(body.to_vec()).expect("the file is openable");
+        let whole = |number: u32, key: &str| {
+            document
+                .get(ObjectId::new(number, 0))
+                .as_dict()
+                .map(|dict| document.get_key(dict, key))
+        };
+        let entry = |number: u32, key: &str| document.get_key_of(ObjectId::new(number, 0), key);
+
+        // Object 1 has not been parsed yet, so this is the loading path; asking again is the
+        // cached one, and both must agree with reading the object whole.
+        assert_eq!(
+            entry(1, "Count").as_ref().and_then(Object::as_integer),
+            Some(1)
+        );
+        assert_eq!(entry(1, "Count"), whole(1, "Count"));
+        assert_eq!(entry(1, "Count"), whole(1, "Count"));
+        assert!(
+            entry(1, "Resources").is_some_and(|value| value.is_null()),
+            "an entry the dictionary does not state is null, exactly as `get_key` says"
+        );
+
+        // §7.3.10's indirect value, resolved on the way out, as `get_key` resolves it.
+        assert_eq!(
+            entry(3, "Rotate").as_ref().and_then(Object::as_integer),
+            Some(90)
+        );
+        // A reference to a reference: the chain is followed to the dictionary at its end.
+        assert_eq!(
+            entry(5, "Count").as_ref().and_then(Object::as_integer),
+            Some(1)
+        );
+        // An array has no entries, and neither has an object the file never wrote. Both are
+        // `None`, which is the answer a null could not carry.
+        assert_eq!(entry(6, "Count"), None);
+        assert_eq!(entry(99, "Count"), None);
     }
 
     /// The recursion guard is a property of a call stack, so it may not be shared.

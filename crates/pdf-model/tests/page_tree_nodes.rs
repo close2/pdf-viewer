@@ -145,6 +145,44 @@ fn a_count_without_kids_is_not_believed() {
     );
 }
 
+/// A `/Kids` entry naming nothing is not a page, and it does not move the pages after it.
+///
+/// Table 30 says "[t]he children shall only be page objects or other page tree nodes", so an
+/// entry resolving to neither is not a child at all — and §7.3.10 makes a reference to an
+/// undefined object resolve to null rather than be an error, which is how a file arrives in this
+/// shape. **The half worth pinning is the counting**: an entry read as a childless page would
+/// consume one of the pages the walk counts down on its way to the index it was asked for, and
+/// every page after it would answer to the index of the one before. Two pages, with the dangling
+/// entry in front of both, is the smallest tree where that is visible.
+///
+/// It is here because the walk stopped copying the objects it steps over (ADR 0330): a node held
+/// by name has to be *asked* whether it is a dictionary, where resolving one answered by handing
+/// over nothing.
+#[test]
+fn a_kids_entry_that_names_no_node_is_not_a_page() {
+    // Two pages of different sizes under a root with no `/Count`, so the tree is walked rather
+    // than believed and each page's own rectangle says which page came back.
+    let bytes = b"%PDF-1.7\n\
+         1 0 obj\n<< /Type /Pages /Kids [9 0 R 2 0 R 5 0 R] >>\nendobj\n\
+         2 0 obj\n<< /Type /Page /Parent 1 0 R /MediaBox [0 0 200 100] >>\nendobj\n\
+         5 0 obj\n<< /Type /Page /Parent 1 0 R /MediaBox [0 0 300 400] >>\nendobj\n\
+         4 0 obj\n<< /Type /Catalog /Pages 1 0 R >>\nendobj\n\
+         trailer\n<< /Root 4 0 R /Size 6 >>\n%%EOF\n"
+        .to_vec();
+    let document = Document::open(bytes).expect("the fixture opens");
+    let pages = pdf_model::Pages::new(&document);
+    assert_eq!(pages.len(), 2, "object 9 does not exist and is not a page");
+    assert_eq!(
+        pages.get(0).map(|page| page.media_box),
+        Some([0.0, 0.0, 200.0, 100.0])
+    );
+    assert_eq!(
+        pages.get(1).map(|page| page.media_box),
+        Some([0.0, 0.0, 300.0, 400.0]),
+        "an entry counted as a page would have stopped the walk one page early"
+    );
+}
+
 /// The witness, from `doc/corpora/format-corpus` — a real file rather than a fixture.
 ///
 /// Skipped where the submodule is not checked out, which is the pattern `contents_entry.rs` and

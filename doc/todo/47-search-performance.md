@@ -1,4 +1,4 @@
-# A cold document-wide search, and a fifth of it is the page tree
+# A cold document-wide search, and what is still in it
 
 Status: **raised by the project owner on 2026-08-09**, on reading session 414's report:
 *"Is the search implemented single threaded? 6.19s doesn't sound that fast. Can we easily improve
@@ -7,14 +7,18 @@ requirement if the cost is too high (for instance in code quality or possibly al
 **Half answered in the four-hundred-and-twentieth session** (ADR 0256): the *repeated* search is
 750× cheaper and the window's is **0.021 s** against about five seconds, and the *cold* search was
 unchanged. **The cold one moved in the four-hundred-and-eighty-second** (ADR 0317), by memoising
-§7.4's filter chain — a third of the instructions off a hundred-page sweep. What is left of it is
-§7.7.3.2's page tree, below.
+§7.4's filter chain — a third of the instructions off a hundred-page sweep — and **again in the
+four-hundred-and-ninety-fifth** (ADR 0330), by taking §7.7.3.2's page tree walk off the copies it
+was making. What is left of it is a dictionary lookup's own allocation, below.
 Priority: 47 — performance, measured, and explicitly **not** a requirement: the owner has priced
 the trade in advance and code quality and memory both outrank the seconds
 Corpus: every document; the cost scales with the *document*, not with the needle
 Code: `crates/viewer-core/src/viewer.rs` (`find_step`, `readback`),
-`crates/viewer-core/src/readback.rs`, `crates/pdf-model/src/page.rs` (`Pages::get`),
-`crates/pdf-model/src/content.rs`. `crates/viewer-core/examples/find_cost` is the instrument.
+`crates/viewer-core/src/readback.rs`, `crates/pdf-model/src/page.rs` (`Pages::get`, `Node`),
+`crates/pdf-syntax/src/document.rs` (`get_key_of`, `Dictionary::get`),
+`crates/pdf-model/src/content.rs`. `crates/viewer-core/examples/find_cost` is the instrument, and
+the invocation that splits a whole document is
+`find_cost <file> <needle> 0 split 100000` under callgrind.
 
 ## Where the time goes, measured
 
@@ -26,6 +30,11 @@ pages, `--profile gates`, medians of three:
 | §7.7.3.2's page tree, `Pages::get` once per page | **1.12 s** | **19.6%** |
 | the content stream, `interpret_with` | **4.59 s** | **80.4%** |
 | building the index, `Pages::new` × 1023 | 2.8 ms | 0.05% |
+
+**Both of the first two rows have moved since** — ADR 0317 took a third off the second and ADR 0330
+took 71% off the first — and the wall clock they are in is a busy machine's. The split that decides
+anything now is in instructions and is in those two ADRs; this table is kept because it is what
+pointed at both.
 
 And end to end, medians of seven, against the same binary with the cache's budget set to 0:
 
@@ -85,37 +94,54 @@ average of 20 to 30 that session, and seven interleaved samples an arm gave medi
 against 6.73 s with ranges of 9 s and 8 s — the right direction and no evidence at all. A
 measurement that has to survive a busy machine counts instructions.
 
-## What is left: the page tree, and it is not a cache question
+## The page tree, taken — and the index this file proposed was not the answer
 
-**A fifth of a cold search is walking §7.7.3.2's tree from the root, once per page** — and it is
-more than a fifth now, because the section above took a third of the instructions off the other
-half and this one lost nothing. Re-measure the split before quoting the share again. `Pages::get`
-descends for every index — 1.10 ms on the thousandth page of ISO 32000-2 — so a sequential sweep is
-the access pattern a tree walk is worst at, and it is the same walk `Open::page` makes on every page
-turn. `Pages::new` is *not* the cost (2.7 µs), so hoisting the index out of `Open::page` buys
-nothing measurable and is not worth the lines.
+**A fifth of a cold search was walking §7.7.3.2's tree from the root, once per page**, and this
+file said the way out was an index the walk fills as it goes. It owed the round two measurements
+first, and the second of them changed the answer: *measure `find_leaf` before believing the walk
+is all descent.*
 
-What would buy something is an index the walk builds as it goes: the first descent to page *n*
-passes every node on the way, and remembering the leaves it saw would make the sweep O(tree) rather
-than O(pages × depth). Two things a round taking this owes:
+It was not descent. **Two fifths of the walk was §7.7.3.4's inheritance being applied to every
+node the walk stepped over and thrown away on the next line** — overlaying a page copies its whole
+`/Resources` — and the rest was `Document::get` handing back a deep copy of each neighbour so that
+Table 30's `/Count` could be read off it. ISO 32000-2's root has 9 children and one of them holds
+998 of the 1023 pages, so finding page *n* copied about *n* page dictionaries: quadratic in the
+page count, which is why the 1.10 ms on the thousandth page was a cost that grows rather than the
+flat one it looked like.
 
-- **`CLAUDE.md`'s startup rule is on the other side of it.** "No full page-tree walk" on the launch
-  path, and "a 500-page document must open no slower than a 5-page one" — which is a rule this tree
-  measured itself against in session 289 and holds today (1023 pages and 5 pages cost the launch the
-  same 5 ms of join). A *lazy* index filled by walks somebody asked for does not break that; an
-  eager one does, and the difference has to be in the design rather than in the comment.
-- **Measure `find_leaf` before believing the 1.12 s is all descent.** The split above times
-  `Pages::get` whole, and that includes §7.7.3.4's inheritance being applied from the root on every
-  call. Which of the two dominates decides whether the answer is an index of leaves or a cache of
-  resolved `Page`s, and those have very different memory costs — a `Page` holds dictionaries, where
-  a readback is 2.6 KB of text.
+**Taken in the four-hundred-and-ninety-fifth session** (ADR 0330), by holding a node as a *name*
+until something needs the node: `Document::get_key_of` reads one entry out of an indirect object
+without copying the rest, and `page::Node` is what the four walks carry. Nothing is copied until
+the page asked for has been found. Callgrind, two binaries from one tree, one cold sweep of ISO
+32000-2's 1023 pages: **42 884 714 194 → 37 676 397 310 instructions, −12.1%**, of which
+`Pages::get` is **7 324 564 135 → 2 123 154 570, −71.0%** — 17.1% of the sweep down to 5.6%.
+Interpretation moved 0.02%, which is the check that nothing else did. The readback is
+byte-identical.
+
+**It costs no memory at all**, which is the part this file should keep: the index of leaves and
+the cache of resolved `Page`s were both answers to a question about the descent, and the descent
+was never what it cost. `Pages` is still built per lookup and no tree is walked eagerly, so
+`CLAUDE.md`'s startup rule is untouched rather than argued with.
+
+## What is left: a dictionary lookup allocates, everywhere
+
+Found by the same measurement and deliberately not taken with it. `Dictionary::get` is
+`self.0.get(&Name::new(key.as_bytes().to_vec()))` — a heap allocation and a copy of the key on
+**every dictionary lookup in the program** — and it is 1 529 118 804 instructions, **4.1% of a
+cold sweep**, after the change above took it down from 2 503 477 461.
+
+`Dictionary` is a `BTreeMap<Name, Object>` and `Name` is an `Arc<[u8]>`, so probing it with a
+borrowed `&[u8]` needs `impl Borrow<[u8]> for Name`; `Name`'s ordering *is* its bytes' ordering,
+so the map's invariant survives it and the change is a few lines. What it needs is its own A/B,
+because it is the hottest path in the tree and it belongs to no clause: this is the whole reason
+it was not folded into ADR 0330's measurement.
 
 ## What a round taking this still owes
 
 - **Measure `find_step` alone**, not a host's loop. `find_cost` is the instrument now and prints the
   split itself with a fourth argument.
-- **The gate is unchanged**: `tests/text_extraction.rs` at 99.2% and the 14 specification PDFs at
-  100% of `pdftotext`'s words, both exactly. A search that returns different results is a defect.
+- **The gate is unchanged**: `tests/text_extraction.rs` and the 14 specification PDFs against
+  `pdftotext`'s words, both exactly — the gate prints its own two figures and they are ratchets. A search that returns different results is a defect.
 - **Do not undo the pump.** Rules 3 and 4 are not negotiable.
 - **State what it costs in memory and in lines.**
 

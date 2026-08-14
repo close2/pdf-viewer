@@ -30,7 +30,78 @@ const MAX_TREE_DEPTH: usize = 64;
 /// Bounds the work a single lookup can cost regardless of what the tree claims.
 const MAX_NODES_VISITED: usize = 1 << 20;
 
-/// Whether a dictionary states that it is a page tree *node* rather than a page object.
+/// A node of the page tree, as the walk holds it: by name where the file named it.
+///
+/// §7.7.3.2 makes `/Kids` "an array of indirect references to the immediate children of this
+/// node", so nearly every node a walk meets arrives as an object number — and copying the
+/// object out of the document to ask it two questions is the whole cost of the walk. A
+/// thousand-page document has a `/Kids` a thousand entries wide, and finding page *n* in it
+/// used to hand the walk *n* page dictionaries, each with its `/Annots`, its `/Resources` and
+/// its `/Contents`, so that Table 30's `/Count` could be read off it and the copy dropped: 17.1%
+/// of a document-wide search (ADR 0330).
+///
+/// So a node is a *name* until something needs the node itself, and the only thing that does is
+/// [`build_page`] — once per lookup, on the page that was asked for.
+#[derive(Debug, Clone, Copy)]
+enum Node<'a> {
+    /// A child of a `/Kids` array, read one entry at a time through its object number.
+    Indirect(ObjectId),
+    /// A node this walk was handed whole: the root, which the catalogue resolved, a page found
+    /// by [`Pages::new`]'s scan, or a `/Kids` entry a producer wrote out directly instead of by
+    /// reference. The identity is carried beside it because a dictionary does not know its own
+    /// object number.
+    Direct(&'a Dictionary, Option<ObjectId>),
+}
+
+impl<'a> Node<'a> {
+    /// The node a `/Kids` entry names, or `None` where the entry names no node at all.
+    ///
+    /// A reference is what §7.7.3.2 asks for and is the whole point of this type. The other two
+    /// are what producers write anyway and what resolving the entry used to accept without
+    /// anybody deciding to: a dictionary written straight into the array, and a stream, which
+    /// has a dictionary and is not a page but was read as one before this and still is.
+    fn of(entry: &'a Object) -> Option<Self> {
+        match entry {
+            Object::Reference(id) => Some(Self::Indirect(*id)),
+            Object::Dictionary(dict) => Some(Self::Direct(dict, None)),
+            Object::Stream(stream) => Some(Self::Direct(&stream.dict, None)),
+            _ => None,
+        }
+    }
+
+    /// One entry of this node, resolved, or `None` where this is not a dictionary at all.
+    ///
+    /// The distinction is [`Document::get_key_of`]'s and the reason it exists: a `/Kids` entry
+    /// naming something that is not a dictionary is neither a node nor a page, and a walk that
+    /// read it as a page with no entries would count it and shift every later page's index.
+    fn key(self, document: &'a Document, key: &str) -> Option<Object> {
+        match self {
+            Self::Indirect(id) => document.get_key_of(id, key),
+            Self::Direct(dict, _) => Some(document.get_key(dict, key)),
+        }
+    }
+
+    /// Which object this node is, where it was reached through one. See [`Page::id`].
+    fn id(self) -> Option<ObjectId> {
+        match self {
+            Self::Indirect(id) => Some(id),
+            Self::Direct(_, id) => id,
+        }
+    }
+
+    /// The node's own dictionary, copied out of the document where it took one.
+    ///
+    /// The one copy the walk makes, and it makes it for the page it was asked for rather than
+    /// for every page it stepped over.
+    fn dictionary(self, document: &Document) -> Option<Dictionary> {
+        match self {
+            Self::Indirect(id) => document.get(id).as_dict().cloned(),
+            Self::Direct(dict, _) => Some(dict.clone()),
+        }
+    }
+}
+
+/// Whether a node states that it is a page tree *node* rather than a page object.
 ///
 /// §7.7.3.3 Table 31 makes `/Type` required of a page object, and says which name it takes:
 ///
@@ -53,10 +124,10 @@ const MAX_NODES_VISITED: usize = 1 << 20;
 /// Where that empties the tree, [`Pages::new`]'s recovery scan asks every object what it says
 /// it is — which is how the witness in `doc/corpora/format-corpus` finds its page — and where
 /// the scan finds nothing the document has no first page and says so. ADR 0305.
-fn declares_a_node(document: &Document, node: &Dictionary) -> bool {
-    document
-        .get_key(node, "Type")
-        .as_name()
+fn declares_a_node(document: &Document, node: Node<'_>) -> bool {
+    node.key(document, "Type")
+        .as_ref()
+        .and_then(Object::as_name)
         .is_some_and(|kind| kind.as_bytes() == b"Pages")
 }
 
@@ -74,19 +145,16 @@ impl Inherited {
     ///
     /// Values found deeper in the tree win, which is what "inherited" means: the nearest
     /// ancestor's value applies, not the root's.
-    fn overlay(&self, document: &Document, node: &Dictionary) -> Self {
+    fn overlay(&self, document: &Document, node: Node<'_>) -> Self {
+        let entry = |key| node.key(document, key).unwrap_or(Object::Null);
         Self {
-            resources: document
-                .get_key(node, "Resources")
+            resources: entry("Resources")
                 .as_dict()
                 .cloned()
                 .or_else(|| self.resources.clone()),
-            media_box: rectangle(document, node, "MediaBox").or(self.media_box),
-            crop_box: rectangle(document, node, "CropBox").or(self.crop_box),
-            rotate: document
-                .get_key(node, "Rotate")
-                .as_integer()
-                .or(self.rotate),
+            media_box: rectangle(document, &entry("MediaBox")).or(self.media_box),
+            crop_box: rectangle(document, &entry("CropBox")).or(self.crop_box),
+            rotate: entry("Rotate").as_integer().or(self.rotate),
         }
     }
 }
@@ -95,8 +163,7 @@ impl Inherited {
 ///
 /// PDF rectangle arrays are two opposite corners in any order, so `[0 842 595 0]` is the
 /// same rectangle as `[0 0 595 842]`. Producers emit both.
-fn rectangle(document: &Document, dict: &Dictionary, key: &str) -> Option<[f32; 4]> {
-    let array = document.get_key(dict, key);
+fn rectangle(document: &Document, array: &Object) -> Option<[f32; 4]> {
     let items = array.as_array()?;
     if items.len() < 4 {
         return None;
@@ -435,7 +502,9 @@ impl<'a> Pages<'a> {
 
         let count = match declared {
             Some(count) if count > 0 && count <= MAX_NODES_VISITED => count,
-            _ => root.as_ref().map_or(0, |node| count_leaves(document, node)),
+            _ => root.as_ref().map_or(0, |node| {
+                count_leaves(document, Node::Direct(node, root_id))
+            }),
         };
 
         let preferences = catalog.as_ref().map_or_else(
@@ -510,7 +579,7 @@ impl<'a> Pages<'a> {
                 .iter()
                 .rev()
                 .fold(Inherited::default(), |so_far, node| {
-                    so_far.overlay(self.document, node)
+                    so_far.overlay(self.document, Node::Direct(node, None))
                 });
             return Some(build_page(
                 self.document,
@@ -520,13 +589,12 @@ impl<'a> Pages<'a> {
                 Some(id),
             ));
         }
-        let root = self.root.clone()?;
+        let root = self.root.as_ref()?;
         let mut remaining = index;
         let mut visited = 0usize;
         find_leaf(
             self.document,
-            &root,
-            self.root_id,
+            Node::Direct(root, self.root_id),
             &Inherited::default(),
             &mut remaining,
             &mut visited,
@@ -551,7 +619,7 @@ impl<'a> Pages<'a> {
         build_page(
             self.document,
             dict,
-            &Inherited::default().overlay(self.document, dict),
+            &Inherited::default().overlay(self.document, Node::Direct(dict, None)),
             self.view,
             None,
         )
@@ -581,7 +649,14 @@ impl<'a> Pages<'a> {
         let root = self.root.as_ref()?;
         let mut counted = 0usize;
         let mut visited = 0usize;
-        locate(self.document, root, id, &mut counted, &mut visited, 0)
+        locate(
+            self.document,
+            Node::Direct(root, self.root_id),
+            id,
+            &mut counted,
+            &mut visited,
+            0,
+        )
     }
 
     /// Every page's object and index, in **one** walk of the tree.
@@ -615,7 +690,15 @@ impl<'a> Pages<'a> {
         };
         let mut counted = 0usize;
         let mut visited = 0usize;
-        collect(self.document, root, &mut out, &mut counted, &mut visited, 0);
+        collect(
+            self.document,
+            // With no identity, deliberately: see the entry `collect` records.
+            Node::Direct(root, None),
+            &mut out,
+            &mut counted,
+            &mut visited,
+            0,
+        );
         out
     }
 }
@@ -653,7 +736,7 @@ fn scan_for_pages(document: &Document) -> Vec<ObjectId> {
 /// Walks the tree in page order looking for `id`; see [`Pages::index_of`].
 fn locate(
     document: &Document,
-    node: &Dictionary,
+    node: Node<'_>,
     id: ObjectId,
     counted: &mut usize,
     visited: &mut usize,
@@ -662,9 +745,10 @@ fn locate(
     if depth > MAX_TREE_DEPTH || *visited > MAX_NODES_VISITED {
         return None;
     }
+
+    let kids = node.key(document, "Kids")?;
     *visited = visited.saturating_add(1);
 
-    let kids = document.get_key(node, "Kids");
     let Some(kids) = kids.as_array() else {
         // A leaf, and not the one asked for, since a match is recognised at the reference in
         // the parent's `/Kids` — the only place a page's object number is written down. A node
@@ -676,12 +760,11 @@ fn locate(
         return None;
     };
 
-    for kid in kids {
-        if kid.as_reference() == Some(id) {
+    for entry in kids {
+        if entry.as_reference() == Some(id) {
             return Some(*counted);
         }
-        let kid = document.resolve(kid);
-        let Some(kid) = kid.as_dict() else { continue };
+        let Some(kid) = Node::of(entry) else { continue };
         if let Some(found) = locate(document, kid, id, counted, visited, depth.saturating_add(1)) {
             return Some(found);
         }
@@ -696,7 +779,7 @@ fn locate(
 /// rather than found later by a search that would also stop.
 fn collect(
     document: &Document,
-    node: &Dictionary,
+    node: Node<'_>,
     out: &mut BTreeMap<ObjectId, usize>,
     counted: &mut usize,
     visited: &mut usize,
@@ -705,9 +788,22 @@ fn collect(
     if depth > MAX_TREE_DEPTH || *visited > MAX_NODES_VISITED {
         return;
     }
+
+    let Some(kids) = node.key(document, "Kids") else {
+        return;
+    };
     *visited = visited.saturating_add(1);
 
-    let kids = document.get_key(node, "Kids");
+    // A reference to a *leaf* is the entry; a reference to an intermediate node is recorded too,
+    // answering with the first page beneath it — which is what `index_of` answers for such a
+    // reference and the only page it could sensibly mean. Recorded here rather than in the loop
+    // below so that a `/Kids` entry naming something that is not a node is not recorded at all,
+    // and so that the *root* is not: nothing in the tree names it, and `index_of` — which starts
+    // at it and matches only what a `/Kids` states — cannot answer for it either.
+    if let Some(id) = node.id() {
+        out.entry(id).or_insert(*counted);
+    }
+
     let Some(kids) = kids.as_array() else {
         // A leaf. Its own object number is written down in the parent's `/Kids` and not here,
         // which is why the entry is inserted by the parent below and this only counts — and a
@@ -718,21 +814,11 @@ fn collect(
         return;
     };
 
-    for kid in kids {
-        let id = kid.as_reference();
-        let resolved = document.resolve(kid);
-        let Some(dict) = resolved.as_dict() else {
-            continue;
-        };
-        // A reference to a *leaf* is the entry; a reference to an intermediate node is recorded
-        // too, answering with the first page beneath it — which is what `index_of` answers for
-        // such a reference and the only page it could sensibly mean.
-        if let Some(id) = id {
-            out.entry(id).or_insert(*counted);
-        }
+    for entry in kids {
+        let Some(kid) = Node::of(entry) else { continue };
         collect(
             document,
-            dict,
+            kid,
             out,
             counted,
             visited,
@@ -742,14 +828,17 @@ fn collect(
 }
 
 /// Counts leaf nodes, for a tree whose `/Count` is missing or implausible.
-fn count_leaves(document: &Document, node: &Dictionary) -> usize {
-    fn walk(document: &Document, node: &Dictionary, depth: usize, visited: &mut usize) -> usize {
+fn count_leaves(document: &Document, node: Node<'_>) -> usize {
+    fn walk(document: &Document, node: Node<'_>, depth: usize, visited: &mut usize) -> usize {
         if depth > MAX_TREE_DEPTH || *visited > MAX_NODES_VISITED {
             return 0;
         }
+        // A `/Kids` entry naming something that is not a dictionary is no page and no node.
+        let Some(kids) = node.key(document, "Kids") else {
+            return 0;
+        };
         *visited = visited.saturating_add(1);
 
-        let kids = document.get_key(node, "Kids");
         let Some(kids) = kids.as_array() else {
             // No `/Kids` means this is a leaf, whatever its `/Type` *omits*: trusting `/Type`
             // in that direction would drop pages from files that leave it out. A node that
@@ -759,9 +848,8 @@ fn count_leaves(document: &Document, node: &Dictionary) -> usize {
         };
 
         kids.iter()
-            .map(|kid| document.resolve(kid))
-            .filter_map(|kid| kid.as_dict().cloned())
-            .map(|kid| walk(document, &kid, depth.saturating_add(1), visited))
+            .filter_map(Node::of)
+            .map(|kid| walk(document, kid, depth.saturating_add(1), visited))
             .sum()
     }
 
@@ -770,16 +858,14 @@ fn count_leaves(document: &Document, node: &Dictionary) -> usize {
 }
 
 /// Descends to the leaf at `remaining` pages from here, accumulating inherited attributes.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "a recursive tree walk carrying what §7.7.3.4's inheritance and §12.2's boundaries \
-              need, plus the node's own identity: bundling them into a struct would name a thing \
-              that is not one"
-)]
+///
+/// **Nothing is copied out of the document until the page asked for has been found.** §7.7.3.4's
+/// inheritance is applied to the node the walk descends *into* and to the leaf it stops on, and
+/// not to the leaves it steps over — their overlay was always discarded, and computing it copied
+/// each one's whole `/Resources` dictionary. ADR 0330.
 fn find_leaf(
     document: &Document,
-    node: &Dictionary,
-    node_id: Option<ObjectId>,
+    node: Node<'_>,
     inherited: &Inherited,
     remaining: &mut usize,
     visited: &mut usize,
@@ -789,10 +875,12 @@ fn find_leaf(
     if depth > MAX_TREE_DEPTH || *visited > MAX_NODES_VISITED {
         return None;
     }
-    *visited = visited.saturating_add(1);
 
-    let inherited = inherited.overlay(document, node);
-    let kids = document.get_key(node, "Kids");
+    // A `/Kids` entry that is not a dictionary is neither a node nor a page. Stepped over
+    // before the visit is counted, which is where resolving it and finding no dictionary left
+    // it: it consumes none of `remaining` and none of the budget.
+    let kids = node.key(document, "Kids")?;
+    *visited = visited.saturating_add(1);
 
     let Some(kids) = kids.as_array() else {
         // A node whose own `/Type` says it is not a page has no page here to take, and none
@@ -802,24 +890,33 @@ fn find_leaf(
         }
         // A leaf. Take it if this is the one asked for.
         if *remaining == 0 {
-            return Some(build_page(document, node, &inherited, view, node_id));
+            let dict = node.dictionary(document)?;
+            let inherited = inherited.overlay(document, node);
+            return Some(build_page(document, &dict, &inherited, view, node.id()));
         }
         *remaining = remaining.saturating_sub(1);
         return None;
     };
 
+    let inherited = inherited.overlay(document, node);
     for entry in kids {
-        // The entry before it is resolved, because that is where the child's identity is:
-        // §7.7.3.2 makes `/Kids` "an array of indirect references to the immediate children".
-        let kid_id = entry.as_reference();
-        let kid = document.resolve(entry);
-        let Some(kid) = kid.as_dict() else { continue };
+        // The entry is read before it is resolved, because that is where the child's identity
+        // is: §7.7.3.2 makes `/Kids` "an array of indirect references to the immediate
+        // children", and a child held by name is a child nothing has copied yet.
+        let Some(kid) = Node::of(entry) else { continue };
 
         // Skip whole subtrees using `/Count` where it is trustworthy: for a hundred-thousand
         // page document this is the difference between a lookup costing six node reads and
         // costing fifty thousand.
-        let subtree = document.get_key(kid, "Count").as_integer();
-        let has_kids = document.get_key(kid, "Kids").as_array().is_some();
+        let subtree = kid
+            .key(document, "Count")
+            .as_ref()
+            .and_then(Object::as_integer);
+        let has_kids = kid
+            .key(document, "Kids")
+            .as_ref()
+            .and_then(Object::as_array)
+            .is_some();
         if has_kids
             && let Some(count) = subtree.and_then(|value| usize::try_from(value).ok())
             && count > 0
@@ -832,7 +929,6 @@ fn find_leaf(
         if let Some(page) = find_leaf(
             document,
             kid,
-            kid_id,
             &inherited,
             remaining,
             visited,
@@ -880,7 +976,7 @@ fn build_page(
     // "attributes that are not explicitly identified in the table as inheritable shall not
     // be inherited" — so they are read from the page object alone.
     let production_box = |key: &str| {
-        rectangle(document, dict, key).map_or(crop_box, |stated| {
+        rectangle(document, &document.get_key(dict, key)).map_or(crop_box, |stated| {
             let clipped = [
                 stated[0].max(media_box[0]),
                 stated[1].max(media_box[1]),
