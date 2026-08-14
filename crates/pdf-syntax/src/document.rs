@@ -22,7 +22,7 @@ use std::thread::ThreadId;
 
 use crate::crypt::{Encryption, Method, Permissions};
 use crate::error::{SyntaxError, SyntaxResult};
-use crate::filter::FilterRefusal;
+use crate::filter::{Damage, Decoded, FilterRefusal};
 use crate::object::{Dictionary, Name, Object, ObjectId, Stream};
 use crate::parser::{Limits, Parser};
 use crate::xref::{Location, XrefTable};
@@ -871,7 +871,9 @@ impl Document {
     /// which of [`StreamRefusal`]'s answers it was.
     #[must_use]
     pub fn decoded_stream_data(&self, stream: &Stream) -> Option<Arc<[u8]>> {
-        self.decoded_stream_data_reported(stream).ok()
+        self.decoded_stream_data_reported(stream)
+            .ok()
+            .map(|decoded| decoded.data)
     }
 
     /// The same, naming what refused.
@@ -881,13 +883,13 @@ impl Document {
     /// about this program's filter table. Reporting it as an unsupported filter would be the
     /// silent-fallback failure one layer up from the one ADR 0306 removed.
     ///
+    /// The second distinction is [`Decoded::damage`], which is not a refusal at all: bytes
+    /// came out, and they stop short of what the file says the stream is. ADR 0343.
+    ///
     /// # Errors
     ///
     /// [`StreamRefusal`], whose variants are the reasons.
-    pub fn decoded_stream_data_reported(
-        &self,
-        stream: &Stream,
-    ) -> Result<Arc<[u8]>, StreamRefusal> {
+    pub fn decoded_stream_data_reported(&self, stream: &Stream) -> Result<Decoded, StreamRefusal> {
         if stream.decryption_failed {
             return Err(StreamRefusal::DecryptionFailed);
         }
@@ -896,7 +898,10 @@ impl Document {
         }
         let filters = self.filter_chain(&stream.dict);
         if filters.is_empty() || self.states_no_data(stream) {
-            return Ok(Arc::clone(&stream.data));
+            return Ok(Decoded {
+                data: Arc::clone(&stream.data),
+                damage: None,
+            });
         }
 
         // The parameters are read before the loop rather than inside it, because they are half
@@ -913,8 +918,12 @@ impl Document {
         }
 
         let mut data: Arc<[u8]> = Arc::clone(&stream.data);
+        // The *first* damage in the chain is the one kept, because it is the one that caused
+        // the rest: a stage fed a truncated prefix has no way to end well either, and naming
+        // the last stage's complaint would describe the symptom rather than the file.
+        let mut damage = None;
         for (filter, parms) in &chain {
-            data = crate::filter::decode_with_parms_reported(
+            let stage = crate::filter::decode_with_parms_reported(
                 filter,
                 &data,
                 parms.as_ref(),
@@ -924,9 +933,12 @@ impl Document {
                 name: String::from_utf8_lossy(filter).into_owned(),
                 why,
             })?;
+            data = stage.data;
+            damage = damage.or(stage.damage);
         }
-        write(&self.decoded).put(&stream.data, chain, &data);
-        Ok(data)
+        let decoded = Decoded { data, damage };
+        write(&self.decoded).put(&stream.data, chain, &decoded);
+        Ok(decoded)
     }
 
     /// What this document's decoded-stream cache is holding, and how it has been used.
@@ -1142,6 +1154,13 @@ struct DecodedEntry {
     chain: Vec<(Vec<u8>, Option<Dictionary>)>,
     /// What that chain produced.
     data: Arc<[u8]>,
+    /// Whether it produced all of it, memoised with the bytes.
+    ///
+    /// Held rather than re-derived because it is a property of the *decode* and the decode is
+    /// what this cache exists to avoid running twice. A hit that answered `None` here would
+    /// make a damaged stream report on its first reading and stay silent on every later one,
+    /// which is a report that depends on the cache's budget. ADR 0343.
+    damage: Option<Damage>,
     /// The value of [`DecodedStreams::clock`] when this entry was last read or written.
     used: u64,
 }
@@ -1214,7 +1233,7 @@ impl DecodedStreams {
         &mut self,
         encoded: &Arc<[u8]>,
         chain: &[(Vec<u8>, Option<Dictionary>)],
-    ) -> Option<Arc<[u8]>> {
+    ) -> Option<Decoded> {
         self.clock = self.clock.saturating_add(1);
         let clock = self.clock;
         let entry = self.held.get_mut(&allocation(encoded));
@@ -1224,7 +1243,10 @@ impl DecodedStreams {
         };
         entry.used = clock;
         self.hits = self.hits.saturating_add(1);
-        Some(Arc::clone(&entry.data))
+        Some(Decoded {
+            data: Arc::clone(&entry.data),
+            damage: entry.damage,
+        })
     }
 
     /// Keeps a decode, dropping least-recently-used entries until it fits.
@@ -1239,8 +1261,9 @@ impl DecodedStreams {
         &mut self,
         encoded: &Arc<[u8]>,
         chain: Vec<(Vec<u8>, Option<Dictionary>)>,
-        data: &Arc<[u8]>,
+        decoded: &Decoded,
     ) {
+        let data = &decoded.data;
         let size = data.len().saturating_add(encoded.len());
         if size > self.budget {
             return;
@@ -1264,6 +1287,7 @@ impl DecodedStreams {
                 encoded: Arc::clone(encoded),
                 chain,
                 data: Arc::clone(data),
+                damage: decoded.damage,
                 used: self.clock,
             },
         );
@@ -1635,13 +1659,17 @@ mod tests {
     fn the_budget_drops_the_least_recently_used_decode_rather_than_growing() {
         let chain = |name: &str| vec![(name.as_bytes().to_vec(), None)];
         let bytes = |size: usize| -> Arc<[u8]> { Arc::from(vec![b'x'; size].as_slice()) };
+        let whole = |size: usize| Decoded {
+            data: bytes(size),
+            damage: None,
+        };
         // Room for two of these three (each charged 5 encoded + 5 decoded) and not the third.
         let mut cache = DecodedStreams::with_budget(25);
         let (first, second, third) = (bytes(5), bytes(5), bytes(5));
-        cache.put(&first, chain("A"), &bytes(5));
-        cache.put(&second, chain("A"), &bytes(5));
+        cache.put(&first, chain("A"), &whole(5));
+        cache.put(&second, chain("A"), &whole(5));
         assert!(cache.get(&first, &chain("A")).is_some());
-        cache.put(&third, chain("A"), &bytes(5));
+        cache.put(&third, chain("A"), &whole(5));
 
         assert!(cache.get(&second, &chain("A")).is_none(), "the oldest went");
         assert!(
@@ -1659,10 +1687,14 @@ mod tests {
     fn a_decode_that_cannot_fit_does_not_empty_the_cache_on_its_way_out() {
         let chain = vec![(b"A".to_vec(), None)];
         let bytes = |size: usize| -> Arc<[u8]> { Arc::from(vec![b'x'; size].as_slice()) };
+        let whole = |size: usize| Decoded {
+            data: bytes(size),
+            damage: None,
+        };
         let mut cache = DecodedStreams::with_budget(25);
         let (small, large) = (bytes(5), bytes(5));
-        cache.put(&small, chain.clone(), &bytes(5));
-        cache.put(&large, chain.clone(), &bytes(30));
+        cache.put(&small, chain.clone(), &whole(5));
+        cache.put(&large, chain.clone(), &whole(30));
         assert!(cache.get(&large, &chain).is_none(), "it never went in");
         assert!(
             cache.get(&small, &chain).is_some(),

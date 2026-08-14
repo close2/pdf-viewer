@@ -440,23 +440,87 @@ which is the second half of what the number is for: it says where to look **and*
 
 The defect is ADR 0340's and the reading is §7.4.8's. Two things it leaves for a later round:
 
-- **A corrupt flate content stream, and whether a truncated recovery is ever right.**
-  `govdocs1-error-pdfs/error_set_2/498264.pdf` inflates 18 bytes of its page-one content —
-  `q\n30 31.16 552 729` — and then fails after 79 of 2649 input bytes with zlib's "invalid
-  distance too far back". `poppler` carries on past it and recovers three lines of a heading;
-  `mupdf`, `ghostscript` and this tree draw nothing, and this tree reports `Undecodable`. **The
-  question is a decision rather than a defect**: no clause asks a reader to invent the rest of a
-  damaged stream, and §7.4.4.2 describes a well-formed one, so "keep what decoded before the
-  error" would be a *choice* about robustness and has to be argued as one. Whoever takes it
-  should note that the 18 bytes here would not have helped, so the population matters more than
-  the witness: the crawl's 32 undecodable `/Contents` parts (ADR 0269's table) are where to
-  measure what such a rule would buy.
+- ~~**A corrupt flate content stream, and whether a truncated recovery is ever right.**~~
+  **Settled in the five-hundred-and-eighth, and the question rested on a false premise about this
+  tree** (ADR 0343). It was posed as *should this tree start keeping the prefix?*, and **this tree
+  already kept it** — `FilterRefusal::Corrupt`'s own documentation said so and
+  `stream_length_bound.rs` had a test asserting it since ADR 0306. So the decision was never
+  whether to recover; it was whether a recovery that says nothing is one the principles permit,
+  and it is not. §7.4.1's sentence has two halves — a reader "shall invoke the corresponding
+  decoding filter or filters to convert the information back to its original form" — and a damaged
+  stream is a decode that did the first and could not finish the second. Both halves are stated
+  now: the prefix is drawn, and `ContentIssue::Damaged` says it is a prefix.
+
+  **Two defects were under the question, both silent, and neither was the one this entry
+  predicted.** The recovery said nothing at all, so a page cut short was indistinguishable from a
+  page meant to be sparse; and it was *unreliable*, because `read_to_end` discards whatever the
+  erroring `read` call produced, so the prefix survived only to the last whole call — which is
+  why `498264.pdf` reported `Undecodable` while the module promised a prefix. `flate` is driven
+  through `flate2::Decompress` now, which also tells RFC 1951's final block from an input that
+  merely ran out; **a truncated stream had been indistinguishable from a whole one since the first
+  parser**.
+
+  **The population was measured rather than guessed, and it is the reason this was worth a
+  round**: `examples/damaged_stream_census`, over all 65 944 crawled documents. The entry above
+  was right that the population matters more than the witness and wrong about which population —
+  the undecodable parts are the *small* half.
+
+- **`498264.pdf` itself buys a report and no mark, which is the honest outcome.** Its 18 recovered
+  bytes are `q\n30 31.16 552 729` and yield **0 drawing commands**. `poppler`'s three lines are
+  *past* the invalid distance code, so recovering them means resynchronising a broken deflate
+  stream — a guess about bits nobody wrote — and principle 5 makes agreement with one renderer no
+  target at all. The clause was the target and it bought a sentence.
 - **`pdfCabinetOfHorrors` has one report left and it is the file's own defect**, a `/Im0` naming
   an object that is not a stream, which every reference draws blank too. So this corpus is spent
   in the same sense the handbuilt one is, and `govdocs1-error-pdfs`' six reports are all named
   populations — four unparsable font programs, one truncated `head`, one undecodable
   `/Contents`. **What is not spent is the instrument**: the ink ranking against three references
   found a whole-page defect in 78 files, and no survey line moved when it was fixed.
+
+### 9. The chunk the five-hundred-and-eighth took: damaged streams, over every corpus on this disk
+
+**The population §8 named, measured whole.** `cargo run --release -p pdf-model --example
+damaged_stream_census -- <dir>` asks two questions of every document — what page one's
+`/Contents` kept and whether the prefix draws anything, and how many stream objects *anywhere*
+in the file decoded only part-way. One process per archive, the surveys' own method and for
+their reason. The run is a baseline for this population, never a ratchet.
+
+Three things it says, and the second is the finding:
+
+- **A damaged `/Contents` is rare and it draws.** Ninety documents of the crawl have one, and
+  **eighty-five of the ninety put at least one drawing command on the page from the recovered
+  prefix** — so the rule §8 asked about had been buying real marks all along, on 0.14% of the
+  web, while saying nothing about any of them. Twenty-four more keep nothing at all and stay
+  `Undecodable`; that is ADR 0269's row, which this file recorded as 32 before the intervening
+  fixes. Truncation outnumbers corruption roughly three to one.
+- **The wider silence is the number to take away**: **2260 damaged streams over 726 documents**,
+  against 90 whose `/Contents` is the damaged one. So the route this round made loud is about
+  4% of the population, and the rest reach a font program, an ICC profile, an image or a
+  function through `Document::decoded_stream_data`, which drops the damage by design and keeps
+  sixty-one call sites off the change. **`pdf_font::program` is the one other route now closed**
+  and it was closed because a corpus document forced it, not on principle — see below.
+- **`govdocs1-error-pdfs` is where the witnesses are readable**, 29 of its 54 documents holding
+  one: `507676.pdf` is the sharpest, 67 923 recovered bytes and **33 854 commands** this tree has
+  been drawing from a corrupt content stream in silence, and it is the document session 505's ink
+  ranking put at −1.719 without anyone asking why.
+
+**What is left, and it is a real item rather than a formality.** The other 96% of damaged streams
+are still silent. Whether each deserves a report is a *separate* question per consumer and must
+be argued per consumer, because the answer is not uniform — which is the round's own lesson:
+
+- **A font program is refused**, and the witness made the argument rather than the other way
+  round. `issue13316_reduced.pdf`'s corrupt `/FontFile2` yields 863 bytes that parse and draw
+  **`A C E F`** where `pdftoppm` draws the file's six CJK glyphs. §7.8.2 makes a content stream
+  "a sequence of instructions", so a prefix of one is a shorter sequence of the same kind; a font
+  program is a table directory whose offsets point forward, so a prefix is a directory describing
+  bytes that are not there. Trap 5's substitutive test (ADR 0106) then decides it: the wrong
+  glyphs stand *in place of* the right ones. **Trap 1 in one page — the command count rose and
+  the picture got worse.**
+- **An image, an ICC profile and a function are unexamined**, and each wants the same two
+  questions: is a prefix of this a smaller one of the same kind, and are the marks it makes
+  additive or substitutive? A round taking this should point the census at
+  `govdocs1-error-pdfs` first, where 29 of 54 documents carry one and every file is small enough
+  to open by hand.
 
 ## What not to do
 

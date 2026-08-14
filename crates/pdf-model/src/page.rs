@@ -17,7 +17,7 @@
 
 use std::collections::BTreeMap;
 
-use pdf_syntax::{Dictionary, Document, FilterRefusal, Object, ObjectId, StreamRefusal};
+use pdf_syntax::{Damage, Dictionary, Document, FilterRefusal, Object, ObjectId, StreamRefusal};
 
 /// Deepest page-tree nesting that will be followed.
 ///
@@ -397,7 +397,19 @@ impl Page {
                 continue;
             };
             let data = match document.decoded_stream_data_reported(stream) {
-                Ok(data) => data,
+                Ok(decoded) => {
+                    // §7.4.1's filter was invoked and stopped short of the end. What it did
+                    // produce goes on the page; that it is not all of it goes in the report.
+                    if let Some(damage) = decoded.damage {
+                        issues.push(ContentIssue::Damaged {
+                            index,
+                            damage,
+                            kept: decoded.data.len(),
+                            filters: filter_names(document, &stream.dict),
+                        });
+                    }
+                    decoded.data
+                }
                 // A bound refused this part; the filter chain did not fail to work. Saying
                 // "undecodable" of a stream this reader can decode perfectly well would put a
                 // limit of ours into a sentence about the file.
@@ -1097,6 +1109,31 @@ pub enum ContentIssue {
         /// Which part of `/Contents`, counting from zero.
         index: usize,
         /// The `/Filter` names it declared, which is normally why.
+        filters: Vec<String>,
+    },
+    /// A part that decoded only as far as its damage, and whose prefix is on the page.
+    ///
+    /// **The eighth place this program reports while drawing** (trap 5), and the argument is
+    /// ADR 0343's. §7.4.1 asks a reader to "invoke the corresponding decoding filter or filters
+    /// to convert the information back to its original form"; a damaged stream is a decode that
+    /// did the first half and could not finish the second, so the bytes that came out are the
+    /// producer's own — emitted by the producer's own compressor from the bytes that were there
+    /// — while the marks that did not are gone for good.
+    ///
+    /// Suppressing either statement loses information, which is trap 5's own test for adding a
+    /// place: drawing nothing throws away marks nothing else in the file can supply, and drawing
+    /// in silence makes a page that was cut short look like a page meant to be sparse.
+    ///
+    /// **Not [`Self::Undecodable`]**, which is the case where nothing survived at all, and not
+    /// [`Self::TooLarge`], which is a bound of ours rather than damage in the file.
+    Damaged {
+        /// Which part of `/Contents`, counting from zero.
+        index: usize,
+        /// Why the decode stopped short.
+        damage: Damage,
+        /// How many bytes did decode, which is what the page is drawing.
+        kept: usize,
+        /// The `/Filter` names it declared.
         filters: Vec<String>,
     },
     /// A `/Contents` entry that is neither a stream nor null.

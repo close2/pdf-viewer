@@ -36,9 +36,12 @@ pub enum FilterRefusal {
     Unsupported,
     /// The data is not what the filter's grammar admits, and nothing survived.
     ///
-    /// A *partly* decodable stream is not this: `FlateDecode` and `LZWDecode` both keep what
-    /// they inflated before the damage, because a partly-inflated content stream still renders
-    /// most of a page.
+    /// A *partly* decodable stream is not this: `FlateDecode`, `LZWDecode` and
+    /// `RunLengthDecode` all keep what they decoded before the damage and say so in
+    /// [`Decoded::damage`], because a partly-decoded content stream still renders most of a
+    /// page. **Saying so is the half that was missing until ADR 0343**, which is the whole of
+    /// trap 5: a prefix handed over as though it were the stream is a plausible-looking
+    /// fallback, and only the report tells a short page from a sparse one.
     Corrupt,
     /// The decoded data passed [`Limits::max_stream_len`].
     ///
@@ -52,6 +55,65 @@ pub enum FilterRefusal {
         /// The bound, in bytes.
         limit: usize,
     },
+}
+
+/// Why a decode stopped before the filter's own end-of-data.
+///
+/// **Not an error**: the bytes that came out are what the encoder's own algorithm produced
+/// from the bytes that were there, and ISO 32000-2 §7.4.1 asks a reader to "invoke the
+/// corresponding decoding filter" — which is what was done. What the decode did *not* achieve
+/// is the rest of that sentence, "to convert the information back to its original form", and
+/// the difference between those two is exactly this value. ADR 0343.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Damage {
+    /// The encoded data ran out before the filter's end-of-data marker.
+    ///
+    /// Every filter that has one states it: §7.4.4.2's EOD code 257 for `LZWDecode`,
+    /// §7.4.5's "[a] length value of 128 shall denote EOD" for `RunLengthDecode`, and RFC
+    /// 1951's final block for `FlateDecode`. Reaching the end of the input without seeing it
+    /// means the bytes stop short of what the stream says it is — which §7.3.8.2 makes a
+    /// statement about the file, since `/Length` "indicates how many bytes of the PDF file are
+    /// used for the stream's data" and "[a]ll of these constraints shall be consistent".
+    Truncated,
+    /// The encoded data is not what the filter's grammar admits, at a definite point in it.
+    ///
+    /// §7.4.4.1 makes RFC 1951 normative for `FlateDecode` — the Flate method "is fully
+    /// defined in Internet RFC 1950 , and Internet RFC 1951 " — so a back-reference past the
+    /// start of the window is not a Flate stream, and everything after that point is
+    /// unrecoverable. Everything *before* it is not: the decoder emitted it from bits the
+    /// producer's compressor wrote.
+    Corrupt,
+}
+
+/// What a filter stage produced, and whether it is all of it.
+///
+/// The second field is the whole point of the type. A caller that only wants bytes takes
+/// [`decode`] or [`decode_with_parms`] and gets an `Option`; a caller that has to *say*
+/// something about the page takes the reported form and reads [`Self::damage`].
+#[derive(Debug, Clone)]
+pub struct Decoded {
+    /// The decoded bytes, which are all of them where [`Self::damage`] is `None`.
+    pub data: Arc<[u8]>,
+    /// Why the decode stopped short, or `None` where it reached the filter's end-of-data.
+    pub damage: Option<Damage>,
+}
+
+impl Decoded {
+    /// A complete decode.
+    fn whole(data: impl Into<Arc<[u8]>>) -> Self {
+        Self {
+            data: data.into(),
+            damage: None,
+        }
+    }
+
+    /// A decode that stopped short, keeping what it had.
+    fn damaged(data: impl Into<Arc<[u8]>>, damage: Damage) -> Self {
+        Self {
+            data: data.into(),
+            damage: Some(damage),
+        }
+    }
 }
 
 /// Decodes one filter stage and applies any predictor from `parms`.
@@ -68,7 +130,9 @@ pub fn decode_with_parms(
     parms: Option<&Dictionary>,
     limits: Limits,
 ) -> Option<Arc<[u8]>> {
-    decode_with_parms_reported(filter, data, parms, limits).ok()
+    decode_with_parms_reported(filter, data, parms, limits)
+        .ok()
+        .map(|decoded| decoded.data)
 }
 
 /// The same, saying which of [`FilterRefusal`]'s three answers it is.
@@ -81,7 +145,7 @@ pub fn decode_with_parms_reported(
     data: &[u8],
     parms: Option<&Dictionary>,
     limits: Limits,
-) -> Result<Arc<[u8]>, FilterRefusal> {
+) -> Result<Decoded, FilterRefusal> {
     let decoded = decode_reported(filter, data, parms, limits)?;
 
     let Some(parms) = parms else {
@@ -113,7 +177,16 @@ pub fn decode_with_parms_reported(
 
     // An undefined predictor is data this reader cannot reverse, which is the `Corrupt` case:
     // it has all the bytes and no rule for them.
-    apply_predictor(&decoded, predictor, colors, bits, columns).ok_or(FilterRefusal::Corrupt)
+    //
+    // The stage's own damage survives the predictor rather than being replaced by it: a
+    // truncated inflate whose prefix un-predicts cleanly is still a truncated stream, and the
+    // rows that came out of it are still short of the rows the file states.
+    let unpredicted = apply_predictor(&decoded.data, predictor, colors, bits, columns)
+        .ok_or(FilterRefusal::Corrupt)?;
+    Ok(Decoded {
+        data: unpredicted,
+        damage: decoded.damage,
+    })
 }
 
 /// Reverses a PNG or TIFF predictor.
@@ -278,7 +351,9 @@ pub fn decode(
     parms: Option<&Dictionary>,
     limits: Limits,
 ) -> Option<Arc<[u8]>> {
-    decode_reported(filter, data, parms, limits).ok()
+    decode_reported(filter, data, parms, limits)
+        .ok()
+        .map(|decoded| decoded.data)
 }
 
 /// Decodes one filter stage, saying which of [`FilterRefusal`]'s three answers a failure is.
@@ -291,7 +366,7 @@ pub fn decode_reported(
     data: &[u8],
     parms: Option<&Dictionary>,
     limits: Limits,
-) -> Result<Arc<[u8]>, FilterRefusal> {
+) -> Result<Decoded, FilterRefusal> {
     match filter {
         b"FlateDecode" | b"Fl" => flate(data, limits),
         b"LZWDecode" | b"LZW" => {
@@ -305,12 +380,12 @@ pub fn decode_reported(
                 .unwrap_or(1);
             lzw(data, early != 0, limits)
         }
-        b"ASCIIHexDecode" | b"AHx" => Ok(ascii_hex(data)),
+        b"ASCIIHexDecode" | b"AHx" => Ok(Decoded::whole(ascii_hex(data))),
         b"ASCII85Decode" | b"A85" => ascii85(data, limits),
         b"RunLengthDecode" | b"RL" => run_length(data, limits),
         // Not a compression filter: it declares that the stream is encrypted, which is
         // handled elsewhere. Passing the data through unchanged is correct.
-        b"Crypt" => Ok(Arc::from(data)),
+        b"Crypt" => Ok(Decoded::whole(data)),
         _ => Err(FilterRefusal::Unsupported),
     }
 }
@@ -347,7 +422,7 @@ pub fn decode_reported(
 /// content stream still renders most of a page. **A stream that passes
 /// [`Limits::max_stream_len`] does not**, and the difference is the whole of ADR 0306: damage
 /// means the encoder had no more to give, and the bound means it had a great deal more.
-fn lzw(data: &[u8], early_change: bool, limits: Limits) -> Result<Arc<[u8]>, FilterRefusal> {
+fn lzw(data: &[u8], early_change: bool, limits: Limits) -> Result<Decoded, FilterRefusal> {
     /// Restart with the initial table and a nine-bit code.
     const CLEAR: u16 = 256;
     /// End of data.
@@ -382,7 +457,7 @@ fn lzw(data: &[u8], early_change: bool, limits: Limits) -> Result<Arc<[u8]>, Fil
             bits -= width;
 
             if code == EOD {
-                return Ok(Arc::from(out.as_slice()));
+                return Ok(Decoded::whole(out.as_slice()));
             }
             if code == CLEAR {
                 next = FIRST;
@@ -402,7 +477,7 @@ fn lzw(data: &[u8], early_change: bool, limits: Limits) -> Result<Arc<[u8]>, Fil
                 previous.unwrap_or(0)
             } else {
                 // A code past the end of the table is corrupt data, not a sequence.
-                return salvage(&out);
+                return salvage(&out, Damage::Corrupt);
             };
             let extends = code == next;
             for _ in 0..ENTRIES {
@@ -456,68 +531,137 @@ fn lzw(data: &[u8], early_change: bool, limits: Limits) -> Result<Arc<[u8]>, Fil
 
     // No EOD marker: the encoder is required to emit one, and a file that does not is
     // truncated rather than empty.
-    salvage(&out)
+    salvage(&out, Damage::Truncated)
 }
 
-/// What a *damaged* stream hands back: whatever it decoded, or [`FilterRefusal::Corrupt`].
+/// What a *damaged* stream hands back: whatever it decoded and why it stopped, or
+/// [`FilterRefusal::Corrupt`] where nothing survived at all.
 ///
 /// Only for damage. A stream stopped by [`Limits::max_stream_len`] does not come through here
 /// — see [`FilterRefusal::TooLarge`].
-fn salvage(out: &[u8]) -> Result<Arc<[u8]>, FilterRefusal> {
+fn salvage(out: &[u8], damage: Damage) -> Result<Decoded, FilterRefusal> {
     if out.is_empty() {
         Err(FilterRefusal::Corrupt)
     } else {
-        Ok(Arc::from(out))
+        Ok(Decoded::damaged(out, damage))
     }
 }
 
 /// Inflates a zlib or raw deflate stream.
 ///
 /// Tries zlib framing first and falls back to raw deflate, because streams missing their
-/// two-byte zlib header are common in the wild. Truncated output is kept rather than
-/// discarded: a partially-inflated content stream still renders most of a page, and
-/// discarding it would lose everything over one corrupt byte at the end.
+/// two-byte zlib header are common in the wild. Damaged output is kept rather than discarded
+/// — a partially-inflated content stream still renders most of a page — and [`Decoded::damage`]
+/// says so, which is ADR 0343 and is the half that was missing.
 ///
-/// **A stream stopped by [`Limits::max_stream_len`] is the other case, and one code path used
+/// **A stream stopped by [`Limits::max_stream_len`] is a different case, and one code path used
 /// to serve both.** `io::Take` yields end-of-file at its limit and `read_to_end` reports that
 /// as `Ok`, so a bomb clamped at the bound came back as a complete decode of its own prefix,
 /// with nothing said. The ceiling here is therefore **one byte past** the bound: reaching that
 /// byte is what tells the two apart, and it costs one byte of memory to know. ADR 0306.
-fn flate(data: &[u8], limits: Limits) -> Result<Arc<[u8]>, FilterRefusal> {
-    use std::io::Read as _;
-
+fn flate(data: &[u8], limits: Limits) -> Result<Decoded, FilterRefusal> {
     // Leading whitespace before the compressed data occurs and confuses the header check.
     let start = data
         .iter()
         .position(|&byte| !crate::lexer::is_whitespace(byte))
         .ok_or(FilterRefusal::Corrupt)?;
     let data = data.get(start..).ok_or(FilterRefusal::Corrupt)?;
-    let ceiling = limits.max_stream_len.saturating_add(1) as u64;
 
-    for raw in [false, true] {
-        let mut out = Vec::new();
-        let result = if raw {
-            flate2::read::DeflateDecoder::new(data)
-                .take(ceiling)
-                .read_to_end(&mut out)
-        } else {
-            flate2::read::ZlibDecoder::new(data)
-                .take(ceiling)
-                .read_to_end(&mut out)
-        };
-        if out.len() > limits.max_stream_len {
+    for zlib_header in [true, false] {
+        match inflate(data, zlib_header, limits) {
+            // Nothing at all came out under this framing, so the other one gets its turn:
+            // a raw deflate stream fails zlib's two-byte header check having produced no
+            // bytes, which is exactly this case and is why the fallback exists.
+            Err(FilterRefusal::Corrupt) => {}
+            other => return other,
+        }
+    }
+    Err(FilterRefusal::Corrupt)
+}
+
+/// One inflate attempt, under zlib framing or raw deflate.
+///
+/// **Driven through [`flate2::Decompress`] rather than the `Read` adapter, and the reason is a
+/// defect the adapter cannot express.** `read_to_end` learns nothing about *why* the decoder
+/// stopped: RFC 1951's final block and an input that simply ran out both arrive as `Ok`, so a
+/// truncated stream was indistinguishable from a whole one. Worse, on an actual error the
+/// adapter discards whatever the erroring `read` call had already produced, so the prefix this
+/// function is supposed to keep survived only as far as the last whole call — 1024 bytes of a
+/// partial ICC profile on one witness and *nothing at all* on another, purely by where the
+/// damage fell relative to a buffer boundary. Both are ADR 0343.
+///
+/// The three outcomes are RFC 1951's own: the final block was read (whole), the data violated
+/// the format at a definite bit ([`Damage::Corrupt`]), or the input ended first
+/// ([`Damage::Truncated`]).
+fn inflate(data: &[u8], zlib_header: bool, limits: Limits) -> Result<Decoded, FilterRefusal> {
+    /// The smallest buffer worth asking the allocator for, and the step it grows by.
+    const FLOOR: usize = 4096;
+
+    // One byte past the bound, so that reaching it is what says "there was more" — ADR 0306's
+    // distinction, kept exactly. The buffer never grows past it, so a bomb costs the bound
+    // rather than whatever it claims to inflate to.
+    let ceiling = limits.max_stream_len.saturating_add(1);
+    // Real streams inflate by roughly three to five times, so this is one allocation for most
+    // of them rather than a ladder of doublings from nothing. The ceiling wins over the floor
+    // rather than the other way round, because a test may set the bound to sixty-four and an
+    // allocation of `FLOOR` under a ceiling of 65 would ask for more room than the bound allows.
+    let initial = data.len().saturating_mul(4).max(FLOOR).min(ceiling);
+    let mut out: Vec<u8> = Vec::with_capacity(initial);
+    let mut decoder = flate2::Decompress::new(zlib_header);
+    let mut consumed = 0usize;
+
+    loop {
+        if out.len() >= ceiling {
             return Err(FilterRefusal::TooLarge {
                 limit: limits.max_stream_len,
             });
         }
-        match result {
-            Ok(_) => return Ok(Arc::from(out.as_slice())),
-            // Partial output from a truncated stream is still useful.
-            Err(_) if !out.is_empty() => return Ok(Arc::from(out.as_slice())),
-            Err(_) => {}
+        if out.len() == out.capacity() {
+            let room = ceiling.saturating_sub(out.capacity());
+            out.reserve(out.capacity().max(FLOOR).min(room));
+        }
+
+        let input = data.get(consumed..).unwrap_or_default();
+        let (before_in, before_out) = (decoder.total_in(), out.len());
+        let status = decoder.decompress_vec(input, &mut out, flate2::FlushDecompress::None);
+        consumed = consumed.saturating_add(
+            usize::try_from(decoder.total_in().saturating_sub(before_in)).unwrap_or(usize::MAX),
+        );
+
+        match status {
+            Ok(flate2::Status::StreamEnd) => return finish(&out, None, limits),
+            Err(_) => return finish(&out, Some(Damage::Corrupt), limits),
+            Ok(flate2::Status::Ok | flate2::Status::BufError) => {
+                // No input read and no output written means the decoder can make no further
+                // progress. Output room is guaranteed above, so the only way to be here is an
+                // input that ended before RFC 1951's final block — and terminating on it is
+                // also what makes this loop provably finite.
+                if decoder.total_in() == before_in && out.len() == before_out {
+                    return finish(&out, Some(Damage::Truncated), limits);
+                }
+            }
         }
     }
-    Err(FilterRefusal::Corrupt)
+}
+
+/// Hands back an inflate's bytes, or refuses them for the bound, or refuses an empty prefix.
+///
+/// A *damaged* decode that produced nothing is [`FilterRefusal::Corrupt`] rather than an empty
+/// [`Decoded`], because [`flate`] reads that as "this framing produced nothing, try the other
+/// one" — which is how a raw deflate stream gets past zlib's header check. A **whole** decode
+/// that produced nothing is not the same thing and is handed back as itself: a stream whose
+/// producer deflated zero bytes is a conforming stream that decodes to zero bytes.
+fn finish(out: &[u8], damage: Option<Damage>, limits: Limits) -> Result<Decoded, FilterRefusal> {
+    if out.len() > limits.max_stream_len {
+        return Err(FilterRefusal::TooLarge {
+            limit: limits.max_stream_len,
+        });
+    }
+    match damage {
+        Some(_) if out.is_empty() => Err(FilterRefusal::Corrupt),
+        Some(damage) => Ok(Decoded::damaged(out, damage)),
+        None => Ok(Decoded::whole(out)),
+    }
 }
 
 /// Decodes `ASCIIHexDecode`: hex digits terminated by `>`.
@@ -548,7 +692,7 @@ fn ascii_hex(data: &[u8]) -> Arc<[u8]> {
 }
 
 /// Decodes `ASCII85Decode`.
-fn ascii85(data: &[u8], limits: Limits) -> Result<Arc<[u8]>, FilterRefusal> {
+fn ascii85(data: &[u8], limits: Limits) -> Result<Decoded, FilterRefusal> {
     let mut out = Vec::new();
     let mut group = [0u8; 5];
     let mut count = 0usize;
@@ -612,7 +756,12 @@ fn ascii85(data: &[u8], limits: Limits) -> Result<Arc<[u8]>, FilterRefusal> {
             limit: limits.max_stream_len,
         });
     }
-    Ok(Arc::from(out.as_slice()))
+    // No [`Damage`] here, and §7.4.3 is why: a final partial group is not damage but the
+    // clause's own encoding — "[i]f the length of the data to be encoded is not a multiple of
+    // 4 bytes, the last, partial group of 4 shall be used to produce a last, partial group of
+    // 5 output characters" — and anything the grammar does not admit "shall cause an error",
+    // which is [`FilterRefusal::Corrupt`] above rather than a prefix.
+    Ok(Decoded::whole(out.as_slice()))
 }
 
 /// Expands one base-85 group, keeping `count - 1` of the four decoded bytes.
@@ -626,16 +775,27 @@ fn push_ascii85_group(out: &mut Vec<u8>, group: [u8; 5], count: usize) {
     out.extend_from_slice(bytes.get(..keep).unwrap_or_default());
 }
 
-/// Decodes `RunLengthDecode`.
-fn run_length(data: &[u8], limits: Limits) -> Result<Arc<[u8]>, FilterRefusal> {
+/// Decodes `RunLengthDecode`, ISO 32000-2 §7.4.5.
+///
+/// > A length value of 128 shall denote EOD.
+///
+/// So data that ends without one has ended early, and [`Damage::Truncated`] says so: the
+/// runs that were read are the encoder's own and the page draws them, but the file states a
+/// stream that does not finish. The same shape as [`flate`]'s and [`lzw`]'s, and it was
+/// silent for the same reason until ADR 0343.
+fn run_length(data: &[u8], limits: Limits) -> Result<Decoded, FilterRefusal> {
     let mut out = Vec::new();
     let mut at = 0usize;
+    let mut ended = false;
 
     while let Some(&length) = data.get(at) {
         at = at.saturating_add(1);
         match length {
             // 128 marks the end of the data.
-            128 => break,
+            128 => {
+                ended = true;
+                break;
+            }
             // 0..=127: copy the next length + 1 bytes literally.
             0..=127 => {
                 let run = usize::from(length).saturating_add(1);
@@ -660,7 +820,11 @@ fn run_length(data: &[u8], limits: Limits) -> Result<Arc<[u8]>, FilterRefusal> {
         }
     }
 
-    Ok(Arc::from(out.as_slice()))
+    if ended {
+        Ok(Decoded::whole(out.as_slice()))
+    } else {
+        salvage(&out, Damage::Truncated)
+    }
 }
 
 #[cfg(test)]

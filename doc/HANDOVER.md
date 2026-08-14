@@ -465,7 +465,7 @@ oracle's judged set for nothing. **The condition on all three is `is_hidden()`**
 hidden content "as if there were no `Do` operator to invoke it", and a `Do` that was never invoked
 cannot have failed.
 
-**Six places report *while* drawing, each deliberate**, and the test for adding a seventh is that
+**Eight places report *while* drawing, each deliberate**, and the test for adding a ninth is that
 suppressing either statement loses information: `/NeedAppearances` (stale appearances drawn
 because they are all the file offers); §11.6.5.2's `/Matte` where pre-blending cannot be undone
 (refusing would draw a rectangle of pure matte colour); a constructed appearance drawing what its
@@ -473,8 +473,20 @@ clause states while naming what it does not (ADR 0030); §8.11.4.4's `/User` and
 (switching a layer off would answer a question about this machine that nobody asked, ADR 0044);
 §12.5.6.7's `/LE` and `/Cap`, which decorate a line the clause makes *required* — **so ask whether
 the entry a refusal refuses is additive or substitutive**, and a cloudy `/BE` stays a whole
-refusal because a different border is not an extra mark (ADR 0106); and a `/DA` font `/DR` lacks,
-laid out in a stand-in **that declines where it cannot draw the whole value** (ADR 0112).
+refusal because a different border is not an extra mark (ADR 0106); a `/DA` font `/DR` lacks,
+laid out in a stand-in **that declines where it cannot draw the whole value** (ADR 0112); a
+`DCTDecode` frame that contradicts its dictionary, drawn on the codestream's own grid because
+§7.4.8 puts the dimensions there (ADR 0340); and a `/Contents` part that decoded only as far as
+its damage, whose prefix is the producer's own bytes and whose shortfall would otherwise make a
+page cut short look like a page meant to be sparse (ADR 0343).
+
+**The additive-or-substitutive test is what decides the other direction too**, and ADR 0343 is
+where it drew a line through one clause: the *same* damaged-prefix rule that is right for a
+content stream is wrong for a font program, because §7.8.2 makes the first "a sequence of
+instructions" — a prefix of which is a shorter sequence of the same kind — while a font program is
+a table directory whose offsets point forward, so its prefix yields glyphs the producer never
+wrote, standing in place of the right ones. **Ask what a prefix of the thing *is* before deciding
+whether to draw one.**
 
 ### 6. Colour: one conversion, and the specification often has no answer
 

@@ -41,7 +41,7 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use pdf_model::page::ContentIssue;
-use pdf_syntax::Document;
+use pdf_syntax::{Damage, Document};
 
 /// A one-page PDF whose page dictionary states `contents` for `/Contents`.
 ///
@@ -207,6 +207,49 @@ fn a_part_the_file_states_is_empty_is_not_a_missing_content_stream() {
     assert!(
         content.starts_with(b"0 0 10 10 re"),
         "the part that does hold drawing is still there: {content:?}"
+    );
+}
+
+/// A part that decodes only as far as its damage draws its prefix **and says so**.
+///
+/// ADR 0343, and the third statement this file distinguishes. [`ContentIssue::Undecodable`] is a
+/// part nothing survived of and [`ContentIssue::TooLarge`] is a bound of ours; this one is a part
+/// that gave what it had. §7.4.1 asks a reader to "invoke the corresponding decoding filter or
+/// filters to convert the information back to its original form", and a damaged stream is a
+/// decode that did the first half and could not finish the second — so the bytes go on the page,
+/// because they are the producer's own, and the shortfall goes in the report, because a page cut
+/// short otherwise looks like a page meant to be sparse.
+///
+/// `RunLengthDecode` is the filter here for a reason about the fixture rather than about the
+/// rule: §7.4.5 states its end-of-data as a length byte of 128, so a stream ending without one
+/// is truncated in the clause's own words, and unlike a deflate stream it can be written into
+/// this file's text fixture a byte at a time. `flate` and `lzw` answer the same question the
+/// same way, and `stream_length_bound.rs` pins those two at the filter.
+#[test]
+fn a_part_that_decodes_part_way_draws_its_prefix_and_reports_the_shortfall() {
+    // One literal run of thirteen bytes — the length byte is 12, because "the following length +
+    // 1 (1 to 128) bytes shall be copied literally" — and then nothing, where a 128 should be.
+    let extra = "6 0 obj\n<< /Filter /RunLengthDecode /Length 14 >>\nstream\n\u{c}0 20 10 10 re\nendstream\nendobj\n";
+    let document = Document::open(page_stating_with("/Contents [4 0 R 6 0 R] ", extra))
+        .expect("the fixture opens");
+    let page = pdf_model::Pages::new(&document)
+        .get(0)
+        .expect("the fixture has a page");
+    let (content, issues) = page.content_with_report(&document);
+
+    assert_eq!(
+        issues,
+        vec![ContentIssue::Damaged {
+            index: 1,
+            damage: Damage::Truncated,
+            kept: 13,
+            filters: vec!["RunLengthDecode".to_owned()],
+        }],
+        "the shortfall is named, with what survived it"
+    );
+    assert!(
+        String::from_utf8_lossy(&content).contains("0 20 10 10 re"),
+        "and the run that did decode is on the page: {content:?}"
     );
 }
 

@@ -23,7 +23,7 @@
               here is a few hundred bytes"
 )]
 
-use pdf_syntax::{FilterRefusal, Limits, filter};
+use pdf_syntax::{Damage, FilterRefusal, Limits, filter};
 
 /// The default bounds with one of them moved.
 fn bounded(max_stream_len: usize) -> Limits {
@@ -85,15 +85,21 @@ fn flate_exactly_at_the_bound_still_decodes() {
     let compressed = deflate(&[b'a'; 64]);
     let decoded = filter::decode_reported(b"FlateDecode", &compressed, None, bounded(64))
         .expect("64 bytes under a bound of 64 decode");
-    assert_eq!(decoded.len(), 64);
+    assert_eq!(decoded.data.len(), 64);
+    assert_eq!(
+        decoded.damage, None,
+        "a whole stream that lands exactly on the bound is not damaged by landing there"
+    );
 }
 
-/// A *truncated* deflate stream still hands back what it inflated.
+/// A *truncated* deflate stream still hands back what it inflated, **and says that it did**.
 ///
 /// The behaviour that must survive the fix, and the reason the two cases needed separating
-/// rather than one of them being deleted.
+/// rather than one of them being deleted. The `damage` half is ADR 0343's: keeping the prefix
+/// was right and keeping it in silence was not, because `read_to_end` answers `Ok` both when
+/// RFC 1951's final block was read and when the input merely ran out.
 #[test]
-fn flate_truncated_keeps_what_it_inflated() {
+fn flate_truncated_keeps_what_it_inflated_and_says_so() {
     let compressed = deflate(&[b'a'; 4096]);
     let cut = compressed
         .get(..compressed.len() - 4)
@@ -101,8 +107,13 @@ fn flate_truncated_keeps_what_it_inflated() {
     let decoded = filter::decode_reported(b"FlateDecode", cut, None, Limits::DEFAULT)
         .expect("a truncated stream keeps its partial output");
     assert!(
-        !decoded.is_empty() && decoded.iter().all(|&byte| byte == b'a'),
+        !decoded.data.is_empty() && decoded.data.iter().all(|&byte| byte == b'a'),
         "the salvaged prefix is the bytes the encoder did emit"
+    );
+    assert_eq!(
+        decoded.damage,
+        Some(Damage::Truncated),
+        "and a prefix handed over as though it were the whole stream is trap 5's fallback"
     );
 }
 
@@ -127,7 +138,12 @@ fn lzw_corrupt_keeps_what_it_decoded() {
     let packed = pack_codes(&[65, 66, 400], 9);
     let decoded = filter::decode_reported(b"LZWDecode", &packed, None, Limits::DEFAULT)
         .expect("partial output");
-    assert_eq!(&*decoded, b"AB");
+    assert_eq!(&*decoded.data, b"AB");
+    assert_eq!(
+        decoded.damage,
+        Some(Damage::Corrupt),
+        "a code past the end of the table is damage in the file, not the end of the data"
+    );
 }
 
 /// The two filters that always refused properly answer with the same variant.

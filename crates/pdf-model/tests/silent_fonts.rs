@@ -44,6 +44,20 @@ fn reports(interpretation: &pdf_model::Interpretation) -> String {
 }
 
 /// A page whose only text draws nothing says so, and names the font.
+///
+/// **The reason this page is blank changed in the round that took ADR 0343, and the new one is
+/// nearer the file.** Its `/FontFile2` is a corrupt flate stream, and what it used to report —
+/// no code reached an outline — was the symptom of a program that had arrived short. Now the
+/// filter says so itself and the program is refused for it, which names the cause.
+///
+/// **That refusal is the point rather than a detail, and this document is why it exists.** The
+/// same round made `flate` keep every byte it decoded rather than only those from `read` calls
+/// that returned, so this program went from a prefix too short to parse to **863 bytes that
+/// parse** — and drew `A C E F` where `pdftoppm` draws the file's six CJK glyphs. A prefix of a
+/// font program is a table directory describing bytes that are not there, so it yields glyphs
+/// the producer never wrote rather than fewer of the ones it did, and the marks it would put on
+/// the page stand *in place of* the right ones rather than beside them. Trap 1 in one page:
+/// the count went up and the picture got worse.
 #[test]
 fn a_font_that_draws_none_of_its_codes_is_reported() {
     let Some(interpretation) = page_one("issue13316_reduced.pdf") else {
@@ -55,8 +69,25 @@ fn a_font_that_draws_none_of_its_codes_is_reported() {
     );
     let said = reports(&interpretation);
     assert!(
+        said.contains("/F1") && said.contains("as far as its damage"),
+        "a blank page of text must not be silent, and must name why: {said}"
+    );
+}
+
+/// And the mechanism the document above used to witness still has three of its own.
+///
+/// Worth keeping as a test rather than a note: the report above moved to a different sentence,
+/// and a rule whose only witness moves is a rule nothing checks any more. `recursiveCompositGlyf.pdf`
+/// is the narrowest — ten codes through `/F1`, not one of which the program draws.
+#[test]
+fn a_program_that_parses_and_draws_no_code_is_still_reported() {
+    let Some(interpretation) = page_one("recursiveCompositGlyf.pdf") else {
+        return;
+    };
+    let said = reports(&interpretation);
+    assert!(
         said.contains("/F1") && said.contains("no outline for any"),
-        "a blank page of text must not be silent: {said}"
+        "a program that parses and draws nothing is the other report, and it still fires: {said}"
     );
 }
 

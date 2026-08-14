@@ -78,12 +78,39 @@ pub(crate) fn embedded_program(
         let Some(stream) = object.as_stream() else {
             continue;
         };
-        let Some(data) = document.decoded_stream_data(stream) else {
+        let Ok(decoded) = document.decoded_stream_data_reported(stream) else {
             return Err(FontError::Malformed {
                 name: name.to_owned(),
                 detail: format!("/{key} did not decode"),
             });
         };
+        // **A prefix of a font program is not a shorter font program**, which is the line
+        // ADR 0343 draws between this and a content stream. §7.8.2 makes a content stream "a
+        // sequence of instructions", so a prefix of one is a shorter sequence of the same kind
+        // and every instruction in it is the producer's own. A font program is a *structure*:
+        // §9.9's `/FontFile2` and `/FontFile3` hold a table directory whose offsets point
+        // forward, so a prefix is a directory describing bytes that are not there, and reading
+        // one produces glyphs the producer never wrote rather than fewer of the ones it did.
+        //
+        // The witness is `issue13316_reduced.pdf`, whose `/FontFile2` is corrupt: read as a
+        // whole program its 863 surviving bytes draw **A C E F** where the file's six CJK
+        // glyphs belong. Trap 5's own test decides it — the marks a refusal gives up here are
+        // substitutive rather than additive (ADR 0106), because the wrong glyphs stand *in
+        // place of* the right ones instead of beside them.
+        //
+        // `truncation` below is the same rule read off the structure, and kept: it catches a
+        // program whose stream decoded whole and whose directory still overruns it.
+        if let Some(damage) = decoded.damage {
+            return Err(FontError::Malformed {
+                name: name.to_owned(),
+                detail: format!(
+                    "/{key} decoded only as far as its damage ({damage:?}, {} bytes): a prefix \
+                     of a font program is a directory describing bytes that are not there",
+                    decoded.data.len()
+                ),
+            });
+        }
+        let data = decoded.data;
 
         // `/FontFile3` holds either a full OpenType file or a *bare* CFF font program.
         // Its `/Subtype` says which — `Type1C` and `CIDFontType0C` for a bare CFF — but
@@ -139,14 +166,27 @@ pub(crate) fn embedded_program(
     // file writing two has said nothing about which it means — preferring the formats with
     // a self-identifying signature keeps that choice from turning on the key's spelling.
     if let Some(stream) = document.get_key(descriptor, "FontFile").as_stream() {
-        let data = document
-            .decoded_stream_data(stream)
-            .ok_or_else(|| FontError::Malformed {
+        let decoded =
+            document
+                .decoded_stream_data_reported(stream)
+                .map_err(|_| FontError::Malformed {
+                    name: name.to_owned(),
+                    detail: "/FontFile did not decode".to_owned(),
+                })?;
+        // Type 1's own structure is a sequence of PostScript definitions rather than a table
+        // directory, but its eexec-encrypted private portion is one blob with a checksum, so a
+        // prefix is no more readable than a truncated sfnt is. Same refusal, same reason.
+        if let Some(damage) = decoded.damage {
+            return Err(FontError::Malformed {
                 name: name.to_owned(),
-                detail: "/FontFile did not decode".to_owned(),
-            })?;
+                detail: format!(
+                    "/FontFile decoded only as far as its damage ({damage:?}, {} bytes)",
+                    decoded.data.len()
+                ),
+            });
+        }
         return Ok(Embedded {
-            data,
+            data: decoded.data,
             program: Program::Type1,
         });
     }
