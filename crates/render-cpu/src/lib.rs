@@ -757,7 +757,7 @@ impl CpuRasterizer {
             return Ok(());
         };
 
-        let mut buffer = initial_backdrop(pixmap, surface, &group)?;
+        let mut buffer = initial_backdrop(pixmap, surface, band, &group)?;
         self.encode(
             &mut buffer.as_mut(),
             list,
@@ -935,10 +935,31 @@ impl CpuRasterizer {
         // 65 944-document sample of the web spend 22.4 s of 25.4 and 51.0 s of 52.6 on this
         // one line, over rasters that are 98.5% and 99.96% transparent. ADR 0271.
         //
-        // What it does *not* do is stop the buffer being target-sized; that is `doc/todo/40`.
+        // **And the conversion runs over the rows the group's marks could reach, not the
+        // surface** (`doc/todo/40`, ADR 0328): a row outside `marked_rows`' answer is a row
+        // of the buffer nobody wrote, its pixels are the transparency the buffer was
+        // allocated as, and the value the pass would derive from every one of them is the
+        // `outside` constant the entry now carries instead. The drawing buffer itself
+        // deliberately stays surface-sized — the group's elements draw under the very
+        // transforms they draw under on the page, which is what keeps this byte-exact where
+        // a banded *drawing* would move an edge by a supersample (ADR 0219). Its untouched
+        // rows are never read, and an untouched page of a zeroed allocation costs no work.
+        // `6081357.pdf` — 912 distinct masks on a 4.3-megapixel page, 99.96% of every raster
+        // transparent — went from 81.90 G instructions through `open_one` to **17.02 G**
+        // when the pass and the storage stopped being surface-sized (ADR 0328's A/B, two
+        // binaries built in one sitting).
         let outside = mask.outside();
+        let reach = marked_rows(&mask.commands, surface);
+        let width = surface.width() as usize;
+        let start = (reach.top.saturating_sub(surface.rows.top) as usize).saturating_mul(width);
+        let end = start.saturating_add((reach.height as usize).saturating_mul(width));
         let values: Vec<u8> = buffer
             .pixels()
+            .get(start..end)
+            .ok_or(CpuRasterError::Allocation {
+                width: surface.width(),
+                height: reach.height,
+            })?
             .iter()
             .map(|pixel| {
                 if pixel.alpha() == 0 && pixel.red() == 0 && pixel.green() == 0 && pixel.blue() == 0
@@ -957,18 +978,18 @@ impl CpuRasterizer {
             .collect();
         let built = tiny_skia::Mask::from_vec(
             values,
-            tiny_skia::IntSize::from_wh(surface.width(), surface.rows.height).ok_or(
+            tiny_skia::IntSize::from_wh(surface.width(), reach.height).ok_or(
                 CpuRasterError::Allocation {
                     width: surface.width(),
-                    height: surface.rows.height,
+                    height: reach.height,
                 },
             )?,
         )
         .ok_or(CpuRasterError::Allocation {
             width: surface.width(),
-            height: surface.rows.height,
+            height: reach.height,
         })?;
-        masks.admit_soft_mask(id, built, surface.rows);
+        masks.admit_soft_mask(id, built, reach, outside);
         Ok(())
     }
 
@@ -2006,14 +2027,36 @@ fn crop_to_mask(
 /// `isolated` states them, and each is what makes §11.4.4's backdrop removal cancel against
 /// §11.3.3's re-compositing — and this is where they are checked rather than assumed.
 ///
+/// # Only `band`'s rows are copied, and that is exact rather than approximate
+///
+/// The buffer still covers the whole surface, so the elements draw under the very transforms
+/// they draw under on the page — a buffer starting at another row would shift `tiny-skia`'s
+/// `y·sy + ty` into another binade, which is the departure ADR 0219 measured and this backend,
+/// being the oracle, does not take. But only the rows of the group's band — the rows its clip
+/// and mask admit — are copied into it, because no other row of the buffer can reach the page:
+/// every way [`CpuRasterizer::draw_group`] brings the buffer back reads exactly the band's
+/// rows, and every operation an element performs on a buffer pixel writes that pixel and no
+/// other, so a value outside the band cannot travel into it. A nested group repeats the same
+/// argument one level down, over its own band.
+///
+/// **The benchmark that justifies the crop**, per `CLAUDE.md`'s rule: `0423548.pdf`, the
+/// second-slowest document of a 65 944-document crawl of the web, states 132 non-isolated
+/// groups on one 1843 × 5103 page and paid **4.3 GB** of whole-surface copies for **82 MB**
+/// of band — 2.85 s of the 6.6 that remained after ADR 0271. With this crop, and the
+/// soft-mask banding that shipped beside it, `open_one` on that document — open, interpret,
+/// rasterise — went from **149.48 G instructions to 76.48 G**, an A/B of two binaries built
+/// in one sitting (ADR 0328). What it costs in readability is this paragraph and one block
+/// of slice arithmetic below.
+///
 /// # Errors
 ///
-/// [`CpuRasterError::Allocation`] if the buffer does not fit, and
+/// [`CpuRasterError::Allocation`] if the buffer does not fit or `band` lies outside it, and
 /// [`CpuRasterError::UnsupportedCommand`] for a non-isolated group carrying anything the
 /// collapse does not hold for.
 fn initial_backdrop(
     pixmap: &tiny_skia::PixmapMut<'_>,
     surface: Surface,
+    band: Band,
     group: &Group<'_>,
 ) -> Result<tiny_skia::Pixmap, CpuRasterError> {
     if !group.isolated
@@ -2037,18 +2080,27 @@ fn initial_backdrop(
     if group.isolated {
         return Ok(buffer);
     }
-    buffer.as_mut().draw_pixmap(
-        0,
-        0,
-        pixmap.as_ref(),
-        &tiny_skia::PixmapPaint {
-            opacity: 1.0,
-            blend_mode: tiny_skia::BlendMode::Source,
-            quality: tiny_skia::FilterQuality::Nearest,
-        },
-        tiny_skia::Transform::identity(),
-        None,
-    );
+    // A byte copy rather than a `Source` draw: both move the band's bytes unchanged, and the
+    // slice arithmetic is `Band::rows`'s, over the same rows of both buffers.
+    let stride = (surface.width() as usize).saturating_mul(4);
+    let start = (band.top.saturating_sub(surface.rows.top) as usize).saturating_mul(stride);
+    let end = start.saturating_add((band.height as usize).saturating_mul(stride));
+    let source = pixmap
+        .as_ref()
+        .data()
+        .get(start..end)
+        .ok_or(CpuRasterError::Allocation {
+            width: surface.width(),
+            height: band.height,
+        })?;
+    buffer
+        .data_mut()
+        .get_mut(start..end)
+        .ok_or(CpuRasterError::Allocation {
+            width: surface.width(),
+            height: band.height,
+        })?
+        .copy_from_slice(source);
     Ok(buffer)
 }
 
@@ -2071,6 +2123,78 @@ fn misses_surface(command: &Command, surface: Surface) -> bool {
         surface.rows.top.saturating_add(surface.rows.height) as f32,
     );
     bounds.max.y < top - 1.0 || bounds.min.y > bottom + 1.0
+}
+
+/// The rows of `surface` a command list's own marks can reach — a bound, never a coverage.
+///
+/// The extents are the ones [`misses_surface`] culls by — [`Command::device_bounds`] per
+/// leaf, a group answering through its elements — measured on the page's grid and given
+/// [`Band::covering`]'s row of margin, so a row outside the answer is a row no command in
+/// the list can mark. A leaf whose extent cannot be measured widens the answer to the whole
+/// surface, which is the safe direction and the same reading `misses_surface` takes.
+///
+/// Asked by [`CpuRasterizer::build_soft_mask`], which needs a superset of the rows its
+/// buffer was *written* in: outside them the buffer is still the transparency it was
+/// allocated as. A list that can mark no row at all answers one row rather than none — that
+/// row's pixels are untouched, so every value derived from them is the same
+/// [`pdf_render::SoftMask::outside`] constant any other unmarked pixel yields, and a
+/// one-row mask keeps [`Built`] free of an empty case no other entry has.
+fn marked_rows(commands: &[Command], surface: Surface) -> Band {
+    let mut extent = None;
+    if !vertical_extent(commands, surface.page.transform, &mut extent, 0) {
+        return surface.rows;
+    }
+    let one_row = Band {
+        top: surface.rows.top,
+        height: 1,
+    };
+    let Some((low, high)) = extent else {
+        return one_row;
+    };
+    tiny_skia::Rect::from_ltrb(0.0, low, 1.0, high)
+        .and_then(|bounds| Band::covering(bounds, surface))
+        // Off the surface entirely, so nothing was marked; the degenerate answer above.
+        .unwrap_or(one_row)
+}
+
+/// Accumulates the least and greatest device row the leaves of `commands` can mark.
+///
+/// `true` when every leaf answered; `false` the moment one cannot — an extent
+/// [`Command::device_bounds`] does not state, one that overflowed past `f32`, or nesting
+/// past [`MAX_GROUP_DEPTH`] — at which point the caller must read the answer as
+/// "anywhere". The depth bound mirrors [`CpuRasterizer::encode`]'s rather than trusting
+/// it: a group whose clip admits nothing is skipped there without its elements ever being
+/// walked, so this walk can meet nesting the draw never did.
+fn vertical_extent(
+    commands: &[Command],
+    to_device: Transform,
+    extent: &mut Option<(f32, f32)>,
+    depth: usize,
+) -> bool {
+    if depth > MAX_GROUP_DEPTH {
+        return false;
+    }
+    for command in commands {
+        // A group's own extent is its elements' — the documented `None` of
+        // `device_bounds` — so the elements are what get asked.
+        if let Command::Group { commands, .. } = command {
+            if !vertical_extent(commands, to_device, extent, depth.saturating_add(1)) {
+                return false;
+            }
+            continue;
+        }
+        let Some(bounds) = command.device_bounds(to_device) else {
+            return false;
+        };
+        if !bounds.min.y.is_finite() || !bounds.max.y.is_finite() {
+            return false;
+        }
+        *extent = Some(match *extent {
+            None => (bounds.min.y, bounds.max.y),
+            Some((low, high)) => (low.min(bounds.min.y), high.max(bounds.max.y)),
+        });
+    }
+    true
 }
 
 /// The rows at which to cut this target, or one strip's worth if it may not be cut.
@@ -2155,6 +2279,16 @@ struct Built {
     /// exactly as [`Band::covering`] treats the rows, and for the same reason — a clip's bounds
     /// are composed one way and its mask drawn through another.
     admits: Option<tiny_skia::Rect>,
+    /// The mask's value at every pixel outside `band`.
+    ///
+    /// Zero for a clip and for a clip × soft-mask product: ISO 32000-2 §8.5.4's clipping path
+    /// admits nothing outside itself, so a band-sized mask and "nothing elsewhere" are the
+    /// same statement. For a soft mask it is [`pdf_render::SoftMask::outside`] — §11.6.5.1's
+    /// one value for the area the group's marks never reached — which need not be zero: a
+    /// white `/BC` puts it at 255. Carrying the constant beside the band is what lets a soft
+    /// mask be *stored* over the rows its group could mark instead of over the whole surface
+    /// (`doc/todo/40`); every reader substitutes it for the rows the raster does not hold.
+    outside: u8,
 }
 
 /// What a command's clip and soft mask together let it mark.
@@ -2301,6 +2435,12 @@ impl MaskCache {
                 admits: built.admits,
             })),
             (None, Some(mask)) => {
+                // Handed the whole surface rather than the stored band: with no clip to
+                // band the draw, the command draws over every row — §11.6.5.1 gives a soft
+                // mask a value everywhere — and `tiny-skia` applies a mask to a pixmap of
+                // exactly its own size. Returning the band instead would also move the
+                // rows the command is drawn from, which is the arithmetic ADR 0219 pins.
+                self.expand_soft_mask(mask)?;
                 let entry = self.soft_mask(mask)?;
                 Ok(Some(Admitted {
                     band: entry.band,
@@ -2354,15 +2494,30 @@ impl MaskCache {
         let admits = clipped.admits;
         let mut product = clipped.mask.clone();
         let width = self.surface.width() as usize;
-        // The soft mask covers the whole surface and the clip a band of it, both counted in
-        // page rows, so the difference is where the clip's rows start within the mask.
-        let start = (band.top.saturating_sub(self.surface.rows.top) as usize).saturating_mul(width);
-        let soft_rows = soft
-            .mask
-            .data()
-            .get(start..start.saturating_add(product.data().len()))
-            .ok_or(CpuRasterError::UnknownSoftMask(mask))?
-            .to_vec();
+        // The soft mask is stored over the rows its group could mark and is `outside`
+        // everywhere else (§11.6.5.1), so the clip's rows are assembled here: the constant
+        // first, then the stored rows laid over it where the two bands overlap. Both bands
+        // count page rows, so the three offsets below are row differences and nothing else.
+        let mut soft_rows = vec![soft.outside; product.data().len()];
+        let from = band.top.max(soft.band.top);
+        let until = band
+            .top
+            .saturating_add(band.height)
+            .min(soft.band.top.saturating_add(soft.band.height));
+        if from < until {
+            let length = (until.saturating_sub(from) as usize).saturating_mul(width);
+            let into = (from.saturating_sub(band.top) as usize).saturating_mul(width);
+            let out_of = (from.saturating_sub(soft.band.top) as usize).saturating_mul(width);
+            let source = soft
+                .mask
+                .data()
+                .get(out_of..out_of.saturating_add(length))
+                .ok_or(CpuRasterError::UnknownSoftMask(mask))?;
+            soft_rows
+                .get_mut(into..into.saturating_add(length))
+                .ok_or(CpuRasterError::UnknownSoftMask(mask))?
+                .copy_from_slice(source);
+        }
         for (value, &soft) in product.data_mut().iter_mut().zip(soft_rows.iter()) {
             // Two coverages multiply: 255 x 255 = 65 025 fits a `u16`, and the rounded
             // quotient keeps a fully open pair fully open.
@@ -2378,6 +2533,8 @@ impl MaskCache {
                 mask: product,
                 band,
                 admits,
+                // The clip's own zero: outside its band their product admits nothing.
+                outside: 0,
             }),
         );
         Ok(())
@@ -2396,11 +2553,14 @@ impl MaskCache {
         self.built.contains_key(&Key::Soft(id))
     }
 
-    /// Stores an evaluated soft mask, covering the whole target.
+    /// Stores an evaluated soft mask, covering the rows its group's marks could reach.
     ///
-    /// Whole rather than banded because a mask has a value everywhere — §11.6.5.1 gives one
-    /// for the area outside its group's bounding box — so there is no row of the target it
-    /// says nothing about.
+    /// `band` is those rows — [`marked_rows`]' answer — and `outside` is the mask's value
+    /// everywhere else: §11.6.5.1 gives a soft mask one value for the whole area its group's
+    /// marks never reached, so a band loses nothing as long as [`Built::outside`] carries
+    /// the constant, which is exactly what `doc/todo/40` said an entry would have to do.
+    /// [`MaskCache::combine`] substitutes it row by row; the one reader that needs the whole
+    /// surface in one raster goes through [`MaskCache::expand_soft_mask`].
     ///
     /// # Why a soft mask evicts only another soft mask
     ///
@@ -2412,7 +2572,7 @@ impl MaskCache {
     /// no combination is in flight: [`CpuRasterizer::encode`] evaluates the mask a command
     /// needs before it asks for anything else. Their budget is the same one, counted
     /// separately, and the newest is never dropped for the same reason a clip's is not.
-    fn admit_soft_mask(&mut self, id: SoftMaskId, mask: tiny_skia::Mask, band: Band) {
+    fn admit_soft_mask(&mut self, id: SoftMaskId, mask: tiny_skia::Mask, band: Band, outside: u8) {
         self.soft_bytes = self
             .soft_bytes
             .saturating_add(band.mask_bytes(self.surface.width()));
@@ -2425,6 +2585,7 @@ impl MaskCache {
                 // A mask has a value everywhere — §11.6.5.1 gives one outside its group's
                 // bounding box — so no rectangle bounds where it is non-zero.
                 admits: None,
+                outside,
             }),
         );
 
@@ -2438,6 +2599,95 @@ impl MaskCache {
                     .saturating_sub(entry.band.mask_bytes(self.surface.width()));
             }
         }
+    }
+
+    /// Rebuilds a soft mask's entry to cover the whole surface, if it does not already.
+    ///
+    /// The reader this serves is a command masked by a soft mask *alone*: with no clip to
+    /// band the draw it draws over every row of the surface, the mask has a value on all of
+    /// them (§11.6.5.1), and `tiny-skia` applies a mask to a pixmap of exactly its own size
+    /// — so the banded entry cannot serve it the way it serves [`MaskCache::combine`]. The
+    /// expansion writes `outside` everywhere and lays the stored band over it, which is byte
+    /// for byte what the whole-surface conversion produced before the entries were banded:
+    /// a row outside the band is a row the mask's group never marked, and the value derived
+    /// from an unmarked pixel *is* the constant ([`pdf_render::SoftMask::outside`] is
+    /// `value([0, 0, 0, 0])`).
+    ///
+    /// Memoised by replacement — the entry becomes the expanded one — so a mask read this
+    /// way twice is expanded once, and a document whose masks are all read this way pays
+    /// what storing every mask whole used to cost and no more. The growth is charged to the
+    /// same budget, evicting other soft masks but never this one, for [`MaskCache::admit`]'s
+    /// reason: the caller is about to draw with it.
+    ///
+    /// # Errors
+    ///
+    /// [`CpuRasterError::UnknownSoftMask`] for a mask never evaluated, and
+    /// [`CpuRasterError::Allocation`] where the expanded raster cannot be built.
+    fn expand_soft_mask(&mut self, id: SoftMaskId) -> Result<(), CpuRasterError> {
+        let rows = self.surface.rows;
+        let width = self.surface.width();
+        let entry = self
+            .built
+            .get(&Key::Soft(id))
+            .and_then(Option::as_ref)
+            .ok_or(CpuRasterError::UnknownSoftMask(id))?;
+        if entry.band == rows {
+            return Ok(());
+        }
+        let mut values = vec![entry.outside; rows.mask_bytes(width)];
+        let start =
+            (entry.band.top.saturating_sub(rows.top) as usize).saturating_mul(width as usize);
+        let end = start.saturating_add(entry.band.mask_bytes(width));
+        values
+            .get_mut(start..end)
+            .ok_or(CpuRasterError::UnknownSoftMask(id))?
+            .copy_from_slice(entry.mask.data());
+        let held = entry.band.mask_bytes(width);
+        let outside = entry.outside;
+        let mask = tiny_skia::Mask::from_vec(
+            values,
+            tiny_skia::IntSize::from_wh(width, rows.height).ok_or(CpuRasterError::Allocation {
+                width,
+                height: rows.height,
+            })?,
+        )
+        .ok_or(CpuRasterError::Allocation {
+            width,
+            height: rows.height,
+        })?;
+        self.soft_bytes = self
+            .soft_bytes
+            .saturating_sub(held)
+            .saturating_add(rows.mask_bytes(width));
+        // Replacement, not admission: the entry keeps its place in `soft_order`.
+        self.built.insert(
+            Key::Soft(id),
+            Some(Built {
+                mask,
+                band: rows,
+                admits: None,
+                outside,
+            }),
+        );
+
+        while self.soft_bytes > self.budget && self.soft_order.len() > 1 {
+            let Some(oldest) = self.soft_order.pop_front() else {
+                break;
+            };
+            if oldest == id {
+                // Never the entry in hand. Parking it at the back keeps the loop finite:
+                // everything in front of it is popped before it comes round again, and a
+                // queue of one ends the loop.
+                self.soft_order.push_back(oldest);
+                continue;
+            }
+            if let Some(Some(entry)) = self.built.remove(&Key::Soft(oldest)) {
+                self.soft_bytes = self
+                    .soft_bytes
+                    .saturating_sub(entry.band.mask_bytes(self.surface.width()));
+            }
+        }
+        Ok(())
     }
 
     /// Returns the mask for `id`, the band it covers and the rectangle it marks within,
@@ -2636,7 +2886,14 @@ impl MaskCache {
             }
         }
 
-        Ok(Some(Built { mask, band, admits }))
+        Ok(Some(Built {
+            mask,
+            band,
+            admits,
+            // §8.5.4: outside the clipping path nothing is admitted, so outside its band
+            // there is nothing to state.
+            outside: 0,
+        }))
     }
 
     /// Whether a device rectangle reaches every pixel of this surface.
@@ -2836,6 +3093,7 @@ mod tests {
             mask,
             tiny_skia::Mask::new(target.width, target.height).expect("a target-sized mask"),
             surface.rows,
+            0,
         );
         for &id in &ids {
             cache.get(&list, id).expect("a rectangular clip builds");
@@ -2855,6 +3113,249 @@ mod tests {
     #[test]
     fn the_shipped_budget_is_thirty_two_mebibytes() {
         assert_eq!(MASK_BUDGET, 32 * 1024 * 1024);
+    }
+
+    /// A soft mask stored over its band combines with a clip exactly as one stored whole.
+    ///
+    /// This is the exactness claim `doc/todo/40` said had to be settled before a soft mask
+    /// could be banded: outside its group's marks the mask is one constant (§11.6.5.1), so
+    /// an entry that carries the constant beside the band is the same *function* of a page
+    /// row as the whole-surface raster was — and [`MaskCache::combine`] is the reader that
+    /// has to substitute it. The clip here spans rows above, inside and below the soft
+    /// band, so both substitution edges are exercised.
+    #[test]
+    fn a_banded_soft_mask_combines_as_a_whole_one_does() {
+        let (list, ids, target) = stacked_clips(40);
+        let clip = *ids.get(20).expect("forty clips"); // rows around y = 40..41
+        let surface = Surface::whole(target);
+        let width = target.width as usize;
+
+        // Clip 20 sits at page y 40..41, which the flipped page transform puts at device
+        // rows 159..160, so its band is a few rows around them. A two-row soft band inside
+        // it leaves clip rows above and below to take the substituted constant — and the
+        // constant is non-zero, which is the white-`/BC` case a zero fill would get wrong.
+        let band = Band {
+            top: 159,
+            height: 2,
+        };
+        let outside = 200u8;
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "row and column indices in a 200-pixel test target fit u8 modulo 256"
+        )]
+        let pattern: Vec<u8> = (0..band.height as usize * width)
+            .map(|index| (index % 251) as u8)
+            .collect();
+
+        let mask = SoftMaskId::new(0);
+        let banded_mask = tiny_skia::Mask::from_vec(
+            pattern.clone(),
+            tiny_skia::IntSize::from_wh(target.width, band.height).expect("a non-zero size"),
+        )
+        .expect("data matches the size");
+        let mut banded = MaskCache::new(surface, true, MASK_BUDGET);
+        banded.admit_soft_mask(mask, banded_mask, band, outside);
+        banded.combine(&list, clip, mask).expect("combines");
+
+        // The same mask stored the way every entry used to be: the constant everywhere,
+        // the band's rows laid in.
+        let mut whole_values = vec![outside; surface.rows.mask_bytes(target.width)];
+        let start = band.top as usize * width;
+        whole_values[start..start + pattern.len()].copy_from_slice(&pattern);
+        let whole_mask = tiny_skia::Mask::from_vec(
+            whole_values,
+            tiny_skia::IntSize::from_wh(target.width, target.height).expect("a non-zero size"),
+        )
+        .expect("data matches the size");
+        let mut whole = MaskCache::new(surface, true, MASK_BUDGET);
+        whole.admit_soft_mask(mask, whole_mask, surface.rows, outside);
+        whole.combine(&list, clip, mask).expect("combines");
+
+        let read = |cache: &MaskCache| {
+            cache
+                .built
+                .get(&super::Key::Both(clip, mask))
+                .and_then(Option::as_ref)
+                .map(|built| (built.band, built.mask.data().to_vec()))
+                .expect("the product was built")
+        };
+        assert_eq!(
+            read(&banded),
+            read(&whole),
+            "the banded entry and the whole one produced different products"
+        );
+    }
+
+    /// Expansion writes the outside constant everywhere the band was not, and nothing else.
+    ///
+    /// This is the other reader of a banded entry: a command masked by a soft mask alone
+    /// needs one raster covering the surface, and what it must receive is byte for byte
+    /// what the whole-surface conversion used to produce — the band's rows unchanged, the
+    /// constant on every other row (§11.6.5.1).
+    #[test]
+    fn an_expanded_soft_mask_is_the_constant_with_the_band_laid_in() {
+        let (_, _, target) = stacked_clips(4);
+        let surface = Surface::whole(target);
+        let width = target.width as usize;
+
+        let band = Band { top: 3, height: 2 };
+        let outside = 55u8;
+        let pattern: Vec<u8> = vec![7; band.height as usize * width];
+        let mask = SoftMaskId::new(9);
+        let banded_mask = tiny_skia::Mask::from_vec(
+            pattern.clone(),
+            tiny_skia::IntSize::from_wh(target.width, band.height).expect("a non-zero size"),
+        )
+        .expect("data matches the size");
+
+        let mut cache = MaskCache::new(surface, true, MASK_BUDGET);
+        cache.admit_soft_mask(mask, banded_mask, band, outside);
+        cache.expand_soft_mask(mask).expect("expands");
+
+        let entry = cache.soft_mask(mask).expect("still cached");
+        assert_eq!(entry.band, surface.rows, "the entry now covers the surface");
+        let mut expected = vec![outside; surface.rows.mask_bytes(target.width)];
+        let start = band.top as usize * width;
+        expected[start..start + pattern.len()].copy_from_slice(&pattern);
+        assert_eq!(
+            entry.mask.data(),
+            expected.as_slice(),
+            "expansion changed a value the conversion produced"
+        );
+        assert_eq!(
+            cache.soft_bytes,
+            surface.rows.mask_bytes(target.width),
+            "the growth was not charged to the budget"
+        );
+        cache.expand_soft_mask(mask).expect("idempotent");
+        assert_eq!(
+            cache.soft_bytes,
+            surface.rows.mask_bytes(target.width),
+            "a second expansion charged the budget again"
+        );
+    }
+
+    /// The backdrop buffer holds the band's rows of the page and transparency elsewhere.
+    ///
+    /// [`initial_backdrop`]'s crop rests on one claim — no buffer row outside the group's
+    /// band can reach the page — and this pins what the crop must still guarantee: inside
+    /// the band the buffer *is* the page, byte for byte, because [`blend::interpolate`]
+    /// reads those rows as the group's backdrop and any difference there would be a
+    /// different picture, not a faster one.
+    #[test]
+    fn the_backdrop_copy_is_the_bands_rows() {
+        let list = DisplayList::new(Size::new(8.0, 8.0));
+        let target = TargetSpec::for_page(&list, 1.0, 1 << 30).expect("valid target");
+        let surface = Surface::whole(target);
+
+        let mut page = tiny_skia::Pixmap::new(target.width, target.height).expect("a pixmap");
+        for (index, pixel) in page.pixels_mut().iter_mut().enumerate() {
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "an 8x8 fixture has 64 pixels, all of which fit u8"
+            )]
+            let level = index as u8;
+            *pixel = tiny_skia::PremultipliedColorU8::from_rgba(0, 0, 0, level)
+                .expect("black under any alpha is premultiplied-valid");
+        }
+
+        let band = Band { top: 2, height: 3 };
+        let group = super::Group {
+            commands: &[],
+            alpha: 1.0,
+            blend: pdf_render::BlendMode::Normal,
+            clip: None,
+            mask: None,
+            isolated: false,
+            compose: super::Compose::Over,
+            into: super::Compose::Over,
+        };
+        let buffer = super::initial_backdrop(&page.as_mut(), surface, band, &group)
+            .expect("a small buffer allocates");
+
+        let stride = target.width as usize * 4;
+        let (start, end) = (band.top as usize * stride, 5 * stride);
+        assert_eq!(
+            &buffer.data()[start..end],
+            &page.data()[start..end],
+            "inside the band the buffer must be the page"
+        );
+        assert!(
+            buffer.data()[..start].iter().all(|&byte| byte == 0)
+                && buffer.data()[end..].iter().all(|&byte| byte == 0),
+            "outside the band the buffer holds rows nothing can read, and copying them \
+             was 2.85 s of a 6.6 s page (ADRs 0271, 0328)"
+        );
+    }
+
+    /// `marked_rows` bounds every leaf, recurses into groups, and widens where it cannot say.
+    #[test]
+    fn marked_rows_bounds_every_leaf_and_widens_where_it_cannot_say() {
+        use pdf_render::{BlendMode, Paint};
+
+        let list = DisplayList::new(Size::new(100.0, 100.0));
+        let target = TargetSpec::for_page(&list, 1.0, 1 << 30).expect("valid target");
+        let surface = Surface::whole(target);
+
+        let bar = |top: f32, bottom: f32| {
+            let mut path = Path::new();
+            path.push(PathCommand::MoveTo(Point::new(10.0, top)));
+            path.push(PathCommand::LineTo(Point::new(90.0, top)));
+            path.push(PathCommand::LineTo(Point::new(90.0, bottom)));
+            path.push(PathCommand::LineTo(Point::new(10.0, bottom)));
+            path.push(PathCommand::Close);
+            pdf_render::Command::Fill {
+                path: std::sync::Arc::new(path),
+                transform: Transform::IDENTITY,
+                fill_rule: FillRule::NonZero,
+                paint: Paint::Solid(pdf_render::Color::BLACK),
+                clip: None,
+                mask: None,
+                blend: BlendMode::Normal,
+            }
+        };
+
+        // The page transform flips y, so page y 30..40 is device rows 60..70 of 100.
+        let alone = super::marked_rows(&[bar(30.0, 40.0)], surface);
+        assert!(
+            alone.top <= 60 && alone.top >= 58 && alone.height >= 10 && alone.height <= 14,
+            "one bar at device rows 60..70 answered {alone:?}"
+        );
+
+        // A group's elements carry the extents, so nesting must not widen the answer.
+        let grouped = super::marked_rows(
+            &[pdf_render::Command::Group {
+                commands: vec![bar(30.0, 40.0)],
+                alpha: 1.0,
+                clip: None,
+                mask: None,
+                blend: BlendMode::Normal,
+                isolated: true,
+                knockout: false,
+            }],
+            surface,
+        );
+        assert_eq!(alone, grouped, "a group widened its elements' own extent");
+
+        // An empty list marks nothing: one degenerate row, not the surface.
+        let nothing = super::marked_rows(&[], surface);
+        assert_eq!(nothing, Band { top: 0, height: 1 });
+
+        // A leaf whose extent cannot be measured — an empty path has no bounds — widens
+        // the answer to the whole surface, which is `device_bounds`'s documented reading.
+        let unbounded = super::marked_rows(
+            &[pdf_render::Command::Fill {
+                path: std::sync::Arc::new(Path::new()),
+                transform: Transform::IDENTITY,
+                fill_rule: FillRule::NonZero,
+                paint: Paint::Solid(pdf_render::Color::BLACK),
+                clip: None,
+                mask: None,
+                blend: BlendMode::Normal,
+            }],
+            surface,
+        );
+        assert_eq!(unbounded, surface.rows, "an unmeasurable leaf must widen");
     }
 
     /// A strip's matrix is the page's matrix with a whole number of rows taken off, exactly.

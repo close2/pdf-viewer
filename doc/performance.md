@@ -175,7 +175,11 @@ than the whole page here, because the page is drawn in strips; the 4.3 GB is the
 sum rather than 136 × the page.)
 `6081357.pdf` allocates 31.6 GB of target-sized group buffers for 487 MB of band. The buffer is
 target-sized on purpose (one coordinate system rather than two that have to agree), and taking it
-to the group's own band is `doc/todo/40`'s item, now with a second reason to want it.
+to the group's own band was `doc/todo/40`'s item. **The copying half of it was taken in the
+four-hundred-and-ninety-third session** (ADR 0328): the backdrop copy, the mask conversion and the
+mask storage are banded — byte-identically, because none of the three is drawing arithmetic — while
+the drawing buffers stay target-sized on ADR 0219's argument. The numbers are that ADR's; the chain
+half of the item stays in the todo file.
 
 **What the four resource bounds cost, over the same 65 944 documents** (ADR 0271, and
 `doc/todo/49` has the reasoning). Every one of the 83 documents they refuse was opened with its
@@ -779,7 +783,9 @@ summary now says so.
 the backends, which is one `pdf-render` change unblocking three refusals
 ([todo 24](todo/24-image-sampling-intent.md)); a clip chain as one crop and one intersect on the
 corpus's worst page ([todo 40](todo/40-mask-chain-crop.md)), which the
-three-hundred-and-ninety-ninth session unblocked and re-priced rather than took; and a
+three-hundred-and-ninety-ninth session unblocked and re-priced rather than took — and whose
+*copying* half the four-hundred-and-ninety-third then took byte-identically (ADR 0328), leaving
+the chain itself; and a
 decoded-stream cache, measured at 0.7% of interpretation and deliberately not taken
 ([todo 41](todo/41-decoded-stream-cache.md)).
 
