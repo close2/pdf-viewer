@@ -301,3 +301,28 @@ only: the shares are unchanged — `encode` is ~90% of `device` at the median on
 and cull identically. The quiet runs' medians agree between pins to within run-to-run spread, and
 the one discordant run was a load spike (its own arm's other run disagrees with it by 3×). No
 wall-clock claim; the machine was shared.
+
+## 8. Added 2026-08-14, from the quorra side: an API addition, in its own document
+
+**This section is a pointer, not a revision of anything above it.** Sections 1 to 7 are
+about `2c9bdd0` and stay that way; this one names a change that landed later and has a
+document of its own, because it is the first thing quorra has asked this tree to *adopt*
+rather than merely to take.
+
+**`Device::render_retained` and `RetainedScene`** — a frame whose scene, viewport and
+device state are unchanged replays the encode of the previous frame instead of walking
+your commands again. It is the upstream half of `doc/todo/44` §3's ask, it is quorra's
+ADR 0048 (built on ADR 0045's pricing), and **nothing changes for a caller who ignores
+it**: `Device::render` is untouched.
+
+What it is worth, what it cannot do (a zoom step reuses nothing per command, and the
+reason is not fixable by any design), and what this tree has to change in
+`QuorraPresenter::present` to get it — including three things `present` does on every
+frame today that would defeat it — are in **`doc/QUORRA_RETAINED_FRAME.md`**, written the
+same day and against the same revision.
+
+One line from it worth having here, because it is the part that costs work: the frame's
+scene must stop being rebuilt when nothing changed. Today `present` builds a fresh
+`SceneBuilder`, re-runs `Encoder` over the page's display list and rebuilds every overlay
+on every frame; the retained handle can only replay an encode of a scene that is still
+the same scene.
