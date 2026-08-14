@@ -210,7 +210,9 @@ pub fn is_a_claim(sentence: &str) -> bool {
 /// `1.7` is followed by neither and does not. An abbreviation's stop splits a sentence early,
 /// which costs a key that sits after it in the same sentence — the cheap direction, since a key
 /// dropped from the list is a claim left for the by-hand run, not a false hit.
-fn sentences(note: &str) -> Vec<&str> {
+///
+/// Shared with [`crate::blockers`], whose claims are sentence-scoped for the same reason.
+pub(crate) fn sentences(note: &str) -> Vec<&str> {
     let mut out = Vec::new();
     let mut start = 0usize;
     for (index, _) in note.match_indices('.') {

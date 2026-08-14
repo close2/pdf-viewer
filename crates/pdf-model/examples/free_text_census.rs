@@ -15,8 +15,9 @@
 //!   and is not — its own row ends "this flag does not restrict changes to the annotation's
 //!   contents". Bit 7 `ReadOnly` is "do not allow the annotation to interact with the user". A
 //!   count of each says which of the three a corpus document would actually exercise.
-//! - **How many state Table 177's `/CL`**, the callout line `doc/todo/33` holds open, so that the
-//!   two halves of that file are counted against the same denominator.
+//! - **How many state Table 177's `/CL`**, the callout line — drawn since the
+//!   four-hundred-and-ninety-fourth session (ADR 0329), with this count (0 of 73) as the reason
+//!   its fixtures are hand-built pairs rather than corpus pages.
 //!
 //! Every page is walked rather than the first: a note is typed into by a click, and a click can be
 //! on page 40.

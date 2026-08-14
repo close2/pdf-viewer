@@ -192,6 +192,13 @@ share and the two that break it:
   (ADR 0324). A hit is a key some source quotes as a lookup string while a note says nobody reads
   it, sharpest where the quoting file is in the row's own `code = [...]`; the dominant noise is
   one short key in three clauses, so read the witness path it prints before believing a hit.
+- **One asks whether a stated *blocker* has expired**: `cargo run --release -p conformance
+  --bin blockers`, seconds, over `ledger.toml` and the source roots — the first sweep as a program
+  (ADR 0336). A blocker sentence naming a clause is judged against the ledger's own account of
+  that clause, and the expired ones print first; the three noise shapes it prints rather than
+  filters — a correction quoting the wording it retired, a past tense no grep can see, and a
+  clause named as the route to something outside the standard — are in the module doc. Read the
+  sentence before believing a hit.
 - **One reads *these documents'* quotation marks**, on the same discriminator and for the same
   reason: `cargo run --release -p conformance --bin quotations`, seconds, over every Markdown file
   this project wrote under `doc/`. Its first run found three sentences quoted as the standard's that

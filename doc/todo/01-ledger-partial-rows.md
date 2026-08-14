@@ -16,7 +16,8 @@ in the four-hundred-and-sixtieth** — the first that ignores what a row says an
 reads the entries the clause states (ADR 0295), and **the first of the fifteen to be a committed
 program rather than a description**, `cargo run --release -p conformance --bin entries` since the
 four-hundred-and-eighty-fourth (ADR 0319), with the second sweep following it as `--bin unread`
-in the four-hundred-and-eighty-ninth (ADR 0324) — a `partial` row
+in the four-hundred-and-eighty-ninth (ADR 0324) and the first as `--bin blockers` in the
+five-hundred-and-first (ADR 0336) — a `partial` row
 whose note names nothing owed, which breaks the ledger's own definition of the status. Its first
 run printed 16 rows and seven were defects, two of them statuses: §9.3, `partial` on an expired
 reason for **365 sessions**, which the four-hundred-and-forty-second beat with §11.6's **424**. **The ninth sweep is the first to check that a citation names the *right* table**,
@@ -32,15 +33,16 @@ misquotations of the standard (ADR 0249).
 Priority: 01 — the population with no gate, and it has paid on every session that touched it
 Code: `doc/conformance/ledger.toml`, checked by `cargo test -p conformance`
 
-**A sweep round commits one prose sweep as a program before running any of them.** Three of the
-fifteen are commands (`conformance --bin entries`, `--bin quotations`, and — since the
-four-hundred-and-eighty-ninth — `--bin unread`, the second sweep) and twelve are still
+**A sweep round commits one prose sweep as a program before running any of them.** Four of the
+fifteen are commands (`conformance --bin entries`, `--bin quotations`, `--bin unread` since the
+four-hundred-and-eighty-ninth, and — since the five-hundred-and-first — `--bin blockers`, the
+first sweep) and eleven are still
 descriptions, and a description is what let the fifteenth go unrun for twenty-four rounds and then
 be rebuilt from its own paragraph (ADR 0319) — `CLAUDE.md`'s "write down the command, not the
 answer" failing in the direction it was written for. The cheapest moment to commit one is the
 round that next has to run it, because that round has to reconstruct it anyway; at one per sweep
-round the backlog is gone in twelve, without ever being a marathon. A sweep that is genuinely
-twenty lines of Python belongs under `tools/conformance` with the three that already live there.
+round the backlog is gone in eleven, without ever being a marathon. A sweep that is genuinely
+twenty lines of Python belongs under `tools/conformance` with the four that already live there.
 
 ## Why
 
@@ -1927,13 +1929,100 @@ one payload both ways, and the fixture pins both the reachable file and the dedu
 structure-element and `DPart` `/AF` sites keep their rows' own debts: each needs a walk, not a
 list.
 
+## All fifteen run again in the five-hundred-and-first, the first sweep committed as a program, and the sweep taught its own third noise shape
+
+Six rounds since the last full sweep, landed in one wave — JPEG 2000's reduced-resolution decode
+(486), RSASSA-PSS verified (487), the selection-gate design (488), the accessibility parent-tree
+route (490), the interface font's character route (491), the knockout backdrop and the group's
+press (492), two performance rounds (493, 495) and `/CL`'s callout (494). Over `ledger.toml`,
+`crates/`, `tools/`, `fuzz/` and, for the fourth sweep, `doc/adr/`:
+
+- **Expired blockers (sweep 1), as a program** (`cargo run --release -p conformance --bin
+  blockers`, ADR 0336). First run: **20 blocker sentences over the ledger (6 printed as expired,
+  9 holding, 5 naming no clause) and 26 over the source roots (9, 10, 7)** — and 0 defects, every
+  printed-expired hit being a correction quoting the wording it retired or a contrastive "while
+  §X says". What the program adds over the grep is the judgement a person used to redo each run:
+  a blocker naming a clause is checked against that clause's own row, expired-first. **Its first
+  run taught it a third noise shape**, now in the module doc beside the other two: §12.10.2's
+  "needs §12.10.3's external references" waits on the EPSG registry that §12.10.3 *points at*, so
+  a settled row settles nothing about the wait — a clause can be named as the route to something
+  outside the standard, and that row now names the registry rather than the clause.
+- **Retired claim (sweep 4)**, over the six rounds' nouns — `target_resolution`, `RSASSA-PSS`,
+  `/CL`, `character_glyph`, `elements_on_page`, `/StructParents`, `knockout`, `blending space`,
+  `Node`, `get_key_of`. **It paid twice.** `examples/free_text_census.rs` still said `/CL` is
+  "the callout line `doc/todo/33` holds open", one round after 494 closed exactly that item and
+  amended the todo — the census that counts the population was not swept with it. And
+  `doc/todo/README.md`'s index line for item 31 still listed "the empty answer any page but the
+  first of a large tagged document gets" among what is left, one wave after 490 closed it (ADR
+  0325) and amended the file — **an index row decays at its item's pace, not its own**, which is
+  the two-hundred-and-sixty-ninth's sibling-crate lesson one directory up.
+- **Unread (sweep 2, program)**: 61 rows claim, 167 keys; 52 confirmed, 115 quoted over 49 rows,
+  50 by the row's own code — the known one-short-key population, 0 defects.
+- **Entries (sweep 15, program)**: 222 rows in the population, 42 stating an entry their own
+  `code` does not name, 106 entries — 29 named nowhere, 77 only elsewhere, 36 not named by the
+  row's own note. The known populations; nothing worked.
+- **Quotations (program)**: 2951 quotations in 446 documents, 1398 verbatim, 22 diverging, **0
+  defects** — every divergence a correction quoting retired wording or a quotation of another
+  document (an RFC's SHALL) sharing five words with the standard.
+- **Capability reasons (sweep 3)**: 43 over the ledger, 148 over the source roots. **One
+  defect**: §14.7.2 still said "the data is this crate's and the consumer is not — nothing in
+  this program yet hands a structure tree to anybody" four sentences above its own appended
+  correction — failure shape 6, corrected by rewriting the paragraph rather than appending again.
+- **Caller sweep (5)**: 284 distinct `pub fn` names in `pdf-model`, 92 named by no host, 76 by
+  no host, tool or fuzz target — the same three known populations.
+- **Arithmetic (sweep 6)**: two hits, §7.9.2 and §O, read and kept before. Clean.
+- **`inapplicable` (sweep 7)**: 27 of 80 rows name vocabulary the source names, none wrong.
+- **Citations (sweep 8)**: 4 hits, all the known correction-quoting-its-pointer shape
+  (`doc/todo/20` twice, `doc/todo/37` twice).
+- **Table numbers (sweep 9)**: 1159 citations checked, 90 suspects, **0 defects** — the first
+  fully clean run this sweep has had over ledger and source together. Every suspect read down to
+  a correction quoting the retired number (188/189/190/191/172), prose naming a nearby key, a
+  table's *value* named beside its entry, or the parser missing a split-header table's keys
+  (Table 122, Table 377), which is the known instrument shape.
+- **Parent counts (sweep 10)**: 6 hits, 0 defects — two are corrections quoting their own
+  retired double counts.
+- **Ledger quotation marks (sweep 11)**: 1224 spans of 4+ words under a session-local
+  normaliser, 848 verbatim in `doc/md/`, 40 matching five words and diverging, **0 defects** —
+  every one an `…` elision, a correction quoting retired wording, or the conversion's broken
+  words ("hierarch y").
+- **Sweep 14**: 5 hits, every one naming its debt in words outside the sweep's vocabulary
+  ("is not,", "writer-side", "aggregate of the two below").
+- **The errata (sweep 12)**: "151 struck passage(s) of 4 words or more that doc/md/ still
+  carries as current text" over all fourteen PDFs, unchanged, so the population is still read to
+  the end; every quoting landing is a known in-place annotation, `doc/todo/01`'s own records
+  among them. **Run over one PDF alone it prints 150**, which is worth knowing before reading a
+  moved number as movement: the population is the *annotations'*, so the invocation's document
+  list is part of the count.
+
+### Thirteen rows read off the blame list, the next band after commit 165
+
+§12.8.\*'s four rows in the band (§12.8.2.1, §12.8.4.1, §12.8.4.5, §12.8.5.3) were left to the
+parallel round that owns the signature family.
+Oldest first: §14.8.4.2, §14.8.5.3, §12.10, §12.10.1, §12.10.2, §12.9, §12.9.1, §12.3.5.2,
+§12.3.6, §9.8.3.3, §12.7.8.3.2, §12.7.7 and §12.7.8.3.3. **Two were wrong; eleven were read and
+kept, each recording the evidence that kept it** — the grep run, the function checked, the
+boundary confirmed — which is what moves the blame pointer without a stamp.
+
+| row | shape | was | is |
+|---|---|---|---|
+| **§12.3.5.2** | 2, 5 | "`partial` for the panel" | the panel arrived in the three-hundred-and-fifty-second (ADR 0202) and draws this clause's folder tree; `partial` now for the entries the walk does not read (a folder's own `/Thumb`, `/CreationDate`, `/ModDate`), with Table 159's `/Free` named rather than owed — its `shall` fires "when a new folder is added", a verb this program does not have |
+| **§12.10.2** | blockers' 3rd noise shape, live in a row | "needs §12.10.3's external references" — expired-looking the day §12.10.3's row settled | the wait named against the EPSG registry and ISO 19162 grammar the entries point at, which is what it always was |
+
+**And one precision recorded on a kept row rather than a correction**: §14.8.4.2's
+"`standard_role` is the question a consumer asks" is true in two halves across the boundary —
+`viewer_core::accessibility` crosses `Tree::role`'s mapped string and `viewer_accessibility::role`
+reads it as a standard type — so the fifth sweep listing `standard_role` as unnamed by hosts is
+the two-crate split, not an unasked question.
+
 ## What is still owed, named
 
 - **The `partial` rows not yet re-read against the code**, which stood at ~47 of 244 and which
   the four-hundred-and-eighty-ninth took down by seventeen — the whole commit-138-to-165 band of
-  the blame list. **Nothing above commit 110 is unread now**: the twenty rows
+  the blame list — **and the five-hundred-and-first by thirteen more, the band from commit 165
+  to 185 minus §12.8.\*'s four**, which the parallel signature round owns. **Nothing above
+  commit 110 is unread now**: the twenty rows
   still blaming there are the seventeen the four-hundred-and-forty-second read and kept plus the
-  three this round and the last one did, and keeping a row edits nothing. The band from commit 110
+  three this round and the last one did, and keeping a row edits nothing. The band from commit 185
   to 300 holds the rest, and what replaces the blame order as a
   way in is `doc/habits.md`'s six refusal shapes, the sixth of which was added by the round that
   emptied it.

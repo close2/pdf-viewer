@@ -45,6 +45,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod blockers;
 pub mod citation;
 pub mod clause;
 pub mod entries;
