@@ -1,8 +1,11 @@
 # Bounds that cap size rather than guard against a bomb
 
-Status: **open** — asked for by the project owner, with a witness they supplied. §3's three
-defects are carried out (ADR 0306) and **the witness now draws whole**; what is open is §5, whose
-choice is the owner's, and the residue §3 now names. **§5 carries each road's price in current
+Status: **open, and the choice is made** — asked for by the project owner, with a witness they
+supplied. §3's three defects are carried out (ADR 0306) and **the witness now draws whole**; the
+owner has ordered §5's roads **D → B → C**, each of which now has its own file
+([`14`](14-stream-the-decompression.md), [`15`](15-ship-the-confinement.md),
+[`16`](16-resumable-interpretation.md)). What stays here is the comparison, road A, and the
+residue §3 names. **§5 carries each road's price in current
 numbers** as of ADR 0354, and the sentence to read before choosing is that one road's price fell
 by a third while nobody was looking at it and another's prize shrank by the same third.
 Priority: 10 (a defect: a document this program can draw, and does not).
@@ -287,132 +290,24 @@ them gets today's behaviour with a far larger default.
 - **Does not fix**: memory. Bomb B's whole peak is spent before the first check — 3.7 GB when this
   was written, a gibibyte since ADR 0354, and every byte of it still before A's deadline can fire.
 
-### B — ship the confinement and let the OS hold the bounds
+### B, C and D have files of their own, and the owner has ordered them
 
-Make `viewer-confined` the viewer's actual path (`doc/todo/34` is written for it), then relax the
-counting bounds hard: keep the cycle guards and the decode bounds, drop the size caps. The ceiling
-becomes the memory answer, the `Canceller` the time answer, and the host offers "this is taking a
-while — stop?" backed by a kill the document cannot decline.
+**The project owner chose, in the five-hundred-and-nineteenth session's aftermath: D, then B, then
+C.** Each road's argument moved out of this file and into its own, so that the evidence lives with
+the item the way every other todo does; what stays here is §5's table, which is the *comparison*,
+and A, which nobody chose.
 
-- **For**: it is the owner's "maybe that's now up to the OS", answered *by* the OS. Already built,
-  already verified against the kernel rather than the source. Cancel measured at about a
-  millisecond. Bomb B is genuinely stopped — measured, not argued. Principle 3's other half
-  finally reaches the program.
-- **Against**: it is a **tier change**, and `doc/ui-boundary.md` calls putting `viewer-ui` on this
-  boundary "a decision with a number attached rather than a switch" — page one would go through a
-  pipe. Today a ceiling breach arrives as `WorkerDied { detail: "killed by signal 6" }`,
-  **indistinguishable from a crash**, and the document dies with it; both need fixing (a
-  `try_reserve`/`Refused` path, and worker restart plus document re-open). Linux-only
-  (`doc/todo/35`). And the 4 GiB ceiling is currently *smaller than* what one 2 GiB stream can
-  demand.
+| road | file | one line |
+|---|---|---|
+| **D** | [`14-stream-the-decompression.md`](14-stream-the-decompression.md) | removes the allocation; the producer half is already written (ADR 0343), the sink is not |
+| **B** | [`15-ship-the-confinement.md`](15-ship-the-confinement.md) | hands the bound to the kernel; a tier change and two defects, and its arithmetic objection is answered |
+| **C** | [`16-resumable-interpretation.md`](16-resumable-interpretation.md) | always interruptible; a state-machine rewrite against an oracle of 1794 pages, and it contains A |
 
-### C — make the unit of work small and let the host schedule everything
+**They are not exclusive**, which is why an order rather than a choice was the right answer. A is
+a subset of C's requirements; B is orthogonal to both; **D is underneath all three** and is the
+only one that removes the allocation rather than surviving it. §3's defects came first and are
+carried out; the owner's order takes the rest from underneath upwards.
 
-Generalise the search pump: interpretation becomes a resumable job the host advances one chunk per
-turn of its event loop, emitting progress and taking `Stop`. Bounds become budgets *per chunk*,
-and "very complicated document" becomes "many chunks" rather than a refusal.
-
-- **For**: the only one of the three that is genuinely *always interruptible*, in the owner's
-  words. The UI stays live throughout, no clock enters the core (the host decides when to pump),
-  and it matches an architecture this tree has already shipped once and proved on six consumers.
-  It yields **partial rendering** naturally — draw what you have and keep going — which is what a
-  person actually wants from a 50 MB drawing.
-- **Against**: much the largest change, for the reason in §4 — a state-machine rewrite of
-  `Interpreter::run`, against an oracle that compares 1794 pages. The cost of one chunk is still
-  unbounded (one `sh` paints the page), so it needs A's deadline anyway for the pathological
-  operator. And it does nothing about the memory spent before interpretation starts — 3.7 GB when
-  this was written and a gibibyte now, which is a smaller number and the same objection.
-
-### D — stream the decompression, so the bomb never becomes an allocation
-
-Raised by the project owner, who observed that nobody here had considered it:
-
-> We might be able for instance to prevent gif-bombs by streaming the decompression. There are
-> possibly reasons it doesn't fit, but I have the impression that we haven't even considered it.
-
-**They are right that it was never considered, and the code is much closer to it than the other
-three roads are to theirs.** When this was written, `filter::flate` held a *streaming* decoder —
-`flate2::read::ZlibDecoder`, an `io::Read` — and then called `read_to_end` into a `Vec`: the
-decompressor streamed and the consumer did not, and Bomb B's 3.7 GB was that one call.
-
-**The adapter is gone as of ADR 0343, and what replaced it is a pump**, so this paragraph now
-understates its own case. `filter::inflate_buffer` holds a `flate2::Decompress` across iterations,
-keeps its own input cursor, writes through `decompress_vec`, and stops on three named conditions.
-The producer half of a window-fed decoder is therefore written, tested and shipped; what is left is
-the *sink* — a fixed window in place of the growing `Vec`, and a consumer between the two — plus
-the lexer and the inline-image lookahead below. §5's table above prices all of it.
-
-**What it changes is the *kind* of the quantity, and that is the whole argument.** A window-fed
-lexer turns a decompression bomb from an unbounded *allocation* into unbounded *time* — and time
-is exactly what roads A and C make interruptible, while memory is what none of them can take
-back. A 1.85 MB file inflating to 1.77 GiB would cost a fixed buffer and run until somebody stops
-it, instead of taking the machine down before anybody is asked. That is also the only answer in
-this file that needs **no number at all**: a window is a buffer size, not a policy, and the owner's
-objection is to policies stated as constants.
-
-**So D is best read as a precondition rather than a fourth alternative.** A and C bound time and
-leave §2's measured allocation untouched — 3.7 GB when this was written, a gibibyte since ADR 0354,
-and unbounded in neither case only because a constant says so; B answers memory by killing the
-process, which is the blunt version of the same answer. D is the one that removes the allocation, after which the
-counting bounds have nothing left to justify them.
-
-**Where it fits, and where it does not** — this is the part that has to be measured rather than
-assumed, and the split is not even:
-
-- **Content streams are the good case, and they are the case that matters.** The interpreter reads
-  a content stream once, forwards, one token at a time, and never seeks back. §7.8.2 even blesses
-  the shape: where `/Contents` is an array, "the division between streams may occur only at the
-  boundaries between lexical tokens", so several parts chain into one reader instead of being
-  concatenated into one `Vec` — which is where today's *missing aggregate budget* (§3.3) also
-  lives. Every filter that appears on a content stream — Flate, LZW, ASCII85, ASCIIHex,
-  RunLength — is inherently streaming.
-- **`Lexer::new` takes `&'a [u8]`**, and that is the real work. A reader-fed lexer needs a window
-  that can hold the largest single lexical object, and `max_string_len` is 2²⁶, so either the
-  window grows for one token or a string gets its own bound. Neither is hard; both are decisions.
-- **Inline images are the sharp edge.** `inline_image::scan` searches forward from `ID` for `EI`
-  over data whose length the dictionary does not state, which is a lookahead of unbounded size
-  inside a bounded window.
-- **The image and font paths want the whole thing anyway.** An embedded font program is parsed
-  with random access; image sample data is indexed; an ICC profile, an xref stream and JBIG2
-  globals are all read as a unit. `decoded_stream_data` returning `Arc<[u8]>` is right for those
-  and streaming buys them nothing — so this is an *added* route rather than a replacement, and the
-  refusals for those paths (`image::MAX_SAMPLES`, `icc::MAX_PROFILE`, the codec bounds) stay
-  exactly as they are.
-- **It cuts across `doc/todo/41`'s decoded-stream cache and the document-wide search** (ADRs 0317,
-  0330 and 0335, which closed `doc/todo/47`), which want to
-  *keep* a decoded stream rather than stream past it. This entry read "41 is priced and refused
-  today, so there is no conflict yet"; **41 was taken in the four-hundred-and-eighty-second
-  session** (ADR 0317) and here is the sentence it owes, **as evidence rather than as a decision** —
-  the choice between these four roads is the owner's and that round did not take one.
-
-  **The measurement says the two designs disagree about content streams and agree about everything
-  else.** What repeats over a document-wide sweep of ISO 32000-2 is not the content streams — those
-  are read once each, forwards, which is exactly D's good case — but the *resources*: 8 798 of
-  12 586 filtered decodes are a second decode of something already decoded, 830 MB of re-inflation
-  against 46 MB of first decodes, and the three largest are font programs inflated 1993, 1486 and
-  808 times. A font program is a random-access parse, and D's own list above already says streaming
-  buys it nothing. So the cache's value and D's value come from different streams: a streaming lexer
-  over content streams would leave 23.4% of a sweep exactly where ADR 0317 found it, and the memo
-  removes nothing D was going to remove.
-
-  What stays real is narrower than "cuts across": a round doing D must not route font, image and
-  profile streams through the window, and the memo is now one more reason those paths stay whole.
-- **One behaviour must survive it.** `flate` deliberately keeps partial output from a truncated
-  stream, because "a partially-inflated content stream still renders most of a page". Streaming
-  makes that the natural case rather than a special one — but §3.2's defect is that the same code
-  keeps partial output *silently* when it hits the length guard, and a streaming rewrite that does
-  not separate those two is the same bug with better memory behaviour.
-
-**What a round taking D owes first**: the measurement, not the rewrite. Feed `Lexer` from an
-`io::Read` behind a fixed window, run Bomb B and `tmp/Entwurf.pdf` through it, and report peak
-resident and wall clock for both against §1's and §2's figures. If a 64 KiB window draws
-`Entwurf.pdf` at 1.3 s and holds Bomb B at a few megabytes, the rest of this file's arithmetic
-changes shape.
-
-**They are not exclusive.** A is a subset of C's requirements; B is orthogonal to both; **D is
-underneath all three** and is the only one that removes the allocation rather than surviving it.
-The plausible order is §3's defects, then D's measurement, then A behind an off-by-default switch
-with the gates pinned, then B or C as a separate decision with its own number attached.
 
 ## 6. What a round taking this owes
 
