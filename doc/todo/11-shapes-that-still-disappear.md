@@ -4,9 +4,11 @@ Status: **items 1 and 3 closed (ADR 0226), their diagonal residual closed (ADR 0
 itself — a rule *exactly* one device pixel wide — closed with ADR 0285, and the cap a substitute
 does not draw closed with ADR 0290 along with §8.5.3.2's dot, which nobody had measured; item 2 is
 fixed as far as any corpus document exercises it (ADR 0213) and its general case is unwitnessed;
-item 4, the same subclause's clipping paragraph, is **half paid** — the clip chain composes as a set
-intersection on **both** backends since ADR 0280 and quorra's own ADR 0030, and the mark's own
-coverage still multiplies into the mask on both.** What is left is that half, what an eight-bit
+item 4, the same subclause's clipping paragraph, is **paid for a fill** — the clip chain composes as
+a set intersection on **both** backends since ADR 0280 and quorra's own ADR 0030, and since ADR 0355
+a *clipping region* meets a filled mark's own coverage by `min` on this backend rather than by a
+product.** What is left of it is a stroke, an image, a clip folded into a soft mask and the two
+backends that still multiply; and what is left of the file is what an eight-bit
 raster does to a mark whose ink is under one of its levels, and two marks abutting — which item 2
 had only across a cell's box edge and which the four-hundred-and-seventy-third session measured in
 its general form on a document the project owner reported (ADR 0308). **It is not a defect of this
@@ -167,7 +169,7 @@ its length, so a single coverage across a pixel line would be worse than what th
 does. ADR 0226 argues it, and small text is the case that makes it a rule rather than a caution.
 ADR 0268's substitute does not touch a fill at all, so it does not reopen the question.
 
-## 4. A clip boundary that falls where another clip boundary already fell — **the chain is paid; the mark's own coverage is not**
+## 4. A clip boundary that falls where another clip boundary already fell — **the chain is paid, and so is a fill's own coverage**
 
 **Found in the four-hundred-and-forty-third session (ADR 0279) and half taken in the
 four-hundred-and-forty-fourth (ADR 0280).** It is the same clause's *other* paragraph — the one
@@ -202,24 +204,47 @@ scratch mask is allocated once per chain rather than once per link. Every oracle
 corpus's counts, both text gates and quorra's 917/35/5/17 are unmoved; 22 of 1794 per-page lines
 moved in the third decimal place and none changed verdict.
 
-### What is left: the mark's own coverage
+### What was paid next: a fill's own coverage — **ADR 0355**
 
 **The witness is `issue21346.pdf`**, which states the same device rectangle six times over — a
 `W n`, three `/BBox` clips under §8.10.1 step c), the mark's own path and the mask group's — and its
-edge went **0.041 → 0.163** of the mark where departure (1) would give 0.827 and the clause gives
-1.000. `poppler` and `ghostscript` give 1.000, `mupdf` 0.755, `hayro` 0.327; the page stays
-`CONTRADICTED_COINCIDENT_CLIP_EDGES` in `oracle.rs`, its failing similarity 0.9734 → 0.9781 against
-a bound of 0.9900.
+edge has gone **0.041 → 0.163 → 0.306** of the mark, where departure (1) would give 0.827 and the
+clause gives 1.000. `poppler` and `ghostscript` give 1.000, `mupdf` 0.755, `hayro` 0.327; the page
+stays `CONTRADICTED_COINCIDENT_CLIP_EDGES` in `oracle.rs`, its failing similarity 0.9734 → 0.9781 →
+**0.9846** against a bound of 0.9900.
 
-Three of the six statements were the chain, so two factors came out and four remain. **Two of the
-four are the same sentence**: `tiny_skia::PixmapMut::fill_path` multiplies the clip mask into the
-mark's coverage, once for the mark and once for the fill inside the soft mask's group. Reaching them
-means not handing the mask to the library at all — rasterising coverage into a buffer of this
-backend's own, composing with `min`, and blitting — which is this backend's own blitter and is the
-same project a conflation-free rasteriser is. The fourth is §11.6.5's alpha and is a product the
-standard states; it is not owed.
+**The price ADR 0280 wrote for this was wrong, in ADR 0268's direction.** It said reaching the mark
+meant "not handing the mask to the library at all — rasterising coverage into a buffer of this
+backend's own, composing with `min`, and blitting — which is this backend's own blitter". All three
+steps are already public API on `tiny-skia`: `Mask::fill_path` is the buffer, `PixmapMut::fill_rect`
+through that mask over the whole device pixels the mark reaches is the blit, and the composition is
+a `min` between them. No scan converter and no blitter of ours. It costs +1.21% of the rasteriser on
+a page of text and +5.54% on the corpus's heaviest clip page — and **+54% before one reused coverage
+buffer replaced one allocation per mark**, which is the part worth remembering: `tiny-skia` takes a
+mask only at the pixmap's own size, so a per-mark allocation is a band's worth of zeroing per mark.
 
-Two things bound any attempt:
+**The corpus population is not the witness's.** It is a §12.5.5 widget appearance whose border rule
+sits on the `/BBox` §8.10.1 step c) clips it by — `bug1844576.pdf`, `bug1844583.pdf`,
+`issue16473.pdf`, `issue18823.pdf`, `multiline.pdf`, `textfields.pdf` — which is the same finding
+`render-quorra`'s differing list wrote about `issue21068.pdf` in the two-hundred-and-seventh
+session, when a *redundant* clip came off its comb separators.
+
+### What is left of item 4, each with what it needs
+
+- **A clip folded into a soft mask keeps multiplying**, and it is the witness's own remaining
+  factor: `MaskCache::combine` multiplies the two into one buffer, so what reaches the draw is a
+  `scan::Clip::Value` with no set left to intersect. It is the cheapest of these to take —
+  `min(mark, clip) × soft` in the buffer the composition already builds, one more pass over the
+  reach — and what it needs is a cache that keeps the soft mask's rows beside the product.
+- **A stroke's coverage.** `tiny-skia` fills a wide stroke's outline but draws one under a device
+  pixel wide as a hairline that is *not* that outline (ADR 0268), so composing here means choosing
+  between duplicating the library's stroker and contradicting its hairline. The substitutions
+  §10.7.4 already asks for on a sub-pixel rule are *fills* and are composed today.
+- **An image's edge**, which is `draw_pixmap`'s and is the library's own path.
+- **A group's raster is deliberately not owed**: what a group's buffer carries at a pixel is
+  §11.4.5's group alpha rather than one mark's coverage.
+
+Two things bound any attempt at the rest:
 
 - **`min` is not exact for boundaries that merely share a pixel**, only for ones that coincide or
   nest. What is exact is intersecting the *paths* and rasterising once.
@@ -232,7 +257,10 @@ Two things bound any attempt:
   with a `min` mark all give 915 / 37 / 5 over the 957 pages, with no per-page line moving. Both
   sides still multiply where the clip meets the **mark**, and quorra records that as a choice with
   the same reason this file gives — two unrelated boundaries in one pixel are the common case, and
-  only a conflation-free rasteriser answers the clause.
+  only a conflation-free rasteriser answers the clause. **This tree stopped multiplying there for a
+  *fill* in ADR 0355 and quorra has not**, so the two part at the mark: the cross-backend gate went
+  934 agree / 20 differ to 930 / 24, every arrival a widget border sitting on its own `/BBox`, and
+  `doc/QUORRA_FEEDBACK.md`'s twenty-fourth section is the ask. The magnified lane does not see it.
 
 ## 2. Two marks that abut across a cell's box edge without repeating
 

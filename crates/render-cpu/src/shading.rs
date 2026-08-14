@@ -211,7 +211,7 @@ pub(crate) fn fill_mesh(
     to_device: Transform,
     fill_rule: tiny_skia::FillRule,
     shape_transform: tiny_skia::Transform,
-    clip: Option<&tiny_skia::Mask>,
+    clip: crate::scan::Clip<'_>,
     blend: tiny_skia::BlendMode,
     anti_alias: bool,
 ) {
@@ -282,7 +282,7 @@ pub(crate) fn fill_radial(
     to_device: Transform,
     fill_rule: tiny_skia::FillRule,
     shape_transform: tiny_skia::Transform,
-    clip: Option<&tiny_skia::Mask>,
+    clip: crate::scan::Clip<'_>,
     blend: tiny_skia::BlendMode,
     anti_alias: bool,
 ) -> bool {
@@ -346,7 +346,7 @@ fn fill_with_raster(
     (left, top): (i32, i32),
     fill_rule: tiny_skia::FillRule,
     shape_transform: tiny_skia::Transform,
-    clip: Option<&tiny_skia::Mask>,
+    clip: crate::scan::Clip<'_>,
     blend: tiny_skia::BlendMode,
     anti_alias: bool,
 ) {

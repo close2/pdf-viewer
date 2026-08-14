@@ -433,15 +433,35 @@ const DIFFERS_AT_THE_EDGES: [&str; 7] = [
 /// is the one the new rule does not reach. Matching `tiny-skia`'s sub-pixel distribution
 /// byte-for-byte would be curve-fitting to another renderer, which quorra's charter forbids;
 /// they stay listed so a *growth* in their numbers is still a finding.
-const DIFFERS_IN_SHAPE: [&str; 13] = [
+///
+/// **Four arrived when a clip stopped multiplying into the mark's own coverage (ADR 0355)**, and
+/// they are one population: a widget appearance whose **border sits on its own `/BBox`**.
+/// `bug1844576.pdf`, `issue16473.pdf` and `issue18823.pdf` are text fields and radio groups whose
+/// box rule lands where §8.10.1 step c) clips the form, and `bug1978317.pdf` is a page of dense
+/// small text inside one. §10.7.4 states a clip as a set of pixels, so a clip that *contains* a
+/// mark takes nothing from it; `render-cpu` now composes the two with `min` where `tiny-skia`
+/// multiplied, and quorra multiplies inside the graphics library. That is the same divergence ADR
+/// 0280 recorded one step earlier, and `doc/QUORRA_FEEDBACK.md`'s twenty-fourth section is the ask.
+///
+/// **This list's own note about `issue21068.pdf` is the same finding two hundred sessions early**:
+/// it left in the two-hundred-and-seventh session because a *redundant* clip came off its comb
+/// separators, and the sentence written then — "the anti-aliased clip was costing each of them a
+/// fraction of a pixel" — is what the general rule now answers for every such page.
+/// `issue16038.pdf` moved the other way, mean 1.3235 → 1.2808, because a tiling cell's clip is
+/// also coincident with the rule it admits.
+const DIFFERS_IN_SHAPE: [&str; 17] = [
     "22060_A1_01_Plans.pdf",
+    "bug1844576.pdf",
     "bug1844583.pdf",
+    "bug1978317.pdf",
     "copy_paste_ligatures.pdf",
     "issue12295.pdf",
     "issue15150.pdf",
     "issue16038.pdf",
     "issue16316.pdf",
+    "issue16473.pdf",
     "issue18030.pdf",
+    "issue18823.pdf",
     "issue20232.pdf",
     "issue21068.pdf",
     "issue269_2.pdf",

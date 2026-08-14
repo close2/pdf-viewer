@@ -99,13 +99,26 @@ gives a boundary pixel a fraction. What decides is that a product moves further 
 every restatement while `min` is exact for coincident and nested boundaries and never *below* the
 product elsewhere. `scan::mask_intersect` takes the smaller of the two coverages; the ladder is flat
 and `issue21346.pdf`'s edge went 0.041 → 0.163 of the mark against a departure-(1) 0.827 and a
-clause 1.000. **The departure is narrowed rather than closed**: a mark's own coverage still meets
-the clip mask inside `tiny-skia`'s `fill_path`, which multiplies, and that is the same sentence one
+clause 1.000. **The departure is narrowed rather than closed**: a mark's own coverage still met
+the clip mask inside `tiny-skia`'s `fill_path`, which multiplies, and that was the same sentence one
 step along. ADR 0280; `doc/todo/11` item 4 carries what is left. **§18 was the ask, because the
 graphics device composes its chain inside the library, and it is answered**: quorra takes `min`
 across a chain too (its ADR 0030), read off §8.5.4's "the graphics state holds one clipping path"
 rather than off this tree's argument — so the two backends compose a chain by one rule again, and
 both still multiply where the clip meets the *mark*.
+
+**And since the five-hundred-and-twentieth, where a clip meets a *filled* mark** — the step ADR
+0280 priced as "this backend's own blitter" and which needed none (ADR 0355). The closed form is the
+clause's own set identity rather than anybody's arithmetic: `S ∩ C = S` where `S ⊆ C`, so **a clip
+that contains a mark takes nothing from it**, at the mark's anti-aliased boundary included.
+`scan::intersected` rasterises the mark's coverage into a buffer with the same scan converter, takes
+the smaller of it and the region per pixel, and blits the paint through the result over the whole
+device pixels the mark reaches — `Mask::fill_path` and `PixmapMut::fill_rect`, both the library's
+own. It declines where the substitution would say something else: a clip already 0 or 255 under the
+mark, a mark that is not anti-aliased, and `BlendMode::Source`. `issue21346.pdf`'s edge went
+0.163 → **0.306** of the mark. **What still multiplies** is a stroke's coverage, an image's edge, a
+clip *folded into a soft mask* by `MaskCache::combine`, and both other backends — which is why the
+departure is narrowed rather than closed a second time.
 
 ## Where the departure is *visible*, and how to tell it from a defect
 

@@ -90,18 +90,290 @@ fn keep_anti_alias(anti_alias: bool, expressible: bool) -> bool {
     anti_alias && expressible
 }
 
-/// [`tiny_skia::PixmapMut::fill_path`], with the range applied to `paint.anti_alias`.
+/// What the mask a mark is drawn through **is**, which is what decides how the two compose.
+///
+/// The two are different mechanisms in ISO 32000-2 and the standard states them with different
+/// words. §10.7.4's clipping paragraph states a region as a *set of pixels*:
+///
+/// > For clipping, the clipping region consists of the set of pixels that would be included by
+/// > a fill operation. Subsequent painting operations shall affect a region that is the
+/// > intersection of the set of pixels defined by the clipping region with the set of pixels
+/// > for the region to be painted.
+///
+/// §11.6.5.2 states a soft mask as a *value*, and Table 142 makes it a factor of the object's
+/// alpha — a product the standard asks for. A mask that carries both is a `Value`: once the
+/// clip has been multiplied into a soft mask there is no clip left to intersect with.
+///
+/// [`mask_intersect`] is the same distinction one step earlier, where two clips meet each other;
+/// this one is where a clip meets the mark. ADR 0280 took the first and left this second.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Clip<'a> {
+    /// Nothing masks the mark.
+    Unclipped,
+    /// §10.7.4's clipping region, on its own, with the buffer the composition needs.
+    Region {
+        /// The region's coverage.
+        mask: &'a tiny_skia::Mask,
+        /// Where the mark's own coverage is built before the two are composed.
+        scratch: &'a Scratch,
+    },
+    /// A coverage that multiplies the mark's: §11.6.5's soft mask, alone or with a clip
+    /// already multiplied into it.
+    Value(&'a tiny_skia::Mask),
+}
+
+impl<'a> Clip<'a> {
+    /// The mask itself, for the callers that hand one to `tiny-skia` unexamined.
+    pub(crate) fn mask(self) -> Option<&'a tiny_skia::Mask> {
+        match self {
+            Clip::Unclipped => None,
+            Clip::Region { mask, .. } | Clip::Value(mask) => Some(mask),
+        }
+    }
+}
+
+/// The coverage buffer [`intersected`] builds a mark in, kept for the length of one band.
+///
+/// **It is a buffer rather than an allocation per mark because that is what it measures.**
+/// `tiny-skia` will only take a mask of the pixmap's own size, so the buffer is a band's worth
+/// of bytes; the corpus's heaviest clip page states 3554 clipped fills on one 612×792 page, and
+/// allocating and zeroing one of these for each of them cost **+54% of that page's
+/// rasterisation** where reusing one costs a twentieth of that. Only the pixels a mark can reach
+/// are cleared, which is why the reuse is cheaper than the allocator's own zeroing rather than
+/// merely equal to it.
+///
+/// One lives in each [`MaskCache`](crate::MaskCache) — one per strip of a parallel render, which
+/// is what keeps it out of any shared state — and the cell is borrowed for the length of a single
+/// fill, which cannot nest.
+#[derive(Debug, Default)]
+pub(crate) struct Scratch {
+    coverage: std::cell::RefCell<Option<tiny_skia::Mask>>,
+}
+
+/// [`tiny_skia::PixmapMut::fill_path`], with the range applied to `paint.anti_alias` and
+/// [`Clip::Region`] composed with the mark's own coverage by `min` rather than by a product.
 pub(crate) fn fill(
     pixmap: &mut tiny_skia::PixmapMut<'_>,
     path: &tiny_skia::Path,
     paint: &tiny_skia::Paint<'_>,
     fill_rule: tiny_skia::FillRule,
     at: tiny_skia::Transform,
-    clip: Option<&tiny_skia::Mask>,
+    clip: Clip<'_>,
 ) {
     let mut paint = paint.clone();
     paint.anti_alias = keep_anti_alias(paint.anti_alias, expressible(path, at, 0.0));
-    pixmap.fill_path(path, &paint, fill_rule, at, clip);
+    if let Clip::Region { mask, scratch } = clip
+        && intersected(pixmap, path, &paint, fill_rule, at, (mask, scratch))
+    {
+        return;
+    }
+    pixmap.fill_path(path, &paint, fill_rule, at, clip.mask());
+}
+
+/// Draws `path` with its own coverage and `region`'s composed by `min`, ISO 32000-2 §10.7.4.
+///
+/// Returns `false` where it declined, which leaves the caller's ordinary draw to run: this is a
+/// substitution for one composition rather than a second scan converter, and everything it
+/// cannot state it hands back rather than approximating.
+///
+/// # Why a mark needs this and `tiny_skia::PixmapMut::fill_path` cannot give it
+///
+/// That method multiplies the mask into the mark's coverage, so a mark whose own boundary falls
+/// in a pixel a clip boundary also crosses is painted at the product of two fractions. §10.7.4
+/// asks for the *intersection of two sets of pixels* and §8.5.4 for the intersection of two
+/// shapes — "[t]he effective shape is the intersection of the object's intrinsic shape with the
+/// clipping path; the source shape value shall be 0.0 outside this intersection" — and neither
+/// lowers a value the clip admits. The whole argument for `min` over the product is
+/// [`mask_intersect`]'s, unchanged: it is exact where the two boundaries coincide or nest, and
+/// never below the product where they merely share a pixel, so it never moves away from the
+/// clause's whole pixel.
+///
+/// # The three things it declines, each because the substitution would say something else
+///
+/// - **A clip that is already a set** — every value under the mark either 0 or 255. There the
+///   product *is* the intersection, pixel for pixel, so the ordinary draw already carries the
+///   clause out and the cheaper path is also the correct one. This is what keeps the cost off
+///   the pages that do not need it.
+/// - **A mark that is not anti-aliased**, whose coverage is 0 or 255 for the same reason.
+/// - **`BlendMode::Source`**, which is [`crate::carries_coverage_as_alpha`]'s exclusion and is
+///   excluded here for its own half of that reason: this construction delivers the composed
+///   coverage as the *mask* of a fully covered run, and `tiny-skia` applies a mask by scaling
+///   the source where it applies a path's coverage by interpolating towards the destination.
+///   The two agree for every mode whose result has Porter-Duff's form — scaling a premultiplied
+///   source by `c` and interpolating the blend by `c` are the same function there, which is
+///   what `BlendMode::should_pre_scale_coverage` says of the modes it names and what the
+///   algebra says of the rest — and they part for Source, where the destination does not enter
+///   the result at all. §11.4.6's knockout is the one place this backend states that mode.
+fn intersected(
+    pixmap: &mut tiny_skia::PixmapMut<'_>,
+    path: &tiny_skia::Path,
+    paint: &tiny_skia::Paint<'_>,
+    fill_rule: tiny_skia::FillRule,
+    at: tiny_skia::Transform,
+    (region, scratch): (&tiny_skia::Mask, &Scratch),
+) -> bool {
+    if !crate::carries_coverage_as_alpha(paint.anti_alias, paint.blend_mode) {
+        return false;
+    }
+    // `tiny-skia` draws nothing at all through a mask of another size, so a mismatch is left to
+    // the ordinary call, which answers it the same way it does today.
+    if region.width() != pixmap.width() || region.height() != pixmap.height() {
+        return false;
+    }
+    let Some(reach) = reached_pixels(path, at, pixmap.width(), pixmap.height()) else {
+        return false;
+    };
+    let Some(rect) = reach.rect() else {
+        return false;
+    };
+    if is_a_set(region, reach, pixmap.width()) {
+        return false;
+    }
+    let Ok(mut held) = scratch.coverage.try_borrow_mut() else {
+        // A fill cannot nest inside another fill, so this is unreachable; declining is the
+        // answer that draws the mark anyway if it ever stops being.
+        return false;
+    };
+    let coverage = match held.as_mut() {
+        Some(mask) if mask.width() == pixmap.width() && mask.height() == pixmap.height() => mask,
+        _ => {
+            *held = tiny_skia::Mask::new(pixmap.width(), pixmap.height());
+            match held.as_mut() {
+                Some(mask) => mask,
+                None => return false,
+            }
+        }
+    };
+    let stride = pixmap.width() as usize;
+    // Only what this mark can reach is cleared and composed. The rest of the buffer holds the
+    // last mark's coverage and is never read: `reach` contains the path's own device bounds, so
+    // the mark is zero outside it, and the rectangle drawn through it below is `reach` itself.
+    for row in reach.rows() {
+        let (from, until) = reach.span(row, stride);
+        if let Some(row) = coverage.data_mut().get_mut(from..until) {
+            row.fill(0);
+        }
+    }
+    mask_fill(coverage, path, fill_rule, paint.anti_alias, at);
+    let admitted = region.data();
+    let mark = coverage.data_mut();
+    for row in reach.rows() {
+        let (from, until) = reach.span(row, stride);
+        let (Some(mark), Some(admitted)) = (mark.get_mut(from..until), admitted.get(from..until))
+        else {
+            continue;
+        };
+        for (mark, &admitted) in mark.iter_mut().zip(admitted) {
+            *mark = (*mark).min(admitted);
+        }
+    }
+    // The composed coverage is now the mask, so what is drawn through it is a run of whole
+    // pixels — §10.7.4's own construction for a mark it cannot measure, and the shape whose
+    // coverage cannot enter the product a second time. The paint carries the transform the
+    // library would have applied to it: `fill_path` transforms the shader and then draws with
+    // an identity transform, and this is that same step performed one call earlier so that the
+    // rectangle can be stated on the device's own grid. Trap 2 is what it would cost to get
+    // wrong, and `clip_intersection.rs` is the scene that watches it.
+    let mut paint = paint.clone();
+    paint.shader.transform(at);
+    paint.anti_alias = false;
+    pixmap.fill_rect(
+        rect,
+        &paint,
+        tiny_skia::Transform::identity(),
+        Some(coverage),
+    );
+    true
+}
+
+/// The pixels a mark drawn under `at` can reach, clamped to a raster `width` by `height`.
+///
+/// Rounded outwards and grown by a pixel, for the reason `Band::covering` takes one: the extent
+/// comes from control points and the coverage from the scan converter, and a mark must not lose
+/// ink to this rectangle. `None` where the transform states no rectangle at all, or where the
+/// mark falls outside the raster entirely.
+fn reached_pixels(
+    path: &tiny_skia::Path,
+    at: tiny_skia::Transform,
+    width: u32,
+    height: u32,
+) -> Option<Reach> {
+    let bounds = path.bounds().transform(at)?;
+    let left = clamped(bounds.left() - 1.0, width);
+    let top = clamped(bounds.top() - 1.0, height);
+    let right = clamped(bounds.right() + 1.0, width);
+    let bottom = clamped(bounds.bottom() + 1.0, height);
+    (left < right && top < bottom).then_some(Reach {
+        left,
+        top,
+        right,
+        bottom,
+    })
+}
+
+/// `value` as a whole number of pixels inside `0..=limit`.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss,
+    reason = "the value is clamped into 0..=limit as a float before the cast back, so it is \
+              non-negative and whole; a raster's own dimension is far inside f32's exact range \
+              and [`SUPERSAMPLED_LIMIT`] is the bound that says so"
+)]
+fn clamped(value: f32, limit: u32) -> u32 {
+    if value.is_nan() {
+        return 0;
+    }
+    value.floor().clamp(0.0, limit as f32) as u32
+}
+
+/// A rectangle of whole pixels, right and bottom exclusive.
+#[derive(Clone, Copy, Debug)]
+struct Reach {
+    left: u32,
+    top: u32,
+    right: u32,
+    bottom: u32,
+}
+
+impl Reach {
+    /// The rows it covers.
+    fn rows(self) -> std::ops::Range<u32> {
+        self.top..self.bottom
+    }
+
+    /// Where `row` starts and ends in a buffer of `stride` pixels per row.
+    fn span(self, row: u32, stride: usize) -> (usize, usize) {
+        let start = (row as usize).saturating_mul(stride);
+        (
+            start.saturating_add(self.left as usize),
+            start.saturating_add(self.right as usize),
+        )
+    }
+
+    /// The same rectangle as `tiny-skia` states one, or `None` where it will not have it.
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a raster's own dimension, far inside f32's exactly representable range"
+    )]
+    fn rect(self) -> Option<tiny_skia::Rect> {
+        tiny_skia::Rect::from_ltrb(
+            self.left as f32,
+            self.top as f32,
+            self.right as f32,
+            self.bottom as f32,
+        )
+    }
+}
+
+/// Whether `region` is 0 or 255 at every pixel of `reach` — a set rather than a coverage.
+fn is_a_set(region: &tiny_skia::Mask, reach: Reach, stride: u32) -> bool {
+    let data = region.data();
+    reach.rows().all(|row| {
+        let (from, until) = reach.span(row, stride as usize);
+        data.get(from..until)
+            .is_none_or(|row| row.iter().all(|&value| value == 0 || value == u8::MAX))
+    })
 }
 
 /// [`tiny_skia::PixmapMut::stroke_path`], with the range applied to `paint.anti_alias`.
@@ -109,18 +381,26 @@ pub(crate) fn fill(
 /// The outset is a whole width times the miter limit rather than the half-width the stroke
 /// actually reaches: a miter join extends past the outline by the limit, and over-estimating
 /// here costs a path within a hair of the bound its anti-aliasing and nothing else.
+///
+/// A [`Clip::Region`] still meets this mark by a *product*, which [`fill`] no longer does, and
+/// the reason is that a stroke's coverage is not a shape this side holds: `tiny-skia` converts a
+/// wide stroke to its outline and fills that, and draws a stroke under a device pixel wide as a
+/// hairline that is not that outline at all (ADR 0268). Rasterising the coverage here would mean
+/// choosing between duplicating the library's stroker and contradicting its hairline, and the
+/// substitutions §10.7.4 already asks for on a sub-pixel rule are *fills* and go through [`fill`].
+/// `doc/todo/11` item 4 carries what is left with the population it is worth.
 pub(crate) fn stroke(
     pixmap: &mut tiny_skia::PixmapMut<'_>,
     path: &tiny_skia::Path,
     paint: &tiny_skia::Paint<'_>,
     style: &tiny_skia::Stroke,
     at: tiny_skia::Transform,
-    clip: Option<&tiny_skia::Mask>,
+    clip: Clip<'_>,
 ) {
     let mut paint = paint.clone();
     let outset = style.width * style.miter_limit.max(1.0);
     paint.anti_alias = keep_anti_alias(paint.anti_alias, expressible(path, at, outset));
-    pixmap.stroke_path(path, &paint, style, at, clip);
+    pixmap.stroke_path(path, &paint, style, at, clip.mask());
 }
 
 /// [`tiny_skia::Mask::fill_path`], with the range applied to `anti_alias`.
@@ -268,6 +548,129 @@ mod tests {
         );
     }
 
+    /// The mask a half-plane at `x` states, page-sized, the way a clip chain's root is built.
+    fn region(x: f32) -> tiny_skia::Mask {
+        let mut mask = tiny_skia::Mask::new(8, 4).expect("a mask");
+        super::mask_fill(
+            &mut mask,
+            &half_plane(x),
+            tiny_skia::FillRule::Winding,
+            true,
+            tiny_skia::Transform::identity(),
+        );
+        mask
+    }
+
+    /// Fills the half-plane at `mark` through `clip`, and returns the alpha of every pixel of
+    /// the first row.
+    ///
+    /// Black onto transparency, so the alpha channel *is* the coverage the composition arrived
+    /// at and nothing has to be undone to read it.
+    fn painted(
+        mark: f32,
+        clip: impl for<'a> FnOnce(&'a tiny_skia::Mask, &'a super::Scratch) -> super::Clip<'a>,
+    ) -> Vec<u8> {
+        let mut pixmap = tiny_skia::Pixmap::new(8, 4).expect("a pixmap");
+        let region = region(2.25);
+        let scratch = super::Scratch::default();
+        let paint = tiny_skia::Paint {
+            anti_alias: true,
+            ..tiny_skia::Paint::default()
+        };
+        super::fill(
+            &mut pixmap.as_mut(),
+            &half_plane(mark),
+            &paint,
+            tiny_skia::FillRule::Winding,
+            tiny_skia::Transform::identity(),
+            clip(&region, &scratch),
+        );
+        pixmap
+            .pixels()
+            .iter()
+            .take(8)
+            .map(|pixel| pixel.alpha())
+            .collect()
+    }
+
+    /// §8.5.4's closed form: "[t]he effective shape is the intersection of the object's
+    /// intrinsic shape with the clipping path", and a set intersected with a set that contains
+    /// it is itself. So a mark whose own boundary coincides with its clip's must be painted at
+    /// the coverage it would have been painted at unclipped — at *every* pixel, the boundary's
+    /// included.
+    ///
+    /// The placement is fractional deliberately: on an integer boundary every coverage is 0 or
+    /// 255, where `min` and a product are the same function and this would pass against either.
+    #[test]
+    fn a_clip_that_contains_the_mark_leaves_its_coverage_alone() {
+        let unclipped = painted(2.25, |_, _| super::Clip::Unclipped);
+        let boundary = 2;
+        assert!(
+            (1..255).contains(&unclipped[boundary]),
+            "the boundary column must be partly covered for this to discriminate: {unclipped:?}"
+        );
+        assert_eq!(
+            painted(2.25, |mask, scratch| super::Clip::Region { mask, scratch }),
+            unclipped,
+            "a clip coincident with the mark's own edge must not lower its coverage"
+        );
+    }
+
+    /// The same scene composed as a product, which is what the clause's *other* mechanism does
+    /// and what this backend did everywhere before: §11.6.5's soft mask is a value and Table 142
+    /// multiplies it into the object's alpha. Two coverages of `c` give `c²`, so the two
+    /// compositions must part on this geometry — which is what makes the assertion above a test
+    /// of the composition rather than of the scan converter.
+    #[test]
+    fn a_value_multiplies_where_a_region_intersects() {
+        let region = painted(2.25, |mask, scratch| super::Clip::Region { mask, scratch });
+        let value = painted(2.25, |mask, _| super::Clip::Value(mask));
+        let boundary = 2;
+        assert!(
+            u32::from(region[boundary]) > u32::from(value[boundary]) + 32,
+            "a region must admit far more of the boundary than a product does: \
+             {region:?} against {value:?}"
+        );
+    }
+
+    /// A clip whose values are all 0 or 255 under the mark is a set already, and there the
+    /// product *is* the intersection — so the substitution declines and the ordinary draw
+    /// stands, byte for byte.
+    #[test]
+    fn a_clip_on_the_pixel_grid_is_drawn_the_ordinary_way() {
+        let mut pixmap = tiny_skia::Pixmap::new(8, 4).expect("a pixmap");
+        let region = region(3.0);
+        assert!(
+            region.data().iter().all(|&v| v == 0 || v == u8::MAX),
+            "a clip on the grid must be a set for this to be the case it is about"
+        );
+        let paint = tiny_skia::Paint {
+            anti_alias: true,
+            ..tiny_skia::Paint::default()
+        };
+        let mark = half_plane(2.25);
+        super::fill(
+            &mut pixmap.as_mut(),
+            &mark,
+            &paint,
+            tiny_skia::FillRule::Winding,
+            tiny_skia::Transform::identity(),
+            super::Clip::Region {
+                mask: &region,
+                scratch: &super::Scratch::default(),
+            },
+        );
+        let mut ordinary = tiny_skia::Pixmap::new(8, 4).expect("a pixmap");
+        ordinary.as_mut().fill_path(
+            &mark,
+            &paint,
+            tiny_skia::FillRule::Winding,
+            tiny_skia::Transform::identity(),
+            Some(&region),
+        );
+        assert_eq!(pixmap.data(), ordinary.data());
+    }
+
     /// A triangle running from the page out to `reach`, which is what a damaged content
     /// stream states and what ADR 0269's two witnesses state.
     fn spike(reach: f32) -> tiny_skia::Path {
@@ -332,7 +735,7 @@ mod tests {
             &paint,
             tiny_skia::FillRule::Winding,
             at,
-            None,
+            super::Clip::Unclipped,
         );
         assert!(
             pixmap.data().iter().any(|&byte| byte != 0),

@@ -2395,3 +2395,61 @@ owner's own document.
   frame loop that encodes when it means to replay, and neither is visible in a wall clock on a
   shared machine. An enum was the difference between finding them in a test and finding them in a
   trace six months later.
+
+## 24. Where a clip meets the **mark**, this tree now takes `min` too — the other half of §18
+
+§18 asked what rule composed a *chain* of clips, and you answered it by taking `min` there (your
+ADR 0030), reached from §8.5.4's own sentence rather than from this tree's reading of it. Both
+sides then still multiplied in the same remaining place: where the finished clip mask meets the
+**mark's** own coverage. §18's own last paragraph recorded that as the open half, on both sides,
+with the same reason — two unrelated boundaries sharing a pixel are the common case and a product
+is the estimator that assumes it.
+
+**This tree has now taken that half as well** (its ADR 0355), and the argument is the one §18
+already settled rather than a new one. §10.7.4 asks for "the intersection of the set of pixels
+defined by the clipping region with the set of pixels for the region to be painted", and §8.5.4
+for the intersection of the object's intrinsic shape with the clipping path. The closed form
+worth stating, because it needs no renderer's arithmetic at all:
+
+> `S ∩ C = S` where `S ⊆ C`. **A clip that contains a mark takes nothing from it** — at every
+> pixel, the mark's own anti-aliased boundary included.
+
+A product does not have that property. The reproduction is the unit ladder, and it is one fill and
+one clip rather than a document:
+
+```text
+  a half-plane whose edge falls at device x = 2.25, clipped by a half-plane with the same edge,
+  alpha of the boundary column, over a transparent 8x4 raster
+
+    unclipped, the mark's own coverage      192 of 255      (0.75 of a pixel)
+    clipped, composed by a product          144             (0.7529² = 0.5669)
+    clipped, composed by min                192             — S ∩ C = S
+```
+
+**What it costs and what it moved here**, so that you can decide whether it is worth anything on
+your side rather than take it on ours:
+
+- **Four corpus pages parted between us**: 934 agree / 20 differ before, 930 / 24 after, and every
+  arrival is one population — a §12.5.5 widget appearance whose border rule sits exactly on the
+  `/BBox` §8.10.1 step c) clips it by. `bug1844576.pdf`, `bug1978317.pdf`, `issue16473.pdf`,
+  `issue18823.pdf`. One page moved *towards* you inside the differing list, `issue16038.pdf`, mean
+  1.3235 → 1.2808, because a tiling cell's clip is coincident with the rule it admits.
+- **The magnified lane does not see it**: `PDFVIEWER_QUORRA_COVERAGE=gpu PDFVIEWER_QUORRA_SCALE=4`
+  is 937 / 9 / 5 / 23 before and after. A boundary pixel is a smaller share of a mark at 4×.
+- **Not one oracle verdict moved**, and the pages that moved numerically moved away from poppler,
+  mupdf and ghostscript — all three of which multiply. That is expected and it is written down as
+  expected: this project's principle 5 makes agreement evidence about a reading and never the
+  definition of one.
+- **It cost +1.21% of the rasteriser on a page of text and +5.54% on the corpus's heaviest clip
+  page** (3554 clips), measured in instructions. The first attempt cost +54% there, and the whole
+  difference was one reused coverage buffer instead of one allocation per mark — worth saying
+  because your side would meet the same arithmetic.
+
+**Nothing here is a request.** The construction is `tiny-skia`-shaped: rasterise the mark's own
+coverage into a mask, take the smaller of it and the clip per pixel, and blit through the result
+over the whole device pixels the mark reaches. Whether the same thing is cheap inside a scene
+compositor is your measurement, and the honest summary of the position is §18's unchanged: neither
+`min` nor a product is exact for two *unrelated* boundaries in one pixel, and only a
+conflation-free rasteriser answers that case. What `min` has is that it never moves *away* from
+the clause, and that a clip stated twice — or a clip stated on the mark's own edge — stops costing
+ink it was never asked for.

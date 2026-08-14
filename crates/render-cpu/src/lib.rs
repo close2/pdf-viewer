@@ -420,7 +420,7 @@ impl CpuRasterizer {
         paint: &Paint,
         blend: tiny_skia::BlendMode,
         to_device: ToDevice,
-        clip: Option<&tiny_skia::Mask>,
+        clip: scan::Clip<'_>,
     ) -> Result<(), CpuRasterError> {
         let at = to_device.of(transform);
         let width = stroke.device_width(at);
@@ -880,7 +880,11 @@ impl CpuRasterizer {
                     width: surface.width(),
                     height: band.height,
                 })?;
-            blend::interpolate(&mut rows, &buffer, from_row, paint.opacity, clip);
+            // A group's raster is composited through its clip as a *product*, and that is not
+            // `scan::fill`'s question one level up: what a group's buffer carries at a pixel is
+            // §11.4.5's group alpha rather than one mark's coverage, so there is no second
+            // shape here for §10.7.4's intersection to be taken with.
+            blend::interpolate(&mut rows, &buffer, from_row, paint.opacity, clip.mask());
             return Ok(());
         }
 
@@ -904,7 +908,7 @@ impl CpuRasterizer {
                     ..paint
                 },
                 tiny_skia::Transform::identity(),
-                clip,
+                clip.mask(),
             );
             let mut rows = band
                 .rows(pixmap, surface)
@@ -928,7 +932,7 @@ impl CpuRasterizer {
             buffer.as_ref(),
             &paint,
             tiny_skia::Transform::identity(),
-            clip,
+            clip.mask(),
         );
         Ok(())
     }
@@ -1255,7 +1259,7 @@ impl CpuRasterizer {
         (path, fill_rule): (&tiny_skia::Path, pdf_render::FillRule),
         (paint, blend): (&Paint, tiny_skia::BlendMode),
         to_device: ToDevice,
-        (transform, clip): (Transform, Option<&tiny_skia::Mask>),
+        (transform, clip): (Transform, scan::Clip<'_>),
     ) -> bool {
         let Paint::Shading(shading) = paint else {
             return false;
@@ -1336,7 +1340,7 @@ impl CpuRasterizer {
         paint: &Paint,
         blend: tiny_skia::BlendMode,
         to_device: ToDevice,
-        (clip, admits): (Option<&tiny_skia::Mask>, Option<tiny_skia::Rect>),
+        (clip, admits): (scan::Clip<'_>, Option<tiny_skia::Rect>),
     ) -> Result<(), CpuRasterError> {
         let at = to_device.of(transform);
         let cropped = crop_to_mask(source, transform, to_device, admits);
@@ -1433,7 +1437,7 @@ impl CpuRasterizer {
         pixmap: &mut tiny_skia::PixmapMut<'_>,
         command: &Command,
         to_device: ToDevice,
-        (clip, admits): (Option<&tiny_skia::Mask>, Option<tiny_skia::Rect>),
+        (clip, admits): (scan::Clip<'_>, Option<tiny_skia::Rect>),
         compose: Compose,
     ) -> Result<(), CpuRasterError> {
         match command {
@@ -1620,7 +1624,7 @@ impl CpuRasterizer {
         pixmap: &mut tiny_skia::PixmapMut<'_>,
         source: &pdf_render::ImageSource,
         placement: ImagePlacement,
-        clip: Option<&tiny_skia::Mask>,
+        clip: scan::Clip<'_>,
     ) -> Result<(), CpuRasterError> {
         let ImagePlacement {
             transform,
@@ -1800,7 +1804,7 @@ fn draw_sub_pixel_rule(
     (style, cap): (&tiny_skia::Stroke, pdf_render::LineCap),
     at: Transform,
     brush: &tiny_skia::Paint<'_>,
-    clip: Option<&tiny_skia::Mask>,
+    clip: scan::Clip<'_>,
 ) -> bool {
     let Some(one_pixel) = pdf_render::thinnest_line(at) else {
         return false;
@@ -1881,7 +1885,7 @@ fn draw_rule_as_bands(
     at: Transform,
     scale: f32,
     brush: &tiny_skia::Paint<'_>,
-    clip: Option<&tiny_skia::Mask>,
+    clip: scan::Clip<'_>,
 ) -> bool {
     let Some(outline) = path.stroke(style, scale) else {
         return false;
@@ -1938,7 +1942,7 @@ fn draw_rule_at_one_pixel(
     at: Transform,
     scale: f32,
     brush: &tiny_skia::Paint<'_>,
-    clip: Option<&tiny_skia::Mask>,
+    clip: scan::Clip<'_>,
 ) -> bool {
     let Some(width) = pdf_render::substitute_width(at) else {
         return false;
@@ -2057,7 +2061,7 @@ fn draw_rule_at_one_pixel(
 /// Asked of the two fields rather than of a paint, because §8.5.3.2's marks are decided before
 /// there is a paint to ask: `draw_stroke` states a dot's *diameter* while building the geometry,
 /// and the alpha it will be filled at is the same question one step later.
-fn carries_coverage_as_alpha(anti_alias: bool, blend: tiny_skia::BlendMode) -> bool {
+pub(crate) fn carries_coverage_as_alpha(anti_alias: bool, blend: tiny_skia::BlendMode) -> bool {
     anti_alias && blend != tiny_skia::BlendMode::Source
 }
 
@@ -2549,8 +2553,10 @@ struct Built {
 struct Admitted<'a> {
     /// Rows of the surface the command may mark.
     band: Band,
-    /// The coverage it is drawn through, or `None` where nothing masks it.
-    mask: Option<&'a tiny_skia::Mask>,
+    /// The coverage it is drawn through, and what that coverage *is*: §10.7.4's set of pixels
+    /// or §11.6.5's value, which is what decides whether it composes with a mark by `min` or by
+    /// a product. See [`scan::Clip`].
+    mask: scan::Clip<'a>,
     /// Device rectangle outside which `mask` is zero, or `None` where nothing bounds it.
     admits: Option<tiny_skia::Rect>,
 }
@@ -2608,6 +2614,9 @@ struct MaskCache {
     bytes: usize,
     /// Largest total the masks may reach before the oldest are dropped.
     budget: usize,
+    /// Where a mark's own coverage is built before §10.7.4's intersection composes the two.
+    /// Here because it is one buffer per band, which is what this cache already is.
+    scratch: scan::Scratch,
 }
 
 /// Largest total size of the masks a [`MaskCache`] holds, in bytes.
@@ -2649,6 +2658,7 @@ impl MaskCache {
             bytes: 0,
             soft_bytes: 0,
             budget,
+            scratch: scan::Scratch::default(),
         }
     }
 
@@ -2675,14 +2685,30 @@ impl MaskCache {
         match (clip, mask) {
             (None, None) => Ok(Some(Admitted {
                 band: self.surface.rows,
-                mask: None,
+                mask: scan::Clip::Unclipped,
                 admits: None,
             })),
-            (Some(clip), None) => Ok(self.get(list, clip)?.map(|built| Admitted {
-                band: built.band,
-                mask: Some(&built.mask),
-                admits: built.admits,
-            })),
+            // A clip on its own is §10.7.4's set of pixels, which is the one case a mark's
+            // own coverage may be composed with by `min`. Built first and looked up after, the
+            // way the `(Some, Some)` arm below does, because the composition needs the cache's
+            // scratch buffer beside the mask and the two are different fields.
+            (Some(clip), None) => {
+                if self.get(list, clip)?.is_none() {
+                    return Ok(None);
+                }
+                let Self { built, scratch, .. } = self;
+                Ok(built
+                    .get(&Key::Clip(clip))
+                    .and_then(Option::as_ref)
+                    .map(|built| Admitted {
+                        band: built.band,
+                        mask: scan::Clip::Region {
+                            mask: &built.mask,
+                            scratch,
+                        },
+                        admits: built.admits,
+                    }))
+            }
             (None, Some(mask)) => {
                 // Handed the whole surface rather than the stored band: with no clip to
                 // band the draw, the command draws over every row — §11.6.5.1 gives a soft
@@ -2693,7 +2719,7 @@ impl MaskCache {
                 let entry = self.soft_mask(mask)?;
                 Ok(Some(Admitted {
                     band: entry.band,
-                    mask: Some(&entry.mask),
+                    mask: scan::Clip::Value(&entry.mask),
                     admits: entry.admits,
                 }))
             }
@@ -2704,9 +2730,11 @@ impl MaskCache {
                     .get(&Key::Both(clip, mask))
                     .ok_or(CpuRasterError::UnknownClip(clip))?
                     .as_ref();
+                // §11.6.5's value has already been multiplied into the clip here, so there is
+                // no set left to intersect: what remains is a product the standard states.
                 Ok(entry.map(|built| Admitted {
                     band: built.band,
-                    mask: Some(&built.mask),
+                    mask: scan::Clip::Value(&built.mask),
                     admits: built.admits,
                 }))
             }
