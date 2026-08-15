@@ -23,7 +23,7 @@ fn main() {
     for quantum in [Some(16_u16), Some(64), None] {
         let mut backend = QuorraRasterizer::with_options(&quorra_gpu::Options {
             glyph_quantum: quantum,
-            ..quorra_gpu::Options::default()
+            ..render_quorra::options()
         })
         .expect("adapter");
         let ours = backend.rasterize(&list, target).unwrap();

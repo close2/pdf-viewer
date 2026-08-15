@@ -210,6 +210,17 @@ rather than a bigger number.
   reproducing a bug. **And it is now the flag with a right default to find**: the measurement in ADR
   0260 says the answer is not "as many as the machine has" — shared stops improving at about eight
   and the memory keeps climbing to 24.
+
+  **A second thread count now exists in this tree and it was decided the other way, which is not a
+  contradiction** (ADR 0377). quorra's `Options::encode_threads` divides one frame's coverage
+  rasterisation, and this host chooses it in `render_quorra::options()` from
+  `std::thread::available_parallelism` — *as many as the machine has*, because the measurement says
+  so at every load the machine could be put under and because the memory that stopped the search
+  case does not arise: a frame's queue is bounded by quorra at a fraction of its own frame budget,
+  where N documents in N threads meant N parses and N caches. The two answers differ because the
+  measurements differ, which is the point. No flag was added, and what would justify one is written
+  in that ADR: a person needing a single-threaded *window*. The gate that needs another number has
+  `PDFVIEWER_QUORRA_ENCODE_THREADS`, which is a gate's knob and not a person's.
 - **What a flag may not be**: a way to avoid deciding. `CLAUDE.md` principle 1 is that a shortcut is
   documented as a deliberate decision with its cost, never taken silently — and a knob whose default
   is wrong is a decision deferred onto the user. Every flag here should have a right default and

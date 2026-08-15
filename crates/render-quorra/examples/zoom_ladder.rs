@@ -58,7 +58,7 @@ fn main() {
     };
     let mut gpu = QuorraRasterizer::with_options(&quorra_gpu::Options {
         coverage: quorra_gpu::Coverage::Cpu,
-        ..quorra_gpu::Options::default()
+        ..render_quorra::options()
     })
     .expect("an adapter");
 

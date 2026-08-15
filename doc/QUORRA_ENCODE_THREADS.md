@@ -1,5 +1,19 @@
 # `encode` on more than one thread — an ask, with its own ceiling stated
 
+> **Answered, built, taken and turned on.** `doc/QUORRA_ENCODE_THREADS_ANSWER.md` is the reply,
+> quorra's ADR 0054 is their design, and it is in this tree at pin `619ef3b4`. **The body below
+> stays as it was written** — it is the ask, and an ask that is edited after the answer stops being
+> evidence of what was asked. What changed on this side is one thing and it is ADR 0377: the number
+> the answer left to us is chosen once, in `render_quorra::options()`, from
+> `std::thread::available_parallelism`, measured by `crates/render-quorra/examples/encode_threads.rs`
+> on the very document §1 is about. Three of this document's own statements were checked rather than
+> believed — the determinism of §5 (all four corpus lanes, at one thread against twenty-four,
+> identical), the untouched cold start of §4 (the launch table's `graphics device` row does not
+> move), and the ceiling of §6 (the zoom step is 608 → 295 ms and the fit view 938 → 314, a stall
+> becoming a step and not sixty frames a second). §7's fallback plan was not needed. §8's two
+> censuses are still owed, and the second is now the more interesting of the two: it is the number
+> that says how much of this corpus gets the drawing's factor and how much gets `artwork`'s.
+
 Written 2026-08-15 from **this** side, against quorra at `a64a9084`. It is a request for one
 thing, it is the fourth item of the `encode` conversation your ADR 0023 opened and your
 `QUORRA_API_2026_08_15.md` §4 last moved, and — unlike `doc/QUORRA_FUNCTION_PAINT.md` — **it does

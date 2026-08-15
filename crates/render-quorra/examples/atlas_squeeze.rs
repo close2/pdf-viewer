@@ -63,7 +63,7 @@ fn main() {
     ] {
         let mut backend = QuorraRasterizer::with_options(&quorra_gpu::Options {
             coverage,
-            ..quorra_gpu::Options::default()
+            ..render_quorra::options()
         })
         .expect("adapter");
         for frame in 1..=3 {
@@ -91,7 +91,7 @@ fn main() {
         let mut backend = match QuorraRasterizer::with_options(&quorra_gpu::Options {
             atlas_budget: budget,
             coverage: quorra_gpu::Coverage::Gpu,
-            ..quorra_gpu::Options::default()
+            ..render_quorra::options()
         }) {
             Ok(backend) => backend,
             Err(error) => {

@@ -493,11 +493,8 @@ impl QuorraPresenter {
         instance: &quorra_gpu::wgpu::Instance,
         window: impl Into<quorra_gpu::wgpu::SurfaceTarget<'static>>,
     ) -> Result<Self, QuorraRasterError> {
-        let device = quorra_gpu::Device::for_surface_with_instance(
-            instance,
-            window,
-            &quorra_gpu::Options::default(),
-        )?;
+        let device =
+            quorra_gpu::Device::for_surface_with_instance(instance, window, &crate::options())?;
         Ok(Self::around(device))
     }
 
@@ -512,7 +509,7 @@ impl QuorraPresenter {
     pub fn new(
         window: impl Into<quorra_gpu::wgpu::SurfaceTarget<'static>>,
     ) -> Result<Self, QuorraRasterError> {
-        let device = quorra_gpu::Device::for_surface(window, &quorra_gpu::Options::default())?;
+        let device = quorra_gpu::Device::for_surface(window, &crate::options())?;
         Ok(Self::around(device))
     }
 

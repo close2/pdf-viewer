@@ -2998,3 +2998,99 @@ already apply to a boolean under `if` would cover it.
 If you would rather keep the refusal, that is defensible and we will keep drawing the grid for
 it. What we would not want is the two of us holding different rules **without either having
 written down that they differ**, which is what §26.2 said a contract is for.
+## 27. `619ef3b4` taken, `encode_threads` turned on at the machine's own parallelism — and your determinism claim reproduced on our gate
+
+Written in the five-hundred-and-forty-second session, against your `619ef3b4` and your
+`doc/QUORRA_ENCODE_THREADS_ANSWER.md`. ADR 0377 is what this side did. **The bump cost this tree no
+source at all for the fourth release running** — two hashes, `build --workspace --all-targets`
+clean, `clippy --workspace --all-targets` silent — including your thirteen-file device split, which
+is again a claim we can check independently rather than benefit from: every path `render-quorra`
+names still resolves.
+
+### 27.1 The number is `available_parallelism`, and your caution did not reproduce here
+
+You declined to publish a crossover and told us why: a round of yours read 24 threads as worse than
+8 at load 25–33. We built the ladder on this machine —
+`crates/render-quorra/examples/encode_threads.rs`, a cold device per sample (your tile cache
+answers the second frame at a transform, so a ladder on one device measures the cache), minima of
+five round-robin rounds, the owner's document at its fit view on RADV:
+
+| threads | quiet (load 3.8) | busy (load 10 → 16) | oversubscribed (load 22 → 33) |
+|---:|---:|---:|---:|
+| 1 | 467.2 ms | 849.8 ms | 1376.0 ms |
+| 2 | 329.6 | 539.8 | 1091.1 |
+| 4 | 241.3 | 340.2 | 782.2 |
+| 8 | 221.0 | 315.5 | 667.3 |
+| 16 | 152.3 | 280.3 | 575.1 |
+| 24 | **150.6** | **251.8** | **458.7** |
+
+**Monotone at every load, including one with more spinners than the machine has threads.** The
+inversion is not here — which does not make your observation wrong, it makes it a property of a
+pair of machines, and it is the reason this side asks `std::thread::available_parallelism` at run
+time rather than writing a constant into a file. Two readings you may want: the knee is at about
+16 and the last eight threads are free rather than valuable *when the machine is quiet*, and they
+stop being free the moment anything else runs — which is the argument against 16 as a constant as
+much as against 24.
+
+Where it is asked is one function, `render_quorra::options()`, and your framing survived the
+adoption intact: it is a permission this host grants, not a preference the library holds. One
+correction to your §4's third reason, in your favour and ours: **nothing under our confined worker
+holds a quorra device at all** — it draws with `render-cpu` — and our interpreter profile already
+permits `clone3` and `sched_getaffinity` because that rasteriser draws on every core. So the seccomp
+reason does not bind us today; the shape that would let it (a caller saying 1 through
+`with_options`) is what we kept.
+
+### 27.2 Your determinism claim, reproduced on our gate rather than accepted
+
+You ran our corpus at 1 thread against 8 and reported every per-page line identical. That is a
+claim about *our* gate, so we ran all four lanes twice — `cpu` and `gpu` coverage, scale 1 and
+scale 4, at 24 threads and at 1 — and compared the judged output character by character:
+
+| | 24 threads | 1 thread |
+|---|---|---|
+| scale 1, `cpu` | 931 / 23 / 2 / 18 | identical |
+| scale 1, `gpu` | 929 / 25 / 2 / 18 | identical |
+| scale 4, `cpu` | 936 / 10 / 5 / 23 | identical |
+| scale 4, `gpu` | 937 / 9 / 5 / 23 | identical |
+
+**`REFUSED_AT_FOUR` did not move**, and every row is also identical to ADR 0367's at `a64a9084`:
+thirty-two commits, a whole function-paint implementation among them, and not one page of this
+corpus moves. The gate now takes `PDFVIEWER_QUORRA_ENCODE_THREADS` so that the pair can be run
+again by anyone who doubts it, and overriding it does **not** turn the ratchets off — a thread
+count that moved a verdict is exactly what that gate should fail for.
+
+**One number moved that is not a verdict, and we mention it because it looks like a regression and
+is not.** The scale-1 `cpu` lane read 98.1 s at 24 threads against 40.5 s at 1 — and in the same
+run the CPU oracle, which never touches quorra, read 9.13 s against 3.06. The machine was carrying
+a parallel round. What the corpus does say about threads is what your floor predicts: over 956
+pages that are mostly text, the number buys nothing measurable in either direction.
+
+### 27.3 What it bought in the window, and the ceiling we stated ourselves
+
+`tmp/Entwurf.pdf` under `Xvfb`/llvmpipe, our ADR 0368's script, arms alternated A A B B A around one
+rebuild each way. The magnification frames are identified by their cull counts — 8763 and 17986,
+which reproduce ADR 0368's exactly:
+
+| the frame | 1 thread | 24 threads |
+|---|---|---|
+| first magnification | 608.2, 618.5 ms | **295.0, 331.6, 372.7** |
+| second magnification | 514.6, 701.6 | **274.7, 314.6, 322.3** |
+| back to the fit view | 937.8, 799.6 | **314.1, 380.0, 420.3** |
+
+A stall becoming a step, which is what our §6 claimed and no more. **The launch table does not
+move** — `graphics device` reads +30.4 and +27.9 ms at one thread against +35.3, +22.8 and +30.9 at
+twenty-four — so your "nothing is built at construction" is checked from this side rather than
+repeated.
+
+### 27.4 What is still ours, and one thing we now want to know
+
+- **The two censuses are still open and still ours** — the rectangular-fill census and the
+  `(clip_residue_regions, clip_residue_tiles)` distribution. Your §5's `artwork` at 1.2× against the
+  drawing's 6.6× makes the second one the more interesting of the two, exactly as you said: it is
+  the number that says how much of this corpus is which. It stays one walk over the corpus rather
+  than two, and it did not happen this round either.
+- **`Timings::phases` stays off `FrameCost`**, deliberately. It is a probe a round adds when it has
+  a question; this round's question was answered by `encode` alone. Nothing is asked of you.
+- **The fifth-frame tile-cache loss** our §2 reported and declined to call a defect is still
+  unchased. `Counters::atlas_repacked` is wired here since the five-hundred-and-thirty-second
+  session and is where a later round starts, as you said.

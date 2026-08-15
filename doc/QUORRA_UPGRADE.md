@@ -520,3 +520,75 @@ scene build is a hundred milliseconds of function evaluation — are `Agreement:
 line on the document that prompted the ask is unchanged. That went back to them in
 `QUORRA_FEEDBACK.md` §27; it is not a defect on either side, and it is worth their knowing that
 the classification's cost is exactly the population that asked for the feature.
+---
+
+## `619ef3b4`, taken in the five-hundred-and-forty-second session (2026-08-15)
+
+Thirty-two commits past `a64a9084` (thirty-three with the one merge), and **the fourth bump in a
+row that cost this tree not one line of source to compile**: two hashes in `Cargo.lock`,
+`build --workspace --all-targets` clean, `clippy --workspace --all-targets` silent. What this round
+then *chose* to write is `render_quorra::options()` and ADR 0377 — the release's last two commits
+are the phase this tree asked for in `doc/QUORRA_ENCODE_THREADS.md`, and a permission is not taken
+by taking the release.
+
+The range, oldest first, merges elided, in the three groups it actually falls into:
+
+| | |
+|---|---|
+| `1ee1884` … `05fadc5` (12) | **the function paint, built**: a §7.10.5 type 4 program's vocabulary, Table 42 operator by operator; the scene's `Paint::Function`; a program uploaded, admitted or refused by name before any frame; a compiled program as a resource with its domain as a region; the generated WGSL through the same coverage, clip and mask weighting as every other paint; their own conformance corpus over it (their ADR 0053). `doc/QUORRA_FUNCTION_PAINT_BUILT.md` is what a host must do to *emit* one, and nothing here emits one yet. |
+| `80bf787` | `Agreement::Exact`/`Approximate` become **`Bounded`/`Unbounded`** — their own correction, and the one line of that work this tree should read twice: WGSL §15.7.5 permits reassociation and fusion, so "exact" was overclaimed and withdrawn before we could build a gate on it. |
+| `4ce6476` … `3f819c1` (13) | **the device file split**: the ramp arithmetic, the textures, a pass's bindings, the rare lane's quad, the target, the damage list, phase 2's staging, phase 3's routes, the resource's two forms, construction and its cost — one file each, in the order a device lives, plus the record of the seams. Public paths unchanged, which this tree is an independent check on rather than a beneficiary of. |
+| `9a5a70f` | their debt list stops naming what was paid and names three things found while paying it |
+| `8298a8c`, `a3f09f1`, `619ef3b` | **the geometry phase divides across the threads a host allows** (their ADR 0054) — `Options::encode_threads`, `std::thread::scope` inside `Device::render`, no dependency and no `unsafe`, a 4 096-segment floor under it, and byte equality at 1, 2, 3, 7 and 64 threads |
+
+### What it required of this tree, and what it asked
+
+**Required: nothing.** `Options` gained a field with a default, which is the one kind of addition a
+struct without `#[non_exhaustive]` can make without breaking a caller, and every path
+`render-quorra` names still resolves through the thirteen-file split.
+
+**Asked: a number.** `encode_threads` defaults to 1 and upstream calls that *a permission rather
+than a preference* — the host's decision because only the host knows what else is running. ADR
+0377 takes it: `render_quorra::options()` is the one place it is chosen, the value is
+`std::thread::available_parallelism`, and `crates/render-quorra/examples/encode_threads.rs` is the
+instrument that chose it. The ladder on the owner's document, RADV, cold device per sample, minima
+of five round-robin rounds:
+
+| threads | quiet (load 3.8) | busy (load 10 → 16) | oversubscribed (load 22 → 33) |
+|---:|---:|---:|---:|
+| 1 | 467.2 ms | 849.8 ms | 1376.0 ms |
+| 8 | 221.0 | 315.5 | 667.3 |
+| 24 | **150.6** | **251.8** | **458.7** |
+
+Upstream's caution — an earlier round of theirs read 24 threads as *worse* than 8 at load 25–33 —
+**did not reproduce on this machine at any load it could be put under**, which is why the number is
+read off `available_parallelism` at run time rather than written down as a constant here.
+
+### The four lanes, and the eight runs the determinism claim needed
+
+`doc/todo/02-every-round.md` §2's four-lane debt, run whole — and then run *again* at one thread,
+because the property that matters about a thread count is that it changes nothing:
+
+| | 24 threads | 1 thread |
+|---|---|---|
+| scale 1, `cpu` | 931 / 23 / 2 / 18 | identical, verdict line by verdict line |
+| scale 1, `gpu` | 929 / 25 / 2 / 18 | identical |
+| scale 4, `cpu` | 936 / 10 / 5 / 23 | identical |
+| scale 4, `gpu` | 937 / 9 / 5 / 23 | identical |
+
+Every row is also identical to ADR 0367's at `a64a9084`: **no page moved on the release, and no
+page moved on the threads.** `REFUSED_AT_FOUR` is unchanged at both scales, which is the ratchet
+`QUORRA_ENCODE_THREADS.md` §5 named as the one a parallel phase would break if it changed what a
+frame commits.
+
+### The frame path on the owner's document, before and after
+
+`tmp/Entwurf.pdf` under `Xvfb`/llvmpipe, ADR 0368's script, arms alternated A A B B A around one
+rebuild each way. The two magnification frames — identified by their cull counts, 8763 and 17986,
+which reproduce ADR 0368's exactly — go from 608.2 and 514.6 ms at one thread to 295.0 and 274.7 at
+twenty-four, and the return to the fit view from 937.8 to 314.1. **The structure is unchanged**:
+`host` 0.0, `scene` 14–22 ms, `settle` 1–2 ms, 40 resources uploaded, the same cull counts; the
+whole of the difference is inside `device`. **The launch table did not move** — `graphics device`
+reads +30.4 and +27.9 ms at one thread against +35.3, +22.8 and +30.9 at twenty-four — which is the
+check upstream's "nothing is built at construction" deserved rather than the repetition of it.
+ADR 0377 has every row.

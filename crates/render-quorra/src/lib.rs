@@ -72,6 +72,39 @@ pub enum QuorraRasterError {
     Unsupported(String),
 }
 
+/// quorra's options as *this host* asks for them: [`quorra_gpu::Options::default`] with the one
+/// field this tree decides rather than accepts.
+///
+/// **`Options::encode_threads` is a permission, not a preference** — upstream's own word for it
+/// (their ADR 0054, `doc/QUORRA_ENCODE_THREADS_ANSWER.md` section 4). Its default is 1, because
+/// only a host knows whether it has a pool of its own, a seccomp policy that forbids a thread, or
+/// a launch path a pool would land on. So the number is ours to choose, and this is the one place
+/// that chooses it: every constructor below and every caller that wants quorra's defaults plus
+/// this decision spreads `..render_quorra::options()` rather than repeating the reasoning.
+///
+/// **The answer is what the machine says it has**, and it is measured rather than assumed —
+/// `examples/encode_threads.rs` is the instrument and ADR 0377 has every row. On the project
+/// owner's 58 009-command drawing at its fit view, a cold device per sample and the minimum of
+/// five round-robin rounds, quorra's `encode` phase falls from 467 ms on one thread to 221 on
+/// eight and 151 on twenty-four with the machine quiet; with it deliberately loaded past its own
+/// core count the twenty-four-thread column is still the fastest of the six. Upstream reported a
+/// round of *theirs* where twenty-four threads read worse than eight at load 25–33 and declined
+/// to publish any crossover as a constant, which is exactly why this asks the machine at run time
+/// instead of naming a number here: [`std::thread::available_parallelism`] answers the question
+/// this machine's cgroup and affinity mask were asked, and a build moved to a smaller machine
+/// gets that machine's answer.
+///
+/// **Nothing here is built at startup.** quorra clamps this number when the device is
+/// constructed and spawns nothing until a frame's geometry passes its own floor, so the
+/// cold-start gate is untouched — checked in ADR 0377 rather than repeated from upstream.
+#[must_use]
+pub fn options() -> quorra_gpu::Options {
+    quorra_gpu::Options {
+        encode_threads: std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get),
+        ..quorra_gpu::Options::default()
+    }
+}
+
 /// The quorra backend: a persistent device, resource caches keyed by the display
 /// list's own `Arc` identities (pinned and evicted by [`cache::ResourceCaches`],
 /// whose docs carry both the ABA argument for pinning and the eviction policy
@@ -97,7 +130,7 @@ impl QuorraRasterizer {
     ///
     /// [`QuorraRasterError::Device`] when no adapter yields a device.
     pub fn new_headless() -> Result<Self, QuorraRasterError> {
-        Self::with_options(&quorra_gpu::Options::default())
+        Self::with_options(&options())
     }
 
     /// A backend pinned to a software adapter (llvmpipe), for CI and comparison
@@ -109,13 +142,17 @@ impl QuorraRasterizer {
     pub fn new_headless_software() -> Result<Self, QuorraRasterError> {
         Self::with_options(&quorra_gpu::Options {
             adapter: Some("llvmpipe".into()),
-            ..quorra_gpu::Options::default()
+            ..options()
         })
     }
 
     /// A backend with explicit quorra options — `RENDER_LIBRARY.md` section 4.5 makes the glyph
     /// cache's sub-pixel quantum the caller's decision to take, and this is where
     /// a caller takes it.
+    ///
+    /// **Spread [`options`] rather than [`quorra_gpu::Options::default`]** unless the point is to
+    /// have quorra's own defaults: the difference is `encode_threads`, whose default is 1 and
+    /// whose value is this host's decision to make once (see [`options`]).
     ///
     /// # Errors
     ///

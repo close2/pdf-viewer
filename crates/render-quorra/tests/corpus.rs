@@ -120,6 +120,25 @@ fn coverage() -> quorra_gpu::Coverage {
     }
 }
 
+/// How many threads quorra's geometry phase may use for this run, which
+/// `PDFVIEWER_QUORRA_ENCODE_THREADS` may override.
+///
+/// **The default is [`render_quorra::options`]'s, so the gate draws what the viewer draws** —
+/// and the override exists because the property that matters about this number is that it
+/// changes *nothing*. quorra states a frame's result byte-identical at any thread count (their
+/// ADR 0054); this gate over 956 real pages carrying clip chains, groups, masks and atlas
+/// pressure is the evidence for that claim on *our* side of the boundary, and it is only evidence
+/// if the same corpus can be run at 1 and compared line by line against the same corpus at the
+/// host's number. ADR 0377 is that comparison. Overriding it does **not** skip the ratchets: a
+/// thread count that moved a verdict is precisely what this gate should fail for.
+fn encode_threads() -> usize {
+    std::env::var("PDFVIEWER_QUORRA_ENCODE_THREADS")
+        .ok()
+        .and_then(|value| value.trim().parse().ok())
+        .filter(|threads: &usize| *threads > 0)
+        .unwrap_or_else(|| render_quorra::options().encode_threads)
+}
+
 /// How far a page may sit from the oracle before it is counted as differing.
 ///
 /// Three numbers because they catch different failures, and they are `real_pages.rs`'s own
@@ -520,13 +539,15 @@ fn every_corpus_page_agrees_with_the_cpu_oracle() {
 
     // The quantum off: this gate isolates the backend's fidelity from the deliberate
     // sub-1/32-pixel trade `real_pages.rs` gates separately.
+    let threads = encode_threads();
     let mut quorra = QuorraRasterizer::with_options(&quorra_gpu::Options {
         glyph_quantum: None,
-        ..quorra_gpu::Options::default()
+        encode_threads: threads,
+        ..render_quorra::options()
     })
     .unwrap_or_else(|e| panic!("no adapter available for quorra: {e}"));
     quorra.set_coverage(coverage);
-    announce(&quorra, files.len(), scale, coverage);
+    announce(&quorra, files.len(), scale, coverage, threads);
 
     let started = Instant::now();
     let mut agreed = 0usize;
@@ -722,10 +743,12 @@ fn announce(
     documents: usize,
     scale: f32,
     coverage: quorra_gpu::Coverage,
+    threads: usize,
 ) {
     println!("adapter: {}", quorra.adapter_description());
     println!(
-        "{documents} documents, page one, at scale {scale}, {} coverage lane, {} build",
+        "{documents} documents, page one, at scale {scale}, {} coverage lane, \
+         {threads} encode thread(s), {} build",
         lane_name(coverage),
         if cfg!(debug_assertions) {
             "debug"

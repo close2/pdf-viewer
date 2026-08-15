@@ -76,7 +76,7 @@ fn real_pages_agree_with_the_cpu_oracle() {
     // fidelity from the quantum's deliberate, separately-gated trade.
     let mut quorra = QuorraRasterizer::with_options(&quorra_gpu::Options {
         glyph_quantum: None,
-        ..quorra_gpu::Options::default()
+        ..render_quorra::options()
     })
     .unwrap_or_else(|e| panic!("no adapter available for quorra: {e}"));
     println!("adapter: {}", quorra.adapter_description());
