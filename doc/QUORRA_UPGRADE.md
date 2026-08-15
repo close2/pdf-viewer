@@ -592,3 +592,98 @@ whole of the difference is inside `device`. **The launch table did not move** �
 reads +30.4 and +27.9 ms at one thread against +35.3, +22.8 and +30.9 at twenty-four — which is the
 check upstream's "nothing is built at construction" deserved rather than the repetition of it.
 ADR 0377 has every row.
+
+---
+
+## `a4380e2c`, taken in the five-hundred-and-forty-seventh session (2026-08-16)
+
+Thirty-three commits past `619ef3b4`, all of them from one day, and **the fifth bump in a row that
+cost this tree not one line of source**: two hashes in `Cargo.lock`, `build --workspace
+--all-targets` clean, `clippy --workspace --all-targets` silent, `fmt --check` clean. This one is
+the easiest of the five to state, because upstream did not change the public surface at all —
+checked from this side rather than taken on trust, by diffing every `pub` line of both crates
+across the range: **not one public item was added, removed, renamed or resignatured, and
+`quorra-scene` was not touched at all.**
+
+The range, oldest first, in the four groups it falls into:
+
+| | |
+|---|---|
+| `7c0a248`, `be324ca`, `fa29da1`, `f82ec08`, `063734b` (5) | the documentation gate and the uniform gate: `cargo doc` under `-D warnings` in their CI, and `src/shaders/layout.rs` — a `#[cfg(test)]` deriver that checks every host-side uniform writer's field offsets against the WGSL struct it mirrors, where wgpu had been checking the total size only |
+| `3785b00`, `2f25397`, `48d25fa`, `4b1bbed`, `d2a48ad` … `3965c30`, `1015f32` (13) | **the encode walk split**, the sequel to the device split this tree took at `619ef3b4`: `encode.rs`'s 2 406 lines become 435 plus eleven private submodules named for the eleven things the walk does, and `tests/retained_frame.rs`'s 1 139 lines become five files. Public paths unchanged, again a claim this tree checks independently rather than benefits from |
+| `d05036f`, `d61b6a2`, `1eba41f`, `e6d0e1d` (4) | **the one pixel-moving change**: a colour ramp's coincident stop offsets, read against ISO 32000-2 §7.10.4 rather than extrapolated (their ADR 0055) |
+| `a2afb92`, `d64bc71`, `a4380e2` (3) | the tiling ceiling measured and **not** fixed — `doc/notes-tiling-ceiling.md` states in as many words that no `src/` file was changed by that round — plus `tests/tiling_ceiling.rs`, which witnesses the existing behaviour through the public API |
+
+Also in the range and invisible here: `04b1c8f` and `97013f8` (a generated function shader's compile
+cost measured — 8.25 ms on RADV for a 482-instruction program and **2.0–2.7 ms for a
+one-instruction one**, which is the fixed `function_lane.wgsl` parse and build rather than the
+generated part), `0e7923f` (their debt list stops naming five paid debts) and `f7f8785` … `c27fb43`
+(the encode split's individual seams).
+
+### What it required of this tree
+
+**Nothing, and for once that is the whole story rather than the headline over a boundary.** No
+`match` here had to grow an arm, no field had to be read, no option had to be chosen. `Counters`,
+`Frame`, `Timings`, `Options`, `DeviceError`, `RenderError`, `RetainedScene` and `Device` are
+byte-for-byte the same public types; `crates/quorra-gpu/src/frame.rs`, `error.rs` and `startup.rs`
+are untouched in the range.
+
+### The one pixel-moving change, read before it was taken
+
+Their ADR 0055 is the kind of change this tree has to look at rather than accept, because it moves
+a mark: `ramp_color_at`'s loop comparison goes from `<=` to `<`, so a `t` landing exactly on a
+stop's offset now belongs to the interval that **starts** there. A colour ramp is a shading's
+colour function already sampled onto stops, and a producer puts *two stops at one offset* wherever
+that function jumps — which is §7.10.4's stitching bound. The clause makes the subdomains
+
+> half-open intervals, closed on the left and open on the right
+
+with two exceptions that point in **opposite** directions: the last interval is closed on the right
+(so a coincident pair at the ramp's final offset takes the later colour), and where `Domain0 =
+Bounds0` the first interval is closed on both sides (so a coincident pair at offset 0 takes the
+earlier one). Their code now does all three, and the reasoning is the clause rather than another
+renderer — which is the only ground on which this tree can take a pixel change at all.
+
+### The four lanes, and this release A/B'd on two of them
+
+`doc/todo/02-every-round.md` §2's four-lane debt, run whole; and because the release moves a mark,
+the two scale-4 lanes were run **twice in one working copy**, flipping only `Cargo.lock`, so that
+what moved is attributed rather than inferred.
+
+| | `619ef3b4` | `a4380e2c` |
+|---|---|---|
+| scale 1, `cpu` | — | 931 / 23 / 2 / 18 |
+| scale 1, `gpu` | — | 929 / 25 / 2 / 18 |
+| scale 4, `cpu` | 936 / 11 / 4 / 23 | 936 / 11 / 4 / 23 |
+| scale 4, `gpu` | 937 / 10 / 4 / 23 | 937 / 10 / 4 / 23 |
+
+**One judged line moves, on both magnified lanes, and it is the same line to the digit:**
+
+```text
+- differs: issue10572.pdf: mean 0.1332 worst tile 7.97 at (256, 1792) differing 0.0005 ssim 0.99497
++ differs: issue10572.pdf: mean 0.1036 worst tile 7.97 at (256, 1792) differing 0.0004 ssim 0.99602
+```
+
+Every other judged line of both lanes is character-identical between the two pins. That is upstream's
+own measurement of our corpus reproduced here — they predicted this page, this direction and these
+figures — and it moves **toward** the oracle on all four of the numbers the comparison carries.
+
+**Nothing moves at scale 1**, and that is proved rather than counted: the scale-1 `cpu` lane holds
+*both* the refusal list and the differing list to equality, and it passed, so no page changed
+category there. `issue10572.pdf` does not appear in either scale-1 lane's judged output at either
+pin — at one device pixel per point the ramp bound falls inside a pixel that was already right.
+
+### The scale-4 rows are one page away from ADR 0377's, and the page is ours
+
+ADR 0377 and `QUORRA_FEEDBACK.md` §27.2 record `936 / 10 / 5 / 23` and `937 / 9 / 5 / 23` for the
+two magnified lanes. Both are correct **for the session that wrote them** and both are stale now,
+by exactly one page in one direction: `22060_A1_01_Plans.pdf` left `REFUSED_AT_FOUR` and joined the
+differing list in the **five-hundred-and-forty-third** session, when `image::RasterCache` stopped a
+page decoding one `XObject` thirty-six times and the page stopped exceeding `max_resource_bytes`
+(ADR 0374). The ratchet was moved in that same commit, which is why every run since has passed; it
+is the *summary numbers* in the older documents that no round re-read.
+
+Worth naming as a shape rather than as an erratum: **a ratchet held to equality and a count written
+in prose decay at different rates**, and the ratchet is the one that cannot go stale silently. The
+run at the old pin is what settles this — 936 / 11 / 4 / 23 at `619ef3b4` too — so the release is
+not what moved it, and neither is anything upstream did.

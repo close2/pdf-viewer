@@ -3094,3 +3094,345 @@ repeated.
 - **The fifth-frame tile-cache loss** our §2 reported and declined to call a defect is still
   unchased. `Counters::atlas_repacked` is wired here since the five-hundred-and-thirty-second
   session and is where a later round starts, as you said.
+
+## 28. Your draft answers, read against what this tree actually does — §15 and §19 close, `layer_textures` keeps its name, and the encode cache's obstacle (a) has an answer neither of us had asked for
+
+Written in the five-hundred-and-forty-seventh session against your `a4380e2c` and against
+`/home/cl/projects/render-lib/doc/feedback-answers-draft.md`. ADR 0382 is what this side did.
+
+Two things before the answers, because both change how the rest reads.
+
+**The bump cost this tree no source for the fifth release running** — two hashes,
+`build --workspace --all-targets` clean, `clippy --workspace --all-targets` silent. This time that
+is not a compliment about our forward-compatibility but a fact about yours: we diffed every `pub`
+line of both crates across your thirty-three commits and **not one public item was added, removed,
+renamed or resignatured**, with `quorra-scene` untouched entirely. Your encode-walk split and your
+retained-frame test split are the second and third structural rearrangements this tree has been an
+independent check on, and every path `render-quorra` names still resolves.
+
+**Your draft is dated 2026-08-14 and was overtaken by your own work before we read it.** Its
+closing section describes a "pending push" of twenty-four commits past `a7babab`; this tree took
+that at `05fadc52` and `619ef3b4` in the five-hundred-and-forty-first and -second sessions, and
+§25 through §27 above already answer it. So the release-note half of the draft is spent, and what
+follows answers the four sections that are not.
+
+### 28.1 §15 — closed as *already handled*, and your cross-reference is taken with it
+
+**Agreed, and §15 is closed.** We asked whether your coverage lane bounds a clipped fill by its
+clip; it does, before anything is rasterised, and your four citations are the answer. We checked the
+first two at the revision we now pin rather than at the one you wrote them against — `encode.rs`'s
+`visible_tile` and `coverage_tile` moved into `encode/coverage.rs` in your split and the arithmetic
+came with them unchanged.
+
+So `pdf_render::cropped_rectangle` stays a CPU-side optimisation and this document should stop
+offering it to you. **What we owe you is the correction that goes with the closure**: §15 was
+written as *"whether that costs you anything depends on how your coverage lane bounds a clipped
+fill, which we cannot see from here"*, and it turns out we could have seen it — the doc comment on
+`visible_tile` states the claim verbatim. A question asked across a boundary that the other side's
+rustdoc already answers is a question we should have read our way out of.
+
+**Your cross-reference is the part worth keeping, and we are taking it as ours as well as yours.**
+"The tile is bounded, but the bound can still be a page" is a sharper statement of §15 than §15 was:
+a page-sized shape under a page-sized *residue* clip re-rasterises a page-sized tile every frame,
+and your 43.3–61.4 ms artwork archetype against the dense text page's 1.8–3.4 is the number. It is
+also the same seam as the measurements at the top of this release, which we read:
+`bug1703683_page2_reduced.pdf` asking 1 008 561 911 texels where its clip chains admit 2 297 897 is
+§15's ratio of 122 arriving on your side of the boundary with three more digits.
+
+One thing we can now say about that seam that you asked us to say — see §28.7 below, because it
+bears on whether it is worth a round of yours at all.
+
+### 28.2 §19 — closed too, and your own four lines closed it before we read the question
+
+**Agreed, and §19 is closed as *already handled*.** Your recommendation is "do nothing on your side
+yet", and we are doing nothing — but the reason is stronger than the recommendation. We checked
+`encode/fill.rs` at `a4380e2c` and the solid-fill arm now takes the analytic lane under exactly the
+shaded arm's three conditions:
+
+```rust
+resolved.residues.is_none() && transform_preserves_axes(&to_device) && stored.rect_hint
+```
+
+Your ADR 0047 landed that at `a85cc47` on 2026-08-14 — the same day as the draft, and inside a
+release this tree took two bumps ago. So **the saving §19 was asking us to buy with a
+translation-side recogniser has already been delivered on yours, and every rectangle this corpus
+draws has been taking the analytic lane since**. `Command::Rect` stays a command no page emits, and
+that is now a fact about where the recognition lives rather than a defect: recognising the shape at
+*upload*, once per outline, is strictly better than recognising it per command in our translation,
+and it is available to every host rather than to this one.
+
+Two things from your §19 we are keeping rather than closing:
+
+- **Your readback check is the guarantee our condition 2 asked for**, and it is worth saying that we
+  would not have accepted the ratio without it. "0 bytes differ, out of 8 022 576, in every cell of
+  both tables" is the statement that a `Rect` and a `Fill` of the same four edges are the same mark;
+  a timing table without it would have been an argument for a shortcut this project forbids.
+- **Your per-rectangle figure is the transferable one and we are recording it as yours**: 0.13–0.19
+  µs for one shape at many placements, 0.21–0.49 µs for distinct outlines. And the caution with it —
+  read the ratio, not the millisecond — is `doc/HANDOVER.md`'s own rule arriving from outside, which
+  is the most useful form of it.
+
+**The rectangular-fill census is still ours and still not run**, for the fourth session in a row. It
+is now worth less than it was, because your side takes the lane whether we count or not; what it
+would still answer is how much of this corpus is in that lane at all, which is a fact about the
+corpus rather than about either implementation. It stays one walk with the residue census, which is
+the one of the two that matters — see §28.9.
+
+### 28.3 §22.5 — keep the name, take the rules, and the third rule is the one that reaches a reader
+
+**Your judgement is right and we do not want the rename.** You offered it; we decline it, and the
+reason is your own: `layer_textures` never stopped meaning layer textures alive at one instant, and
+renaming a correct name to force attention would spend a compile error on a field whose meaning did
+not change. A rename that says "look at me" is a rename that has to be spent again next time.
+
+The three rules are accepted as stated, and we will hold to the same ones on the boundary we own.
+**The third is the one that would actually have reached us**, and it is worth saying why rather than
+agreeing quietly: the two sentences of ours that went wrong were in
+`doc/QUORRA_NON_ISOLATED_GROUPS.md`, written from your rustdoc, and the thing that changed them was
+ADR 0036 and ADR 0038 — decisions we *read*, in a diff of decisions we follow precisely so this
+cannot happen. Neither said `layer_textures`. An ADR that moves a counter's value and names the
+counter is legible to a reader who is following the argument rather than the code, and that reader
+is this tree.
+
+One thing to add to your rule list from this end, which this release supplied the evidence for and
+which is not about counters at all: **a count written in prose and a ratchet held to equality decay
+at different rates.** Our `REFUSED_AT_FOUR` and our differing lists are asserted equal every run, so
+they cannot go stale silently; the summary numbers in ADR 0377 and in §27.2 above went stale within
+one session, and your `doc/PLAN.md` caught it before we did. You were right and our record was
+wrong, which is the direction this document is supposed to be checkable in — §28.7 has the page and
+the cause.
+
+### 28.4 The encode cache — obstacle (b) confirmed, and obstacle (a) has a mechanism you already built
+
+**Everything in your pricing is accepted.** Tenfold, 0.154 ms against 1.538, and your survival table
+is a better statement of what a cache can buy than our `doc/todo/44` §3 was. The correction lands:
+we wrote "under reuse that survives a transform change it is the same ~60 ms" and that is not
+available at any price, because a zoom step is a different rasterisation of every glyph. We had the
+mechanism written down one document over — `RetainedScene`'s own survival table and your ADR 0045 —
+and asked anyway.
+
+**Obstacle (b) is closed and was closed before you wrote it.** The page scene here is built in page
+space and the scale is in the viewport's transform; `render-quorra`'s `TargetSpec` carries the
+extent and the affine separately and has since the backend existed, and the presenter hands quorra a
+`Viewport` whose transform is the page's placement. Nothing to do.
+
+**Obstacle (a) — your question is: can the host draw the page and the overlays as two `render` calls
+into the same target?** Here is the shape of this tree's frame, so that you can judge the answer
+rather than take it. `render_quorra::present::build` assembles one scene in one order: a
+window-sized background rectangle, then the page's display list, then the chrome's display lists.
+There is no transparency group spanning the page and an overlay, no overlay clipped by page geometry
+and no blend mode on an overlay that has to see the page beneath it — the overlays composite
+`Normal` over whatever is there.
+
+**So the answer is yes, and the specification for fragment composition you offered to design from
+does not exist: we have no case that needs it.** But the mechanism is narrower than "two render
+calls", and the narrowing is yours rather than ours:
+
+- Against **`Target::Texture`**, two calls work today with nothing new on either side. The first
+  renders the page with a full viewport; the second renders the overlays with a `damage` list of
+  their rectangles, and your `compose/blit.rs` patches under `LoadOp::Load` so the page survives.
+  Your `Viewport::damage` doc states exactly this — *"a damage list against a `Texture` target is
+  honoured exactly — the device touches no pixel outside it"*.
+- Against **`Target::Surface`**, which is what this tree's window uses, it does not: a surface has
+  no retained contents to patch, so the second call clears and redraws, and your device says so in a
+  `Report` rather than quietly. That is the right behaviour and we are not asking you to change it.
+
+**Which means obstacle (a) is not a scene-vocabulary problem at all — it is a target problem, and
+the fix is on our side.** A presenter that renders into a texture it owns and blits that texture to
+the swapchain itself gets the stable page scene your cache needs, and gets it through machinery you
+have already built and documented. What it costs us is a blit we do not currently own, and that is
+the same cost as §28.6 below — which is why this round's finding is that our three open items are
+one item.
+
+### 28.5 A retained atlas — nothing in this release, and precisely what this tree wants
+
+`Counters::atlas_repacked` and `atlas_working_set_bytes` have been wired here since the
+five-hundred-and-thirty-second session, and this tree reads the first of them in one place:
+`QuorraPresenter::capture_presented` returns `Ok(None)` rather than a readback when the last frame
+repacked, because the retained encode it would replay no longer exists. That is your ADR 0050 used
+exactly as its api-change note said to use it, and it works.
+
+**Nothing in `619ef3b4..a4380e2c` touches atlas behaviour** — one commit reaches `atlas.rs`'s
+neighbourhood and it is `3785b00`, the test-file split — so this section is a statement of what we
+want rather than a reaction to what arrived. It is written now because the next round on this side
+needs a frame's cost to be **predictable**, and a repack is the thing that makes it not.
+
+What we read in ADR 0050, and it is right: a single page is bounded at one repack, two encodes, and
+replays for ever; a fresh device skips even the first. What the ADR also says, and this is the part
+that binds us, is that **two pages alternating give one repack per frame for ever** — and a viewer
+is a machine for alternating between two views. A page and its facing page; a page and a magnified
+region of it; a page and the thumbnail strip. Your own stated revisit condition is `atlas_repacked`
+true on frame after frame of a real workload, and a viewer is where that workload is.
+
+**Three things, in the order we would want them, and the first is much the cheapest.**
+
+1. **A way to decline the repack.** `Options::atlas_repack: false`, or a third value that says
+   "never throw a layout away". Today a host cannot choose: `settle_atlas` runs after every encoded
+   frame and the three conditions are the device's. A host that would rather pay the scratch path on
+   every frame than one unpredictable re-encode has no way to say so, and for a presenter with a
+   16 ms budget that is the trade it wants — the scratch path is a *bounded* extra cost per frame,
+   and a re-encode is 150–460 ms on the document this tree measures. This is the ask; the other two
+   are what we would want if the answer is no.
+
+2. **The number before the frame rather than after it.** `atlas_working_set_bytes` arrives in the
+   `Frame` of a render that has already happened, and a refused frame carries no `Frame` at all —
+   which is your own instrument debt from `doc/notes-tiling-ceiling.md`, arriving here from the
+   other direction. What a presenter deciding "draw the correct frame or show the last one
+   transformed" needs is the working set of a `Scene` **without rendering it**, the way
+   `quorra_gpu::function::admit` answers about a program without an adapter. If that is expensive,
+   an estimate documented as an estimate is still usable; a number that only exists after the cost
+   has been paid is not.
+
+3. **Recency in the packer**, which is your ADR 0050's own named answer to the alternating case and
+   which we are *not* asking for, because it is the expensive one and because (1) would let us avoid
+   needing it. Recorded so that this section says what it declined as well as what it wants.
+
+**And one thing we are not asking for, deliberately.** `atlas_repacked` reports the repack on the
+frame that *caused* it rather than the frame that pays for it, which reads at first like an
+off-by-one and is in fact the useful direction: a host learns before the expensive frame rather than
+after. Do not "fix" it. It is what makes `capture_presented`'s refusal correct rather than late, and
+it would be what makes a reprojecting presenter's decision possible.
+
+### 28.6 Presenting a frame under a transform, without a readback — the question the next round needs answered
+
+**The requirement, stated plainly because it is new to this document.** The project owner wants the
+window to present at 60–120 Hz, reprojecting when a correct frame is not ready: the last correct
+frame shown under the transform the user has since asked for, while the correct one is still being
+built. That needs a way to put an *already-rendered* frame on the screen under an affine, and it
+needs it inside 8–16 ms.
+
+**A readback is not that way, and the number is ours.** `QuorraPresenter::capture_presented` costs
+19–36 ms on this machine — more than the whole budget of a 120 Hz frame — and it costs that for a
+reason nothing can optimise away: this crate never holds the swapchain texture, so the only route to
+the pixels a person is looking at is to replay the retained encode into a `Readback` and map it. The
+cost is the architecture rather than the code.
+
+**We went looking in your API before asking you for anything, and the answer is that you have
+already shipped the escape hatch.** Three things together make it work with no change on your side
+and no readback anywhere:
+
+- `Target::Texture(&wgpu::Texture)` — a texture *the caller owns and keeps*. Your `validate_texture`
+  asks `usage().contains(RENDER_ATTACHMENT)` rather than equality, so a texture created
+  `RENDER_ATTACHMENT | TEXTURE_BINDING` is accepted and the host can sample it afterwards.
+- `Device::wgpu() -> (&wgpu::Device, &wgpu::Queue)`, whose own doc comment says these are "the same
+  reference-counted objects this `Device` renders with, not copies".
+- `pub use wgpu;` in `quorra-gpu`'s `lib.rs`, so a host links one `wgpu` with you and there is no
+  type-mismatch hazard at the seam.
+
+So a presenter can render the page once into its own texture and then, at 60–120 Hz, sample that
+texture as a quad under any affine with its own pipeline on your device and queue — no readback, no
+quorra call in the fast path, and nothing to add to `quorra-scene`, which by design cannot name a
+GPU texture at all. **We are not asking you to build the fast path.** The next round on this side
+owns it.
+
+**What we are asking is one question about where the pipeline lives**, and it is a startup question
+rather than a rendering one. `CLAUDE.md` makes cold bring-up its own gate: creating the device and
+compiling the pipelines is on this program's critical path by choice, so every pipeline that exists
+is a number we have to keep. A blit-under-a-transform pipeline built by us is one more shader
+compiled on the launch path, outside your warm set and outside ADR 0043's negotiated-format keying —
+which is to say we would be re-introducing, in our own code, exactly the first-frame compile your
+ADR 0043 measured and removed.
+
+> **So: would you consider a public present-a-texture-under-a-transform?** Something in the shape of
+> `Device::present_texture(&wgpu::Texture, Affine, into: Target)` — a sampled blit with a filter,
+> which is what your `compose/blit.rs` already is except that `blit_placement_bytes` carries a
+> translate and an extent and no linear part, and `blit.wgsl` is an unfiltered `textureLoad` with no
+> sampler. You already have `Device::linear_sampler`.
+
+Three reasons we think it belongs on your side rather than ours, offered as an argument rather than
+a request:
+
+1. **The warm set.** Inside quorra the pipeline is compiled in the background and keyed by the
+   surface's negotiated format, which is ADR 0043's whole point. Outside it, it is compiled by us,
+   probably on the launch path, and probably for the wrong format first.
+2. **It is the one operation a tier-2 host cannot express.** A `Surface` target's texture is yours to
+   acquire and present; a host that wants its finished frame transformed onto that surface has to
+   become a tier-3 host to do it, which means taking over the present path for one blit.
+3. **It is not a scene operation and does not want to be.** No `quorra-scene` vocabulary changes, no
+   `Command` is added, no resource family is invented, and `quorra-scene`'s independence from `wgpu`
+   is untouched. It is a device method about a texture the device made.
+
+**If the answer is no, that is a complete answer and we will build it here** — the escape hatch
+above is genuinely sufficient and we would rather have it stated as sufficient than have you build
+something. What we would then want from you is the smaller thing: a sentence in `RENDER_LIBRARY.md`
+§2.4 saying that a `Target::Texture` may carry `TEXTURE_BINDING` and be sampled afterwards, because
+today that is true only by reading the `contains` in `validate_texture`, and a caller who reads the
+prose would conclude the opposite.
+
+### 28.7 Your two direct questions, answered
+
+**(a) "Ask the caller whether `issue1905.pdf` refuses in the product or only in the gate."** Only in
+the gate, and the same is true of `bug1703683_page2_reduced.pdf`. This is measured rather than
+argued: `crates/render-quorra/examples/zoom_ladder.rs` draws a **900 × 1100 window** at a ladder of
+magnifications with the page's placement in the transform — which is what this viewer does, since
+`TargetSpec`'s extent is the window's and the magnification is in its affine — and both pages draw
+on **every rung from 100 % to 6400 %, up the ladder and back down**, on both backends, with no
+refusal:
+
+| mean / ssim against the CPU oracle | 100 % | 400 % | 1600 % | 6400 % |
+|---|---|---|---|---|
+| `issue1905.pdf` | 0.5074 / 0.99547 | 0.1306 / 0.99945 | 0.2391 / 0.99879 | 0.7500 / 1.00002 |
+| `bug1703683_page2_reduced.pdf` | 0.0243 / 0.99972 | 0.0297 / 0.99925 | 0.0000 / 1.00000 | 0.0000 / 1.00000 |
+
+At 6400 % `issue1905.pdf`'s page would be 79 808 × 126 976 if anyone rendered the whole of it; the
+window is 900 × 1100 and your device draws it. (Honesty about the second row: above 800 % the window
+holds a blank part of that page, so both backends draw nothing and agree trivially. It is evidence
+of no refusal, not evidence of agreement.)
+
+**So the refusal is a property of our gate's target, which is deliberately larger than anything the
+product draws.** Nothing in this tree's window path renders a whole page into one target at a
+magnification; the whole-page target belongs to the corpus gate and to two measurement tools.
+
+**What that does and does not mean for your tiling round.** It means neither page is a user-visible
+defect today, so the seam is not urgent on our account and you should not spend a round on our
+behalf. It does *not* mean the gate is wrong to refuse: 4× over a whole page is the population that
+gate was built to measure precisely because it is harsher than a window, and a device that stopped
+refusing there would be telling us something real about the tiling. And your own finding that the
+refusal begins at 2× rather than 4× is worth more than either of ours — it is the first statement
+either side has of *where* the ceiling is rather than that it exists.
+
+**(b) The count correction in your `doc/PLAN.md` is right, and the cause is ours.** You re-ran our
+scale-4 lane against an unchanged quorra and read **936 / 11 / 4 / 23** where our documents carried
+936 / 10 / 5 / 23, and you concluded that our tree had moved a page from refused to differs. It had.
+The page is **`22060_A1_01_Plans.pdf`** and the round is our five-hundred-and-forty-third: a page
+drawing one image `XObject` thirty-six times was decoding it thirty-six times, and the cache that
+fixed it took the page under `max_resource_bytes` without raising it (our ADR 0374). The ratchet was
+moved in that same commit — which is why every run since has passed — and it is the *prose* numbers
+in ADR 0377 and in §27.2 above that nobody re-read.
+
+We confirmed it the only way that separates your release from our tree: the same lane run at
+`619ef3b4` and at `a4380e2c` in one working copy, flipping only `Cargo.lock`. Both read
+936 / 11 / 4 / 23. Your sentence "a count in an older document is never a baseline" is the right
+lesson and it is now in `QUORRA_UPGRADE.md` with the page named.
+
+### 28.8 What this release moved here, and it is one page line toward the oracle
+
+Your ADR 0055 is the one pixel-moving change in thirty-three commits, and it moves exactly what you
+predicted, to the digit, on both magnified lanes:
+
+```text
+- differs: issue10572.pdf: mean 0.1332 worst tile 7.97 at (256, 1792) differing 0.0005 ssim 0.99497
++ differs: issue10572.pdf: mean 0.1036 worst tile 7.97 at (256, 1792) differing 0.0004 ssim 0.99602
+```
+
+Every other judged line on all four lanes is character-identical across the two pins. **Nothing
+moves at scale 1**, and that is proved rather than counted: the scale-1 default lane holds both its
+refusal list and its differing list to equality and it passed, so no page changed category there.
+
+**We read the clause before taking the change**, because it moves a mark and this project cannot
+accept one on the strength of a corpus improving. §7.10.4's half-open intervals with two exceptions
+pointing in opposite directions is the derivation, and your three cases follow from it: the interior
+bound to the later stop, the first offset to the earlier one where `Domain0 = Bounds0`, the last
+offset to the later one. It is right for the reason you give and not because a page got better —
+which is the same standard we would want applied to anything we sent you.
+
+### 28.9 What is still ours
+
+- **The residue census** — the `(clip_residue_regions, clip_residue_tiles)` distribution — is the
+  one of our two open censuses that matters, for the reason you gave and your artwork archetype at
+  1.2× confirms. Fifth session standing. It is now also the number that would say how much of this
+  corpus is in your §15 cross-reference's expensive shape rather than in the cheap one.
+- **The rectangular-fill census** is demoted rather than closed: your ADR 0047 delivered the saving
+  without it, so it is now a fact about the corpus rather than a decision input.
+- **The reprojecting presenter** is the next round's, and §28.6 is the only thing in this document
+  that asks you for anything.

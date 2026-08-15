@@ -207,6 +207,30 @@ measurement that lost something. Without a clock: **24 of 25 frames replayed**, 
 58 989 → 58 029 (40 a frame to none), and the handle held **3 830 032 bytes** for this page.
 The launch table is unmoved, as a first frame that reuses nothing requires.
 
+### 3.3 Their question back is answered — and it is a *target* question rather than a scene one (session 547, ADR 0382)
+
+*Can the host draw the page and the overlays as two `render` calls into the same target?*
+**Yes, and there is no case here that needs fragment composition.** `render_quorra::present::build`
+assembles one scene in one order — a window-sized background rectangle, the page's display list,
+then the chrome's — with no transparency group spanning page and overlay, no overlay clipped by page
+geometry, and no blend mode on an overlay that has to see the page beneath it.
+
+So the specification for scene-fragment composition that upstream offered to design from does not
+exist, and neither side should build it. What the answer turns into instead is narrower and is
+**ours**:
+
+- Two `render` calls into one target work today **against `Target::Texture` and only against it**: a
+  non-empty `Viewport::damage` is honoured exactly there (`LoadOp::Load` over the retained
+  contents), so the page survives the overlay pass.
+- Against **`Target::Surface`**, which is what this tree's window uses, a surface has no retained
+  contents to patch — the second call clears and redraws the whole thing, and quorra reports it
+  rather than doing it quietly.
+
+**So the encode cache's obstacle (a) is closed by moving the presenter's target, not by new scene
+vocabulary**, and that same move is what session 548's reprojecting presenter needs.
+`QUORRA_FEEDBACK.md` §28.4 and §28.6 have the argument and the one question that went back with it;
+ADR 0382 §6 is why the three items are one item.
+
 ## 4. What is left
 
 Both levers this file measured are built: the lexer (the ten seconds, once per open — §2, ADR
