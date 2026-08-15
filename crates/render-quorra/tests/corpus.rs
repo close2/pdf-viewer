@@ -262,12 +262,17 @@ const REFUSED: [&str; 2] = ["bug1721218_reduced.pdf", "issue18032.pdf"];
 /// and root to what it marks. **Not one page of this corpus is refused for frame bytes at any
 /// scale now**, and what is left is three kinds of refusal that no allocation strategy reaches:
 ///
-/// - `22060_A1_01_Plans.pdf` — 72 sampled images at 4× — already holds 522 014 748 resident
-///   *resource* bytes, and the next upload would take it to 548 104 348 against the 536 870 912
-///   `max_resource_bytes` this tree leaves at its default. That is the cache's budget rather than
-///   the frame's, and it is the one refusal here a **larger number** would take off rather than a
-///   tighter allocation. Nobody has raised it, because a budget raised to admit one page is a
-///   budget chosen by that page.
+/// - **`22060_A1_01_Plans.pdf` left this list in the five-hundred-and-thirty-ninth session, and
+///   what took it off was neither a larger budget nor a tighter allocation.** It held 522 014 748
+///   resident *resource* bytes with the next upload taking it to 548 104 348 against the
+///   536 870 912 `max_resource_bytes` default — because its page drew **72 sampled images that
+///   were 8 distinct rasters**, one allocation per `Do`, `image::decode_parts` having run at every
+///   one of them. `image::RasterCache` (ADR 0374) made the repeated `Do`s share the raster they
+///   always meant, and the same page now uploads what it actually holds. The lesson is the one
+///   this comment already argued from the other end: a refusal that is arithmetic against a byte
+///   budget is a question about who is spending the bytes, and this time the answer was upstream
+///   of the backend entirely. Nobody raised `max_resource_bytes`, and a budget raised to admit one
+///   page would still be a budget chosen by that page.
 /// - `bug1703683_page2_reduced.pdf` and `issue1905.pdf` exceed the **16 384 × 16 384 texture**
 ///   this adapter allows for the rasterised-coverage sheet. That is a device capability, not a
 ///   policy. Quorra measured a multi-sheet fix at its `5483996` and **declined it with the
@@ -288,11 +293,10 @@ const REFUSED: [&str; 2] = ["bug1721218_reduced.pdf", "issue18032.pdf"];
 /// So this list is held to equality for the same reason [`REFUSED`] is, and it is a **stronger**
 /// statement than that one: a page arriving here is a hole in the backend that only appears under
 /// magnification, and a page leaving it is a hole closed. It is checked on the default lane only,
-/// because the two lanes put *different tiles* in the coverage sheet that two of these five
+/// because the two lanes put *different tiles* in the coverage sheet that two of these four
 /// refuse for — the encoder chooses per command (quorra's ADR 0029) — so the sheet a frame
 /// commits is a property of the lane, and a lane's refusals are its own.
-const REFUSED_AT_FOUR: [&str; 5] = [
-    "22060_A1_01_Plans.pdf",
+const REFUSED_AT_FOUR: [&str; 4] = [
     "bug1703683_page2_reduced.pdf",
     "bug1721218_reduced.pdf",
     "issue18032.pdf",

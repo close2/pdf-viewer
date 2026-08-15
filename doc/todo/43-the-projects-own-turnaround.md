@@ -49,8 +49,13 @@ than a preference:
 - **Reference renders are already cached** (ADR 0020) and the oracle reports **6173 of 6189 from
   the cache, 99.7%**. That half is done.
 - **The oracle's floor is one page.** Its wall clock is 24.5–25.7 s, and
-  `22060_A1_01_Plans.pdf` page 1 alone is **8.6–9.8 s** of it. A cache saves nothing on the run
+  `22060_A1_01_Plans.pdf` page 1 alone was **8.6–9.8 s** of it. A cache saves nothing on the run
   that has to produce that page, which is every run that changed the code that produces it.
+  **That witness is no longer the floor and the argument is unchanged**: the raster cache of the
+  five-hundred-and-thirty-ninth session (ADR 0374) took its page-one interpretation from 58.7 G
+  instructions to 6.5 G, and the oracle's *slowest pages* line names other documents now. Read the
+  line rather than this sentence — it prints the five, run by run, and the point was never which
+  page it is.
 - **The key would have to cover the code, and the code is why the gate is running.** Trap 10a is
   this project's record of a stale cached render; the rule it earned is that a key which cannot
   lie names every input, and for our own output that includes the binary. Under `--profile gates`

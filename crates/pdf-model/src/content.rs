@@ -448,6 +448,7 @@ impl<'a> Interpreter<'a> {
             resource_tables: std::cell::RefCell::default(),
             icc_spaces: BTreeMap::new(),
             image_masks: crate::image::MaskCache::default(),
+            image_rasters: crate::image::RasterCache::default(),
             structure: crate::structure::ParentTree::for_page(document, &page.dict),
             output_intent: output_intent_space(document),
             optional_content: state.optional_content().cloned(),
@@ -829,6 +830,15 @@ struct Interpreter<'a> {
     /// `XObject` many times and its mask's samples do not depend on where.
     /// `crate::image::MaskCache` carries the measurement.
     image_masks: crate::image::MaskCache,
+    /// §8.9.5's base rasters already decoded, so that one `XObject` drawn many times is
+    /// decoded once.
+    ///
+    /// The same shape as [`Self::image_masks`] and a harder key: a mask's every input is the
+    /// mask object's own, while a base image's raster depends on the resource dictionary in
+    /// force, the fill colour and what the samples are composited into as well as on the
+    /// stream. `crate::image::RasterCache` states what the key claims and carries the
+    /// measurement.
+    image_rasters: crate::image::RasterCache,
     /// §14.7.5.4's structural parent tree for this page, empty for most documents.
     ///
     /// Read once when the page is interpreted, because the lookup it answers — a

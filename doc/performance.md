@@ -84,6 +84,12 @@ that reproduces each, and the same document now carries what closed them:
   (`corpus.rs::REFUSED_AT_FOUR`), and that is the answer to a claim of this kind rather than a
   better paragraph: nobody knows how many rounds passed between the zero becoming a one and
   somebody noticing, and a test is the only thing that would have.
+  **And the ratchet is back to zero resource refusals since the five-hundred-and-thirty-ninth
+  session, on a change that is not the backend's at all**: those 72 uploads were **8 distinct
+  rasters**, because `image::decode_parts` ran at every `Do` and each one allocated its own copy.
+  A cache of the decoded raster (ADR 0374) leaves the page uploading what it actually holds. The
+  refusal was arithmetic against a byte budget, and the question such a refusal asks is *who is
+  spending the bytes* — this time the answer was two crates upstream.
 - **Six refusal messages named a byte count under the budget they exceeded.** They add up now,
   and the one that replaced the mis-stated limit says what it is.
 
@@ -828,7 +834,9 @@ frame. Every gate is unmoved and the 4× coverage lane is byte-identical, refusa
 is the run that would show a retained raster crowding the budget, and it shows nothing. **What the
 same run says about a claim in this file**: there is one resource refusal at 4× today
 (`22060_A1_01_Plans.pdf`), where section 3b records zero; it predates this change by both arms of the
-A/B, and it is what a ratcheted count looks like when nothing is ratcheting it.
+A/B, and it is what a ratcheted count looks like when nothing is ratcheting it. (That one is gone
+since the five-hundred-and-thirty-ninth, on the interpreter's side of the boundary — ADR 0374, and
+section 3b carries the argument.)
 **Something is ratcheting it since the four-hundred-and-seventy-eighth**: `corpus.rs::REFUSED_AT_FOUR`
 holds that lane's refusals to equality by name, which the sentence above is the argument for.
 

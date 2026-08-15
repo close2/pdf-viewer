@@ -312,7 +312,10 @@ impl Decode {
 /// to build, [`combine_on_the_finer_grid`] builds it and the answer is one raster. Where it is
 /// not, §10.7.4's answer is the device's own grid, and this carries the two parts to whoever
 /// knows it.
-#[derive(Debug)]
+/// Cloning one shares its samples rather than copying them — an [`Image`]'s data and a
+/// [`SoftMaskAtDeviceScale`]'s are both behind an [`Arc`] — which is what makes [`RasterCache`]
+/// able to answer a second `Do` with the first one's raster.
+#[derive(Debug, Clone)]
 pub enum Parts {
     /// One raster, with every mask the dictionary states already in it.
     Complete(Image),
@@ -3256,6 +3259,262 @@ impl MaskCache {
             self.read.insert(id, mask.clone());
         }
         Some(mask)
+    }
+}
+
+/// How many bytes of decoded rasters [`RasterCache`] holds for one interpretation.
+///
+/// **Derived from a replay of the recorded call sequence, the way ADR 0317's 4 MiB was.** Every
+/// `Do` on an image over the pdf.js corpus's page ones was recorded — 4789 calls in 228 documents,
+/// each with the key below, the bytes the entry charges and the bytes of base raster the decode
+/// produced — and a least-recently-used simulation run over that sequence at each budget. The
+/// second of those two is the work, so it is the column that decides:
+///
+/// | budget | base raster decoded | decode calls | evictions |
+/// |---|---|---|---|
+/// | none — the code before this | 1796.8 MB | 4789 | — |
+/// | 8 MiB | 1635.7 MB | 4544 | 124 |
+/// | 16 MiB | 1635.7 MB | 4544 | 105 |
+/// | 32 MiB | **781.5 MB** | 4466 | 13 |
+/// | 64 MiB | 781.5 MB | 4466 | 4 |
+/// | unbounded | 781.5 MB | 4466 | 0 |
+///
+/// **The knee is at 32 MiB and nothing above it buys a byte on this corpus**, because the repeats
+/// that cost anything are a handful of large photographs: the witness `22060_A1_01_Plans.pdf` is
+/// four 2480×2630 rasters of **26.1 MB** each drawn nine times apiece, which is why 8 and 16 MiB
+/// save almost nothing — the entry does not fit at all. The median entry in the whole corpus is
+/// 1 KB and seven of the 4466 exceed 32 MiB.
+///
+/// **The two columns are worth keeping apart, and one document is why.** `issue16263.pdf` repeats
+/// a `Do` forty times over an entry charged 18.9 MB and decodes **no base raster at all** for it:
+/// that 18.9 MB is §11.6.5.2's packed mask, which [`MaskCache`] has shared since ADR 0210, and
+/// counting it as work saved would have credited this cache with a saving somebody else already
+/// made. Its peak resident memory is unmoved by this cache, which is what says so.
+///
+/// **The alternative `doc/todo/47` named — a cache of the *last* raster only — was simulated on
+/// the same sequence**: 804.2 MB over 4534 decodes. It serves the witness's nine-in-a-row exactly,
+/// because the witness's nine are consecutive, and it is 2.9% short of the table above on a corpus
+/// where nothing interleaves two large images. What it cannot do is the interleave, which is one
+/// `Do` order away from the shape the witness already has.
+///
+/// **The doubling to 64 MiB is headroom for a shape the corpus does not contain and a page can
+/// state as easily as the witness's**: two large images drawn alternately. At 32 MiB two 26.1 MB
+/// rasters thrash and every `Do` decodes; at 64 MiB both are held. The cost of being wrong in this
+/// direction is bounded by the paragraph below, and the cost of being wrong in the other is a page
+/// that gets nothing at all.
+///
+/// # Why this is not ADR 0256's "below 10 MB" band
+///
+/// That band governs what an *open document* holds — the object cache, the decoded-stream memo,
+/// the readback cache — and this is not that. It is per interpretation, it dies with the page's
+/// display list, and **it spends no memory that list was not already spending**: every raster held
+/// here is the raster a `Command::Image` in the list under construction is holding, because the
+/// same `Arc` goes into both. Before this cache the nine `Do`s of one photograph put nine separate
+/// 26.1 MB allocations into the list. ADR 0374 has the peak-resident measurement, and it moves in
+/// the direction that follows from that sentence rather than the one a cache usually moves in.
+///
+/// The one raster that can outlive its command is §10.5's transferred one, which is a *copy* by
+/// construction (`content::image::transferred_image`) — 1 of the 974 corpus documents states a
+/// non-identity transfer, and this budget is what bounds that case rather than an argument that it
+/// cannot happen.
+const RASTER_BUDGET: usize = 64 << 20;
+
+/// Base rasters already decoded, keyed by everything the decode depends on.
+///
+/// # Why this exists, with the measurement that asked for it
+///
+/// [`decode_parts`] runs at every `Do`, so a page that draws one image `XObject` thirty-six times
+/// decodes it thirty-six times. `22060_A1_01_Plans.pdf` is one page with four 2480×2630
+/// `DCTDecode` photographs in an ICC-based space, drawn nine times each: **3.23 of the 3.24
+/// seconds** it took to interpret page one were inside that call, and eight of every nine calls
+/// reproduced a raster the interpreter had already produced (ADR 0373 measured it,
+/// ADR 0374 took it).
+///
+/// What it is worth on that page, in instructions rather than in seconds because the machine was
+/// carrying five other rounds — `examples/callgrind_interpret` under `RAYON_NUM_THREADS=1`:
+/// **58 665 139 034 → 6 544 740 674, −88.8%**. Peak resident over the same interpretation:
+/// **1031.8 MB → 235.6 MB**. On an ordinary page — ISO 32000-2's page 101, fifty repetitions,
+/// which draws no image at all — 1 235 040 931 → 1 234 947 809, which is the −0.008% of a
+/// `Vec` that is never touched.
+///
+/// # What the key claims
+///
+/// [`MaskCache`] above can key on an object number because every input of a mask is the mask
+/// object's own. A base image's raster is not like that: [`decode_parts`] reads five things, and
+/// four of them are in the key.
+///
+/// - **The stream**, by the identity of its allocation — and the entry *holds* the [`Arc`], which
+///   is what makes an address a sound name. ADR 0317's `a_pin_is_not_a_copy` argument, exactly: a
+///   freed buffer's address is handed to the next allocation, so an entry naming an address it
+///   does not keep alive could answer a lookup for a different stream. Holding it makes that
+///   impossible rather than unlikely, and it is what lets an inline image — a fresh `Arc` per
+///   `Do` (`content::run`) — share the table safely while never hitting in it.
+/// - **The resource dictionary in force**, because §8.6.5.1 resolves a colour space named
+///   `/CS0` through it and §8.6.5.6's `/DefaultGray`, `/DefaultRGB` and `/DefaultCMYK` reach even
+///   the device names. One stream under two resource dictionaries is two pictures. Compared by
+///   value: two equal dictionaries name the same objects of the same document, so equality is the
+///   claim that the lookups agree.
+/// - **The fill colour**, because §8.9.6.2's stencil "does not specify colours; instead, it
+///   designates places on the page that should either be marked with the current colour or masked
+///   out", so the same stencil under two fill colours is two rasters. Compared as bit patterns,
+///   which is conservative in the one direction that matters: `-0.0` and `0.0` paint alike and
+///   miss, and no two distinct colours can collide.
+/// - **What the samples are composited into** (`crate::colour::Compositing`), because §11.4.7's
+///   four-component page is interpreted twice, once per half (ADR 0262), and because a
+///   `/Luminosity` mask group paints in the ink §10.4.2.3 weighs rather than in colour (ADR 0220)
+///   — and that one changes *within* an interpretation, which is why it cannot be left to the
+///   cache's lifetime the way the fifth input is.
+///
+/// The fifth input is the [`Document`], and it is not in the key because the cache belongs to one
+/// interpretation of one page and cannot outlive it.
+///
+/// `tests::a_raster_is_not_shared_*` is one test per component, each of which fails if its
+/// component is dropped from the key.
+///
+/// # What is not cached
+///
+/// A decode that **failed**, for [`crate::shading::Cache`]'s reason: an error is rare, the caller
+/// reports it, and remembering one would mean deciding whether it is a property of the object or
+/// of the moment. And a raster larger than [`RASTER_BUDGET`], which is the eviction arithmetic
+/// falling out rather than a rule of its own — it is inserted, it evicts everything including
+/// itself, and the page pays what it always paid.
+#[derive(Debug, Default)]
+pub struct RasterCache {
+    /// Least recently used first; a hit moves its entry to the end.
+    ///
+    /// A `Vec` rather than a map because the byte budget keeps this short — the entries are
+    /// whole rasters — and because the cheap components of the key are compared first, so a
+    /// probe that misses costs one pointer comparison per entry. A map would need the key
+    /// constructed, and constructing it means cloning a resource dictionary per `Do`.
+    entries: Vec<Cached>,
+    /// The sum of the entries' [`Cached::bytes`], so that eviction is arithmetic.
+    held: usize,
+}
+
+/// One decoded raster, and the claim about which `Do` it answers.
+#[derive(Debug)]
+struct Cached {
+    /// The stream these samples came from, **held** so that no other stream can take its
+    /// address. See [`RasterCache`] for why identity is the address rather than an object
+    /// number.
+    stream: Arc<Stream>,
+    /// The resource dictionary the image was drawn from.
+    resources: Dictionary,
+    /// The fill colour, as bit patterns.
+    fill: [u32; 4],
+    /// What the samples were composited into.
+    into: Compositing,
+    /// The answer.
+    parts: Parts,
+    /// What this entry charges against [`RASTER_BUDGET`].
+    bytes: usize,
+}
+
+impl RasterCache {
+    /// Decodes an image `XObject`, reusing an earlier decode of the same one under the same
+    /// state.
+    ///
+    /// Everything about the decode itself is [`decode_parts`]'s; this adds the lookup and the
+    /// eviction. `masks` is the caller's [`MaskCache`], which a hit does not touch — it is a
+    /// memo of the same kind one level down, so a raster answered from here needed no mask read
+    /// to answer it.
+    ///
+    /// # Errors
+    ///
+    /// See [`ImageError`].
+    pub fn parts(
+        &mut self,
+        document: &Document,
+        stream: &Arc<Stream>,
+        resources: &Dictionary,
+        fill: pdf_render::Color,
+        into: Compositing,
+        masks: &mut MaskCache,
+    ) -> Result<Parts, ImageError> {
+        let fill = [
+            fill.r.to_bits(),
+            fill.g.to_bits(),
+            fill.b.to_bits(),
+            fill.a.to_bits(),
+        ];
+        if let Some(at) = self
+            .entries
+            .iter()
+            .position(|entry| entry.answers(stream, resources, fill, into))
+        {
+            // Moved to the end because recency is what the eviction below reads, and a `Vec`
+            // says it by position: the entry taken out and pushed back is the most recent.
+            let entry = self.entries.remove(at);
+            let parts = entry.parts.clone();
+            self.entries.push(entry);
+            return Ok(parts);
+        }
+
+        let parts = decode_parts(document, stream, resources, fill_of(fill), into, masks)?;
+        let bytes = parts.bytes();
+        self.entries.push(Cached {
+            stream: Arc::clone(stream),
+            resources: resources.clone(),
+            fill,
+            into,
+            parts: parts.clone(),
+            bytes,
+        });
+        self.held = self.held.saturating_add(bytes);
+        while self.held > RASTER_BUDGET && !self.entries.is_empty() {
+            let evicted = self.entries.remove(0);
+            self.held = self.held.saturating_sub(evicted.bytes);
+        }
+        Ok(parts)
+    }
+}
+
+/// A fill colour back from the bit patterns the key holds.
+///
+/// The round trip is exact — `to_bits` and `from_bits` are inverse for every value including the
+/// NaNs — so the decode is handed the caller's own colour and not a copy of it that rounds.
+fn fill_of(bits: [u32; 4]) -> pdf_render::Color {
+    pdf_render::Color {
+        r: f32::from_bits(bits[0]),
+        g: f32::from_bits(bits[1]),
+        b: f32::from_bits(bits[2]),
+        a: f32::from_bits(bits[3]),
+    }
+}
+
+impl Cached {
+    /// Whether this entry is an answer to the `Do` described.
+    ///
+    /// The three cheap components are compared before the dictionary, which is what keeps a
+    /// probe that misses to one pointer comparison: no two entries share an address unless
+    /// they differ in something else, so at most one dictionary comparison happens per probe.
+    fn answers(
+        &self,
+        stream: &Arc<Stream>,
+        resources: &Dictionary,
+        fill: [u32; 4],
+        into: Compositing,
+    ) -> bool {
+        Arc::ptr_eq(&self.stream, stream)
+            && self.fill == fill
+            && self.into == into
+            && self.resources == *resources
+    }
+}
+
+impl Parts {
+    /// What holding this costs, for [`RASTER_BUDGET`]'s arithmetic.
+    ///
+    /// A deferred mask's packed bytes are counted beside the base raster's even though
+    /// [`MaskCache`] is usually holding the same allocation for the same interpretation: the
+    /// budget's job is to bound what a page can hold, and over-charging bounds it, while
+    /// under-charging would let a mask nobody else holds — one written inline, which
+    /// [`MaskCache`] declines to remember — go unbudgeted.
+    fn bytes(&self) -> usize {
+        match self {
+            Self::Complete(image) => image.data.len(),
+            Self::Masked { base, opacity } => base.data.len().saturating_add(opacity.data.len()),
+        }
     }
 }
 

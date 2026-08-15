@@ -236,7 +236,13 @@ impl Interpreter<'_> {
 
         // A PDF image occupies the unit square in user space, so the command's transform is
         // the current transform and nothing else.
-        match crate::image::decode_parts(
+        //
+        // Through the cache rather than through `image::decode_parts` directly, because the
+        // decode is per `Do` and the raster is not: `RasterCache` carries the measurement and
+        // says what its key claims. Everything reported about this image was reported above,
+        // out of the dictionary, so a raster answered from the cache says what a fresh decode
+        // says — which is the property trap 5 is about, and `tests/image_reuse.rs` pins it.
+        match self.image_rasters.parts(
             self.document,
             stream,
             resources,
