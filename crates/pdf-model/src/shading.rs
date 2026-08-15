@@ -17,6 +17,8 @@ use std::sync::Arc;
 
 use pdf_render::{Color, ColourGrid, Point, Ramp, Shading, ShadingKind, Transform};
 use pdf_syntax::{Dictionary, Document, Object, ObjectId};
+use rayon::iter::{IndexedParallelIterator as _, ParallelIterator as _};
+use rayon::slice::ParallelSliceMut as _;
 
 use crate::colour::{ColourSpace, Compositing};
 use crate::function::Function;
@@ -406,17 +408,53 @@ pub(crate) fn breakpoints_over(functions: &[Function], low: f32, high: f32) -> V
 ///
 /// A shading gives either one function producing every component or one function per
 /// component; both are handled by concatenating the outputs.
+///
+/// This is the once-only form, for the handful of points a ramp or an opacity question asks
+/// about. A grid asks per cell and uses [`colour_into`] with a buffer of its own.
 fn colour_from(
     functions: &[Function],
     inputs: &[f32],
     space: &ColourSpace,
     into: Compositing,
 ) -> Color {
-    let mut components: Vec<f32> = Vec::new();
-    for function in functions {
-        components.extend(function.eval(inputs));
+    colour_into(functions, inputs, space, into, &mut Components::default())
+}
+
+/// The buffers one thread reuses across a grid of [`colour_into`] calls.
+///
+/// Two of them because a shading's `/Function` may be a *group*: the group's outputs are
+/// concatenated in `all`, and `one` is where a member writes before being appended. A group
+/// of one — which is what almost every shading has — writes straight into `all` and never
+/// touches `one`.
+#[derive(Default)]
+struct Components {
+    /// Every component of one cell's colour, in the order the group produces them.
+    all: Vec<f32>,
+    /// One member function's outputs, when the group has more than one member.
+    one: Vec<f32>,
+}
+
+/// [`colour_from`] reusing the caller's buffers, which is what a device-resolution grid needs.
+///
+/// Same colour, same bits; the difference is that a million cells no longer mean a million
+/// allocations. ADR 0364.
+fn colour_into(
+    functions: &[Function],
+    inputs: &[f32],
+    space: &ColourSpace,
+    into: Compositing,
+    scratch: &mut Components,
+) -> Color {
+    if let [only] = functions {
+        only.eval_into(inputs, &mut scratch.all);
+    } else {
+        scratch.all.clear();
+        for function in functions {
+            function.eval_into(inputs, &mut scratch.one);
+            scratch.all.extend_from_slice(&scratch.one);
+        }
     }
-    into.paint(space, &components, true)
+    into.paint(space, &scratch.all, true)
 }
 
 fn axial(
@@ -586,18 +624,14 @@ impl std::fmt::Debug for FunctionColours {
     }
 }
 
-impl pdf_render::ColoursAtDeviceScale for FunctionColours {
-    /// The function evaluated at each cell's centre, on a grid no finer than asked.
+impl FunctionColours {
+    /// One row of the grid, at the cell centres §10.7.4's half-pixel rule puts them at.
     ///
-    /// The centre is §10.7.4's rule for reading a raster back — "the point whose coordinate
-    /// values have fractional parts of one-half" — applied in the writing direction: when the
-    /// grid is the device's own, each device pixel then carries the function's value at that
-    /// pixel's centre, which is as close to "the colour at every point" as a raster gets.
-    fn colours(&self, grid: pdf_render::Grid) -> ColourGrid {
-        let cells = cells_within_budget(grid);
+    /// A row is the parallel unit as well as the serial one, so that the two paths run the
+    /// same arithmetic in the same order and a raster cannot depend on how many threads drew
+    /// it. Each call brings its own [`Components`] and reuses it across the row.
+    fn row(&self, row: usize, cells: pdf_render::Grid, out: &mut [Color]) {
         let [x0, x1, y0, y1] = self.domain;
-        let mut pixels =
-            Vec::with_capacity((cells.width as usize).saturating_mul(cells.height as usize));
         #[expect(
             clippy::cast_precision_loss,
             reason = "cell indices are bounded by MAX_FUNCTION_CELLS, far inside f32's \
@@ -606,18 +640,50 @@ impl pdf_render::ColoursAtDeviceScale for FunctionColours {
         let centre = |index: u32, cells: u32| -> f32 {
             (2.0 * index as f32 + 1.0) / (2.0 * cells.max(1) as f32)
         };
-        for row in 0..cells.height {
-            let y = y0 + centre(row, cells.height) * (y1 - y0);
-            for column in 0..cells.width {
-                let x = x0 + centre(column, cells.width) * (x1 - x0);
-                pixels.push(colour_from(
-                    &self.functions,
-                    &[x, y],
-                    &self.space,
-                    self.into,
-                ));
+        let y = y0 + centre(u32::try_from(row).unwrap_or(u32::MAX), cells.height) * (y1 - y0);
+        let mut scratch = Components::default();
+        for (column, cell) in out.iter_mut().enumerate() {
+            let x = x0 + centre(u32::try_from(column).unwrap_or(u32::MAX), cells.width) * (x1 - x0);
+            *cell = colour_into(
+                &self.functions,
+                &[x, y],
+                &self.space,
+                self.into,
+                &mut scratch,
+            );
+        }
+    }
+}
+
+impl pdf_render::ColoursAtDeviceScale for FunctionColours {
+    /// The function evaluated at each cell's centre, on a grid no finer than asked.
+    ///
+    /// The centre is §10.7.4's rule for reading a raster back — "the point whose coordinate
+    /// values have fractional parts of one-half" — applied in the writing direction: when the
+    /// grid is the device's own, each device pixel then carries the function's value at that
+    /// pixel's centre, which is as close to "the colour at every point" as a raster gets.
+    ///
+    /// Row by row, and the rows across rayon's pool where [`rows_in_parallel`] says so. ADR 0364
+    /// has the measurement; what it cost to divide is one pass filling the grid before writing it,
+    /// because a slice has to exist before it can be handed out in pieces. That is a memset
+    /// against the function evaluations it carries, and it is not measurable beside them.
+    fn colours(&self, grid: pdf_render::Grid) -> ColourGrid {
+        let cells = cells_within_budget(grid);
+        let width = cells.width as usize;
+        let total = width.saturating_mul(cells.height as usize);
+        let mut pixels = vec![Color::TRANSPARENT; total];
+
+        if rows_in_parallel(total) {
+            pixels
+                .par_chunks_mut(width.max(1))
+                .enumerate()
+                .for_each(|(row, out)| self.row(row, cells, out));
+        } else {
+            for (row, out) in pixels.chunks_mut(width.max(1)).enumerate() {
+                self.row(row, cells, out);
             }
         }
+
         ColourGrid {
             width: cells.width,
             height: cells.height,
@@ -629,6 +695,45 @@ impl pdf_render::ColoursAtDeviceScale for FunctionColours {
         self.opaque
     }
 }
+
+/// Whether a grid of `cells` is worth dividing across rayon's pool.
+///
+/// **This is rasterisation-side work and not interpretation.** Interpreting a content stream
+/// is sequential by construction — each operator reads the graphics state the one before it
+/// left — so nothing in `content.rs` is a candidate for a pool. A grid of cells is the
+/// opposite shape and is the shape `image::band_pixels` already divides: each cell is a pure
+/// function of its own two coordinates, so a row boundary changes which thread computes a
+/// value and never which value is computed. That is `doc/habits.md`'s question — *what does
+/// a parallel unit's answer depend on* — answered before the division rather than after.
+///
+/// Two conditions, both measured (ADR 0364):
+///
+/// - **A grid smaller than [`PARALLEL_CELLS`] stays on one thread.** A shading covering a
+///   swatch resolves to a few hundred cells, and a fork-join round trip costs more than the
+///   evaluations it divides.
+/// - **A caller already on a rayon worker keeps the grid**, which is `colour::build_ink_table`'s
+///   rule for a different reason. `render-cpu` splits a page into strips across the pool and
+///   builds this shading's pattern inside each; dividing again would fork a job per strip into
+///   a pool with no idle thread to take it, and the page is already using every core.
+fn rows_in_parallel(cells: usize) -> bool {
+    cells >= PARALLEL_CELLS
+        && rayon::current_num_threads() >= 2
+        && rayon::current_thread_index().is_none()
+}
+
+/// The smallest grid worth evaluating on more than one thread.
+///
+/// A 64×64 tile, and **it was chosen against the clock rather than with it**. In wall clock the
+/// division wins at every size measured — 600 renders of one type 4 program, at load 4.5 on this
+/// machine's 24 cores, went 0.419 s → 0.194 at 400 cells and 45.778 → 18.561 at 40 000 — so a
+/// threshold read off that column alone would be zero. The column it is read off instead is
+/// processor time: at 400 cells the division buys 1.0 s of clock for **5.6×** the processor time
+/// (2.061 s of user time against 8.696 + 2.927), and it buys that only where there is an idle core
+/// to spend it on. Re-run at load 45 the 4096-cell arm read 9.145 s serial against **11.944 s**
+/// divided, the division losing outright. A viewer is not the only thing on a person's machine and
+/// a page may hold many shadings where the measurement held one, so below a tile the grid is a few
+/// milliseconds of work and stays where it is. ADR 0364 has the whole table.
+const PARALLEL_CELLS: usize = 1 << 12;
 
 /// The grid a request will actually be answered at: no finer than asked, no more than fits.
 ///

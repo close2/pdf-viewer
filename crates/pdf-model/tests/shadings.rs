@@ -398,6 +398,58 @@ fn a_function_based_shadings_discontinuity_lands_at_the_device_pixel() {
     assert_eq!(pixel(&raster, 300, 200), (0, 0, 255, 255));
 }
 
+/// Dividing the grid across threads changes no pixel of it (ADR 0364).
+///
+/// A cell of §8.7.4.5.2's grid is a function of its own two coordinates and of nothing else, so
+/// a row boundary decides which thread evaluates a cell and never what the cell evaluates to.
+/// That is an argument, and this is the check: the same page drawn with the grid divided and
+/// with it whole, compared byte for byte.
+///
+/// The two arms are chosen by where the caller stands rather than by a knob. A pool of one puts
+/// `install`'s closure **on a rayon worker**, which is where `shading::rows_in_parallel`
+/// declines — `render-cpu` calls this from inside its own strips and must not fork again — so
+/// the whole grid runs in one loop there. The default arm runs on the test's own thread, off
+/// the pool, at 200 × 200 cells: above the threshold, so it divides. One strip in both, so that
+/// the only difference between them is the one being asked about.
+#[test]
+fn a_function_based_shadings_grid_is_the_same_however_it_is_divided() {
+    // Varies in both axes, so a row taken by the wrong thread would show as a shifted band.
+    let function = "7 0 obj\n<< /FunctionType 4 /Domain [0 1 0 1] /Range [0 1 0 1 0 1] \
+                    /Length 43 >>\n\
+                    stream\n{ 2 copy add 2 div 3 1 roll sub abs exch }\nendstream\nendobj\n";
+    let shading = "<< /ShadingType 1 /ColorSpace /DeviceRGB /Domain [0 1 0 1] \
+                   /Matrix [200 0 0 200 0 0] /Function 7 0 R >>";
+    let bytes = pdf_with_extra(shading, "/Sh0 sh", function);
+
+    let draw = |source: Vec<u8>| {
+        let document = Document::open(source).expect("the fixture is a valid PDF");
+        let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+        let list = pdf_model::interpret(&document, &page).display_list;
+        let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+        CpuRasterizer::new()
+            .with_strips(1)
+            .rasterize(&list, target)
+            .expect("supported")
+    };
+
+    let divided = draw(bytes.clone());
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build()
+        .expect("a pool of one");
+    let whole = pool.install(|| draw(bytes));
+
+    assert_eq!(
+        divided.data, whole.data,
+        "the grid divided across rows and the grid evaluated in one loop are the same picture"
+    );
+    // And it is a picture rather than a blank page, or the comparison above is vacuous.
+    assert!(
+        divided.data.chunks_exact(4).any(|p| p[0] != p[2]),
+        "the function varies across the domain, so red and blue differ somewhere"
+    );
+}
+
 /// A radial shading with two different radii, which is PDF's general case.
 #[test]
 fn a_radial_shading_grades_between_its_two_circles() {

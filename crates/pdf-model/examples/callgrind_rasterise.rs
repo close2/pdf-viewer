@@ -22,11 +22,17 @@
 //! cargo run --release -p pdf-model --example callgrind_rasterise -- \
 //!     doc/pdf.js/test/pdfs/firefox_logo.pdf 1
 //! ```
+//!
+//! A third argument is how many times the page is drawn, and twenty is only a default. A page
+//! whose cost is one command can be a second of work on its own — a type 1 shading is a
+//! function evaluated per device pixel — and twenty of those under callgrind is an hour where
+//! one is a minute. Lower it for such a page and say so beside the number; the count is part
+//! of the invocation, so two arms are only comparable when they share it.
 #[expect(
     clippy::expect_used,
     clippy::arithmetic_side_effects,
     reason = "a measurement tool should stop loudly if its input is missing, and its ink \
-              counter is bounded by the pixels of twenty pages"
+              counter is bounded by the pixels of the pages it draws"
 )]
 fn main() {
     let mut args = std::env::args().skip(1);
@@ -40,6 +46,9 @@ fn main() {
     let index = args
         .next()
         .map_or(101, |n| n.parse::<usize>().expect("a page number"));
+    let repeats = args
+        .next()
+        .map_or(20, |n| n.parse::<usize>().expect("a repeat count"));
 
     let bytes = std::fs::read(&path).expect("the document is readable");
     let document = pdf_syntax::Document::open(bytes).expect("valid PDF");
@@ -59,7 +68,7 @@ fn main() {
     // Summing a byte of every raster keeps the optimiser from discarding the work, and is
     // cheap enough beside rasterisation not to distort the count.
     let mut ink = 0u64;
-    for _ in 0..20 {
+    for _ in 0..repeats {
         let raster = <render_cpu::CpuRasterizer as pdf_render::Rasterizer>::rasterize(
             &mut render_cpu::CpuRasterizer::new(),
             &list,

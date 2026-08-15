@@ -129,3 +129,31 @@ corpus every refusal that was a byte budget went to zero. A refusal is still a f
 owner's adapter and none of that predicts the Intel UHD — but eight refusals measured against the
 old allocation are eight refusals against a frame that no longer exists, and re-running is a page
 turn rather than an investigation.
+
+## 5. A frame's cost is not always a *count* of commands, and this file's whole method assumes it is
+
+Opened by the five-hundred-and-twenty-ninth session, which was handed a document by the project
+owner that every fit above gets wrong by three orders of magnitude:
+
+```
+frame p1 1cmd presented 1143.9 | host 0.0 scene 1111.7 device 32.2 | 3 up, 0 culled
+```
+
+**One command, a second of `scene`.** §3's table fits `encode` at 3.86 µs a command and `device` at
+5.45 µs + 12.88 ms, and every row of it is a page of *many* commands, so the model the file carries
+is per-command throughput plus a constant. A `ShadingType 1` breaks it outright: since ADR 0339 its
+function is evaluated once per device pixel the domain covers, so one command is arbitrarily much
+work and a magnification the user chooses is what sets it. ADR 0364 took this instance from
+1059–1175 ms of `scene` to 129–233 by removing a per-cell allocation and dividing the grid across
+rows; what it did **not** do is make the shape go away.
+
+So two things are owed here, and neither is that document:
+
+- **The per-command fit wants a second variable**, or an honest statement that it holds only for
+  pages whose commands are glyphs and paths. `pdf_render::command_extents` already knows how many
+  device pixels a command covers; a fit against *pixels* rather than against commands is the same
+  regression run over a column the file already has.
+- **`scene` is measured and nothing inside it is.** `encode` earned three phases in ADR 0228 for
+  exactly this reason and `scene` has none, so a round told that a frame is slow can say only that
+  the display list took a long time to become a scene. On this document the answer was one paint;
+  on a page of a thousand it will not be.

@@ -581,6 +581,36 @@ reference pages measure unchanged in the same sitting: ISO 32000-2 page 6 4 004.
 page 101 5 531.7 M → 5 523.1 M. It is not one document's shape: over the corpus's first pages, 49
 carry a shading fill and **99.7% of their shaded pixels lie outside the clip**.
 
+**What a *sampled* shading costs, which is a different page and a different lever** (session 529,
+ADR 0364). A `ShadingType 1` is the one kind that cannot be reduced to a ramp: since ADR 0339 the
+function is evaluated **once per device pixel the domain covers**, so a full-page one at a window
+is hundreds of thousands of evaluations and a *page-turn-sized* cost hiding behind a single
+display-list command. The project owner's `tmp/pi.pdf` is one — 2580 bytes of type 4 program over a
+400×400 page — and it presented in **1079–1202 ms of which 1059–1175 was `scene`**, against
+`mutool draw -r 96`'s 15–16 ms. Two things were wrong with it and neither was the grid:
+
+- **A cell allocated three or four times.** The clipped inputs, the operand stack (`inputs.to_vec()`
+  per evaluation), the outputs, the group's concatenation, and `copy`'s own `to_vec` — about a
+  million heap round trips a frame. Writing into a caller's buffer, with the type 4 program running
+  *on* that buffer because §7.10.5 leaves its outputs on the operand stack, is worth **6.1%** of
+  `pi.pdf`, **11.9%** of `type4_pi.pdf` and **30.0%** of `function_based_shading.pdf` in
+  instructions, and **420 instructions in a billion** on a page with no shading on it.
+- **The grid was a serial loop.** Divided across rows, five renders of `pi.pdf` go **1.37 s → 0.19 s**
+  and the owner's trace line **1059–1175 ms of `scene` → 105–284**.
+
+**The threshold below which it is not divided is 4096 cells, and it was chosen against the clock
+rather than with it.** The division wins in wall clock at every grid size measured, down to 400
+cells — but at 400 it costs **5.6× the processor time** for that clock, and re-run on a loaded
+machine the 4096-cell arm read 9.1 s serial against 11.9 s divided. A page may hold many small
+shadings where the measurement holds one. **`rows_in_parallel` also declines on a rayon worker**,
+which is `render-cpu` calling it from inside its own strips: dividing what is already divided asks
+a busy pool for a job per strip.
+
+**And the cost `render-cpu` still pays is per *strip*.** It rebuilds the shading's pattern inside
+every strip, so a page in sixteen strips resolves the whole grid sixteen times. Invisible on the
+path the owner reported — quorra builds the scene once, on one thread — and named in ADR 0364 for
+whoever measures that backend next.
+
 What is left, in order, on the halved page: `build_soft_mask` 17.1%, `Mask::intersect_path` 8.3%,
 `fill_path_impl` 7.7%, `calloc` 4.5%, `gradient` 2.9%. **The two mask lines are one item**:
 `MaskCache::get` is now **41.5%** of the page — 3554 chains built, no eviction and no duplication

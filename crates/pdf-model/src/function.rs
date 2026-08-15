@@ -320,14 +320,37 @@ impl Function {
     /// Evaluates the function, clipping inputs to the domain and outputs to the range.
     #[must_use]
     pub fn eval(&self, inputs: &[f32]) -> Vec<f32> {
-        let mut clipped: Vec<f32> = Vec::with_capacity(self.domain.len().min(MAX_VALUES));
+        let mut outputs = Vec::new();
+        self.eval_into(inputs, &mut outputs);
+        outputs
+    }
+
+    /// [`Self::eval`] writing into a buffer the caller owns, so that a grid of evaluations
+    /// allocates once rather than once per cell.
+    ///
+    /// The answer is the same in every bit — this is the body [`Self::eval`] now calls — and
+    /// what changes is where the memory comes from. §8.7.4.5.2's function of two variables is
+    /// read at one cell per device pixel (ADR 0339), so a full-page type 1 shading asks for
+    /// this a million times over, and an evaluation that allocated its own operand stack and
+    /// its own result turned arithmetic into a million heap round trips. ADR 0364 has the
+    /// measurement on the owner's `pi.pdf`.
+    pub(crate) fn eval_into(&self, inputs: &[f32], outputs: &mut Vec<f32>) {
+        // `pairs` refuses a `/Domain` longer than [`MAX_VALUES`], so the clipped inputs fit
+        // in an array on the stack. The recursion below is bounded by [`MAX_STITCH_DEPTH`],
+        // which puts a ceiling of eight of these on the stack at once.
+        let mut clipped = [0.0f32; MAX_VALUES];
+        let count = self.domain.len().min(MAX_VALUES);
         for (index, (low, high)) in self.domain.iter().enumerate().take(MAX_VALUES) {
             let value = inputs.get(index).copied().unwrap_or(*low);
-            clipped.push(clamp(value, *low, *high));
+            if let Some(slot) = clipped.get_mut(index) {
+                *slot = clamp(value, *low, *high);
+            }
         }
+        let clipped = clipped.get(..count).unwrap_or_default();
 
-        let mut outputs = match &self.kind {
-            Kind::Sampled(sampled) => sampled.eval(&clipped),
+        outputs.clear();
+        match &self.kind {
+            Kind::Sampled(sampled) => sampled.eval_into(clipped, outputs),
             Kind::Exponential { c0, c1, exponent } => {
                 let x = clipped.first().copied().unwrap_or(0.0);
                 let factor = if (*exponent - 1.0).abs() < f32::EPSILON {
@@ -335,18 +358,25 @@ impl Function {
                 } else {
                     x.powf(*exponent)
                 };
-                c0.iter()
-                    .zip(c1.iter())
-                    .map(|(start, end)| start + factor * (end - start))
-                    .collect()
+                outputs.extend(
+                    c0.iter()
+                        .zip(c1.iter())
+                        .map(|(start, end)| start + factor * (end - start)),
+                );
             }
             Kind::Stitching {
                 functions,
                 bounds,
                 encode,
-            } => self.eval_stitching(functions, bounds, encode, &clipped),
-            Kind::PostScript(program) => evaluate_postscript(program, &clipped),
-        };
+            } => self.eval_stitching_into(functions, bounds, encode, clipped, outputs),
+            // The operand stack *is* the result — §7.10.5 leaves the outputs on it — so the
+            // caller's buffer is the stack the program runs on, with the inputs pushed onto
+            // it the way the clause says they arrive.
+            Kind::PostScript(program) => {
+                outputs.extend_from_slice(clipped);
+                evaluate_postscript(program, outputs);
+            }
+        }
 
         if let Some(range) = &self.range {
             outputs.truncate(range.len());
@@ -360,7 +390,6 @@ impl Function {
                 *value = clamp(*value, *low, *high);
             }
         }
-        outputs
     }
 
     /// How many values this function returns, when that is known before evaluating.
@@ -375,13 +404,17 @@ impl Function {
     }
 
     /// Selects the sub-function covering an input and re-maps the input onto its domain.
-    fn eval_stitching(
+    ///
+    /// The sub-function writes into the same buffer, so a chain of stitched functions costs
+    /// one allocation for the whole chain rather than one per link.
+    fn eval_stitching_into(
         &self,
         functions: &[Function],
         bounds: &[f32],
         encode: &[(f32, f32)],
         clipped: &[f32],
-    ) -> Vec<f32> {
+        outputs: &mut Vec<f32>,
+    ) {
         let x = clipped.first().copied().unwrap_or(0.0);
         let (domain_low, domain_high) = self.domain.first().copied().unwrap_or((0.0, 1.0));
 
@@ -403,10 +436,11 @@ impl Function {
         let (encode_low, encode_high) = encode.get(index).copied().unwrap_or((0.0, 1.0));
         let mapped = interpolate(x, low, high, encode_low, encode_high);
 
-        functions
-            .get(index)
-            .map(|function| function.eval(&[mapped]))
-            .unwrap_or_default()
+        // No sub-function at that index leaves the buffer as the caller cleared it, which is
+        // the empty answer the allocating form returned.
+        if let Some(function) = functions.get(index) {
+            function.eval_into(&[mapped], outputs);
+        }
     }
 
     fn parse_exponential(document: &Document, dict: &Dictionary) -> Result<Kind, FunctionError> {
@@ -663,12 +697,17 @@ fn holds_the_sample_array(data: &[u8], total: usize, bits: u32) -> Result<(), Fu
 
 impl Sampled {
     /// Evaluates by multilinear interpolation between the surrounding grid samples.
-    fn eval(&self, inputs: &[f32]) -> Vec<f32> {
+    ///
+    /// Writes into the caller's buffer for [`Function::eval_into`]'s reason: this is called
+    /// once per cell of a device-resolution grid, and the three vectors it used to allocate
+    /// were three allocations per cell.
+    fn eval_into(&self, inputs: &[f32], out: &mut Vec<f32>) {
         // The grid position each input falls at, split into the sample below it and the
-        // fraction beyond that sample.
-        let mut base = Vec::with_capacity(self.size.len());
-        let mut fraction = Vec::with_capacity(self.size.len());
-        for (index, count) in self.size.iter().enumerate() {
+        // fraction beyond that sample. `numbers` refuses a `/Size` longer than
+        // [`MAX_VALUES`], so both fit in arrays on the stack.
+        let mut base = [0usize; MAX_VALUES];
+        let mut fraction = [0.0f32; MAX_VALUES];
+        for (index, count) in self.size.iter().enumerate().take(MAX_VALUES) {
             let x = inputs.get(index).copied().unwrap_or(0.0);
             let (low, high) = self.encode.get(index).copied().unwrap_or((0.0, 1.0));
             #[expect(
@@ -683,18 +722,24 @@ impl Sampled {
                 reason = "position is clamped to 0..=last, so the floor is a valid index"
             )]
             let floor = position.floor() as usize;
-            base.push(floor.min(count.saturating_sub(1)));
-            fraction.push(position - position.floor());
+            if let Some(slot) = base.get_mut(index) {
+                *slot = floor.min(count.saturating_sub(1));
+            }
+            if let Some(slot) = fraction.get_mut(index) {
+                *slot = position - position.floor();
+            }
         }
+
+        out.clear();
+        out.resize(self.outputs, 0.0f32);
 
         // Interpolate over the 2^dimensions corner samples. Bounded because a function
         // with many inputs would already have been refused by the sample limit.
         let corners = 1usize.checked_shl(u32::try_from(self.size.len()).unwrap_or(0));
         let Some(corners) = corners else {
-            return vec![0.0; self.outputs];
+            return;
         };
 
-        let mut result = vec![0.0f32; self.outputs];
         for corner in 0..corners {
             let mut weight = 1.0f32;
             let mut offset = 0usize;
@@ -718,14 +763,13 @@ impl Sampled {
             if weight == 0.0 {
                 continue;
             }
-            for (component, value) in result.iter_mut().enumerate() {
+            for (component, value) in out.iter_mut().enumerate() {
                 let at = offset
                     .saturating_mul(self.outputs)
                     .saturating_add(component);
                 *value += weight * self.samples.get(at).copied().unwrap_or(0.0);
             }
         }
-        result
     }
 }
 
@@ -1106,16 +1150,19 @@ fn compile_token(token: &str) -> Result<Instruction, FunctionError> {
     Ok(Instruction::Operator(operator))
 }
 
-/// Runs a compiled type 4 program.
+/// Runs a compiled type 4 program on a stack the caller supplies, already holding the inputs.
 ///
 /// The stack is bounded and the instruction list has no backward jumps, so this always
 /// terminates. A program that underflows the stack yields whatever it managed to compute
 /// rather than failing: a shading with one bad colour is better than no shading.
-fn evaluate_postscript(program: &[Instruction], inputs: &[f32]) -> Vec<f32> {
+///
+/// The caller owns the stack because what the program leaves on it *is* the answer, and a
+/// grid of a million cells would otherwise allocate one per cell. See
+/// [`Function::eval_into`].
+fn evaluate_postscript(program: &[Instruction], stack: &mut Vec<f32>) {
     /// Bounds the operand stack against a program that only pushes.
     const MAX_STACK: usize = 1000;
 
-    let mut stack: Vec<f32> = inputs.to_vec();
     let mut at = 0usize;
     let mut steps = 0usize;
 
@@ -1140,10 +1187,9 @@ fn evaluate_postscript(program: &[Instruction], inputs: &[f32]) -> Vec<f32> {
                     at = *target;
                 }
             }
-            Instruction::Operator(operator) => apply_operator(*operator, &mut stack),
+            Instruction::Operator(operator) => apply_operator(*operator, stack),
         }
     }
-    stack
 }
 
 /// Applies one operator to the stack.
@@ -1349,8 +1395,11 @@ fn apply_operator(operator: Operator, stack: &mut Vec<f32>) {
             if stack.len().saturating_add(count) > MAX_STACK {
                 return;
             }
-            let slice: Vec<f32> = stack.get(start..).map(<[f32]>::to_vec).unwrap_or_default();
-            stack.extend_from_slice(&slice);
+            // `extend_from_within` copies the window in place, where a `to_vec` used to
+            // stand: `copy` is the one operator that allocated, and the owner's `pi.pdf`
+            // reaches it once per cell. The range cannot be out of bounds, because `start`
+            // came from a `saturating_sub` on this same length.
+            stack.extend_from_within(start..);
         }
         Operator::Index => {
             let n = pop(stack).trunc();
@@ -1438,7 +1487,10 @@ mod tests {
     /// Compiles and runs a type 4 program, which needs no document to exist.
     fn calculator(source: &str, inputs: &[f32]) -> Vec<f32> {
         let program = compile_postscript(source.as_bytes()).expect("compiles");
-        evaluate_postscript(&program, inputs)
+        // The stack the program runs on starts as its inputs and ends as its outputs.
+        let mut stack = inputs.to_vec();
+        evaluate_postscript(&program, &mut stack);
+        stack
     }
 
     #[test]
