@@ -1193,6 +1193,52 @@ fn evaluate_postscript(program: &[Instruction], stack: &mut Vec<f32>) {
 }
 
 /// Applies one operator to the stack.
+///
+/// # Where these semantics come from, and where the standard stops
+///
+/// ISO 32000-2 §7.10.5.2 lists Table 42's operators and then hands their meaning to a
+/// different document:
+///
+/// > The PostScript Language Reference, Third Edition shall define the semantics of these
+/// > operators and all other syntax rules of the PostScript language. Although the semantics
+/// > are those of the corresponding PostScript language operators, a full PostScript language
+/// > compatible interpreter is not required.
+///
+/// **That deferral is normative, and this project does not hold the document deferred to.**
+/// `CLAUDE.md` principle 5 forbids quoting a document one does not have as though one did, so
+/// nothing below claims PLRM3's words; what it does instead is the rule that file states for a
+/// clause defining nothing, applied to a clause that defines something *elsewhere*. Where the
+/// deferral is the only answer available, the reading is written down **as a choice**, with
+/// what it rests on, rather than presented as derived.
+///
+/// The standard's own summary is Annex B, which §7.10.5.3 points at:
+///
+/// > Annex B, "Operators in Type 4 Functions", contains a summary of these operators.
+///
+/// Annex B is *informative* and gives each operator one line. Where that line settles a
+/// question it is quoted under §B.2 or §B.3 beside the arm it settles; where it does not, the
+/// arm says so and says what was chosen instead.
+///
+/// Two arms exist as they do because the tolerant reading was wrong, and both were found by the
+/// quorra team reading this file to build a device-side evaluator —
+/// `doc/QUORRA_FUNCTION_PAINT_ANSWER.md` section 6, ADR 0369. `round` is [`round_to_greater`].
+/// `eq` and `ne` are §B.3's:
+///
+/// > Test equal
+///
+/// > Test not equal
+///
+/// which name a relation and admit no tolerance; the arms below say what the tolerance that
+/// stood there actually did.
+///
+/// # What the audit of the rest of Table 42 turned on
+///
+/// Three arms are choices rather than readings, because the standard's line does not reach them
+/// and the deferral cannot be quoted. Each is stated where it is made: `bitshift`'s width for a
+/// right shift of a negative value, `div`/`idiv`/`mod` by zero and `ln`/`log`/`sqrt` outside
+/// their domains — where PostScript raises an error the subset has no way to express — and
+/// `not`, which §B.3 makes two operators wearing one name and which this compiled form can only
+/// express as one.
 #[expect(
     clippy::too_many_lines,
     reason = "one arm per PostScript operator reads better as a single table"
@@ -1218,7 +1264,12 @@ fn apply_operator(operator: Operator, stack: &mut Vec<f32>) {
         }
         Operator::Atan => {
             let (den, num) = (pop(stack), pop(stack));
-            // PostScript's atan returns degrees in 0..360.
+            // §B.2: "Return arc tangent of num / den in degrees" — a *quotient* of two
+            // operands rather than one ratio, which is why `atan2` is the right primitive and
+            // a `num / den` fed to `atan` would be wrong: the quotient loses the quadrant, so
+            // `-1 -1 atan` and `1 1 atan` would answer alike where the circle puts them 180°
+            // apart. The degrees run over the whole circle rather than over `atan`'s half of
+            // it, so a negative answer is brought up by a turn.
             let mut degrees = num.atan2(den).to_degrees();
             if degrees < 0.0 {
                 degrees += 360.0;
@@ -1233,15 +1284,34 @@ fn apply_operator(operator: Operator, stack: &mut Vec<f32>) {
             let a = pop(stack);
             stack.push(a.to_radians().cos());
         }
+        // §B.2 gives these two different words for one arithmetic — "Convert to integer" and
+        // "Remove fractional part of num 1" — and they differ in PostScript only in the *type*
+        // of what they leave behind, which this evaluator does not carry (see `Operator::Not`).
+        // Numerically both discard the fraction toward zero, so `-1.5` becomes `-1` where
+        // `floor` would answer `-2`.
         Operator::Cvi | Operator::Truncate => {
             let a = pop(stack);
             stack.push(a.trunc());
         }
+        // §B.2's "Convert to real", which every value on this stack already is.
         Operator::Cvr => {}
+        // A quotient by zero, and below it `idiv`, `mod`, `ln`, `log` and `sqrt` outside their
+        // domains: PostScript raises an error, and §7.10.5.1's subset has no way to express one
+        // — "Expressions involving only integers, real numbers, and boolean values" is the
+        // whole of what a program may leave on the stack. So the choice here is `0`, and the
+        // reason it is not an infinity is that an infinity does not stay here: it becomes a
+        // colour component, then a coordinate, and geometry built from one is unpredictable
+        // rather than merely wrong. `/Range` would clamp it (§7.10.5.3 requires one), but the
+        // value passes through the rest of the program first.
         Operator::Div => {
             let (b, a) = (pop(stack), pop(stack));
             stack.push(if b == 0.0 { 0.0 } else { a / b });
         }
+        // §B.2: "Raise base to exponent power", the operands in that order. A negative base
+        // with a fractional exponent has no real answer and `powf` says so with a `NaN`, which
+        // is the one place in this table a non-number is produced deliberately: unlike an
+        // infinity it cannot become a plausible coordinate, and §7.10.5.3 requires a `/Range`,
+        // whose clamp maps it to a bound before any caller sees it.
         Operator::Exp => {
             let (b, a) = (pop(stack), pop(stack));
             stack.push(a.powf(b));
@@ -1250,6 +1320,10 @@ fn apply_operator(operator: Operator, stack: &mut Vec<f32>) {
             let a = pop(stack);
             stack.push(a.floor());
         }
+        // §B.2: "Return int 1 divided by int 2 as an integer". Both operands are truncated
+        // toward zero first, because the operator is stated on integers and this stack carries
+        // no types; the quotient is then truncated the same way, so `-7 2 idiv` is `-3` rather
+        // than `floor`'s `-4`.
         Operator::Idiv => {
             let (b, a) = (pop(stack), pop(stack));
             stack.push(if b.trunc() == 0.0 {
@@ -1266,6 +1340,12 @@ fn apply_operator(operator: Operator, stack: &mut Vec<f32>) {
             let a = pop(stack);
             stack.push(if a > 0.0 { a.log10() } else { 0.0 });
         }
+        // §B.2: "Return remainder after dividing int 1 by int 2". The remainder that goes with
+        // `idiv`'s truncated quotient is the one whose sign follows the *dividend*, which is
+        // what Rust's `%` computes and what a Euclidean remainder does not: `-7 2 mod` is `-1`
+        // here and `1` under `rem_euclid`. The pair has to agree, since `a` is
+        // `b (a b idiv) mul (a b mod) add` in either convention only when both come from the
+        // same one.
         Operator::Mod => {
             let (b, a) = (pop(stack), pop(stack));
             stack.push(if b.trunc() == 0.0 {
@@ -1284,7 +1364,7 @@ fn apply_operator(operator: Operator, stack: &mut Vec<f32>) {
         }
         Operator::Round => {
             let a = pop(stack);
-            stack.push(a.round());
+            stack.push(round_to_greater(a));
         }
         Operator::Sin => {
             let a = pop(stack);
@@ -1298,6 +1378,12 @@ fn apply_operator(operator: Operator, stack: &mut Vec<f32>) {
             let (b, a) = (pop(stack), pop(stack));
             stack.push(a - b);
         }
+        // §B.3 types `and`, `or` and `xor` as taking `bool | int` and returning `bool | int` —
+        // "Perform logical | bitwise and" — so each is two operators sharing a name. **They
+        // need no discrimination here and that is a property of the representation rather than
+        // luck**: a boolean on this stack is `1.0` or `0.0` (see `boolean`), and over the set
+        // {0, 1} the bitwise operation *is* the logical one, for all three. `not` below is the
+        // one member of the family where the two disagree.
         Operator::And => {
             let (b, a) = (pop(stack), pop(stack));
             stack.push(bits(a, b, |x, y| x & y));
@@ -1310,6 +1396,20 @@ fn apply_operator(operator: Operator, stack: &mut Vec<f32>) {
             let (b, a) = (pop(stack), pop(stack));
             stack.push(bits(a, b, |x, y| x ^ y));
         }
+        // §B.3: "Perform bitwise shift of int 1 (positive is left)", which fixes the direction
+        // and nothing else. A *right* shift of a negative value is where implementations part,
+        // and it parts on a number the standard never states: the width of the integer. A shift
+        // that fills from the left with zeros answers `2147483646` for `-4 -1 bitshift` at 32
+        // bits and `9223372036854775806` at 64, so choosing that convention means choosing a
+        // width, and ISO 32000-2 states one nowhere — Annex C's "Integer values (such as object
+        // numbers) can often be expressed within 32 bits" is informative and is about object
+        // numbers. §7.10.5.2 defers the rest to a document this project does not hold.
+        //
+        // **So the choice is the sign-preserving shift**, which is the only one of the two that
+        // is a function of the *value* rather than of a width nobody stated: `-4 -1 bitshift` is
+        // `-2` under it whatever the register is. It is a choice and not a reading, and the
+        // instrument that says what it costs is `examples/type4_operator_census`, which counts
+        // the programs in the corpora that reach `bitshift` at all.
         Operator::Bitshift => {
             let (shift, value) = (pop(stack), pop(stack));
             let value = to_integer(value);
@@ -1332,19 +1432,54 @@ fn apply_operator(operator: Operator, stack: &mut Vec<f32>) {
             )]
             stack.push(result as f32);
         }
+        // §B.3: "Perform logical | bitwise not" — two operators wearing one name, like `and`
+        // above, except that here the two *disagree*. Logical `not` of `1` is `0`; the one's
+        // complement of the integer `1` is `-2`, and of `63` is `-64`. Which is meant depends on
+        // the operand's type, and `Instruction::Push` carries no type — a literal `63` and a
+        // `true` are the same `f32` by the time this runs — so this evaluator can only implement
+        // one of them, and implements the logical one.
+        //
+        // **That is a known incompleteness rather than a reading**, raised by the quorra team as
+        // a contract question (`doc/QUORRA_FUNCTION_PAINT_ANSWER.md` section 6.3) and answered
+        // in `doc/QUORRA_FEEDBACK.md` section 25.5: the fix is a type on every compiled literal,
+        // inferred statically, giving `not`, `and`, `or`, `xor` and the shifts one meaning each. It
+        // changes a public type and belongs to that work rather than to this arm. `63 not`
+        // answers `0.0` here meanwhile, and the census beside this file says how many programs
+        // in the corpora reach `not` with anything but a boolean.
         Operator::Not => {
             let a = pop(stack);
-            // `not` is logical on a boolean and bitwise on an integer; both agree that
-            // zero becomes one.
             stack.push(if a == 0.0 { 1.0 } else { 0.0 });
         }
+        // §B.3 (informative) gives `eq` one line — "Test equal" — and no tolerance.
+        // PostScript's `eq` is exact equality of the two operands, and this compared them
+        // within `f32::EPSILON` until the five-hundred-and-thirty-fourth session. That
+        // tolerance is not a conservative reading of the deferral, it is a different operator:
+        // `f32::EPSILON` is the gap between 1.0 and its successor, so near zero it makes
+        // millions of distinct values equal — every value under 1.2e-7 equals every other, and
+        // equals zero — while at any magnitude above about 8.4 million it is smaller than one
+        // unit in the last place and the comparison is exact anyway. It is loosest exactly
+        // where a type 4 program tests a boundary and tightest where nothing needs it. Both
+        // arms are `a == b` and its negation now, which is what makes them each other's
+        // complement for every pair of numbers.
+        //
+        // A `NaN` operand makes `eq` false and `ne` true, which is IEEE 754's answer rather
+        // than a chosen one — and unreachable through `Function::eval`, whose §7.10.5.3
+        // `/Range` clamp maps a `NaN` output to a bound before any caller sees it.
+        #[expect(
+            clippy::float_cmp,
+            reason = "the operator being implemented is exact equality; see above"
+        )]
         Operator::Eq => {
             let (b, a) = (pop(stack), pop(stack));
-            stack.push(boolean((a - b).abs() < f32::EPSILON));
+            stack.push(boolean(a == b));
         }
+        #[expect(
+            clippy::float_cmp,
+            reason = "the operator being implemented is exact inequality; see Eq above"
+        )]
         Operator::Ne => {
             let (b, a) = (pop(stack), pop(stack));
-            stack.push(boolean((a - b).abs() >= f32::EPSILON));
+            stack.push(boolean(a != b));
         }
         Operator::Ge => {
             let (b, a) = (pop(stack), pop(stack));
@@ -1420,6 +1555,10 @@ fn apply_operator(operator: Operator, stack: &mut Vec<f32>) {
                 .unwrap_or(0.0);
             stack.push(value);
         }
+        // §B.5: "Roll n elements up j times", where *up* is toward the top of the stack — which
+        // is a rotation to the right of a window whose last element is the top. A negative `j`
+        // rolls the other way and is not a different operation: `rem_euclid` turns it into the
+        // rotation by `n - |j|` that §B.5's own `mod` in the result column describes.
         Operator::Roll => {
             let shift = pop(stack).trunc();
             let count = pop(stack).trunc();
@@ -1450,6 +1589,52 @@ fn apply_operator(operator: Operator, stack: &mut Vec<f32>) {
 
 /// Bounds the operand stack against a program that only pushes.
 const MAX_STACK: usize = 1000;
+
+/// `round`'s nearest integer, with a value halfway between two of them taken to the greater.
+///
+/// ISO 32000-2 §B.2 (informative) states the operator and, in stating it, states the whole of
+/// the ambiguity:
+///
+/// > Round num 1 to nearest integer
+///
+/// A value exactly halfway between two integers is nearest to both, and neither §B.2 nor
+/// §7.10.5.2 chooses between them; §7.10.5.2 defers that to a document this project does not
+/// hold (see [`apply_operator`]). **So the tie is a documented choice, and the choice is the
+/// greater of the two**: `-1.5` rounds to `-1`, `2.5` to `3`. Two things recommend it over the
+/// alternatives rather than one. It is PostScript's own convention, which is what the deferral
+/// points at even when it cannot be quoted. And it is the only one of the three candidates that
+/// is a *function of the value* rather than of how the value is written down — half away from
+/// zero puts a discontinuity at the origin, where `-1.5` and `1.5` round in opposite directions
+/// by different rules, and a type 4 program's inputs cross zero as a matter of course
+/// (§7.10.5.3's own example has a `/Domain` of `[-1.0 1.0 -1.0 1.0]`).
+///
+/// **This was `f32::round` until the five-hundred-and-thirty-fourth session**, which rounds half
+/// away from zero, so every negative tie went the wrong way — `-6.5` to `-7` where the greater is
+/// `-6`. The quorra team found it reading this file to build a device-side evaluator and reported
+/// it in `doc/QUORRA_FUNCTION_PAINT_ANSWER.md` section 6; ADR 0369 is this side's. Their
+/// observation that WGSL's `round` is half to *even* belongs beside this one, because it agrees
+/// with the greater at `-6.5` and disagrees at `2.5`: a generated shader is not this function.
+///
+/// Written as a tie test against the floor rather than as `(value + 0.5).floor()`, which is the
+/// idiom that suggests itself and is wrong: adding a half to a value whose exponent is large
+/// enough rounds *before* the floor sees it, so an exactly representable integer comes back as
+/// its successor.
+fn round_to_greater(value: f32) -> f32 {
+    let below = value.floor();
+    // Exact for every finite value: where the difference could round, `below` equals `value`
+    // and the difference is zero. A non-finite value falls through to `f32::round`, which
+    // returns it unchanged.
+    #[expect(
+        clippy::float_cmp,
+        reason = "a tie is an exact half and nothing else; the margin clippy suggests here is \
+                  the defect this function was written to remove from `eq`"
+    )]
+    if value - below == 0.5 {
+        below + 1.0
+    } else {
+        value.round()
+    }
+}
 
 /// Narrows a value to the integer PostScript's integer operators are defined on.
 ///
@@ -1548,6 +1733,167 @@ mod tests {
         // `roll` rotates the top n elements upward by j.
         assert_eq!(calculator("{ 1 2 3 3 1 roll }", &[]), vec![3.0, 1.0, 2.0]);
         assert_eq!(calculator("{ 1 2 3 3 -1 roll }", &[]), vec![2.0, 3.0, 1.0]);
+        // §B.5 takes j modulo n, so a roll further than the window is the same roll.
+        assert_eq!(calculator("{ 1 2 3 3 4 roll }", &[]), vec![3.0, 1.0, 2.0]);
+        assert_eq!(calculator("{ 1 2 3 3 0 roll }", &[]), vec![1.0, 2.0, 3.0]);
+        // `copy` of nothing is nothing, which is the boundary the count is guarded at.
+        assert_eq!(calculator("{ 1 2 0 copy }", &[]), vec![1.0, 2.0]);
+    }
+
+    /// §B.2's four ways of removing a fraction, side by side, on a negative tie.
+    ///
+    /// The four disagree only there, which is why one of them was wrong for the tree's whole
+    /// life and no test saw it. `round`'s tie goes to the greater of the two integers
+    /// ([`super::round_to_greater`]); `floor` goes down, `ceiling` up, and `truncate` and `cvi`
+    /// toward zero.
+    #[test]
+    fn the_four_operators_that_drop_a_fraction_disagree_only_on_a_tie() {
+        assert_eq!(calculator("{ -1.5 floor }", &[]), vec![-2.0]);
+        assert_eq!(calculator("{ -1.5 ceiling }", &[]), vec![-1.0]);
+        assert_eq!(calculator("{ -1.5 truncate }", &[]), vec![-1.0]);
+        assert_eq!(calculator("{ -1.5 cvi }", &[]), vec![-1.0]);
+        assert_eq!(calculator("{ -1.5 round }", &[]), vec![-1.0]);
+        // Away from a tie all five agree with arithmetic and with each other where they can.
+        assert_eq!(calculator("{ -1.4 round }", &[]), vec![-1.0]);
+        assert_eq!(calculator("{ -1.6 round }", &[]), vec![-2.0]);
+    }
+
+    /// `round`'s tie goes to the greater integer, in both half-planes and at zero.
+    ///
+    /// Until the five-hundred-and-thirty-fourth session this was `f32::round`, which is half
+    /// away from zero, so every value in the first row answered one lower. ADR 0369, and
+    /// `doc/QUORRA_FUNCTION_PAINT_ANSWER.md` section 6, which found it.
+    #[test]
+    fn round_takes_a_tie_to_the_greater_integer() {
+        assert_eq!(calculator("{ -6.5 round }", &[]), vec![-6.0]);
+        assert_eq!(calculator("{ -1.5 round }", &[]), vec![-1.0]);
+        assert_eq!(calculator("{ -0.5 round }", &[]), vec![0.0]);
+        assert_eq!(calculator("{ 0.5 round }", &[]), vec![1.0]);
+        assert_eq!(calculator("{ 1.5 round }", &[]), vec![2.0]);
+        // Half to even — which is what a WGSL `round` does, and therefore what a device-side
+        // evaluator of the same program would answer — agrees at -6.5 and parts here.
+        assert_eq!(calculator("{ 2.5 round }", &[]), vec![3.0]);
+        // A value large enough that no half exists between two of its neighbours comes back
+        // unchanged. `(value + 0.5).floor()` answers 8388610 for the second of these.
+        assert_eq!(calculator("{ 8388608 round }", &[]), vec![8_388_608.0]);
+        assert_eq!(calculator("{ 8388609 round }", &[]), vec![8_388_609.0]);
+    }
+
+    /// §B.3's `eq` is a relation, not a proximity: it holds for equal values and nothing else.
+    ///
+    /// The `f32::EPSILON` tolerance that stood here until the five-hundred-and-thirty-fourth
+    /// session is what the first two of these measure — it made every value under 1.2e-7 equal
+    /// to zero and to every other, which is where a type 4 program tests a boundary.
+    #[test]
+    fn equality_is_exact_rather_than_approximate() {
+        assert_eq!(calculator("{ 0 1e-8 eq }", &[]), vec![0.0]);
+        assert_eq!(calculator("{ 0 1e-8 ne }", &[]), vec![1.0]);
+        assert_eq!(calculator("{ 0.1 0.1 eq }", &[]), vec![1.0]);
+        assert_eq!(calculator("{ 1 1.0 eq }", &[]), vec![1.0]);
+        assert_eq!(calculator("{ 1 2 eq }", &[]), vec![0.0]);
+        // Each is the other's complement for every pair, which the tolerant pair also was and
+        // which is worth pinning: two thresholds are two chances to disagree.
+        for operands in ["0 1e-8", "3 3", "-1 1", "1e-30 -1e-30", "1e20 1e20"] {
+            let equal = calculator(&format!("{{ {operands} eq }}"), &[]);
+            let not_equal = calculator(&format!("{{ {operands} ne }}"), &[]);
+            assert_eq!(
+                equal.first().copied().map(|value| 1.0 - value),
+                not_equal.first().copied(),
+                "eq and ne disagree on {operands}"
+            );
+        }
+    }
+
+    /// §B.2's `atan` answers over the whole circle, and takes its quadrant from two operands.
+    ///
+    /// A `num den atan` implemented as the arc tangent of one quotient loses the quadrant, so
+    /// the second and fourth of these would answer 45 and 225 the wrong way round.
+    #[test]
+    fn atan_answers_in_degrees_over_the_whole_circle() {
+        assert_eq!(calculator("{ 0 1 atan }", &[]), vec![0.0]);
+        assert_eq!(calculator("{ 1 0 atan }", &[]), vec![90.0]);
+        assert_eq!(calculator("{ 0 -1 atan }", &[]), vec![180.0]);
+        assert_eq!(calculator("{ -1 0 atan }", &[]), vec![270.0]);
+        assert_eq!(calculator("{ 1 1 atan }", &[]), vec![45.0]);
+        assert_eq!(calculator("{ -1 -1 atan }", &[]), vec![225.0]);
+        // Nothing leaves the circle, over a sweep of both operands including the origin, which
+        // has no arc tangent and must still answer a number.
+        for num in -8_i32..=8 {
+            for den in -8_i32..=8 {
+                let out = calculator(&format!("{{ {num} {den} atan }}"), &[]);
+                let angle = out.first().copied().expect("one value");
+                assert!(
+                    (0.0..=360.0).contains(&angle),
+                    "{num} {den} atan left the circle at {angle}"
+                );
+            }
+        }
+    }
+
+    /// §B.2's `idiv` and `mod` are the truncating pair, so a remainder follows its dividend.
+    #[test]
+    fn integer_division_truncates_toward_zero_and_its_remainder_follows_the_dividend() {
+        assert_eq!(calculator("{ -7 2 idiv }", &[]), vec![-3.0]);
+        assert_eq!(calculator("{ 7 -2 idiv }", &[]), vec![-3.0]);
+        assert_eq!(calculator("{ -7 2 mod }", &[]), vec![-1.0]);
+        assert_eq!(calculator("{ 7 -2 mod }", &[]), vec![1.0]);
+        // The pair has to reconstruct the dividend, which is what makes it a pair.
+        assert_eq!(
+            calculator("{ -7 2 idiv 2 mul -7 2 mod add }", &[]),
+            vec![-7.0]
+        );
+    }
+
+    /// §B.3's `and`, `or` and `xor` are one operator each here, and the representation is why.
+    ///
+    /// The clause types them `bool | int` in and `bool | int` out. A boolean on this stack is
+    /// `1.0` or `0.0`, and over `{0, 1}` the bitwise operation is the logical one, so nothing
+    /// has to decide which was meant.
+    #[test]
+    fn the_boolean_and_bitwise_operators_are_the_same_operator_on_zero_and_one() {
+        assert_eq!(calculator("{ true true and }", &[]), vec![1.0]);
+        assert_eq!(calculator("{ true false and }", &[]), vec![0.0]);
+        assert_eq!(calculator("{ true false or }", &[]), vec![1.0]);
+        assert_eq!(calculator("{ false false or }", &[]), vec![0.0]);
+        assert_eq!(calculator("{ true true xor }", &[]), vec![0.0]);
+        assert_eq!(calculator("{ true false xor }", &[]), vec![1.0]);
+        // The same three arms on integers, where the answer is the bit pattern's.
+        assert_eq!(calculator("{ 6 3 and }", &[]), vec![2.0]);
+        assert_eq!(calculator("{ 6 3 or }", &[]), vec![7.0]);
+        assert_eq!(calculator("{ 6 3 xor }", &[]), vec![5.0]);
+    }
+
+    /// `not` is the logical one, because a compiled literal carries no type to choose by.
+    ///
+    /// §B.3 makes `not` two operators sharing a name, and unlike `and`, `or` and `xor` the two
+    /// disagree on `{0, 1}`: the one's complement of `1` is `-2`. `Instruction::Push` carries
+    /// no type, so this evaluator implements the logical one and `63 not` answers `0` where
+    /// the integer operator says `-64`. **This test pins a known incompleteness rather than a
+    /// reading** — `doc/QUORRA_FUNCTION_PAINT_ANSWER.md` section 6.3 raised it and
+    /// `doc/QUORRA_FEEDBACK.md` section 25.5 answered it: the fix is a type on every literal,
+    /// inferred statically, and it belongs to that work.
+    #[test]
+    fn not_is_the_logical_one_because_a_compiled_literal_carries_no_type() {
+        assert_eq!(calculator("{ true not }", &[]), vec![0.0]);
+        assert_eq!(calculator("{ false not }", &[]), vec![1.0]);
+        assert_eq!(calculator("{ 63 not }", &[]), vec![0.0]);
+    }
+
+    /// §B.3's `bitshift`, and the one place its answer is this project's choice rather than
+    /// the standard's.
+    ///
+    /// The direction is stated — positive is left — and the width of the integer is not, which
+    /// only shows on a right shift of a negative value. The sign-preserving shift is chosen
+    /// because it is the answer that does not depend on a width nobody stated; the last two
+    /// lines are what that choice looks like.
+    #[test]
+    fn a_bit_shift_moves_left_for_a_positive_count_and_keeps_its_sign_going_right() {
+        assert_eq!(calculator("{ 1 3 bitshift }", &[]), vec![8.0]);
+        assert_eq!(calculator("{ 8 -3 bitshift }", &[]), vec![1.0]);
+        assert_eq!(calculator("{ 5 0 bitshift }", &[]), vec![5.0]);
+        assert_eq!(calculator("{ -8 1 bitshift }", &[]), vec![-16.0]);
+        assert_eq!(calculator("{ -8 -1 bitshift }", &[]), vec![-4.0]);
+        assert_eq!(calculator("{ -1 -1 bitshift }", &[]), vec![-1.0]);
     }
 
     /// A program that underflows must not panic, and must still answer.
@@ -1674,6 +2020,40 @@ mod tests {
             &[0.5],
         );
         assert_eq!(out, vec![0.0, 0.0, 0.0, 0.5]);
+    }
+
+    /// The one operator that can produce a non-number, and the clause that stops it escaping.
+    ///
+    /// §B.2's `exp` raises a base to a power, and a negative base with a fractional exponent has
+    /// no real answer. §7.10.5.3 makes `/Range` required for a type 4 function — "The Domain and
+    /// Range entries shall both be required" — and the range clamp is where a `NaN` stops, so no
+    /// caller of [`Function::eval`] can be handed one. Checked through a real function rather
+    /// than through the calculator, because the calculator is the half of the path without the
+    /// clause in it.
+    #[test]
+    fn a_program_that_computes_no_real_number_still_answers_within_its_range() {
+        let program = "{ -8 0.5 exp }";
+        let source = format!(
+            "%PDF-1.7\n1 0 obj\n<< /FunctionType 4 /Domain [0 1] /Range [0 1] /Length {} >>\n\
+             stream\n{program}\nendstream\nendobj\ntrailer\n<< /Root 1 0 R >>\n",
+            program.len().saturating_add(1)
+        );
+        let document = pdf_syntax::Document::open(source.into_bytes()).expect("opens");
+        let object = document.get(pdf_syntax::ObjectId {
+            number: 1,
+            generation: 0,
+        });
+        let function = Function::parse(&document, &object).expect("parses");
+
+        let out = function.eval(&[0.5]);
+        assert_eq!(out.len(), 1);
+        for value in out {
+            assert!(
+                value.is_finite(),
+                "a non-number reached a caller as {value}"
+            );
+            assert!((0.0..=1.0).contains(&value));
+        }
     }
 
     /// Building a function needs a document, so this exercises the smallest real one.

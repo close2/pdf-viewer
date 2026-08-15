@@ -2678,3 +2678,71 @@ evidence is that exactly one page of 956 moved and that your border cut is why. 
 to `pdf-model` in the same commit would make that attribution unrecoverable — and the attribution
 is what a bump is for. They are named here so that the next round takes them from a clause rather
 than from a memory.
+
+### 25.6.1 Both taken, in a round of their own — and what the audit and the census found
+
+The next round is the five-hundred-and-thirty-fourth, ADR 0369, and this is what came back. You
+asked to be told, so this answers rather than acknowledges.
+
+**Both were real and both are fixed.** `round` takes a tie to the greater integer — `-6.5` is
+`-6` — and `eq`/`ne` are `==` and `!=`. Your account of what the epsilon actually did is the part
+we kept and sharpened: `f32::EPSILON` is the gap between 1.0 and its successor, so the comparison
+collapsed every value under 1.2e-7 into one and was exact above about 8.4 million anyway. **It was
+loosest exactly where a type 4 program tests a boundary.**
+
+**The finding underneath both is one neither of us had written down**, and it is why the round was
+larger than two arms. §7.10.5.2 states no semantics whatever — it defers them, and our ledger row
+for that clause described Table 42's contents and the stack bound while never saying the clause
+itself defines nothing. So the operators had never been read against anything. Our principle 5
+gained a step in consequence: where the standard defines something *elsewhere* and the elsewhere
+is a document this tree does not hold, the reading goes in **as a choice with its ground**, exactly
+as it does where the standard defines nothing. Nothing in our code or our ADR quotes PLRM3, and
+nothing will until the document is here.
+
+**Annex B turned out to settle more than we expected and less than we needed.** It is informative
+and gives each operator one line, and read against the arms it decides `atan`'s two operands,
+`idiv` and `mod` as one truncating convention, `cvi` and `truncate`, `roll`'s direction, and —
+usefully for you — that `and`, `or` and `xor` need no type discrimination at all, because a boolean
+on our stack is 1.0 or 0.0 and over {0, 1} the bitwise operation *is* the logical one. `not` is the
+only member of that family where the two part, which is your section 6.3 exactly.
+
+Three answers are now marked as **choices** rather than readings, at the site: `bitshift`'s integer
+width on a right shift of a negative value (ISO 32000-2 states no width; we take the
+sign-preserving shift because it is the only answer that does not require choosing one), the error
+`div`, `idiv`, `mod`, `ln`, `log` and `sqrt` cannot express in a subset whose values are only
+numbers and booleans, and `not`. No third defect was found.
+
+**One thing for your generated shader, and it is the sharpest correction we owe you.** You wrote
+that WGSL's half-to-even "also gives `-6`", which is true and made the three-way disagreement legible.
+Half-to-even and half-toward-greater agree at `-6.5` and **part at `2.5`** — even says 2, greater
+says 3. So a device-side `round` is not this function, and your section 4's exactness claim needs
+`round` in the *refused* set alongside the transcendentals, or a two-instruction correction emitted
+around it. It is the one arithmetic operator where the two conventions genuinely differ on ordinary
+positive inputs.
+
+**And what the two defects cost in the wild: nothing.** A new census —
+`cargo run --release -p pdf-model --example type4_operator_census` — over 67 462 files (pdf.js, our
+four corpora, the owner's two, SafeDocs, openpreserve) found **7 353 type 4 functions in 2 099
+documents**, and:
+
+| operator | functions reaching it |
+|---|---:|
+| `round`, `ne`, `bitshift`, `not`, `ceiling`, `ln`, `log`, `true`, `xor` | **0** |
+| `eq` | **1** |
+| `exch` / `sub` / `pop` / `roll` / `index` / `cvr` | 6 773 / 6 537 / 3 508 / 3 435 / 3 238 / 2 950 |
+| `if` | 324 |
+| `sin`, `cos`, `atan`, `exp`, `sqrt` (`ln`, `log` zero) | 15 between them |
+
+The single `eq` is `doc/corpora-own/pi_seven_segment.pdf`, hand-written, and its value does not
+move — both arms evaluated over a nine-point grid of its `/Domain` agree at every sample, the page
+is byte-identical before and after, and it still reads 3.141. Every gate is on its previous number
+and `display_list_digest` over all 974 documents diffs empty.
+
+**Two of those rows are yours to use.** The transcendental set your section 4 would refuse by name
+is reached by at most fifteen of 7 353 functions, so the classification costs almost nothing on this
+population. And the shape of a real type 4 program is `exch`, `sub`, `pop`, `roll`, `index`, `cvr` —
+a tint transform shuffling components and doing linear arithmetic, with `if` in one program in
+twenty-three. That is the population your compiled form has to be fast for.
+
+The last word is trap 8's and it is not a complaint about the corpus: sixty-seven thousand files
+could not have found either defect, and one person reading the source against a clause found both.
