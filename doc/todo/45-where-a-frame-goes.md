@@ -93,6 +93,15 @@ from the adapter's own timestamp queries and `device` is a host `Instant`, so th
 whatever the two clocks disagree by along with the acquire, the present and the readback. The
 summary says so in a line of its own now, and the two ways out are quorra's. ADR 0228 §4.
 
+**And `encode`'s own three phases have now been read, once** (session 533, ADR 0368):
+`Options::instrument_encode` was switched on over `tmp/Entwurf.pdf` and answered **geometry 79.2%,
+recording 16.2%, staging 4.6%** — quorra's coverage rasterisation, on one thread, for 59% of the
+whole frame. That is the row's original question ("nothing inside it is visible from here")
+answered for one page rather than for the corpus, and `doc/QUORRA_ENCODE_THREADS.md` is what went
+back. The probe was removed: `render-quorra` reads `Timings` and drops `Timings::phases`, so seeing
+the subdivision from a host still costs a patch, and whether it becomes a `FrameCost` field is left
+to the round that next needs it.
+
 **What was ours in this row is done** (session 516, ADR 0351). It read: this host builds a fresh
 `quorra_scene::Scene` every frame, so nothing inside `encode` *can* be reused — a retained scene is
 the lever, and the number it would have to beat is 3.86 µs a command. Upstream built the retained
@@ -157,3 +166,32 @@ So two things are owed here, and neither is that document:
   exactly this reason and `scene` has none, so a round told that a frame is slow can say only that
   the display list took a long time to become a scene. On this document the answer was one paint;
   on a page of a thousand it will not be.
+
+### 5a. A second witness for the first bullet, and it is not a shading (session 533, ADR 0368)
+
+`tmp/Entwurf.pdf` breaks the fit from the other end: 58 009 commands, every one of them an ordinary
+opaque fill, and a frame of 640 ms where §3's `5.45 µs/cmd + 12.88 ms` predicts 329. **The
+direction is what settles it.** Over three magnifications of that one document, in two runs, the
+frame that draws the *most* commands is the *cheapest*:
+
+| commands drawn | `encode`, run A | run B, instrumented |
+|---:|---:|---:|
+| 58 009 (nothing culled) | **476 ms** | **513 ms** |
+| 49 246 (8 763 culled) | 484 | 1598 |
+| 40 023 (17 986 culled) | 868 | 993 |
+
+(run B had `Options::instrument_encode` on, which inflates `encode`; only its ordering is evidence.)
+
+The two zoom rungs are not ordered against each other consistently — that is a shared machine — but
+no ordering by *count* survives either run, and the reason is plain once the phase is divided: 79%
+of `encode` on this page is `encode: geometry`, quorra's coverage rasterisation, and a culled
+command costs nothing while a surviving one costs its **area**. The page's summed bounding-box area
+at the fit view is 401 059 px² over a 182 628 px² target, so 406 ms of geometry is about 1.0 µs a
+covered pixel.
+
+**So the second variable is device area covered**, and the regression this bullet asks for can now
+be run against a column `command_extents` produces and a document that ranges over it.
+
+**And the second bullet stands unchanged, with a number against it**: on this document `scene` is
+**2.5%** of a frame, which is why nobody has needed to divide it and is not an argument that nobody
+will.

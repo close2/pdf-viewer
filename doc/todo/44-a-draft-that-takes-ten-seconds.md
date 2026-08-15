@@ -1,6 +1,8 @@
 # A draft that takes ten seconds to appear, and a third of a second per frame after that
 
-Status: **taken** — both levers this file measured are built. The owner asked whether displaying
+Status: **open again, at a different phase** — both levers this file measured are built, and
+session 533 measured the one it never named: a *zoom* frame is 59% quorra's coverage rasterisation
+on one thread, and this file's remaining item is 2.4% of it (§5, ADR 0368). The owner asked whether displaying
 this document can be improved and supplied a trace; session 497 closed the trace's hole,
 attributed the interpretation with callgrind, and priced the encode cache (ADR 0332). Session 506
 took §2's lexer candidate *and* its number-parsing second (ADR 0341): interpreting this document
@@ -182,10 +184,46 @@ rather than closing:
 - **The page scene built in page space under `Viewport`'s root affine.** It buys the `scene` phase
   across *zoom* steps and nothing else — §3.1's second bullet is upstream's correction, and it is
   final: a zoom step is a genuinely different rasterisation of every glyph, so no design reuses an
-  encode across one. It needs nothing from quorra. The reason it is not urgent is this file's own
-  measurement: the trace is 28 frames of one document at one view, and §3.2's re-run says a
-  *still* window now pays `execute` and nothing else. A person zooming is a different population,
-  and `doc/todo/45` is where a witness for it would come from.
+  encode across one. It needs nothing from quorra. **Session 533 priced it: 2.4% of a zoom frame**
+  (§5). It stays open because it is cheap and correct — the brief's §2.3 already asks a scene to be
+  viewport-independent — and not because it is a lever.
+
+## 5. The zoom step, measured at last, and it is not the `scene` phase (session 533, ADR 0368)
+
+§4 said a person zooming is a different population and that a witness would have to come from
+`doc/todo/45`. The project owner asked the question directly instead — *could this document be
+rendered every frame?* — and ADR 0368 is the answer. What it changes here is the ranking: §3's
+whole conversation was about `encode` being **replayed**, and what a zoom frame actually spends is
+`encode` being **computed**, in a phase this file never named.
+
+The frame at the fit view, 58 009 commands, nothing culled, the magnification new (llvmpipe,
+three sessions, 639.8 / 660.0 / 661.9 ms):
+
+| | ms | share |
+|---|---:|---:|
+| `scene` — what §4's remaining item would remove | 15.8 | **2.5%** |
+| `encode` | 475.9 | 74.4% |
+| — `encode: geometry` | 406.3 | **59% of the frame** |
+| — `encode: recording` | 82.9 | 12.9% |
+| — `encode: staging` | 23.6 | 3.7% |
+| `transfer` | 65.4 | 10.2% |
+| `execute` (the adapter's own timestamps) | 29.1 | 4.5% |
+
+The subdivision is `Options::instrument_encode`, which §3 named as available and nobody had
+switched on. **The geometry phase is quorra's scanline rasteriser flattening this page's
+3 011 879 path segments into 58 003 coverage tiles on one thread**, and it is identified rather
+than merely named: the same view drawn twice in one session costs `encode` 483.8 ms and then
+**90.6**, and the second draw's subdivision is geometry **1.7** against recording **91.8** — so the
+406 ms is coverage and the 92 ms that survives every cache is instance building.
+
+So the answer to the owner's question is three answers. **A still window: already yes** (§3.2). **A
+repeat magnification: 140 ms rather than 640**, on quorra's cache — though this session's script
+hit that reuse once and missed it once, which ADR 0368 leaves open. **A new magnification: no**, and
+ADR 0368 enumerates why no change to the boundary or to the IR buys it — a page-space scene 2.4%,
+batching by paint state 1.0% of the commands and a loss beyond that, damage nothing, and dropping
+sub-pixel marks forbidden by §10.7.4 outright. `doc/QUORRA_ENCODE_THREADS.md` is what went
+upstream: divide `encode` across more than one thread, with its own ceiling stated — geometry at
+zero still leaves a 235 ms frame.
 
 ## Cross-references
 
@@ -193,7 +231,8 @@ rather than closing:
 row priced on a second document), `doc/todo/42` (the launch path; its items are the program's own
 startup, where this document's cost is one page's interpretation — different lever, same gate),
 ADR 0297 (a per-frame recomputation kept out of the loop once before, and whose key shape §3.2's
-took), ADR 0332 (the round that priced this), ADR 0351 (the round that took §3),
+took), ADR 0332 (the round that priced this), ADR 0351 (the round that took §3), ADR 0368 and
+`doc/QUORRA_ENCODE_THREADS.md` (§5 above: where a *zoom* frame goes, and the ask it produced),
 `doc/QUORRA_RETAINED_FRAME.md` (the migration upstream wrote for it) and `doc/QUORRA_FEEDBACK.md`
 §23 (what went back: one correction to that document, one declined item, and the answer to the
 question it asked).
