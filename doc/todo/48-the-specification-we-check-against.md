@@ -1,11 +1,13 @@
 # The copy of the standard this project checks itself against is lossy
 
-Status: **census run, step 2 built, all 120 known passages read, the ledger's 977 spans swept** —
-sessions 416 (ADR 0252), 417 (ADR 0253) and 418 (ADR 0254). The census answered the question the
-item turned on and answered it the bad way: the annotations are the **errata**, and `doc/md/`
-presents struck-out passages as the standard's current text. Reading all of them found **three
-clauses this tree implemented differently** — §12.5.2's `/BM`, §14.13.5's `/MCAF`, and §7.8.3's
-Type 3 glyph resources — and one it still does, §8.9.5.4.
+Status: **census run, step 2 built, all 120 known passages read, and items 1 to 3 closed in the
+five-hundred-and-fortieth (ADR 0375)** — sessions 416 (ADR 0252), 417 (ADR 0253) and 418 (ADR
+0254). The census answered the question the item turned on and answered it the bad way: the
+annotations are the **errata**, and `doc/md/` presents struck-out passages as the standard's
+current text. Reading all of them found **four clauses this tree implemented differently** —
+§12.5.2's `/BM`, §14.13.5's `/MCAF`, §7.8.3's Type 3 glyph resources and §8.9.5.4, the last of
+which is implemented as the erratum states it since the five-hundred-and-fortieth.
+**What is left is steps 4 and 5 below, and nothing else.**
 Priority: 48 — kept, by the convention that the `40`–`49` band is *the project's own instruments*.
 **Its real weight is higher than the number**: this is a list of known-wrong passages in the file
 principle 5 rests on.
@@ -62,8 +64,9 @@ defect in the standard. ADR 0252 has the argument.
 - **Quotations in this tree that overlap struck text.** Three populations since the
   four-hundred-and-eighteenth session, because only one of them has a gate: rustdoc **blockquotes**,
   which `cargo test -p conformance` verifies; rustdoc **prose**, a pair of quotation marks inside a
-  doc comment, which nothing reads; and **`ledger.toml` notes**, ADR 0249's 977 spans, which nothing
-  reads either. 25 land in the clause they cite and every one is now a *correction* quoting the
+  doc comment, which nothing reads; and **`ledger.toml` notes**, ADR 0249's spans, which
+  `--bin quotations` reads against the standard since the five-hundred-and-fortieth and which
+  nothing gates. 25 land in the clause they cite and every one is now a *correction* quoting the
   wording it retired; 51 more match a phrase struck out of another clause and all of them have been
   looked at. **A fifth and a sixth were added later** — a `"` in an ordinary `//` comment (ADR 0255)
   and, in the four-hundred-and-seventy-fourth, every quotation in this project's own Markdown
@@ -73,20 +76,29 @@ defect in the standard. ADR 0252 has the argument.
 
 ## What is still owed
 
-1. **§8.9.5.4** — the one clause this tree knowingly implements a retired version of, declined for
-   the reason ADR 0253 states: the amended step a) reads as terminal and would leave the amended d)
-   unreachable, so a rewrite trades one contradiction for another. No corpus document states
-   `/Alternates`.
-2. **§14.8.6.3's enclosure requirement** — EC3 requires a `math` element under a `Formula` structure
-   element and the namespace on every MathML type *and attribute*. `Tree::role` checks neither.
-   **Half the predicate is already written and has no caller**: `structure::Namespace::is_standard`
-   answers §14.8.6.1's "[t]he term standard structure namespaces refers to either of the two
-   namespaces defined above", which is the term §14.8.6.2 and §14.8.6.3 state their rules against —
-   found by `conformance --bin callers` in the five-hundred-and-twenty-fifth, on the rung where
-   nothing in the tree names a function at all.
-3. **The ledger's single-quoted spans.** `quoted_spans` collects `"` … `"` only, because an
-   apostrophe would make every possessive an opening mark; §12.7.5.2.2's stale quotation was in
-   single quotes and was found through the source rather than by the sweep.
+1. ~~**§8.9.5.4**~~ — **implemented in the five-hundred-and-fortieth, and the reason it had been
+   declined was wrong.** ADR 0253 said the amended step a) "reads as terminal and would leave the
+   amended d) unreachable". It is terminal and d) is unreachable *for a hidden base image*, which is
+   the amendment rather than a defect in it: a) and b) dispose of every base image that states an
+   `/OC`, and c) and d) open at "Otherwise", so they belong to one that states none. `doc/md/` was
+   checked against the PDF here and is faithful — the conversion is not the problem in this clause,
+   the tree's reading of the carets was. ADR 0375.
+2. ~~**§14.8.6.3's enclosure requirement**~~ — **read and declined by argument.** The amended
+   sentence opens "[w]hen including mathematics structured as MathML", so the enclosure under
+   `Formula` and the namespace on every MathML type and attribute are `shall`s on a producer, which
+   `CLAUDE.md`'s closed exclusion covers; the reader's half is done and what stays owed is a
+   validator's report. `structure::Namespace::is_standard` got its caller anyway and not the one
+   this entry predicted: §14.8.6.2's rule decides whether a type *name* is §14.8.4's word or a
+   foreign vocabulary's homonym, so `Tree::standard_role` refuses a name that ends outside a
+   standard structure namespace. **And the clause carried the round's real finding**, which is the
+   next entry's: `doc/md/` writes its namespace name in single quotes with spaces inside them where
+   the PDF sets one double quotation mark.
+3. ~~**The ledger's single-quoted spans.**~~ **Read since the five-hundred-and-fortieth**, and there
+   are 106 of them. `conformance::quote::quoted_spans` is the shared rule — an opening `'` needs a
+   space or a bracket before it, a closing one needs a space or ordinary punctuation after it, and a
+   double quotation mark ends the search — and the ledger's notes are a population of
+   `--bin quotations` rather than a script somebody retypes. Its first committed run found three
+   misquotations. ADR 0375.
 3a. ~~**Quotations of the standard in Markdown**~~ — **built and run, and the induction held.**
    `conformance::prose` and `cargo run --release -p conformance --bin quotations` read every
    Markdown document this project wrote under `doc/` against all fourteen specifications, with ADR
@@ -136,10 +148,18 @@ blockquote. ADR 0309. It also produced the first *evidence* for this file's own 
 conversion rather than more advice: two suspects were `doc/md/` truncating Table 29's `/OpenAction`
 row and shifting Table 179's columns, both acquitted by `pdftotext -layout` over the PDF.
 
-The replacement condition, for whoever picks it up: **the reading half is done and the correctness
-question it was asked to answer is answered.** What is left is items 1 to 3 above, which are two
-named clauses and one known gap in a sweep, plus the two steps this file has carried since it was
-written. If items 1 to 3 close and nothing new arrives, what remains is a documentation debt with a
-known size and it belongs in the notes. The rates are worth carrying: 66 passages gave two findings,
-the next 54 gave one, and the *quotation* sweep — a different question over the same errata — gave
-nine in one round and six in the next, over two populations nobody had counted.
+**The five-hundred-and-fortieth ran it a sixth time, over items 1 to 3, and it passed again** — the
+last clause this tree knowingly implemented a retired version of is implemented as the erratum
+states it, and the reason it had been declined turned out to be a misreading of the amended steps'
+own ordering rather than a defect in them. ADR 0375.
+
+The replacement condition, for whoever picks it up: **the reading half is done, the correctness
+question it was asked to answer is answered, and items 1 to 3 are closed.** What is left is steps 4
+and 5 below — the disagreement sweep and the substrate question — which this file has carried since
+it was written and which are *work* rather than documentation debt, so the item stays where it is
+with that scope and no other. If a round closes step 4 and it turns up nothing, what remains is one
+API question and this file should become a paragraph in `doc/todo/01` rather than a file. The rates
+are worth carrying: 66 passages gave two findings, the next 54 gave one, and the *quotation* sweep —
+a different question over the same errata — gave nine in one round, six in the next, three in the
+one that read the Markdown documents and three more in the one that read the ledger's notes, over
+three populations nobody had counted.

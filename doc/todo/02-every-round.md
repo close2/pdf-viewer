@@ -230,12 +230,17 @@ share and the two that break it:
   another crate, a metavariable (`doc/todo/NN`), and a path this tree deliberately does not carry.
   The oldest false positive is a correction quoting the pointer it retired, and it is marked rather
   than dropped. Read the sentence before believing a hit.
-- **One reads *these documents'* quotation marks**, on the same discriminator and for the same
-  reason: `cargo run --release -p conformance --bin quotations`, seconds, over every Markdown file
-  this project wrote under `doc/`. Its first run found three sentences quoted as the standard's that
-  ISO 32000-2 does not contain, two of which were also standing in `crates/` in prose the gate does
-  not read. **Suspect the conversion before the document**: two more of its suspects were `doc/md/`
-  losing text the PDF has. ADR 0309.
+- **One reads *these documents'* quotation marks and the ledger's**, on the same discriminator and
+  for the same reason: `cargo run --release -p conformance --bin quotations`, seconds, over every
+  Markdown file this project wrote under `doc/` **and over `ledger.toml`'s notes**, which is the
+  eleventh sweep and had been a hand-written script since the four-hundred-and-thirteenth. Its first
+  run over the documents found three sentences quoted as the standard's that ISO 32000-2 does not
+  contain, two of which were also standing in `crates/` in prose the gate does not read; its first
+  run over the ledger found three more. **Suspect the conversion before the document**: four of its
+  suspects were `doc/md/` losing text the PDF has, and the hyphen of a word broken across a line is
+  the commonest of them. It reads single-quoted spans as well as double since the
+  five-hundred-and-fortieth, and it prints how many so that a clean run says what it was clean over.
+  ADRs 0309 and 0375.
 - **One is not run from here at all**: `cargo run --release -p spec-errata -- check doc/*.pdf`,
   seconds, asking the same spans a *different* question — does one of them quote a sentence Errata
   Collection 3 struck out? That needs none of ADR 0249's syntax, because the erratum supplies the

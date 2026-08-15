@@ -29,11 +29,15 @@ in the *source*, beside ledger rows that had been corrected without them.** **Th
 *count* of its children with what the children say — and it paid twice on its first run and again on
 its second. **The eleventh is new in the four-hundred-and-thirteenth**: it reads the ledger's
 *quotation marks*, which no gate in this project has ever done, and its first run found six
-misquotations of the standard (ADR 0249).
+misquotations of the standard (ADR 0249). **It is the ninth to become a program, in the
+five-hundred-and-fortieth** — a second population inside `--bin quotations` rather than a binary
+of its own, because a ledger note and a Markdown paragraph are the same question asked of
+different prose — and the rule it gained on the way is what it had been blind to since it was
+written: a `'` … `'` is a quotation too (ADR 0375).
 Priority: 01 — the population with no gate, and it has paid on every session that touched it
 Code: `doc/conformance/ledger.toml`, checked by `cargo test -p conformance`
 
-**A sweep round commits one prose sweep as a program before running any of them.** Eight of the
+**A sweep round commits one prose sweep as a program before running any of them.** Nine of the
 fifteen are commands (`conformance --bin entries`, `--bin quotations`, `--bin unread` since the
 four-hundred-and-eighty-ninth, `--bin blockers` since the five-hundred-and-first, `--bin
 capabilities` since the five-hundred-and-tenth, `--bin retired` since the
@@ -43,7 +47,8 @@ five-hundred-and-twenty-fifth, the fifth sweep, whose *number* is its finding an
 whose level was therefore not comparable across runs while every round wrote its own script, ADR
 0360 — and, since the five-hundred-and-thirty-seventh, `--bin pointers`, the eighth, which asks
 whether the file and the symbol a note names still exist and which resolves a fragment *from where
-it is written*, ADR 0372) and seven are still
+it is written*, ADR 0372; and, since the five-hundred-and-fortieth, the eleventh, which is
+`--bin quotations`'s second population rather than a binary of its own, ADR 0375) and six are still
 descriptions, and a description is what let the fifteenth go unrun for twenty-four rounds and then
 be rebuilt from its own paragraph (ADR 0319) — `CLAUDE.md`'s "write down the command, not the
 answer" failing in the direction it was written for. The cheapest moment to commit one is the
@@ -1171,9 +1176,15 @@ this file's own fourth-sweep shape. It also found a **third population of quotat
 this file nor ADR 0249 had counted: a pair of quotation marks inside ordinary rustdoc *prose*, which
 `CLAUDE.md` binds exactly as hard as a blockquote and which the gate's `> ` scanner walks past —
 39 landings, **6 stale quotations**, the worst of the three. `spec-errata check` is where
-it runs; ADR 0254 is why it is not here and not a gate. Its one known gap: `quoted_spans` collects
-double quotes only, because an apostrophe would make every possessive an opening mark, and
-§12.7.5.2.2's stale quotation was in single quotes.
+it runs; ADR 0254 is why it is not here and not a gate. **Its one known gap closed in the
+five-hundred-and-fortieth**: `quoted_spans` collected double quotes only, because an apostrophe
+would make every possessive an opening mark, and §12.7.5.2.2's stale quotation was in single
+quotes. The rule that tells the two apart lives in `conformance::quote::quoted_spans` now and all
+three populations share it — an opening `'` needs a space or a bracket before it, a closing one
+needs a space or ordinary punctuation after it, and a double quotation mark ends the search so
+that §9.4.3's operator names cannot swallow the quotations after them. It took the ledger's
+landings from 12 to 20 in the struck-out-of-another-clause bucket on the round it landed. ADR
+0375.
 
 **The four-hundred-and-nineteenth ran it again and found a fourth and a fifth population**, both by
 walking into one of them while reading §7.8.3 for an unrelated clause:

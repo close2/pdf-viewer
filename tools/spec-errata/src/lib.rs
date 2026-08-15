@@ -501,22 +501,21 @@ fn elided(quotation: &str) -> Vec<String> {
         .collect()
 }
 
-/// The double-quoted spans of a piece of prose, in the order they appear.
+/// The quoted spans of a piece of prose, in the order they appear.
 ///
 /// `CLAUDE.md` makes a pair of quotation marks a claim to be verbatim — "[a]nything less than
-/// verbatim is prose *without* quotation marks" — so a `"` … `"` in a ledger note or a doc
-/// comment is a quotation whether or not any gate reads it. Odd-numbered marks close nothing
-/// and the trailing fragment is dropped.
+/// verbatim is prose *without* quotation marks" — so a `"` … `"` **or a `'` … `'`** in a ledger
+/// note or a doc comment is a quotation whether or not any gate reads it.
 ///
-/// Single quotes are deliberately not collected: the ledger uses them for quotations too, and
-/// an apostrophe would make every possessive in a note into an opening mark.
+/// [`conformance::quote::quoted_spans`] is the rule, shared with the two sweeps over this
+/// project's own prose. The single-quoted half is new there, and it is what the fourth of this
+/// crate's known gaps was: an apostrophe is the same character as a closing single quote, and
+/// the rule that tells them apart is that function's.
 #[must_use]
 pub fn quoted_spans(text: &str) -> Vec<String> {
-    text.split('"')
-        .skip(1)
-        .step_by(2)
-        .filter(|span| span.split_whitespace().count() >= MIN_WORDS)
-        .map(str::to_owned)
+    conformance::quote::quoted_spans(text)
+        .into_iter()
+        .map(|(_, span)| span)
         .collect()
 }
 

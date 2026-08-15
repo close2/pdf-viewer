@@ -310,6 +310,20 @@ impl Tree {
     /// the fallback-that-fills-the-page in another clause's clothing.
     #[must_use]
     pub fn role(&self, document: &Document, element: &Dictionary) -> Option<String> {
+        let (name, _) = self.resolved(document, element)?;
+        Some(name)
+    }
+
+    /// The type an element ends at, **and the namespace it ends in**.
+    ///
+    /// [`Self::role`] answers the first half and [`Self::standard_role`] needs both: §14.8.6.2
+    /// states its rules against the *pair*, so the name alone cannot say whether `Table` means
+    /// §14.8.4's table or a foreign vocabulary's homonym.
+    fn resolved(
+        &self,
+        document: &Document,
+        element: &Dictionary,
+    ) -> Option<(String, Option<Dictionary>)> {
         let mut name = document.get_key(element, "S").as_name()?.clone();
         // The element's own namespace, if it states one. `None` means §14.8.6.1's default
         // standard structure namespace, which is where the root's `/RoleMap` applies.
@@ -359,7 +373,10 @@ impl Tree {
                 _ => break,
             }
         }
-        Some(String::from_utf8_lossy(name.as_bytes()).into_owned())
+        Some((
+            String::from_utf8_lossy(name.as_bytes()).into_owned(),
+            namespace,
+        ))
     }
 
     /// The element's §14.8.4 standard type, after §14.7.3's and §14.8.6.2's role mapping.
@@ -370,9 +387,29 @@ impl Tree {
     /// document rather than a gap here — "[a]ll structure elements occurring within a tagged PDF
     /// document shall have a type matching one of those defined as a Standard Structure Type, or
     /// a role map providing a mapping from the non-standard type to a Standard Structure Type".
+    ///
+    /// **And `None` where the name ends in a namespace that is not a standard structure one**,
+    /// which is the half of the question nothing here used to ask. §14.8.4's vocabulary is
+    /// *defined by* the two namespaces §14.8.6.1 names, so a foreign namespace's `Table` is a
+    /// homonym rather than a table — and §14.8.6.2 states which elements count as being in one:
+    ///
+    /// > An element shall be considered to be in one of these namespaces if:
+    ///
+    /// followed by three bullets, which are exactly this walk. An element that names a standard
+    /// namespace through `/NS` is the first, and [`Namespace::is_standard`] answers it; an
+    /// element that names none is the second, and is [`Self::resolved`]'s `None`; a role map
+    /// "directly or transitively" into one is the third, and is the loop. A namespace dictionary
+    /// stating no `/NS` of its own answers `None` too: Table 356 makes the entry required, so the
+    /// alternative is to treat a document's broken namespace as the standard one.
     #[must_use]
     pub fn standard_role(&self, document: &Document, element: &Dictionary) -> Option<StandardType> {
-        StandardType::read(&self.role(document, element)?)
+        let (name, namespace) = self.resolved(document, element)?;
+        if let Some(space) = namespace
+            && !Namespace::read(document, &space).is_some_and(|space| space.is_standard())
+        {
+            return None;
+        }
+        StandardType::read(&name)
     }
 
     /// The namespace name an element is in, §14.8.6.1's default where it states none.
@@ -2519,13 +2556,17 @@ impl Namespace {
 
     /// Whether this is one of §14.8.6.1's two standard structure namespaces.
     ///
-    /// **Nothing in the tree asks this**, which `doc/todo/01`'s fifth sweep found on the round it
-    /// became a program, and the reason is the clause it belongs to: §14.8.6.2's "all structure
-    /// elements shall be in at least one of the standard structure namespaces or in a namespace
-    /// identified in 14.8.6.3" is addressed to a *document*, so asking it is validating a file
-    /// rather than drawing one. The caller it is waiting for is `doc/todo/48`'s second owed item,
-    /// which needs exactly this predicate: the term "standard structure namespaces" is what the
-    /// clause's own exemptions are stated against.
+    /// **This had no caller for a hundred and fifteen sessions**, which `doc/todo/01`'s fifth
+    /// sweep found on the round it became a program, and the reason recorded here was that
+    /// §14.8.6.2's "all structure elements shall be in at least one of the standard structure
+    /// namespaces or in a namespace identified in 14.8.6.3" is addressed to a *document*, so
+    /// asking it is validating a file rather than drawing one.
+    ///
+    /// That reason was half right and it hid a reader's question behind a writer's. Whether a
+    /// document *conforms* is indeed not asked here; which vocabulary a type name belongs to is,
+    /// every time [`Tree::standard_role`] is called, and §14.8.4's forty-one names mean what
+    /// they mean **because of** the namespace they are defined in. So this is what tells a
+    /// foreign namespace's `Table` from a table.
     #[must_use]
     pub fn is_standard(&self) -> bool {
         self.name == DEFAULT_STANDARD_NAMESPACE || self.name == STANDARD_NAMESPACE_2_0
@@ -3389,6 +3430,61 @@ mod tests {
             panic!("one element");
         };
         assert_eq!(tree.role(&doc, &element).as_deref(), Some("LI"));
+        assert_eq!(
+            tree.standard_role(&doc, &element),
+            Some(StandardType::ListItem),
+            "the last step of the map leaves it in the default standard namespace"
+        );
+    }
+
+    /// §14.8.6.2's other half: a name that ends in a namespace which is not a standard structure
+    /// one is that namespace's word, whatever §14.8.4 happens to call the same string.
+    #[test]
+    fn a_foreign_namespaces_homonym_is_not_a_standard_type() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+            "<< /Type /StructTreeRoot /K 5 0 R /Namespaces [6 0 R] >>",
+            "<< /Type /StructElem /S /Table /NS 6 0 R >>",
+            "<< /Type /Namespace /NS (http://example.invalid/furniture) >>",
+        ]);
+        let tree = Tree::of(&doc).expect("a structure tree root");
+        let Some(Child::Element(element)) = tree.children(&doc, None).first().cloned() else {
+            panic!("one element");
+        };
+        assert_eq!(
+            tree.role(&doc, &element).as_deref(),
+            Some("Table"),
+            "the name is what the document wrote"
+        );
+        assert_eq!(
+            tree.standard_role(&doc, &element),
+            None,
+            "and it is not §14.8.4's table, because it is not in a standard structure namespace"
+        );
+    }
+
+    /// The same element in the PDF 2.0 standard structure namespace, which is what makes the
+    /// test above a statement about the namespace rather than about the `/NS` entry.
+    #[test]
+    fn the_same_name_in_a_standard_namespace_is_the_standard_type() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+            "<< /Type /StructTreeRoot /K 5 0 R /Namespaces [6 0 R] >>",
+            "<< /Type /StructElem /S /Table /NS 6 0 R >>",
+            "<< /Type /Namespace /NS (http://iso.org/pdf2/ssn) >>",
+        ]);
+        let tree = Tree::of(&doc).expect("a structure tree root");
+        let Some(Child::Element(element)) = tree.children(&doc, None).first().cloned() else {
+            panic!("one element");
+        };
+        assert_eq!(
+            tree.standard_role(&doc, &element),
+            Some(StandardType::Table)
+        );
     }
 
     /// A page with no `/StructParents` has no structure, and that is not a failure.

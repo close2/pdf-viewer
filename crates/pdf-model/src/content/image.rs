@@ -70,66 +70,54 @@ fn transferred_image(image: pdf_render::Image, transfer: Option<&Transfer>) -> p
 }
 
 impl Interpreter<'_> {
-    /// Draws one image `XObject`.
-    /// §8.9.5.4 step c): which of a hidden base image's `/Alternates` is drawn in its place.
+    /// §8.9.5.4 step d): which of a base image's `/Alternates` is drawn in its place.
     ///
-    /// The clause states an algorithm and **contradicts itself inside step c)**, which is why
-    /// this function has a comment as long as it is. The selection sentence:
+    /// # The algorithm this implements is Errata Collection 3's, not `doc/md/`'s
     ///
-    /// > the list of alternate image dictionaries specified by the base image Alternates entry
-    /// > shall be examined in order, and the first entry not containing an OC key, or containing
-    /// > an OC entry specifying that the alternate image should be visible, shall be selected
+    /// Issue #79, `/State` `Review` `Completed`. The five steps below are the 2020 clause with
+    /// the erratum's strikeouts and carets applied in the order the annotations sit on pages 279
+    /// and 280 of the sponsored copy, which `tools/spec-errata` reads back and `doc/md/` shows
+    /// none of; the carets' own words are quoted:
     ///
-    /// and then, four sentences later:
-    ///
-    /// > If none of the alternate image dictionaries have an OC key, or none of the alternate
-    /// > image dictionaries with an OC entry specify that that alternate image is visible, then
-    /// > nothing shall be shown.
-    ///
-    /// An alternate with **no** `/OC` is selectable by the first and unshowable by the second.
-    /// The two cannot both be obeyed, and this project's own habit for that is to ask which
-    /// reading makes a file's own words mean nothing: under the second, the phrase "the first
-    /// entry not containing an OC key" can never lead to a mark, so the clause would be naming a
-    /// case it has already excluded. So **the selection sentence is taken**, and the one place
-    /// the two readings differ — a selected alternate with no `/OC` of its own — is reported, so
-    /// that a document relying on the other reading is named rather than silently drawn.
-    ///
-    /// The "Further" sentence is read as being about the *image*, which is what makes it mean
-    /// something: Table 89's `/OC` is on the alternate image **dictionary**, and Table 87's is on
-    /// the image `XObject` the `/Image` entry names. So a dictionary may be selected and its image
-    /// still hidden.
-    ///
-    /// > Further, if this selected alternate image has an OC entry, then that OC entry shall also
-    /// > be processed to determine if the alternate image shall be rendered or not.
-    ///
-    /// `None` is the clause's "nothing shall be shown", which is a *decision* rather than a gap
-    /// and so is not reported. No corpus document carries an `/Alternates` entry at all —
-    /// measured over all 964 openable ones — so every rule here rests on the clause and on the
-    /// tests beside it.
-    ///
-    /// # Errata Collection 3 rewrites this algorithm, and settles the contradiction the other way
-    ///
-    /// Issue #79, `/State` `Review` `Completed`. Every blockquote above is struck out, so the
-    /// argument they support is an argument about text the standard no longer has — and the
-    /// amended steps disagree with this function in three places. Their words, from the carets
-    /// (ADR 0253; `doc/md/` shows none of it):
-    ///
-    /// - "Alternates that have no OC entry shall not be shown." **This function selects exactly
-    ///   those**, on the reading that the retired selection sentence would otherwise name a case
-    ///   it had excluded. The erratum deletes the selection sentence instead, which is the same
-    ///   repair made from the other end.
-    /// - "Furthermore if the image dictionary that forms the value of the Image key of the
+    /// - a) "If the base image contains an OC entry that specifies that the content is not
+    ///   visible, then nothing shall be shown."
+    /// - b) unamended: "[i]f the base image contains an OC entry that specifies that the base
+    ///   image is visible, then the base image shall be rendered."
+    /// - c) "Otherwise if the PDF is being printed and any of the Alternates entries has
+    ///   `DefaultForPrinting` set to true, then that alternate image shall be printed."
+    /// - d) "Otherwise, the list of alternates specified by the base image Alternates entry is
+    ///   examined, and the first alternate containing an OC entry specifying that its content is
+    ///   visible shall be shown (Alternates that have no OC entry shall not be shown.)
+    ///   Furthermore if the image dictionary that forms the value of the Image key of the
     ///   selected alternate contains an OC entry, then that OC in the image dictionary shall not
-    ///   be examined." The "Further" sentence read above is **inverted**: Table 87's `/OC` on the
-    ///   alternate's own image is now to be ignored rather than processed.
-    /// - A new step: "If steps c and d above do not identify an alternate to be rendered then the
-    ///   base image shall be rendered." So the fall-through is the **base image**, not nothing.
+    ///   be examined."
+    /// - e) "If steps c and d above do not identify an alternate to be rendered then the base
+    ///   image shall be rendered."
     ///
-    /// This is left as it stands rather than half-corrected, because the amended clause's step
-    /// ordering has its own question — the amended a) ends "then nothing shall be shown", which
-    /// reads as terminal and would leave d)'s alternate selection unreachable for a hidden base —
-    /// and a rewrite that guessed at it would replace one contradiction with another. `doc/todo/48`
-    /// carries it with the erratum's own text. Nothing on any corpus page moves either way.
+    /// **This function is d), and nothing else.** a) and b) are `xobject.rs`'s, because they are
+    /// about the base image and never reach an alternate; c) addresses printing and this device
+    /// is a screen, which is why `/DefaultForPrinting` is read by nothing here; e) is the
+    /// caller's fall-through when this answers `None`.
+    ///
+    /// # Why the amended clause replaced a documented contradiction rather than adding one
+    ///
+    /// The 2020 step c) said in one place that "the first entry not containing an OC key … shall
+    /// be selected" and in another that where "none of the alternate image dictionaries have an
+    /// OC key … nothing shall be shown", and this function used to implement the first of those
+    /// with the second reported beside it. The erratum settles it the other way — an alternate
+    /// with no `/OC` is not shown — and the settlement costs nothing, because e) draws the base
+    /// image where d) selects nothing at all.
+    ///
+    /// The rewrite was declined once, in the four-hundred-and-seventeenth session, on the ground
+    /// that the amended a) "reads as terminal and would leave the amended d) unreachable". It is
+    /// terminal, and d) is unreachable **for a hidden base image** — which is the amendment
+    /// rather than a contradiction in it: a) and b) between them dispose of every base image that
+    /// states an `/OC`, so c) and d) begin at "Otherwise" and are reached by a base image that
+    /// states none. Read that way the five steps are total, disjoint and reachable, which the
+    /// 2020 four were not.
+    ///
+    /// No corpus document carries an `/Alternates` entry at all — measured over all 964 openable
+    /// ones — so every rule here rests on the clause and on the tests beside it.
     pub(super) fn alternate_image(
         &mut self,
         base: &Dictionary,
@@ -142,21 +130,18 @@ impl Interpreter<'_> {
             let Some(alternate) = resolved.as_dict() else {
                 continue;
             };
-            let group = alternate.get("OC").cloned();
-            if let Some(group) = &group
-                && !self.shows_optional_content(group)
-            {
+            // "the first alternate containing an OC entry specifying that its content is visible
+            // shall be shown (Alternates that have no OC entry shall not be shown.)"
+            let Some(group) = alternate.get("OC").cloned() else {
+                continue;
+            };
+            if !self.shows_optional_content(&group) {
                 continue;
             }
-            if group.is_none() {
-                self.note(Unsupported::Image {
-                    name: format!(
-                        "{name}: §8.9.5.4 step c) selects an alternate with no /OC and its own                          closing sentence says nothing shall be shown; the selection is taken"
-                    ),
-                });
-            }
 
-            // Table 89 makes `/Image` required, so an entry without one has selected nothing.
+            // Table 89 makes `/Image` required, so an entry without one identifies no alternate
+            // to be rendered — which is step e)'s condition, so the base image is drawn and the
+            // document's broken entry is named rather than swallowed.
             let image = self.document.get_key(alternate, "Image");
             let Some(image) = image.as_stream().cloned() else {
                 self.note(Unsupported::Image {
@@ -164,13 +149,9 @@ impl Interpreter<'_> {
                 });
                 return None;
             };
-            // The "Further" sentence: the *image*'s own `/OC` (Table 87) decides whether the
-            // alternate this dictionary selected is rendered at all.
-            if let Some(own) = image.dict.get("OC").cloned()
-                && !self.shows_optional_content(&own)
-            {
-                return None;
-            }
+            // "that OC in the image dictionary shall not be examined" — Table 87's `/OC` on the
+            // alternate's own image `XObject` is deliberately not consulted here. The dictionary
+            // that selected it has already answered the visibility question.
             return Some(image);
         }
         None

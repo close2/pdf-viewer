@@ -600,8 +600,8 @@ fn a_zoom_category_is_answered_at_the_pages_stated_size() {
 /// Interprets a fixture without demanding that it be complete, and answers what it reported.
 ///
 /// [`render`] asserts completeness, which is right for every test above and wrong for
-/// §8.9.5.4: one branch of that clause is a *documented choice between two contradictory
-/// readings*, and naming it is the whole point.
+/// §8.9.5.4: an alternate image dictionary stating no `/Image` is a document defect the clause
+/// has no step for, and naming it is what the tests below check.
 fn interpret(bytes: Vec<u8>) -> (pdf_render::Raster, Vec<String>) {
     let document = Document::open(bytes).expect("the fixture is a valid PDF");
     let page = pdf_model::Pages::new(&document).get(0).expect("page one");
@@ -644,59 +644,15 @@ fn one_pixel_image(number: u32, sample: u8, extra: &str) -> String {
 /// Draws object 6 as an image across the middle of the page.
 const DRAW_IMAGE: &str = "q 60 0 0 60 20 20 cm /Im Do Q";
 
-/// §8.9.5.4 step c) selects an alternate for a base image its `/OC` hides — and the clause
-/// contradicts itself about an alternate with no `/OC` of its own, so the choice is named.
+/// §8.9.5.4 step a), as Errata Collection 3 amends it: "[i]f the base image contains an OC
+/// entry that specifies that the content is not visible, then nothing shall be shown."
+///
+/// Terminal, so the `/Alternates` are not examined — which is where this differs from the 2020
+/// algorithm, whose step c) sent a hidden base image to its alternates.
 #[test]
-fn a_hidden_base_image_draws_the_alternate_the_clause_selects() {
+fn a_hidden_base_image_shows_nothing_and_does_not_reach_its_alternates() {
     let base = one_pixel_image(7, 0x00, "/OC 5 0 R /Alternates 8 0 R");
-    let alternates = "8 0 obj\n[ << /Image 9 0 R >> ]\nendobj\n";
-    let alternate = one_pixel_image(9, 0xFF, "");
-    let (raster, reports) = interpret(pdf(
-        TWO_GROUPS,
-        "/XObject << /Im 7 0 R >>",
-        DRAW_IMAGE,
-        "",
-        &format!("{GROUP}{SECOND_GROUP}{base}{alternates}{alternate}"),
-    ));
-    assert_eq!(
-        pixel(&raster, 50, 50),
-        [255, 255, 255, 255],
-        "the alternate, not the black base"
-    );
-    assert_eq!(reports.len(), 1, "the choice is named: {reports:?}");
-    assert!(reports[0].contains("nothing shall be shown"), "{reports:?}");
-}
-
-/// "[T]he first entry not containing an OC key, or containing an OC entry specifying that the
-/// alternate image should be visible, shall be selected" — so an alternate whose own group is
-/// off is skipped and the next one taken, in the array's order.
-#[test]
-fn an_alternate_whose_group_is_off_is_skipped_for_the_next_one() {
-    let base = one_pixel_image(7, 0x00, "/OC 5 0 R /Alternates 8 0 R");
-    let alternates =
-        "8 0 obj\n[ << /Image 9 0 R /OC 5 0 R >> << /Image 10 0 R /OC 6 0 R >> ]\nendobj\n";
-    let hidden = one_pixel_image(9, 0x40, "");
-    let shown = one_pixel_image(10, 0xFF, "");
-    let (raster, reports) = interpret(pdf(
-        TWO_GROUPS,
-        "/XObject << /Im 7 0 R >>",
-        DRAW_IMAGE,
-        "",
-        &format!("{GROUP}{SECOND_GROUP}{base}{alternates}{hidden}{shown}"),
-    ));
-    assert_eq!(pixel(&raster, 50, 50), [255, 255, 255, 255]);
-    assert!(
-        reports.is_empty(),
-        "every selection was stated: {reports:?}"
-    );
-}
-
-/// "[I]f none of the alternate image dictionaries with an OC entry specify that that alternate
-/// image is visible, then nothing shall be shown" — a decision, so nothing is reported either.
-#[test]
-fn a_hidden_base_image_whose_alternates_are_all_hidden_shows_nothing() {
-    let base = one_pixel_image(7, 0x00, "/OC 5 0 R /Alternates 8 0 R");
-    let alternates = "8 0 obj\n[ << /Image 9 0 R /OC 5 0 R >> ]\nendobj\n";
+    let alternates = "8 0 obj\n[ << /Image 9 0 R /OC 6 0 R >> ]\nendobj\n";
     let alternate = one_pixel_image(9, 0xFF, "");
     let (raster, reports) = interpret(pdf(
         TWO_GROUPS,
@@ -709,12 +665,62 @@ fn a_hidden_base_image_whose_alternates_are_all_hidden_shows_nothing() {
     assert!(reports.is_empty(), "a decision is not a gap: {reports:?}");
 }
 
-/// Step b): "[i]f the base image contains an OC entry that specifies that the base image is
-/// visible, then the base image shall be rendered" — `/Alternates` beside it changes nothing.
+/// Step d): "the first alternate containing an OC entry specifying that its content is visible
+/// shall be shown" — examined in the array's order, so an alternate whose group is off is
+/// passed over for the next one.
 #[test]
-fn a_visible_base_image_is_drawn_whatever_its_alternates_say() {
-    let base = one_pixel_image(7, 0x00, "/OC 6 0 R /Alternates 8 0 R");
+fn a_base_image_with_no_group_shows_the_first_visible_alternate() {
+    let base = one_pixel_image(7, 0x00, "/Alternates 8 0 R");
+    let alternates =
+        "8 0 obj\n[ << /Image 9 0 R /OC 5 0 R >> << /Image 10 0 R /OC 6 0 R >> ]\nendobj\n";
+    let hidden = one_pixel_image(9, 0x40, "");
+    let shown = one_pixel_image(10, 0xFF, "");
+    let (raster, reports) = interpret(pdf(
+        TWO_GROUPS,
+        "/XObject << /Im 7 0 R >>",
+        DRAW_IMAGE,
+        "",
+        &format!("{GROUP}{SECOND_GROUP}{base}{alternates}{hidden}{shown}"),
+    ));
+    assert_eq!(
+        pixel(&raster, 50, 50),
+        [255, 255, 255, 255],
+        "the second alternate, whose group is on"
+    );
+    assert!(reports.is_empty(), "{reports:?}");
+}
+
+/// Step d)'s parenthesis — "(Alternates that have no OC entry shall not be shown.)" — with
+/// step e) behind it: "[i]f steps c and d above do not identify an alternate to be rendered
+/// then the base image shall be rendered."
+///
+/// This is the sentence the 2020 clause contradicted itself about and the one this tree used to
+/// resolve the other way, drawing the alternate and reporting the choice.
+#[test]
+fn an_alternate_with_no_group_is_not_shown_and_the_base_image_is() {
+    let base = one_pixel_image(7, 0x00, "/Alternates 8 0 R");
     let alternates = "8 0 obj\n[ << /Image 9 0 R >> ]\nendobj\n";
+    let alternate = one_pixel_image(9, 0xFF, "");
+    let (raster, reports) = interpret(pdf(
+        TWO_GROUPS,
+        "/XObject << /Im 7 0 R >>",
+        DRAW_IMAGE,
+        "",
+        &format!("{GROUP}{SECOND_GROUP}{base}{alternates}{alternate}"),
+    ));
+    assert_eq!(
+        pixel(&raster, 50, 50),
+        [0, 0, 0, 255],
+        "the base image, by step e)"
+    );
+    assert!(reports.is_empty(), "a decision is not a gap: {reports:?}");
+}
+
+/// Step e) again, from the other side: every alternate states a group and every group is off.
+#[test]
+fn a_base_image_whose_alternates_are_all_hidden_is_drawn_itself() {
+    let base = one_pixel_image(7, 0x00, "/Alternates 8 0 R");
+    let alternates = "8 0 obj\n[ << /Image 9 0 R /OC 5 0 R >> ]\nendobj\n";
     let alternate = one_pixel_image(9, 0xFF, "");
     let (raster, reports) = interpret(pdf(
         TWO_GROUPS,
@@ -727,12 +733,33 @@ fn a_visible_base_image_is_drawn_whatever_its_alternates_say() {
     assert!(reports.is_empty(), "{reports:?}");
 }
 
-/// The "Further" sentence, read as being about the *image* rather than the dictionary — which
-/// is what makes it say something Table 89's `/OC` has not already said: a dictionary with a
-/// visible `/OC` may name an image `XObject` whose own Table 87 `/OC` is off.
+/// Step b): "[i]f the base image contains an OC entry that specifies that the base image is
+/// visible, then the base image shall be rendered" — `/Alternates` beside it changes nothing.
 #[test]
-fn a_selected_alternate_whose_image_is_hidden_draws_nothing() {
-    let base = one_pixel_image(7, 0x00, "/OC 5 0 R /Alternates 8 0 R");
+fn a_visible_base_image_is_drawn_whatever_its_alternates_say() {
+    let base = one_pixel_image(7, 0x00, "/OC 6 0 R /Alternates 8 0 R");
+    let alternates = "8 0 obj\n[ << /Image 9 0 R /OC 6 0 R >> ]\nendobj\n";
+    let alternate = one_pixel_image(9, 0xFF, "");
+    let (raster, reports) = interpret(pdf(
+        TWO_GROUPS,
+        "/XObject << /Im 7 0 R >>",
+        DRAW_IMAGE,
+        "",
+        &format!("{GROUP}{SECOND_GROUP}{base}{alternates}{alternate}"),
+    ));
+    assert_eq!(pixel(&raster, 50, 50), [0, 0, 0, 255], "the base image");
+    assert!(reports.is_empty(), "{reports:?}");
+}
+
+/// Step d)'s closing sentence, which inverts what the 2020 clause asked for: "[f]urthermore if
+/// the image dictionary that forms the value of the Image key of the selected alternate
+/// contains an OC entry, then that OC in the image dictionary shall not be examined."
+///
+/// So the selected alternate is drawn even though its own image `XObject` carries Table 87's
+/// `/OC` naming a group that is off.
+#[test]
+fn the_selected_alternates_own_image_group_is_not_examined() {
+    let base = one_pixel_image(7, 0x00, "/Alternates 8 0 R");
     let alternates = "8 0 obj\n[ << /Image 9 0 R /OC 6 0 R >> ]\nendobj\n";
     let alternate = one_pixel_image(9, 0xFF, "/OC 5 0 R");
     let (raster, reports) = interpret(pdf(
@@ -742,8 +769,31 @@ fn a_selected_alternate_whose_image_is_hidden_draws_nothing() {
         "",
         &format!("{GROUP}{SECOND_GROUP}{base}{alternates}{alternate}"),
     ));
-    assert!(!drew(&raster), "the selected image's own /OC hides it");
+    assert_eq!(
+        pixel(&raster, 50, 50),
+        [255, 255, 255, 255],
+        "the alternate the dictionary selected"
+    );
     assert!(reports.is_empty(), "{reports:?}");
+}
+
+/// Table 89 makes `/Image` required. An alternate that states none identifies no alternate to
+/// be rendered, which is step e)'s condition — and the document's defect is named rather than
+/// swallowed by it.
+#[test]
+fn an_alternate_that_states_no_image_is_reported_and_the_base_is_drawn() {
+    let base = one_pixel_image(7, 0x00, "/Alternates 8 0 R");
+    let alternates = "8 0 obj\n[ << /OC 6 0 R >> ]\nendobj\n";
+    let (raster, reports) = interpret(pdf(
+        TWO_GROUPS,
+        "/XObject << /Im 7 0 R >>",
+        DRAW_IMAGE,
+        "",
+        &format!("{GROUP}{SECOND_GROUP}{base}{alternates}"),
+    ));
+    assert_eq!(pixel(&raster, 50, 50), [0, 0, 0, 255], "the base image");
+    assert_eq!(reports.len(), 1, "{reports:?}");
+    assert!(reports[0].contains("states no /Image"), "{reports:?}");
 }
 
 /// §8.11.4.3's Table 99 `/ListMode` `VisiblePages` needs one question answered about the file:

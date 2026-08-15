@@ -53,9 +53,8 @@ pub const MIN_MATCH: usize = 5;
 
 /// The shortest span of prose that is treated as a quotation at all.
 ///
-/// `spec-errata`'s `MIN_WORDS`, for the same reason it uses it: a pair of quotation marks round
-/// three words is usually a term being named rather than a sentence being quoted.
-pub const MIN_WORDS: usize = 4;
+/// [`quote::MIN_WORDS`], which is where the rule lives now that three populations share it.
+pub const MIN_WORDS: usize = quote::MIN_WORDS;
 
 /// The directories under `doc/` this sweep does not read.
 ///
@@ -79,7 +78,7 @@ pub const NOT_READ: [&str; 5] = [
 /// it out of the PDF, so checking it would measure the extractor rather than a claim.
 pub const NOT_A_DOCUMENT: &str = "errata.md";
 
-/// How a Markdown document marks a quotation.
+/// How a document marks a quotation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Shape {
     /// A `>` blockquote — the shape `CLAUDE.md` asks a rustdoc quotation to take, and the one
@@ -88,6 +87,20 @@ pub enum Shape {
     /// A pair of `"` inside ordinary prose, which is the commoner shape by an order of
     /// magnitude and carries exactly the same claim.
     Quoted,
+    /// A pair of `'`, which carries the same claim again and which nothing read until
+    /// [`quote::quoted_spans`] learned the rule that tells one from an apostrophe.
+    Apostrophed,
+}
+
+impl Shape {
+    /// The shape a [`quote::Mark`] makes.
+    #[must_use]
+    pub fn of(mark: quote::Mark) -> Self {
+        match mark {
+            quote::Mark::Double => Self::Quoted,
+            quote::Mark::Single => Self::Apostrophed,
+        }
+    }
 }
 
 impl fmt::Display for Shape {
@@ -95,6 +108,7 @@ impl fmt::Display for Shape {
         f.write_str(match self {
             Self::Blockquote => "blockquote",
             Self::Quoted => "quoted",
+            Self::Apostrophed => "single-quoted",
         })
     }
 }
@@ -167,19 +181,27 @@ pub enum Error {
 /// - **Square brackets come out.** The same practice written the other way — `"[t]he
 ///   implementation of such a schema driven page generation"` is `CLAUDE.md`'s own spelling of
 ///   an altered first letter, and it is exact quotation with a mark round the change.
-/// - **Dash shapes fold together.** The conversion prints `Table 87 -Additional entries` where
-///   the standard sets an em dash, and a person typing a quotation into a document types
-///   whichever dash the keyboard offers.
-/// - **So do the two quotation marks.** A quotation delimited by `"` cannot contain a `"`, so a
-///   writer quoting a sentence that carries one — and the standard's cross-references all do,
-///   `(see 9.8, "Font descriptors")` — substitutes an apostrophe. The substitution is forced by
-///   the shape of the mark rather than chosen, and `CLAUDE.md`'s rule is about the words.
+/// - **Dashes come out, having first been folded together.** The conversion prints `Table 87
+///   -Additional entries` where the standard sets an em dash, so a person typing a quotation
+///   into a document types whichever dash the keyboard offers — and the conversion **loses the
+///   hyphen of a word it breaks across a line**, which the spaces coming out cannot repair.
+///   `pdftotext -layout` over the PDF finds `text-to-speech`, `implementation-dependent` and
+///   `marked-content` where `doc/md/` has `text-tospeech`, `implementationdependent` and
+///   `markedcontent`; those three were three of the nine divergences the ledger's own notes
+///   reported on the first run of the sweep that reads them.
+/// - **A fraction slash is a slash.** Table 145's `/PrintScaling` neighbourhood sets `1 ⁄ 72`
+///   with U+2044 and spaces round it, and a note quoting it types `1/72`.
+///
+/// The quotation marks used to be folded together here as a fifth. They are not, because
+/// [`quote::normalise`] now drops them outright one step earlier — a quotation delimited by
+/// `"` cannot contain a `"`, and the conversion does not spell the standard's own mark
+/// consistently anyway; §14.8.6 is the witness and that function carries it.
 #[must_use]
 pub fn folded(text: &str) -> String {
     quote::normalise(text)
         .chars()
-        .filter(|character| !character.is_whitespace() && *character != '[' && *character != ']')
         .map(fold)
+        .filter(|character| kept(*character))
         .flat_map(char::to_lowercase)
         .collect()
 }
@@ -188,9 +210,16 @@ pub fn folded(text: &str) -> String {
 fn fold(character: char) -> char {
     match character {
         '\u{2010}'..='\u{2015}' | '\u{2212}' => '-',
-        '"' => '\'',
+        '\u{2044}' => '/',
         character => plain(character),
     }
+}
+
+/// Whether a character survives the fold, which [`folded`] and [`Conversion::of`] must also
+/// agree on — and which is applied **after** [`fold`], so that every dash shape is dropped
+/// rather than only the one on the keyboard.
+fn kept(character: char) -> bool {
+    !character.is_whitespace() && !matches!(character, '[' | ']' | '-')
 }
 
 /// A Mathematical Alphanumeric Symbol, folded back to the letter or digit it styles.
@@ -316,10 +345,11 @@ impl Conversion {
         let mut text = String::with_capacity(spaced.len());
         let mut origin = Vec::with_capacity(spaced.len());
         for (at, character) in spaced.char_indices() {
-            if character.is_whitespace() || character == '[' || character == ']' {
+            let character = fold(character);
+            if !kept(character) {
                 continue;
             }
-            for lowered in fold(character).to_lowercase() {
+            for lowered in character.to_lowercase() {
                 text.push(lowered);
                 let at = u32::try_from(at).unwrap_or(u32::MAX);
                 origin.resize(text.len(), at);
@@ -465,7 +495,8 @@ fn segments(quotation: &str) -> Vec<String> {
 
 /// Every quotation one Markdown document makes, in the order it makes them.
 ///
-/// Two shapes, and the rules that keep each of them honest:
+/// Three shapes — a blockquote, and the two pairs of marks [`quote::quoted_spans`] finds in a
+/// paragraph — and the rules that keep each of them honest:
 ///
 /// - **A fenced block is not prose.** These documents are full of shell invocations, Rust
 ///   snippets and sample output, every string literal in which would otherwise be read as a
@@ -495,9 +526,11 @@ pub fn quotations(text: &str) -> Vec<(usize, Shape, String)> {
         block.clear();
         match shape {
             Shape::Blockquote => found.push((start, shape, joined)),
-            Shape::Quoted => {
-                for span in quoted_spans(&joined) {
-                    found.push((start, shape, span));
+            // A paragraph carries whichever marks it carries, and the span itself says which
+            // pair delimited it: the block only ever knew that it was not a blockquote.
+            _ => {
+                for (marked, span) in quoted_spans(&joined) {
+                    found.push((start, marked, span));
                 }
             }
         }
@@ -560,20 +593,15 @@ fn opens_an_item(body: &str) -> bool {
         })
 }
 
-/// The double-quoted spans of a piece of prose, in the order they appear.
+/// The quoted spans of a piece of prose, in the order they appear.
 ///
-/// `spec-errata::quoted_spans`'s rule, applied to Markdown: curly marks are the same marks —
-/// these documents are typed with both — and single quotes are deliberately not collected,
-/// because an apostrophe would make every possessive an opening mark. `doc/todo/48` carries
-/// that gap as owed, and it is owed for this population as much as for the ledger's.
+/// [`quote::quoted_spans`], which is where the rule lives so that this population, the
+/// ledger's notes and `spec-errata`'s doc comments share one answer to what a quotation is.
 #[must_use]
-pub fn quoted_spans(text: &str) -> Vec<String> {
-    text.replace(['\u{201c}', '\u{201d}'], "\"")
-        .split('"')
-        .skip(1)
-        .step_by(2)
-        .filter(|span| span.split_whitespace().count() >= MIN_WORDS)
-        .map(str::to_owned)
+pub fn quoted_spans(text: &str) -> Vec<(Shape, String)> {
+    quote::quoted_spans(text)
+        .into_iter()
+        .map(|(mark, span)| (Shape::of(mark), span))
         .collect()
 }
 
@@ -763,12 +791,15 @@ mod tests {
         );
     }
 
+    /// The population `doc/todo/48` carried as owed: a paragraph's single-quoted span is a
+    /// quotation and reaches the same judge as every other.
     #[test]
-    fn a_span_of_three_words_is_a_term_rather_than_a_quotation() {
-        assert!(quoted_spans("the \"soft mask\" entry").is_empty());
+    fn a_single_quoted_span_in_a_paragraph_is_a_quotation() {
+        let read = quotations("the row says 'a sentence that is long enough' and so on\n");
         assert_eq!(
-            quoted_spans("the \u{201c}four words go here\u{201d} entry").len(),
-            1
+            read.first()
+                .map(|(line, shape, text)| (*line, *shape, text.as_str())),
+            Some((1, Shape::Apostrophed, "a sentence that is long enough"))
         );
     }
 }

@@ -782,7 +782,13 @@ are no longer here.
   "Default value: 0." in the PDF and the markdown has no such line, so a reading taken from
   `doc/md/` alone would record a silence the standard does not have. `pdftotext -layout` over the
   PDF is the check, and a **table** is where to expect it. When a gate accuses the standard of a
-  gap, suspect the conversion first. Extract spec data from here rather than writing it from
+  gap, suspect the conversion first. **It also *changes* text rather than only dropping it**, and
+  the shapes are known: the hyphen of a word broken across a line disappears (`text-tospeech`,
+  `implementationdependent`), and one double quotation mark comes out as `"` on one page and as
+  `' … '` with spaces inside it on the next — §14.8.6.1 against §14.8.6.3 is the witness, and a
+  blockquote quoting the second would have failed the gate with the standard blamed for it. That is
+  why `conformance::quote::normalise` drops every quotation mark and `prose::folded` drops hyphens;
+  ADR 0375. Extract spec data from here rather than writing it from
   memory; `grep -v '^!\[Image\]'` first, the files carry base64 images inline.
 - **`doc/` holds more than ISO 32000-2.** `PDF20_AN001-BPC.md` is the PDF Association's note on
   black point compensation by ISO 32000's own co-project-leader, and it settled a design question

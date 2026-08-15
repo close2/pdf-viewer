@@ -62,18 +62,16 @@ impl Interpreter<'_> {
         // entirely, because a form's state changes do not outlive it, and skipping is what
         // keeps an undrawable image inside a hidden layer from being reported as a gap.
         // Read unresolved: a group is identified by *which object* it is (§8.11.2.2).
-        if let Some(oc) = stream.dict.get("OC").cloned()
-            && !self.shows_optional_content(&oc)
+        let group = stream.dict.get("OC").cloned();
+        if let Some(oc) = &group
+            && !self.shows_optional_content(oc)
         {
-            // §8.9.5.4 step c): where a base image's `/OC` says it is *not* visible, its
-            // `/Alternates` are examined in order and one of them is drawn in its place.
-            // Step b) — a visible base image — needs nothing, because that is what drawing the
-            // base image is; and step a) is satisfied by construction, since this tree never
-            // reads `/DefaultForPrinting` at all (step d) addresses printing, and this device
-            // is a screen).
-            if let Some(alternate) = self.alternate_image(&stream.dict, &name) {
-                self.draw_image(&alternate, &name, resources, state);
-            }
+            // §8.9.5.4 step a), as Errata Collection 3 amends it: "[i]f the base image contains
+            // an OC entry that specifies that the content is not visible, then nothing shall be
+            // shown." Terminal — the `/Alternates` are **not** examined, because steps c) and d)
+            // begin at "Otherwise" and are reached only by an image that states no `/OC` at all.
+            // Step b) is the fall-through below, since drawing the base image is what it asks
+            // for. `Interpreter::alternate_image` carries the whole amended algorithm.
             return;
         }
         if self.is_hidden() {
@@ -87,7 +85,15 @@ impl Interpreter<'_> {
             .unwrap_or_default();
 
         if subtype == b"Image" {
-            self.draw_image(&stream, &name, resources, state);
+            // §8.9.5.4 steps d) and e): a base image stating no `/OC` may be replaced by the
+            // first of its `/Alternates` whose own `/OC` says it is visible, and where none is
+            // identified "the base image shall be rendered".
+            let alternate = match group {
+                Some(_) => None,
+                None => self.alternate_image(&stream.dict, &name),
+            };
+            let drawn = alternate.as_ref().unwrap_or(&stream);
+            self.draw_image(drawn, &name, resources, state);
             return;
         }
         if subtype != b"Form" {

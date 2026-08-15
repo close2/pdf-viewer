@@ -69,7 +69,7 @@ objects prints twice. The multiplicities below sum to the 79.
 | §8.6.5.8 Rendering intents | 212 | #63 | cites | The NOTE's licence to support fewer than four intents is withdrawn. Nothing here leant on it; the existing `partial` gap is unchanged and slightly less excusable. |
 | §8.6.8 Colour operators | 232 | #551 | cites | Table 74's `CS` row no longer says the resource entry "shall be an array"; `colour::parse_at` already accepted a name first. |
 | §8.9.5.1 General | 274 | #366 | untouched | "if a predictor function is used" struck from Table 87's `/BitsPerComponent`. Predictors never reach the image dictionary here. |
-| §8.9.5.4 Alternate images | 279 | #79 | **implements** | The algorithm is rewritten and three of its steps contradict `alternate_image`. See the finding below. |
+| §8.9.5.4 Alternate images | 279 | #79 | **implements** | The algorithm is rewritten and three of its steps contradict `alternate_image`. See the finding below. **Amended algorithm implemented in the five-hundred-and-fortieth, ADR 0375.** |
 | §8.9.7 Inline images | 283 | #20 | untouched | "one of its filters" → "its final or only filter". `inline_image` skips one white-space byte unconditionally and never applies the test in either form. |
 | §8.10.2 Form dictionaries | 287 | #292 | cites | `/Resources` becomes "Sometimes required" and independence becomes required from PDF 2.0. The page-resource fallback this tree has rests on §7.8.3, which the erratum leaves standing. |
 | §8.11.3.2 Optional content | 297 | #707, #686 | untouched | ×2. EXAMPLE code wrapped in object syntax. Nothing normative. |
@@ -140,14 +140,19 @@ and not a verdict.
    way. **Fixed**: the three quotations are replaced by the warrant that survives — Table 109's
    "optional in PDF 1.0-1.7 for the standard 14 fonts", which makes the metrics necessary to draw
    the page at all, and §6.3.2.2.
-4. **§8.9.5.4, Issue #79 — the alternate-image algorithm is rewritten and this tree implements the
-   retired one.** Three divergences, quoted in `content/image.rs::alternate_image` and in the
+4. **§8.9.5.4, Issue #79 — the alternate-image algorithm is rewritten, and this tree implemented
+   the retired one until the five-hundred-and-fortieth session.** Three divergences, quoted in `content/image.rs::alternate_image` and in the
    ledger row. (This said `content.rs::alternate_image` until the five-hundred-and-thirty-seventh
    session: the function moved into `content/` when the module was split, and the pointer's
    *symbol* half is what found it.)
-   **Not fixed, deliberately**: the amended step a) ends "then nothing shall be shown", which reads
-   as terminal and would leave the amended d) unreachable for a hidden base, so a rewrite would
-   trade one contradiction for another. No corpus document states `/Alternates`.
+   **Not fixed here, and the reason given was wrong.** It read: the amended step a) ends "then
+   nothing shall be shown", which is terminal and would leave the amended d) unreachable for a
+   hidden base, so a rewrite would trade one contradiction for another. a) *is* terminal and d) is
+   unreachable for a hidden base — and that is what the erratum changes, not a defect in it: a) and
+   b) dispose of every base image stating an `/OC`, and c) and d) open at "Otherwise", so they
+   belong to a base image stating none. The five amended steps are total, disjoint and reachable.
+   **Fixed in the five-hundred-and-fortieth** (ADR 0375); no corpus document states `/Alternates`
+   and the corpus gate prints the same figures either way.
 5. **The instrument under-reported by 72.** See ADR 0253.
 
 ## The other 54, read in the four-hundred-and-eighteenth session
@@ -202,7 +207,7 @@ are here**, same discipline, one line apiece. ADR 0254 is the round.
 | §14.8.4.4 Grouping | 772 | #141 | untouched | "Part is the semantic equivalent of Div." is replaced by a NOTE saying the opposite — a `Part`'s grouping *has* semantic value where a `Div`'s does not. `structure.rs` carries both types by name and interprets neither. |
 | §14.8.4.7.2 | 778 | #84 | untouched | `Strong`'s EXAMPLE 3 gloss: "the content that the user is intended to read first" becomes "is more important". |
 | §14.8.4.7.2 | 779 | #133 | cites | §14.8.4.7.3's link element is relaxed — one content item rather than two, "one or more link annotations", and the condition that their `/A`, `/Dest` and `/PA` match is struck. Recorded in the §14.8.4.7.2 row beside #437's enclosure reframing, which this round also settled. Nothing here validates an element's children. |
-| §14.8.6.3 Other namespaces | 810 | #72, #719 | quotes | The MathML sentence loses its version, gains a requirement that the `math` element enclose the formula under `Formula`, and requires the namespace on every MathML type *and attribute*. The row and `structure.rs` said "MathML 3.0" — corrected; the enclosure requirement is unchecked and now recorded. |
+| §14.8.6.3 Other namespaces | 810 | #72, #719 | quotes | The MathML sentence loses its version, gains a requirement that the `math` element enclose the formula under `Formula`, and requires the namespace on every MathML type *and attribute*. The row and `structure.rs` said "MathML 3.0" — corrected. **The enclosure requirement was read in the five-hundred-and-fortieth and is a `shall` on whoever *includes* the mathematics** — the sentence opens "[w]hen including mathematics structured as MathML" — so it falls under `CLAUDE.md`'s producer exclusion; what stays owed is a validator's report. ADR 0375. |
 | §14.12.4.2 DPart metadata | 852 | #290 | cites | Table 409's `/Metadata` is **withdrawn**: "XMP metadata streams shall not be used in DPart dictionaries", with a NOTE that it was allowed in earlier editions of PDF 2.0. `document_part` reads `/Start` and `/DParts` and no metadata at all. |
 | §14.13.2 Embedded associated files | 853 | #568 | cites | The designation is rewritten: an object's `/AF` is an array of file specifications carrying `/AFRelationship`, and a marked-content sequence "shall use an AF marked content tag (see 14.13.5)". That is the same division session 417's `/MCAF` finding rests on, from the other side. |
 | Annex E.2 | 893 | #340 | cites | Third-class names: the `XX` prefix survives, "[i]t is not necessary to register" becomes "cannot be registered". The row's own sentence is unaffected. |
@@ -340,20 +345,30 @@ on the four words "the same as the". `overlaps` now asks for one segment quoting
 
 ## Owed
 
-- **§8.9.5.4** (finding 4), which is still the one clause this tree knowingly implements a retired
-  version of. Unchanged and for the reason stated: the amended step a) reads as terminal and would
-  leave the amended d) unreachable, so a rewrite trades one contradiction for another.
-- **§14.8.6.3's enclosure requirement**: EC3 requires a `math` element to sit under a `Formula`
-  structure element and every MathML type *and attribute* to state the namespace. `Tree::role`
-  checks neither.
+- ~~**§8.9.5.4**~~ (finding 4) — **implemented in the five-hundred-and-fortieth, and the reason it
+  had been declined was wrong.** The amended step a) is terminal and the amended d) *is* unreachable
+  for a hidden base image; that is the amendment rather than a contradiction in it, because a) and
+  b) dispose of every base image stating an `/OC` and c) and d) open at "Otherwise". Read that way
+  the five steps are total, disjoint and reachable, which the 2020 four were not. ADR 0375. Nothing
+  in the corpus moves: the corpus gate prints the same figures either way.
+- ~~**§14.8.6.3's enclosure requirement**~~ — **read in the five-hundred-and-fortieth and declined
+  by argument.** The amended sentence opens "[w]hen including mathematics structured as MathML",
+  which addresses whoever writes the tagging: the enclosure under `Formula` and the namespace on
+  every MathML type and attribute are `shall`s on a producer, and `CLAUDE.md`'s closed exclusion
+  covers those. What a reader owes is done. The half that is a *validator's* — reporting the
+  document that breaks either — is what keeps the row `partial`. And the clause turned out to carry
+  the round's real finding: `doc/md/` writes its namespace name as `' … '` where the PDF sets
+  `“ … ”`, which is why `conformance::quote::normalise` drops every shape of quotation mark now.
 - **The 51 landings in the "struck out of another clause" bucket.** All of them were looked at this
   round and none is a finding — they are the "; shall be an indirect reference" family, four-word
   coincidences, and this round's own corrections quoting what they retired — but the bucket is a
   sort order and not a verdict, and it grows every time a correction is written.
-- **The ledger's single-quoted spans.** `quoted_spans` collects `"` … `"` only, because an
-  apostrophe would make every possessive an opening mark. §12.7.5.2.2's stale quotation was in
-  single quotes and was found through `form.rs`'s copy of the same sentence rather than by the
-  sweep, which is a coverage gap with a known cause and no cheap fix.
+- ~~**The ledger's single-quoted spans.**~~ **Read since the five-hundred-and-fortieth**, and there
+  were 106 of them. The cause was real — an apostrophe is the same character as a closing single
+  quote — and the fix is a rule about context rather than about the character:
+  `conformance::quote::quoted_spans` opens a span only after a space or a bracket and closes one
+  only before a space or ordinary punctuation, and stops at a double quotation mark so that
+  §9.4.3's operator names cannot swallow what follows them. ADR 0375.
 - **The remaining populations nothing reads at all**, now that four are read: a quotation in a
   Markdown file under `doc/`, and a quotation of a *table cell* rather than of prose. The first is
   the larger — this file, `doc/HANDOVER.md`, `doc/todo/` and the ADRs quote the standard
