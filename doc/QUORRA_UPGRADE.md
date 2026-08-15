@@ -450,3 +450,73 @@ that can reach a transcendental on a path into a comparison. **Nothing is built 
 and this round deliberately did not start it: what the answer converts is not a dependency but
 the meaning of this tree's own corpus gate. `QUORRA_FEEDBACK.md` §25 prices it and names the two
 defects of this tree's `pdf-model::function` that came back with it.
+
+## `05fadc52`, taken in the five-hundred-and-forty-first session (2026-08-15)
+
+Sixteen commits past `a64a9084`, and the first bump this tree has taken **for a feature it
+asked for**: `doc/QUORRA_FUNCTION_PAINT_BUILT.md` is upstream's account of what they built and
+what it costs to adopt, and it supersedes the "not committing to yet" list of
+`…_ANSWER.md` §7 while **correcting that document's §4**. ADR 0376 is this side's adoption.
+
+**It still cost nothing to compile**, which is four in a row — two hashes in `Cargo.lock`,
+`check --workspace --all-targets` clean — and that is despite two changes that are breaking in
+general. What it cost instead was the boundary work to *use* it, which is the whole of ADR 0376.
+
+The range, oldest first:
+
+| | |
+|---|---|
+| `1ee1884` | `FnOp`: the vocabulary a compiled type 4 function arrives in — Table 42 closed, `if`/`ifelse` already lowered to forward-only jumps, and the three typed literals this tree's ADR 0371 made expressible |
+| `17de1d3` | every Table 42 operator gets a case that says where its value came from |
+| `6e61697` | their notes separate what the clause says from what they read into it |
+| `a490b20` | the scene says which programs a function paint may carry (`check_program`, `MAX_PROGRAM_LENGTH`) |
+| `c820449` | a function paint that reaches today's encoder is refused by name rather than drawn wrongly |
+| `ae5bc0c` | a compiled program becomes a resource, and its domain a region — `FunctionId`, and `ResourceId` gains its fifth variant |
+| `2d711cc` | **the admission**: `quorra_gpu::function::admit`, which needs no adapter, so a caller learns before it builds a scene |
+| `a8414f4` | `FnRange` — one name for the bounds *and* the component count, so the two cannot disagree |
+| `d7e4bf8` | the analyser admits a program and the generator writes its shader |
+| `102ca0a` | their conformance corpus and the oracle that judges it |
+| `80bf787` | **`Agreement::Exact`/`Approximate` becomes `Bounded`/`Unbounded`** — the correction, and the reason for it |
+| `eb6af7e` | the paint reaches the pass that draws it |
+| `dc8bf60` | the corpus judges the device the programs run on |
+| `3fc7e07`, `05fadc5` | a function paint uploaded, admitted, compiled and drawn; and the documents |
+
+### What it required of this tree
+
+**To compile: nothing.** `Paint` gained a fourth variant and `ResourceId` a fifth, and both are
+breaking changes in general; this tree survives them because **no `match` here scrutinises
+either type** — `quorra_scene::Paint` is only ever constructed, and a `ResourceId` is produced
+by `From` and consumed by `Device::release`. `DeviceError`, `RenderError` and `ReportKind` are
+handled through `thiserror` and one single-variant pattern, so their new variants were free too.
+`Paint` keeps its `Copy`, as their §2 promised.
+
+**To *use*: a boundary.** `render-quorra` sees `pdf-render` and the compiled program lives in
+`pdf-model`, so the display list had to gain a device-facing statement of a §7.10.5 program —
+`pdf_render::program`, and `ShadingKind::Sampled { program: Option<ShadingProgram> }` beside the
+producer that was already there. ADR 0376 §1 is why that form is not `pdf_model::function`'s.
+
+### What it did on this machine
+
+**Not one corpus verdict moved**, at either scale, on either coverage lane: 931 / 23 / 2 / 18 at
+scale 1 on the `cpu` lane, and the other three lanes on their own previous numbers. The census
+says why: of 1 479 corpus files, **three** pages carry a §8.7.4.5.2 program at all and **one**
+carries a program the device accepts.
+
+| `function_based_shading.pdf`, both arms in one working copy, RADV | grid | device |
+|---|---:|---:|
+| mean, scale 1 | 0.0178 | 0.0392 |
+| worst tile, scale 1 (bound 7.0) | 1.171 | 1.201 |
+| mean, scale 4 | 0.0047 | 0.0191 |
+| worst tile, scale 4 | 1.555 | 1.582 |
+
+Eight of that page's nine shadings are evaluated on the device; the ninth is refused for
+`` `mod` was given a real, and requires two integers ``.
+
+### The two witnesses the ask was written about are refused, and correctly
+
+`pi_seven_segment.pdf` and `type4_pi.pdf` — the pages whose whole content is one `sh` and whose
+scene build is a hundred milliseconds of function evaluation — are `Agreement::Unbounded`: a
+`div` reaches a `truncate` in both, which is a digit of π decided by a last bit. So the frame
+line on the document that prompted the ask is unchanged. That went back to them in
+`QUORRA_FEEDBACK.md` §27; it is not a defect on either side, and it is worth their knowing that
+the classification's cost is exactly the population that asked for the feature.

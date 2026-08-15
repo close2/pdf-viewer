@@ -13,7 +13,8 @@ use std::sync::Arc;
 
 use pdf_render::{
     BlendMode, ClipId, Color, Command, DisplayList, FillRule, Image, ImageSource, Paint, Path,
-    PathCommand, Point, Shading, ShadingKind, SoftMaskId, SoftMaskKind, TargetSpec, Transform,
+    PathCommand, Point, ProgramOperator, ProgramRange, ProgramStep, Shading, ShadingKind,
+    SoftMaskId, SoftMaskKind, TargetSpec, Transform,
 };
 use quorra_scene::{ResourceId, SceneBuilder};
 
@@ -32,8 +33,50 @@ pub(crate) struct Encoder<'a> {
     target: TargetSpec,
     caches: &'a mut ResourceCaches,
     transient: &'a mut Vec<ResourceId>,
+    functions: &'a mut FunctionPaints,
     clips: HashMap<usize, ResolvedClip>,
     masks: HashMap<usize, quorra_scene::MaskId>,
+}
+
+/// What this frame's §8.7.4.5.2 type 1 shadings did: how many the device evaluated, and the
+/// ground on which it declined each of the rest.
+///
+/// **A count and a name rather than an error, because nothing failed.** A program the device
+/// declines is drawn from the grid `pdf_render::Shading::sampled_at` produces (ADR 0364) —
+/// the same construction every backend used before ADR 0376 and the one the correctness
+/// oracle still uses — so the page is right either way and refusing the frame would be
+/// refusing a page that draws. What would be wrong is drawing it *silently*: the two paths
+/// cost four orders of magnitude apart, and a document that quietly stopped taking the fast
+/// one is exactly the regression no timing on its own can attribute. So the ground is carried
+/// out by name, `--trace` prints it beside the frame, and a test can assert on it.
+#[derive(Debug, Clone, Default)]
+pub struct FunctionPaints {
+    evaluated: u32,
+    refused: Vec<String>,
+}
+
+impl FunctionPaints {
+    /// How many type 1 shadings this frame painted with a device-evaluated program.
+    #[must_use]
+    pub fn evaluated(&self) -> u32 {
+        self.evaluated
+    }
+
+    /// One ground per shading the device declined, each of which drew from the grid instead.
+    #[must_use]
+    pub fn refusals(&self) -> &[String] {
+        &self.refused
+    }
+
+    /// Forgets the last frame's answers.
+    pub(crate) fn clear(&mut self) {
+        self.evaluated = 0;
+        self.refused.clear();
+    }
+
+    fn refuse(&mut self, ground: String) {
+        self.refused.push(ground);
+    }
 }
 
 /// What a non-solid paint resolved to.
@@ -143,6 +186,7 @@ impl<'a> Encoder<'a> {
         target: TargetSpec,
         caches: &'a mut ResourceCaches,
         transient: &'a mut Vec<ResourceId>,
+        functions: &'a mut FunctionPaints,
     ) -> Self {
         Self {
             device,
@@ -150,6 +194,7 @@ impl<'a> Encoder<'a> {
             target,
             caches,
             transient,
+            functions,
             clips: HashMap::new(),
             masks: HashMap::new(),
         }
@@ -555,7 +600,15 @@ impl<'a> Encoder<'a> {
                 end_radius: *end_radius,
                 extend: *extend,
             },
-            ShadingKind::Sampled { .. } => return Ok(ShadedPaint::Sampled),
+            // §8.7.4.5.2's type 1 shading has two statements of one answer, and this is
+            // where they are chosen between: the device evaluates the program where it can,
+            // and where it cannot the grid below draws exactly what it always drew.
+            ShadingKind::Sampled { .. } => {
+                return Ok(match self.function_paint(shading)? {
+                    Some(paint) => ShadedPaint::Ready(paint),
+                    None => ShadedPaint::Sampled,
+                });
+            }
             ShadingKind::Mesh { triangles, ramp } => {
                 return Ok(
                     match self.mesh(triangles, ramp.as_ref(), shading.transform)? {
@@ -576,6 +629,131 @@ impl<'a> Encoder<'a> {
             // display list states it (§8.7.4.3's shading matrix).
             transform: self.placed(shading.transform),
         }))
+    }
+
+    /// §8.7.4.5.2's type 1 shading as a colour the *device* evaluates, where this device
+    /// will take it — quorra's `Paint::Function`, ADR 0376.
+    ///
+    /// `Ok(None)` is not a failure and never becomes one: it means the caller draws the grid,
+    /// which is what [`Encoder::sampled_fill`] does and what every backend did before this
+    /// existed. Every `None` that is the *device's* answer rather than the display list's
+    /// carries its ground into [`FunctionPaints`] on the way out, so a page that stops taking
+    /// this path says why.
+    ///
+    /// # The order the three questions are asked in, and why none of them is asked late
+    ///
+    /// 1. **Is there a program at all?** `pdf_model::shading` builds one only where the two
+    ///    paths compute the same colour; a shading of another function type, or over a colour
+    ///    space needing a conversion, arrives with `None` and is not the device's business.
+    /// 2. **Will the device execute it?** [`quorra_gpu::function::admit`] — the structural
+    ///    check, the shader-generation walk and ADR 0053's agreement classification. It needs
+    ///    no adapter, which is why it is asked here rather than at the upload: a refusal then
+    ///    costs no resource and no release.
+    /// 3. **Does it supply this *shading's* `Range`?** `Analysis::admits`, which is a
+    ///    separate question because §7.10.5.3's "shall be an error for the number of remaining
+    ///    operands to differ" compares the program against a `Range` the *paint* states, and
+    ///    one uploaded program may serve two shadings.
+    ///
+    /// Questions 2 and 3 are answered on every scene build rather than remembered beside the
+    /// cached id. That is deliberate and it is cheap: the walk is linear in a program bounded
+    /// at [`quorra_gpu::function::MAX_PROGRAM_LENGTH`] steps — microseconds — against the
+    /// milliseconds of grid the fallback would otherwise build, and it keeps the refusal a
+    /// decision this frame took rather than one a cache entry remembers.
+    fn function_paint(
+        &mut self,
+        shading: &Shading,
+    ) -> Result<Option<quorra_scene::Paint>, QuorraRasterError> {
+        let (Some(program), ShadingKind::Sampled { domain, .. }) =
+            (shading.device_program(), shading.kind.as_ref())
+        else {
+            return Ok(None);
+        };
+        let range = function_range(program.range());
+        let steps: Vec<quorra_scene::FnOp> =
+            program.steps().iter().copied().map(function_op).collect();
+
+        let analysis = match quorra_gpu::function::admit(&steps) {
+            Ok(analysis) => analysis,
+            Err(problem) => {
+                self.functions.refuse(problem.to_string());
+                return Ok(None);
+            }
+        };
+        if let Err(problem) = analysis.admits(range) {
+            self.functions.refuse(problem.to_string());
+            return Ok(None);
+        }
+
+        // Table 78's `/Domain` is `[x_min, x_max, y_min, y_max]`; a scene's rectangle is two
+        // corners and is refused unordered rather than repaired, so a file that writes the
+        // pair the other way round draws from the grid — which reads it as a signed span and
+        // is right either way.
+        let [x0, x1, y0, y1] = *domain;
+        let region = quorra_scene::Rect::new(
+            quorra_scene::Point::new(x0, y0),
+            quorra_scene::Point::new(x1, y1),
+        );
+        let matrix = self.placed(shading.transform);
+        if !region.is_finite() || !region.is_ordered() {
+            self.functions.refuse(format!(
+                "the shading's /Domain {domain:?} is not a rectangle"
+            ));
+            return Ok(None);
+        }
+        if matrix.invert().is_none() {
+            // §8.7.4.5.2's `Matrix` carries the domain into the page; a fragment has to go
+            // the other way to know where in the domain it stands, and a collapsed domain has
+            // no such point. The grid draws a degenerate placement as the nothing it is.
+            self.functions
+                .refuse("the shading's /Matrix has no inverse".to_owned());
+            return Ok(None);
+        }
+
+        let paint = quorra_scene::Paint::Function {
+            program: self.function(program.steps(), &steps)?,
+            domain: region,
+            matrix,
+            range,
+            // §8.7.4.5.2's `Background` "shall be applied only when the shading is used as
+            // part of a shading pattern, not when painted directly with the `sh` operator",
+            // and this tree reads no `/Background` at all — on either path — so points
+            // outside the domain rectangle are left unpainted, which is what that entry's
+            // absence means and what `sampled_fill` also draws.
+            background: None,
+        };
+        // The budgets the scene boundary states over a rectangle and a transform are quorra's
+        // own numbers, so they are asked with quorra's own predicate rather than restated
+        // here. Reaching this is a shading placed further from the page than a scene admits.
+        if !paint.is_valid() {
+            self.functions.refuse(format!(
+                "the shading's /Domain {domain:?} under its /Matrix is outside the scene's bounds"
+            ));
+            return Ok(None);
+        }
+        self.functions.evaluated = self.functions.evaluated.saturating_add(1);
+        Ok(Some(paint))
+    }
+
+    /// The uploaded program, from the cache or freshly admitted by this device.
+    ///
+    /// **Cached rather than transient, and that is the one place a program differs from every
+    /// other per-frame resource here.** A device keys its generated shader on the program's
+    /// contents and drops it when the last id naming them is released (quorra's ADR 0053), so
+    /// a program uploaded and released around each frame would recompile a shader on every
+    /// frame of a still page — the cold compile `doc/QUORRA_FUNCTION_PAINT_ANSWER.md` measures
+    /// at 6.3 ms, arriving once a frame instead of once. The key is the step list's `Arc`, so
+    /// a display list rebuilt from scratch re-uploads it exactly as it re-uploads an outline.
+    fn function(
+        &mut self,
+        key: &Arc<[ProgramStep]>,
+        steps: &[quorra_scene::FnOp],
+    ) -> Result<quorra_scene::FunctionId, QuorraRasterError> {
+        if let Some(id) = self.caches.program(key) {
+            return Ok(id);
+        }
+        let id = self.device.upload_function(steps)?;
+        self.caches.store_program(key, id);
+        Ok(id)
     }
 
     /// A sampled shading — the display list's grid stand-in for a function-based
@@ -1060,6 +1238,75 @@ pub(crate) fn affine(t: Transform) -> quorra_scene::Affine {
 
 pub(crate) fn point(p: Point) -> quorra_scene::Point {
     quorra_scene::Point::new(p.x, p.y)
+}
+
+/// §7.10.1's `Range` as quorra states it — the bounds, and the component count with them.
+///
+/// Total both ways: the two vocabularies name the same two shapes, because
+/// `pdf_model::shading` builds a [`ProgramRange`] only for the colour spaces whose components
+/// are the device's own.
+fn function_range(range: ProgramRange) -> quorra_scene::FnRange {
+    match range {
+        ProgramRange::Gray(pair) => quorra_scene::FnRange::Gray(pair),
+        ProgramRange::Rgb(pairs) => quorra_scene::FnRange::Rgb(pairs),
+    }
+}
+
+/// One step of a compiled §7.10.5 program as quorra's own instruction.
+///
+/// **Total, with no wildcard arm**, which is the whole reason it is written out: an operator
+/// added to either vocabulary stops this compiling rather than reaching the device as
+/// something else. The two enums were shaped by the same Table 42 and the map is the identity
+/// on every name; what it costs is thirty-eight lines that can be read against the table.
+fn function_op(step: ProgramStep) -> quorra_scene::FnOp {
+    use quorra_scene::FnOp;
+    match step {
+        ProgramStep::PushInt(value) => FnOp::PushInt(value),
+        ProgramStep::PushReal(value) => FnOp::PushReal(value),
+        ProgramStep::PushBool(value) => FnOp::PushBool(value),
+        ProgramStep::JumpUnless { target } => FnOp::JumpUnless { target },
+        ProgramStep::Jump { target } => FnOp::Jump { target },
+        ProgramStep::Operator(operator) => match operator {
+            ProgramOperator::Abs => FnOp::Abs,
+            ProgramOperator::Add => FnOp::Add,
+            ProgramOperator::Atan => FnOp::Atan,
+            ProgramOperator::Ceiling => FnOp::Ceiling,
+            ProgramOperator::Cos => FnOp::Cos,
+            ProgramOperator::Cvi => FnOp::Cvi,
+            ProgramOperator::Cvr => FnOp::Cvr,
+            ProgramOperator::Div => FnOp::Div,
+            ProgramOperator::Exp => FnOp::Exp,
+            ProgramOperator::Floor => FnOp::Floor,
+            ProgramOperator::Idiv => FnOp::Idiv,
+            ProgramOperator::Ln => FnOp::Ln,
+            ProgramOperator::Log => FnOp::Log,
+            ProgramOperator::Mod => FnOp::Mod,
+            ProgramOperator::Mul => FnOp::Mul,
+            ProgramOperator::Neg => FnOp::Neg,
+            ProgramOperator::Round => FnOp::Round,
+            ProgramOperator::Sin => FnOp::Sin,
+            ProgramOperator::Sqrt => FnOp::Sqrt,
+            ProgramOperator::Sub => FnOp::Sub,
+            ProgramOperator::Truncate => FnOp::Truncate,
+            ProgramOperator::And => FnOp::And,
+            ProgramOperator::Bitshift => FnOp::Bitshift,
+            ProgramOperator::Eq => FnOp::Eq,
+            ProgramOperator::Ge => FnOp::Ge,
+            ProgramOperator::Gt => FnOp::Gt,
+            ProgramOperator::Le => FnOp::Le,
+            ProgramOperator::Lt => FnOp::Lt,
+            ProgramOperator::Ne => FnOp::Ne,
+            ProgramOperator::Not => FnOp::Not,
+            ProgramOperator::Or => FnOp::Or,
+            ProgramOperator::Xor => FnOp::Xor,
+            ProgramOperator::Copy => FnOp::Copy,
+            ProgramOperator::Dup => FnOp::Dup,
+            ProgramOperator::Exch => FnOp::Exch,
+            ProgramOperator::Index => FnOp::Index,
+            ProgramOperator::Pop => FnOp::Pop,
+            ProgramOperator::Roll => FnOp::Roll,
+        },
+    }
 }
 
 pub(crate) fn colour(c: Color) -> quorra_scene::Color {

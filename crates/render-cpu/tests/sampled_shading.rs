@@ -152,6 +152,9 @@ fn zooming_resolves_the_shading_again_without_rebuilding_the_list() {
             kind: Arc::new(ShadingKind::Sampled {
                 domain: [0.0, 1.0, 0.0, 1.0],
                 source: DeferredColours::new(Arc::clone(&source) as Arc<dyn ColoursAtDeviceScale>),
+                // The oracle draws the producer's grid whatever else a shading carries, and
+                // this file is about the grid it asks for.
+                program: None,
             }),
             // The unit domain across 80 page units.
             transform: Transform::new(80.0, 0.0, 0.0, 80.0, 10.0, 10.0),

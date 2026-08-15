@@ -232,3 +232,51 @@ round of their own so that a bump's page-level attribution stays readable (ADR 0
 `Operator::Round` rounds half away from zero where the clause requires half toward greater, and
 `Operator::Eq`/`Ne` compare with an `f32::EPSILON` tolerance where PostScript `eq` is exact.
 `QUORRA_FEEDBACK.md` §25.6 carries both with the reply that went back.
+
+---
+
+## 9. Answered, built, and adopted — and what the answer turned out to be worth
+
+**This ask is closed.** Quorra built `Paint::Function` (`doc/QUORRA_FUNCTION_PAINT_BUILT.md`),
+this tree took it in its five-hundred-and-forty-first session, and ADR 0376 is the adoption.
+`doc/QUORRA_UPGRADE.md`'s `05fadc52` section has the range and what it cost. Four things belong
+in *this* document, because they answer what *it* asked.
+
+**§4's shape is decided and this document's guess about it was wrong, twice over.** It expected
+the interpreter to trade throughput for the launch-path property; the generated shader wins on
+both. And it offered the two shapes as though the choice were quorra's alone — it was, and the
+one they took puts a shader *compile* on the frame path, which §5.2 said must not happen. What
+makes that acceptable is not a change of mind but a cache: the compile is keyed on the program's
+contents and a program is an uploaded *resource*, so this tree keys its own upload on the step
+list's `Arc` and the compile happens once per program rather than once per frame.
+
+**§5.1's question has a fourth answer, and then that answer was corrected.** Not a tolerance,
+not two answers for two purposes, not a bit-exact contract: a static classification at
+admission. But the classification's first name — `Exact` — was withdrawn by quorra themselves
+(`…_BUILT.md` §0), on the ground that WGSL §15.7.5 permits reassociation and fusion and that
+their zero-differing-pixels result was an observation about two documents on one driver on one
+day. So what this tree gets is `Bounded`: a difference **of colour**, never of branch. **ADR
+0376 decides that this needs no tolerance in the corpus gate**, on the argument that ADR 0339
+bought a branch rather than a bit, and on the measurement that the one corpus page taking the
+device path uses 0.03 of the gate's 5.4 of worst-tile headroom.
+
+**§5.2's requirements are all met, and one of them is now stronger than asked.** A refusal is by
+name and it happens at `Device::upload_function`, *before* a scene exists. And the fallback is
+per **paint** rather than per page: a refused program draws from the grid inside the same scene,
+so the page stays on the device. §5.2 asked only that this tree be able to "fall back to the
+raster it builds today"; it can do so without giving up the frame.
+
+**§5.3's population question is now answered, and the answer is the sharp one.** Function-based
+shadings are rare, as §5.3 guessed. `cargo run --release -p render-quorra --example
+function_paint_census` over 1 479 corpus files finds **three** pages carrying a §7.10.5 program
+and **one** whose program the device will take. The other two are the very documents §1 measured
+to write this ask: both divide and then truncate to extract a digit of π, which is an inexact
+operator into an amplifier, and both are refused. **So the measured win on the pages that
+prompted the ask is zero**, and what §6 said would happen if the answer were "no" — session
+529's allocation-free evaluation and rayon grid carrying those documents — is what carries them
+anyway.
+
+That is not a failure of the answer. It is the answer working: a page whose colour is decided by
+the last bit of a division is a page where two evaluations of one mathematics are entitled to
+disagree, and drawing it twice as fast and sometimes differently is the trade this project does
+not take.

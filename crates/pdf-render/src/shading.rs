@@ -132,9 +132,17 @@ impl Shading {
             },
             // A sampled shading's colours do not exist yet, so the alpha travels with the
             // producer and reaches each colour as it is produced.
-            ShadingKind::Sampled { domain, source } => ShadingKind::Sampled {
+            // The program goes, and it has to: a device evaluating it produces the colour and
+            // nothing else, so §11.6.4.4's constant alpha has nowhere to be applied on that
+            // path. The producer carries it (`faded`) and the producer is what draws.
+            ShadingKind::Sampled {
+                domain,
+                source,
+                program: _,
+            } => ShadingKind::Sampled {
                 domain: *domain,
                 source: source.faded(alpha),
+                program: None,
             },
             // A parametric mesh carries its colours in the ramp, so that is where the alpha
             // goes; a corner holding a parameter has none to scale.
@@ -176,7 +184,7 @@ impl Shading {
     /// drawing.
     #[must_use]
     pub fn sampled_at(&self, page_to_device: Transform) -> Option<ColourGrid> {
-        let ShadingKind::Sampled { domain, source } = self.kind.as_ref() else {
+        let ShadingKind::Sampled { domain, source, .. } = self.kind.as_ref() else {
             return None;
         };
         // The unit square onto the domain rectangle, then the shading's own matrix and the
@@ -186,6 +194,22 @@ impl Shading {
         let onto_domain = Transform::new(x1 - x0, 0.0, 0.0, y1 - y0, x0, y0);
         let placement = onto_domain.then(self.transform).then(page_to_device);
         Some(source.colours(Grid::for_placement(placement)))
+    }
+
+    /// For a [`ShadingKind::Sampled`] shading: the program a device may evaluate instead of
+    /// asking [`Self::sampled_at`] for a grid, where one was built.
+    ///
+    /// `None` for every other kind, and for a sampled shading `pdf_model::shading` found no
+    /// device statement of — a function of another type, a colour space whose components are
+    /// not the device's, or a `/Domain` the two paths would read differently. The backend that
+    /// gets `None` draws the grid, which is what every backend did before ADR 0376 and what
+    /// the correctness oracle still does.
+    #[must_use]
+    pub fn device_program(&self) -> Option<&crate::ShadingProgram> {
+        match self.kind.as_ref() {
+            ShadingKind::Sampled { program, .. } => program.as_ref(),
+            _ => None,
+        }
     }
 }
 
@@ -369,6 +393,18 @@ pub enum ShadingKind {
         domain: [f32; 4],
         /// The colours, produced once a device has said how many cells the domain covers.
         source: DeferredColours,
+        /// The *same* colours stated as the program that computes them, where the shading is
+        /// one a device can be handed (ADR 0376) — a §7.10.5 type 4 function over a colour
+        /// space whose components are the device's own.
+        ///
+        /// **An alternative statement, never a replacement.** `source` answers for every
+        /// shading and is what the correctness oracle draws; this is present only where a
+        /// backend has somewhere to put it, and a backend with nowhere ignores it. Where both
+        /// are drawn the two are the same picture within a difference *of colour*, which is
+        /// the currency §10.7.3 already measures a shading's accuracy in — never a difference
+        /// of *branch*, which is what `pdf_model::shading`'s conditions on this field and the
+        /// device's own admission between them keep out.
+        program: Option<crate::ShadingProgram>,
     },
     /// Colour varies smoothly across triangles (PDF types 4, 5, 6 and 7).
     Mesh {

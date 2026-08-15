@@ -15,7 +15,7 @@ use pdf_render::{Color, DisplayList, Raster, TargetSpec, Transform};
 use quorra_scene::ResourceId;
 
 use crate::QuorraRasterError;
-use crate::scene::Encoder;
+use crate::scene::{Encoder, FunctionPaints};
 
 /// One frame of the window, everything included.
 #[derive(Debug, Clone, Copy)]
@@ -280,8 +280,9 @@ impl FrameSlot {
         background: Color,
         frame: &PresentFrame<'_>,
         into: quorra_gpu::Target<'_>,
-        cost: &mut FrameCost,
+        reported: &mut Reported<'_>,
     ) -> Result<quorra_gpu::Frame, QuorraRasterError> {
+        let Reported { cost, functions } = reported;
         let began = std::time::Instant::now();
         let key = SceneKey::of(frame, background, &mut self.rasters);
         let mut release_error: Option<quorra_gpu::DeviceError> = None;
@@ -306,6 +307,10 @@ impl FrameSlot {
                 caches.begin_frame();
                 let mut builder = quorra_scene::SceneBuilder::new();
                 let mut transient: Vec<ResourceId> = Vec::new();
+                // Cleared here rather than per frame, because what it describes is the *scene*:
+                // a replayed frame draws the paints this build chose, and forgetting them on the
+                // frame after would make a still page look as though it had stopped using them.
+                functions.clear();
                 let built = build(
                     device,
                     caches,
@@ -313,6 +318,7 @@ impl FrameSlot {
                     &mut builder,
                     frame,
                     &mut transient,
+                    functions,
                 );
                 cost.uploads = caches
                     .stored()
@@ -425,6 +431,7 @@ pub struct QuorraPresenter {
     caches: crate::cache::ResourceCaches,
     slot: FrameSlot,
     last: FrameCost,
+    functions: FunctionPaints,
 }
 
 impl QuorraPresenter {
@@ -526,7 +533,18 @@ impl QuorraPresenter {
             caches: crate::cache::ResourceCaches::new(),
             slot: FrameSlot::default(),
             last: FrameCost::default(),
+            functions: FunctionPaints::default(),
         }
+    }
+
+    /// What the scene last built did with §8.7.4.5.2's type 1 shadings: how many the device
+    /// evaluated, and the ground on which it declined each of the rest (ADR 0376).
+    ///
+    /// The scene's rather than the frame's, which is the honest reading of a replayed frame: it
+    /// draws the paints the last *build* chose, so this keeps saying what they were.
+    #[must_use]
+    pub fn last_function_paints(&self) -> &FunctionPaints {
+        &self.functions
     }
 
     /// Chooses the coverage lane for the frames after this call.
@@ -598,11 +616,25 @@ impl QuorraPresenter {
             self.background,
             &frame,
             quorra_gpu::Target::Surface,
-            &mut self.last,
+            &mut Reported {
+                cost: &mut self.last,
+                functions: &mut self.functions,
+            },
         );
         self.last.total = began.elapsed();
         outcome.map(|_| ())
     }
+}
+
+/// What one [`FrameSlot::render`] hands back beside the frame: what it cost, and what it did
+/// with §8.7.4.5.2's programs.
+///
+/// One borrow rather than two arguments because the two are the same thing — the caller's
+/// record of the call — and because they are filled at different points inside it: the cost as
+/// each stage ends, the paints only where the scene is rebuilt.
+pub(crate) struct Reported<'a> {
+    pub(crate) cost: &'a mut FrameCost,
+    pub(crate) functions: &'a mut FunctionPaints,
 }
 
 /// Assembles the frame's scene: medium, page (or its raster stand-in), overlays.
@@ -618,6 +650,7 @@ pub(crate) fn build(
     builder: &mut quorra_scene::SceneBuilder,
     frame: &PresentFrame<'_>,
     transient: &mut Vec<ResourceId>,
+    functions: &mut FunctionPaints,
 ) -> Result<(), QuorraRasterError> {
     // The medium first: a surface frame has no compositor behind it to impose
     // on, so the background is the bottom of the scene itself.
@@ -638,7 +671,8 @@ pub(crate) fn build(
     )?;
 
     if let Some((list, target)) = frame.page {
-        Encoder::new(device, list, target, caches, transient).commands(builder, list.commands())?;
+        Encoder::new(device, list, target, caches, transient, functions)
+            .commands(builder, list.commands())?;
     }
     if let Some(raster) = frame.raster {
         let image = device.upload_image(&quorra_scene::ImageSpec {
@@ -677,7 +711,8 @@ pub(crate) fn build(
             height: frame.height,
             transform: Transform::IDENTITY,
         };
-        Encoder::new(device, list, spec, caches, transient).commands(builder, list.commands())?;
+        Encoder::new(device, list, spec, caches, transient, functions)
+            .commands(builder, list.commands())?;
     }
     Ok(())
 }

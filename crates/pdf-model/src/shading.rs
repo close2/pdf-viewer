@@ -582,6 +582,8 @@ fn function_based(
     let [x0, _, y0, _] = rectangle;
     let opaque = colour_from(&functions, &[x0, y0], space, into).a >= 1.0;
 
+    let program = device_program(&functions, space, into, rectangle);
+
     Ok(ShadingKind::Sampled {
         domain: rectangle,
         source: pdf_render::DeferredColours::new(Arc::new(FunctionColours {
@@ -591,7 +593,69 @@ fn function_based(
             domain: rectangle,
             opaque,
         })),
+        program,
     })
+}
+
+/// The same colours as a program a device can evaluate, or `None` — and every `None` here is a
+/// page that draws exactly as it did before ADR 0376, from the grid above.
+///
+/// **This is where the two paths are made to answer the same question**, and each condition is
+/// a place they would otherwise part. The device is handed a list, a domain rectangle and a
+/// `Range`; the producer above evaluates the same function and then converts its outputs to a
+/// device colour. So the device path is available exactly where that conversion is nothing:
+///
+/// - **One function, not a group.** §7.10.5.3's `/Function` may be `n` functions of one output
+///   each instead of one of `n`. Both are drawn by the producer; only the second is a single
+///   program, and stitching `n` programs into one is arithmetic this tree would be inventing.
+/// - **§11.4.7's ordinary compositing target** ([`Compositing::Device`]). A `/Luminosity` mask
+///   group weighs the colour into ink and a four-component page paints half of a `DeviceCMYK`
+///   blend; neither is a colour the program's own outputs are.
+/// - **`DeviceGray` or `DeviceRGB`.** These are the two spaces where a component *is* a device
+///   component: §8.6.4.2 and §8.6.4.3 name no transformation, and [`ColourSpace::to_rgb`]'s
+///   arms for them are the identity plus the unit-interval clamp below. Every other space —
+///   `DeviceCMYK` included, which ADR 0263 converts through §10.4.2.5 — is a conversion, and a
+///   conversion is not something to restate in a shader.
+/// - **A `/Range` of the space's own width.** §7.10.5.3 makes `/Range` required for a type 4
+///   function and makes a count that differs from the outputs an error; a width that differs
+///   from the space's would make the colour a different colour.
+///
+/// The bounds handed over are each intersected with `[0, 1]`, which is not a narrowing: the
+/// producer clips to `/Range` (§7.10.1) and then [`ColourSpace::to_rgb`] clamps each component
+/// to the unit interval, and clamping into `[lo, hi]` and then into `[0, 1]` is clamping into
+/// the intersection. §8.7.4.5.2's Table 78 explicitly allows a wider declared range — "[i]f the
+/// value returned by the function for a given colour component is out of range, it shall be
+/// adjusted to the nearest valid value" — so a document that declares one keeps drawing, on
+/// either path, with the same arithmetic.
+fn device_program(
+    functions: &[Function],
+    space: &ColourSpace,
+    into: Compositing,
+    rectangle: [f32; 4],
+) -> Option<pdf_render::ShadingProgram> {
+    if into != Compositing::Device {
+        return None;
+    }
+    let [function] = functions else {
+        return None;
+    };
+    let bounds = function.range_bounds()?;
+    // A bound that is not an interval of numbers is not a clip a device can apply, and the
+    // producer's own `clamp` would answer something a reader would have to derive.
+    let clip = |index: usize| -> Option<[f32; 2]> {
+        let (low, high) = bounds.get(index).copied()?;
+        (low.is_finite() && high.is_finite() && low <= high)
+            .then(|| [low.clamp(0.0, 1.0), high.clamp(0.0, 1.0)])
+    };
+    let range = match (space, bounds.len()) {
+        (ColourSpace::Gray, 1) => pdf_render::ProgramRange::Gray(clip(0)?),
+        (ColourSpace::Rgb, 3) => pdf_render::ProgramRange::Rgb([clip(0)?, clip(1)?, clip(2)?]),
+        _ => return None,
+    };
+    Some(pdf_render::ShadingProgram::new(
+        function.device_program(rectangle)?,
+        range,
+    ))
 }
 
 /// ISO 32000-2 §8.7.4.5.2's function of two variables, evaluated at the grid a device asks.

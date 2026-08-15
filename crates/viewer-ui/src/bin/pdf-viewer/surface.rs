@@ -199,6 +199,16 @@ impl App {
                 // Read back whatever the frame cost before anything is decided about it: a
                 // refusal has an accounting too, and it is the one a person most wants.
                 stages.gpu = presenter.last_frame();
+                // ADR 0376: a §8.7.4.5.2 program the device declined draws from the grid
+                // instead — the right picture, four orders of magnitude slower — so the ground
+                // is said out loud rather than left to a timing to imply. Said on every frame
+                // that carries one, because a replayed frame is still drawing it.
+                for ground in presenter.last_function_paints().refusals() {
+                    self.trace.say(
+                        Topic::Frames,
+                        format_args!("function shading drawn on the processor's grid: {ground}"),
+                    );
+                }
                 // The first frame's scene translation is a launch milestone — the other
                 // half, with interpretation, of what used to sit unnamed between `document
                 // joined` and `first present` (ADR 0332). The method keeps only the first

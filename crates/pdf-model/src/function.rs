@@ -19,6 +19,7 @@
 
 use std::sync::Arc;
 
+use pdf_render::{ProgramOperator, ProgramStep};
 use pdf_syntax::{Dictionary, Document, Object};
 
 /// Most values a function may take or return — the *dimensionality*, m and n.
@@ -419,6 +420,57 @@ impl Function {
             (None, Kind::Stitching { functions, .. }) => functions.first().and_then(Self::outputs),
             _ => None,
         }
+    }
+
+    /// This function as the flat program a device evaluates, when it is one a device may
+    /// stand in for over `region`.
+    ///
+    /// **The whole point of the conditions is that both readings answer the same question.**
+    /// A device handed this list evaluates it at a point and clips the result to the `Range`
+    /// the caller states beside it; [`Self::eval_into`] does two more things first, and each
+    /// is a condition here rather than something the device is trusted to reproduce:
+    ///
+    /// - **§7.10.1 clips the inputs to the `/Domain`** — "[i]nput values passed to the
+    ///   function shall be clipped to the domain" — and a device evaluating a §8.7.4.5.2 type
+    ///   1 shading is handed the *shading's* domain rectangle, which §8.7.4.5.2 makes a
+    ///   *region* rather than a clamp. Where this function's own `/Domain` contains that
+    ///   rectangle the clip is the identity over every point the device will ask about, and
+    ///   the two agree; where it does not, one path would fold a strip of the rectangle onto
+    ///   its edge and the other would not, so there is no program to hand over.
+    /// - **`/Range` is required for a type 4 function** (§7.10.5.3) and this returns nothing
+    ///   without one, because the caller has to state it and a device clipping to a range
+    ///   nobody declared would be a bound this project invented.
+    ///
+    /// `region` is `[x_min, x_max, y_min, y_max]`, Table 78's own order.
+    #[must_use]
+    pub fn device_program(&self, region: [f32; 4]) -> Option<Arc<[ProgramStep]>> {
+        let Kind::PostScript(program) = &self.kind else {
+            return None;
+        };
+        self.range.as_ref()?;
+        // Two inputs, both clipped, and the clip has to be a no-op over the whole rectangle.
+        let [(x_low, x_high), (y_low, y_high)] =
+            <[(f32, f32); 2]>::try_from(self.domain.as_slice()).ok()?;
+        let [left, right, bottom, top] = region;
+        if x_low > left.min(right)
+            || x_high < left.max(right)
+            || y_low > bottom.min(top)
+            || y_high < bottom.max(top)
+        {
+            return None;
+        }
+        program
+            .iter()
+            .map(device_step)
+            .collect::<Option<Vec<_>>>()
+            .map(Arc::from)
+    }
+
+    /// §7.10.1's `/Range`, as `[min, max]` per output component — `None` where the function
+    /// declares none, which every type but 0 and 4 is allowed to do.
+    #[must_use]
+    pub fn range_bounds(&self) -> Option<&[(f32, f32)]> {
+        self.range.as_deref()
     }
 
     /// Selects the sub-function covering an input and re-maps the input onto its domain.
@@ -1118,6 +1170,82 @@ pub enum Operator {
     Index,
     Pop,
     Roll,
+}
+
+/// One [`Instruction`] as the [`ProgramStep`] a device is handed, or `None` where it cannot be
+/// expressed as one.
+///
+/// The two forms are one-to-one but for three things, and each is written out rather than
+/// assumed:
+///
+/// - **A literal's type moves from the value into the instruction.** [`Value`] carries it here
+///   because the evaluator's Annex B coercions need it at run time; a device's code generator
+///   needs it before it writes a line, because §7.10.5.1's `not`, `and`, `or` and `xor` are
+///   different operations on a boolean and on an integer (ADR 0371).
+/// - **`true` and `false` are operators here and literals there.** Table 42 lists them as
+///   operators because PostScript source has no other way to write a boolean down; a compiled
+///   list does, so they lower to [`ProgramStep::PushBool`] and the device's vocabulary is one
+///   variant shorter for it.
+/// - **A jump target narrows to a `u32`.** The compiler's bound is [`MAX_INSTRUCTIONS`], well
+///   inside it, so the conversion cannot fail on anything this crate produced — and it is
+///   written fallibly anyway rather than asserted in a comment, because the day it can fail is
+///   the day a bound moved and nobody looked here.
+///
+/// **The match has no wildcard arm**, which is the point of writing it out: a Table 42 operator
+/// added to [`Operator`] stops this compiling instead of silently reaching a device as nothing.
+fn device_step(instruction: &Instruction) -> Option<ProgramStep> {
+    let operator = |operator| Some(ProgramStep::Operator(operator));
+    match instruction {
+        Instruction::Push(Value::Integer(value)) => Some(ProgramStep::PushInt(*value)),
+        Instruction::Push(Value::Real(value)) => Some(ProgramStep::PushReal(*value)),
+        Instruction::Push(Value::Boolean(value)) => Some(ProgramStep::PushBool(*value)),
+        Instruction::JumpUnless(target) => u32::try_from(*target)
+            .ok()
+            .map(|target| ProgramStep::JumpUnless { target }),
+        Instruction::Jump(target) => u32::try_from(*target)
+            .ok()
+            .map(|target| ProgramStep::Jump { target }),
+        Instruction::Operator(Operator::True) => Some(ProgramStep::PushBool(true)),
+        Instruction::Operator(Operator::False) => Some(ProgramStep::PushBool(false)),
+        Instruction::Operator(Operator::Abs) => operator(ProgramOperator::Abs),
+        Instruction::Operator(Operator::Add) => operator(ProgramOperator::Add),
+        Instruction::Operator(Operator::Atan) => operator(ProgramOperator::Atan),
+        Instruction::Operator(Operator::Ceiling) => operator(ProgramOperator::Ceiling),
+        Instruction::Operator(Operator::Cos) => operator(ProgramOperator::Cos),
+        Instruction::Operator(Operator::Cvi) => operator(ProgramOperator::Cvi),
+        Instruction::Operator(Operator::Cvr) => operator(ProgramOperator::Cvr),
+        Instruction::Operator(Operator::Div) => operator(ProgramOperator::Div),
+        Instruction::Operator(Operator::Exp) => operator(ProgramOperator::Exp),
+        Instruction::Operator(Operator::Floor) => operator(ProgramOperator::Floor),
+        Instruction::Operator(Operator::Idiv) => operator(ProgramOperator::Idiv),
+        Instruction::Operator(Operator::Ln) => operator(ProgramOperator::Ln),
+        Instruction::Operator(Operator::Log) => operator(ProgramOperator::Log),
+        Instruction::Operator(Operator::Mod) => operator(ProgramOperator::Mod),
+        Instruction::Operator(Operator::Mul) => operator(ProgramOperator::Mul),
+        Instruction::Operator(Operator::Neg) => operator(ProgramOperator::Neg),
+        Instruction::Operator(Operator::Round) => operator(ProgramOperator::Round),
+        Instruction::Operator(Operator::Sin) => operator(ProgramOperator::Sin),
+        Instruction::Operator(Operator::Sqrt) => operator(ProgramOperator::Sqrt),
+        Instruction::Operator(Operator::Sub) => operator(ProgramOperator::Sub),
+        Instruction::Operator(Operator::Truncate) => operator(ProgramOperator::Truncate),
+        Instruction::Operator(Operator::And) => operator(ProgramOperator::And),
+        Instruction::Operator(Operator::Bitshift) => operator(ProgramOperator::Bitshift),
+        Instruction::Operator(Operator::Eq) => operator(ProgramOperator::Eq),
+        Instruction::Operator(Operator::Ge) => operator(ProgramOperator::Ge),
+        Instruction::Operator(Operator::Gt) => operator(ProgramOperator::Gt),
+        Instruction::Operator(Operator::Le) => operator(ProgramOperator::Le),
+        Instruction::Operator(Operator::Lt) => operator(ProgramOperator::Lt),
+        Instruction::Operator(Operator::Ne) => operator(ProgramOperator::Ne),
+        Instruction::Operator(Operator::Not) => operator(ProgramOperator::Not),
+        Instruction::Operator(Operator::Or) => operator(ProgramOperator::Or),
+        Instruction::Operator(Operator::Xor) => operator(ProgramOperator::Xor),
+        Instruction::Operator(Operator::Copy) => operator(ProgramOperator::Copy),
+        Instruction::Operator(Operator::Dup) => operator(ProgramOperator::Dup),
+        Instruction::Operator(Operator::Exch) => operator(ProgramOperator::Exch),
+        Instruction::Operator(Operator::Index) => operator(ProgramOperator::Index),
+        Instruction::Operator(Operator::Pop) => operator(ProgramOperator::Pop),
+        Instruction::Operator(Operator::Roll) => operator(ProgramOperator::Roll),
+    }
 }
 
 /// The program with §7.2.4's comments cut out, one line at a time.

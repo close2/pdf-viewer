@@ -1217,6 +1217,12 @@ pub fn sampled_shading() -> DisplayList {
             kind: Arc::new(pdf_render::ShadingKind::Sampled {
                 domain: [0.0, 1.0, 0.0, 1.0],
                 source: pdf_render::DeferredColours::new(Arc::new(SampledWaves)),
+                // No program, deliberately: these waves are a closed form rather than a
+                // §7.10.5 list, and this scene's job is the *grid* — the construction every
+                // backend still uses and the one the oracle draws. The device-evaluated
+                // program has its own witness, a real document, in
+                // `pdf-model/tests/shadings.rs`.
+                program: None,
             }),
             // The unit domain onto (10, 10)–(410, 410) of the page.
             transform: Transform::new(400.0, 0.0, 0.0, 400.0, 10.0, 10.0),

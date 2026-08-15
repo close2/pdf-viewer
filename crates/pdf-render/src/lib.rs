@@ -30,6 +30,7 @@ pub mod display_list;
 pub mod geom;
 pub mod outline;
 pub mod paint;
+pub mod program;
 pub mod repeat;
 pub mod shading;
 pub mod soft_mask;
@@ -54,6 +55,7 @@ pub use paint::{
     BlendMode, Color, DeferredImage, FillRule, Grid, Image, ImageAtDeviceScale, ImageSource,
     LineCap, LineJoin, Paint, Reduction, Stroke, thinnest_line,
 };
+pub use program::{ProgramOperator, ProgramRange, ProgramStep, ShadingProgram};
 pub use repeat::{Repeats, Tiles, repeated_subpaths, without_subpaths};
 pub use shading::{
     ColourGrid, ColoursAtDeviceScale, Corners, DeferredColours, MeshRaster, Radial, RadialRaster,

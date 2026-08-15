@@ -33,6 +33,7 @@ mod scene;
 mod stroke;
 
 pub use present::{FrameCost, PresentFrame, QuorraPresenter};
+pub use scene::FunctionPaints;
 
 /// Why a frame could not be produced. Every variant names what refused (the same
 /// contract as the other backends: unsupported input is an error, never a skipped
@@ -83,6 +84,7 @@ pub struct QuorraRasterizer {
     /// The window frame [`QuorraRasterizer::rasterize_frame`] last drew, kept for the next one.
     slot: present::FrameSlot,
     last: FrameCost,
+    functions: FunctionPaints,
 }
 
 impl QuorraRasterizer {
@@ -125,6 +127,7 @@ impl QuorraRasterizer {
             caches: cache::ResourceCaches::new(),
             slot: present::FrameSlot::default(),
             last: FrameCost::default(),
+            functions: FunctionPaints::default(),
         })
     }
 
@@ -190,7 +193,10 @@ impl QuorraRasterizer {
             self.background,
             frame,
             quorra_gpu::Target::Readback,
-            &mut self.last,
+            &mut present::Reported {
+                cost: &mut self.last,
+                functions: &mut self.functions,
+            },
         );
         self.last.total = began.elapsed();
         Ok(Raster {
@@ -208,6 +214,13 @@ impl QuorraRasterizer {
     #[must_use]
     pub fn last_frame(&self) -> FrameCost {
         self.last
+    }
+
+    /// What the scene last built did with §8.7.4.5.2's type 1 shadings: how many the device
+    /// evaluated, and the ground on which it declined each of the rest (ADR 0376).
+    #[must_use]
+    pub fn last_function_paints(&self) -> &FunctionPaints {
+        &self.functions
     }
 }
 
@@ -286,12 +299,14 @@ impl QuorraRasterizer {
         self.caches.begin_frame();
         let mut builder = quorra_scene::SceneBuilder::new();
         let mut transient: Vec<ResourceId> = Vec::new();
+        self.functions.clear();
         let built = scene::Encoder::new(
             &mut self.device,
             list,
             target,
             &mut self.caches,
             &mut transient,
+            &mut self.functions,
         )
         .commands(&mut builder, list.commands());
 

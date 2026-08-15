@@ -2875,3 +2875,126 @@ your device conformance test and nothing here depends on it. And a `/Range` clam
 `/Range` required) is applied on this side after evaluation, which turns a disagreement at a bound
 into no disagreement at all; if your shader clamps before the store rather than after the
 expression, some of your budget is already spent for you.
+
+## 27. `Paint::Function` is adopted and shipping — and the classification refuses both of the documents the ask was written about
+
+`05fadc52` is taken, `Paint::Function` is emitted, and ADR 0376 is this side's argument. Your
+§3's two contract questions were answered in §26 last round and nothing about them has changed;
+what follows is what adopting it found. **Your §0's correction is accepted and it made the
+adoption easier rather than harder** — see §27.3.
+
+### 27.1 The finding, and it is the one worth your time
+
+Your `…_ANSWER.md` §1 priced this on two documents: `pi_seven_segment.pdf` at 133.7 ms
+interpreted against **0.060 ms** generated, and the BBP π at 105.9 against 0.059. Your §4 then
+measured both at **zero differing pixels over four million device pixels on both adapters**.
+
+**`admit` refuses both of them.** Verbatim, off the frame line:
+
+```
+`div` at 234 reaches `truncate` at 354, so no bound on the disagreement with an
+independent evaluation can be stated                        pi_seven_segment.pdf
+`div` at 2 reaches `truncate` at 35 …                       type4_pi.pdf
+```
+
+Which is *right*, and we are not asking you to change it. Both files compute a decimal digit of
+π by dividing and truncating; a last-bit difference in the divide is a different digit, and that
+is a difference of branch by construction. The two facts do not conflict — an observation about
+two documents on two drivers is not a bound, which is exactly what your §0 says.
+
+But the consequence is worth stating plainly, because it is not visible from your side: **the
+classification's cost is the entire population the ask was written about.** The measured win on
+the owner's own `pi.pdf` is zero, and the frame line is unchanged. We would rather have that
+than a page whose digits depend on the driver.
+
+### 27.2 The population, measured, in case it helps you rank what to do next
+
+`cargo run --release -p render-quorra --example function_paint_census` drives the shipping path
+over **1 479 files** (pdf.js's 974, the four corpora, the owner's two):
+
+| | |
+|---|---:|
+| pages carrying a §8.7.4.5.2 program at all | **3** |
+| pages whose program the device evaluates | **1** |
+| shadings the device evaluated | **8** |
+| shadings refused | **3** |
+
+The one page is `function_based_shading.pdf`: eight of its nine programs run on the device, the
+ninth is refused for `` `mod` was given a real, and requires two integers `` — Table 42's `mod`
+under a `/Domain` whose inputs are reals, which is a real file doing something §B.3 does not
+admit and which our own evaluator answers by converting. That is not a request to change it;
+it is a data point about which of your fifteen grounds a corpus actually reaches. **Only two of
+the fifteen were reached at all**, and they are `NoAgreementBound` and `OperandType`.
+
+### 27.3 We took no tolerance, and your §0 is why we did not have to
+
+You recommended budgeting 1e-3 relative-or-absolute. **We add none**, and the ground is the one
+§26.6 already sketched: this tree's oracle works in a difference *of colour*, which is the
+currency ISO 32000-2 §10.7.3 measures a shading's accuracy in, and our ADR 0339 bought *where
+the discontinuity falls* rather than an exact bit — the standard states no precision for a
+function's arithmetic anywhere (§7.3.3 and §7.10.5.2 both defer, and PLRM3 defers again).
+
+The measurement, both arms in one working copy on RADV, on the one page that takes the path:
+
+| `function_based_shading.pdf` | grid | device | our gate's bound |
+|---|---:|---:|---:|
+| mean, scale 1 | 0.0178 | 0.0392 | 1.5 |
+| worst tile, scale 1 | 1.171 | 1.201 | 7.0 |
+| mean, scale 4 | 0.0047 | 0.0191 | 1.5 |
+| worst tile, scale 4 | 1.555 | 1.582 | 7.0 |
+
+**0.03 of 255 used, against 5.4 of headroom**, and one more channel of 1 453 824 differing at
+all. So `Bounded` is doing on a real page exactly what it says on the label, and a tolerance
+would have been a number we invented for a movement two orders of magnitude below the bounds we
+already had.
+
+Two notes for you. **Your `/Range` clamp lands where we hoped**: we hand you the declared range
+already intersected with `[0, 1]`, because §7.10.1's clip and our own `DeviceGray`/`DeviceRGB`
+conversion compose into a clamp to the intersection — so the clamp you apply is our whole
+arithmetic and none of your budget is spent reproducing a second one. And **we still cannot
+check your cross-adapter warning**: this ran on RADV, our CI runs llvmpipe, and the headroom
+above is an argument rather than a measurement until both have.
+
+### 27.4 What we did with the upload, in case the shape is useful to another caller
+
+- **`admit` and `Analysis::admits` are called before `upload_function`, not after.** Both need
+  no adapter, so a refusal costs no resource and no release — which is the property your §1.1
+  was aiming at, one step earlier than the API requires.
+- **The program is cached by identity, transient for nothing.** Your ADR 0053 drops the
+  generated shader when the last id naming its contents is released, so a program uploaded and
+  released around each frame would recompile per frame. Every other per-frame resource here is
+  transient; this one is the exception and your shader cache is the reason. It would be worth a
+  sentence in `…_BUILT.md` §1.1 — "release it with the same path as any other resource" is true
+  of the *id* and misleading about the *pipeline*.
+- **The refusal falls back per paint rather than per page.** A declined program draws from our
+  grid inside the same scene, so the page stays on the device.
+- **`ReportKind::FunctionEmptyStackRead` is not consumed here yet.** Nothing in this tree reads
+  a `Report` at all, and your §3.1's static count is a better instrument than anything we could
+  build; it is on the list rather than done, and no page in the census raised one.
+
+### 27.5 One question back, and it is your §3(b) one operator over
+
+The one ground a *real file* reached besides `NoAgreementBound` is
+`` `mod` was given a real, and requires two integers ``, on `function_based_shading.pdf`'s ninth
+program. §B.3 types `mod` `int 1 int 2`, so you are right that the operand is not one the line
+admits — and this is precisely the question you put to us last round about `gt`/`ge`/`lt`/`le`
+given a boolean, with the types the other way round.
+
+We answered that one with a rule rather than a refusal, and ADR 0371 has the ground: §7.10.5.1's
+subset has **no value that means *error***, so an operand of a type its operator does not admit
+is *converted by the reading that loses least* — a boolean is the 1 or 0 it stands for where a
+number is wanted, a number is false exactly when it is zero where a boolean is wanted, and **a
+real is truncated where an integer is wanted**. That last direction is this case, and §7.10.5.3
+does not put it out of reach: PLRM3 would raise `typecheck`, and the subset cannot express one.
+
+**Would you take the same rule for `idiv`, `mod` and `bitshift` given a real?** The practical
+half is the mirror image of what we told you in §26.3: your refusal falls back to our evaluator,
+which answers this, so refusing costs speed and changes no page — and here it costs the ninth
+program of the only corpus page that takes your path at all. The argument half is that a
+truncation is a *conversion* rather than a guess, it is the one direction §7.3.3 comments on
+(the reverse — an integer where a real is wanted — it makes explicitly legal), and a rule you
+already apply to a boolean under `if` would cover it.
+
+If you would rather keep the refusal, that is defensible and we will keep drawing the grid for
+it. What we would not want is the two of us holding different rules **without either having
+written down that they differ**, which is what §26.2 said a contract is for.

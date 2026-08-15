@@ -35,7 +35,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use pdf_render::{Path, ShadingKind};
+use pdf_render::{Path, ProgramStep, ShadingKind};
 use quorra_scene::ResourceId;
 
 use crate::QuorraRasterError;
@@ -62,11 +62,21 @@ struct Entry<Pin, Id> {
     last_used: u64,
 }
 
-/// The three caches, one frame clock, one eviction policy.
+/// The four caches, one frame clock, one eviction policy.
 pub(crate) struct ResourceCaches {
     outlines: HashMap<usize, Entry<Arc<Path>, quorra_scene::OutlineId>>,
     images: HashMap<ImageKey, Entry<Arc<[u8]>, quorra_scene::ImageId>>,
     ramps: HashMap<usize, Entry<Arc<ShadingKind>, quorra_scene::RampId>>,
+    /// §7.10.5 programs the device has admitted and compiled a shader for.
+    ///
+    /// **A program is the one resource here whose upload buys something the upload does not
+    /// hold**: the device keys its generated shader on the program's contents and drops it
+    /// when the last id naming those contents is released (quorra's ADR 0053). So a program
+    /// uploaded and released per frame — which is what a transient would be — would recompile
+    /// a shader on every frame of a still page, which is the launch-path cost `CLAUDE.md`
+    /// forbids arriving once per frame instead. Keyed like a ramp, by the `Arc`'s address,
+    /// under the module's own ABA argument.
+    programs: HashMap<usize, Entry<Arc<[ProgramStep]>, quorra_scene::FunctionId>>,
     /// Advances once per frame; entries touched this frame are never evicted.
     frame: u64,
     /// How many entries this frame *stored* — that is, how many lookups missed and
@@ -88,6 +98,7 @@ impl std::fmt::Debug for ResourceCaches {
             .field("outlines", &self.outlines.len())
             .field("images", &self.images.len())
             .field("ramps", &self.ramps.len())
+            .field("programs", &self.programs.len())
             .field("frame", &self.frame)
             .field("stored", &self.stored)
             .finish()
@@ -100,6 +111,7 @@ impl ResourceCaches {
             outlines: HashMap::new(),
             images: HashMap::new(),
             ramps: HashMap::new(),
+            programs: HashMap::new(),
             frame: 0,
             stored: 0,
         }
@@ -191,6 +203,31 @@ impl ResourceCaches {
         );
     }
 
+    pub(crate) fn program(
+        &mut self,
+        steps: &Arc<[ProgramStep]>,
+    ) -> Option<quorra_scene::FunctionId> {
+        let entry = self.programs.get_mut(&key(steps.as_ptr().cast::<u8>()))?;
+        entry.last_used = self.frame;
+        Some(entry.id)
+    }
+
+    pub(crate) fn store_program(
+        &mut self,
+        steps: &Arc<[ProgramStep]>,
+        id: quorra_scene::FunctionId,
+    ) {
+        self.stored = self.stored.saturating_add(1);
+        self.programs.insert(
+            key(steps.as_ptr().cast::<u8>()),
+            Entry {
+                pin: Arc::clone(steps),
+                id,
+                last_used: self.frame,
+            },
+        );
+    }
+
     /// Takes out every entry nothing can look up again, and says what to release.
     ///
     /// An entry's key is an address and its pin is what keeps that address unique, so a pin
@@ -231,6 +268,13 @@ impl ResourceCaches {
             )
         });
         self.ramps.retain(|_, entry| {
+            keep(
+                entry.last_used,
+                Arc::strong_count(&entry.pin),
+                entry.id.into(),
+            )
+        });
+        self.programs.retain(|_, entry| {
             keep(
                 entry.last_used,
                 Arc::strong_count(&entry.pin),
@@ -281,6 +325,12 @@ impl ResourceCaches {
                 .filter(|(_, entry)| entry.last_used < self.frame)
                 .map(|(map_key, entry)| (entry.last_used, Slot::Ramp(*map_key))),
         );
+        settled.extend(
+            self.programs
+                .iter()
+                .filter(|(_, entry)| entry.last_used < self.frame)
+                .map(|(map_key, entry)| (entry.last_used, Slot::Program(*map_key))),
+        );
         settled.sort_unstable_by_key(|(last_used, _)| *last_used);
 
         for (_, slot) in settled {
@@ -300,6 +350,10 @@ impl ResourceCaches {
                     Some(entry) => entry.id.into(),
                     None => continue,
                 },
+                Slot::Program(map_key) => match self.programs.remove(&map_key) {
+                    Some(entry) => entry.id.into(),
+                    None => continue,
+                },
             };
             device.release(id)?;
         }
@@ -312,6 +366,7 @@ enum Slot {
     Outline(usize),
     Image(ImageKey),
     Ramp(usize),
+    Program(usize),
 }
 
 fn key(pointer: *const u8) -> usize {

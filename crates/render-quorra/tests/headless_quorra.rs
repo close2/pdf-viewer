@@ -575,6 +575,197 @@ fn quorra_frames_are_deterministic() {
     assert_eq!(first, second, "same adapter, same list, same bytes");
 }
 
+/// A one-page document whose whole content is a §8.7.4.5.2 type 1 shading, as bytes.
+///
+/// `program` is the type 4 source, `space` the shading's colour space and `range` its
+/// `/Range` — the three things ADR 0376's conditions turn on. The matrix carries the unit
+/// domain across the whole 200-unit page, so every device pixel is inside the domain and the
+/// two paths are compared everywhere rather than at a swatch.
+fn function_shading_pdf(program: &str, space: &str, range: &str) -> Vec<u8> {
+    let function = format!(
+        "<< /FunctionType 4 /Domain [0 1 0 1] /Range [{range}] /Length {} >>\nstream\n{program}\nendstream",
+        program.len()
+    );
+    let objects: [String; 6] = [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R \
+          /Resources << /Shading << /Sh0 5 0 R >> >> >>"
+            .to_owned(),
+        "<< /Length 8 >>\nstream\n/Sh0 sh\nendstream".to_owned(),
+        format!(
+            "<< /ShadingType 1 /ColorSpace {space} /Domain [0 1 0 1] \
+             /Matrix [200 0 0 200 0 0] /Function 6 0 R >>"
+        ),
+        function,
+    ];
+    let mut bytes = b"%PDF-1.7\n".to_vec();
+    let mut offsets = Vec::new();
+    for (index, body) in objects.iter().enumerate() {
+        offsets.push(bytes.len());
+        bytes.extend_from_slice(
+            format!("{} 0 obj\n{body}\nendobj\n", index.saturating_add(1)).as_bytes(),
+        );
+    }
+    let xref = bytes.len();
+    bytes.extend_from_slice(
+        format!(
+            "xref\n0 {}\n0000000000 65535 f \n",
+            objects.len().saturating_add(1)
+        )
+        .as_bytes(),
+    );
+    for offset in &offsets {
+        bytes.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    bytes.extend_from_slice(
+        format!(
+            "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n",
+            objects.len().saturating_add(1)
+        )
+        .as_bytes(),
+    );
+    bytes
+}
+
+/// The display list of `bytes`'s first page.
+fn first_page(bytes: Vec<u8>) -> pdf_render::DisplayList {
+    let document = pdf_syntax::Document::open(bytes).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document)
+        .get(0)
+        .expect("the fixture has a page");
+    pdf_model::content::interpret(&document, &page).display_list
+}
+
+/// Whether any fill of `list` paints with a shading the device could evaluate.
+fn carries_a_program(list: &pdf_render::DisplayList) -> bool {
+    list.commands().iter().any(|command| {
+        matches!(
+            command,
+            pdf_render::Command::Fill {
+                paint: pdf_render::Paint::Shading(shading),
+                ..
+            } if shading.device_program().is_some()
+        )
+    })
+}
+
+/// ADR 0376: the device evaluates §8.7.4.5.2's program, and draws what the grid draws.
+///
+/// **This is trap 2's scene for the new construction**, and it is the only one there can be:
+/// the two paths are not two ways of drawing one raster but two *evaluations of one
+/// mathematics* — the processor's `f32`, and a generated WGSL shader whose licence to
+/// reassociate and fuse (WGSL 15.7.5) is what made quorra withdraw an exactness claim over it. So the
+/// comparison is the whole point rather than a formality.
+///
+/// The program is `{ pop 0.5 lt { 1 0 0 } { 0 0 1 } ifelse }` — the discontinuity §8.7.4.5.2
+/// licenses by name, red below the step and blue at and above it, across 200 device pixels.
+/// It is chosen for what it *is not*: the comparison reads the shading's own input, which
+/// carries no inexact operator's value, so quorra's `Agreement::Bounded` holds and the
+/// difference between the two evaluations stays a difference of colour. A program whose `div`
+/// reaches its `truncate` — which is both of this project's own witnesses — is refused at the
+/// upload and takes the test below.
+#[test]
+fn cpu_and_quorra_agree_on_a_device_evaluated_function_shading() {
+    let list = first_page(function_shading_pdf(
+        "{ pop 0.5 lt { 1 0 0 } { 0 0 1 } ifelse }",
+        "/DeviceRGB",
+        "0 1 0 1 0 1",
+    ));
+    assert!(
+        carries_a_program(&list),
+        "the display list must carry the program, or this compares one path with itself"
+    );
+    // One vertical step across the page, so the channels that differ are the column the step
+    // falls in — the same allowance every other boundary-dominated scene here takes.
+    assert_within(
+        "device-evaluated function shading",
+        compare("device-evaluated function shading", &list),
+        0.06,
+    );
+    assert_within(
+        "device-evaluated function shading at 4x",
+        compare_at("device-evaluated function shading at 4x", &list, 4.0),
+        0.06,
+    );
+}
+
+/// A program the device will not bound is refused **by name**, and the page still draws.
+///
+/// This is the fallback ADR 0376 rests on, asserted rather than assumed: `2 div` is inexact
+/// under WGSL 15.7.4.1 and `truncate` turns a last-bit difference into a whole unit, so
+/// quorra's `Agreement::Unbounded` refuses the program at the upload — while a scene still
+/// exists to fall back inside — and the grid `pdf_render::Shading::sampled_at` produces draws
+/// the page. Both halves are checked: the ground is carried out by name, and the picture is
+/// the oracle's.
+#[test]
+fn quorra_names_the_program_it_will_not_bound_and_draws_the_grid() {
+    // x/2, truncated to 0 or 1, chooses the colour: an inexact operator into an amplifier.
+    let list = first_page(function_shading_pdf(
+        "{ pop 2 div truncate 0 eq { 1 0 0 } { 0 0 1 } ifelse }",
+        "/DeviceRGB",
+        "0 1 0 1 0 1",
+    ));
+    assert!(
+        carries_a_program(&list),
+        "this tree offers the program; it is the device that declines it"
+    );
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("target fits the budget");
+    let mut ours = quorra();
+    let drawn = ours
+        .rasterize(&list, target)
+        .expect("a refused program falls back to the grid rather than refusing the frame");
+    let paints = ours.last_function_paints();
+    assert_eq!(
+        paints.evaluated(),
+        0,
+        "no shading of this page may reach the device's evaluator"
+    );
+    let ground = paints
+        .refusals()
+        .first()
+        .expect("the refusal is reported by name, never silently");
+    assert!(
+        ground.contains("div") && ground.contains("truncate"),
+        "the ground names the composition it refused, not merely that it refused: {ground}"
+    );
+    let cpu = CpuRasterizer::new()
+        .rasterize(&list, target)
+        .expect("the CPU oracle draws every fixture");
+    let comparison = raster_compare::compare(&cpu, &drawn).expect("same dimensions");
+    assert_within("refused function shading", comparison, 0.06);
+}
+
+/// The conditions in `pdf_model::shading` are what keep the two paths one answer.
+///
+/// Each of these draws — the grid answers every one of them — and each is a shading the
+/// device is deliberately never offered, because the colour it would produce is not the
+/// colour this tree's own conversion produces. A round that widened one of these without
+/// widening the conversion beside it would move pixels silently, which is what this pins.
+#[test]
+fn a_shading_the_device_could_not_colour_carries_no_program() {
+    for (program, space, range, why) in [
+        (
+            "{ pop pop 0 0 0 1 }",
+            "/DeviceCMYK",
+            "0 1 0 1 0 1 0 1",
+            "DeviceCMYK is §10.4.2.5's conversion, not a device component",
+        ),
+        (
+            "{ pop 0.5 lt { 1 } { 0 } ifelse }",
+            "[/CalGray << /WhitePoint [0.9505 1 1.089] >>]",
+            "0 1",
+            "a calibrated space is §8.6.5.2's transformation, not a device component",
+        ),
+    ] {
+        let list = first_page(function_shading_pdf(program, space, range));
+        assert!(
+            !carries_a_program(&list),
+            "a shading in {space} must carry no program: {why}"
+        );
+    }
+}
+
 /// A page interpreted from an actual PDF, through `pdf-model`, so the adapter sees
 /// display lists as the interpreter really builds them — not only hand-made ones.
 #[test]
