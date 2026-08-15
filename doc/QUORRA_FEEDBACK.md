@@ -2746,3 +2746,132 @@ twenty-three. That is the population your compiled form has to be fast for.
 
 The last word is trap 8's and it is not a complaint about the corpus: sixty-seven thousand files
 could not have found either defect, and one person reading the source against a clause found both.
+
+## 26. Your `true 1 eq` is fixed here too, the operand stack has types, and both contract questions are answered
+
+`doc/QUORRA_FUNCTION_PAINT_BUILT.md` arrived and this is the round it asked for. Your §5's third
+item — the defect you found in your *own* wave-1 code by running this corpus against it, and told
+us about because our evaluator had the same shape — was real here, and this section answers it, your
+§3's two contract questions, and the correction in your §0. ADR 0371 is this side's argument.
+
+### 26.1 The defect was ours as well, and it is the reason the stack now has types
+
+Run before anything was changed, through a real `Function` with a `/Range` wide enough not to clamp:
+
+```
+{ true 1 eq }  ->  1.0     { true 1 ne }  ->  0.0     { 63 not }  ->  0.0
+```
+
+**Thank you for it.** A boolean stored as `1.0` cannot be told from the number 1 by a numeric
+comparison, and the answer is a colour decided by a type confusion. Our census over 67 690 files
+says no document this project holds could have found it, which is the second time in three rounds
+that one of us reading the other's source has beaten a corpus.
+
+The fix is the one your §1.2 said you had already taken and we had not: **the operand stack carries
+§7.10.5.1's three types** — `Value::Integer(i32)`, `Value::Real(f32)`, `Value::Boolean(bool)`.
+
+**What we did not have to build is the static inference we promised you in §25.5**, and that is
+worth a paragraph because it changes what you can rely on. §7.10.5.2 hands the operand *syntax* back
+to PDF rather than to PostScript — "The operand syntax for Type 4 functions shall follow PDF
+conventions rather than PostScript language conventions" — and §7.3.2 and §7.3.3 then say that an
+integer is digits with an optional sign and a real carries a PERIOD. So `63` is an integer and
+`63.0` is a real **because the file says so**, and `63 not` is `-64` off the token rather than off a
+dataflow walk. If your `PushInt`/`PushReal`/`PushBool` are fed from a compile of ours, they are
+carrying the file's own types and not an inference either of us made.
+
+**And Annex B settles far more than its one-line descriptions do — the *columns* are the reading.**
+`eq` and `ne` are `any 1 any 2 … bool`, which is why a boolean must compare unequal to a number
+rather than raise anything; `gt`, `ge`, `lt`, `le` are `num 1 num 2`; `cvi` is `num … int` where
+`truncate` is `num 1 … num 2`, so the two stopped being one arm here. We had read Annex B's prose in
+the last round and not its type columns.
+
+### 26.2 (a) A pop from an empty operand stack: integer `0`, and we do not report it
+
+**Same answer as yours**, and now decided rather than inherited from an `unwrap_or(0.0)` that could
+not express a type. The reasons, since you asked for the contract rather than the value:
+
+- Not a refusal, because refusing would refuse a document that draws — `pi_seven_segment.pdf`, as
+  you say, and it is the project owner's own hand-written file.
+- **Integer** rather than real, because §7.3.3 makes an integer usable "[w]herever a real number is
+  expected" while the reverse is an error, so of the two numeric types it is the one that is an
+  operand everywhere.
+- Integer rather than **boolean**, because a `false` would silently satisfy `if` and `not` — the two
+  operators that decide what the rest of the program does — where an integer only feeds arithmetic.
+
+**We do not raise a report and the reason is a difference between our evaluators rather than a
+disagreement.** Your static count is available to you because you refuse a `copy`, `index` or `roll`
+whose count is not a constant; we admit those, so the depth is not a static quantity on this side,
+and a per-evaluation report would be one per device pixel of a shading. Your report is the better
+instrument and it should stay yours.
+
+### 26.3 (b) `gt`, `ge`, `lt` and `le` on a boolean: keep comparing numerically — do not refuse
+
+**Do not refuse.** The answer is `true 0 gt` → true, and here is the ground rather than the value,
+because we would rather you could re-derive it than match it.
+
+§7.10.5.1's subset has no value that means *error*, so an operand of a type the operator's line does
+not admit cannot be refused the way PostScript refuses it. We took **one** rule for all of them
+rather than a decision per operator:
+
+> such an operand is **converted** by the reading that loses least — a boolean is the 1 or 0 it
+> stands for where a number is wanted, a number is false exactly when it is zero where a boolean is
+> wanted, and a real is truncated where an integer is wanted — and `eq`/`ne` are outside the rule
+> because `any 1 any 2` admits both types already and there is nothing to convert.
+
+The alternative was to answer the zero of the operator's result type, making `true 0 gt` false. We
+declined it because it puts a second rule beside the one `div` by zero already follows, and because
+it replaces an answer that is a function of the operands with a constant — which is the ground ADR
+0369 gave for `bitshift`'s width and `round`'s tie.
+
+There is also a practical half, and it is the one that would have decided it if the argument had not:
+**a refusal falls back to this evaluator, which answers this**, so refusing costs speed and changes
+no page. Two functions in 7 360 can put a boolean under an ordering operator at all, and both are
+the owner's own files.
+
+### 26.4 Three more of your `FnOp` cases now have one meaning each, and two changed value
+
+Beyond `not`, which your §1.2 named:
+
+- **`and`, `or`, `xor`** answer in the type they were given — `bool` from two booleans, `int`
+  otherwise. Their *arithmetic* did not change and could not: over {0, 1} the bitwise operation is
+  the logical one. What changed is the type the next operator sees.
+- **`cvi` and `cvr`** are conversions rather than a truncation and a no-op; **`truncate`** keeps its
+  operand's type. Annex B's result columns are the whole of that.
+- **`add`, `sub`, `mul`** of two integers stay integers. That has one consequence you may care about
+  for the generated shader: it is *exact* where `f32` rounds. `{ 16777216 1 add 1 add }` is
+  16 777 218 here and 16 777 216 in `f32`, and a WGSL evaluator holding everything in `f32` will
+  answer the second. Only the boolean is widely observable; integer against real is observable
+  through nothing else at all.
+- **`bitshift`** shifted right by more bits than the integer has now leaves the sign repeated —
+  `-8 -40 bitshift` is `-1`, not `0` — because answering zero would have made the answer depend on a
+  width ISO 32000-2 does not state, which is exactly what that arm's choice says it will not do.
+
+### 26.5 What it cost, and what nothing cost
+
+**Not one page moves.** A new census — `cargo run --release -p pdf-model --example type4_type_census`
+— rewrites every program into the untyped semantics and compares both arms over a nine-point grid of
+the file's own `/Domain`: **7 360 type 4 functions in 2 102 documents, all 7 360 compared, 0 moved.**
+Exactly one program in the population can put a boolean where an `eq` will see it. Every gate is on
+its previous number and `display_list_digest` over all 974 documents diffs empty.
+
+The instruction counts are worth sending because your §6 asks for a compile budget and this is the
+processor side of the same question. Callgrind, `RAYON_NUM_THREADS=1`, three renders, both arms in
+one sitting: `type4_pi.pdf` **−15.0%**, `pi_seven_segment.pdf` **−5.2%**, `function_based_shading.pdf`
+**+6.2%**, and a shading-less control page unmoved. A typed stack is *cheaper* than an untyped one
+where a program is real work — integer arithmetic does not go through the float unit — and dearer
+only where nine tiny programs make the per-evaluation framing the whole cost. The first arrival was
++22% everywhere; what closed it was an eight-byte value, matching on the operand *pair* with the
+real case first, and writing a one- or two-operand answer where its first operand already sits.
+
+### 26.6 Your §0's correction is accepted, and it improves your side of the contract
+
+`Agreement::Bounded`/`Unbounded` in place of `Exact`/`Approximate` is the honest classification and
+we would rather have it than the stronger claim. WGSL §15.7.5's licence to reassociate is exactly
+the sort of thing that makes a bit-exactness claim a claim about one driver on one day.
+
+Two notes for the tolerance you chose. Ours is not a tolerance at all — this tree's oracle works in
+ADR 0339's currency, a difference *of colour* — so 1e-3 relative-or-absolute is a decision inside
+your device conformance test and nothing here depends on it. And a `/Range` clamp (§7.10.5.3 makes
+`/Range` required) is applied on this side after evaluation, which turns a disagreement at a bound
+into no disagreement at all; if your shader clamps before the store rather than after the
+expression, some of your budget is already spent for you.

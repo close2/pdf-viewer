@@ -321,11 +321,12 @@ impl Function {
     #[must_use]
     pub fn eval(&self, inputs: &[f32]) -> Vec<f32> {
         let mut outputs = Vec::new();
-        self.eval_into(inputs, &mut outputs);
+        let mut stack = Vec::new();
+        self.eval_into(inputs, &mut outputs, &mut stack);
         outputs
     }
 
-    /// [`Self::eval`] writing into a buffer the caller owns, so that a grid of evaluations
+    /// [`Self::eval`] writing into buffers the caller owns, so that a grid of evaluations
     /// allocates once rather than once per cell.
     ///
     /// The answer is the same in every bit — this is the body [`Self::eval`] now calls — and
@@ -334,7 +335,12 @@ impl Function {
     /// this a million times over, and an evaluation that allocated its own operand stack and
     /// its own result turned arithmetic into a million heap round trips. ADR 0364 has the
     /// measurement on the owner's `pi.pdf`.
-    pub(crate) fn eval_into(&self, inputs: &[f32], outputs: &mut Vec<f32>) {
+    ///
+    /// `stack` is a type 4 program's operand stack and is nothing to a function of any other
+    /// type. It is the caller's for the same reason `outputs` is: it holds [`Value`]s rather
+    /// than the `f32`s a caller wants back, so it can no longer *be* the output buffer, and a
+    /// stack allocated here would be ADR 0364's million allocations again under another name.
+    pub(crate) fn eval_into(&self, inputs: &[f32], outputs: &mut Vec<f32>, stack: &mut Vec<Value>) {
         // `pairs` refuses a `/Domain` longer than [`MAX_VALUES`], so the clipped inputs fit
         // in an array on the stack. The recursion below is bounded by [`MAX_STITCH_DEPTH`],
         // which puts a ceiling of eight of these on the stack at once.
@@ -368,13 +374,25 @@ impl Function {
                 functions,
                 bounds,
                 encode,
-            } => self.eval_stitching_into(functions, bounds, encode, clipped, outputs),
-            // The operand stack *is* the result — §7.10.5 leaves the outputs on it — so the
-            // caller's buffer is the stack the program runs on, with the inputs pushed onto
-            // it the way the clause says they arrive.
+            } => self.eval_stitching_into(functions, bounds, encode, clipped, outputs, stack),
+            // §7.10.5.3: "The input variables shall constitute the initial operand stack; the
+            // items remaining on the operand stack after execution of the function shall be the
+            // output variables." The inputs arrive as real numbers — they are a `/Domain`'s
+            // clipped coordinates — and what is left is read back as numbers, which the same
+            // clause requires: "It shall be an error … for any of them to be objects other than
+            // numbers." A boolean left there is that error, and the subset has no way to raise
+            // one, so it is read as the 1 or 0 it stands for rather than dropped: dropping it
+            // would change how many outputs the function has, which is the *other* half of the
+            // same sentence.
+            // The two `extend`s are the cheapest form of this measured: a `reserve` and a `push`
+            // loop, which is what suggests itself, costs 10 million instructions more on
+            // `function_based_shading.pdf` because each of these iterators is `TrustedLen` and
+            // reserves once already (ADR 0371).
             Kind::PostScript(program) => {
-                outputs.extend_from_slice(clipped);
-                evaluate_postscript(program, outputs);
+                stack.clear();
+                stack.extend(clipped.iter().map(|input| Value::Real(*input)));
+                evaluate_postscript(program, stack);
+                outputs.extend(stack.iter().map(|value| value.number()));
             }
         }
 
@@ -414,6 +432,7 @@ impl Function {
         encode: &[(f32, f32)],
         clipped: &[f32],
         outputs: &mut Vec<f32>,
+        stack: &mut Vec<Value>,
     ) {
         let x = clipped.first().copied().unwrap_or(0.0);
         let (domain_low, domain_high) = self.domain.first().copied().unwrap_or((0.0, 1.0));
@@ -439,7 +458,7 @@ impl Function {
         // No sub-function at that index leaves the buffer as the caller cleared it, which is
         // the empty answer the allocating form returned.
         if let Some(function) = functions.get(index) {
-            function.eval_into(&[mapped], outputs);
+            function.eval_into(&[mapped], outputs, stack);
         }
     }
 
@@ -875,6 +894,164 @@ fn narrow(value: f64) -> f32 {
     }
 }
 
+/// One value on a type 4 function's operand stack.
+///
+/// ISO 32000-2 §7.10.5.1 states the whole of what a type 4 program computes with, and it is
+/// three types rather than one:
+///
+/// > This subset is comprised of the following PostScript language features: … Expressions
+/// > involving only integers, real numbers, and boolean values
+///
+/// **This stack held `f32` until the five-hundred-and-thirty-sixth session**, and Annex B's own
+/// operand columns are what that costs. §B.3 types `eq` and `ne` as `any 1 any 2 … bool` — every
+/// object, so a boolean *is* an operand there and the operator has to decide equality across the
+/// types — while it types `gt`, `ge`, `lt` and `le` as `num 1 num 2`, `and`, `or`, `xor` and
+/// `not` as `bool | int`, and `bitshift` as `int 1 shift`. A stack of numbers cannot tell those
+/// apart: with a boolean stored as `1.0`, `true 1 eq` answered *true*, which is a colour decided
+/// by a type confusion. The quorra team found that in their own device-side evaluator by running
+/// this tree's corpus against it and reported that ours had the same shape
+/// (`doc/QUORRA_FUNCTION_PAINT_BUILT.md` section 5); ADR 0371 is this side's.
+///
+/// # Where a type is not what the operator asks for
+///
+/// §7.10.5.1's subset admits no value meaning *error*, so an operand of a type Annex B's line
+/// does not admit cannot be refused the way PostScript refuses it. **The policy, stated once and
+/// applied everywhere:** such an operand is *converted* by the reading that loses least — a
+/// boolean is the 1 or 0 it stands for where a number is wanted ([`Value::number`]), a number is
+/// false exactly when it is zero where a boolean is wanted ([`Value::truth`]), and a real is
+/// truncated where an integer is wanted ([`Value::integer`]). The one operator this does not
+/// touch is `eq`/`ne`, because there is nothing to convert: `any 1 any 2` admits both types
+/// already, and the operator's own answer across them is that they are never equal.
+///
+/// One of those three directions is not a choice at all, and it is worth separating out: §7.3.3
+/// states that
+///
+/// > Wherever a real number is expected, an integer may be used instead.
+///
+/// so an integer under `sin` or `div` is an ordinary operand rather than a tolerance. The same
+/// clause's next sentence is why the other two directions are error cases and not readings — "A
+/// real number shall not be present when an integer is expected" — and a file that does it
+/// anyway is a file this viewer still has to draw.
+///
+/// The alternative — answering the zero of the operator's result type, so that `true 0 gt` were
+/// `false` rather than `1 > 0` — was considered and declined for two reasons. It puts a second
+/// rule beside the one `div` by zero already follows, and it replaces an answer that is a
+/// function of the operands with a constant, which is the ground ADR 0369 gave for `bitshift`'s
+/// width and `round`'s tie.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Value {
+    /// An integer, which is what `idiv`, `mod`, `bitshift` and the bitwise operators are on.
+    ///
+    /// Held as `i32`, which is a width ISO 32000-2 does not state and this project therefore
+    /// had to choose. ADR 0369 chose the answers that do *not* depend on one — `bitshift` fills
+    /// from the sign rather than from a register's left edge — and those are unchanged at any
+    /// width. What the choice decides is where an integer stops being one: a sum past 2³¹ becomes
+    /// a real here rather than wrapping, which is the same direction the `f32` stack always went
+    /// and is nearer to Annex C's "Integer values (such as object numbers) can often be expressed
+    /// within 32 bits" than a 64-bit register would be. It also keeps a [`Value`] in eight bytes,
+    /// which ADR 0371 measured: the operand stack is copied once per device pixel of a shading.
+    Integer(i32),
+    /// A real number, which every input is and most arithmetic produces.
+    Real(f32),
+    /// A boolean, which only `true`, `false` and the relational and boolean operators produce.
+    Boolean(bool),
+}
+
+impl Value {
+    /// The number this value denotes, for an operator Annex B types `num`.
+    ///
+    /// This is also how a value left on the stack is read back as an output. §7.10.5.3 requires
+    /// the outputs to be numbers — "It shall be an error … for any of them to be objects other
+    /// than numbers" — and the subset cannot raise that error, so a boolean output is the 1 or 0
+    /// it stands for rather than a dropped operand.
+    ///
+    /// The real arm is written first here and in every match below it, because a type 4
+    /// function's inputs are reals and most of what a program computes from them stays one: the
+    /// census beside this crate found 3 328 of 7 360 programs writing no integer literal at all.
+    /// ADR 0371 measured what the order is worth.
+    fn number(self) -> f32 {
+        match self {
+            Self::Real(value) => value,
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "an integer beyond f32's exact range is already meaningless as a colour"
+            )]
+            Self::Integer(value) => value as f32,
+            Self::Boolean(value) => {
+                if value {
+                    1.0
+                } else {
+                    0.0
+                }
+            }
+        }
+    }
+
+    /// The integer this value denotes, for an operator Annex B types `int`.
+    fn integer(self) -> i32 {
+        match self {
+            Self::Real(value) => to_integer(value),
+            Self::Integer(value) => value,
+            Self::Boolean(value) => i32::from(value),
+        }
+    }
+
+    /// The integer this value *is*, or `None` for a real.
+    ///
+    /// The discriminator for `add`, `sub` and `mul`, whose §B.2 line — `num 1 num 2 … sum` —
+    /// says nothing about the result's type, and for `and`, `or` and `xor`, whose §B.3 line
+    /// makes the result's type the operands'. A boolean answers here because the policy above
+    /// converts it to an integer rather than to a real: 1 and 0 are exact either way, and an
+    /// integer is the type that keeps a later `not` meaning what §B.3's second column says.
+    fn as_integer(self) -> Option<i32> {
+        match self {
+            Self::Real(_) => None,
+            Self::Integer(value) => Some(value),
+            Self::Boolean(value) => Some(i32::from(value)),
+        }
+    }
+
+    /// The truth this value denotes, for `if` and `ifelse`, which §B.4 types `bool`.
+    fn truth(self) -> bool {
+        match self {
+            Self::Boolean(value) => value,
+            Self::Real(value) => value != 0.0,
+            Self::Integer(value) => value != 0,
+        }
+    }
+
+    /// Whether two values are the operands `eq` compares equal.
+    ///
+    /// §B.3 types `eq` as `any 1 any 2 … bool`, so it is defined *across* the subset's three
+    /// types rather than on numbers alone, and a boolean and a number are two different objects
+    /// however they are stored. Two numbers compare by value whatever their own types are, which
+    /// is why the comparison is made in `f64`: an integer and a real are equal when they stand
+    /// for the same number, and narrowing the integer first would make two distinct large
+    /// integers equal.
+    #[expect(
+        clippy::float_cmp,
+        reason = "the operator being implemented is exact equality; ADR 0369 priced the margin \
+                  clippy suggests here and removed it"
+    )]
+    fn equals(self, other: Self) -> bool {
+        match (self, other) {
+            (Self::Boolean(a), Self::Boolean(b)) => a == b,
+            (Self::Boolean(_), _) | (_, Self::Boolean(_)) => false,
+            (a, b) => a.as_f64() == b.as_f64(),
+        }
+    }
+
+    /// The value as an `f64`, which holds every `i32` and every `f32` exactly — so two numbers
+    /// of different types are compared without either being rounded first.
+    fn as_f64(self) -> f64 {
+        match self {
+            Self::Real(value) => f64::from(value),
+            Self::Integer(value) => f64::from(value),
+            Self::Boolean(value) => f64::from(u8::from(value)),
+        }
+    }
+}
+
 /// One step of a compiled type 4 function.
 ///
 /// The source is a PostScript expression, but only a fixed operator set is permitted and
@@ -884,7 +1061,7 @@ fn narrow(value: f64) -> f32 {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Instruction {
     /// Pushes a literal.
-    Push(f32),
+    Push(Value),
     /// Applies an operator.
     Operator(Operator),
     /// Pops a boolean; when false, jumps to the given instruction.
@@ -1096,9 +1273,26 @@ fn set_jump(out: &mut [Instruction], at: usize, target: usize) -> Result<(), Fun
     }
 }
 
+/// Compiles one token: a literal, or one of Table 42's operators.
+///
+/// **Which literals are integers is a question ISO 32000-2 answers itself**, and it is the one
+/// place §7.10.5.2 does not defer: "The operand syntax for Type 4 functions shall follow PDF
+/// conventions rather than PostScript language conventions." §7.3.2 and §7.3.3 are those
+/// conventions — an integer object is written as digits with an optional sign, and a real
+/// carries a PERIOD — so `1` is an integer and `1.0` is a real, and [`Value`] can tell `not`'s
+/// two meanings apart on the strength of what the file wrote.
+///
+/// Two edges are choices rather than readings, and both fall out of trying `i32` first. §7.3.3
+/// forbids a *writer* the PostScript exponential form, so `1e-8` is not a PDF number and this
+/// reads it as a real rather than refusing the whole function over a lexical detail with one
+/// obvious meaning. And an integer too large for an `i32` becomes a real, which is what §7.3.3's
+/// own sentence about the limits of the machine leaves a processor to do.
 fn compile_token(token: &str) -> Result<Instruction, FunctionError> {
+    if let Ok(value) = token.parse::<i32>() {
+        return Ok(Instruction::Push(Value::Integer(value)));
+    }
     if let Ok(value) = token.parse::<f32>() {
-        return Ok(Instruction::Push(value));
+        return Ok(Instruction::Push(Value::Real(value)));
     }
     let operator = match token {
         "abs" => Operator::Abs,
@@ -1156,21 +1350,20 @@ fn compile_token(token: &str) -> Result<Instruction, FunctionError> {
 /// terminates. A program that underflows the stack yields whatever it managed to compute
 /// rather than failing: a shading with one bad colour is better than no shading.
 ///
-/// The caller owns the stack because what the program leaves on it *is* the answer, and a
-/// grid of a million cells would otherwise allocate one per cell. See
-/// [`Function::eval_into`].
-fn evaluate_postscript(program: &[Instruction], stack: &mut Vec<f32>) {
-    /// Bounds the operand stack against a program that only pushes.
-    const MAX_STACK: usize = 1000;
-
+/// The caller owns the stack so that a grid of a million cells allocates once rather than once
+/// per cell. See [`Function::eval_into`].
+fn evaluate_postscript(program: &[Instruction], stack: &mut Vec<Value>) {
     let mut at = 0usize;
     let mut steps = 0usize;
+    // Forward-only jumps make the ceiling unreachable, and it costs one comparison to be certain
+    // rather than to argue about it. Computed once rather than per instruction: the program does
+    // not change length while it runs, and this loop is entered once per device pixel of a
+    // shading (ADR 0339), where it was 1.6% of the whole page.
+    let ceiling = program.len().saturating_mul(2).saturating_add(16);
 
     while let Some(instruction) = program.get(at) {
         steps = steps.saturating_add(1);
-        // Forward-only jumps make this unreachable, and it costs one comparison to be
-        // certain rather than to argue about it.
-        if steps > program.len().saturating_mul(2).saturating_add(16) {
+        if steps > ceiling {
             break;
         }
         at = at.saturating_add(1);
@@ -1182,8 +1375,13 @@ fn evaluate_postscript(program: &[Instruction], stack: &mut Vec<f32>) {
                 }
             }
             Instruction::Jump(target) => at = *target,
+            // §B.4 types `if` and `ifelse` as taking a `bool`, and a program that pushes a
+            // number instead is the conversion [`Value`] states rather than a refusal: zero is
+            // false and everything else is true. An empty stack answers `0` (see `pop`), which
+            // is false, so a program that lost its condition takes the branch it would have
+            // taken before this stack had types.
             Instruction::JumpUnless(target) => {
-                if stack.pop().unwrap_or(0.0) == 0.0 {
+                if !stack.pop().unwrap_or(EMPTY_STACK).truth() {
                     at = *target;
                 }
             }
@@ -1235,66 +1433,155 @@ fn evaluate_postscript(program: &[Instruction], stack: &mut Vec<f32>) {
 ///
 /// Three arms are choices rather than readings, because the standard's line does not reach them
 /// and the deferral cannot be quoted. Each is stated where it is made: `bitshift`'s width for a
-/// right shift of a negative value, `div`/`idiv`/`mod` by zero and `ln`/`log`/`sqrt` outside
-/// their domains — where PostScript raises an error the subset has no way to express — and
-/// `not`, which §B.3 makes two operators wearing one name and which this compiled form can only
-/// express as one.
+/// right shift of a negative value; `div`, `idiv` and `mod` by zero and `ln`, `log` and `sqrt`
+/// outside their domains, where PostScript raises an error the subset has no way to express; and
+/// a pop from an empty operand stack, which is [`EMPTY_STACK`].
+///
+/// # What a typed stack decides, and what it left alone
+///
+/// The stack holds [`Value`]s rather than `f32`s since the five-hundred-and-thirty-sixth session,
+/// which is what makes Annex B's operand and result columns implementable rather than decorative:
+/// `not` is one's complement on an integer and negation on a boolean, `and`, `or` and `xor`
+/// answer in the type they were given, `cvi` and `cvr` are conversions rather than a truncation
+/// and a no-op, and `eq` answers §B.3's `any 1 any 2` *across* the three types instead of
+/// comparing a boolean as though it were the number 1. [`Value`] states the whole of what happens
+/// where an operand's type is not the one its line asks for, and ADR 0371 is the argument.
+///
+/// What it left alone is worth as much: `and`, `or` and `xor` still agree with the arithmetic
+/// they had, because over `{0, 1}` the bitwise operation is the logical one — the typing changes
+/// the *type* of their answer rather than its value — and every arm that Annex B types `num`
+/// answers exactly what it answered before.
 #[expect(
     clippy::too_many_lines,
     reason = "one arm per PostScript operator reads better as a single table"
 )]
-fn apply_operator(operator: Operator, stack: &mut Vec<f32>) {
-    /// Pops one value, or zero when the stack has underflowed.
-    fn pop(stack: &mut Vec<f32>) -> f32 {
-        stack.pop().unwrap_or(0.0)
+fn apply_operator(operator: Operator, stack: &mut Vec<Value>) {
+    /// Pops one value, or [`EMPTY_STACK`] when the stack has underflowed.
+    fn pop(stack: &mut Vec<Value>) -> Value {
+        stack.pop().unwrap_or(EMPTY_STACK)
     }
-    /// True is 1.0 and false is 0.0, as the specification's booleans are numbers here.
-    fn boolean(value: bool) -> f32 {
-        if value { 1.0 } else { 0.0 }
+    /// A one-operand operator, applied where its operand already is.
+    ///
+    /// A pop and a push move the stack's length twice and write it back twice for an answer that
+    /// lands in the slot the operand came out of; this writes it there. It is the same operator —
+    /// an underflow still answers from [`EMPTY_STACK`] and still leaves one value behind — and on
+    /// the type 4 shadings of `function_based_shading.pdf`, whose nine programs are a handful of
+    /// operators each, this and [`binary`] together are what keep a typed stack from costing
+    /// instructions against ADR 0364's measurement. ADR 0371 has the table.
+    fn unary(stack: &mut Vec<Value>, apply: impl Fn(Value) -> Value) {
+        match stack.last_mut() {
+            Some(slot) => *slot = apply(*slot),
+            None => stack.push(apply(EMPTY_STACK)),
+        }
+    }
+    /// A two-operand operator, applied where its *first* operand already is.
+    ///
+    /// §B.2's and §B.3's two-operand lines all leave one value behind, so the second operand's
+    /// slot is the one that goes; see [`unary`] for why that is worth writing out.
+    fn binary(stack: &mut Vec<Value>, apply: impl Fn(Value, Value) -> Value) {
+        let b = pop(stack);
+        match stack.last_mut() {
+            Some(slot) => *slot = apply(*slot, b),
+            None => stack.push(apply(EMPTY_STACK, b)),
+        }
+    }
+    /// A two-operand arithmetic operator, in the type §B.2's line leaves to the operands.
+    ///
+    /// `add`, `sub` and `mul` are typed `num 1 num 2 … sum`, and a sum of what type is not
+    /// stated. **The choice is that two integers make an integer and anything else makes a
+    /// real**, on the ground that it is the only rule under which `2 3 add not` and `5 not`
+    /// answer alike — a type that arithmetic threw away would make `not`, `and`, `or`, `xor`,
+    /// `idiv`, `mod` and `bitshift` mean one thing on a literal and another on a value computed
+    /// from two of them. An integer result that will not fit becomes a real, which keeps the
+    /// magnitude approximately right where wrapping would produce a plausible wrong number.
+    fn arithmetic2(
+        a: Value,
+        b: Value,
+        integers: impl Fn(i32, i32) -> Option<i32>,
+        reals: impl Fn(f32, f32) -> f32,
+    ) -> Value {
+        // Matched on the *pair* rather than through two `as_integer`s, because the arms are one
+        // test each that way and three of the four are the arithmetic a shading spends its day
+        // in: two reals, and a real meeting an integer literal — `x 4 mul` — from either side.
+        // Only the last arm, where neither operand is a real, can answer an integer at all.
+        // ADR 0371 has what this shape is worth against the straightforward one.
+        match (a, b) {
+            (Value::Real(x), Value::Real(y)) => Value::Real(reals(x, y)),
+            (Value::Real(x), other) => Value::Real(reals(x, other.number())),
+            (other, Value::Real(y)) => Value::Real(reals(other.number(), y)),
+            (x, y) => match (x.as_integer(), y.as_integer()) {
+                (Some(x), Some(y)) => integers(x, y).map_or_else(
+                    || Value::Real(reals(a.number(), b.number())),
+                    Value::Integer,
+                ),
+                _ => Value::Real(reals(a.number(), b.number())),
+            },
+        }
+    }
+    /// A one-operand arithmetic operator §B.2 types `num 1 … num 2`, which carries its type
+    /// through: a value that was an integer is still one after `abs`, `floor` or `round`.
+    fn arithmetic1(
+        a: Value,
+        integers: impl Fn(i32) -> Option<i32>,
+        reals: impl Fn(f32) -> f32,
+    ) -> Value {
+        if let Value::Real(x) = a {
+            return Value::Real(reals(x));
+        }
+        a.as_integer().map_or_else(
+            || Value::Real(reals(a.number())),
+            |x| integers(x).map_or_else(|| Value::Real(reals(a.number())), Value::Integer),
+        )
+    }
+    /// `and`, `or` and `xor`, whose §B.3 line — `bool 1 | int 1 bool 2 | int 2 … bool 3 | int 3`
+    /// — makes the result's type the operands'. Two booleans are the logical operator and
+    /// anything else is the bitwise one, which is the least-loss direction of [`Value`]'s
+    /// conversion policy: a boolean is exactly 1 or 0 as an integer, where an integer read as a
+    /// boolean would lose every bit above the first.
+    fn logic(
+        a: Value,
+        b: Value,
+        integers: impl Fn(i32, i32) -> i32,
+        booleans: impl Fn(bool, bool) -> bool,
+    ) -> Value {
+        match (a, b) {
+            (Value::Boolean(x), Value::Boolean(y)) => Value::Boolean(booleans(x, y)),
+            _ => Value::Integer(integers(a.integer(), b.integer())),
+        }
     }
 
     match operator {
-        Operator::Abs => {
-            let a = pop(stack);
-            stack.push(a.abs());
-        }
-        Operator::Add => {
-            let (b, a) = (pop(stack), pop(stack));
-            stack.push(a + b);
-        }
-        Operator::Atan => {
-            let (den, num) = (pop(stack), pop(stack));
-            // §B.2: "Return arc tangent of num / den in degrees" — a *quotient* of two
-            // operands rather than one ratio, which is why `atan2` is the right primitive and
-            // a `num / den` fed to `atan` would be wrong: the quotient loses the quadrant, so
-            // `-1 -1 atan` and `1 1 atan` would answer alike where the circle puts them 180°
-            // apart. The degrees run over the whole circle rather than over `atan`'s half of
-            // it, so a negative answer is brought up by a turn.
-            let mut degrees = num.atan2(den).to_degrees();
+        Operator::Abs => unary(stack, |a| arithmetic1(a, i32::checked_abs, f32::abs)),
+        Operator::Add => binary(stack, |a, b| {
+            arithmetic2(a, b, i32::checked_add, |x, y| x + y)
+        }),
+        // §B.2: "Return arc tangent of num / den in degrees" — a *quotient* of two operands
+        // rather than one ratio, which is why `atan2` is the right primitive and a `num / den`
+        // fed to `atan` would be wrong: the quotient loses the quadrant, so `-1 -1 atan` and
+        // `1 1 atan` would answer alike where the circle puts them 180° apart. The degrees run
+        // over the whole circle rather than over `atan`'s half of it, so a negative answer is
+        // brought up by a turn.
+        Operator::Atan => binary(stack, |num, den| {
+            let mut degrees = num.number().atan2(den.number()).to_degrees();
             if degrees < 0.0 {
                 degrees += 360.0;
             }
-            stack.push(degrees);
-        }
-        Operator::Ceiling => {
-            let a = pop(stack);
-            stack.push(a.ceil());
-        }
-        Operator::Cos => {
-            let a = pop(stack);
-            stack.push(a.to_radians().cos());
-        }
-        // §B.2 gives these two different words for one arithmetic — "Convert to integer" and
-        // "Remove fractional part of num 1" — and they differ in PostScript only in the *type*
-        // of what they leave behind, which this evaluator does not carry (see `Operator::Not`).
-        // Numerically both discard the fraction toward zero, so `-1.5` becomes `-1` where
-        // `floor` would answer `-2`.
-        Operator::Cvi | Operator::Truncate => {
-            let a = pop(stack);
-            stack.push(a.trunc());
-        }
-        // §B.2's "Convert to real", which every value on this stack already is.
-        Operator::Cvr => {}
+            Value::Real(degrees)
+        }),
+        Operator::Ceiling => unary(stack, |a| arithmetic1(a, Some, f32::ceil)),
+        Operator::Cos => unary(stack, |a| Value::Real(a.number().to_radians().cos())),
+        // §B.2 gives these two a `num` operand and different result columns — `cvi` answers
+        // `int` and `cvr` answers `real` — so they are conversions rather than arithmetic, and
+        // an untyped stack could implement neither. `cvi` truncates toward zero, since it is
+        // `truncate`'s arithmetic with a type change on top: `-1.5 cvi` is `-1` where `floor`
+        // answers `-2`. `cvr` on an integer is the widening §7.3.3 already permits everywhere.
+        Operator::Cvi => unary(stack, |a| Value::Integer(a.integer())),
+        Operator::Cvr => unary(stack, |a| Value::Real(a.number())),
+        // §B.2's `truncate` is typed `num 1 … num 2` rather than `num … int`, so unlike `cvi` it
+        // keeps the type it was given and only removes the fraction. **The two were one arm
+        // until this stack had types**, which was the honest reading of a stack that could not
+        // tell them apart and is not the honest reading of one that can.
+        Operator::Truncate => unary(stack, |a| arithmetic1(a, Some, f32::trunc)),
         // A quotient by zero, and below it `idiv`, `mod`, `ln`, `log` and `sqrt` outside their
         // domains: PostScript raises an error, and §7.10.5.1's subset has no way to express one
         // — "Expressions involving only integers, real numbers, and boolean values" is the
@@ -1303,99 +1590,69 @@ fn apply_operator(operator: Operator, stack: &mut Vec<f32>) {
         // colour component, then a coordinate, and geometry built from one is unpredictable
         // rather than merely wrong. `/Range` would clamp it (§7.10.5.3 requires one), but the
         // value passes through the rest of the program first.
-        Operator::Div => {
-            let (b, a) = (pop(stack), pop(stack));
-            stack.push(if b == 0.0 { 0.0 } else { a / b });
-        }
-        // §B.2: "Raise base to exponent power", the operands in that order. A negative base
-        // with a fractional exponent has no real answer and `powf` says so with a `NaN`, which
-        // is the one place in this table a non-number is produced deliberately: unlike an
-        // infinity it cannot become a plausible coordinate, and §7.10.5.3 requires a `/Range`,
-        // whose clamp maps it to a bound before any caller sees it.
-        Operator::Exp => {
-            let (b, a) = (pop(stack), pop(stack));
-            stack.push(a.powf(b));
-        }
-        Operator::Floor => {
-            let a = pop(stack);
-            stack.push(a.floor());
-        }
-        // §B.2: "Return int 1 divided by int 2 as an integer". Both operands are truncated
-        // toward zero first, because the operator is stated on integers and this stack carries
-        // no types; the quotient is then truncated the same way, so `-7 2 idiv` is `-3` rather
-        // than `floor`'s `-4`.
-        Operator::Idiv => {
-            let (b, a) = (pop(stack), pop(stack));
-            stack.push(if b.trunc() == 0.0 {
-                0.0
-            } else {
-                (a.trunc() / b.trunc()).trunc()
-            });
-        }
-        Operator::Ln => {
-            let a = pop(stack);
-            stack.push(if a > 0.0 { a.ln() } else { 0.0 });
-        }
-        Operator::Log => {
-            let a = pop(stack);
-            stack.push(if a > 0.0 { a.log10() } else { 0.0 });
-        }
-        // §B.2: "Return remainder after dividing int 1 by int 2". The remainder that goes with
-        // `idiv`'s truncated quotient is the one whose sign follows the *dividend*, which is
-        // what Rust's `%` computes and what a Euclidean remainder does not: `-7 2 mod` is `-1`
-        // here and `1` under `rem_euclid`. The pair has to agree, since `a` is
-        // `b (a b idiv) mul (a b mod) add` in either convention only when both come from the
-        // same one.
-        Operator::Mod => {
-            let (b, a) = (pop(stack), pop(stack));
-            stack.push(if b.trunc() == 0.0 {
-                0.0
-            } else {
-                a.trunc() % b.trunc()
-            });
-        }
-        Operator::Mul => {
-            let (b, a) = (pop(stack), pop(stack));
-            stack.push(a * b);
-        }
-        Operator::Neg => {
-            let a = pop(stack);
-            stack.push(-a);
-        }
-        Operator::Round => {
-            let a = pop(stack);
-            stack.push(round_to_greater(a));
-        }
-        Operator::Sin => {
-            let a = pop(stack);
-            stack.push(a.to_radians().sin());
-        }
-        Operator::Sqrt => {
-            let a = pop(stack);
-            stack.push(if a > 0.0 { a.sqrt() } else { 0.0 });
-        }
-        Operator::Sub => {
-            let (b, a) = (pop(stack), pop(stack));
-            stack.push(a - b);
-        }
+        //
+        // The result is a real whatever the operands were, and §B.2 is the evidence: the `div`
+        // row answers a plain `quotient` where the `idiv` row directly below it answers one
+        // "as an integer", which is a distinction the annex would not draw if `div` could
+        // answer an integer too.
+        Operator::Div => binary(stack, |a, b| {
+            let (a, b) = (a.number(), b.number());
+            Value::Real(if b == 0.0 { 0.0 } else { a / b })
+        }),
+        // §B.2: "Raise base to exponent power", the operands in that order, answering a `real`.
+        // A negative base with a fractional exponent has no real answer and `powf` says so with
+        // a `NaN`, which is the one place in this table a non-number is produced deliberately:
+        // unlike an infinity it cannot become a plausible coordinate, and §7.10.5.3 requires a
+        // `/Range`, whose clamp maps it to a bound before any caller sees it.
+        Operator::Exp => binary(stack, |a, b| Value::Real(a.number().powf(b.number()))),
+        Operator::Floor => unary(stack, |a| arithmetic1(a, Some, f32::floor)),
+        // §B.2: "Return int 1 divided by int 2 as an integer", and `mod` below it "Return
+        // remainder after dividing int 1 by int 2" — both typed on integers in and an integer
+        // out. A real operand is what §7.3.3 calls a real number present where an integer is
+        // expected, so it is truncated toward zero rather than refused ([`Value`]), which is
+        // also what this arm did when the stack had no types: `-7 2 idiv` is `-3` rather than
+        // `floor`'s `-4`.
+        Operator::Idiv => binary(stack, |a, b| {
+            Value::Integer(a.integer().checked_div(b.integer()).unwrap_or(0))
+        }),
+        // The remainder that goes with `idiv`'s truncated quotient is the one whose sign follows
+        // the *dividend*, which is what Rust's `%` computes and what a Euclidean remainder does
+        // not: `-7 2 mod` is `-1` here and `1` under `rem_euclid`. The pair has to agree, since
+        // `a` is `b (a b idiv) mul (a b mod) add` in either convention only when both come from
+        // the same one.
+        Operator::Mod => binary(stack, |a, b| {
+            Value::Integer(a.integer().checked_rem(b.integer()).unwrap_or(0))
+        }),
+        Operator::Ln => unary(stack, |a| {
+            let a = a.number();
+            Value::Real(if a > 0.0 { a.ln() } else { 0.0 })
+        }),
+        Operator::Log => unary(stack, |a| {
+            let a = a.number();
+            Value::Real(if a > 0.0 { a.log10() } else { 0.0 })
+        }),
+        Operator::Mul => binary(stack, |a, b| {
+            arithmetic2(a, b, i32::checked_mul, |x, y| x * y)
+        }),
+        Operator::Neg => unary(stack, |a| arithmetic1(a, i32::checked_neg, |x| -x)),
+        Operator::Round => unary(stack, |a| arithmetic1(a, Some, round_to_greater)),
+        Operator::Sin => unary(stack, |a| Value::Real(a.number().to_radians().sin())),
+        Operator::Sqrt => unary(stack, |a| {
+            let a = a.number();
+            Value::Real(if a > 0.0 { a.sqrt() } else { 0.0 })
+        }),
+        Operator::Sub => binary(stack, |a, b| {
+            arithmetic2(a, b, i32::checked_sub, |x, y| x - y)
+        }),
         // §B.3 types `and`, `or` and `xor` as taking `bool | int` and returning `bool | int` —
-        // "Perform logical | bitwise and" — so each is two operators sharing a name. **They
-        // need no discrimination here and that is a property of the representation rather than
-        // luck**: a boolean on this stack is `1.0` or `0.0` (see `boolean`), and over the set
-        // {0, 1} the bitwise operation *is* the logical one, for all three. `not` below is the
-        // one member of the family where the two disagree.
-        Operator::And => {
-            let (b, a) = (pop(stack), pop(stack));
-            stack.push(bits(a, b, |x, y| x & y));
-        }
-        Operator::Or => {
-            let (b, a) = (pop(stack), pop(stack));
-            stack.push(bits(a, b, |x, y| x | y));
-        }
-        Operator::Xor => {
-            let (b, a) = (pop(stack), pop(stack));
-            stack.push(bits(a, b, |x, y| x ^ y));
-        }
+        // "Perform logical | bitwise and" — so each is two operators sharing a name, and
+        // `logic` above is which one runs. **Their arithmetic did not change and could not**:
+        // a boolean here used to be `1.0` or `0.0`, and over the set {0, 1} the bitwise
+        // operation *is* the logical one. What changed is the type of the answer, which the
+        // `not` below it can tell apart.
+        Operator::And => binary(stack, |a, b| logic(a, b, |x, y| x & y, |x, y| x && y)),
+        Operator::Or => binary(stack, |a, b| logic(a, b, |x, y| x | y, |x, y| x || y)),
+        Operator::Xor => binary(stack, |a, b| logic(a, b, |x, y| x ^ y, |x, y| x != y)),
         // §B.3: "Perform bitwise shift of int 1 (positive is left)", which fixes the direction
         // and nothing else. A *right* shift of a negative value is where implementations part,
         // and it parts on a number the standard never states: the width of the integer. A shift
@@ -1409,96 +1666,80 @@ fn apply_operator(operator: Operator, stack: &mut Vec<f32>) {
         // is a function of the *value* rather than of a width nobody stated: `-4 -1 bitshift` is
         // `-2` under it whatever the register is. It is a choice and not a reading, and the
         // instrument that says what it costs is `examples/type4_operator_census`, which counts
-        // the programs in the corpora that reach `bitshift` at all.
-        Operator::Bitshift => {
-            let (shift, value) = (pop(stack), pop(stack));
-            let value = to_integer(value);
-            let shift = to_integer(shift);
-            let result = if shift >= 0 {
+        // the programs in the corpora that reach `bitshift` at all — none of 7 360, at the
+        // five-hundred-and-thirty-sixth session's run.
+        //
+        // A shift wider than the register is where that principle used to leak, and the last
+        // line is what closes it: shifting right by more bits than an integer has leaves the
+        // sign repeated, so it is `-1` for a negative value and `0` for a non-negative one
+        // rather than `0` for both. Answering `0` for a negative value would have made the
+        // answer depend on the width after all — `-8 -40 bitshift` was `-1` while the integer
+        // was 64 bits wide and `0` when it became 32 — which is exactly what this arm's choice
+        // says it will not do (ADR 0371).
+        Operator::Bitshift => binary(stack, |value, shift| {
+            let (value, shift) = (value.integer(), shift.integer());
+            Value::Integer(if shift >= 0 {
                 value
                     .checked_shl(u32::try_from(shift).unwrap_or(u32::MAX))
                     .unwrap_or(0)
             } else {
-                value
+                shift
                     .checked_neg()
-                    .and_then(|_| shift.checked_neg())
                     .and_then(|amount| u32::try_from(amount).ok())
                     .and_then(|amount| value.checked_shr(amount))
-                    .unwrap_or(0)
-            };
-            #[expect(
-                clippy::cast_precision_loss,
-                reason = "a shifted integer beyond f32's exact range is already meaningless"
-            )]
-            stack.push(result as f32);
-        }
+                    .unwrap_or(if value < 0 { -1 } else { 0 })
+            })
+        }),
         // §B.3: "Perform logical | bitwise not" — two operators wearing one name, like `and`
-        // above, except that here the two *disagree*. Logical `not` of `1` is `0`; the one's
+        // above, except that here the two *disagree*. Logical `not` of true is false; the one's
         // complement of the integer `1` is `-2`, and of `63` is `-64`. Which is meant depends on
-        // the operand's type, and `Instruction::Push` carries no type — a literal `63` and a
-        // `true` are the same `f32` by the time this runs — so this evaluator can only implement
-        // one of them, and implements the logical one.
+        // the operand's type, and until the five-hundred-and-thirty-sixth session a compiled
+        // literal had none, so this evaluator could implement only the logical one and `63 not`
+        // answered `0`. It answers `-64` now, off the type §7.3.2 and §7.3.3 give the literal
+        // `63` in the file itself.
         //
-        // **That is a known incompleteness rather than a reading**, raised by the quorra team as
-        // a contract question (`doc/QUORRA_FUNCTION_PAINT_ANSWER.md` section 6.3) and answered
-        // in `doc/QUORRA_FEEDBACK.md` section 25.5: the fix is a type on every compiled literal,
-        // inferred statically, giving `not`, `and`, `or`, `xor` and the shifts one meaning each. It
-        // changes a public type and belongs to that work rather than to this arm. `63 not`
-        // answers `0.0` here meanwhile, and the census beside this file says how many programs
-        // in the corpora reach `not` with anything but a boolean.
-        Operator::Not => {
-            let a = pop(stack);
-            stack.push(if a == 0.0 { 1.0 } else { 0.0 });
-        }
-        // §B.3 (informative) gives `eq` one line — "Test equal" — and no tolerance.
-        // PostScript's `eq` is exact equality of the two operands, and this compared them
-        // within `f32::EPSILON` until the five-hundred-and-thirty-fourth session. That
-        // tolerance is not a conservative reading of the deferral, it is a different operator:
-        // `f32::EPSILON` is the gap between 1.0 and its successor, so near zero it makes
-        // millions of distinct values equal — every value under 1.2e-7 equals every other, and
-        // equals zero — while at any magnitude above about 8.4 million it is smaller than one
-        // unit in the last place and the comparison is exact anyway. It is loosest exactly
-        // where a type 4 program tests a boundary and tightest where nothing needs it. Both
-        // arms are `a == b` and its negation now, which is what makes them each other's
-        // complement for every pair of numbers.
+        // A real reaching here is the error §7.3.3 names — a real number present where an
+        // integer is expected — and [`Value`]'s policy truncates it rather than refusing, so
+        // `1.5 not` is `-2`.
+        Operator::Not => unary(stack, |a| match a {
+            Value::Boolean(value) => Value::Boolean(!value),
+            other => Value::Integer(!other.integer()),
+        }),
+        // §B.3 gives `eq` one line — "Test equal" — and no tolerance, and types it `any 1 any 2`
+        // rather than `num 1 num 2`. Both halves of that were wrong here in turn. The tolerance
+        // was `f32::EPSILON` until the five-hundred-and-thirty-fourth session, which is not a
+        // conservative reading of the deferral but a different operator: `f32::EPSILON` is the
+        // gap between 1.0 and its successor, so near zero it made millions of distinct values
+        // equal — every value under 1.2e-7 equalled every other, and equalled zero — while at
+        // any magnitude above about 8.4 million it is smaller than one unit in the last place
+        // and the comparison was exact anyway. It was loosest exactly where a type 4 program
+        // tests a boundary.
+        //
+        // **And `any 1 any 2` is the half this round takes.** An operator defined on every
+        // object has to answer across the types rather than through them, so a boolean is never
+        // equal to a number — `true 1 eq` is false — and two numbers are equal when they stand
+        // for the same number whether they were written `1` or `1.0`. [`Value::equals`] is the
+        // whole of it. The quorra team found this in their own device-side evaluator by running
+        // this tree's corpus against it and reported that ours had the same shape
+        // (`doc/QUORRA_FUNCTION_PAINT_BUILT.md` section 5).
         //
         // A `NaN` operand makes `eq` false and `ne` true, which is IEEE 754's answer rather
         // than a chosen one — and unreachable through `Function::eval`, whose §7.10.5.3
         // `/Range` clamp maps a `NaN` output to a bound before any caller sees it.
-        #[expect(
-            clippy::float_cmp,
-            reason = "the operator being implemented is exact equality; see above"
-        )]
-        Operator::Eq => {
-            let (b, a) = (pop(stack), pop(stack));
-            stack.push(boolean(a == b));
-        }
-        #[expect(
-            clippy::float_cmp,
-            reason = "the operator being implemented is exact inequality; see Eq above"
-        )]
-        Operator::Ne => {
-            let (b, a) = (pop(stack), pop(stack));
-            stack.push(boolean(a != b));
-        }
-        Operator::Ge => {
-            let (b, a) = (pop(stack), pop(stack));
-            stack.push(boolean(a >= b));
-        }
-        Operator::Gt => {
-            let (b, a) = (pop(stack), pop(stack));
-            stack.push(boolean(a > b));
-        }
-        Operator::Le => {
-            let (b, a) = (pop(stack), pop(stack));
-            stack.push(boolean(a <= b));
-        }
-        Operator::Lt => {
-            let (b, a) = (pop(stack), pop(stack));
-            stack.push(boolean(a < b));
-        }
-        Operator::True => stack.push(1.0),
-        Operator::False => stack.push(0.0),
+        Operator::Eq => binary(stack, |a, b| Value::Boolean(a.equals(b))),
+        Operator::Ne => binary(stack, |a, b| Value::Boolean(!a.equals(b))),
+        // §B.3 types these four `num 1 num 2 … bool`, so unlike `eq` they do not admit a
+        // boolean at all and PostScript refuses one. The subset cannot express that refusal,
+        // and [`Value`]'s policy therefore converts: `true 0 gt` compares 1 with 0 and is true.
+        // That is a choice, it is the one quorra left with this tree
+        // (`doc/QUORRA_FUNCTION_PAINT_BUILT.md` section 3), and `doc/QUORRA_FEEDBACK.md`
+        // section 26 is the answer sent back with its ground.
+        Operator::Ge => binary(stack, |a, b| Value::Boolean(a.as_f64() >= b.as_f64())),
+        Operator::Gt => binary(stack, |a, b| Value::Boolean(a.as_f64() > b.as_f64())),
+        Operator::Le => binary(stack, |a, b| Value::Boolean(a.as_f64() <= b.as_f64())),
+        Operator::Lt => binary(stack, |a, b| Value::Boolean(a.as_f64() < b.as_f64())),
+        Operator::True => stack.push(Value::Boolean(true)),
+        Operator::False => stack.push(Value::Boolean(false)),
         Operator::Pop => {
             stack.pop();
         }
@@ -1515,17 +1756,14 @@ fn apply_operator(operator: Operator, stack: &mut Vec<f32>) {
                 stack.swap(len.saturating_sub(1), len.saturating_sub(2));
             }
         }
+        // §B.5's stack operators are typed `any` throughout, so each moves a [`Value`] without
+        // reading it; only the count they take is a number, and it is an `int`.
         Operator::Copy => {
-            let count = pop(stack).trunc();
-            if count <= 0.0 {
+            let count = pop(stack).integer();
+            if count <= 0 {
                 return;
             }
-            #[expect(
-                clippy::cast_possible_truncation,
-                clippy::cast_sign_loss,
-                reason = "guarded positive and bounded by the stack limit below"
-            )]
-            let count = (count as usize).min(MAX_STACK);
+            let count = usize::try_from(count).unwrap_or(MAX_STACK).min(MAX_STACK);
             let start = stack.len().saturating_sub(count);
             if stack.len().saturating_add(count) > MAX_STACK {
                 return;
@@ -1537,22 +1775,17 @@ fn apply_operator(operator: Operator, stack: &mut Vec<f32>) {
             stack.extend_from_within(start..);
         }
         Operator::Index => {
-            let n = pop(stack).trunc();
-            if n < 0.0 {
-                stack.push(0.0);
+            let n = pop(stack).integer();
+            if n < 0 {
+                stack.push(EMPTY_STACK);
                 return;
             }
-            #[expect(
-                clippy::cast_possible_truncation,
-                clippy::cast_sign_loss,
-                reason = "guarded non-negative just above"
-            )]
-            let n = n as usize;
+            let n = usize::try_from(n).unwrap_or(usize::MAX);
             let value = stack
                 .len()
                 .checked_sub(n.saturating_add(1))
                 .and_then(|at| stack.get(at).copied())
-                .unwrap_or(0.0);
+                .unwrap_or(EMPTY_STACK);
             stack.push(value);
         }
         // §B.5: "Roll n elements up j times", where *up* is toward the top of the stack — which
@@ -1560,17 +1793,14 @@ fn apply_operator(operator: Operator, stack: &mut Vec<f32>) {
         // rolls the other way and is not a different operation: `rem_euclid` turns it into the
         // rotation by `n - |j|` that §B.5's own `mod` in the result column describes.
         Operator::Roll => {
-            let shift = pop(stack).trunc();
-            let count = pop(stack).trunc();
-            if count <= 0.0 {
+            let shift = pop(stack).integer();
+            let count = pop(stack).integer();
+            if count <= 0 {
                 return;
             }
-            #[expect(
-                clippy::cast_possible_truncation,
-                clippy::cast_sign_loss,
-                reason = "guarded positive just above"
-            )]
-            let count = (count as usize).min(stack.len());
+            let count = usize::try_from(count)
+                .unwrap_or(usize::MAX)
+                .min(stack.len());
             let start = stack.len().saturating_sub(count);
             let Some(window) = stack.get_mut(start..) else {
                 return;
@@ -1578,14 +1808,38 @@ fn apply_operator(operator: Operator, stack: &mut Vec<f32>) {
             if count == 0 {
                 return;
             }
-            let shift = to_integer(shift);
-            let count_i = i64::try_from(count).unwrap_or(1);
+            let count_i = i32::try_from(count).unwrap_or(1);
             let amount = shift.rem_euclid(count_i);
             let amount = usize::try_from(amount).unwrap_or(0);
             window.rotate_right(amount);
         }
     }
 }
+
+/// What a pop from an empty operand stack answers, and why it is an integer.
+///
+/// §7.10.5.3 makes a program that underflows malformed twice over — the inputs "shall constitute
+/// the initial operand stack", and it is "an error for the number of remaining operands to differ
+/// from the number of output variables specified by Range" — but §7.10.5.1's subset holds only
+/// integers, reals and booleans, so there is no value that means *underflow*. Refusing the
+/// program instead would refuse a document that draws: `doc/corpora-own/pi_seven_segment.pdf` is
+/// hand-written, reads an empty stack in three places, and renders.
+///
+/// **So it is a value, and this round decided which one.** `unwrap_or(0.0)` answered a number
+/// with no type, which the seven operators that can tell an integer from a boolean would each
+/// have read differently the moment the stack gained types. The integer is chosen over the real
+/// because §7.3.3 makes an integer usable "[w]herever a real number is expected" while the
+/// reverse is an error, so it is the one of the two that is an operand everywhere; and over the
+/// boolean because a `false` here would silently satisfy `if` and `not` — the two operators that
+/// decide what the *rest* of the program does — where an integer only feeds the arithmetic.
+///
+/// The quorra team's device-side evaluator chose integer `0` too and raises a report at upload
+/// (`doc/QUORRA_FUNCTION_PAINT_BUILT.md` section 3). This side does not report, and the reason is
+/// not that it would be unwelcome: they can count the underflows statically because they refuse a
+/// `copy`, `index` or `roll` whose count is not a constant, and this evaluator admits those, so
+/// the depth is not a static quantity here. A report per evaluation would be one per device pixel
+/// of a shading (ADR 0339).
+const EMPTY_STACK: Value = Value::Integer(0);
 
 /// Bounds the operand stack against a program that only pushes.
 const MAX_STACK: usize = 1000;
@@ -1640,40 +1894,37 @@ fn round_to_greater(value: f32) -> f32 {
 ///
 /// Saturating rather than wrapping: a value outside the range is already meaningless as a
 /// colour, and wrapping would turn it into a plausible-looking wrong one.
-fn to_integer(value: f32) -> i64 {
+fn to_integer(value: f32) -> i32 {
     if value.is_nan() {
         return 0;
     }
     #[expect(
         clippy::cast_possible_truncation,
-        reason = "an `as` cast from f32 to i64 saturates at the bounds, which is intended"
+        reason = "an `as` cast from f32 to i32 saturates at the bounds, which is intended"
     )]
     {
-        value.trunc() as i64
-    }
-}
-
-/// Applies a bitwise operator to two values treated as integers.
-fn bits(a: f32, b: f32, op: impl Fn(i64, i64) -> i64) -> f32 {
-    let (x, y) = (to_integer(a), to_integer(b));
-    #[expect(
-        clippy::cast_precision_loss,
-        reason = "a result beyond f32's exact range is already meaningless as a colour"
-    )]
-    {
-        op(x, y) as f32
+        value.trunc() as i32
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Function, compile_postscript, evaluate_postscript};
+    use super::{Function, Value, compile_postscript, evaluate_postscript};
 
-    /// Compiles and runs a type 4 program, which needs no document to exist.
+    /// Compiles and runs a type 4 program, which needs no document to exist, and reads what it
+    /// left behind the way §7.10.5.3 does — as numbers.
     fn calculator(source: &str, inputs: &[f32]) -> Vec<f32> {
+        typed(source, inputs)
+            .iter()
+            .map(|value| value.number())
+            .collect()
+    }
+
+    /// [`calculator`] keeping the types, for the operators whose answer is one.
+    fn typed(source: &str, inputs: &[f32]) -> Vec<Value> {
         let program = compile_postscript(source.as_bytes()).expect("compiles");
-        // The stack the program runs on starts as its inputs and ends as its outputs.
-        let mut stack = inputs.to_vec();
+        // §7.10.5.3: the inputs are the initial operand stack, and they are real numbers.
+        let mut stack: Vec<Value> = inputs.iter().copied().map(Value::Real).collect();
         evaluate_postscript(&program, &mut stack);
         stack
     }
@@ -1844,11 +2095,14 @@ mod tests {
         );
     }
 
-    /// §B.3's `and`, `or` and `xor` are one operator each here, and the representation is why.
+    /// §B.3's `and`, `or` and `xor` agree in *arithmetic* whichever operator was meant.
     ///
-    /// The clause types them `bool | int` in and `bool | int` out. A boolean on this stack is
-    /// `1.0` or `0.0`, and over `{0, 1}` the bitwise operation is the logical one, so nothing
-    /// has to decide which was meant.
+    /// The clause types them `bool | int` in and `bool | int` out, so each is two operators
+    /// sharing a name — and over `{0, 1}` the bitwise operation computes what the logical one
+    /// computes, which is why this arm was right before the stack had types and is still right
+    /// now. What the types changed is which *type* comes back, and
+    /// [`the_bitwise_and_logical_operators_differ_in_the_type_of_their_answer`] is where that
+    /// shows.
     #[test]
     fn the_boolean_and_bitwise_operators_are_the_same_operator_on_zero_and_one() {
         assert_eq!(calculator("{ true true and }", &[]), vec![1.0]);
@@ -1863,20 +2117,165 @@ mod tests {
         assert_eq!(calculator("{ 6 3 xor }", &[]), vec![5.0]);
     }
 
-    /// `not` is the logical one, because a compiled literal carries no type to choose by.
+    /// `not` is whichever of §B.3's two operators the operand's type selects.
     ///
-    /// §B.3 makes `not` two operators sharing a name, and unlike `and`, `or` and `xor` the two
-    /// disagree on `{0, 1}`: the one's complement of `1` is `-2`. `Instruction::Push` carries
-    /// no type, so this evaluator implements the logical one and `63 not` answers `0` where
-    /// the integer operator says `-64`. **This test pins a known incompleteness rather than a
-    /// reading** — `doc/QUORRA_FUNCTION_PAINT_ANSWER.md` section 6.3 raised it and
-    /// `doc/QUORRA_FEEDBACK.md` section 25.5 answered it: the fix is a type on every literal,
-    /// inferred statically, and it belongs to that work.
+    /// The clause makes `not` two operators sharing a name — `bool 1 | int 1 … bool 2 | int 2` —
+    /// and unlike `and`, `or` and `xor` the two disagree on `{0, 1}`: the one's complement of the
+    /// integer `1` is `-2` and of `63` is `-64`, where the logical operator answers false and
+    /// false. **Until the five-hundred-and-thirty-sixth session this evaluator could implement
+    /// only one of them**, because `Instruction::Push` carried an `f32` and a literal `63` and a
+    /// `true` were the same value by the time it ran; the test that stood here pinned `63 not`
+    /// at `0` and said so. It is `-64` now, and nothing had to be inferred to get there: §7.3.2
+    /// and §7.3.3 give the token `63` its type in the file itself.
+    ///
+    /// A real reaching `not` is §7.3.3's error — a real where an integer is expected — and
+    /// [`Value`]'s policy truncates rather than refusing, which is the last line.
     #[test]
-    fn not_is_the_logical_one_because_a_compiled_literal_carries_no_type() {
-        assert_eq!(calculator("{ true not }", &[]), vec![0.0]);
-        assert_eq!(calculator("{ false not }", &[]), vec![1.0]);
-        assert_eq!(calculator("{ 63 not }", &[]), vec![0.0]);
+    fn not_is_the_operator_its_operands_type_selects() {
+        assert_eq!(typed("{ true not }", &[]), vec![Value::Boolean(false)]);
+        assert_eq!(typed("{ false not }", &[]), vec![Value::Boolean(true)]);
+        assert_eq!(typed("{ 63 not }", &[]), vec![Value::Integer(-64)]);
+        assert_eq!(typed("{ 1 not }", &[]), vec![Value::Integer(-2)]);
+        assert_eq!(typed("{ 0 not }", &[]), vec![Value::Integer(-1)]);
+        assert_eq!(typed("{ 1.5 not }", &[]), vec![Value::Integer(-2)]);
+    }
+
+    /// §B.3 types `eq` and `ne` `any 1 any 2`, so a boolean is an operand and is never a number.
+    ///
+    /// **This is the defect the typed stack was built for**, and the first line is the whole of
+    /// it: with a boolean stored as `1.0`, `true 1 eq` answered *true*. The quorra team found it
+    /// in their own device-side evaluator by running this tree's corpus against it and reported
+    /// that ours had the same shape (`doc/QUORRA_FUNCTION_PAINT_BUILT.md` section 5).
+    ///
+    /// The other half of `any 1 any 2` is that two *numbers* are equal when they stand for the
+    /// same number, whichever type each was written in — §7.3.3 says an integer may be used
+    /// wherever a real is expected, so `1` and `1.0` are one number written two ways.
+    #[test]
+    fn a_boolean_is_never_equal_to_a_number_and_a_number_never_to_a_boolean() {
+        assert_eq!(calculator("{ true 1 eq }", &[]), vec![0.0]);
+        assert_eq!(calculator("{ 1 true eq }", &[]), vec![0.0]);
+        assert_eq!(calculator("{ true 1 ne }", &[]), vec![1.0]);
+        assert_eq!(calculator("{ false 0 eq }", &[]), vec![0.0]);
+        assert_eq!(calculator("{ false 0 ne }", &[]), vec![1.0]);
+        // Two booleans compare as booleans, which is the operator's other half.
+        assert_eq!(calculator("{ true true eq }", &[]), vec![1.0]);
+        assert_eq!(calculator("{ true false eq }", &[]), vec![0.0]);
+        // And two numbers compare by value across their own two types.
+        assert_eq!(calculator("{ 1 1.0 eq }", &[]), vec![1.0]);
+        assert_eq!(calculator("{ 0 0.0 eq }", &[]), vec![1.0]);
+        assert_eq!(calculator("{ 2 1.0 eq }", &[]), vec![0.0]);
+    }
+
+    /// The bitwise and logical operators answer in the type of what they were given.
+    ///
+    /// §B.3's result column is `bool 3 | int 3` and the operands decide which. The arithmetic is
+    /// the same either way over `{0, 1}` — that is the test above — so the difference is only
+    /// visible through an operator that reads the type, and `not` is the one that does.
+    #[test]
+    fn the_bitwise_and_logical_operators_differ_in_the_type_of_their_answer() {
+        assert_eq!(typed("{ true true and }", &[]), vec![Value::Boolean(true)]);
+        assert_eq!(typed("{ 1 1 and }", &[]), vec![Value::Integer(1)]);
+        // Which is what the next operator sees: false against the one's complement of 1.
+        assert_eq!(calculator("{ true true and not }", &[]), vec![0.0]);
+        assert_eq!(calculator("{ 1 1 and not }", &[]), vec![-2.0]);
+        // A boolean meeting an integer is the error §7.3.3 names, and [`Value`]'s policy reads
+        // the boolean as the 1 or 0 it stands for rather than the integer as a truth value.
+        assert_eq!(typed("{ true 6 and }", &[]), vec![Value::Integer(0)]);
+        assert_eq!(typed("{ true 6 or }", &[]), vec![Value::Integer(7)]);
+    }
+
+    /// Arithmetic carries its operands' type, and above 2²⁴ that is the difference between an
+    /// exact answer and a rounded one.
+    ///
+    /// §B.2 types `add` as `num 1 num 2 … sum` and does not say what a sum is. Two integers make
+    /// an integer here, which is what keeps `not` and the bitwise operators meaning one thing on
+    /// a literal and the same thing on a value computed from two — and, as a second consequence
+    /// nobody chose it for, it is exact where `f32` is not: `16777216` is the last integer with
+    /// no `f32` neighbour below it, so the second line is the arithmetic this evaluator did
+    /// before it had types.
+    #[test]
+    fn integer_arithmetic_stays_integer_and_is_exact_where_a_float_is_not() {
+        assert_eq!(typed("{ 2 3 add }", &[]), vec![Value::Integer(5)]);
+        assert_eq!(typed("{ 2 3.0 add }", &[]), vec![Value::Real(5.0)]);
+        assert_eq!(
+            calculator("{ 16777216 1 add 1 add }", &[]),
+            vec![16_777_218.0]
+        );
+        assert_eq!(
+            calculator("{ 16777216.0 1 add 1 add }", &[]),
+            vec![16_777_216.0]
+        );
+        // §B.2 gives `div` a plain quotient where `idiv` directly below it answers one "as an
+        // integer", so a quotient is a real even when it divides exactly.
+        assert_eq!(typed("{ 6 3 div }", &[]), vec![Value::Real(2.0)]);
+        assert_eq!(typed("{ 6 3 idiv }", &[]), vec![Value::Integer(2)]);
+        // `truncate` keeps its operand's type (`num 1 … num 2`) where `cvi` converts
+        // (`num … int`), which is the pair Annex B distinguishes and an untyped stack could not.
+        assert_eq!(typed("{ 1.5 truncate }", &[]), vec![Value::Real(1.0)]);
+        assert_eq!(typed("{ 1.5 cvi }", &[]), vec![Value::Integer(1)]);
+        assert_eq!(typed("{ 1 cvr }", &[]), vec![Value::Real(1.0)]);
+    }
+
+    /// The four ordering operators take a boolean as the 1 or 0 it stands for, deliberately.
+    ///
+    /// §B.3 types them `num 1 num 2`, so unlike `eq` they do not admit a boolean at all and
+    /// PostScript refuses one. The subset has no value meaning *error*, so [`Value`]'s policy
+    /// converts instead of refusing — and this test is the contract answer quorra asked for in
+    /// `doc/QUORRA_FUNCTION_PAINT_BUILT.md` section 3, pinned so that the two evaluators cannot
+    /// drift apart on it. `doc/QUORRA_FEEDBACK.md` section 26 carries the ground.
+    #[test]
+    fn an_ordering_operator_reads_a_boolean_as_a_number_rather_than_refusing_it() {
+        assert_eq!(calculator("{ true 0 gt }", &[]), vec![1.0]);
+        assert_eq!(calculator("{ false 1 lt }", &[]), vec![1.0]);
+        assert_eq!(calculator("{ true true ge }", &[]), vec![1.0]);
+        assert_eq!(calculator("{ false true le }", &[]), vec![1.0]);
+        // The conforming operands are untouched by any of it.
+        assert_eq!(calculator("{ 2 1 gt }", &[]), vec![1.0]);
+        assert_eq!(calculator("{ 1 2 gt }", &[]), vec![0.0]);
+    }
+
+    /// A pop from an empty operand stack is the integer zero, and `not` is what says so.
+    ///
+    /// [`EMPTY_STACK`] has the argument. The observable half is that it is not a *boolean*:
+    /// a `false` there would answer `true` under `not` and would silently satisfy `if`.
+    #[test]
+    fn an_empty_operand_stack_reads_as_the_integer_zero() {
+        assert_eq!(typed("{ not }", &[]), vec![Value::Integer(-1)]);
+        assert_eq!(typed("{ add }", &[]), vec![Value::Integer(0)]);
+        assert_eq!(typed("{ 5 index }", &[]), vec![Value::Integer(0)]);
+        // Zero is false, so a program that lost its condition takes the else branch.
+        assert_eq!(calculator("{ { 10 } { 20 } ifelse }", &[]), vec![20.0]);
+    }
+
+    /// §B.4's condition is a `bool`, and a number in its place is read rather than refused.
+    ///
+    /// The conforming form is the first two lines. The rest is [`Value`]'s conversion policy in
+    /// the one direction §7.3.3 does not sanction, kept because a malformed condition that skips
+    /// a branch is a page with something missing from it, where the numeric reading is the one
+    /// this evaluator has always taken and the one a producer meant.
+    #[test]
+    fn a_conditions_number_is_true_exactly_when_it_is_not_zero() {
+        assert_eq!(calculator("{ true { 10 } { 20 } ifelse }", &[]), vec![10.0]);
+        assert_eq!(
+            calculator("{ false { 10 } { 20 } ifelse }", &[]),
+            vec![20.0]
+        );
+        assert_eq!(calculator("{ 1 { 10 } { 20 } ifelse }", &[]), vec![10.0]);
+        assert_eq!(calculator("{ 0 { 10 } { 20 } ifelse }", &[]), vec![20.0]);
+        assert_eq!(calculator("{ -0.5 { 10 } { 20 } ifelse }", &[]), vec![10.0]);
+    }
+
+    /// The integer operators truncate a real operand rather than refusing it.
+    ///
+    /// §B.2 types `idiv` and `mod` on integers and §B.3 types `bitshift`'s first operand as one,
+    /// so a real is §7.3.3's "real number … present when an integer is expected". This is what
+    /// the arms did when nothing could tell a real from an integer, and it stays the answer.
+    #[test]
+    fn an_integer_operator_truncates_a_real_operand() {
+        assert_eq!(typed("{ 7.5 2 idiv }", &[]), vec![Value::Integer(3)]);
+        assert_eq!(typed("{ 7.5 2 mod }", &[]), vec![Value::Integer(1)]);
+        assert_eq!(typed("{ 1.5 3 bitshift }", &[]), vec![Value::Integer(8)]);
+        assert_eq!(typed("{ 6.9 3.9 and }", &[]), vec![Value::Integer(2)]);
     }
 
     /// §B.3's `bitshift`, and the one place its answer is this project's choice rather than
@@ -1894,6 +2293,13 @@ mod tests {
         assert_eq!(calculator("{ -8 1 bitshift }", &[]), vec![-16.0]);
         assert_eq!(calculator("{ -8 -1 bitshift }", &[]), vec![-4.0]);
         assert_eq!(calculator("{ -1 -1 bitshift }", &[]), vec![-1.0]);
+        // Wider than the register the value is held in, which is where the sign-preserving
+        // reading has to keep answering or it was a reading about the register after all: a
+        // negative value shifted right past its own width is the sign repeated, and a
+        // non-negative one is zero.
+        assert_eq!(calculator("{ -8 -40 bitshift }", &[]), vec![-1.0]);
+        assert_eq!(calculator("{ 8 -40 bitshift }", &[]), vec![0.0]);
+        assert_eq!(calculator("{ 8 40 bitshift }", &[]), vec![0.0]);
     }
 
     /// A program that underflows must not panic, and must still answer.

@@ -21,7 +21,7 @@ use rayon::iter::{IndexedParallelIterator as _, ParallelIterator as _};
 use rayon::slice::ParallelSliceMut as _;
 
 use crate::colour::{ColourSpace, Compositing};
-use crate::function::Function;
+use crate::function::{Function, Value};
 
 /// The most cells a function-based shading's grid will carry, whatever the device asks for.
 ///
@@ -422,16 +422,20 @@ fn colour_from(
 
 /// The buffers one thread reuses across a grid of [`colour_into`] calls.
 ///
-/// Two of them because a shading's `/Function` may be a *group*: the group's outputs are
-/// concatenated in `all`, and `one` is where a member writes before being appended. A group
-/// of one — which is what almost every shading has — writes straight into `all` and never
-/// touches `one`.
+/// Two of them for the outputs because a shading's `/Function` may be a *group*: the group's
+/// outputs are concatenated in `all`, and `one` is where a member writes before being appended.
+/// A group of one — which is what almost every shading has — writes straight into `all` and
+/// never touches `one`.
 #[derive(Default)]
 struct Components {
     /// Every component of one cell's colour, in the order the group produces them.
     all: Vec<f32>,
     /// One member function's outputs, when the group has more than one member.
     one: Vec<f32>,
+    /// A §7.10.5 program's operand stack, which holds typed values rather than components and
+    /// so cannot be either of the buffers above (ADR 0371). Untouched by every other function
+    /// type.
+    stack: Vec<Value>,
 }
 
 /// [`colour_from`] reusing the caller's buffers, which is what a device-resolution grid needs.
@@ -446,11 +450,11 @@ fn colour_into(
     scratch: &mut Components,
 ) -> Color {
     if let [only] = functions {
-        only.eval_into(inputs, &mut scratch.all);
+        only.eval_into(inputs, &mut scratch.all, &mut scratch.stack);
     } else {
         scratch.all.clear();
         for function in functions {
-            function.eval_into(inputs, &mut scratch.one);
+            function.eval_into(inputs, &mut scratch.one, &mut scratch.stack);
             scratch.all.extend_from_slice(&scratch.one);
         }
     }
