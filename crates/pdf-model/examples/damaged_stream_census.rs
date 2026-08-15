@@ -73,9 +73,9 @@ enum Role {
     TilingPattern,
     /// An image `XObject`, Table 87's `/Subtype /Image`.
     Image,
-    /// A font program, Table 126's `/Length1`, `/Length2`, `/Length3` or `/Subtype`.
+    /// A font program, Table 125's `/Length1`, `/Length2`, `/Length3` or `/Subtype`.
     FontProgram,
-    /// An ICC profile, Table 66's `/N` on the stream an `ICCBased` space names.
+    /// An ICC profile, Table 65's `/N` on the stream an `ICCBased` space names.
     IccProfile,
     /// A function, Table 38's `/FunctionType`.
     Function,
@@ -87,7 +87,7 @@ enum Role {
     Metadata,
     /// An embedded file, §7.11.4's `/Type /EmbeddedFile`.
     EmbeddedFile,
-    /// A shading whose dictionary is a stream, Table 78's `/ShadingType` 4 to 7.
+    /// A shading whose dictionary is a stream, Table 77's `/ShadingType` 4 to 7.
     Shading,
     /// A `CMap`, §9.7.5.3's `/Type /CMap` or the stream a Type 0 font's `/Encoding` names.
     CMap,
@@ -505,7 +505,7 @@ fn who_names_what(document: &Document, pages: &pdf_model::Pages) -> BTreeMap<u32
         for (key, role) in [
             // §9.10.3's `/ToUnicode`, a mapping and not a content stream (ADR 0359).
             ("ToUnicode", Role::ToUnicode),
-            // Table 122's `/Encoding` on a Type 0 font, which "shall be" a predefined CMap's
+            // Table 119's `/Encoding` on a Type 0 font, which "shall be" a predefined CMap's
             // name or "a stream containing a CMap" (§9.7.5.3).
             ("Encoding", Role::CMap),
             // §9.7.5.2's `/UseCMap`, the other place a CMap stream is named.

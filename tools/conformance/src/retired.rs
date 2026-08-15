@@ -273,7 +273,12 @@ fn names(sentence: &str, wanted: &str) -> bool {
 pub const STRUCK: &str = "~~";
 
 /// Whether a sentence narrates a retirement.
-fn kind_of(sentence: &str) -> Kind {
+///
+/// Shared with [`crate::pointers`], whose oldest false positive is the same one: a correction
+/// quotes the wording — or the pointer — it retired, and both sweeps mark it rather than hiding
+/// it.
+#[must_use]
+pub fn kind_of(sentence: &str) -> Kind {
     if sentence.contains(STRUCK) {
         return Kind::Correction;
     }
@@ -291,7 +296,7 @@ fn kind_of(sentence: &str) -> Kind {
 /// prose: an ADR quoting a shell command or a struct would otherwise contribute the tree's own
 /// identifiers as claims about them. Headings are kept, because an ADR's title is where its
 /// claim is often stated.
-fn paragraphs(text: &str) -> Vec<(usize, String)> {
+pub(crate) fn paragraphs(text: &str) -> Vec<(usize, String)> {
     let mut blocks = Vec::new();
     let mut current: Option<(usize, String)> = None;
     let mut fenced = false;

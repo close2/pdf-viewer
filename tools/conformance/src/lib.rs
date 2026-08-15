@@ -52,6 +52,7 @@ pub mod citation;
 pub mod clause;
 pub mod entries;
 pub mod ledger;
+pub mod pointers;
 pub mod prose;
 pub mod quote;
 pub mod retired;

@@ -2358,8 +2358,11 @@ impl Update {
 
         if added {
             // A widget that had no `/AP` needs one pointing at the stream just written. Table
-            // 168's `/N` is "the annotation's normal appearance"; a widget with one state has it
-            // as the stream itself rather than as a subdictionary of states.
+            // 170's `/N` is "the annotation's normal appearance"; a widget with one state has it
+            // as the stream itself rather than as a subdictionary of states. (This said "Table
+            // 168's" until the five-hundred-and-thirty-seventh session — 168 is the border style
+            // dictionary — which is `doc/todo/01`'s ninth sweep, in the same file as its last
+            // finding.)
             let Some(mut widget_dict) = self.current(document, widget) else {
                 return;
             };

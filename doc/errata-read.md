@@ -141,7 +141,10 @@ and not a verdict.
    "optional in PDF 1.0-1.7 for the standard 14 fonts", which makes the metrics necessary to draw
    the page at all, and §6.3.2.2.
 4. **§8.9.5.4, Issue #79 — the alternate-image algorithm is rewritten and this tree implements the
-   retired one.** Three divergences, quoted in `content.rs::alternate_image` and in the ledger row.
+   retired one.** Three divergences, quoted in `content/image.rs::alternate_image` and in the
+   ledger row. (This said `content.rs::alternate_image` until the five-hundred-and-thirty-seventh
+   session: the function moved into `content/` when the module was split, and the pointer's
+   *symbol* half is what found it.)
    **Not fixed, deliberately**: the amended step a) ends "then nothing shall be shown", which reads
    as terminal and would leave the amended d) unreachable for a hidden base, so a rewrite would
    trade one contradiction for another. No corpus document states `/Alternates`.

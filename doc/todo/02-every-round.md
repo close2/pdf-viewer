@@ -221,6 +221,15 @@ share and the two that break it:
   it the *mechanism*, not the sentence. Each mention is printed as a correction or as a standing
   claim, and **a noun carrying both is the shape to read first** — somebody wrote the retirement
   here and not there.
+- **One asks whether the file — and the symbol — a note names still exists**: `cargo run --release
+  -p conformance --bin pointers`, a third of a second, over `ledger.toml`, the source roots and
+  every Markdown document under `doc/` bar `doc/history/` — the eighth sweep as a program (ADR
+  0372). **A pointer is resolved from where it is written**, so a `tests/x.rs` in a doc comment
+  means its own crate's tests and the same words in a document under `doc/` are *unrooted* rather
+  than dead; the other three rungs it prints instead of a finding are a fragment that resolves in
+  another crate, a metavariable (`doc/todo/NN`), and a path this tree deliberately does not carry.
+  The oldest false positive is a correction quoting the pointer it retired, and it is marked rather
+  than dropped. Read the sentence before believing a hit.
 - **One reads *these documents'* quotation marks**, on the same discriminator and for the same
   reason: `cargo run --release -p conformance --bin quotations`, seconds, over every Markdown file
   this project wrote under `doc/`. Its first run found three sentences quoted as the standard's that

@@ -33,15 +33,17 @@ misquotations of the standard (ADR 0249).
 Priority: 01 — the population with no gate, and it has paid on every session that touched it
 Code: `doc/conformance/ledger.toml`, checked by `cargo test -p conformance`
 
-**A sweep round commits one prose sweep as a program before running any of them.** Seven of the
+**A sweep round commits one prose sweep as a program before running any of them.** Eight of the
 fifteen are commands (`conformance --bin entries`, `--bin quotations`, `--bin unread` since the
 four-hundred-and-eighty-ninth, `--bin blockers` since the five-hundred-and-first, `--bin
 capabilities` since the five-hundred-and-tenth, `--bin retired` since the
 five-hundred-and-seventeenth — the fourth sweep, which is the only one whose population cannot be
-derived and which therefore takes its nouns as arguments, ADR 0352 — and, since the
-five-hundred-and-twenty-fifth, `--bin callers`, the fifth sweep, whose *number* is its finding and
+derived and which therefore takes its nouns as arguments, ADR 0352 — `--bin callers` since the
+five-hundred-and-twenty-fifth, the fifth sweep, whose *number* is its finding and
 whose level was therefore not comparable across runs while every round wrote its own script, ADR
-0360) and eight are still
+0360 — and, since the five-hundred-and-thirty-seventh, `--bin pointers`, the eighth, which asks
+whether the file and the symbol a note names still exist and which resolves a fragment *from where
+it is written*, ADR 0372) and seven are still
 descriptions, and a description is what let the fifteenth go unrun for twenty-four rounds and then
 be rebuilt from its own paragraph (ADR 0319) — `CLAUDE.md`'s "write down the command, not the
 answer" failing in the direction it was written for. The cheapest moment to commit one is the
@@ -2334,14 +2336,118 @@ Nothing in this file's fifteen sweeps looks for a row whose reason is a neighbou
 sixth's arithmetic compares statuses but only where every child is settled, and §I.2 was the one
 that was not. What found it was the blame band.
 
+## All fifteen run again in the five-hundred-and-thirty-seventh, the eighth committed as a program, and the pointer a crate wrote to a test it never had
+
+Four rounds since the last full sweep — the grid a shading is divided across, the window a content
+stream is read through, two storage structures and the byte a scan was taking, a design round, the
+two operators a deferred clause decides, the operands that stopped allocating — and several of them
+corrected ledger notes while one *deleted* a claim about `doc/todo/47`, which is exactly the
+condition these exist for. Over `ledger.toml`, `crates/`, `tools/`, `fuzz/` and every Markdown
+document under `doc/` this project wrote bar `doc/history/`:
+
+- **Pointers (8), as a program** (`cargo run --release -p conformance --bin pointers`, ADR 0372).
+  First run: **4609 path pointers — 2525 live, 104 absent, 14 in another crate, 1616 unrooted, 106
+  a form, 244 not carried — and 48 symbol pointers, 9 undefined**, in a third of a second. 84 of
+  the 104 absent are in `doc/adr/` and in this file's own records of earlier runs, which is the
+  dominant shape over the ADRs and is not a defect: an ADR saying the remaining question is
+  "recorded in `doc/todo/47`" is true about the day it was written, and the file being closed since
+  does not falsify it. **Three defects.** `crates/viewer-host/src/policy.rs` explained
+  `resolve_import`'s purity by "which is what `tests/import_policy.rs` does" and that file has
+  never existed in any commit — the policy is tested in `tests/host_mappings.rs`, one file over;
+  `crates/viewer-accessibility/tests/tree.rs` sent the bus half of its question to a
+  `tests/atspi.rs` that was never written; and `doc/errata-read.md` quoted
+  `content.rs::alternate_image` for a function that moved to `content/image.rs` when the module was
+  split, which only the *symbol* half could find. **The two path defects were found by the
+  resolve-it-from-where-it-is-written rule and by nothing else**, both being fragments naming a
+  file of their own crate.
+- **Table numbers (sweep 9)**: 1074 *attributed* key citations checked against 408 tables — a key
+  is only a claim about a table where the sentence attributes it, and reading every key in every
+  sentence that names a table was 545 hits to nothing — **7 defects, six of them in `pdf-model`
+  and five in one `enum`'s doc comments**: `/Length1` under Table 126 instead of 125, an ICC
+  stream's `/N` under 66 instead of 65, `/ShadingType` under 78 instead of the common 77, a Type 0
+  font's `/Encoding` under 122 instead of 119 (all `examples/damaged_stream_census.rs`), a widget's
+  normal appearance `/N` under Table 168 instead of 170 (`view.rs`, where the
+  five-hundred-and-twenty-fifth's single finding also was), a parent tree's `/Nums` under 354
+  instead of 37, and `/Enforce` under 148 instead of 147. **A block written in one sitting is this
+  sweep's oldest shape.** The known noise: a *flags* table has bit numbers rather than keys, and
+  `doc/md/` renders Table 92's abbreviations in the second column, so its keys read as absent.
+- **Parent counts (10)**: 70 checkable count claims against a family, 20 matching neither the
+  direct children nor the descendants, and **1 defect** — §14.8.2 said "[o]f the twelve rows below"
+  over thirteen, all thirteen present since the ledger was generated, so the count was wrong when
+  it was written **by the five-hundred-and-first**, a sweep round.
+- **Blockers (program)**: ledger 21 sentences — 6 expired, 10 holding, 5 naming no clause; source
+  27 — 10, 10, 7. 0 defects; every printed-expired hit a correction quoting the wording it retired,
+  a past tense, a `while §X` that is a contrast rather than a wait, or §10.7.4's documented choice
+  against §8.4.3.2.
+- **Capabilities (program)**: ledger 49 sentences — 34 witnessed by the tree, 42 about the program,
+  7 about one crate; source 145 — 119, 79, 66. 0 defects.
+- **Unread (program)**: 63 rows claim, 174 keys; **49 confirmed, 125 quoted over 53 rows, 55 by the
+  row's own code**. 0 defects — the two keys that moved since the five-hundred-and-twenty-fifth are
+  the ledger moving, not the tree.
+- **Entries (program)**: 240 rows explain themselves by an arrival and name code, 1 names none;
+  640 table entries stated, 112 reported over 45 rows — 29 named nowhere, 83 only elsewhere, 34 not
+  named by the row's own note. The known populations; nothing worked.
+- **Quotations (program)**: 3386 quotations in 533 documents, 1586 verbatim, 23 diverging, **0
+  defects**.
+- **Callers (program)**: **296 distinct `pub fn` names in `pdf-model`** (289 in the
+  five-hundred-and-twenty-fifth), 15 crates naming it in a manifest; 176 named by a dependent crate,
+  20 by a tool or a fuzz target, 77 only inside `pdf-model`, 21 only by a test or an example, **2 by
+  nothing at all** — 120 that no crate under `crates/` asks. **The delta is the finding and it is
+  clean**: the two named by nothing are the same two, both disposed of in their own doc comments by
+  the round that found them, and the seven new names all have an in-crate caller.
+- **Retired claim (4, program)**, over the four rounds' nouns — `StreamSource`, `ObjectsLost`,
+  `with_stated_length`, `Window`, `widen`, `TokenTooLong`, `Unbuffered`, `PARALLEL_CELLS`,
+  `rows_in_parallel`, `round_to_greater`, `atlas_repacked`, `Agreement::Bounded`, `points_from`,
+  `operands_before`: **1512 mentions, 2 nouns carrying both shapes, 0 defects** — and 1462 of the
+  1512 are `Window` and `widen`, which is this file's own warning about an ordinary English word
+  arriving twice in one wave. `StreamSource` and `Agreement::Bounded` have **no** mentions at all,
+  which is what a round that swept its own work looks like.
+- **Arithmetic (6)**: two hits, §7.9.2 and §O, read and kept before. Clean.
+- **`inapplicable` (7)**: 57 of 80 rows name source vocabulary under a session-local stop-list;
+  none wrong, and **exactly one row in the ledger changed status since the
+  five-hundred-and-twenty-fifth** — this round's own — checked with `git diff` over the status
+  lines, which is the cheap way to carry a clean read forward.
+- **Ledger quotation marks (11)**: 1270 spans of 4+ words under a session-local normaliser, 913
+  verbatim in a specification, 78 matching five words and diverging of which 22 hold no elision,
+  **0 defects** — every one a `…` or `...`, an editorial bracket, a correction quoting its retired
+  wording, or the conversion's own shape (`text-tospeech`, a table title expanded, two bullets
+  quoted as one sentence).
+- **Sweep 14**: 8 hits under a session-local debt vocabulary, every one naming its debt in words
+  outside it ("writer-side", "may be ignored", "defers each to a subclause").
+- **The errata (12)**: "151 struck passage(s) of 4 words or more that `doc/md/` still carries as
+  current text" over all fourteen PDFs, unchanged, and 75 quotations quoting text struck out of the
+  clause they cite — every landing a known in-place annotation, this file's own records among them.
+
+### Twelve rows read off the blame list, the band from commit 511
+
+Oldest first: §12.7.4 (511), §9.2.4 (512), §12.7.6.2, §12.8.2 (513), §8.7.3 (514), §11.7.5, §12.11,
+§7.7.2 (515), §14.8.4, §14.9 (516), §12.8.2.2, §12.8.2.4 (517). **Two were wrong and they are one
+mechanism**, which is this file's commonest shape.
+
+| row | shape | was | is |
+|---|---|---|---|
+| **§12.8.2.4** | 4 | `partial`, and "`FieldMDP` … is recognised where a `/Reference` states it" | **nothing in this tree names the string.** `has_transform` takes the method name and `DocMDP` is its only caller, so the half of the note saying what *is* done was the wrong half. **`reported`** — none of the clause is executed, and what a person is told is `notes.rs`'s sentence on every signature; the field-freezing the clause exists for arrives through §12.7.5.5's lock, which Table 259 says a writer copies into these parameters |
+| **§12.8.2** | 5 | the parent, saying `FieldMDP` and `UR` were both recognised | `UR` is (`usage_rights` matches `/UR` and `/UR3`); the other half was a claim about a sibling nobody had grepped |
+
+**The ten kept rows each record the evidence that kept them** — §12.7.4's two `partial` children
+beside its `implemented` §12.7.4.2, `Action::Refused` still carrying `SubmitForm`'s own
+sentence, the twenty-five `match` arms §12.11 counts, the four Table 29 entries §7.7.2 calls
+genuinely unread and no source names, the forty-one `StandardType` variants §14.8.4 counts, and
+§9.2.4's reading of what Tables 110 and 111 do and do not require of a glyph box.
+
 ## What is still owed, named
 
-- **The `partial` rows not yet re-read against the code.** Nothing below commit 500 of 683 is
+- **The `partial` rows not yet re-read against the code.** Nothing below commit 500 is
   unread now: the five-hundred-and-twenty-fifth took the band from 184 (§12.6.4.4, the row left
-  under the fold) to 500 (§I, §I.2), fifteen rows, plus the read-and-kept set whose evidence is in
-  their notes. **The next band begins at §12.7.4, commit 511.**
+  under the fold) to 500 (§I, §I.2), fifteen rows, and the five-hundred-and-thirty-seventh the band
+  from 511 (§12.7.4) to 517 (§12.8.2.4), thirteen rows, plus the read-and-kept sets whose evidence
+  is in their notes. **The next band begins at §9.2.2, commit 518.**
+- **§12.8.2.4's transform, named rather than built.** `has_transform(document, dict, b"FieldMDP")`
+  plus Table 259's `/Action` and `/Fields` beside `UsageRights` is the whole of the recognition
+  half; the validation half is §12.8.2.2.2's and needs the signed revision reconstructed.
 - **A noun that is an ordinary English word is a noun the fourth sweep cannot rank.** `prefix` and
-  `joining` between them produced 298 of the first run's 544 mentions and not one finding. Choosing
+  `joining` between them produced 298 of the first run's 544 mentions and not one finding, and
+  `Window` and `widen` produced 1462 of the five-hundred-and-thirty-seventh's 1512. Choosing
   the invented nouns first is free; widening the program's matching would only make it worse.
 - **The fifth sweep's second population is still a by-hand run.** `--bin callers` reads functions;
   the four-hundred-and-thirteenth ran the sweep a second way over `viewer-core`'s own vocabulary —

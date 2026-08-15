@@ -1,8 +1,11 @@
 //! The tree an assistive technology is handed, built from what `viewer-core` answers with.
 //!
 //! Plain data on both sides, so these run on every platform — which is the point of the crate
-//! being in two halves. What the *bus* does with the result is `tests/atspi.rs`'s question and
-//! needs a session bus, so it is not here.
+//! being in two halves. What the *bus* does with the result needs a session bus, so it is not
+//! here: `src/bridge.rs`'s own tests hold the half of it that can be asked without one — that a
+//! build with no adapter names its shortfall rather than doing nothing — and nothing in this tree
+//! drives a real bus. (This sentence named a `tests/atspi.rs` that has never existed, found by
+//! `doc/todo/01`'s eighth sweep on the round it became a program.)
 
 #![expect(
     clippy::panic,

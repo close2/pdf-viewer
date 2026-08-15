@@ -112,9 +112,9 @@ pub struct ViewerPreferences {
     pub print_page_range: Vec<(i64, i64)>,
     /// `/NumCopies`: how many copies a print dialogue opens with.
     pub num_copies: Option<i64>,
-    /// Table 148's `/Enforce`: the preferences a processor may not let a person override.
+    /// Table 147's `/Enforce`: the preferences a processor may not let a person override.
     ///
-    /// Only `/PrintScaling` is defined for it, and only "if the corresponding entry in the
+    /// Only Table 148's `/PrintScaling` is defined for it, and only "if the corresponding entry in the
     /// viewer preferences dictionary … specifies a valid value other than `AppDefault`" —
     /// a condition this reader applies rather than storing a name that means nothing.
     pub enforce_print_scaling: bool,
@@ -425,7 +425,7 @@ fn page_range(document: &Document, preferences: &Dictionary) -> Vec<(i64, i64)> 
         .collect()
 }
 
-/// Whether Table 148's `/Enforce` array names this preference.
+/// Whether Table 147's `/Enforce` array names this preference.
 fn enforced(document: &Document, preferences: &Dictionary, name: &str) -> bool {
     let array = document.get_key(preferences, "Enforce");
     let Some(items) = array.as_array() else {

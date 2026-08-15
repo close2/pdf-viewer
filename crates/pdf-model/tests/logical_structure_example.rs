@@ -222,7 +222,7 @@ fn the_clauses_worked_example_reads_as_the_structure_it_describes() {
         "an identifier the tree does not hold"
     );
 
-    // The parent tree, in both of the forms Table 354's `/Nums` takes: an array per page, whose
+    // Table 354's `/ParentTree`, in both of the forms Table 37's `/Nums` takes: an array per page, whose
     // entries are the elements owning each `/MCID` in order. The second page's array names 304
     // twice, because one element owns two of its sequences.
     let pages = pdf_model::Pages::new(&document);

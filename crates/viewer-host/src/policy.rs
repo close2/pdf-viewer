@@ -57,7 +57,9 @@ pub enum ImportRefusal {
 /// - it is resolved against the directory the open document is in, and nowhere else.
 ///
 /// Pure, so that the policy is testable without a filesystem and without a window — which is what
-/// `tests/import_policy.rs` does. Reading the bytes is [`read_import`]'s.
+/// `tests/host_mappings.rs` does. Reading the bytes is [`read_import`]'s. (This named a
+/// `tests/import_policy.rs` that has never existed in this tree, found by `doc/todo/01`'s eighth
+/// sweep on the round it became a program.)
 ///
 /// # Errors
 ///
