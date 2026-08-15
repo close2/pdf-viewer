@@ -1,0 +1,136 @@
+%PDF-1.4
+%µ¶
+% Written by MuPDF 1.28.0
+
+1 0 obj
+<</Type/Catalog/Pages 2 0 R>>
+endobj
+
+2 0 obj
+<</Type/Pages/Kids[3 0 R]/Count 1>>
+endobj
+
+3 0 obj
+<</Type/Page/Parent 2 0 R/MediaBox[0 0 400 400]/Resources<</Shading<</Sh1 5 0 R>>>>/Contents 4 0 R>>
+endobj
+
+4 0 obj
+<</Length 12>>
+stream
+q
+/Sh1 sh
+Q
+
+endstream
+endobj
+
+5 0 obj
+<</Type/Shading/ShadingType 1/ColorSpace/DeviceRGB/Domain[0 1 0 1]/Matrix[400 0 0 400 0 0]/Function 6 0 R>>
+endobj
+
+6 0 obj
+<</FunctionType 4/Domain[0 1 0 1]/Range[0 1 0 1 0 1]/Length 2580>>
+stream
+{
+exch 4.0 mul dup truncate cvi
+3 1 roll dup truncate sub exch
+
+% Stack: col lx ly
+0 
+
+% Check 1 (A - Top)
+2 index 2 index dup 0.8 ge exch 0.9 le and exch dup 0.25 ge exch 0.75 le and and { 1 } { 0 } ifelse add
+% Check 2 (B - Top-Right)
+2 index 2 index dup 0.5 ge exch 0.85 le and exch dup 0.65 ge exch 0.75 le and and { 2 } { 0 } ifelse add
+% Check 3 (C - Bot-Right)
+2 index 2 index dup 0.15 ge exch 0.5 le and exch dup 0.65 ge exch 0.75 le and and { 4 } { 0 } ifelse add
+% Check 4 (D - Bottom)
+2 index 2 index dup 0.1 ge exch 0.2 le and exch dup 0.25 ge exch 0.75 le and and { 8 } { 0 } ifelse add
+% Check 5 (E - Bot-Left)
+2 index 2 index dup 0.15 ge exch 0.5 le and exch dup 0.25 ge exch 0.35 le and and { 16 } { 0 } ifelse add
+% Check 6 (F - Top-Left)
+2 index 2 index dup 0.5 ge exch 0.85 le and exch dup 0.25 ge exch 0.35 le and and { 32 } { 0 } ifelse add
+% Check 7 (G - Middle)
+2 index 2 index dup 0.45 ge exch 0.55 le and exch dup 0.25 ge exch 0.75 le and and { 64 } { 0 } ifelse add
+% Check 8 (H - Decimal Point)
+2 index 2 index dup 0.1 ge exch 0.2 le and exch dup 0.85 ge exch 0.95 le and and  
+4 index 0 eq and { 128 } { 0 } ifelse add
+
+% Stack: col lx ly total
+3 1 roll pop pop
+
+% Pi Math (Expanded BBP Formula: k=0, k=1, and k=2)
+
+% --- Calculate k=0 ---
+0 
+dup 8 mul 0 index 1 add 4 exch div 1 index 4 add 2 exch div sub 
+1 index 5 add 1 exch div sub 1 index 6 add 1 exch div sub 
+exch pop exch 16 exch exp div
+
+% --- Calculate k=1 ---
+1 
+dup 8 mul 0 index 1 add 4 exch div 1 index 4 add 2 exch div sub 
+1 index 5 add 1 exch div sub 1 index 6 add 1 exch div sub 
+exch pop exch 16 exch exp div
+add
+
+% --- Calculate k=2 ---
+2 
+dup 8 mul 0 index 1 add 4 exch div 1 index 4 add 2 exch div sub 
+1 index 5 add 1 exch div sub 1 index 6 add 1 exch div sub 
+exch pop exch 16 exch exp div
+add
+
+1000.0 mul truncate cvi
+
+2 index
+dup 0 eq { pop 1000 } { dup 1 eq { pop 100 } { dup 2 eq { pop 10 } { pop 1 } ifelse } ifelse } ifelse
+idiv 10 mod
+
+dup 0 eq { pop 63 } {
+dup 1 eq { pop 6 } {
+dup 2 eq { pop 91 } {
+dup 3 eq { pop 79 } {
+dup 4 eq { pop 102 } {
+dup 5 eq { pop 109 } {
+dup 6 eq { pop 125 } {
+dup 7 eq { pop 7 } {
+dup 8 eq { pop 127 } {
+pop 111 } ifelse } ifelse } ifelse } ifelse } ifelse } ifelse } ifelse } ifelse } ifelse
+
+% Add DP bit if column is 0
+2 index 0 eq { 128 add } if
+
+% Stack: col total digit_mask
+2 copy and 0 gt {
+    pop pop pop
+    0.1 1.0 0.2  % Lit segment: Bright Green
+} {
+    pop pop gt {
+        pop
+        0.05 0.15 0.05  % Unlit segment: Dark Green
+    } {
+        pop
+        0.02 0.02 0.02  % Background: Near Black
+    } ifelse
+} ifelse
+}
+
+endstream
+endobj
+
+xref
+0 7
+0000000000 65535 f 
+0000000042 00000 n 
+0000000088 00000 n 
+0000000140 00000 n 
+0000000257 00000 n 
+0000000318 00000 n 
+0000000442 00000 n 
+
+trailer
+<</Size 7/Root 1 0 R>>
+startxref
+3123
+%%EOF
