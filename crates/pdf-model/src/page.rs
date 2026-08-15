@@ -17,7 +17,7 @@
 
 use std::collections::BTreeMap;
 
-use pdf_syntax::{Damage, Dictionary, Document, FilterRefusal, Object, ObjectId, StreamRefusal};
+use pdf_syntax::{Damage, Dictionary, Document, Object, ObjectId};
 
 /// Deepest page-tree nesting that will be followed.
 ///
@@ -365,101 +365,15 @@ impl Page {
     /// them, which principle 3 of `CLAUDE.md` requires of every layer.
     #[must_use]
     pub fn content_with_report(&self, document: &Document) -> (Vec<u8>, Vec<ContentIssue>) {
-        // Each part is kept beside the object *as written*, because a `/Contents` the file
-        // does not state and a `/Contents` naming an object this reader could not reach both
-        // resolve to null and are not the same statement — see [`ContentIssue::Unreachable`].
-        let stated = self.dict.get("Contents").cloned().unwrap_or(Object::Null);
-        let parts: Vec<(Object, Object)> = match document.resolve(&stated) {
-            Object::Array(items) => items
-                .iter()
-                .map(|item| (item.clone(), document.resolve(item)))
-                .collect(),
-            other => vec![(stated, other)],
-        };
-
-        let mut out = Vec::new();
-        let mut issues = Vec::new();
-        let limit = document.limits().max_stream_len;
-        for (index, (named, part)) in parts.iter().enumerate() {
-            // A `/Contents` that is missing entirely is an empty page, not a defect; one
-            // whose entries are not streams is a malformed page and worth saying so.
-            let Some(stream) = part.as_stream() else {
-                match (named, part) {
-                    (Object::Reference(object), Object::Null) => {
-                        issues.push(ContentIssue::Unreachable {
-                            index,
-                            object: *object,
-                        });
-                    }
-                    (_, Object::Null) => {}
-                    _ => issues.push(ContentIssue::NotAStream { index }),
-                }
-                continue;
-            };
-            let data = match document.decoded_stream_data_reported(stream) {
-                Ok(decoded) => {
-                    // §7.4.1's filter was invoked and stopped short of the end. What it did
-                    // produce goes on the page; that it is not all of it goes in the report.
-                    if let Some(damage) = decoded.damage {
-                        issues.push(ContentIssue::Damaged {
-                            index,
-                            damage,
-                            kept: decoded.data.len(),
-                            filters: filter_names(document, &stream.dict),
-                        });
-                    }
-                    decoded.data
-                }
-                // A bound refused this part; the filter chain did not fail to work. Saying
-                // "undecodable" of a stream this reader can decode perfectly well would put a
-                // limit of ours into a sentence about the file.
-                Err(StreamRefusal::Filter {
-                    why: FilterRefusal::TooLarge { limit },
-                    ..
-                }) => {
-                    issues.push(ContentIssue::TooLarge {
-                        part: Some(index),
-                        limit,
-                    });
-                    continue;
-                }
-                Err(_) => {
-                    issues.push(ContentIssue::Undecodable {
-                        index,
-                        filters: filter_names(document, &stream.dict),
-                    });
-                    continue;
-                }
-            };
-            // **Table 31 says what the parts are, and therefore what bounds them.** Its
-            // `/Contents` row:
-            //
-            // > If the value is an array, the effect shall be as if all of the streams in the
-            // > array were concatenated with at least one white-space character added between
-            // > the streams' data, in order, to form a single stream.
-            //
-            // So the array *is* one stream, and the bound one stream gets is the bound the
-            // array gets — no second number, and none invented here. Without it a page could
-            // state `max_array_len` = 2²⁰ parts of `max_stream_len` each and none of them would
-            // be refused; the concatenation had no total at all until ADR 0306.
-            if out.len().saturating_add(data.len()) > limit {
-                issues.push(ContentIssue::TooLarge { part: None, limit });
-                break;
-            }
-            // **The separator is reserved with the part, and the byte it saves is a copy of the
-            // whole page.** `extend_from_slice` asks for exactly the part's length on the first
-            // one, so the `push` that follows found the buffer full and doubled it — one
-            // reallocation and one copy of the entire content stream, bought with a newline.
-            // Measured on §2's Bomb A, whose 400 MB decode cost 1146 MB of resident memory in
-            // three copies: the decoded `Arc`, this buffer, and the buffer this line was about
-            // to replace. Asking for both together is one allocation of exactly the right size
-            // for the single-part page every real document has, and `reserve` keeps its
-            // amortised doubling for an array of parts. ADR 0354.
-            out.reserve(data.len().saturating_add(1));
-            out.extend_from_slice(&data);
-            out.push(b'\n');
-        }
-        (out, issues)
+        // **This function used to assemble the parts itself, and now it drains the reader that
+        // does.** The interpreter reads a page's `/Contents` through a fixed window (ADR 0365,
+        // `crate::content::reader`), and two assemblies of one entry — Table 31's parts, its
+        // white space between them, its bound on the whole — is exactly the second decode path
+        // `doc/HANDOVER.md` trap 6 is about. So there is one, and this is the caller that
+        // pays the allocation the window exists to avoid: an examiner, a test, a census.
+        let mut reader = crate::content::reader::ContentReader::for_page(document, self);
+        let bytes = reader.read_to_end();
+        (bytes, reader.take_issues())
     }
 }
 
@@ -1074,7 +988,7 @@ fn narrow(value: f64) -> f32 {
 }
 
 /// The `/Filter` names on a stream, for reporting one that could not be applied.
-fn filter_names(document: &Document, dict: &Dictionary) -> Vec<String> {
+pub(crate) fn filter_names(document: &Document, dict: &Dictionary) -> Vec<String> {
     let filter = document.get_key(dict, "Filter");
     let named = |object: &Object| {
         object
@@ -1145,6 +1059,22 @@ pub enum ContentIssue {
         kept: usize,
         /// The `/Filter` names it declared.
         filters: Vec<String>,
+    },
+    /// A single lexical token longer than the window the content is read through.
+    ///
+    /// The one thing a bounded buffer cannot do, and therefore the one thing it has to say out
+    /// loud. `crate::content::reader` grows its window to
+    /// [`crate::content::reader::CEILING`] for one token, which is above every token in the
+    /// 225 775 555 that `examples/token_window_census` measured — the largest anywhere in
+    /// 39 976 documents is 390.16 KiB — so a stream that reaches this is stating something no
+    /// document has been seen to state.
+    ///
+    /// The token is stepped over rather than cut: a truncated token would put bytes the file
+    /// never wrote in front of the interpreter, which is exactly the silent clamp ADR 0306
+    /// removed one layer down.
+    TokenTooLong {
+        /// The longest token the window can hold, in bytes.
+        limit: usize,
     },
     /// A `/Contents` entry that is neither a stream nor null.
     NotAStream {

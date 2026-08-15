@@ -1,14 +1,15 @@
 # Road D — stream the decompression, so the bomb never becomes an allocation
 
-Status: **measured, and the rewrite is what is left** — the project owner ordered the roads
-D → B → C in the five-hundred-and-nineteenth session's aftermath. **The producer half was already
-written** (ADR 0343's pump), and **the measurement this file used to owe is done** (ADR 0362):
-a window-fed lexer holds Bomb B at a window, reads the witness to the same token for +4.10%
-instructions, and reads page one of the whole pdf.js corpus identically through a 512-byte
-window. §"What the measurement said" has the numbers and §"What the rewrite owes" the four
-decisions left.
+Status: **the page's `/Contents` is done and shipped** (ADR 0365) — a bomb costs 8.4 MB where it
+cost 1032 MB, the witness 194 MB where it took 381, and every gate's output is identical. **Two
+things are left and they are §"What is still owed" below**: the four other content streams
+§7.8.2 names, and a pump for the four filters that are not `FlateDecode`. The producer half was
+ADR 0343's, the measurement ADR 0362's, and the rewrite ADR 0365's; what remains of the argument
+lives in those three and this file keeps what is not yet done.
 Priority: 14 — the first road of [`10`](10-bounds-that-cap-size.md), whose §5 table prices all
-four and whose §6 binds whatever lands here
+four and whose §6 binds whatever lands here. **The page's half is shipped; what is left is
+priced in §"What is still owed" and is no longer what the owner's order is waiting on** — road B
+([`15`](15-ship-the-confinement.md)) is next.
 Witness: `tmp/Entwurf.pdf` — **not in the repository and not addable to it**, so no test may name
 that path; and Bomb B, which `doc/todo/10` §2 describes precisely enough to rebuild (sessions 519
 and 527 rebuilt both bombs to the byte from that description)
@@ -65,12 +66,16 @@ it, instead of taking the machine down before anybody is asked.
 assumed, and the split is not even:
 
 - **Content streams are the good case, and they are the case that matters.** The interpreter reads
-  a content stream once, forwards, one token at a time, and never seeks back. §7.8.2 even blesses
-  the shape: where `/Contents` is an array, "the division between streams may occur only at the
-  boundaries between lexical tokens", so several parts chain into one reader instead of being
-  concatenated into one `Vec` — which is where `doc/todo/10` §3.3's *missing aggregate budget* also
-  lives. Every filter that appears on a content stream — Flate, LZW, ASCII85, ASCIIHex,
-  RunLength — is inherently streaming.
+  a content stream once, forwards, one token at a time, and never seeks back. **Table 31 blesses
+  the shape** — where `/Contents` is an array, "[t]he division between streams may occur only at
+  the boundaries between lexical tokens" — so several parts chain into one reader instead of being
+  concatenated into one `Vec`, which is where `doc/todo/10` §3.3's *missing aggregate budget* also
+  lives. (That sentence is §7.7.3.3's, in Table 31's `/Contents` row; this file said §7.8.2 for
+  nine sessions and the quotation gate caught it when ADR 0365 quoted it in code.) Every filter
+  that appears on a content stream — Flate, LZW, ASCII85, ASCIIHex, RunLength — is inherently
+  streaming. **The criterion in the first sentence is what decided which streams ADR 0365
+  windowed**: a form read three times over by §11.6.6's paired runs is not read "once, forwards",
+  and stayed whole.
 - **`Lexer::new` takes `&'a [u8]`**, and that is the real work. A reader-fed lexer needs a window
   that can hold the largest single lexical object, and `max_string_len` is 2²⁶, so either the
   window grows for one token or a string gets its own bound. Neither is hard; both are decisions —
@@ -154,39 +159,55 @@ The display list is about **99 MB** and arrives after the decode has been freed 
 247 → 346 MB while the page is interpreted). So the road leaves **about 193 MB where 446 MB of
 heap stands today**, and the last two rows are the reason it is not less.
 
-## What the rewrite owes
+## What the rewrite decided — carried out in ADR 0365
 
-Four decisions, each now with a number in front of it, and two obligations that are not decisions.
+The four decisions this section used to pose are answered in the code, each with the census's own
+number in front of it. `crates/pdf-model/src/content/reader.rs` holds all four and says where
+each comes from:
 
-1. **A token longer than the window.** None was seen: 512 bytes over the pdf.js corpus produced
-   no such page, and the largest token anywhere in 39 976 documents is 390.16 KiB. Grow the window
-   for one token up to a bound, or refuse with a report — but not silently, and not `max_string_len`'s
-   64 MiB, which no document comes near.
-2. **The inline-image lookahead.** 96.1% of inline images state or imply their length before their
-   data; the search route's largest witness is 2.99 KiB. A bounded lookahead with §8.9.7's existing
-   `NoTerminator` refusal past it is the shape; the *data* then goes the resource route, whole, as
-   an image always has.
-3. **Where the pump reads from.** The spike's 98 MB on the witness is two copies of the same
-   47 MB — the file, and `Stream::data`'s owned `Arc<[u8]>`. Feeding the pump from a borrowed slice
-   of the document's bytes takes one of them off; an `Arc<[u8]>` cannot be sub-sliced, so this is a
-   change to how a stream's raw bytes are handed over rather than a smaller buffer.
-4. **The other filters.** The spike pumps `FlateDecode` and no filter, which carried 948 of the 958
-   pdf.js documents that open with a page one; the other **10** declined for their filter chain.
-   LZW, ASCII85, ASCIIHex and RunLength are all streaming by construction (§7.4) and each needs its
-   pump written.
+1. **A token longer than the window** grows the buffer to `CEILING` = 1 MiB, above every token in
+   the population, and past that is `ContentIssue::TokenTooLong` and a step to the next
+   white-space byte. Not `max_string_len`'s 64 MiB, as this file asked.
+2. **The inline-image lookahead** starts at the window and doubles only while the answer may have
+   been cut, to `LOOKAHEAD` = 16 MiB — 1.78 times the largest inline image measured — and past it
+   is `InlineImageError::Unbuffered`, which is a *different* sentence from `NoTerminator`.
+3. **Where the pump reads from**: `Stream::data`'s `Arc<[u8]>`, which is a clone of a handle
+   rather than of bytes. The second copy of the *encoded* stream that ADR 0362 found is still
+   there and is `Parser::parse_stream_data`'s, which is `doc/todo/10` §3's residue and not this
+   road's.
+4. **The other filters** are **not** done — see below.
 
-The obligations: **a token borrowed from the window may not outlive a refill** — `Token::Keyword`
-borrows, and the honest API is one that borrows `&mut self`, so the compiler enforces it rather
-than a comment — and **ADR 0343's damage reporting must be produced as the pump goes**, since
-`ContentIssue::Damaged` carries how much was kept.
+Both obligations were met: `ContentReader::with_token` lends the token to a closure, so the
+compiler refuses anything that keeps a borrowed keyword past a refill, and ADR 0343's damage is
+produced as the pump goes and reported after the run.
 
-**One consequence lands on another road.** `doc/todo/10` §2's table says `MAX_OPERATIONS` guards
-nothing a bomb needs, "because the memory is already spent" before the first operator is counted.
-Under a window there is no memory to spend, so the counter is reached four million operators in —
-a few megabytes into Bomb B's 1.9 GB — and stops it there instead of after the eleven seconds the
-spike, which has no operator bound, actually took.
+**And one consequence landed on another road, as predicted.** `doc/todo/10` §2's table said
+`MAX_OPERATIONS` guards nothing a bomb needs, "because the memory is already spent" before the
+first operator is counted. Under a window there is no memory to spend, and Bomb B now reports
+`MAX_OPERATIONS` in 0.24 s.
+
+## What is still owed
+
+**1. The four other content streams §7.8.2 names** — form XObjects, tiling patterns, Type 3 glyph
+procedures, annotation appearance streams. They are decoded whole, as they always were, and the
+reason is this file's own criterion for the good case: a stream read "once, forwards". §11.6.6's
+paired runs read the *same* form two and three times over (`group_commands`, then
+`rerun_on_device`), so a window would inflate it again for each where ADR 0317's memo hands back
+what it already has. **The cost of that decision is a bomb hidden in a form XObject, which still
+costs its gibibyte** — exactly what it cost before ADR 0365 and no more. Whoever takes this needs
+a route that streams the *first* read and remembers the bytes for the second, or a measurement
+saying the re-inflation is cheaper than the memo.
+
+**2. A pump for the other four filters.** `Document::stream_source` pumps a single `FlateDecode`
+with no predictor and hands everything else back whole. LZW, ASCII85, ASCIIHex and RunLength are
+streaming by construction (§7.4) — and LZW reaches about 1365:1 on a long run of one byte, so it
+is the sharper bomb of the two. **The way to write them is not a second decoder beside the
+existing one**, which is trap 6 and is how two implementations of one clause drift: it is to make
+each existing decoder resumable — a state struct, `pump(&mut self, out: &mut [u8])`, and the
+whole-buffer entry point expressed as a loop over it — the way `filter::Pump` and `inflate_buffer`
+now share `turn`.
 
 `doc/todo/10` §6 binds whatever lands: nothing arbitrary replaced by something equally arbitrary,
 the gates stay reproducible, a count that reports says what it counted, and **a bound on an
 allocation is measured on the allocation** — ADR 0354's lesson, which is why `capacity`,
-`ru_maxrss` or `massif`'s peak snapshot has to be read rather than the refusal believed.
+`VmHWM` or `massif`'s peak snapshot has to be read rather than the refusal believed.

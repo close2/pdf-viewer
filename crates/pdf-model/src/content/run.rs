@@ -14,6 +14,7 @@ use super::colour::{BlackPoint, assign_colour};
 use super::font::Font;
 use super::marked::Marked;
 use super::path::{begin_subpath, close_subpath};
+use super::reader::{ContentReader, Word};
 use super::report::{ArtifactSpan, DamagedStream, MarkedSpan, Unsupported};
 use super::text::TextObject;
 use super::{
@@ -60,6 +61,44 @@ impl Interpreter<'_> {
         Some(decoded.data)
     }
 
+    /// Reads the inline image whose `BI` the reader has just consumed, ISO 32000-2 §8.9.7.
+    ///
+    /// An inline image is the one construction in a content stream that is not a token: `ID`
+    /// is followed by data whose length the dictionary need not state, so where it ends is
+    /// found by reading it. `examples/token_window_census` measured what that costs a bounded
+    /// reader — of **93 930** inline images in 39 976 documents, **90 304 state or imply their
+    /// length before their data is read** (336 by §8.9.7's `/L`, 89 968 by §8.9.3's sample
+    /// arithmetic), and of the **3 455** that need the forward `EI` search the largest is
+    /// **2.99 KiB**.
+    ///
+    /// So the lookahead starts at the window's own size and doubles only while the answer may
+    /// have been cut by it, up to [`crate::content::reader::LOOKAHEAD`]. Past that the image
+    /// is refused *by name* rather than read short: the data goes the resource route, whole,
+    /// as an image always has, and a bounded reader that stopped looking has said something
+    /// different from a file that states no `EI`.
+    fn inline_image(
+        &mut self,
+        reader: &mut ContentReader<'_>,
+        resources: &Dictionary,
+    ) -> crate::inline_image::Scan {
+        let bound = crate::content::reader::LOOKAHEAD.min(self.document.limits().max_stream_len);
+        let mut want = crate::content::reader::WINDOW;
+        loop {
+            let (ahead, complete) = reader.lookahead(want);
+            let scanned = crate::inline_image::scan(self.document, ahead, 0, resources);
+            if complete || scanned.image.is_ok() {
+                return scanned;
+            }
+            if want >= bound {
+                return crate::inline_image::Scan {
+                    resume: scanned.resume,
+                    image: Err(crate::inline_image::InlineImageError::Unbuffered { bound }),
+                };
+            }
+            want = want.saturating_mul(2).min(bound);
+        }
+    }
+
     /// Executes a content stream with the given initial state.
     ///
     /// The operator dispatch is deliberately one flat `match` rather than several
@@ -69,10 +108,6 @@ impl Interpreter<'_> {
     /// owns it. The state it threads — current path, current point, pending clip, the `q`
     /// stack — is genuinely shared by most arms, so extracting them would replace local
     /// variables with a struct that exists only to be passed back and forth.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "a bytecode dispatch table reads better whole than split; see above"
-    )]
     pub(super) fn run(
         &mut self,
         content: &[u8],
@@ -80,7 +115,25 @@ impl Interpreter<'_> {
         initial: &GraphicsState,
         form_depth: usize,
     ) {
-        let mut lexer = pdf_syntax::Lexer::new(content);
+        let mut reader = ContentReader::over(content);
+        self.run_reader(&mut reader, resources, initial, form_depth);
+    }
+
+    /// The same, over a stream that need not be resident all at once.
+    ///
+    /// A page's `/Contents` is read this way — see [`ContentReader`] for why that one and not
+    /// the nested content streams above.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "a bytecode dispatch table reads better whole than split; see above"
+    )]
+    pub(super) fn run_reader(
+        &mut self,
+        reader: &mut ContentReader<'_>,
+        resources: &Dictionary,
+        initial: &GraphicsState,
+        form_depth: usize,
+    ) {
         // What the stream has stated since the last operator. §7.8.2 makes an operator's own
         // operands the ones that *immediately precede* it, which is a distinction only a
         // malformed stream can show: `operands_before` is what turns this into that slice.
@@ -122,9 +175,19 @@ impl Interpreter<'_> {
         // that two consecutive ones have no word break between them.
         let mut replaced_ends_at: Option<usize> = None;
 
-        while let Some(token) = lexer.next_token() {
-            // Operands accumulate until an operator consumes them.
-            let operator = match token {
+        loop {
+            // **The token is read inside the closure and nothing borrowed leaves it**, which
+            // is what lets the stream be read through a moving window: see
+            // [`ContentReader::with_token`]. An *operand* is dealt with in there and never
+            // named again — the closure holds `pending` and the array depth, so the object
+            // goes straight into the list the operator will read it from, which is the same
+            // work this loop did when it held the lexer itself. Only what the loop has to act
+            // on afterwards comes out, and [`Step`] owns all of it.
+            let step = reader.with_token(|token| match token {
+                None => Step::End,
+                Some(pdf_syntax::Token::Keyword(word)) if array_depth == 0 => {
+                    Step::Operator(Word::new(word))
+                }
                 // §7.8.2's grammar puts an operator *after* its operands, and §7.3.6 makes an
                 // array "a one-dimensional collection of objects arranged sequentially" — so a
                 // keyword between two elements of an array is neither an element (it is not an
@@ -137,55 +200,72 @@ impl Interpreter<'_> {
                 // file is malformed and the standard states no reading for it, so drawing the
                 // text without a word would be the silent-fallback failure this project
                 // forbids, and refusing the text would lose what the file plainly states.
-                pdf_syntax::Token::Keyword(word) if array_depth > 0 => {
-                    self.note(Unsupported::Operator {
-                        operator: format!(
-                            "{} inside an array, which §7.3.6 admits only objects into",
-                            String::from_utf8_lossy(word)
-                        ),
-                    });
-                    continue;
-                }
-                pdf_syntax::Token::Keyword(word) => word,
-                other => {
+                Some(pdf_syntax::Token::Keyword(word)) => Step::InsideAnArray(Word::new(word)),
+                // An inline dictionary is one operand, assembled by the caller because it
+                // needs the reader again. §14.6.2: "[i]f all of the values in a property list
+                // dictionary are direct objects, the dictionary may be written inline in the
+                // content stream as a direct object" — the form real documents use for
+                // §14.9.4's `/ActualText`, and the form that reached the operator dispatch one
+                // token at a time until the fifty-fifth session.
+                Some(pdf_syntax::Token::DictOpen) => Step::Dictionary,
+                Some(other) => {
                     if matches!(other, pdf_syntax::Token::ArrayOpen) {
                         array_depth = array_depth.saturating_add(1);
                     } else if matches!(other, pdf_syntax::Token::ArrayClose) {
                         array_depth = array_depth.saturating_sub(1);
                     }
+                    // Arrays are deliberately left flattened: `TJ` and `d` read their elements
+                    // as separate operands and have since the beginning.
                     if pending.len() < MAX_OPERANDS {
-                        // An inline dictionary is one operand, assembled here because the
-                        // content lexer yields tokens rather than objects. §14.6.2: "[i]f all
-                        // of the values in a property list dictionary are direct objects, the
-                        // dictionary may be written inline in the content stream as a direct
-                        // object" — the form real documents use for §14.9.4's `/ActualText`,
-                        // and the form that reached the operator dispatch one token at a time
-                        // until the fifty-fifth session. Arrays are deliberately left
-                        // flattened: `TJ` and `d` read their elements as separate operands and
-                        // have since the beginning.
-                        let object = if matches!(other, pdf_syntax::Token::DictOpen) {
-                            Object::Dictionary(inline_dictionary(&mut lexer, 0))
-                        } else {
-                            token_to_object(other)
-                        };
-                        pending.push(object);
+                        pending.push(token_to_object(other));
+                        Step::Operand
                     } else {
-                        // Dropping operands silently truncates the page: a `TJ` array is
-                        // one operand per run *and* per kerning adjustment, so a single
-                        // justified line can be hundreds, and the text simply stopped
-                        // mid-sentence with nothing reported. The bound stays, because a
-                        // hostile stream can otherwise make one operator allocate without
-                        // limit — but reaching it is now a reported defect.
-                        self.note(Unsupported::LimitReached {
-                            limit: "MAX_OPERANDS",
-                        });
                         // An unclosed `[` would otherwise suppress every operator for the
                         // rest of the stream, which on a fuzzed file means a blank page. One
                         // operand cap's worth of tokens is as far as an array is believed.
                         array_depth = 0;
+                        Step::TooManyOperands
+                    }
+                }
+            });
+            // Operands accumulate until an operator consumes them.
+            let word = match step {
+                Step::End => break,
+                Step::Operand => continue,
+                Step::InsideAnArray(word) => {
+                    self.note(Unsupported::Operator {
+                        operator: format!(
+                            "{} inside an array, which §7.3.6 admits only objects into",
+                            String::from_utf8_lossy(word.as_slice())
+                        ),
+                    });
+                    continue;
+                }
+                Step::TooManyOperands => {
+                    // Dropping operands silently truncates the page: a `TJ` array is
+                    // one operand per run *and* per kerning adjustment, so a single
+                    // justified line can be hundreds, and the text simply stopped
+                    // mid-sentence with nothing reported. The bound stays, because a
+                    // hostile stream can otherwise make one operator allocate without
+                    // limit — but reaching it is now a reported defect.
+                    self.note(Unsupported::LimitReached {
+                        limit: "MAX_OPERANDS",
+                    });
+                    continue;
+                }
+                Step::Dictionary => {
+                    let dictionary = Object::Dictionary(inline_dictionary(reader, 0));
+                    if pending.len() < MAX_OPERANDS {
+                        pending.push(dictionary);
+                    } else {
+                        self.note(Unsupported::LimitReached {
+                            limit: "MAX_OPERANDS",
+                        });
+                        array_depth = 0;
                     }
                     continue;
                 }
+                Step::Operator(word) => word,
             };
 
             // **Here rather than at the top of the loop, and that is the whole of ADR 0306.**
@@ -197,6 +277,13 @@ impl Interpreter<'_> {
             //
             // What bounds the *token* loop is the stream's own length — every token consumes at
             // least one byte — and `Limits::max_stream_len` bounds that.
+            //
+            // **Under a window that bound stops being spent in advance, which is ADR 0362's
+            // consequence and ADR 0365's arithmetic.** A bomb's gibibyte used to be allocated
+            // before the first operator was counted, so this bound guarded nothing it was
+            // reached by; the same bomb read through a window reaches four million operators a
+            // few megabytes in, and stops there.
+            let operator = word.as_slice();
             self.operations = self.operations.saturating_add(1);
             if self.operations > MAX_OPERATIONS {
                 self.note(Unsupported::LimitReached {
@@ -607,13 +694,8 @@ impl Interpreter<'_> {
                 // between `ID` and `EI` are not a program, and tokenising them would emit
                 // drawing commands from image samples.
                 b"BI" => {
-                    let scanned = crate::inline_image::scan(
-                        self.document,
-                        lexer.input(),
-                        lexer.position(),
-                        resources,
-                    );
-                    lexer.seek(scanned.resume);
+                    let scanned = self.inline_image(reader, resources);
+                    reader.skip(scanned.resume);
                     // A hidden layer suppresses the drawing and the report both: an image
                     // the document turns off is not one we failed to draw (§8.11.3.1).
                     if !self.is_hidden() {
@@ -905,6 +987,47 @@ fn is_colour_operator(operator: &[u8]) -> bool {
     )
 }
 
+/// What the operator loop must do about a token it has just read.
+///
+/// The [`ContentReader::with_token`] closure returns one of these, which is what carries a
+/// token's meaning *out* of the borrow it was read under. An operand carries nothing: the
+/// closure has already pushed it. What is left needs either the reader again, or a report, or
+/// the dispatch table — and an operator's bytes come out on the stack rather than borrowed
+/// (see [`Word`]), because the dispatch calls the reader again for §8.9.7's inline images.
+#[derive(Debug)]
+enum Step {
+    /// A bare keyword where an operator belongs: the dispatch table's business.
+    Operator(Word),
+    /// An operand, already in the pending list.
+    Operand,
+    /// A keyword inside an array, which §7.3.6 admits nothing but objects into.
+    InsideAnArray(Word),
+    /// `<<` — an inline dictionary, which the caller assembles because it needs the reader.
+    Dictionary,
+    /// One more operand than `MAX_OPERANDS` allows.
+    TooManyOperands,
+    /// The stream has no more tokens.
+    End,
+}
+
+/// What one value of an inline dictionary or array is, out of the token's borrow.
+///
+/// [`Step`]'s counterpart for the two constructions §14.6.2 writes inside a content stream.
+/// The two that need the reader again are named rather than built here, for the reason
+/// [`ContentReader::with_token`] gives: the token is lent, and the reader cannot be asked for
+/// the next one while it is still alive.
+#[derive(Debug)]
+enum Value {
+    /// A direct object, already built.
+    Object(Object),
+    /// `<<` — a dictionary nested inside this one.
+    Dictionary,
+    /// `[` — an array.
+    Array,
+    /// The construction's own closer, or the end of the stream.
+    End,
+}
+
 /// Converts a content-stream token into an operand.
 fn token_to_object(token: pdf_syntax::Token<'_>) -> Object {
     match token {
@@ -933,7 +1056,7 @@ fn token_to_object(token: pdf_syntax::Token<'_>) -> Object {
 ///
 /// An unterminated dictionary ends with the stream, which is what a truncated content stream
 /// leaves behind; the entries read before it are still the ones the file stated.
-fn inline_dictionary(lexer: &mut pdf_syntax::Lexer<'_>, depth: usize) -> Dictionary {
+fn inline_dictionary(reader: &mut ContentReader<'_>, depth: usize) -> Dictionary {
     /// How deep a dictionary may nest inside a content stream.
     ///
     /// A property list is one level in every use the standard defines; this bounds a hostile
@@ -944,33 +1067,39 @@ fn inline_dictionary(lexer: &mut pdf_syntax::Lexer<'_>, depth: usize) -> Diction
     if depth > MAX_DEPTH {
         return dict;
     }
-    while let Some(token) = lexer.next_token() {
-        let key = match token {
-            pdf_syntax::Token::DictClose => break,
-            pdf_syntax::Token::Name(bytes) => Name::new(bytes),
+    loop {
+        let key = reader.with_token(|token| match token {
+            Some(pdf_syntax::Token::DictClose) | None => None,
+            Some(pdf_syntax::Token::Name(bytes)) => Some(Some(Name::new(bytes))),
             // Anything that is not a name where a key belongs is a malformed dictionary;
             // skipping the token keeps the rest of the entries readable.
-            _ => continue,
-        };
-        let Some(value) = lexer.next_token() else {
-            break;
-        };
-        let value = match value {
-            pdf_syntax::Token::DictOpen => {
-                Object::Dictionary(inline_dictionary(lexer, depth.saturating_add(1)))
-            }
-            pdf_syntax::Token::ArrayOpen => Object::Array(inline_array(lexer, 0)),
-            pdf_syntax::Token::DictClose => break,
+            Some(_) => Some(None),
+        });
+        let Some(key) = key else { break };
+        let Some(key) = key else { continue };
+
+        let value = reader.with_token(|token| match token {
+            Some(pdf_syntax::Token::DictOpen) => Value::Dictionary,
+            Some(pdf_syntax::Token::ArrayOpen) => Value::Array,
+            Some(pdf_syntax::Token::DictClose) | None => Value::End,
             // `true`, `false` and `null` lex as keywords in a content stream, which is why
             // two corpus documents used to report them as unknown *operators*: an inline
             // property list's booleans were reaching the operator dispatch one token at a
             // time. §7.3.2 makes them objects wherever an object belongs.
-            pdf_syntax::Token::Keyword(word) => match word {
+            Some(pdf_syntax::Token::Keyword(word)) => Value::Object(match word {
                 b"true" => Object::Boolean(true),
                 b"false" => Object::Boolean(false),
                 _ => Object::Null,
-            },
-            other => token_to_object(other),
+            }),
+            Some(other) => Value::Object(token_to_object(other)),
+        });
+        let value = match value {
+            Value::End => break,
+            Value::Dictionary => {
+                Object::Dictionary(inline_dictionary(reader, depth.saturating_add(1)))
+            }
+            Value::Array => Object::Array(inline_array(reader, 0)),
+            Value::Object(object) => object,
         };
         dict.insert(key, value);
     }
@@ -982,7 +1111,7 @@ fn inline_dictionary(lexer: &mut pdf_syntax::Lexer<'_>, depth: usize) -> Diction
 /// Bounded in both directions a hostile stream can grow: the nesting, by the same constant
 /// [`inline_dictionary`] uses, and the number of elements — a property list is a handful of
 /// numbers or names, and an array of a million of them is a file making a reader work.
-fn inline_array(lexer: &mut pdf_syntax::Lexer<'_>, depth: usize) -> Vec<Object> {
+fn inline_array(reader: &mut ContentReader<'_>, depth: usize) -> Vec<Object> {
     /// The same bound as [`inline_dictionary`]'s, and for the same reason.
     const MAX_DEPTH: usize = 8;
     /// Most elements read from one array written inside a content stream.
@@ -992,30 +1121,33 @@ fn inline_array(lexer: &mut pdf_syntax::Lexer<'_>, depth: usize) -> Vec<Object> 
     if depth > MAX_DEPTH {
         // Consumed rather than left, so the caller resumes at the right token: an array this
         // deep is nothing this reader will use, and the stream after it still has to parse.
-        while let Some(token) = lexer.next_token() {
-            if matches!(token, pdf_syntax::Token::ArrayClose) {
-                break;
-            }
-        }
+        while reader.with_token(|token| match token {
+            None | Some(pdf_syntax::Token::ArrayClose) => false,
+            Some(_) => true,
+        }) {}
         return out;
     }
-    while let Some(token) = lexer.next_token() {
-        let value = match token {
-            pdf_syntax::Token::ArrayClose => break,
-            pdf_syntax::Token::ArrayOpen => {
-                Object::Array(inline_array(lexer, depth.saturating_add(1)))
-            }
-            pdf_syntax::Token::DictOpen => {
-                Object::Dictionary(inline_dictionary(lexer, depth.saturating_add(1)))
-            }
+    loop {
+        let step = reader.with_token(|token| match token {
+            None | Some(pdf_syntax::Token::ArrayClose) => Value::End,
+            Some(pdf_syntax::Token::ArrayOpen) => Value::Array,
+            Some(pdf_syntax::Token::DictOpen) => Value::Dictionary,
             // As in a dictionary's values: §7.3.2's booleans and §7.3.9's null lex as
             // keywords inside a content stream.
-            pdf_syntax::Token::Keyword(word) => match word {
+            Some(pdf_syntax::Token::Keyword(word)) => Value::Object(match word {
                 b"true" => Object::Boolean(true),
                 b"false" => Object::Boolean(false),
                 _ => Object::Null,
-            },
-            other => token_to_object(other),
+            }),
+            Some(other) => Value::Object(token_to_object(other)),
+        });
+        let value = match step {
+            Value::End => break,
+            Value::Array => Object::Array(inline_array(reader, depth.saturating_add(1))),
+            Value::Dictionary => {
+                Object::Dictionary(inline_dictionary(reader, depth.saturating_add(1)))
+            }
+            Value::Object(object) => object,
         };
         if out.len() < MAX_ELEMENTS {
             out.push(value);

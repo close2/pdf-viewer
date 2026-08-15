@@ -124,7 +124,10 @@ which never reaches the bound — loses a third of its peak to the second half o
 a whole decode ends in a buffer of up to 2*L* and `Arc<[u8]>` is a copy beside it, so the peak was
 capacity + length. ADR 0354.
 
-**It is still a gibibyte commanded by 1.85 MB of file**, and no entry in §5 but D takes that back.
+**It was still a gibibyte commanded by 1.85 MB of file, and D took it back**: since ADR 0365 the
+page's `/Contents` is read through a 64 KiB window, and Bomb B costs **8.4 MB** and reports
+`MAX_OPERATIONS`. The row above is what the bound used to buy; §5's table carries what replaced
+it. A bomb in a *form* still costs the gibibyte, which is `doc/todo/14`'s remainder.
 
 The clean statement, and the test to apply to every bound in the tree:
 
@@ -231,7 +234,7 @@ argument and the table is the arithmetic.
 | **A** deadline + callback | unbounded *time* | one parameter on `interpret`, one check at `run.rs`'s existing increment site, two boundary messages, and a rule pinning the gates | **no** — the check point is where 471 left it |
 | **B** ship the confinement | unbounded *anything*, by killing | a tier change (`doc/todo/34`), a `try_reserve`/`Refused` path for the ceiling breach, worker restart, Linux-only | **cheaper** — see below |
 | **C** resumable interpretation | unbounded *latency* | a state-machine rewrite of `Interpreter::run`, against an oracle of 1794 pages | **no** |
-| **D** stream the decompression | the *allocation* | the sink, the lexer's `&[u8]`, and `inline_image::scan`'s lookahead — **the producer is already written** | **half-built, and measured in 527: the bomb costs 6 MB and the witness reads identically** |
+| **D** stream the decompression | the *allocation* | **shipped for a page's `/Contents` in 530** (ADR 0365); what is left is the four nested content streams and a pump for the four filters that are not Flate — `doc/todo/14` §"What is still owed" | **done and measured: Bomb B costs 8.4 MB against 1032, the witness 194 MB against 381, every gate identical, +5.74% instructions on an ordinary page** |
 
 **D is half-built and nobody set out to build it.** §5 D below says "`filter::flate` already holds a
 *streaming* decoder — `flate2::read::ZlibDecoder`, an `io::Read` — and then calls `read_to_end`".
@@ -247,10 +250,10 @@ made reliable in 508.
 **And D's prize shrank in the same measurement — then grew again when somebody built it.** What it
 removes is now:
 
-| | before ADR 0354 | after | what D leaves, **measured** |
+| | before ADR 0354 | after | what D left, **shipped and measured** |
 |---|---|---|---|
-| Bomb B, 1.85 MB of file | 1811 MB | **1031 MB** (the bound, exactly) | **6 MB**, and all 950 M operators read |
-| `Entwurf.pdf`, 141 MiB content stream | 429 MB | **381 MB** | **98 MB** for decode + lex; about 193 MB with the display list |
+| Bomb B, 1.85 MB of file | 1811 MB | **1031 MB** (the bound, exactly) | **8.4 MB**, and `MAX_OPERATIONS` four million operators in |
+| `Entwurf.pdf`, 141 MiB content stream | 429 MB | **381 MB** | **193.7 MB**, display list included (ADR 0365) |
 
 So D is still the only road that changes the *kind* of the quantity, and the last column is a
 spike's `VmHWM` rather than an estimate (ADR 0362, `examples/window_lexer_spike`). **The two
@@ -272,11 +275,14 @@ the three in the table above, unchanged.
 **A and C are untouched**, and that is worth stating rather than leaving to inference: nothing in
 471, 508 or 519 went near `Interpreter::run`'s shape or put a clock anywhere near `pdf-model`.
 
-**The order in the last paragraph of this section still holds and is now two steps further along**:
-§3's defects, then D's measurement, then D. **D's measurement is done** — a window-fed lexer run on
-both bombs and on the witness, ADR 0362 — and it said yes: the bomb costs a window and the witness
-is read to the same token for +4.10% instructions. What D still owes is the rewrite, and
-[`14`](14-stream-the-decompression.md) carries the four decisions with a number in front of each.
+**The order in the last paragraph of this section still holds and is now three steps further
+along**: §3's defects, then D's measurement, then D. **D is shipped for the stream this file is
+about** — ADR 0365, the five-hundred-and-thirtieth session — and the two bombs are the row above:
+Bomb B commands 8.4 MB where it commanded a gibibyte, and the witness draws whole from 194 MB.
+The gibibyte in §2's sentence "**It is still a gibibyte commanded by 1.85 MB of file**" is no
+longer commanded by that file, and `max_stream_len` is no longer what refuses it. What is left of
+D is in [`14`](14-stream-the-decompression.md) §"What is still owed" — the nested content streams
+and four filters — and the owner's order is at **B** next.
 
 ## 5.1 The four roads themselves
 

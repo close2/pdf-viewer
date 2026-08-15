@@ -62,6 +62,21 @@ pub enum InlineImageError {
     /// Where the data ends could not be established.
     #[error("no EI ends the image data")]
     NoTerminator,
+    /// The data is longer than the lookahead a window-fed reader can hold.
+    ///
+    /// **Kept apart from [`Self::NoTerminator`] because the two are opposite statements**: that
+    /// one is about the file, which states no end to its data, and this one is about this
+    /// reader, which declined to buffer any more of it looking for one. A page's `/Contents` is
+    /// read through a window rather than decoded whole (`crate::content::reader`), and an
+    /// inline image is the one thing in a content stream whose extent a window cannot know in
+    /// advance — so the lookahead grows to `crate::content::reader::LOOKAHEAD`, which is
+    /// sixteen mebibytes against a measured largest of 9.01 MiB and a clause that recommends
+    /// 4096 bytes, and says so here rather than reading the image short.
+    #[error("the image data is longer than the {bound}-byte lookahead this reader holds")]
+    Unbuffered {
+        /// How many bytes past `ID` were buffered before the search was given up.
+        bound: usize,
+    },
 }
 
 /// One `BI` … `ID` … `EI` sequence, read.

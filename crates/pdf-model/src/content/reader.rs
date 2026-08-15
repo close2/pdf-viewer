@@ -1,0 +1,778 @@
+//! The bytes of a content stream, delivered a window at a time.
+//!
+//! ISO 32000-2 §7.8.2 describes a content stream as "a sequence of instructions describing the
+//! graphical elements to be painted on a page", and §7.7.3.3's Table 31 says how the parts of
+//! an array of them fit together, in the `/Contents` row:
+//!
+//! > The division between streams may occur only at the boundaries between lexical tokens (see
+//! > 7.2, "Lexical conventions" ) but shall be unrelated to the page's logical content or
+//! > organisation.
+//!
+//! That sentence is what this module is built on, and it is Table 31's rather than §7.8.2's —
+//! which `doc/todo/14` had wrong for nine sessions and the quotation gate caught here. Because
+//! a part may only end where a token ends, several parts *chain into one reader* rather than
+//! being concatenated into one buffer — and because the interpreter reads a content stream
+//! once, forwards, and never seeks back, the buffer it reads through need not be larger than
+//! the largest token it must hold.
+//!
+//! # Why a window rather than the whole thing
+//!
+//! `doc/todo/14` and ADR 0362 are the argument and the measurement. In short: decoding a
+//! content stream whole makes a *decompression bomb* an allocation nothing can take back —
+//! 1.85 MB of file commanding a gibibyte of resident memory — while a window turns it into
+//! time, which the operator bound already stops. The same window takes an honest 141 MiB
+//! drawing from 380 MB of peak resident memory to 98 MB, and reads it to the same token.
+//!
+//! # The two numbers, and where they come from
+//!
+//! Neither is invented. `examples/token_window_census` measured 225 775 555 content-stream
+//! tokens in 39 976 documents: the largest single token in the whole population is 390.16 KiB,
+//! **233 pass 4 KiB, 2 pass 64 KiB and none passes 1 MiB**. So [`WINDOW`] is 64 KiB — the size
+//! at which refilling stops mattering (2 258 refills and 7 694 re-lexed bytes over 141 MiB,
+//! against 36 156 and 120 367 at 4 KiB, at the same peak) — and [`CEILING`] is 1 MiB, above
+//! every token any real document has been seen to state.
+//!
+//! # The two exceptional cases are loud
+//!
+//! A token longer than [`CEILING`] and an inline image whose data does not fit the lookahead
+//! are the two things a bounded buffer cannot do. Neither is silently truncated: the first is
+//! [`crate::page::ContentIssue::TokenTooLong`] and the second
+//! [`crate::inline_image::InlineImageError::Unbuffered`], and both reach the page's report the
+//! way every other refusal does. ADR 0306's lesson is that a clamp which says nothing is worse
+//! than a refusal that does.
+
+use std::sync::Arc;
+
+use pdf_syntax::{Document, Lexer, Object, Pumped, Stream, StreamRefusal, StreamSource, Token};
+
+use crate::page::{ContentIssue, Page, filter_names};
+
+/// The window a content stream is read through, in bytes.
+///
+/// See the module documentation for the census this comes from: 2 of 225 775 555 measured
+/// tokens are longer than this, and the buffer grows to [`CEILING`] for those.
+pub const WINDOW: usize = 64 * 1024;
+
+/// How far the window grows to hold one token, in bytes.
+///
+/// The census's own upper bound: no token in 39 976 documents passes this, and the largest
+/// anywhere is 390.16 KiB. A token past it is reported rather than cut — see
+/// [`crate::page::ContentIssue::TokenTooLong`].
+pub const CEILING: usize = 1024 * 1024;
+
+/// How far past the cursor §8.9.7's inline images may be buffered, in bytes.
+///
+/// An inline image is the one thing in a content stream that is not a token, and the only one
+/// whose extent a window cannot know before reading it. §8.9.7 says what an inline image is
+/// for, twice, and both sentences are advice rather than a requirement:
+///
+/// > Because the inline format gives the PDF processor less flexibility in managing the image
+/// > data, it should be used only for small images (4096 bytes or less).
+///
+/// > The value of the Length key should not exceed 4096 bytes.
+///
+/// A `should` binds nobody, so this is not that number: it is **sixteen mebibytes, which is
+/// 1.78 times the largest inline image in the 93 930 that `examples/token_window_census`
+/// measured** (9.01 MiB) and four thousand times what the clause recommends. Past it the image
+/// is refused by name — [`crate::inline_image::InlineImageError::Unbuffered`] — rather than
+/// read short, and the page carries on.
+pub const LOOKAHEAD: usize = 16 * 1024 * 1024;
+
+/// How few bytes may stand between the cursor and the end of the buffer before it is refilled.
+///
+/// The buffer is compacted and refilled when what is left ahead of the cursor falls below
+/// this, which is what makes the refill test one comparison per token rather than a second
+/// pass over it. A token longer than this is re-lexed once after the refill, and the census
+/// says that is 233 tokens in 225 775 555.
+const SLACK: usize = 4 * 1024;
+
+/// A keyword's bytes, held inline where they fit.
+///
+/// [`Token::Keyword`] *borrows* its bytes from the buffer it was lexed out of, which is what
+/// removed a heap allocation per token in ADR 0341 — and under a moving window those bytes
+/// stop existing at the next refill. [`ContentReader::with_token`] is what makes that safe:
+/// the token cannot leave the closure, so the compiler enforces the rule rather than a
+/// comment. What the interpreter needs *past* that point is the operator, and this is where it
+/// goes: a memcpy of at most fifteen bytes onto the stack, not an allocation, so ADR 0341's
+/// finding is kept rather than undone.
+///
+/// Fifteen bytes is more than any operator Annex A states — the longest are three characters
+/// — and more than §7.3.2's `true` and `false`, which a content stream lexes as keywords. A
+/// longer run is a malformed stream's, it is never an operator, and it is kept whole because
+/// the report that names it prints what the file wrote.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Word {
+    /// A keyword that fits inline: the bytes, and how many of them are the keyword.
+    Short([u8; 15], u8),
+    /// A run too long to hold inline, kept because a report quotes it.
+    Long(Vec<u8>),
+}
+
+impl Word {
+    /// Copies `word`, inline where it fits.
+    #[inline]
+    #[must_use]
+    pub fn new(word: &[u8]) -> Self {
+        let mut inline = [0u8; 15];
+        match (inline.get_mut(..word.len()), u8::try_from(word.len())) {
+            (Some(room), Ok(len)) => {
+                room.copy_from_slice(word);
+                Self::Short(inline, len)
+            }
+            _ => Self::Long(word.to_vec()),
+        }
+    }
+
+    /// The bytes the file wrote.
+    #[must_use]
+    pub fn as_slice(&self) -> &[u8] {
+        match self {
+            Self::Short(bytes, len) => bytes.get(..usize::from(*len)).unwrap_or_default(),
+            Self::Long(bytes) => bytes,
+        }
+    }
+}
+
+/// One content stream, read forwards.
+///
+/// Two shapes, and the difference is only whether the bytes exist all at once:
+///
+/// - [`ContentReader::over`] reads a buffer that is already whole — a form `XObject`, a tiling
+///   pattern, a Type 3 glyph procedure, an annotation's appearance. Those are decoded by
+///   [`Document::decoded_stream_data`] as they always were, because §11.6.6's paired runs read
+///   the *same* stream two and three times over and a window would have to inflate it again
+///   for each; `doc/todo/14`'s own criterion for the good case is a stream read "once,
+///   forwards", and those are not it.
+/// - [`ContentReader::for_page`] reads a page's `/Contents` through a window, which is the
+///   stream the criterion describes and the one every measurement in ADR 0362 is about.
+#[derive(Debug)]
+pub struct ContentReader<'a> {
+    /// Where the bytes come from.
+    held: Held<'a>,
+}
+
+/// The two shapes of [`ContentReader`].
+#[derive(Debug)]
+enum Held<'a> {
+    /// A content stream already whole in memory, lexed where it lies.
+    Whole {
+        /// The bytes.
+        bytes: &'a [u8],
+        /// How far the cursor has got.
+        at: usize,
+    },
+    /// A page's `/Contents`, pumped into a fixed buffer.
+    ///
+    /// Boxed because it is much the larger of the two and a `ContentReader` is passed by
+    /// reference through the whole interpreter.
+    Window(Box<Window>),
+}
+
+impl<'a> ContentReader<'a> {
+    /// A reader over a content stream that is already whole in memory.
+    #[must_use]
+    pub fn over(bytes: &'a [u8]) -> Self {
+        Self {
+            held: Held::Whole { bytes, at: 0 },
+        }
+    }
+
+    /// A reader over a page's `/Contents`, ISO 32000-2 §7.7.3.3 Table 31.
+    ///
+    /// Each part is kept beside the object *as written*, because a `/Contents` the file does
+    /// not state and a `/Contents` naming an object this reader could not reach both resolve
+    /// to null and are not the same statement — see [`ContentIssue::Unreachable`].
+    #[must_use]
+    pub fn for_page(document: &'a Document, page: &Page) -> Self {
+        let stated = page.dict.get("Contents").cloned().unwrap_or(Object::Null);
+        let listed: Vec<(Object, Object)> = match document.resolve(&stated) {
+            Object::Array(items) => items
+                .iter()
+                .map(|item| (item.clone(), document.resolve(item)))
+                .collect(),
+            other => vec![(stated, other)],
+        };
+
+        let mut window = Window::new(document.limits().max_stream_len);
+        for (index, (named, part)) in listed.iter().enumerate() {
+            // A `/Contents` that is missing entirely is an empty page, not a defect; one
+            // whose entries are not streams is a malformed page and worth saying so.
+            let Some(stream) = part.as_stream() else {
+                match (named, part) {
+                    (Object::Reference(object), Object::Null) => {
+                        window.issues.push(ContentIssue::Unreachable {
+                            index,
+                            object: *object,
+                        });
+                    }
+                    (_, Object::Null) => {}
+                    _ => window.issues.push(ContentIssue::NotAStream { index }),
+                }
+                continue;
+            };
+            window.push(document, stream, index);
+        }
+        Self {
+            held: Held::Window(Box::new(window)),
+        }
+    }
+
+    /// Everything this reader has to say about the stream, taken away.
+    ///
+    /// Called before interpretation for what building the reader found, and again after it
+    /// for what pumping found: a damaged part is met where the damage is, which under a
+    /// window is in the middle of the page rather than before it. ADR 0343 requires the
+    /// report either way — a page cut short otherwise looks like a page meant to be sparse.
+    pub fn take_issues(&mut self) -> Vec<ContentIssue> {
+        match &mut self.held {
+            Held::Whole { .. } => Vec::new(),
+            Held::Window(window) => std::mem::take(&mut window.issues),
+        }
+    }
+
+    /// Reads the next token and hands it to `read`, or `None` at the end of the content.
+    ///
+    /// **The token is lent rather than given, and that is what makes the window safe to move.**
+    /// A `Token::Keyword` borrows its bytes from the buffer the lexer read them out of, and a
+    /// refill overwrites them. Returning the token instead would leave two ways out and both
+    /// cost something: a signature saying `Option<Token<'_>>` cannot express "and do not ask me
+    /// for the next one while you hold it" without the borrow checker refusing the caller
+    /// outright, so the caller ends up copying every token to get around it — which is the
+    /// heap allocation per token that ADR 0341 removed. Confining it to a closure costs
+    /// neither: the caller takes what it needs while the borrow is alive, the compiler refuses
+    /// anything that keeps it, and `doc/todo/14`'s obligation is discharged by a signature
+    /// rather than by a comment.
+    #[inline]
+    pub fn with_token<T>(&mut self, read: impl FnOnce(Option<Token<'_>>) -> T) -> T {
+        match &mut self.held {
+            Held::Whole { bytes, at } => {
+                let mut lexer = Lexer::at(bytes, *at);
+                let token = lexer.next_token();
+                *at = lexer.position();
+                read(token)
+            }
+            Held::Window(window) => window.with_token(read),
+        }
+    }
+
+    /// The bytes from the cursor onwards, at least `want` of them where the stream has them,
+    /// and whether that is everything the stream has left.
+    ///
+    /// For §8.9.7's inline images, which are the one construction in a content stream that is
+    /// not a token: `BI` is followed by data whose length the dictionary need not state, so
+    /// where it ends is found by reading it. A caller whose answer depends on bytes it has not
+    /// been given must ask again for more — see `Interpreter::inline_image`, and the second
+    /// half of the pair is what tells "the stream ends here" from "the buffer does".
+    pub fn lookahead(&mut self, want: usize) -> (&[u8], bool) {
+        match &mut self.held {
+            Held::Whole { bytes, at } => (bytes.get(*at..).unwrap_or_default(), true),
+            Held::Window(window) => window.lookahead(want),
+        }
+    }
+
+    /// Consumes `count` bytes of what [`Self::lookahead`] returned.
+    pub fn skip(&mut self, count: usize) {
+        match &mut self.held {
+            Held::Whole { bytes, at } => *at = at.saturating_add(count).min(bytes.len()),
+            Held::Window(window) => window.skip(count),
+        }
+    }
+
+    /// Reads the whole content stream into one buffer, as [`Page::content_with_report`] does.
+    ///
+    /// The route every caller took before the window existed, expressed through the window so
+    /// that there is one assembly of `/Contents` and not two. What it costs is the allocation
+    /// the window exists to avoid, which is why the interpreter does not call it.
+    #[must_use]
+    pub fn read_to_end(&mut self) -> Vec<u8> {
+        match &mut self.held {
+            Held::Whole { bytes, at } => {
+                let rest = bytes.get(*at..).unwrap_or_default().to_vec();
+                *at = bytes.len();
+                rest
+            }
+            Held::Window(window) => window.read_to_end(),
+        }
+    }
+}
+
+/// A page's `/Contents`, pumped into a fixed buffer.
+#[derive(Debug)]
+struct Window {
+    /// The parts, in the order Table 31 states them.
+    parts: Vec<Part>,
+    /// Which part is being produced.
+    index: usize,
+    /// The window itself. Grows to [`CEILING`] for one long token, and further only for
+    /// [`Window::lookahead`]'s inline images.
+    buffer: Vec<u8>,
+    /// How much of `buffer` holds content.
+    filled: usize,
+    /// How far the cursor has got into `buffer`.
+    at: usize,
+    /// How many decoded bytes the whole `/Contents` has produced, for Table 31's bound.
+    total: usize,
+    /// `Limits::max_stream_len`, which Table 31 makes the bound on the concatenation as well
+    /// as on one part: the array's streams "form a single stream".
+    limit: usize,
+    /// Whether the newline that follows the part just ended is still owed.
+    separator: bool,
+    /// Set once no further byte can arrive.
+    exhausted: bool,
+    /// Set where a comment was cut by the end of the buffer, so that the rest of it is
+    /// skipped rather than read as content.
+    in_comment: bool,
+    /// What the assembly and the pumping have found.
+    issues: Vec<ContentIssue>,
+}
+
+/// One `/Contents` part.
+#[derive(Debug)]
+struct Part {
+    /// Which part of `/Contents`, counting from zero, for the report.
+    index: usize,
+    /// Where its bytes come from.
+    source: PartSource,
+    /// The `/Filter` names it declared, for the report.
+    filters: Vec<String>,
+    /// How many decoded bytes it has produced, which is [`ContentIssue::Damaged`]'s `kept`.
+    kept: usize,
+}
+
+/// Where one part's decoded bytes come from.
+#[derive(Debug)]
+enum PartSource {
+    /// Decoded whole, by the route every other caller takes.
+    Bytes {
+        /// The decoded bytes.
+        data: Arc<[u8]>,
+        /// How many of them have been handed over.
+        at: usize,
+    },
+    /// Inflated a window at a time.
+    Pumped(pdf_syntax::Pump),
+}
+
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "cursor arithmetic inside one buffer whose length bounds every index, and \
+              counters bounded by `limit`; every slice access uses `get` and every step is \
+              checked against `buffer.len()` or `filled` before it is taken"
+)]
+impl Window {
+    /// An empty window under `limit`.
+    fn new(limit: usize) -> Self {
+        Self {
+            parts: Vec::new(),
+            index: 0,
+            buffer: vec![0u8; WINDOW],
+            filled: 0,
+            at: 0,
+            total: 0,
+            limit,
+            separator: false,
+            exhausted: false,
+            in_comment: false,
+            issues: Vec::new(),
+        }
+    }
+
+    /// Adds one `/Contents` part, or reports why it contributes nothing.
+    fn push(&mut self, document: &Document, stream: &Stream, index: usize) {
+        let source = match document.stream_source(stream) {
+            Ok(StreamSource::Whole(decoded)) => {
+                // §7.4.1's filter was invoked and stopped short of the end. What it did
+                // produce goes on the page; that it is not all of it goes in the report.
+                if let Some(damage) = decoded.damage {
+                    self.issues.push(ContentIssue::Damaged {
+                        index,
+                        damage,
+                        kept: decoded.data.len(),
+                        filters: filter_names(document, &stream.dict),
+                    });
+                }
+                PartSource::Bytes {
+                    data: decoded.data,
+                    at: 0,
+                }
+            }
+            Ok(StreamSource::Pumped(pump)) => PartSource::Pumped(pump),
+            // A bound refused this part; the filter chain did not fail to work. Saying
+            // "undecodable" of a stream this reader can decode perfectly well would put a
+            // limit of ours into a sentence about the file.
+            Err(StreamRefusal::Filter {
+                why: pdf_syntax::FilterRefusal::TooLarge { limit },
+                ..
+            }) => {
+                self.issues.push(ContentIssue::TooLarge {
+                    part: Some(index),
+                    limit,
+                });
+                return;
+            }
+            Err(_) => {
+                self.issues.push(ContentIssue::Undecodable {
+                    index,
+                    filters: filter_names(document, &stream.dict),
+                });
+                return;
+            }
+        };
+        self.parts.push(Part {
+            index,
+            source,
+            filters: filter_names(document, &stream.dict),
+            kept: 0,
+        });
+    }
+
+    /// The next token, refilling and growing the buffer as the stream needs.
+    ///
+    /// **The first arm is the whole stream but its boundaries**, and it is written out rather
+    /// than left to the loop below because this is the hottest path in the program: a token
+    /// that ends *before* the end of what is buffered is a token no boundary touched,
+    /// whichever kind it is — the lexer stopped because it read the byte that ends it — and a
+    /// comment it skipped over ended for the same reason. So an ordinary token costs one
+    /// comparison more than lexing a whole buffer did, and the second pass below is paid by
+    /// the 2 258 tokens that straddle a refill rather than by the 20 834 587 that do not.
+    #[inline]
+    fn with_token<T>(&mut self, read: impl FnOnce(Option<Token<'_>>) -> T) -> T {
+        if !self.in_comment && self.filled.saturating_sub(self.at) >= SLACK {
+            let mut lexer = Lexer::at(self.buffer.get(..self.filled).unwrap_or_default(), self.at);
+            let token = lexer.next_token();
+            let end = lexer.position();
+            if end < self.filled {
+                self.at = end;
+                return read(token);
+            }
+        }
+        self.settle_then(read)
+    }
+
+    /// The rest of [`Self::with_token`]: refilling, growing and the two boundary cases.
+    ///
+    /// Split out so that the arm above stays a leaf, and cold because it runs once per refill.
+    #[cold]
+    fn settle_then<T>(&mut self, read: impl FnOnce(Option<Token<'_>>) -> T) -> T {
+        loop {
+            self.settle();
+            // A token that ends exactly where the buffer does may have been cut by the
+            // boundary, so where there is more it is lexed again once there is. The token
+            // from this pass is deliberately dropped rather than returned: it may be half a
+            // string, and only the second pass — over a buffer the refill has completed —
+            // knows that it is not.
+            let whole = self.exhausted || {
+                let mut lexer =
+                    Lexer::at(self.buffer.get(..self.filled).unwrap_or_default(), self.at);
+                let seen = lexer.next_token().is_some();
+                seen && lexer.position() < self.filled
+            };
+            if whole {
+                break;
+            }
+            if !self.widen() {
+                // Nothing more can be brought in and the token still reaches the end of the
+                // buffer: it is longer than [`CEILING`]. Said out loud and stepped over,
+                // because a buffer cannot hold it and a silent truncation would put bytes the
+                // file never wrote in front of the interpreter (ADR 0306's lesson).
+                if self.exhausted {
+                    break;
+                }
+                self.issues
+                    .push(ContentIssue::TokenTooLong { limit: CEILING });
+                self.drop_token();
+            }
+        }
+        let mut lexer = Lexer::at(self.buffer.get(..self.filled).unwrap_or_default(), self.at);
+        let token = lexer.next_token();
+        self.at = lexer.position();
+        read(token)
+    }
+
+    /// Steps over a token no buffer of [`CEILING`] bytes can hold.
+    ///
+    /// To the next white-space byte, which §7.2.3 makes the one thing that ends every kind of
+    /// token, refilling until one is found or the stream ends. What is stepped over is
+    /// reported by the caller; nothing here is silent.
+    fn drop_token(&mut self) {
+        loop {
+            let found = self.buffer.get(self.at..self.filled).and_then(|rest| {
+                rest.iter()
+                    .position(|&byte| pdf_syntax::lexer::is_whitespace(byte))
+            });
+            if let Some(offset) = found {
+                self.at += offset;
+                return;
+            }
+            self.at = self.filled;
+            if !self.pull() {
+                return;
+            }
+        }
+    }
+
+    /// Puts the cursor on the first byte of a token, refilling across comments and white
+    /// space, and leaves [`SLACK`] bytes ahead of it wherever the stream has them.
+    fn settle(&mut self) {
+        loop {
+            if self.in_comment {
+                // §7.2.4: a comment runs to the end of the line. One that the buffer cut is
+                // still a comment, and reading its tail as content is how a window-fed lexer
+                // silently changes a page.
+                let rest = self.buffer.get(self.at..self.filled).unwrap_or_default();
+                if let Some(offset) = rest.iter().position(|&byte| byte == b'\n' || byte == b'\r') {
+                    self.at += offset;
+                    self.in_comment = false;
+                } else {
+                    self.at = self.filled;
+                    if !self.pull() {
+                        return;
+                    }
+                    continue;
+                }
+            }
+
+            let before = self.at;
+            let mut lexer = Lexer::at(self.buffer.get(..self.filled).unwrap_or_default(), self.at);
+            lexer.skip_whitespace();
+            self.at = lexer.position();
+            if self.exhausted {
+                return;
+            }
+            if self.at >= self.filled {
+                // The run reaches the end of what is buffered, so it may continue past it —
+                // and if it ended inside a comment, so does the comment.
+                self.in_comment =
+                    comment_open(self.buffer.get(before..self.at).unwrap_or_default());
+                if !self.pull() {
+                    return;
+                }
+                continue;
+            }
+            if self.filled - self.at < SLACK && self.pull() {
+                continue;
+            }
+            return;
+        }
+    }
+
+    /// Compacts what is left and refills, returning whether anything new arrived.
+    fn pull(&mut self) -> bool {
+        if self.exhausted {
+            return false;
+        }
+        if self.at > 0 {
+            self.buffer.copy_within(self.at..self.filled, 0);
+            self.filled -= self.at;
+            self.at = 0;
+        }
+        let before = self.filled;
+        self.refill();
+        self.filled > before
+    }
+
+    /// The same, growing the buffer up to [`CEILING`] where compacting freed nothing.
+    ///
+    /// Returns whether the buffer now holds more than it did.
+    fn widen(&mut self) -> bool {
+        if self.pull() {
+            return true;
+        }
+        if self.exhausted || self.buffer.len() >= CEILING {
+            return false;
+        }
+        let grown = self.buffer.len().saturating_mul(2).min(CEILING);
+        self.buffer.resize(grown, 0);
+        let before = self.filled;
+        self.refill();
+        self.filled > before
+    }
+
+    /// Fills the tail of the buffer from the parts.
+    fn refill(&mut self) {
+        while self.filled < self.buffer.len() && !self.exhausted {
+            // Table 31 makes the array of parts "a single stream", so the bound one stream
+            // gets is the bound the array gets — and under a window that is the only bound
+            // left to apply, because there is no per-part allocation to bound any more. ADR
+            // 0362's consequence, carried out.
+            let allowed = self.limit.saturating_sub(self.total);
+            if allowed == 0 {
+                self.issues.push(ContentIssue::TooLarge {
+                    part: None,
+                    limit: self.limit,
+                });
+                self.exhausted = true;
+                return;
+            }
+            let room = (self.buffer.len() - self.filled).min(allowed);
+            match self.produce(room) {
+                Some(wrote) => {
+                    self.filled += wrote;
+                    self.total += wrote;
+                }
+                None => return,
+            }
+        }
+    }
+
+    /// Writes at most `room` bytes into the tail of the buffer.
+    ///
+    /// `None` where this part had nothing more to give and the next one has been started, or
+    /// where the content has ended; `Some(0)` where the decoder took input without producing
+    /// output, which is progress of a kind the caller must keep asking through.
+    fn produce(&mut self, room: usize) -> Option<usize> {
+        if self.separator {
+            // Table 31: the parts are concatenated "with at least one white-space character
+            // added between the streams' data". The byte is written where the part ends
+            // rather than where the next one begins, so that a `/Contents` of one part reads
+            // exactly as `Page::content_with_report` has always assembled it.
+            self.separator = false;
+            *self.buffer.get_mut(self.filled)? = b'\n';
+            return Some(1);
+        }
+        // The part, the buffer and the report are three fields of one structure, and the
+        // pump writes into the second while reading the first — so they are taken apart here
+        // rather than reached through `self`, and what the part *ended* is decided afterwards.
+        let Self {
+            parts,
+            index,
+            buffer,
+            filled,
+            issues,
+            ..
+        } = self;
+        let Some(part) = parts.get_mut(*index) else {
+            self.exhausted = true;
+            return None;
+        };
+        let out = buffer.get_mut(*filled..filled.saturating_add(room))?;
+        let (wrote, ended) = match &mut part.source {
+            PartSource::Bytes { data, at } => {
+                let left = data.get(*at..).unwrap_or_default();
+                let take = left.len().min(out.len());
+                out.get_mut(..take)?.copy_from_slice(left.get(..take)?);
+                *at += take;
+                part.kept += take;
+                (take, *at >= data.len())
+            }
+            PartSource::Pumped(pump) => match pump.pump(out) {
+                Pumped::Wrote(wrote) => {
+                    part.kept += wrote;
+                    (wrote, false)
+                }
+                Pumped::Ended(wrote) => {
+                    part.kept += wrote;
+                    (wrote, true)
+                }
+                Pumped::Damaged(wrote, damage) => {
+                    part.kept += wrote;
+                    // A part *nothing* came out of is not damage but a refusal: it is the
+                    // case `flate` answers with `FilterRefusal::Corrupt`, which
+                    // `Page::content_with_report` has always reported as undecodable.
+                    issues.push(if part.kept == 0 {
+                        ContentIssue::Undecodable {
+                            index: part.index,
+                            filters: part.filters.clone(),
+                        }
+                    } else {
+                        ContentIssue::Damaged {
+                            index: part.index,
+                            damage,
+                            kept: part.kept,
+                            filters: part.filters.clone(),
+                        }
+                    });
+                    (wrote, true)
+                }
+            },
+        };
+        if ended {
+            self.end_part();
+        }
+        Some(wrote)
+    }
+
+    /// Moves to the next part, owing the white space Table 31 puts between them.
+    fn end_part(&mut self) {
+        self.index += 1;
+        self.separator = true;
+    }
+
+    /// See [`ContentReader::lookahead`].
+    fn lookahead(&mut self, want: usize) -> (&[u8], bool) {
+        while self.filled - self.at < want && !self.exhausted {
+            if self.at > 0 {
+                self.buffer.copy_within(self.at..self.filled, 0);
+                self.filled -= self.at;
+                self.at = 0;
+            }
+            if self.filled >= self.buffer.len() {
+                if self.buffer.len() >= want {
+                    break;
+                }
+                self.buffer.resize(want, 0);
+            }
+            let before = self.filled;
+            self.refill();
+            if self.filled == before {
+                break;
+            }
+        }
+        let held = self.filled - self.at;
+        let end = self.filled.min(self.at.saturating_add(want));
+        (
+            self.buffer.get(self.at..end).unwrap_or_default(),
+            self.exhausted && held <= want,
+        )
+    }
+
+    /// See [`ContentReader::skip`].
+    fn skip(&mut self, count: usize) {
+        let mut left = count;
+        while left > 0 {
+            let here = (self.filled - self.at).min(left);
+            self.at += here;
+            left -= here;
+            if left > 0 && !self.pull() {
+                return;
+            }
+        }
+        // A buffer grown for one inline image is not kept: the window is what the rest of
+        // the stream is read through.
+        if self.buffer.len() > CEILING {
+            self.buffer.copy_within(self.at..self.filled, 0);
+            self.filled -= self.at;
+            self.at = 0;
+            self.buffer.truncate(self.filled.max(WINDOW));
+            self.buffer.shrink_to_fit();
+        }
+    }
+
+    /// See [`ContentReader::read_to_end`].
+    fn read_to_end(&mut self) -> Vec<u8> {
+        let mut out = Vec::new();
+        loop {
+            out.extend_from_slice(self.buffer.get(self.at..self.filled).unwrap_or_default());
+            self.at = self.filled;
+            if !self.pull() {
+                return out;
+            }
+        }
+    }
+}
+
+/// Whether a run of white space and comments ends inside a comment.
+///
+/// §7.2.4 ends a comment at "an EOL marker", so a `%` with no end of line after it is a
+/// comment the buffer cut rather than one that finished.
+fn comment_open(run: &[u8]) -> bool {
+    for &byte in run.iter().rev() {
+        if byte == b'\n' || byte == b'\r' {
+            return false;
+        }
+        if byte == b'%' {
+            return true;
+        }
+    }
+    false
+}

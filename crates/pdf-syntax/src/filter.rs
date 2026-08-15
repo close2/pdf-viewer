@@ -628,6 +628,166 @@ enum Stopped {
     PastTheBound,
 }
 
+/// What one turn of `flate2::Decompress` was, given whether it moved any bytes.
+///
+/// Shared by the two loops that drive the decoder — [`inflate_buffer`], which grows a `Vec`
+/// until the stream ends, and [`Pump`], which fills a fixed window — so that the three
+/// outcomes RFC 1951 admits are classified in one place rather than twice. The two loops
+/// differ in where they write and in nothing else.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Turn {
+    /// Bytes moved and the stream has more to give.
+    Again,
+    /// RFC 1951's final block was read.
+    Whole,
+    /// The stream stopped short, for this reason.
+    Damaged(Damage),
+}
+
+/// Classifies one turn of the decoder. See [`Turn`].
+fn turn(status: &Result<flate2::Status, flate2::DecompressError>, progressed: bool) -> Turn {
+    match status {
+        Ok(flate2::Status::StreamEnd) => Turn::Whole,
+        Err(_) => Turn::Damaged(Damage::Corrupt),
+        // No input read and no output written means the decoder can make no further
+        // progress. Output room is guaranteed by both callers, so the only way to be here is
+        // an input that ended before RFC 1951's final block — and terminating on it is also
+        // what makes both loops provably finite.
+        Ok(flate2::Status::Ok | flate2::Status::BufError) => {
+            if progressed {
+                Turn::Again
+            } else {
+                Turn::Damaged(Damage::Truncated)
+            }
+        }
+    }
+}
+
+/// What one turn of a [`Pump`] produced.
+///
+/// The window-fed counterpart of [`Decoded`]: that type says what a whole stream is, and this
+/// one says what its next few thousand bytes are. Damage is reported the moment the pump meets
+/// it rather than at the end, because a reader that has already handed those bytes to a lexer
+/// cannot wait to be told (ADR 0343's report, produced as the pump goes).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pumped {
+    /// This turn wrote that many bytes and the stream has more to give.
+    Wrote(usize),
+    /// RFC 1951's final block was read: this turn's bytes are the last of the stream.
+    Ended(usize),
+    /// The decode stopped short of the filter's own end-of-data.
+    ///
+    /// The bytes this turn wrote stand — they are what the producer's compressor emitted from
+    /// bytes the producer wrote — and there are no more.
+    Damaged(usize, Damage),
+}
+
+/// An inflate in progress, producing its output a window at a time.
+///
+/// [`decode`] and its neighbours answer "what does this stream decode to", which is a
+/// question with an allocation in it. This one answers "what are the next few thousand bytes
+/// of it", which is the question a content stream read through a fixed window asks — and the
+/// difference is the whole of road D in `doc/todo/14`: a bomb becomes time rather than an
+/// allocation nothing can take back. ADR 0365.
+///
+/// The bytes are the same bytes. Both routes drive one `flate2::Decompress` and classify its
+/// outcomes through [`turn`]; what differs is where the output goes and whether the input's
+/// two framings are tried whole or resumed.
+#[derive(Debug)]
+pub struct Pump {
+    /// The still-encoded bytes, held whole because they are already resident: the pump takes
+    /// its input from the stream object rather than copying it.
+    data: Arc<[u8]>,
+    /// The decoder, held across turns — which is what makes this a pump rather than a decode.
+    decoder: flate2::Decompress,
+    /// Whether `decoder` expects zlib's two-byte header.
+    zlib_header: bool,
+    /// How many of `data`'s bytes the decoder has taken, from `start`.
+    consumed: usize,
+    /// Where the encoded data begins; [`flate`] skips leading white space before the header,
+    /// and a resumable decoder has to skip the same bytes.
+    start: usize,
+    /// How much output the pump has produced, which is what says whether a restart under the
+    /// other framing is still free.
+    produced: u64,
+    /// Set once end-of-data or damage has been reported, so that a further turn is a no-op
+    /// rather than a second report.
+    finished: bool,
+}
+
+impl Pump {
+    /// A pump over `data`, inflating it as [`flate`] would.
+    ///
+    /// The white-space skip and the zlib-then-raw fallback are [`flate`]'s, kept exactly: a
+    /// stream missing its two-byte header is common in the wild, and a decoder that has
+    /// produced nothing yet can be restarted under the other framing for nothing.
+    #[must_use]
+    pub fn inflating(data: Arc<[u8]>) -> Self {
+        let start = data
+            .iter()
+            .position(|&byte| !crate::lexer::is_whitespace(byte))
+            .unwrap_or(data.len());
+        Self {
+            data,
+            decoder: flate2::Decompress::new(true),
+            zlib_header: true,
+            consumed: 0,
+            start,
+            produced: 0,
+            finished: false,
+        }
+    }
+
+    /// Writes the next bytes of the decoded stream into `out`.
+    ///
+    /// `out` must not be empty: a decoder given no room makes no progress, and no progress is
+    /// how [`turn`] recognises a truncated input.
+    pub fn pump(&mut self, out: &mut [u8]) -> Pumped {
+        if self.finished || out.is_empty() {
+            return Pumped::Wrote(0);
+        }
+        loop {
+            let input = self
+                .data
+                .get(self.start.saturating_add(self.consumed)..)
+                .unwrap_or_default();
+            let (before_in, before_out) = (self.decoder.total_in(), self.decoder.total_out());
+            let status = self
+                .decoder
+                .decompress(input, out, flate2::FlushDecompress::None);
+            let took = self.decoder.total_in().saturating_sub(before_in);
+            let wrote = usize::try_from(self.decoder.total_out().saturating_sub(before_out))
+                .unwrap_or(usize::MAX);
+            self.consumed = self
+                .consumed
+                .saturating_add(usize::try_from(took).unwrap_or(usize::MAX));
+            self.produced = self.produced.saturating_add(wrote as u64);
+
+            match turn(&status, took > 0 || wrote > 0) {
+                Turn::Again => return Pumped::Wrote(wrote),
+                Turn::Whole => {
+                    self.finished = true;
+                    return Pumped::Ended(wrote);
+                }
+                // Nothing has come out under this framing, so the other one gets its turn —
+                // [`flate`]'s fallback, taken here at the point the first framing fails
+                // rather than after a whole decode. A restart is free exactly while the
+                // pump has produced nothing, because there is nothing to un-hand-over.
+                Turn::Damaged(damage) => {
+                    if self.produced == 0 && self.zlib_header {
+                        self.zlib_header = false;
+                        self.decoder = flate2::Decompress::new(false);
+                        self.consumed = 0;
+                        continue;
+                    }
+                    self.finished = true;
+                    return Pumped::Damaged(wrote, damage);
+                }
+            }
+        }
+    }
+}
+
 /// The inflate loop itself, handing back the buffer rather than a decode.
 ///
 /// **Split from [`inflate`] so that the buffer can be asserted on**, which is not a shape
@@ -679,18 +839,11 @@ fn inflate_buffer(data: &[u8], zlib_header: bool, limits: Limits) -> (Vec<u8>, S
             usize::try_from(decoder.total_in().saturating_sub(before_in)).unwrap_or(usize::MAX),
         );
 
-        match status {
-            Ok(flate2::Status::StreamEnd) => return (out, Stopped::Whole),
-            Err(_) => return (out, Stopped::Damaged(Damage::Corrupt)),
-            Ok(flate2::Status::Ok | flate2::Status::BufError) => {
-                // No input read and no output written means the decoder can make no further
-                // progress. Output room is guaranteed above, so the only way to be here is an
-                // input that ended before RFC 1951's final block — and terminating on it is
-                // also what makes this loop provably finite.
-                if decoder.total_in() == before_in && out.len() == before_out {
-                    return (out, Stopped::Damaged(Damage::Truncated));
-                }
-            }
+        let progressed = decoder.total_in() != before_in || out.len() != before_out;
+        match turn(&status, progressed) {
+            Turn::Again => {}
+            Turn::Whole => return (out, Stopped::Whole),
+            Turn::Damaged(damage) => return (out, Stopped::Damaged(damage)),
         }
     }
 }

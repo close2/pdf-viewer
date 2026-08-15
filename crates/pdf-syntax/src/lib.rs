@@ -40,9 +40,11 @@ pub mod xref;
 
 pub use crypt::Permissions;
 pub use date::Date;
-pub use document::{DecodedStreamCache, Document, ImageStream, ObjectsLost, StreamRefusal};
+pub use document::{
+    DecodedStreamCache, Document, ImageStream, ObjectsLost, StreamRefusal, StreamSource,
+};
 pub use error::{SyntaxError, SyntaxResult};
-pub use filter::{Damage, Decoded, FilterRefusal};
+pub use filter::{Damage, Decoded, FilterRefusal, Pump, Pumped};
 pub use lexer::{Lexer, Token};
 pub use object::{Dictionary, Name, Object, ObjectId, Stream};
 pub use parser::{Limits, Parser};

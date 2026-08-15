@@ -44,6 +44,7 @@ mod image;
 mod marked;
 mod path;
 mod pattern;
+pub mod reader;
 mod report;
 mod resources;
 mod run;
@@ -482,10 +483,17 @@ fn interpret_into(
     state: &crate::view::ViewState,
     compositing: Compositing,
 ) -> (Interpretation, bool) {
-    let (content, issues) = page.content_with_report(document);
+    // **The page's `/Contents` is read through a window and never assembled into one buffer**,
+    // which is road D of `doc/todo/10` §5 and ADR 0365. What it buys, measured: a
+    // decompression bomb costs 8.4 MB of resident memory instead of a gibibyte, and the
+    // largest honest content stream this project has met — 141 MiB in one part — is
+    // interpreted from 194 MB instead of 381 MB. What it costs is 5.74% of the instructions
+    // to interpret an ordinary page, and one report arriving late: a part damaged half way
+    // through is met half way through, so the reader is asked twice, here and after the run.
+    let mut reader = reader::ContentReader::for_page(document, page);
     let mut interpreter = Interpreter::for_page(document, page, state, compositing);
 
-    for issue in issues {
+    for issue in reader.take_issues() {
         interpreter.note(Unsupported::Content { issue });
     }
     // §8.11.4.4's automatic states, for the two categories that ask about this machine rather
@@ -514,7 +522,14 @@ fn interpret_into(
     let view_clip = interpreter.view_clip(page, base);
     let mut initial = GraphicsState::initial(base);
     initial.clip = view_clip;
-    interpreter.run(&content, &page.resources, &initial, 0);
+    interpreter.run_reader(&mut reader, &page.resources, &initial, 0);
+    // §7.4.1's second half, for a part whose damage the pump met while the page was being
+    // drawn: the bytes are on the page and the shortfall is in the report (ADR 0343). The
+    // order the two loops find issues in does not matter — `note` collects them into a map
+    // and `finished` sorts it.
+    for issue in reader.take_issues() {
+        interpreter.note(Unsupported::Content { issue });
+    }
     // §12.5: an annotation is drawn *over* the page content, and in `/Annots` order, so
     // this pass follows the content stream rather than being folded into it.
     interpreter.draw_annotations(page, base, view_clip);

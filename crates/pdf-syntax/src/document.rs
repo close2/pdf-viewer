@@ -1260,6 +1260,59 @@ impl Document {
         }
     }
 
+    /// How a stream's decoded bytes are to be obtained: whole, or a window at a time.
+    ///
+    /// [`Self::decoded_stream_data_reported`] answers "what does this stream decode to", which
+    /// is a question with an allocation the size of the answer in it. This one answers "how
+    /// shall I read it", and for the one chain a window can pump — a single `FlateDecode` with
+    /// no predictor, which is what the overwhelming majority of content streams state — the
+    /// answer is a [`crate::filter::Pump`] that never holds more than the reader's window.
+    /// ADR 0365, and `doc/todo/14` for the road.
+    ///
+    /// Every other chain comes back whole, decoded by exactly the route it always took, cache
+    /// and bound included. That is a route decision and never a silence: the bytes a caller
+    /// gets are the same bytes either way, and a stream this reader cannot decode is refused
+    /// here as loudly as it is there.
+    ///
+    /// # Errors
+    ///
+    /// [`StreamRefusal`], whose variants are the reasons, exactly as
+    /// [`Self::decoded_stream_data_reported`] gives them.
+    pub fn stream_source(&self, stream: &Stream) -> Result<StreamSource, StreamRefusal> {
+        if stream.decryption_failed {
+            return Err(StreamRefusal::DecryptionFailed);
+        }
+        if Self::is_external(stream) {
+            return Err(StreamRefusal::External);
+        }
+        let filters = self.filter_chain(&stream.dict);
+        if filters.is_empty() || self.states_no_data(stream) {
+            return Ok(StreamSource::Whole(Decoded {
+                data: Arc::clone(&stream.data),
+                damage: None,
+            }));
+        }
+        // A predictor is part of decoding (see [`crate::filter::decode_with_parms`]) and reverses
+        // rows against their predecessors, which is not a transformation a window can apply to a
+        // few thousand bytes at a time. It occurs on cross-reference streams and images rather
+        // than on content streams, and either way this is a route decision: such a stream is
+        // decoded whole below.
+        let predicted = self
+            .decode_parms(&stream.dict, 0)
+            .and_then(|parms| parms.get("Predictor").and_then(Object::as_integer))
+            .is_some_and(|predictor| predictor > 1);
+        if !predicted
+            && let [only] = filters.as_slice()
+            && matches!(only.as_slice(), b"FlateDecode" | b"Fl")
+        {
+            return Ok(StreamSource::Pumped(crate::filter::Pump::inflating(
+                Arc::clone(&stream.data),
+            )));
+        }
+        self.decoded_stream_data_reported(stream)
+            .map(StreamSource::Whole)
+    }
+
     /// Returns the bytes the document was opened from.
     #[must_use]
     pub fn bytes(&self) -> &Arc<[u8]> {
@@ -1552,6 +1605,20 @@ pub enum StreamRefusal {
         /// What it answered.
         why: FilterRefusal,
     },
+}
+
+/// How a caller is to read a stream's decoded bytes, from [`Document::stream_source`].
+///
+/// The two arms are one decision and not two behaviours: the bytes are the same bytes, and
+/// which arm a stream takes says only whether they exist all at once. A reader that wants the
+/// whole thing — a font program, an image, an ICC profile, a cross-reference stream — asks
+/// [`Document::decoded_stream_data`] and never sees this type.
+#[derive(Debug)]
+pub enum StreamSource {
+    /// Decoded, whole, by the route every other caller takes.
+    Whole(Decoded),
+    /// A pump: the bytes come out a window at a time and are never all resident.
+    Pumped(crate::filter::Pump),
 }
 
 /// A stream's data with its image codec, if any, still to be applied.
