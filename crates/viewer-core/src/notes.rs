@@ -23,6 +23,22 @@ pub(crate) fn about(document: &Document) -> Vec<String> {
         );
     }
 
+    // §7.5.8's cross-reference stream states its own length twice over — Table 17 makes `/W`'s
+    // sum "the total length of each entry" and `/Index` the number of entries — and §7.3.8.2
+    // requires the two to agree with the data: "[a]ll of these constraints shall be consistent."
+    // Where they do not, the entries the data carries are whole and are the producer's own, and
+    // the rest name object numbers this reader knows *nothing* about. That is worth saying
+    // because everywhere else in this reader a number with no entry has been deleted (§7.5.6),
+    // and these were not: what a page cannot find may be in the file and unreachable. ADR 0366.
+    let entries_lost = document.cross_reference_entries_lost();
+    if entries_lost > 0 {
+        notes.push(format!(
+            "this file's cross-reference stream states {entries_lost} more entries than its data \
+             carries (§7.5.8), so that many object numbers are unknown here rather than deleted — \
+             anything they name is missing from what you see"
+        ));
+    }
+
     // Annex I, and it is the annex's own instruction rather than an inference from it:
     //
     // > If a PDF processor opens a PDF file with a version number newer than the version that it
@@ -83,6 +99,39 @@ pub(crate) fn about(document: &Document) -> Vec<String> {
 
     signatures(document, &mut notes);
     notes
+}
+
+/// What a damaged object stream has cost this document so far, said once per loss.
+///
+/// **The third channel, and the reason it is not one of the two above.** §7.5.7 lets a file store
+/// indirect objects inside a stream, and a stream that decodes only in part yields the objects its
+/// prefix wholly carries and no others — the refusal is `pdf_syntax`'s and ADR 0366 argues it. What
+/// is lost is a fact about the *file*, like [`about`]'s rebuilt table, but it cannot be said when
+/// the file opens: nothing expands an object stream until an object inside it is asked for, and
+/// making that eager is exactly what `CLAUDE.md`'s startup rule forbids. So it is said when it
+/// becomes known, which is after whichever page first reaches into such a stream.
+///
+/// Deliberately **not** part of a page's report: `pdf_model::interpret` is a pure function of the
+/// file and the page, and a note that fired there would depend on which pages had been read
+/// before it. The cost of that choice is that no gate sees this sentence, and the benefit is that
+/// no page leaves the oracle's judged set for a fact that is not about a page.
+pub(crate) fn losses(open: &mut crate::open::Open) -> Vec<String> {
+    let lost = open.document.objects_lost_to_damage();
+    if lost.count() <= open.losses_said {
+        return Vec::new();
+    }
+    open.losses_said = lost.count();
+    let named = if lost.objects.is_empty() {
+        String::new()
+    } else {
+        format!(", among them {:?}", lost.objects)
+    };
+    vec![format!(
+        "{} object(s) this file stores inside an object stream (§7.5.7) could not be read, \
+         because the stream decoded only as far as its damage and the rest of each object is not \
+         in the file{named} — what refers to them draws without them",
+        lost.count(),
+    )]
 }
 
 /// Why a document does not permit an operation, in sentences a host can show.

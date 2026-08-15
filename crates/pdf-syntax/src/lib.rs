@@ -40,7 +40,7 @@ pub mod xref;
 
 pub use crypt::Permissions;
 pub use date::Date;
-pub use document::{DecodedStreamCache, Document, ImageStream, StreamRefusal};
+pub use document::{DecodedStreamCache, Document, ImageStream, ObjectsLost, StreamRefusal};
 pub use error::{SyntaxError, SyntaxResult};
 pub use filter::{Damage, Decoded, FilterRefusal};
 pub use lexer::{Lexer, Token};

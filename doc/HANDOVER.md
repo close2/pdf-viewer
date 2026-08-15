@@ -460,7 +460,11 @@ The rule is easiest to lose *inside* a partly-implemented feature, because the o
 and the code path exists: `Tr` was parsed with four of its eight modes silently absent; Table 57's
 `/LC`, `/LJ` and `/ML` read nothing while `J`, `j` and `M` set the same parameters. **Where a
 clause gives a parameter two routes, implementing one of them is the failure mode that reports
-nothing.**
+nothing.** The sharpest instance is §7.3.8.2's `/Length`, which Table 5 lets be an indirect
+reference: a parser cannot follow one, so it took a scan's answer instead and dropped the *data's*
+last byte on every stream whose producer wrote no end-of-line before `endstream`. Such a stream then
+read as damaged while being whole — and three rounds of damaged-stream census had been counting it
+(ADR 0366).
 
 **And every resource lookup that can cost a mark says so, which is a statement rather than a list.**
 Since the four-hundred-and-nineteenth session all six of Table 34's categories the interpreter looks

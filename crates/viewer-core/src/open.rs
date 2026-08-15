@@ -269,6 +269,15 @@ pub(crate) struct Open {
     /// is a string comparison rather than a thousand interpretations. `crate::readback::BUDGET`
     /// is the ceiling and [`Self::stale`] is the one place that empties it.
     pub(crate) readbacks: crate::readback::Readbacks,
+    /// How many objects lost to a damaged object stream this document has already been told about.
+    ///
+    /// §7.5.7's losses are discovered when an object inside such a stream is first asked for,
+    /// which is *after* the document opened — nothing expands an object stream until something
+    /// needs one, and `CLAUDE.md`'s startup rule is why. So the sentence cannot be said once at
+    /// open and be true; it is said whenever the count grows, and this is what stops it being
+    /// said twice. Host state deliberately: putting it in the page's report would make
+    /// `pdf_model::interpret` depend on which pages had been read before it. ADR 0366.
+    pub(crate) losses_said: usize,
 }
 
 /// One rectangle ISO 32000-2 Annex O's `highlight` parameter named, and the page it named it on.
@@ -484,6 +493,7 @@ impl Open {
             highlights: Vec::new(),
             popups: BTreeMap::new(),
             readbacks: crate::readback::Readbacks::default(),
+            losses_said: 0,
         }
     }
 

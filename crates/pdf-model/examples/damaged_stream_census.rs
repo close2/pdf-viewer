@@ -49,7 +49,7 @@
               this is a measurement rather than a shipped path"
 )]
 
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use pdf_syntax::{Damage, Dictionary, Document, Object, ObjectId, Stream};
@@ -87,14 +87,31 @@ enum Role {
     Metadata,
     /// An embedded file, §7.11.4's `/Type /EmbeddedFile`.
     EmbeddedFile,
-    /// Everything else: a Type 3 glyph description, an `Indexed` palette, a `/JS`, an appearance
-    /// this walk did not reach through a page.
+    /// A shading whose dictionary is a stream, Table 78's `/ShadingType` 4 to 7.
+    Shading,
+    /// A `CMap`, §9.7.5.3's `/Type /CMap` or the stream a Type 0 font's `/Encoding` names.
+    CMap,
+    /// A `/ToUnicode` `CMap`, §9.10.3 — a mapping rather than a content stream (ADR 0359).
+    ToUnicode,
+    /// A Type 3 glyph description, reached through Table 110's `/CharProcs`.
+    Type3Glyph,
+    /// An annotation appearance, reached through §12.5.5's `/AP`.
+    Appearance,
+    /// An `Indexed` colour space's lookup table, §8.6.6.3's fourth array element.
+    IndexedLookup,
+    /// A page's thumbnail image, §12.3.4's `/Thumb`.
+    Thumbnail,
+    /// JavaScript, §12.6.4.16's `/JS` — outside this program's scope by `CLAUDE.md`'s exclusion.
+    JavaScript,
+    /// An XFA packet, Annex K's `/XFA` — excluded by `CLAUDE.md` on §K.1's own permission.
+    Xfa,
+    /// Everything else: a stream no dictionary in the file names under a key this walk reads.
     Other,
 }
 
 impl Role {
     /// Every role, in the order the report prints them.
-    const ALL: [Self; 12] = [
+    const ALL: [Self; 21] = [
         Self::PageContents,
         Self::FormXObject,
         Self::TilingPattern,
@@ -106,6 +123,15 @@ impl Role {
         Self::CrossReference,
         Self::Metadata,
         Self::EmbeddedFile,
+        Self::Shading,
+        Self::CMap,
+        Self::ToUnicode,
+        Self::Type3Glyph,
+        Self::Appearance,
+        Self::IndexedLookup,
+        Self::Thumbnail,
+        Self::JavaScript,
+        Self::Xfa,
         Self::Other,
     ];
 
@@ -123,6 +149,15 @@ impl Role {
             Self::CrossReference => "a cross-reference stream",
             Self::Metadata => "a metadata stream",
             Self::EmbeddedFile => "an embedded file",
+            Self::Shading => "a shading",
+            Self::CMap => "a CMap",
+            Self::ToUnicode => "a /ToUnicode CMap",
+            Self::Type3Glyph => "a Type 3 glyph description",
+            Self::Appearance => "an annotation appearance",
+            Self::IndexedLookup => "an Indexed lookup table",
+            Self::Thumbnail => "a thumbnail",
+            Self::JavaScript => "JavaScript",
+            Self::Xfa => "an XFA packet",
             Self::Other => "unclassified",
         }
     }
@@ -141,16 +176,27 @@ impl Role {
             Self::CrossReference => 8,
             Self::Metadata => 9,
             Self::EmbeddedFile => 10,
-            Self::Other => 11,
+            Self::Shading => 11,
+            Self::CMap => 12,
+            Self::ToUnicode => 13,
+            Self::Type3Glyph => 14,
+            Self::Appearance => 15,
+            Self::IndexedLookup => 16,
+            Self::Thumbnail => 17,
+            Self::JavaScript => 18,
+            Self::Xfa => 19,
+            Self::Other => 20,
         }
     }
 
-    /// Reads the role off the stream's own dictionary.
+    /// Reads the role off the stream's own dictionary, or off the entry that names it.
     ///
-    /// `contents` is every object a page of this document names in its `/Contents`, which is the
-    /// one role a dictionary does not state: a content stream's dictionary carries nothing but
-    /// Table 5's entries, so what makes it one is being named by a page.
-    fn of(document: &Document, stream: &Stream, number: u32, contents: &BTreeSet<u32>) -> Self {
+    /// `named` is what [`who_names_what`] found: the roles a *referring* dictionary states, which
+    /// is the only statement there is for a stream whose own dictionary carries nothing but Table
+    /// 5's entries. A page's `/Contents` is the oldest member of that set and the rest were the
+    /// five-hundred-and-thirty-first session's, which split `unclassified` because `doc/todo/03`
+    /// §11 said the largest silent bucket was not one thing.
+    fn of(document: &Document, stream: &Stream, number: u32, named: &BTreeMap<u32, Self>) -> Self {
         let dict = &stream.dict;
         let name_is = |key: &str, value: &[u8]| {
             document
@@ -158,8 +204,11 @@ impl Role {
                 .as_name()
                 .is_some_and(|name| name.as_bytes() == value)
         };
-        if contents.contains(&number) {
-            return Self::PageContents;
+        // What a page or another dictionary says this stream is outranks what the stream's own
+        // dictionary suggests, because the naming entry is the standard's own statement of the
+        // role: Table 31's `/Contents`, Table 110's `/CharProcs`, §12.5.5's `/AP`.
+        if let Some(role) = named.get(&number) {
+            return *role;
         }
         if name_is("Type", b"ObjStm") {
             return Self::ObjectStream;
@@ -172,6 +221,14 @@ impl Role {
         }
         if name_is("Type", b"EmbeddedFile") {
             return Self::EmbeddedFile;
+        }
+        // §9.7.5.3 makes an embedded CMap a stream with `/Type /CMap`, and Table 78 makes
+        // `/ShadingType` required of every shading — types 4 to 7 of which are streams.
+        if name_is("Type", b"CMap") {
+            return Self::CMap;
+        }
+        if dict.get("ShadingType").is_some() {
+            return Self::Shading;
         }
         if name_is("Subtype", b"Image") {
             return Self::Image;
@@ -232,7 +289,7 @@ struct Tally {
     /// Documents holding at least one such stream.
     documents_with_damage: usize,
     /// Damaged streams by the consumer that reads them, indexed by [`Role::index`].
-    damaged_by_role: [usize; 12],
+    damaged_by_role: [usize; Role::ALL.len()],
     /// Reports naming damage, over every page of every document holding a damaged stream.
     ///
     /// Distinct reports rather than damaged streams: `Interpreter::note` keys by the report, so
@@ -247,6 +304,18 @@ struct Tally {
     other_content_stream_reports: usize,
     /// Documents where at least one of those was made.
     documents_reporting_damage: usize,
+    /// Objects an object stream names and whose bytes its decoded prefix does not carry.
+    ///
+    /// The shipped answer rather than a second copy of the rule (trap 8):
+    /// [`Document::objects_lost_to_damage`] is what refuses them, and this reads it after every
+    /// object in the file has been asked for, which is what expands every object stream.
+    objects_lost: usize,
+    /// Documents holding at least one of those.
+    documents_losing_objects: usize,
+    /// Cross-reference entries a stream's own `/Index` and `/W` state and its data does not carry.
+    xref_entries_lost: u64,
+    /// Documents holding at least one of those.
+    documents_losing_xref_entries: usize,
     /// Image `XObject`s whose decoded samples fall short of `/Width` × `/Height`, §7.3.8.2.
     short_images: usize,
     /// Documents holding at least one of those.
@@ -278,6 +347,10 @@ impl Tally {
         self.damage_reports += other.damage_reports;
         self.other_content_stream_reports += other.other_content_stream_reports;
         self.documents_reporting_damage += other.documents_reporting_damage;
+        self.objects_lost += other.objects_lost;
+        self.documents_losing_objects += other.documents_losing_objects;
+        self.xref_entries_lost += other.xref_entries_lost;
+        self.documents_losing_xref_entries += other.documents_losing_xref_entries;
         self.short_images += other.short_images;
         self.documents_with_short_images += other.documents_with_short_images;
         self.short_functions += other.short_functions;
@@ -335,6 +408,15 @@ fn main() {
         total.damage_reports, total.documents_reporting_damage, total.other_content_stream_reports,
     );
     println!(
+        "  §7.5's two storage structures: {} objects in {} documents were not read from an \
+         object stream's damaged prefix, and {} cross-reference entries in {} documents were \
+         stated and not carried",
+        total.objects_lost,
+        total.documents_losing_objects,
+        total.xref_entries_lost,
+        total.documents_losing_xref_entries,
+    );
+    println!(
         "  short of their stated extent (§7.3.8.2): {} images in {} documents, \
          {} sampled functions in {} documents",
         total.short_images,
@@ -366,6 +448,124 @@ fn collect(root: &Path, into: &mut Vec<PathBuf>) {
     }
 }
 
+/// What each stream is, according to the dictionary that names it.
+///
+/// **The split `doc/todo/03` §11 asked for.** A stream whose own dictionary carries nothing but
+/// Table 5's entries — a page's `/Contents`, a Type 3 glyph description, an `Indexed` lookup
+/// table — can only be classified by the entry some other object names it under, and the
+/// standard makes that entry a statement of the role. So this walks every object in the file
+/// once and records, for each key the standard gives a stream role to, the number it points at.
+///
+/// Where two dictionaries name one stream the first wins, which is a real ambiguity rather than
+/// an implementation choice — a form drawn both as a `/Do` and as an appearance is both — and it
+/// is why the count this feeds is a population rather than a partition of the file.
+fn who_names_what(document: &Document, pages: &pdf_model::Pages) -> BTreeMap<u32, Role> {
+    let mut named = BTreeMap::new();
+
+    // Table 31's `/Contents`, walked through the page tree rather than through the object table,
+    // because a page is what makes a content stream one.
+    for index in 0..pages.len() {
+        let Some(page) = pages.get(index) else {
+            continue;
+        };
+        match page.dict.get("Contents") {
+            Some(object @ Object::Reference(_)) => note(&mut named, object, Role::PageContents),
+            Some(Object::Array(items)) => {
+                for item in items {
+                    note(&mut named, item, Role::PageContents);
+                }
+            }
+            _ => {}
+        }
+        if let Some(thumb) = page.dict.get("Thumb") {
+            note(&mut named, thumb, Role::Thumbnail);
+        }
+    }
+
+    for number in document.xref().object_numbers() {
+        let object = document.get(ObjectId {
+            number,
+            generation: 0,
+        });
+        // §8.6.6.3: "[a]n Indexed colour space shall be defined by a four-element array:
+        // [/Indexed base hival lookup ]", whose fourth element "may be either a stream or
+        // ( PDF 1.2 ) a byte string".
+        if let Some(items) = object.as_array()
+            && items
+                .first()
+                .and_then(Object::as_name)
+                .is_some_and(|name| name.as_bytes() == b"Indexed" || name.as_bytes() == b"I")
+            && let Some(lookup) = items.get(3)
+        {
+            note(&mut named, lookup, Role::IndexedLookup);
+        }
+        let Some(dict) = object.as_dict() else {
+            continue;
+        };
+        for (key, role) in [
+            // §9.10.3's `/ToUnicode`, a mapping and not a content stream (ADR 0359).
+            ("ToUnicode", Role::ToUnicode),
+            // Table 122's `/Encoding` on a Type 0 font, which "shall be" a predefined CMap's
+            // name or "a stream containing a CMap" (§9.7.5.3).
+            ("Encoding", Role::CMap),
+            // §9.7.5.2's `/UseCMap`, the other place a CMap stream is named.
+            ("UseCMap", Role::CMap),
+            // §12.6.4.16's `/JS`, "a text string or text stream containing the JavaScript".
+            ("JS", Role::JavaScript),
+            // Annex K's `/XFA`, "either a stream … or an array".
+            ("XFA", Role::Xfa),
+        ] {
+            if let Some(value) = dict.get(key) {
+                note(&mut named, value, role);
+                if key == "XFA"
+                    && let Some(items) = value.as_array()
+                {
+                    for item in items {
+                        note(&mut named, item, Role::Xfa);
+                    }
+                }
+            }
+        }
+        // Table 110's `/CharProcs`, "a dictionary in which each key shall be a glyph name and
+        // the value associated with that key shall be a content stream".
+        if let Some(procs) = dict.get("CharProcs") {
+            let procs = document.resolve(procs);
+            if let Some(procs) = procs.as_dict() {
+                for (_, value) in procs.iter() {
+                    note(&mut named, value, Role::Type3Glyph);
+                }
+            }
+        }
+        // §12.5.5's `/AP`, whose `/N`, `/R` and `/D` are each "a stream … or a subdictionary"
+        // keyed by appearance state.
+        if let Some(appearances) = dict.get("AP") {
+            let appearances = document.resolve(appearances);
+            if let Some(appearances) = appearances.as_dict() {
+                for (_, value) in appearances.iter() {
+                    note(&mut named, value, Role::Appearance);
+                    let states = document.resolve(value);
+                    if let Some(states) = states.as_dict() {
+                        for (_, state) in states.iter() {
+                            note(&mut named, state, Role::Appearance);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    named
+}
+
+/// Records what an entry says a stream is, where the entry names one.
+///
+/// The first statement wins: a stream two dictionaries name is genuinely both, and taking the
+/// later one would make the count depend on object order.
+fn note(named: &mut BTreeMap<u32, Role>, object: &Object, role: Role) {
+    if let Object::Reference(id) = object {
+        named.entry(id.number).or_insert(role);
+    }
+}
+
 /// Every stream object in the file, counted three ways, with the damaged ones handed back.
 ///
 /// The width of the silence rather than the part of it ADR 0343 made loud: the damage each stream
@@ -377,27 +577,7 @@ fn every_stream(
     name: &str,
     tally: &mut Tally,
 ) -> Vec<(u32, Damage, usize, Role)> {
-    // Every object a page names in its `/Contents`, which is the one role a stream's own
-    // dictionary cannot state: Table 5 is all such a stream carries.
-    let mut contents = BTreeSet::new();
-    for index in 0..pages.len() {
-        let Some(page) = pages.get(index) else {
-            continue;
-        };
-        match page.dict.get("Contents") {
-            Some(Object::Reference(id)) => {
-                contents.insert(id.number);
-            }
-            Some(Object::Array(items)) => {
-                for item in items {
-                    if let Object::Reference(id) = item {
-                        contents.insert(id.number);
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
+    let named = who_names_what(document, pages);
 
     let mut damaged = Vec::new();
     for number in document.xref().object_numbers() {
@@ -413,7 +593,7 @@ fn every_stream(
             && let Some(damage) = decoded.damage
         {
             tally.streams_damaged += 1;
-            let role = Role::of(document, stream, number, &contents);
+            let role = Role::of(document, stream, number, &named);
             tally.damaged_by_role[role.index()] += 1;
             damaged.push((number, damage, decoded.data.len(), role));
         }
@@ -463,6 +643,31 @@ fn examine(path: &Path) -> Tally {
 
     let pages = pdf_model::Pages::new(&document);
     let damaged_here = every_stream(&document, &pages, &name, &mut tally);
+
+    // §7.5's two storage structures, asked *after* the walk above, which has resolved every
+    // object number in the file and therefore expanded every object stream reachable from one.
+    let lost = document.objects_lost_to_damage();
+    if !lost.is_empty() {
+        tally.objects_lost = lost.count();
+        tally.documents_losing_objects = 1;
+        tally.witnesses.push(format!(
+            "{name}: {} object(s) not read from object stream(s) {:?} that decoded only in part, \
+             {} of them not even named (§7.5.7)",
+            lost.count(),
+            lost.streams,
+            lost.unnamed,
+        ));
+    }
+    let entries_lost = document.cross_reference_entries_lost();
+    if entries_lost > 0 {
+        tally.xref_entries_lost = entries_lost;
+        tally.documents_losing_xref_entries = 1;
+        tally.witnesses.push(format!(
+            "{name}: {entries_lost} cross-reference entries stated by /Index and /W and not \
+             carried by the stream's data (§7.5.8)"
+        ));
+    }
+
     if !damaged_here.is_empty() {
         tally.documents_with_damage = 1;
         let (all, others) = reports_naming_damage(&document, &pages);

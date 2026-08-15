@@ -102,6 +102,14 @@ pub struct Document {
     /// whose cross-reference table is wrong, and a reader that repairs one in silence is a
     /// reader nobody can ask what it repaired. Reported by [`Document::misfiled_objects`].
     misfiled: RwLock<BTreeSet<u32>>,
+    /// Objects an object stream names and this reader would not read from a prefix of it.
+    ///
+    /// §7.5.7 states each compressed object's extent, so an object the decoded prefix does not
+    /// wholly carry is one whose bytes are partly missing — and a truncated token still parses,
+    /// which is the whole reason this is a refusal rather than a best effort. Recorded rather
+    /// than merely refused for the reason [`Self::misfiled_objects`] gives: a reader that drops
+    /// part of a file in silence is one nobody can ask what it dropped. ADR 0366.
+    lost_to_damage: RwLock<LostToDamage>,
     /// §7.4's filter chain already run, under [`DECODED_BUDGET`]. See [`DecodedStreams`].
     decoded: RwLock<DecodedStreams>,
     /// ISO 32000-2 §7.6's security handler, absent when the trailer has no `/Encrypt`.
@@ -144,6 +152,45 @@ fn read<T>(lock: &RwLock<T>) -> RwLockReadGuard<'_, T> {
 /// Writes one of [`Document`]'s caches, past a lock another thread poisoned. See [`read`].
 fn write<T>(lock: &RwLock<T>) -> RwLockWriteGuard<'_, T> {
     lock.write().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// What object streams this document could only partly decode did not yield, as it accumulates.
+#[derive(Default)]
+struct LostToDamage {
+    /// Numbers the header named and whose object the prefix does not wholly carry.
+    objects: BTreeSet<u32>,
+    /// Objects Table 16's `/N` counts whose header pair the prefix never reached.
+    unnamed: usize,
+    /// The object streams this happened in.
+    streams: BTreeSet<u32>,
+}
+
+/// What [`Document::objects_lost_to_damage`] answers: the objects §7.5.7 storage did not give up.
+///
+/// Three numbers rather than one because they are three different statements about a file: which
+/// objects were named and not read, how many were not even named, and which streams they were in.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ObjectsLost {
+    /// The object numbers an object stream's header named and whose bytes it does not carry.
+    pub objects: Vec<u32>,
+    /// How many further objects `/N` counts whose header pair the decoded prefix never reached.
+    pub unnamed: usize,
+    /// The object streams those losses happened in.
+    pub streams: Vec<u32>,
+}
+
+impl ObjectsLost {
+    /// Whether anything was lost at all.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.objects.is_empty() && self.unnamed == 0
+    }
+
+    /// How many objects are missing in total, named and unnamed.
+    #[must_use]
+    pub fn count(&self) -> usize {
+        self.objects.len().saturating_add(self.unnamed)
+    }
 }
 
 /// What [`Document::get_key_of`] found in the object cache before it let the lock go.
@@ -262,6 +309,7 @@ impl Document {
             loading: RwLock::new(HashMap::new()),
             headers: RwLock::new(None),
             misfiled: RwLock::new(BTreeSet::new()),
+            lost_to_damage: RwLock::new(LostToDamage::default()),
             decoded: RwLock::new(DecodedStreams::with_budget(DECODED_BUDGET)),
             encryption: None,
             encrypt_object: None,
@@ -356,6 +404,36 @@ impl Document {
     #[must_use]
     pub fn misfiled_objects(&self) -> Vec<u32> {
         read(&self.misfiled).iter().copied().collect()
+    }
+
+    /// What an object stream this reader could only partly decode did not yield.
+    ///
+    /// Empty for a well-formed document, and for a damaged one it grows as objects are loaded —
+    /// nothing is expanded until something asks for it, so ask after the pages that matter have
+    /// been read. [`ObjectsLost::objects`] are numbers the stream's header named and whose bytes
+    /// the prefix does not wholly carry; [`ObjectsLost::unnamed`] are the ones Table 16's `/N`
+    /// counts and whose header pair the prefix did not reach, so not even their numbers survive.
+    ///
+    /// It is a statement about the *file* rather than about any page, which is why it is here
+    /// beside [`Self::was_recovered`] and not in a page's report: §7.5.7 puts objects in a
+    /// stream, and the objects a page then fails to find are wherever the file put them.
+    #[must_use]
+    pub fn objects_lost_to_damage(&self) -> ObjectsLost {
+        let held = read(&self.lost_to_damage);
+        ObjectsLost {
+            objects: held.objects.iter().copied().collect(),
+            unnamed: held.unnamed,
+            streams: held.streams.iter().copied().collect(),
+        }
+    }
+
+    /// How many cross-reference entries this file's streams state and do not carry, §7.5.8.
+    ///
+    /// [`crate::XrefTable::entries_lost`] for this document's table, and zero for all but a
+    /// damaged or inconsistent one.
+    #[must_use]
+    pub fn cross_reference_entries_lost(&self) -> u64 {
+        self.xref.entries_lost()
     }
 
     /// Returns the document catalogue.
@@ -599,7 +677,66 @@ impl Document {
     fn parse_at(&self, offset: usize) -> Option<(ObjectId, Object)> {
         let mut parser = Parser::at(&self.bytes, offset, self.limits);
         let (found, object) = parser.parse_indirect_object().ok()?;
+        let object = self.with_stated_length(parser.stream_data_at(), object);
         Some((found, self.decrypt_object(found, object)))
+    }
+
+    /// Applies a `/Length` the parser could not follow, §7.3.8.2.
+    ///
+    /// > Every stream dictionary shall have a Length entry that indicates how many bytes of the
+    /// > PDF file are used for the stream's data.
+    ///
+    /// Table 5 makes that entry "(Required; shall be an indirect reference)" for a stream whose
+    /// length a producer does not know until it has written the data, and a **parser** cannot
+    /// follow a reference: resolving one needs the document, and the document is built out of
+    /// parsed objects. So [`Parser::parse_stream_data`] falls back to searching for `endstream`
+    /// and trimming one end-of-line — the delimiter's, per §7.3.8.1's "there should be an
+    /// end-of-line marker" — and where the producer wrote none, the byte it trims is the
+    /// **data's**. That is a stream one byte short of what the file says it is, and for a
+    /// `FlateDecode` stream the byte it loses is usually the last of RFC 1951's final block, so
+    /// the stream reads as damaged while being whole. Two of the 65 944 crawled documents are
+    /// exactly that, and finding them is what ADR 0366's object-stream rule did first.
+    ///
+    /// This is where the file's own statement is applied, one layer up, under the same guard the
+    /// parser puts on a direct length: the stated end is taken only where `endstream` is actually
+    /// there, so a *wrong* `/Length` still loses to the search. §7.3.8.2's "[a]ll of these
+    /// constraints shall be consistent" is what makes that check the right arbiter either way.
+    fn with_stated_length(&self, data_at: Option<usize>, object: Object) -> Object {
+        let Object::Stream(stream) = &object else {
+            return object;
+        };
+        // Only an indirect one: a direct `/Length` is the parser's own business and it has
+        // already decided, with more context than this has.
+        if !matches!(stream.dict.get("Length"), Some(Object::Reference(_))) {
+            return object;
+        }
+        let Some(start) = data_at else {
+            return object;
+        };
+        let Some(stated) = self
+            .get_key(&stream.dict, "Length")
+            .as_integer()
+            .and_then(|value| usize::try_from(value).ok())
+        else {
+            return object;
+        };
+        if stated == stream.data.len() || stated > self.limits.max_stream_len {
+            return object;
+        }
+        let Some(end) = start.checked_add(stated) else {
+            return object;
+        };
+        if end > self.bytes.len() || !crate::parser::endstream_follows(&self.bytes, end) {
+            return object;
+        }
+        let Some(data) = self.bytes.get(start..end) else {
+            return object;
+        };
+        Object::Stream(Arc::new(Stream {
+            dict: stream.dict.clone(),
+            data: Arc::from(data),
+            decryption_failed: stream.decryption_failed,
+        }))
     }
 
     /// Applies §7.6.2 to one freshly parsed indirect object.
@@ -820,7 +957,8 @@ impl Document {
 
         let (_, object) = self.parse_at(offset)?;
         let stream = object.as_stream()?;
-        let data = self.decoded_stream_data(stream)?;
+        let decoded = self.decoded_stream_data_reported(stream).ok()?;
+        let data = decoded.data;
 
         let count = self.get_key(&stream.dict, "N").as_integer().unwrap_or(0);
         let first = self
@@ -843,16 +981,56 @@ impl Document {
             }
         }
 
+        // §7.5.7 states where each compressed object ends as well as where it begins — "[t]he
+        // byte offsets shall be in increasing order", and NOTE 7 (2020): "processing of each
+        // object in an object stream starts at the specified byte offset in the decompressed
+        // stream and ends prior to the byte offset of the next object or when the end of stream
+        // is encountered". So the *last* object's extent is stated by the end of the stream,
+        // which a damaged decode has not reached, and every other object's by the next offset.
+        let mut ends: Vec<usize> = pairs.iter().map(|&(_, relative)| relative).collect();
+        ends.sort_unstable();
+
+        let pair_count = pairs.len();
         let mut objects = BTreeMap::new();
+        let mut lost = BTreeSet::new();
         for (object_number, relative) in pairs {
             let start = first.saturating_add(relative);
-            if start >= data.len() {
+            // The end this file states for this object: the next offset in increasing order, or
+            // — for the last one — the end of the stream, which is only known where the decode
+            // reached it. ADR 0366.
+            let stated_end = ends
+                .iter()
+                .find(|&&other| other > relative)
+                .map(|&next| first.saturating_add(next))
+                .or(if decoded.damage.is_some() {
+                    None
+                } else {
+                    Some(data.len())
+                });
+            // A prefix of an object stream is a smaller *collection* of whole objects, and an
+            // object the prefix does not wholly carry is not one of them: a truncated token
+            // parses — `/Length 12345` cut short is `/Length 123` — so reading it would put a
+            // value the producer never wrote under a number the producer did. ADR 0366.
+            if stated_end.is_none_or(|end| end > data.len()) || start >= data.len() {
+                lost.insert(object_number);
                 continue;
             }
             let mut parser = Parser::at(&data, start, self.limits);
             if let Ok(parsed) = parser.parse_object() {
                 objects.insert(object_number, parsed);
             }
+        }
+        // The pairs a truncated header never carried are lost too, and `/N` is what says how
+        // many there should have been (Table 16, "the number of indirect objects stored in the
+        // stream"). Their object numbers are unknowable, so only the count is.
+        let short_by = usize::try_from(count.max(0))
+            .unwrap_or(0)
+            .saturating_sub(pair_count);
+        if !lost.is_empty() || short_by > 0 {
+            let mut record = write(&self.lost_to_damage);
+            record.objects.extend(lost);
+            record.unnamed = record.unnamed.saturating_add(short_by);
+            record.streams.insert(number);
         }
 
         let expanded = Arc::new(objects);

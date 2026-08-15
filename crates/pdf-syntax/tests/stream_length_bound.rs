@@ -23,7 +23,9 @@
               here is a few hundred bytes"
 )]
 
-use pdf_syntax::{Damage, FilterRefusal, Limits, filter};
+use std::fmt::Write as _;
+
+use pdf_syntax::{Damage, Document, FilterRefusal, Limits, ObjectId, filter};
 
 /// The default bounds with one of them moved.
 fn bounded(max_stream_len: usize) -> Limits {
@@ -166,6 +168,76 @@ fn ascii85_and_run_length_name_the_same_bound() {
     let refusal = filter::decode_reported(b"RunLengthDecode", &data, None, bounded(8))
         .expect_err("thirty bytes past a bound of eight");
     assert_eq!(refusal, FilterRefusal::TooLarge { limit: 8 });
+}
+
+/// §7.3.8.2's `/Length` when it is an indirect reference, which a parser cannot follow.
+///
+/// > Every stream dictionary shall have a Length entry that indicates how many bytes of the PDF
+/// > file are used for the stream's data.
+///
+/// Table 5 makes it "(Required; shall be an indirect reference)" for a producer that does not
+/// know the length until the data is written, so this is a route the standard *requires* rather
+/// than an oddity — and `Parser` cannot take it, because resolving a reference needs the document
+/// that parsing builds. Its fallback is §7.3.8.1's delimiter: search for `endstream` and drop one
+/// preceding end-of-line, which "there **should** be". Where a producer wrote none, the byte
+/// dropped is the data's own.
+///
+/// **The pair differs only in whether `/Length` is written directly**, and both files' data is
+/// the same six bytes ending in a newline with `endstream` hard against them. Two of the 65 944
+/// crawled documents are this shape, and what made them findable is that the lost byte was the
+/// last of a `FlateDecode` stream's final block: the stream then reads as *damaged* while being
+/// whole, which ADR 0366's object-stream rule turned into a refusal before this was found.
+#[test]
+fn an_indirect_length_is_the_files_own_statement_of_where_a_stream_ends() {
+    let build = |indirect: bool| {
+        let length = if indirect { "5 0 R" } else { "6" };
+        let mut out = String::from("%PDF-1.7\n");
+        let mut offsets = Vec::new();
+        for body in [
+            "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>".to_owned(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>".to_owned(),
+            // No end-of-line between the data and `endstream`: §7.3.8.1 asks for one with a
+            // *should*, and a file that omits it is the case under test.
+            format!("<< /Length {length} >>\nstream\nhello\nendstream"),
+            "6".to_owned(),
+        ] {
+            offsets.push(out.len());
+            let number = offsets.len();
+            let _ = write!(out, "{number} 0 obj\n{body}\nendobj\n");
+        }
+        let table_at = out.len();
+        out.push_str("xref\n0 6\n0000000000 65535 f \n");
+        for offset in &offsets {
+            let _ = writeln!(out, "{offset:010} 00000 n ");
+        }
+        let _ = write!(
+            out,
+            "trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n{table_at}\n%%EOF\n"
+        );
+        let document = Document::open(out.into_bytes()).expect("the fixture's objects are intact");
+        let object = document.get(ObjectId {
+            number: 4,
+            generation: 0,
+        });
+        object
+            .as_stream()
+            .expect("object 4 is the stream")
+            .data
+            .to_vec()
+    };
+
+    assert_eq!(
+        build(false),
+        b"hello\n".to_vec(),
+        "a direct length is the parser's own answer and states six bytes"
+    );
+    assert_eq!(
+        build(true),
+        b"hello\n".to_vec(),
+        "and an indirect one states the same six: the reference is resolved rather than \
+         guessed at, so the data's own last byte is not read as the delimiter's"
+    );
 }
 
 /// An unsupported filter and a bound are different answers, and a caller can tell.

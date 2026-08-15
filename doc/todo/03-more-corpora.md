@@ -479,6 +479,11 @@ The defect is ADR 0340's and the reading is §7.4.8's. Two things it leaves for 
 
 ### 9. The chunk the five-hundred-and-eighth took: damaged streams, over every corpus on this disk
 
+**Every figure in this section and the next was measured before ADR 0366**, which found that
+§7.3.8.2's indirect `/Length` was costing every affected stream its last byte and making it read as
+damaged. The arguments below stand; their denominators are roughly a third smaller now, and the
+census is what prints today's. §11 has the correction.
+
 **The population §8 named, measured whole.** `cargo run --release -p pdf-model --example
 damaged_stream_census -- <dir>` asks two questions of every document — what page one's
 `/Contents` kept and whether the prefix draws anything, and how many stream objects *anywhere*
@@ -584,24 +589,41 @@ costs no mark and is correctly silent — its missing codes are already counted 
 `codes_without_a_character`. And the count of kinds is **five**, not four, because §11.6.5.1's `/G`
 is a form too and is the one of them whose answer had to be derived rather than carried over.
 
-### 11. What the same census still leaves, one round later
+### 11. ~~What the same census still leaves, one round later~~ — **taken in the five-hundred-and-thirty-first** (ADR 0366)
 
-The role table's remaining silences are no longer content streams. Each wants ADR 0356's two
-questions — is a prefix of this a smaller one of the same kind, and are its marks places or values?
-— and no round has asked them:
+All three roles are answered, and the round that answered them found that most of the *population*
+sections 9 and 10 measured was this reader's own defect. What is left standing here is the method
+and the correction; the numbers are `examples/damaged_stream_census`'s to print.
 
-- **unclassified, 296 of the crawl's 2260**, which is now the largest role with anything owed and
-  is not one thing: an `Indexed` palette, a `/JS`, a `/ToUnicode`, a Type 3 glyph description, an
-  appearance. **Much of it is no longer silent** — ADR 0359's 295 reports over the crawl far
-  outnumber the 46 damaged form `XObject`s, and the excess is glyph descriptions, patterns and
-  appearances landing in this bucket — so what it wants is *splitting* rather than a reading, and
-  the split is a dictionary question the way `Role::of`'s other arms are.
-- **an object stream, 144**, §7.5.7. The objects that parse are read, which is a prefix rule
-  already taken without anyone writing down why it is the right one — a `/First` and an offset
-  table point forward, which is the *font program's* shape rather than the content stream's, and
-  that deserves a reading.
-- **a cross-reference stream, 10**, §7.5.8, which reaches the recovery scan. Probably the same
-  answer as the object stream and for the same reason.
+- **unclassified was not a role and is now split.** `who_names_what` classifies a stream by the
+  entry that names it, because the standard makes that entry the statement of the role — which is
+  what a page's `/Contents` had always been doing and nothing else was. The answer is that the
+  bucket was mostly already decided: its majority is `/ToUnicode` CMaps, whose silence session 524
+  argued for on §9.10.3, and Type 3 glyph descriptions, which ADR 0359 made loud. The `form
+  XObject` row split the same way, into forms and annotation appearances.
+- **an object stream, §7.5.7, is a prefix rule the clause states outright** — NOTE 7's "ends prior
+  to the byte offset of the next object or when the end of stream is encountered" — so every object
+  but the last has a stated end and the last one has none under damage. That one is now refused
+  rather than parsed from bytes that stop early, and `Document::objects_lost_to_damage` says what
+  went.
+- **a cross-reference stream, §7.5.8, is short when its own `/Index` and `/W` say so**, which is
+  the arithmetic rather than the damage flag, and the entries it loses are *unknown* rather than
+  deleted — the one place in this reader where those two differ. **The condition has no members on
+  this disk**, so it is pinned by a hand-built pair, as the object-stream rule is.
+
+**The correction, and it is the thing to carry forward.** Reading the first of those roles produced
+a corpus witness that disproved the reader instead: §7.3.8.2's `/Length` may be an indirect
+reference, a parser cannot follow one, and the scan it falls back to was taking a byte off every
+stream whose producer wrote no end-of-line before `endstream`. For a `FlateDecode` stream that byte
+is RFC 1951's final block, so the stream read as *truncated* while being whole. **Sections 9 and 10
+above quote populations measured with that defect in place** — they are this reader's damage flag
+rather than the files' damage, and the census after ADR 0366 prints numbers roughly a third of them,
+with the *corrupt* counts unchanged. The arguments in those sections are untouched; only their
+denominators moved.
+
+**What a round taking this population next should know**: the damaged-stream census is a
+measurement of this reader as much as of the files (trap 8's fourth shape), and the way that was
+found was reading a single witness by hand rather than trusting a count.
 
 ## What not to do
 

@@ -624,3 +624,210 @@ fn skeleton_with_xref_stream(widths: [usize; 3], stated: bool) -> Vec<u8> {
 fn offset_of(offset: usize) -> u64 {
     u64::try_from(offset).expect("every fixture here is a few hundred bytes")
 }
+
+/// §7.5.7's compressed objects, when the stream carrying them decodes only in part.
+///
+/// The clause states where each object *ends* as well as where it begins — "[t]he byte offsets
+/// shall be in increasing order", and NOTE 7 (2020):
+///
+/// > processing of each object in an object stream starts at the specified byte offset in the
+/// > decompressed stream and ends prior to the byte offset of the next object or when the end of
+/// > stream is encountered.
+///
+/// So an object whose stated end the decoded prefix carries is whole and is the producer's own,
+/// and the *last* object's end is the end of the stream — which a damaged decode has not reached.
+/// Reading it anyway is what ADR 0366 refuses: a truncated token still parses, so the number
+/// would name a value the producer never wrote.
+///
+/// **The pair differs in one bit**, RFC 1951's BFINAL on the single stored block, so the two
+/// files carry the same bytes and only one of them says it is finished. No document on this disk
+/// makes the comparison — the crawl's damaged object streams lose their *header* rather than
+/// their last object — which is trap 8's own case for building it.
+#[test]
+fn an_object_a_damaged_object_stream_does_not_wholly_carry_is_not_read() {
+    let build = |complete: bool| {
+        let bodies = ["<< /A 5 >>\n", "(six)\n"];
+        let mut header = String::new();
+        let mut at = 0usize;
+        for (number, part) in [(5u32, bodies[0]), (6, bodies[1])] {
+            let _ = write!(header, "{number} {at} ");
+            at += part.len();
+        }
+        let first = header.len();
+        let payload = format!("{header}{}{}", bodies[0], bodies[1]).into_bytes();
+        let data = zlib_stored(&payload, complete);
+
+        let (out, offsets) = body(&SKELETON);
+        let mut bytes = out.into_bytes();
+        let object_stream_at = bytes.len();
+        bytes.extend_from_slice(
+            format!(
+                "4 0 obj\n<< /Type /ObjStm /N 2 /First {first} /Filter /FlateDecode \
+                 /Length {} >>\nstream\n",
+                data.len()
+            )
+            .as_bytes(),
+        );
+        bytes.extend_from_slice(&data);
+        bytes.extend_from_slice(b"\nendstream\nendobj\n");
+
+        let stream_at = bytes.len();
+        let entries: [[u64; 3]; 7] = [
+            [0, 0, 65535],
+            [1, offset_of(offsets[0]), 0],
+            [1, offset_of(offsets[1]), 0],
+            [1, offset_of(offsets[2]), 0],
+            [1, offset_of(object_stream_at), 0],
+            [2, 4, 0],
+            [2, 4, 1],
+        ];
+        bytes.extend_from_slice(&xref_stream_object(
+            7,
+            Some(0),
+            &entries,
+            "/Root 1 0 R ",
+            [1, 4, 2],
+        ));
+        bytes.extend_from_slice(format!("startxref\n{stream_at}\n%%EOF\n").as_bytes());
+        bytes
+    };
+
+    let whole = open(build(true));
+    assert!(
+        object(&whole, 5).as_dict().is_some(),
+        "the first compressed object is a dictionary"
+    );
+    assert_eq!(
+        object(&whole, 6).as_string().map(<[u8]>::to_vec),
+        Some(b"six".to_vec()),
+        "and the second is the string the stream carries"
+    );
+    assert!(
+        whole.objects_lost_to_damage().is_empty(),
+        "a complete stream loses nothing"
+    );
+
+    let damaged = open(build(false));
+    // Asked for before the record is read, because nothing expands an object stream until an
+    // object inside it is wanted — which is `CLAUDE.md`'s startup rule and the reason the
+    // sentence a host says about this cannot be said when the file opens.
+    assert!(
+        object(&damaged, 6).is_null(),
+        "the last object's end is the end of the stream, which this decode never reached, so it \
+         is not read: a value taken from bytes that stop early is not the producer's"
+    );
+    assert!(
+        object(&damaged, 5).as_dict().is_some(),
+        "and the object the prefix wholly carries is still read — the same bytes in the same \
+         place, with the next offset as their end"
+    );
+    assert!(
+        damaged.objects_lost_to_damage().objects.contains(&6),
+        "and the reader can say what it did not read"
+    );
+}
+
+/// §7.5.8's own arithmetic for how long a cross-reference stream is, and what a short one loses.
+///
+/// Table 17 states it of `/W`: "[t]he sum of the items shall be the total length of each entry;
+/// it can be used with the Index array to determine the starting position of each subsection."
+/// With `/Index`'s counts that gives the stream's whole extent, which §7.3.8.2 then requires the
+/// data to agree with — "[a]ll of these constraints shall be consistent". A stream carrying
+/// fewer records than that is short whether a filter failed or a producer miscounted, and the
+/// records it does carry are whole: each field's width comes from `/W` and each row's object
+/// number from `/Index` and its position, so nothing in a row depends on a row after it.
+///
+/// What the pair pins is the *statement* that comes with the shortfall. Everywhere else in this
+/// reader an object number with no entry has been deleted — §7.5.6's most recent copy, ADR 0100 —
+/// and here it has not: the file meant to say something about it and the bytes are gone. Nothing
+/// on this disk exercises it: the crawl's damaged cross-reference streams lose no *stated* row,
+/// because a truncated `FlateDecode` usually loses only RFC 1951's final block.
+#[test]
+fn a_cross_reference_stream_shorter_than_its_own_index_says_what_it_lost() {
+    let build = |carried: usize| {
+        let (out, offsets) = body(&[SKELETON[0], SKELETON[1], SKELETON[2], SPARE]);
+        let mut bytes = out.into_bytes();
+        let stream_at = bytes.len();
+        let entries: [[u64; 3]; 6] = [
+            [0, 0, 65535],
+            [1, offset_of(offsets[0]), 0],
+            [1, offset_of(offsets[1]), 0],
+            [1, offset_of(offsets[2]), 0],
+            [1, offset_of(offsets[3]), 0],
+            [1, offset_of(stream_at), 0],
+        ];
+        // `/Index [0 6]` is written whatever `carried` is: the dictionary's claim is the
+        // constant, and the data under it is what moves.
+        let widths = [1usize, 4, 2];
+        let mut data = Vec::new();
+        for row in entries.iter().take(carried) {
+            for (width, value) in widths.iter().zip(row) {
+                let field = value.to_be_bytes();
+                data.extend_from_slice(field.get(8 - width..).unwrap_or_default());
+            }
+        }
+        bytes.extend_from_slice(
+            format!(
+                "5 0 obj\n<< /Type /XRef /Size 6 /Index [0 6] /W [1 4 2] /Root 1 0 R \
+                 /Length {} >>\nstream\n",
+                data.len()
+            )
+            .as_bytes(),
+        );
+        bytes.extend_from_slice(&data);
+        bytes.extend_from_slice(b"\nendstream\nendobj\n");
+        bytes.extend_from_slice(format!("startxref\n{stream_at}\n%%EOF\n").as_bytes());
+        bytes
+    };
+
+    let whole = open(build(6));
+    assert_eq!(
+        whole.cross_reference_entries_lost(),
+        0,
+        "a stream as long as its own arithmetic loses nothing"
+    );
+    assert!(
+        object(&whole, 4).as_string().is_some(),
+        "and every object it names is reachable"
+    );
+
+    let short = open(build(4));
+    assert_eq!(
+        short.cross_reference_entries_lost(),
+        2,
+        "two of the six records /Index states are not in the data"
+    );
+    assert!(
+        object(&short, 3).as_dict().is_some(),
+        "the records the data carries are whole and are read"
+    );
+    assert!(
+        object(&short, 4).is_null(),
+        "and the object whose record went missing is unreachable — the same answer a deletion \
+         gives, which is why the count above is what tells them apart"
+    );
+}
+
+/// One zlib stream holding `payload` in a single stored block, finished or not.
+///
+/// RFC 1951 section 3.2.3's BFINAL is the only difference between the two, which is what makes the pair
+/// above a comparison rather than two files: the decoder receives every byte either way and only
+/// one of them says the stream is over. §7.4.4.1 makes the format normative for `FlateDecode`,
+/// and RFC 1950's Adler-32 is written only where the stream claims to be complete.
+fn zlib_stored(payload: &[u8], complete: bool) -> Vec<u8> {
+    let mut out = vec![0x78, 0x01];
+    out.push(u8::from(complete));
+    let length = u16::try_from(payload.len()).expect("every fixture here is a few hundred bytes");
+    out.extend_from_slice(&length.to_le_bytes());
+    out.extend_from_slice(&(!length).to_le_bytes());
+    out.extend_from_slice(payload);
+    if complete {
+        let (mut low, mut high) = (1u32, 0u32);
+        for byte in payload {
+            low = (low + u32::from(*byte)) % 65521;
+            high = (high + low) % 65521;
+        }
+        out.extend_from_slice(&((high << 16) | low).to_be_bytes());
+    }
+    out
+}

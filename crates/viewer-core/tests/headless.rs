@@ -16,6 +16,7 @@
               pass by doing nothing"
 )]
 
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use pdf_model::form::Control;
@@ -406,6 +407,130 @@ fn the_page_geometry_maps_the_page_onto_the_screen() {
         matches!(viewer.query(Query::PageGeometry(1)), Answer::None),
         "a page that is not on the screen has no place on it"
     );
+}
+
+/// ISO 32000-2 §7.5.7's objects, when the stream storing them decodes only in part.
+///
+/// The other half of ADR 0366: `pdf_syntax` refuses an object whose bytes a damaged prefix does not
+/// wholly carry — a truncated token still parses, so reading one would put a value the producer
+/// never wrote under a number the producer did — and a person is owed the sentence saying so.
+///
+/// **The file is built rather than found**, which is trap 8's case and is measured rather than
+/// assumed: the two corpus documents whose object stream decodes only in part
+/// (`issue19484_1.pdf`, `issue19484_2.pdf`) lose the *header* of theirs, so no object number
+/// survives to be asked for and nothing on page one reaches into either. The one below puts the
+/// page dictionary itself inside the stream, ahead of the object the damage takes.
+///
+/// **What it pins as much as the sentence is *when* it is said.** Nothing expands an object stream
+/// until an object inside it is wanted, which is `CLAUDE.md`'s startup rule, so this cannot be part
+/// of what a document says at open and be true in general — it is said when the loss becomes known.
+/// `Query::Reports` is where a host that cleared its status bar finds it again.
+#[test]
+fn objects_lost_inside_a_damaged_object_stream_are_said_out_loud() {
+    let bytes = a_page_stored_beside_an_object_the_damage_takes();
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    let mut said: Vec<String> = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password: None,
+            fragment: None,
+        })
+        .filter_map(|event| match event {
+            Event::Reported { notes, .. } => Some(notes),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    if let Answer::Reports(all) = viewer.query(Query::Reports) {
+        said = all.to_vec();
+    }
+    assert!(
+        said.iter()
+            .any(|note| note.contains("object stream (§7.5.7) could not be read")),
+        "the objects the prefix does not carry are named rather than silently missing: {said:?}"
+    );
+}
+
+/// One document whose page dictionary is compressed beside an object its stream stops short of.
+///
+/// The stream is a single RFC 1951 stored block with BFINAL clear and no Adler-32, so every byte
+/// arrives and nothing says the stream is over — which is what leaves the *last* object's end
+/// unstated under §7.5.7's NOTE 7, while the page dictionary ahead of it ends where the next offset
+/// says and is read as usual.
+fn a_page_stored_beside_an_object_the_damage_takes() -> Vec<u8> {
+    let compressed = [
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>\n",
+        "(the object the damage takes)\n",
+    ];
+    let mut header = String::new();
+    let mut at = 0usize;
+    for (number, part) in [(5u32, compressed[0]), (6, compressed[1])] {
+        let _ = write!(header, "{number} {at} ");
+        at = at.saturating_add(part.len());
+    }
+    let first = header.len();
+    let payload = format!("{header}{}{}", compressed[0], compressed[1]).into_bytes();
+
+    // The zlib stream: a header, one stored block that does not claim to be the last, and no
+    // checksum — every byte of the payload, with nothing saying the stream finished.
+    let mut data = vec![0x78, 0x01, 0x00];
+    let length = u16::try_from(payload.len()).expect("a few hundred bytes");
+    data.extend_from_slice(&length.to_le_bytes());
+    data.extend_from_slice(&(!length).to_le_bytes());
+    data.extend_from_slice(&payload);
+
+    let mut out = Vec::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for body in [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+        "<< /Type /Pages /Count 1 /Kids [5 0 R] >>".to_owned(),
+    ] {
+        offsets.push(out.len());
+        let number = offsets.len();
+        out.extend_from_slice(format!("{number} 0 obj\n{body}\nendobj\n").as_bytes());
+    }
+    offsets.push(out.len());
+    out.extend_from_slice(
+        format!(
+            "3 0 obj\n<< /Type /ObjStm /N 2 /First {first} /Filter /FlateDecode /Length {} >>\n\
+             stream\n",
+            data.len()
+        )
+        .as_bytes(),
+    );
+    out.extend_from_slice(&data);
+    out.extend_from_slice(b"\nendstream\nendobj\n");
+
+    // The cross-reference stream: three objects at their offsets, then the two compressed ones.
+    let stream_at = out.len();
+    let rows: [[u64; 3]; 7] = [
+        [0, 0, 65535],
+        [1, offsets[0] as u64, 0],
+        [1, offsets[1] as u64, 0],
+        [1, offsets[2] as u64, 0],
+        [1, stream_at as u64, 0],
+        [2, 3, 0],
+        [2, 3, 1],
+    ];
+    let mut table = Vec::new();
+    for row in rows {
+        table.push(u8::try_from(row[0]).expect("a Table 18 type"));
+        table.extend_from_slice(&u32::try_from(row[1]).expect("a small offset").to_be_bytes());
+        table.extend_from_slice(&u16::try_from(row[2]).expect("a small field").to_be_bytes());
+    }
+    out.extend_from_slice(
+        format!(
+            "4 0 obj\n<< /Type /XRef /Size 7 /Index [0 7] /W [1 4 2] /Root 1 0 R /Length {} >>\n\
+             stream\n",
+            table.len()
+        )
+        .as_bytes(),
+    );
+    out.extend_from_slice(&table);
+    out.extend_from_slice(b"\nendstream\nendobj\n");
+    out.extend_from_slice(format!("startxref\n{stream_at}\n%%EOF\n").as_bytes());
+    out
 }
 
 #[test]

@@ -92,6 +92,13 @@ pub struct Parser<'a> {
     lexer: Lexer<'a>,
     limits: Limits,
     depth: usize,
+    /// Where the data of the last stream this parser read begins.
+    ///
+    /// Kept because §7.3.8.2 lets `/Length` be an indirect reference and a parser has no
+    /// document to resolve one with, so the *file's* statement of a stream's extent can only be
+    /// applied one layer up — and applying it needs the offset the guess was made at. See
+    /// [`crate::Document`]'s `with_stated_length`. ADR 0366.
+    stream_data_at: Option<usize>,
 }
 
 impl<'a> Parser<'a> {
@@ -108,6 +115,7 @@ impl<'a> Parser<'a> {
             lexer: Lexer::new(input),
             limits,
             depth: 0,
+            stream_data_at: None,
         }
     }
 
@@ -118,6 +126,7 @@ impl<'a> Parser<'a> {
             lexer: Lexer::at(input, offset),
             limits,
             depth: 0,
+            stream_data_at: None,
         }
     }
 
@@ -142,6 +151,16 @@ impl<'a> Parser<'a> {
     #[must_use]
     pub fn limits(&self) -> Limits {
         self.limits
+    }
+
+    /// Where the data of the last stream this parser read begins, if it read one.
+    ///
+    /// `None` until a stream is parsed. What it is for is in [`Self::stream_data_at`]'s field
+    /// documentation: an indirect `/Length` is a statement only a document can read, and
+    /// honouring it needs the offset this parser measured its own guess from.
+    #[must_use]
+    pub(crate) fn stream_data_at(&self) -> Option<usize> {
+        self.stream_data_at
     }
 
     /// Parses the next object.
@@ -388,6 +407,7 @@ impl<'a> Parser<'a> {
         }
 
         let data = input.get(start..end).unwrap_or_default();
+        self.stream_data_at = Some(start);
         self.lexer.seek(end);
 
         // Consume `endstream` if present. Its absence is not fatal: the data has already
@@ -472,7 +492,7 @@ impl<'a> Parser<'a> {
 }
 
 /// Returns `true` if `endstream` appears at `offset`, allowing leading whitespace.
-fn endstream_follows(input: &[u8], offset: usize) -> bool {
+pub(crate) fn endstream_follows(input: &[u8], offset: usize) -> bool {
     let rest = input.get(offset..).unwrap_or_default();
     let trimmed = rest
         .iter()

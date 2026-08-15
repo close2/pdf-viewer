@@ -421,6 +421,10 @@ impl Viewer {
                 }
                 let pages = open.page_count;
                 let mut notes = crate::notes::about(&open.document);
+                // What opening the document has already discovered about §7.5.7's storage —
+                // the catalogue and the page tree are read by now, and either may live in an
+                // object stream. The rest arrives per page, below.
+                notes.extend(crate::notes::losses(&mut open));
                 // Annex O's open parameters, and this is where the annex puts them: §O.2.2 says
                 // they "should be processed immediately after any other document-specified open
                 // parameters have been processed", and `Open::around` has just processed Table
@@ -1859,9 +1863,14 @@ impl Viewer {
                 .current
                 .as_ref()
                 .is_none_or(|(interpreted, _)| *interpreted != page);
-            let Some((interpretation, reports, object)) = crate::open::interpret(open, page) else {
+            let Some((interpretation, mut reports, object)) = crate::open::interpret(open, page)
+            else {
                 return;
             };
+            // §7.5.7's losses become known when a page reaches into an object stream, which is
+            // here and never at open. The sentence is the document's rather than the page's and
+            // is said once — `crate::notes::losses` — so a page carries it only the first time.
+            reports.extend(crate::notes::losses(open));
             if !reports.is_empty() {
                 events.push(Event::Reported {
                     document: id,

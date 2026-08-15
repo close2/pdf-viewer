@@ -47,6 +47,8 @@ pub struct XrefTable {
     trailer: Dictionary,
     /// How the table was obtained, for diagnostics and for the comparison report.
     recovered_by_scan: bool,
+    /// Entries a cross-reference *stream* stated and did not carry. See [`Self::entries_lost`].
+    entries_lost: u64,
 }
 
 impl XrefTable {
@@ -60,6 +62,20 @@ impl XrefTable {
     #[must_use]
     pub fn trailer(&self) -> &Dictionary {
         &self.trailer
+    }
+
+    /// How many entries this file's cross-reference streams state and do not carry.
+    ///
+    /// Zero for every file whose streams are as long as their own `/Index` and `/W` say — which
+    /// is every well-formed one, because §7.3.8.2 requires the constraints to be consistent. A
+    /// non-zero count is the number of object numbers about which the file *intended* to say
+    /// something and this reader read nothing: the records present are whole and are the
+    /// producer's own, and the ones past the end of the data are absent rather than deleted.
+    /// **That distinction is the reason this is counted at all**: everywhere else in this reader
+    /// a number with no entry has been deleted (§7.5.6, ADR 0100), and here it has not.
+    #[must_use]
+    pub fn entries_lost(&self) -> u64 {
+        self.entries_lost
     }
 
     /// Returns the number of known objects.
@@ -285,6 +301,7 @@ fn read_from_startxref(input: &[u8], base: usize, limits: Limits) -> Option<Xref
             break;
         };
         entries.extend(section.entries);
+        table.entries_lost = table.entries_lost.saturating_add(section.lost);
         table.merge_trailer(&section.trailer);
 
         // A cross-reference stream may also carry `/XRefStm`, a hybrid-reference file's
@@ -298,6 +315,7 @@ fn read_from_startxref(input: &[u8], base: usize, limits: Limits) -> Option<Xref
             && let Some(extra) = read_section(input, hybrid.saturating_add(base), base, limits)
         {
             entries.extend(extra.entries);
+            table.entries_lost = table.entries_lost.saturating_add(extra.lost);
         }
 
         match section
@@ -319,6 +337,11 @@ fn read_from_startxref(input: &[u8], base: usize, limits: Limits) -> Option<Xref
 struct Section {
     entries: Vec<(u32, Option<Location>)>,
     trailer: Dictionary,
+    /// Entries §7.5.8's own arithmetic states that the stream's data does not carry.
+    ///
+    /// Zero for a classic table, whose short subsection is a different shape and is handled
+    /// where it is read. See [`read_xref_stream`] for what states the number.
+    lost: u64,
 }
 
 /// Reads either a classic `xref` table or a cross-reference stream at `offset`.
@@ -410,7 +433,11 @@ fn read_classic_table(input: &[u8], offset: usize, base: usize, limits: Limits) 
                     .ok()
                     .and_then(|object| object.as_dict().cloned())
                     .unwrap_or_default();
-                return Some(Section { entries, trailer });
+                return Some(Section {
+                    entries,
+                    trailer,
+                    lost: 0,
+                });
             }
             _ => {
                 lexer.seek(rewind);
@@ -534,7 +561,11 @@ fn finish(
     limits: Limits,
 ) -> Section {
     let trailer = find_trailer_from(input, offset, limits).unwrap_or_default();
-    Section { entries, trailer }
+    Section {
+        entries,
+        trailer,
+        lost: 0,
+    }
 }
 
 /// Reads a cross-reference stream: PDF 1.5's replacement for the classic table.
@@ -601,6 +632,19 @@ fn read_xref_stream(
     // small, and kept because a length that is known is a length worth stating.
     let mut entries = Vec::with_capacity(data.len().checked_div(row).unwrap_or(0));
     let mut cursor = 0usize;
+    // §7.5.8's own arithmetic for how long this stream is, which Table 17 states of `/W`: "[t]he
+    // sum of the items shall be the total length of each entry; it can be used with the Index
+    // array to determine the starting position of each subsection." That plus §7.3.8.2's rule
+    // for every stream "from whose attributes a length can be inferred" — "[a]ll of these
+    // constraints shall be consistent" — makes a short cross-reference stream checkable without
+    // knowing whether a filter failed or a producer simply wrote too little.
+    let stated: u64 = index
+        .chunks(2)
+        .filter_map(|pair| pair.get(1).copied())
+        .map(|count| u64::try_from(count.max(0)).unwrap_or(0))
+        .sum();
+    let carried = u64::try_from(data.len().checked_div(row).unwrap_or(0)).unwrap_or(u64::MAX);
+    let lost = stated.saturating_sub(carried);
 
     for pair in index.chunks(2) {
         let (Some(&first), Some(&count)) = (pair.first(), pair.get(1)) else {
@@ -611,10 +655,15 @@ fn read_xref_stream(
         };
 
         for offset in 0..count.max(0) {
+            // A record the data does not wholly carry is not read: each field's width comes
+            // from `/W` and its object number from `/Index` and its position, so a *whole*
+            // record is the producer's own statement about one object, and a partial one is
+            // fields read from bytes that are not there.
             let Some(record) = data.get(cursor..cursor.saturating_add(row)) else {
                 return Some(Section {
                     entries,
                     trailer: stream.dict.clone(),
+                    lost,
                 });
             };
             cursor = cursor.saturating_add(row);
@@ -631,6 +680,7 @@ fn read_xref_stream(
     Some(Section {
         entries,
         trailer: stream.dict.clone(),
+        lost,
     })
 }
 
