@@ -808,6 +808,59 @@ fn a_cross_reference_stream_shorter_than_its_own_index_says_what_it_lost() {
     );
 }
 
+/// ISO 32000-2 §7.5.5: the trailer is read from the end of the file, and "the end" is not "the
+/// last two kilobytes".
+///
+/// > PDF processors should read a PDF file from its end.
+///
+/// The pair differs in one thing: whether a second, truncated copy of the whole document follows
+/// the first one's `%%EOF`. That copy carries objects and no cross-reference section of its own,
+/// so the file's last `startxref` is the *first* copy's and it is a correct one — the file is
+/// invalid under the sentence above, and its cross-reference information is neither damaged nor
+/// missing. §C.4 permits a rebuild "[w]hen a PDF processor reads a PDF file with a damaged or
+/// missing cross-reference table", which this is not, and a rebuild here answers with the
+/// appended copy because a scan takes the body's order (see the first test in this file).
+///
+/// `open` asserts that the table rather than a scan is what was read, which is what fails on a
+/// reader that gives up at the window. The corpus witness is
+/// `format-corpus/jhove-errors/PDF-HUL-138/6.2017-0960.pdf`, a 21-page paper this reader showed
+/// no page of at all; the copy below is padded past the window because that is the only thing
+/// about the witness that matters (ADR 0379).
+#[test]
+fn a_trailer_further_back_than_the_window_is_still_the_files_trailer() {
+    let build = |appended: bool| {
+        let (mut out, offsets) = body(&[SKELETON[0], SKELETON[1], SKELETON[2], SPARE]);
+        classic_section(&mut out, &offsets[..4], "");
+        if appended {
+            let (copy, _) = body(&[
+                SKELETON[0],
+                SKELETON[1],
+                SKELETON[2],
+                // Long enough that the first copy's `startxref` is outside the tail the reader
+                // looks at first, which is the witness's eight megabytes in miniature.
+                &format!("4 0 obj\n({})\nendobj\n", "the appended copy ".repeat(256)),
+            ]);
+            out.push_str(&copy);
+        }
+        out.into_bytes()
+    };
+
+    let plain = open(build(false));
+    assert_eq!(
+        object(&plain, 4).as_string().map(<[u8]>::to_vec),
+        Some(b"the original".to_vec()),
+        "with nothing appended the table is found at the end and read"
+    );
+
+    let with_a_copy = open(build(true));
+    assert_eq!(
+        object(&with_a_copy, 4).as_string().map(<[u8]>::to_vec),
+        Some(b"the original".to_vec()),
+        "the appended copy states no cross-reference section, so the file's own last one still \
+         decides what every object is"
+    );
+}
+
 /// One zlib stream holding `payload` in a single stored block, finished or not.
 ///
 /// RFC 1951 section 3.2.3's BFINAL is the only difference between the two, which is what makes the pair

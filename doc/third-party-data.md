@@ -194,8 +194,13 @@ because the owner's rule turns on *clearly forbids* and neither of these does:
   unreliable rather than absent here: a third party is in no position to dedicate somebody else's
   paper to the public domain. That is an *absent grant* rather than a prohibition, so under the
   owner's rule it could be pinned; it is left out because it would nearly quadruple what this
-  corpus costs a fresh clone and because surveying it produced two ordinary reports — one `/Font`
-  and one `/ExtGState` a page names and the file never defines.
+  corpus costs a fresh clone. **It used to be left on that *and* on value — "surveying it produced
+  two ordinary reports" — and the second half is disproved**: the five-hundred-and-forty-fourth
+  session ranked it against three references and one of its 99 files was a 21-page paper this tree
+  showed no page of, on a `startxref` eight megabytes from the end of the file (ADR 0379). So it is
+  left on size alone, the guard for that defect is a hand-built pair rather than the file, and a
+  round wanting the population fetches all five directories into `corpus-cache/` as session 467
+  did.
 - **`fully-featured-pdf`** (1 file, 23 MB) — no sidecar, and the file embeds third-party media (an
   MP3, a QuickTime movie, a U3D model) the README does not licence. Left on value first: one
   document, already complete, whose distinguishing half is Clause 13, which `CLAUDE.md` excludes.

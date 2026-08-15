@@ -151,10 +151,14 @@ impl XrefTable {
     }
 }
 
-/// How many bytes at the end of the file are searched for `startxref`.
+/// How many bytes at the end of the file are searched for `startxref` first.
 ///
-/// The specification does not bound the trailer's size, but a `startxref` further back
-/// than this is not a trailer, it is a coincidence.
+/// §7.5.5 puts it two lines from the end, so this window holds every conforming file's and
+/// costs one read of two kilobytes. It is a *first* look rather than a bound: where the end of
+/// the file does not carry the keyword, [`find_startxref`] reads further back, because the
+/// premise this comment used to state — that a `startxref` further back "is not a trailer, it
+/// is a coincidence" — is disproved by a file with a whole second copy of itself appended
+/// (ADR 0379).
 const STARTXREF_SEARCH_WINDOW: usize = 2048;
 
 /// The most cross-reference sections that will be followed through `/Prev`.
@@ -790,16 +794,46 @@ fn decode_direct(stream: &crate::object::Stream, limits: Limits) -> Option<std::
 }
 
 /// Finds the offset given by the last `startxref` in the file.
+///
+/// §7.5.5 states where it is and how a reader gets to it:
+///
+/// > PDF processors should read a PDF file from its end. The last line of the file shall
+/// > contain only the end-of-file marker, %%EOF. The two preceding lines shall contain, one per
+/// > line and in order, the keyword startxref and the byte offset in the decoded stream from the
+/// > beginning of the PDF file to the beginning of the xref keyword in the last cross-reference
+/// > section.
+///
+/// So the last two kilobytes are looked at first and answer for every file that obeys that
+/// sentence. **Where they do not, the rest of the file is searched backwards rather than the
+/// file's cross-reference information being abandoned**, and the order matters more than the
+/// window: the alternative is [`rebuild`], which disregards what the file says about where its
+/// objects are and scans for them instead. §C.4 licenses that only for the case this is not —
+/// "[w]hen a PDF processor reads a PDF file with a damaged or missing cross-reference table, it
+/// may attempt to rebuild the table by scanning all the objects in the file". A trailer eight
+/// megabytes from the end is neither damaged nor missing; it is merely not last.
+///
+/// The witness is `jhove-errors/PDF-HUL-138/6.2017-0960.pdf`, which is one complete document
+/// with a *truncated copy of itself* appended: reading from the end found nothing, the scan
+/// took the truncated copy's objects, and a document three other readers display came back with
+/// no first page at all (ADR 0379).
+///
+/// The cost is one backwards byte scan, paid only by a file that has already failed the window
+/// — and it is paid *instead of* a scan that reads every object header in the file, not on top
+/// of one, whenever it succeeds.
 fn find_startxref(input: &[u8]) -> Option<usize> {
-    let window = input.len().min(STARTXREF_SEARCH_WINDOW);
-    let tail_start = input.len().saturating_sub(window);
-    let tail = input.get(tail_start..)?;
+    let tail_start = input.len().saturating_sub(STARTXREF_SEARCH_WINDOW);
+    last_startxref_from(input, tail_start).or_else(|| last_startxref_from(input, 0))
+}
 
-    let found = tail
+/// The offset stated by the last `startxref` at or after `from`, if that keyword is there and
+/// an integer follows it.
+fn last_startxref_from(input: &[u8], from: usize) -> Option<usize> {
+    let region = input.get(from..)?;
+    let found = region
         .windows(b"startxref".len())
         .rposition(|candidate| candidate == b"startxref")?;
 
-    let after = tail_start
+    let after = from
         .saturating_add(found)
         .saturating_add(b"startxref".len());
     let mut lexer = crate::lexer::Lexer::at(input, after);

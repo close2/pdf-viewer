@@ -266,6 +266,16 @@ reports four unparsable CFF programs, a truncated `head` table and an undecodabl
 names and does not define and one `/ExtGState` likewise; `fully-featured-pdf` (1) is complete.
 **Nothing failed to open for a reason that is this tree's**, for the fourth population running.
 
+**"Ordinary" was a statement about those two reports and not about the population, and the
+five-hundred-and-forty-fourth session found the difference** by doing to `jhove-errors` what
+nobody had done to a directory outside the sparse checkout: ranking it against three references.
+It also held a **pageless** document — a 21-page paper whose correct `startxref` sits eight
+megabytes from the end of the file, behind a truncated copy of itself, which this tree drew no
+page of at all (ADR 0379). Its line reads *0 pageless* now. And two of its files are the only
+documents on this disk that render here and in **no** reference: `PDF-HUL-29`'s pair, where
+poppler, mupdf and ghostscript each refuse a `/Kids` entry that is not an indirect reference and
+this tree draws the page.
+
 ### 2c. The licence question `openpreserve/format-corpus` raised, read and answered
 
 **Read in the four-hundred-and-sixty-seventh session and answered by the project owner before the

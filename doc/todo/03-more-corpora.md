@@ -625,6 +625,52 @@ denominators moved.
 measurement of this reader as much as of the files (trap 8's fourth shape), and the way that was
 found was reading a single witness by hand rather than trusting a count.
 
+### 12. The chunk the five-hundred-and-forty-fourth took: the rest of `format-corpus`
+
+§11 named no successor, so §1's rule decided it: **the 126 documents of
+`openpreserve/format-corpus` that the submodule's sparse checkout leaves behind** —
+`jhove-errors` (99), `office-examples` (13), `ebooks` (8), `variations` (4),
+`fully-featured-pdf` (1), `desktop-publishing` (1), 261 MB, no network. Chosen over §1's other
+offer, SafeDocs' 31 GB issue-tracker corpus, on §1's own finding that a diagnostic corpus outranks
+a large one when a round wants a defect rather than a rate — and `jhove-errors` is one directory
+per JHOVE error code. **The last 26 of those documents had never been in any survey at all**: §2c's
+five-directory question was about the PDF-corpus directories, and `ebooks`, `office-examples`,
+`variations` and `desktop-publishing` are not among them.
+
+The survey line, a baseline for this population and never a ratchet: **117 complete, 5 locked, 2
+incomplete, 1 pageless, 1 unopenable**, the two incomplete being a `/Font` and an `/ExtGState` a
+page names and the file never defines (§7.8.3, ADR 0255) and the five locked wanting an open
+password. `tools/safedocs survey --dir` prints today's.
+
+- **The pageless one was the finding, and it is ADR 0379's.** `PDF-HUL-138/6.2017-0960.pdf` is a
+  21-page paper three references draw and this tree drew no page of: it is one complete document
+  with a *truncated copy of itself* appended, so its correct `startxref` sits eight megabytes from
+  the end and `find_startxref`'s 2048-byte window missed it — after which `rebuild` took the
+  truncated copy's objects and emptied the page tree. §7.5.5's "PDF processors should read a PDF
+  file from its end" is now read past the window, ahead of a rebuild §C.4 licenses only for a
+  table that is "damaged or missing". **0.64% of the crawl misses the window and 189 documents are
+  reached by the wider search**: 10 pageless and 10 incomplete become 5 and 8, nothing moves the
+  other way, and the digest over the 974 is byte-identical.
+- **Nothing failed to open for a reason that is this tree's, for the sixth population running.**
+  The one unopenable file is an AppleDouble sidecar — 213 bytes of `Mac OS X` attributes and a
+  `com.apple.quarantine` string under a `.pdf` name.
+- **The ink ranking found no second whole-page row**, which is the instrument saying so rather
+  than a round saying nothing: page one at 72 dpi against `pdftoppm`, `mutool` and `gs`, every one
+  explicit about the page box, and the entire negative tail is **−0.744 and shallower** — glyph
+  weight, with the largest opened side by side. Session 505's ranking separated its defect by two
+  orders of magnitude; this one separates nothing.
+- **Two documents render here and in no reference at all** — `PDF-HUL-29`'s pair, where poppler,
+  mupdf and ghostscript each refuse the page tree for a `/Kids` entry that is not an indirect
+  reference and this tree draws a complete journal page and a complete book title page. A ranking
+  cannot see this direction: they sit in the positive tail with nothing to subtract.
+
+**What this chunk leaves.** `jhove-errors` stays out of the sparse checkout, and the record of why
+changes rather than the pin: `doc/third-party-data.md` left it on size **and** on value, and the
+value half is disproved — it is left on size alone, with the whole five-directory corpus still
+fetchable into `corpus-cache/` for a round that wants the population. What is unranked on this disk
+after this chunk is `pdfbox`'s 64 and `pdf-differences`' 37; the second of those is §4's first
+bullet and still wants its decision about the verdict vocabulary before anybody runs it.
+
 ## What not to do
 
 - **Do not start a multi-gigabyte download without asking**, and on a metered connection do not
