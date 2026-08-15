@@ -481,6 +481,19 @@ is `CONTRADICTED_ON_A_PAGE_WE_REPORT` — and the ranking itself is left as it i
 ADR 0349. **Take both orderings: one names the page the references are furthest from, the other names
 the page furthest outside what it is held to.**
 
+**And where a corpus states an invariant about itself, that invariant can be asked of the
+references** — which is the method the five-hundred-and-forty-sixth session took to the head of the
+ratio ranking and is the one way out of "their agreement proves nothing" that does not need anybody
+to be treated as truth. The pdf.js corpus's `bitmap-*` family is one drawing encoded through nearly
+every path ISO/IEC 14492 defines, so every renderer owes the same picture on all of them, and each
+one can be **compared with itself**: this tree returns one image, `poppler` eight, `mupdf` six,
+`ghostscript` six — and the image `jbig2dec` produces on the encodings it is consistent about is
+byte-identical to ours. A group whose whole argument was *why their agreement is not evidence* now
+says what is true. ADR 0381, and the same ADR records the population hole it found: a member of that
+family whose name does not begin `bitmap-`, sitting on the contradicted list with the one test that
+could judge it filtering it out. **Ask what a population's filter is made of, and which members were
+named after something else.**
+
 ### 3c. The bound those thirty-eight fail was never derived, and it is left where it is
 
 **The four-hundred-and-seventh session asked the question §3b's last paragraph raises** — a bound a
@@ -517,7 +530,14 @@ of it is `hayro`, which shares `skrifa` with this tree, so it is not evidence ab
 status is unchanged and now has a reason beside it.
 
 **Two cautions the contradicted list earned.** A page may be contradicted for a reason other than
-the one its group names — **ten for ten, so far, on the group being wrong**. The newest is
+the one its group names — **ten for ten, so far, on the group being wrong**. (The tally did not move
+in the five-hundred-and-forty-sixth session, which re-opened the ratio ranking's head — the seven
+JBIG2 pages, the three link borders, the two the references did not draw and the `DeviceCMYK` ramp
+— and found every *diagnosis* right. What was wrong on those pages was the evidence inside three of
+the notes: a log generalised from one page to seven, a claim about `ghostscript`'s log that is only
+true without the `-q` the gate passes, and a fourth renderer's silence nobody had recorded. **A
+sweep that confirms is not a sweep that found nothing**, and the distinction between a wrong label
+and stale evidence under a right one is the thing to report.) The newest is
 `issue9940.pdf` in the five-hundred-and-fourteenth, whose `CONTRADICTED_CALIBRATED_COLOUR` had said
 that `mupdf` and `ghostscript` take a `CalRGB`'s components for `DeviceRGB`; a swatch carrying that
 file's own `/CalRGB` dictionary says nobody does, ours and `poppler`'s reproduce §8.6.5.3 plus IEC

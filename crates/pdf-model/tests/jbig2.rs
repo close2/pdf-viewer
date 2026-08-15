@@ -1,16 +1,16 @@
-//! Ninety-six ways of encoding one image, which must all decode to it.
+//! Many ways of encoding one image, which must all decode to it.
 //!
 //! # Why this is the strongest JBIG2 check available
 //!
-//! The pdf.js corpus contains 96 documents named `bitmap-*.pdf`, and they are the same
-//! drawing — a small smiling face — encoded through nearly every coding path ISO/IEC 14492
-//! defines. Their names are the inventory: `template0` to `template3` and `customat` for
-//! the generic region templates and their adaptive pixels, `tpgdon` and `tpgron` for typical
-//! prediction, `mmr` for the T.6 fallback, `refine` for refinement regions, `symbol` for
-//! symbol dictionaries with `symhuff` and `texthuff` for their Huffman variants, `halftone`
-//! with `skip` and `grid` for halftone regions, `stripe` for striped pages, `composite` with
-//! `or`, `xor`, `and`, `xnor` and `replace` for the page composition operators, and
-//! `context-reuse` for retained arithmetic coding contexts.
+//! The pdf.js corpus contains a family of documents named `bitmap-*.pdf`, and they are the
+//! same drawing — a small smiling face — encoded through nearly every coding path ISO/IEC
+//! 14492 defines. Their names are the inventory: `template0` to `template3` and `customat`
+//! for the generic region templates and their adaptive pixels, `tpgdon` and `tpgron` for
+//! typical prediction, `mmr` for the T.6 fallback, `refine` for refinement regions, `symbol`
+//! for symbol dictionaries with `symhuff` and `texthuff` for their Huffman variants,
+//! `halftone` with `skip` and `grid` for halftone regions, `stripe` for striped pages,
+//! `composite` with `or`, `xor`, `and`, `xnor` and `replace` for the page composition
+//! operators, and `context-reuse` for retained arithmetic coding contexts.
 //!
 //! So the corpus states an invariant about itself: **every one of them must produce the
 //! same pixels**. That is a far better test than comparing against another renderer, for
@@ -20,22 +20,47 @@
 //!   comes from the documents, not from anyone's output.
 //! - It is *sensitive*. A decoder that gets refinement subtly wrong produces a face that
 //!   still looks like a face, and no eye and no tolerance would catch it — but it will not
-//!   be byte-identical to the ninety-five others.
-//! - It found something the reference oracle got backwards. Six of these pages are recorded
-//!   there as contradicted, because `mupdf` and `ghostscript` agree about them and we
-//!   differ. They agree because **they are the same decoder**: both link `jbig2dec`. On four
-//!   of the six it renders a blank page or a page strewn with noise, and `poppler`, which
-//!   has its own implementation, agrees with us. Two implementations agreeing is evidence
-//!   only where they can fail independently, and the oracle could not know that these two
-//!   cannot.
+//!   be byte-identical to all the others.
+//! - It found something the reference oracle got backwards. Several of these pages are
+//!   recorded there as contradicted, because `mupdf` and `ghostscript` agree about them and
+//!   we differ. They agree because **they are the same decoder**: both link `jbig2dec`. Two
+//!   implementations agreeing is evidence only where they can fail independently, and the
+//!   oracle could not know that these two cannot.
+//!
+//! # The invariant is also an instrument to point at the references, and that is decisive
+//!
+//! The bullet above is an argument about *why* their agreement is not evidence. The
+//! five-hundred-and-forty-sixth session turned it into a measurement, by asking each
+//! reference renderer the question this test asks us — no renderer is compared with another,
+//! each is only compared **with itself** over the family, so principle 5 is untouched:
+//!
+//! | | distinct images over the family | self-consistent on |
+//! |---|---|---|
+//! | ours | **1** | all of them |
+//! | `poppler` | 8 | 79 |
+//! | `mupdf` | 6 | 71 |
+//! | `ghostscript` | 6 | 71 |
+//!
+//! And the majority image `mupdf` and `ghostscript` produce on the ones they decode
+//! consistently is **byte-identical to ours**, checked with `magick compare -metric AE`
+//! against our render of a document they get wrong: 0. So the disagreement is not two
+//! readings of ISO/IEC 14492 — it is one decoder that answers differently depending on how
+//! the image was coded, against a decoder that does not, and the answer it gives when it is
+//! consistent is ours. (`poppler` smooths the image on the way to the page — 198 grey levels
+//! against our two at one device pixel per sample — so its rasters cannot be compared
+//! byte-wise with anyone's, only with each other.)
+//!
+//! `tools/state.sh` does not print this and no gate spends 300 reference renders on it; the
+//! recipe is three invocations of §2's own reference command lines over the family, grouped
+//! by the hash of `magick … -depth 8 -colorspace Gray txt:-`, and ADR 0381 has it.
 //!
 //! # What it does not check
 //!
 //! That the shared image is the *right* image. A decoder that produced the same wrong
-//! picture ninety-six times would pass. That is what
+//! picture every time would pass. That is what
 //! `pdf_sandbox`'s own test of ISO 32000-2 §7.4.7's worked example is for: it decodes a
 //! specification-supplied bitstream and checks the marks it makes. The two together — one
-//! image known from the specification, ninety-six agreeing with each other — cover both
+//! image known from the specification, a whole family agreeing with each other — cover both
 //! halves.
 
 #![expect(
@@ -53,12 +78,24 @@ use render_cpu::CpuRasterizer;
 /// Pixel budget per page. These are all small.
 const PIXEL_BUDGET: u64 = 16 << 20;
 
-/// How many `bitmap-*.pdf` documents the corpus is known to hold.
+/// How many documents of the family the corpus is known to hold.
 ///
 /// A ratchet in the direction that matters: if the corpus grows a new coding mode this
 /// should rise, and if a document stops decoding the count of *rendered* pages falls below
 /// it and the test fails. It is not an upper bound.
-const KNOWN_DOCUMENTS: usize = 96;
+const KNOWN_DOCUMENTS: usize = 97;
+
+/// A member of the family whose name does not say so.
+///
+/// The population used to be the `bitmap-` prefix and nothing else, which left this file
+/// outside the one instrument that can judge it — and it is one of the pages the oracle
+/// records as contradicted, so it is exactly the kind of page the invariant is for. It is
+/// the same drawing on the same `[0 0 399 400]` page through one `/JBIG2Decode` image
+/// `XObject`, and admitting it is self-checking: were it some *other* picture, the grouping
+/// below would report two images instead of one and fail. Found in the
+/// five-hundred-and-forty-sixth session, whose evidence for the identity is that our render
+/// of it and our render of `bitmap-halftone-composite.pdf` differ in zero pixels.
+const FAMILY_MEMBERS_NAMED_OTHERWISE: [&str; 1] = ["issue20439.pdf"];
 
 /// The documents, or `None` when the submodule is not checked out.
 fn documents() -> Option<Vec<PathBuf>> {
@@ -70,8 +107,11 @@ fn documents() -> Option<Vec<PathBuf>> {
         .filter(|path| {
             path.file_name()
                 .and_then(|name| name.to_str())
-                .is_some_and(|name| name.starts_with("bitmap-"))
-                && path.extension().is_some_and(|extension| extension == "pdf")
+                .is_some_and(|name| {
+                    (name.starts_with("bitmap-")
+                        && path.extension().is_some_and(|extension| extension == "pdf"))
+                        || FAMILY_MEMBERS_NAMED_OTHERWISE.contains(&name)
+                })
         })
         .collect();
     found.sort();

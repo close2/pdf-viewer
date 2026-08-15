@@ -688,6 +688,22 @@ const CONTRADICTED_NEGATIVE_LINE_WIDTH: [&str; 1] = ["issue19633.pdf page 1"];
 /// geometry" before any pixel was sampled. **Open the side-by-side, then the heatmap, then
 /// sample one pixel** — three minutes, against a page that had been on the unexplained list
 /// since the list existed.
+///
+/// # Re-sampled in the five-hundred-and-forty-sixth session, on the member the ratio ranks highest
+///
+/// `postscript_type4_many_outputs.pdf` at device (100, 25), which is `c` = 0.5 on the ramp
+/// above:
+///
+/// ```text
+///   ours (127, 214, 247)   poppler (128, 214, 247)
+///   mupdf (109, 207, 246)  ghostscript (108, 207, 246)  hayro (109, 206, 246)
+/// ```
+///
+/// 127 is 255 × (1 − c) and 214 is 255 − c × (255 − 173) to the level, so the paragraph above
+/// reproduces exactly nine sessions and a hundred commits later, and the three-against-two
+/// split is a profile rather than a formula. Nothing here moved; what is worth recording is
+/// that it was checked rather than assumed, because this group's argument is the one most
+/// often mistaken for a page to fix.
 const CONTRADICTED_DEVICE_CMYK_CONVERSION: [&str; 5] = [
     "function_based_shading_cmyk.pdf page 1",
     "function_based_shading_cmyk.pdf page 2",
@@ -762,18 +778,60 @@ const CONTRADICTED_SUBPIXEL_IMAGE: [&str; 1] = ["issue4436r.pdf page 1"];
 /// The rule's premise is independence, and nothing in the harness could have known these two
 /// lack it.
 ///
-/// What `jbig2dec` does on these seven: on four of them it decodes nothing and renders a
-/// blank page, on two it produces the drawing strewn with noise blocks, and on
-/// `bitmap-symbol-context-reuse.pdf` it prints `segment marks bitmap coding context as
-/// retained (NYI)` and gives up. `poppler`, which has its own decoder, agrees with us on six
-/// of the seven; on the seventh it fails differently, reporting "Too many symbols in JBIG2
-/// symbol dictionary".
+/// What `jbig2dec` does on these seven, measured page by page in the
+/// five-hundred-and-forty-sixth session rather than summarised (ink of 255, `-alpha off`):
 ///
-/// The evidence that *we* are right is not poppler's agreement, which would only be evidence
-/// that we read ISO/IEC 14492 the same way. It is `tests/jbig2.rs`: the corpus encodes one
-/// image ninety-six ways, through every coding mode the standard defines, and all ninety-six
-/// decode to byte-identical pixels here. A decoder wrong about refinement, or about Huffman
-/// symbol dictionaries, or about retained coding contexts could not produce that.
+/// ```text
+///                                              ours  poppler   mupdf      gs   hayro
+///   bitmap-halftone-composite                 17.495   19.253  22.594  22.594  17.495
+///   bitmap-refine-page-subrect                17.495   17.589  21.052  21.052  17.495
+///   bitmap-symbol-context-reuse               17.495    0.000 255.000   0.000  17.495
+///   bitmap-symbol-symhuffrefineone            17.495   17.589  19.422  19.422  17.495
+///   bitmap-symbol-texthuffrefinecustom        17.495   17.589   0.000   0.000  17.495
+///   bitmap-symbol-texthuffrefinecustomposdims 17.495   17.589   0.000   0.000  17.495
+///   issue20439                                17.495   17.589   0.000   0.000  17.495
+/// ```
+///
+/// **This paragraph used to say "on four of them it decodes nothing and renders a blank page,
+/// on two it produces the drawing strewn with noise blocks"; the table is what the pages are.**
+/// Three are blank, three carry the drawing with extra ink, and on `bitmap-symbol-context-reuse.pdf`
+/// `mupdf` renders the page *entirely black* while `ghostscript` renders it white — the one
+/// page of the seven where the two are not byte-identical (`magick compare -metric AE` is 0 on
+/// the other six and 159 600, every pixel, on that one). That last row is also why that page's
+/// verdict line names `poppler` and `ghostscript` rather than the usual pair.
+///
+/// **And six of the seven are worse than a failure: `jbig2dec` says nothing at all.** Asked
+/// with §2's own reference command lines, only `bitmap-symbol-context-reuse.pdf` produces a
+/// warning from either program. On the other six both are silent and both return a different
+/// picture — so a note that generalised the `NYI` log from one page to seven was describing
+/// one page.
+///
+/// # The evidence that *we* are right, which is the corpus's invariant pointed at them
+///
+/// It is not `poppler`'s agreement, which would only be evidence that we read ISO/IEC 14492
+/// the same way, and it is not `hayro`'s, whose raster is byte-identical to ours on all seven
+/// because it shares `hayro-jbig2` with this tree. It is `tests/jbig2.rs`: the corpus encodes
+/// one image through every coding mode the standard defines, and all of them decode to
+/// byte-identical pixels here.
+///
+/// **The same invariant asked of each reference is what settles the group**, and it treats no
+/// renderer as truth — each is compared only with *itself*:
+///
+/// | | distinct images over the family | self-consistent on |
+/// |---|---|---|
+/// | ours | **1** | all of them |
+/// | `poppler` | 8 | 79 |
+/// | `mupdf` | 6 | 71 |
+/// | `ghostscript` | 6 | 71 |
+///
+/// So `jbig2dec` answers differently depending on how the image was coded, on a quarter of the
+/// family. And the image it produces on the 71 it is consistent about is **byte-identical to
+/// ours** — `magick compare -metric AE` between our render of `bitmap-halftone-composite.pdf`,
+/// which it gets wrong, and its own render of `bitmap-halftone.pdf`, which it gets right, is
+/// **0**. A decoder wrong about refinement, or about Huffman symbol dictionaries, or about
+/// retained coding contexts could not produce that. (`poppler` cannot be compared byte-wise
+/// with anyone: it smooths the image on the way to the page, 198 grey levels against our two
+/// at one device pixel per sample, which is what its 17.589 against our 17.495 is.)
 ///
 /// These stay listed rather than being excused, because the gate should keep watching them:
 /// if `jbig2dec` is fixed they will leave this list, and if our decode changes they will
@@ -796,6 +854,14 @@ const CONTRADICTED_SUBPIXEL_IMAGE: [&str; 1] = ["issue4436r.pdf page 1"];
 /// `poppler` and `ghostscript` agreeing on a page **neither of them decoded**, which is trap 9's
 /// second shape sitting on top of its third. There is no consensus here to be contradicted by, and
 /// the reason it takes a log rather than a raster to see that is the reason this note exists.
+///
+/// **`issue20439.pdf` is a member of the family whose name does not say so**, which is why it sat
+/// in this group while being outside the one test that can judge it. Our render of it and our
+/// render of `bitmap-halftone-composite.pdf` differ in **zero** pixels, and `mupdf`'s render of it
+/// and of `bitmap-symbol-texthuffrefinecustom.pdf` likewise; it is 1 300 bytes, one
+/// `/JBIG2Decode` image XObject on a `[0 0 399 400]` page. `tests/jbig2.rs` admits it by name
+/// since the five-hundred-and-forty-sixth session, and the admission is self-checking: a
+/// different picture would make that test report two images instead of one.
 const CONTRADICTED_SHARED_JBIG2_DECODER: [&str; 7] = [
     "bitmap-halftone-composite.pdf page 1",
     "bitmap-refine-page-subrect.pdf page 1",
@@ -952,6 +1018,24 @@ const CONTRADICTED_VISIBILITY_EXPRESSION: [&str; 1] = ["visibility_expressions.p
 /// Neither entry is a page to chase. What both are is an argument for reading a reference's
 /// *log* as well as its raster: `mupdf.log` and `ghostscript.log` both say, in words, that
 /// they threw the object away.
+///
+/// **Re-asked in the five-hundred-and-forty-sixth session, and `ghostscript`'s half of that
+/// sentence needs a flag to be true.** The oracle passes `-q`, under which `gs` prints nothing
+/// on either page — so a round reading the log the gate's own invocation produces would find
+/// silence and conclude the note was wrong. Without `-q` it names them:
+///
+/// ```text
+/// issue11549_reduced   Loading font F1 (or substitute) from …/NimbusSans-Regular
+///                      object lacks an endobj / xref table was repaired
+/// issue11740_reduced   Loading font F1 (or substitute) from …/NimbusSans-Regular
+///                      error reading a stream
+/// ```
+///
+/// Two things worth keeping out of that. `gs` reports the *stream* it could not read and then
+/// loads a substitute face, so on both pages it is drawing with a font the file did not supply
+/// and drawing nothing with it; and `mupdf` still prints `ignoring broken object (70 0 R)` on
+/// the first, which is the sentence this note was written from. **A reference's silence is a
+/// fact about the invocation before it is a fact about the renderer** — trap 3 one level down.
 const CONTRADICTED_REFERENCES_DREW_NOTHING: [&str; 2] = [
     "issue11549_reduced.pdf page 1",
     "issue11740_reduced.pdf page 1",
@@ -1103,6 +1187,26 @@ const CONTRADICTED_ON_A_PAGE_WE_REPORT: [&str; 1] = ["xobject-image.pdf page 1"]
 /// `file_url_link.pdf`'s border is a 175 × 30 rectangle on a 200 × 50 page, whose perimeter at
 /// one unit is 410 of 10 000 pixels going from white to `/C [0 1 0]`, which is 6.97 of 255 —
 /// against a measured 5.81 to 9.92.
+///
+/// # Three things the five-hundred-and-forty-sixth session added by opening the pictures again
+///
+/// - **`hayro` draws no border either**, which this note had never said and which matters
+///   because it is the fourth renderer and the one that shares no C library with the other
+///   three. It is not a fourth reading of Table 166: `hayro` constructs an appearance for no
+///   annotation subtype at all, so it is `mupdf`'s gap arriving by a different route. Step 7's
+///   ink gap over the contradicted list is the measurement — `issue14802.pdf` **+10.001**,
+///   `file_url_link.pdf` +3.051, `issue7115.pdf` +2.836, all three against `hayro` or `mupdf`
+///   as the lightest live reference, and `issue14802.pdf` is the whole list's largest positive
+///   gap. A large positive gap is content *nobody else* is drawing, and here that is correct.
+/// - **The colour is the annotation's and not a default.** On `issue14802.pdf` ours and
+///   `poppler` each paint 546 and 550 pixels of exactly `#0000FF` around a page of red text —
+///   two renderers reaching the same `/C` through Table 166 rather than two defaults
+///   coinciding.
+/// - **All three files render without a word from any of the three references.** Table 167's
+///   Print flag is a decision `ghostscript` takes silently, so there is no log to read here
+///   and the raster is all there is; that is the opposite of
+///   [`CONTRADICTED_REFERENCES_DREW_NOTHING`], where the log is the evidence. **A group where
+///   the references are silent needs the clause, and this one has it.**
 const CONTRADICTED_LINK_BORDER: [&str; 3] = [
     "file_url_link.pdf page 1",
     "issue14802.pdf page 1",

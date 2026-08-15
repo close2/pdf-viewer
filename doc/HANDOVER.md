@@ -595,6 +595,14 @@ evidence. Four ways for that to fail.
   `ldd` that founded this entry was reaching FreeType through `libfontconfig`. Same family, not
   the same object. Recorded on `Reference::independence` and acted on nowhere — marking all three
   `Shared` for text would leave nothing to vote.
+- **And where the corpus states an invariant about itself, ask the *references* that invariant.**
+  Shared code is a reason their agreement is not evidence; it is not a reason to believe ours. The
+  `bitmap-*` family is one drawing encoded through nearly every path ISO/IEC 14492 defines, so every
+  program owes the same picture on all of them and each can be **compared with itself**, no renderer
+  treated as truth. This tree returns one image; `poppler`, `mupdf` and `ghostscript` return eight,
+  six and six — and the image `jbig2dec` produces on the encodings it is self-consistent about is
+  byte-identical to ours. That turns "their agreement proves nothing" into a statement about who is
+  right, out of the documents alone. ADR 0381.
 - **And the ambiguous bucket measures the font half of it.** Over all 786 ambiguous pages, the
   closest of the ten renderer pairs is `ours + hayro` on 651, and on 612 of the 670 text ones;
   median ours-to-`hayro` 1.94 of 255 against 5.39 for the closest two that vote. `hayro` is a
