@@ -151,6 +151,14 @@ pub(crate) struct Stages {
     pub(crate) fallback: std::time::Duration,
     /// The accessibility publication — measured *beside* the frame rather than inside it.
     pub(crate) attend: std::time::Duration,
+    /// Whether this frame was a **reprojection** rather than a rendering of the page.
+    ///
+    /// `doc/todo/37`'s third rule: a reader of the trace must never have to infer that a frame
+    /// was approximated. It is in the frame line's outcome word, it is counted in the summary,
+    /// and it is here rather than derived from a small duration for the same reason
+    /// [`render_quorra::FrameCost::encode_source`] is an observable — an inference is not
+    /// something a person or a test can assert on. See [`crate::stale`].
+    pub(crate) approximated: bool,
     /// The whole of `redraw_requested`, which is what the old single number was.
     pub(crate) total: std::time::Duration,
 }
@@ -310,6 +318,11 @@ impl FrameLog {
                 "up",
                 "resources handed to the device; culled: commands that reached no pixel",
             ),
+            (
+                "approximated",
+                "the outcome of a frame that is the previous view's own pixels moved rather \
+                 than a rendering of the page — always followed by the real frame (ADR 0378)",
+            ),
         ] {
             trace.more(Topic::Frames, format_args!("{column:<9} {meaning}"));
         }
@@ -321,7 +334,7 @@ impl FrameLog {
     /// about a distribution, and a distribution costs nothing per frame but cannot be read off
     /// one. Nearest rank rather than an interpolated percentile, so every figure printed is a
     /// frame that actually happened.
-    pub(crate) fn summary(&self, trace: Trace) {
+    pub(crate) fn summary(&self, trace: Trace, approximated: u64) {
         if !trace.on(Topic::Frames) || self.count == 0 {
             return;
         }
@@ -333,6 +346,16 @@ impl FrameLog {
         trace.say(
             Topic::Frames,
             format_args!("{} frame(s){truncated}, milliseconds:", self.count),
+        );
+        // Rule 3's count, and it is deliberately printed even when it is zero: "none of these
+        // frames was approximated" is the answer a person reading a trace of a slow session
+        // most needs, and a line that appears only sometimes cannot give it.
+        trace.more(
+            Topic::Frames,
+            format_args!(
+                "{approximated} of them reprojected the previous view's pixels while the real \
+                 frame was built; every one was replaced by the frame it stood in for (ADR 0378)"
+            ),
         );
         trace.more(
             Topic::Frames,

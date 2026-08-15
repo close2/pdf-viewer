@@ -1,80 +1,42 @@
-# A frame that says it is stale — feedback while the real one is still being built
+# A frame that says it is stale — the one window it does not cover yet
 
-Status: **asked for by the project owner, reluctantly, and that reluctance is part of the
-specification.** Their words: *"even though I was hoping we could avoid it completely … When we
-are fast enough, we can print every frame correctly. But when not, we currently don't give any
-feedback."* Nothing is built.
-Priority: 37 — capability: the program cannot do this at all
-Witness: `tmp/Entwurf.pdf` — one page, 58 009 commands, **not in the repository**, so no test may
-name that path. Its zoom step is the case: ~640 ms in which the window shows the old view
-unchanged and nothing says why (ADR 0368's attribution; 74% of it is quorra's encode).
-Instrument: the window's own `--trace` frame line, which already names every phase; a reprojected
-frame must be legible there rather than inferred.
-Clauses: none — this is presentation, not a reading. §10.7.4 does not reach it, because nothing
-reprojected is a *rendering* of the page.
-Code: `crates/viewer-ui/src/bin/pdf-viewer/surface.rs` (the presenter), `crates/render-quorra`
-(where ADR 0297 already keeps a raster in the window's backend), and **not** `viewer-core`
+Status: **built for the window with a graphics device** (ADR 0378), which is every run without
+`--cpu`. A view change whose last frame was slow now shows the pixels already on the screen, moved
+to where the new view puts them, and the real frame replaces it — the frame line says
+`approximated`, the summary counts them, and `crates/viewer-ui/src/bin/pdf-viewer/stale.rs` carries
+the five rules with the thing that enforces each.
+Priority: 37 — one surface of two.
+Witness: `tmp/Entwurf.pdf` — **not in the repository**, so no test may name that path. Its zoom step
+is 492 to 1036 ms and a reprojection of it costs 23 to 51 (ADR 0378's table).
 
-## What it is
+## What is left
 
-When a view changes — a zoom step, a scroll — the frame for the new view takes as long as it
-takes. Today the window shows the *previous* view's pixels, unmoved, until the new frame lands: a
-stall with no feedback, and on a heavy page that is most of a second. A stale-frame reprojection
-takes the raster already on the screen and transforms it to where the new view puts it — the same
-pixels, moved and scaled — so the window answers the input immediately, and replaces it with the
-real frame the moment that frame exists.
+**The processor's window**: `--cpu`, and a machine whose graphics device would not come up. There
+is no retained encode to replay there, so the device path's mechanism does not apply — the attempt
+is made once, refused, and never repeated, which is why nothing on that path is wrong today, only
+absent.
 
-It is an approximation by construction: a raster scaled up is blurred, a scroll reveals an edge
-the old raster has no pixels for, and anything the new view would draw that the old one did not is
-simply absent.
+It is a **smaller** piece of work than the device path was, and for a reason worth writing down:
+`viewer_ui::software::SoftwareSurface` presents a raster the processor produced, so the host
+already **has** the pixels of the frame on the screen. There is no capture to arrange and no
+readback to price. What it needs is a resample of one window of RGBA under the same
+`new ∘ old⁻¹` affine — on the processor, where every other pixel of that path is already produced —
+and the same policy object deciding when.
 
-## The hazard, stated first because it is the reason the owner hoped to avoid this
+Three things bind it, and none of them is new:
 
-**This project's first principle forbids drawing something plausible instead of something true**
-(`CLAUDE.md` principle 1; trap 5 — "unsupported input must stay loud", and its whole point is that
-a viewer must not quietly show a wrong picture). A reprojected frame *is* a wrong picture, shown
-deliberately. That is defensible only if every one of these holds, and a round taking this owes
-all of them:
+- **The five rules are the same five**, and they are already enforced by `Stale` and by
+  `MustFollow`; what a processor path adds is a second producer of pixels, not a second policy.
+- **Rule 2 is still structural**: the resample belongs in `stale.rs`, a private module of the
+  binary, and not in `viewer_ui::software`, which is a *library* and is what
+  `viewer-confined`'s worker and the software-surface tests link to.
+- **Rule 4 needs its own measurement.** A processor-side resample of 800×1000 is not free, and the
+  threshold is `SHARE` times what it actually costs rather than what the device path measured.
+  `Stale::threshold` already takes whatever the run measures, so the code needs nothing; the round
+  that builds it owes the number.
 
-1. **It is visibly transient, and it is never the last word.** The real frame must always follow,
-   and the reprojection must never be the state the window settles in. A reprojection that is
-   still on the screen when the machine goes idle is a defect, not a degradation.
-2. **Nothing that judges a picture ever sees one.** The oracle, the corpus gates, `Query::Frame`,
-   the confined worker's raster, `render_at`, the headless harness and every artefact a person
-   diagnoses from must be the real render. This is the sharpest rule: an instrument that
-   accidentally photographs a reprojection is an instrument that lies, and it is exactly the
-   shape of trap 1's archetype. The reprojection therefore belongs to the *presenter*, on the
-   path that has a window, and to nothing else.
-3. **It says so.** The trace's frame line names it, and the count is available to a host. A
-   reader of the trace must never have to infer that a frame was approximated.
-4. **It costs the real frame nothing.** No work is taken from the frame being built to produce
-   the approximation; if the reprojection cannot be produced within a small fraction of the frame
-   it replaces, it is not produced at all.
-5. **It does not fire when it is not needed.** A view whose frame is ready in a few milliseconds
-   must show that frame and never an approximation — which means a threshold, and the threshold
-   is a *measurement* rather than a taste (`CLAUDE.md`: nothing arbitrary replaced by something
-   equally arbitrary).
+## What is deliberately not here
 
-## What it is not
-
-- **Not a substitute for the frame being fast.** ADR 0368 measured the zoom step and found 74% of
-  it inside quorra's encode; `doc/QUORRA_ENCODE_THREADS_ANSWER.md` divides its geometry phase
-  6.6× on this page's shape. Reprojection is what covers the residue that is left after the frame
-  is as fast as it is going to get, and the owner's sentence — *"when we are fast enough, we can
-  print every frame correctly"* — is the standing intent: **the better this gets, the less this
-  feature should ever be seen.**
-- **Not progressive rendering.** Drawing a partial page as it is interpreted is a different
-  feature with a different argument (`doc/todo/16`'s road C names it), and it draws only marks the
-  file states.
-- **Not a message on `viewer-core`'s boundary**, unless the design genuinely requires one, in
-  which case `doc/ui-boundary.md` holds the test it must pass. The presenter already knows when a
-  frame was requested and when it arrived; that is where the knowledge is.
-
-## What a round taking this owes
-
-- The five rules above, each with the thing that enforces it — a test, an assertion, or a type,
-  not a comment.
-- A measured threshold, and the measurement.
-- The witness looked at: a zoom step on the witness with the reprojection on, photographed
-  mid-flight (`doc/environment.md`'s Xvfb recipe), showing that the window answered the input.
-- Every gate identical, because nothing on any judged path may change.
+Not progressive rendering (`doc/todo/16`'s road C), not a page turn — nothing about the outgoing
+page's pixels says anything true about the incoming one — and not §12.4.4's transitions, which are
+already a picture of two pages moving. ADR 0378 has each argument.

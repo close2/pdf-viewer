@@ -62,6 +62,7 @@
 //! | [`overlays`] | the geometry drawn over the page, in colours no clause states |
 //! | [`presentation`] | §12.4.4's clock and the transitions it draws |
 //! | [`surface`] | the graphics device or the processor's window, and one frame on it |
+//! | [`stale`] | the reprojection a slow view change shows until the real frame lands |
 //! | [`access`] | §14.7's tree handed to AccessKit |
 //! | [`window`] | winit's callbacks and the key table |
 
@@ -95,6 +96,8 @@ mod overlays;
 mod presentation;
 #[path = "pdf-viewer/sidebar.rs"]
 mod sidebar;
+#[path = "pdf-viewer/stale.rs"]
+mod stale;
 #[path = "pdf-viewer/surface.rs"]
 mod surface;
 #[path = "pdf-viewer/timing.rs"]
@@ -288,6 +291,7 @@ fn main() {
         instancing,
         launch,
         frames: FrameLog::default(),
+        stale: stale::Stale::default(),
         accessibility: None,
         spoken: None,
     };

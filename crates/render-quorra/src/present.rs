@@ -11,7 +11,7 @@
 
 use std::sync::Arc;
 
-use pdf_render::{Color, DisplayList, Raster, TargetSpec, Transform};
+use pdf_render::{Color, DisplayList, Raster, RasterFormat, TargetSpec, Transform};
 use quorra_scene::ResourceId;
 
 use crate::QuorraRasterError;
@@ -41,6 +41,28 @@ pub struct PresentFrame<'a> {
     /// Window-pixel display lists drawn over the page, in order (selection
     /// highlights, sidebar, modal card — chrome crosses as geometry, not pixels).
     pub overlays: &'a [&'a DisplayList],
+}
+
+/// The frame the window is showing, read back off the device.
+///
+/// **The real render and nothing else.** This crate has no notion of an approximate picture and
+/// gains none from this: what [`QuorraPresenter::capture_presented`] hands back is exactly the
+/// pixels [`QuorraPresenter::present`] last put on the surface, drawn again into a readback from
+/// the encode quorra has already retained. A host that transforms them into something the page
+/// does not say owns that decision entirely, along with the obligation to say so.
+#[derive(Debug)]
+pub struct Captured {
+    /// The window's own pixels: straight-alpha RGBA8, opaque throughout, top row first.
+    pub raster: Raster,
+    /// Whether the retained encode was replayed rather than made again.
+    ///
+    /// **The whole of what makes a capture cheap**, and an observable rather than an inference
+    /// from a small duration (quorra's ADR 0048). `false` means this call paid a full encode of
+    /// the page — the very cost a caller capturing to cover a slow frame is trying to hide — and
+    /// a caller that sees it should stop asking rather than pay it again.
+    pub replayed: bool,
+    /// What the readback cost, end to end, so a caller can decide with a number of its own.
+    pub cost: std::time::Duration,
 }
 
 /// What one frame of [`QuorraPresenter::present`] spent, part by part.
@@ -364,6 +386,48 @@ impl FrameSlot {
         Ok(drawn)
     }
 
+    /// Draws the scene this slot is holding a second time, into a readback.
+    ///
+    /// **The frame that is already on the window, in bytes** — nothing about it is recomputed:
+    /// the viewport, the coverage lane and the device state are the ones the presented frame was
+    /// drawn under, so quorra's own encode key matches and phase 1 is replayed rather than run
+    /// ([`quorra_gpu::RetainedScene`]'s `EncodeKey` covers the viewport and the target is
+    /// deliberately *not* in it). [`Captured::replayed`] is the observable that says it happened,
+    /// because "the encode was quick" is not something a caller can assert on.
+    ///
+    /// `None` where there is no scene to draw.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the device or the readback refused.
+    pub(crate) fn capture(
+        &mut self,
+        device: &mut quorra_gpu::Device,
+    ) -> Result<Option<Captured>, QuorraRasterError> {
+        let began = std::time::Instant::now();
+        let Some(held) = self.held.as_mut() else {
+            return Ok(None);
+        };
+        let (width, height) = (held.key.width, held.key.height);
+        let viewport = quorra_gpu::Viewport::full(width, height, quorra_scene::Affine::IDENTITY);
+        let drawn =
+            device.render_retained(&mut held.scene, &viewport, quorra_gpu::Target::Readback)?;
+        let replayed = drawn.encode_source() == quorra_gpu::EncodeSource::Replayed;
+        Ok(Some(Captured {
+            raster: Raster {
+                width,
+                height,
+                // Opaque throughout: the medium is the bottom of this scene, so straight and
+                // premultiplied alpha are the same bytes — `QuorraRasterizer::rasterize_frame`'s
+                // own reasoning, over the same scene.
+                format: RasterFormat::Rgba8,
+                data: drawn.into_raster()?.into_pixels(),
+            },
+            replayed,
+            cost: began.elapsed(),
+        }))
+    }
+
     /// Forgets the retained scene, releasing what it alone was holding.
     ///
     /// # Errors
@@ -584,6 +648,29 @@ impl QuorraPresenter {
     #[must_use]
     pub fn last_frame(&self) -> FrameCost {
         self.last
+    }
+
+    /// Reads back the frame this presenter last put on the window.
+    ///
+    /// **Why a window-owning presenter has this and the offscreen rasteriser does not.** A
+    /// swapchain texture is quorra's to acquire and present, and this crate never holds one — so
+    /// the only way to have the pixels a person is looking at is to draw the retained scene once
+    /// more into a readback. That costs a replay of an encode that already exists plus the
+    /// readback itself, and never the encode: [`Captured::replayed`] says so per call.
+    ///
+    /// `Ok(None)` — rather than a refusal — where there is nothing to read back or where reading
+    /// it back would *not* be cheap: no frame has reached the device yet, or the last one made
+    /// the device repack its glyph atlas, which throws every tile placement away and with it the
+    /// retained encode (quorra's ADR 0050). Both are ordinary states rather than failures.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the device or the readback refused, as [`Self::present`] reports its own.
+    pub fn capture_presented(&mut self) -> Result<Option<Captured>, QuorraRasterError> {
+        if self.last.encode_source.is_none() || self.last.atlas_repacked {
+            return Ok(None);
+        }
+        self.slot.capture(&mut self.device)
     }
 
     /// Draws one frame and presents it.

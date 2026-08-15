@@ -28,7 +28,7 @@ impl ApplicationHandler for App {
     /// 60 ms and their worst 514 without a spreadsheet. Here because it costs nothing per frame
     /// and everything it needs is already recorded.
     fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
-        self.frames.summary(self.trace);
+        self.frames.summary(self.trace, self.stale.count());
     }
 
     /// Keeps §12.4.4's clock, and only while there is one to keep.
@@ -39,6 +39,17 @@ impl ApplicationHandler for App {
     /// `/Dur` stated in seconds. A transition in flight polls, because it *is* an animation and
     /// every frame it can draw is one a person sees.
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // **A reprojection may not be what this loop comes to rest on** (`doc/todo/37` rule 1,
+        // ADR 0378). The frame that replaces one is asked for where it is drawn, and this is the
+        // place that says the rule rather than trusting it: the loop is about to wait, so an
+        // approximation still on the screen is the defect the rule names, and the answer is to
+        // draw. It cannot spin — every frame that is not a reprojection clears the flag,
+        // including a frame that drew nothing at all.
+        if self.stale.showing_approximation() {
+            self.redraw();
+            event_loop.set_control_flow(ControlFlow::Poll);
+            return;
+        }
         // One page of the search, once per turn round the loop. This is where the choice in
         // `viewer_core::search` is paid for on this host: the core reads one page per command and
         // has no thread to read a thousand on, so the loop that would otherwise be idle drives it

@@ -135,6 +135,13 @@ pub(crate) struct State {
 
 impl App {
     /// `stages` is filled in as the frame goes: see [`Stages`] for why one number was not enough.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one frame in one sequence — the request, the placement, the reprojection \
+                  decision, the transition, the chrome, the device and what to do when it \
+                  refuses. Each is a handful of lines and their *order* is the content; split \
+                  into parts, a reader would have to reconstruct it from six signatures"
+    )]
     fn present(&mut self, stages: &mut Stages) -> Option<Rendered> {
         let began = std::time::Instant::now();
         // §12.3.4's list is built here and nowhere else: this is the one place that holds
@@ -167,6 +174,14 @@ impl App {
                 .then(Transform::translate(origin.0 + edge, origin.1)),
         };
 
+        // Asked before the transition below, because it is a question about *this page's*
+        // placement: whether the pixels on the screen are this page under another view, and
+        // whether the frame that put them there was slow enough for the wait to be worth
+        // answering. See [`crate::stale`] — every rule that makes an approximation defensible
+        // is enforced in there rather than here.
+        let planned = self.stale.plan(&request.list, target);
+        let placement = target;
+
         // §12.4.4: a transition in flight substitutes its own picture of *two* pages for the one,
         // and it is a display list, so everything below this line is unchanged by it — which is
         // the point of shaping a frame in `viewer_core::transition` rather than compositing here.
@@ -176,6 +191,20 @@ impl App {
         let chrome = Overlays::of(self, edge, width, height);
         let overlays = chrome.lists();
         stages.host = began.elapsed();
+
+        // A transition is already a picture of two pages moving, drawn from rasters this host
+        // took for it: there is no stall to cover and the pixels on the screen are not a page.
+        if playing.is_some() {
+            self.stale.forget();
+        } else if let Some(moved) = planned
+            && self.approximate(moved, &overlays, stages)
+        {
+            // Deliberately not a `Rendered`: the core is told what became of its request by the
+            // frame that *answers* it, and a reprojection answers nothing. Nothing is
+            // acknowledged, the launch timeline stays open, and the accessibility tree is not
+            // published from a picture that is not the page.
+            return None;
+        }
 
         let state = self.state.as_mut()?;
         let drawn = match &mut state.surface {
@@ -264,7 +293,122 @@ impl App {
                 );
             }
         }
+        // What the window is showing, and what showing it cost. The next view change reads both:
+        // the placement to carry the pixels *from*, and the cost to decide whether carrying them
+        // is worth anything at all (`doc/todo/37` rule 5, ADR 0378).
+        if playing.is_none() {
+            self.stale
+                .settled(&request.list, placement, began.elapsed());
+        }
         Some(Rendered::Presented)
+    }
+
+    /// Puts the pixels the window is already showing where this view puts them, and asks for the
+    /// frame that replaces them.
+    ///
+    /// `true` when the window answered the input; `false` when it did not, and the caller then
+    /// draws the real frame exactly as it always did. **Every one of those refusals is an
+    /// ordinary state rather than a failure** — no device, no retained encode, a readback the
+    /// device declined, a raster this cannot read — and the two that say something about *this
+    /// machine* rather than about this frame stop the attempt from being made again.
+    ///
+    /// The chrome is the current frame's, drawn over the reprojection as geometry: a selection
+    /// and a sidebar are this host's own state and are true at the moment they are drawn, so
+    /// only the page underneath them is an approximation.
+    fn approximate(
+        &mut self,
+        moved: Transform,
+        overlays: &[&pdf_render::DisplayList],
+        stages: &mut Stages,
+    ) -> bool {
+        let began = std::time::Instant::now();
+        let trace = self.trace;
+        let covering = self.stale.covering();
+        let Some(state) = self.state.as_mut() else {
+            return false;
+        };
+        let (width, height) = state.size;
+        let Surface::Device(presenter) = &mut state.surface else {
+            // Nothing to read back: the processor's window has no retained encode, so its
+            // pixels would have to be produced by rasterising the page again — which is the
+            // cost this exists to hide rather than one it can hide. Asked once, then never.
+            self.stale.refuse();
+            return false;
+        };
+        let captured = match presenter.capture_presented() {
+            Ok(Some(captured)) => captured,
+            Ok(None) => return false,
+            Err(problem) => {
+                trace.say(
+                    Topic::Frames,
+                    format_args!("the frame on the window could not be read back: {problem}"),
+                );
+                self.stale.refuse();
+                return false;
+            }
+        };
+        // Rule 4, and the one condition that cannot be checked in advance: a capture that
+        // re-encoded has just paid the whole of the cost the reprojection exists to cover, so
+        // it is said out loud and never asked for again.
+        if !captured.replayed {
+            trace.say(
+                Topic::Frames,
+                format_args!(
+                    "reading the frame back re-encoded it in {:.1} ms instead of replaying it, \
+                     which costs the real frame more than the wait is worth — no frame will be \
+                     approximated in this run",
+                    captured.cost.as_secs_f64() * 1e3
+                ),
+            );
+            self.stale.refuse();
+            return false;
+        }
+        let Some(list) = crate::stale::reprojection(&captured.raster, moved) else {
+            return false;
+        };
+        let list = Arc::new(list);
+        // The pixels are the window's own, so they are placed in the window's own space — the
+        // identity target every overlay list already uses.
+        let placement = TargetSpec {
+            width,
+            height,
+            transform: Transform::IDENTITY,
+        };
+        if let Err(problem) = presenter.present(PresentFrame {
+            width,
+            height,
+            page: Some((&list, placement)),
+            raster: None,
+            overlays,
+        }) {
+            trace.say(
+                Topic::Frames,
+                format_args!("the device refused an approximated frame: {problem}"),
+            );
+            return false;
+        }
+        stages.gpu = presenter.last_frame();
+        stages.commands = list.commands().len();
+        stages.approximated = true;
+        let cost = began.elapsed();
+        // Rule 3 twice over: the frame line says `approximated`, and this says what it is an
+        // approximation *of* — which frame it stands in for, and what the picture on the window
+        // cost against it.
+        trace.say(
+            Topic::Frames,
+            format_args!(
+                "approximated: the {:.1} ms frame this view replaces is stood in for by its own \
+                 pixels moved (read back in {:.1} ms, whole reprojection {:.1} ms); the real \
+                 frame has been asked for",
+                covering.as_secs_f64() * 1e3,
+                captured.cost.as_secs_f64() * 1e3,
+                cost.as_secs_f64() * 1e3,
+            ),
+        );
+        // Rule 1, as a value that cannot be dropped: the window is asked for the frame that
+        // replaces this one, here, in the same expression that records it.
+        self.stale.drawn(cost).follow(&state.window);
+        true
     }
 
     /// Brings up whatever will put pixels on this window, or says why nothing can.
@@ -502,7 +646,14 @@ impl App {
             self.attend();
             stages.attend = attending.elapsed();
         }
+        // Rule 1's other half: *every* frame that is not a reprojection clears the flag, a frame
+        // that drew nothing included. A flag that could outlive the redraw answering it would
+        // leave `about_to_wait` asking for a frame that never comes, which is a spinning loop.
+        if !stages.approximated {
+            self.stale.real();
+        }
         let outcome_said = match &outcome {
+            None if stages.approximated => "approximated".to_owned(),
             None => "nothing to show".to_owned(),
             Some(Rendered::Presented) => "presented".to_owned(),
             Some(Rendered::Failed(why)) => format!("failed: {why}"),

@@ -81,6 +81,15 @@ pub(crate) struct App {
     pub(crate) trace: Trace,
     /// Every frame this run has drawn, for the summary printed when it exits.
     pub(crate) frames: FrameLog,
+    /// Whether the window is showing a reprojection, and what it would take to draw the next one.
+    ///
+    /// **A view change whose frame takes most of a second used to move nothing at all.** This is
+    /// the state behind [`crate::stale`]: the view the last real frame drew, what it cost, and
+    /// whether what is on the screen right now is the real thing. It lives here rather than in
+    /// `viewer-core` because the knowledge is a presenter's — when a frame was asked for, when it
+    /// arrived, and what the last one cost — and because nothing that judges a picture may ever
+    /// be able to reach an approximate one (`doc/todo/37` rule 2, ADR 0378).
+    pub(crate) stale: crate::stale::Stale,
     /// Whether to draw with `render-cpu` rather than the graphics device, from `--cpu`.
     ///
     /// The same rasteriser the reference oracle is built on, and the same one that draws a page
