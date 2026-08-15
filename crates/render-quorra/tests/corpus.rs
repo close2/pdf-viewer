@@ -373,11 +373,21 @@ const REFUSED_AT_FOUR: [&str; 5] = [
 /// stroke ink**, and quorra was drawing all of it. Once the processor draws a turned sub-pixel rule
 /// one device pixel wide with the width it gave up in the paint's alpha (ADR 0268), the page's own
 /// ink goes 5.0782 → 5.1550 and the two backends have nothing left to differ about.
-const DIFFERS_AT_THE_EDGES: [&str; 7] = [
+/// **`issue2177.pdf` left in the five-hundred-and-thirty-second, and the defect was quorra's
+/// own.** Its `fill_mask` computes a shape's coverage over a rectangle of device pixels, and
+/// where an edge entered that rectangle from *outside* it clamped the edge piece's two endpoints
+/// to the border and interpolated between them. That preserves the row's total winding — every
+/// column past the crossing reads the right value, which is why neither side's tests saw it for
+/// as long as they did — while handing the columns *at* the border the height the piece spent
+/// outside. It cuts the piece at the border now (quorra's ADR 0049, and its own test states the
+/// expected value from the geometry: 0.625 of a pixel of area is 159 of 255, where the tree read
+/// 128). **Only a tile a clip or the page edge cuts in x can move at all**, which is why one page
+/// of 956 does and why the 4× lane does not move at all — and it is a page joining the oracle
+/// rather than a bound being crossed, which is the direction this list is allowed to move in.
+const DIFFERS_AT_THE_EDGES: [&str; 6] = [
     "bug1743245.pdf",
     "endchar.pdf",
     "issue11473.pdf",
-    "issue2177.pdf",
     "issue2884_reduced.pdf",
     "issue8187.pdf",
     "pr12564.pdf",

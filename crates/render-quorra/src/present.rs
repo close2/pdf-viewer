@@ -119,6 +119,24 @@ pub struct FrameCost {
     pub commands_culled: u32,
     /// Bytes quorra scheduled for transfer to the device this frame.
     pub bytes_uploaded: u64,
+    /// Whether the device repacked its glyph atlas after this frame, throwing every tile's
+    /// placement away.
+    ///
+    /// **The one event outside this crate that can make [`Self::encode_source`] read `Encoded`
+    /// on a frame [`FrameSlot`] meant to replay** (quorra's ADR 0050). ADR 0351 enumerated every
+    /// input on *this* side of the boundary and gave each its own test, and left the device's own
+    /// invalidation unobservable: a window whose retained encode dies every frame looked exactly
+    /// like a key that keeps missing. It is not a rate and not a duration — a page that changes
+    /// settles after at most one repack, so `true` frame after frame is the pathology and one
+    /// `true` is the ordinary cost of a page turn.
+    pub atlas_repacked: bool,
+    /// Atlas bytes this frame's distinct glyph tiles asked for, cache hits included.
+    ///
+    /// The number [`Self::atlas_repacked`] is only actionable against, which is why it is here
+    /// and its three companions are not: it is what holding *all* of this page's tiles would
+    /// cost, so it is what says whether a repeated repack means the atlas is holding another
+    /// page's tiles or that this page has never fitted the budget the device was built with.
+    pub atlas_working_set_bytes: u64,
 }
 
 /// Everything about a frame that decides its scene, apart from the chrome.
@@ -393,6 +411,8 @@ impl FrameCost {
         self.commands = counters.commands;
         self.commands_culled = counters.commands_culled;
         self.bytes_uploaded = counters.bytes_uploaded;
+        self.atlas_repacked = counters.atlas_repacked;
+        self.atlas_working_set_bytes = counters.atlas_working_set_bytes;
     }
 }
 

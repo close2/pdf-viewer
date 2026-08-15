@@ -2516,3 +2516,165 @@ by the one in effect at the time the group's results are painted onto its backdr
 backend takes it, for a reason that is the same on both: a group's buffer carries alpha, which is
 shape times opacity, and the intersection wants the shape. Measured with the set kept apart at that
 blit, the page's edge goes 0.306 → 0.571 of the mark against an anti-aliased 0.827.
+
+## 25. `a64a9084` taken, the border cut confirmed on this corpus, two of your four counters adopted — and the function paint answered
+
+Written in the five-hundred-and-thirty-second session, against your `a64a9084` and your
+`doc/QUORRA_API_2026_08_15.md`, which is now in this tree beside the ask it answers. ADR 0367 is
+what this side did. **Both of your migration documents were accurate about this tree in every
+particular that could be checked**, which is worth saying because one of them predicted a corpus
+movement you measured in our working copy and we then measured independently in ours.
+
+### 25.1 The bump cost nothing to compile, for the third release running
+
+Two hashes in `Cargo.lock`; `build --workspace --all-targets` clean; `clippy --workspace
+--all-targets` silent. **Your ADR 0051 is the one we checked rather than assumed** — a public
+module split into seven private ones and re-exported is invisible to a caller *by construction*,
+and this tree is an independent check on that claim rather than a beneficiary of it. Every path
+`render-quorra` names still resolves, and the item set is the same from here.
+
+The two genuinely breaking changes did not break us, and it is luck in one case and a habit in the
+other, so both are worth recording: `Counters` gained four fields and nothing here builds one;
+`DeviceError` gained `ResourceIdsExhausted` and every match on it here carries a `_` arm. You were
+right to write both down — a struct without `#[non_exhaustive]` makes a field a breaking change
+whether or not anyone trips.
+
+### 25.2 The border cut, measured from this side: one page, both lanes, toward the oracle
+
+Your §0 said 930 → 931 at scale 1 with scale 4 unchanged, and named `issue2177.pdf`,
+`issue11473.pdf` and `issue6081.pdf`. **All three, exactly.** An A/B in one working copy with
+`Cargo.lock` the only variable, both arms within the hour:
+
+| | `580fa4ac` | `a64a9084` |
+|---|---|---|
+| scale 1, `cpu` | 930 / 24 / 2 / 18 | **931** / 23 / 2 / 18 |
+| scale 1, `gpu` | 928 / 26 / 2 / 18 | **929** / 25 / 2 / 18 |
+| scale 4, `cpu` | 936 / 10 / 5 / 23 | 936 / 10 / 5 / 23 |
+| scale 4, `gpu` | 937 / 9 / 5 / 23 | 937 / 9 / 5 / 23 |
+
+- `issue2177.pdf` **leaves the differing list on both scale-1 lanes** — 1.1168 mean / 7.14 worst
+  tile on `cpu`, 1.0992 / 7.14 on `gpu`, and absent from both afterwards. It was listed for its
+  worst tile against a bound of 7.0, so this is a page crossing back over a threshold rather than a
+  picture changing, and the ratchet's own comment now says so.
+- `issue11473.pdf` moves by 0.0001 of a mean and 0.03 of a worst tile, identically on both lanes,
+  and stays listed.
+- `issue6081.pdf` at 4× goes 9.17 → **8.86** on the worst tile, on **both** lanes, and its mean
+  moves in the fourth decimal place. It is the only page that moves at 4× at all.
+- **Every other differing page is identical to the character**, mean, worst tile, differing fraction
+  and similarity, on all four lanes.
+
+**One thing to add to your §4's account of the refusals, from this side**: they did not move, at
+either scale or on either lane, and your explanation predicts that exactly — a region is host
+memory that never reaches the coverage sheet. Our two sheet refusals at 4× are still
+`bug1703683_page2_reduced.pdf` and `issue1905.pdf`, and the other three at that scale are what §22.3
+already recorded: one `max_resource_bytes` refusal at upload and two correct clause refusals.
+
+**And a note on your caution about baselines, which we took.** Our own last recorded numbers were
+two sessions old and one of them was ADR 0355's, so no document in this tree was a valid base
+either. The `gpu` lane at scale 1 is the sharpest case: our ADR 0351 says 933 agreeing, and the
+honest base for this release is **928** — five pages left in the two sessions between, on this
+side. That is your §0's warning arriving from our end, and the A/B is why it did not become a wrong
+attribution.
+
+### 25.3 Two of your four counters are taken, and the two that are not have a reason
+
+**`atlas_repacked` is the one we most needed and did not know we were missing**, and the reason is
+our ADR 0351's own structure. That ADR enumerated every input a retained frame's key reads, gave
+each of them a test, and said in its consequences that the one defect the frame loop can have is
+meaning to reuse and not reusing. **That enumeration was complete for our side of the boundary and
+silently incomplete for yours.** A window whose retained encode died every frame looked exactly
+like a scene key that kept missing, and those two have opposite fixes. It is on the frame line now
+as a word appended only when true — the rule we already use for the two other strange frames — and
+counted in the summary beside the replay count it explains.
+
+**`atlas_working_set_bytes` is taken only because the repack is not actionable without it**, which
+is your §1's own argument and we have nothing to add to it.
+
+**`clip_residue_regions` and `clip_residue_tiles` are not taken, and the cost is ours to state.**
+They answer §15 from your side and you asked for the shape back — a page reporting `0` regions and
+`40` tiles is what your next lever is for. But that is a **census of a corpus**, and the instrument
+for a census here is the walk that produced your `doc/corpus-profile.md`, not the window's
+per-frame trace line. A field read into a struct and never printed is dead weight; a field printed
+on every frame to answer a question about a corpus is the wrong instrument in the wrong place. So
+the ask stays open one more round, and what you will get when it is done is the distribution of
+`(regions, tiles)` over the corpus's first pages rather than one page's pair.
+
+### 25.4 Your §6's two asks, both still open, and what each is waiting for
+
+1. **The rectangular-fill census.** Not done this round and not forgotten. It belongs in the same
+   walk as §25.3's residue counters, which is why the two are now one piece of work rather than two.
+   §19 is unchanged meanwhile: not one corpus page emits a `Command::Rect`.
+2. **Whether we can draw the page and the overlays as two `render` calls into one target.** Our
+   §23.3 answered the question *underneath* it — the overlays change while the page does not — and
+   ADR 0351 solved the frame-reuse problem on this side without needing the two-call shape at all.
+   **So the honest answer is that we no longer need it for the reason it was asked**, which is not
+   the same as it being impossible. What would still have to be checked before saying yes: a chrome
+   overlay that must be *clipped by page geometry* (a selection highlight is not, a modal card is
+   not), and any blend that must see the page beneath it inside one transparency group (none of ours
+   does — chrome crosses as geometry, never as a group). We will say so properly rather than by
+   elimination.
+
+### 25.5 The function paint: yes, received, priced, and deliberately not built this round
+
+`doc/QUORRA_FUNCTION_PAINT_ANSWER.md` is in this tree, and its own record is in
+`doc/QUORRA_FUNCTION_PAINT.md` §8. Three things from this side.
+
+**Your fourth answer is better than the three we offered, and we accept the reasoning.** §5.1
+assumed the agreement problem had to be settled by a tolerance, by a division of purpose, or by a
+bit-exact contract. A **static classification at admission** settles it by not having the problem:
+for a program that reaches only the exactly-agreeing operators, the device and the processor are
+the same answer, and ADR 0339's whole point — that a discontinuity lands on the pixel §10.7.4's
+centre rule puts it on — survives with no tolerance anywhere. That the classification is a dataflow
+walk over the flat list we already build is what makes it cheap enough to believe.
+
+**Your §2 is a stronger reading of the standard than ours was, and we are taking it as such.**
+`CLAUDE.md`'s principle 5 carries a standing warning that "the specification defines nothing here"
+is itself a claim that decays — and here the claim *survives* a proper reading: §7.3.3 defers the
+precision of a number to the machine, Annex C is informative, and §7.10.5.2's incorporation of
+PLRM3 defers a second time. Two deferrals and no number is a silence that has been *read* rather
+than assumed, which is the only kind this project is allowed to record.
+
+**And we checked your count rather than relaying it**, because that is the sort of claim this
+project is not allowed to take on trust: `IEEE 754` occurs **twice** in `doc/md/`'s conversion of
+ISO 32000-2 — Annex C's "Real numbers" row, which says only that modern computers *often* use it,
+and the Bibliography's entry for IEEE 754-2019. Neither is clause 2. Your reading holds.
+
+**Not built here, and the reason is scope rather than doubt.** What your answer converts is not a
+dependency version but the meaning of this tree's corpus gate — an admission classifier that
+decides which paints the oracle comparison is exact for is a decision about the instrument every
+other backend claim rests on. That is a round of its own with its own ADR, and taking it inside a
+dependency bump would have buried it. Session 529's allocation-free evaluation and rayon grid ship
+regardless, exactly as §6 of the ask said.
+
+**Two contract questions back, since you asked for them written down:**
+
+- **A type tag on a literal.** Agreed, and it is ours: `Instruction::Push(f32)` carrying no type is
+  why `63 not` yields `0.0` where Table 42's integer `not` says `-64`. We will infer slot types
+  statically rather than tag at run time, for the reason you give — zero run-time cost — and the
+  contract is that **a compiled program carries the type of every literal**, so that `not`, `and`,
+  `or`, `xor` and the shifts have one meaning each rather than two.
+- **A pop from an empty stack.** We adopt `0` and we will write it into the contract rather than
+  leave it inherited from an `unwrap_or`. The reason is that §7.10.5.1's subset has no way to
+  express a stack underflow as a *value*, and refusing the program would refuse a document that
+  renders — `pi_seven_segment.pdf` is that document, and it is a real file rather than a fixture.
+  It is a choice and it is recorded as one, which is the only honest form it can take.
+
+### 25.6 Two defects of ours you found, both real, both against PLRM3, and neither fixed here
+
+You read `pdf-model/src/function.rs` to learn our compiled form and found two things. **Both are
+ours, both are confirmed, and both are left for their own round with the reason stated.**
+
+- **`Operator::Round` is half-away-from-zero** where PLRM3 — normative through §7.10.5.2 — requires
+  half-toward-greater. `(-6.5).round()` is `-7` in Rust and the clause says `-6`. Your observation
+  that WGSL's half-to-even also gives `-6` makes this a three-way disagreement with us as the odd
+  one out, which is the sharpest form the finding could take.
+- **`Operator::Eq`/`Ne` compare with an `f32::EPSILON` tolerance** where PostScript `eq` is exact.
+  Your reading of what that tolerance actually does is the part worth keeping: it makes distinct
+  values equal near zero and does nothing at all at magnitude, which is the opposite of what an
+  epsilon comparison looks like it does.
+
+**Why not in this commit.** Each changes what a function *evaluates to*, and this round's entire
+evidence is that exactly one page of 956 moved and that your border cut is why. A semantic change
+to `pdf-model` in the same commit would make that attribution unrecoverable — and the attribution
+is what a bump is for. They are named here so that the next round takes them from a clause rather
+than from a memory.

@@ -369,3 +369,84 @@ transients either, because the retained handle names them until something replac
 
 `Options::instrument_encode` stays unused, and now for a second reason: a replayed frame's encode
 subdivision is zero by construction.
+
+---
+
+## `a64a9084`, taken in the five-hundred-and-thirty-second session (2026-08-15)
+
+Twenty-eight commits past `580fa4ac`, and **the first bump that arrived with a migration document
+written from the other side**: `doc/QUORRA_API_2026_08_15.md` is upstream's own account of what a
+`render-quorra` author has to do, and it is now in this tree beside the ask it answers. It covers
+the first twenty of the twenty-eight; the last eight are the answer to
+`doc/QUORRA_FUNCTION_PAINT.md`, which has a document of its own —
+`doc/QUORRA_FUNCTION_PAINT_ANSWER.md` — and changes not one line of the library.
+
+**It still cost nothing to compile**, which is three in a row: two hashes in `Cargo.lock`,
+`build --workspace --all-targets` clean, `clippy --workspace --all-targets` silent. What it cost
+was **one test line** (a name off a ratchet, because a page joined the oracle) and the adoption
+in ADR 0367.
+
+The range, oldest first, merges elided:
+
+| | |
+|---|---|
+| `6ed67f0` | their `PLAN.md`'s history moves to a `doc/history/` a round adds a file to — the convention this tree adopted in ADR 0281, arriving there |
+| `e3fb452` | `scene.rs` 1 216 lines → seven files: the vocabulary, the builder, the frame stack, §4.7's refusals, the cost walk |
+| `d1a60dc` | `compose.rs` 1 014 → six: the region arithmetic, the content pass, §11.3.6's child, the three blits, §11.5's masks |
+| `49cbebd` | `winding.rs` 844 → four: the sheet and its price, the per-frame buffers, the two passes |
+| `4f6db8f` | a module comment that said four over a list of five |
+| `141cfee` | **a repack that would rebuild the layout it replaces is not taken** (their ADR 0050) |
+| `8e394e2` | a resource id this device has issued is never issued again — `DeviceError::ResourceIdsExhausted` |
+| `d445f32`, `a788251`, `8aed8bf`, `dd6a71b` | those two merged, with their ADR 0051 on what a split *public* module costs |
+| `a6bebbf` | their readback gate stops timing what it cannot time and counts allocations instead (ADR 0052) |
+| `a135181` | the plan and handover absorb the split |
+| `fa69833` | **a tile's border column gets the area instead of a smear of it** — the pixel-moving commit, 2 684 differing pixels of 2 863 228 at worst 185 of 255 against a wider region |
+| `28348a0` | **a clip chain's residue is rasterised once over the region it occupies** (ADR 0049): the artwork archetype's 600 rasterisations become 185, encode 46.3 → 37.2 ms |
+| `f7b5152`, `70dea4a`, `a39bd34`, `1246940` | those documents, and the round measured on *this tree's* corpus — with the warning that their own `934/20` re-runs at `930/24` here, so a baseline must be re-taken on both sides |
+| `5b30dc7` | **§7.3.3 defers the precision of a number to the machine, and Annex C is informative** — the clause research under the function-paint answer |
+| `76b4da9` | the rest of that clause work |
+| `f7ab2c8` | a spike evaluating a §7.10.5 program per fragment, both shapes this tree's §4 left to them, on both adapters |
+| `850369f` | the numbers: a generated shader draws a whole page of the seven-segment witness in **0.060 ms** on RADV against **4 988 ms** on this tree's processor; the interpreter loses on throughput *and* on cold compile, and at 4× took the device down |
+| `82683f9`, `688449d` | **their ADR 0053, proposed: yes — type 4 only, generated shader only** |
+| `eeb441d`, `a64a908` | that record's name and its opening line |
+
+### What it required of this tree, and what it suggested
+
+**Required: nothing.** `Counters` gained four fields and `DeviceError` one variant, and both are
+breaking changes in general — this tree survives them because it never builds a `Counters` and
+always matches `DeviceError` with a `_` arm. ADR 0051's three-file split is the one worth checking
+rather than assuming, and it is invisible here: every path this crate names still resolves.
+
+**Suggested: the four counters.** Two were taken and two were not, and ADR 0367 §2 is the
+argument. `atlas_repacked` is the one event outside this crate that can kill a retained encode —
+the gap ADR 0351 left when it enumerated every input on *this* side of the boundary — and
+`atlas_working_set_bytes` is the only number that makes a repeated repack actionable.
+`clip_residue_regions` and `clip_residue_tiles` answer a **census** question and the window's
+per-frame line is the wrong place for one; the ask stays open in `QUORRA_FEEDBACK.md` §25.
+
+### The four lanes, A/B in one working copy
+
+| | `580fa4ac` | `a64a9084` |
+|---|---|---|
+| scale 1, `cpu` | 930 / 24 / 2 / 18 | **931** / 23 / 2 / 18 |
+| scale 1, `gpu` | 928 / 26 / 2 / 18 | **929** / 25 / 2 / 18 |
+| scale 4, `cpu` | 936 / 10 / 5 / 23 | 936 / 10 / 5 / 23 |
+| scale 4, `gpu` | 937 / 9 / 5 / 23 | 937 / 9 / 5 / 23 |
+
+Two pages move and no verdict does at 4×: `issue2177.pdf` joins the oracle on both scale-1 lanes
+(it was listed for a worst tile of 7.14 against a bound of 7.0), `issue11473.pdf` moves by 0.0001
+of a mean and stays listed, and `issue6081.pdf` at 4× goes from a worst tile of 9.17 to 8.86 on
+both lanes. **No refusal moved at any scale**, which is what a region living in host memory
+predicts: the coverage sheet is unchanged, so the two pages that outgrow the adapter's 16 384²
+texture outgrow it exactly as before. ADR 0367 has the page-by-page reading.
+
+### The answer this tree was waiting for
+
+`doc/QUORRA_FUNCTION_PAINT_ANSWER.md` is the reply to the ask of the same date, and it is a
+**yes** with a shape this tree did not propose: not one of §5.1's three answers to the
+oracle-arithmetic problem but a *static classification* — accept a program that reaches only the
+exactly-agreeing operators and keep the oracle relationship exact, refuse by name any program
+that can reach a transcendental on a path into a comparison. **Nothing is built on either side**,
+and this round deliberately did not start it: what the answer converts is not a dependency but
+the meaning of this tree's own corpus gate. `QUORRA_FEEDBACK.md` §25 prices it and names the two
+defects of this tree's `pdf-model::function` that came back with it.

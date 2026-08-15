@@ -164,3 +164,71 @@ place.
   is already a texture.
 - Not a change to `Command::Image` or to the sampled path. `ImageSource::AtDeviceScale` (this
   tree's ADR 0210) stays exactly as it is; this is `Paint::Shading`'s question and no other.
+
+---
+
+## 8. The answer, received the same day
+
+**Yes** — type 4 only, generated shader only, nothing built on either side. The reply is
+`doc/QUORRA_FUNCTION_PAINT_ANSWER.md`, written from the renderer side against this document and
+carried by the release this tree took in its five-hundred-and-thirty-second session (ADR 0367;
+`QUORRA_UPGRADE.md`'s `a64a9084` section). Their ADR 0053 is the decision behind it. Four things
+belong in *this* document, because they are answers to what *it* asked.
+
+**§4's choice between the two shapes is made, and the expectation in it was wrong.** This document
+guessed the interpreter would trade throughput for the launch-path property `CLAUDE.md` requires.
+It loses on both: 133.7 ms against **0.060 ms** on RADV for the seven-segment witness, and a cold
+pipeline compile of 596 ms to 4.5 s against **6.3 ms** for the generated shader. At 4× the
+interpreter's pass *took the device down* with a hard recovery. So the shape that existed to keep a
+compile off the frame path is the one that must never be near it — and the generated shader's 6.3 ms
+is a warm-set question rather than a frame-path one.
+
+**§5.1's question is answered by a fourth option this document did not list, and it is better than
+all three.** Not a tolerance, not two answers for two purposes, and not a bit-exact contract:
+**classify the program at admission.** A program reaching only the exactly-agreeing operators is
+accepted and the device and the processor are the *same* answer — measured at zero differing pixels
+over four million device pixels of both witnesses on both adapters — and a program that can reach a
+transcendental on any path into a comparison is refused by name, falling back to the raster this
+tree builds today. ADR 0339's property survives with no tolerance introduced anywhere, which is
+what §5.1 feared it could not.
+
+**§5.1's failure mode is real and was reproduced.** Their two adapters disagree bitwise on every
+transcendental measured — and on `div` and `sqrt` — and `sin 0 ge` flips between them on 2 of 4 096
+inputs before any oracle is involved. What follows for this tree's CI is the one promise they
+decline to make: **cross-adapter identity is not offered for this paint**, so a function-shading
+page under lavapipe is not evidence about the same page on RADV.
+
+**§5.3's population question is unanswered and stays this tree's.** Their answer prices the
+arithmetic, not the frame: the 0.060 ms is a bare full-viewport pass rather than a `Paint::Shading`
+clipped, grouped and composited.
+
+### What it costs to adopt, and why this tree has not started
+
+Priced rather than begun, and the reason is in ADR 0367: what the answer converts is not a
+dependency version but **the meaning of this tree's corpus gate**. An admission classifier decides
+which paints the oracle comparison is exact for, and that is the instrument every other backend
+claim rests on — a decision with its own ADR, not a line in a bump. What it would take, in order:
+
+1. **The type tag §6.3 of the answer asks for**, which is this tree's alone and worth having
+   regardless: `Instruction::Push(f32)` carries no type, so Table 42's integer `not` is
+   unimplementable — `63 not` yields `0.0` where the standard says `-64`. Static slot-type
+   inference on the pass that already computes stack depth, at zero run-time cost.
+2. **The empty-stack contract written down** rather than inherited from an `unwrap_or`: a pop from
+   an empty stack yields `0`, which is what `pi_seven_segment.pdf` depends on and what makes its own
+   unlit-segment branch dead code. A choice, recorded as one.
+3. **The classifier itself**, a dataflow walk over the same flat list, plus the conformance test
+   their §7 requires before it is a contract: one program per dangerous operator refused, one per
+   safe operator exact.
+4. **The refusal path wired to the existing fallback**, which is the shape §5.2 asked for and which
+   this tree already has — a paint quorra declines by name falls back to the grid built today.
+
+Session 529's allocation-free evaluation and rayon grid are unaffected and ship regardless, exactly
+as §6 said they would.
+
+### And two defects in this tree, found while they read our compiled form
+
+Both against PLRM3, which §7.10.5.2 makes normative for Table 42's semantics, and both left for a
+round of their own so that a bump's page-level attribution stays readable (ADR 0367 §4):
+`Operator::Round` rounds half away from zero where the clause requires half toward greater, and
+`Operator::Eq`/`Ne` compare with an `f32::EPSILON` tolerance where PostScript `eq` is exact.
+`QUORRA_FEEDBACK.md` §25.6 carries both with the reply that went back.

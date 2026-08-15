@@ -232,6 +232,13 @@ impl FrameLog {
                 unusual = format!("{unusual} {name} {:.1}", ms(spent));
             }
         }
+        // The third strange frame, and the same rule: a repack throws every atlas placement away
+        // and so kills the retained encode the next frame would have replayed (quorra's ADR
+        // 0050). A page settles after at most one, so the word appearing on frame after frame is
+        // the pathology rather than the event.
+        if stages.gpu.atlas_repacked {
+            unusual = format!("{unusual} repacked");
+        }
         // Whether this frame's device commands were encoded or replayed, one character wide,
         // beside the number it explains. A frame loop that means to reuse its scene and does
         // not is the one defect ADR 0351 can have, and reading it off a small `encode` is
@@ -293,6 +300,11 @@ impl FrameLog {
             (
                 "attend",
                 "the accessibility publication, beside the frame and not inside its total",
+            ),
+            (
+                "repacked",
+                "the device threw its glyph atlas away after this frame, so the next one cannot \
+                 replay — absent on every frame that did not",
             ),
             (
                 "up",
@@ -357,34 +369,7 @@ impl FrameLog {
             .map(|frame| frame.gpu.uploads)
             .max()
             .unwrap_or(0);
-        // **The claim ADR 0351 has to keep, as a count rather than as a shape in the medians.**
-        // A run whose frames are mostly unchanged should replay mostly, and the bytes are what
-        // that reuse is being held at — the number `doc/QUORRA_RETAINED_FRAME.md` section 6 says to
-        // budget a resident page against, which nothing but the device can compute.
-        let replayed = self
-            .samples
-            .iter()
-            .filter(|frame| {
-                matches!(
-                    frame.gpu.encode_source,
-                    Some(quorra_gpu::EncodeSource::Replayed)
-                )
-            })
-            .count();
-        let retained = self
-            .samples
-            .iter()
-            .map(|frame| frame.gpu.retained_bytes)
-            .max()
-            .unwrap_or(0);
-        trace.more(
-            Topic::Frames,
-            format_args!(
-                "{replayed} of {} frame(s) replayed a retained encode; the handle held at most \
-                 {retained} byte(s)",
-                self.samples.len()
-            ),
-        );
+        self.retention(trace);
         let measured = self.samples.iter().any(|frame| frame.gpu.execute_measured);
         trace.more(
             Topic::Frames,
@@ -413,6 +398,64 @@ impl FrameLog {
                 ),
             );
         }
+    }
+
+    /// What the retained frame did over the run, and the one thing outside this program that
+    /// stops it working.
+    ///
+    /// **The claim ADR 0351 has to keep, as a count rather than as a shape in the medians.** A run
+    /// whose frames are mostly unchanged should replay mostly, and the bytes are what that reuse
+    /// is being held at — the number `doc/QUORRA_RETAINED_FRAME.md` section 6 says to budget a
+    /// resident page against, which nothing but the device can compute.
+    ///
+    /// **The repack is on the same line because it is the one explanation of a low replay count
+    /// this program cannot otherwise give.** Every other reason a frame re-encodes is
+    /// `render_quorra`'s own scene key, which ADR 0351 enumerated and gave a test each; a repack
+    /// is the device's own invalidation (quorra's ADR 0050), and the working set beside it is what
+    /// says whether raising the atlas budget would stop it or whether this page has never fitted.
+    fn retention(&self, trace: Trace) {
+        let replayed = self
+            .samples
+            .iter()
+            .filter(|frame| {
+                matches!(
+                    frame.gpu.encode_source,
+                    Some(quorra_gpu::EncodeSource::Replayed)
+                )
+            })
+            .count();
+        let retained = self
+            .samples
+            .iter()
+            .map(|frame| frame.gpu.retained_bytes)
+            .max()
+            .unwrap_or(0);
+        trace.more(
+            Topic::Frames,
+            format_args!(
+                "{replayed} of {} frame(s) replayed a retained encode; the handle held at most \
+                 {retained} byte(s)",
+                self.samples.len()
+            ),
+        );
+        let repacked = self
+            .samples
+            .iter()
+            .filter(|frame| frame.gpu.atlas_repacked)
+            .count();
+        let working_set = self
+            .samples
+            .iter()
+            .map(|frame| frame.gpu.atlas_working_set_bytes)
+            .max()
+            .unwrap_or(0);
+        trace.more(
+            Topic::Frames,
+            format_args!(
+                "the atlas was repacked after {repacked} of them; the busiest frame's glyph tiles \
+                 wanted {working_set} byte(s) of it"
+            ),
+        );
     }
 }
 
