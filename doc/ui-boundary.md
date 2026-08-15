@@ -425,7 +425,7 @@ rather than about this boundary (ADRs 0244, 0246).
 the hundred-and-thirty-fourth (ADR 0119).**
 `Interpretation::text_layer` is one `Placed` per character code: the range of the readback it
 produced and the quadrilateral its glyph occupies, in the display list's coordinates. The box is
-the glyph's advance by Table 122's `/Ascent` and `/Descent`, and it is built for rendering modes
+the glyph's advance by Table 120's `/Ascent` and `/Descent`, and it is built for rendering modes
 3 and 7 too, because an OCR layer under a scanned page is exactly the text a person selects.
 Measured at **+1.69%** of interpretation by an A/B in one sitting, and kept unconditional with the
 cost written down.

@@ -81,7 +81,7 @@ The poppler/mupdf word-box **height ratio** is median 1.29, p90 1.78 — on `alp
 12 pt Helvetica, poppler's box is 11.10 pt tall and mupdf's 8.75 pt, same glyphs, same baseline.
 100 of 311 documents carry a median vertical shift over 1 pt that scales with the font size.
 The standard states no word box at all; each extractor derives one from ascent and descent
-conventions of its own choosing, and ours (Table 122's `/Ascent`/`/Descent`, ADR 0118) is a
+conventions of its own choosing, and ours (Table 120's `/Ascent`/`/Descent`, ADR 0118) is a
 third. **Vertical edges are convention against convention and are excluded from any verdict.**
 The vertical *centre* is comparable: relative to the word's own height it agrees to median
 0.088, p90 0.152, p99 0.455 — so "centres within half the word's height" admits the references'

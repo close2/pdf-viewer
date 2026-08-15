@@ -282,6 +282,14 @@ fn own_text<'a>(index: &'a ClauseIndex, heading: &Heading) -> &'a str {
 /// - **A caption is sometimes promoted to a heading.** `## Table 246 -Entries in the FDF
 ///   dictionary` is one; the hashes come off before the caption is matched, which is what
 ///   [`ClauseIndex::table_title`] does one level up.
+/// - **One caption, several blocks.** A table longer than a page comes out of the conversion as a
+///   run of pipe tables, each repeating the `| Key |` header, separated by whatever the page
+///   break carried — a blank line, a running footer, or a base64 image. So a caption's span runs
+///   to the *next caption*, and every block inside it whose header names `Key` states entries;
+///   a block whose header does not (Table 92's `Full Name`) states none, and the header is asked
+///   again for each block rather than once for the table. **This read the first block only until
+///   the five-hundred-and-forty-fifth**, which cost Table 31 twenty-two of its twenty-eight keys
+///   and made every citation of one of them a suspect in the ninth sweep.
 /// - **The columns shift.** Table 200's rows come out of `doc/md/` with the columns displaced,
 ///   so four of its five keys read as prose and only one reaches the output. That is a silence
 ///   in the conversion rather than in the standard, and `doc/HANDOVER.md`'s caveat about
@@ -303,21 +311,19 @@ pub fn tables_in(text: &str) -> Vec<Table> {
             continue;
         };
         let Some(cells) = row_of(line) else {
-            // A blank line inside a Markdown table does not occur; anything that is not a row
-            // after the table has started is the prose after it.
-            if !line.trim().is_empty() && column.is_some() {
-                push(&mut tables, current.take());
+            // A blank line inside a Markdown table does not occur, so anything that is not a row
+            // ends the *block*. The table itself ends at the next caption: what follows a block
+            // is as often the rest of the same table, one page break later, as it is prose.
+            if !line.trim().is_empty() {
                 column = None;
             }
             continue;
         };
         match column {
-            // The header decides whether this table states entries at all.
+            // Each block's header decides whether that block states entries.
             None => {
                 if cells.first().is_some_and(|first| first == "Key") {
                     column = Some(0);
-                } else {
-                    current = None;
                 }
             }
             Some(index) => {
@@ -383,7 +389,7 @@ fn row_of(line: &str) -> Option<Vec<String>> {
 /// The standard sets a key as one word; a cell holding a sentence is a continuation of the row
 /// above, which the conversion produces whenever a description wraps.
 fn key_of(cell: &str) -> Option<String> {
-    let key = cell.trim().trim_end_matches(['*', '†', '‡', '1', '2', '3']);
+    let key = cell.trim().trim_end_matches(['*', '†', '‡']);
     let key = key.trim();
     if key.is_empty() || key == "Key" || key.contains(char::is_whitespace) {
         return None;
@@ -538,6 +544,34 @@ Table 104 -Text rendering modes
 | 0    | x       | Fill text.   |
 ";
         assert_eq!(tables_in(text), Vec::new());
+    }
+
+    /// A table longer than a page arrives as several blocks under one caption, and what separates
+    /// them is whatever the page break carried — here the base64 image `doc/md/` puts between
+    /// Table 31's first and second blocks. Reading the first block alone cost that table
+    /// twenty-two of its keys.
+    #[test]
+    fn one_captions_blocks_are_one_table() {
+        let text = "\
+Table 31 -Entries in a page object
+
+| Key      | Type      | Value                    |
+|----------|-----------|--------------------------|
+| Type     | name      | ( Required ) The type.   |
+| MediaBox | rectangle | ( Required ) A rectangle.|
+
+![Image](data:image/png;base64,iVBORw0KGgo)
+
+| Key    | Type    | Value                     |
+|--------|---------|---------------------------|
+| Rotate | integer | ( Optional ) The degrees. |
+
+## 7.7.3.4 Inheritance of page attributes
+";
+        let tables = tables_in(text);
+        let table = tables.first().expect("one table");
+        assert_eq!(tables.len(), 1, "{tables:?}");
+        assert_eq!(table.keys, ["Type", "MediaBox", "Rotate"]);
     }
 
     /// The finding the sweep was built for is a *conjunction*: the entry is named in the tree

@@ -47,7 +47,7 @@ present and **no command at all**.
 
 The obvious route was `Interpretation::text_layer`, which `doc/todo/33` pointed at: one `Placed` per
 character code with the quadrilateral its glyph occupies, derived from §9.4.4's text rendering
-matrix and Table 122's metrics (ADR 0118). It is the wrong instrument here, and the case that
+matrix and Table 120's metrics (ADR 0118). It is the wrong instrument here, and the case that
 settles it is the commonest one in the corpus:
 
 **an empty field has no glyphs.** 147 of the corpus's first-page widgets are empty text fields

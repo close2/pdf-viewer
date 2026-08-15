@@ -623,13 +623,13 @@ fn split(document: &Document, dict: &Dictionary) -> Option<Split> {
     })
 }
 
-/// Table 159's folder tree, from `/Folders` downwards.
+/// Table 159's folder tree, from Table 153's `/Folders` downwards.
 fn folders(document: &Document, dict: &Dictionary) -> Option<Folder> {
     let root = document.get_key(dict, "Folders");
     let root = root.as_dict()?;
     let mut visited = std::collections::BTreeSet::new();
     // The root's own identity goes into the visited set before the walk starts, because Table
-    // 159 makes `/Folders` "an indirect reference" and a `/Child` pointing back at it would
+    // 153 makes `/Folders` "an indirect reference" and a `/Child` pointing back at it would
     // otherwise read the whole tree a second time. §12.3.5.2 says the root is "the single common
     // ancestor of all other folders", so a folder that contains it is a file contradicting
     // itself.

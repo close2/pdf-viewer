@@ -26,7 +26,7 @@ it is a third of the work and exercises the `Command::Activate` path the outline
 ### A sixth tab, and it sends the same message the first one does
 
 `Query::Articles` → `Answer::Articles(Vec<Thread>)`, in the `/Threads` array's own order.
-`viewer_ui::chrome::Tab::Articles` draws one row per thread: Table 158's `/I` title, the bead count
+`viewer_ui::chrome::Tab::Articles` draws one row per thread: Table 162's `/I` title, the bead count
 beside it, and `Act::Activate(thread.id)` — the *object*, not a destination.
 
 That is the rule ADR 0144 settled for the outline and it is worth restating because it is what made
@@ -87,3 +87,7 @@ much of the standard unimplemented".
 - §12.3.5's collection is still open, and `doc/todo/36` keeps the argument for it — including the
   one decision this round did not have to make, whether a collection's container pages stay on the
   screen when the panel opens.
+
+*(This ADR said the tab draws "Table 158's `/I` title" until the five-hundred-and-forty-fifth
+session. A thread's `/I` information dictionary is Table **162**'s; 158 is the collection split
+dictionary, one family over, and `article.rs` has read Table 162 all along.)*

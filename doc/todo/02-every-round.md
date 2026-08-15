@@ -173,7 +173,8 @@ share and the two that break it:
   other is every `Table NNN`'s `/Key` citation against the entries ISO 32000-2 actually puts in
   that table — `tools/conformance` verifies a cited table *exists* and prints its title, so a
   number that exists and names the wrong table reads exactly like a right one, and those arrive in
-  **blocks**, a run of consecutive rows written in one sitting against the older standard.
+  **blocks**, a run of consecutive rows written in one sitting against the older standard. That one
+  is `--bin tables` since the five-hundred-and-forty-fifth, below.
 - **One reads the ledger's own quotation marks**, which no gate in this project does: the checker
   verifies every rustdoc blockquote in `crates/` and nothing at all in `ledger.toml`. Report only
   the misses that match the standard for at least five words and then diverge — a claim this
@@ -230,6 +231,14 @@ share and the two that break it:
   another crate, a metavariable (`doc/todo/NN`), and a path this tree deliberately does not carry.
   The oldest false positive is a correction quoting the pointer it retired, and it is marked rather
   than dropped. Read the sentence before believing a hit.
+- **One asks whether the table a sentence cites states the key it gives it**: `cargo run --release
+  -p conformance --bin tables`, seconds, over `ledger.toml`, the source roots and every Markdown
+  document under `doc/` bar `doc/history/` — the ninth sweep as a program (ADR 0380). It counts a
+  key only where the sentence **attributes** it, prints which table *does* state it, and reads a
+  **denial** as a claim in the other direction, so "Table 119 gives a Type 0 dictionary no
+  `/FontDescriptor`" is agreement and a denial the table contradicts is a hit. Its findings arrive
+  in blocks, and its most durable population is a *document*: a number a round retires in the code
+  goes on living in the ADR the code came from.
 - **One reads *these documents'* quotation marks and the ledger's**, on the same discriminator and
   for the same reason: `cargo run --release -p conformance --bin quotations`, seconds, over every
   Markdown file this project wrote under `doc/` **and over `ledger.toml`'s notes**, which is the

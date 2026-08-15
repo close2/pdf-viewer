@@ -222,7 +222,7 @@ impl Role {
         if name_is("Type", b"EmbeddedFile") {
             return Self::EmbeddedFile;
         }
-        // §9.7.5.3 makes an embedded CMap a stream with `/Type /CMap`, and Table 78 makes
+        // §9.7.5.3 makes an embedded CMap a stream with `/Type /CMap`, and Table 77 makes
         // `/ShadingType` required of every shading — types 4 to 7 of which are streams.
         if name_is("Type", b"CMap") {
             return Self::CMap;

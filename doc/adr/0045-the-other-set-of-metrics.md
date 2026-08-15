@@ -25,7 +25,7 @@ rows and is where the second set of metrics is defined.
   origin used for vertical writing (origin 1)".
 
 §9.7.4.3 supplies them. `/DW2` is "an array of two values: the vertical component of the position
-vector `v` and the vertical component of the displacement vector `w1`", with Table 122's default
+vector `v` and the vertical component of the displacement vector `w1`", with Table 115's default
 `[880 -1000]`, and the two components it does not state are fixed by the clause: "the horizontal
 component of the position vector shall be half the glyph width, and that of the displacement
 vector shall be 0". `/W2` states them per CID, in the same two formats `/W` uses, three numbers

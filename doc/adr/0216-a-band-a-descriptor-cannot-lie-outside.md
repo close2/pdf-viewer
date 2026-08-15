@@ -236,3 +236,8 @@ what that table is.
   numbers below say they did not.
 - `pdf_font::measured_extent` is public, so the census measures the program's own rule rather than
   a copy of it that could drift.
+
+*(**And the sweep that found this left six documents standing**, which the five-hundred-and-forty-fifth
+corrected: ADRs 0032, 0045, 0118, 0211, 0323 and `doc/ui-boundary.md` went on attributing `/Ascent`,
+`/Descent` and — in ADR 0045 — `/DW2` to Table 122. This ADR corrected the *tree* and said so; a
+document is where a number a round retired goes on living, and the ninth sweep reads them now.)*

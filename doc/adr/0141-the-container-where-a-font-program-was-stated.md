@@ -18,7 +18,7 @@ has decided to do nothing.
 ## The decision, and why it is a derivation
 
 Reading *a* face from the container is a decision the file has not made — unless it has. Table
-122 gives the descriptor a `/FontName`, §9.6.2.1 makes that "the PostScript name of the font",
+120 gives the descriptor a `/FontName`, §9.6.2.1 makes that "the PostScript name of the font",
 and every face in a collection carries its own PostScript name in its `name` table. Matching the
 two is reading the document. Taking face zero is the fallback and is recorded as one, because a
 collection whose faces the descriptor names none of has told us nothing.

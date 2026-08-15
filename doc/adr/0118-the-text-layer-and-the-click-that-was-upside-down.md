@@ -64,7 +64,7 @@ appear**, which is why it is one artefact rather than three.
 
 Two decisions inside it:
 
-**The box is the advance by Table 122's `/Ascent` and `/Descent`.** Nothing in ISO 32000-2 asks
+**The box is the advance by Table 120's `/Ascent` and `/Descent`.** Nothing in ISO 32000-2 asks
 where a selection highlight goes — selecting text is not a thing the standard describes — but it
 does say where a glyph is drawn (§9.4.4's text rendering matrix) and how far a font's glyphs
 reach above and below the baseline, and those two answer the question without inventing a
@@ -105,7 +105,7 @@ glyph's advance takes abutting pairs from 1485 of 5898 to **0 of 5898**. The mir
 went into the click test that was already there, which is where it belongs: that test was the one
 that could not fail.
 
-`pdf_font::LoadedFont::extent` is new, and reads Table 122's two entries.
+`pdf_font::LoadedFont::extent` is new, and reads Table 120's two entries.
 
 The four gates are unmoved: the layer is output nothing else reads, and the y flip lives in a
 crate no gate exercises.

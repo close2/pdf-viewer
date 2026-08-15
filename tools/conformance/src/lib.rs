@@ -56,6 +56,7 @@ pub mod pointers;
 pub mod prose;
 pub mod quote;
 pub mod retired;
+pub mod tables;
 pub mod toml_subset;
 pub mod unread;
 

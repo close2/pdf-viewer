@@ -118,7 +118,7 @@ Two things the file did not say, both found by placing the controls:
   underneath would not fix that; it is a second, separate consequence of the same decision, and it
   is why a real native form host will also want to render the page at a scale it chooses.
 - **A quadrilateral is not a rectangle.** `FormWidget::quad` arrives as four corners, correctly, so
-  that §7.7.3.3's `/Rotate` and Table 189's `/R` survive the crossing — and every platform control
+  that §7.7.3.3's `/Rotate` and Table 192's `/R` survive the crossing — and every platform control
   is an axis-aligned rectangle. The host takes the axis-aligned bound and loses the rotation. That
   is the host's loss rather than the boundary's, and it is recorded because a rotated widget is the
   case where an appearance underneath a control is *most* visible.
@@ -245,3 +245,9 @@ its own manifest (ADR 0214): a host binds a platform, and the platform is where 
   85 named by no host, and the GTK host names not one that the other four do not.** A native host
   reaches `pdf-model` for *types* the answers carry and for no function of its own, which is the
   boundary working as designed.
+
+*(This ADR cited "Table 189's `/R`" for a widget's rotation until the five-hundred-and-forty-fifth
+session. Table 189 is the *movie* annotation's; a widget's `/R` is Table **192**'s, the appearance
+characteristics dictionary. ADR 0245 found exactly this, named this ADR as one of the three places
+carrying it, corrected the code and `doc/todo/37` — and left the ADR, which is the shape ADR 0265
+exists for and the second time a round's own record has named the place it did not sweep.)*

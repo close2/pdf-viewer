@@ -74,7 +74,7 @@ Handed back, in the clause's own words — "positioning values it determines to 
 and any layout rules it employs", and for auto-sizing "an implementation dependent function":
 
 - **Where a baseline sits.** Nothing in ISO 32000-2 says where in a field's box its text sits
-  vertically. A font descriptor stating Table 122's `/Ascent` and `/Descent` is the document
+  vertically. A font descriptor stating Table 120's `/Ascent` and `/Descent` is the document
   answering, and it outranks anything chosen here; a standard-14 font has no descriptor, and
   the fallback splits the em three to one. A *constant* rather than the substitute font
   program's own metrics, deliberately: substitution is the only machine-dependent code in the

@@ -14,9 +14,15 @@ question the way `Role::of`'s other arms are". It is not quite: a page's `/Conte
 classified by *who names it*, and every remaining kind is the same shape. `who_names_what` walks
 every object once and records the entry each stream is named under, because the standard makes the
 naming entry the statement of the role — Table 31's `/Contents`, Table 110's `/CharProcs`,
-§12.5.5's `/AP`, §8.6.6.3's fourth array element, §9.10.3's `/ToUnicode`, Table 122's `/Encoding`,
+§12.5.5's `/AP`, §8.6.6.3's fourth array element, §9.10.3's `/ToUnicode`, Table 119's `/Encoding`,
 §12.3.4's `/Thumb`, §12.6.4.16's `/JS`, Annex K's `/XFA` — and two more arms read the stream's own
-dictionary, §9.7.5.3's `/Type /CMap` and Table 78's `/ShadingType`.
+dictionary, §9.7.5.3's `/Type /CMap` and Table 77's `/ShadingType`.
+
+*(This paragraph read "Table 122's `/Encoding`" and "Table 78's `/ShadingType`" until the
+five-hundred-and-forty-fifth session. Both are the numbers the five-hundred-and-thirty-seventh
+corrected in `damaged_stream_census.rs` — a Type 0 font's `/Encoding` is Table 119's and
+`/ShadingType` is stated once, in Table 77, for every shading — and that round amended the code and
+not the ADR the code came from.)*
 
 **The split accounts for the whole 296 and the answer is that almost none of it was owed.** Of the
 crawl's `unclassified`, **193 are a `/ToUnicode` CMap** — the one silence session 524 argued for

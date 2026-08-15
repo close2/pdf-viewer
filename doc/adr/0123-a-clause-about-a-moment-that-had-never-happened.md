@@ -4,7 +4,7 @@ Status: accepted, 2026-08-01.
 
 ## What this implements
 
-Table 176's and Table 192's `/H`, the highlighting mode:
+Table 176's and Table 191's `/H`, the highlighting mode:
 
 > The annotation's highlighting mode , the visual effect that shall be used when the mouse button
 > is pressed or held down inside its active area: N (None) No highlighting. I (Invert) Invert the
@@ -34,7 +34,7 @@ drew the mark" from "we drew it in the wrong colour": a red widget pressed with 
 
 ## The default, which is a reading rather than the sentence
 
-Table 192 gives `/H` the default `I` and says "[a] highlighting mode other than P shall override
+Table 191 gives `/H` the default `I` and says "[a] highlighting mode other than P shall override
 any down appearance". §12.5.5 says the down appearance "shall be used when the mouse button is
 pressed or held down within the annotation's active area". For an annotation that states a `/D`
 and **no** `/H`, those two disagree.
@@ -74,3 +74,8 @@ for the `O` mode, which strokes a border it has no colour of its own to read. Th
 The four gates are unmoved, and cannot move: `pressed_mark` returns nothing unless the pointer is
 down on the annotation, and no gate presses anything. That is the whole reason this clause could
 sit unimplemented — and, one session earlier, unnoticed.
+
+*(This ADR cited "Table 192's `/H`" twice until the five-hundred-and-forty-fifth session. A
+widget's `/H` is Table **191**'s — 192 is the `/MK` appearance characteristics dictionary that
+table's own `/MK` row points at — which the four-hundred-and-eighty-ninth corrected in
+§12.5.6.19's ledger row without amending the ADR the row came from.)*
