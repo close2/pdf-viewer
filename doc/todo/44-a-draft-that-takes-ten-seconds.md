@@ -10,7 +10,10 @@ lost 39.8% of its instructions, byte-identical readback on this document and on 
 **Session 516 took §3** — upstream built the retained encode at `580fa4ac` (their ADR 0048, after
 pricing it at `87898c69`), and this tree adopted it in ADR 0351: a frame whose page, placement,
 window, medium and chrome are the last frame's builds no scene and encodes nothing. §3.2 is what
-it did. What is left of this file is §3.1's second half — the page-space construction that would
+it did. **Session 535 retook §2's attribution, which three rounds of its own work had made stale,
+and took the three levers the new one names** (§2a, ADR 0370) — a fixed-size operand marshalling,
+§7.2.3's classification as a table, and §7.3.3's fixed format asked before the digit scan.
+What is left of this file is §3.1's second half — the page-space construction that would
 buy the `scene` phase back across *zoom* steps, which needs nothing from upstream and which the
 trace this file is about does not exercise.
 Priority: 44
@@ -69,6 +72,9 @@ display commands. Inclusive shares of the total:
 `doc/todo/41`'s population argument held: the 141 MiB inflates once, so the decoded-stream memo
 is not the lever here.
 
+**This table is the attribution as it stood in session 497, kept because it is what the decisions
+below were made from. It is no longer the shape of this document's interpretation — §2a is.**
+
 **Both candidates this section named were taken in session 506 (ADR 0341).** The lexer borrows
 its token bytes from the decoded stream (`Token<'a>`, `Keyword(&'a [u8])`), and §7.3.3's fixed
 format is parsed from the bytes directly with an exactness argument that keeps it bit-identical
@@ -78,6 +84,33 @@ readback byte-identical here and over all 1023 pages of ISO 32000-2, and a corpu
 `find_cost` sweep improved 5.97% rather than regressed. The numbers, the caller survey and the
 declined designs are ADR 0341's; the table above is kept as the measurement the decision was
 made from.
+
+## 2a. The attribution retaken, and the three levers under it (session 535, ADR 0370)
+
+§2's table was three rounds old by the five-hundred-and-thirty-fifth: ADR 0341 had halved the
+lexer under it and ADR 0365 had put the stream behind a window. **A profile that old cannot say
+what to optimise**, and this is the rule the round is worth remembering for rather than any of its
+numbers — the launch table still named interpretation as the largest single item on this
+document's path, so the item was live and its evidence was not.
+
+Retaken with the same instrument (`callgrind_interpret` on the witness, `RAYON_NUM_THREADS=1`,
+`--profile gates`), the shape had changed in three ways worth stating as shapes:
+
+- **The lexer had not moved at all.** `Lexer::next_token` was within 0.07% of where ADR 0341 left
+  it; its *share* had fallen only because the denominator grew. ADR 0365's per-token bookkeeping
+  is a separate item — the interpreter's own self cost — and reading the share as "the lexer got
+  worse" would have optimised the wrong function.
+- **What ADR 0332's table had ranked fourth was now second**: `points_from`, the marshalling of a
+  path operator's operands, at 18.16% — because `numbers_from` collected a `filter_map` whose
+  lower size hint is zero, so six floats cost a `malloc` and two `realloc`s, three million times.
+  It was invisible in 2 while lexing was two thirds of the whole.
+- **Three suspects were answered by the profile alone and cost nothing to check**: the graphics
+  state cloned per `q` (1 856 Ir), the resource lookup (334 Ir) and the display list's own growth
+  (237 613 Ir). A suspect list is worth writing down before it is worth acting on.
+
+The three levers taken, the five declined and every number is ADR 0370. What the round did *not*
+find is worth as much: nothing on `pdf-render`'s display list, and the reader's window bookkeeping
+left alone on purpose because ADR 0365 bought 187 MB of peak memory with it.
 
 ## 3. The encode cache, priced (todo/45's quorra `encode` row — pricing only, ADR 0332)
 

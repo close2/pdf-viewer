@@ -14,6 +14,14 @@
 //! cargo run --release -p pdf-model --example display_list_digest -- doc/pdf.js/test/pdfs/*.pdf
 //! ```
 //!
+//! **Run both arms with the same `pdf-sandbox-worker` on disk, or 106 documents move on their
+//! own.** A JBIG2 or JPEG 2000 image is decoded in a confined worker, and a viewer that cannot
+//! find one *refuses* the image rather than falling back in process — which is the security
+//! posture working, and which means the page's display list holds no command for it. So this
+//! artefact is a digest of what the program could decode as well as of what it interpreted, and
+//! it changes the moment `cargo build -p pdf-sandbox --bins` has run. Session 535 compared two
+//! pairs an hour apart and read the worker's arrival as a difference in the code.
+//!
 //! **The hash is [`std::collections::hash_map::DefaultHasher`]**, which the standard library
 //! documents as unspecified across releases. That is exactly good enough here and no more: both
 //! sides of the comparison are run in one sitting with one compiler, and what is being detected is

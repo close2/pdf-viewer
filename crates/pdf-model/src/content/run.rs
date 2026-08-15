@@ -383,21 +383,21 @@ impl Interpreter<'_> {
                     }
                 }
                 b"c" => {
-                    if let Some(points) = points_from(operands, 3) {
+                    if let Some(points) = points_from::<3>(operands) {
                         path.push(PathCommand::CurveTo(points[0], points[1], points[2]));
                         current = points[2];
                     }
                 }
                 b"v" => {
                     // The first control point is the current point.
-                    if let Some(points) = points_from(operands, 2) {
+                    if let Some(points) = points_from::<2>(operands) {
                         path.push(PathCommand::CurveTo(current, points[0], points[1]));
                         current = points[1];
                     }
                 }
                 b"y" => {
                     // The second control point is the endpoint.
-                    if let Some(points) = points_from(operands, 2) {
+                    if let Some(points) = points_from::<2>(operands) {
                         path.push(PathCommand::CurveTo(points[0], points[1], points[1]));
                         current = points[1];
                     }
@@ -407,7 +407,7 @@ impl Interpreter<'_> {
                     current = start;
                 }
                 b"re" => {
-                    if let Some(values) = numbers_from(operands, 4) {
+                    if let Some(values) = numbers_from::<4>(operands) {
                         let (x, y, w, h) = (values[0], values[1], values[2], values[3]);
                         // Table 58 states `re` as `x y m` and three `l`s and an `h`, so the
                         // `m` it begins with overrides a preceding one exactly as a written
@@ -495,14 +495,14 @@ impl Interpreter<'_> {
                     }
                 }
                 b"rg" | b"RG" => {
-                    if let Some(values) = numbers_from(operands, 3) {
+                    if let Some(values) = numbers_from::<3>(operands) {
                         let space = self.device_space("DeviceRGB", resources);
                         let colour = self.colour(&space, &values, state.black_point);
                         assign_colour(&mut state, operator == b"rg", colour, space);
                     }
                 }
                 b"k" | b"K" => {
-                    if let Some(values) = numbers_from(operands, 4) {
+                    if let Some(values) = numbers_from::<4>(operands) {
                         let space = self.device_space("DeviceCMYK", resources);
                         let colour = self.colour(&space, &values, state.black_point);
                         assign_colour(&mut state, operator == b"k", colour, space);
@@ -1240,28 +1240,46 @@ pub(super) fn number_at(operands: &[Object], index: usize) -> Option<f32> {
     Some(value as f32)
 }
 
-/// Reads the first `count` operands as numbers, requiring all of them.
-fn numbers_from(operands: &[Object], count: usize) -> Option<Vec<f32>> {
-    let values: Vec<f32> = (0..count)
-        .filter_map(|index| number_at(operands, index))
-        .collect();
-    (values.len() == count).then_some(values)
+/// Reads the first `N` operands as numbers, requiring all of them.
+///
+/// **`N` is a constant rather than an argument, and the array is the whole reason.** Annex A
+/// gives every operator that reaches here a fixed operand count — `count_of` is that table —
+/// so the answer's size is known where it is asked for, and returning it on the stack costs
+/// no allocation at all. The `Vec` this used to return did: with a `filter_map`'s lower size
+/// hint of zero, `collect` began at capacity nought and grew, so six numbers were a `malloc`
+/// and two `realloc`s. On the witness of `doc/todo/44` — one page, 3.19 M operators, most of
+/// them `c` — that was **12.00% of the whole interpretation** in the collect and its
+/// reallocation, and `points_from`'s second `Vec` another 2.83% (ADR 0370's table).
+///
+/// What it costs in readability is one type parameter at six call sites; what it buys is
+/// measured in ADR 0370.
+fn numbers_from<const N: usize>(operands: &[Object]) -> Option<[f32; N]> {
+    let mut values = [0.0_f32; N];
+    for (index, slot) in values.iter_mut().enumerate() {
+        *slot = number_at(operands, index)?;
+    }
+    Some(values)
 }
 
-/// Reads `count` coordinate pairs.
-fn points_from(operands: &[Object], count: usize) -> Option<Vec<Point>> {
-    let values = numbers_from(operands, count.saturating_mul(2))?;
-    Some(
-        values
-            .chunks_exact(2)
-            .map(|pair| Point::new(pair[0], pair[1]))
-            .collect(),
-    )
+/// Reads `N` coordinate pairs, requiring all of them.
+fn points_from<const N: usize>(operands: &[Object]) -> Option<[Point; N]> {
+    let mut points = [Point::new(0.0, 0.0); N];
+    // The pairs are read directly rather than through `numbers_from`, because a const
+    // parameter cannot be doubled in a type without `generic_const_exprs`. Two `number_at`s
+    // per point is what the old two-step did anyway, minus the intermediate array.
+    let mut index = 0_usize;
+    for slot in &mut points {
+        let x = number_at(operands, index)?;
+        let y = number_at(operands, index.saturating_add(1))?;
+        *slot = Point::new(x, y);
+        index = index.saturating_add(2);
+    }
+    Some(points)
 }
 
 /// Reads six operands as a matrix.
 fn matrix_from(operands: &[Object]) -> Option<Transform> {
-    let values = numbers_from(operands, 6)?;
+    let values = numbers_from::<6>(operands)?;
     Some(Transform::new(
         values[0], values[1], values[2], values[3], values[4], values[5],
     ))

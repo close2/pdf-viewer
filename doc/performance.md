@@ -119,6 +119,27 @@ while the median page is dominated by a per-frame floor that does not. Quote the
 the median and say which. The window is not measured here and this gate is deliberately not the
 place to: a presented frame pays no readback.
 
+### 3c. What interpreting one very large page costs, and why the attribution keeps expiring
+
+**The launch path's largest single item on the owner's document is one page's interpretation**,
+and `doc/todo/44` is the item. What belongs here is not its number — `examples/callgrind_interpret`
+prints that — but the thing three rounds of measuring it have established, which no command prints:
+
+**an attribution of this page has expired every time it has been acted on.** ADR 0332 measured
+the lexer at 63.6% and named two candidates under it; ADR 0341 took both and the lexer became
+40.9%. ADR 0365 then changed the window the stream arrives through, which added per-token cost
+*outside* the lexer. By the time ADR 0370 retook the profile, the function ADR 0332 ranked fourth
+— marshalling a path operator's operands — was second at 18.16%, and it had been there all along
+under a lexer twice its size. **The rule that comes out of it**: a profile is a statement about a
+tree, it decays at the rate that tree changes, and a round that optimises from a table it did not
+print is optimising the wrong function. Retaking it costs one callgrind run.
+
+**And the second rule is about reading a share rather than a number.** ADR 0370 found
+`Lexer::next_token` within 0.07% of where ADR 0341 had left it while its *share* had fallen two
+points — the denominator had grown. A share that moves because the denominator moved says nothing
+about the function, and the only way to tell the two apart is to keep the absolute figure. Both
+ADRs' tables carry it for that reason.
+
 ## What a soft mask cost, and what naming one constant took off it
 
 **Instrument: `crates/pdf-model/examples/open_one`**, which opens, interprets and rasterises one

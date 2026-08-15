@@ -17,23 +17,53 @@
 mod class {
     /// Whitespace: null, tab, line feed, form feed, carriage return, space.
     #[must_use]
-    pub fn is_whitespace(byte: u8) -> bool {
+    pub const fn is_whitespace(byte: u8) -> bool {
         matches!(byte, 0 | b'\t' | b'\n' | 0x0c | b'\r' | b' ')
     }
 
     /// The nine delimiter characters.
     #[must_use]
-    pub fn is_delimiter(byte: u8) -> bool {
+    pub const fn is_delimiter(byte: u8) -> bool {
         matches!(
             byte,
             b'(' | b')' | b'<' | b'>' | b'[' | b']' | b'{' | b'}' | b'/' | b'%'
         )
     }
 
+    /// Which of the 256 byte values are regular, decided at compile time by the two
+    /// predicates above.
+    ///
+    /// **A table because of what the predicates compile to in a per-byte loop.** The two
+    /// `matches!` above are a dozen instructions together: the whitespace set fits one
+    /// 64-bit mask, the delimiters straddle 37 to 125 and need two — and `read_regular_run`
+    /// asks the question once per byte of every token. On `doc/todo/44`'s witness, one page
+    /// of 141 MiB carrying 20.8 million tokens, that function alone was **15.57%** of
+    /// interpreting the page, at about seventeen instructions a byte; against a table it is
+    /// a load and a test. ADR 0370 has the A/B.
+    ///
+    /// The classification is still stated exactly once, in the two predicates: this is
+    /// their answer, tabulated, not a second copy of §7.2.3's sets.
+    const REGULAR: [bool; 256] = {
+        let mut table = [false; 256];
+        let mut code = 0_usize;
+        while code < 256 {
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "the loop condition bounds `code` to 0..256, which is u8's range"
+            )]
+            let byte = code as u8;
+            table[code] = !is_whitespace(byte) && !is_delimiter(byte);
+            code = code.saturating_add(1);
+        }
+        table
+    };
+
     /// A regular character: neither whitespace nor a delimiter.
     #[must_use]
     pub fn is_regular(byte: u8) -> bool {
-        !is_whitespace(byte) && !is_delimiter(byte)
+        // The index is a `u8` widened to `usize`, so it is inside a 256-entry table by
+        // construction and the compiler elides the bounds check.
+        REGULAR[byte as usize]
     }
 }
 
@@ -244,6 +274,14 @@ impl<'a> Lexer<'a> {
     /// project has printed — 141 MiB carrying 20.8 million tokens, `doc/todo/44` — the
     /// `.to_vec()` this ended in was one short-lived heap allocation per token and put the
     /// allocator at ~20.8% of the whole interpretation (ADR 0341 has the A/B).
+    ///
+    /// **The `peek` loop stays, and that is a measurement rather than an oversight.** Finding
+    /// the run in one pass over the slice instead — a slice iterator carrying its own end, so
+    /// the bounds check and the cursor store are paid once rather than per byte — was built
+    /// and measured on the same witness at **+2.64%**, this function itself 1.1% worse: LLVM
+    /// had already removed what the rewrite was meant to remove, and what it added was a
+    /// second cursor to re-fuse. What was costing seventeen instructions a byte here was
+    /// [`is_regular`], and that is where it went (ADR 0370).
     fn read_regular_run(&mut self) -> &'a [u8] {
         let start = self.position;
         while self.peek().is_some_and(is_regular) {
@@ -414,7 +452,29 @@ impl<'a> Lexer<'a> {
         // > A real value shall be written as one or more decimal digits with an optional
         // > sign and a leading, trailing, or embedded PERIOD (2Eh) (decimal point).
         //
-        // So a run holding no decimal digit is neither, however many signs and points it
+        // The readings below follow in the order a run meets them, and the clause decides
+        // that order as well as each of them.
+
+        // Almost every number a content stream states is the fixed format the two sentences
+        // above define, and the standard library's parser — correct for exponents,
+        // subnormals and worst-case roundings a PDF number never uses — was 15.1% of
+        // interpreting a dense page (ADR 0341). `fixed_format_number` parses exactly that
+        // grammar and nothing else; anything it declines falls through to the two readings
+        // below, unchanged.
+        //
+        // **It is asked before the digit scan, and that is an ordering rather than a rule
+        // change**: both forms are "one or more decimal digits", so a run this function
+        // accepts is a run that holds one, and the scan below could only have agreed with it.
+        // Asking the scan first walked every well-formed number's bytes a second time — three
+        // passes over a token that is almost always four characters — and this is the pass
+        // that is skipped when the fast path answers (ADR 0370).
+        match fixed_format_number(raw) {
+            Some(Fixed::Integer(value)) => return Token::Integer(value),
+            Some(Fixed::Real(value)) => return Token::Real(value),
+            None => {}
+        }
+
+        // A run holding no decimal digit is neither form, however many signs and points it
         // carries: `.` is not a numeric object, and neither is `-`. What it *is* is a run of
         // regular characters (§7.2.3) that does not spell an object, which is what `Keyword`
         // is for — and the parser then decides what one means where it stands, an error in a
@@ -425,17 +485,6 @@ impl<'a> Lexer<'a> {
         // nothing and nothing was said about it.
         if !raw.iter().any(u8::is_ascii_digit) {
             return Token::Keyword(raw);
-        }
-
-        // Almost every number a content stream states is §7.3.3's own fixed format, and
-        // the standard library's parser — correct for exponents, subnormals and worst-case
-        // roundings a PDF number never uses — was 15.1% of interpreting a dense page
-        // (ADR 0341). The fast path parses exactly the clause's grammar and nothing else;
-        // anything it declines falls through to the standing path below, unchanged.
-        match fixed_format_number(raw) {
-            Some(Fixed::Integer(value)) => return Token::Integer(value),
-            Some(Fixed::Real(value)) => return Token::Real(value),
-            None => {}
         }
 
         // The run is parsed in place rather than copied into a `String` first — that copy
