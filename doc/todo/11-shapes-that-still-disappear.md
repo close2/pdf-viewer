@@ -7,7 +7,9 @@ fixed as far as any corpus document exercises it (ADR 0213) and its general case
 item 4, the same subclause's clipping paragraph, is **paid for a fill** — the clip chain composes as
 a set intersection on **both** backends since ADR 0280 and quorra's own ADR 0030, and since ADR 0355
 a *clipping region* meets a filled mark's own coverage by `min` on this backend rather than by a
-product.** What is left of it is a stroke, an image, a clip folded into a soft mask and the two
+product, and since ADR 0363 a clip standing *beside* a soft mask does too.** What is left of it is a
+stroke, an image, **a group's raster — which ADR 0355 called not owed and §8.5.4's third sentence
+says is owed** — and the two
 backends that still multiply; and what is left of the file is what an eight-bit
 raster does to a mark whose ink is under one of its levels, and two marks abutting — which item 2
 had only across a cell's box edge and which the four-hundred-and-seventy-third session measured in
@@ -229,20 +231,65 @@ sits on the `/BBox` §8.10.1 step c) clips it by — `bug1844576.pdf`, `bug18445
 `render-quorra`'s differing list wrote about `issue21068.pdf` in the two-hundred-and-seventh
 session, when a *redundant* clip came off its comb separators.
 
+### What was paid after that: a clip *beside* a soft mask — **ADR 0363**
+
+The fold `MaskCache::combine` performs is one buffer, and the standard states the two in an order
+the fold destroyed. §8.5.4 intersects the clipping path with the object's **own** shape — "[t]he
+effective shape is the intersection of the object's intrinsic shape with the clipping path" — and
+§11.3.7.2 then multiplies the mask shape into what comes out: "[t]he three shape inputs shall be
+multiplied together, producing an intermediate value called the source shape". So
+`fₛ = (fⱼ ∩ C) · fₘ` and not `fⱼ · (C · fₘ)`.
+
+The cache keeps the soft mask's rows beside the product, and the composition needs nothing else,
+because multiplication by a non-negative value distributes over a minimum: `min(M, C)·S =
+min(M·S, C·S) = min(M·S, P)`. Rounding is monotone too, so the eight-bit form is *exact* rather
+than bounded. The ladder, a half-plane at device 2.25 under a coincident clip and a mask of 128:
+the mark's own 192, the mask alone 96, the product taken as a value **72**, the composition **96**.
+
+**No corpus page can tell the two apart, and the population is why.** Over the 974 first pages:
+120 commands take a clip and a soft mask together, 27 of them are fills reaching the composition,
+14 decline because the clip is already a set under the mark, and **13 compose** — over
+`bug1703683_page2_reduced.pdf`, `bug1721218_reduced.pdf`, `issue16287.pdf`, `issue17069.pdf` and
+`issue18032.pdf`, whose rasters are byte-identical before and after at scale 1 and at 4×. The two
+compositions part only where `M` *and* `C` are both fractional in one pixel, and at all thirteen
+the mark is whole where the clip is not.
+
 ### What is left of item 4, each with what it needs
 
-- **A clip folded into a soft mask keeps multiplying**, and it is the witness's own remaining
-  factor: `MaskCache::combine` multiplies the two into one buffer, so what reaches the draw is a
-  `scan::Clip::Value` with no set left to intersect. It is the cheapest of these to take —
-  `min(mark, clip) × soft` in the buffer the composition already builds, one more pass over the
-  reach — and what it needs is a cache that keeps the soft mask's rows beside the product.
 - **A stroke's coverage.** `tiny-skia` fills a wide stroke's outline but draws one under a device
   pixel wide as a hairline that is *not* that outline (ADR 0268), so composing here means choosing
   between duplicating the library's stroker and contradicting its hairline. The substitutions
   §10.7.4 already asks for on a sub-pixel rule are *fills* and are composed today.
 - **An image's edge**, which is `draw_pixmap`'s and is the library's own path.
-- **A group's raster is deliberately not owed**: what a group's buffer carries at a pixel is
-  §11.4.5's group alpha rather than one mark's coverage.
+- **A group's raster, which ADR 0355 recorded as *not owed* and which is owed.** That ADR argued
+  "what a group's buffer carries at a pixel is §11.4.5's group alpha rather than one mark's
+  coverage, so there is no second shape here"; §8.5.4's own third sentence answers it — the shape
+  of a transparency group is "defined as the union of the shapes of its constituent objects" and
+  "shall be influenced both by the clipping path in effect when each of the objects is painted and
+  by the one in effect at the time the group's results are painted onto its backdrop". A group has
+  a shape and the clip at the blit intersects it. What is true is narrower: **this backend's group
+  buffer carries alpha, which is shape times opacity** (§11.3.7.1), and the two coincide only where
+  every element's opacity is 1 — §11.6.4.2's default, which `ca`, `CA` and a nested soft mask make
+  false. So what it needs is **a shape channel beside a group's raster**, which nothing in this
+  tree carries today and which would cost a band's bytes per live group.
+
+  **And it is where `issue21346.pdf`'s next factor actually is**, which is the correction below.
+
+### The witness's residual is not where ADR 0355 said it was
+
+ADR 0355 wrote that the witness's mark "carries a soft mask *and* a clip … so what arrives at
+`scan::fill` is a `Clip::Value`". **Nothing on that page arrives at `scan::fill` that way**
+(ADR 0363). Instrumented, page one takes the clip-and-mask pair exactly twice and both consumers
+are a *group's* plain blit; the only two marks reaching the composition are clipping regions with
+no mask at all. Its similarity is 0.9846 before this round and after it.
+
+With the group's raster meeting the clip as a set instead of by the product — the identity's own
+answer, since that page's group lies inside its clip — device column 14 of row 89 goes
+`(240, 245, 249)` to `(227, 237, 244)` against an interior of `(206, 223, 235)`: **0.306 → 0.571**
+of the mark, where departure (1) gives 0.827 and the clause 1.000. The construction measured is
+`min(group alpha, clip)` with the blit then carrying no mask — alpha standing in for the shape it
+is not, which is the same approximation the item above says has to go away. So the group blit is one of the
+remaining factors and not the last of them, and a round taking it owes the ladder again.
 
 Two things bound any attempt at the rest:
 

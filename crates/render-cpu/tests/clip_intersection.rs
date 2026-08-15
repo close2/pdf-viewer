@@ -49,7 +49,8 @@ use std::sync::Arc;
 
 use pdf_render::{
     BlendMode, Clip, ClipId, Color, Command, DisplayList, FillRule, Paint, Path, PathCommand,
-    Point, Ramp, Raster, Rasterizer, Shading, ShadingKind, Size, TargetSpec, Transform,
+    Point, Ramp, Raster, Rasterizer, Shading, ShadingKind, Size, SoftMask, SoftMaskId,
+    SoftMaskKind, TargetSpec, Transform,
 };
 use render_cpu::CpuRasterizer;
 
@@ -73,8 +74,21 @@ fn rect((x0, y0, x1, y1): (f32, f32, f32, f32)) -> Path {
     path
 }
 
+/// The soft mask's group, in page space: inset within [`MARK`]'s rows and wider than it.
+///
+/// Inset **vertically** so that the mask's stored band is strictly inside the clip's, which is
+/// what makes the row arithmetic that lays one over the other testable at all; wider
+/// **horizontally** so that the mark's own left edge — the column every assertion here names —
+/// falls where the mask varies rather than where it is the constant outside the group.
+const MASK_GROUP: (f32, f32, f32, f32) = (10.0, 50.0, 190.0, 85.0);
+
 /// The mark: [`MARK`] filled with a red-to-blue gradient running *up* the page.
-fn mark(list: &mut DisplayList, transform: Transform, clip: Option<ClipId>) {
+fn mark(
+    list: &mut DisplayList,
+    transform: Transform,
+    clip: Option<ClipId>,
+    mask: Option<SoftMaskId>,
+) {
     list.push(Command::Fill {
         path: Arc::new(rect(MARK)),
         transform,
@@ -89,16 +103,64 @@ fn mark(list: &mut DisplayList, transform: Transform, clip: Option<ClipId>) {
             transform: Transform::IDENTITY,
         })),
         clip,
-        mask: None,
+        mask,
         blend: BlendMode::Normal,
     });
+}
+
+/// A soft mask whose value varies down the page, over a group smaller than the clip.
+///
+/// §11.5.3's luminosity derivation over a group that fills [`MASK_GROUP`] with a black-to-white
+/// ramp, on a mid-grey backdrop. Three properties are deliberate and each guards something:
+///
+/// - **It varies row by row**, at about five levels of 255 per device row at scale 1, so a soft
+///   mask laid over the clip's rows at the wrong offset changes what is drawn. A *constant*
+///   mask — §11.6.5.1's value outside a group — would make every misalignment invisible, which
+///   is trap 2's shape one axis over.
+/// - **Its group is inset within the clip's rows**, so the entry stored for it covers fewer
+///   rows than the product it is folded into and the offsets that lay one over the other are
+///   non-zero in both directions.
+/// - **The backdrop is mid-grey rather than black**, so §11.6.5.1's constant outside the
+///   group's box is neither 0 nor 255: an outside value of zero would erase the rows that test
+///   it, and one of 255 would make them indistinguishable from no mask at all.
+fn ramp_mask(list: &mut DisplayList) -> SoftMaskId {
+    list.add_soft_mask(SoftMask {
+        commands: vec![Command::Fill {
+            path: Arc::new(rect(MASK_GROUP)),
+            transform: Transform::IDENTITY,
+            fill_rule: FillRule::NonZero,
+            paint: Paint::Shading(Arc::new(Shading {
+                kind: Arc::new(ShadingKind::Axial {
+                    start: Point::new(0.0, MASK_GROUP.1),
+                    end: Point::new(0.0, MASK_GROUP.3),
+                    ramp: Ramp::sample(|t| Color::rgb(t, t, t)),
+                    extend: (true, true),
+                }),
+                transform: Transform::IDENTITY,
+            })),
+            clip: None,
+            mask: None,
+            blend: BlendMode::Normal,
+        }],
+        kind: SoftMaskKind::Luminosity {
+            backdrop: Color::rgb(0.5, 0.5, 0.5),
+        },
+        transfer: None,
+    })
+    .expect("the first soft mask")
 }
 
 /// Renders the mark under `rungs` statements of a clip that is the mark's own rectangle.
 ///
 /// Zero rungs is the unclipped render the others are judged against.
 fn render(rungs: usize, transform: Transform, scale: f32) -> Raster {
+    render_masked(rungs, transform, scale, false)
+}
+
+/// As [`render`], and under [`ramp_mask`] where `masked`.
+fn render_masked(rungs: usize, transform: Transform, scale: f32, masked: bool) -> Raster {
     let mut list = DisplayList::new(Size::new(PAGE, PAGE));
+    let mask = masked.then(|| ramp_mask(&mut list));
     let mut parent = None;
     for _ in 0..rungs {
         parent = Some(
@@ -111,7 +173,7 @@ fn render(rungs: usize, transform: Transform, scale: f32) -> Raster {
             .expect("a clip"),
         );
     }
-    mark(&mut list, transform, parent);
+    mark(&mut list, transform, parent, mask);
     let target = TargetSpec::for_page(&list, scale, GENEROUS).expect("a valid target");
     CpuRasterizer::new()
         .rasterize(&list, target)
@@ -239,6 +301,48 @@ fn restating_the_clip_takes_nothing_either() {
             &render(rungs, Transform::IDENTITY, 2.0),
             &once,
             0,
+        );
+    }
+}
+
+/// The identity with §11.6.5's value standing beside §10.7.4's set.
+///
+/// **This is where the two mechanisms have to be told apart rather than merely composed.** A
+/// clip and a soft mask arrive at one mark as one cached product, and once they are one buffer
+/// the set is gone; §8.5.4 puts the clip inside the object's own shape — "[t]he effective shape
+/// is the intersection of the object's intrinsic shape with the clipping path" — and §11.3.7.2
+/// multiplies the mask shape into what comes out of that, so the order is the standard's:
+///
+/// ```text
+///   fₛ = (fⱼ ∩ C) · fₘ        and not        fⱼ · (C · fₘ)
+/// ```
+///
+/// With the clip coincident with the mark, `fⱼ ∩ C` is `fⱼ`, so the clipped render must equal
+/// the render under the soft mask **alone** — a different render of the same geometry, and no
+/// renderer's number anywhere in the comparison.
+///
+/// The unclipped side goes through the whole-surface expansion of the mask and the clipped side
+/// through the banded product, so the scene also asserts that the two lay the mask's rows on
+/// the same device rows; [`ramp_mask`] says why that needs a mask that varies.
+#[test]
+fn a_clip_coincident_with_the_mark_takes_nothing_from_it_under_a_soft_mask() {
+    for scale in [1.0_f32, 2.0, 4.0] {
+        let unclipped = render_masked(0, Transform::IDENTITY, scale, true);
+        assert_it_discriminates(&format!("soft-masked, scale {scale}"), &unclipped, scale);
+        let clipped = render_masked(1, Transform::IDENTITY, scale, true);
+        let left = (MARK.0 * scale) as u32;
+        let middle = ((PAGE - f32::midpoint(MARK.1, MARK.3)) * scale) as u32;
+        assert_agrees_within(
+            &format!("the soft-masked boundary pixel at scale {scale}"),
+            &one_pixel(&clipped, left, middle),
+            &one_pixel(&unclipped, left, middle),
+            1,
+        );
+        assert_agrees_within(
+            &format!("a coincident clip under a soft mask at scale {scale}"),
+            &clipped,
+            &unclipped,
+            1,
         );
     }
 }

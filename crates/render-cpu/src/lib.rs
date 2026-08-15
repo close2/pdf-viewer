@@ -2542,6 +2542,27 @@ struct Built {
     /// mask be *stored* over the rows its group could mark instead of over the whole surface
     /// (`doc/todo/40`); every reader substitutes it for the rows the raster does not hold.
     outside: u8,
+    /// For a clip × soft-mask product, the soft mask's own values over `band`; `None` for the
+    /// other two kinds of entry, which are not products of anything.
+    ///
+    /// **Kept because a product is not a set and the two factors are not the same kind of
+    /// thing.** ISO 32000-2 §8.5.4 intersects the clipping path with the object's shape and
+    /// §11.3.7.2 multiplies the mask shape into the result, so a mark meeting a clip and a
+    /// soft mask at once needs both factors and not only their product — [`scan::Clip::Both`]
+    /// and ADR 0363. Storing it doubles what such an entry costs, which [`Built::held`]
+    /// charges to the same budget the product is charged to.
+    value: Option<Vec<u8>>,
+}
+
+impl Built {
+    /// The bytes this entry holds on a surface `width` pixels across.
+    fn held(&self, width: u32) -> usize {
+        let mask = self.band.mask_bytes(width);
+        match self.value {
+            Some(_) => mask.saturating_mul(2),
+            None => mask,
+        }
+    }
 }
 
 /// What a command's clip and soft mask together let it mark.
@@ -2725,16 +2746,28 @@ impl MaskCache {
             }
             (Some(clip), Some(mask)) => {
                 self.combine(list, clip, mask)?;
-                let entry = self
-                    .built
+                let Self { built, scratch, .. } = self;
+                let entry = built
                     .get(&Key::Both(clip, mask))
                     .ok_or(CpuRasterError::UnknownClip(clip))?
                     .as_ref();
-                // §11.6.5's value has already been multiplied into the clip here, so there is
-                // no set left to intersect: what remains is a product the standard states.
+                // The product is what every draw but a fill takes. A fill takes it beside the
+                // soft mask it was made from, because §8.5.4 intersects the clip with the
+                // object's own shape *before* §11.3.7.2 multiplies the mask shape in — so the
+                // two may not be one buffer at the moment the mark's coverage arrives.
                 Ok(entry.map(|built| Admitted {
                     band: built.band,
-                    mask: scan::Clip::Value(&built.mask),
+                    mask: match built.value.as_deref() {
+                        Some(value) => scan::Clip::Both {
+                            product: &built.mask,
+                            value,
+                            scratch,
+                        },
+                        // Only `combine` builds this key and it always stores the soft mask's
+                        // rows, so this is unreachable; taking the product alone is what this
+                        // backend did before ADR 0363 and is coarser rather than wrong.
+                        None => scan::Clip::Value(&built.mask),
+                    },
                     admits: built.admits,
                 }))
             }
@@ -2796,12 +2829,10 @@ impl MaskCache {
                 .copy_from_slice(source);
         }
         for (value, &soft) in product.data_mut().iter_mut().zip(soft_rows.iter()) {
-            // Two coverages multiply: 255 x 255 = 65 025 fits a `u16`, and the rounded
-            // quotient keeps a fully open pair fully open.
-            let scaled = u16::from(*value)
-                .saturating_mul(u16::from(soft))
-                .saturating_add(127);
-            *value = u8::try_from(scaled / 255).unwrap_or(u8::MAX);
+            // Two coverages multiply, through the one rounding `scan::intersected` also scales
+            // the mark by: the minimum it then takes is only exact while both sides round the
+            // same way. ADR 0363.
+            *value = scan::scaled(*value, soft);
         }
 
         self.admit(
@@ -2812,6 +2843,10 @@ impl MaskCache {
                 admits,
                 // The clip's own zero: outside its band their product admits nothing.
                 outside: 0,
+                // The soft mask's rows are kept beside the product rather than only inside
+                // it: §8.5.4's intersection happens before §11.3.7.2's multiplication, so a
+                // fill's own coverage needs the two factors apart. ADR 0363.
+                value: Some(soft_rows),
             }),
         );
         Ok(())
@@ -2863,6 +2898,8 @@ impl MaskCache {
                 // bounding box — so no rectangle bounds where it is non-zero.
                 admits: None,
                 outside,
+                // A soft mask is not a product of anything, so there is nothing beside it.
+                value: None,
             }),
         );
 
@@ -2944,6 +2981,7 @@ impl MaskCache {
                 band: rows,
                 admits: None,
                 outside,
+                value: None,
             }),
         );
 
@@ -3170,6 +3208,8 @@ impl MaskCache {
             // §8.5.4: outside the clipping path nothing is admitted, so outside its band
             // there is nothing to state.
             outside: 0,
+            // A clip on its own is already the set §10.7.4 states; nothing multiplies it.
+            value: None,
         }))
     }
 
@@ -3202,9 +3242,7 @@ impl MaskCache {
     /// Stores an entry and evicts oldest-first until the budget is met.
     fn admit(&mut self, id: Key, built: Option<Built>) {
         if let Some(entry) = &built {
-            self.bytes = self
-                .bytes
-                .saturating_add(entry.band.mask_bytes(self.surface.width()));
+            self.bytes = self.bytes.saturating_add(entry.held(self.surface.width()));
             self.order.push_back(id);
         }
         self.built.insert(id, built);
@@ -3218,9 +3256,7 @@ impl MaskCache {
                 break;
             };
             if let Some(Some(entry)) = self.built.remove(&oldest) {
-                self.bytes = self
-                    .bytes
-                    .saturating_sub(entry.band.mask_bytes(self.surface.width()));
+                self.bytes = self.bytes.saturating_sub(entry.held(self.surface.width()));
             }
         }
     }

@@ -100,12 +100,21 @@ fn keep_anti_alias(anti_alias: bool, expressible: bool) -> bool {
 /// > intersection of the set of pixels defined by the clipping region with the set of pixels
 /// > for the region to be painted.
 ///
-/// §11.6.5.2 states a soft mask as a *value*, and Table 142 makes it a factor of the object's
-/// alpha — a product the standard asks for. A mask that carries both is a `Value`: once the
-/// clip has been multiplied into a soft mask there is no clip left to intersect with.
+/// §11.6.5 defines a soft mask's *values*, and §11.3.7.2 states what is done with them: the
+/// mask shape `fₘ` is one of three inputs of which "[t]he three shape inputs shall be
+/// multiplied together, producing an intermediate value called the source shape". A product
+/// the standard asks for, in other words, where the clip is a set the standard intersects.
+///
+/// **§8.5.4 also states the order the two go in**, which is what lets a mask carrying both stay
+/// apart rather than collapsing into a `Value`: the clipping path constrains the *object's* own
+/// shape — "[t]he effective shape is the intersection of the object's intrinsic shape with the
+/// clipping path" — and it is that effective shape which then enters §11.3.7.2's product. So
+/// `fₛ = (fⱼ ∩ C) · fₘ` and not `fⱼ · (C · fₘ)`, and [`Both`](Clip::Both) is the variant that
+/// keeps the two factors of the second bracket apart far enough to say so.
 ///
 /// [`mask_intersect`] is the same distinction one step earlier, where two clips meet each other;
-/// this one is where a clip meets the mark. ADR 0280 took the first and left this second.
+/// this one is where a clip meets the mark. ADR 0280 took the first, ADR 0355 the second for a
+/// clip alone, and ADR 0363 the second for a clip beside a soft mask.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Clip<'a> {
     /// Nothing masks the mark.
@@ -117,9 +126,20 @@ pub(crate) enum Clip<'a> {
         /// Where the mark's own coverage is built before the two are composed.
         scratch: &'a Scratch,
     },
-    /// A coverage that multiplies the mark's: §11.6.5's soft mask, alone or with a clip
-    /// already multiplied into it.
+    /// A coverage that multiplies the mark's: §11.6.5's soft mask on its own, where there is
+    /// no set to intersect and Table 136's `fₘ` is the whole of what masks the mark.
     Value(&'a tiny_skia::Mask),
+    /// §10.7.4's set and §11.6.5's value together, the product kept beside the value it was
+    /// made from so that the mark can meet each as what it is.
+    Both {
+        /// The clip and the soft mask multiplied — what an ordinary draw is handed, and what
+        /// [`intersected`] takes as the upper bound `C · S` of the composition.
+        product: &'a tiny_skia::Mask,
+        /// The soft mask's own values, over exactly `product`'s rows.
+        value: &'a [u8],
+        /// Where the mark's own coverage is built before the three are composed.
+        scratch: &'a Scratch,
+    },
 }
 
 impl<'a> Clip<'a> {
@@ -127,7 +147,26 @@ impl<'a> Clip<'a> {
     pub(crate) fn mask(self) -> Option<&'a tiny_skia::Mask> {
         match self {
             Clip::Unclipped => None,
-            Clip::Region { mask, .. } | Clip::Value(mask) => Some(mask),
+            Clip::Region { mask, .. } | Clip::Value(mask) | Clip::Both { product: mask, .. } => {
+                Some(mask)
+            }
+        }
+    }
+
+    /// The composition's three inputs, or `None` where there is no set to intersect with.
+    ///
+    /// [`Clip::Region`] is the case `S ≡ 1`: a clip with no soft mask beside it, where the
+    /// value that multiplies the intersection is one everywhere and the arithmetic below
+    /// reduces to `min(M, C)`.
+    fn composable(self) -> Option<(&'a tiny_skia::Mask, Option<&'a [u8]>, &'a Scratch)> {
+        match self {
+            Clip::Unclipped | Clip::Value(_) => None,
+            Clip::Region { mask, scratch } => Some((mask, None, scratch)),
+            Clip::Both {
+                product,
+                value,
+                scratch,
+            } => Some((product, Some(value), scratch)),
         }
     }
 }
@@ -162,15 +201,19 @@ pub(crate) fn fill(
 ) {
     let mut paint = paint.clone();
     paint.anti_alias = keep_anti_alias(paint.anti_alias, expressible(path, at, 0.0));
-    if let Clip::Region { mask, scratch } = clip
-        && intersected(pixmap, path, &paint, fill_rule, at, (mask, scratch))
+    if let Some(inputs) = clip.composable()
+        && intersected(pixmap, path, &paint, fill_rule, at, inputs)
     {
         return;
     }
     pixmap.fill_path(path, &paint, fill_rule, at, clip.mask());
 }
 
-/// Draws `path` with its own coverage and `region`'s composed by `min`, ISO 32000-2 §10.7.4.
+/// Draws `path` with its own coverage meeting `admitted` by `min`, ISO 32000-2 §10.7.4.
+///
+/// `admitted` is `C · S` — the clipping region times whatever soft mask stands beside it — and
+/// `value` is that `S` alone, or `None` where there is none and `S ≡ 1`. What is composed is
+/// §8.5.4's effective shape times §11.3.7.2's mask shape.
 ///
 /// Returns `false` where it declined, which leaves the caller's ordinary draw to run: this is a
 /// substitution for one composition rather than a second scan converter, and everything it
@@ -188,12 +231,34 @@ pub(crate) fn fill(
 /// never below the product where they merely share a pixel, so it never moves away from the
 /// clause's whole pixel.
 ///
+/// # The closed form, and why the soft mask needs no third buffer
+///
+/// §8.5.4 puts the clip inside the object's shape and §11.3.7.2 puts the soft mask outside it,
+/// so what is wanted is `min(M, C) · S` where `M` is the mark's own coverage. Multiplication by
+/// a non-negative value is monotone, so it distributes over a minimum:
+///
+/// ```text
+///   min(M, C) · S  =  min(M · S, C · S)  =  min(M · S, P)
+/// ```
+///
+/// and `P` is the product this cache already holds for every other draw. So the composition
+/// needs the soft mask's own rows and the product, never the clip's region by itself — and the
+/// rounding costs nothing either, because rounding is monotone too and `min` therefore commutes
+/// with it: `min(round(M·S), round(C·S))` is `round(min(M·S, C·S))` exactly.
+///
 /// # The three things it declines, each because the substitution would say something else
 ///
-/// - **A clip that is already a set** — every value under the mark either 0 or 255. There the
-///   product *is* the intersection, pixel for pixel, so the ordinary draw already carries the
-///   clause out and the cheaper path is also the correct one. This is what keeps the cost off
-///   the pages that do not need it.
+/// - **A clip that is already a set** — `P` either 0 or `S` at every pixel under the mark,
+///   which for `S ≡ 1` is the plain "0 or 255". There the product *is* the intersection, pixel
+///   for pixel, so the ordinary draw already carries the clause out and the cheaper path is
+///   also the correct one. This is what keeps the cost off the pages that do not need it.
+///
+///   **With a soft mask the test is inexact in one direction, by less than half a level**, and
+///   that is a bound rather than an observation. `P = round(C·S/255)` equals `S` for any
+///   `C ≥ 255 − 127/S`, so a faint mask can read as a set where the clip is not one; but the
+///   two compositions differ there by `S·(min(M,C) − M·C/255)/255`, which that same inequality
+///   holds under `½` for every `M`. Half a level of 255 is below what an eight-bit raster can
+///   hold, so declining costs the page nothing it could show.
 /// - **A mark that is not anti-aliased**, whose coverage is 0 or 255 for the same reason.
 /// - **`BlendMode::Source`**, which is [`crate::carries_coverage_as_alpha`]'s exclusion and is
 ///   excluded here for its own half of that reason: this construction delivers the composed
@@ -210,14 +275,19 @@ fn intersected(
     paint: &tiny_skia::Paint<'_>,
     fill_rule: tiny_skia::FillRule,
     at: tiny_skia::Transform,
-    (region, scratch): (&tiny_skia::Mask, &Scratch),
+    (admitted, value, scratch): (&tiny_skia::Mask, Option<&[u8]>, &Scratch),
 ) -> bool {
     if !crate::carries_coverage_as_alpha(paint.anti_alias, paint.blend_mode) {
         return false;
     }
     // `tiny-skia` draws nothing at all through a mask of another size, so a mismatch is left to
     // the ordinary call, which answers it the same way it does today.
-    if region.width() != pixmap.width() || region.height() != pixmap.height() {
+    if admitted.width() != pixmap.width() || admitted.height() != pixmap.height() {
+        return false;
+    }
+    // The soft mask's rows are laid out over the product's, so a length that disagrees is a
+    // pairing this cannot make; declining draws the mark the way it was drawn before.
+    if value.is_some_and(|value| value.len() != admitted.data().len()) {
         return false;
     }
     let Some(reach) = reached_pixels(path, at, pixmap.width(), pixmap.height()) else {
@@ -226,7 +296,7 @@ fn intersected(
     let Some(rect) = reach.rect() else {
         return false;
     };
-    if is_a_set(region, reach, pixmap.width()) {
+    if is_a_set(admitted, value, reach, pixmap.width()) {
         return false;
     }
     let Ok(mut held) = scratch.coverage.try_borrow_mut() else {
@@ -255,16 +325,34 @@ fn intersected(
         }
     }
     mask_fill(coverage, path, fill_rule, paint.anti_alias, at);
-    let admitted = region.data();
+    let bound = admitted.data();
     let mark = coverage.data_mut();
     for row in reach.rows() {
         let (from, until) = reach.span(row, stride);
-        let (Some(mark), Some(admitted)) = (mark.get_mut(from..until), admitted.get(from..until))
-        else {
+        let (Some(mark), Some(bound)) = (mark.get_mut(from..until), bound.get(from..until)) else {
             continue;
         };
-        for (mark, &admitted) in mark.iter_mut().zip(admitted) {
-            *mark = (*mark).min(admitted);
+        let value = match value {
+            None => None,
+            // Unreachable: `value` is `admitted`'s own length, checked above, and this span
+            // was just taken from that. Skipping the row rather than composing without the
+            // value keeps the mark from being painted at more than the mask admits.
+            Some(value) => match value.get(from..until) {
+                Some(row) => Some(row),
+                None => continue,
+            },
+        };
+        match value {
+            None => {
+                for (mark, &bound) in mark.iter_mut().zip(bound) {
+                    *mark = (*mark).min(bound);
+                }
+            }
+            Some(value) => {
+                for ((mark, &bound), &value) in mark.iter_mut().zip(bound).zip(value) {
+                    *mark = scaled(*mark, value).min(bound);
+                }
+            }
         }
     }
     // The composed coverage is now the mask, so what is drawn through it is a run of whole
@@ -366,13 +454,40 @@ impl Reach {
     }
 }
 
-/// Whether `region` is 0 or 255 at every pixel of `reach` — a set rather than a coverage.
-fn is_a_set(region: &tiny_skia::Mask, reach: Reach, stride: u32) -> bool {
-    let data = region.data();
+/// Two eight-bit coverages multiplied, rounded.
+///
+/// **One function rather than two copies, because the agreement is load-bearing.**
+/// `MaskCache::combine` builds the clip × soft-mask product with this, and [`intersected`]
+/// scales the mark's own coverage by the same soft mask before taking the minimum of the two.
+/// A minimum commutes with a monotone rounding, so `min(round(M·S), round(C·S))` is
+/// `round(min(M, C)·S)` exactly — and only while both sides round the same way. ADR 0363.
+pub(crate) fn scaled(coverage: u8, value: u8) -> u8 {
+    // 255 × 255 = 65 025 fits a `u16`, and the rounded quotient keeps a fully open pair open.
+    let scaled = u16::from(coverage)
+        .saturating_mul(u16::from(value))
+        .saturating_add(127);
+    u8::try_from(scaled / 255).unwrap_or(u8::MAX)
+}
+
+/// Whether the clip inside `admitted` is a set rather than a coverage, over `reach`.
+///
+/// `admitted` is `C · S` and `value` is `S`, so the clip is 0 or 1 exactly where the product is
+/// 0 or `S`. With no soft mask beside it — `value` of `None`, `S ≡ 1` — that is the plain test
+/// against 0 and 255 the clip's own mask answers.
+///
+/// The direction it is loose in, and its bound, are [`intersected`]'s first decline.
+fn is_a_set(admitted: &tiny_skia::Mask, value: Option<&[u8]>, reach: Reach, stride: u32) -> bool {
+    let data = admitted.data();
     reach.rows().all(|row| {
         let (from, until) = reach.span(row, stride as usize);
-        data.get(from..until)
-            .is_none_or(|row| row.iter().all(|&value| value == 0 || value == u8::MAX))
+        let value = value.and_then(|value| value.get(from..until));
+        data.get(from..until).is_none_or(|row| match value {
+            None => row.iter().all(|&value| value == 0 || value == u8::MAX),
+            Some(value) => row
+                .iter()
+                .zip(value)
+                .all(|(&product, &value)| product == 0 || product == value),
+        })
     })
 }
 
@@ -631,6 +746,176 @@ mod tests {
             "a region must admit far more of the boundary than a product does: \
              {region:?} against {value:?}"
         );
+    }
+
+    /// The mask a soft mask of constant value states, over the whole 8×4 raster.
+    ///
+    /// Constant because §11.6.5.1 gives a soft mask a value everywhere, and a mask over an
+    /// empty group is that constant — the one soft mask whose every pixel can be written down.
+    fn flat(value: u8) -> tiny_skia::Mask {
+        let mut mask = tiny_skia::Mask::new(8, 4).expect("a mask");
+        mask.data_mut().fill(value);
+        mask
+    }
+
+    /// A clip at `x` folded into a soft mask of constant `value`, the way `MaskCache::combine`
+    /// folds them: the product for every draw, and the soft mask's own rows beside it.
+    fn folded(x: f32, value: u8) -> (tiny_skia::Mask, Vec<u8>) {
+        let mut product = region(x);
+        for pixel in product.data_mut() {
+            *pixel = super::scaled(*pixel, value);
+        }
+        let values = vec![value; 8 * 4];
+        (product, values)
+    }
+
+    /// Fills the half-plane at `mark` through `clip`, and returns the first row's alphas.
+    ///
+    /// Black onto transparency, so the alpha channel *is* the coverage the composition
+    /// arrived at, exactly as in [`painted`].
+    fn filled(mark: f32, clip: super::Clip<'_>) -> Vec<u8> {
+        let mut pixmap = tiny_skia::Pixmap::new(8, 4).expect("a pixmap");
+        let paint = tiny_skia::Paint {
+            anti_alias: true,
+            ..tiny_skia::Paint::default()
+        };
+        super::fill(
+            &mut pixmap.as_mut(),
+            &half_plane(mark),
+            &paint,
+            tiny_skia::FillRule::Winding,
+            tiny_skia::Transform::identity(),
+            clip,
+        );
+        pixmap
+            .pixels()
+            .iter()
+            .take(8)
+            .map(|pixel| pixel.alpha())
+            .collect()
+    }
+
+    /// The same identity with §11.6.5's value standing beside §10.7.4's set.
+    ///
+    /// §8.5.4 intersects the clipping path with the object's *intrinsic* shape, and
+    /// §11.3.7.2 multiplies the mask shape into what comes out — so `min(M, C) · S`, and with
+    /// `M ⊆ C` that is `M · S`, which is the mark under the soft mask and no clip at all. The
+    /// clip must therefore take nothing, exactly as it takes nothing when it is alone.
+    ///
+    /// The boundary column of this scene, a half-plane at device 2.25 under a coincident clip
+    /// and a soft mask of 128 of 255:
+    ///
+    /// ```text
+    ///   the mark's own coverage, unmasked and unclipped   192
+    ///   the mark under the soft mask alone                 96   = round(192 × 128 / 255)
+    ///   the product taken as a value, which was drawn      72   = round(192 ×  96 / 255)
+    ///   min(M · S, C · S), which is drawn now              96
+    /// ```
+    #[test]
+    fn a_clip_folded_into_a_soft_mask_still_takes_nothing_from_the_mark() {
+        let soft = 128;
+        let unclipped = filled(2.25, super::Clip::Value(&flat(soft)));
+        let boundary = 2;
+        assert!(
+            (1..255).contains(&unclipped[boundary]),
+            "the boundary column must be partly covered for this to discriminate: {unclipped:?}"
+        );
+        let (product, values) = folded(2.25, soft);
+        let scratch = super::Scratch::default();
+        let clipped = filled(
+            2.25,
+            super::Clip::Both {
+                product: &product,
+                value: &values,
+                scratch: &scratch,
+            },
+        );
+        for (index, (&got, &want)) in clipped.iter().zip(unclipped.iter()).enumerate() {
+            assert!(
+                got.abs_diff(want) <= 1,
+                "cell {index}: a coincident clip moved the soft-masked mark, \
+                 {clipped:?} against {unclipped:?}"
+            );
+        }
+    }
+
+    /// The same scene with the product taken as a plain value — the composition this replaces
+    /// — which must part from it by far more than the level the assertion above allows.
+    ///
+    /// Without this the test above would pass against a construction that never looked at the
+    /// clip, since the two agree everywhere except in the boundary column.
+    #[test]
+    fn folding_the_clip_into_the_value_would_square_the_boundary() {
+        let soft = 128;
+        let (product, values) = folded(2.25, soft);
+        let squared = filled(2.25, super::Clip::Value(&product));
+        let scratch = super::Scratch::default();
+        let composed = filled(
+            2.25,
+            super::Clip::Both {
+                product: &product,
+                value: &values,
+                scratch: &scratch,
+            },
+        );
+        let boundary = 2;
+        assert!(
+            u32::from(composed[boundary]) > u32::from(squared[boundary]) + 16,
+            "the intersection must admit far more of the boundary than the product does: \
+             {composed:?} against {squared:?}"
+        );
+    }
+
+    /// The same identity where the clip **contains** the mark instead of coinciding with it,
+    /// which is the axis every coincident scene leaves at its default.
+    ///
+    /// **A coincident clip cannot see whether the mark was scaled by the value at all**, and
+    /// that is arithmetic rather than luck: where `C = M` the wrong composition `min(M, C·S)`
+    /// is `min(M, M·S)`, which is `M·S` because `S ≤ 1` — the right answer, by coincidence of
+    /// the scene rather than of the code. Every other scene here puts the clip's edge on the
+    /// mark's, so all of them pass against a composition that never multiplies the value in.
+    /// This one offsets the two by half a pixel inside one column, where the mark's coverage
+    /// falls *below* the product and the two part.
+    ///
+    /// The mark at device 2.75 under a clip at 2.25 and a soft mask of 128 of 255, column 2:
+    ///
+    /// ```text
+    ///   the mark's own coverage                             64 of 255
+    ///   the clip's                                         192
+    ///   the product `C · S`, which bounds the composition   96
+    ///   min(M · S, C · S) = M · S, which is drawn           32   — the mark lies inside the clip
+    ///   min(M, C · S) — the value never applied to the mark 64
+    /// ```
+    #[test]
+    fn a_clip_that_contains_the_mark_takes_nothing_from_it_under_a_soft_mask() {
+        let soft = 128;
+        let alone = filled(2.75, super::Clip::Value(&flat(soft)));
+        let boundary = 2;
+        assert!(
+            (1..255).contains(&alone[boundary]),
+            "the boundary column must be partly covered for this to discriminate: {alone:?}"
+        );
+        let (product, values) = folded(2.25, soft);
+        assert!(
+            product.data()[boundary] != 0 && product.data()[boundary] != soft,
+            "the clip must be fractional under the mark, or the composition declines"
+        );
+        let scratch = super::Scratch::default();
+        let contained = filled(
+            2.75,
+            super::Clip::Both {
+                product: &product,
+                value: &values,
+                scratch: &scratch,
+            },
+        );
+        for (index, (&got, &want)) in contained.iter().zip(alone.iter()).enumerate() {
+            assert!(
+                got.abs_diff(want) <= 1,
+                "cell {index}: a clip containing the mark moved the soft-masked mark, \
+                 {contained:?} against {alone:?}"
+            );
+        }
     }
 
     /// A clip whose values are all 0 or 255 under the mark is a set already, and there the

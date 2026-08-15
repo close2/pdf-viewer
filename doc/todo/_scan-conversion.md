@@ -36,8 +36,10 @@ the first three all in one direction:
 3. `Image::area_averaged` averages over the pixel area where the clause says "there shall not be
    averaging over the pixel area" (ADR 0025 — it is what made `bug1001080.pdf` legible).
 4. A clip's effect on a mark is a **product** where the clause states an intersection of sets —
-   narrowed to the mark's own coverage in the four-hundred-and-forty-fourth session (ADR 0280), and
-   the paragraph below has the reading and what is left.
+   narrowed to the mark's own coverage in the four-hundred-and-forty-fourth session (ADR 0280),
+   narrowed again to a filled mark in the five-hundred-and-twentieth (ADR 0355) and to a clip
+   standing beside a soft mask in the five-hundred-and-twenty-eighth (ADR 0363), and the
+   paragraphs below have the reading and what is left.
 
 ## What is honoured
 
@@ -117,8 +119,30 @@ device pixels the mark reaches — `Mask::fill_path` and `PixmapMut::fill_rect`,
 own. It declines where the substitution would say something else: a clip already 0 or 255 under the
 mark, a mark that is not anti-aliased, and `BlendMode::Source`. `issue21346.pdf`'s edge went
 0.163 → **0.306** of the mark. **What still multiplies** is a stroke's coverage, an image's edge, a
-clip *folded into a soft mask* by `MaskCache::combine`, and both other backends — which is why the
-departure is narrowed rather than closed a second time.
+group's raster, and both other backends — which is why the departure is narrowed rather than closed
+a second time.
+
+**And since the five-hundred-and-twenty-eighth, a clip standing *beside* a soft mask** — the case
+ADR 0355 declined because the two were already one buffer (ADR 0363). The standard states them in
+an order, and the fold destroyed it: §8.5.4 intersects the clipping path with the object's *own*
+shape and §11.3.7.2 multiplies the mask shape into what comes out, so `fₛ = (fⱼ ∩ C) · fₘ` rather
+than `fⱼ · (C · fₘ)`. `MaskCache` keeps the soft mask's rows beside the product and `scan::fill`
+composes `min(M·S, C·S)`, which is the whole of what is needed because multiplication by a
+non-negative value distributes over a minimum — and which is *exact* in eight bits, since a minimum
+commutes with a monotone rounding. **No corpus page can tell the two apart**: 13 compositions over
+five documents, every raster byte-identical, because the two part only where the mark's boundary
+and the clip's are both fractional in one pixel. It is the coverage question answered without the
+robustness one, which is `CLAUDE.md`'s own case for taking it.
+
+**The same round found the departure's account of its witness wrong.** `issue21346.pdf`'s remaining
+factor is not a clip folded into a soft mask on a fill — nothing on that page reaches `scan::fill`
+that way — but a **transparency group's raster** meeting its clip through `draw_pixmap`'s product.
+§8.5.4 says that one is owed too: a group's shape is "defined as the union of the shapes of its
+constituent objects" and "shall be influenced … by the one in effect at the time the group's results
+are painted onto its backdrop". What ADR 0355 was right about is narrower — this backend's group
+buffer carries *alpha*, which is shape times opacity, so the construction needs a shape channel
+beside the raster. Measured with the set kept apart at that blit, the witness's edge goes
+**0.306 → 0.571** of the mark against departure (1)'s 0.827. `doc/todo/11` item 4 carries it.
 
 ## Where the departure is *visible*, and how to tell it from a defect
 

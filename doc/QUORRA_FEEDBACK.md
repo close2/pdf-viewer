@@ -2453,3 +2453,66 @@ compositor is your measurement, and the honest summary of the position is §18's
 conflation-free rasteriser answers that case. What `min` has is that it never moves *away* from
 the clause, and that a clip stated twice — or a clip stated on the mark's own edge — stops costing
 ink it was never asked for.
+
+### 24a. The same, one factor along: a clip standing **beside a soft mask**
+
+Added in the round after the one above, and it is a correction to §24's own account as much as an
+addition to it.
+
+**The standard states a clip and a soft mask in an order**, and both sides fold them into one
+buffer before either reaches a mark, which destroys it. §8.5.4 intersects the clipping path with
+the *object's own* shape — "[t]he effective shape is the intersection of the object's intrinsic
+shape with the clipping path" — and §11.3.7.2 then multiplies the mask shape into what comes out:
+"[t]he three shape inputs shall be multiplied together, producing an intermediate value called the
+source shape". So
+
+```text
+   fₛ = (fⱼ ∩ C) · fₘ          and not          fⱼ · (C · fₘ)
+```
+
+and the second is what a cached clip × soft-mask product gives you. `/AIS` does not change it:
+§11.3.7.1 makes alpha the product of shape and opacity, so the mask multiplies the clipped shape
+whichever of Table 136's rows it lands in.
+
+**The cheap part is that no third buffer is needed.** Multiplication by a non-negative value
+distributes over a minimum, so with `P = C · S` the product you already cache and `S` the mask's
+own values:
+
+```text
+   min(M, C) · S  =  min(M · S, C · S)  =  min(M · S, P)
+```
+
+and in eight bits it is *exact* rather than approximate, because a minimum commutes with a
+monotone rounding. This tree therefore keeps the mask's rows beside the product it caches and
+composes from those two. The unit ladder, the same half-plane as §24's with a mask of 128 of 255:
+
+```text
+    the mark's own coverage, unmasked and unclipped   192 of 255
+    the mark under the soft mask alone                 96          = round(192 × 128 / 255)
+    the product taken as a value, which was drawn      72          = round(192 ×  96 / 255)
+    min(M · S, C · S), which is drawn now              96
+```
+
+**No corpus page can tell the two apart, on either side.** Instrumented over the 974 first pages:
+120 commands take a clip and a soft mask together, 27 are fills reaching the composition, 14
+decline because the clip is already 0 or 255 under the mark, and 13 compose — and all five
+documents' rasters are byte-identical before and after, at page scale and at 4×. The two
+compositions part only where the mark's boundary and the clip's are both fractional in the same
+pixel. So the cross-backend gate is unmoved by this: 930 / 24 / 2 / 18 at page scale and
+937 / 9 / 5 / 23 on the magnified lane, per page and not only in total, before and after.
+
+**Which is why this is offered as a reading rather than as a defect.** If your side folds a clip
+into a soft mask the same way — and it looks as though it must, since the mask is one texture — the
+fold is the thing to keep apart, not the composition to change. It costs nothing until a document
+puts a fill's own edge and its clip's edge in one pixel under a mask, and then it is the difference
+between a mark drawn at its coverage and one drawn at the square of it.
+
+**And a correction to §24, which was this project's error rather than yours.** §24 and its ADR said
+the witness `issue21346.pdf` was held down by a clip folded into a soft mask on a *fill*. It is not:
+nothing on that page reaches the fill path that way, and what multiplies there is a **transparency
+group's raster** meeting its clip. §8.5.4's third sentence says that one is owed as well — a group's
+shape is "defined as the union of the shapes of its constituent objects" and "shall be influenced …
+by the one in effect at the time the group's results are painted onto its backdrop" — and neither
+backend takes it, for a reason that is the same on both: a group's buffer carries alpha, which is
+shape times opacity, and the intersection wants the shape. Measured with the set kept apart at that
+blit, the page's edge goes 0.306 → 0.571 of the mark against an anti-aliased 0.827.
