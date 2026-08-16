@@ -1232,7 +1232,7 @@ impl<'a> Encoder<'a> {
     /// A page-space transform placed onto the scene: the target's transform is
     /// baked into every command here, and the quorra viewport stays identity —
     /// which is what lets one scene carry the page, a fallback raster and
-    /// window-pixel overlays at their own placements ([`crate::QuorraPresenter`]).
+    /// window-pixel overlays at their own placements ([`crate::QuorraWindowRenderer`]).
     pub(crate) fn placed(&self, t: Transform) -> quorra_scene::Affine {
         affine(t.then(self.target.transform))
     }
@@ -1330,7 +1330,7 @@ pub(crate) fn colour(c: Color) -> quorra_scene::Color {
 
 /// A colour quantised to straight-alpha RGBA8 bytes, rounding as every backend's
 /// boundary does.
-fn byte_colour(c: Color) -> [u8; 4] {
+pub(crate) fn byte_colour(c: Color) -> [u8; 4] {
     let byte = |v: f32| {
         #[expect(
             clippy::cast_possible_truncation,

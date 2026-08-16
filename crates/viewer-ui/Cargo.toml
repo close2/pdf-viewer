@@ -21,6 +21,11 @@ render-quorra.workspace = true
 # The typed refusals the presenter surfaces (swapchain states a host reacts to
 # rather than reports), named directly for the match arms.
 quorra-gpu.workspace = true
+# A `quorra_gpu::Layer`'s placement and filter are `quorra-scene`'s `Affine` and `ImageFilter`,
+# and `quorra-gpu` re-exports `wgpu` but not the scene crate — so a host that presents its own
+# finished rasters names them itself. No scene is built here and none can be: this crate has no
+# `SceneBuilder` and `render-quorra` remains the only translator in the tree.
+quorra-scene.workspace = true
 viewer-core.workspace = true
 # The host-side decisions that are not this window's: §O.2.1 says a processor may decline to open
 # an embedded file a URI named, and that choice belongs beside §12.7.6.4's import policy rather

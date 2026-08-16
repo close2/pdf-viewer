@@ -1,15 +1,16 @@
 # A frame every refresh — 60 Hz as the floor, 120 Hz as the target
 
-Status: **built for the window with a graphics device** (ADR 0383; the trigger and the Wayland
-refresh rate corrected by ADR 0384), which is every run without
-`--cpu`. The presenter is a clock: the period is the surface's own refresh rate where it states
-one and the floor of 60 Hz where it does not, every present is spaced by it, a view that keeps
-moving is answered every tick by a reprojection composed against the last *rendering*, a late frame
-re-bases, and a still window presents nothing and spends no processor time. The trace's summary
-carries the two claims rule 6 asks for: the interval distribution, and what share of the presents
-were the page rather than a picture of it moved.
-Priority: 36 — the first item in this tree whose acceptance was a *rate*, and it stays open for
-the one thing a clock cannot do.
+Status: **built, and the last thing it was open for is done** (ADR 0391). The presenter is a clock
+(ADR 0383; the trigger and the Wayland refresh rate corrected by ADR 0384) and **the render is on a
+thread of its own**, so the clock now decides how long a frame lasts as well as when one may start.
+The period is the surface's own refresh rate where it states one and the floor of 60 Hz where it
+does not, every present is spaced by it, a view that keeps moving is answered every tick by a
+reprojection composed against the last *rendering*, a late frame re-bases, and a still window
+presents nothing and spends no processor time. The trace's summary carries the two claims rule 6
+asks for: the interval distribution, and what share of the presents were the page rather than a
+picture of it moved.
+Priority: 36 — the first item in this tree whose acceptance was a *rate*, and the rate is now
+whatever the owner's own run says it is rather than whatever a synchronous renderer permitted.
 Witness: `tmp/Entwurf.pdf` — **not in the repository**, so no test may name that path. The A/B that
 proves the trigger is on `doc/PDF20_AN001-BPC.pdf`, which is.
 Instrument: the window's `--trace` frame lines and its summary, which now report a cadence.
@@ -63,7 +64,48 @@ question asked one moment too early.
   (`platform_impl/linux/wayland/state.rs:348`), so the honest fix is upstream reporting the change
   rather than this tree polling for it.
 
-## What is left, and it is one thing
+## What was left is built, and the answer was an upstream one (ADR 0391)
+
+*Session 556. The section below states the item as it stood; this section is what became of it and
+amends nothing above it.*
+
+**The ask was answered yes.** quorra's ADR 0056 took the surface out of the device:
+`Device::detach_presenter` hands over a `Send` `Presenter` holding the surface, its swapchain and
+one pipeline, and `Presenter::present(&[Layer])` puts finished rasters on the window under their
+own affines. `doc/QUORRA_NONBLOCKING_RENDER_ANSWER.md` is their reply, carried across verbatim.
+
+What this tree then built, and what binds here:
+
+- **A render thread owns the device and draws pages into two textures the host owns** — the page
+  over the medium, the chrome on transparency. The event thread owns the presenter and presents on
+  the clock's tick: the medium under everything, the page under the placement `stale.rs` computes,
+  the chrome at the identity over it. `crates/viewer-ui/src/bin/pdf-viewer/renderer.rs`.
+- **The readback is gone, and with it the refusal it produced.** A reprojection used to resample an
+  `Arc<[u8]>` read back off the window — 2.7 to 6.6 ms of the owner's 8.333 ms refresh, plus an
+  8 192 000-byte re-upload — and it could fail outright when the last frame had repacked its glyph
+  atlas. The base is now the texture the device drew into, which a repack does not touch. The two
+  refusals the owner saw in twenty-four presents are gone with the route rather than handled.
+- **Rule 5 gained a second instrument and rule 4 lost its premise.** A miss is still a frame that
+  does not land inside one refresh, and it is now *observed* as well as predicted: a render still
+  being drawn at the next tick has missed that refresh, whatever anybody predicted. Rule 4 —
+  standing in must buy a refresh, because it delayed the real frame by what it cost — is deleted,
+  because a reprojection on the presenting thread delays nothing. ADR 0391 §4 has the argument.
+- **A refusal now means *present nothing this tick and keep the clock armed*** rather than *draw the
+  real frame here*. That is the owner's own sentence honoured: a frame expected inside one refresh
+  is waited for, at a cost of at most one refresh, rather than stood in for by a resampling of a
+  frame that was about to arrive.
+- **`doc/todo/37` rule 2 is stronger rather than spent.** `Stale::reproject` hands back a
+  *placement* and no pixels, so a caller can supply neither half of the composition; the offscreen
+  rasteriser did not move; and the test that walks every `.rs` outside `viewer-ui/src/bin` still
+  passes.
+- **And the ceiling is upstream's own measurement now rather than an inference.** Their reply's §9
+  zeroed their phases against the owner's trace: with the whole of `encode` at zero this page is
+  **107.0 ms a frame**, and with everything quorra does at zero our own scene walk alone is
+  **24.4 ms — 2.9 refreshes**. This page can never be rendered inside one refresh. The target this
+  item is measured against is therefore **a picture every refresh**, and a *rendering* every
+  refresh is a different claim that nothing in this design promises.
+
+## The item as it stood before that, kept for the argument
 
 **The render runs to completion on the event thread.** `QuorraPresenter::present` blocks, so the
 clock decides when a frame may *start* and has no say in how long one lasts: a correct frame of the

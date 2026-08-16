@@ -59,6 +59,34 @@ all five were the same mistake; the rest now print which of the two remaining ki
 the summary carries the count. ADR 0385 has the table and the argument for the one answer that is
 deliberately silent.
 
+## Two of the five rules changed again in the five-hundred-and-fifty-sixth session (ADR 0391)
+
+*The render moved to a thread of its own. That is `doc/todo/36`'s item rather than this one, but it
+reaches two rules here and the sections below were written before it.*
+
+- **Rule 4 is deleted.** Its premise was that a reprojection ran on the event thread and pushed the
+  real frame back by exactly what it cost, so it had to *buy* a refresh. A reprojection is now
+  three textured quads issued by the thread holding the surface while the render runs on another,
+  so what it costs the frame it stands in for is nothing rather than a fraction — and a bound on a
+  cost that is structurally zero is not a bound. `Stale::measured`, `Stale::affordable` and
+  `Refusal::TooDear` are gone with it. What a stand-in costs is still reported on the frame line;
+  what is gone is a gate reading it. **This is why the paragraph below about a processor path
+  owing rule 4 a measurement no longer binds** — but that paragraph's *other* half still does, and
+  reads more sharply now: a resample on the processor really would cost the frame it stands in
+  for, so a round that builds that path is reintroducing the premise and owes an argument for
+  whatever it puts back.
+- **Rule 5 gained a second instrument.** A miss is still a frame that does not land inside one
+  refresh, and it is now *observed* as well as predicted: a render still being drawn when the next
+  tick comes round has missed that refresh, whatever the last one cost. The prediction is what
+  answers the first tick of a view change, where there is nothing yet to observe.
+- **The base is a texture rather than a readback**, so `Base` is gone as a type and `Settled` is
+  what it was — see the note below about `Base::of` being fed from `SoftwareSurface`, which a
+  processor path would now write as a second producer of *rasters* rather than of bases.
+- **And `Refusal::NoDevice` is deleted.** The processor's window no longer reaches `Stale` at all:
+  it draws to completion and presents, as it always did, and asks the stand-in policy nothing. So
+  the sentence at the foot of this section — "a round that builds this path deletes both lines" —
+  has had one of its two lines deleted already, for a different reason.
+
 ## What is left
 
 **The processor's window**: `--cpu`, and a machine whose graphics device would not come up. There

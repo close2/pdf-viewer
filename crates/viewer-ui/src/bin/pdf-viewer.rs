@@ -96,6 +96,8 @@ mod find;
 mod overlays;
 #[path = "pdf-viewer/presentation.rs"]
 mod presentation;
+#[path = "pdf-viewer/renderer.rs"]
+mod renderer;
 #[path = "pdf-viewer/sidebar.rs"]
 mod sidebar;
 #[path = "pdf-viewer/stale.rs"]

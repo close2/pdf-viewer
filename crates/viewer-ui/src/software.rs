@@ -68,8 +68,8 @@ pub enum SoftwareError {
 
 /// A window that is written to by the processor.
 ///
-/// Held instead of a `QuorraPresenter`, never beside one: the whole point is that a run holding
-/// one of these has opened no driver.
+/// Held instead of a `QuorraWindowRenderer`, never beside one: the whole point is that a run
+/// holding one of these has opened no driver.
 pub struct SoftwareSurface {
     /// Kept for its lifetime rather than read again. The backends take what they need from it
     /// when the surface is made, and dropping it here would be relying on that.

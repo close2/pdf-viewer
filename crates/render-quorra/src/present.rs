@@ -1,17 +1,32 @@
-//! Tier 2: the page presented straight onto a window's surface, no readback.
+//! Tier 3: the window's frame drawn into textures the host owns, no readback.
 //!
 //! This is the tier `RENDER_LIBRARY.md` section 6.1 measurements pointed at from the start: the
 //! readback that dominates a `rasterize` call simply does not exist here — quorra
-//! renders the scene and presents the swapchain texture, and the pixels never
-//! cross back to the CPU. One frame carries everything the window shows, each at
-//! its own placement (which is why the adapter bakes placements into commands
-//! rather than into the viewport): the page under its target transform, or a
+//! renders the scene into a texture, and the pixels never cross back to the CPU.
+//! Each list is drawn at its own placement (which is why the adapter bakes placements
+//! into commands rather than into the viewport): the page under its target transform, or a
 //! CPU-rendered raster standing in for it, and the window-pixel overlay lists —
-//! selection, sidebar, modal — on top, in order.
+//! selection, sidebar, modal.
+//!
+//! # Two textures rather than one, and why the split is here
+//!
+//! [`QuorraWindowRenderer::render`] draws a window's frame into **two** host textures: the page
+//! with the medium under it, and the chrome on transparency. A host that put both in one raster
+//! could only ever move both together, and moving the page is exactly what a host does while the
+//! next frame is still being drawn — so the seam is a texture boundary rather than a compositing
+//! rule somebody has to remember. What is done with the two afterwards is entirely the host's;
+//! this crate hands back rasters and knows nothing about where they go.
+//!
+//! **Nothing here presents.** Since quorra's ADR 0056 the surface leaves the device with
+//! [`quorra_gpu::Presenter`], and [`QuorraWindowRenderer::detach_presenter`] is the whole of what
+//! this crate has to say about it: the presenter is `Send`, the host moves it to whichever thread
+//! owns its window, and the device stays here drawing pages. Before that split this type owned
+//! the surface and one call did both, which meant a frame of a heavy page held the only path to
+//! the screen for as long as it took.
 
 use std::sync::Arc;
 
-use pdf_render::{Color, DisplayList, Raster, RasterFormat, TargetSpec, Transform};
+use pdf_render::{Color, DisplayList, Raster, TargetSpec, Transform};
 use quorra_scene::ResourceId;
 
 use crate::QuorraRasterError;
@@ -43,29 +58,23 @@ pub struct PresentFrame<'a> {
     pub overlays: &'a [&'a DisplayList],
 }
 
-/// The frame the window is showing, read back off the device.
+/// The two textures one window frame is drawn into.
 ///
-/// **The real render and nothing else.** This crate has no notion of an approximate picture and
-/// gains none from this: what [`QuorraPresenter::capture_presented`] hands back is exactly the
-/// pixels [`QuorraPresenter::present`] last put on the surface, drawn again into a readback from
-/// the encode quorra has already retained. A host that transforms them into something the page
-/// does not say owns that decision entirely, along with the obligation to say so.
-#[derive(Debug)]
-pub struct Captured {
-    /// The window's own pixels: straight-alpha RGBA8, opaque throughout, top row first.
-    pub raster: Raster,
-    /// Whether the retained encode was replayed rather than made again.
-    ///
-    /// **The whole of what makes a capture cheap**, and an observable rather than an inference
-    /// from a small duration (quorra's ADR 0048). `false` means this call paid a full encode of
-    /// the page — the very cost a caller capturing to cover a slow frame is trying to hide — and
-    /// a caller that sees it should stop asking rather than pay it again.
-    pub replayed: bool,
-    /// What the readback cost, end to end, so a caller can decide with a number of its own.
-    pub cost: std::time::Duration,
+/// **Both are the host's**, created with [`QuorraWindowRenderer::layer_texture`] so that they
+/// carry the two usages a texture needs to be rendered into *and* sampled afterwards — quorra's
+/// `LayerProblem::NotSampleable` is the refusal a texture that has only ever been a render target
+/// earns, and it is a trap worth naming here rather than at the point it fires.
+#[derive(Debug, Clone, Copy)]
+pub struct WindowTextures<'a> {
+    /// The page, with the window's medium under it: opaque everywhere, so a host may move it
+    /// about without a hole appearing in the middle of it.
+    pub page: &'a quorra_gpu::wgpu::Texture,
+    /// The chrome, on transparency, in window pixels — so that it composites over the page
+    /// wherever the host puts that page, and shows the page through everywhere it draws nothing.
+    pub chrome: &'a quorra_gpu::wgpu::Texture,
 }
 
-/// What one frame of [`QuorraPresenter::present`] spent, part by part.
+/// What one frame of [`QuorraWindowRenderer::render`] spent, part by part.
 ///
 /// **The question this exists to answer is "which of the stages was the slow one".** A host's
 /// own timer around `present` gives one number over four different things — translating display
@@ -106,9 +115,9 @@ pub struct FrameCost {
     /// converting premultiplied alpha to straight.
     ///
     /// **Zero for every frame that goes to a window**, which is why this field was missing for
-    /// twenty-six sessions and why leaving it missing was wrong. A surface frame is presented and
-    /// never read, so [`QuorraPresenter::present`] reports zero here and nothing about the
-    /// viewer's own trace changes. What *does* read back is
+    /// twenty-six sessions and why leaving it missing was wrong. A window frame is drawn into a
+    /// texture and never read, so [`QuorraWindowRenderer::render`] reports zero here and nothing
+    /// about the viewer's own trace changes. What *does* read back is
     /// [`crate::QuorraRasterizer::rasterize_frame`] — every corpus and oracle page, and the
     /// zoom-step instrument — and there the copy of a multi-megabyte frame was landing in the
     /// remainder a caller computes by subtracting the other three. A phase quorra measures and a
@@ -187,7 +196,13 @@ pub struct FrameCost {
 struct SceneKey {
     width: u32,
     height: u32,
-    background: Color,
+    /// The medium under everything, or `None` for a scene drawn straight onto transparency.
+    ///
+    /// **`None` is the chrome's**, and it is part of the key rather than a fixed property of a
+    /// slot because it decides the bottom of the scene: a frame drawn over a medium and the same
+    /// frame drawn over nothing are two pictures, and a key that could not tell them apart would
+    /// let one replay for the other.
+    medium: Option<Color>,
     /// Where the page was placed, and whether there was one.
     ///
     /// *Which* page is not here: identity lives in [`Retained::page`], which is the `Arc` that
@@ -311,7 +326,7 @@ impl FrameSlot {
         &mut self,
         device: &mut quorra_gpu::Device,
         caches: &mut crate::cache::ResourceCaches,
-        background: Color,
+        medium: Option<Color>,
         frame: &PresentFrame<'_>,
         into: quorra_gpu::Target<'_>,
         reported: &mut Reported<'_>,
@@ -322,7 +337,7 @@ impl FrameSlot {
             phases,
         } = reported;
         let began = std::time::Instant::now();
-        let key = SceneKey::of(frame, background, &mut self.rasters);
+        let key = SceneKey::of(frame, medium, &mut self.rasters);
         let mut release_error: Option<quorra_gpu::DeviceError> = None;
         let held = match &mut self.held {
             Some(held) if held.draws(frame, &key) => held,
@@ -352,7 +367,7 @@ impl FrameSlot {
                 let built = build(
                     device,
                     caches,
-                    background,
+                    medium,
                     &mut builder,
                     frame,
                     &mut transient,
@@ -402,48 +417,6 @@ impl FrameSlot {
         Ok(drawn)
     }
 
-    /// Draws the scene this slot is holding a second time, into a readback.
-    ///
-    /// **The frame that is already on the window, in bytes** — nothing about it is recomputed:
-    /// the viewport, the coverage lane and the device state are the ones the presented frame was
-    /// drawn under, so quorra's own encode key matches and phase 1 is replayed rather than run
-    /// ([`quorra_gpu::RetainedScene`]'s `EncodeKey` covers the viewport and the target is
-    /// deliberately *not* in it). [`Captured::replayed`] is the observable that says it happened,
-    /// because "the encode was quick" is not something a caller can assert on.
-    ///
-    /// `None` where there is no scene to draw.
-    ///
-    /// # Errors
-    ///
-    /// Whatever the device or the readback refused.
-    pub(crate) fn capture(
-        &mut self,
-        device: &mut quorra_gpu::Device,
-    ) -> Result<Option<Captured>, QuorraRasterError> {
-        let began = std::time::Instant::now();
-        let Some(held) = self.held.as_mut() else {
-            return Ok(None);
-        };
-        let (width, height) = (held.key.width, held.key.height);
-        let viewport = quorra_gpu::Viewport::full(width, height, quorra_scene::Affine::IDENTITY);
-        let drawn =
-            device.render_retained(&mut held.scene, &viewport, quorra_gpu::Target::Readback)?;
-        let replayed = drawn.encode_source() == quorra_gpu::EncodeSource::Replayed;
-        Ok(Some(Captured {
-            raster: Raster {
-                width,
-                height,
-                // Opaque throughout: the medium is the bottom of this scene, so straight and
-                // premultiplied alpha are the same bytes — `QuorraRasterizer::rasterize_frame`'s
-                // own reasoning, over the same scene.
-                format: RasterFormat::Rgba8,
-                data: drawn.into_raster()?.into_pixels(),
-            },
-            replayed,
-            cost: began.elapsed(),
-        }))
-    }
-
     /// Forgets the retained scene, releasing what it alone was holding.
     ///
     /// # Errors
@@ -467,11 +440,11 @@ impl FrameSlot {
 
 impl SceneKey {
     /// The key of the frame about to be drawn.
-    fn of(frame: &PresentFrame<'_>, background: Color, rasters: &mut u64) -> Self {
+    fn of(frame: &PresentFrame<'_>, medium: Option<Color>, rasters: &mut u64) -> Self {
         Self {
             width: frame.width,
             height: frame.height,
-            background,
+            medium,
             page: frame.page.map(|(_, target)| target),
             raster: frame.raster.map(|_| {
                 *rasters = rasters.saturating_add(1);
@@ -512,22 +485,82 @@ impl FrameCost {
         self.atlas_repacked = counters.atlas_repacked;
         self.atlas_working_set_bytes = counters.atlas_working_set_bytes;
     }
+
+    /// Folds a second lane's accounting into this one, for a call that drew two.
+    ///
+    /// Every duration and every count adds, because the two lanes happened one after the other on
+    /// one thread and their sum is what the call took. Three fields are not sums and say why
+    /// where they are set: [`Self::total`] is the caller's own timer over both,
+    /// [`Self::encode_source`] stays the *page's* — the lane whose reuse is worth reporting —
+    /// and [`Self::execute_measured`] holds only where **both** lanes were measured, because a
+    /// figure that is half a timestamp query and half a wall clock is neither.
+    fn add(&mut self, other: Self) {
+        self.scene = self.scene.saturating_add(other.scene);
+        self.device = self.device.saturating_add(other.device);
+        self.encode = self.encode.saturating_add(other.encode);
+        self.upload = self.upload.saturating_add(other.upload);
+        self.execute = self.execute.saturating_add(other.execute);
+        self.readback = self.readback.saturating_add(other.readback);
+        self.settle = self.settle.saturating_add(other.settle);
+        self.execute_measured = self.execute_measured && other.execute_measured;
+        self.retained_bytes = self.retained_bytes.saturating_add(other.retained_bytes);
+        self.uploads = self.uploads.saturating_add(other.uploads);
+        self.commands = self.commands.saturating_add(other.commands);
+        self.commands_culled = self.commands_culled.saturating_add(other.commands_culled);
+        self.bytes_uploaded = self.bytes_uploaded.saturating_add(other.bytes_uploaded);
+        self.atlas_repacked |= other.atlas_repacked;
+        self.atlas_working_set_bytes = self
+            .atlas_working_set_bytes
+            .saturating_add(other.atlas_working_set_bytes);
+    }
 }
 
-/// The window-owning form of the backend: quorra's device holds the surface, and
-/// [`QuorraPresenter::present`] draws and presents one frame.
+/// One scene the device keeps between frames, and the caches that keep its resources alive.
+///
+/// **Two of these rather than one, and it is a correctness requirement rather than tidiness.**
+/// [`crate::cache`] evicts an entry the *current* scene did not look up, and its clock advances
+/// on a rebuild; two scenes sharing one cache would therefore evict each other's outlines every
+/// time either of them was rebuilt, leaving the other's retained encode naming released ids. The
+/// page and the chrome are rebuilt on completely different occasions — a zoom rebuilds one, a
+/// caret the other — so they get a lane each.
 #[derive(Debug)]
-pub struct QuorraPresenter {
-    device: quorra_gpu::Device,
-    background: Color,
+struct Lane {
     caches: crate::cache::ResourceCaches,
     slot: FrameSlot,
+}
+
+impl Lane {
+    /// An empty lane: no scene held and nothing cached.
+    fn new() -> Self {
+        Self {
+            caches: crate::cache::ResourceCaches::new(),
+            slot: FrameSlot::default(),
+        }
+    }
+}
+
+/// The window-drawing form of the backend: quorra's device draws a window's frame into two
+/// textures the host owns, and the host puts them on its window itself.
+///
+/// **It no longer presents, and the name says so since the five-hundred-and-fifty-sixth
+/// session.** quorra's ADR 0056 split the surface off the device into a `Send`
+/// [`quorra_gpu::Presenter`]; [`Self::detach_presenter`] hands that over, and from then on this
+/// type is a renderer and nothing else. Before the split one call drew *and* presented, so a
+/// frame of a heavy page held the only path to the screen for as long as it took to draw.
+#[derive(Debug)]
+pub struct QuorraWindowRenderer {
+    device: quorra_gpu::Device,
+    background: Color,
+    /// The page, over the medium.
+    page: Lane,
+    /// The chrome, over transparency. See [`Lane`] for why it is not the page's.
+    chrome: Lane,
     last: FrameCost,
     functions: FunctionPaints,
     phases: Vec<(&'static str, std::time::Duration)>,
 }
 
-impl QuorraPresenter {
+impl QuorraWindowRenderer {
     /// The instance a presenter would make for itself, made early.
     ///
     /// **The launch path's one lever that crosses this boundary.** A `wgpu::Instance` is the
@@ -606,7 +639,7 @@ impl QuorraPresenter {
         Ok(Self::around(device))
     }
 
-    /// The presenter around a device, however that device was brought up.
+    /// The renderer around a device, however that device was brought up.
     fn around(device: quorra_gpu::Device) -> Self {
         // wgpu reports validation failures and lost devices to a handler whose
         // default is silence — the one way this window could stop updating
@@ -620,8 +653,8 @@ impl QuorraPresenter {
         Self {
             device,
             background: Color::WHITE,
-            caches: crate::cache::ResourceCaches::new(),
-            slot: FrameSlot::default(),
+            page: Lane::new(),
+            chrome: Lane::new(),
             last: FrameCost::default(),
             functions: FunctionPaints::default(),
             phases: Vec::new(),
@@ -715,64 +748,182 @@ impl QuorraPresenter {
         &self.phases
     }
 
-    /// Reads back the frame this presenter last put on the window.
+    /// Draws one window frame into two textures the host owns, and puts nothing anywhere.
     ///
-    /// **Why a window-owning presenter has this and the offscreen rasteriser does not.** A
-    /// swapchain texture is quorra's to acquire and present, and this crate never holds one — so
-    /// the only way to have the pixels a person is looking at is to draw the retained scene once
-    /// more into a readback. That costs a replay of an encode that already exists plus the
-    /// readback itself, and never the encode: [`Captured::replayed`] says so per call.
-    ///
-    /// `Ok(None)` — rather than a refusal — where there is nothing to read back or where reading
-    /// it back would *not* be cheap: no frame has reached the device yet, or the last one made
-    /// the device repack its glyph atlas, which throws every tile placement away and with it the
-    /// retained encode (quorra's ADR 0050). Both are ordinary states rather than failures.
-    ///
-    /// # Errors
-    ///
-    /// Whatever the device or the readback refused, as [`Self::present`] reports its own.
-    pub fn capture_presented(&mut self) -> Result<Option<Captured>, QuorraRasterError> {
-        if self.last.encode_source.is_none() || self.last.atlas_repacked {
-            return Ok(None);
-        }
-        self.slot.capture(&mut self.device)
-    }
-
-    /// Draws one frame and presents it.
+    /// The page — with the window's medium under it — goes into `into.page`, and the chrome goes
+    /// into `into.chrome` **on transparency**, in window pixels. Both must have been made by
+    /// [`Self::layer_texture`] on this device and must be exactly `frame.width` by `frame.height`,
+    /// which is what `Target::Texture` requires of any target.
     ///
     /// **A frame whose page, placement, size, medium and chrome are all the ones the last
     /// frame had costs neither a translation nor an encode** (ADR 0351): its scene is the scene
     /// [`FrameSlot`] is already holding, and quorra replays the device commands it made from
-    /// it. [`FrameCost::encode_source`] says which of the two happened.
+    /// it. [`FrameCost::encode_source`] says which of the two happened, for the page — the lane
+    /// whose reuse is worth thousands of commands.
+    ///
+    /// [`Self::last_frame`] afterwards is the **sum** of the two lanes, because they are two
+    /// halves of one window frame and a caller timing this call would otherwise have to add them
+    /// up itself. [`Self::last_phases`] is the page's alone: quorra names its spans with static
+    /// strings, so two lanes' worth of them would be one list with every name in it twice.
     ///
     /// # Errors
     ///
-    /// A refusal names what could not be drawn or why the surface was not
-    /// presentable — [`QuorraRasterError::Render`] wrapping
-    /// [`quorra_gpu::RenderError::SurfaceUnavailable`] carries the swapchain
-    /// states a host reacts to (outdated, occluded, lost) rather than reports.
-    pub fn present(&mut self, frame: PresentFrame<'_>) -> Result<(), QuorraRasterError> {
+    /// Whatever either lane's translation, eviction or device call refused. The page's refusal
+    /// outranks the chrome's: a window with no page and correct chrome is not a better answer
+    /// than a window with neither, and what a caller needs is why the page is missing.
+    pub fn render(
+        &mut self,
+        frame: PresentFrame<'_>,
+        into: WindowTextures<'_>,
+    ) -> Result<(), QuorraRasterError> {
         // Three clock reads and a struct copy per frame, spent whether anyone reads them or
         // not — see [`FrameCost`] for why that is the deliberate choice rather than a flag.
         let began = std::time::Instant::now();
         self.last = FrameCost::default();
         if frame.width == 0 || frame.height == 0 {
-            return Ok(()); // minimised: nothing to present to
+            return Ok(()); // minimised: nothing to draw into
         }
-        let outcome = self.slot.render(
+        let drawn = self.page.slot.render(
             &mut self.device,
-            &mut self.caches,
-            self.background,
-            &frame,
-            quorra_gpu::Target::Surface,
+            &mut self.page.caches,
+            Some(self.background),
+            &PresentFrame {
+                overlays: &[],
+                ..frame
+            },
+            quorra_gpu::Target::Texture(into.page),
             &mut Reported {
                 cost: &mut self.last,
                 functions: &mut self.functions,
                 phases: &mut self.phases,
             },
         );
+        // The chrome is drawn even where the page refused. Its cost belongs in the accounting
+        // either way, and a lane that skipped a frame would hold a scene keyed to a window the
+        // page has since moved out of — so the next frame would rebuild it for nothing.
+        let mut chrome_cost = FrameCost::default();
+        // The chrome states no §8.7.4.5.2 program, and a record shared with the page would be
+        // cleared by whichever lane rebuilt last — so this one is written and dropped.
+        let mut chrome_functions = FunctionPaints::default();
+        let mut chrome_phases = Vec::new();
+        let chrome = self.chrome.slot.render(
+            &mut self.device,
+            &mut self.chrome.caches,
+            None,
+            &PresentFrame {
+                page: None,
+                raster: None,
+                ..frame
+            },
+            quorra_gpu::Target::Texture(into.chrome),
+            &mut Reported {
+                cost: &mut chrome_cost,
+                functions: &mut chrome_functions,
+                phases: &mut chrome_phases,
+            },
+        );
+        self.last.add(chrome_cost);
         self.last.total = began.elapsed();
-        outcome.map(|_| ())
+        drawn?;
+        chrome.map(|_| ())
+    }
+
+    /// A texture this device can render a window layer into **and** sample afterwards.
+    ///
+    /// **Both usages, which is the trap quorra's `LayerProblem::NotSampleable` exists to name**:
+    /// `Target::Texture` needs `RENDER_ATTACHMENT` and putting the result on a window needs
+    /// `TEXTURE_BINDING`, so a texture that has been a render target every frame is still
+    /// unpresentable without the second. Asked for here, once, so that no host has to know.
+    ///
+    /// The format is the one `Target::Texture` renders in and the one a layer must be.
+    #[must_use]
+    pub fn layer_texture(&self, label: &str, width: u32, height: u32) -> quorra_gpu::wgpu::Texture {
+        let (gpu, _) = self.device.wgpu();
+        gpu.create_texture(&quorra_gpu::wgpu::TextureDescriptor {
+            label: Some(label),
+            size: quorra_gpu::wgpu::Extent3d {
+                width: width.max(1),
+                height: height.max(1),
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: quorra_gpu::wgpu::TextureDimension::D2,
+            format: quorra_gpu::wgpu::TextureFormat::Rgba8Unorm,
+            usage: quorra_gpu::wgpu::TextureUsages::RENDER_ATTACHMENT
+                | quorra_gpu::wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        })
+    }
+
+    /// One opaque texel of the window's medium, for a host to put under everything else.
+    ///
+    /// **A window's background is not a page and is not drawn by one.** A host that moves a
+    /// finished page about reveals whatever the page does not cover, and what belongs there is
+    /// the medium this renderer draws under the page — never page white, which would assert that
+    /// the page is blank there. One texel scaled over the window says exactly that and costs one
+    /// textured quad; a window-sized medium texture would spend the bytes of a whole window to
+    /// hold one colour.
+    ///
+    /// Premultiplied, as every layer is — which for the opaque medium this renderer draws under
+    /// every page is the same four bytes as the straight-alpha form `crate::scene` quantises to.
+    #[must_use]
+    pub fn medium_texture(&self) -> quorra_gpu::wgpu::Texture {
+        let (gpu, queue) = self.device.wgpu();
+        let extent = quorra_gpu::wgpu::Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 1,
+        };
+        let texture = gpu.create_texture(&quorra_gpu::wgpu::TextureDescriptor {
+            label: Some("the window's medium"),
+            size: extent,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: quorra_gpu::wgpu::TextureDimension::D2,
+            format: quorra_gpu::wgpu::TextureFormat::Rgba8Unorm,
+            usage: quorra_gpu::wgpu::TextureUsages::TEXTURE_BINDING
+                | quorra_gpu::wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        queue.write_texture(
+            texture.as_image_copy(),
+            &crate::scene::byte_colour(self.background),
+            quorra_gpu::wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4),
+                rows_per_image: Some(1),
+            },
+            extent,
+        );
+        texture
+    }
+
+    /// Takes the window's surface out of the device, so that it can be presented to from a thread
+    /// that is not the one rendering (quorra's ADR 0056).
+    ///
+    /// `None` for a device with no surface, and `None` on the second call. **It compiles nothing
+    /// and waits for nothing** — quorra's own documentation says it clones four handles and moves
+    /// the surface state, asking the pipeline store nothing — which is why a host may call it on
+    /// its launch path without putting a shader in front of page one (`CLAUDE.md`'s startup
+    /// rules).
+    #[must_use]
+    pub fn detach_presenter(&mut self) -> Option<quorra_gpu::Presenter> {
+        self.device.detach_presenter()
+    }
+
+    /// Gives the surface back, so that this device could present again.
+    ///
+    /// # Errors
+    ///
+    /// [`quorra_gpu::ForeignPresenter`] when the presenter came from another device — and it
+    /// carries the presenter back out, because losing a window's surface over a caller's mix-up
+    /// is not a cost any error path should impose.
+    pub fn attach_presenter(
+        &mut self,
+        presenter: quorra_gpu::Presenter,
+    ) -> Result<(), quorra_gpu::ForeignPresenter> {
+        self.device.attach_presenter(presenter)
     }
 }
 
@@ -790,36 +941,42 @@ pub(crate) struct Reported<'a> {
 
 /// Assembles the frame's scene: medium, page (or its raster stand-in), overlays.
 ///
-/// A free function rather than a method because there are two devices that draw a *window's*
-/// frame and only one of them owns a surface: [`QuorraPresenter::present`] renders it to the
-/// swapchain, and [`crate::QuorraRasterizer::rasterize_frame`] renders the same scene to a
-/// readback so that a test can look at it. A second copy of this would be two scenes that drift.
+/// A free function rather than a method because there are two kinds of device that draw a
+/// *window's* frame: [`QuorraWindowRenderer::render`] draws it into textures a host will put on a
+/// window, and [`crate::QuorraRasterizer::rasterize_frame`] draws the same scene into a readback
+/// so that a test can look at it. A second copy of this would be two scenes that drift.
+///
+/// `medium` is the colour under everything, or `None` for a scene drawn straight onto
+/// transparency — which is what a chrome layer is, and what lets it composite over a page the
+/// host places wherever the view now is.
 pub(crate) fn build(
     device: &mut quorra_gpu::Device,
     caches: &mut crate::cache::ResourceCaches,
-    background: Color,
+    medium: Option<Color>,
     builder: &mut quorra_scene::SceneBuilder,
     frame: &PresentFrame<'_>,
     transient: &mut Vec<ResourceId>,
     functions: &mut FunctionPaints,
 ) -> Result<(), QuorraRasterError> {
-    // The medium first: a surface frame has no compositor behind it to impose
+    // The medium first, where there is one: a window frame has no compositor behind it to impose
     // on, so the background is the bottom of the scene itself.
-    #[expect(
-        clippy::cast_precision_loss,
-        reason = "window dimensions are far below f32's exact integer range"
-    )]
-    let (w, h) = (frame.width as f32, frame.height as f32);
-    builder.rect(
-        quorra_scene::Rect::new(
-            quorra_scene::Point::new(0.0, 0.0),
-            quorra_scene::Point::new(w, h),
-        ),
-        quorra_scene::Affine::IDENTITY,
-        crate::scene::colour(background),
-        None,
-        None,
-    )?;
+    if let Some(background) = medium {
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "window dimensions are far below f32's exact integer range"
+        )]
+        let (w, h) = (frame.width as f32, frame.height as f32);
+        builder.rect(
+            quorra_scene::Rect::new(
+                quorra_scene::Point::new(0.0, 0.0),
+                quorra_scene::Point::new(w, h),
+            ),
+            quorra_scene::Affine::IDENTITY,
+            crate::scene::colour(background),
+            None,
+            None,
+        )?;
+    }
 
     if let Some((list, target)) = frame.page {
         Encoder::new(device, list, target, caches, transient, functions)

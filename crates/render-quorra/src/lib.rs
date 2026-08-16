@@ -32,7 +32,7 @@ mod present;
 mod scene;
 mod stroke;
 
-pub use present::{Captured, FrameCost, PresentFrame, QuorraPresenter};
+pub use present::{FrameCost, PresentFrame, QuorraWindowRenderer, WindowTextures};
 pub use scene::FunctionPaints;
 
 /// Why a frame could not be produced. Every variant names what refused (the same
@@ -179,14 +179,14 @@ impl QuorraRasterizer {
         self
     }
 
-    /// Which lane draws coverage from now on, as [`QuorraPresenter::set_coverage`] does it.
+    /// Which lane draws coverage from now on, as [`QuorraWindowRenderer::set_coverage`] does it.
     ///
     /// Here as well as on the presenter because the *offscreen* path is where a lane can be
     /// compared against the CPU oracle: `viewer-ui` switches lanes at a magnification
     /// (`GPU_COVERAGE_MAGNIFICATION`), so a headless ladder that never switches is not
     /// measuring what a person sees past 1000%. `examples/zoom_ladder` is the caller.
     ///
-    /// [`QuorraPresenter::set_coverage`]: crate::present::QuorraPresenter::set_coverage
+    /// [`QuorraWindowRenderer::set_coverage`]: crate::present::QuorraWindowRenderer::set_coverage
     pub fn set_coverage(&mut self, coverage: quorra_gpu::Coverage) {
         self.device.set_coverage(coverage);
     }
@@ -199,8 +199,8 @@ impl QuorraRasterizer {
 
     /// A whole *window's* frame — page, raster stand-in and overlays — drawn offscreen.
     ///
-    /// [`QuorraPresenter::present`] is the same scene onto a swapchain, and this is the only way
-    /// to look at one without a window. It exists because a defect lived where no instrument
+    /// [`QuorraWindowRenderer::render`] is the same scene into a texture a host puts on a window,
+    /// and this is the only way to look at one without a window. It exists because a defect lived where no instrument
     /// reached: `viewer-ui`'s sidebar stops being drawn above about 2000% magnification on the
     /// graphics device and not on the processor (ADR 0198), and every gate in this tree
     /// rasterises **one** display list — the corpus and the oracle a page, `tests/corpus.rs` a
@@ -220,7 +220,7 @@ impl QuorraRasterizer {
     ///
     /// As [`Rasterizer::rasterize`], plus whatever the overlays' own commands refuse.
     ///
-    /// [`QuorraPresenter::present`]: crate::present::QuorraPresenter::present
+    /// [`QuorraWindowRenderer::render`]: crate::present::QuorraWindowRenderer::render
     pub fn rasterize_frame(
         &mut self,
         frame: &PresentFrame<'_>,
@@ -230,7 +230,7 @@ impl QuorraRasterizer {
         let drawn = self.slot.render(
             &mut self.device,
             &mut self.caches,
-            self.background,
+            Some(self.background),
             frame,
             quorra_gpu::Target::Readback,
             &mut present::Reported {
@@ -258,9 +258,9 @@ impl QuorraRasterizer {
     }
 
     /// The named spans quorra measured inside the last frame — see
-    /// [`QuorraPresenter::last_phases`], which documents what is in the list and what is not.
+    /// [`QuorraWindowRenderer::last_phases`], which documents what is in the list and what is not.
     ///
-    /// [`QuorraPresenter::last_phases`]: crate::QuorraPresenter::last_phases
+    /// [`QuorraWindowRenderer::last_phases`]: crate::QuorraWindowRenderer::last_phases
     #[must_use]
     pub fn last_phases(&self) -> &[(&'static str, std::time::Duration)] {
         &self.phases

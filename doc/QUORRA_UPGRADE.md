@@ -687,3 +687,76 @@ Worth naming as a shape rather than as an erratum: **a ratchet held to equality 
 in prose decay at different rates**, and the ratchet is the one that cannot go stale silently. The
 run at the old pin is what settles this — 936 / 11 / 4 / 23 at `619ef3b4` too — so the release is
 not what moved it, and neither is anything upstream did.
+
+## `eada81ec`, taken in the five-hundred-and-fifty-sixth session (2026-08-17)
+
+Five commits past `a4380e2c`, and **the sixth bump in a row that cost this tree not one line to
+take** — but the first in a long while that is not "nothing changed": it is the release that
+answers `doc/QUORRA_NONBLOCKING_RENDER.md`, and this tree then spent a whole round *being its
+caller*. The two facts are worth keeping apart. Taking the release is two hashes in `Cargo.lock`
+and a `check --workspace --all-targets` that passes with no edit at all, because **the API change
+is purely additive**. Using it is ADR 0391.
+
+The range, oldest first:
+
+| | |
+|---|---|
+| `44d7acf` | their release matrix — a record of what a push delivered, nothing in `src/` |
+| `3073c7e` | **`recording` measured with callgrind and subdivided**, the answer to our §9. No `src/` change; `doc/notes-recording-shares.md` is the whole of it |
+| `bf5044e` | **the surface leaves the device**: `Presenter`, `Layer`, `PresentCost`, `detach_presenter` / `attach_presenter`, `present.wgsl`, and `RenderError::PresenterDetached` / `PresenterUnsized` / `LayerRefused` (their ADR 0056) |
+| `aead796` | `examples/present_thread/` under `Xvfb` in their CI — a page rendered on a second thread while the main thread presents, read back with `xwd`, verified able to fail three ways |
+| `eada81e` | the reply to carry across, and their own record of the round |
+
+### What the bump required: nothing, and the check is the diff rather than the build
+
+`cargo check --workspace --all-targets` passes against `eada81ec` with **no source change in this
+tree**, and the reason is in the `pub` surface: every item this tree already named is
+byte-for-byte what it was, and everything new is new. `Device` gained two methods,
+`RenderError` gained three variants, `LayerProblem` is a new enum, and `quorra-scene` was not
+touched at all. Nothing was removed, renamed or resignatured.
+
+**A `#[non_exhaustive]` note worth stating rather than discovering later**: `RenderError` gained
+`PresenterDetached`, `PresenterUnsized` and `LayerRefused`, and this tree matches on it in
+`viewer-ui`'s `surface.rs`. The match was already exhaustive by way of a catch-all arm — which is
+why it compiled — and the arm's behaviour is right for all three: each becomes a
+`Refusal::DeviceRefused` naming what quorra said, which is exactly what a host that has just
+misused the presenting API should be told.
+
+### The four lanes, unmoved to the digit
+
+`doc/todo/02-every-round.md` §2's lanes, run whole on the real Radeon 890M under RADV. **A round
+that takes a quorra release owes the magnified lane** (§2's note, and ADR 0283's precedent), and
+here it is beside the two at scale 1:
+
+| | `a4380e2c` (recorded) | `eada81ec` (this round) |
+|---|---|---|
+| scale 1, `cpu` | 931 / 23 / 2 / 18 | **931 / 23 / 2 / 18** |
+| scale 1, `gpu` | 929 / 25 / 2 / 18 | **929 / 25 / 2 / 18** |
+| scale 4, `gpu` | 937 / 10 / 4 / 23 | **937 / 10 / 4 / 23** |
+
+Agree / differ / refused / not comparable, and **every judged line is character-identical** to the
+pin before it. That is what a release with no pixel-moving change should look like, and it is
+checked rather than assumed: `bf5044e` adds a `present.wgsl` no headless device can reach, and
+`3073c7e` changed no `src/` file at all.
+
+### The one thing this tree had to check for itself, and it is not a compile question
+
+**Whether the presenting path can reach a golden.** quorra's own answer is in their reply's §6:
+a `Presenter` is reachable only from a device built with a surface, and this tree's corpus gate
+and both oracle lanes have none. This tree's half is `doc/todo/37` rule 2, and ADR 0391 §5 is the
+audit: the offscreen rasteriser did not move, `render_quorra::present::build` gained an
+`Option<Color>` medium whose every existing caller passes `Some(background)`, and the test that
+walks every `.rs` outside `viewer-ui/src/bin` for the word *reprojection* still passes. The three
+lanes above are what turns that argument into a measurement.
+
+### What the release makes available and this round did **not** take
+
+- **`PresentCost::compiled`**, which says when a present compiled the presenting pass inline
+  because the warm-up thread had not reached it. This tree reads the three wall clocks and not
+  this; a launch round that wants to know whether the *first* present paid a shader has the field
+  waiting for it.
+- **`Presenter::size()`**, an addition their answer says we can ignore, and we do: this host tells
+  the presenter its size on every `Resized` and keeps its own copy for the layer arithmetic.
+- **`ForeignPresenter::into_presenter`**, the recovery on a mis-attach. This tree detaches once and
+  never attaches back, so the path is unreachable here — which is itself the reason it costs
+  nothing to have.

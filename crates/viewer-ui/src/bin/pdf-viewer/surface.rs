@@ -4,12 +4,19 @@
 //! the difference is in [`Surface`]. Bringing one up is the launch path's last step and is
 //! therefore measured; drawing on it is the frame, and the frame is where every other module's
 //! work arrives, the page from `viewer-core` and the overlays from this host.
+//!
+//! **A frame with a graphics device is now two things happening at once**, which is ADR 0391:
+//! [`crate::renderer`] draws pages on a thread of its own and this module presents, on the clock,
+//! whatever that thread has finished — moved to where the view now is where it is not of the view
+//! now being asked for. What one call to [`App::present`] does is therefore *adopt, ask, place*
+//! rather than *draw and wait*, and the whole of the difference to how long a person waits for
+//! a window to answer them is in that.
 
 use std::sync::Arc;
 
 use pdf_render::{Rasterizer as _, TargetSpec, Transform};
 use render_cpu::CpuRasterizer;
-use render_quorra::{PresentFrame, QuorraPresenter};
+use render_quorra::QuorraWindowRenderer;
 use viewer_core::{Answer, Command, Query, Rendered};
 use viewer_ui::software::SoftwareSurface;
 use winit::window::Window;
@@ -57,7 +64,7 @@ fn coverage_for(transform: Transform) -> quorra_gpu::Coverage {
     }
 }
 
-/// Draws the page with [`CpuRasterizer`] and puts it on the window, whichever surface it has.
+/// Draws the page with [`CpuRasterizer`] and copies it onto a window that has no device.
 ///
 /// **This is one of the two jobs `CLAUDE.md` keeps the CPU backend for**: the correctness oracle,
 /// and the frame the graphics device refuses. (It was three until the two-hundred-and-seventy-third
@@ -65,16 +72,16 @@ fn coverage_for(transform: Transform) -> quorra_gpu::Coverage {
 /// refuses is a page this program can still show — more slowly, which is a cost a person can see
 /// past, where a page that never appears is not.
 ///
-/// **Two ways back to the window, and the difference is where the overlays are composited.** With
-/// a device, the raster is handed over as one image and quorra draws the overlays over it as
-/// geometry, because its surface is the only path pixels take. Without one, `SoftwareSurface`
-/// composites them on the processor and copies the result. `--cpu` takes the second, and so does
-/// a machine whose device would not come up.
+/// **The device's half of that fallback is no longer here**, and that is ADR 0391: a page the
+/// device refuses is rasterised on the render thread and drawn into the very texture the window
+/// presents, because that thread is the only one holding a device. What is left here is the
+/// window that never had one — `--cpu`, and a machine whose device would not come up — where
+/// `SoftwareSurface` composites the overlays on the processor and copies the result.
 ///
 /// The error is a sentence rather than a type because both of its sources are already strings by
 /// the time they reach the caller, which formats them into one report.
 fn on_the_processor(
-    surface: &mut Surface,
+    surface: &mut SoftwareSurface,
     list: &pdf_render::DisplayList,
     target: TargetSpec,
     overlays: &[&pdf_render::DisplayList],
@@ -82,108 +89,9 @@ fn on_the_processor(
     let raster = CpuRasterizer::new()
         .rasterize(list, target)
         .map_err(|problem| format!("the processor {problem}"))?;
-    match surface {
-        Surface::Device(presenter) => presenter
-            .present(PresentFrame {
-                width: target.width,
-                height: target.height,
-                page: None,
-                raster: Some(&raster),
-                overlays,
-            })
-            .map_err(|problem| format!("presenting the processor's page {problem}")),
-        Surface::Processor(surface) => surface
-            .present(&raster, overlays)
-            .map_err(|problem| format!("presenting the processor's page {problem}")),
-    }
-}
-
-/// Reads the frame on the window back, so that reprojections of it resample its own pixels.
-///
-/// **None of the four outcomes here is a refusal any more, and that is ADR 0385.** Each of them
-/// says only that *this* frame's pixels could not be had; whether anything is drawn is
-/// [`crate::stale::Stale::reproject`]'s answer, because a base captured from an earlier rendering
-/// of the same page is still true pixels at a placement this host knows. Failing to capture used
-/// to mean showing nothing, and it cost the project owner two view changes of every run.
-///
-/// The readback's own cost, or `None` where this frame's pixels could not be taken. Two of the
-/// ways that happens are facts about *this machine* rather than about this frame, and those stop
-/// the window being read back again for the rest of the run.
-fn capture_base(
-    presenter: &mut QuorraPresenter,
-    stale: &mut crate::stale::Stale,
-    trace: crate::trace::Trace,
-) -> Option<std::time::Duration> {
-    /// What the line below says about the base already held, which decides whether the loss
-    /// matters at all.
-    fn standing(stale: &crate::stale::Stale) -> &'static str {
-        if stale.has_base() {
-            "the base already held stands in, composed against the frame that produced it"
-        } else {
-            "and none is held"
-        }
-    }
-
-    let captured = match presenter.capture_presented() {
-        Ok(Some(captured)) => captured,
-        // There are two ways here and silence could not tell them apart: no frame has reached the
-        // device, or the last one made it repack its glyph atlas and the retained encode died with
-        // the tile placements (quorra's ADR 0050). **The second is not rare** — the project
-        // owner's own trace repacks after three frames of fifteen, every one of them a zoom step,
-        // because a new magnification is a new set of glyph rasters.
-        Ok(None) => {
-            trace.say(
-                Topic::Frames,
-                format_args!(
-                    "this frame's own pixels could not be had — the device has no retained encode \
-                     to replay, because the last frame repacked its glyph atlas or none has \
-                     reached it yet; {}",
-                    standing(stale)
-                ),
-            );
-            return None;
-        }
-        Err(problem) => {
-            trace.say(
-                Topic::Frames,
-                format_args!(
-                    "the frame on the window could not be read back: {problem} — no frame will be \
-                     read back again in this run; {}",
-                    standing(stale)
-                ),
-            );
-            stale.refuse_captures();
-            return None;
-        }
-    };
-    // Rule 4, and the one condition that cannot be checked in advance: a capture that re-encoded
-    // has just paid the whole of the cost the reprojection exists to cover, so it is said out loud
-    // and never asked for again. **The pixels it produced are used all the same**, which ADR 0385
-    // changed: they have been paid for, they are this frame's own, and throwing them away would
-    // make every later reprojection of the run compose against an older base for nothing.
-    if !captured.replayed {
-        trace.say(
-            Topic::Frames,
-            format_args!(
-                "reading the frame back re-encoded it in {:.1} ms instead of replaying it, which \
-                 costs the real frame more than the wait is worth — this frame's pixels are kept, \
-                 and no frame will be read back again in this run",
-                captured.cost.as_secs_f64() * 1e3
-            ),
-        );
-        stale.refuse_captures();
-    }
-    if !stale.rebase(&captured.raster) {
-        trace.say(
-            Topic::Frames,
-            format_args!(
-                "the frame read back off the window is in a layout this host cannot resample; {}",
-                standing(stale)
-            ),
-        );
-        return None;
-    }
-    Some(captured.cost)
+    surface
+        .present(&raster, overlays)
+        .map_err(|problem| format!("presenting the processor's page {problem}"))
 }
 
 /// How this window's pixels reach it: with a graphics device, or without one.
@@ -193,11 +101,9 @@ fn capture_base(
 /// loads cannot reach it. Before the three-hundred-and-eighty-fourth session there was one
 /// variant and `--cpu` chose only which rasteriser drew into it (ADR 0221).
 pub(crate) enum Surface {
-    /// quorra's device holds the surface; one call draws and presents a frame,
-    /// and a refused frame is a typed error naming what refused — the banding
-    /// machinery, the owned intermediate texture and the blitter of the Vello
-    /// host all fell away with the backend that needed them.
-    Device(Box<QuorraPresenter>),
+    /// The window's surface, held apart from the device that made it (quorra's ADR 0056): this
+    /// thread presents finished rasters and [`crate::renderer`]'s thread draws them.
+    Device(Box<crate::renderer::Window>),
     /// The processor's raster copied onto the window, with the overlays composited into it
     /// first. `--cpu`, and a device that would not come up.
     Processor(SoftwareSurface),
@@ -206,7 +112,7 @@ pub(crate) enum Surface {
 impl std::fmt::Debug for Surface {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Device(presenter) => formatter.debug_tuple("Device").field(presenter).finish(),
+            Self::Device(window) => formatter.debug_tuple("Device").field(window).finish(),
             Self::Processor(surface) => formatter.debug_tuple("Processor").field(surface).finish(),
         }
     }
@@ -222,14 +128,257 @@ pub(crate) struct State {
 }
 
 impl App {
+    /// The presenting half of this window, where there is one.
+    ///
+    /// A method rather than a `let` at each site because every one of them has to end the borrow
+    /// before touching another field of `App`: the clock and the stand-in policy are fields
+    /// beside `state`, and a window held across a call to either is a borrow the compiler is
+    /// right to refuse.
+    fn device_window(&mut self) -> Option<&mut crate::renderer::Window> {
+        match self.state.as_mut()?.surface {
+            Surface::Device(ref mut window) => Some(window),
+            Surface::Processor(_) => None,
+        }
+    }
+
+    /// Everything a tick does with a window that has a graphics device: adopt, ask, place.
+    ///
+    /// **Three steps in this order, and the order is the design** (ADR 0391).
+    ///
+    /// 1. **Adopt** whatever the render thread has finished, so that the placement below is
+    ///    computed against the newest rendering there is. A frame that landed a microsecond ago
+    ///    must not be stood in for as though it had not.
+    /// 2. **Ask** for the frame this view needs, where the rendering on hand is not of it and the
+    ///    thread is idle. This is where a render *starts*, and nothing waits for it.
+    /// 3. **Place** the rendering on hand under whatever transform makes it depict this view —
+    ///    the identity where it already does, [`crate::stale`]'s composition where it does not,
+    ///    and nothing at all where a refusal says there is nothing true to draw.
+    ///
+    /// `stand_in` is false for §12.4.4's transition, whose frames are pictures of *two* pages
+    /// moving: no transform of one is any view of either, so the newest is put up at the identity
+    /// and nothing about it is approximated.
+    fn on_the_device(
+        &mut self,
+        list: &Arc<pdf_render::DisplayList>,
+        target: TargetSpec,
+        stand_in: bool,
+        chrome: &Overlays,
+        stages: &mut Stages,
+    ) -> Option<Rendered> {
+        let now = std::time::Instant::now();
+        self.adopt(now, stages);
+        let coverage = coverage_for(target.transform);
+        let overlays = chrome.owned();
+        let drawing = {
+            let window = self.device_window()?;
+            // **Read before the ask below, and that is not an ordering accident.** Rule 5's
+            // observation is "a render asked for at an *earlier* tick is still out", and a render
+            // dispatched two lines further down has missed nothing yet. Reading it afterwards
+            // would make every view change observe its own dispatch as a miss, and the prediction
+            // — the half that decides whether a quick frame is waited for — would never be asked.
+            let was_drawing = window.drawing();
+            // A rendering of exactly this list at exactly this target needs no successor. The
+            // page is compared by the `Arc` that makes its address mean something, because a page
+            // turn at an unchanged magnification is a different picture at the same placement;
+            // the target by value, because a resize is a different frame at the same transform.
+            let of_this_view = window
+                .shown()
+                .and_then(|shown| shown.page.as_ref())
+                .is_some_and(|(drawn, placed)| Arc::ptr_eq(drawn, list) && *placed == target);
+            if !of_this_view {
+                window.ask(Some((Arc::clone(list), target)), overlays, coverage, now);
+            }
+            was_drawing
+        };
+        // A transition is a picture of two pages moving and no transform of it is any view of
+        // either, so the newest is put up at the identity and nothing about it is approximated.
+        // A window that has never drawn is the other case with no stand-in to consider: it is not
+        // a view change, so the policy is not asked and the tick presents whatever there is —
+        // which for the ticks before the first frame lands is nothing at all.
+        if !stand_in || !self.stale.has_rendering() {
+            // The clock stays armed, so page one arrives on the tick after it is drawn rather
+            // than waiting for an event that is not coming.
+            self.cadence.owed(now);
+            return self.put_up(Transform::IDENTITY, stages);
+        }
+        // Every rule that makes an approximation defensible is in `crate::stale` rather than
+        // here. The period is the one number rule 5 is measured against (ADR 0384), and `drawing`
+        // is its second way of knowing that a frame has missed (ADR 0391).
+        let planned = self
+            .stale
+            .plan(list, target, self.cadence.period(), drawing);
+        let placement = match planned {
+            crate::stale::Plan::Render => Transform::IDENTITY,
+            crate::stale::Plan::Reproject => match self.stale.reproject(list, target) {
+                Ok(moved) => {
+                    stages.approximated = true;
+                    moved
+                }
+                Err(why) => {
+                    let trace = self.trace;
+                    self.stale.declined(&why, trace);
+                    return None;
+                }
+            },
+            crate::stale::Plan::Refused(why) => {
+                let trace = self.trace;
+                self.stale.declined(&why, trace);
+                // Nothing is put up: the window keeps the picture it has, and the clock stays
+                // armed below, so the tick that follows carries the rendering this one waited
+                // for. Rule 5's whole point is that waiting one refresh beats showing a
+                // resampling of a frame that was about to arrive anyway.
+                self.cadence.owed(now);
+                return None;
+            }
+        };
+        self.put_up(placement, stages)
+    }
+
+    /// Takes whatever the render thread has finished, and records what it is.
+    ///
+    /// Everything a landed frame says about itself is said here, once: the launch timeline's
+    /// scene mark, the note a device refusal earns, the §8.7.4.5.2 programs it drew from the
+    /// grid, and the view it settled — which is what the next reprojection composes against.
+    fn adopt(&mut self, now: std::time::Instant, stages: &mut Stages) {
+        let Some(landed) = self
+            .device_window()
+            .and_then(crate::renderer::Window::collect)
+        else {
+            return;
+        };
+        stages.gpu = landed.cost;
+        // The first frame's scene translation is a launch milestone — the other half, with
+        // interpretation, of what used to sit unnamed between `document joined` and `first
+        // present` (ADR 0332). Marked when the frame *lands* rather than when it was asked for,
+        // because the render is somebody else's thread now and this is the moment it is known: the
+        // frame began `total` before now, and the scene was the first `scene` of that.
+        //
+        // A clock that will not go back that far is a machine whose monotonic clock started inside
+        // this frame, which is not a state — but a subtraction that could saturate silently is,
+        // so `now` stands in and the mark reads as an instant rather than as a wrong one.
+        self.launch.scene_built(
+            now.checked_sub(landed.cost.total).unwrap_or(now),
+            landed.cost.scene,
+        );
+        // ADR 0376: a §8.7.4.5.2 program the device declined draws from the grid instead — the
+        // right picture, four orders of magnitude slower — so the ground is said out loud rather
+        // than left to a timing to imply.
+        for ground in &landed.function_refusals {
+            self.trace.say(
+                Topic::Frames,
+                format_args!("function shading drawn on the processor's grid: {ground}"),
+            );
+        }
+        // A page drawn by the slower of two backends is a fact about this build worth saying out
+        // loud, and saying it is what would have made the hundred-and-forty-second session's
+        // report a sentence rather than a mystery.
+        if let Some(problem) = &landed.fell_back {
+            println!(
+                "note: the graphics device {problem}, so the page was drawn on the processor \
+                 instead"
+            );
+        }
+        if let Some(problem) = &landed.refused {
+            eprintln!("note: this page could not be drawn: {problem}");
+        }
+        // What the window is now able to draw, and what producing it cost. The next view change
+        // reads both: the placement to carry the pixels *from*, and the cost to predict whether
+        // the frame after it will miss its refresh (`doc/todo/37` rule 5, ADR 0384).
+        //
+        // **Whether the frame *built* its picture is part of that**, and it is quorra's own
+        // observable rather than an inference from a small duration: a frame that replayed a
+        // retained encode (ADR 0351) says what a replay costs and nothing about what the next
+        // render will, and a view change never replays.
+        if let Some((page, target)) = landed.page {
+            let built = !matches!(
+                landed.cost.encode_source,
+                Some(quorra_gpu::EncodeSource::Replayed)
+            );
+            self.stale.settled(&page, target, landed.waited, built);
+        }
+    }
+
+    /// Puts the frame on hand on the window under `placement`, and says what it was.
+    ///
+    /// The one place a swapchain state is answered, and it is answered exactly as it was when the
+    /// device owned the surface: quorra's presenter reconfigures itself on a timeout or an
+    /// outdated surface, so these are events to try again on rather than failures to report.
+    ///
+    /// `None` where nothing was put up — there is no frame yet, or the swapchain said to try
+    /// again — and `None` for a reprojection as well, deliberately: the core is told what became
+    /// of its request by the frame that *answers* it, and a stand-in answers nothing.
+    fn put_up(&mut self, placement: Transform, stages: &mut Stages) -> Option<Rendered> {
+        let began = std::time::Instant::now();
+        let expected = self.stale.expected();
+        let period = self.cadence.period();
+        let (outcome, cost) = {
+            let window = self.device_window()?;
+            (window.present(placement), window.last_present())
+        };
+        match outcome {
+            Ok(true) => {}
+            // Nothing has been drawn yet, which is every tick between the window appearing and
+            // the first frame landing. Not a refusal and not a failure.
+            Ok(false) => return None,
+            // Swapchain states are events, not failures: nothing was presented, nothing is stale,
+            // and the processor cannot help a window that is not presentable.
+            Err(quorra_gpu::RenderError::SurfaceUnavailable { reason }) => {
+                return match reason {
+                    quorra_gpu::SurfaceProblem::Outdated | quorra_gpu::SurfaceProblem::Lost => {
+                        self.redraw();
+                        None
+                    }
+                    quorra_gpu::SurfaceProblem::Timeout | quorra_gpu::SurfaceProblem::Occluded => {
+                        None
+                    }
+                    quorra_gpu::SurfaceProblem::Validation => {
+                        Some(Rendered::Failed("swapchain validation failed".to_owned()))
+                    }
+                };
+            }
+            Err(problem) => {
+                let why = crate::stale::Refusal::DeviceRefused(problem.to_string());
+                let trace = self.trace;
+                self.stale.declined(&why, trace);
+                return None;
+            }
+        }
+        if let Some(cost) = cost {
+            stages.present = cost
+                .acquire_wall
+                .saturating_add(cost.record_wall)
+                .saturating_add(cost.present_wall);
+        }
+        if !stages.approximated {
+            // A rendering reached the window. **Whether it landed at *this* tick is deliberately
+            // not asked**: a tick that put the same rendering up again has still presented one,
+            // which is what the core's acknowledgement and the launch timeline both read, and
+            // what the summary counts as a correct frame.
+            return Some(Rendered::Presented);
+        }
+        // Rule 3 twice over: the frame line says `approximated`, and this says what it is an
+        // approximation *of* — which frame it stands in for and what putting it up cost. There is
+        // no readback in it and no upload behind it any more, which is why the third number this
+        // line used to carry is gone with them (ADR 0391).
+        self.trace.say(
+            Topic::Frames,
+            format_args!(
+                "approximated: this view's frame is expected to cost {:.1} ms against a {:.1} ms \
+                 refresh, so it misses, and the last rendering's own texture stands in under a \
+                 composed placement (present {:.2} ms); the real frame is being drawn",
+                expected.as_secs_f64() * 1e3,
+                period.as_secs_f64() * 1e3,
+                began.elapsed().as_secs_f64() * 1e3,
+            ),
+        );
+        // Rule 1, as a value that cannot be dropped: the frame that replaces this one is asked
+        // for here, in the same expression that records it — of the clock rather than of the
+        // window, so that a view still moving is answered again on the next tick.
+        self.stale.drawn().follow(&mut self.cadence, began);
+        None
+    }
+
     /// `stages` is filled in as the frame goes: see [`Stages`] for why one number was not enough.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "one frame in one sequence — the request, the placement, the reprojection \
-                  decision, the transition, the chrome, the device and what to do when it \
-                  refuses. Each is a handful of lines and their *order* is the content; split \
-                  into parts, a reader would have to reconstruct it from six signatures"
-    )]
     fn present(&mut self, stages: &mut Stages) -> Option<Rendered> {
         let began = std::time::Instant::now();
         // §12.3.4's list is built here and nowhere else: this is the one place that holds
@@ -262,283 +411,43 @@ impl App {
                 .then(Transform::translate(origin.0 + edge, origin.1)),
         };
 
-        // Asked before the transition below, because it is a question about *this page's*
-        // placement: whether the pixels on the screen are this page under another view, and
-        // whether the frame this view is waiting for is expected to miss the surface's own
-        // refresh. See [`crate::stale`] — every rule that makes an approximation defensible is
-        // enforced in there rather than here, and the period is the one number it is measured
-        // against (ADR 0384).
-        let planned = self
-            .stale
-            .plan(&request.list, target, self.cadence.period());
-        let placement = target;
-
         // §12.4.4: a transition in flight substitutes its own picture of *two* pages for the one,
         // and it is a display list, so everything below this line is unchanged by it — which is
         // the point of shaping a frame in `viewer_core::transition` rather than compositing here.
-        let (playing, target) = self.frame_to_draw(&request, target, width, height);
-        let list = playing.as_ref().unwrap_or(&request.list);
+        let (playing, drawn) = self.frame_to_draw(&request, target, width, height);
+        let list = playing.clone().unwrap_or_else(|| Arc::clone(&request.list));
 
         let chrome = Overlays::of(self, edge, width, height);
-        let overlays = chrome.lists();
         stages.host = began.elapsed();
 
         // A transition is already a picture of two pages moving, drawn from rasters this host
         // took for it: there is no stall to cover and the pixels on the screen are not a page.
         if playing.is_some() {
             self.stale.forget();
-        } else {
-            match planned {
-                // Rule 3 over every refusal, which is ADR 0385 finishing what ADR 0384 began: the
-                // owner reported the same sentence twice, and the second time the reason was a
-                // decision this program was making in silence. Each says which of the two kinds
-                // it is, and each is counted for the summary.
-                crate::stale::Plan::Refused(why) => {
-                    let trace = self.trace;
-                    self.stale.declined(&why, trace);
-                }
-                crate::stale::Plan::Reproject(view) => {
-                    if self.approximate(view, &request.list, placement, &overlays, stages) {
-                        // Deliberately not a `Rendered`: the core is told what became of its
-                        // request by the frame that *answers* it, and a reprojection answers
-                        // nothing. Nothing is acknowledged, the launch timeline stays open, and
-                        // the accessibility tree is not published from a picture that is not the
-                        // page.
-                        return None;
-                    }
-                }
-                // Not a view change: the window's picture is already the one being asked for.
-                crate::stale::Plan::Render => {}
-            }
         }
 
-        let state = self.state.as_mut()?;
-        let drawn = match &mut state.surface {
-            // No device to ask. Not a refusal either: the software surface below is this run's
-            // only path, and calling it a failure would print a note on every frame.
-            Surface::Processor(_) => Err(String::new()),
-            Surface::Device(presenter) => {
-                // Which lane draws this frame's coverage, decided from this frame's
-                // magnification: see `coverage_for`. Set every frame rather than when it
-                // changes, because it is a field write and tracking the change would be
-                // more state than the thing it saved.
-                presenter.set_coverage(coverage_for(target.transform));
-                let handed = std::time::Instant::now();
-                let outcome = presenter.present(PresentFrame {
-                    width,
-                    height,
-                    page: Some((list, target)),
-                    raster: None,
-                    overlays: &overlays,
-                });
-                // Read back whatever the frame cost before anything is decided about it: a
-                // refusal has an accounting too, and it is the one a person most wants.
-                stages.gpu = presenter.last_frame();
-                // ADR 0376: a §8.7.4.5.2 program the device declined draws from the grid
-                // instead — the right picture, four orders of magnitude slower — so the ground
-                // is said out loud rather than left to a timing to imply. Said on every frame
-                // that carries one, because a replayed frame is still drawing it.
-                for ground in presenter.last_function_paints().refusals() {
-                    self.trace.say(
-                        Topic::Frames,
-                        format_args!("function shading drawn on the processor's grid: {ground}"),
-                    );
-                }
-                // The first frame's scene translation is a launch milestone — the other
-                // half, with interpretation, of what used to sit unnamed between `document
-                // joined` and `first present` (ADR 0332). The method keeps only the first
-                // and computes the mark from quorra's own `scene` measurement, because the
-                // boundary is inside the call above.
-                self.launch.scene_built(handed, stages.gpu.scene);
-                match outcome {
-                    Ok(()) => Ok(()),
-                    // Swapchain states are events, not failures: nothing was presented,
-                    // nothing is stale, and the processor cannot help a window that is
-                    // not presentable — so these return rather than fall back.
-                    Err(render_quorra::QuorraRasterError::Render(
-                        quorra_gpu::RenderError::SurfaceUnavailable { reason },
-                    )) => {
-                        return match reason {
-                            quorra_gpu::SurfaceProblem::Outdated
-                            | quorra_gpu::SurfaceProblem::Lost => {
-                                state.window.request_redraw();
-                                None
-                            }
-                            quorra_gpu::SurfaceProblem::Timeout
-                            | quorra_gpu::SurfaceProblem::Occluded => None,
-                            quorra_gpu::SurfaceProblem::Validation => {
-                                Some(Rendered::Failed("swapchain validation failed".to_owned()))
-                            }
-                        };
-                    }
-                    Err(error) => Err(error.to_string()),
-                }
-            }
-        };
-        if let Err(problem) = drawn {
-            let fell_back = std::time::Instant::now();
-            let second = on_the_processor(&mut state.surface, list, target, &overlays);
-            stages.fallback = fell_back.elapsed();
-            if let Err(second) = second {
-                return Some(Rendered::Failed(if problem.is_empty() {
-                    second
-                } else {
-                    format!("the graphics device {problem}, and {second}")
-                }));
-            }
-            // Reported when there *was* a device that refused. A page drawn by the slower of two
-            // backends is a fact about this build worth saying out loud, and saying it is what
-            // would have made the hundred-and-forty-second session's report a sentence rather
-            // than a mystery — but under `--cpu` there is nothing to report, which is why the
-            // empty `problem` above is a sentinel rather than a message.
-            if !problem.is_empty() {
-                println!(
-                    "note: page {}: the graphics device {problem}, so it was drawn on the \
-                     processor instead",
-                    request.page.saturating_add(1)
-                );
-            }
+        if self.device_window().is_some() {
+            return self.on_the_device(&list, drawn, playing.is_none(), &chrome, stages);
         }
-        // What the window is showing, and what showing it cost. The next view change reads both:
-        // the placement to carry the pixels *from*, and the cost to decide whether carrying them
-        // is worth anything at all (`doc/todo/37` rule 5, ADR 0378).
-        //
-        // **Whether the frame *built* its picture is part of that**, and it is quorra's own
-        // observable rather than an inference from a small duration: a frame that replayed a
-        // retained encode (ADR 0351) says what a replay costs and nothing about what the next
-        // render will, and a view change never replays. A frame that never reached the device —
-        // the processor's window, and the fallback — built its picture by definition, which is
-        // why the test is against `Replayed` rather than for `Encoded` (ADR 0384).
+
+        // No device: the processor's window is this run's only path, and it draws to completion
+        // here exactly as it always did.
+        let overlays = chrome.lists();
+        let fell_back = std::time::Instant::now();
+        let Some(Surface::Processor(surface)) = self.state.as_mut().map(|state| &mut state.surface)
+        else {
+            return None;
+        };
+        let outcome = on_the_processor(surface, &list, drawn, &overlays);
+        stages.fallback = fell_back.elapsed();
+        if let Err(problem) = outcome {
+            return Some(Rendered::Failed(problem));
+        }
         if playing.is_none() {
-            let built = !matches!(
-                stages.gpu.encode_source,
-                Some(quorra_gpu::EncodeSource::Replayed)
-            );
             self.stale
-                .settled(&request.list, placement, began.elapsed(), built);
+                .settled(&request.list, target, began.elapsed(), true);
         }
         Some(Rendered::Presented)
-    }
-
-    /// Puts the pixels the window is already showing where this view puts them, and asks for the
-    /// frame that replaces them.
-    ///
-    /// `true` when the window answered the input; `false` when it did not, and the caller then
-    /// draws the real frame exactly as it always did. **Every one of those refusals is an
-    /// ordinary state rather than a failure**, every one says which of [`crate::stale::Refusal`]'s
-    /// two kinds it is, and the two that say something about *this machine* rather than about this
-    /// frame stop the window being read back again.
-    ///
-    /// The chrome is the current frame's, drawn over the reprojection as geometry: a selection
-    /// and a sidebar are this host's own state and are true at the moment they are drawn, so
-    /// only the page underneath them is an approximation.
-    ///
-    /// **The pixels are read back once per real frame rather than once per reprojection**, which
-    /// is what makes a cadence affordable: `doc/todo/36` needs a frame every 8.3 ms and ADR
-    /// 0378's readback costs 19 to 36. So the first reprojection standing in for a rendering
-    /// captures it, and the second and every later one resamples the same base under a
-    /// recomposed transform — one image draw off an upload the resource cache already holds.
-    ///
-    /// **And a readback that fails is not the end of it, since ADR 0385**: the base held from an
-    /// earlier rendering of this page stands in instead, composed against the placement *it* was
-    /// drawn at. What decides whether there is a picture is the base, in one place
-    /// ([`crate::stale::Stale::reproject`]), rather than whether this frame's capture worked.
-    fn approximate(
-        &mut self,
-        view: Transform,
-        page: &Arc<pdf_render::DisplayList>,
-        target: TargetSpec,
-        overlays: &[&pdf_render::DisplayList],
-        stages: &mut Stages,
-    ) -> bool {
-        let began = std::time::Instant::now();
-        let trace = self.trace;
-        let expected = self.stale.expected();
-        let period = self.cadence.period();
-        let wants_base = self.stale.wants_base();
-        let Some(state) = self.state.as_mut() else {
-            return false;
-        };
-        let (width, height) = state.size;
-        let Surface::Device(presenter) = &mut state.surface else {
-            // Nothing to read back: the processor's window has no retained encode, so its
-            // pixels would have to be produced by rasterising the page again — which is the
-            // cost this exists to hide rather than one it can hide. Asked once, then never.
-            self.stale.refuse_captures();
-            self.stale.declined(&crate::stale::Refusal::NoDevice, trace);
-            return false;
-        };
-        // Read back only where this frame's own pixels are not held yet — that is, only when the
-        // window is showing a *rendering*. It is the condition that makes a chain impossible as
-        // well as the one that makes the readback affordable: a capture taken while a reprojection
-        // was on the screen would be a resampling of a resampling, and there is no state in which
-        // one is taken.
-        let readback = wants_base
-            .then(|| capture_base(presenter, &mut self.stale, trace))
-            .flatten();
-        let list = match self.stale.reproject(page, target) {
-            Ok(list) => list,
-            Err(why) => {
-                self.stale.declined(&why, trace);
-                return false;
-            }
-        };
-        let list = Arc::new(list);
-        // The pixels are the window's own, so they are placed in the window's own space — the
-        // identity target every overlay list already uses.
-        let placement = TargetSpec {
-            width,
-            height,
-            transform: Transform::IDENTITY,
-        };
-        if let Err(problem) = presenter.present(PresentFrame {
-            width,
-            height,
-            page: Some((&list, placement)),
-            raster: None,
-            overlays,
-        }) {
-            let why = crate::stale::Refusal::DeviceRefused(problem.to_string());
-            self.stale.declined(&why, trace);
-            return false;
-        }
-        stages.gpu = presenter.last_frame();
-        stages.commands = list.commands().len();
-        stages.approximated = true;
-        let cost = began.elapsed();
-        // Rule 3 twice over: the frame line says `approximated`, and this says what it is an
-        // approximation *of* — which frame it stands in for, what the picture cost, and where the
-        // pixels came from. That last has three answers rather than two since ADR 0385, and the
-        // third is the one this round exists for: a readback that could not be taken now leaves
-        // the previous rendering's base standing rather than the window standing still.
-        trace.say(
-            Topic::Frames,
-            format_args!(
-                "approximated: this view's frame is expected to cost {:.1} ms against a {:.1} ms \
-                 refresh, so it misses, and a rendering's own pixels stand in ({}, whole \
-                 reprojection {:.1} ms); the real frame has been asked for",
-                expected.as_secs_f64() * 1e3,
-                period.as_secs_f64() * 1e3,
-                match (wants_base, readback) {
-                    (_, Some(cost)) => format!("read back in {:.1} ms", cost.as_secs_f64() * 1e3),
-                    (true, None) =>
-                        "this frame's pixels could not be read back, so the base already held \
-                         stands, composed against the frame that produced it"
-                            .to_owned(),
-                    (false, None) =>
-                        "composed against the base already held, no readback".to_owned(),
-                },
-                cost.as_secs_f64() * 1e3,
-            ),
-        );
-        // Rule 1, as a value that cannot be dropped: the frame that replaces this one is asked
-        // for here, in the same expression that records it — of the clock rather than of the
-        // window, so that a view still moving is answered again on the next tick instead of
-        // waiting behind a render that takes fifty of them (`doc/todo/36`).
-        self.stale
-            .drawn(view, cost)
-            .follow(&mut self.cadence, began);
-        true
     }
 
     /// Brings up whatever will put pixels on this window, or says why nothing can.
@@ -570,15 +479,15 @@ impl App {
         self.launch.mark("graphics instance");
         let began = std::time::Instant::now();
         let mut attempt = match instance.as_ref() {
-            Some(instance) => QuorraPresenter::with_instance(instance, window.clone()),
-            None => QuorraPresenter::new(window.clone()),
+            Some(instance) => QuorraWindowRenderer::with_instance(instance, window.clone()),
+            None => QuorraWindowRenderer::new(window.clone()),
         };
 
         // **A default gives way; a flag does not.** This arm is only reachable where this build
         // restricted the backends by itself — today that is Windows and DX12 — and the machine
         // turned out to have no adapter behind it. Refusing there would be this project's guess
         // deciding that somebody's machine cannot start, so it is a note and a second attempt
-        // with everything. `QuorraPresenter::new` makes its own all-backends instance, which is
+        // with everything. `QuorraWindowRenderer::new` makes its own all-backends instance, which is
         // why the old one is dropped rather than reused.
         if attempt.is_err()
             && !self.backend_asked_for
@@ -590,15 +499,39 @@ impl App {
                 named.name()
             );
             instance = None;
-            attempt = QuorraPresenter::new(window.clone());
+            attempt = QuorraWindowRenderer::new(window.clone());
         }
 
-        let presenter = match attempt {
-            Ok(presenter) => presenter,
+        let renderer = match attempt {
+            Ok(renderer) => renderer,
             Err(problem) => return self.no_device(window, instance.as_ref(), &problem),
         };
         let brought_up = began.elapsed();
         self.launch.mark("graphics device");
+        // **The surface leaves the device here, on the launch path, and that is deliberate.**
+        // quorra's `detach_presenter` clones four handles and moves the surface state; it asks the
+        // pipeline store nothing, so it cannot compile, cannot wait for warmth and cannot block
+        // (quorra's ADR 0056). The *thread* is not started here — that is the first job's, which
+        // is `CLAUDE.md`'s rule about scheduler decisions in front of a launch milestone.
+        let size = window.inner_size();
+        let presenter = match crate::renderer::Window::split(
+            renderer,
+            (size.width.max(1), size.height.max(1)),
+        ) {
+            Ok(presenter) => presenter,
+            Err(renderer) => {
+                // A device built with `for_surface` always has one to hand over, so this is a
+                // proof about quorra's constructors rather than a state anybody has seen — and it
+                // is still a sentence rather than a panic, because the alternative to a window
+                // that cannot present is a window nobody can read.
+                eprintln!(
+                    "the graphics device came up with no surface to present through ({}), so the \
+                     page is drawn on the processor instead",
+                    renderer.adapter_description()
+                );
+                return Self::software(window);
+            }
+        };
         if self.trace.on(Topic::Launch) {
             let startup = presenter.startup();
             // Two lines about one choice, and they answer different questions. The first is what
@@ -613,7 +546,7 @@ impl App {
             );
             self.trace.say(
                 Topic::Launch,
-                format_args!("rendering with {}", presenter.adapter_description()),
+                format_args!("rendering with {}", presenter.description()),
             );
             self.trace.say(
                 Topic::Launch,
@@ -681,7 +614,7 @@ impl App {
         if let Some(instance) = instance {
             // What *this* instance could see, which is the number that distinguishes a backend
             // this machine does not have (none) from a driver that failed later (some).
-            let visible = QuorraPresenter::adapters_on(instance);
+            let visible = QuorraWindowRenderer::adapters_on(instance);
             eprintln!(
                 "  adapters behind it: {}",
                 if visible.is_empty() {
@@ -753,18 +686,22 @@ impl App {
     /// and one that did not read identically. Polled once a frame, which behind the topic check
     /// is one `Option` read; *noticed* rather than *finished*, because the compilation ends on
     /// quorra's own thread and this is only the first frame to look.
+    ///
+    /// **Read off the last finished frame since ADR 0391**, because the device is no longer on
+    /// this thread to ask: [`crate::renderer::Window`] keeps whatever the render thread saw when
+    /// it last drew, which is the same answer one tick later.
     fn pipelines_compiled(&mut self) {
         if self.frames.pipelines || !self.trace.on(Topic::Launch) {
             return;
         }
         let Some(State {
-            surface: Surface::Device(presenter),
+            surface: Surface::Device(window),
             ..
         }) = self.state.as_ref()
         else {
             return;
         };
-        let Some(compiling) = presenter.startup().pipeline_compilation else {
+        let Some(compiling) = window.pipelines() else {
             return;
         };
         self.frames.pipelines = true;

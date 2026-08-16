@@ -445,4 +445,14 @@ impl Overlays {
         .flatten()
         .collect()
     }
+
+    /// The same lists, owned, for a frame that is drawn on another thread.
+    ///
+    /// **Cloned rather than moved out, and it costs nothing worth avoiding**: every one of these
+    /// is built from scratch by [`Self::of`] on the frame that uses it, and a window's chrome is
+    /// tens of commands against a page's tens of thousands. What it buys is that the caller still
+    /// has them for the trace and for the processor's path, which takes them by reference.
+    pub(crate) fn owned(&self) -> Vec<pdf_render::DisplayList> {
+        self.lists().into_iter().cloned().collect()
+    }
 }

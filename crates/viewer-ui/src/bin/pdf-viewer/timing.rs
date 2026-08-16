@@ -68,7 +68,7 @@ impl Launch {
     /// Records that the first frame's display lists have been translated into a GPU scene.
     ///
     /// The boundary is relayed rather than fabricated: scene building and device submission
-    /// happen inside one `QuorraPresenter::present` call, so this host cannot take a clock
+    /// happen inside one `QuorraWindowRenderer::present` call, so this host cannot take a clock
     /// reading between them — but `FrameCost::scene` is quorra's own measurement of the
     /// translation from the moment that call began, so the mark is `handed` (when this host
     /// handed the frame over) plus that duration. First frame only, as above.
@@ -147,8 +147,16 @@ pub(crate) struct Stages {
     /// What `render-quorra` reported for the same frame, which is where the device's own
     /// accounting arrives from.
     pub(crate) gpu: render_quorra::FrameCost,
-    /// `render-cpu` rasterising the page and presenting it, on a frame the device refused.
+    /// `render-cpu` rasterising the page and presenting it, on a window with no device.
     pub(crate) fallback: std::time::Duration,
+    /// Acquiring the swapchain, recording three textured quads and presenting them.
+    ///
+    /// **The whole of what the event thread spends on a picture, since ADR 0391**, and the number
+    /// `doc/todo/36`'s rate stands or falls on: everything in [`Self::gpu`] happens on another
+    /// thread now, so a frame line whose `present` is inside one refresh is a window keeping the
+    /// cadence however long its render takes. quorra's own `PresentCost`, summed over the three
+    /// wall clocks it reports — and they are wall clocks, which that type says in their names.
+    pub(crate) present: std::time::Duration,
     /// The accessibility publication — measured *beside* the frame rather than inside it.
     pub(crate) attend: std::time::Duration,
     /// Whether this frame was a **reprojection** rather than a rendering of the page.
@@ -219,7 +227,7 @@ const SUMMARY_ROWS: [(&str, StageOf); 10] = [
     //
     // **This comment used to name what was in it — "acquiring the swapchain texture, presenting
     // it, and reading the timestamp queries back" — and session 552 measured those three and they
-    // are not it.** `render_quorra::QuorraPresenter::last_phases` now carries quorra's own
+    // are not it.** `render_quorra::QuorraWindowRenderer::last_phases` now carries quorra's own
     // `target acquire` and `present` spans across the boundary, and on the project owner's adapter
     // the pair is under a twentieth of a millisecond on a frame whose remainder is over a hundred.
     // What is left is host time inside `Device::render` that quorra measures and discards — it
@@ -304,11 +312,12 @@ impl FrameLog {
         trace.say(
             Topic::Frames,
             format_args!(
-                "frame p{} {}cmd {outcome} {:.1} | host {:.1} scene {:.1} device {:.1}{source} \
-                 settle {:.1}{unusual} | {} up, {} culled",
+                "frame p{} {}cmd {outcome} {:.1} | present {:.2} | host {:.1} scene {:.1} \
+                 device {:.1}{source} settle {:.1}{unusual} | {} up, {} culled",
                 stages.page,
                 stages.commands,
                 ms(stages.total),
+                ms(stages.present),
                 ms(stages.host),
                 ms(stages.gpu.scene),
                 ms(stages.gpu.device),
@@ -329,17 +338,25 @@ impl FrameLog {
         );
         for (column, meaning) in [
             (
+                "present",
+                "the swapchain acquired and three textured quads put on the window, on this \
+                 thread — the whole of what a refresh waits for since ADR 0391, because every \
+                 column after it is another thread's",
+            ),
+            (
                 "host",
                 "this host's queries — page geometry, selection, focus, caret, popups, panel",
             ),
             (
                 "scene",
-                "display lists translated into a GPU scene, this frame's uploads included",
+                "display lists translated into a GPU scene, this frame's uploads included — on \
+                 the render thread, and reported by the frame that landed at this tick",
             ),
             (
                 "device",
                 "quorra's render: encoding, transfers, and the passes it already waits on — \
-                 followed by whether it encoded this frame's scene or replayed one (ADR 0351)",
+                 followed by whether it encoded this frame's scene or replayed one (ADR 0351). \
+                 Also the render thread's, and zero on a tick that adopted no frame",
             ),
             (
                 "settle",

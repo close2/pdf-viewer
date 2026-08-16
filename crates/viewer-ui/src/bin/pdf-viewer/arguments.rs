@@ -8,7 +8,7 @@
 
 use std::path::PathBuf;
 
-use render_quorra::QuorraPresenter;
+use render_quorra::QuorraWindowRenderer;
 use viewer_core::RestrictionLevel;
 
 use crate::trace::{Trace, parse_topics, speak_up, topic_names};
@@ -19,7 +19,7 @@ use crate::trace::{Trace, parse_topics, speak_up, topic_names};
 /// that can drive it, under the *device's* name each time, so a name filter selects hardware and
 /// cannot express "this card, through DX12". The set of backends is an instance-level choice and
 /// the instance is made before anything else, which is why this is decided on the command line
-/// and carried to `QuorraPresenter::instance_with` (quorra's ADR 0017; ours is 0221).
+/// and carried to `QuorraWindowRenderer::instance_with` (quorra's ADR 0017; ours is 0221).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Backend {
     /// Vulkan: Linux's and Android's, and one of Windows' two.
@@ -263,8 +263,8 @@ pub(crate) fn spawn_instancing(
 ) -> Option<std::thread::JoinHandle<quorra_gpu::wgpu::Instance>> {
     (!processor).then(|| {
         std::thread::spawn(move || match backend {
-            Some(named) => QuorraPresenter::instance_with(named.backends()),
-            None => QuorraPresenter::instance(),
+            Some(named) => QuorraWindowRenderer::instance_with(named.backends()),
+            None => QuorraWindowRenderer::instance(),
         })
     })
 }
@@ -359,7 +359,7 @@ fn usage() {
 
 #[cfg(test)]
 mod tests {
-    use render_quorra::QuorraPresenter;
+    use render_quorra::QuorraWindowRenderer;
 
     use super::{Backend, DEFAULT_BACKEND, backend_names, spawn_instancing};
 
@@ -387,7 +387,7 @@ mod tests {
         let instance = thread.join().expect("the thread creating the instance");
         // Enumerating proves the instance is usable rather than merely constructed. The list
         // may be empty on a machine with no adapter at all, which is not what is being asked.
-        let _ = QuorraPresenter::adapters_on(&instance);
+        let _ = QuorraWindowRenderer::adapters_on(&instance);
     }
 
     /// Every value `--backend` accepts is parsed by the name it prints, and nothing else is.

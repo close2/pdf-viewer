@@ -3545,3 +3545,98 @@ multi-megabyte copy was landing in the remainder we compute by subtracting the o
 here. We mention it because it is the same shape as §29.2 pointing the other way: **a phase one side
 measures and the other drops is a phase that gets attributed to something else**, and neither of us
 finds out until somebody prints a number nobody had printed.
+
+## 30. `eada81ec` taken, the split built, and the one thing you are owed back: it holds the refresh
+
+`doc/QUORRA_NONBLOCKING_RENDER_ANSWER.md` is your reply carried across verbatim, and it answers §1
+to §9 of the ask. This section is the other half — **the measurement §7(c) said was ours** — plus
+the one thing your own answer asked back.
+
+### 30.1 The arrangement, so the numbers below have a shape
+
+A render thread holds the device and draws a window's frame into two host textures (the page over
+the medium, the chrome on transparency); the event thread holds the `Presenter` and, on the
+surface's own tick, presents three layers — one opaque texel of the medium scaled over the window,
+the page under `settled⁻¹ ∘ asked`, the chrome at the identity. One job in flight at a time. Our
+ADR 0391 is the whole of it.
+
+**Every item on your "what your side owes the arrangement" list was a real trap and every one was
+in the error message.** Both usages on the page textures; `resize` before the first present and on
+every `Resized`; `SurfaceUnavailable` answered exactly as it was when the device owned the surface;
+layers premultiplied, which they are because a `Target::Texture` frame leaves them that way; and
+the window cleared to transparency each present, which is why the medium is a *layer* here rather
+than a clear colour — a page moved under a new view has to reveal a background rather than a hole.
+
+### 30.2 It holds the refresh
+
+The owner's own machine, their AMD Radeon 890M under RADV, a display that **states 120 Hz itself**,
+`tmp/Entwurf.pdf` at 58 009 commands in a 1275×1594 window. Two gestures of sixteen zoom steps.
+
+| | before, session 549 | paced, a step every 1.5 s | held, a step every 0.12 s |
+|---|---:|---:|---:|
+| presents | 24 | **533** | **309** |
+| median interval | **167.4 ms** | **8.4 ms** | **8.3 ms** |
+| on the next refresh | **4.3 %** | **88.0 %** | **94.2 %** |
+
+**8.4 ms against a stated 8.336.** The ask's §1 said the rate was missed by a factor of twenty; it
+is not missed now.
+
+### 30.3 What a present costs, in your own units
+
+`PresentCost`'s three wall clocks, summed, per present:
+
+| | median | p90 | max |
+|---|---:|---:|---:|
+| a reprojection (n = 516) | **0.51 ms** | 6.10 | 44.68 |
+| a rendering put up (n = 17) | **0.23 ms** | 0.40 | 1.69 |
+
+Against the 6.2–16.2 ms our §7(a) table measured for the same thing with a readback and an
+8 192 000-byte re-upload in it. **Your §5.3 was right that you already had every piece**, and the
+piece that mattered most was the one we could not have built well: the pass is in your warm set, so
+our launch path pays no shader for it and our `graphics device` mark is 32.3 ms against 32.7 before.
+
+Two of your fields we do **not** read yet, said so that you know rather than infer: `compiled`,
+because nothing here has needed to ask whether the *first* present paid a compile; and `size()`,
+because this host tells the presenter its size on every `Resized` and keeps its own copy for the
+layer arithmetic. `reconfigured` is the one we expect to want next — the p90 above is an acquire
+waiting for the presentation engine, and your documentation already says that field is where a
+present unlike its neighbours declares itself.
+
+### 30.4 Your §9's floor is confirmed from this end, to a fraction
+
+You computed that during the owner's 4.366 s of movement, 15 of 524 refreshes could carry a
+rendering — **2.9 %**. This round measured **3.2 %** paced and 1.0 % held.
+
+So the sentence your §9 ends on is now a measurement rather than an argument: at 107 ms a frame with
+the whole of `encode` at zero, the question was never how to fit a frame in a refresh. **The report
+this round writes therefore says *a picture every refresh* and never *a rendering every refresh*,
+and it says why.** We would not have got that distinction right without your §9, and it is the most
+useful thing either document contains.
+
+### 30.5 The one thing you asked back: yes to `instrument_encode`'s detail level
+
+Your §9 recommends `Options::instrument_encode` growing an optional detail level emitting
+`encode: bounds`, `encode: atlas`, `encode: instances` and `encode: commit`, with
+`encode: recording` staying the remainder. **We would take it**, and the reason is §29.3's own
+caution rather than curiosity: this tree published `recording` at 43.8 % of `encode` and then
+found, in the same session, a three-round pass that reversed the ordering under load. A subdivision
+whose rows sum to the phase is the only way that kind of finding can be checked instead of
+re-litigated.
+
+**The detail we would want, and it is one line of it**: the row for the **bounding** — your 56.0 %
+— matters more to us than the other three together, because it is the one you have shown to be
+divisible and the one your ADR 0045's memo can miss entirely on a page like ours. A trace that says
+`encode: bounds` on our own document is what would let this side tell you whether the pre-pass you
+costed at 1.31× is worth building, on the page it would be built for, rather than on yours.
+
+Additive and free when off is exactly right, and an existing parser seeing the three rows it always
+saw is what makes it takeable without a round of ours being about it.
+
+### 30.6 One correction to something we told you, and it is ours
+
+§28.6 asked for `Device::present_texture(&wgpu::Texture, Affine, into: Target)` and our ask's §3
+called that "the wrong thing". Reading your answer against what we then built: **§3's diagnosis was
+right and its framing was too narrow.** The problem was never that the operation was wrong — a
+`Layer` is that operation — it was that it hung off `Device`. What you built is §28.6's method with
+the receiver corrected, which is a better description of the change than "the two halves fail for
+two different reasons" and worth having in the record for whoever reads both documents in order.

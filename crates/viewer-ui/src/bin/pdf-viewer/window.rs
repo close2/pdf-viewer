@@ -388,9 +388,16 @@ impl ApplicationHandler for App {
                     scale
                 });
                 if let Some(state) = self.state.as_mut() {
-                    // The presenter reconfigures its surface from the viewport on
-                    // the next frame; the host only has to remember the size.
-                    state.size = (size.width.max(1), size.height.max(1));
+                    let extent = (size.width.max(1), size.height.max(1));
+                    state.size = extent;
+                    // **The presenter is told every time the window system speaks**, which is
+                    // what quorra's `Presenter::resize` asks of a host: it configures nothing and
+                    // the swapchain follows at the next present, so calling it with a size it
+                    // already had costs a field write. A presenter that was never told refuses by
+                    // name, and a minimised window is a state rather than an error.
+                    if let crate::surface::Surface::Device(window) = &mut state.surface {
+                        window.resize(extent.0, extent.1);
+                    }
                 }
                 self.dispatch(Command::Resize {
                     width: size.width.saturating_sub(self.panel.inset(scale)).max(1),

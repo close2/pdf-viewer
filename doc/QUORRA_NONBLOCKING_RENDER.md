@@ -1,5 +1,41 @@
 # A picture on every refresh — an ask about where the surface lives
 
+> ## Answered, and adopted. The body below is the ask as it was written and stays that way.
+>
+> **The answer is yes and it is the split §4 asked for.** quorra built it in their ADR 0056 —
+> `Device::detach_presenter` / `attach_presenter`, a `Send` `Presenter` holding the surface, its
+> swapchain and one pipeline, and `Presenter::present(&[Layer])` where a `Layer`'s `placement`
+> maps the layer's own texel space to the surface's pixels. Their reply is carried across
+> verbatim as [`doc/QUORRA_NONBLOCKING_RENDER_ANSWER.md`](QUORRA_NONBLOCKING_RENDER_ANSWER.md);
+> this tree does not edit it.
+>
+> **Four places their answer differs from §4's sketch**, all of them improvements and all adopted:
+> `Layer` is a named struct rather than a three-tuple (a `placement` has a direction and `.1` is
+> not a name anyone can check a composition against); `attach_presenter` returns a `Result` whose
+> refusal hands the presenter back rather than dropping a window's surface; `last()` is
+> `Option<PresentCost>`, because a zeroed cost would say "a present that cost nothing";
+> and `PresentCost` is two exact counts and three wall clocks that say so in their names, with no
+> timestamp-query number, because resolving one is a stall on the thread whose freedom from
+> stalls is the point.
+>
+> **§8's fallback was declined by both sides for the same three reasons**, and their answer says
+> which of the three they would have written first — two answers in the world to "what does this
+> surface accept". `Device::adapter()` was not built and nothing asks for it.
+>
+> **§7(b), the one part we said we could not settle from outside, is settled**: every type a
+> presenter holds is asserted `Send + Sync` by `wgpu` 30 itself in compiled code, the crate is
+> `#![forbid(unsafe_code)]` so the derivation is an auto-trait rather than an `unsafe impl`, and
+> two caveats are stated rather than left to be found (surface *creation* panics off the main
+> thread on macOS/Metal, which is why the API is detach-and-return; and one presenter per device,
+> which the `&mut self` on `present` already says).
+>
+> **§7(c) was ours and is answered in ADR 0391**, which is this tree's caller: a render thread
+> holding the device, the presenter on the event thread, and the measured interval distribution
+> and correct-frame share on the owner's own 120 Hz display. **§9's three questions are answered
+> in their reply's own §9**, and the answer reframes this document's target: with the whole of
+> `encode` at zero this page is still 107 ms a frame, so what the split buys is *a picture every
+> refresh* and never *a rendering every refresh*.
+
 Written 2026-08-16 from **this** side, against quorra at `a4380e2c`. It is a request for an API
 change, and it is the first thing this tree has asked quorra for that would move an *object* across
 the boundary rather than data or arithmetic. `doc/QUORRA_FEEDBACK.md` §28.6 asked half of this

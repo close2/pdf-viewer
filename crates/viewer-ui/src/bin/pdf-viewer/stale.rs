@@ -17,33 +17,38 @@
 //!
 //! | rule | what enforces it |
 //! |---|---|
-//! | 1. never the last word | [`Stale::plan`] refuses to redraw the view already approximated, [`MustFollow`] cannot be dropped without arming the clock that asks for the frame replacing it, and `about_to_wait` will not let the loop come to rest on one |
+//! | 1. never the last word | [`MustFollow`] cannot be dropped without arming the clock that asks for the frame replacing it, and `about_to_wait` will not let the loop come to rest on one. **`Stale::plan`'s half of this is gone and is not missed**: it used to refuse to approximate the view already approximated, so that the event thread drew the real frame instead, and since ADR 0391 there is no instead — the render is on another thread whatever this tick decides |
 //! | 2. nothing that judges a picture ever sees one | this module is a **private module of a binary**: no library, no gate, no oracle, no harness can link to it, and nothing below it knows a reprojection exists |
 //! | 3. it says so | the frame line's outcome word is `approximated`, [`Stale::count`] is what the summary prints — and since ADR 0385 every *refusal* says so too, by name and by kind ([`Refusal`]) |
-//! | 4. it costs the real frame nothing | the pixels come from the encode quorra has **already** retained (a replay, never an encode), they are read back **once** per real frame rather than once per reprojection ([`Base`]), and [`Stale::affordable`] requires that standing in buy a whole refresh of the frame it delays |
-//! | 5. it does not fire when it is not needed | [`Stale::missed`] — the frame did not land inside the surface's own refresh, which is the owner's word *miss* and the presenter's own measurement |
+//! | 4. it costs the real frame nothing | **structural since ADR 0391**: the render is on a thread of its own, so a reprojection is three textured quads on the *presenting* thread and takes nothing from the frame it stands in for |
+//! | 5. it does not fire when it is not needed | [`Stale::missed`] — the frame did not land inside the surface's own refresh, which is the owner's word *miss*, known two ways |
 //!
-//! # A base outlives the frame it was captured from, and that is ADR 0385
+//! # The base is the last rendering's own texture, and that is ADR 0391
 //!
-//! **The pixels are this host's own `Arc<[u8]>` and there is no reason to throw them away.** They
-//! were a field of [`Settled`] until the five-hundred-and-fiftieth session, which made the
-//! invariant below easy to state and cost the feature two view changes of every run: a real frame
-//! landing dropped the base, the next view change asked the device to read the window back, and
-//! quorra had nothing to replay because that frame had repacked its glyph atlas (ADR 0384 section 6). The
-//! window then showed **nothing moved at all**, for want of a *capture* — while the previous
-//! rendering's pixels, of the same page, at a placement this file still knew, were sitting in
-//! memory a line away.
+//! **There is no readback here any more, and there is no capture to lose.** Until the
+//! five-hundred-and-fifty-sixth session a reprojection resampled an `Arc<[u8]>` this host had read
+//! back off the window — 2.7 to 6.6 ms of a refresh that is 8.333 on the owner's display, plus an
+//! 8 192 000-byte re-upload behind it — and it could fail outright, because reading the window
+//! back meant replaying an encode that a glyph-atlas repack had destroyed (ADR 0384 section 6, ADR
+//! 0385). What the window now shows is a texture the device rendered the page into and never gave
+//! up, so:
 //!
-//! So the base is [`Stale`]'s and carries **the page it is of and the placement it was drawn at**.
-//! The invariant is unchanged and is now the base's own rather than its owner's: a reprojection is
-//! composed against the placement *of the pixels it resamples*, which is why [`Stale::composed`]
-//! reads that placement off the base and why no caller can supply one. A base is unusable when
-//! there has never been one, when the page changed, or when the window did — and for nothing else.
+//! - **the base cannot be lost.** A repack throws tile placements away; it does not touch pixels
+//!   already drawn. The two refusals the owner saw twice in twenty-four presents are gone with the
+//!   route that produced them, rather than handled;
+//! - **the base is what [`Settled`] is.** It used to be a separate thing that outlived its frame
+//!   because its frame could not always produce one. A rendering and its pixels now arrive
+//!   together and are replaced together, which is one fact instead of two;
+//! - **composing rather than chaining is unchanged and still structural.** [`Stale::reproject`]
+//!   hands back a *placement* and no pixels at all, composed against the placement of the last
+//!   **rendering** whatever is on the screen — so ten reprojections in a row are ten single
+//!   resamples of true pixels, and no caller can supply either half of the composition.
 //!
-//! # Both rules are the cadence's now, and neither is a number this project chose
+//! # Rule 5 is the cadence's, and rule 4 stopped being a question
 //!
-//! **They were, and it cost the project owner two reports of the same sentence.** The shape is
-//! worth keeping written down, because it is the same mistake twice at two scales.
+//! **Both were numbers this project chose, and it cost the project owner two reports of the same
+//! sentence.** The shape is worth keeping written down, because it is the same mistake twice at
+//! two scales.
 //!
 //! Rule 5 used to be `SHARE` × a *measured* reprojection cost — the strictest possible reading of
 //! rule 4, until you ask where the first measurement comes from. It comes from drawing a
@@ -54,65 +59,68 @@
 //! to 438 ms, not one reprojection.
 //!
 //! Rule 4 then became the binding constraint, still at a tenth — and a tenth of a real device's
-//! frame is less than what a readback costs, so the second run refused six view changes of
-//! fifteen with reprojections of 6 to 16 ms against frames of 58 to 156. **A ratio nobody had
-//! measured, in the way of a decision about two things that are both measured.**
+//! frame is less than what a readback cost, so the second run refused six view changes of fifteen
+//! with reprojections of 6 to 16 ms against frames of 58 to 156. It was re-grounded on the
+//! display's own unit in ADR 0384: standing in had to *buy* a whole refresh, `reprojection +
+//! period ≤ frame`, because a reprojection delayed the real frame by what it cost.
 //!
-//! What replaces both is the thing the owner asked for — *"we should still try to render a correct
-//! image every frame, but if we miss, we should interpolate"* — and the unit is the display's:
+//! **And that premise is what ADR 0391 removed.** A reprojection no longer delays anything: it
+//! happens on the thread holding the surface while the render runs on another, so what it costs
+//! the real frame is nothing at all rather than a small fraction. A bound on a cost that is
+//! structurally zero is not a bound, so rule 4 is enforced by the *arrangement* and this file
+//! carries no test of it. Deleting it is the same discipline that put it here — a number nobody
+//! can measure a purpose for is a number to remove.
 //!
-//! - **rule 5**: a **miss** is a frame that does not land inside the cadence's own period. That
-//!   number is [`crate::cadence`]'s, it is the surface's where the surface states one, and it
-//!   needs no calibration, no bootstrap and no sample.
-//! - **rule 4**: standing in must **buy at least one refresh** — `reprojection + period ≤ frame` —
-//!   because a period is the smallest difference this display can show. [`Stale::affordable`].
+//! What remains is the thing the owner asked for — *"we should still try to render a correct image
+//! every frame, but if we miss, we should interpolate"* — with the unit the display's:
 //!
-//! Neither has a constant in it. ADR 0384.
+//! **Rule 5: a miss is a frame that does not land inside one refresh, and it is now known two
+//! ways.** By *prediction*, from what the last frame that had to build a picture cost, which is
+//! what answers the very first tick of a view change before anything has been asked for; and by
+//! *observation*, because a render that is still being drawn when the next tick comes round has
+//! missed that refresh whatever anybody predicted. The observation needs no calibration and cannot
+//! be wrong; the prediction is what keeps the first tick of a gesture from being a frozen one.
+//! Neither has a constant in it. ADR 0384, extended by ADR 0391.
 //!
 //! # A reprojection may follow a reprojection, and the shape of that is the whole of `doc/todo/36`
 //!
 //! The project owner allows one explicitly — *"even if the last frame was already incorrect"* —
 //! and **how** it does it is what decides whether the picture degrades. Resampling an image that
-//! was itself resampled compounds the blur, so nothing here ever does: the pixels a reprojection
-//! draws are always [`Base`], the **last real frame's own raster**, and the transform is always
-//! composed against the placement *that* frame was drawn at. Ten reprojections in a row are ten
-//! single resamples of true pixels rather than a chain of ten, and it is structural rather than
-//! careful — a [`Base`] lives inside the [`Settled`] frame it was captured from, so recording a
-//! new real frame drops the old base and there is no expression in this file that can resample a
-//! resampling.
+//! was itself resampled compounds the blur, so nothing here ever does: what a reprojection places
+//! is always the last **rendering's** own texture, and the transform is always composed against
+//! the placement *that* rendering was drawn at. Ten reprojections in a row are ten single
+//! resamples of true pixels rather than a chain of ten, and it is structural rather than careful —
+//! [`Stale::reproject`] hands back nothing but a placement, read off [`Settled`], so there is no
+//! expression anywhere in this program that can compose against anything else.
 //!
-//! **A late frame re-bases** for the same reason and by the same mechanism: when a delayed frame
-//! finally lands, [`Stale::settled`] records it and the first reprojection standing in for it
-//! reads it back, so the base becomes that frame's pixels at that frame's placement and the next
-//! reprojection composes against it even though the view has moved on. What ADR 0385 changed is
-//! only what happens when that readback cannot be had: the *older* base stands, composed against
-//! its own placement, rather than nothing being drawn.
+//! **A late frame re-bases** by the same mechanism: when a delayed frame lands,
+//! [`Stale::settled`] records the view it drew, and the reprojection after it composes against
+//! *that* placement even though the view has moved on. One field, replaced with the texture it
+//! describes, which is why there is nothing to keep in step.
 //!
 //! # Rule 2 is structural, and this is the whole of the argument
 //!
 //! Everything that makes an approximate picture is in this file, and this file is a module of
 //! `pdf-viewer`'s binary. A binary crate is not a dependency: `pdf-model`'s corpus and oracle
 //! gates, `viewer-core`'s headless harness, `Query::Frame`, `render_at`, `viewer-confined`'s
-//! worker and every diagnostic artefact in this tree are compiled without a line of it. The one
-//! thing that crossed into a library is [`render_quorra::QuorraPresenter::capture_presented`],
-//! and what that hands back is *the real frame the window is showing* — a readback, with no
-//! notion of a reprojection anywhere in it.
+//! worker and every diagnostic artefact in this tree are compiled without a line of it. **Nothing
+//! crosses into a library at all any more**: `render-quorra` draws a window's frame into two
+//! textures and hands them back, and `crate::renderer` puts them on a window under placements this
+//! file computes. Neither knows what a reprojection is, and the test at the foot of this file
+//! walks every `.rs` outside `viewer-ui/src/bin` to say so.
 //!
 //! # What a revealed edge shows
 //!
-//! A scroll or a zoom out moves pixels off the region the old raster covered, and there is
-//! nothing true to put there. The reprojection draws the window's own background — the medium
-//! the presenter clears to — and **not** page white: white would be an assertion that the page
-//! is blank there, which is the plausible-looking lie principle 1 is about, while the medium is
-//! what this window shows wherever it has no page. ADR 0378.
+//! A scroll or a zoom out moves pixels off the region the old rendering covered, and there is
+//! nothing true to put there. The window shows its own background — the medium layer
+//! [`crate::renderer`] puts under the page — and **not** page white: white would be an assertion
+//! that the page is blank there, which is the plausible-looking lie principle 1 is about, while
+//! the medium is what this window shows wherever it has no page. ADR 0378.
 
 use std::sync::Arc;
 use std::time::Duration;
 
-use pdf_render::{
-    BlendMode, Command, DisplayList, Image, ImageSource, Raster, RasterFormat, Size, TargetSpec,
-    Transform,
-};
+use pdf_render::{DisplayList, TargetSpec, Transform};
 
 /// What the presenter should do about a view change, and — where a person would ask — why.
 ///
@@ -127,16 +135,23 @@ use pdf_render::{
 /// asked for — which is every frame of a document nobody is touching.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Plan {
-    /// Stand in for the frame this view is waiting for, with the pixels already held.
+    /// Stand in for the frame this view is waiting for, with the rendering already held.
     ///
-    /// **The transform is the view being asked for and not a composition**, since ADR 0385. What
-    /// the pixels have to be carried *from* is the placement of whichever base is drawn, and which
-    /// base that is depends on whether the readback below this decision succeeds — so the
-    /// composition is [`Stale::composed`]'s, taken off the base itself at the moment it is drawn.
-    Reproject(Transform),
-    /// Draw the real frame, and say nothing: this was not a view change.
+    /// **It carries nothing**, since ADR 0391. It used to carry the view being asked for, which
+    /// the caller already has; what a stand-in actually needs is the *placement* that carries the
+    /// rendering onto that view, and the only way to obtain one is [`Stale::reproject`], which
+    /// composes it against the rendering itself. A payload a caller could pass on instead would
+    /// be a second route to a placement, and there is deliberately one.
+    Reproject,
+    /// Put the rendering up as it is: it already depicts the view being asked for, so this is not
+    /// a view change and there is nothing to say about it.
     Render,
-    /// Draw the real frame, and say which of [`Refusal`]'s two kinds this was.
+    /// Put nothing up this tick, and say which of [`Refusal`]'s two kinds the reason was.
+    ///
+    /// **This used to mean "draw the real frame here"**, which is what the event thread then did.
+    /// Since ADR 0391 the real frame is already being drawn on another thread, so what a refusal
+    /// asks for is the one thing left: keep the picture the window has, keep the clock armed, and
+    /// let the tick that follows carry the rendering.
     Refused(Refusal),
 }
 
@@ -160,39 +175,20 @@ pub(crate) enum Refusal {
     /// page transform moves the page; the sidebar and the scrollbar in those pixels would arrive
     /// at the old window's edges with the new window's chrome drawn over them.
     Resized,
-    /// *Impossible.* No pixels of this page are held and none can be read back here.
-    NoPixels,
-    /// *Impossible.* The placement the held pixels were drawn at does not invert, or the
-    /// composition is not a finite affine — so nothing carries them onto this view.
+    /// *Impossible.* The placement the held rendering was drawn at does not invert, or the
+    /// composition is not a finite affine — so nothing carries it onto this view.
     NoPlacement,
-    /// *Impossible.* This window has no graphics device, so there is no presented frame to read
-    /// back: `doc/todo/37`'s remaining surface, and the run-level refusal it produces today.
-    NoDevice,
-    /// *Impossible.* The device declined the approximated frame itself.
-    ///
-    /// A readback the device declined is deliberately **not** here, and the distinction is ADR
-    /// 0385's: that is a reason this frame's own pixels could not be *had*, which the trace says
-    /// where it happens, and it refuses nothing on its own — the base already held may still
-    /// stand. What refuses is [`Stale::reproject`] finding no usable base, and that is
-    /// [`Self::NoPixels`].
+    /// *Impossible.* The presenter declined to put the approximated frame on the window.
     DeviceRefused(String),
-    /// *Unwise.* Rule 5: the frame this view is waiting for lands inside one refresh, so it *is*
-    /// the frame every refresh the owner asked for and there is nothing to stand in for.
+    /// *Unwise.* Rule 5: the frame this view is waiting for is expected to land inside one
+    /// refresh and has not yet missed one, so it *is* the frame every refresh the owner asked
+    /// for and there is nothing to stand in for.
     InsideTheRefresh {
         /// What the frame this view is waiting for is expected to cost. Zero before any frame
         /// has *built* a picture, which is the state that has measured nothing rather than a
         /// prediction of nothing.
         frame: Duration,
         /// One refresh of this surface.
-        period: Duration,
-    },
-    /// *Unwise.* Rule 4: standing in would not buy a whole refresh of the frame it delays.
-    TooDear {
-        /// What a reprojection has cost on this machine, at its worst.
-        reprojection: Duration,
-        /// What the frame this view is waiting for is expected to cost.
-        frame: Duration,
-        /// One refresh of this surface, which is what standing in has to gain.
         period: Duration,
     },
 }
@@ -207,11 +203,9 @@ impl Refusal {
             Self::NothingRendered
             | Self::AnotherPage
             | Self::Resized
-            | Self::NoPixels
             | Self::NoPlacement
-            | Self::NoDevice
             | Self::DeviceRefused(_) => "impossible",
-            Self::InsideTheRefresh { .. } | Self::TooDear { .. } => "unwise",
+            Self::InsideTheRefresh { .. } => "unwise",
         }
     }
 
@@ -239,38 +233,20 @@ impl std::fmt::Display for Refusal {
                 "the window changed shape, and the pixels held are the old window's own picture, \
                  its chrome included — which no page transform moves",
             ),
-            Self::NoPixels => formatter.write_str(
-                "no pixels of this page are held and none can be read back from this window",
-            ),
             Self::NoPlacement => formatter.write_str(
-                "the placement the pixels held were drawn at does not invert onto this view",
-            ),
-            Self::NoDevice => formatter.write_str(
-                "this window has no graphics device, so its pixels could only be had by drawing \
-                 the page again — which is the cost this exists to hide (doc/todo/37)",
+                "the placement the rendering held was drawn at does not invert onto this view",
             ),
             Self::DeviceRefused(problem) => {
                 write!(
                     formatter,
-                    "the device refused the approximated frame: {problem}"
+                    "the presenter refused the approximated frame: {problem}"
                 )
             }
             Self::InsideTheRefresh { frame, period } => write!(
                 formatter,
-                "this frame is expected to take {:.1} ms against a {:.1} ms refresh, so it lands \
-                 inside one and is itself the frame every refresh that was asked for",
-                ms(*frame),
-                ms(*period)
-            ),
-            Self::TooDear {
-                reprojection,
-                frame,
-                period,
-            } => write!(
-                formatter,
-                "one costs {:.1} ms here and this frame is expected to take {:.1}, so standing in \
-                 would not gain the {:.1} ms refresh it delays the real frame by",
-                ms(*reprojection),
+                "this frame is expected to take {:.1} ms against a {:.1} ms refresh and has not \
+                 missed one yet, so it lands inside one and is itself the frame every refresh \
+                 that was asked for",
                 ms(*frame),
                 ms(*period)
             ),
@@ -308,7 +284,7 @@ impl Refusals {
 impl Plan {
     /// Whether the window is to stand in for the frame rather than wait for it.
     fn stands_in(&self) -> bool {
-        matches!(self, Self::Reproject(_))
+        matches!(self, Self::Reproject)
     }
 }
 
@@ -340,66 +316,20 @@ impl MustFollow {
     }
 }
 
-/// The pixels one real frame put on the window, kept so that every reprojection resamples them.
+/// The rendering the window is able to draw: which page's display list, and placed where.
 ///
-/// **This is what makes a reprojection compose rather than chain**, and since ADR 0385 it says so
-/// itself: the page these pixels are of and the placement they were drawn at travel *with* them,
-/// so a base is a complete statement — "this window, showing this page, placed here" — rather than
-/// a field whose meaning came from the frame record it hung off.
-///
-/// That is what lets it outlive the frame that produced it. It used to be a field of [`Settled`],
-/// which made the invariant easy to state and threw the pixels away the moment a new real frame
-/// landed; when the readback for that new frame then failed — the atlas repack of ADR 0384 section 6,
-/// twice in every one of the owner's runs — there was nothing left to draw and the window did not
-/// move. Now the older base stands, under a transform composed against *its* placement.
-///
-/// It is read back **once** per real frame — `doc/todo/36`'s first unsettled question, answered
-/// by amortisation rather than by a cheaper readback: ADR 0378 measured 19.2 to 35.9 ms for the
-/// replay-and-map, which is more than a tick, so the second and every later reprojection of the
-/// same base pays none of it. The samples are held as the `Arc` `render_quorra`'s resource cache
-/// keys an upload by, so they cross the bus once as well.
-#[derive(Debug)]
-struct Base {
-    /// The window's own device pixels, straight-alpha RGBA8, top row first.
-    pixels: Arc<[u8]>,
-    width: u32,
-    height: u32,
-    /// The page these pixels are of, by the `Arc` that makes its address mean something.
-    page: Arc<DisplayList>,
-    /// Where that page was placed when they were drawn, in that window's own device pixels.
-    placement: Transform,
-}
-
-impl Base {
-    /// The base a captured frame makes, or `None` for a raster this cannot read.
-    ///
-    /// [`RasterFormat`] is `#[non_exhaustive]`, so a second layout can arrive without this file
-    /// changing, and drawing bytes under the wrong interpretation would put a plausible-looking
-    /// wrong picture on the screen — precisely what this module is not allowed to do, even in its
-    /// own approximate register. Checked here, once, rather than on every reprojection.
-    fn of(raster: &Raster, frame: &Settled) -> Option<Self> {
-        if raster.format != RasterFormat::Rgba8 || raster.width == 0 || raster.height == 0 {
-            return None;
-        }
-        Some(Self {
-            pixels: raster.data.as_slice().into(),
-            width: raster.width,
-            height: raster.height,
-            page: Arc::clone(&frame.page),
-            placement: frame.target.transform,
-        })
-    }
-}
-
-/// The view one frame drew: which page's display list, and placed where.
+/// **This is the base**, since ADR 0391, and it is a description of a texture `crate::renderer`
+/// is holding rather than a copy of its pixels. The two are replaced together, by the one call
+/// that adopts a finished frame, so the placement here is always the placement of the pixels a
+/// reprojection will resample and there is nothing to keep in step. Before the render moved to a
+/// thread of its own this was two types — the frame record and a base of read-back samples that
+/// had to outlive it, because the readback that produced one could fail (ADR 0385).
 ///
 /// **What it cost is deliberately not here**, and it used to be. A cost belongs to the *machine*
 /// and not to a placement — the question rule 5 asks is what the next render will take, and the
 /// answer outlives any one frame's pixels. Keeping it here made every re-base overwrite the
 /// prediction, including a re-base by a frame that had only replayed an encode. See
 /// [`Stale::building`] and ADR 0384.
-///
-/// **Its pixels are not here either, since ADR 0385** — see [`Base`] for why they outlive it.
 #[derive(Debug)]
 struct Settled {
     /// The page, by the `Arc` that makes its address mean something — the identity
@@ -407,30 +337,26 @@ struct Settled {
     page: Arc<DisplayList>,
     /// Where it was placed, in this window's own device pixels.
     target: TargetSpec,
-    /// Whether this frame's own pixels have been read back into [`Stale::base`].
-    ///
-    /// `false` until the first reprojection stands in for it — nothing is captured for a frame no
-    /// view change ever stands in for, which is every frame of a window nobody is touching.
-    captured: bool,
 }
 
 /// Whether the window is showing a reprojection, and what it would take to draw the next one.
 #[derive(Debug, Default)]
 pub(crate) struct Stale {
-    /// The last frame that was the real thing.
+    /// The last rendering the window can draw, and where it put the page.
     settled: Option<Settled>,
-    /// The view the reprojection on the screen depicts, or `None` when the screen is a rendering.
+    /// Whether what the window is showing is a reprojection rather than a rendering.
     ///
-    /// **A transform rather than a flag, since `doc/todo/36`.** The owner allows a reprojection to
-    /// follow a reprojection, so "one is showing" is no longer a reason to refuse; what is a
-    /// reason is that the one showing already depicts the view being asked for, which is a
-    /// question about *which* view rather than about whether there is one.
-    showing: Option<Transform>,
-    /// The most expensive reprojection this run has drawn, which is what rule 4 is checked
-    /// against. The worst rather than the last: rule 4 is a bound, and a bound reads the worst
-    /// case. `None` until one has been drawn, and **that state permits rather than refuses** —
-    /// see [`Stale::affordable`].
-    measured: Option<Duration>,
+    /// **A flag again, since ADR 0391, and it was a transform for one round.** `doc/todo/36` made
+    /// it a transform because rule 1 then asked *which* view was being approximated: a second
+    /// reprojection of the view already on the screen was refused, so that the event thread drew
+    /// the real frame instead. There is no "instead" now — the real frame is being drawn on
+    /// another thread whatever this one does — and re-issuing the same three quads is what a
+    /// picture every refresh *means*, so the question is only ever whether one is showing at all.
+    ///
+    /// Rule 1 is unchanged and is enforced by the two things that always enforced it:
+    /// [`MustFollow`] cannot be dropped without arming the clock, and `about_to_wait` will not let
+    /// the loop come to rest while this is true.
+    showing: bool,
     /// What the last frame that had to *build* a picture cost, which is rule 5's prediction.
     ///
     /// **Deliberately not [`Settled::cost`], and the difference is a frame the owner waited
@@ -444,19 +370,6 @@ pub(crate) struct Stale {
     building: Option<Duration>,
     /// How many have been drawn — rule 3's count, which the frame summary prints.
     count: u64,
-    /// The pixels every reprojection resamples, and the page and placement they are of.
-    ///
-    /// Outlives the [`Settled`] it was captured from, which is ADR 0385. `None` until the first
-    /// reprojection of the run has paid for one.
-    base: Option<Base>,
-    /// Whether the window may be read back again on this machine.
-    ///
-    /// **A refusal to *capture*, and it was read as a refusal to *reproject* for two sessions.**
-    /// A capture that re-encodes has cost a whole frame of exactly the work the reprojection
-    /// exists to hide, so rule 4 says it must not happen twice — but that says nothing about
-    /// pixels this host is already holding, and [`Self::plan`] no longer treats it as though it
-    /// did. ADR 0385.
-    captures_refused: bool,
     /// Rule 3 over the refusals: how many view changes showed the real frame, and of which kind.
     refusals: Refusals,
 }
@@ -469,46 +382,21 @@ impl Stale {
         self.building.unwrap_or(Duration::ZERO)
     }
 
-    /// **Rule 5.** Whether the frame this view is waiting for is expected to miss the cadence.
+    /// **Rule 5.** Whether the frame this view is waiting for has missed the cadence.
     ///
     /// The owner's own word: *"we should still try to render a correct image every frame, but if
     /// we miss, we should interpolate"*. A miss is a frame that does not land inside one refresh
     /// of the surface, so the comparison is against [`crate::cadence::Cadence::period`] and
-    /// against nothing this module invented. It needs no calibration and no first sample, which
-    /// is exactly what the bar it replaced could not do without.
-    fn missed(&self, period: Duration) -> bool {
-        self.expected() > period
-    }
-
-    /// **Rule 4.** Whether standing in gains enough to be worth delaying the truth for.
+    /// against nothing this module invented.
     ///
-    /// A reprojection answers the input at what it costs and pushes the real frame back by the
-    /// same amount, so what it *buys* is the difference between the two. **It has to buy at least
-    /// one whole refresh**, because that is the smallest difference this display can show: a
-    /// stand-in that arrives less than a period before the frame it stands in for has put a wrong
-    /// picture on the screen in exchange for nothing anybody can see.
-    ///
-    /// ```text
-    /// what a reprojection costs here  +  one refresh  ≤  what this frame will cost
-    /// ```
-    ///
-    /// **There is no ratio in it, and there used to be.** ADR 0378 read `doc/todo/37`'s "within a
-    /// small fraction of the frame it replaces" as a tenth, which is a number this project chose
-    /// rather than measured — and the owner's second trace is what it cost: reprojections of 6 to
-    /// 16 ms were refused against frames of 58 to 156, because a tenth of those frames is less
-    /// than what a readback costs on any real device. Six view changes of fifteen showed nothing.
-    /// The rule above says *which* fraction and why, and the unit is the surface's rather than
-    /// ours; on that machine it admits every one of the six and still refuses churn.
-    ///
-    /// **Unmeasured permits.** Rule 5 has already established that the frame will miss its
-    /// refresh, the first reprojection is the only way this machine's number can ever be learned,
-    /// and it is one frame — measured, reported by name, and binding on every one after it. A
-    /// bound that refuses until it has a measurement it can only obtain by not refusing is not a
-    /// bound; it is an off switch. That is the defect ADR 0384 exists for and it is not to be
-    /// reintroduced in another shape.
-    fn affordable(&self, frame: Duration, period: Duration) -> bool {
-        self.measured
-            .is_none_or(|worst| worst.saturating_add(period) <= frame)
+    /// **Two ways of knowing, and the second is the one that cannot be wrong.** `drawing` says
+    /// that a render asked for at an earlier tick is *still* being drawn — so it has already
+    /// missed this refresh, whatever anybody predicted, and nothing needs calibrating to see it.
+    /// The prediction from [`Self::expected`] is what answers the first tick of a view change,
+    /// before anything has been asked for and while there is nothing yet to observe; without it
+    /// every gesture would begin with one frozen refresh.
+    fn missed(&self, period: Duration, drawing: bool) -> bool {
+        drawing || self.expected() > period
     }
 
     /// What to do about this view change, and why.
@@ -519,13 +407,14 @@ impl Stale {
     /// frame of a document nobody is touching and a trace of them would say nothing. Everything
     /// after it is a genuine refusal on a genuine view change, and every one of them speaks.
     ///
-    /// `period` is the surface's own refresh, which is what rules 5 and 4 are both measured
-    /// against.
+    /// `period` is the surface's own refresh, which is what rule 5 is measured against; `drawing`
+    /// is whether a render asked for at an earlier tick is still out.
     pub(crate) fn plan(
         &self,
         page: &Arc<DisplayList>,
         target: TargetSpec,
         period: Duration,
+        drawing: bool,
     ) -> Plan {
         let Some(settled) = self.settled.as_ref() else {
             return Plan::Refused(Refusal::NothingRendered);
@@ -538,11 +427,19 @@ impl Stale {
         if !Arc::ptr_eq(&settled.page, page) {
             return Plan::Refused(Refusal::AnotherPage);
         }
-        // Not a view change. Two ways to be one and the same answer to both: the window is showing
-        // a rendering of this view — a redraw quorra replays for the price of a replay (ADR 0351)
-        // — or it is showing the approximation of it that rule 1 forbids drawing twice. Either
-        // way the picture asked for is the picture up, and there is nothing to stand in for.
-        if settled.target.transform == target.transform || self.showing == Some(target.transform) {
+        // Not a view change: the rendering held *is* of the view being asked for, so it goes up
+        // as it is and nothing is being stood in for. This is every tick of a document nobody is
+        // touching, and it says nothing.
+        //
+        // **The second half of this test is gone, and it was load-bearing before ADR 0391.** It
+        // read `|| self.showing == Some(target.transform)` — rule 1 refusing to approximate the
+        // same view twice, so that the event thread would draw the real frame instead. There is no
+        // instead now: the render is on another thread whatever this one decides, and answering
+        // `Render` for a view the rendering is *not* of would put the old view up unmoved, which
+        // is a jump backwards on the screen. So a view that keeps being asked for keeps being
+        // stood in for, at three quads a refresh, until the rendering lands — which is what a
+        // picture every refresh means.
+        if settled.target.transform == target.transform {
             return Plan::Render;
         }
         // A resize changes what the window is as well as where the page is in it, and what is
@@ -552,49 +449,32 @@ impl Stale {
             return Plan::Refused(Refusal::Resized);
         }
         // Rule 5: a frame the machine delivers inside one refresh *is* the frame every refresh
-        // the owner asked for, so there is nothing to stand in for.
-        if !self.missed(period) {
+        // the owner asked for, so there is nothing to stand in for. **Rule 4 used to be the next
+        // question and there is no next question**: a reprojection is issued by the thread holding
+        // the surface while the render runs on another, so what standing in costs the real frame
+        // is nothing rather than a fraction, and a bound on nothing is not a bound (ADR 0391).
+        if !self.missed(period, drawing) {
             return Plan::Refused(Refusal::InsideTheRefresh {
                 frame: self.expected(),
                 period,
             });
         }
-        // Rule 4, and it is a separate question from rule 5 on purpose. Rule 5 says the frame will
-        // be late; this says whether standing in for it buys a refresh anybody could see.
-        if !self.affordable(self.expected(), period) {
-            return Plan::Refused(Refusal::TooDear {
-                reprojection: self.measured.unwrap_or_default(),
-                frame: self.expected(),
-                period,
-            });
-        }
-        // **The one refusal about pixels, and it asks the question ADR 0385 corrected.** What was
-        // asked here for two sessions was whether a *capture* was still permitted, which refused a
-        // run whose base was in memory the whole time. What is asked now is whether there is
-        // anything to draw: a base already held, or the possibility of reading one back. The rest
-        // — is it this page, does it invert — belongs to the base and is asked in
-        // [`Self::reproject`], because until the readback below has been tried this cannot know
-        // which base it will draw.
-        if self.base.is_none() && self.captures_refused {
-            return Plan::Refused(Refusal::NoPixels);
-        }
-        Plan::Reproject(target.transform)
+        Plan::Reproject
     }
 
-    /// The transform that carries the base's own pixels onto `view`.
+    /// The transform that carries the last rendering's own pixels onto `view`.
     ///
-    /// **This one expression is the whole of `doc/todo/36`'s "compose, do not chain"**, and since
-    /// ADR 0385 it reads the placement off the [`Base`] rather than off the last frame record.
-    /// Whatever the window is showing, and whichever rendering the pixels held came from, the
-    /// transform carries *those* pixels onto the view being asked for — so a run of reprojections
-    /// is a run of single resamples of true pixels, and a base that outlived its frame is composed
-    /// against the frame that produced it rather than against the one that replaced it.
+    /// **This one expression is the whole of `doc/todo/36`'s "compose, do not chain".** Whatever
+    /// the window is showing, the transform carries the pixels of the last *rendering* onto the
+    /// view being asked for — so a run of reprojections is a run of single resamples of true
+    /// pixels rather than a chain, and a late frame that re-based simply changes which placement
+    /// is inverted here.
     ///
     /// `None` where the placement does not invert, or where the composition is not finite: a
-    /// coordinate that is not a finite number is not a placement, and drawing one would hand the
-    /// scene boundary a value it would refuse mid-frame.
+    /// coordinate that is not a finite number is not a placement, and handing one to the presenter
+    /// would earn `LayerProblem::Placement` mid-frame instead of a refusal this file can name.
     fn composed(&self, view: Transform) -> Option<Transform> {
-        let moved = self.base.as_ref()?.placement.invert()?.then(view);
+        let moved = self.settled.as_ref()?.target.transform.invert()?.then(view);
         [moved.a, moved.b, moved.c, moved.d, moved.e, moved.f]
             .iter()
             .all(|coefficient| coefficient.is_finite())
@@ -609,62 +489,28 @@ impl Stale {
         self.settled = None;
     }
 
-    /// Whether the next reprojection should have the frame on the window read back.
+    /// Whether any rendering of any view has landed yet.
     ///
-    /// True at most once per real frame: the first reprojection standing in for it captures the
-    /// base, and every later one resamples what that capture holds. **The condition is also what
-    /// makes a chain impossible**, and not merely unlikely — the only moment a capture is asked
-    /// for is the moment the window is showing a rendering, because a base exists for every real
-    /// frame from the first reprojection of it onward.
-    ///
-    /// False once captures have been refused for this run, which is the difference ADR 0385 drew:
-    /// that flag stops the *asking* and no longer stops the drawing.
-    pub(crate) fn wants_base(&self) -> bool {
-        !self.captures_refused && self.settled.as_ref().is_some_and(|frame| !frame.captured)
+    /// **A window that has never drawn is not a view change**, and asking [`Self::plan`] about one
+    /// would earn [`Refusal::NothingRendered`] on every tick between the window appearing and the
+    /// first frame landing — a refusal a second, counted in the summary, for a window that is
+    /// simply still opening. So the caller asks this first and the refusal stays what it is: an
+    /// answer about a *view change* that cannot be stood in for.
+    pub(crate) fn has_rendering(&self) -> bool {
+        self.settled.is_some()
     }
 
-    /// Whether this host is holding pixels of a real frame at all.
-    pub(crate) fn has_base(&self) -> bool {
-        self.base.is_some()
-    }
-
-    /// Keeps the pixels the last real frame put on the window, for every reprojection of it.
+    /// Records that a reprojection was drawn and which view it depicts.
     ///
-    /// `false` for a raster this cannot read, which is a refusal to draw rather than a failure —
-    /// **and the base already held is left standing**, because a layout this host cannot read says
-    /// nothing about pixels it read earlier.
-    pub(crate) fn rebase(&mut self, raster: &Raster) -> bool {
-        let Some(settled) = self.settled.as_mut() else {
-            return false;
-        };
-        let Some(base) = Base::of(raster, settled) else {
-            return false;
-        };
-        settled.captured = true;
-        self.base = Some(base);
-        true
-    }
-
-    /// Records that a reprojection was drawn, which view it depicts, and what the whole of it
-    /// cost.
-    ///
-    /// The cost is the pixels *and* the frame that put them up, because that is what
-    /// [`Self::affordable`] has to be a tenth of. **This is the only writer of
-    /// [`Self::measured`]**, which is why it must never be what rule 5 reads: a gate whose only
-    /// sample comes from passing it cannot be passed. ADR 0384.
-    pub(crate) fn drawn(&mut self, view: Transform, cost: Duration) -> MustFollow {
-        self.showing = Some(view);
+    /// **What it cost is no longer kept, and that is ADR 0391.** It was the sample rule 4 bounded
+    /// the next reprojection against, back when a reprojection took the event thread away from the
+    /// render it stood in for. It takes nothing from the render now, so there is nothing for a
+    /// measurement of it to decide, and a number nobody can name a purpose for is a number to
+    /// remove. What it costs is still *reported*, on the frame line, where a person reads it.
+    pub(crate) fn drawn(&mut self) -> MustFollow {
+        self.showing = true;
         self.count = self.count.saturating_add(1);
-        self.measured = Some(self.measured.map_or(cost, |worst| worst.max(cost)));
         MustFollow(())
-    }
-
-    /// Records that the window will not be read back again on this machine.
-    ///
-    /// **A refusal to capture and not a refusal to reproject** — see [`Self::captures_refused`].
-    /// Whatever base is already held goes on standing in; what stops is the asking.
-    pub(crate) fn refuse_captures(&mut self) {
-        self.captures_refused = true;
     }
 
     /// Says why a view change was not stood in for, and counts it. Rule 3 over the refusals.
@@ -688,8 +534,9 @@ impl Stale {
     ///
     /// **This is where a late frame re-bases** (`doc/todo/36`'s third point). Whatever the view
     /// has moved on to, the frame that has just landed is the truest picture this window holds,
-    /// so it replaces the whole [`Settled`] — the base with it — and the reprojection after it
-    /// composes against *this* placement.
+    /// so it replaces the whole [`Settled`] and the reprojection after it composes against *this*
+    /// placement. Since ADR 0391 the pixels are replaced by the same event — `crate::renderer`
+    /// adopts the texture and this records what it is of — so a base cannot go missing.
     ///
     /// `built` says whether this frame made its picture or replayed one the device already had.
     /// **Only a frame that built one updates the prediction** ([`Self::building`]): a replay
@@ -707,11 +554,6 @@ impl Stale {
         self.settled = Some(Settled {
             page: Arc::clone(page),
             target,
-            // Captured on demand, and only where a view change asks for one: a window nobody is
-            // touching reads nothing back. **The base itself is not cleared here**, which is ADR
-            // 0385: until this frame's own pixels can be had, the previous rendering's are still
-            // true pixels of this page at a placement this file knows.
-            captured: false,
         });
     }
 
@@ -721,12 +563,12 @@ impl Stale {
     /// which is what stops [`Self::showing`] from outliving the redraw that answers it, and what
     /// stops `about_to_wait`'s guard from asking for a frame that will never come.
     pub(crate) fn real(&mut self) {
-        self.showing = None;
+        self.showing = false;
     }
 
     /// Whether what the window is showing is a reprojection. Rule 1's runtime witness.
     pub(crate) fn showing_approximation(&self) -> bool {
-        self.showing.is_some()
+        self.showing
     }
 
     /// How many reprojections this run has drawn — rule 3's count.
@@ -739,82 +581,38 @@ impl Stale {
         self.refusals
     }
 
-    /// The one-image frame that puts the pixels this host holds where `target` puts them.
+    /// Where the rendering this host holds goes, so that it depicts `target`.
     ///
-    /// **The only way out of this module for a picture**, and the reason it is a method rather
-    /// than a free function taking pixels: a caller cannot pass in a raster of its own and cannot
-    /// pass in a transform of its own, so no caller can resample anything but the base and none
-    /// can resample it under a placement that is not the base's. That is what makes "compose, do
-    /// not chain" a property of the type instead of a rule somebody has to follow.
+    /// **The only way out of this module for a placement**, and the reason it is a method rather
+    /// than a free function: a caller cannot pass in a placement to compose against, so no caller
+    /// can carry any pixels but the last rendering's and none can carry them from anywhere but
+    /// where that rendering put them. That is what makes "compose, do not chain" a property of the
+    /// type instead of a rule somebody has to follow — and since ADR 0391 it is stronger still,
+    /// because what comes back is a transform and the pixels never leave `crate::renderer`.
     ///
-    /// The three ways there is no picture are the three ways a base is unusable, and they are
-    /// exactly the ones ADR 0385 names: there has never been one, the page changed, or the window
-    /// did. A *lost capture* is not among them, which is the whole of what that round repaired.
+    /// The answer is in the page texture's own texel space, which is the window's: quorra's
+    /// `Layer::placement` maps a layer's texels to the surface's pixels, and the identity puts
+    /// texel (0, 0) at the window's corner. So a frame of the view being asked for composes to the
+    /// identity, exactly as it should.
+    ///
+    /// The three ways there is no picture are the three ways a rendering is unusable: there has
+    /// never been one, the page changed, or the window did.
     pub(crate) fn reproject(
         &self,
         page: &Arc<DisplayList>,
         target: TargetSpec,
-    ) -> Result<DisplayList, Refusal> {
-        let Some(base) = self.base.as_ref() else {
-            return Err(Refusal::NoPixels);
+    ) -> Result<Transform, Refusal> {
+        let Some(settled) = self.settled.as_ref() else {
+            return Err(Refusal::NothingRendered);
         };
-        if !Arc::ptr_eq(&base.page, page) {
+        if !Arc::ptr_eq(&settled.page, page) {
             return Err(Refusal::AnotherPage);
         }
-        if base.width != target.width || base.height != target.height {
+        if settled.target.width != target.width || settled.target.height != target.height {
             return Err(Refusal::Resized);
         }
-        let moved = self
-            .composed(target.transform)
-            .ok_or(Refusal::NoPlacement)?;
-        Ok(reprojection(base, moved))
+        self.composed(target.transform).ok_or(Refusal::NoPlacement)
     }
-}
-
-/// The one-image display list that draws the last real frame's pixels where `moved` puts them.
-///
-/// The base holds the window's own device pixels as that frame presented them, so the list is
-/// drawn under an identity target transform, exactly as this host's chrome is: the placement is
-/// in window pixels and nothing about the page's space is involved.
-///
-/// **The samples are handed over by `Arc` rather than copied**, which is what makes the second
-/// and every later reprojection of one base cost no transfer at all: `render_quorra`'s resource
-/// cache is keyed by the address of exactly this allocation, so the first reprojection uploads
-/// the window and the rest of them find it.
-///
-fn reprojection(base: &Base, moved: Transform) -> DisplayList {
-    #[expect(
-        clippy::cast_precision_loss,
-        reason = "window dimensions are far below f32's exact integer range"
-    )]
-    let (width, height) = (base.width as f32, base.height as f32);
-    let mut list = DisplayList::new(Size::new(width, height));
-    list.push(Command::Image {
-        image: ImageSource::Decoded(Image {
-            width: base.width,
-            height: base.height,
-            data: Arc::clone(&base.pixels),
-            // **Smoothed on purpose, and it is the one place this module chooses how it looks.**
-            // §8.9.5.3's `/Interpolate` is about a file's own image and does not reach these
-            // pixels at all; what it decides here is whether a magnified reprojection is a grid
-            // of squares or a blur. A blur is what an approximation should look like — nobody
-            // mistakes it for the page — and squares of four device pixels look like a rendering
-            // decision somebody made.
-            interpolate: true,
-        }),
-        // The unit square onto the window the pixels came from, then wherever the new view puts
-        // it. The y scale is negative because a `Command::Image` puts the image's *top* row at
-        // unit y = 1 (§8.9.5) while these are a device raster whose first row is the top one —
-        // the same flip `viewer_core::transition::Frame::draw` makes, for the same reason.
-        transform: Transform::scale(width, -height)
-            .then(Transform::translate(0.0, height))
-            .then(moved),
-        alpha: 1.0,
-        clip: None,
-        mask: None,
-        blend: BlendMode::Normal,
-    });
-    list
 }
 
 #[cfg(test)]
@@ -822,11 +620,9 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use pdf_render::{
-        Command, DisplayList, ImageSource, Raster, RasterFormat, Size, TargetSpec, Transform,
-    };
+    use pdf_render::{DisplayList, Size, TargetSpec, Transform};
 
-    use super::{Plan, Refusal, Settled, Stale, reprojection};
+    use super::{Plan, Refusal, Stale};
 
     /// A page's placement at a magnification, as `App::present` composes one: scale, y flip,
     /// translation of the page's origin in the window.
@@ -846,48 +642,49 @@ mod tests {
     /// One refresh of a 60 Hz surface, which is what rule 5 compares a frame against.
     const REFRESH: Duration = Duration::from_nanos(1_000_000_000 / 60);
 
+    /// The render thread is idle: every render this view asked for has landed.
+    ///
+    /// The state of the *first* tick of a view change, which is the one only the prediction can
+    /// answer — nothing is out yet, so there is nothing to observe having missed.
+    const LANDED: bool = false;
+
+    /// A render asked for at an earlier tick is still being drawn, so it has missed that refresh.
+    const DRAWING: bool = true;
+
     /// A frame that missed the refresh by a long way, which is the case the feature is for: the
     /// view moved, the page did not, and the machine will be most of a second.
     fn slow(stale: &mut Stale, page: &Arc<DisplayList>) {
         stale.settled(page, view(1.0), Duration::from_millis(700), true);
     }
 
-    /// A raster of the size these views are drawn at, for the base a capture would give.
-    fn captured() -> Raster {
-        Raster {
-            width: 800,
-            height: 1000,
-            format: RasterFormat::Rgba8,
-            data: vec![0; 800 * 1000 * 4],
-        }
-    }
-
-    /// A slow frame whose pixels this host is holding, which is the state every reprojection but
-    /// the first of one rendering is drawn from.
-    fn slow_and_captured(stale: &mut Stale, page: &Arc<DisplayList>) {
-        slow(stale, page);
-        assert!(stale.rebase(&captured()), "an RGBA8 raster of the window");
-    }
-
-    /// Rule 1, as `doc/todo/36` leaves it. A reprojection is never the state the window settles
-    /// in: the view it already depicts is drawn rather than approximated a second time.
+    /// Rule 1. A reprojection is never the state the window settles in, and what enforces that is
+    /// the obligation rather than the plan.
+    ///
+    /// **`Plan` used to answer `Render` for a view already approximated**, so that the event
+    /// thread would draw the real frame there and then. Since ADR 0391 it answers `Reproject`
+    /// again — the render is on another thread whatever this tick decides, and answering `Render`
+    /// for a view the *rendering* is not of would put the old view up unmoved, which is a jump
+    /// backwards on the screen. So what stops the loop resting on a stand-in is the value that
+    /// cannot be dropped, and `about_to_wait`'s guard on the flag below.
     #[test]
     fn a_reprojection_is_never_the_last_word() {
         let page = page();
         let mut stale = Stale::default();
         slow(&mut stale, &page);
         assert!(
-            stale.plan(&page, view(1.2), REFRESH).stands_in(),
+            stale.plan(&page, view(1.2), REFRESH, LANDED).stands_in(),
             "a slow frame and a new magnification is what this exists for"
         );
-        let follow = stale.drawn(view(1.2).transform, Duration::from_millis(20));
+        let follow = stale.drawn();
         assert!(stale.showing_approximation());
-        assert_eq!(
-            stale.plan(&page, view(1.2), REFRESH),
-            Plan::Render,
-            "the view on the screen has been answered; drawing it again would be a window that \
-             had stopped drawing the document — and it is not a refusal, so it says nothing"
+        assert!(
+            stale.plan(&page, view(1.2), REFRESH, DRAWING).stands_in(),
+            "the same view again while the render is still out: the same three quads, which is \
+             what a picture every refresh means"
         );
+        // And the view the *rendering* is of goes up as it is, which is the answer that must not
+        // be given to any other view.
+        assert_eq!(stale.plan(&page, view(1.0), REFRESH, DRAWING), Plan::Render);
         drop(follow);
         // Every frame that is not one clears it, including a frame that drew nothing: the guard
         // in `about_to_wait` asks for a redraw while this holds, and a flag that could outlive
@@ -896,15 +693,15 @@ mod tests {
         assert!(!stale.showing_approximation());
     }
 
-    /// Rule 5. A frame that lands inside one refresh *is* the frame every refresh the owner asked
-    /// for, and a frame that does not is a miss.
+    /// Rule 5's prediction. A frame that lands inside one refresh *is* the frame every refresh
+    /// the owner asked for, and a frame that does not is a miss.
     #[test]
     fn a_frame_inside_the_refresh_is_shown_and_one_outside_it_is_stood_in_for() {
         let page = page();
         let mut stale = Stale::default();
         stale.settled(&page, view(1.0), REFRESH / 2, true);
         assert_eq!(
-            stale.plan(&page, view(1.2), REFRESH),
+            stale.plan(&page, view(1.2), REFRESH, LANDED),
             Plan::Refused(Refusal::InsideTheRefresh {
                 frame: REFRESH / 2,
                 period: REFRESH,
@@ -912,7 +709,30 @@ mod tests {
             "a view whose frame lands inside the refresh must show that frame, and say so"
         );
         stale.settled(&page, view(1.0), REFRESH * 2, true);
-        assert!(stale.plan(&page, view(1.2), REFRESH).stands_in());
+        assert!(stale.plan(&page, view(1.2), REFRESH, LANDED).stands_in());
+    }
+
+    /// **Rule 5's second way of knowing, and it is ADR 0391's.** A prediction can be wrong; a
+    /// render that is *still being drawn* when the next tick comes round has missed that refresh
+    /// and no arithmetic is involved.
+    ///
+    /// The case that needs it: a page whose last frame was quick, so the prediction says the next
+    /// one will land in time, and then it does not. Before the render had a thread of its own
+    /// there was nothing to observe — the frame ran to completion inside the tick that started it
+    /// — so this state could not exist and the prediction was the only instrument there was.
+    #[test]
+    fn a_render_still_out_at_the_next_tick_has_missed_however_quick_the_last_one_was() {
+        let page = page();
+        let mut stale = Stale::default();
+        stale.settled(&page, view(1.0), REFRESH / 4, true);
+        assert!(
+            !stale.plan(&page, view(1.2), REFRESH, LANDED).stands_in(),
+            "the prediction says this one lands in time, so the first tick waits for it"
+        );
+        assert!(
+            stale.plan(&page, view(1.2), REFRESH, DRAWING).stands_in(),
+            "and the tick after it, with the render still out, has watched it miss"
+        );
     }
 
     /// **The defect this whole scheme had, as a test.** The project owner ran the feature on a
@@ -940,7 +760,7 @@ mod tests {
             );
             stale.settled(&page, view(1.0), cost, true);
             assert!(
-                stale.plan(&page, view(1.2), REFRESH).stands_in(),
+                stale.plan(&page, view(1.2), REFRESH, LANDED).stands_in(),
                 "{frame} ms is {} refreshes and must be stood in for",
                 cost.as_secs_f64() / REFRESH.as_secs_f64()
             );
@@ -949,71 +769,38 @@ mod tests {
         // depend on a measurement only a reprojection can produce.
         stale.settled(&page, view(1.0), REFRESH * 3, true);
         assert!(
-            stale.plan(&page, view(1.2), REFRESH).stands_in(),
+            stale.plan(&page, view(1.2), REFRESH, LANDED).stands_in(),
             "a run that has drawn none must still be able to draw its first"
         );
     }
 
-    /// **The same defect at the second scale, and the owner's second trace is the case.** With
-    /// rule 5 re-grounded, rule 4 became the binding constraint and was still a tenth — so
-    /// reprojections costing 6 to 16 ms were refused against frames of 58 to 156, and six view
-    /// changes of fifteen showed nothing at all. A tenth of a real device's frame is less than
-    /// what a readback costs on it.
+    /// **What used to be rule 4, and what makes its absence safe.** ADR 0384 required that
+    /// standing in *buy* a refresh — `reprojection + period ≤ frame` — because a reprojection ran
+    /// on the event thread and pushed the real frame back by what it cost. The render is on a
+    /// thread of its own now, so the premise is false and the bound is gone (ADR 0391).
     ///
-    /// The rule is now that standing in must buy a whole refresh, which is the smallest difference
-    /// the display can show. The costs below are the owner's own, off `tmp/trace3.entwurf.txt`, at
-    /// the 120 Hz cadence that run reached.
+    /// What the arrangement must therefore hold instead is that a reprojection is never *refused*
+    /// for what it costs, at any cost the owner's own traces recorded. Those costs are the
+    /// frames their reprojections stood in for, and the widest of them is a frame barely past a
+    /// refresh: with rule 4 in place that one was refused and the window did not move.
     #[test]
-    fn standing_in_is_worth_it_when_it_buys_a_refresh() {
+    fn a_frame_that_misses_by_a_hair_is_still_stood_in_for() {
         let page = page();
         let period = Duration::from_nanos(1_000_000_000 / 120);
         let mut stale = Stale::default();
-        // The worst reprojection of that run, readback included.
-        let reprojection = Duration::from_micros(16_300);
-        drop(stale.drawn(view(1.2).transform, reprojection));
-        // Every frame a tenth refused, all of which gain far more than a refresh.
-        for frame in [57.7_f64, 71.0, 90.2, 104.5, 155.5, 156.3] {
+        // The costs the owner's second trace refused under a tenth, off `tmp/trace3.entwurf.txt`,
+        // plus a frame that overruns the refresh by a fraction of a millisecond.
+        for frame in [8.4_f64, 16.3, 57.7, 71.0, 90.2, 104.5, 155.5, 156.3] {
             let cost = Duration::from_secs_f64(frame / 1e3);
             stale.settled(&page, view(1.0), cost, true);
             assert!(
-                stale.plan(&page, view(1.3), period).stands_in(),
-                "{frame} ms: a 16.3 ms picture now instead of the truth in {frame} is what the \
-                 owner asked for"
+                stale.plan(&page, view(1.3), period, LANDED).stands_in(),
+                "{frame} ms misses a 8.333 ms refresh, and standing in now costs that frame \
+                 nothing at all"
             );
+            drop(stale.drawn());
+            stale.real();
         }
-        // And churn is still refused: a frame that misses by less than the reprojection costs
-        // gains nothing anybody can see, and it says so rather than falling silent.
-        stale.settled(&page, view(1.0), reprojection, true);
-        assert_eq!(
-            stale.plan(&page, view(1.3), period),
-            Plan::Refused(Refusal::TooDear {
-                reprojection,
-                frame: reprojection,
-                period,
-            }),
-            "a refusal that is a judgement carries the numbers it judged"
-        );
-    }
-
-    /// Rule 4 reads the worst reprojection rather than the last, because a bound reads the worst
-    /// case — and an approximation that turned out expensive must raise the bar it has to clear
-    /// rather than be repeated at the real frame's expense.
-    #[test]
-    fn what_a_reprojection_cost_bounds_the_next_one() {
-        let page = page();
-        let mut stale = Stale::default();
-        let expensive = Duration::from_millis(30);
-        drop(stale.drawn(view(1.2).transform, expensive));
-        // A frame that misses the refresh but does not gain a whole one is shown rather than
-        // stood in for.
-        stale.settled(&page, view(1.0), expensive, true);
-        assert!(!stale.plan(&page, view(1.3), REFRESH).stands_in());
-        stale.settled(&page, view(1.0), expensive.saturating_add(REFRESH), true);
-        assert!(stale.plan(&page, view(1.3), REFRESH).stands_in());
-        // The worst, not the last: a cheap one after an expensive one does not lower the bound.
-        drop(stale.drawn(view(1.4).transform, Duration::from_millis(3)));
-        stale.settled(&page, view(1.0), expensive, true);
-        assert!(!stale.plan(&page, view(1.3), REFRESH).stands_in());
     }
 
     /// The prediction comes from the last frame that **built** a picture, never from one that
@@ -1038,50 +825,50 @@ mod tests {
             "a replay says what a replay costs and nothing about the next render"
         );
         assert!(
-            stale.plan(&page, view(1.2), REFRESH).stands_in(),
+            stale.plan(&page, view(1.2), REFRESH, LANDED).stands_in(),
             "the zoom after a harmless redraw is the one the owner waited through"
         );
         // A frame that genuinely built a cheap picture *does* move it.
         stale.settled(&page, view(1.0), REFRESH / 2, true);
         assert_eq!(stale.expected(), REFRESH / 2);
-        assert!(!stale.plan(&page, view(1.3), REFRESH).stands_in());
+        assert!(!stale.plan(&page, view(1.3), REFRESH, LANDED).stands_in());
     }
 
     /// A different page is not this page moved, and no placement makes it one.
     ///
-    /// Checked at **both** gates, which is what ADR 0385 made worth stating twice: the plan
-    /// refuses on the frame record, and the base — which now outlives the frame it came from —
-    /// refuses on the page it is a picture of.
+    /// Checked at **both** gates: the plan refuses on the rendering held, and [`Stale::reproject`]
+    /// refuses again on the page that rendering is of — because the two are asked at different
+    /// moments and a caller that reached the second directly must not be able to get a placement.
     #[test]
     fn a_page_turn_is_never_reprojected() {
         let first = page();
         let second = page();
         let mut stale = Stale::default();
-        slow_and_captured(&mut stale, &first);
+        slow(&mut stale, &first);
         assert_eq!(
-            stale.plan(&second, view(1.0), REFRESH),
+            stale.plan(&second, view(1.0), REFRESH, LANDED),
             Plan::Refused(Refusal::AnotherPage)
         );
         assert_eq!(
-            stale.plan(&second, view(1.3), REFRESH),
+            stale.plan(&second, view(1.3), REFRESH, LANDED),
             Plan::Refused(Refusal::AnotherPage)
         );
         assert_eq!(
             stale.reproject(&second, view(1.3)).unwrap_err(),
             Refusal::AnotherPage,
-            "a base held from the outgoing page draws nothing of the incoming one"
+            "a rendering of the outgoing page places nothing of the incoming one"
         );
     }
 
-    /// A resize changes the window the pixels were captured from, and a view that did not move
-    /// has nothing to stand in for — and only one of those two is a refusal.
+    /// A resize changes the window the rendering was drawn for, and a view that did not move has
+    /// nothing to stand in for — and only one of those two is a refusal.
     #[test]
     fn neither_a_resize_nor_a_still_view_is_reprojected() {
         let page = page();
         let mut stale = Stale::default();
-        slow_and_captured(&mut stale, &page);
+        slow(&mut stale, &page);
         assert_eq!(
-            stale.plan(&page, view(1.0), REFRESH),
+            stale.plan(&page, view(1.0), REFRESH, LANDED),
             Plan::Render,
             "the view already on the screen is drawn, not approximated — and not refused either"
         );
@@ -1090,26 +877,26 @@ mod tests {
             ..view(1.2)
         };
         assert_eq!(
-            stale.plan(&page, resized, REFRESH),
+            stale.plan(&page, resized, REFRESH, LANDED),
             Plan::Refused(Refusal::Resized)
         );
         assert_eq!(
             stale.reproject(&page, resized).unwrap_err(),
             Refusal::Resized,
-            "the pixels held are the old window's whole picture, chrome included"
+            "the texture held is the old window's whole picture, chrome beside it"
         );
     }
 
-    /// The transform is the one that carries the old view's device pixels onto the new view's,
+    /// The placement is the one that carries the old view's device pixels onto the new view's,
     /// which is what makes the picture *move* rather than merely appear.
     #[test]
     fn the_transform_carries_old_device_pixels_onto_new_ones() {
         let page = page();
         let mut stale = Stale::default();
-        slow_and_captured(&mut stale, &page);
-        assert!(stale.plan(&page, view(2.0), REFRESH).stands_in());
+        slow(&mut stale, &page);
+        assert!(stale.plan(&page, view(2.0), REFRESH, LANDED).stands_in());
         let moved = stale
-            .composed(view(2.0).transform)
+            .reproject(&page, view(2.0))
             .expect("a doubled magnification");
         // A point of the page, mapped both ways: through the old placement and then the
         // reprojection, and through the new placement directly.
@@ -1126,87 +913,73 @@ mod tests {
         );
     }
 
-    /// The list is one image, placed where the reprojection says, with its top row at the top.
+    /// **A frame of the view being asked for composes to the identity**, which is what makes one
+    /// method serve both a rendering and a stand-in.
+    ///
+    /// quorra's `Layer::placement` maps the layer's own texels to the surface's pixels, so the
+    /// identity puts texel (0, 0) at the window's corner and one texel on one pixel — the page
+    /// exactly where it was drawn. A composition that produced anything else for an unmoved view
+    /// would resample a frame that needs no resampling.
     #[test]
-    fn the_list_is_one_image_the_right_way_up() {
-        let pixels = Raster {
-            width: 4,
-            height: 2,
-            format: RasterFormat::Rgba8,
-            data: vec![0; 4 * 2 * 4],
-        };
-        let frame = Settled {
-            page: page(),
-            target: view(1.0),
-            captured: false,
-        };
-        let base = super::Base::of(&pixels, &frame).expect("an RGBA8 raster");
-        let list = reprojection(&base, Transform::IDENTITY);
-        let [
-            Command::Image {
-                image, transform, ..
-            },
-        ] = list.commands()
-        else {
-            panic!("a reprojection is one image and nothing else");
-        };
-        assert!(matches!(image, ImageSource::Decoded(_)));
-        // The unit square's top-left corner (0, 1) is the raster's first row, and it belongs at
-        // the window's own top-left corner.
-        let top_left = transform.apply(pdf_render::Point::new(0.0, 1.0));
-        assert!(
-            top_left.x.abs() < 1e-6 && top_left.y.abs() < 1e-6,
-            "{top_left:?}"
-        );
-        let bottom_right = transform.apply(pdf_render::Point::new(1.0, 0.0));
-        assert!((bottom_right.x - 4.0).abs() < 1e-6 && (bottom_right.y - 2.0).abs() < 1e-6);
-    }
-
-    /// A raster this cannot read is refused rather than drawn under a guessed layout — and the
-    /// refusal is at the *capture*, so no base exists for a later reprojection to draw from.
-    #[test]
-    fn an_unreadable_raster_draws_nothing() {
-        let empty = Raster {
-            width: 0,
-            height: 0,
-            format: RasterFormat::Rgba8,
-            data: Vec::new(),
-        };
+    fn a_rendering_of_the_view_asked_for_places_at_the_identity() {
         let page = page();
         let mut stale = Stale::default();
         slow(&mut stale, &page);
-        assert!(
-            !stale.rebase(&empty),
-            "a raster this cannot read is no base"
-        );
-        assert!(!stale.has_base());
+        let placed = stale
+            .reproject(&page, view(1.0))
+            .expect("the view the rendering is of");
+        for (was, expected) in [
+            (placed.a, 1.0),
+            (placed.b, 0.0),
+            (placed.c, 0.0),
+            (placed.d, 1.0),
+            (placed.e, 0.0),
+            (placed.f, 0.0),
+        ] {
+            assert!((was - expected).abs() < 1e-5, "{placed:?}");
+        }
+    }
+
+    /// A placement that does not invert has no arithmetic to carry the pixels through, and it is
+    /// refused rather than substituted — a degenerate composition handed to the presenter would
+    /// earn quorra's own `LayerProblem::Placement` mid-frame instead of a sentence this program
+    /// can print.
+    #[test]
+    fn a_placement_that_does_not_invert_is_refused() {
+        let page = page();
+        let mut stale = Stale::default();
+        let flat = TargetSpec {
+            transform: Transform::scale(0.0, 1.0),
+            ..view(1.0)
+        };
+        stale.settled(&page, flat, Duration::from_millis(700), true);
         assert_eq!(
             stale.reproject(&page, view(1.2)).unwrap_err(),
-            Refusal::NoPixels
+            Refusal::NoPlacement
         );
     }
 
     /// `doc/todo/36`'s second point, which is the one that decides how the picture degrades: a
-    /// reprojection of a reprojection resamples the **base** and not the picture on the screen,
-    /// so two in a row are two single resamples rather than a chain of two.
+    /// reprojection of a reprojection composes against the **rendering** and not against the
+    /// picture on the screen, so two in a row are two single resamples rather than a chain of two.
     ///
-    /// Read off the transforms rather than off the pixels, because that is where the property
+    /// Read off the placements rather than off the pixels, because that is where the property
     /// lives: each composition carries a page point through the *rendering's* placement onto the
     /// view being asked for, and if the second composed against the first it would not.
     #[test]
     fn a_reprojection_of_a_reprojection_composes_against_the_base() {
         let page = page();
         let mut stale = Stale::default();
-        slow_and_captured(&mut stale, &page);
+        slow(&mut stale, &page);
         let corner = pdf_render::Point::new(100.0, 700.0);
         let base = view(1.0).transform;
         for magnification in [1.2_f32, 1.44, 1.728, 2.0736] {
             let asked = view(magnification);
             assert!(
-                stale.plan(&page, asked, REFRESH).stands_in(),
+                stale.plan(&page, asked, REFRESH, DRAWING).stands_in(),
                 "the view keeps moving and the frame stays slow"
             );
-            let moved = stale.composed(asked.transform).expect("a base is held");
+            let moved = stale.reproject(&page, asked).expect("a rendering is held");
             // Through the pixels of the last *rendering*, which is the only thing composed
             // against however many reprojections have been drawn since.
             let through = moved.apply(base.apply(corner));
@@ -1215,49 +988,28 @@ mod tests {
                 (through.x - directly.x).abs() < 1e-3 && (through.y - directly.y).abs() < 1e-3,
                 "{magnification}: {through:?} {directly:?}"
             );
-            drop(stale.drawn(asked.transform, Duration::from_millis(2)));
+            drop(stale.drawn());
         }
-    }
-
-    /// The base is read back once per real frame and not once per reprojection, which is what
-    /// makes a cadence affordable at all: ADR 0378's readback is more than a tick.
-    #[test]
-    fn the_base_is_captured_once_per_real_frame() {
-        let page = page();
-        let mut stale = Stale::default();
-        slow(&mut stale, &page);
-        assert!(stale.wants_base(), "the first reprojection pays for it");
-        assert!(stale.rebase(&captured()));
-        assert!(stale.reproject(&page, view(1.2)).is_ok());
-        drop(stale.drawn(view(1.2).transform, Duration::from_millis(2)));
-        assert!(
-            !stale.wants_base(),
-            "every later reprojection of one rendering resamples what the first captured"
-        );
-        assert!(stale.reproject(&page, view(1.4)).is_ok());
     }
 
     /// `doc/todo/36`'s third point. A delayed frame becomes the base the moment it lands, even
     /// though the view has moved on — its pixels are truer than the ones being reprojected, and
-    /// the composed transform simply changes.
+    /// the composed placement simply changes.
+    ///
+    /// **And there is nothing left that could stop it**, which is ADR 0391's half: the pixels and
+    /// the record of what they are of are replaced by one call, so a re-base cannot half happen.
     #[test]
     fn a_late_frame_becomes_the_base() {
         let page = page();
         let mut stale = Stale::default();
-        slow_and_captured(&mut stale, &page);
-        drop(stale.drawn(view(1.2).transform, Duration::from_millis(2)));
-        assert!(!stale.wants_base());
+        slow(&mut stale, &page);
+        drop(stale.drawn());
         // The frame for the 1.2× view finally lands, while the person has already asked for 2×.
         stale.settled(&page, view(1.2), Duration::from_millis(700), true);
         stale.real();
-        assert!(
-            stale.wants_base(),
-            "the pixels of the frame that has just landed are the ones to resample now"
-        );
-        assert!(stale.rebase(&captured()));
-        assert!(stale.plan(&page, view(2.0), REFRESH).stands_in());
+        assert!(stale.plan(&page, view(2.0), REFRESH, LANDED).stands_in());
         let moved = stale
-            .composed(view(2.0).transform)
+            .reproject(&page, view(2.0))
             .expect("the view moved on");
         let corner = pdf_render::Point::new(100.0, 700.0);
         let through = moved.apply(view(1.2).transform.apply(corner));
@@ -1269,111 +1021,52 @@ mod tests {
         );
     }
 
-    /// **ADR 0385, and it is the project owner's own trace twice over.** A real frame landed, it
-    /// had repacked the glyph atlas, and the readback for the next view change found no retained
-    /// encode to replay. The window then showed nothing at all — for want of a *capture*, while
-    /// the previous rendering's own pixels, of this page, at a placement this file knew, were held
-    /// a line away.
+    /// **The two refusals ADR 0385 fought are gone with the route that produced them**, and this
+    /// is the property that says so rather than a comment claiming it.
     ///
-    /// So a lost capture is not a refusal. The base already held stands, and the transform is
-    /// composed against **the frame that produced it** rather than against the frame that
-    /// replaced it — which is the same "compose, do not chain" property read at one more remove.
+    /// The owner's own trace printed `no reprojection: the device has no retained encode to
+    /// replay` twice in twenty-four presents: a real frame had repacked the glyph atlas, the
+    /// readback that a reprojection needed had nothing to replay, and the window did not move.
+    /// There is no readback now — the pixels are the texture the device rendered into — so a run
+    /// of view changes over one rendering refuses **nothing at all**, whatever the device does
+    /// with its atlas in between.
     #[test]
-    fn a_lost_capture_reprojects_from_the_base_already_held() {
+    fn a_repacked_atlas_can_no_longer_refuse_a_view_change() {
         let page = page();
         let mut stale = Stale::default();
-        // The rendering at 1.0×, and the first reprojection of it captures its pixels.
-        slow_and_captured(&mut stale, &page);
-        drop(stale.drawn(view(1.2).transform, Duration::from_millis(12)));
-        // The real frame for 1.2× lands and repacks the atlas, so nothing can be read back for it.
-        stale.settled(&page, view(1.2), Duration::from_millis(156), true);
-        stale.real();
-        assert!(
-            stale.wants_base(),
-            "the newest frame's pixels are the ones worth having, and asking is nearly free"
-        );
-        // The capture fails — `capture_presented` answers `Ok(None)` — so `rebase` is never
-        // called, and the question is what the next view change does about it.
-        assert!(
-            stale.plan(&page, view(1.44), REFRESH).stands_in(),
-            "a base is held; nothing about a lost encode says otherwise"
-        );
-        let list = stale
-            .reproject(&page, view(1.44))
-            .expect("the pixels of the 1.0x rendering are still this page's");
-        assert_eq!(list.commands().len(), 1);
-        // And it is composed against the placement those pixels were drawn at — 1.0×, not the
-        // 1.2× frame that landed in between and could not be read back.
-        let corner = pdf_render::Point::new(100.0, 700.0);
-        let moved = stale
-            .composed(view(1.44).transform)
-            .expect("a base is held");
-        let through = moved.apply(view(1.0).transform.apply(corner));
-        let directly = view(1.44).transform.apply(corner);
-        assert!(
-            (through.x - directly.x).abs() < 1e-3 && (through.y - directly.y).abs() < 1e-3,
-            "{through:?} {directly:?}"
-        );
-    }
-
-    /// The run-level refusal is a refusal to **capture** and not a refusal to draw, which is the
-    /// second half of the same correction.
-    ///
-    /// A device that will not read its window back, or one whose readback re-encoded, says
-    /// nothing about pixels this host already has. Before ADR 0385 either switched the whole
-    /// feature off for the run — including for the base it was already holding.
-    #[test]
-    fn refusing_to_capture_does_not_refuse_the_base_already_held() {
-        let page = page();
-        let mut stale = Stale::default();
-        slow_and_captured(&mut stale, &page);
-        stale.refuse_captures();
-        assert!(
-            !stale.wants_base(),
-            "nothing is read back again in this run"
-        );
-        assert!(
-            stale.plan(&page, view(1.3), REFRESH).stands_in(),
-            "the pixels are in memory; the device is not being asked for anything"
-        );
-        assert!(stale.reproject(&page, view(1.3)).is_ok());
-        // With no base at all it is a refusal, and it says which kind.
-        let mut empty = Stale::default();
-        slow(&mut empty, &page);
-        empty.refuse_captures();
-        assert_eq!(
-            empty.plan(&page, view(1.3), REFRESH),
-            Plan::Refused(Refusal::NoPixels)
-        );
+        slow(&mut stale, &page);
+        for magnification in [1.2_f32, 1.44, 1.728, 2.0736, 2.488] {
+            assert!(
+                stale
+                    .plan(&page, view(magnification), REFRESH, DRAWING)
+                    .stands_in(),
+                "{magnification}: nothing about a frame's atlas reaches a texture already drawn"
+            );
+            assert!(stale.reproject(&page, view(magnification)).is_ok());
+            drop(stale.drawn());
+        }
+        assert_eq!(stale.refusals().total(), 0);
+        assert_eq!(stale.count(), 5);
     }
 
     /// Rule 3 over the refusals, which is what reaches the summary: every one of them is either an
     /// impossibility or a judgement, every one prints its kind, and the tally separates them.
     ///
     /// **There is deliberately no third word.** The owner named three kinds — the third being a
-    /// refusal for want of something the design does not need — and one of those is what this
-    /// round removed. A vocabulary that could describe it would invite the next one to be labelled
+    /// refusal for want of something the design does not need — and one of those is what ADR 0385
+    /// removed. A vocabulary that could describe it would invite the next one to be labelled
     /// rather than deleted.
     #[test]
     fn every_refusal_says_which_kind_it_is_and_is_counted_as_that_kind() {
-        let judged = [
-            Refusal::InsideTheRefresh {
-                frame: REFRESH / 2,
-                period: REFRESH,
-            },
-            Refusal::TooDear {
-                reprojection: Duration::from_millis(16),
-                frame: Duration::from_millis(20),
-                period: REFRESH,
-            },
-        ];
+        let judged = [Refusal::InsideTheRefresh {
+            frame: REFRESH / 2,
+            period: REFRESH,
+        }];
         let impossible = [
             Refusal::NothingRendered,
             Refusal::AnotherPage,
             Refusal::Resized,
-            Refusal::NoPixels,
             Refusal::NoPlacement,
-            Refusal::NoDevice,
             Refusal::DeviceRefused("the surface is not presentable".to_owned()),
         ];
         for why in &judged {
@@ -1412,10 +1105,10 @@ mod tests {
     fn a_window_nobody_is_touching_refuses_nothing() {
         let page = page();
         let mut stale = Stale::default();
-        slow_and_captured(&mut stale, &page);
+        slow(&mut stale, &page);
         for _ in 0..100 {
             assert_eq!(
-                stale.plan(&page, view(1.0), REFRESH),
+                stale.plan(&page, view(1.0), REFRESH, LANDED),
                 Plan::Render,
                 "the same view, redrawn: quorra replays it and nothing is being stood in for"
             );
