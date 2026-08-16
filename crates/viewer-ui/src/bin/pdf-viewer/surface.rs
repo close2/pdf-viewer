@@ -98,6 +98,76 @@ fn on_the_processor(
     }
 }
 
+/// Keeps the pixels of the rendering on the window, for every reprojection of it to resample.
+///
+/// The readback's own cost, or `None` where no base could be had — and **each of the four ways
+/// that can happen says so**, which two of them did not until ADR 0384. A refusal a person cannot
+/// see is indistinguishable from a feature that does not work, which is exactly the report that
+/// round answered.
+///
+/// Two of the four are facts about *this machine* rather than about this frame, and those switch
+/// the feature off for the run: a device that will not read the window back, and a capture that
+/// re-encoded instead of replaying. The other two are ordinary and recur.
+fn capture_base(
+    presenter: &mut QuorraPresenter,
+    stale: &mut crate::stale::Stale,
+    trace: crate::trace::Trace,
+) -> Option<std::time::Duration> {
+    let captured = match presenter.capture_presented() {
+        Ok(Some(captured)) => captured,
+        // There are two ways here and silence could not tell them apart: no frame has reached the
+        // device, or the last one made it repack its glyph atlas and the retained encode died with
+        // the tile placements (quorra's ADR 0050). **The second is not rare** — the project
+        // owner's own trace repacks after three frames of fifteen, every one of them a zoom step,
+        // because a new magnification is a new set of glyph rasters.
+        Ok(None) => {
+            trace.say(
+                Topic::Frames,
+                format_args!(
+                    "no reprojection: the device has no retained encode to replay — the last \
+                     frame repacked its glyph atlas, or none has reached it yet"
+                ),
+            );
+            return None;
+        }
+        Err(problem) => {
+            trace.say(
+                Topic::Frames,
+                format_args!("the frame on the window could not be read back: {problem}"),
+            );
+            stale.refuse();
+            return None;
+        }
+    };
+    // Rule 4, and the one condition that cannot be checked in advance: a capture that re-encoded
+    // has just paid the whole of the cost the reprojection exists to cover, so it is said out loud
+    // and never asked for again.
+    if !captured.replayed {
+        trace.say(
+            Topic::Frames,
+            format_args!(
+                "reading the frame back re-encoded it in {:.1} ms instead of replaying it, which \
+                 costs the real frame more than the wait is worth — no frame will be approximated \
+                 in this run",
+                captured.cost.as_secs_f64() * 1e3
+            ),
+        );
+        stale.refuse();
+        return None;
+    }
+    if !stale.rebase(&captured.raster) {
+        trace.say(
+            Topic::Frames,
+            format_args!(
+                "no reprojection: the frame read back off the window is in a layout this host \
+                 cannot resample"
+            ),
+        );
+        return None;
+    }
+    Some(captured.cost)
+}
+
 /// How this window's pixels reach it: with a graphics device, or without one.
 ///
 /// **Never both, and that is the point.** A process holding [`Surface::Processor`] has created no
@@ -176,10 +246,13 @@ impl App {
 
         // Asked before the transition below, because it is a question about *this page's*
         // placement: whether the pixels on the screen are this page under another view, and
-        // whether the frame that put them there was slow enough for the wait to be worth
-        // answering. See [`crate::stale`] — every rule that makes an approximation defensible
-        // is enforced in there rather than here.
-        let planned = self.stale.plan(&request.list, target);
+        // whether the frame this view is waiting for is expected to miss the surface's own
+        // refresh. See [`crate::stale`] — every rule that makes an approximation defensible is
+        // enforced in there rather than here, and the period is the one number it is measured
+        // against (ADR 0384).
+        let planned = self
+            .stale
+            .plan(&request.list, target, self.cadence.period());
         let placement = target;
 
         // §12.4.4: a transition in flight substitutes its own picture of *two* pages for the one,
@@ -296,9 +369,20 @@ impl App {
         // What the window is showing, and what showing it cost. The next view change reads both:
         // the placement to carry the pixels *from*, and the cost to decide whether carrying them
         // is worth anything at all (`doc/todo/37` rule 5, ADR 0378).
+        //
+        // **Whether the frame *built* its picture is part of that**, and it is quorra's own
+        // observable rather than an inference from a small duration: a frame that replayed a
+        // retained encode (ADR 0351) says what a replay costs and nothing about what the next
+        // render will, and a view change never replays. A frame that never reached the device —
+        // the processor's window, and the fallback — built its picture by definition, which is
+        // why the test is against `Replayed` rather than for `Encoded` (ADR 0384).
         if playing.is_none() {
+            let built = !matches!(
+                stages.gpu.encode_source,
+                Some(quorra_gpu::EncodeSource::Replayed)
+            );
             self.stale
-                .settled(&request.list, placement, began.elapsed());
+                .settled(&request.list, placement, began.elapsed(), built);
         }
         Some(Rendered::Presented)
     }
@@ -330,7 +414,8 @@ impl App {
     ) -> bool {
         let began = std::time::Instant::now();
         let trace = self.trace;
-        let covering = self.stale.covering();
+        let expected = self.stale.expected();
+        let period = self.cadence.period();
         let wants_base = self.stale.wants_base();
         let Some(state) = self.state.as_mut() else {
             return false;
@@ -347,41 +432,14 @@ impl App {
         // *rendering*. It is the condition that makes a chain impossible as well as the one that
         // makes the readback affordable: a capture taken while a reprojection was on the screen
         // would be a resampling of a resampling, and there is no state in which one is taken.
-        let mut readback = std::time::Duration::ZERO;
-        if wants_base {
-            let captured = match presenter.capture_presented() {
-                Ok(Some(captured)) => captured,
-                Ok(None) => return false,
-                Err(problem) => {
-                    trace.say(
-                        Topic::Frames,
-                        format_args!("the frame on the window could not be read back: {problem}"),
-                    );
-                    self.stale.refuse();
-                    return false;
-                }
-            };
-            // Rule 4, and the one condition that cannot be checked in advance: a capture that
-            // re-encoded has just paid the whole of the cost the reprojection exists to cover, so
-            // it is said out loud and never asked for again.
-            if !captured.replayed {
-                trace.say(
-                    Topic::Frames,
-                    format_args!(
-                        "reading the frame back re-encoded it in {:.1} ms instead of replaying \
-                         it, which costs the real frame more than the wait is worth — no frame \
-                         will be approximated in this run",
-                        captured.cost.as_secs_f64() * 1e3
-                    ),
-                );
-                self.stale.refuse();
-                return false;
+        let readback = if wants_base {
+            match capture_base(presenter, &mut self.stale, trace) {
+                Some(cost) => cost,
+                None => return false,
             }
-            readback = captured.cost;
-            if !self.stale.rebase(&captured.raster) {
-                return false;
-            }
-        }
+        } else {
+            std::time::Duration::ZERO
+        };
         let Some(list) = self.stale.reproject(moved) else {
             return false;
         };
@@ -417,10 +475,11 @@ impl App {
         trace.say(
             Topic::Frames,
             format_args!(
-                "approximated: the {:.1} ms frame this view replaces is stood in for by that \
-                 frame's own pixels moved ({}, whole reprojection {:.1} ms); the real frame has \
-                 been asked for",
-                covering.as_secs_f64() * 1e3,
+                "approximated: this view's frame is expected to cost {:.1} ms against a {:.1} ms \
+                 refresh, so it misses, and the last rendering's own pixels stand in ({}, whole \
+                 reprojection {:.1} ms); the real frame has been asked for",
+                expected.as_secs_f64() * 1e3,
+                period.as_secs_f64() * 1e3,
                 if wants_base {
                     format!("read back in {:.1} ms", readback.as_secs_f64() * 1e3)
                 } else {
@@ -616,6 +675,33 @@ impl App {
         Self::software(window)
     }
 
+    /// Asks the surface once more what it refreshes at, until it answers.
+    ///
+    /// **A Wayland surface enters no output until it has been drawn to**, and the cadence is read
+    /// in `resumed`, which is strictly before that — so every Wayland session took
+    /// `doc/todo/36`'s floor and 120 Hz was out of reach in principle. Called after a present
+    /// rather than before one for exactly that reason, and it stops asking the moment the window's
+    /// own output answers ([`crate::cadence::Cadence::ask`], ADR 0384).
+    fn settle_cadence(&mut self) {
+        if self.cadence.settled() {
+            return;
+        }
+        // Cloned rather than borrowed because the clock and the window are two fields of the same
+        // value; one `Arc` bump per frame, and only until the surface has answered once.
+        let Some(window) = self.state.as_ref().map(|state| Arc::clone(&state.window)) else {
+            return;
+        };
+        if self.cadence.ask(&window) {
+            self.trace.say(
+                Topic::Launch,
+                format_args!(
+                    "presenting on a cadence of {} — re-asked now that the window has been drawn to",
+                    self.cadence.described()
+                ),
+            );
+        }
+    }
+
     /// Closes the one line the launch timeline never had: when the pipelines finished compiling.
     ///
     /// **ADR 0227.** Bring-up prints `pipelines still compiling` because
@@ -701,6 +787,7 @@ impl App {
             || matches!(outcome, Some(Rendered::Presented | Rendered::Raster(_)));
         if stages.presented {
             self.cadence.presented(std::time::Instant::now());
+            self.settle_cadence();
         }
         let outcome_said = match &outcome {
             None if stages.approximated => "approximated".to_owned(),

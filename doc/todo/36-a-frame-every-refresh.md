@@ -1,6 +1,7 @@
 # A frame every refresh — 60 Hz as the floor, 120 Hz as the target
 
-Status: **built for the window with a graphics device** (ADR 0383), which is every run without
+Status: **built for the window with a graphics device** (ADR 0383; the trigger and the Wayland
+refresh rate corrected by ADR 0384), which is every run without
 `--cpu`. The presenter is a clock: the period is the surface's own refresh rate where it states
 one and the floor of 60 Hz where it does not, every present is spaced by it, a view that keeps
 moving is answered every tick by a reprojection composed against the last *rendering*, a late frame
@@ -9,10 +10,42 @@ carries the two claims rule 6 asks for: the interval distribution, and what shar
 were the page rather than a picture of it moved.
 Priority: 36 — the first item in this tree whose acceptance was a *rate*, and it stays open for
 the one thing a clock cannot do.
-Witness: `tmp/Entwurf.pdf` — **not in the repository**, so no test may name that path.
+Witness: `tmp/Entwurf.pdf` — **not in the repository**, so no test may name that path. The A/B that
+proves the trigger is on `doc/PDF20_AN001-BPC.pdf`, which is.
 Instrument: the window's `--trace` frame lines and its summary, which now report a cadence.
 Clauses: none — presentation. §10.7.4 does not reach it: nothing reprojected is a rendering.
 Code: `crates/viewer-ui/src/bin/pdf-viewer/{cadence,stale,surface,window}.rs`
+
+## The owner's *miss* is now what triggers a reprojection, and it was not (ADR 0384)
+
+The sentence at the top of this file — *"we should still try to render a correct image every frame,
+but if we miss, we should interpolate"* — is now the code's own trigger: a **miss** is a frame that
+does not land inside `Cadence::period`, which is the surface's own refresh where the surface states
+one. ADR 0378's rule 5 had it as `SHARE` × a *measured* reprojection cost instead, and the owner
+ran the result on their own graphics device and reported that reprojection did not appear to work.
+It did not: the bar was 510 ms until a reprojection had been measured, only a reprojection above
+the bar could measure one, and their frames were 80 to 438 ms. **A self-calibrating threshold whose
+own gate blocked its only sample.** ADR 0384 has the trace and the A/B.
+
+**One thing is still to be established on a real display**, and it is deliberately not guessed at
+here: rule 4 is now the binding constraint, its number is `SHARE` times what a reprojection costs
+*on that machine*, and this harness can only measure llvmpipe's — where the readback is expensive
+enough to refuse everything after the first. The trace prints the number on the first reprojection
+of every run, so **the next report from the owner answers it**.
+
+## Two small things this round found and did not take
+
+- **The trace does not say how many encode threads quorra got.** `render_quorra::options()` reads
+  `available_parallelism` at construction and nothing prints it, so "the encode is parallel here"
+  is an inference from the shape of the number rather than a reading of it. ADR 0384 §7 makes the
+  inference and says why it holds; a `--trace` line under `Topic::Launch` would make it a fact.
+  One line, and it belongs beside `device up in …`.
+- **A window dragged to another display keeps the first display's cadence.** `Cadence::ask` stops
+  at the first answer from the window's own surface, deliberately (ADR 0384 §5): polling the
+  monitor every frame is a per-frame cost for a question that changes when somebody drags a window.
+  winit's Wayland backend *receives* `surface_enter` and its handler body is empty
+  (`platform_impl/linux/wayland/state.rs:348`), so the honest fix is upstream reporting the change
+  rather than this tree polling for it.
 
 ## What is left, and it is one thing
 
@@ -48,9 +81,14 @@ The four questions this file used to carry as unsettled, with where the answer l
 2. **What "every frame" means when nothing changed** — nothing. The clock is armed by an obligation
    and by nothing else, and a window nobody is touching sits in `ControlFlow::Wait`: measured at
    **no present and no measurable processor time over twenty seconds**.
-3. **Where the cadence comes from** — `winit`'s `MonitorHandle::refresh_rate_millihertz`, read once
-   when the window exists. The floor stands in where the platform states none, and the trace says
-   which.
+3. **Where the cadence comes from** — `winit`'s `MonitorHandle::refresh_rate_millihertz`, and it is
+   asked **more than once**, which is ADR 0384's correction. Reading it in `resumed` is right on
+   X11 and answers `None` on every Wayland session for ever: `Window::current_monitor` on that
+   backend is the first output in the surface's own `wl_surface::enter` list, and a Wayland surface
+   enters no output until it has been drawn to. So the floor stood in, and **120 Hz was out of
+   reach in principle on the platform the owner runs.** The cadence now re-asks after each present
+   until the window's own output answers, with `available_monitors`' *slowest* standing in
+   meanwhile, and the trace names which of the three said it.
 4. **What the gates see** — nothing. Everything this round wrote is in a binary; `doc/todo/37`
    rule 2 is untouched and its test still walks every `.rs` outside `viewer-ui/src/bin`.
 

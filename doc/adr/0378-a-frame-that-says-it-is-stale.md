@@ -72,9 +72,20 @@ enough.
 | **2. Nothing that judges a picture ever sees one** | **Structural.** Everything that makes an approximate picture is in `crates/viewer-ui/src/bin/pdf-viewer/stale.rs`, a private module of a **binary**: the corpus and oracle gates, `Query::Frame`, the confined worker, `render_at` and the headless harness are compiled without a line of it, and cannot link to it in principle. The one library addition is `QuorraPresenter::capture_presented`, which hands back *the real frame the window is showing* — `render-quorra` has no notion of a reprojection, and `QuorraRasterizer`, the judged offscreen path, has no such method. A test walks every `.rs` outside `viewer-ui/src/bin` and fails if any of them so much as names one. |
 | **3. It says so** | The frame line's outcome word is `approximated`, the legend explains it, a line beside it says which frame it stands in for and what it cost, and the summary prints the count — kept in `Stale` rather than in the frame log, so it is exact whether or not anything is tracing. |
 | **4. It costs the real frame nothing** | The pixels are a *replay* of an encode that already existed; a capture that re-encoded is reported by name and switches the feature off for the run. Nothing is asked for at all when the last frame made the device repack its atlas (the retained encode is dead) or when no frame has reached the device. And the threshold below is a multiple of what a reprojection *actually cost*, so one that turns out expensive raises the bar it must clear next time rather than being repeated. |
-| **5. It does not fire when it is not needed** | `Stale::threshold` = `SHARE` × a measured cost. Measured, not tasted; see below. |
+| **5. It does not fire when it is not needed** | `Stale::threshold` = `SHARE` × a measured cost. Measured, not tasted; see below. **Superseded — ADR 0384.** |
 
 ### The threshold, and why it is arithmetic on a measurement
+
+> **This section is wrong, and ADR 0384 replaces what it decided.** It is left standing rather than
+> rewritten, because the reasoning below is what a reader has to see in order to understand the
+> failure: every sentence of it is about how the bar *responds* to a measurement, and not one asks
+> where the first measurement comes from. It comes from drawing a reprojection; a reprojection was
+> drawn only above the bar; so **the bar gated its own only sample**, and on any machine quicker
+> than this software adapter it could never come down. The project owner ran it on a real graphics
+> device: fifteen presents, frames of 80 to 438 ms, and not one reprojection. No value of `ASSUMED`
+> fixes that — the fault is the direction of the dependency, not the constant. Rule 5 is now the
+> cadence's own period, which is a measurement that exists before anything has been drawn; rule 4
+> keeps the ratio below, as a separate check, with *unmeasured* permitting rather than refusing.
 
 `doc/todo/37`'s fourth rule says a reprojection that cannot be produced "within a small fraction of
 the frame it replaces" is not to be produced at all. **A tenth** is this project's reading of "a
@@ -88,6 +99,10 @@ threshold = 10 × (this run's most expensive reprojection, or ASSUMED until ther
 `ASSUMED` is the top of the measured band rather than its middle, because rule 4 is a bound. A
 machine slower than this one raises its own bar within one step; a machine with a real graphics
 device lowers it within one step.
+
+**And that last sentence is the one that was never true**: a machine with a real graphics device
+took no step at all, because taking one required a frame over 510 ms and its frames were quicker
+than that. ADR 0384.
 
 ## The measurement
 
@@ -136,6 +151,13 @@ The last two are the rule working: after a 108.7 ms frame the threshold (389 ms 
 the run) is not met, so the window shows the frame rather than an approximation of the one before
 it. On `doc/PDF20_AN001-BPC.pdf`, whose frames are about 43 ms, the same script produces **six
 frames and zero reprojections**, and the summary says so.
+
+> **That last sentence was read as evidence and was the defect itself.** Forty-three-millisecond
+> frames on a 16.7 ms refresh are three refreshes each — they *are* misses, and every one of them
+> should have been stood in for. Zero reprojections was not rule 5 declining; it was rule 5 unable
+> to fire. The same document under ADR 0384's trigger produces one at a 37.7 ms frame, and the A/B
+> is in that ADR. The lesson is worth more than the number: **a rule that refuses is only evidence
+> that it works if you can also make it accept.**
 
 ### The two photographs
 

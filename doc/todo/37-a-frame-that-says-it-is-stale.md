@@ -1,6 +1,7 @@
 # A frame that says it is stale — the one window it does not cover yet
 
-Status: **built for the window with a graphics device** (ADR 0378, extended by ADR 0383), which is
+Status: **built for the window with a graphics device** (ADR 0378, extended by ADR 0383, rule 5
+corrected by ADR 0384 after the owner found it never fired on a real one), which is
 every run without `--cpu`. A view change whose last frame was slow now shows the pixels already on
 the screen, moved to where the new view puts them, and the real frame replaces it — the frame line
 says `approximated`, the summary counts them, and
@@ -18,6 +19,18 @@ question about *which* view rather than about whether one is showing; the loop s
 rest on one. And rule 4's "it costs the real frame nothing" gained a second mechanism: the readback
 is taken **once per real frame** and every reprojection after the first resamples what it captured.
 ADR 0383 has both.
+
+**Rule 5 changed in the five-hundred-and-forty-ninth, and that one was a defect rather than a
+refinement.** It said `SHARE` × a *measured* reprojection cost, with an assumed 51 ms standing in —
+so a bar of 510 ms until a reprojection had been drawn, and a reprojection was drawn only above the
+bar. The project owner ran it on a real graphics device and reported *"I don't have the impression
+that reprojection works"*: fifteen presents, frames of 80 to 438 ms, not one reprojection. **A
+self-calibrating threshold whose own gate blocked its only sample.** Rule 5 is now the owner's own
+word — a frame that does not land inside the cadence's period is a *miss* — which is a measurement
+the presenter holds before anything has been drawn. Rule 4 keeps the ratio as a check of its own,
+with *unmeasured* permitting rather than refusing, because the first reprojection is the only thing
+that can ever produce the number. ADR 0384 has the trace, the A/B and the two secondary defects it
+turned up.
 
 ## What is left
 
@@ -41,9 +54,10 @@ Three things bind it, and none of them is new:
   binary, and not in `viewer_ui::software`, which is a *library* and is what
   `viewer-confined`'s worker and the software-surface tests link to.
 - **Rule 4 needs its own measurement.** A processor-side resample of 800×1000 is not free, and the
-  threshold is `SHARE` times what it actually costs rather than what the device path measured.
-  `Stale::threshold` already takes whatever the run measures, so the code needs nothing; the round
-  that builds it owes the number.
+  check is `SHARE` times what it actually costs rather than what the device path measured.
+  `Stale::affordable` already takes whatever the run measures, so the code needs nothing; the round
+  that builds it owes the number. **Rule 5 needs nothing from it at all** — a miss is a miss on any
+  surface, which is one thing ADR 0384's re-grounding bought that was not the point of it.
 - **And the base is already the right shape for it.** `Stale::Settled` holds the last real frame's
   pixels since ADR 0383, captured once and resampled after that; a software surface has those
   pixels without a readback at all, so what a processor path adds there is `Base::of` being fed

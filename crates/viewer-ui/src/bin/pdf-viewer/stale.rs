@@ -20,8 +20,30 @@
 //! | 1. never the last word | [`Stale::plan`] refuses to redraw the view already approximated, [`MustFollow`] cannot be dropped without arming the clock that asks for the frame replacing it, and `about_to_wait` will not let the loop come to rest on one |
 //! | 2. nothing that judges a picture ever sees one | this module is a **private module of a binary**: no library, no gate, no oracle, no harness can link to it, and nothing below it knows a reprojection exists |
 //! | 3. it says so | the frame line's outcome word is `approximated`, and [`Stale::count`] is what the summary prints |
-//! | 4. it costs the real frame nothing | the pixels come from the encode quorra has **already** retained (a replay, never an encode), they are read back **once** per real frame rather than once per reprojection ([`Base`]), and the threshold below is measured against what a reprojection actually cost |
-//! | 5. it does not fire when it is not needed | [`Stale::threshold`] — [`SHARE`] times a *measured* cost, not a taste |
+//! | 4. it costs the real frame nothing | the pixels come from the encode quorra has **already** retained (a replay, never an encode), they are read back **once** per real frame rather than once per reprojection ([`Base`]), and [`Stale::affordable`] holds the next one to [`SHARE`] of what one actually cost here |
+//! | 5. it does not fire when it is not needed | [`Stale::missed`] — the frame did not land inside the surface's own refresh, which is the owner's word *miss* and the presenter's own measurement |
+//!
+//! # Rule 5 is the cadence's own period, and the reason it is not a calibrated bar
+//!
+//! It **was** one, and the shape was wrong in a way worth keeping written down. `SHARE` times a
+//! *measured* reprojection sounds like the strictest possible reading of rule 4 — until you ask
+//! where the first measurement comes from. It comes from drawing a reprojection, and a
+//! reprojection was only drawn above the bar, and the bar before any measurement was ten times an
+//! assumed 51 ms: **510 ms**. So on any machine quicker than the software adapter the assumption
+//! was taken on, the bar could never come down, because its own gate blocked its only sample. The
+//! project owner ran it on a real graphics device and reported *"I don't have the impression that
+//! reprojection works"* — fifteen presents, frames of 80 to 438 ms, and not one reprojection.
+//! ADR 0384.
+//!
+//! What replaces it is the thing the owner asked for rather than a smaller constant —
+//! *"we should still try to render a correct image every frame, but if we miss, we should
+//! interpolate"*.
+//!
+//! A **miss** is a frame that did not land inside the cadence's own period — [`crate::cadence`]
+//! knows that number, it is the surface's where the surface states one, and it needs no
+//! calibration, no bootstrap and no sample. Rule 4 stays, separately: what a reprojection cost on
+//! *this* machine still governs whether the next one is drawn ([`Stale::affordable`]), and the
+//! first one is now reachable because it is no longer what unlocks itself.
 //!
 //! # A reprojection may follow a reprojection, and the shape of that is the whole of `doc/todo/36`
 //!
@@ -68,24 +90,15 @@ use pdf_render::{
 /// What share of the frame it stands in for a reprojection may cost: one part in this many.
 ///
 /// `doc/todo/37`'s fourth rule — "if the reprojection cannot be produced within a small fraction
-/// of the frame it replaces, it is not produced at all" — as arithmetic. A tenth is the reading
-/// of "a small fraction" this project takes, and the number it is a tenth *of* is measured
-/// ([`Stale::threshold`]), so the rule that decides whether to approximate is a measurement with
-/// one ratio on top of it rather than a duration somebody liked.
-const SHARE: u32 = 10;
-
-/// What a reprojection is taken to cost before this run has measured one.
+/// of the frame it replaces, it is not produced at all" — as arithmetic. A tenth is the reading of
+/// "a small fraction" this project takes, and the number it is a tenth *of* is measured
+/// ([`Stale::affordable`]), so rule 4 is a measurement with one ratio on top of it rather than a
+/// duration somebody liked.
 ///
-/// **Measured, on the witness `doc/todo/37` names**, rather than chosen: seven reprojections over
-/// four scripted sessions of that drawing under `Xvfb` at 900×1100 on llvmpipe, each reading the
-/// presented 800×1000 frame back off the device and presenting it again as one image, cost
-/// **23.1 to 50.6 ms** — of which the readback is 19.2 to 35.9 — against frames of 492 to 1036 ms
-/// (ADR 0378's table). The bootstrap is the **top** of that band, because rule 4 is a bound and a
-/// bound reads the worst case, and it is replaced by this run's own worst measurement as soon as
-/// there is one. So a machine slower than this software adapter raises its own bar rather than
-/// showing approximations it cannot afford, and a machine with a real graphics device lowers it
-/// after the first step.
-const ASSUMED: Duration = Duration::from_millis(51);
+/// **It is rule 4's bound and no longer rule 5's trigger**, which is the whole of ADR 0384: while
+/// it was both, the only thing that could measure it was the thing it gated, and on a machine
+/// where the assumed cost was wrong the bar could never come down.
+const SHARE: u32 = 10;
 
 /// Proof that the frame which replaces a reprojection was asked for.
 ///
@@ -154,7 +167,13 @@ impl Base {
     }
 }
 
-/// The view one frame drew: which page's display list, placed where, what it cost, and its pixels.
+/// The view one frame drew: which page's display list, placed where, and its pixels.
+///
+/// **What it cost is deliberately not here**, and it used to be. A cost belongs to the *machine*
+/// and not to a placement — the question rule 5 asks is what the next render will take, and the
+/// answer outlives any one frame's pixels. Keeping it here made every re-base overwrite the
+/// prediction, including a re-base by a frame that had only replayed an encode. See
+/// [`Stale::building`] and ADR 0384.
 #[derive(Debug)]
 struct Settled {
     /// The page, by the `Arc` that makes its address mean something — the identity
@@ -162,8 +181,6 @@ struct Settled {
     page: Arc<DisplayList>,
     /// Where it was placed, in this window's own device pixels.
     target: TargetSpec,
-    /// What the frame that drew it cost, which is what rule 5's threshold is compared against.
-    cost: Duration,
     /// This frame's own pixels, read back the first time a reprojection needed them.
     ///
     /// `None` until then — nothing is captured for a frame no view change ever stands in for,
@@ -183,9 +200,22 @@ pub(crate) struct Stale {
     /// reason is that the one showing already depicts the view being asked for, which is a
     /// question about *which* view rather than about whether there is one.
     showing: Option<Transform>,
-    /// The most expensive reprojection this run has drawn, which is what the threshold is built
-    /// from. The worst rather than the last: rule 4 is a bound, and a bound reads the worst case.
+    /// The most expensive reprojection this run has drawn, which is what rule 4 is checked
+    /// against. The worst rather than the last: rule 4 is a bound, and a bound reads the worst
+    /// case. `None` until one has been drawn, and **that state permits rather than refuses** —
+    /// see [`Stale::affordable`].
     measured: Option<Duration>,
+    /// What the last frame that had to *build* a picture cost, which is rule 5's prediction.
+    ///
+    /// **Deliberately not [`Settled::cost`], and the difference is a frame the owner waited
+    /// through.** A frame whose page, placement, size and chrome are the ones already on the
+    /// screen costs a replay of an encode that exists (ADR 0351) — two milliseconds where the
+    /// render was seven hundred — and a view change never replays, because its placement is part
+    /// of the key. So the previous *present* is a bad predictor of the next *render* exactly when
+    /// something harmless was redrawn in between: in the owner's own trace a window focus event
+    /// redrew the launch frame in 2.1 ms, and the zoom step after it was judged against that
+    /// rather than against the 778.6 ms rendering it replayed. `None` until a frame has built one.
+    building: Option<Duration>,
     /// How many have been drawn — rule 3's count, which the frame summary prints.
     count: u64,
     /// Whether the pixels could not be had for a replay, after which none are asked for again.
@@ -196,21 +226,50 @@ pub(crate) struct Stale {
 }
 
 impl Stale {
-    /// How slow the last real frame has to have been before an approximation is worth drawing.
+    /// What the next frame is expected to cost, from the last one that had to build a picture.
     ///
-    /// [`SHARE`] times what a reprojection costs on *this* machine, with [`ASSUMED`] standing in
-    /// until one has been drawn. That is rule 5's "a measurement rather than a taste": a machine
-    /// whose reprojection costs 2 ms approximates a 20 ms frame, and one whose reprojection costs
-    /// 51 ms — this software adapter's worst — leaves everything under 510 ms alone.
-    pub(crate) fn threshold(&self) -> Duration {
-        self.measured.unwrap_or(ASSUMED).saturating_mul(SHARE)
+    /// Zero before there has been one, which [`Self::plan`] reads as "nothing missed yet".
+    pub(crate) fn expected(&self) -> Duration {
+        self.building.unwrap_or(Duration::ZERO)
+    }
+
+    /// **Rule 5.** Whether the frame this view is waiting for is expected to miss the cadence.
+    ///
+    /// The owner's own word: *"we should still try to render a correct image every frame, but if
+    /// we miss, we should interpolate"*. A miss is a frame that does not land inside one refresh
+    /// of the surface, so the comparison is against [`crate::cadence::Cadence::period`] and
+    /// against nothing this module invented. It needs no calibration and no first sample, which
+    /// is exactly what the bar it replaced could not do without.
+    fn missed(&self, period: Duration) -> bool {
+        self.expected() > period
+    }
+
+    /// **Rule 4.** Whether a reprojection is cheap enough, on this machine, to be worth the frame
+    /// it delays.
+    ///
+    /// [`SHARE`] of the frame it stands in for, against what a reprojection has *actually* cost
+    /// here — never against an assumption. **Unmeasured permits**, and that is the correction ADR
+    /// 0384 makes rather than an omission: rule 5 has already established that the frame will miss
+    /// its refresh, the first reprojection is the only way this machine's number can ever be
+    /// learned, and it is one frame, measured, reported by name and then binding on every one
+    /// after it. A bound that refuses until it has a measurement it can only obtain by not
+    /// refusing is not a bound; it is an off switch.
+    fn affordable(&self, frame: Duration) -> bool {
+        self.measured
+            .is_none_or(|worst| worst.saturating_mul(SHARE) <= frame)
     }
 
     /// The transform that puts the pixels now on the screen where this view wants them, or
     /// `None` where no reprojection is to be drawn.
     ///
-    /// Every refusal is one of the five rules, in the order that rejects soonest.
-    pub(crate) fn plan(&self, page: &Arc<DisplayList>, target: TargetSpec) -> Option<Transform> {
+    /// Every refusal is one of the five rules, in the order that rejects soonest. `period` is the
+    /// surface's own refresh, which is what rules 5 and 4 are both measured against.
+    pub(crate) fn plan(
+        &self,
+        page: &Arc<DisplayList>,
+        target: TargetSpec,
+        period: Duration,
+    ) -> Option<Transform> {
         // The pixels could not be had cheaply on this machine, so none are asked for again.
         if self.refused {
             return None;
@@ -238,9 +297,16 @@ impl Stale {
         if settled.target.transform == target.transform {
             return None;
         }
-        // Rule 5: a frame the machine delivers quickly must show that frame and never an
-        // approximation of the one before it.
-        if settled.cost < self.threshold() {
+        // Rule 5: a frame the machine delivers inside one refresh *is* the frame every refresh
+        // the owner asked for, so there is nothing to stand in for.
+        if !self.missed(period) {
+            return None;
+        }
+        // Rule 4, and it is a separate question from rule 5 on purpose. Rule 5 says the frame
+        // will be late; this says whether a picture of the old one can be produced for a small
+        // enough share of it to be worth delaying it by. A machine where it cannot refuses here,
+        // every time, on its own measurement.
+        if !self.affordable(self.expected()) {
             return None;
         }
         // **Composed against the last real frame and never against the picture on the screen.**
@@ -255,15 +321,6 @@ impl Stale {
             .iter()
             .all(|coefficient| coefficient.is_finite())
             .then_some(moved)
-    }
-
-    /// What the frame a reprojection stands in for cost: the last real frame's own duration.
-    ///
-    /// Zero before there has been one, which is a state [`Self::plan`] has already refused in.
-    pub(crate) fn covering(&self) -> Duration {
-        self.settled
-            .as_ref()
-            .map_or(Duration::ZERO, |settled| settled.cost)
     }
 
     /// Forgets what the window is showing, so that nothing is reprojected from it.
@@ -301,8 +358,10 @@ impl Stale {
     /// Records that a reprojection was drawn, which view it depicts, and what the whole of it
     /// cost.
     ///
-    /// The cost is the pixels *and* the frame that put them up, because that is what the next
-    /// [`Self::threshold`] has to be a tenth of.
+    /// The cost is the pixels *and* the frame that put them up, because that is what
+    /// [`Self::affordable`] has to be a tenth of. **This is the only writer of
+    /// [`Self::measured`]**, which is why it must never be what rule 5 reads: a gate whose only
+    /// sample comes from passing it cannot be passed. ADR 0384.
     pub(crate) fn drawn(&mut self, view: Transform, cost: Duration) -> MustFollow {
         self.showing = Some(view);
         self.count = self.count.saturating_add(1);
@@ -321,11 +380,23 @@ impl Stale {
     /// has moved on to, the frame that has just landed is the truest picture this window holds,
     /// so it replaces the whole [`Settled`] — the base with it — and the reprojection after it
     /// composes against *this* placement.
-    pub(crate) fn settled(&mut self, page: &Arc<DisplayList>, target: TargetSpec, cost: Duration) {
+    ///
+    /// `built` says whether this frame made its picture or replayed one the device already had.
+    /// **Only a frame that built one updates the prediction** ([`Self::building`]): a replay
+    /// measures the replay, and rule 5 is a question about what the *next* render will cost.
+    pub(crate) fn settled(
+        &mut self,
+        page: &Arc<DisplayList>,
+        target: TargetSpec,
+        cost: Duration,
+        built: bool,
+    ) {
+        if built {
+            self.building = Some(cost);
+        }
         self.settled = Some(Settled {
             page: Arc::clone(page),
             target,
-            cost,
             // Captured on demand, and only where a view change asks for one: a window nobody is
             // touching reads nothing back.
             base: None,
@@ -438,11 +509,13 @@ mod tests {
         Arc::new(DisplayList::new(Size::new(595.0, 842.0)))
     }
 
-    /// A frame that took ten times what a reprojection costs, which is the case the feature is
-    /// for: the view moved, the page did not, and the machine will be most of a second.
+    /// One refresh of a 60 Hz surface, which is what rule 5 compares a frame against.
+    const REFRESH: Duration = Duration::from_nanos(1_000_000_000 / 60);
+
+    /// A frame that missed the refresh by a long way, which is the case the feature is for: the
+    /// view moved, the page did not, and the machine will be most of a second.
     fn slow(stale: &mut Stale, page: &Arc<DisplayList>) {
-        let cost = stale.threshold();
-        stale.settled(page, view(1.0), cost);
+        stale.settled(page, view(1.0), Duration::from_millis(700), true);
     }
 
     /// A raster of the size these views are drawn at, for the base a capture would give.
@@ -463,13 +536,13 @@ mod tests {
         let mut stale = Stale::default();
         slow(&mut stale, &page);
         assert!(
-            stale.plan(&page, view(1.2)).is_some(),
+            stale.plan(&page, view(1.2), REFRESH).is_some(),
             "a slow frame and a new magnification is what this exists for"
         );
         let follow = stale.drawn(view(1.2).transform, Duration::from_millis(20));
         assert!(stale.showing_approximation());
         assert!(
-            stale.plan(&page, view(1.2)).is_none(),
+            stale.plan(&page, view(1.2), REFRESH).is_none(),
             "the view on the screen has been answered; drawing it again would be a window that \
              had stopped drawing the document"
         );
@@ -481,36 +554,109 @@ mod tests {
         assert!(!stale.showing_approximation());
     }
 
-    /// Rule 5. The threshold is [`SHARE`] times a measured cost, and a frame under it is shown
-    /// rather than approximated.
+    /// Rule 5. A frame that lands inside one refresh *is* the frame every refresh the owner asked
+    /// for, and a frame that does not is a miss.
     #[test]
-    fn nothing_is_approximated_below_the_measured_threshold() {
+    fn a_frame_inside_the_refresh_is_shown_and_one_outside_it_is_stood_in_for() {
         let page = page();
         let mut stale = Stale::default();
-        let quick = stale.threshold() / 2;
-        stale.settled(&page, view(1.0), quick);
+        stale.settled(&page, view(1.0), REFRESH / 2, true);
         assert!(
-            stale.plan(&page, view(1.2)).is_none(),
-            "a view whose frame is quick must show that frame"
+            stale.plan(&page, view(1.2), REFRESH).is_none(),
+            "a view whose frame lands inside the refresh must show that frame"
         );
-        stale.settled(&page, view(1.0), stale.threshold());
-        assert!(stale.plan(&page, view(1.2)).is_some());
+        stale.settled(&page, view(1.0), REFRESH * 2, true);
+        assert!(stale.plan(&page, view(1.2), REFRESH).is_some());
     }
 
-    /// Rule 4, from the other side: what the threshold is a multiple *of* is this run's own
-    /// worst reprojection, so an approximation that turned out expensive raises the bar it must
-    /// clear next time rather than being repeated at the real frame's expense.
+    /// **The defect this whole scheme had, as a test.** The project owner ran the feature on a
+    /// real graphics device and reported *"I don't have the impression that reprojection works"*:
+    /// fifteen presents, frames of 80 to 438 ms, not one reprojection. Rule 5's bar was `SHARE` ×
+    /// a measured reprojection cost, the only way to measure one was to draw one, and one was only
+    /// drawn above the bar — which before any measurement was ten times an assumed 51 ms.
+    ///
+    /// So the case that catches it is a frame that **reliably misses the refresh while staying far
+    /// below half a second**, which is every frame in that trace and no frame the old bar would
+    /// admit. It needs no display, no document and no graphics device: the defect was in the
+    /// arithmetic, and the harness that hid it was a virtual display slow enough that its frames
+    /// cleared 510 ms by accident.
     #[test]
-    fn the_threshold_follows_what_a_reprojection_actually_cost() {
+    fn a_frame_that_misses_the_refresh_is_reprojected_however_quick_the_machine() {
+        let page = page();
         let mut stale = Stale::default();
-        let assumed = stale.threshold();
-        let expensive = Duration::from_millis(120);
+        // The owner's own distribution, in milliseconds, off `tmp/trace2.entwurf.txt`.
+        for frame in [80.8_f64, 93.5, 176.2, 182.7, 191.3, 237.7, 272.0, 437.9] {
+            let mut stale = Stale::default();
+            let cost = Duration::from_secs_f64(frame / 1e3);
+            assert!(
+                cost < Duration::from_millis(510),
+                "the point of the case is that it never reaches the bar that used to be there"
+            );
+            stale.settled(&page, view(1.0), cost, true);
+            assert!(
+                stale.plan(&page, view(1.2), REFRESH).is_some(),
+                "{frame} ms is {} refreshes and must be stood in for",
+                cost.as_secs_f64() / REFRESH.as_secs_f64()
+            );
+        }
+        // And the property behind it, stated directly: nothing that *gates* a reprojection may
+        // depend on a measurement only a reprojection can produce.
+        stale.settled(&page, view(1.0), REFRESH * 3, true);
+        assert!(
+            stale.plan(&page, view(1.2), REFRESH).is_some(),
+            "a run that has drawn none must still be able to draw its first"
+        );
+    }
+
+    /// Rule 4, which is now a check of its own rather than the trigger. What a reprojection
+    /// actually cost on this machine still decides whether the next one is worth the frame it
+    /// delays — the worst rather than the last, because a bound reads the worst case.
+    #[test]
+    fn what_a_reprojection_cost_bounds_the_next_one() {
+        let page = page();
+        let mut stale = Stale::default();
+        let expensive = Duration::from_millis(30);
         drop(stale.drawn(view(1.2).transform, expensive));
-        assert_eq!(stale.threshold(), expensive.saturating_mul(SHARE));
-        assert!(stale.threshold() > assumed);
+        // A frame that misses the refresh but is not `SHARE` times the reprojection is shown.
+        stale.settled(&page, view(1.0), expensive.saturating_mul(SHARE) / 2, true);
+        assert!(stale.plan(&page, view(1.3), REFRESH).is_none());
+        stale.settled(&page, view(1.0), expensive.saturating_mul(SHARE), true);
+        assert!(stale.plan(&page, view(1.3), REFRESH).is_some());
         // The worst, not the last: a cheap one after an expensive one does not lower the bound.
-        drop(stale.drawn(view(1.3).transform, Duration::from_millis(3)));
-        assert_eq!(stale.threshold(), expensive.saturating_mul(SHARE));
+        drop(stale.drawn(view(1.4).transform, Duration::from_millis(3)));
+        stale.settled(&page, view(1.0), expensive.saturating_mul(SHARE) / 2, true);
+        assert!(stale.plan(&page, view(1.3), REFRESH).is_none());
+    }
+
+    /// The prediction comes from the last frame that **built** a picture, never from one that
+    /// replayed an encode the device already had (ADR 0351).
+    ///
+    /// **This is the owner's trace, frame for frame.** A `Focused(true)` event redrew the launch
+    /// frame, quorra replayed it in 2.1 ms, and the zoom step after it was judged against that
+    /// rather than against the 778.6 ms rendering the replay was a replay *of*. A replay measures
+    /// the replay; rule 5 asks what the next *render* will cost, and a view change never replays.
+    #[test]
+    fn a_replayed_frame_does_not_speak_for_what_a_render_will_cost() {
+        let page = page();
+        let mut stale = Stale::default();
+        let render = Duration::from_millis(778);
+        stale.settled(&page, view(1.0), render, true);
+        assert_eq!(stale.expected(), render);
+        // The same view, redrawn for a reason that has nothing to do with the page.
+        stale.settled(&page, view(1.0), Duration::from_millis(2), false);
+        assert_eq!(
+            stale.expected(),
+            render,
+            "a replay says what a replay costs and nothing about the next render"
+        );
+        assert!(
+            stale.plan(&page, view(1.2), REFRESH).is_some(),
+            "the zoom after a harmless redraw is the one the owner waited through"
+        );
+        // A frame that genuinely built a cheap picture *does* move it.
+        stale.settled(&page, view(1.0), REFRESH / 2, true);
+        assert_eq!(stale.expected(), REFRESH / 2);
+        assert!(stale.plan(&page, view(1.3), REFRESH).is_none());
     }
 
     /// A different page is not this page moved, and no placement makes it one.
@@ -520,8 +666,8 @@ mod tests {
         let second = page();
         let mut stale = Stale::default();
         slow(&mut stale, &first);
-        assert!(stale.plan(&second, view(1.0)).is_none());
-        assert!(stale.plan(&second, view(1.3)).is_none());
+        assert!(stale.plan(&second, view(1.0), REFRESH).is_none());
+        assert!(stale.plan(&second, view(1.3), REFRESH).is_none());
     }
 
     /// A resize changes the window the pixels were captured from, and a view that did not move
@@ -532,14 +678,14 @@ mod tests {
         let mut stale = Stale::default();
         slow(&mut stale, &page);
         assert!(
-            stale.plan(&page, view(1.0)).is_none(),
+            stale.plan(&page, view(1.0), REFRESH).is_none(),
             "the view already on the screen is drawn, not approximated"
         );
         let resized = TargetSpec {
             width: 900,
             ..view(1.2)
         };
-        assert!(stale.plan(&page, resized).is_none());
+        assert!(stale.plan(&page, resized, REFRESH).is_none());
     }
 
     /// The transform is the one that carries the old view's device pixels onto the new view's,
@@ -550,7 +696,7 @@ mod tests {
         let mut stale = Stale::default();
         slow(&mut stale, &page);
         let moved = stale
-            .plan(&page, view(2.0))
+            .plan(&page, view(2.0), REFRESH)
             .expect("a doubled magnification");
         // A point of the page, mapped both ways: through the old placement and then the
         // reprojection, and through the new placement directly.
@@ -636,7 +782,7 @@ mod tests {
         for magnification in [1.2_f32, 1.44, 1.728, 2.0736] {
             let asked = view(magnification);
             let moved = stale
-                .plan(&page, asked)
+                .plan(&page, asked, REFRESH)
                 .expect("the view keeps moving and the frame stays slow");
             // Through the pixels of the last *rendering*, which is the only thing composed
             // against however many reprojections have been drawn since.
@@ -680,13 +826,15 @@ mod tests {
         drop(stale.drawn(view(1.2).transform, Duration::from_millis(2)));
         assert!(!stale.wants_base());
         // The frame for the 1.2× view finally lands, while the person has already asked for 2×.
-        stale.settled(&page, view(1.2), stale.threshold());
+        stale.settled(&page, view(1.2), Duration::from_millis(700), true);
         stale.real();
         assert!(
             stale.wants_base(),
             "the pixels of the frame that has just landed are the ones to resample now"
         );
-        let moved = stale.plan(&page, view(2.0)).expect("the view moved on");
+        let moved = stale
+            .plan(&page, view(2.0), REFRESH)
+            .expect("the view moved on");
         let corner = pdf_render::Point::new(100.0, 700.0);
         let through = moved.apply(view(1.2).transform.apply(corner));
         let directly = view(2.0).transform.apply(corner);

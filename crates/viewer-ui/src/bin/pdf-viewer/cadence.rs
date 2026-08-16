@@ -19,8 +19,10 @@
 //!   nobody is touching presents nothing at all and spends no tick.
 //! - **The surface's number rather than a constant** (the third). `winit` reports the monitor's
 //!   refresh rate and [`Cadence::of`] asks for it; a target that is not the display's is the
-//!   stutter machine `doc/todo/36` warns about. [`FLOOR`] stands in only where the surface
-//!   states nothing, and the trace says which of the two happened.
+//!   stutter machine `doc/todo/36` warns about. [`FLOOR`] stands in only where nothing states one,
+//!   and the trace says which of the three [`Source`]s answered. **It has to be asked more than
+//!   once**, which is ADR 0384's correction: a Wayland surface belongs to no output until it has
+//!   been drawn to, so the first answer on that platform is always "nobody knows".
 //!
 //! What it is **not** is a scheduler. A frame still runs to completion on the event thread, so a
 //! correct frame that takes longer than a tick takes the ticks it takes; this clock decides *when
@@ -41,16 +43,33 @@ const FLOOR: Duration = Duration::from_nanos(1_000_000_000 / 60);
 /// One millihertz per hertz per second, for turning `winit`'s unit into a period.
 const MILLIHERTZ: u64 = 1_000;
 
+/// Where the period came from, because the three are three different claims.
+///
+/// "We present at 60 Hz", "the display this window is on refreshes at 60 Hz" and "the slowest
+/// display attached to this machine refreshes at 60 Hz" are not the same sentence, and a round
+/// reporting a rate has to say which one it measured (`doc/todo/36` rule 6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Source {
+    /// The output this window's surface is on stated it. The answer, and the only one that ends
+    /// the asking.
+    Window,
+    /// No output claims this window yet, so the **slowest** display attached stated it.
+    ///
+    /// Slowest rather than fastest, and `doc/todo/36`'s own argument decides the direction:
+    /// presenting faster than the display is the stutter machine it warns about, so a period that
+    /// is not known to be this window's is the longest of the candidates rather than the shortest.
+    Slowest,
+    /// Nothing stated one, so [`FLOOR`] stands in.
+    Floor,
+}
+
 /// When this window may next present, and how often it may.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Cadence {
     /// One refresh of the surface.
     period: Duration,
-    /// Whether [`Self::period`] is the surface's own number or [`FLOOR`] standing in for it.
-    ///
-    /// Kept so that the trace can say which, because "we present at 60 Hz" and "this display
-    /// refreshes at 60 Hz" are two different claims and only one of them is measured.
-    stated: bool,
+    /// Where [`Self::period`] came from. See [`Source`].
+    source: Source,
     /// The earliest moment the next frame may be presented.
     ///
     /// In the past for a window that has been still, which is what makes the first present after
@@ -65,12 +84,36 @@ pub(crate) struct Cadence {
     owing: bool,
 }
 
+/// A monitor's refresh rate as a period, or `None` where it states none.
+///
+/// `winit` reports millihertz and `None` where the platform does not know one — which is the
+/// ordinary answer on a virtual display, and the reason [`FLOOR`] exists rather than a panic. A
+/// rate of zero is the same answer written differently and is read the same way; Wayland's own
+/// toolkit documents zero for an output with no correct rate.
+fn period_of(monitor: &winit::monitor::MonitorHandle) -> Option<Duration> {
+    monitor
+        .refresh_rate_millihertz()
+        .filter(|rate| *rate > 0)
+        .map(|rate| {
+            // Nanoseconds per refresh from millihertz, in integer arithmetic: the workspace
+            // forbids unchecked arithmetic and a period computed in floating point would have to
+            // justify its rounding as well as its value.
+            Duration::from_nanos(
+                1_000_000_000_u64
+                    .saturating_mul(MILLIHERTZ)
+                    .checked_div(u64::from(rate))
+                    .unwrap_or(0),
+            )
+        })
+        .filter(|period| !period.is_zero())
+}
+
 impl Default for Cadence {
     /// The floor, due now — the cadence of a program that has no window yet.
     fn default() -> Self {
         Self {
             period: FLOOR,
-            stated: false,
+            source: Source::Floor,
             due: Instant::now(),
             owing: false,
         }
@@ -78,35 +121,66 @@ impl Default for Cadence {
 }
 
 impl Cadence {
-    /// The cadence of the surface this window is on.
-    ///
-    /// `winit` reports a monitor's refresh rate in millihertz and `None` where the platform does
-    /// not know one — which is the ordinary answer on a virtual display, and the reason [`FLOOR`]
-    /// exists rather than a panic. A rate of zero is the same answer written differently and is
-    /// read the same way.
+    /// The cadence of the surface this window is on, as far as it can be known yet.
     pub(crate) fn of(window: &winit::window::Window) -> Self {
-        let stated = window
-            .current_monitor()
-            .and_then(|monitor| monitor.refresh_rate_millihertz())
-            .filter(|rate| *rate > 0)
-            .map(|rate| {
-                // Nanoseconds per refresh from millihertz, in integer arithmetic: the workspace
-                // forbids unchecked arithmetic and a period computed in floating point would
-                // have to justify its rounding as well as its value.
-                Duration::from_nanos(
-                    1_000_000_000_u64
-                        .saturating_mul(MILLIHERTZ)
-                        .checked_div(u64::from(rate))
-                        .unwrap_or(0),
-                )
-            })
-            .filter(|period| !period.is_zero());
-        Self {
-            period: stated.unwrap_or(FLOOR),
-            stated: stated.is_some(),
-            due: Instant::now(),
-            owing: false,
+        let mut cadence = Self::default();
+        cadence.ask(window);
+        cadence
+    }
+
+    /// Asks the platform again what this window's surface refreshes at, and says whether the
+    /// answer moved.
+    ///
+    /// **This exists because of Wayland, and the defect it repairs was invisible on X11.** winit's
+    /// `Window::current_monitor` on that backend is the first output in the surface's own
+    /// `wl_surface::enter` list, and *a Wayland surface enters no output until it has been drawn
+    /// to* — winit's own platform note says windows do not appear until you present to them. The
+    /// cadence was read once, in `resumed`, which is strictly before the first present: so on
+    /// every Wayland session `current_monitor` answered `None`, [`FLOOR`] stood in, and **120 Hz
+    /// could not be reached even in principle**. The project owner's trace says
+    /// `the surface states no refresh rate` on a machine with a real display. ADR 0384.
+    ///
+    /// Two routes, in the order that answers best:
+    ///
+    /// 1. `current_monitor` — the output this window is actually on. Once it answers, the question
+    ///    is settled and this stops asking.
+    /// 2. `available_monitors`, which Wayland *does* populate from the start (every `wl_output`
+    ///    global, refresh rate included). It does not say which one this window is on, so the
+    ///    slowest is taken; see [`Source::Slowest`].
+    ///
+    /// **What it deliberately does not do is follow a window between displays.** It stops at the
+    /// first surface answer rather than re-reading for ever, because a per-frame monitor query is
+    /// a cost on every frame to answer a question that changes when somebody drags a window, and
+    /// the honest fix for that is `winit` reporting the output change rather than this polling
+    /// for it — its Wayland backend receives `surface_enter` and its handler is empty. Written
+    /// down as a limit rather than papered over.
+    pub(crate) fn ask(&mut self, window: &winit::window::Window) -> bool {
+        if self.source == Source::Window {
+            return false;
         }
+        let (period, source) =
+            if let Some(period) = window.current_monitor().as_ref().and_then(period_of) {
+                (period, Source::Window)
+            } else if let Some(period) = window
+                .available_monitors()
+                .filter_map(|monitor| period_of(&monitor))
+                .max()
+            {
+                (period, Source::Slowest)
+            } else {
+                (FLOOR, Source::Floor)
+            };
+        if (period, source) == (self.period, self.source) {
+            return false;
+        }
+        self.period = period;
+        self.source = source;
+        true
+    }
+
+    /// Whether the window's own output has stated its rate, so there is nothing left to ask.
+    pub(crate) fn settled(&self) -> bool {
+        self.source == Source::Window
     }
 
     /// One refresh of the surface, which is the interval every present is spaced by.
@@ -117,20 +191,23 @@ impl Cadence {
     /// How this cadence is to be described in a trace: the rate, and where it came from.
     ///
     /// Rule 6 of `doc/todo/36` in one sentence — a round claiming a rate says whether the number
-    /// is the display's or this program's floor, because the two are different claims.
+    /// is this window's display's, some display's, or this program's floor, because the three are
+    /// different claims.
     pub(crate) fn described(&self) -> String {
         let hertz = 1.0 / self.period.as_secs_f64();
-        if self.stated {
-            format!(
-                "{hertz:.1} Hz ({:.3} ms), stated by the surface",
-                self.period.as_secs_f64() * 1e3
-            )
-        } else {
-            format!(
-                "{hertz:.1} Hz ({:.3} ms) — the surface states no refresh rate, so doc/todo/36's \
-                 floor stands in",
-                self.period.as_secs_f64() * 1e3
-            )
+        let milliseconds = self.period.as_secs_f64() * 1e3;
+        match self.source {
+            Source::Window => {
+                format!("{hertz:.1} Hz ({milliseconds:.3} ms), stated by the surface")
+            }
+            Source::Slowest => format!(
+                "{hertz:.1} Hz ({milliseconds:.3} ms) — no output claims this window yet, so the \
+                 slowest display attached states it"
+            ),
+            Source::Floor => format!(
+                "{hertz:.1} Hz ({milliseconds:.3} ms) — the surface states no refresh rate, so \
+                 doc/todo/36's floor stands in"
+            ),
         }
     }
 
@@ -206,13 +283,13 @@ impl Cadence {
 mod tests {
     use std::time::{Duration, Instant};
 
-    use super::{Cadence, FLOOR};
+    use super::{Cadence, FLOOR, Source};
 
     /// A cadence with a period this test states, so that the arithmetic is not the machine's.
     fn at(period: Duration, now: Instant) -> Cadence {
         Cadence {
             period,
-            stated: true,
+            source: Source::Window,
             due: now,
             owing: false,
         }
@@ -274,6 +351,34 @@ mod tests {
         let target = at(Duration::from_nanos(1_000_000_000 / 120), now);
         assert!(target.described().contains("stated by the surface"));
         assert!((1.0 / target.period().as_secs_f64() - 120.0).abs() < 0.01);
+    }
+
+    /// The three sources are three different sentences and only one of them ends the asking.
+    ///
+    /// **This is the shape ADR 0384 needed and the old two-state flag could not hold.** A Wayland
+    /// surface states no rate until it has been presented to, so the answer at `resumed` is either
+    /// "some display says this" or "nothing does" — and a cadence that could not tell those two
+    /// apart from the real answer had no way to know it should ask again.
+    #[test]
+    fn a_cadence_says_which_of_three_things_stated_its_rate() {
+        let now = Instant::now();
+        let period = Duration::from_nanos(1_000_000_000 / 120);
+        for (source, phrase, settled) in [
+            (Source::Window, "stated by the surface", true),
+            (Source::Slowest, "slowest display attached", false),
+            (Source::Floor, "floor stands in", false),
+        ] {
+            let cadence = Cadence {
+                source,
+                ..at(period, now)
+            };
+            assert!(
+                cadence.described().contains(phrase),
+                "{source:?}: {}",
+                cadence.described()
+            );
+            assert_eq!(cadence.settled(), settled, "{source:?}");
+        }
     }
 
     /// An obligation arms the clock, and arming it never brings a tick forward.
