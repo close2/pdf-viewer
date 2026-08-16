@@ -89,6 +89,27 @@ as user `AI` via `sudo -u AI`, reaching `/home/cl/projects/pdf-viewer` through t
   window — which is where every defect of sessions 140 to 142 lived and which no gate touches.
   Not a gate itself: `Xvfb` and `xdotool` are not build dependencies and a test that skipped
   silently would be worse than none.
+- **The measurement loop runs as the *owner*, and it is for GPU measurements and nothing else.**
+  The project owner keeps a loop in their own graphical session which claims
+  `tmp/run-on-gpu.sh`, runs it, and leaves `tmp/run-on-gpu.{stdout,stderr}.txt` and
+  `tmp/run-on-gpu.exit` behind; `tmp/gpu-loop.alive` ticks each iteration. It exists because a
+  *window* needs the owner's session — a headless quorra device does not (ADR 0387), so anything
+  that can be measured headless must be measured headless and never queued here.
+
+  **The owner's rule, stated by them and absolute: use it only for measurements that require the
+  real display or the real adapter. Under no circumstances for anything else — no file access, no
+  installs, no fetches, no builds whose output matters, nothing that reaches outside the
+  measurement.** The reason is worth understanding rather than obeying blindly: the script runs as
+  `cl`, in `cl`'s session, with `cl`'s environment, so it can read and write everything this
+  account deliberately cannot. That is a privilege boundary, and this loop is the one place where
+  it is thin. A round that wants a file the agent user cannot read must say so in its report and
+  leave it to the owner.
+
+  What a queued script must do: terminate itself (`timeout N …`, and exit the viewer with
+  `Escape` — `SIGTERM` skips the summary), never wait for input, use `./target/…` paths
+  (`/home/AI` is unreadable by `cl`), and write only under `tmp/`. `xdotool` cannot reach a
+  Wayland client, so force XWayland with `env -u WAYLAND_DISPLAY`.
+
 - **Build directory**: `AI` builds into `/home/AI/cargo-target/pdf-viewer` via `~/.cargo/config.toml`,
   so the two users never fight over `target/`. Do not "fix" this. `pdfref` needs `--work-dir` for
   the same reason. A round that wants a build directory of its own — a worktree round does, so that
