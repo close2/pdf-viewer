@@ -20,17 +20,27 @@ rest on one. And rule 4's "it costs the real frame nothing" gained a second mech
 is taken **once per real frame** and every reprojection after the first resamples what it captured.
 ADR 0383 has both.
 
-**Rule 5 changed in the five-hundred-and-forty-ninth, and that one was a defect rather than a
-refinement.** It said `SHARE` × a *measured* reprojection cost, with an assumed 51 ms standing in —
-so a bar of 510 ms until a reprojection had been drawn, and a reprojection was drawn only above the
-bar. The project owner ran it on a real graphics device and reported *"I don't have the impression
-that reprojection works"*: fifteen presents, frames of 80 to 438 ms, not one reprojection. **A
-self-calibrating threshold whose own gate blocked its only sample.** Rule 5 is now the owner's own
-word — a frame that does not land inside the cadence's period is a *miss* — which is a measurement
-the presenter holds before anything has been drawn. Rule 4 keeps the ratio as a check of its own,
-with *unmeasured* permitting rather than refusing, because the first reprojection is the only thing
-that can ever produce the number. ADR 0384 has the trace, the A/B and the two secondary defects it
-turned up.
+**Rules 5 and 4 both changed in the five-hundred-and-forty-ninth, and those were defects rather
+than refinements — the same one at two scales.**
+
+Rule 5 said `SHARE` × a *measured* reprojection cost, with an assumed 51 ms standing in — so a bar
+of 510 ms until a reprojection had been drawn, and a reprojection was drawn only above the bar. The
+project owner ran it on a real graphics device and reported *"I don't have the impression that
+reprojection works"*: fifteen presents, frames of 80 to 438 ms, not one reprojection. **A
+self-calibrating threshold whose own gate blocked its only sample.**
+
+Rule 4 then became the binding constraint, still at a tenth, and the owner ran the fix and reported
+the same sentence again. A tenth of a real device's frame is less than what a readback costs on it:
+reprojections of 6 to 16 ms refused against frames of 58 to 156, six view changes of fifteen
+showing nothing.
+
+Both are now the display's own unit and neither has a constant in it. **Rule 5**: a *miss* is a
+frame that does not land inside the cadence's period. **Rule 4**: standing in must buy at least one
+refresh, `reprojection + period ≤ frame`, and *unmeasured permits*, because the first reprojection
+is the only thing that can ever produce the number. **And rule 3 now reaches rule 4's refusal**,
+which is the other half of why the owner had to write twice: `Stale::plan` returns a `Plan` rather
+than an `Option`, and a refusal that is a judgement about two measurements prints both of them.
+ADR 0384 has the traces, the A/B and the secondary defects it turned up.
 
 ## What is left
 
@@ -54,7 +64,7 @@ Three things bind it, and none of them is new:
   binary, and not in `viewer_ui::software`, which is a *library* and is what
   `viewer-confined`'s worker and the software-surface tests link to.
 - **Rule 4 needs its own measurement.** A processor-side resample of 800×1000 is not free, and the
-  check is `SHARE` times what it actually costs rather than what the device path measured.
+  check is what it actually costs plus a refresh, rather than what the device path measured.
   `Stale::affordable` already takes whatever the run measures, so the code needs nothing; the round
   that builds it owes the number. **Rule 5 needs nothing from it at all** — a miss is a miss on any
   surface, which is one thing ADR 0384's re-grounding bought that was not the point of it.

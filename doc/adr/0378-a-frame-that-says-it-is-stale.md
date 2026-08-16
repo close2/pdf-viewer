@@ -76,16 +76,22 @@ enough.
 
 ### The threshold, and why it is arithmetic on a measurement
 
-> **This section is wrong, and ADR 0384 replaces what it decided.** It is left standing rather than
-> rewritten, because the reasoning below is what a reader has to see in order to understand the
-> failure: every sentence of it is about how the bar *responds* to a measurement, and not one asks
-> where the first measurement comes from. It comes from drawing a reprojection; a reprojection was
-> drawn only above the bar; so **the bar gated its own only sample**, and on any machine quicker
-> than this software adapter it could never come down. The project owner ran it on a real graphics
-> device: fifteen presents, frames of 80 to 438 ms, and not one reprojection. No value of `ASSUMED`
-> fixes that — the fault is the direction of the dependency, not the constant. Rule 5 is now the
-> cadence's own period, which is a measurement that exists before anything has been drawn; rule 4
-> keeps the ratio below, as a separate check, with *unmeasured* permitting rather than refusing.
+> **This section is wrong twice over, and ADR 0384 replaces what it decided.** It is left standing
+> rather than rewritten, because the reasoning below is what a reader has to see in order to
+> understand the failure: every sentence of it is about how the bar *responds* to a measurement,
+> and not one asks where the first measurement comes from. It comes from drawing a reprojection; a
+> reprojection was drawn only above the bar; so **the bar gated its own only sample**, and on any
+> machine quicker than this software adapter it could never come down. The project owner ran it on
+> a real graphics device: fifteen presents, frames of 80 to 438 ms, and not one reprojection. No
+> value of `ASSUMED` fixes that — the fault is the direction of the dependency, not the constant.
+>
+> **And the tenth is wrong on its own**, which took a second report from the owner to find: with
+> rule 5 re-grounded on the cadence, the ratio became the binding constraint and refused
+> reprojections of 6 to 16 ms against frames of 58 to 156, because a tenth of a real device's frame
+> is less than what a readback costs on it. Both bounds are now the display's own unit — rule 5 is
+> the cadence's period, rule 4 is `reprojection + period ≤ frame` — and **neither has a constant in
+> it**. The tenth below was a number this project chose rather than measured, and that is the whole
+> of what was wrong with it.
 
 `doc/todo/37`'s fourth rule says a reprojection that cannot be produced "within a small fraction of
 the frame it replaces" is not to be produced at all. **A tenth** is this project's reading of "a

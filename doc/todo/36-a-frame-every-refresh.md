@@ -27,11 +27,18 @@ It did not: the bar was 510 ms until a reprojection had been measured, only a re
 the bar could measure one, and their frames were 80 to 438 ms. **A self-calibrating threshold whose
 own gate blocked its only sample.** ADR 0384 has the trace and the A/B.
 
-**One thing is still to be established on a real display**, and it is deliberately not guessed at
-here: rule 4 is now the binding constraint, its number is `SHARE` times what a reprojection costs
-*on that machine*, and this harness can only measure llvmpipe's — where the readback is expensive
-enough to refuse everything after the first. The trace prints the number on the first reprojection
-of every run, so **the next report from the owner answers it**.
+**And rule 4 was the same defect one layer down, found by the owner running the fix.** With rule 5
+re-grounded their second trace reached 7 reprojections of 24 presents — but six view changes still
+showed nothing, silently, because rule 4's bar was a *tenth* of the frame and a tenth of a real
+device's frame is less than what a readback costs on it. Reprojections of 6 to 16 ms were refused
+against frames of 58 to 156. `SHARE` is gone: standing in must **buy at least one refresh**
+(`reprojection + period ≤ frame`), which is the smallest difference the display can show. There is
+now no number in this design that the project chose rather than measured.
+
+**120 Hz is reached, and this file can finally say so.** The owner's second trace opens
+`120.0 Hz — no output claims this window yet, so the slowest display attached states it` and closes
+`120.0 Hz, stated by the surface`. Item 3 below was the thing standing in the way and it was a
+question asked one moment too early.
 
 ## Two small things this round found and did not take
 

@@ -269,7 +269,27 @@ impl App {
         // took for it: there is no stall to cover and the pixels on the screen are not a page.
         if playing.is_some() {
             self.stale.forget();
-        } else if let Some(moved) = planned
+        } else if let crate::stale::Plan::TooDear {
+            reprojection,
+            frame,
+        } = planned
+        {
+            // Rule 3 over a refusal, which is ADR 0384's second correction: the owner reported the
+            // same sentence twice, and the second time the reason was a judgement this program was
+            // making silently. Said with both numbers, because the answer to "why did nothing
+            // move" is arithmetic.
+            self.trace.say(
+                Topic::Frames,
+                format_args!(
+                    "no reprojection: one costs {:.1} ms here and this frame is expected to take \
+                     {:.1}, so standing in would not gain the {:.1} ms refresh it delays the real \
+                     frame by",
+                    reprojection.as_secs_f64() * 1e3,
+                    frame.as_secs_f64() * 1e3,
+                    self.cadence.period().as_secs_f64() * 1e3,
+                ),
+            );
+        } else if let crate::stale::Plan::Reproject(moved) = planned
             && self.approximate(moved, placement.transform, &overlays, stages)
         {
             // Deliberately not a `Rendered`: the core is told what became of its request by the
