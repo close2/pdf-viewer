@@ -371,3 +371,47 @@ pub(crate) fn collection_meaning(document: &Document, descendant: &Dictionary) -
     let (registry, ordering) = (text("Registry")?, text("Ordering")?);
     predefined::cid_to_unicode(&registry, &ordering).map(Meaning::ByCid)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::composite_cmap;
+    use crate::fixture::font_dictionary;
+
+    /// **§7.3.5's `#` escapes are resolved before §9.7.5.2's name is looked up.**
+    ///
+    /// §7.3.5 makes the escape part of a name's *syntax* rather than a spelling variant — the
+    /// clause's third rule is the NUMBER SIGN form — so `/Identity#2DH` and `/Identity-H` are
+    /// one name, `2Dh` being the HYPHEN-MINUS. A reader that compared the raw bytes would find
+    /// neither the horizontal identity `CMap` nor any predefined one.
+    ///
+    /// `hayro`'s issue 11 is that miss, and its symptom is worth recording because it is not
+    /// the one you would guess: horizontal text came out laid down the page. §9.7.5.2 is why —
+    /// the two identity `CMap`s differ only in their writing mode, so a name that is not
+    /// recognised at all is one step from being taken for its twin, and the page comes out
+    /// rotated rather than blank.
+    ///
+    /// This tree decodes the escape in `pdf_syntax`'s lexer, which is its only name reader, so
+    /// the two spellings cannot diverge here. What is asserted is that they do not — including
+    /// the writing mode, which is the half the symptom was about.
+    #[test]
+    fn an_escaped_cmap_name_is_the_name_it_spells() {
+        for (spelling, expected_wmode) in [
+            ("/Identity#2DH", 0),
+            ("/Identity-H", 0),
+            ("/Identity#2DV", 1),
+            ("/Identity-V", 1),
+            // Every character may be escaped, not only the ones that must be: `49h` is `I`
+            // and `74h` is `t`, so this is the same name spelled the long way round.
+            ("/#49dent#69ty#2DH", 0),
+        ] {
+            let (document, dict) = font_dictionary(&format!("/Encoding {spelling}"));
+            let cmap = composite_cmap(&document, &dict, "T")
+                .unwrap_or_else(|e| panic!("{spelling} is a name §9.7.5.2 defines, but: {e}"));
+            assert_eq!(
+                cmap.wmode(),
+                expected_wmode,
+                "{spelling} names the identity CMap whose writing mode is {expected_wmode}"
+            );
+        }
+    }
+}

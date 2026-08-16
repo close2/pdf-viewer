@@ -943,6 +943,53 @@ mod tests {
         );
     }
 
+    /// **A bowtie is not a rectangle, however many of the box's corners it touches.**
+    ///
+    /// [`is_axis_aligned_rectangle`] argues this in prose — "a bowtie is excluded by the second
+    /// condition" — and prose is what `hayro`'s issue 1336 was: their `path_as_rect` accepted
+    /// any five-element path whose vertices hit all four corners of the bounding box *in any
+    /// order*, so a self-intersecting quadrilateral took a fill-rule-independent fast path and
+    /// came out as its full box under both rules. CAD plots draw valve symbols as filled
+    /// bowties, so the shape is ordinary rather than adversarial.
+    ///
+    /// The rule that must not be lost is §8.5.3.3's: the two fill rules disagree about a
+    /// crossing — the even-odd rule (§8.5.3.3.2) cancels it, the non-zero rule (§8.5.3.3.1)
+    /// does not — so no shortcut that erases the crossing can be correct for both. Here the
+    /// per-edge test rejects the shape before the question arises, because a bowtie's crossing
+    /// sides are diagonals and every side of a rectangle moves along exactly one axis.
+    ///
+    /// The path below is deliberately *thin*, which is what makes the test sharp: it is inside
+    /// the band this rule is looking for, it names all four corners of its bounding box, and it
+    /// is five elements long. Only the traversal order tells it apart from a rectangle.
+    #[test]
+    fn a_bowtie_is_not_taken_for_a_rectangle() {
+        let bowtie = path(&[
+            PathCommand::MoveTo(Point::new(10.0, 20.0)),
+            PathCommand::LineTo(Point::new(90.0, 20.4)),
+            PathCommand::LineTo(Point::new(90.0, 20.0)),
+            PathCommand::LineTo(Point::new(10.0, 20.4)),
+            PathCommand::Close,
+        ]);
+        for rule in [FillRule::NonZero, FillRule::EvenOdd] {
+            assert_eq!(
+                sub_pixel_bands(&bowtie, Transform::IDENTITY, rule),
+                None,
+                "a crossing quadrilateral has no rectangle substitute under {rule:?}"
+            );
+        }
+        // The same four corners in perimeter order *are* a rectangle, so the rejection above
+        // is about the order rather than about the points.
+        assert!(
+            sub_pixel_bands(
+                &rectangle(10.0, 20.0, 90.0, 20.4),
+                Transform::IDENTITY,
+                FillRule::NonZero
+            )
+            .is_some(),
+            "the perimeter traversal of the same box is the shape this rule exists for"
+        );
+    }
+
     /// The common case must cost nothing beyond one memoised comparison: a shape with an area
     /// larger than a pixel is not a rectangle this rule takes.
     #[test]

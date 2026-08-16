@@ -79,6 +79,7 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 | [49](49-restrictions-worth-re-examining.md) | Which restrictions are load-bearing and which are habit — four of five settled (ADRs 0256, 0257, 0260, 0271); item 3, the API that hands a thread pool in, is what is left |
 | [51](51-signatures-and-public-keys.md) | A signature's three questions: the first two are answered for RSA and DSA (ADRs 0215, 0229, 0314). What is left of the second is `id-RSASSA-PSS`, Table 260's ECDSA with the EdDSA and SHA-3 the Technical Specifications add, and the four digests with them; then the signer's *trustworthiness* — a certificate store and a network — public-key handlers, and `/R` 5 |
 | [52](52-zlib-rs-deallocates-through-the-wrong-pointer.md) | `zlib-rs` fails both of Miri's aliasing models — an upstream report to write |
+| [53](53-what-hayros-tracker-asked.md) | Three residues from reading hayro's tracker against this tree (ADR 0392): a CCITT decode bound and an image height that share one field on the sandbox pipe, a digit run that swallows an operator and reports nothing, and a Type 1 program whose unassigned codes claim glyph 0. None witnessed by a corpus document, each with what would change that |
 | — | [`_scan-conversion.md`](_scan-conversion.md) — shared: §10.7.4, what this tree departs from and why |
 | — | [`_image-codecs-and-the-sandbox.md`](_image-codecs-and-the-sandbox.md) — shared: the three sandboxed codecs are already pure safe Rust, what the sandbox is really for, and what a subset would and would not buy |
 

@@ -153,6 +153,37 @@ fn a_contents_entry_that_is_not_a_stream_still_says_so() {
     );
 }
 
+/// **A bare integer where the reference should be: `/Contents 8`.**
+///
+/// The row above states the same verdict, but it gets there by naming an object that *is*
+/// there and is the wrong kind. This one never becomes a reference at all — §7.3.10 writes an
+/// indirect reference as "the object number, the generation number and the keyword `R`", and
+/// a lone `8` supplies one of the three, so §7.3.3 has the token and it is the integer 8.
+///
+/// It is worth its own row because the two shapes fail in different places. The four-object
+/// fixture reaches [`ContentIssue::NotAStream`] after a resolution that succeeded; this one
+/// reaches it after no resolution at all, through the arm that has to tell an integer apart
+/// from the null object — and null is the shape §7.3.9 says must stay silent. A reader that
+/// collapsed the two would either lose this report or invent one for every empty page.
+///
+/// `hayro`'s issue 1189 is this literal dictionary — `/Pages 4 0 R /Type /Catalog /Contents 8`
+/// — and there it unwrapped a `None`. Nothing here can: the parser rewinds and hands back
+/// `Object::Integer(8)` when the `R` does not follow, and the reader matches on what it got.
+#[test]
+fn a_contents_entry_that_is_a_bare_integer_says_so_too() {
+    assert_eq!(
+        issues("/Contents 8 "),
+        vec![ContentIssue::NotAStream { index: 0 }],
+        "an integer is not a reference, and it is not the null object either"
+    );
+    // The same integer inside the array form, where the index has to name which part.
+    assert_eq!(
+        issues("/Contents [4 0 R 8] "),
+        vec![ContentIssue::NotAStream { index: 1 }],
+        "a good part beside a bad one keeps its own index"
+    );
+}
+
 /// The witness, from `doc/corpora/pdf-differences` — a real file rather than a fixture.
 ///
 /// Skipped where the submodule is not checked out, which is the pattern `tests/corpus.rs`

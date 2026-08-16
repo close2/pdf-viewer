@@ -179,3 +179,36 @@ fn every_form_the_clause_prints_still_draws() {
         "the clause's own real forms make a rectangle: {drawn}"
     );
 }
+
+/// **The other end of the same boundary: a digit run that swallows an operator.**
+///
+/// Every test above is a run stating no digit. This one states a digit and then keeps going
+/// into letters — `5f`, with no delimiter between them. §7.2.3 ends a token at a delimiter or
+/// a white-space character and at nothing else, and `f` is neither: Table 2 lists the
+/// delimiters and `f` is not among them, so `5f` is **one** token. It spells no number
+/// (§7.3.3 wants digits and an optional sign and point, not a letter) and no operator, so
+/// nothing is painted.
+///
+/// The distinction is visible rather than theoretical, which is why it is worth a test:
+/// `hayro`'s issue 994 is a hand-built stream that ends `... re 1 0 0 rg 5f`, and the two
+/// readings differ by a red square. A lexer that split the run at the last digit hands the
+/// interpreter a `5` and an `f`, the fill operator runs, and the square appears. One that
+/// respects §7.2.3's boundary paints nothing.
+///
+/// **This tree paints nothing, and says nothing** — the run is salvaged to the number 5 and
+/// the letters are dropped, rather than surfacing as `Unsupported::Operator("5f")` the way
+/// `.` does above. The ink is what the clause asks for; the silence is not, and it is not
+/// fixed here because the same leniency is what reads `12pt` as 12 in the streams that need
+/// it (ADR 0303 scoped its correction to digit-less runs deliberately). `doc/todo/53` carries
+/// the residue. What this test pins is the half that decides the page.
+#[test]
+fn a_digit_run_that_swallows_an_operator_paints_nothing() {
+    let drawn = draws_in_silence("1 0 0 rg 10 10 100 20 re f");
+    assert!(drawn.contains("Fill"), "the delimited form fills: {drawn}");
+
+    let interpretation = interpretation("1 0 0 rg 10 10 100 20 re 5f");
+    assert!(
+        !format!("{:?}", interpretation.display_list).contains("Fill"),
+        "`5f` is one token under §7.2.3, so there is no `f` operator and no fill"
+    );
+}

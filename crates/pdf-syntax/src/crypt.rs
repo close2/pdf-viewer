@@ -1437,4 +1437,88 @@ mod tests {
         // failure; `secHandler.pdf` writes exactly that for an empty content stream.
         assert_eq!(aes_cbc_decrypt(&[0; 16], &[0; 16]), Some(Vec::new()));
     }
+
+    /// **A `/Length` outside Table 20's range is refused before anything is sliced by it.**
+    ///
+    /// §7.6.3.2 step (b) derives the key length from the encryption dictionary — "n is 5
+    /// unless the value of V in the encryption dictionary is greater than 1, in which case n
+    /// is the value of Length divided by 8" — and that number then indexes into an MD5
+    /// output, which is sixteen bytes and no more. Table 20 bounds the entry, "a multiple of
+    /// 8, in the range 40 to 128", and Algorithm 1 step (d) caps the derived key at sixteen
+    /// bytes in any case; nothing in the *file* is obliged to respect either.
+    ///
+    /// The hazard is a `hash[..n]` where `n` came from the document. hayro's issue 1273 is
+    /// that slice, in their Algorithm 2, panicking with "range end index 32 out of range for
+    /// slice of length 16" on a mutated encryption dictionary. The value that does it is
+    /// `/Length 256`, which is a perfectly ordinary thing to write for AES-256 and which
+    /// divided by 8 is twice an MD5 digest.
+    ///
+    /// This is a security-relevant path — the input is a document nobody has authenticated,
+    /// and it is read before the password is checked — so the bound is asserted rather than
+    /// argued. What is pinned is the *refusal*, a typed error, in place of a length that
+    /// would later be used as an index.
+    #[test]
+    fn a_key_length_outside_table_20s_range_is_refused() {
+        let with_length = |value: Option<i64>| {
+            let entry = value;
+            let get = move |key: &str| match (key, entry) {
+                ("Length", Some(value)) => Object::Integer(value),
+                _ => Object::Null,
+            };
+            let resolve = |object: &Object| object.clone();
+            key_length(&get, 2, &resolve)
+        };
+
+        // Table 20's own range, in bits: 40 to 128 is 5 to 16 bytes.
+        assert_eq!(with_length(Some(40)), Ok(5));
+        assert_eq!(with_length(Some(128)), Ok(16));
+        // "Default value: 40" bits, where the entry is absent.
+        assert_eq!(with_length(None), Ok(5));
+
+        // Past the top of the range. 256 is the value an author reaches for when they mean
+        // AES-256 and are writing a revision that cannot have it — and it is exactly the one
+        // that made hayro slice sixteen bytes at thirty-two. 2048 is a fuzzer's.
+        for out_of_range in [136, 256, 2048, 1 << 40, 0] {
+            assert!(
+                with_length(Some(out_of_range)).is_err(),
+                "/Length {out_of_range} is outside Table 20's range and must be refused \
+                 rather than used to slice a sixteen-byte digest"
+            );
+        }
+
+        // **A negative `/Length` is the one value that is not refused**, and the distinction
+        // is worth stating rather than leaving to be discovered: it fails `usize::try_from`,
+        // which makes it unreadable rather than out of range, and an unreadable entry takes
+        // Table 20's default the same way an absent one does. That is leniency of the kind
+        // this lexer applies throughout, and it is safe for the reason the whole test exists
+        // — the result is a length inside the range, so nothing indexes past the digest. The
+        // cost is a worse diagnosis: the document is refused later, for the wrong password it
+        // now appears to have, rather than here for the `/Length` it actually wrote.
+        assert_eq!(with_length(Some(-8)), Ok(5));
+
+        // The property, stated as a property rather than as a list: whatever the file says,
+        // the answer is an error or a length an MD5 digest can supply.
+        for value in [
+            i64::MIN,
+            -1,
+            0,
+            1,
+            39,
+            40,
+            41,
+            127,
+            128,
+            129,
+            1024,
+            i64::MAX,
+        ] {
+            if let Ok(length) = with_length(Some(value)) {
+                assert!(
+                    (5..=16).contains(&length),
+                    "/Length {value} yielded {length} bytes, which Algorithm 1 step (d) caps \
+                     at 16 and which an MD5 output cannot supply"
+                );
+            }
+        }
+    }
 }

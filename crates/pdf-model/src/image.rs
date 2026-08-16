@@ -1410,6 +1410,49 @@ fn decode_jbig2(
 /// padded to a byte boundary; §8.9.5.1 says the image is `/Width` samples wide. Where the two
 /// differ the row stride the unpacker assumes is not the stride the filter produced, and
 /// nothing in ISO 32000-2 says which of the two statements wins. Reported rather than guessed.
+/// How many scan lines the filter is asked for, from Table 11's `/Rows` and `/EndOfBlock` and
+/// the image dictionary's `/Height`.
+///
+/// **`/Rows` is not the authority its name suggests, and reading it as one paints a block over
+/// half a scan.** ISO 32000-2 §7.4.6 Table 11 gives `/EndOfBlock` the last word:
+///
+/// > A flag indicating whether the filter shall expect the encoded data to be terminated by an
+/// > end-of-block pattern, overriding the Rows parameter. If false , the filter shall stop when
+/// > it has decoded the number of lines indicated by Rows or when its data has been exhausted,
+/// > whichever occurs first.
+///
+/// Two sentences, and both matter. The first says an `/EndOfBlock` of true — which is its
+/// default, so it is what a document that never mentions the entry has — *overrides* `/Rows`
+/// outright: the end-of-block pattern terminates the data, and the number of lines is whatever
+/// the pattern is reached after. The second gives `/Rows` its stopping power only "[i]f false".
+///
+/// So a decode bounded by `/Rows` is right in exactly one of the two cases, and the height the
+/// other case is bounded by is the image dictionary's — §8.9.5.1's `/Height`, which is the only
+/// statement of the image's extent that Table 11 does not override. Table 11's own `/Rows` row
+/// says the same thing where the entry is missing: a zero or absent value means the height "is
+/// not predetermined".
+///
+/// This matters because producers get `/Rows` wrong. `hayro`'s issue 1337 records a CAD plot
+/// whose driver stamped `/Rows 272` — a copy of `/Columns` — onto a 523-line logo, with
+/// `/EndOfBlock` left at its default; honouring the 272 truncates the decode at 52% and, under
+/// an `/Indexed` palette whose index 0 is dark, paints the rest black. This tree did not paint
+/// that block, because the short raster then fails the height check below and the image is
+/// refused with a note — but a refused logo and a black logo are two ways of not drawing the
+/// producer's page, and the clause asks for neither.
+///
+/// **One case is still refused rather than drawn**, and it is the honest residue: `/EndOfBlock`
+/// false with a `/Rows` below `/Height`. There the clause *does* bind the filter to `/Rows`, so
+/// the raster is genuinely short of the image, and padding it to `/Height` would need the two
+/// numbers to travel separately over [`pdf_sandbox`]'s pipe — which carries one. Nothing in the
+/// corpus exercises it; `doc/todo/53` carries the note.
+fn ccitt_rows(rows: u32, end_of_block: bool, height: u32) -> u32 {
+    match rows {
+        0 => height,
+        _ if end_of_block => height,
+        rows => rows,
+    }
+}
+
 fn decode_ccitt(
     at: Dictionaries,
     source: &ImageStream,
@@ -1452,18 +1495,18 @@ fn decode_ccitt(
         });
     }
 
+    let end_of_block = flag("EndOfBlock", true);
     let parameters = pdf_sandbox::CcittParameters {
         k: i32::try_from(integer("K", 0)).unwrap_or(0),
         columns,
-        // Table 11: a zero or absent `/Rows` means the height "is not predetermined", so the
-        // image dictionary's `/Height` is the only statement of it left.
-        rows: match u32::try_from(integer("Rows", 0)).unwrap_or(0) {
-            0 => height,
-            rows => rows,
-        },
+        rows: ccitt_rows(
+            u32::try_from(integer("Rows", 0)).unwrap_or(0),
+            end_of_block,
+            height,
+        ),
         end_of_line: flag("EndOfLine", false),
         encoded_byte_align: flag("EncodedByteAlign", false),
-        end_of_block: flag("EndOfBlock", true),
+        end_of_block,
         black_is_1: flag("BlackIs1", false),
     };
 
@@ -3614,8 +3657,33 @@ fn apply_soft_mask(
 
 #[cfg(test)]
 mod tests {
-    use super::{Conversion, convert_three};
+    use super::{Conversion, ccitt_rows, convert_three};
     use crate::colour::ColourSpace;
+
+    /// ISO 32000-2 §7.4.6 Table 11: `/EndOfBlock` overrides `/Rows`, and its default is true.
+    ///
+    /// The four cases are the entry's two sentences crossed with the two values of the flag.
+    /// The first row is the one `hayro`'s issue 1337 is about — a producer's wrong `/Rows`
+    /// under the default flag — and it is the reason this function exists rather than a
+    /// `match` at the call site: the answer is derived from a clause, so it is worth a place
+    /// a test can reach.
+    #[test]
+    fn end_of_block_overrides_the_rows_parameter() {
+        // "overriding the Rows parameter": true is the default, so a `/Rows` disagreeing with
+        // `/Height` says nothing about where the decode stops.
+        assert_eq!(ccitt_rows(272, true, 523), 523);
+        assert_eq!(ccitt_rows(9000, true, 523), 523);
+        // "If false , the filter shall stop when it has decoded the number of lines indicated
+        // by Rows or when its data has been exhausted, whichever occurs first."
+        assert_eq!(ccitt_rows(272, false, 523), 272);
+        // Table 11's `/Rows` row: zero or absent means the height "is not predetermined", so
+        // §8.9.5.1's `/Height` is the only statement of it left — whatever the flag says.
+        assert_eq!(ccitt_rows(0, false, 523), 523);
+        assert_eq!(ccitt_rows(0, true, 523), 523);
+        // The ordinary file, where the two agree and nothing above can be observed.
+        assert_eq!(ccitt_rows(523, true, 523), 523);
+        assert_eq!(ccitt_rows(523, false, 523), 523);
+    }
 
     /// A calibrated space whose conversion is neither the identity nor a device one.
     ///

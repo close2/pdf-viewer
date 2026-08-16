@@ -219,12 +219,16 @@ impl PackedRows {
 
     /// Fills any rows the decoder never produced with the sample value `one`.
     ///
-    /// Only `CCITTFaxDecode` uses this, and only because §7.4.6 Table 11 says in as many
-    /// words that the filter "shall stop when it has decoded the number of lines indicated by
-    /// Rows or when its data has been exhausted, whichever occurs first" — so a stream that
-    /// ends early is a legal stream, not a damaged one. What the *image* then shows for the
-    /// samples that were never delivered is not stated anywhere in ISO 32000-2, so it is a
-    /// choice, and it is made here: blank, which is what an unsent fax scan line is.
+    /// Only `CCITTFaxDecode` uses this, and only because a stream that ends early is a legal
+    /// stream rather than a damaged one. ISO 32000-2 §7.4.6 Table 11 says so twice over, and
+    /// the *unconditional* half is the `/Rows` row — "the encoded data shall be terminated by
+    /// an end-of-block bit pattern or by the end of the filter's data". (The `/EndOfBlock`
+    /// row's "whichever occurs first" says it again and used to be quoted here instead, but
+    /// that sentence opens with "If false" and is about which of `/Rows` and the end-of-block
+    /// pattern *bounds* the decode. Which one that is now belongs to `pdf_model::ccitt_rows`,
+    /// where the two numbers are known; here the count has already been decided and all that
+    /// is left is what an undelivered line shows.) That is not stated anywhere in ISO 32000-2,
+    /// so it is a choice, and it is made here: blank, which is what an unsent fax scan line is.
     fn pad_to_height(&mut self, one: bool) {
         self.end_row();
         let expected = self.row_bytes.saturating_mul(self.height as usize);

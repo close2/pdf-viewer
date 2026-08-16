@@ -741,6 +741,88 @@ mod tests {
         assert_eq!(tokens(b"1.2.3"), vec![Token::Real(1.2)]);
     }
 
+    /// **A long number states a value, not a different value.**
+    ///
+    /// [`super::fixed_format_number`]'s accumulator multiplies a `u64` by ten per digit, and
+    /// the whole reason it refuses past fifteen digits is that the sixteenth could carry the
+    /// mantissa out of the range an `f64` states exactly. A parser that let it run instead —
+    /// `wrapping_mul(10)`, which is what `hayro`'s issue 1341 found in theirs — turns a
+    /// coordinate into a number modulo 2^64, silently and without any bound on the error.
+    ///
+    /// CAD drivers emit coordinates at full `f64` precision, so seventeen significant digits
+    /// plus the trailing noise of a decimal expansion is an ordinary thing for a content
+    /// stream to contain. §7.3.3 states no length limit, and Annex C's figures are
+    /// informative, so the only requirement here is the clause's own: the token states a
+    /// number and the number is the one written.
+    ///
+    /// The guard is the *fall-through*, not the fast path — every case below is longer than
+    /// fifteen digits and therefore reaches `str::parse`. What is asserted is correct
+    /// rounding, which is what `f64::from_str` gives and what wrapping arithmetic cannot.
+    #[test]
+    fn a_number_longer_than_the_fast_path_is_still_the_number_written() {
+        // 23 digits. Wrapping a u64 would give 12345678901234567890123 mod 2^64, which is
+        // 3479235573345971275 — nowhere near the value and, crucially, not even the same
+        // order of magnitude.
+        assert_eq!(
+            tokens(b"12345678901234567890123"),
+            vec![Token::Real(1.234_567_890_123_456_8e22)]
+        );
+        // u64::MAX exactly: the value a wrapping accumulator lands on last before it starts
+        // over, and the one an `as i64` cast turns into -1.
+        assert_eq!(
+            tokens(b"18446744073709551615"),
+            vec![Token::Real(1.844_674_407_370_955_2e19)]
+        );
+        // 2^64 itself, the first value that wraps to zero.
+        assert_eq!(
+            tokens(b"18446744073709551616"),
+            vec![Token::Real(1.844_674_407_370_955_2e19)]
+        );
+        // A real whose digits are all fractional: the count includes them, so this refuses
+        // the fast path too, and it must come back as the tiny number rather than as 1.
+        assert_eq!(tokens(b"0.000000000000000000001"), vec![Token::Real(1e-21)]);
+        // Seventeen significant digits either side of the point, the CAD shape.
+        assert_eq!(
+            tokens(b"123456789012345678901.5"),
+            vec![Token::Real(1.234_567_890_123_456_8e20)]
+        );
+        // An integer that is long but still inside `i64` stays an integer, exactly. This is
+        // the boundary the two paths meet at: sixteen digits, past the fast path's fifteen.
+        assert_eq!(
+            tokens(b"1234567890123456"),
+            vec![Token::Integer(1_234_567_890_123_456)]
+        );
+        assert_eq!(
+            tokens(b"-9223372036854775808"),
+            vec![Token::Integer(i64::MIN)]
+        );
+    }
+
+    /// **§7.2.3's token boundary: a run of regular characters is one token.**
+    ///
+    /// `f` is a regular character, so `5f` is a single token — not the number 5 followed by
+    /// the `f` (fill) operator. `hayro`'s issue 994 is a hand-built content stream that
+    /// distinguishes the two readings by whether a red square appears: a lexer that splits
+    /// the run fills the rectangle, one that does not draws nothing.
+    ///
+    /// This tree does not split it, which is what the assertion pins: the whole run is
+    /// consumed, so the `f` never reaches the interpreter as an operator and no fill happens.
+    /// What it comes back *as* is a salvaged `5` rather than a keyword — [`super::Lexer`]
+    /// reads `12pt` as 12 deliberately, and ADR 0303 scoped its correction to runs stating no
+    /// digit at all. That leniency is why the second assertion is here: it would be a real
+    /// regression for the leading value to be salvaged *and* the trailing letters to be
+    /// re-offered as a token.
+    #[test]
+    fn a_digit_run_ending_in_letters_is_one_token() {
+        assert_eq!(tokens(b"5f"), vec![Token::Integer(5)]);
+        assert_eq!(tokens(b"12pt"), vec![Token::Integer(12)]);
+        // The same bytes with the delimiter §7.2.3 asks for are two tokens, and *that* fills.
+        assert_eq!(
+            tokens(b"5 f"),
+            vec![Token::Integer(5), Token::Keyword(b"f")]
+        );
+    }
+
     /// §7.3.3 writes both numeric forms as "one or more decimal digits", so a run stating
     /// none is not a numeric object at all. It is a run of regular characters that does not
     /// spell one, which is a keyword — and the parser refuses it where an object was
