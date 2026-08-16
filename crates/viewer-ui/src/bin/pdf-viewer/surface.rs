@@ -197,7 +197,7 @@ impl App {
         if playing.is_some() {
             self.stale.forget();
         } else if let Some(moved) = planned
-            && self.approximate(moved, &overlays, stages)
+            && self.approximate(moved, placement.transform, &overlays, stages)
         {
             // Deliberately not a `Rendered`: the core is told what became of its request by the
             // frame that *answers* it, and a reprojection answers nothing. Nothing is
@@ -315,15 +315,23 @@ impl App {
     /// The chrome is the current frame's, drawn over the reprojection as geometry: a selection
     /// and a sidebar are this host's own state and are true at the moment they are drawn, so
     /// only the page underneath them is an approximation.
+    ///
+    /// **The pixels are read back once per real frame rather than once per reprojection**, which
+    /// is what makes a cadence affordable: `doc/todo/36` needs a frame every 8.3 ms and ADR
+    /// 0378's readback costs 19 to 36. So the first reprojection standing in for a rendering
+    /// captures it, and the second and every later one resamples the same base under a
+    /// recomposed transform — one image draw off an upload the resource cache already holds.
     fn approximate(
         &mut self,
         moved: Transform,
+        view: Transform,
         overlays: &[&pdf_render::DisplayList],
         stages: &mut Stages,
     ) -> bool {
         let began = std::time::Instant::now();
         let trace = self.trace;
         let covering = self.stale.covering();
+        let wants_base = self.stale.wants_base();
         let Some(state) = self.state.as_mut() else {
             return false;
         };
@@ -335,35 +343,46 @@ impl App {
             self.stale.refuse();
             return false;
         };
-        let captured = match presenter.capture_presented() {
-            Ok(Some(captured)) => captured,
-            Ok(None) => return false,
-            Err(problem) => {
+        // Read back only where there is no base yet — that is, only when the window is showing a
+        // *rendering*. It is the condition that makes a chain impossible as well as the one that
+        // makes the readback affordable: a capture taken while a reprojection was on the screen
+        // would be a resampling of a resampling, and there is no state in which one is taken.
+        let mut readback = std::time::Duration::ZERO;
+        if wants_base {
+            let captured = match presenter.capture_presented() {
+                Ok(Some(captured)) => captured,
+                Ok(None) => return false,
+                Err(problem) => {
+                    trace.say(
+                        Topic::Frames,
+                        format_args!("the frame on the window could not be read back: {problem}"),
+                    );
+                    self.stale.refuse();
+                    return false;
+                }
+            };
+            // Rule 4, and the one condition that cannot be checked in advance: a capture that
+            // re-encoded has just paid the whole of the cost the reprojection exists to cover, so
+            // it is said out loud and never asked for again.
+            if !captured.replayed {
                 trace.say(
                     Topic::Frames,
-                    format_args!("the frame on the window could not be read back: {problem}"),
+                    format_args!(
+                        "reading the frame back re-encoded it in {:.1} ms instead of replaying \
+                         it, which costs the real frame more than the wait is worth — no frame \
+                         will be approximated in this run",
+                        captured.cost.as_secs_f64() * 1e3
+                    ),
                 );
                 self.stale.refuse();
                 return false;
             }
-        };
-        // Rule 4, and the one condition that cannot be checked in advance: a capture that
-        // re-encoded has just paid the whole of the cost the reprojection exists to cover, so
-        // it is said out loud and never asked for again.
-        if !captured.replayed {
-            trace.say(
-                Topic::Frames,
-                format_args!(
-                    "reading the frame back re-encoded it in {:.1} ms instead of replaying it, \
-                     which costs the real frame more than the wait is worth — no frame will be \
-                     approximated in this run",
-                    captured.cost.as_secs_f64() * 1e3
-                ),
-            );
-            self.stale.refuse();
-            return false;
+            readback = captured.cost;
+            if !self.stale.rebase(&captured.raster) {
+                return false;
+            }
         }
-        let Some(list) = crate::stale::reprojection(&captured.raster, moved) else {
+        let Some(list) = self.stale.reproject(moved) else {
             return false;
         };
         let list = Arc::new(list);
@@ -392,22 +411,31 @@ impl App {
         stages.approximated = true;
         let cost = began.elapsed();
         // Rule 3 twice over: the frame line says `approximated`, and this says what it is an
-        // approximation *of* — which frame it stands in for, and what the picture on the window
-        // cost against it.
+        // approximation *of* — which frame it stands in for, what the picture cost, and whether
+        // this one paid for the base or found it, which is the difference between the first
+        // reprojection of a rendering and every later one.
         trace.say(
             Topic::Frames,
             format_args!(
-                "approximated: the {:.1} ms frame this view replaces is stood in for by its own \
-                 pixels moved (read back in {:.1} ms, whole reprojection {:.1} ms); the real \
-                 frame has been asked for",
+                "approximated: the {:.1} ms frame this view replaces is stood in for by that \
+                 frame's own pixels moved ({}, whole reprojection {:.1} ms); the real frame has \
+                 been asked for",
                 covering.as_secs_f64() * 1e3,
-                captured.cost.as_secs_f64() * 1e3,
+                if wants_base {
+                    format!("read back in {:.1} ms", readback.as_secs_f64() * 1e3)
+                } else {
+                    "composed against the base already held, no readback".to_owned()
+                },
                 cost.as_secs_f64() * 1e3,
             ),
         );
-        // Rule 1, as a value that cannot be dropped: the window is asked for the frame that
-        // replaces this one, here, in the same expression that records it.
-        self.stale.drawn(cost).follow(&state.window);
+        // Rule 1, as a value that cannot be dropped: the frame that replaces this one is asked
+        // for here, in the same expression that records it — of the clock rather than of the
+        // window, so that a view still moving is answered again on the next tick instead of
+        // waiting behind a render that takes fifty of them (`doc/todo/36`).
+        self.stale
+            .drawn(view, cost)
+            .follow(&mut self.cadence, began);
         true
     }
 
@@ -630,6 +658,19 @@ impl App {
     /// defect rather than a design choice, which is exactly what it was: on a page turn the tree
     /// is rebuilt and published, and that work was being attributed to the graphics device.
     pub(crate) fn redraw_requested(&mut self) {
+        // **The clock's gate, and it is on every frame rather than only on the ones that follow
+        // a reprojection** (`doc/todo/36`). A redraw that arrives before the surface has
+        // refreshed would be overdrawn before anybody saw it, so it is deferred to the tick
+        // instead — which is what stops the window running at whatever rate the *input* device
+        // happens to deliver. Nothing is lost: `about_to_wait` sees the obligation and asks
+        // again, and a window that has been still is due at once, so the first frame after an
+        // input is not held back by so much as one refresh.
+        let now = std::time::Instant::now();
+        if !self.cadence.due(now) {
+            self.cadence.owed(now);
+            return;
+        }
+        self.cadence.serviced();
         // Before the frame rather than after it: a tick can advance the page, and a page that
         // advanced after its frame was drawn would be one frame late for the whole slide show.
         self.drive_the_clock();
@@ -651,6 +692,15 @@ impl App {
         // leave `about_to_wait` asking for a frame that never comes, which is a spinning loop.
         if !stages.approximated {
             self.stale.real();
+        }
+        // What the window actually put up, which is what `doc/todo/36`'s rule 6 counts: a
+        // rendering and a reprojection are both presents and a frame that drew nothing is not
+        // one. The clock is moved on by exactly these, so an idle window — which produces none —
+        // never advances it and never wakes for it.
+        stages.presented = stages.approximated
+            || matches!(outcome, Some(Rendered::Presented | Rendered::Raster(_)));
+        if stages.presented {
+            self.cadence.presented(std::time::Instant::now());
         }
         let outcome_said = match &outcome {
             None if stages.approximated => "approximated".to_owned(),

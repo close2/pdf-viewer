@@ -90,6 +90,14 @@ pub(crate) struct App {
     /// arrived, and what the last one cost — and because nothing that judges a picture may ever
     /// be able to reach an approximate one (`doc/todo/37` rule 2, ADR 0378).
     pub(crate) stale: crate::stale::Stale,
+    /// How often this window may present, and when it next may.
+    ///
+    /// **`doc/todo/36`**: the presenter is a clock rather than a reaction, and this is the clock.
+    /// It is the surface's own refresh rate from the moment there is a window (`resumed`), and
+    /// `doc/todo/36`'s floor of 60 Hz until then and on a display that states none. Nothing wakes
+    /// for it — `about_to_wait` arms it only while a frame is owed — so an idle window costs
+    /// exactly what it did before this field existed.
+    pub(crate) cadence: crate::cadence::Cadence,
     /// Whether to draw with `render-cpu` rather than the graphics device, from `--cpu`.
     ///
     /// The same rasteriser the reference oracle is built on, and the same one that draws a page

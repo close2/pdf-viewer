@@ -28,35 +28,58 @@ impl ApplicationHandler for App {
     /// 60 ms and their worst 514 without a spreadsheet. Here because it costs nothing per frame
     /// and everything it needs is already recorded.
     fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
-        self.frames.summary(self.trace, self.stale.count());
+        self.frames
+            .summary(self.trace, self.stale.count(), &self.cadence);
     }
 
-    /// Keeps §12.4.4's clock, and only while there is one to keep.
+    /// Keeps the presenter's clock and §12.4.4's, and only while there is one to keep.
     ///
-    /// **Three speeds, and the idle one is the default.** A window reading a document waits for
-    /// an event, which is what `main` sets and what a viewer is doing almost all of the time. A
+    /// **Four speeds, and the idle one is still the default.** A window reading a document waits
+    /// for an event, which is what `main` sets and what a viewer is doing almost all of the time.
+    /// A window that owes a frame — a reprojection to replace, a redraw the clock deferred, a
+    /// §12.4.4 transition in flight — wakes on the *surface's* cadence ([`crate::cadence`]). A
     /// presentation between transitions wakes ten times a second, which is enough to notice a
-    /// `/Dur` stated in seconds. A transition in flight polls, because it *is* an animation and
-    /// every frame it can draw is one a person sees.
+    /// `/Dur` stated in seconds. A search polls, because a page read is not a frame and the
+    /// cadence has no business slowing one down.
+    ///
+    /// **`doc/todo/36`'s fourth rule is this method's `Wait`**, and it is worth saying which line
+    /// enforces it: every branch below that does not owe a frame leaves the loop waiting for an
+    /// event, so a still window spends no tick, wakes for nothing and presents nothing. The rate
+    /// is a ceiling on latency and never a duty to draw.
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         // **A reprojection may not be what this loop comes to rest on** (`doc/todo/37` rule 1,
-        // ADR 0378). The frame that replaces one is asked for where it is drawn, and this is the
-        // place that says the rule rather than trusting it: the loop is about to wait, so an
-        // approximation still on the screen is the defect the rule names, and the answer is to
-        // draw. It cannot spin — every frame that is not a reprojection clears the flag,
-        // including a frame that drew nothing at all.
-        if self.stale.showing_approximation() {
-            self.redraw();
-            event_loop.set_control_flow(ControlFlow::Poll);
-            return;
+        // ADR 0378), and since `doc/todo/36` the frame that replaces one arrives *on the
+        // cadence* rather than at once. The difference is the whole feature: an immediate
+        // redraw handed the event thread to a render that takes fifty refreshes, so a view
+        // that kept moving could not be answered a second time, while a tick lets the next
+        // reprojection stand in for it and the real frame follow when nothing new is asked.
+        //
+        // It cannot spin — every frame that is not a reprojection clears the flag, including a
+        // frame that drew nothing at all, and `Cadence::presented` moves the tick on.
+        let owes_frame = self.stale.showing_approximation() || self.cadence.owes();
+        if owes_frame {
+            let now = std::time::Instant::now();
+            if self.cadence.due(now) {
+                self.redraw();
+            }
         }
         // One page of the search, once per turn round the loop. This is where the choice in
         // `viewer_core::search` is paid for on this host: the core reads one page per command and
         // has no thread to read a thousand on, so the loop that would otherwise be idle drives it
         // and the window keeps drawing while it does.
+        //
+        // **After the redraw above and before the wait below**, deliberately: a page read is not
+        // a frame, so pacing it to the display would take a thousand-page search from the loop's
+        // own speed down to sixty pages a second — while returning before the redraw was asked
+        // for would leave a reprojection on the screen for the length of the search, which is
+        // rule 1's failure.
         if self.pages_left > 0 {
             self.dispatch(Command::Find(Find::Continue));
             event_loop.set_control_flow(ControlFlow::Poll);
+            return;
+        }
+        if owes_frame {
+            event_loop.set_control_flow(ControlFlow::WaitUntil(self.cadence.next()));
             return;
         }
         let Some(presentation) = self.presentation.as_mut() else {
@@ -64,8 +87,16 @@ impl ApplicationHandler for App {
             return;
         };
         if presentation.playing.is_some() {
-            event_loop.set_control_flow(ControlFlow::Poll);
-            self.redraw();
+            // §12.4.4's transition is an animation, and since `doc/todo/36` it is an animation on
+            // the *surface's* clock rather than on `ControlFlow::Poll`. It drew as fast as the
+            // loop could go, which on a fast device is frames nobody sees and a core at 100% for
+            // the length of the transition; the cadence gives it one frame per refresh, which is
+            // every frame a person can see and no more.
+            let now = std::time::Instant::now();
+            if self.cadence.due(now) {
+                self.redraw();
+            }
+            event_loop.set_control_flow(ControlFlow::WaitUntil(self.cadence.next()));
             return;
         }
         let now = std::time::Instant::now();
@@ -95,6 +126,16 @@ impl ApplicationHandler for App {
         );
 
         self.launch.mark("window");
+
+        // The cadence is the surface's, read here because this is the first moment there is a
+        // surface to ask (`doc/todo/36`'s third unsettled question). Nothing on the launch path
+        // waits for it and nothing fails without it: a display that states no refresh rate takes
+        // the floor, and the trace says which of the two this run got.
+        self.cadence = crate::cadence::Cadence::of(&window);
+        self.trace.say(
+            Topic::Launch,
+            format_args!("presenting on a cadence of {}", self.cadence.described()),
+        );
 
         let size = window.inner_size();
         let Some(surface) = self.bring_up(&window) else {

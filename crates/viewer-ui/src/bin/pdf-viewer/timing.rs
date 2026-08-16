@@ -159,6 +159,12 @@ pub(crate) struct Stages {
     /// [`render_quorra::FrameCost::encode_source`] is an observable — an inference is not
     /// something a person or a test can assert on. See [`crate::stale`].
     pub(crate) approximated: bool,
+    /// Whether this frame put anything on the window at all.
+    ///
+    /// `doc/todo/36`'s sixth rule counts *presents*, and the two things that are not one are a
+    /// frame with nothing to show and a swapchain state that asked for a redraw. A rendering and
+    /// a reprojection are both presents, which is why this is not `!approximated`.
+    pub(crate) presented: bool,
     /// The whole of `redraw_requested`, which is what the old single number was.
     pub(crate) total: std::time::Duration,
 }
@@ -170,6 +176,22 @@ pub(crate) struct FrameLog {
     samples: Vec<Stages>,
     /// How many frames there were, which is not `samples.len()` past the cap.
     count: usize,
+    /// When the last frame that put something on the window did so.
+    ///
+    /// `doc/todo/36`'s rule 6 asks for the distribution of intervals *between presents*, which is
+    /// a different sequence from the frames: a frame that had nothing to show is not a present,
+    /// and the gap either side of it is one interval rather than two.
+    presented_at: Option<std::time::Instant>,
+    /// The interval before each present after the first, capped at [`FRAME_SAMPLES`].
+    intervals: Vec<std::time::Duration>,
+    /// How many presents there were, and how many of those were reprojections.
+    ///
+    /// **The two claims `doc/todo/36` rule 6 says must both be in the record.** "We present every
+    /// 8.3 ms" is [`Self::intervals`]; "we show the right pixels" is this pair, and neither
+    /// implies the other.
+    presents: usize,
+    /// See [`Self::presents`].
+    approximated: usize,
     /// Whether the line explaining the frame line's columns has been printed.
     legend: bool,
     /// Whether the closing line for pipeline compilation has been printed.
@@ -224,6 +246,21 @@ impl FrameLog {
         self.count = self.count.saturating_add(1);
         if self.samples.len() < FRAME_SAMPLES {
             self.samples.push(*stages);
+        }
+        if stages.presented {
+            let now = std::time::Instant::now();
+            self.presents = self.presents.saturating_add(1);
+            if stages.approximated {
+                self.approximated = self.approximated.saturating_add(1);
+            }
+            // The interval is taken here rather than at the present itself so that the sequence
+            // is the one a person watching the window sees: one sample per frame that changed
+            // what is on it, measured between the ends of two such frames.
+            if let Some(previous) = self.presented_at.replace(now)
+                && self.intervals.len() < FRAME_SAMPLES
+            {
+                self.intervals.push(now.saturating_duration_since(previous));
+            }
         }
         if !self.legend {
             self.legend = true;
@@ -334,10 +371,16 @@ impl FrameLog {
     /// about a distribution, and a distribution costs nothing per frame but cannot be read off
     /// one. Nearest rank rather than an interpolated percentile, so every figure printed is a
     /// frame that actually happened.
-    pub(crate) fn summary(&self, trace: Trace, approximated: u64) {
+    pub(crate) fn summary(
+        &self,
+        trace: Trace,
+        approximated: u64,
+        cadence: &crate::cadence::Cadence,
+    ) {
         if !trace.on(Topic::Frames) || self.count == 0 {
             return;
         }
+        self.cadence(trace, cadence);
         let truncated = if self.count > self.samples.len() {
             format!(", percentiles over the first {}", self.samples.len())
         } else {
@@ -423,6 +466,72 @@ impl FrameLog {
         }
     }
 
+    /// The cadence asked for, the cadence achieved, and how many of the presents were correct.
+    ///
+    /// **`doc/todo/36`'s rule 6, which is this project's first acceptance criterion that is a
+    /// rate.** Three things are printed and they are three different claims:
+    ///
+    /// - what the presenter *asks for*, which is the surface's own refresh rate where it states
+    ///   one and `doc/todo/36`'s floor where it does not;
+    /// - what it *achieved*, as a distribution and never as a mean — the failure mode of a
+    ///   cadence is the tail, so the median is printed beside p90, p99 and the worst interval,
+    ///   and a mean would hide exactly the frame a person notices;
+    /// - what share of the presents were the page rather than a picture of it moved, because a
+    ///   window that hits its cadence by reprojecting everything has answered the wrong question.
+    fn cadence(&self, trace: Trace, cadence: &crate::cadence::Cadence) {
+        let asked = cadence.period();
+        trace.say(
+            Topic::Frames,
+            format_args!("presenting on a cadence of {}", cadence.described()),
+        );
+        let correct = self.presents.saturating_sub(self.approximated);
+        trace.more(
+            Topic::Frames,
+            format_args!(
+                "{} present(s): {correct} a rendering of the page and {} a reprojection of one \
+                 ({:.1}% correct)",
+                self.presents,
+                self.approximated,
+                percent(correct, self.presents),
+            ),
+        );
+        if self.intervals.is_empty() {
+            trace.more(
+                Topic::Frames,
+                format_args!(
+                    "fewer than two presents, so this run states no interval distribution"
+                ),
+            );
+            return;
+        }
+        let mut sorted = self.intervals.clone();
+        sorted.sort_unstable();
+        // **How many refreshes the gap spans, to the nearest one** — `gap ≤ 1.5 × period` — and
+        // not `gap ≤ period`. A present aimed at the next refresh lands a few microseconds
+        // either side of it, so the strict test is a coin toss on exactly the intervals that hit
+        // their mark: measured on the witness it read 53% where the median interval was 16.6 ms
+        // against a 16.667 ms refresh. The question this answers is the one worth asking — did
+        // the window present on the next refresh, or on a later one.
+        let within = sorted
+            .iter()
+            .filter(|gap| gap.saturating_mul(2) <= asked.saturating_mul(3))
+            .count();
+        trace.more(
+            Topic::Frames,
+            format_args!(
+                "intervals between presents, ms: median {:.1}  p90 {:.1}  p99 {:.1}  max {:.1} \
+                 — {} of {} on the next refresh ({:.1}%)",
+                ms(at_rank(&sorted, 1, 2)),
+                ms(at_rank(&sorted, 9, 10)),
+                ms(at_rank(&sorted, 99, 100)),
+                ms(sorted.last().copied().unwrap_or_default()),
+                within,
+                sorted.len(),
+                percent(within, sorted.len()),
+            ),
+        );
+    }
+
     /// What the retained frame did over the run, and the one thing outside this program that
     /// stops it working.
     ///
@@ -485,6 +594,18 @@ impl FrameLog {
 /// A duration in milliseconds, which is the unit every trace line is in.
 fn ms(duration: std::time::Duration) -> f64 {
     duration.as_secs_f64() * 1e3
+}
+
+/// `part` as a percentage of `whole`, and zero rather than a division by nothing.
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "a count of frames, far below f64's exact integer range"
+)]
+fn percent(part: usize, whole: usize) -> f64 {
+    if whole == 0 {
+        return 0.0;
+    }
+    part as f64 * 100.0 / whole as f64
 }
 
 /// The value `numerator/denominator` of the way through a sorted sample, by nearest rank.

@@ -84,6 +84,8 @@ mod access;
 mod app;
 #[path = "pdf-viewer/arguments.rs"]
 mod arguments;
+#[path = "pdf-viewer/cadence.rs"]
+mod cadence;
 #[path = "pdf-viewer/dispatch.rs"]
 mod dispatch;
 #[path = "pdf-viewer/files.rs"]
@@ -292,6 +294,9 @@ fn main() {
         launch,
         frames: FrameLog::default(),
         stale: stale::Stale::default(),
+        // Replaced with the surface's own rate the moment there is a window; `doc/todo/36`'s
+        // floor until then, which is what a program with no display to ask presents at.
+        cadence: cadence::Cadence::default(),
         accessibility: None,
         spoken: None,
     };

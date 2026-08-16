@@ -1,71 +1,73 @@
 # A frame every refresh — 60 Hz as the floor, 120 Hz as the target
 
-Status: **asked for by the project owner**, as the second half of the reprojection they asked for
-reluctantly in [`37`](37-a-frame-that-says-it-is-stale.md). Their words: *"I want it to be able to
-render every frame (at least 60Hz but 120Hz should be the target). … We should still try to render
-a correct image every frame, but if we miss, we should interpolate from the last frame (even if the
-last frame was already incorrect). If possible and a frame is delayed we could use the delayed
-frame for further interpolated frames."* Nothing is built.
-Priority: 36 — capability, and the first item in this tree whose acceptance is a *rate*
-Witness: `tmp/Entwurf.pdf` — **not in the repository**, so no test may name that path. Its zoom step
-is 275–420 ms with encode threads on (ADR 0377), against 8.3 ms at 120 Hz: **the correct frame will
-be missed by a factor of thirty to fifty, and that is the case this item is for.**
-Instrument: the window's `--trace` frame line and its summary, which already count `approximated`
-frames (ADR 0378); what they do not yet report is a *cadence*.
+Status: **built for the window with a graphics device** (ADR 0383), which is every run without
+`--cpu`. The presenter is a clock: the period is the surface's own refresh rate where it states
+one and the floor of 60 Hz where it does not, every present is spaced by it, a view that keeps
+moving is answered every tick by a reprojection composed against the last *rendering*, a late frame
+re-bases, and a still window presents nothing and spends no processor time. The trace's summary
+carries the two claims rule 6 asks for: the interval distribution, and what share of the presents
+were the page rather than a picture of it moved.
+Priority: 36 — the first item in this tree whose acceptance was a *rate*, and it stays open for
+the one thing a clock cannot do.
+Witness: `tmp/Entwurf.pdf` — **not in the repository**, so no test may name that path.
+Instrument: the window's `--trace` frame lines and its summary, which now report a cadence.
 Clauses: none — presentation. §10.7.4 does not reach it: nothing reprojected is a rendering.
-Code: `crates/viewer-ui/src/bin/pdf-viewer/{stale,surface,window}.rs`, `crates/render-quorra`
+Code: `crates/viewer-ui/src/bin/pdf-viewer/{cadence,stale,surface,window}.rs`
 
-## What changes from [`37`](37-a-frame-that-says-it-is-stale.md)
+## What is left, and it is one thing
 
-That item reprojects **once**, on a view change, and waits. This one presents **on the display's
-own cadence**, whatever the renderer is doing:
+**The render runs to completion on the event thread.** `QuorraPresenter::present` blocks, so the
+clock decides when a frame may *start* and has no say in how long one lasts: a correct frame of the
+witness costs 55–73 ms on this software adapter, which is four refreshes at 60 Hz and eight at 120,
+and nothing can be presented during them. It is visible in ADR 0383's own histogram as the single
+79 ms interval among ninety-one of one refresh.
 
-- **The loop no longer waits for a frame.** Today a view change requests a render and the window
-  redraws when it lands. At 120 Hz the window must present every 8.3 ms whether or not anything
-  landed, which makes the presenter a *clock* rather than a *reaction* — the largest structural
-  change this item carries, and the one to design first.
-- **A reprojection may follow a reprojection.** The owner allows it explicitly. But *how* it does
-  matters: resampling an already-resampled image compounds the blur, so the base should stay the
-  **last real frame's raster** with the transforms **composed** — one resample from the true
-  pixels, never a chain of them. Where that is impossible (the real frame's raster is gone), say
-  so and state what the chain costs.
-- **A late frame is still useful.** When a delayed frame finally arrives it becomes the new base
-  even if the view has moved on — its pixels are truer than the ones being reprojected, and the
-  composed transform simply changes.
+The owner's *"we should still try to render a correct image every frame"* is therefore honoured in
+the only sense a synchronous renderer permits — a correct frame is attempted at every tick at which
+no reprojection is owed — and **not** in the pipelined sense, where a presenter presents at the
+deadline whatever a renderer running beside it has finished. That second sense is what is left.
 
-## What is not settled, and must be before anything is built
+It is a **larger** piece of work than this one was, and the obstacle is named rather than guessed:
+`quorra_gpu::Device::render` takes `&mut self` and owns the caches and the surface, so one device
+cannot serve a render thread and a present thread at once. Whoever takes it owes the argument for
+what crosses the thread boundary before any code — a second device, a channel of finished frames,
+or an ask to quorra — and `doc/todo/16`'s road C is the neighbouring item, not the same one.
 
-1. **Where the pixels come from at 8.3 ms.** ADR 0378's `capture_presented` costs **19–36 ms** —
-   more than the whole frame budget — because it reads back. A cadence at 120 Hz needs the
-   transform applied to a texture quorra **already owns**, without a round trip. This is very
-   likely an **ask to quorra** (the shape: present the retained frame's target under an affine),
-   and `doc/QUORRA_FUNCTION_PAINT.md` is the model for writing one. Session 547 was asked to find
-   out what exists; whatever it reports is the starting point.
-2. **What "every frame" means when nothing changed.** A still window must not spend a GPU frame
-   redrawing identical pixels 120 times a second — the retained frame already replays at 21–35 ms,
-   and a still window should present nothing new at all. The rate is a *ceiling on latency*, not a
-   duty to burn power, and the item is wrong if it makes an idle viewer hot.
-3. **Where the cadence comes from.** The display's refresh rate is a property of the surface, not
-   a constant; `winit` reports it, and a target that is not a multiple of it is a stutter machine.
-4. **What the gates see.** [`37`](37-a-frame-that-says-it-is-stale.md)'s rule 2 is unchanged and
-   absolute: **nothing that judges a picture may ever see a reprojection**, and a presenter that
-   runs on a clock must not make that harder to guarantee. It is structural today (a private
-   module of a binary) and must stay structural.
+## What was settled, so that nobody settles it twice
 
-## The five rules still bind
+The four questions this file used to carry as unsettled, with where the answer lives:
 
-All five of [`37`](37-a-frame-that-says-it-is-stale.md)'s, unchanged, plus one this item adds:
+1. **Where the pixels come from at 8.3 ms** — from a readback taken **once per real frame** rather
+   than once per reprojection, and resampled under a recomposed transform after that. The first
+   reprojection of a base costs 39.6 ms and the nine after it 3.4–5.9 ms, off one capture and no
+   upload. ADR 0383's table. It needed nothing from quorra, and ADR 0382 §6's "the escape hatch is
+   complete" is **corrected** in the same ADR: a `Target::Texture` can be rendered into and sampled,
+   but presenting it needs the surface, which quorra owns and whose format a host cannot learn
+   because `Device` returns no `wgpu::Adapter`. `doc/QUORRA_FEEDBACK.md` §28.6's ask stands and is
+   sharper for it.
+2. **What "every frame" means when nothing changed** — nothing. The clock is armed by an obligation
+   and by nothing else, and a window nobody is touching sits in `ControlFlow::Wait`: measured at
+   **no present and no measurable processor time over twenty seconds**.
+3. **Where the cadence comes from** — `winit`'s `MonitorHandle::refresh_rate_millihertz`, read once
+   when the window exists. The floor stands in where the platform states none, and the trace says
+   which.
+4. **What the gates see** — nothing. Everything this round wrote is in a binary; `doc/todo/37`
+   rule 2 is untouched and its test still walks every `.rs` outside `viewer-ui/src/bin`.
 
-6. **The cadence is measured, not asserted.** A round claiming 60 or 120 Hz reports the
-   distribution of intervals between presents on the witness — not a mean, since the failure mode
-   is a long tail — and says what fraction of frames were correct rather than reprojected. "We
-   present every 8.3 ms" and "we show the right pixels" are two different claims and both belong
-   in the record.
+**And one the harness could not settle**: `Xvfb` states no refresh rate (`xrandr` reports `0.00`
+and `--newmode` does not take), so **120 Hz cannot be observed on this machine at all**. What ADR
+0383 establishes instead is the two things that decide it — the presenter sustains 8.3 ms intervals
+when the frames fit, and a replay (1.3–1.5 ms) and a composed reprojection (3.4–5.9 ms) both fit
+while a correct frame of this page does not. A run on the owner's own display is what would close
+it.
 
 ## Why the owner's framing is right, and worth keeping
 
 *"We should still try to render a correct image every frame"* — the reprojection is a floor under
 the experience, never a substitute for the frame being fast. Everything that makes a frame cheaper
 (ADR 0377's threads, ADR 0374's raster cache, ADR 0351's retained frame) reduces how often this
-item is visible, and the standing intent from [`37`](37-a-frame-that-says-it-is-stale.md) holds:
-**the better the renderer gets, the less this should ever be seen.**
+item is visible, and it has moved a long way already: ADR 0378 measured this witness's zoom step at
+492–1036 ms and this round measured it at 55–73. The standing intent from
+[`37`](37-a-frame-that-says-it-is-stale.md) holds — **the better the renderer gets, the less this
+should ever be seen** — and it is now legible as a number, because the summary says what share of
+the presents were correct.

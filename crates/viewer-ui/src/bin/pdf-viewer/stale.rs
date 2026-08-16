@@ -17,11 +17,27 @@
 //!
 //! | rule | what enforces it |
 //! |---|---|
-//! | 1. never the last word | [`Stale::plan`] refuses while one is showing, [`MustFollow`] cannot be dropped without asking for the frame that replaces it, and `about_to_wait` will not let the loop come to rest on one |
+//! | 1. never the last word | [`Stale::plan`] refuses to redraw the view already approximated, [`MustFollow`] cannot be dropped without arming the clock that asks for the frame replacing it, and `about_to_wait` will not let the loop come to rest on one |
 //! | 2. nothing that judges a picture ever sees one | this module is a **private module of a binary**: no library, no gate, no oracle, no harness can link to it, and nothing below it knows a reprojection exists |
 //! | 3. it says so | the frame line's outcome word is `approximated`, and [`Stale::count`] is what the summary prints |
-//! | 4. it costs the real frame nothing | the pixels come from the encode quorra has **already** retained (a replay, never an encode), and the threshold below is measured against what a reprojection actually cost |
+//! | 4. it costs the real frame nothing | the pixels come from the encode quorra has **already** retained (a replay, never an encode), they are read back **once** per real frame rather than once per reprojection ([`Base`]), and the threshold below is measured against what a reprojection actually cost |
 //! | 5. it does not fire when it is not needed | [`Stale::threshold`] — [`SHARE`] times a *measured* cost, not a taste |
+//!
+//! # A reprojection may follow a reprojection, and the shape of that is the whole of `doc/todo/36`
+//!
+//! The project owner allows one explicitly — *"even if the last frame was already incorrect"* —
+//! and **how** it does it is what decides whether the picture degrades. Resampling an image that
+//! was itself resampled compounds the blur, so nothing here ever does: the pixels a reprojection
+//! draws are always [`Base`], the **last real frame's own raster**, and the transform is always
+//! composed against the placement *that* frame was drawn at. Ten reprojections in a row are ten
+//! single resamples of true pixels rather than a chain of ten, and it is structural rather than
+//! careful — a [`Base`] lives inside the [`Settled`] frame it was captured from, so recording a
+//! new real frame drops the old base and there is no expression in this file that can resample a
+//! resampling.
+//!
+//! **A late frame re-bases** for the same reason and by the same mechanism: when a delayed frame
+//! finally lands, [`Stale::settled`] replaces the whole [`Settled`], the base with it, and the
+//! next reprojection composes against the new placement even though the view has moved on.
 //!
 //! # Rule 2 is structural, and this is the whole of the argument
 //!
@@ -75,24 +91,70 @@ const ASSUMED: Duration = Duration::from_millis(51);
 ///
 /// **Rule 1 as a type.** A reprojection that is still on the screen when the machine goes idle is
 /// a defect rather than a degradation, so the call that records one hands back a value that
-/// cannot be ignored and whose only use is [`MustFollow::follow`] — asking the window for the
-/// frame that replaces it. Dropping it is a lint failure, which in this project is a build
+/// cannot be ignored and whose only use is [`MustFollow::follow`] — arming the clock that asks
+/// for the frame replacing it. Dropping it is a lint failure, which in this project is a build
 /// failure.
 #[must_use = "a reprojection that is not followed by a redraw is the last word, which doc/todo/37 \
               rule 1 forbids"]
 pub(crate) struct MustFollow(());
 
 impl MustFollow {
-    /// Asks the window for the real frame, which is the only thing this value is for.
-    pub(crate) fn follow(self, window: &winit::window::Window) {
+    /// Arms the clock for the real frame, which is the only thing this value is for.
+    ///
+    /// **The window is no longer asked directly, and that is `doc/todo/36`'s change to rule 1.**
+    /// This used to call `request_redraw` here, which answered the obligation *at once* — so the
+    /// real frame took the event thread for as long as it took and a view that kept moving could
+    /// not be answered a second time. The obligation is unchanged and still cannot be dropped;
+    /// what changed is that [`crate::cadence::Cadence`] discharges it on the surface's own tick,
+    /// and `about_to_wait` refuses to let the loop rest while a reprojection is on the screen.
+    pub(crate) fn follow(self, cadence: &mut crate::cadence::Cadence, now: std::time::Instant) {
         // Destructured rather than ignored: this value *is* the obligation, and consuming it is
         // the whole of what the method does.
         let Self(()) = self;
-        window.request_redraw();
+        cadence.owed(now);
     }
 }
 
-/// The view one frame drew: which page's display list, placed where, and what it cost.
+/// The pixels one real frame put on the window, kept so that every reprojection resamples them.
+///
+/// **This is what makes a reprojection compose rather than chain**, and it is why it is a field of
+/// [`Settled`] rather than of [`Stale`]: the pixels and the placement they were drawn at are one
+/// fact, and recording a new real frame replaces both together. Nothing in this file can hold a
+/// base whose placement is not the placement it was captured at.
+///
+/// It is read back **once** per real frame — `doc/todo/36`'s first unsettled question, answered
+/// by amortisation rather than by a cheaper readback: ADR 0378 measured 19.2 to 35.9 ms for the
+/// replay-and-map, which is more than a tick, so the second and every later reprojection of the
+/// same base pays none of it. The samples are held as the `Arc` `render_quorra`'s resource cache
+/// keys an upload by, so they cross the bus once as well.
+#[derive(Debug)]
+struct Base {
+    /// The window's own device pixels, straight-alpha RGBA8, top row first.
+    pixels: Arc<[u8]>,
+    width: u32,
+    height: u32,
+}
+
+impl Base {
+    /// The base a captured frame makes, or `None` for a raster this cannot read.
+    ///
+    /// [`RasterFormat`] is `#[non_exhaustive]`, so a second layout can arrive without this file
+    /// changing, and drawing bytes under the wrong interpretation would put a plausible-looking
+    /// wrong picture on the screen — precisely what this module is not allowed to do, even in its
+    /// own approximate register. Checked here, once, rather than on every reprojection.
+    fn of(raster: &Raster) -> Option<Self> {
+        if raster.format != RasterFormat::Rgba8 || raster.width == 0 || raster.height == 0 {
+            return None;
+        }
+        Some(Self {
+            pixels: raster.data.as_slice().into(),
+            width: raster.width,
+            height: raster.height,
+        })
+    }
+}
+
+/// The view one frame drew: which page's display list, placed where, what it cost, and its pixels.
 #[derive(Debug)]
 struct Settled {
     /// The page, by the `Arc` that makes its address mean something — the identity
@@ -102,6 +164,11 @@ struct Settled {
     target: TargetSpec,
     /// What the frame that drew it cost, which is what rule 5's threshold is compared against.
     cost: Duration,
+    /// This frame's own pixels, read back the first time a reprojection needed them.
+    ///
+    /// `None` until then — nothing is captured for a frame no view change ever stands in for,
+    /// which is every frame of a window nobody is touching.
+    base: Option<Base>,
 }
 
 /// Whether the window is showing a reprojection, and what it would take to draw the next one.
@@ -109,8 +176,13 @@ struct Settled {
 pub(crate) struct Stale {
     /// The last frame that was the real thing.
     settled: Option<Settled>,
-    /// Whether what the window is showing now is a reprojection rather than a rendering.
-    showing: bool,
+    /// The view the reprojection on the screen depicts, or `None` when the screen is a rendering.
+    ///
+    /// **A transform rather than a flag, since `doc/todo/36`.** The owner allows a reprojection to
+    /// follow a reprojection, so "one is showing" is no longer a reason to refuse; what is a
+    /// reason is that the one showing already depicts the view being asked for, which is a
+    /// question about *which* view rather than about whether there is one.
+    showing: Option<Transform>,
     /// The most expensive reprojection this run has drawn, which is what the threshold is built
     /// from. The worst rather than the last: rule 4 is a bound, and a bound reads the worst case.
     measured: Option<Duration>,
@@ -139,9 +211,15 @@ impl Stale {
     ///
     /// Every refusal is one of the five rules, in the order that rejects soonest.
     pub(crate) fn plan(&self, page: &Arc<DisplayList>, target: TargetSpec) -> Option<Transform> {
-        // Rule 1: one reprojection is a stall answered; two in a row is a window that has
-        // stopped drawing the document.
-        if self.showing || self.refused {
+        // The pixels could not be had cheaply on this machine, so none are asked for again.
+        if self.refused {
+            return None;
+        }
+        // Rule 1, in the form `doc/todo/36` leaves it. A second reprojection is *allowed* — the
+        // owner asked for one explicitly — but only where the view has moved again: one that
+        // depicts the view being asked for has already answered it, and drawing it a second time
+        // would be a window that had stopped drawing the document.
+        if self.showing == Some(target.transform) {
             return None;
         }
         let settled = self.settled.as_ref()?;
@@ -165,6 +243,10 @@ impl Stale {
         if settled.cost < self.threshold() {
             return None;
         }
+        // **Composed against the last real frame and never against the picture on the screen.**
+        // This one expression is the whole of `doc/todo/36`'s "compose, do not chain": whatever
+        // the window is showing, the transform carries the pixels of the *rendering* onto the
+        // view being asked for, so a run of reprojections is a run of single resamples.
         let moved = settled.target.transform.invert()?.then(target.transform);
         // A placement with a coordinate that is not a finite number is not a placement. It
         // cannot arise from two invertible page transforms, and drawing one would hand the
@@ -192,12 +274,37 @@ impl Stale {
         self.settled = None;
     }
 
-    /// Records that a reprojection was drawn, and what the whole of it cost.
+    /// Whether the next reprojection needs the frame on the window read back.
+    ///
+    /// True exactly once per real frame: the first reprojection standing in for it captures the
+    /// base, and every later one resamples what that capture holds. **The condition is also what
+    /// makes a chain impossible**, and not merely unlikely — the only moment a capture is asked
+    /// for is the moment the window is showing a rendering, because a base exists for every real
+    /// frame from the first reprojection of it onward.
+    pub(crate) fn wants_base(&self) -> bool {
+        self.settled
+            .as_ref()
+            .is_some_and(|settled| settled.base.is_none())
+    }
+
+    /// Keeps the pixels the last real frame put on the window, for every reprojection of it.
+    ///
+    /// `false` for a raster this cannot read, which is a refusal to draw rather than a failure.
+    pub(crate) fn rebase(&mut self, raster: &Raster) -> bool {
+        let Some(settled) = self.settled.as_mut() else {
+            return false;
+        };
+        settled.base = Base::of(raster);
+        settled.base.is_some()
+    }
+
+    /// Records that a reprojection was drawn, which view it depicts, and what the whole of it
+    /// cost.
     ///
     /// The cost is the pixels *and* the frame that put them up, because that is what the next
     /// [`Self::threshold`] has to be a tenth of.
-    pub(crate) fn drawn(&mut self, cost: Duration) -> MustFollow {
-        self.showing = true;
+    pub(crate) fn drawn(&mut self, view: Transform, cost: Duration) -> MustFollow {
+        self.showing = Some(view);
         self.count = self.count.saturating_add(1);
         self.measured = Some(self.measured.map_or(cost, |worst| worst.max(cost)));
         MustFollow(())
@@ -209,11 +316,19 @@ impl Stale {
     }
 
     /// Records the view a real frame drew, and what that frame cost.
+    ///
+    /// **This is where a late frame re-bases** (`doc/todo/36`'s third point). Whatever the view
+    /// has moved on to, the frame that has just landed is the truest picture this window holds,
+    /// so it replaces the whole [`Settled`] — the base with it — and the reprojection after it
+    /// composes against *this* placement.
     pub(crate) fn settled(&mut self, page: &Arc<DisplayList>, target: TargetSpec, cost: Duration) {
         self.settled = Some(Settled {
             page: Arc::clone(page),
             target,
             cost,
+            // Captured on demand, and only where a view change asks for one: a window nobody is
+            // touching reads nothing back.
+            base: None,
         });
     }
 
@@ -223,45 +338,57 @@ impl Stale {
     /// which is what stops [`Self::showing`] from outliving the redraw that answers it, and what
     /// stops `about_to_wait`'s guard from asking for a frame that will never come.
     pub(crate) fn real(&mut self) {
-        self.showing = false;
+        self.showing = None;
     }
 
     /// Whether what the window is showing is a reprojection. Rule 1's runtime witness.
     pub(crate) fn showing_approximation(&self) -> bool {
-        self.showing
+        self.showing.is_some()
     }
 
     /// How many reprojections this run has drawn — rule 3's count.
     pub(crate) fn count(&self) -> u64 {
         self.count
     }
+
+    /// The one-image frame that puts the last real frame's pixels where `moved` says.
+    ///
+    /// **The only way out of this module for a picture**, and the reason it is a method rather
+    /// than a free function taking pixels: a caller cannot pass in a raster of its own, so no
+    /// caller can resample anything but the base — which is what makes "compose, do not chain" a
+    /// property of the type instead of a rule somebody has to follow.
+    ///
+    /// `None` where no base has been captured, which [`Self::wants_base`] is asked first to
+    /// avoid.
+    pub(crate) fn reproject(&self, moved: Transform) -> Option<DisplayList> {
+        let base = self.settled.as_ref()?.base.as_ref()?;
+        Some(reprojection(base, moved))
+    }
 }
 
-/// The one-image display list that draws `pixels` where `moved` puts them.
+/// The one-image display list that draws the last real frame's pixels where `moved` puts them.
 ///
-/// `pixels` are the window's own device pixels as they were presented, so the list is drawn
-/// under an identity target transform, exactly as this host's chrome is: the placement is in
-/// window pixels and nothing about the page's space is involved.
+/// The base holds the window's own device pixels as that frame presented them, so the list is
+/// drawn under an identity target transform, exactly as this host's chrome is: the placement is
+/// in window pixels and nothing about the page's space is involved.
 ///
-/// `None` for a raster whose layout this cannot read. [`RasterFormat`] is `#[non_exhaustive]`, so
-/// a second layout can arrive without this file changing, and drawing bytes under the wrong
-/// interpretation would put a plausible-looking wrong picture on the screen — which is precisely
-/// what this module is not allowed to do, even in its own approximate register.
-pub(crate) fn reprojection(pixels: &Raster, moved: Transform) -> Option<DisplayList> {
-    if pixels.format != RasterFormat::Rgba8 || pixels.width == 0 || pixels.height == 0 {
-        return None;
-    }
+/// **The samples are handed over by `Arc` rather than copied**, which is what makes the second
+/// and every later reprojection of one base cost no transfer at all: `render_quorra`'s resource
+/// cache is keyed by the address of exactly this allocation, so the first reprojection uploads
+/// the window and the rest of them find it.
+///
+fn reprojection(base: &Base, moved: Transform) -> DisplayList {
     #[expect(
         clippy::cast_precision_loss,
         reason = "window dimensions are far below f32's exact integer range"
     )]
-    let (width, height) = (pixels.width as f32, pixels.height as f32);
+    let (width, height) = (base.width as f32, base.height as f32);
     let mut list = DisplayList::new(Size::new(width, height));
     list.push(Command::Image {
         image: ImageSource::Decoded(Image {
-            width: pixels.width,
-            height: pixels.height,
-            data: pixels.data.as_slice().into(),
+            width: base.width,
+            height: base.height,
+            data: Arc::clone(&base.pixels),
             // **Smoothed on purpose, and it is the one place this module chooses how it looks.**
             // §8.9.5.3's `/Interpolate` is about a file's own image and does not reach these
             // pixels at all; what it decides here is whether a magnified reprojection is a grid
@@ -282,7 +409,7 @@ pub(crate) fn reprojection(pixels: &Raster, moved: Transform) -> Option<DisplayL
         mask: None,
         blend: BlendMode::Normal,
     });
-    Some(list)
+    list
 }
 
 #[cfg(test)]
@@ -318,8 +445,18 @@ mod tests {
         stale.settled(page, view(1.0), cost);
     }
 
-    /// Rule 1. A reprojection is never the state the window settles in: with one showing, the
-    /// next frame is the real one whatever the view does.
+    /// A raster of the size these views are drawn at, for the base a capture would give.
+    fn captured() -> Raster {
+        Raster {
+            width: 800,
+            height: 1000,
+            format: RasterFormat::Rgba8,
+            data: vec![0; 800 * 1000 * 4],
+        }
+    }
+
+    /// Rule 1, as `doc/todo/36` leaves it. A reprojection is never the state the window settles
+    /// in: the view it already depicts is drawn rather than approximated a second time.
     #[test]
     fn a_reprojection_is_never_the_last_word() {
         let page = page();
@@ -329,11 +466,12 @@ mod tests {
             stale.plan(&page, view(1.2)).is_some(),
             "a slow frame and a new magnification is what this exists for"
         );
-        let follow = stale.drawn(Duration::from_millis(20));
+        let follow = stale.drawn(view(1.2).transform, Duration::from_millis(20));
         assert!(stale.showing_approximation());
         assert!(
-            stale.plan(&page, view(1.44)).is_none(),
-            "a second reprojection would be a window that had stopped drawing the document"
+            stale.plan(&page, view(1.2)).is_none(),
+            "the view on the screen has been answered; drawing it again would be a window that \
+             had stopped drawing the document"
         );
         drop(follow);
         // Every frame that is not one clears it, including a frame that drew nothing: the guard
@@ -367,11 +505,11 @@ mod tests {
         let mut stale = Stale::default();
         let assumed = stale.threshold();
         let expensive = Duration::from_millis(120);
-        drop(stale.drawn(expensive));
+        drop(stale.drawn(view(1.2).transform, expensive));
         assert_eq!(stale.threshold(), expensive.saturating_mul(SHARE));
         assert!(stale.threshold() > assumed);
         // The worst, not the last: a cheap one after an expensive one does not lower the bound.
-        drop(stale.drawn(Duration::from_millis(3)));
+        drop(stale.drawn(view(1.3).transform, Duration::from_millis(3)));
         assert_eq!(stale.threshold(), expensive.saturating_mul(SHARE));
     }
 
@@ -438,7 +576,8 @@ mod tests {
             format: RasterFormat::Rgba8,
             data: vec![0; 4 * 2 * 4],
         };
-        let list = reprojection(&pixels, Transform::IDENTITY).expect("an RGBA8 raster");
+        let base = super::Base::of(&pixels).expect("an RGBA8 raster");
+        let list = reprojection(&base, Transform::IDENTITY);
         let [
             Command::Image {
                 image, transform, ..
@@ -459,7 +598,8 @@ mod tests {
         assert!((bottom_right.x - 4.0).abs() < 1e-6 && (bottom_right.y - 2.0).abs() < 1e-6);
     }
 
-    /// A raster this cannot read is refused rather than drawn under a guessed layout.
+    /// A raster this cannot read is refused rather than drawn under a guessed layout — and the
+    /// refusal is at the *capture*, so no base exists for a later reprojection to draw from.
     #[test]
     fn an_unreadable_raster_draws_nothing() {
         let empty = Raster {
@@ -468,7 +608,93 @@ mod tests {
             format: RasterFormat::Rgba8,
             data: Vec::new(),
         };
-        assert!(reprojection(&empty, Transform::IDENTITY).is_none());
+        assert!(super::Base::of(&empty).is_none());
+        let page = page();
+        let mut stale = Stale::default();
+        slow(&mut stale, &page);
+        assert!(
+            !stale.rebase(&empty),
+            "a raster this cannot read is no base"
+        );
+        assert!(stale.reproject(Transform::IDENTITY).is_none());
+    }
+
+    /// `doc/todo/36`'s second point, which is the one that decides how the picture degrades: a
+    /// reprojection of a reprojection resamples the **base** and not the picture on the screen,
+    /// so two in a row are two single resamples rather than a chain of two.
+    ///
+    /// Read off the transforms rather than off the pixels, because that is where the property
+    /// lives: each `moved` carries a page point through the *rendering's* placement onto the
+    /// view being asked for, and if the second composed against the first it would not.
+    #[test]
+    fn a_reprojection_of_a_reprojection_composes_against_the_base() {
+        let page = page();
+        let mut stale = Stale::default();
+        slow(&mut stale, &page);
+        let corner = pdf_render::Point::new(100.0, 700.0);
+        let base = view(1.0).transform;
+        for magnification in [1.2_f32, 1.44, 1.728, 2.0736] {
+            let asked = view(magnification);
+            let moved = stale
+                .plan(&page, asked)
+                .expect("the view keeps moving and the frame stays slow");
+            // Through the pixels of the last *rendering*, which is the only thing composed
+            // against however many reprojections have been drawn since.
+            let through = moved.apply(base.apply(corner));
+            let directly = asked.transform.apply(corner);
+            assert!(
+                (through.x - directly.x).abs() < 1e-3 && (through.y - directly.y).abs() < 1e-3,
+                "{magnification}: {through:?} {directly:?}"
+            );
+            drop(stale.drawn(asked.transform, Duration::from_millis(2)));
+        }
+    }
+
+    /// The base is read back once per real frame and not once per reprojection, which is what
+    /// makes a cadence affordable at all: ADR 0378's readback is more than a tick.
+    #[test]
+    fn the_base_is_captured_once_per_real_frame() {
+        let page = page();
+        let mut stale = Stale::default();
+        slow(&mut stale, &page);
+        assert!(stale.wants_base(), "the first reprojection pays for it");
+        assert!(stale.rebase(&captured()));
+        assert!(stale.reproject(Transform::IDENTITY).is_some());
+        drop(stale.drawn(view(1.2).transform, Duration::from_millis(2)));
+        assert!(
+            !stale.wants_base(),
+            "every later reprojection of one rendering resamples what the first captured"
+        );
+        assert!(stale.reproject(Transform::IDENTITY).is_some());
+    }
+
+    /// `doc/todo/36`'s third point. A delayed frame becomes the base the moment it lands, even
+    /// though the view has moved on — its pixels are truer than the ones being reprojected, and
+    /// the composed transform simply changes.
+    #[test]
+    fn a_late_frame_becomes_the_base() {
+        let page = page();
+        let mut stale = Stale::default();
+        slow(&mut stale, &page);
+        assert!(stale.rebase(&captured()));
+        drop(stale.drawn(view(1.2).transform, Duration::from_millis(2)));
+        assert!(!stale.wants_base());
+        // The frame for the 1.2× view finally lands, while the person has already asked for 2×.
+        stale.settled(&page, view(1.2), stale.threshold());
+        stale.real();
+        assert!(
+            stale.wants_base(),
+            "the pixels of the frame that has just landed are the ones to resample now"
+        );
+        let moved = stale.plan(&page, view(2.0)).expect("the view moved on");
+        let corner = pdf_render::Point::new(100.0, 700.0);
+        let through = moved.apply(view(1.2).transform.apply(corner));
+        let directly = view(2.0).transform.apply(corner);
+        assert!(
+            (through.x - directly.x).abs() < 1e-3 && (through.y - directly.y).abs() < 1e-3,
+            "composed against the frame that landed, not against the one before it: \
+             {through:?} {directly:?}"
+        );
     }
 
     /// Rule 2, as far as a test can reach it: nothing outside this window's own binary names the
