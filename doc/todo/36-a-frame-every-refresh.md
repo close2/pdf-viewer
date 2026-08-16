@@ -73,6 +73,42 @@ cannot serve a render thread and a present thread at once. Whoever takes it owes
 what crosses the thread boundary before any code — a second device, a channel of finished frames,
 or an ask to quorra — and `doc/todo/16`'s road C is the neighbouring item, not the same one.
 
+### The design round settled it, and the answer is an ask (ADR 0386)
+
+*Session 551, a design round: it built nothing. This section is its own and amends nothing above it.*
+
+**The argument owed by the paragraph above is written**, and the three candidates it named are
+priced against the owner's own traces rather than weighed. ADR 0386 has the whole of it;
+`doc/QUORRA_NONBLOCKING_RENDER.md` is the ask it ends in. What binds here:
+
+- **Per rate, and the asymmetry nobody had stated in one place.** 60 Hz needs a non-blocking render
+  and **nothing else about cost**: on the owner's machine all seven of their reprojections fit
+  16.667 ms, the worst at 16.2. 120 Hz needs the non-blocking render **and**
+  `doc/QUORRA_FEEDBACK.md` §28.6's no-readback path, because six of those seven miss 8.333 ms and
+  the readback is the whole of the difference.
+- **A third requirement, which this file did not have.** A reprojection needs a *base*, and the
+  owner's run printed the refusal twice against its seven reprojections — the atlas repacked and the
+  retained encode died with it (ADR 0384 §6). Some view changes can show nothing today whatever the
+  presenter does. A page rendered into a texture the host owns is unaffected by a repack, so the
+  same change closes this too.
+- **`execute` is 0.15% of a frame** — 6.7 ms of 4454.9 over the owner's whole run. The graphics
+  device is idle for essentially all of it, which is what declines "submit, then poll" on the
+  measurement rather than on a preference.
+- **A second device is priced and declined**: quorra has no constructor that adopts a `wgpu::Device`
+  and wgpu 30 shares no texture across devices, so the page would cross as **8 192 000 bytes a
+  frame** — more than a 120 Hz refresh before anything is drawn.
+- **The recommendation is one device on two threads, split at the surface**, and it costs
+  `viewer-core` nothing: `NeedsRender`/`RenderReady` already carry an opaque handle "a caller may
+  move to a thread of its own", so no `Command`, `Event` or `Query` moves and `interpret` stays what
+  it was.
+- **What is available without any ask, and was not taken**: deferring the real frame until the view
+  comes to rest would give 60 Hz through a gesture today. It stops trying to render a correct image
+  every frame, which is the owner's own sentence, so it is theirs to choose. ADR 0386 §3.3.
+- **And the ceiling, so the ask is not oversold**: during the 4.366 s the owner's view was moving,
+  120 Hz is 524 refreshes and **15 could carry a rendering — 2.9%**. The reprojection is the floor
+  and it is most of what would be seen. Every round that makes a frame cheaper moves that number and
+  none of them changes the answer to the owner's question.
+
 ## What was settled, so that nobody settles it twice
 
 The four questions this file used to carry as unsettled, with where the answer lives:
