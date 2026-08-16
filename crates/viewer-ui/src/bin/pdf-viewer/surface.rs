@@ -98,21 +98,32 @@ fn on_the_processor(
     }
 }
 
-/// Keeps the pixels of the rendering on the window, for every reprojection of it to resample.
+/// Reads the frame on the window back, so that reprojections of it resample its own pixels.
 ///
-/// The readback's own cost, or `None` where no base could be had — and **each of the four ways
-/// that can happen says so**, which two of them did not until ADR 0384. A refusal a person cannot
-/// see is indistinguishable from a feature that does not work, which is exactly the report that
-/// round answered.
+/// **None of the four outcomes here is a refusal any more, and that is ADR 0385.** Each of them
+/// says only that *this* frame's pixels could not be had; whether anything is drawn is
+/// [`crate::stale::Stale::reproject`]'s answer, because a base captured from an earlier rendering
+/// of the same page is still true pixels at a placement this host knows. Failing to capture used
+/// to mean showing nothing, and it cost the project owner two view changes of every run.
 ///
-/// Two of the four are facts about *this machine* rather than about this frame, and those switch
-/// the feature off for the run: a device that will not read the window back, and a capture that
-/// re-encoded instead of replaying. The other two are ordinary and recur.
+/// The readback's own cost, or `None` where this frame's pixels could not be taken. Two of the
+/// ways that happens are facts about *this machine* rather than about this frame, and those stop
+/// the window being read back again for the rest of the run.
 fn capture_base(
     presenter: &mut QuorraPresenter,
     stale: &mut crate::stale::Stale,
     trace: crate::trace::Trace,
 ) -> Option<std::time::Duration> {
+    /// What the line below says about the base already held, which decides whether the loss
+    /// matters at all.
+    fn standing(stale: &crate::stale::Stale) -> &'static str {
+        if stale.has_base() {
+            "the base already held stands in, composed against the frame that produced it"
+        } else {
+            "and none is held"
+        }
+    }
+
     let captured = match presenter.capture_presented() {
         Ok(Some(captured)) => captured,
         // There are two ways here and silence could not tell them apart: no frame has reached the
@@ -124,8 +135,10 @@ fn capture_base(
             trace.say(
                 Topic::Frames,
                 format_args!(
-                    "no reprojection: the device has no retained encode to replay — the last \
-                     frame repacked its glyph atlas, or none has reached it yet"
+                    "this frame's own pixels could not be had — the device has no retained encode \
+                     to replay, because the last frame repacked its glyph atlas or none has \
+                     reached it yet; {}",
+                    standing(stale)
                 ),
             );
             return None;
@@ -133,34 +146,39 @@ fn capture_base(
         Err(problem) => {
             trace.say(
                 Topic::Frames,
-                format_args!("the frame on the window could not be read back: {problem}"),
+                format_args!(
+                    "the frame on the window could not be read back: {problem} — no frame will be \
+                     read back again in this run; {}",
+                    standing(stale)
+                ),
             );
-            stale.refuse();
+            stale.refuse_captures();
             return None;
         }
     };
     // Rule 4, and the one condition that cannot be checked in advance: a capture that re-encoded
     // has just paid the whole of the cost the reprojection exists to cover, so it is said out loud
-    // and never asked for again.
+    // and never asked for again. **The pixels it produced are used all the same**, which ADR 0385
+    // changed: they have been paid for, they are this frame's own, and throwing them away would
+    // make every later reprojection of the run compose against an older base for nothing.
     if !captured.replayed {
         trace.say(
             Topic::Frames,
             format_args!(
                 "reading the frame back re-encoded it in {:.1} ms instead of replaying it, which \
-                 costs the real frame more than the wait is worth — no frame will be approximated \
-                 in this run",
+                 costs the real frame more than the wait is worth — this frame's pixels are kept, \
+                 and no frame will be read back again in this run",
                 captured.cost.as_secs_f64() * 1e3
             ),
         );
-        stale.refuse();
-        return None;
+        stale.refuse_captures();
     }
     if !stale.rebase(&captured.raster) {
         trace.say(
             Topic::Frames,
             format_args!(
-                "no reprojection: the frame read back off the window is in a layout this host \
-                 cannot resample"
+                "the frame read back off the window is in a layout this host cannot resample; {}",
+                standing(stale)
             ),
         );
         return None;
@@ -269,34 +287,29 @@ impl App {
         // took for it: there is no stall to cover and the pixels on the screen are not a page.
         if playing.is_some() {
             self.stale.forget();
-        } else if let crate::stale::Plan::TooDear {
-            reprojection,
-            frame,
-        } = planned
-        {
-            // Rule 3 over a refusal, which is ADR 0384's second correction: the owner reported the
-            // same sentence twice, and the second time the reason was a judgement this program was
-            // making silently. Said with both numbers, because the answer to "why did nothing
-            // move" is arithmetic.
-            self.trace.say(
-                Topic::Frames,
-                format_args!(
-                    "no reprojection: one costs {:.1} ms here and this frame is expected to take \
-                     {:.1}, so standing in would not gain the {:.1} ms refresh it delays the real \
-                     frame by",
-                    reprojection.as_secs_f64() * 1e3,
-                    frame.as_secs_f64() * 1e3,
-                    self.cadence.period().as_secs_f64() * 1e3,
-                ),
-            );
-        } else if let crate::stale::Plan::Reproject(moved) = planned
-            && self.approximate(moved, placement.transform, &overlays, stages)
-        {
-            // Deliberately not a `Rendered`: the core is told what became of its request by the
-            // frame that *answers* it, and a reprojection answers nothing. Nothing is
-            // acknowledged, the launch timeline stays open, and the accessibility tree is not
-            // published from a picture that is not the page.
-            return None;
+        } else {
+            match planned {
+                // Rule 3 over every refusal, which is ADR 0385 finishing what ADR 0384 began: the
+                // owner reported the same sentence twice, and the second time the reason was a
+                // decision this program was making in silence. Each says which of the two kinds
+                // it is, and each is counted for the summary.
+                crate::stale::Plan::Refused(why) => {
+                    let trace = self.trace;
+                    self.stale.declined(&why, trace);
+                }
+                crate::stale::Plan::Reproject(view) => {
+                    if self.approximate(view, &request.list, placement, &overlays, stages) {
+                        // Deliberately not a `Rendered`: the core is told what became of its
+                        // request by the frame that *answers* it, and a reprojection answers
+                        // nothing. Nothing is acknowledged, the launch timeline stays open, and
+                        // the accessibility tree is not published from a picture that is not the
+                        // page.
+                        return None;
+                    }
+                }
+                // Not a view change: the window's picture is already the one being asked for.
+                crate::stale::Plan::Render => {}
+            }
         }
 
         let state = self.state.as_mut()?;
@@ -412,9 +425,9 @@ impl App {
     ///
     /// `true` when the window answered the input; `false` when it did not, and the caller then
     /// draws the real frame exactly as it always did. **Every one of those refusals is an
-    /// ordinary state rather than a failure** — no device, no retained encode, a readback the
-    /// device declined, a raster this cannot read — and the two that say something about *this
-    /// machine* rather than about this frame stop the attempt from being made again.
+    /// ordinary state rather than a failure**, every one says which of [`crate::stale::Refusal`]'s
+    /// two kinds it is, and the two that say something about *this machine* rather than about this
+    /// frame stop the window being read back again.
     ///
     /// The chrome is the current frame's, drawn over the reprojection as geometry: a selection
     /// and a sidebar are this host's own state and are true at the moment they are drawn, so
@@ -425,10 +438,16 @@ impl App {
     /// 0378's readback costs 19 to 36. So the first reprojection standing in for a rendering
     /// captures it, and the second and every later one resamples the same base under a
     /// recomposed transform — one image draw off an upload the resource cache already holds.
+    ///
+    /// **And a readback that fails is not the end of it, since ADR 0385**: the base held from an
+    /// earlier rendering of this page stands in instead, composed against the placement *it* was
+    /// drawn at. What decides whether there is a picture is the base, in one place
+    /// ([`crate::stale::Stale::reproject`]), rather than whether this frame's capture worked.
     fn approximate(
         &mut self,
-        moved: Transform,
         view: Transform,
+        page: &Arc<pdf_render::DisplayList>,
+        target: TargetSpec,
         overlays: &[&pdf_render::DisplayList],
         stages: &mut Stages,
     ) -> bool {
@@ -445,23 +464,24 @@ impl App {
             // Nothing to read back: the processor's window has no retained encode, so its
             // pixels would have to be produced by rasterising the page again — which is the
             // cost this exists to hide rather than one it can hide. Asked once, then never.
-            self.stale.refuse();
+            self.stale.refuse_captures();
+            self.stale.declined(&crate::stale::Refusal::NoDevice, trace);
             return false;
         };
-        // Read back only where there is no base yet — that is, only when the window is showing a
-        // *rendering*. It is the condition that makes a chain impossible as well as the one that
-        // makes the readback affordable: a capture taken while a reprojection was on the screen
-        // would be a resampling of a resampling, and there is no state in which one is taken.
-        let readback = if wants_base {
-            match capture_base(presenter, &mut self.stale, trace) {
-                Some(cost) => cost,
-                None => return false,
+        // Read back only where this frame's own pixels are not held yet — that is, only when the
+        // window is showing a *rendering*. It is the condition that makes a chain impossible as
+        // well as the one that makes the readback affordable: a capture taken while a reprojection
+        // was on the screen would be a resampling of a resampling, and there is no state in which
+        // one is taken.
+        let readback = wants_base
+            .then(|| capture_base(presenter, &mut self.stale, trace))
+            .flatten();
+        let list = match self.stale.reproject(page, target) {
+            Ok(list) => list,
+            Err(why) => {
+                self.stale.declined(&why, trace);
+                return false;
             }
-        } else {
-            std::time::Duration::ZERO
-        };
-        let Some(list) = self.stale.reproject(moved) else {
-            return false;
         };
         let list = Arc::new(list);
         // The pixels are the window's own, so they are placed in the window's own space — the
@@ -478,10 +498,8 @@ impl App {
             raster: None,
             overlays,
         }) {
-            trace.say(
-                Topic::Frames,
-                format_args!("the device refused an approximated frame: {problem}"),
-            );
+            let why = crate::stale::Refusal::DeviceRefused(problem.to_string());
+            self.stale.declined(&why, trace);
             return false;
         }
         stages.gpu = presenter.last_frame();
@@ -489,21 +507,26 @@ impl App {
         stages.approximated = true;
         let cost = began.elapsed();
         // Rule 3 twice over: the frame line says `approximated`, and this says what it is an
-        // approximation *of* — which frame it stands in for, what the picture cost, and whether
-        // this one paid for the base or found it, which is the difference between the first
-        // reprojection of a rendering and every later one.
+        // approximation *of* — which frame it stands in for, what the picture cost, and where the
+        // pixels came from. That last has three answers rather than two since ADR 0385, and the
+        // third is the one this round exists for: a readback that could not be taken now leaves
+        // the previous rendering's base standing rather than the window standing still.
         trace.say(
             Topic::Frames,
             format_args!(
                 "approximated: this view's frame is expected to cost {:.1} ms against a {:.1} ms \
-                 refresh, so it misses, and the last rendering's own pixels stand in ({}, whole \
+                 refresh, so it misses, and a rendering's own pixels stand in ({}, whole \
                  reprojection {:.1} ms); the real frame has been asked for",
                 expected.as_secs_f64() * 1e3,
                 period.as_secs_f64() * 1e3,
-                if wants_base {
-                    format!("read back in {:.1} ms", readback.as_secs_f64() * 1e3)
-                } else {
-                    "composed against the base already held, no readback".to_owned()
+                match (wants_base, readback) {
+                    (_, Some(cost)) => format!("read back in {:.1} ms", cost.as_secs_f64() * 1e3),
+                    (true, None) =>
+                        "this frame's pixels could not be read back, so the base already held \
+                         stands, composed against the frame that produced it"
+                            .to_owned(),
+                    (false, None) =>
+                        "composed against the base already held, no readback".to_owned(),
                 },
                 cost.as_secs_f64() * 1e3,
             ),

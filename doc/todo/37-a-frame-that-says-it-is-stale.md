@@ -1,12 +1,12 @@
 # A frame that says it is stale — the one window it does not cover yet
 
 Status: **built for the window with a graphics device** (ADR 0378, extended by ADR 0383, rule 5
-corrected by ADR 0384 after the owner found it never fired on a real one), which is
-every run without `--cpu`. A view change whose last frame was slow now shows the pixels already on
-the screen, moved to where the new view puts them, and the real frame replaces it — the frame line
-says `approximated`, the summary counts them, and
-`crates/viewer-ui/src/bin/pdf-viewer/stale.rs` carries the five rules with the thing that enforces
-each.
+corrected by ADR 0384 and the base's lifetime by ADR 0385, each after the owner found it did not
+fire on a real one), which is every run without `--cpu`. A view change whose last frame was slow
+now shows the pixels already on the screen, moved to where the new view puts them, and the real
+frame replaces it — the frame line says `approximated`, the summary counts them **and counts what
+was refused**, and `crates/viewer-ui/src/bin/pdf-viewer/stale.rs` carries the five rules with the
+thing that enforces each.
 Priority: 37 — one surface of two.
 Witness: `tmp/Entwurf.pdf` — **not in the repository**, so no test may name that path. The costs
 this file used to quote are ADR 0378's and both have since moved; ADR 0383 measured them again on
@@ -42,6 +42,23 @@ which is the other half of why the owner had to write twice: `Stale::plan` retur
 than an `Option`, and a refusal that is a judgement about two measurements prints both of them.
 ADR 0384 has the traces, the A/B and the secondary defects it turned up.
 
+**And the base's lifetime was the third, found in the five-hundred-and-fiftieth session — the same
+shape a third time.** The owner's trace carried `no reprojection: the device has no retained encode
+to replay` twice in twenty-four presents, and each time the frame before it was a rendering that
+repacked its glyph atlas. The pixels of the rendering *before* it had been read back and were
+this host's own `Arc<[u8]>` — and were destroyed by the frame that replaced them, because the base
+was a field of `Settled`. So the window showed nothing for want of a **capture**, while what a
+reprojection actually needs was in memory. A base is now `Stale`'s and carries the page and the
+placement it is of, a refusal to *capture* is no longer read as a refusal to *draw*, and
+`Stale::composed` reads the placement off the base it draws rather than off the last frame record —
+which makes "compose, do not chain" unrepresentable to get wrong rather than merely enforced.
+
+**Rule 3 is finished in the same round.** Every path that declines a reprojection was audited
+against the owner's three words — *impossible*, *unwise*, *unnecessary* — five were unnecessary and
+all five were the same mistake; the rest now print which of the two remaining kinds they are, and
+the summary carries the count. ADR 0385 has the table and the argument for the one answer that is
+deliberately silent.
+
 ## What is left
 
 **The processor's window**: `--cpu`, and a machine whose graphics device would not come up. There
@@ -68,11 +85,15 @@ Three things bind it, and none of them is new:
   `Stale::affordable` already takes whatever the run measures, so the code needs nothing; the round
   that builds it owes the number. **Rule 5 needs nothing from it at all** — a miss is a miss on any
   surface, which is one thing ADR 0384's re-grounding bought that was not the point of it.
-- **And the base is already the right shape for it.** `Stale::Settled` holds the last real frame's
-  pixels since ADR 0383, captured once and resampled after that; a software surface has those
-  pixels without a readback at all, so what a processor path adds there is `Base::of` being fed
-  from `SoftwareSurface` rather than from a capture. The composition, the re-basing and the clock
-  are all shared and none of them knows which surface it is on.
+- **And the base is already the right shape for it** — more so since ADR 0385, which moved it out
+  of `Settled` and gave it the page and placement it is a picture of. A software surface has those
+  pixels without a readback at all, so what a processor path adds is `Base::of` being fed from
+  `SoftwareSurface` rather than from a capture. The composition, the re-basing, the refusal
+  vocabulary and the clock are all shared and none of them knows which surface it is on.
+- **Its refusal already says which kind it is**, and it is the one `Refusal::NoDevice` names: today
+  the processor's window declines once, says *impossible*, and every view change after it says that
+  no pixels are held and none can be read back. A round that builds this path deletes both lines
+  rather than adding one.
 
 ## What is deliberately not here
 

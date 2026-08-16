@@ -375,6 +375,7 @@ impl FrameLog {
         &self,
         trace: Trace,
         approximated: u64,
+        refused: crate::stale::Refusals,
         cadence: &crate::cadence::Cadence,
     ) {
         if !trace.on(Topic::Frames) || self.count == 0 {
@@ -398,6 +399,22 @@ impl FrameLog {
             format_args!(
                 "{approximated} of them reprojected the previous view's pixels while the real \
                  frame was built; every one was replaced by the frame it stood in for (ADR 0378)"
+            ),
+        );
+        // Rule 3's other count, and ADR 0385's half of it. A reprojection that does not happen is
+        // what the project owner reported twice, so the *number* of them belongs beside the number
+        // that did: a refusal named in one frame line of six hundred is a line nobody finds, and
+        // the two kinds answer different questions — an impossibility is a fact about the
+        // document or the window, a judgement is a decision this program made and can be argued
+        // with. Printed at zero for the same reason the line above is.
+        trace.more(
+            Topic::Frames,
+            format_args!(
+                "{} view change(s) showed the real frame instead: {} had nothing true to move and \
+                 {} were a judgement between two measurements — each says which, above (ADR 0385)",
+                refused.total(),
+                refused.impossible,
+                refused.unwise
             ),
         );
         trace.more(

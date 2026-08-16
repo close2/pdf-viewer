@@ -28,8 +28,12 @@ impl ApplicationHandler for App {
     /// 60 ms and their worst 514 without a spreadsheet. Here because it costs nothing per frame
     /// and everything it needs is already recorded.
     fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
-        self.frames
-            .summary(self.trace, self.stale.count(), &self.cadence);
+        self.frames.summary(
+            self.trace,
+            self.stale.count(),
+            self.stale.refusals(),
+            &self.cadence,
+        );
     }
 
     /// Keeps the presenter's clock and §12.4.4's, and only while there is one to keep.

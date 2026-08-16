@@ -27,6 +27,15 @@ It did not: the bar was 510 ms until a reprojection had been measured, only a re
 the bar could measure one, and their frames were 80 to 438 ms. **A self-calibrating threshold whose
 own gate blocked its only sample.** ADR 0384 has the trace and the A/B.
 
+**And the base's lifetime was the same defect a third time (ADR 0385).** Rules 4 and 5 were then
+right and two view changes of every one of the owner's runs still showed nothing, because a real
+frame that had repacked its glyph atlas destroyed the pixels of the rendering before it on its way
+in — so the next view change asked the device to read a window back, was told there was no encode
+to replay, and refused for want of a **capture** while the pixels a reprojection actually needs sat
+in this host's own memory. The base now outlives the frame it came from and carries the page and
+placement it is of; a refusal to capture is no longer read as a refusal to draw; and every
+remaining refusal prints which of two kinds it is, with the count in the summary.
+
 **And rule 4 was the same defect one layer down, found by the owner running the fix.** With rule 5
 re-grounded their second trace reached 7 reprojections of 24 presents — but six view changes still
 showed nothing, silently, because rule 4's bar was a *tenth* of the frame and a tenth of a real
