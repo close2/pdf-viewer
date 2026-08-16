@@ -391,3 +391,127 @@ fn a_page_tree_of_any_shape_yields_its_pages_in_the_order_its_kids_arrays_give()
         "depth first, in each node's own /Kids order"
     );
 }
+
+/// The one-page builder again, with the whole `/MediaBox` entry supplied — including no entry.
+///
+/// The page tree node states none either, so what a caller passes is *all* the file says about
+/// its own geometry, which is what §7.7.3.4's rule is about.
+fn page_stating(media_box_entry: &str) -> Vec<u8> {
+    let content = "0 g 0 0 10 10 re f";
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R {media_box_entry} \
+         /Resources << >> /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n",
+        content.len().saturating_add(1)
+    );
+    assemble(&body)
+}
+
+/// The pair that pins §7.7.3.4's rule for the entry it makes required.
+///
+/// ISO 32000-2 §7.7.3.3 Table 31 makes `/MediaBox` "( Required; inheritable )", and §7.7.3.4
+/// says where an inheritable required entry may be written instead:
+///
+/// > If such an attribute is omitted from a page object, its value shall be inherited from an
+/// > ancestor node in the page tree. If the attribute is a required one, a value shall be
+/// > supplied in an ancestor node.
+///
+/// So the two files below differ in exactly one thing — whether *anybody* supplies it — and the
+/// difference between them is the whole rule (trap 8's fourth shape). The standard states no
+/// recovery for the second, so [`pdf_model::Page::DEFAULT_MEDIA_BOX`] stands in; what this pins
+/// is that standing in is **said out loud**, because a page whose size is a guess of ours places
+/// every one of the producer's marks somewhere the producer did not ask for.
+///
+/// The witnesses are real and are in four corpora — `format-corpus`'
+/// `T02-03_008_page-object-mediabox-missing.pdf` is built to carry this defect and nothing else
+/// — but they are all in optional checkouts, and the pair here runs everywhere. ADR 0389.
+#[test]
+fn a_page_whose_ancestry_states_no_media_box_is_drawn_on_a_default_and_says_so() {
+    use pdf_model::{MediaBoxSubstitution, Unsupported};
+
+    let stated = Document::open(page_stating("/MediaBox [0 0 100 50]")).expect("a valid PDF");
+    let pages = pdf_model::Pages::new(&stated);
+    let page = pages.get(0).expect("the one page");
+    assert_eq!(page.media_box, [0.0, 0.0, 100.0, 50.0]);
+    assert_eq!(
+        page.substituted_media_box, None,
+        "the file supplies the entry, so nothing is substituted"
+    );
+    assert!(
+        pdf_model::interpret(&stated, &page).is_complete(),
+        "and nothing is reported"
+    );
+
+    let silent = Document::open(page_stating("")).expect("a valid PDF");
+    let pages = pdf_model::Pages::new(&silent);
+    let page = pages.get(0).expect("the one page");
+    assert_eq!(
+        page.media_box,
+        pdf_model::Page::DEFAULT_MEDIA_BOX,
+        "no ancestor states one, and the standard states no recovery"
+    );
+    assert_eq!(
+        page.substituted_media_box,
+        Some(MediaBoxSubstitution::Absent),
+        "and the page carries why"
+    );
+    let interpretation = pdf_model::interpret(&silent, &page);
+    let reported: Vec<&Unsupported> = interpretation
+        .unsupported
+        .iter()
+        .filter(|item| matches!(item, Unsupported::MediaBox { .. }))
+        .collect();
+    assert_eq!(
+        reported.len(),
+        1,
+        "reported once for the page, not per mark"
+    );
+    let Some(Unsupported::MediaBox { detail }) = reported.first() else {
+        panic!("the report names the page rather than a mark");
+    };
+    assert!(
+        detail.contains("§7.7.3.4"),
+        "the sentence cites the clause the file broke: {detail}"
+    );
+}
+
+/// The third file of the same pair: the entry is written and is not §7.9.5's rectangle.
+///
+/// > A rectangle shall be written as an array of four numbers giving the coordinates of a pair
+/// > of diagonally opposite corners.
+///
+/// A producer that wrote three numbers has made a different mistake from one that wrote
+/// nothing, and a reader that says "no /MediaBox" about it is telling a person to look for an
+/// entry that is there. `format-corpus`'
+/// `T02-03_009_page-object-mediabox-not-rectangle.pdf` is the corpus witness, and it is the only
+/// one of this kind on this disk — `pdftoppm`, `mutool` and `gs` answer it with three different
+/// page sizes, which is what a clause stating no recovery looks like from outside.
+#[test]
+fn a_media_box_that_is_not_a_rectangle_is_reported_as_the_different_mistake_it_is() {
+    use pdf_model::{MediaBoxSubstitution, Unsupported};
+
+    let document = Document::open(page_stating("/MediaBox [0 612 792]")).expect("a valid PDF");
+    let pages = pdf_model::Pages::new(&document);
+    let page = pages.get(0).expect("the one page");
+    assert_eq!(page.media_box, pdf_model::Page::DEFAULT_MEDIA_BOX);
+    assert_eq!(
+        page.substituted_media_box,
+        Some(MediaBoxSubstitution::NotARectangle),
+        "the entry is written; what is wrong is its value"
+    );
+    let interpretation = pdf_model::interpret(&document, &page);
+    let detail = interpretation
+        .unsupported
+        .iter()
+        .find_map(|item| match item {
+            Unsupported::MediaBox { detail } => Some(detail.clone()),
+            _ => None,
+        })
+        .expect("the substitution is reported");
+    assert!(
+        detail.contains("§7.9.5"),
+        "the sentence names the shape the value failed to be: {detail}"
+    );
+}

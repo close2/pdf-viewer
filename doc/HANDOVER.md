@@ -476,7 +476,7 @@ oracle's judged set for nothing. **The condition on all three is `is_hidden()`**
 hidden content "as if there were no `Do` operator to invoke it", and a `Do` that was never invoked
 cannot have failed.
 
-**Ten places report *while* drawing, each deliberate**, and the test for adding an eleventh is that
+**Eleven places report *while* drawing, each deliberate**, and the test for adding a twelfth is that
 suppressing either statement loses information: `/NeedAppearances` (stale appearances drawn
 because they are all the file offers); §11.6.5.2's `/Matte` where pre-blending cannot be undone
 (refusing would draw a rectangle of pure matte colour); a constructed appearance drawing what its
@@ -496,7 +496,11 @@ the producer's own and the rest of the grid is left unpainted rather than read a
 *other four* content streams §7.8.2 names beside a page's `/Contents` — a form `XObject`, a tiling
 pattern's cell, a Type 3 glyph description and an annotation appearance — whose prefixes this tree
 had always drawn and never mentioned, one sentence of one clause away from the row above them
-(ADR 0359).
+(ADR 0359); and a page whose ancestry states no `/MediaBox`, drawn on a default size this project
+chose and nothing in ISO 32000-2 states, where the substituted thing is **not a mark but the frame
+every mark is measured in** — so the additive-or-substitutive question above does not decide it and
+a different one does: refusing throws away a whole document that draws, and saying nothing makes a
+guessed sheet look like a measured one (ADR 0389).
 
 **The additive-or-substitutive test is what decides the other direction too**, and ADR 0343 is
 where it drew a line through one clause: the *same* damaged-prefix rule that is right for a

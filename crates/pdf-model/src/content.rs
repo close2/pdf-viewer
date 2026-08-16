@@ -497,6 +497,26 @@ fn interpret_into(
     for issue in reader.take_issues() {
         interpreter.note(Unsupported::Content { issue });
     }
+    // §7.7.3.3's `/MediaBox`, which §7.7.3.4 requires of the page or of an ancestor. Reported
+    // before anything is drawn because it is the frame the drawing happens in rather than one of
+    // its marks: the page below is the producer's, and the rectangle it is placed on is ours.
+    if let Some(substitution) = page.substituted_media_box {
+        let [x0, y0, x1, y1] = page.media_box;
+        interpreter.note(Unsupported::MediaBox {
+            detail: format!(
+                "{} — the page is drawn on {} × {} at [{x0} {y0} {x1} {y1}], \
+                 which is this reader's default and not the producer's",
+                match substitution {
+                    crate::page::MediaBoxSubstitution::Absent =>
+                        "no /MediaBox anywhere in the page's ancestry (§7.7.3.4)",
+                    crate::page::MediaBoxSubstitution::NotARectangle =>
+                        "a /MediaBox that is not §7.9.5's four finite numbers",
+                },
+                x1 - x0,
+                y1 - y0,
+            ),
+        });
+    }
     // §8.11.4.4's automatic states, for the two categories that ask about this machine rather
     // than about the document. Reported once per page rather than per group, because what a
     // reader can do about it is the same either way.
@@ -1134,6 +1154,7 @@ mod tests {
             dict: pdf_syntax::Dictionary::default(),
             resources: pdf_syntax::Dictionary::default(),
             media_box: [0.0, 0.0, 400.0, 200.0],
+            substituted_media_box: None,
             crop_box: [0.0, 0.0, 400.0, 200.0],
             bleed_box: [0.0, 0.0, 400.0, 200.0],
             trim_box: [0.0, 0.0, 400.0, 200.0],

@@ -186,6 +186,36 @@ pub enum Unsupported {
         /// What could not be decided.
         detail: String,
     },
+    /// The page's ancestry states no usable `/MediaBox`, so its geometry is this program's.
+    ///
+    /// ISO 32000-2 §7.7.3.3 Table 31 makes the entry "( Required; inheritable )" and §7.7.3.4
+    /// says where a required inheritable entry may be written instead:
+    ///
+    /// > If such an attribute is omitted from a page object, its value shall be inherited from
+    /// > an ancestor node in the page tree. If the attribute is a required one, a value shall be
+    /// > supplied in an ancestor node.
+    ///
+    /// So this is a **malformed file**, like [`Self::MissingResource`], and the standard states
+    /// no recovery. [`crate::Page::DEFAULT_MEDIA_BOX`] is substituted, which is a choice this
+    /// project made rather than a reading it took.
+    ///
+    /// **The eleventh place this program reports while drawing** (trap 5), and it meets that
+    /// test in both directions. Refusing the page would throw away marks nothing else in the
+    /// file can supply — the crawl's one witness is a 22-page worksheet that draws perfectly
+    /// well — while saying nothing makes a page whose size, and therefore whose every mark's
+    /// place on the raster, is a guess indistinguishable from one the producer stated. It is
+    /// **not** the additive-or-substitutive question ADR 0106 asks, because what is substituted
+    /// is not a mark but the frame every mark is measured in: the same content stream drawn
+    /// against a guessed box lands somewhere else, and `1407606.pdf` is 50 points down and
+    /// 16 short of its width for exactly this reason.
+    ///
+    /// One page of the 974, one of `pdfbox`'s 64, three of `format-corpus`' 167 — two of them
+    /// built to carry this defect and nothing else — and **one document of the 65 703 crawled
+    /// pages that open**. `examples/media_box_census` prints today's. ADR 0389.
+    MediaBox {
+        /// Which of [`crate::page::MediaBoxSubstitution`]'s two it was, and what stood in.
+        detail: String,
+    },
 }
 
 /// A content stream that decoded only as far as its damage, on its way to being drawn.

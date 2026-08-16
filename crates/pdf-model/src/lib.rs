@@ -85,4 +85,4 @@ pub mod x509;
 pub mod xmp;
 
 pub use content::{Interpretation, Unsupported, interpret};
-pub use page::{Page, Pages};
+pub use page::{MediaBoxSubstitution, Page, Pages};

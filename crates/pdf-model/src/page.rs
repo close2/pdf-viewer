@@ -136,6 +136,12 @@ fn declares_a_node(document: &Document, node: Node<'_>) -> bool {
 struct Inherited {
     resources: Option<Dictionary>,
     media_box: Option<[f32; 4]>,
+    /// Whether any node in the ancestry *wrote* `/MediaBox`, whatever the value turned out to be.
+    ///
+    /// Distinct from `media_box.is_some()`, and only where the two disagree is it read: a file
+    /// that states the entry and states nonsense has made a different mistake from one that
+    /// states nothing at all, and [`MediaBoxSubstitution`] is what tells a reader which.
+    media_box_stated: bool,
     crop_box: Option<[f32; 4]>,
     rotate: Option<i64>,
 }
@@ -147,16 +153,40 @@ impl Inherited {
     /// ancestor's value applies, not the root's.
     fn overlay(&self, document: &Document, node: Node<'_>) -> Self {
         let entry = |key| node.key(document, key).unwrap_or(Object::Null);
+        let media_box = entry("MediaBox");
         Self {
             resources: entry("Resources")
                 .as_dict()
                 .cloned()
                 .or_else(|| self.resources.clone()),
-            media_box: rectangle(document, &entry("MediaBox")).or(self.media_box),
+            media_box: rectangle(document, &media_box).or(self.media_box),
+            media_box_stated: self.media_box_stated || !matches!(media_box, Object::Null),
             crop_box: rectangle(document, &entry("CropBox")).or(self.crop_box),
             rotate: entry("Rotate").as_integer().or(self.rotate),
         }
     }
+}
+
+/// Why a page's [`Page::media_box`] is [`Page::DEFAULT_MEDIA_BOX`] rather than the file's own.
+///
+/// ISO 32000-2 §7.7.3.3 Table 31 makes `/MediaBox` "( Required; inheritable )", and §7.7.3.4
+/// says where an inheritable required entry may be written instead:
+///
+/// > If such an attribute is omitted from a page object, its value shall be inherited from an
+/// > ancestor node in the page tree. If the attribute is a required one, a value shall be
+/// > supplied in an ancestor node.
+///
+/// A page whose whole ancestry states no usable rectangle has broken both sentences, and the
+/// standard states no recovery for it — so the geometry every mark on such a page is placed
+/// against is this program's rather than the producer's, and that is a *choice* rather than a
+/// reading. This is what makes the choice sayable; `crate::content::Unsupported::MediaBox` is
+/// where it gets said. ADR 0389.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum MediaBoxSubstitution {
+    /// No node in the page's ancestry writes `/MediaBox` at all.
+    Absent,
+    /// A node writes it, and no node writes §7.9.5's rectangle: four numbers, each finite.
+    NotARectangle,
 }
 
 /// Reads a four-number rectangle, normalising the corner order.
@@ -256,6 +286,14 @@ pub struct Page {
     pub resources: Dictionary,
     /// The media box, after inheritance, as `[x0, y0, x1, y1]`.
     pub media_box: [f32; 4],
+    /// Set where [`Self::media_box`] is [`Self::DEFAULT_MEDIA_BOX`] because the file states none.
+    ///
+    /// `None` for every page whose ancestry supplies §7.7.3.3's required entry, which is every
+    /// page of every conforming file. Where it is set, the whole page's geometry — its size, and
+    /// therefore where each of its marks lands on a raster — is this program's guess, and
+    /// `crate::content::interpret` says so out loud rather than letting a guessed page look like
+    /// a stated one.
+    pub substituted_media_box: Option<MediaBoxSubstitution>,
     /// The crop box, after inheritance, defaulting to the media box.
     pub crop_box: [f32; 4],
     /// §14.11.2.1's bleed box, defaulting to the crop box. Not inheritable (§7.7.3.4).
@@ -304,6 +342,13 @@ impl Page {
     /// substitutes a default rather than refusing the page. A4 is chosen over US Letter
     /// because this project's corpus and locale are metric; the choice is visible here
     /// rather than buried at a call site.
+    ///
+    /// **It stays A4, and that is principle 5 rather than inertia.** `pdftoppm`, `mutool` and
+    /// `gs` all draw such a page 612 × 792, and moving to match them would be curve-fitting to
+    /// three renderers on a question ISO 32000-2 answers nowhere — the standard requires the
+    /// entry and states no default for a file that omits it. What the disagreement earns is a
+    /// *report*, not a new constant: [`Self::substituted_media_box`] carries the fact and
+    /// `crate::content::Unsupported::MediaBox` says it. ADR 0389.
     pub const DEFAULT_MEDIA_BOX: [f32; 4] = [0.0, 0.0, 595.276, 841.89];
 
     /// Returns the visible width in PDF units: the width of [`Self::display_box`].
@@ -886,6 +931,14 @@ fn build_page(
     view: (Boundary, Boundary),
     id: Option<ObjectId>,
 ) -> Page {
+    // §7.7.3.4 puts a required inheritable entry in the page or in an ancestor; a page whose
+    // whole ancestry supplies neither leaves this reader with no geometry to place its marks
+    // against, and the substitute is remembered so that it can be reported rather than assumed.
+    let substituted_media_box = match (inherited.media_box, inherited.media_box_stated) {
+        (Some(_), _) => None,
+        (None, true) => Some(MediaBoxSubstitution::NotARectangle),
+        (None, false) => Some(MediaBoxSubstitution::Absent),
+    };
     let media_box = inherited.media_box.unwrap_or(Page::DEFAULT_MEDIA_BOX);
 
     // The crop box is intersected with the media box, as the specification requires: a
@@ -965,6 +1018,7 @@ fn build_page(
         dict: dict.clone(),
         resources: inherited.resources.clone().unwrap_or_default(),
         media_box,
+        substituted_media_box,
         crop_box,
         bleed_box,
         trim_box,

@@ -67,5 +67,11 @@ pub(crate) fn describe(item: &Unsupported) -> String {
                 "optional content was drawn because its visibility could not be decided: {detail}"
             )
         }
+        // The second report whose subject is the file, and the only one about the page as a
+        // whole: everything above says a mark is missing or wrong, and this says the *sheet* the
+        // marks were placed on is not the producer's (§7.7.3.3, §7.7.3.4; ADR 0389).
+        Unsupported::MediaBox { detail } => {
+            format!("the document states no page size, so one was chosen for it: {detail}")
+        }
     }
 }

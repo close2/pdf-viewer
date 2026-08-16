@@ -671,6 +671,63 @@ fetchable into `corpus-cache/` for a round that wants the population. What is un
 after this chunk is `pdfbox`'s 64 and `pdf-differences`' 37; the second of those is §4's first
 bullet and still wants its decision about the verdict vocabulary before anybody runs it.
 
+### 13. The chunk the five-hundred-and-fifty-fourth took: `pdfbox`'s 64
+
+§12 names its own successor and there was nothing to choose: **`doc/corpora/pdfbox`'s 64
+documents**, the larger of the two it leaves unranked and the one that needs no decision first.
+It is the right *kind* of chunk by §1's rule as well — `pdfbox/src/test/resources/input` is another
+PDF library's regression corpus, so every file in it is there because it broke something, which is
+the diagnostic property §1 says outranks size. This tree already read it for §2a's frozen
+`PDFTextStripper` comparison and had never pointed a raster at it.
+
+The survey line, a baseline for this population and never a ratchet: `tools/safedocs survey --dir`
+reproduces `doc/oracle-and-corpus.md` §2's row for this corpus exactly, and the one incomplete is
+the `MAX_FORM_DEPTH` that table has recorded since the corpus arrived.
+
+- **The ranking separated nothing, and the finding is in the column beside it.** Page one at
+  72 dpi against `pdftoppm`, `mutool` and `gs`, every invocation explicit about the page box
+  (trap 3), ranked by our ink minus the lightest live reference's: the whole negative tail is
+  **−0.410 and shallower** — glyph weight, and the three deepest were opened side by side — and
+  the largest positive is `gs` drawing one notice 20% light. What the script also prints is each
+  panel's **raster size**, because trap 3's tell is a dimension rather than a difference, and one
+  row of the 64 has ours at 596 × 842 where all three references say 612 × 792. Its *gap* is
+  `none`: every renderer draws that page blank, because its two `Text` annotations set Table 167's
+  Hidden bit. **A page everybody draws blank at two different sizes is invisible to a ranking by
+  ink**, and the audit column found it anyway. That is the transferable half of this chunk.
+- **The defect is a page with no `/MediaBox` anywhere in its ancestry**, which §7.7.3.3 makes
+  required and §7.7.3.4 requires of the page or of an ancestor. The standard states no recovery,
+  so `Page::DEFAULT_MEDIA_BOX` stands in — **and it stays A4**, because moving a constant to match
+  three references on a question the standard answers nowhere is curve-fitting, and the three do
+  not even agree under perturbation: on a `/MediaBox [0 612 792]` they answer 612 × 792, 792 × 612
+  and nothing at all. What the disagreement earns is a *report*, which is ADR 0389 and the
+  eleventh place this program reports while drawing.
+- **The population, measured with `examples/media_box_census` over every corpus on this disk** —
+  one process per archive for the crawl, the surveys' own method, and a baseline rather than a
+  ratchet: **4 of the 974, 1 of `pdfbox`'s 64, 4 of `format-corpus`' 167, 0 of `pdf20examples` and
+  `pdf-differences`, and 1 document of the 65 703 crawled that open** — 22 pages, every one with
+  `/Contents`, an arithmetic worksheet this tree draws 50 points low and 16 units narrow. That
+  crawl rate, 1 in 65 703, is the rarest this file has recorded. **Not one page of the whole
+  population states another of §14.11.2's boxes**, which is what says the substitution discards
+  nothing the file wrote.
+- **The handbuilt corpus was called spent in §7 and was spent only for the question it was asked.**
+  Two of `format-corpus`' four witnesses are
+  `T02-03_008_page-object-mediabox-missing.pdf` and `T02-03_009_page-object-mediabox-not-rectangle.pdf`,
+  one per branch of the substitution, built to carry this defect and nothing else. §7's
+  one-line ink assertion could not see them because **they never drew blank — they drew the wrong
+  page**, and it took a different question, arriving from a different corpus, to reach them. A
+  diagnostic corpus is spent per *predicate*, not per corpus.
+- **The report cost zero judged pages**, which is trap 11's question answered rather than waved at.
+  Of the four in the 974, one is already unusable, two are already incomplete for other reasons,
+  and the fourth — `issue15590.pdf` — is `not comparable` because all three references refuse it.
+  The corpus gate goes 64 → 65 incomplete and the oracle's `not comparable` moves 8 → 7 *on pages
+  we call complete* with every other line identical; the display-list digest over all 974 first
+  pages is byte-identical, which is why no quorra lane and no ink sweep were run.
+
+**What this chunk leaves.** `pdf-differences`' 37 is now the only unranked population on this disk,
+and it is still §4's first bullet: an oracle run over files chosen for disagreement will produce
+`ambiguous` almost everywhere, so the verdict vocabulary wants deciding before anybody runs it.
+The other offer §1 still holds open is SafeDocs' 31 GB issue-tracker corpus.
+
 ## What not to do
 
 - **Do not start a multi-gigabyte download without asking**, and on a metered connection do not

@@ -46,7 +46,7 @@ and *ratchets none of them*.
 | `doc/pdf.js/test/pdfs` (the gate) | 974 | — | **65 incomplete** | — |
 | `doc/corpora/pdf20examples` | 7 | **7** | 0 | CC BY-SA 4.0 |
 | `doc/corpora/pdf-differences` | 37 | 30 | 7 | Apache-2.0 |
-| `doc/corpora/pdfbox` (`.../test/resources/input`) | 64 | 63 | 1 | Apache-2.0 |
+| `doc/corpora/pdfbox` (`.../test/resources/input`) | 64 | 63 → 62 | 1 → **2** | Apache-2.0 |
 | SafeDocs `CC-MAIN-2021-31`, archive `0000`, first 24 | 24 | 22 | 2 | crawled web, no grant — never committed |
 | SafeDocs `CC-MAIN-2021-31`, archive `3500`, first 24 | 24 | 22 | 2 | crawled web, no grant — never committed |
 | **SafeDocs `CC-MAIN-2021-31`, 79 archives `50 + 100k`, first 24 of each** (session 425) | **1896** | **1802** | **86** → 85 | crawled web, no grant — never committed |
@@ -206,6 +206,13 @@ new documents), and two are the one place this tree and PDFBox make different **
 the same permission, where PDFBox reads a two-byte code as a Unicode value and this tree will
 not.
 
+**A raster was pointed at the same 64 in the five-hundred-and-fifty-fourth**, which nobody had
+done: page one at 72 dpi against `pdftoppm`, `mutool` and `gs`, ranked by our ink minus the
+lightest live reference's. The ranking separated nothing — the whole negative tail is −0.410 and
+shallower and the three deepest are one page four times — and the finding came out of the *size*
+column beside it, on a page every renderer draws blank at two different sizes (ADR 0389,
+`doc/todo/03` §13).
+
 ### 2b. `openpreserve/format-corpus` — three directories of it are the fourth submodule
 
 **Taken in the four-hundred-and-seventieth session** (ADR 0305), on the project owner's rule that a
@@ -253,6 +260,16 @@ node with no `/Kids` that was drawn as a page, whose file now reads **0.807367**
 one. **Thirteen read 0 today and not one of them is silent about it** — eleven report, two are the
 blank the standard asks for — which is the strongest statement this instrument can make and is what
 made 0.1 MB of files worth three rounds against 93 GB of crawl.
+
+**And that is the strongest statement about *blankness*, which is narrower than it reads.** The
+five-hundred-and-fifty-fourth session arrived at
+`T02-03_008_page-object-mediabox-missing.pdf` and `T02-03_009_page-object-mediabox-not-rectangle.pdf`
+from `pdfbox`, not from here: both draw their *Hello PDF-world!* at 0.779 rather than 0.807367 —
+close enough to read as glyph weight and produced by a page **596 × 842 where three references say
+612 × 792**, because neither file states a usable `/MediaBox` and this tree substituted one in
+silence (ADR 0389). A file that draws the right ink on the wrong sheet passes the assertion above
+and always would have. **An instrument is spent for the predicate it was asked**, and this one's
+predicate is a zero.
 
 **The other four directories are ordinary populations** and produced nothing new:
 `pdfCabinetOfHorrors` (24, archival horrors: encryption, embedded video, a corrupt byte) reports a
