@@ -455,12 +455,6 @@ impl<'a> Encoder<'a> {
             return Ok(());
         };
         let mask = self.mask_id(builder, mask)?;
-        // What a radial cone's exact evaluation is worth doing over — the shape's own
-        // device pixels rather than the page's, because an extended radial covers
-        // everything. Taken from the whole path, so the collapsed-subpath split below
-        // shares one conservative bound rather than measuring three.
-        let within = self.device_pixels(path, transform);
-
         // ISO 32000-2 §10.7.4: no shape may disappear, and a subpath with no
         // extent along one axis has zero area for every coverage rasteriser. The
         // split — which subpaths enclose area, which become one-device-pixel
@@ -478,7 +472,7 @@ impl<'a> Encoder<'a> {
                     (marks, transform, FillRule::NonZero),
                     paint,
                     (clip, mask, blend),
-                    within,
+                    path,
                 )?;
             }
             if split.filled.is_empty() {
@@ -490,7 +484,7 @@ impl<'a> Encoder<'a> {
                 (filled, transform, rule),
                 paint,
                 (clip, mask, blend),
-                within,
+                path,
             );
         }
 
@@ -500,11 +494,28 @@ impl<'a> Encoder<'a> {
             (outline, transform, rule),
             paint,
             (clip, mask, blend),
-            within,
+            path,
         )
     }
 
     /// One fill, geometry already uploaded: the paint decides the lane.
+    ///
+    /// `shape` is the fill's **whole** path, before §10.7.4's collapsed-subpath split, and it is a
+    /// path rather than the rectangle it used to be for a measured reason. The only thing that
+    /// rectangle is wanted for is the device window a radial cone is evaluated over — a question a
+    /// solid colour never asks — and taking it eagerly in [`Self::fill`] meant every fill paid
+    /// [`Path::bounds`], which on its first call walks the whole path to memoise a hull. On the
+    /// project owner's drawing that is 58 003 fills, none of them a shading, and one walk of
+    /// 3.0 M path segments for an answer nothing reads.
+    ///
+    /// **Asking inside the one branch that reads it took 267.3 M instructions off an open plus
+    /// two frames — 0.99 % of the whole program — and 20.5 % off the scene phase of a zoom frame**
+    /// (callgrind, and minima of ten interleaved rounds on the owner's own adapter; ADR 0387).
+    /// The pixels cannot move: the value's only consumer is [`Self::radial_cone`], which now
+    /// receives exactly what it received before.
+    ///
+    /// It stays the *whole* path rather than the split pieces so that the three calls in
+    /// [`Self::fill`] still share one conservative bound instead of measuring three.
     fn emit_fill(
         &mut self,
         builder: &mut SceneBuilder,
@@ -515,7 +526,7 @@ impl<'a> Encoder<'a> {
             Option<quorra_scene::MaskId>,
             BlendMode,
         ),
-        within: (u32, u32, u32, u32),
+        shape: &Path,
     ) -> Result<(), QuorraRasterError> {
         // §8.7.4.5.4's cone, where the clause's "greatest value of s" can be a root the
         // shading's own `/Extend` refuses and the answer is the other one. No two-point
@@ -524,7 +535,7 @@ impl<'a> Encoder<'a> {
         // Only a *fill* takes this door, exactly as in the sibling backends: a stroke's
         // outline is not the shape quorra is handed, and no corpus document strokes a cone.
         if let Paint::Shading(shading) = paint
-            && let Some(cone) = self.radial_cone(shading, within)?
+            && let Some(cone) = self.radial_cone(shading, self.device_pixels(shape, transform))?
         {
             return builder
                 .fill(
@@ -901,6 +912,10 @@ impl<'a> Encoder<'a> {
     /// Half a pixel of margin on each side, because a pixel is sampled at its centre and a
     /// shape ending at x = 10.0 still covers the sample at 9.5 — `MeshRaster::build`'s own
     /// margin, and the same bound the sibling backends compute for a radial cone.
+    ///
+    /// **Not free, which is why [`Self::emit_fill`] asks it only where a cone will read it.**
+    /// [`Path::bounds`] walks every control point on its first call for a path, and a display
+    /// list of ordinary fills would otherwise pay that walk for a number none of them uses.
     #[expect(
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss,

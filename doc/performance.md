@@ -146,6 +146,33 @@ points — the denominator had grown. A share that moves because the denominator
 about the function, and the only way to tell the two apart is to keep the absolute figure. Both
 ADRs' tables carry it for that reason.
 
+### 3d. What a *zoom step* costs, and the two rows of it that were never what they looked like
+
+**The frame a person waits for on a large drawing is a magnification against warm caches**, and
+`crates/render-quorra/examples/zoom_frame.rs` is the instrument that draws exactly that: two frames
+on one device, the second placing the same display list at a new scale. It reports what nothing else
+here reported — quorra's `bytes_uploaded`, its `Timings::readback`, and the named spans of
+`Timings::phases` — and **it runs on the real adapter without a window**, which is the correction
+`doc/environment.md` now carries.
+
+What belongs here is not the numbers (the example prints them) but two shapes that cost this project
+rounds of misreading, both found in the five-hundred-and-fifty-second session (ADR 0387):
+
+- **A count beside a duration will be read as its denominator, whether or not it is one.** The frame
+  line printed *resource* uploads next to `transfer`, and the two are unrelated: the frame that
+  hands over 58 029 resources moves fewer bytes than the frame that hands over 40. The fix is not a
+  faster phase, it is printing the quantity the duration is actually about — and the number had been
+  crossing the boundary, unread, since the instrument was built.
+- **A phase one side measures and the other drops gets attributed to something else.** `elsewhere`
+  was documented here as the acquire, the present and the readback; measured, the first two are
+  three hundredths of one per cent of it and the third was a phase this tree was not carrying at all.
+  Its real contents are host time inside the library's own `render` call — one span it measures and
+  discards, one it never times.
+
+**And the row that decides where every remaining lever is**: on the owner's own adapter, `execute` —
+the graphics device's own timestamps — is **0.07 %** of a zoom frame of that document. A viewer whose
+slow frame is 99.9 % host thread has no lever on the device at all.
+
 ## What a soft mask cost, and what naming one constant took off it
 
 **Instrument: `crates/pdf-model/examples/open_one`**, which opens, interprets and rasterises one

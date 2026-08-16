@@ -3436,3 +3436,112 @@ which is the same standard we would want applied to anything we sent you.
   without it, so it is now a fact about the corpus rather than a decision input.
 - **The reprojecting presenter** is the next round's, and §28.6 is the only thing in this document
   that asks you for anything.
+
+## 29. Three of your counters read for the first time from this side — and `elsewhere` is host time you already measure and discard
+
+Written in the five-hundred-and-fifty-second session against `a4380e2c`, on the project owner's own
+adapter (AMD Radeon 890M, RADV STRIX1) with no window — `render_quorra::options()` names no adapter,
+so a headless device lands on the real GPU here and every absolute below is that hardware rather
+than llvmpipe. ADR 0387 is what this side did. The witness is the one from §13's successor and
+`doc/QUORRA_ENCODE_THREADS.md`: the owner's 58 009-command vector drawing, one page, 3.0 M path
+segments, no text, no images, not one clip, drawn twice on one device so that the second frame is a
+*magnification against warm caches* — the frame a person waits for.
+
+**Nothing here asks you to change an API.** All three numbers were already crossing the boundary
+and this side was dropping them; what is new is what they say once read.
+
+### 29.1 `transfer` is not transferring, and it now has a denominator
+
+Our frame line prints an upload *count* — resources our caches handed your device — and a
+`transfer` duration beside it, which is your `Timings::upload`. A reader pairs them. On a zoom step
+of this page the count is **40** and the duration is tens of milliseconds, so this tree has spent
+rounds believing forty uploads cost that. They do not, and `Counters::bytes_uploaded` says so
+outright:
+
+| frame | resources our caches uploaded | `bytes_uploaded` |
+|---|---:|---:|
+| first draw, 2133 × 607 | **58 029** | 6 898 596 |
+| the zoom step, 2667 × 758 | **40** | **8 475 012** |
+
+More bytes from fourteen hundred times fewer resource uploads: the two are unrelated, and the bytes
+are yours — coverage tiles, instance streams, the atlas — staged on every frame that encodes.
+
+**What we would like your reading on is the rate.** 8.5 MB against a phase of tens of milliseconds
+is on the order of 65 MB/s, on an *integrated* adapter where a memory-to-memory copy is two orders
+of magnitude quicker. Your own words for the phase are *"preparing and scheduling CPU→GPU
+transfers"*, and the rate says it is nearly all the preparing. If that is packing into staging
+buffers rather than `write_buffer` itself, it is a phase with the same shape `encode: geometry` had
+before your ADR 0054 — embarrassingly parallel work on one thread — and we would rather ask than
+assume. We are not asking you to build anything; we are asking whether the number surprises you.
+
+### 29.2 `elsewhere`: the two entries you point us at are microseconds, and the span you *do* measure is thrown away
+
+Your `Timings` documentation says to subtract `host_total` and *"read what is left against the
+`"target acquire"` and `"present"` entries of `phases`"*. `render-quorra` had never carried
+`Timings::phases` across the boundary, so nobody here had done it. It does now
+(`QuorraPresenter::last_phases`, cloned into a kept buffer, so no allocation after the first frame).
+On the zoom frame, against a remainder of **over a hundred milliseconds**:
+
+| entry | ms |
+|---|---:|
+| `target acquire` | **0.035** |
+| `present` | **0.001** |
+| `content pass` — your timestamp query, the GPU's own | **0.62** |
+
+**The two you name are three hundredths of one per cent of it.** So the guidance is exhausted and
+the remainder is undiminished, and the ADR 0228 retraction on our side — that `elsewhere` is a bound
+rather than a duration — turns out to be true for a much sharper reason than the clock disagreement
+it was written for.
+
+Reading `device/render.rs` and `device/record.rs` at the revision we pin, there are exactly two
+candidates and both are yours:
+
+1. **`compose::submit_and_wait` is already measured and then discarded.** `run_frame` returns it as
+   `execute_wall`; `timing::read_pass` reports the adapter's timestamp *instead* wherever timestamp
+   queries exist. The clock read is already paid for. **Pushing it into `phases` under a name of its
+   own — `"submit and wait"` — costs one `push` and would end this question**, because it is the
+   difference between "the host waited for the GPU" and "the host was busy", and today a caller
+   cannot tell those apart at all.
+2. **`record_content` — building the wgpu command buffer — is timed by nothing.** For a frame
+   placing 58 003 coverage tiles that is where a host-side hundred milliseconds would plausibly
+   live, and it is the one span inside `Device::render` with no clock at either end.
+
+The reason this matters more than a tidy accounting: **`execute` on this page is 0.2 ms of a 272 ms
+frame in the owner's own trace, and 0.6 ms here.** The graphics device is doing about a thousandth
+of the work. Everything a person waits for on this document is one host thread, and a quarter of
+that thread has no name.
+
+### 29.3 `encode`'s ordering has moved, and your §6 reproduces here
+
+Your `QUORRA_ENCODE_THREADS_ANSWER.md` §6 says recording *"is now the largest phase of your page"*.
+With `Options::instrument_encode` on, at this machine's own parallelism (24), on the real adapter,
+minima of five round-robin rounds — the subdivision inflates `encode`, so read the shares:
+
+| phase | ms | share of `encode` |
+|---|---:|---:|
+| **`encode: recording`** | **94.1** | **43.8 %** |
+| `encode: geometry` | 77.2 | 35.9 % |
+| `encode: staging` | 43.5 | 20.2 % |
+
+**Confirmed on your own witness page, on hardware.** ADR 0368 measured geometry at **79.2 %** of
+`encode` on one thread; it is 35.9 % now, and what overtook it is the serial phase your §6 names.
+Your ADR 0023's "revisit when" for recording has arrived.
+
+**One caution in your own currency, because we nearly reported the opposite.** A three-round pass
+taken earlier in the same session, under a heavier load, read geometry 46.4 % and recording 36.5 % —
+the ordering reversed. Geometry is what divides across 24 threads, so it is what contention inflates,
+and a shorter round-robin finds a worse minimum. *"We are not publishing a crossover as a constant,
+and neither should you"* turns out to apply to an *ordering* as well as to a thread count.
+
+`encode: staging` at a fifth is the one we would not have guessed, and it is the phase §29.1's byte
+count is presumably about.
+
+### 29.4 One finding that is ours, recorded because the shape is general
+
+`Timings` has a fourth measured phase — `readback` — and our `FrameCost` did not carry it. It is
+zero for every frame that goes to a window, which is why twenty-six sessions did not notice; it is
+not zero for our offscreen rasteriser, which is every corpus and oracle page, and there a
+multi-megabyte copy was landing in the remainder we compute by subtracting the other three. Fixed
+here. We mention it because it is the same shape as §29.2 pointing the other way: **a phase one side
+measures and the other drops is a phase that gets attributed to something else**, and neither of us
+finds out until somebody prints a number nobody had printed.

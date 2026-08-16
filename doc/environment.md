@@ -39,6 +39,17 @@ can and cannot open a window on, and where the build lands.
 as user `AI` via `sudo -u AI`, reaching `/home/cl/projects/pdf-viewer` through the `coders` group.
 **Hand a run on the real GPU to the user; everything else is testable here.**
 
+- **That sentence is about a *window*, and it was read for many rounds as being about the
+  adapter.** It is not: a **headless** quorra device needs no display, no session and no X
+  authority cookie, and `render_quorra::options()` names no adapter — so
+  `QuorraRasterizer::new_headless` comes up on the **real** Radeon 890M for user `AI`, which
+  `adapter_description()` prints on every run. Session 552 measured a zoom frame's phases on the
+  owner's own hardware from a plain `cargo run`, having spent the first hour of the round writing
+  down that it could not. So: **an offscreen measurement is takeable here on the real adapter**, and
+  what genuinely needs the owner's session is the swapchain, the present and the cadence.
+  `new_headless_software` pins llvmpipe on purpose and stays what it is for — a gate that must not
+  depend on hardware.
+
 - KDE Frameworks 6 packages on Arch have no `kf6-` prefix (`kio`, `kconfig`, `ki18n`).
 - **Launch with a login shell** so `umask 002` applies, or every file the agent creates is
   unwritable by `cl`: `sudo -u AI bash -lc 'cd /home/cl/projects/pdf-viewer && claude'`

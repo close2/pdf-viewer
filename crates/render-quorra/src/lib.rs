@@ -118,6 +118,8 @@ pub struct QuorraRasterizer {
     slot: present::FrameSlot,
     last: FrameCost,
     functions: FunctionPaints,
+    /// See [`QuorraRasterizer::last_phases`]; filled rather than replaced, so it allocates once.
+    phases: Vec<(&'static str, std::time::Duration)>,
 }
 
 impl QuorraRasterizer {
@@ -165,6 +167,7 @@ impl QuorraRasterizer {
             slot: present::FrameSlot::default(),
             last: FrameCost::default(),
             functions: FunctionPaints::default(),
+            phases: Vec::new(),
         })
     }
 
@@ -233,6 +236,7 @@ impl QuorraRasterizer {
             &mut present::Reported {
                 cost: &mut self.last,
                 functions: &mut self.functions,
+                phases: &mut self.phases,
             },
         );
         self.last.total = began.elapsed();
@@ -251,6 +255,15 @@ impl QuorraRasterizer {
     #[must_use]
     pub fn last_frame(&self) -> FrameCost {
         self.last
+    }
+
+    /// The named spans quorra measured inside the last frame — see
+    /// [`QuorraPresenter::last_phases`], which documents what is in the list and what is not.
+    ///
+    /// [`QuorraPresenter::last_phases`]: crate::QuorraPresenter::last_phases
+    #[must_use]
+    pub fn last_phases(&self) -> &[(&'static str, std::time::Duration)] {
+        &self.phases
     }
 
     /// What the scene last built did with §8.7.4.5.2's type 1 shadings: how many the device

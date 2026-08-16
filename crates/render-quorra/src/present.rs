@@ -102,6 +102,18 @@ pub struct FrameCost {
     pub upload: std::time::Duration,
     /// Inside `device`: the drawing passes themselves.
     pub execute: std::time::Duration,
+    /// Inside `device`: copying the finished frame back off the device, mapping it, and
+    /// converting premultiplied alpha to straight.
+    ///
+    /// **Zero for every frame that goes to a window**, which is why this field was missing for
+    /// twenty-six sessions and why leaving it missing was wrong. A surface frame is presented and
+    /// never read, so [`QuorraPresenter::present`] reports zero here and nothing about the
+    /// viewer's own trace changes. What *does* read back is
+    /// [`crate::QuorraRasterizer::rasterize_frame`] — every corpus and oracle page, and the
+    /// zoom-step instrument — and there the copy of a multi-megabyte frame was landing in the
+    /// remainder a caller computes by subtracting the other three. A phase quorra measures and a
+    /// host drops is a phase a host will attribute to something else (ADR 0387).
+    pub readback: std::time::Duration,
     /// Whether [`Self::execute`] came from the adapter's timestamp queries rather than from a
     /// wall clock over the submit-and-wait.
     pub execute_measured: bool,
@@ -304,7 +316,11 @@ impl FrameSlot {
         into: quorra_gpu::Target<'_>,
         reported: &mut Reported<'_>,
     ) -> Result<quorra_gpu::Frame, QuorraRasterError> {
-        let Reported { cost, functions } = reported;
+        let Reported {
+            cost,
+            functions,
+            phases,
+        } = reported;
         let began = std::time::Instant::now();
         let key = SceneKey::of(frame, background, &mut self.rasters);
         let mut release_error: Option<quorra_gpu::DeviceError> = None;
@@ -379,7 +395,7 @@ impl FrameSlot {
         cost.retained_bytes = held.scene.retained_bytes();
 
         let drawn = rendered?;
-        cost.read(&drawn);
+        cost.read(&drawn, phases);
         if let Some(error) = release_error {
             return Err(error.into());
         }
@@ -467,11 +483,23 @@ impl SceneKey {
 
 impl FrameCost {
     /// Reads back what quorra measured and counted, whichever way the frame was drawn.
-    fn read(&mut self, drawn: &quorra_gpu::Frame) {
+    ///
+    /// `phases` is filled rather than replaced, which is the whole reason it is an argument
+    /// instead of a field: [`quorra_gpu::Timings::phases`] is a `Vec` quorra allocates every
+    /// frame, and a host that cloned it would allocate every frame too. Cloning *into* a buffer
+    /// the caller keeps reuses its capacity after the first frame, so what a still window pays
+    /// for the finest instrument this boundary carries is a memcpy of a handful of entries.
+    fn read(
+        &mut self,
+        drawn: &quorra_gpu::Frame,
+        phases: &mut Vec<(&'static str, std::time::Duration)>,
+    ) {
         let timings = drawn.timings();
+        phases.clone_from(&timings.phases);
         self.encode = timings.encode;
         self.upload = timings.upload;
         self.execute = timings.execute;
+        self.readback = timings.readback;
         self.execute_measured = matches!(
             timings.execute_provenance,
             quorra_gpu::TimingProvenance::TimestampQueries
@@ -496,6 +524,7 @@ pub struct QuorraPresenter {
     slot: FrameSlot,
     last: FrameCost,
     functions: FunctionPaints,
+    phases: Vec<(&'static str, std::time::Duration)>,
 }
 
 impl QuorraPresenter {
@@ -595,6 +624,7 @@ impl QuorraPresenter {
             slot: FrameSlot::default(),
             last: FrameCost::default(),
             functions: FunctionPaints::default(),
+            phases: Vec::new(),
         }
     }
 
@@ -650,6 +680,41 @@ impl QuorraPresenter {
         self.last
     }
 
+    /// The named spans quorra measured inside the last frame, in quorra's own words.
+    ///
+    /// **The finest instrument this boundary carries, and until ADR 0387 nothing on this side
+    /// read it.** [`FrameCost`]'s four durations are a partition of one `Instant` span; these are
+    /// whatever quorra chose to name inside them, and what is in the list depends on what the
+    /// adapter and the options allow:
+    ///
+    /// - **One entry per drawing pass**, wherever the adapter offers timestamp queries — the
+    ///   subdivision of [`FrameCost::execute`], and the reason [`FrameCost::execute_measured`]
+    ///   exists to be asked first.
+    /// - **`encode: geometry`, `encode: staging` and `encode: recording`**, wherever the device
+    ///   was built with `quorra_gpu::Options::instrument_encode`. That is off by default and
+    ///   costs a few per cent of `encode` when it is on (ADR 0368 measured 512.8 ms against
+    ///   475.9), so a subdivision read from it is *shares* rather than absolutes.
+    /// - **A one-off a frame absorbed**, such as a first-use pipeline compilation.
+    ///
+    /// So an empty slice is an ordinary answer and not a failure: it is what a device with no
+    /// timestamp queries and no encode instrument has to say.
+    ///
+    /// - **`target acquire` and `present`**, the two host-side steps of
+    ///   [`FrameCost::device`] that are in none of the three durations, which is what quorra's
+    ///   own documentation of [`quorra_gpu::Timings`] directs a caller to read the remainder
+    ///   against.
+    ///
+    /// **And reading them is what says the remainder is still unexplained.** On the project
+    /// owner's own adapter the two together are under a *twentieth* of a millisecond on a frame
+    /// whose unnamed span is over a hundred, so the span the viewer's trace calls `elsewhere`
+    /// has a subdivision that accounts for none of it. Calling it a bound rather than a duration
+    /// (ADR 0228) therefore stands, and `doc/QUORRA_FEEDBACK.md` section 29 is what went back with
+    /// the numbers.
+    #[must_use]
+    pub fn last_phases(&self) -> &[(&'static str, std::time::Duration)] {
+        &self.phases
+    }
+
     /// Reads back the frame this presenter last put on the window.
     ///
     /// **Why a window-owning presenter has this and the offscreen rasteriser does not.** A
@@ -703,6 +768,7 @@ impl QuorraPresenter {
             &mut Reported {
                 cost: &mut self.last,
                 functions: &mut self.functions,
+                phases: &mut self.phases,
             },
         );
         self.last.total = began.elapsed();
@@ -719,6 +785,7 @@ impl QuorraPresenter {
 pub(crate) struct Reported<'a> {
     pub(crate) cost: &'a mut FrameCost,
     pub(crate) functions: &'a mut FunctionPaints,
+    pub(crate) phases: &'a mut Vec<(&'static str, std::time::Duration)>,
 }
 
 /// Assembles the frame's scene: medium, page (or its raster stand-in), overlays.

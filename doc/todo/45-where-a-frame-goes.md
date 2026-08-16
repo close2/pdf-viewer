@@ -93,14 +93,35 @@ from the adapter's own timestamp queries and `device` is a host `Instant`, so th
 whatever the two clocks disagree by along with the acquire, the present and the readback. The
 summary says so in a line of its own now, and the two ways out are quorra's. ADR 0228 §4.
 
+**And the retraction's own enumeration was wrong, measured in session 552** (ADR 0387). "The
+acquire, the present and the readback" named three things, and all three are now read rather than
+assumed: `QuorraPresenter::last_phases` carries quorra's `Timings::phases` across the boundary, and
+on the owner's own adapter `target acquire` is **0.035 ms** and `present` is **0.001 ms** on a zoom
+frame whose `elsewhere` is over a hundred — three hundredths of one per cent of it. The readback is
+zero for a window by construction and was the *other* half of the finding: `Timings::readback` is a
+fourth measured phase this tree was not carrying at all, so on the offscreen rasteriser a
+multi-megabyte copy was landing in this remainder. `FrameCost::readback` exists now.
+
+**What is left in `elsewhere` is host time inside `Device::render` that quorra measures and
+discards**, and it is legible from upstream's own source rather than inferred: `compose::submit_and_wait`
+is timed as `execute_wall` and then replaced by the adapter's timestamp wherever timestamp queries
+exist, and `record_content` — building the wgpu command buffer for 58 003 coverage tiles — is timed
+by nothing. `doc/QUORRA_FEEDBACK.md` §29.2 is the ask, and it costs upstream one `push`.
+
 **And `encode`'s own three phases have now been read, once** (session 533, ADR 0368):
 `Options::instrument_encode` was switched on over `tmp/Entwurf.pdf` and answered **geometry 79.2%,
 recording 16.2%, staging 4.6%** — quorra's coverage rasterisation, on one thread, for 59% of the
 whole frame. That is the row's original question ("nothing inside it is visible from here")
 answered for one page rather than for the corpus, and `doc/QUORRA_ENCODE_THREADS.md` is what went
-back. The probe was removed: `render-quorra` reads `Timings` and drops `Timings::phases`, so seeing
-the subdivision from a host still costs a patch, and whether it becomes a `FrameCost` field is left
-to the round that next needs it.
+back.
+
+**That last question is closed** (session 552, ADR 0387): it is *not* a `FrameCost` field, because
+`FrameCost` is `Copy` and `Timings::phases` is a `Vec`. It is `QuorraPresenter::last_phases` and
+`QuorraRasterizer::last_phases` beside `last_frame`, cloned into a buffer the host keeps so that a
+still window allocates nothing for it, and `crates/render-quorra/examples/zoom_frame.rs` is the
+caller — `ZOOM_FRAME_ENCODE_PHASES=1` turns `Options::instrument_encode` on for a run that wants the
+subdivision and pays quorra's few per cent for it. Seeing the three encode phases from a host no
+longer costs a patch.
 
 **What was ours in this row is done** (session 516, ADR 0351). It read: this host builds a fresh
 `quorra_scene::Scene` every frame, so nothing inside `encode` *can* be reused — a retained scene is
@@ -119,9 +140,38 @@ hands over a new display list, so ADR 0351 takes nothing off this file's own mea
 between turns, which is the same population ADR 0297's item 2a was about and which this file
 learned once already to measure separately.
 
-## 4. There is no second machine
+### 3a. The `upload` row had no denominator, and the frame line's `up` count was standing in for one
 
-Everything above is `llvmpipe` under `Xvfb`. The owner's figures — median 60.4 ms, p90 157, max 514,
+Opened and closed by the five-hundred-and-fifty-second session (ADR 0387). §3's table gives `upload`
+a per-command fit, and the frame line prints a *resource* upload count beside a `transfer` duration —
+two quantities with nothing to do with each other, on adjacent columns, one of them a count. On a
+zoom step of `tmp/Entwurf.pdf` the count is **40** and the bytes are **8 475 012**, while the frame
+that uploads **58 029** resources moves **6 898 596** — more bytes from fourteen hundred times fewer
+uploads.
+
+quorra has counted `bytes_uploaded` since ADR 0227 and `FrameCost` has carried it ever since;
+nothing in this tree read it until the summary line that now sits under the upload count. **What the
+denominator says is that the phase is not transferring**: 8.5 MB against tens of milliseconds is
+about 65 MB/s on an integrated adapter, so it is the *preparing* half of quorra's own description of
+the phase, and it is theirs. `doc/QUORRA_FEEDBACK.md` §29.1.
+
+## 4. There is no second machine — **and the first one was reachable all along, without a window**
+
+**Corrected by the five-hundred-and-fifty-second session, and it is the most useful thing that
+round found.** This row said the numbers wanted the owner's own machine and that only the owner
+could take them. Half of that is wrong: `render_quorra::options()` names no adapter, so a
+**headless** quorra device — `QuorraRasterizer`, no surface, no event loop, no X authority cookie —
+comes up on **AMD Radeon 890M (RADV STRIX1)** for the agent user, printed by
+`adapter_description()` on every run. `examples/zoom_frame.rs` was written against that and ADR
+0387's absolutes are the owner's hardware.
+
+What still needs the owner's session is the *window*: the swapchain, the present, the cadence and
+the compositor. So the rule this row should have stated is the narrow one — **an offscreen number
+is takeable here on the real adapter, and only a windowed number is the owner's to run.** The
+pinned-to-llvmpipe constructor (`new_headless_software`) stays what it is for, which is a gate that
+must not depend on hardware.
+
+Everything below this line is `llvmpipe` under `Xvfb`. The owner's figures — median 60.4 ms, p90 157, max 514,
 and **eight budget refusals** that fell to the processor — do not reproduce here at all: `fallback`
 is zero in every column of every run, before and after. A refusal is a fact about an adapter's
 resource budget, so the eight are the Intel UHD's and cannot be chased from here. **The next run of

@@ -213,10 +213,18 @@ const SUMMARY_ROWS: [(&str, StageOf); 10] = [
     ("  encode", |frame| frame.gpu.encode),
     ("  transfer", |frame| frame.gpu.upload),
     ("  execute", |frame| frame.gpu.execute),
-    // What is inside `Device::render` and outside the three phases it names: acquiring the
-    // swapchain texture, presenting it, and reading the timestamp queries back. Printed as its
-    // own row rather than left for a reader to subtract, because an unnamed remainder is where
-    // a cost hides — and on this machine it is a sixth of the frame.
+    // What is inside `Device::render` and outside the three phases it names. Printed as its own
+    // row rather than left for a reader to subtract, because an unnamed remainder is where a cost
+    // hides — and on this machine it is a sixth of the frame.
+    //
+    // **This comment used to name what was in it — "acquiring the swapchain texture, presenting
+    // it, and reading the timestamp queries back" — and session 552 measured those three and they
+    // are not it.** `render_quorra::QuorraPresenter::last_phases` now carries quorra's own
+    // `target acquire` and `present` spans across the boundary, and on the project owner's adapter
+    // the pair is under a twentieth of a millisecond on a frame whose remainder is over a hundred.
+    // What is left is host time inside `Device::render` that quorra measures and discards — it
+    // times its own submit-and-wait and then reports the adapter's timestamp instead — plus the
+    // wgpu command recording, which nothing times at all. `doc/QUORRA_FEEDBACK.md` section 29.
     //
     // **A bound rather than a duration**, and the summary says so: where `execute` came from the
     // adapter's timestamp queries this subtracts a device clock from a host one, so the
@@ -465,6 +473,7 @@ impl FrameLog {
                 }
             ),
         );
+        self.transferred(trace);
         // **Said out loud because the row is arithmetic on two clocks** (ADR 0228). `elsewhere`
         // is `device` minus the three phases quorra names, and where `execute` came from
         // timestamp queries it is a *device* duration being subtracted from a *host* wall clock:
@@ -549,6 +558,38 @@ impl FrameLog {
         );
     }
 
+    /// What the `transfer` row was moving, which is the denominator that row never had.
+    ///
+    /// **The line above this one counts *resources* and it is a different quantity**, which is
+    /// the whole reason this exists. `up` is what `render-quorra`'s caches handed the device —
+    /// outlines, images, ramps, programs — and on a magnification of the project owner's own
+    /// drawing it is 40 while `transfer` is tens of milliseconds. Reading the second as the cost
+    /// of the first is the inference a trace with only one of the two numbers invites, and it is
+    /// wrong by three orders of magnitude: the bytes are quorra's own encoded scene — coverage
+    /// tiles, instance streams, the atlas — staged for the device on every frame that encodes,
+    /// and a frame that uploads no resource at all still moves megabytes of them. ADR 0387.
+    ///
+    /// quorra has counted them since ADR 0227 and `FrameCost` has carried the number across the
+    /// boundary ever since; nothing read it until this line.
+    fn transferred(&self, trace: Trace) {
+        let mut bytes: Vec<u64> = self
+            .samples
+            .iter()
+            .map(|frame| frame.gpu.bytes_uploaded)
+            .collect();
+        bytes.sort_unstable();
+        let total: u64 = bytes.iter().copied().fold(0, u64::saturating_add);
+        trace.more(
+            Topic::Frames,
+            format_args!(
+                "the transfer row moved {total} byte(s) over those frames: median {}, most {} \
+                 in one — quorra's own encoded scene, which is not what up counts",
+                at_rank(&bytes, 1, 2),
+                bytes.last().copied().unwrap_or(0),
+            ),
+        );
+    }
+
     /// What the retained frame did over the run, and the one thing outside this program that
     /// stops it working.
     ///
@@ -629,11 +670,11 @@ fn percent(part: usize, whole: usize) -> f64 {
 ///
 /// Integer arithmetic throughout: the workspace forbids unchecked arithmetic, and a percentile
 /// computed in floating point would have to justify its rounding as well as its rank.
-fn at_rank(
-    sorted: &[std::time::Duration],
-    numerator: usize,
-    denominator: usize,
-) -> std::time::Duration {
+///
+/// Generic over the sample because the summary now has one distribution that is not a duration —
+/// the bytes quorra staged for the device — and two ranks that disagreed about their rounding
+/// would be worse than one that is used twice.
+fn at_rank<T: Copy + Default>(sorted: &[T], numerator: usize, denominator: usize) -> T {
     let rank = sorted
         .len()
         .saturating_mul(numerator)

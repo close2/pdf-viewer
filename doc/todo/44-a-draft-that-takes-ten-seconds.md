@@ -266,6 +266,29 @@ three sessions, 639.8 / 660.0 / 661.9 ms):
 | `transfer` | 65.4 | 10.2% |
 | `execute` (the adapter's own timestamps) | 29.1 | 4.5% |
 
+### 5b. The same frame after the thread pool, on the owner's own adapter (session 552, ADR 0387)
+
+ADR 0377 turned `encode_threads` on and the frame changed shape. The owner's `tmp/trace2.entwurf.txt`,
+medians of 15 frames of a zoom session:
+
+| | ms | share |
+|---|---:|---:|
+| `scene` | 12.6 | 4.6 % |
+| `encode` | 128.9 | 47.4 % |
+| `transfer` | 64.3 | 23.6 % |
+| **`execute`** | **0.2** | **0.07 %** |
+| `elsewhere` | 62.6 | 23.0 % |
+| **whole frame** | **272.0** | |
+
+**The row to read is `execute`.** The graphics device does about a thousandth of this frame; every
+other row is one host thread, and two of them — `transfer` and `elsewhere` — are quorra's with no
+lever on this side at all. What session 552 took is the third: `scene`, −20.5 % by removing a
+device-pixel window computed for every fill and read by none of them (ADR 0387 §3). What it
+established about the other two is that neither is what it looked like: the 40 uploads move none of
+`transfer`'s bytes (§3a of `doc/todo/45`), and `elsewhere` is host time inside `Device::render` that
+quorra measures and discards. `crates/render-quorra/examples/zoom_frame.rs` is the instrument, and it
+runs on the real adapter without a window.
+
 The subdivision is `Options::instrument_encode`, which §3 named as available and nobody had
 switched on. **The geometry phase is quorra's scanline rasteriser flattening this page's
 3 011 879 path segments into 58 003 coverage tiles on one thread**, and it is identified rather
