@@ -4,7 +4,7 @@ Status: **standing** — `tools/state.sh` prints the counts; the failure modes l
 Read by: whoever is about to write or correct a ledger row, or to believe one.
 
 `doc/PLAN.md` §5a owns the ledger's format, statuses and checker; `doc/todo/01-ledger-partial-rows.md`
-owns the sweeps — fifteen now, ten of them committed programs — and what each run found — the eleventh is new in the
+owns the sweeps — fifteen now, eleven of them committed programs — and what each run found — the eleventh is new in the
 four-hundred-and-thirteenth and is the first that reads a row's *quotation marks* (ADR 0249),
 a program since the five-hundred-and-fortieth and reading single-quoted spans as well as double
 ones from that round on (ADR 0375), and
@@ -85,7 +85,10 @@ sentence each uses verbatim: the flags "shall be set and **all others clear**", 
 `NoView` clear. §14.12.4 said Table 409 was unread while `document_part.rs` reads it, and its own
 parent row said the opposite. **Shape 7 is two rows about one mechanism, disagreeing** — cousins
 rather than parent and child, which is why the arithmetic sweep cannot see them — and the tell is
-that one row gives a *capability* reason where the other names *code*. ADR 0205.
+that one row gives a *capability* reason where the other names *code*. ADR 0205. **The sweep that
+walks that population is `cargo run --release -p conformance --bin inapplicable` since the
+five-hundred-and-fifty-third**, and it prints the cousin beside the row rather than leaving a reader
+to find it (ADR 0388).
 
 **And a sixth was found in the two-hundred-and-sixteenth, by a sweep that is one `grep`:** a
 sentence a session *retired* in one row, still standing in the other row that describes the same

@@ -144,8 +144,20 @@ into a **texture it owns** instead of straight to the surface:
 - `Device::wgpu()` hands over the same device and queue, and `quorra-gpu` re-exports `wgpu`, so one
   `wgpu` is linked and there is no seam to mismatch on.
 
-**The escape hatch is complete and needs nothing from upstream.** What it costs is a blit this tree
-does not own — and that cost is a *startup* cost, not a rendering one: `CLAUDE.md` puts pipeline
+~~**The escape hatch is complete and needs nothing from upstream.**~~ **It is not, and ADR 0383
+found out why one round later: the first half of this section holds and this sentence does not.**
+Rendering into a texture the presenter owns works exactly as described — `validate_texture` asks
+`usage().contains(RENDER_ATTACHMENT)`, `Device::wgpu()` hands over the same device and queue, and
+`quorra-gpu` re-exports `wgpu`, all of it checked. **Presenting that texture needs the surface, and
+quorra owns it**: `Device` keeps `surface: Option<SurfaceState>` private with no accessor, and a
+host configuring a `wgpu::Surface` of its own needs a format that both `get_capabilities` and
+`get_default_config` will only give against a `&wgpu::Adapter` this device does not return. So the
+ask in §28.6 is not an optimisation over a working hatch — it is the hatch, or else an accessor for
+the adapter or the negotiated format. ADR 0383's "ADR 0382 §6 is corrected" section has the
+reading; ADR 0386 carries it further. *(This paragraph stood uncorrected in its own document for
+five rounds while the correction lived only in ADR 0383 — the shape ADR 0265's rule exists for,
+found by the five-hundred-and-fifty-third session's fourth sweep.)* What the hatch costs, once
+somebody has it, is a blit this tree does not own — and that cost is a *startup* cost, not a rendering one: `CLAUDE.md` puts pipeline
 compilation on the critical path by choice, so a blit pipeline built here is one more shader
 compiled on the launch path, outside quorra's warm set and outside their ADR 0043's
 negotiated-format keying. That is the argument for asking them for

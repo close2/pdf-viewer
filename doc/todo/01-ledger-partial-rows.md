@@ -37,7 +37,7 @@ written: a `'` … `'` is a quotation too (ADR 0375).
 Priority: 01 — the population with no gate, and it has paid on every session that touched it
 Code: `doc/conformance/ledger.toml`, checked by `cargo test -p conformance`
 
-**A sweep round commits one prose sweep as a program before running any of them.** Ten of the
+**A sweep round commits one prose sweep as a program before running any of them.** Eleven of the
 fifteen are commands (`conformance --bin entries`, `--bin quotations`, `--bin unread` since the
 four-hundred-and-eighty-ninth, `--bin blockers` since the five-hundred-and-first, `--bin
 capabilities` since the five-hundred-and-tenth, `--bin retired` since the
@@ -50,7 +50,11 @@ whether the file and the symbol a note names still exist and which resolves a fr
 it is written*, ADR 0372; since the five-hundred-and-fortieth, the eleventh, which is
 `--bin quotations`'s second population rather than a binary of its own, ADR 0375; and, since the
 five-hundred-and-forty-fifth, `--bin tables`, the ninth, which states in code what makes a key a
-*claim* about a table and reads a denial as a claim in the other direction, ADR 0380) and five are
+*claim* about a table and reads a denial as a claim in the other direction, ADR 0380; and, since
+the five-hundred-and-fifty-third, `--bin inapplicable`, the seventh, the only sweep that reads the
+status nobody expects to come back to, whose count of naming files replaces the stop-list every
+hand-run wrote from memory and whose *cousin* is the pair all five of its defects have been,
+ADR 0388) and four are
 still
 descriptions, and a description is what let the fifteenth go unrun for twenty-four rounds and then
 be rebuilt from its own paragraph (ADR 0319) — `CLAUDE.md`'s "write down the command, not the
@@ -2544,14 +2548,144 @@ being on a field path, no source naming `/FixedPrint` or `/MN` at all, `Envelope
 nowhere, `revocation_lists` counting `/CRLs` and asking nothing of them, and nothing anywhere
 reconstructing a signed revision — which is what moves the blame pointer without a stamp.
 
+## All fifteen run again in the five-hundred-and-fifty-third, the eleventh committed as a program, and both defects were in ADRs a later round had already disproved
+
+Eight rounds since the last full sweep, and **every one of them corrected an earlier ADR in place**
+— 0378's rules 4 and 5 (549), 0382 §6 (through 0383), 0384 §6 (through 0385) — which is the
+condition this file's fourth sweep exists for and the hazard this round was pointed at. Over
+`ledger.toml`, `crates/`, `tools/`, `fuzz/` and every Markdown document under `doc/` this project
+wrote bar `doc/history/`:
+
+- **`inapplicable` (7), as a program** (`cargo run --release -p conformance --bin inapplicable`,
+  ADR 0388). First run: **80 `inapplicable` rows stating 305 terms — 60 named by no source, 245
+  named over 72 rows, 231 of them carrying a cousin row that is not `inapplicable` and says the
+  same word.** What the program adds over the grep is the two judgements each hand-run redid: the
+  **count of naming files** in place of a stop-list, so the level is a property of the ledger and
+  the tree rather than of the session — the nine hand-runs printed 25, 64, 72, 71, 27, 66, 43, 61,
+  57 and 47 of about 80 with the population barely moving — and the **cousin**, which is where all
+  five of this sweep's defects have been. The extraction takes two derived rules where the
+  hand-runs took a word list: an inner capital makes an identifier wherever it stands, and a plain
+  `Capitalised` word counts only where it does not open a sentence. That alone took the first run
+  from 440 stated terms to 305. **One defect**: §14.5, below. And one by-catch about the file
+  rather than about a claim — §Q's note read "answering one question — does this page contain
+  transparency — and The annex states", a sentence spliced by an append, which is what put a
+  capital `The` in the middle of it and what the extraction rule printed.
+- **Retired claim (4, program)**, over the wave's nouns — `Stale`, `Base`, `composed`,
+  `Plan::Reproject`, `Cadence`, `approximated`, `device_pixels`, `Path::walked`, `last_phases`,
+  `bytes_uploaded`, `readback`, `detach_presenter`, `Presenter`, `RasterCache`: **2036 mentions, 10
+  carrying both shapes, 0 defects**, and 1445 of the 2036 are `Base` and `readback`, which is this
+  file's own warning about an ordinary English word arriving as a type name for the third wave
+  running. **Run again over the nouns of the corrections themselves** — `SHARE`, `ASSUMED`,
+  `TooDear`, `present_texture`, `capture_presented`, `atlas_repacked`, `Settled`: 1264 mentions, 5
+  carrying both shapes, **2 defects, and both are the shape the round was pointed at**. See below.
+- **Table numbers (9, program)**: 409 tables captioned, 305 stating entries; 4698 sentences name a
+  table; **1849 attributed key citations — 1710 the table agrees with, 89 absent, 4 a denial the
+  table contradicts, 46 under a table that states no entries, 0 under no such table. 0 defects.**
+  The absent are up from 75 because the five-hundred-and-forty-fifth wrote its own record of every
+  number it retired, which is this sweep's own level moving under the round that corrected it.
+- **Pointers (8, program)**: 5013 path pointers — 2791 live, 92→97 absent, 14 in another crate,
+  1738 unrooted, 118 a form, 255 not carried; 52 symbol pointers, 12 undefined. **0 defects**;
+  every absent path is an ADR naming a `doc/todo/NN` its own round deleted, another project's
+  `crates/`, or a correction quoting the pointer it retired.
+- **Blockers (program)**: ledger 22 sentences — 6 expired, 10 holding, 6 naming no clause; source
+  27 — 10, 10, 7. **0 defects**, and the one sentence more than the five-hundred-and-forty-fifth's
+  21 is that round's own "[r]ead and kept" line on §12.5.6.22.
+- **Capabilities (program)**: ledger 52 sentences — 37 witnessed by the tree, 45 about the program,
+  7 about one crate; source 151 — 124, 84, 67. 0 defects.
+- **Unread (program)**: 62 rows claim, 173 keys; 49 confirmed, 124 quoted over 52 rows, 54 by the
+  row's own code — **identical to the five-hundred-and-forty-fifth's five numbers**, which is the
+  cheapest evidence there is that a population has not drifted. 0 defects.
+- **Entries (program)**: 244 rows explain themselves by an arrival and name code, 1 names none; 756
+  table entries stated, 174 reported over 46 rows — 41 named nowhere, 133 only elsewhere, 39 not
+  named by the row's own note. The known populations; nothing worked.
+- **Quotations (program)**: 3574 quotations in 571 documents, 1613 verbatim, 24 diverging; 1394 in
+  794 ledger notes, 1089 verbatim, **1 diverging** — §8.4.4's correction quoting the sentence ISO
+  32000-2 does not contain, which is the known shape. 0 defects.
+- **Callers (program)**: 299 distinct `pub fn` names in `pdf-model` (296 in the
+  five-hundred-and-thirty-seventh), 122 that no crate under `crates/` asks, 177 named by a
+  dependent crate, 80 only inside `pdf-model`, 21 only by a test or an example, **1 by nothing at
+  all** — down from two, and the delta is the finding: `Namespace::is_standard` is off the list.
+- **Arithmetic (6)**: two hits, §7.9.2 and §O, read and kept before. Clean, and the only sweep of
+  the fifteen that has never printed anything else.
+- **Parent counts (10)**: 41 counted claims against a family, 6 matching neither the direct
+  children nor the descendants, **0 defects** — every one a count about the *standard* or about the
+  rows beside the clause ("thirty-three rows below" caught as "three", "two subclauses of the
+  standard disagreeing"), which is this sweep's dominant shape.
+- **Sweep 14**: 19 hits under a session-local debt vocabulary — still session-local, which is the
+  next candidate for a program — every one naming its debt in words outside it ("is not read",
+  "reach nothing further", "applied to nothing", "the projection is not").
+- **The errata (12)**: "151 struck passage(s) of 4 words or more that `doc/md/` still carries as
+  current text" over all fourteen PDFs, unchanged, and **71 quotations quoting text struck out of
+  the clause they cite — the same 71 as the five-hundred-and-forty-fifth**. The population is still
+  read to the end.
+
+### The two defects, and both are a correction that stopped at the document it was written in
+
+`doc/adr/` joined the fourth sweep's targets in the four-hundred-and-twenty-ninth for exactly this:
+"a claim a *later* round disproves and leaves standing is a defect wherever it lives, and the round
+that disproves it amends the ADR that made it, in the same commit". Eight rounds ran; two of them
+did not.
+
+| document | said | disproved by | the correction lived only in |
+|---|---|---|---|
+| **ADR 0382 §6** | "The escape hatch is complete and needs nothing from upstream" | ADR 0383 — presenting a texture needs the surface, `Device` keeps it private, and a host configuring its own needs a format only a `&wgpu::Adapter` gives | ADR 0383, for five rounds |
+| **ADR 0384 §6** | "It cannot be worked around from here", of the reprojection an atlas repack costs | ADR 0385 — true about *capturing*, a non-sequitur about *drawing*: the base was thrown away by `Stale::settled`, not by the repack | ADR 0385, for three rounds |
+
+**The first is the sharper**, because the sentence is a decision's own conclusion rather than an
+aside: a reader of 0382 who never opens 0383 comes away believing this tree has a working escape
+hatch. Both are struck and re-argued in place, naming the ADR that disproved them. ADR 0388.
+
+### The seventh sweep's first run as a program: §14.5, and it is the retired exclusion again
+
+§14.5's page-piece dictionaries were `inapplicable` because "[n]othing here writes a PDF, so there
+is no private data to recognise" — `CLAUDE.md`'s pre-amendment wording, false since the
+hundred-and-thirty-fifth session and corrected in the ledger's own *generated* header by the
+five-hundred-and-tenth (ADR 0345). **The sweep found it from the tree's side**: `tests/saving.rs`
+names `/PieceInfo`, under a row saying nothing here writes.
+
+Right conclusion, expired argument, which is this file's fifth shape. The reason that holds is
+narrower and does not mention what this program does: a data dictionary holds "private data needed
+by the PDF processor" *that produced it*, keyed by that processor's own name, and this one has
+produced none. Nothing is owed by the writing this program does do — Table 351's required
+`/LastModified` binds a data dictionary a processor writes, and the clause's one reader-side `shall`
+("modification dates shall be compared only for equality and not for sequential ordering") binds a
+processor comparing them against private data of its own.
+
+### Eleven rows read off the blame list, the band from commit 534 to 536
+
+Oldest first: §12.8.3.4.3, §12.8.4, §12.8.4.4, §12.8.5.2 (534), §12.4, §12.6.4.15 (535), §12.1,
+§12.3.5, §12.3.5.1, §12.6, §12.6.4 (536). **Two were wrong, they are one count, and the ADR they
+were both written from says both answers.**
+
+| row | shape | was | is |
+|---|---|---|---|
+| **§12.4** | 4, 7 | "seven of Table 164's twelve transition styles are drawn … with the other five reported by name" | **four** are reported — `Blinds`, `Glitter`, `Dissolve`, `Fly` — and the fifth was `R`, which Table 164 defines as the cut, "[t]he new page simply replaces the old one with no special transition effect". `transition::note`'s own doc comment says "`R` is the one style with nothing to report" |
+| **§12.6.4.15** | 4, 7 | "the five of Table 164's twelve styles no frame is shaped for, each reported by name" | the same error in the same words, one clause away |
+
+**And the source of both is ADR 0230, which holds both answers twelve lines apart**: "[t]he other
+five are named and **reported by name**", and then, under its own table, "`R` is therefore not
+reported and the other four are." The two rows took the first half. That is the sixth failure shape
+— a document corrected by appending, read from the correction backwards — with the ledger inheriting
+it. The ADR is amended too, per ADR 0265's rule.
+
+**The nine kept rows each record the evidence that kept them** — `pades_departures` checking exactly
+the attributes §12.8.3.4.3 names and nothing where the `/SubFilter` is not `ETSI.CAdES.detached`,
+`SecurityStore` still counting rather than reading, the VRI count coming off the DSS's own `/VRI`,
+`timestamp_imprint` still what the byte range is checked against, §12.1's counts checked against
+§12.6's ten and §12.6.4's eight rather than believed, `Collection::initial_document`,
+`Sort::ascending` and `FieldKind::is_in_the_item` all three still in `collection.rs`, and each of
+§12.6.4's nine refusals still reaching `Action::Refused` under its own name — which is what moves
+the blame pointer without a stamp.
+
 ## What is still owed, named
 
 - **The `partial` rows not yet re-read against the code.** Nothing below commit 534 is
   unread now: the five-hundred-and-twenty-fifth took the band from 184 (§12.6.4.4, the row left
   under the fold) to 500 (§I, §I.2), fifteen rows, the five-hundred-and-thirty-seventh the band
   from 511 (§12.7.4) to 517 (§12.8.2.4), thirteen rows, and the five-hundred-and-forty-fifth the
-  band from 518 (§9.9.1) to 534 (§12.8.2.2.2), eleven rows, plus the read-and-kept sets whose
-  evidence is in their notes. **The next band begins inside commit 534, at §12.8.3.4.3.**
+  band from 518 (§9.9.1) to 534 (§12.8.2.2.2), eleven rows, and the five-hundred-and-fifty-third
+  the band from 534 (§12.8.3.4.3) to 536 (§12.6.4), eleven more, plus the read-and-kept sets whose
+  evidence is in their notes. **The next band begins at commit 541, with §11.3.7.2.**
 - **§12.8.2.4's transform, named rather than built.** `has_transform(document, dict, b"FieldMDP")`
   plus Table 259's `/Action` and `/Fields` beside `UsageRights` is the whole of the recognition
   half; the validation half is §12.8.2.2.2's and needs the signed revision reconstructed.
@@ -2559,6 +2693,12 @@ reconstructing a signed revision — which is what moves the blame pointer witho
   `joining` between them produced 298 of the first run's 544 mentions and not one finding, and
   `Window` and `widen` produced 1462 of the five-hundred-and-thirty-seventh's 1512. Choosing
   the invented nouns first is free; widening the program's matching would only make it worse.
+- **The fourteenth sweep's vocabulary is the next one a program should take over.** It is the last
+  of the four descriptions whose *level* moves with the session rather than with the tree — 16, 24,
+  5, 15, 19, 10, 8, 9 and now 19 hits, each under a debt vocabulary the round wrote that morning —
+  and the seventh sweep's own answer is available to it: a discriminator taken from the ledger
+  instead of from memory. Widening the word list makes the first number smaller and §9.3.1's
+  inverse no better, which is what the four-hundred-and-thirty-seventh's run already established.
 - **The fifth sweep's second population is still a by-hand run.** `--bin callers` reads functions;
   the four-hundred-and-thirteenth ran the sweep a second way over `viewer-core`'s own vocabulary —
   every `Command`, `Query`, `Answer`, `Event` and `Edit` variant against the crates that speak it —

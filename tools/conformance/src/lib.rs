@@ -51,6 +51,7 @@ pub mod capabilities;
 pub mod citation;
 pub mod clause;
 pub mod entries;
+pub mod inapplicable;
 pub mod ledger;
 pub mod pointers;
 pub mod prose;

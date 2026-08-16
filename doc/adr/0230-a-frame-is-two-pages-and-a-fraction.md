@@ -60,9 +60,14 @@ is not "the easy ones" — it is *the ones whose frame is determined by Table 16
 is a placement of two pages plus a rectangular region and a constant alpha, and none of them needs
 a quantity the standard does not give.
 
-The other five are named and **reported by name** rather than silently drawn as a cut, which is
-trap 5's rule everywhere else in this tree and matters most exactly here: the page that arrives
-looks right, and only the file knows it asked for an effect.
+~~The other five are named and **reported by name** rather than silently drawn as a cut~~ — **four
+of the other five are**, which the paragraph under the table below says in as many words and this
+sentence did not until the five-hundred-and-fifty-third session. Reporting rather than silently
+drawing a cut is trap 5's rule everywhere else in this tree and matters most exactly here: the page
+that arrives looks right, and only the file knows it asked for an effect. *(Two ledger rows were
+written from the wrong half of this ADR and said five: §12.4's and §12.6.4.15's, corrected in the
+same round that corrected this. An ADR holding both answers at once is what the seventh failure
+shape looks like inside one document.)*
 
 | style | the quantity Table 164 does not state |
 |---|---|

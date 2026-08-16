@@ -310,8 +310,19 @@ So three of the owner's thirteen view changes would find no base *even with rule
 before this round they would have found it in silence. They now say so (§4). The second trace
 confirms it exactly: two of the seven refusals in that run are this, by name.
 
-**It cannot be worked around from here**, and it is worth saying why rather than leaving it as an
-open question. The repack happens *after* the frame — `atlas_repacked` is reported by the call that
+~~**It cannot be worked around from here**~~ — **every clause of what follows is true about
+*capturing* and it is a non-sequitur about *drawing*, which ADR 0385 found one round later.** A
+base that was captured before the repack is still a picture of the page, and the defect was that
+`Stale::settled` threw the previous `Settled`'s pixels away on every real frame, so a view change
+after a repack found nothing where it had a perfectly good older base to reproject. The repack
+kills the *retained encode*; it does not kill pixels already read back. What is genuinely left of
+this paragraph is the readback itself — ADR 0386 §3.2 narrows it to exactly that, because a texture
+quorra has already rendered into is unaffected by a repack — and the
+capture's own refusal, which is now asked again on the next view change instead of switching the
+feature off. *(This paragraph stood uncorrected in its own document for three rounds while the
+correction lived only in ADR 0385, which is what ADR 0265's rule is for; found by the
+five-hundred-and-fifty-third session's fourth sweep.)* The original reasoning, kept because the
+half about capturing is right: the repack happens *after* the frame — `atlas_repacked` is reported by the call that
 presented it — so by the time the host could react the encode is already invalid, and capturing
 then would re-encode, which rule 4 refuses by name and for good reason. No ask goes to quorra
 either: the behaviour is correct, the counter already reports it, and `doc/QUORRA_FEEDBACK.md` has

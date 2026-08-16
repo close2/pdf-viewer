@@ -239,6 +239,15 @@ share and the two that break it:
   `/FontDescriptor`" is agreement and a denial the table contradicts is a hit. Its findings arrive
   in blocks, and its most durable population is a *document*: a number a round retires in the code
   goes on living in the ADR the code came from.
+- **One reads the status nobody expects to come back to**: `cargo run --release -p conformance
+  --bin inapplicable`, a fraction of a second, over `ledger.toml` and the source roots — the
+  seventh sweep as a program (ADR 0388). Every other sweep walks the rows that *owe* something; this
+  one takes an `inapplicable` row's own title and note apart into `/Key`s and identifiers and asks
+  whether the tree names them. **The count of naming files is the discriminator** and it replaces
+  the stop-list nine hand-runs each wrote from memory: the standard's shared vocabulary reaches
+  dozens of files and sorts last, a rare word sorts first. Read the **cousin** it prints before
+  anything else — a row that is not `inapplicable` and says the same word is the seventh failure
+  shape, and it is where all five of this sweep's defects have been.
 - **One reads *these documents'* quotation marks and the ledger's**, on the same discriminator and
   for the same reason: `cargo run --release -p conformance --bin quotations`, seconds, over every
   Markdown file this project wrote under `doc/` **and over `ledger.toml`'s notes**, which is the
