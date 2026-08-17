@@ -28,6 +28,7 @@ pub mod crop;
 pub mod degenerate;
 pub mod display_list;
 pub mod geom;
+pub mod mitre;
 pub mod outline;
 pub mod paint;
 pub mod program;
@@ -50,6 +51,7 @@ pub use degenerate::{
 };
 pub use display_list::{Clip, ClipId, Command, DisplayList, DisplayListError, GroupBlending};
 pub use geom::{Path, PathCommand, Point, Rect, Size, Transform};
+pub use mitre::{mitre_wedges, sharpest_admitted_mitre};
 pub use outline::{marked_bounds, stroked_bounds};
 pub use paint::{
     BlendMode, Color, DeferredImage, FillRule, Grid, Image, ImageAtDeviceScale, ImageSource,

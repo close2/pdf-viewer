@@ -1,8 +1,10 @@
 # Shapes that still disappear
 
 Status: **items 1 and 3 closed (ADR 0226), their diagonal residual closed (ADR 0268), the boundary
-itself — a rule *exactly* one device pixel wide — closed with ADR 0285, and the cap a substitute
-does not draw closed with ADR 0290 along with §8.5.3.2's dot, which nobody had measured; item 2 is
+itself — a rule *exactly* one device pixel wide — closed with ADR 0285, the cap a substitute
+does not draw closed with ADR 0290 along with §8.5.3.2's dot, which nobody had measured, and item 6
+— §8.4.3.5's mitre drawn as a bevel — closed with ADR 0398, where the prediction that it would take
+three strokers was wrong on measurement and one was; item 2 is
 fixed as far as any corpus document exercises it (ADR 0213) and its general case is unwitnessed;
 item 4, the same subclause's clipping paragraph, is **paid for a fill** — the clip chain composes as
 a set intersection on **both** backends since ADR 0280 and quorra's own ADR 0030, and since ADR 0355
@@ -17,15 +19,20 @@ its general form on a document the project owner reported (ADR 0308). **It is no
 program**, and item 5 says on what evidence.
 Priority: 11
 Corpus: 4 known witnesses; the general shape of the residual is stated
-Clauses: §10.7.4, §8.4.3.3 and §8.5.3.2 for the marks that are `O(w²)`, §8.5.4 for item 4 and
+Clauses: §10.7.4, §8.4.3.3 and §8.5.3.2 for the marks that are `O(w²)`, §8.4.3.5 for item 6,
+§8.5.4 for item 4 and
 §11.3.7.3 for item 5 — see `_scan-conversion.md`
-Code: `crates/pdf-render/src/sub_pixel.rs`, `crates/render-cpu/src/lib.rs`,
+Code: `crates/pdf-render/src/sub_pixel.rs`, `crates/pdf-render/src/mitre.rs`,
+`crates/render-cpu/src/lib.rs`,
 `crates/render-cpu/src/scan.rs` (item 4's composition),
 `crates/pdf-model/src/content.rs`'s `tile`, `crates/pdf-render/src/repeat.rs`,
 `crates/render-quorra/examples/sub_pixel_marks.rs` and
 `crates/pdf-model/examples/sub_pixel_width_census.rs` (the two instruments: what a backend does
 with a mark, and what a page's own marks are),
 `crates/render-quorra/tests/sub_pixel_coverage.rs` (the gate, on **both** backends since 389),
+`crates/render-quorra/tests/mitre_limit.rs` (item 6's gate, on **all three**),
+`crates/render-quorra/examples/mitre_ladder.rs` and
+`crates/pdf-model/examples/long_mitre_census.rs` (item 6's two instruments),
 `crates/render-quorra/tests/abutting_marks.rs` and `crates/pdf-model/examples/uncovered_share.rs`
 (item 5's gate and its instrument)
 
@@ -259,7 +266,12 @@ the mark is whole where the clip is not.
 - **A stroke's coverage.** `tiny-skia` fills a wide stroke's outline but draws one under a device
   pixel wide as a hairline that is *not* that outline (ADR 0268), so composing here means choosing
   between duplicating the library's stroker and contradicting its hairline. The substitutions
-  §10.7.4 already asks for on a sub-pixel rule are *fills* and are composed today.
+  §10.7.4 already asks for on a sub-pixel rule are *fills* and are composed today — **and so is
+  §8.4.3.5's long mitre since ADR 0398**, which reaches the same composition from the other end: a
+  path whose stated limit admits a mitre the stroker refuses is drawn as the fill of its own outline
+  with the mitres appended, so on that path a stroke's coverage meets its clip by `min` rather than
+  by a product. Two of 1441 first pages, so it is a corner of this item rather than a step through
+  it.
 - **An image's edge**, which is `draw_pixmap`'s and is the library's own path.
 - **A group's raster, which ADR 0355 recorded as *not owed* and which is owed.** That ADR argued
   "what a group's buffer carries at a pixel is §11.4.5's group alpha rather than one mark's
@@ -416,15 +428,12 @@ exactly where a reader is looking at a whole page rather than at its detail, and
 their most on the frame where time-to-first-page is measured. A round that takes this owes the
 measurement above at both ends.
 
-## 6. A mitre the file asked for, drawn as a bevel — **new in the five-hundred-and-fifty-eighth**
+## 6. A mitre the file asked for, drawn as a bevel — **closed (ADR 0398)**
 
 Found by taking `doc/corpora/pdf-differences`' 37 documents (`doc/todo/03` §14), which carry a case
 built for this: `LargeMitreLimit.pdf` and `LargeMitreLimit-Beziers.pdf` set `333 M` on a 10-unit
 line at angles from 16° down to 0.343°, and the whole subject of the page is whether the mitre is
 drawn to the length its own angle implies.
-
-**This tree draws no mitre at all on either file.** `poppler` draws none on the first and a short
-one on the second; `mutool` and `gs` draw the spike.
 
 §8.4.3.5 states the rule and its closed form, and the NOTE the corpus's own article is about:
 
@@ -437,38 +446,36 @@ one on the second; `mutool` and `gs` draw the spike.
 > Very large miter lengths are allowed.
 
 So the expected value is derivable from the specification with no reference in it: for an interior
-angle φ the ratio is `1 / sin(φ/2)`, and a mitre is drawn whenever that is at or below the limit.
+angle φ the ratio is `1 / sin(φ/2)`, a mitre is drawn whenever that is at or below the limit, and
+because the ratio spans the *whole* join — the inner crossing to the outer one — the **tip sits
+`(w/2) / sin(φ/2)` from the vertex**, half the mitre length. On the witness's four-line reduction
+φ = 0.68752°, the ratio is **166.676** — well inside the stated 333 — and the tip sits **833.38**
+units above the join, where `mutool` and `gs` put it to the pixel.
 
-**The witness is four lines and the arithmetic lands on a grid line.** Reduced from the corpus file
-to one join, on a page tall enough to contain the tip:
+**What was paid, and how the diagnosis changed on measurement.** This section predicted that a fix
+was "three strokers rather than one", because Vello and quorra "have their own strokers with their
+own thresholds". `render-quorra/examples/mitre_ladder` — the instrument that did not exist when the
+prediction was written — says otherwise: **both device backends draw the tip within a pixel of the
+clause's arithmetic at every ratio the limit admits**, and exactly one stroker was wrong.
+`tiny-skia`'s `dot_to_angle_type` classifies a join by a normals' dot product *before* the limit is
+read, so its `SCALAR_NEARLY_ZERO` of `1/4096` is the ratio `1/sqrt(1/8192)` = **90.51** in disguise.
 
-```
-1 0 0 RG  10 w  0 j  333 M  1 J
-75 -75 m  100 -50 l  100 0 l  100.9 -75 l  S
-```
+So the answer is ADR 0226's shape rather than a rule about scan conversion: `pdf_render::mitre_wedges`
+states which joins §8.4.3.5 admits and where each tip goes, `render-cpu` hands the library the ratio
+it cannot draw and fills the bevelled outline with the mitres appended to it in one path, and the
+gate holds **all three** backends to the clause's own arithmetic rather than to each other's pixels.
+The population is the number nobody had: `pdf-model/examples/long_mitre_census` finds **2 of 1441**
+first pages across every corpus on this disk, both of them the witness, and none of them dashed or
+under a device pixel — the two cases the construction declines.
 
-φ = 0.68752°, so the ratio is **166.676** — well inside the stated 333 — and the tip sits
-`5 / sin(φ/2)` = **833.38** units above the join. `mutool` and `gs` put it there to the pixel;
-this tree and `poppler` put a bevel at the join.
+### What is left of it: two declines with no witness
 
-**The cause is `tiny-skia`'s stroker and not this tree's plumbing**, which is worth knowing before
-anybody looks in `content.rs`: the limit reaches the rasteriser intact (`convert::stroke` sets
-`miter_limit` explicitly because PDF's initial 10.0 is not skia's 4.0), and `stroker.rs` classifies
-a join by `dot_to_angle_type` *before* it ever compares against the limit — a normals' dot product
-within `SCALAR_NEARLY_ZERO`, 1/4096, of −1 is `AngleType::Nearly180` and goes straight to
-`do_blunt_or_clipped`. That threshold is an angle, so it is a *ratio* cutoff in disguise: joins
-sharper than about 1.27° — ratio above roughly 90 — are bevelled whatever `M` says.
+- **A dashed stroke.** A dash decides where a stroke still has a join and the walk is over the
+  undashed path, so `pdf-render` declines rather than putting a wedge at a vertex the dasher removed.
+- **A stroke at or under one device pixel.** There the library draws a hairline, which has no joins
+  at all, and items 1, 3 and the cap above own that geometry.
 
-What a round taking this owes, in order:
-
-- **the population**, which nobody has: a census of joins whose stated `M` admits a mitre the
-  stroker's threshold refuses. The construct is rare enough that it may have no witness outside
-  this corpus, and that is the number that decides whether the fix is worth its risk.
-- **all three backends, or none.** Vello and quorra have their own strokers with their own
-  thresholds, and a fix in `render-cpu` alone would buy one mitre and lose the cross-backend
-  agreement `render-quorra/tests/corpus.rs` and `test-scenes` rest on. This is what stops it being
-  a small change.
-- **a report if it stays.** A bevel where the file asked for a mitre is silent today, which is the
-  shape this project reports everywhere else — but the condition is the rasteriser's rather than
-  the model's, so raising it from `content.rs` would be predicting a backend's behaviour from the
-  layer above it. `doc/todo/45` is where that boundary question lives.
+Neither is reported, and ADR 0398 §3 argues why: the condition would be a prediction about a
+library's stroker made in the layer above it, and a report with no members costs gated pages (trap
+11). What watches them is `render-quorra/tests/corpus.rs` — the two backends agree about a long mitre
+now, so a page where a decline mattered becomes a differing page rather than a silence.

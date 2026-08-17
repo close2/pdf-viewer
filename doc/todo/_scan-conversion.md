@@ -120,7 +120,10 @@ own. It declines where the substitution would say something else: a clip already
 mark, a mark that is not anti-aliased, and `BlendMode::Source`. `issue21346.pdf`'s edge went
 0.163 → **0.306** of the mark. **What still multiplies** is a stroke's coverage, an image's edge, a
 group's raster, and both other backends — which is why the departure is narrowed rather than closed
-a second time.
+a second time. **One corner of the stroke came with something else**: since ADR 0398 a stroke whose
+stated mitre limit admits a join `tiny-skia` refuses is drawn as the fill of its own outline with
+§8.4.3.5's mitres appended, so on such a path a stroke's coverage does meet its clip by `min`. Two
+of 1441 first pages state one, so it narrows the sentence rather than the departure.
 
 **And since the five-hundred-and-twenty-eighth, a clip standing *beside* a soft mask** — the case
 ADR 0355 declined because the two were already one buffer (ADR 0363). The standard states them in

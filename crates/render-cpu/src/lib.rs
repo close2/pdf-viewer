@@ -472,6 +472,13 @@ impl CpuRasterizer {
                 at,
                 &brush,
                 clip,
+            ) && !draw_long_mitres(
+                pixmap,
+                (&geometry, &converted),
+                (stroke, &style),
+                at,
+                &brush,
+                clip,
             ) {
                 scan::stroke(
                     pixmap,
@@ -2019,6 +2026,94 @@ fn draw_rule_at_one_pixel(
             clip,
         );
     }
+    true
+}
+
+/// The mitre-length ratio above which this library's stroker draws a bevel whatever `M` says.
+///
+/// `tiny-skia`'s stroker classifies a join before it consults the limit: `dot_to_angle_type` calls
+/// a normals' dot product within `SCALAR_NEARLY_ZERO` — `1/4096` — of −1 `Nearly180` and sends it
+/// to `do_blunt_or_clipped`. ISO 32000-2 §8.4.3.5's ratio is `1 / sin(φ/2)` and the library's own
+/// comment gives `sin(φ/2) = sqrt((1 + dot) / 2)`, so that angle test is the ratio
+/// `1 / sqrt((1/4096) / 2)` = 90.51 in disguise, and every sharper join is bevelled with the file's
+/// limit unread.
+///
+/// **Measured as well as derived**, by `render-quorra/examples/mitre_ladder`: this backend draws
+/// the mitre at a ratio of 90.23 and nothing at all at 95.50, where the two graphics-device
+/// backends draw the tip within a pixel of the clause's arithmetic at every rung.
+const BEVELLED_BY_THE_STROKER: f32 = 90.51;
+
+/// ISO 32000-2 §8.4.3.5's mitre, where [`BEVELLED_BY_THE_STROKER`] says the library will not draw
+/// one: the outline bevelled by the stroker with `pdf-render`'s own mitres filled into it.
+///
+/// Returns `false` — leaving the caller's ordinary stroke to run — for every path that has no such
+/// join, which is every path in the corpus bar the ones `long_mitre_census` counts. The condition
+/// costs one comparison for an ordinary stroke: a join sharper than the ratio above is only drawn
+/// where the file's own limit admits it, so a stroke whose `M` is under that ratio cannot have one
+/// and `pdf_render::mitre_wedges` says so without walking the path.
+///
+/// # Why the two shapes are drawn as one path
+///
+/// A mitre join is a bevel join plus one triangle per join, and the triangle's base is the bevel's
+/// own outer edge (`pdf_render::mitre`). Two draws of two shapes sharing an edge composite by
+/// §11.3.7.3's union function and leave a seam along it — `doc/todo/11` item 5 — where coverage
+/// accumulated inside one scan conversion adds. So the stroker's outline and the wedges go into one
+/// `tiny_skia::Path` and are filled once, under the non-zero rule, which is what
+/// `tiny_skia::PixmapMut::stroke_path` does with an outline anyway.
+///
+/// # What it declines
+///
+/// A stroke at or under one device pixel, where the library draws a hairline that has no joins at
+/// all and where §10.7.4's own substitutions ([`draw_sub_pixel_rule`]) own the geometry — a wedge
+/// under the coverage quantum is the case those two ADRs argue, not this one. And a path the
+/// stroker itself refuses, or one whose wedges do not convert, both of which leave the ordinary
+/// draw to report in its own way.
+fn draw_long_mitres(
+    pixmap: &mut tiny_skia::PixmapMut<'_>,
+    geometry: (&Path, &tiny_skia::Path),
+    (stroke, style): (&Stroke, &tiny_skia::Stroke),
+    at: Transform,
+    brush: &tiny_skia::Paint<'_>,
+    clip: scan::Clip<'_>,
+) -> bool {
+    // Asked first, and it answers a stroke whose stated limit cannot admit such a join without
+    // walking the path — which is every stroke in the corpus bar eight. The width is the stroke's
+    // in the path's own space, which is where §8.4.3.2 states it and where the stroker offsets;
+    // `convert::stroke` puts the same number in `style.width`.
+    let Some(wedges) = pdf_render::mitre_wedges(
+        geometry.0,
+        stroke,
+        style.width / 2.0,
+        BEVELLED_BY_THE_STROKER,
+    ) else {
+        return false;
+    };
+    if pdf_render::thinnest_line(at).is_some_and(|one_pixel| style.width <= one_pixel) {
+        return false;
+    }
+    let Some(wedges) = convert::path(&wedges) else {
+        return false;
+    };
+    let mut bevelled = style.clone();
+    bevelled.line_join = tiny_skia::LineJoin::Bevel;
+    let scale = tiny_skia::PathStroker::compute_resolution_scale(&convert::transform(at));
+    let Some(outline) = geometry.1.stroke(&bevelled, scale) else {
+        return false;
+    };
+    let mut builder = tiny_skia::PathBuilder::new();
+    builder.push_path(&outline);
+    builder.push_path(&wedges);
+    let Some(combined) = builder.finish() else {
+        return false;
+    };
+    scan::fill(
+        pixmap,
+        &combined,
+        brush,
+        tiny_skia::FillRule::Winding,
+        convert::transform(at),
+        clip,
+    );
     true
 }
 
