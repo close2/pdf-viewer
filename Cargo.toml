@@ -286,6 +286,24 @@ sha2 = "0.11.0"
 sha1 = "0.11.0"
 ripemd = "0.2.0"
 
+# ISO/TS 32001:2022 section 5.1.1 adds four more: "the SHA3-256, SHA3-384, SHA3-512 and SHAKE256
+# hash algorithms in the secure hash algorithm 3 (SHA-3) hash algorithm family as defined in FIPS
+# PUB 202". The *line* these sit on is why they are these packages rather than others: `digest`
+# 0.11, the same trait stack as `sha2`, `sha1`, `md-5` and `ripemd` above, so no second hash stack
+# enters the tree — the shape ADRs 0229 and 0348 both declined.
+#
+# **Two packages rather than one, because upstream split them.** `sha3` 0.12.0 removed `Shake128`
+# and `Shake256` into the `shake` crate, so the current line covers three of the standard's four
+# in one package and the fourth in another; `sha3` 0.11.0 still has both and is superseded, which
+# would buy two packages instead of four at the price of pinning to a dead minor. Four new
+# compiled packages between them (`sha3`, `shake`, and the shared `keccak` and `sponge-cursor`),
+# all `MIT OR Apache-2.0`, MSRV 1.85 against the pinned 1.97.1, all RustCrypto — the supplier of
+# every cipher and digest already here. `sha3`'s default `oid` feature costs nothing (`const-oid`
+# is already in this graph) and buys the corroboration `cms::Digest`'s identifier test uses;
+# `shake` has no such feature, which is why SHAKE256's identifier has no second reading. ADR 0390.
+sha3 = "0.12.0"
+shake = "0.1.0"
+
 # §12.8.3's signature verifications — RFC 8017's two RSA paddings and FIPS 186-4's DSA — run
 # their modular arithmetic on this rather than on the in-tree limb arrays that preceded it
 # (ADR 0331, an owner decision superseding ADR 0314's in-tree choice; the verifiers and their

@@ -256,8 +256,10 @@ fn der_value(identifier: u8, contents: &[u8]) -> Vec<u8> {
 /// # Errors
 ///
 /// [`Pkcs1Error::ModulusTooShortForDigest`] where the contents would need X.690's long form. A
-/// `DigestInfo` for the widest digest here is 83 octets, so this is unreachable for the six
-/// algorithms [`Digest`] names; it is a bound rather than a case.
+/// `DigestInfo` for the widest digest here is 83 octets, so this is unreachable for the ten
+/// algorithms [`Digest`] names; it is a bound rather than a case. **Ten since ISO/TS 32001's four
+/// arrived and the widest is still 83 octets**: SHA3-512 and SHAKE256 are 64-octet digests under
+/// nine-octet identifiers, exactly SHA-512's shape.
 fn sequence(contents: &[u8]) -> Result<Vec<u8>, Pkcs1Error> {
     if contents.len() > 127 {
         return Err(Pkcs1Error::ModulusTooShortForDigest);

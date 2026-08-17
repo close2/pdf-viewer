@@ -212,9 +212,10 @@ pub enum Integrity {
     UnderTheSignersKey,
     /// The signature records a digest made with an algorithm this program does not implement.
     ///
-    /// All six that Table 260 and Table 256 name are implemented, so this is a signature using
-    /// something the standard does not list — reported rather than guessed at, because hashing
-    /// with the wrong function produces a mismatch that reads as a modified document.
+    /// All ten those two tables name between them — the base standard's six and ISO/TS 32001
+    /// section 5.1.4's four — are implemented, so this is a signature using something neither
+    /// document lists, reported rather than guessed at: hashing with the wrong function produces a
+    /// mismatch that reads as a modified document.
     UnknownDigest,
     /// The `/ByteRange` does not name bytes of this file, so there is nothing to hash.
     RangeNotInThisFile,
@@ -369,10 +370,12 @@ pub enum Authenticity {
     RefusedDsa(DsaError),
     /// The signature states a digest algorithm this program does not compute.
     ///
-    /// All six that ISO 32000-2's Table 260 and Table 256 name are implemented; the four ISO/TS
-    /// 32001 adds to both — SHA3-256, SHA3-384, SHA3-512 and SHAKE256 — are not, and neither is
-    /// anything outside either list. The identifier is carried so that which of those a file used
-    /// is a question a person can answer.
+    /// All six that ISO 32000-2's Table 260 and Table 256 name are implemented, and so are the four
+    /// ISO/TS 32001 section 5.1.4 adds to Table 260 — SHA3-256, SHA3-384, SHA3-512 and SHAKE256
+    /// (ADR 0390). This is
+    /// therefore an identifier outside both documents, and it is carried so that *which* one a file
+    /// used is a question a person can answer: three of the corpus's signatures reach here, each
+    /// stating `1.2.840.113549.1.1.5` — a *signature* algorithm — where a digest algorithm belongs.
     UnknownDigest {
         /// The digest algorithm's object identifier as dotted decimal.
         algorithm: String,
@@ -797,9 +800,14 @@ impl Signature {
     ///
     /// **The digest algorithm is not stated anywhere a reader can see it.** Table 260 permits all
     /// five of its digests for this `/SubFilter` while §12.8.3.2 names only SHA-1, and the
-    /// identifier that settles it is inside the block, under the key. So each of the six is tried,
-    /// which RFC 8017 section 8.2.2's whole-block comparison makes safe: six comparisons against
-    /// fixed-length strings admit no forgery one does not.
+    /// identifier that settles it is inside the block, under the key. So each of
+    /// [`Digest::TRIED_WHEN_UNSTATED`] is tried, which RFC 8017 section 8.2.2's whole-block
+    /// comparison makes safe: six comparisons against fixed-length strings admit no forgery one
+    /// does not.
+    ///
+    /// **Six and not ten**, because ISO/TS 32001 section 5.1.4 adds its four to Table 260's Message
+    /// Digest entry "for adbe.pkcs7.detached, ETSI.CAdES.detached or ETSI.RFC3161" and this
+    /// `/SubFilter` is none of the three. That constant's own documentation carries the reasoning.
     fn pkcs1_authenticity(&self, signed: &[&[u8]]) -> Authenticity {
         let Some(bytes) = self.chain.first() else {
             return Authenticity::NoSignerCertificate {
@@ -833,7 +841,7 @@ impl Signature {
         let value = self.contents.get(..length).unwrap_or(&self.contents);
         let key_bits = key.bits();
         let mut refusal = None;
-        for digest in Digest::ALL {
+        for digest in Digest::TRIED_WHEN_UNSTATED {
             match pkcs1::verify(key, value, digest, &digest.compute(signed)) {
                 Ok(true) => {
                     return Authenticity::Verified {
@@ -2134,6 +2142,69 @@ mod tests {
         let value_at = open.saturating_add(1);
         bytes.splice(value_at..value_at.saturating_add(hex.len()), hex.bytes());
         bytes
+    }
+
+    /// **Question 1 under each of ISO/TS 32001's four digests**, which no real document states.
+    ///
+    /// Section 5.1.4 adds SHA3-256, SHA3-384, SHA3-512 and SHAKE256 to Table 260's Message Digest
+    /// entry for `adbe.pkcs7.detached` among others, so a signature may now record its byte-range
+    /// digest with any of them — and `signature_algorithm_census` finds not one that does in 67 460
+    /// documents. That is trap 8 exactly: the corpus cannot rank a requirement it does not
+    /// exercise, so the witness is built here, one file per algorithm, and it is checked in both
+    /// directions rather than only the agreeing one. ADR 0390.
+    ///
+    /// **Before this round each of these four reported [`Integrity::UnknownDigest`]**, which is
+    /// what makes the test worth its lines: the assertion is that a report became an answer.
+    #[test]
+    fn a_signature_stating_one_of_iso_ts_32001s_digests_is_recomputed() {
+        for digest in [
+            Digest::Sha3_256,
+            Digest::Sha3_384,
+            Digest::Sha3_512,
+            Digest::Shake256,
+        ] {
+            let bytes = signed_document("adbe.pkcs7.detached", "", digest, |recorded| {
+                fixtures::detached_stating(digest, recorded)
+            });
+            let (document, signature) = only_signature(&bytes);
+            assert_eq!(
+                signature.integrity(document.bytes()),
+                Integrity::Unchanged { digest },
+                "{} recomputes to what the signature recorded",
+                digest.name()
+            );
+
+            let mut altered = bytes.clone();
+            let at = altered
+                .windows(9)
+                .position(|nine| nine == b"Signature")
+                .expect("a byte inside the signed range");
+            altered[at] = b'X';
+            let (altered_document, altered_signature) = only_signature(&altered);
+            assert_eq!(
+                altered_signature.integrity(altered_document.bytes()),
+                Integrity::Changed { digest },
+                "{} notices one byte of the signed range moving",
+                digest.name()
+            );
+        }
+    }
+
+    /// An identifier neither document names is still reported by its number, not skipped.
+    ///
+    /// The four arriving does not change what happens to a fifth, and this is the assertion that
+    /// says so. `2.16.840.1.101.3.4.2.11` is the SHAKE**128** slot in the same arc — the nearest
+    /// neighbour of one this program now computes, which is the identifier a widening mistake would
+    /// most likely swallow.
+    #[test]
+    fn a_digest_outside_both_documents_still_reports_its_number() {
+        let shake128 = [0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x0B];
+        assert_eq!(Digest::from_oid(&shake128), None);
+        assert_eq!(
+            crate::x509::dotted(&shake128).as_deref(),
+            Some("2.16.840.1.101.3.4.2.11"),
+            "and the number a person would be shown is that one"
+        );
     }
 
     /// The signature of the document, and the file it came from.

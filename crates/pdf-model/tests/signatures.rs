@@ -341,8 +341,9 @@ fn every_corpus_signature_is_asked_whether_its_document_changed() {
         "signature values that could not be read: {unreadable:?}"
     );
 
-    // Table 260's algorithms, counted: the corpus uses two of the six, which is why the other
-    // four are checked against published vectors in `cms.rs` rather than by a document.
+    // Table 260's algorithms, counted: the corpus uses two of the ten — the base standard's six
+    // and ISO/TS 32001's four — which is why the other eight are checked against published vectors
+    // in `cms.rs` rather than by a document.
     assert_eq!(
         algorithms.get("SHA1").copied().unwrap_or_default(),
         2,

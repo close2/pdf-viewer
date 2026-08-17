@@ -1,8 +1,8 @@
-# ECDSA and EdDSA, four digests, the third question, public-key handlers, `/R` 5
+# ECDSA and EdDSA, the third question, public-key handlers, `/R` 5
 
 Status: **two of Table 260's three algorithm families are verified, the RSA one under both of RFC
-8017's paddings**; what is left of question 2 is the elliptic-curve family and four hash functions
-— and question 3 is still a project.
+8017's paddings, and every digest either table names is computed**; what is left of question 2 is
+the elliptic-curve family — and question 3 is still a project.
 Priority: 51
 Corpus: 1 document (`/R` 5). For the signature populations, **run the census rather than reading a
 number here**:
@@ -89,13 +89,29 @@ more than a rounding error. Take the curves TS 32002 Table 3 lists, not the ones
 to publish — and EdDSA's zero witnesses queue it behind the witnessed three, by this file's own
 ordering rule above.
 
-**2. ISO/TS 32001's four digests.** §5.1.4 adds SHA3-256, SHA3-384, SHA3-512 and SHAKE256 to Table
-260's Message Digest row and §5.1.3 adds the same four to Table 256's `/DigestMethod`, with
-SHAKE256 pinned to `id-shake256` so its output is fixed at 512 bits. `cms::Digest` computes the six
-the base standard names and none of these; a signature stating one reports the identifier. This is
-the cheapest of the three to close and the only one that needs a **new dependency** — a SHA-3
-implementation on this tree's `digest` 0.11 line — so it is a `doc/stack.md` question rather than an
-arithmetic one. No corpus document states one.
+**2. ISO/TS 32001's four digests — done in the five-hundred-and-fifty-fifth session** (ADR 0390).
+`cms::Digest` computes SHA3-256, SHA3-384, SHA3-512 and SHAKE256 beside the base standard's six, on
+`sha3` 0.12 and `shake` 0.1 — two packages rather than the one `doc/stack.md` predicted, because
+upstream moved SHAKE out of `sha3` between the prediction and the spending. Four things it left
+behind that a later round should not have to rediscover:
+
+- **Read ISO/TS 32001's errata before writing anything about it**, with `spec-errata emit` and not
+  `doc/md/`. Two annotations amend it and neither is in the conversion: issue #236 **deletes clause
+  5.1.3 entirely**, so Table 256's `/DigestMethod` is *not* extended with the SHA-3 family (this
+  file said it was, for three sessions), and issue #404 strikes the sentence pinning `id-shake256`
+  and defers to RFC 8702 and RFC 8419 instead.
+- **`Digest::ALL` is ten and `Digest::TRIED_WHEN_UNSTATED` is six**, and the split is §5.1.4's own:
+  it adds its four "to the Message Digest value entry for adbe.pkcs7.detached, ETSI.CAdES.detached
+  or ETSI.RFC3161", and §12.8.3.2's `adbe.x509.rsa_sha1` — the sub-filter whose digest has to be
+  found by trying each in turn — is not one of the three.
+- **The object identifiers are transcribed from a registry no document here holds, and SHAKE256's
+  512-bit output is now a choice rather than a requirement.** Both are documented decisions with
+  their costs priced, on `Digest::oid` and `Digest::Shake256`. Three of the four identifiers carry
+  a second party's reading as corroboration; `id-shake256` carries none.
+- **Table 256's `/DigestMethod` is read by nothing**, which this item found on its way past. It
+  costs no mark — the digest it names belongs to §12.8.2.2.2's comparison, which is not done — and
+  §12.8.1's ledger row now says so. What is missing there is a reader for a *name*, over the base
+  standard's six.
 
 ### What question 3 would take, and it is still a project
 

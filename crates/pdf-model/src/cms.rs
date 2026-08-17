@@ -153,22 +153,38 @@ impl<'a> SignatureAlgorithm<'a> {
     }
 }
 
-/// The digest algorithms ISO 32000-2's Table 260 and Table 256 name, and nothing else.
+/// The digest algorithms ISO 32000-2's Table 260 and Table 256 name, with ISO/TS 32001's four.
 ///
 /// Table 260 lists what each `/SubFilter` supports — "SHA1 ( PDF 1.3 ) SHA256 (PDF 1.6) SHA384
 /// (PDF 1.7) SHA512 (PDF 1.7) RIPEMD160 (PDF 1.7 )" — and Table 256's `/DigestMethod` adds the
 /// MD5 that was PDF 1.5's default. All six are here because a program that recognised five would
 /// be silent about the sixth rather than wrong about it.
 ///
-/// **Six is the base standard's list and is no longer the whole of it.** ISO/TS 32001:2022 section
-/// 5.1.4 adds four more to Table 260's Message Digest row for `adbe.pkcs7.detached`,
-/// `ETSI.CAdES.detached` and `ETSI.RFC3161` — "SHA3-256 (PDF 2.x)", "SHA3-384 (PDF 2.x)",
-/// "SHA3-512 (PDF 2.x)" and "SHAKE256 (PDF 2.x)", the last of them pinned to `id-shake256` so that
-/// its output length is fixed at 512 bits — and its section 5.1.3 adds the same four to Table
-/// 256's `/DigestMethod`. **None of the four is computed here**, so a signature stating one is
-/// reported by the identifier it wrote rather than checked. That is a gap with a number rather than
-/// a silence, and `doc/todo/51` carries it; nothing in the 67 460 documents this round read states
-/// one.
+/// **Six is the base standard's list and is not the whole of it.** ISO/TS 32001:2022 section 5.1.1
+/// states the addition — this document "adds support for digitally signing PDF documents using the
+/// SHA3-256, SHA3-384, SHA3-512 and SHAKE256 hash algorithms in the secure hash algorithm 3 (SHA-3)
+/// hash algorithm family as defined in FIPS PUB 202" — and its section 5.1.4 adds those four to
+/// Table 260's Message Digest row.
+///
+/// **Table 256 is *not* one of the places they were added, and reading the errata is what says so**
+/// (ADR 0390). ISO/TS 32001 section 5.1.3 did add the same four to Table 256's `/DigestMethod`, and
+/// Errata Collection 3's issue #236 — `Review/Accepted`, in the copy under `doc/` — strikes that
+/// subclause out with the instruction "Delete all of clause 5.1.3". So Table 256's `/DigestMethod`
+/// keeps the base standard's list, and a sentence saying otherwise is quoting retired text. The
+/// erratum lives in the PDF as an annotation, which is why no conversion shows it and
+/// `tools/spec-errata` exists.
+///
+/// (Quoted in prose rather than as a blockquote for a reason worth knowing: a rustdoc blockquote is
+/// checked verbatim against `doc/md/`'s ISO 32000-2 by `tools/conformance`, and words from another
+/// document would be unattributable there. The quotation marks still mean verbatim.)
+///
+/// **Where they *are* added is part of the requirement**, which is why [`Self::ALL`] and
+/// [`Self::TRIED_WHEN_UNSTATED`] are two lists rather than one: section 5.1.4 adds the values "to
+/// the Message Digest value entry for adbe.pkcs7.detached, ETSI.CAdES.detached or ETSI.RFC3161",
+/// three of Table 260's five `/SubFilter` columns, and says nothing about the other two.
+///
+/// All ten are computed here since ADR 0390. An identifier outside the ten is still reported by
+/// its own number — [`crate::signature::Authenticity::UnknownDigest`] — rather than guessed at.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Digest {
     /// MD5, Table 256's default for PDF 1.5 to 1.7 and deprecated with PDF 2.0.
@@ -183,7 +199,46 @@ pub enum Digest {
     Sha512,
     /// RIPEMD-160, which Table 260 names for every `/SubFilter` and no corpus document writes.
     Ripemd160,
+    /// SHA3-256, added by ISO/TS 32001:2022 section 5.1.4 as "SHA3-256 (PDF 2.x)".
+    Sha3_256,
+    /// SHA3-384, added by ISO/TS 32001:2022 section 5.1.4 as "SHA3-384 (PDF 2.x)".
+    Sha3_384,
+    /// SHA3-512, added by ISO/TS 32001:2022 section 5.1.4 as "SHA3-512 (PDF 2.x)".
+    Sha3_512,
+    /// SHAKE256 at [`SHAKE256_OCTETS`], on grounds the errata moved.
+    ///
+    /// **The published ISO/TS 32001:2022 pinned it**: section 5.1.4 said the algorithm "identified
+    /// by the id-shake256 object identifier (OID) in section 2.3 of RFC 8419 shall be used", and
+    /// its NOTE said what that bought — "[t]he requirement to use the id-shake256 OID fixes the
+    /// SHAKE256 output length for the digest at 512 bits and serves to prohibit variable length
+    /// SHAKE256 algorithm usage and prohibit use of SHAKE256 algorithms with OIDs other than
+    /// id-shake256."
+    ///
+    /// **Errata Collection 3's issue #404 struck that sentence** — `Review/Accepted`, in the copy
+    /// under `doc/` — and replaced it with a deferral: "used, the applicable stipulations on
+    /// algorithm identifiers in RFC 8702, 3.1 and RFC 8419, 3.1, 3.2 shall be followed." **The NOTE
+    /// was not struck**, so the only statement about an output length in any document this tree
+    /// holds is now a NOTE describing a requirement that is no longer there. That is stranded text
+    /// rather than a rule.
+    ///
+    /// So 512 bits is a **documented choice** and not a derivation (ADR 0390), and it is the
+    /// narrow one: this variant is `id-shake256` squeezed to [`SHAKE256_OCTETS`], the reading both
+    /// the retired sentence and the surviving NOTE agree on. Whatever else RFC 8702 section 3.1 and
+    /// RFC 8419 sections 3.1 and 3.2 stipulate is unknown here, because this tree holds neither —
+    /// and the cost of that is bounded in the safe direction: any other identifier, including any
+    /// variable-length one those RFCs may define, is not in [`Self::from_oid`] and is reported by
+    /// its own dotted decimal rather than computed at a guessed length.
+    Shake256,
 }
+
+/// The octets [`Digest::Shake256`]'s output is squeezed to — "512 bits", ISO/TS 32001 section
+/// 5.1.4's NOTE.
+///
+/// Named rather than written as 64 at the point of use because it is a *decision* and not a buffer
+/// size: an extendable-output function has no natural length, this one was pinned by the published
+/// text and unpinned by Errata Collection 3's issue #404, and [`Digest::Shake256`] carries the
+/// argument for keeping the number the errata left standing in an unstruck NOTE.
+pub const SHAKE256_OCTETS: usize = 512 / 8;
 
 impl Digest {
     /// The algorithm an `AlgorithmIdentifier`'s object identifier names.
@@ -193,8 +248,11 @@ impl Digest {
     /// function would produce a mismatch that reads as a modified document.
     #[must_use]
     pub fn from_oid(oid: &[u8]) -> Option<Self> {
-        // The four in the NIST arc (2.16.840.1.101.3.4.2.x) differ in their last octet; SHA-1 is
-        // in the older OIW arc and MD5 and RIPEMD-160 in RSA's and Teletrust's respectively.
+        // Seven of the ten are in the NIST arc (2.16.840.1.101.3.4.2.x) and differ only in their
+        // last octet; SHA-1 is in the older OIW arc and MD5 and RIPEMD-160 in RSA's and
+        // Teletrust's respectively. **The seven digits themselves come from a registry this tree
+        // does not hold** — see the `identifiers` note on [`Self::oid`], which is where the cost
+        // of that is written down.
         match oid {
             [0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x02, 0x05] => Some(Self::Md5),
             [0x2B, 0x0E, 0x03, 0x02, 0x1A] => Some(Self::Sha1),
@@ -202,6 +260,10 @@ impl Digest {
             [0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x02] => Some(Self::Sha384),
             [0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03] => Some(Self::Sha512),
             [0x2B, 0x24, 0x03, 0x02, 0x01] => Some(Self::Ripemd160),
+            [0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x08] => Some(Self::Sha3_256),
+            [0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x09] => Some(Self::Sha3_384),
+            [0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x0A] => Some(Self::Sha3_512),
+            [0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x0C] => Some(Self::Shake256),
             _ => None,
         }
     }
@@ -212,6 +274,29 @@ impl Digest {
     /// block a PKCS #1 v1.5 signature commits to, so verifying one means writing the identifier
     /// out again. The two functions are deliberately one pair of constants read in two directions:
     /// a second table would be a second thing to keep right.
+    ///
+    /// # The identifiers are transcribed, and this project cannot check them against a document
+    ///
+    /// **A deliberate decision with a cost, recorded here rather than taken quietly** (principle 1;
+    /// ADR 0390). ISO 32000-2 and ISO/TS 32001 name these algorithms by *name* — "SHA3-256", and
+    /// so on — and neither prints a digit of an object identifier. The one the standard is most
+    /// specific about it names by symbol and defers: "the message digest algorithm identified by
+    /// the id-shake256 object identifier (OID) in section 2.3 of RFC 8419 shall be used". So every
+    /// number below is transcribed from a registry no document in `doc/` holds, exactly as the six
+    /// that preceded it were.
+    ///
+    /// What limits the cost, and it is worth understanding rather than trusting:
+    ///
+    /// - **A transcription that is simply wrong costs a report and never a verdict.** An identifier
+    ///   this table does not match falls out of [`Self::from_oid`] as `None`, which is reported by
+    ///   its own dotted decimal — the behaviour a file stating that digest already got.
+    /// - **A transcription that is wrong by *swapping two* would be a wrong answer**, so the pairing
+    ///   is what the tests check: `x509::dotted` reads each constant back as digits, and — for the
+    ///   three that have one — a second party's reading of the same registry is compared against
+    ///   ours. Agreement raises confidence that the registry was read correctly, which is all
+    ///   principle 5 ever lets another implementation do.
+    /// - **SHAKE256 has no second reading here**, because the package that computes it publishes no
+    ///   identifier. Its digits stand on the transcription alone and are marked as such below.
     #[must_use]
     pub fn oid(self) -> &'static [u8] {
         match self {
@@ -221,17 +306,46 @@ impl Digest {
             Self::Sha384 => &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x02],
             Self::Sha512 => &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03],
             Self::Ripemd160 => &[0x2B, 0x24, 0x03, 0x02, 0x01],
+            Self::Sha3_256 => &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x08],
+            Self::Sha3_384 => &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x09],
+            Self::Sha3_512 => &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x0A],
+            // `id-shake256`, the identifier ISO/TS 32001 section 5.1.4 requires and does not print.
+            Self::Shake256 => &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x0C],
         }
     }
 
-    /// Every algorithm Table 260 and Table 256 name, for a caller that must try each in turn.
+    /// Every algorithm Table 260 or Table 256 names — the six, plus ISO/TS 32001 section 5.1.4's
+    /// four.
+    ///
+    /// The complete set, in the order the standard introduced them. For the set a *caller* may try
+    /// when a file states no algorithm at all, [`Self::TRIED_WHEN_UNSTATED`] is the narrower list
+    /// and the difference is the standard's own.
+    pub const ALL: [Self; 10] = [
+        Self::Md5,
+        Self::Sha1,
+        Self::Sha256,
+        Self::Sha384,
+        Self::Sha512,
+        Self::Ripemd160,
+        Self::Sha3_256,
+        Self::Sha3_384,
+        Self::Sha3_512,
+        Self::Shake256,
+    ];
+
+    /// The algorithms to try where the file states none, which is fewer than [`Self::ALL`].
     ///
     /// §12.8.3.2's `adbe.x509.rsa_sha1` records no digest algorithm anywhere a reader can see it —
     /// the identifier is inside the PKCS #1 block, under the key — so the only way to learn which
-    /// of the six a signature used is to build the block for each and compare. That is safe
-    /// precisely because RFC 8017 section 8.2.2 compares whole blocks: six comparisons of a fixed-length
-    /// string admit no more forgeries than one.
-    pub const ALL: [Self; 6] = [
+    /// a signature used is to build the block for each and compare. That is safe precisely because
+    /// RFC 8017 section 8.2.2 compares whole blocks: six comparisons of a fixed-length string admit
+    /// no more forgeries than one.
+    ///
+    /// **It is six rather than ten because ISO/TS 32001 says where its four go.** Section 5.1.4
+    /// adds them "to the Message Digest value entry for adbe.pkcs7.detached, ETSI.CAdES.detached
+    /// or ETSI.RFC3161" — three of Table 260's five `/SubFilter` columns, and this is one of the
+    /// other two. Trying them here would be this program widening a table the standard did not.
+    pub const TRIED_WHEN_UNSTATED: [Self; 6] = [
         Self::Md5,
         Self::Sha1,
         Self::Sha256,
@@ -250,6 +364,11 @@ impl Digest {
             Self::Sha384 => "SHA384",
             Self::Sha512 => "SHA512",
             Self::Ripemd160 => "RIPEMD160",
+            // ISO/TS 32001 section 5.1.4 spells these four, and the hyphen is theirs.
+            Self::Sha3_256 => "SHA3-256",
+            Self::Sha3_384 => "SHA3-384",
+            Self::Sha3_512 => "SHA3-512",
+            Self::Shake256 => "SHAKE256",
         }
     }
 
@@ -261,7 +380,7 @@ impl Digest {
     #[must_use]
     pub fn compute(self, message: &[&[u8]]) -> Vec<u8> {
         use sha2::Digest as _;
-        /// One hasher fed every piece, so the six arms differ only in their type.
+        /// One hasher fed every piece, so the fixed-output arms differ only in their type.
         macro_rules! hash {
             ($hasher:ty) => {{
                 let mut hasher = <$hasher>::new();
@@ -278,8 +397,30 @@ impl Digest {
             Self::Sha384 => hash!(sha2::Sha384),
             Self::Sha512 => hash!(sha2::Sha512),
             Self::Ripemd160 => hash!(ripemd::Ripemd160),
+            Self::Sha3_256 => hash!(sha3::Sha3_256),
+            Self::Sha3_384 => hash!(sha3::Sha3_384),
+            Self::Sha3_512 => hash!(sha3::Sha3_512),
+            // The one arm the macro cannot serve: SHAKE256 is an extendable-output function, so it
+            // is squeezed to a length rather than finalised to one.
+            Self::Shake256 => shake256(message),
         }
     }
+}
+
+/// SHAKE256 squeezed to the [`SHAKE256_OCTETS`] ISO/TS 32001 section 5.1.4 fixes it at.
+///
+/// Separate from [`Digest::compute`]'s macro because an extendable-output function has a different
+/// shape — `finalize_xof` then `read` — and because the length is the standard's requirement rather
+/// than a property of the function, which is the one thing a reader of this arm must not miss.
+fn shake256(message: &[&[u8]]) -> Vec<u8> {
+    use shake::{ExtendableOutput as _, Update as _, XofReader as _};
+    let mut hasher = shake::Shake256::default();
+    for piece in message {
+        hasher.update(piece);
+    }
+    let mut out = vec![0; SHAKE256_OCTETS];
+    hasher.finalize_xof().read(&mut out);
+    out
 }
 
 /// What stopped a signature value from being read as RFC 5652's `SignedData`.
@@ -747,7 +888,9 @@ fn read_attributes<'a>(
 /// `tests/signatures.rs` does over all ten of its signature dictionaries.
 #[cfg(test)]
 pub(crate) mod fixtures {
-    use super::{ID_CONTENT_TYPE, ID_CT_TST_INFO, ID_DATA, ID_MESSAGE_DIGEST, ID_SIGNING_TIME};
+    use super::{
+        Digest, ID_CONTENT_TYPE, ID_CT_TST_INFO, ID_DATA, ID_MESSAGE_DIGEST, ID_SIGNING_TIME,
+    };
 
     /// A DER `SEQUENCE`, `SET` or context tag around already-encoded children.
     fn tagged(identifier: u8, children: &[Vec<u8>]) -> Vec<u8> {
@@ -779,15 +922,14 @@ pub(crate) mod fixtures {
         out
     }
 
+    /// The `AlgorithmIdentifier` for one digest, with no parameters member.
+    fn digest_algorithm(digest: Digest) -> Vec<u8> {
+        tagged(0x30, &[primitive(0x06, digest.oid())])
+    }
+
     /// The `AlgorithmIdentifier` for SHA-256.
     fn sha256_algorithm() -> Vec<u8> {
-        tagged(
-            0x30,
-            &[primitive(
-                0x06,
-                &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01],
-            )],
-        )
+        digest_algorithm(Digest::Sha256)
     }
 
     /// One signed attribute: `SEQUENCE { OID, SET OF value }`.
@@ -795,12 +937,12 @@ pub(crate) mod fixtures {
         tagged(0x30, &[primitive(0x06, oid), tagged(0x31, &[value])])
     }
 
-    /// One `SignerInfo`, with the signed attributes given.
-    fn signer(attributes: Option<Vec<Vec<u8>>>) -> Vec<u8> {
+    /// One `SignerInfo` stating `digest` as its `digestAlgorithm`, with the signed attributes given.
+    fn signer(digest: Digest, attributes: Option<Vec<Vec<u8>>>) -> Vec<u8> {
         let mut members = vec![
             primitive(0x02, &[0x01]),                  // version
             tagged(0x30, &[primitive(0x02, &[0x2A])]), // sid: issuer and serial number
-            sha256_algorithm(),                        // digestAlgorithm
+            digest_algorithm(digest),                  // digestAlgorithm
         ];
         if let Some(attributes) = attributes {
             members.push(tagged(0xA0, &attributes));
@@ -811,7 +953,12 @@ pub(crate) mod fixtures {
     }
 
     /// `ContentInfo { id-signedData, [0] SignedData }` around one signer.
-    fn content_info(content_type: &[u8], encapsulated: Option<&[u8]>, signer: Vec<u8>) -> Vec<u8> {
+    fn content_info(
+        digest: Digest,
+        content_type: &[u8],
+        encapsulated: Option<&[u8]>,
+        signer: Vec<u8>,
+    ) -> Vec<u8> {
         let mut encapsulated_info = vec![primitive(0x06, content_type)];
         if let Some(content) = encapsulated {
             encapsulated_info.push(tagged(0xA0, &[primitive(0x04, content)]));
@@ -820,7 +967,7 @@ pub(crate) mod fixtures {
             0x30,
             &[
                 primitive(0x02, &[0x01]),
-                tagged(0x31, &[sha256_algorithm()]),
+                tagged(0x31, &[digest_algorithm(digest)]),
                 tagged(0x30, &encapsulated_info),
                 // Two certificates, stood in for by empty sequences: this program counts them
                 // and reads none, so their contents would be a fiction with no reader.
@@ -846,14 +993,29 @@ pub(crate) mod fixtures {
     /// *and* the signature dictionary's `/M`, and a fixture with only one of the two could not
     /// exercise the rule.
     pub(crate) fn detached(digest: &[u8]) -> Vec<u8> {
+        detached_stating(Digest::Sha256, digest)
+    }
+
+    /// The same, stating an algorithm of the caller's choosing rather than SHA-256.
+    ///
+    /// Exists for ISO/TS 32001's four (ADR 0390), which no document in the population states, so a
+    /// hand-built value is the only way to carry one through `Signature::integrity` end to end
+    /// (trap 8). The `/SubFilter` its caller pairs it with matters: section 5.1.4 adds the four
+    /// only for `adbe.pkcs7.detached`, `ETSI.CAdES.detached` and `ETSI.RFC3161`, and this fixture
+    /// is the first of those three.
+    pub(crate) fn detached_stating(algorithm: Digest, digest: &[u8]) -> Vec<u8> {
         content_info(
+            algorithm,
             ID_DATA,
             None,
-            signer(Some(vec![
-                attribute(ID_CONTENT_TYPE, primitive(0x06, ID_DATA)),
-                attribute(ID_SIGNING_TIME, primitive(0x17, b"260807000000Z")),
-                attribute(ID_MESSAGE_DIGEST, primitive(0x04, digest)),
-            ])),
+            signer(
+                algorithm,
+                Some(vec![
+                    attribute(ID_CONTENT_TYPE, primitive(0x06, ID_DATA)),
+                    attribute(ID_SIGNING_TIME, primitive(0x17, b"260807000000Z")),
+                    attribute(ID_MESSAGE_DIGEST, primitive(0x04, digest)),
+                ]),
+            ),
         )
     }
 
@@ -862,7 +1024,7 @@ pub(crate) mod fixtures {
     /// `bug854315.pdf` is this shape. There is then no `message-digest` recording the document's
     /// digest, so the only thing that could answer question 1 is question 2's public key.
     pub(crate) fn without_signed_attributes() -> Vec<u8> {
-        content_info(ID_DATA, None, signer(None))
+        content_info(Digest::Sha256, ID_DATA, None, signer(Digest::Sha256, None))
     }
 
     /// An `adbe.pkcs7.sha1` value, which encapsulates the document's digest rather than
@@ -876,12 +1038,16 @@ pub(crate) mod fixtures {
     /// that had.
     pub(crate) fn encapsulating(digest: &[u8]) -> Vec<u8> {
         content_info(
+            Digest::Sha256,
             ID_DATA,
             Some(digest),
-            signer(Some(vec![
-                attribute(ID_CONTENT_TYPE, primitive(0x06, ID_DATA)),
-                attribute(ID_MESSAGE_DIGEST, primitive(0x04, &[0xFF; 32])),
-            ])),
+            signer(
+                Digest::Sha256,
+                Some(vec![
+                    attribute(ID_CONTENT_TYPE, primitive(0x06, ID_DATA)),
+                    attribute(ID_MESSAGE_DIGEST, primitive(0x04, &[0xFF; 32])),
+                ]),
+            ),
         )
     }
 
@@ -1050,14 +1216,21 @@ pub(crate) mod fixtures {
                 ),
             ],
         );
-        content_info(ID_CT_TST_INFO, Some(&info), signer(None))
+        content_info(
+            Digest::Sha256,
+            ID_CT_TST_INFO,
+            Some(&info),
+            signer(Digest::Sha256, None),
+        )
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::fixtures::detached;
-    use super::{CmsError, Digest, ID_DATA, ID_MESSAGE_DIGEST, ID_SIGNING_TIME, signed_data};
+    use super::{
+        CmsError, Digest, ID_DATA, ID_MESSAGE_DIGEST, ID_SIGNING_TIME, SHAKE256_OCTETS, signed_data,
+    };
 
     /// A DER `SEQUENCE` around already-encoded children, for the two malformed fixtures below.
     fn tagged(identifier: u8, children: &[Vec<u8>]) -> Vec<u8> {
@@ -1108,7 +1281,7 @@ mod tests {
         );
     }
 
-    /// The six algorithms Table 260 and Table 256 name, and one they do not.
+    /// The base standard's six, and one identifier the tables do not name.
     #[test]
     fn the_digest_algorithms_are_the_ones_the_tables_name() {
         assert_eq!(
@@ -1144,6 +1317,158 @@ mod tests {
             hex(&Digest::Ripemd160.compute(&[b"abc"])),
             "8eb208f7e05d987a9b044a8e98c6b087f15a0bfc"
         );
+    }
+
+    /// ISO/TS 32001 section 5.1.4's four, against the example values their publisher states.
+    ///
+    /// **The vectors are NIST's own**, from the example-value documents that accompany FIPS PUB 202
+    /// — which is the publication ISO/TS 32001 section 5.1.1 names as where these algorithms are
+    /// "defined" — for the empty message and for its 1600-bit message, 200 octets of `0xA3`. The
+    /// second is worth as much as the first: it is longer than every one of the four rates, so it
+    /// is the case that absorbs more than one block, and splitting it here also pins that pieces
+    /// are hashed as one message.
+    ///
+    /// No corpus document states any of these four (`signature_algorithm_census` over 67 460
+    /// documents), so trap 8 applies and a published vector is the only witness there can be.
+    #[test]
+    fn iso_ts_32001s_four_digests_are_the_functions_fips_202_defines() {
+        let long = [0xA3_u8; 200];
+        for (algorithm, empty, long_message) in [
+            (
+                Digest::Sha3_256,
+                "a7ffc6f8bf1ed76651c14756a061d662f580ff4de43b49fa82d80a4b80f8434a",
+                "79f38adec5c20307a98ef76e8324afbfd46cfd81b22e3973c65fa1bd9de31787",
+            ),
+            (
+                Digest::Sha3_384,
+                "0c63a75b845e4f7d01107d852e4c2485c51a50aaaa94fc61995e71bbee983a2a\
+                 c3713831264adb47fb6bd1e058d5f004",
+                "1881de2ca7e41ef95dc4732b8f5f002b189cc1e42b74168ed1732649ce1dbcdd\
+                 76197a31fd55ee989f2d7050dd473e8f",
+            ),
+            (
+                Digest::Sha3_512,
+                "a69f73cca23a9ac5c8b567dc185a756e97c982164fe25859e0d1dcc1475c80a6\
+                 15b2123af1f5f94c11e3e9402c3ac558f500199d95b6d3e301758586281dcd26",
+                "e76dfad22084a8b1467fcf2ffa58361bec7628edf5f3fdc0e4805dc48caeeca8\
+                 1b7c13c30adf52a3659584739a2df46be589c51ca1a4a8416df6545a1ce8ba00",
+            ),
+            (
+                Digest::Shake256,
+                "46b9dd2b0ba88d13233b3feb743eeb243fcd52ea62b81b82b50c27646ed5762f\
+                 d75dc4ddd8c0f200cb05019d67b592f6fc821c49479ab48640292eacb3b7c4be",
+                "cd8a920ed141aa0407a22d59288652e9d9f1a7ee0c1e7c1ca699424da84a904d\
+                 2d700caae7396ece96604440577da4f3aa22aeb8857f961c4cd8e06f0ae6610b",
+            ),
+        ] {
+            let empty = empty.replace(' ', "");
+            let long_message = long_message.replace(' ', "");
+            assert_eq!(
+                hex(&algorithm.compute(&[])),
+                empty,
+                "{}, the empty message",
+                algorithm.name()
+            );
+            assert_eq!(
+                hex(&algorithm.compute(&[&long[..1], &long[1..99], &long[99..]])),
+                long_message,
+                "{}, 200 octets of 0xA3 in three pieces",
+                algorithm.name()
+            );
+        }
+    }
+
+    /// ISO/TS 32001 section 5.1.4's NOTE, as a length rather than as a sentence: "[t]he requirement
+    /// to use the id-shake256 OID fixes the SHAKE256 output length for the digest at 512 bits and
+    /// serves to prohibit variable length SHAKE256 algorithm usage and prohibit use of SHAKE256
+    /// algorithms with OIDs other than id-shake256."
+    ///
+    /// **The NOTE survived Errata Collection 3 and the requirement it describes did not**, so this
+    /// is the one number in the round that a document here states and no document here requires;
+    /// [`Digest::Shake256`] carries the choice. It is pinned by a test rather than left to the
+    /// vectors because a vector cannot catch it: a prefix of a SHAKE256 stream is a valid SHAKE256
+    /// output of its own length, so squeezing 32 octets still agrees with the 64-octet vector
+    /// above, byte for byte.
+    #[test]
+    fn shake256_is_squeezed_to_the_512_bits_the_note_still_states() {
+        assert_eq!(SHAKE256_OCTETS, 64);
+        assert_eq!(Digest::Shake256.compute(&[b"any message at all"]).len(), 64);
+        assert_eq!(
+            Digest::Shake256.compute(&[]).len(),
+            Digest::Sha3_512.compute(&[]).len(),
+            "512 bits, the same width the standard's other longest digest has"
+        );
+    }
+
+    /// The ten identifiers, decoded by this tree's own reader rather than trusted as written.
+    ///
+    /// `dsa.rs` applies the same discipline to its own constants and for the same reason: an
+    /// identifier written as octets is a *claim about a number*, and `x509::dotted` is what checks
+    /// that the octets say what the comment beside them says.
+    ///
+    /// **The three SHA-3 rows carry a second reading and SHAKE256 cannot.** ISO 32000-2 and ISO/TS
+    /// 32001 print none of these digits, and Errata Collection 3 took away even the *symbol* the
+    /// standard named for the fourth — see [`Digest::oid`] and [`Digest::Shake256`] for the two
+    /// decisions and their costs — so
+    /// where a second party publishes its own transcription of the same registry, comparing the two
+    /// is worth doing. That is all it is: agreement raises confidence that the registry was read
+    /// correctly, which is the only thing principle 5 lets another implementation do. `shake`
+    /// publishes no identifier, so `id-shake256` stands on the transcription alone.
+    #[test]
+    fn the_object_identifiers_are_the_numbers_the_registry_assigns() {
+        use crate::x509::dotted;
+        use sha3::digest::const_oid::AssociatedOid as _;
+        for (digest, expected) in [
+            (Digest::Md5, "1.2.840.113549.2.5"),
+            (Digest::Sha1, "1.3.14.3.2.26"),
+            (Digest::Sha256, "2.16.840.1.101.3.4.2.1"),
+            (Digest::Sha384, "2.16.840.1.101.3.4.2.2"),
+            (Digest::Sha512, "2.16.840.1.101.3.4.2.3"),
+            (Digest::Ripemd160, "1.3.36.3.2.1"),
+            (Digest::Sha3_256, "2.16.840.1.101.3.4.2.8"),
+            (Digest::Sha3_384, "2.16.840.1.101.3.4.2.9"),
+            (Digest::Sha3_512, "2.16.840.1.101.3.4.2.10"),
+            (Digest::Shake256, "2.16.840.1.101.3.4.2.12"),
+        ] {
+            assert_eq!(dotted(digest.oid()).as_deref(), Some(expected));
+            assert_eq!(
+                Digest::from_oid(digest.oid()),
+                Some(digest),
+                "and the pair reads the same constant in both directions"
+            );
+        }
+        // The second reading, for the three that have one.
+        assert_eq!(Digest::Sha3_256.oid(), sha3::Sha3_256::OID.as_bytes());
+        assert_eq!(Digest::Sha3_384.oid(), sha3::Sha3_384::OID.as_bytes());
+        assert_eq!(Digest::Sha3_512.oid(), sha3::Sha3_512::OID.as_bytes());
+    }
+
+    /// Where ISO/TS 32001 puts its four, which is not everywhere.
+    ///
+    /// Section 5.1.4 adds them "to the Message Digest value entry for adbe.pkcs7.detached,
+    /// ETSI.CAdES.detached or ETSI.RFC3161" — so `adbe.x509.rsa_sha1`, whose digest this program
+    /// has to find by trying each in turn, keeps the base standard's six. A program that widened
+    /// the trial set would be widening a table the standard did not.
+    #[test]
+    fn the_unstated_trial_set_is_the_base_standards_six() {
+        assert_eq!(Digest::ALL.len(), 10);
+        assert_eq!(Digest::TRIED_WHEN_UNSTATED.len(), 6);
+        for digest in [
+            Digest::Sha3_256,
+            Digest::Sha3_384,
+            Digest::Sha3_512,
+            Digest::Shake256,
+        ] {
+            assert!(Digest::ALL.contains(&digest));
+            assert!(
+                !Digest::TRIED_WHEN_UNSTATED.contains(&digest),
+                "{} is not in Table 260's adbe.x509.rsa_sha1 column",
+                digest.name()
+            );
+        }
+        for digest in Digest::TRIED_WHEN_UNSTATED {
+            assert!(Digest::ALL.contains(&digest));
+        }
     }
 
     /// Lower-case hexadecimal, for comparing a digest with a published vector.

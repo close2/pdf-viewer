@@ -483,7 +483,7 @@ fn a_page_whose_ancestry_states_no_media_box_is_drawn_on_a_default_and_says_so()
 /// > of diagonally opposite corners.
 ///
 /// A producer that wrote three numbers has made a different mistake from one that wrote
-/// nothing, and a reader that says "no /MediaBox" about it is telling a person to look for an
+/// nothing, and a reader that says "no `/MediaBox`" about it is telling a person to look for an
 /// entry that is there. `format-corpus`'
 /// `T02-03_009_page-object-mediabox-not-rectangle.pdf` is the corpus witness, and it is the only
 /// one of this kind on this disk — `pdftoppm`, `mutool` and `gs` answer it with three different

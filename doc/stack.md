@@ -62,8 +62,17 @@ a dependency needs from those three ADRs:
   brainpoolP256r1 and two use BSI TR-03111's *plain* `r ‖ s` encoding, a specification this tree
   does not hold. Taking the packages today would close **one signature in 811**. Still
   **declined-for-now rather than declined**, which is a different thing from `rustybuzz` above.
-- **One dependency is owed and is not an argument, only unspent**: ISO/TS 32001 adds SHA3-256,
-  SHA3-384, SHA3-512 and SHAKE256 to Table 260, and this tree computes none of them. It needs a
-  SHA-3 implementation on the same `digest` 0.11 line as the `sha2`, `sha1`, `md-5` and `ripemd`
-  already here (`sha3` 0.12 is that line's package) — the *second* hash stack is exactly what ADR
-  0229 declined `rsa` 0.9 for, so the line matters more than the package.
+- **The one dependency that was owed is spent, and cost twice what this file predicted** (ADR
+  0390, 2026-08-17). ISO/TS 32001 section 5.1.4 adds SHA3-256, SHA3-384, SHA3-512 and SHAKE256 to
+  Table 260 — **not** to Table 256, whose section 5.1.3 Errata Collection 3 deletes outright — and
+  `cms::Digest` computes all four. The line test was the deciding one and both
+  candidates passed it — `digest` 0.11, the same trait stack as the `sha2`, `sha1`, `md-5` and
+  `ripemd` already here, because a *second* hash stack is exactly what ADR 0229 declined `rsa` 0.9
+  for and ADR 0348 declined `ttf-parser` for. What this file got wrong was the package count:
+  **`sha3` 0.12.0 removed `Shake128` and `Shake256` into a separate `shake` crate**, so the current
+  line is **two** packages and **four** compiled ones (`sha3` 0.12.0, `shake` 0.1.0, and the shared
+  `keccak` 0.2.1 and `sponge-cursor` 0.1.0), all `MIT OR Apache-2.0`, MSRV 1.85, all RustCrypto.
+  The two-package alternative was `sha3` 0.11.0, which still has both and is superseded; a dead
+  minor was judged the more expensive of the two. **The lesson generalises past this row**: a
+  sentence here naming a *version* of somebody else's crate is a prediction, and a prediction is
+  re-measured at the moment of spending rather than read.

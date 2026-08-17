@@ -11,6 +11,15 @@ and that `Landing::in_clause` had filed under a neighbouring clause; and **the o
 round later. `check` prints 151 lines for those 120, because an erratum stated in two annotation
 objects prints twice.
 
+**One row below was never `check`'s to name, and it is the most important thing this file learned
+after it was finished.** ISO/TS 32001 §5.1.3's deletion (#236) is in the first table because the
+five-hundred-and-fifty-fifth session went looking for it, not because the tool printed it: `check`
+compares *the tree's quotations* against struck passages, so an erratum over text nobody has
+written yet is invisible until somebody writes it. That session wrote it — three quotations of a
+deleted subclause — and `check` caught all three before the commit, which is the tool working in
+the direction it was built for. **The rule that follows: a round implementing a clause runs
+`spec-errata emit` on that document before it writes, and not `check` afterwards alone.**
+
 **The instrument was corrected once, between the first table and the third.** Its comparison was
 whitespace-sensitive and both sides are extractions of the same glyphs by different programs, so a
 passage one writes `inthe` and the other writes `in the` was called absent; dropping the spaces took
@@ -103,7 +112,8 @@ objects prints twice. The multiplicities below sum to the 79.
 | §14.13.8 Associated files | 855 | #374 | cites | ×2. A DPart's `/AF` stays an array of file specifications, which is what `associated` requires. |
 | Annex E.2 | 893 | #229 | untouched | The second-class-name exception becomes "where otherwise stated in this specification". A reader treats an unknown key alike whichever class it is in; the row's `writer-side` reasoning survives. |
 | Annex H.3 | 922, 923 | #402, #563 | untouched | ×3 lines, two errata. Annex H says *informative* on its own title line; both errata are inside examples. |
-| ISO/TS 32001 §5.1.4 | 10 | #404 | untouched | SHAKE256's fixed OID gives way to RFC 8702's algorithm identifiers. No SHA-3 or SHAKE anywhere in the tree; an unknown digest OID is reported rather than guessed. |
+| ISO/TS 32001 §5.1.4 | 10 | #404 | **implements** | SHAKE256's fixed OID gives way to RFC 8702's algorithm identifiers. **This row read "untouched — no SHA-3 or SHAKE anywhere in the tree" until the five-hundred-and-fifty-fifth session, when `cms::Digest` gained all four** (ADR 0390), which makes it the errata table's own decay: a verdict of *untouched* is a claim about the tree and expires the moment the tree implements the clause. Read now: the struck sentence pinned `id-shake256`, the caret defers to "RFC 8702, 3.1 and RFC 8419, 3.1, 3.2", and the NOTE fixing the output at 512 bits was **not** struck — so the length this program squeezes to is a documented choice standing on an unstruck NOTE, not a requirement. `Digest::Shake256` carries it. |
+| ISO/TS 32001 §5.1.3 | 5, 10 | #236 | **implements** | ×2 (the contents line and the clause). "Delete all of clause 5.1.3" — so Table 256's `/DigestMethod` is **not** extended with the SHA-3 family, and the four are added to Table 237 (§5.1.2) and Table 260 (§5.1.4) only. **`check` never named this one, and the reason is the shape to remember**: the tool compares the tree's quotations against struck passages, and nothing here quoted §5.1.3 until a round set out to implement it — at which point it quoted the retired text in three places and `check` caught all three before the commit. An erratum over text nobody has written yet is invisible until somebody writes it. |
 
 ## Not on the first 79: three the corrected comparison found, and all three are findings
 

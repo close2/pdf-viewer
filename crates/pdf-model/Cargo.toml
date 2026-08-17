@@ -27,6 +27,11 @@ rayon.workspace = true
 ripemd.workspace = true
 sha1.workspace = true
 sha2.workspace = true
+# ISO/TS 32001's four, beside the base standard's six: three of them here and SHAKE256 in
+# `shake`, which is where `sha3` 0.12 moved it. Same `digest` 0.11 line as the three above; see
+# the workspace manifest and ADR 0390.
+sha3.workspace = true
+shake.workspace = true
 thiserror.workspace = true
 # §14.3.2's metadata stream, read by `xmp.rs`. See the workspace manifest for why this
 # tokenizer and doc/adr/0186 for the decision.

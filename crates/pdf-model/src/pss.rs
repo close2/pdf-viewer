@@ -46,7 +46,7 @@
 //! ```
 //!
 //! [`parameters`] reads that over [`crate::der`]. The hashes this program accepts here are the
-//! ones Appendix A.2.1's `OAEP-PSSDigestAlgorithms` set names that [`Digest`] already computes —
+//! ones Appendix A.2.1's `OAEP-PSSDigestAlgorithms` set names that [`Digest`] also computes —
 //! SHA-1, SHA-256, SHA-384 and SHA-512 — and every refusal carries the identifier the file
 //! stated, never a silence: a hash outside that set, a mask generation function other than
 //! Appendix B.2.1's MGF1 (the whole of `PKCS1MGFAlgorithms` "for this version"), or a trailer
@@ -219,15 +219,28 @@ fn digest_identifier(algorithm: Value<'_>) -> Result<&[u8], ParameterProblem<'_>
 ///
 /// RFC 8017 Appendix A.2.1's `OAEP-PSSDigestAlgorithms` names SHA-1, SHA-224, SHA-256, SHA-384,
 /// SHA-512, SHA-512/224 and SHA-512/256; [`Digest`] computes four of those seven, and its other
-/// two members — MD5 and RIPEMD-160, which exist for Table 256's sake — are refused as *not
-/// admitted* rather than as unknown, because "this program does not compute it" would be false
-/// of them.
+/// members — MD5 and RIPEMD-160, which exist for Table 256's sake, and ISO/TS 32001's four, which
+/// exist for Table 260's — are refused as *not admitted* rather than as unknown, because "this
+/// program does not compute it" would be false of them.
+///
+/// **The SHA-3 family is refused here on the RFC's set and not on ours** (ADR 0390). ISO/TS 32001
+/// adds its four to Table 260's Message Digest row, which is what a `SignerInfo`'s
+/// `digestAlgorithm` states; the hash *this scheme* uses comes from the `RSASSA-PSS-params` inside
+/// the signature algorithm identifier and is governed by RFC 8017, which names no SHA-3. A file
+/// that states one there is departing from the RFC, and it is told so by its own number.
 fn pss_digest(oid: &[u8]) -> Result<Digest, ParameterProblem<'_>> {
     match Digest::from_oid(oid) {
         Some(digest @ (Digest::Sha1 | Digest::Sha256 | Digest::Sha384 | Digest::Sha512)) => {
             Ok(digest)
         }
-        Some(Digest::Md5 | Digest::Ripemd160) => Err(ParameterProblem::HashNotAdmitted(oid)),
+        Some(
+            Digest::Md5
+            | Digest::Ripemd160
+            | Digest::Sha3_256
+            | Digest::Sha3_384
+            | Digest::Sha3_512
+            | Digest::Shake256,
+        ) => Err(ParameterProblem::HashNotAdmitted(oid)),
         None => Err(ParameterProblem::HashNotComputed(oid)),
     }
 }
@@ -694,19 +707,28 @@ mod tests {
             Err(ParameterProblem::MaskGenerationNotMgf1(&[0x2A, 0x03]))
         );
 
-        // MD5 is a digest this program computes and the PSS scheme does not admit; SHA3-256 is
-        // one it does not compute at all. The two refusals are kept apart because they say two
-        // different things about this program.
+        // MD5 is a digest this program computes and the PSS scheme does not admit; SHA-224 is one
+        // the scheme admits and this program does not compute. The two refusals are kept apart
+        // because they say two different things about this program.
         let md5 = tagged(0x30, &[tagged(0xA0, &[algorithm(Digest::Md5.oid())])]);
         assert_eq!(
             parameters(first_value(&md5)),
             Err(ParameterProblem::HashNotAdmitted(Digest::Md5.oid()))
         );
-        let sha3 = [0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x08];
-        let unknown = tagged(0x30, &[tagged(0xA0, &[algorithm(&sha3)])]);
+        // **This case used to be SHA3-256 and had to move**: ISO/TS 32001's four are computed
+        // since ADR 0390, so that identifier now says the first thing rather than the second.
+        // SHA-224 is `2.16.840.1.101.3.4.2.4` — in Appendix A.2.1's set, outside `Digest`.
+        let sha224 = [0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x04];
+        let unknown = tagged(0x30, &[tagged(0xA0, &[algorithm(&sha224)])]);
         assert_eq!(
             parameters(first_value(&unknown)),
-            Err(ParameterProblem::HashNotComputed(&sha3))
+            Err(ParameterProblem::HashNotComputed(&sha224))
+        );
+        // And the identifier that moved, saying the other thing now.
+        let sha3 = tagged(0x30, &[tagged(0xA0, &[algorithm(Digest::Sha3_256.oid())])]);
+        assert_eq!(
+            parameters(first_value(&sha3)),
+            Err(ParameterProblem::HashNotAdmitted(Digest::Sha3_256.oid()))
         );
 
         // A negative salt length is not an octet length.
