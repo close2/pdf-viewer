@@ -13,14 +13,20 @@
 //! | input | the clause that makes it an input | test |
 //! |---|---|---|
 //! | the stream | — | [`a_second_do_of_one_stream_reuses_its_raster`], [`a_stream_cannot_inherit_the_raster_of_one_whose_allocation_it_reuses`] |
+//! | …named by its content, for §8.9.7's inline image | §8.9.7 puts it in the content stream rather than in an object | [`a_second_bi_of_one_inline_image_reuses_its_raster`], [`two_inline_images_do_not_share_a_raster`], [`every_cell_of_a_hatching_shares_one_decode`] |
 //! | the resource dictionary | §8.6.5.1's named colour space, §8.6.5.6's `/Default*` | [`a_raster_is_not_shared_across_resource_dictionaries`] |
 //! | the fill colour | §8.9.6.2's stencil paints the current colour | [`a_raster_is_not_shared_across_fill_colours`] |
 //! | what it composites into | §11.4.7's halves, §11.6.5.1's mask group | [`a_raster_is_not_shared_across_compositing`] |
 //! | the document | — | not in the key: the cache belongs to one interpretation |
 //!
-//! The sixth test is `doc/HANDOVER.md`'s trap 5 rather than a component: a raster answered from
-//! the cache has to carry the reports a fresh decode carries, or the second `Do` silently stops
+//! One test is `doc/HANDOVER.md`'s trap 5 rather than a component: a raster answered from the
+//! cache has to carry the reports a fresh decode carries, or the second `Do` silently stops
 //! saying what the first said.
+//!
+//! **And the second row is a bound rather than a claim about correctness** (ADR 0399). A key
+//! nothing can hit is not merely a cache that does no good: the probe is linear in the entries, so
+//! one entry per draw makes a page quadratic in its own image count, and two corpus documents took
+//! two minutes and twelve seconds of it before anybody named the shape.
 
 #![expect(
     clippy::expect_used,
@@ -31,7 +37,7 @@ use std::fmt::Write as _;
 use std::sync::Arc;
 
 use pdf_model::colour::{Compositing, Half, PressId};
-use pdf_model::image::{MaskCache, Parts, RasterCache, decode_parts};
+use pdf_model::image::{MaskCache, NamedStream, Parts, RasterCache, StreamIdentity, decode_parts};
 use pdf_render::Color;
 use pdf_syntax::{Dictionary, Document, Name, Object, Stream};
 
@@ -155,7 +161,7 @@ fn decoded(
     samples(&parts)
 }
 
-/// One decode through a cache.
+/// One decode through a cache, of a stream a resource dictionary handed out.
 fn cached(
     cache: &mut RasterCache,
     document: &Document,
@@ -164,9 +170,28 @@ fn cached(
     fill: Color,
     into: Compositing,
 ) -> Arc<[u8]> {
+    named(
+        cache,
+        document,
+        NamedStream::allocation(stream),
+        resources,
+        fill,
+        into,
+    )
+}
+
+/// The same, with the name spelled out, for the two tests that are about it.
+fn named(
+    cache: &mut RasterCache,
+    document: &Document,
+    image: NamedStream<'_>,
+    resources: &Dictionary,
+    fill: Color,
+    into: Compositing,
+) -> Arc<[u8]> {
     let mut masks = MaskCache::default();
     let parts = cache
-        .parts(document, stream, resources, fill, into, &mut masks)
+        .parts(document, image, resources, fill, into, &mut masks)
         .expect("the fixture decodes");
     samples(&parts)
 }
@@ -249,6 +274,104 @@ fn a_stream_cannot_inherit_the_raster_of_one_whose_allocation_it_reuses() {
         );
         // Dropped here, which is the pressure: the next `Arc::new` may take this address.
     }
+}
+
+/// **§8.9.7's image has no allocation that recurs**, so it is named by its content instead.
+///
+/// The two streams below are separately allocated and equal, which is exactly what
+/// `content::run` produces for two `BI`s of one picture: it builds the stream out of the bytes
+/// between `BI` and `EI` at every one of them. Under [`StreamIdentity::Allocation`] the second is
+/// a miss — that is what this test fails as, and it is what the tree did before ADR 0399.
+#[test]
+fn a_second_bi_of_one_inline_image_reuses_its_raster() {
+    let document = document();
+    let resources = resources_naming("DeviceRGB");
+    let mut cache = RasterCache::default();
+    let first_stream = named_space_image();
+    let second_stream = named_space_image();
+    assert!(
+        !Arc::ptr_eq(&first_stream, &second_stream),
+        "the fixture shares one allocation, so it cannot show what it is for"
+    );
+
+    assert_eq!(
+        StreamIdentity::of_inline(&first_stream),
+        StreamIdentity::of_inline(&second_stream),
+        "two equal inline images were given two identities"
+    );
+    let first = named(
+        &mut cache,
+        &document,
+        NamedStream::inline(&first_stream),
+        &resources,
+        Color::BLACK,
+        Compositing::Device,
+    );
+    let second = named(
+        &mut cache,
+        &document,
+        NamedStream::inline(&second_stream),
+        &resources,
+        Color::BLACK,
+        Compositing::Device,
+    );
+
+    assert!(
+        Arc::ptr_eq(&first, &second),
+        "a second BI of one inline image decoded again"
+    );
+}
+
+/// **And two inline images that differ get two rasters**, which is the other half of the claim.
+///
+/// It fails if the content stops reaching the digest at all — a constant identity, or one taken
+/// from the dictionary alone, which two hatchings of one page share. What it cannot exhibit is a
+/// digest *collision*, which is why the exact comparison beside it is argued rather than tested:
+/// there is no pair of eleven-byte inputs anybody can write down that `DefaultHasher` collides.
+#[test]
+fn two_inline_images_do_not_share_a_raster() {
+    let document = document();
+    let resources = resources_naming("DeviceRGB");
+    let mut cache = RasterCache::default();
+    let first_stream = named_space_image();
+    let second_stream = Arc::new(Stream {
+        dict: first_stream.dict.clone(),
+        data: Arc::from([99, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].as_slice()),
+        decryption_failed: false,
+    });
+
+    let first = named(
+        &mut cache,
+        &document,
+        NamedStream::inline(&first_stream),
+        &resources,
+        Color::BLACK,
+        Compositing::Device,
+    );
+    let second = named(
+        &mut cache,
+        &document,
+        NamedStream::inline(&second_stream),
+        &resources,
+        Color::BLACK,
+        Compositing::Device,
+    );
+
+    assert_ne!(
+        &*first, &*second,
+        "the fixture does not distinguish the two"
+    );
+    assert_eq!(
+        &*second,
+        &*decoded(
+            &document,
+            &second_stream,
+            &resources,
+            Color::BLACK,
+            Compositing::Device,
+        ),
+        "the second inline image was answered with the first's raster"
+    );
 }
 
 /// **§8.6.5.1**: a colour space named `/CS0` means what the resource dictionary in force says.
@@ -373,6 +496,76 @@ fn a_raster_is_not_shared_across_compositing() {
         &*on_the_press,
         &*decoded(&document, &stream, &resources, Color::BLACK, press),
         "the second quantity was answered with the first's raster"
+    );
+}
+
+/// **The bound the witnesses asked for**: a hatching's cells cost one decode between them.
+///
+/// §8.7.3.1's tiling replays the cell's content stream once per lattice position, and where that
+/// content is §8.9.7's inline image the interpreter builds a fresh stream at every one of them. So
+/// a page's *draws* grow with the tiling and the entries `image::RasterCache` holds must not: a
+/// probe is linear in them, and one entry per draw makes a page quadratic in its own cell count.
+///
+/// The fixture is the shape the two documents that found it state — an 8×8 stencil in a `/BBox
+/// [0 0 1 1]` cell with `/XStep` and `/YStep` of one, poured over a 40 × 40 square, which is a
+/// 42 × 42 lattice inside `MAX_TILES` — and the assertion is on the allocation because that says the
+/// decode did not happen again. **Neither witness is committed**: both are `SafeDocs` members of a
+/// Common Crawl archive, which `.gitignore` and `doc/third-party-data.md` keep out of this history
+/// on licence grounds, so the shape is rebuilt here instead. ADR 0399.
+#[test]
+fn every_cell_of_a_hatching_shares_one_decode() {
+    // Eight rows of one byte each: §8.9.3 starts every row of a one-bit image on a byte
+    // boundary, so a diagonal is one set bit stepping across.
+    let cell = "BI /IM true /W 8 /H 8 /BPC 1 /D [1 0] ID \x11\x22\x44\x08\x11\x22\x44\x08 EI";
+    let content = "/CS0 cs 1 0 0 /P0 scn 0 0 40 40 re f";
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 40 40] /Contents 4 0 R \
+         /Resources << /Pattern << /P0 5 0 R >> \
+         /ColorSpace << /CS0 [/Pattern /DeviceRGB] >> >> >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n\
+         5 0 obj\n<< /Type /Pattern /PatternType 1 /PaintType 2 /TilingType 1 \
+         /BBox [0 0 1 1] /XStep 1 /YStep 1 /Matrix [1 0 0 1 0 0] /Resources << >> \
+         /Length {} >>\nstream\n{cell}\nendstream\nendobj\n",
+        content.len(),
+        cell.len(),
+    );
+    let document = Document::open(assembled(&body)).expect("the fixture opens");
+    let page = pdf_model::Pages::new(&document)
+        .get(0)
+        .expect("the fixture has a page");
+    let interpretation = pdf_model::interpret(&document, &page);
+
+    let mut rasters: Vec<Arc<[u8]>> = Vec::new();
+    for command in interpretation.display_list.commands() {
+        if let pdf_render::Command::Image { image, .. } = command {
+            match image {
+                pdf_render::ImageSource::Decoded(decoded) => {
+                    rasters.push(Arc::clone(&decoded.data));
+                }
+                other => panic!("the fixture's stencil arrived as {other:?} rather than decoded"),
+            }
+        }
+    }
+
+    // Forty-two rather than forty-one to a side: the lattice covers the fill's own bounds, so a
+    // 40-unit span with a step of one touches the cells at 0 through 41 inclusive.
+    assert_eq!(
+        rasters.len(),
+        42 * 42,
+        "the fixture drew a different number of cells than the lattice states: {:?}",
+        interpretation.unsupported
+    );
+    let first = rasters.first().expect("the assertion above counted them");
+    assert!(
+        rasters.iter().all(|raster| Arc::ptr_eq(raster, first)),
+        "the cells hold {} separate rasters of one 8 × 8 stencil",
+        rasters
+            .iter()
+            .map(|raster| Arc::as_ptr(raster).cast::<()>())
+            .collect::<std::collections::HashSet<_>>()
+            .len()
     );
 }
 

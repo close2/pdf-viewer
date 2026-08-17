@@ -2410,6 +2410,31 @@ fn explicit_entry(document: &Document, dict: &Dictionary, stream: &Arc<Stream>) 
         ));
     }
 
+    // Table 87 forbids the line above's image mask a mask of its own, twice over — of
+    // `/ImageMask`:
+    //
+    // > If this flag is true , the value of BitsPerComponent , if present, shall be 1 and Mask
+    // > and ColorSpace shall not be specified
+    //
+    // and of `/Mask` itself, "shall not be present for image masks". So a stencil that states
+    // one is a file no clause describes, and **following it is unbounded recursion**:
+    // `decode_parts` → `apply_explicit_mask` → `decode` → `decode_parts`, which the `page`
+    // fuzz target overflowed the stack on in the five-hundred-and-sixty-fourth session. A
+    // stack overflow is an abort rather than a report, and the address-space ceiling cannot
+    // see it (`doc/todo/10` §2's `MAX_FORM_DEPTH` row, the same argument one clause along).
+    //
+    // Refused rather than depth-bounded, because the standard's bound is *one* and stating it
+    // needs no constant: a mask's mask does not exist. Table 143's `/SMask` twin is
+    // `soft_mask_entry`'s. ADR 0399.
+    for nested in ["Mask", "SMask"] {
+        if document.get_key(mask_dict, nested).as_stream().is_some() {
+            return MaskEntry::Unusable(format!(
+                "/Mask is an image mask carrying a /{nested} of its own, which Table 87 says \
+                 shall not be present"
+            ));
+        }
+    }
+
     if let Err(grid) = combined_grid(width, height, mask_width, mask_height) {
         return MaskEntry::Unusable(format!(
             "/Mask is {mask_width}x{mask_height} against a {width}x{height} image, needing a \
@@ -2853,6 +2878,16 @@ fn soft_mask_entry(
         // Table 143 again: an `/SMask` inside an `/SMask` "[s]hall be absent". Applied to the
         // mask it would change what the mask says, which is not a thing the clause defines.
         return SoftMaskEntry::Unusable("/SMask carries a soft mask of its own".to_owned());
+    }
+    if document.get_key(&mask.dict, "Mask").as_stream().is_some() {
+        // Table 143 says the same of `/Mask` — "Shall be absent" — and this half was missing
+        // while the `/SMask` half above was here. It is the second door into the recursion
+        // `explicit_entry` closes: a soft mask carrying an explicit one sends `apply_soft_mask`
+        // into `decode` → `decode_parts` → `apply_explicit_mask` → `decode`, with nothing
+        // bounding the descent. ADR 0399.
+        return SoftMaskEntry::Unusable(
+            "/SMask carries a /Mask of its own, which Table 143 says shall be absent".to_owned(),
+        );
     }
     match colour_space(document, &mask.dict, resources, Compositing::Device) {
         Ok(space) if space.components() == 1 => {}
@@ -3386,12 +3421,13 @@ const RASTER_BUDGET: usize = 64 << 20;
 /// object's own. A base image's raster is not like that: [`decode_parts`] reads five things, and
 /// four of them are in the key.
 ///
-/// - **The stream**, by the identity of its allocation — and the entry *holds* the [`Arc`], which
-///   is what makes an address a sound name. ADR 0317's `a_pin_is_not_a_copy` argument, exactly: a
-///   freed buffer's address is handed to the next allocation, so an entry naming an address it
-///   does not keep alive could answer a lookup for a different stream. Holding it makes that
-///   impossible rather than unlikely, and it is what lets an inline image — a fresh `Arc` per
-///   `Do` (`content::run`) — share the table safely while never hitting in it.
+/// - **The stream**, by [`StreamIdentity`] — the identity of its allocation for a stream reached
+///   through a resource dictionary, and a digest of its content for §8.9.7's inline image, which
+///   has no allocation that outlives one `BI`. For the first of the two the entry *holds* the
+///   [`Arc`], which is what makes an address a sound name. ADR 0317's `a_pin_is_not_a_copy`
+///   argument, exactly: a freed buffer's address is handed to the next allocation, so an entry
+///   naming an address it does not keep alive could answer a lookup for a different stream.
+///   Holding it makes that impossible rather than unlikely.
 /// - **The resource dictionary in force**, because §8.6.5.1 resolves a colour space named
 ///   `/CS0` through it and §8.6.5.6's `/DefaultGray`, `/DefaultRGB` and `/DefaultCMYK` reach even
 ///   the device names. One stream under two resource dictionaries is two pictures. Compared by
@@ -3429,14 +3465,99 @@ pub struct RasterCache {
     /// whole rasters — and because the cheap components of the key are compared first, so a
     /// probe that misses costs one pointer comparison per entry. A map would need the key
     /// constructed, and constructing it means cloning a resource dictionary per `Do`.
+    ///
+    /// **"Keeps this short" is a claim about [`StreamIdentity`] rather than about the budget**,
+    /// and it is why that type exists: a probe is linear in the entries, so an image draw that
+    /// can only ever *add* one makes a page quadratic in its own image count. A stream reached
+    /// through a resource dictionary cannot do that — its allocation recurs, so it adds one
+    /// entry however often it is drawn — and an inline image named by its address added one per
+    /// `BI`. ADR 0399 measured what that cost the two documents that found it.
     entries: Vec<Cached>,
     /// The sum of the entries' [`Cached::bytes`], so that eviction is arithmetic.
     held: usize,
 }
 
+/// How a cached raster names the stream it was decoded from.
+///
+/// Two kinds of stream reach [`RasterCache`] and only one of them has an allocation that
+/// outlives the draw, which is the distinction this type is for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StreamIdentity {
+    /// A stream the content stream named through a resource dictionary, identified by the
+    /// address of its allocation, which the entry holds alive. §7.8.3 makes that sound: the
+    /// dictionary hands out the same object, so the same `Do` twice is the same [`Arc`] twice.
+    Allocation,
+    /// §8.9.7's inline image, identified by a digest of its content because it has no address
+    /// that recurs.
+    ///
+    /// > This type of image shall be defined directly within the content stream in which it
+    /// > will be painted rather than as a separate object.
+    ///
+    /// So there is no object for a resource dictionary to hand out twice: the stream is *built*
+    /// at every `BI`, out of bytes in the content stream, and its address names one draw rather
+    /// than one image.
+    ///
+    /// The digest is not the whole of the comparison — the content is compared exactly beside it,
+    /// the way `pdf_render::DisplayList::add_clip` compares a clip it found by digest — so a
+    /// collision costs a decode and never an answer about a different image.
+    Content(u64),
+}
+
+impl StreamIdentity {
+    /// The identity of §8.9.7's inline image, from what it holds.
+    ///
+    /// The dictionary's length rather than the dictionary: §8.9.7's dictionaries are Table 91's
+    /// dozen keys and it is the data that separates two hatchings of one page. The exact
+    /// comparison in [`Cached::answers`] is what decides an entry, so this only has to spread.
+    #[must_use]
+    pub fn of_inline(stream: &Stream) -> Self {
+        use std::hash::{Hash as _, Hasher as _};
+        let mut hasher = std::hash::DefaultHasher::new();
+        stream.data.hash(&mut hasher);
+        stream.dict.len().hash(&mut hasher);
+        Self::Content(hasher.finish())
+    }
+}
+
+/// A stream on its way into [`RasterCache::parts`], under the name an entry for it is keyed by.
+///
+/// The two travel together because they are one fact — *which image is this* — and the whole of
+/// ADR 0399's defect was a caller that had the stream and did not have the name. So the two
+/// constructors are the only way to build one, and each says which of §7.8.3's route and §8.9.7's
+/// the stream came by.
+#[derive(Debug, Clone, Copy)]
+pub struct NamedStream<'a> {
+    /// The stream to decode.
+    pub stream: &'a Arc<Stream>,
+    /// How an entry for it is named.
+    pub identity: StreamIdentity,
+}
+
+impl<'a> NamedStream<'a> {
+    /// A stream a resource dictionary handed out, named by the address of its allocation.
+    #[must_use]
+    pub fn allocation(stream: &'a Arc<Stream>) -> Self {
+        Self {
+            stream,
+            identity: StreamIdentity::Allocation,
+        }
+    }
+
+    /// §8.9.7's inline image, named by a digest of its content.
+    #[must_use]
+    pub fn inline(stream: &'a Arc<Stream>) -> Self {
+        Self {
+            identity: StreamIdentity::of_inline(stream),
+            stream,
+        }
+    }
+}
+
 /// One decoded raster, and the claim about which `Do` it answers.
 #[derive(Debug)]
 struct Cached {
+    /// How this entry names its stream.
+    identity: StreamIdentity,
     /// The stream these samples came from, **held** so that no other stream can take its
     /// address. See [`RasterCache`] for why identity is the address rather than an object
     /// number.
@@ -3468,12 +3589,13 @@ impl RasterCache {
     pub fn parts(
         &mut self,
         document: &Document,
-        stream: &Arc<Stream>,
+        image: NamedStream<'_>,
         resources: &Dictionary,
         fill: pdf_render::Color,
         into: Compositing,
         masks: &mut MaskCache,
     ) -> Result<Parts, ImageError> {
+        let NamedStream { stream, identity } = image;
         let fill = [
             fill.r.to_bits(),
             fill.g.to_bits(),
@@ -3483,7 +3605,7 @@ impl RasterCache {
         if let Some(at) = self
             .entries
             .iter()
-            .position(|entry| entry.answers(stream, resources, fill, into))
+            .position(|entry| entry.answers(stream, identity, resources, fill, into))
         {
             // Moved to the end because recency is what the eviction below reads, and a `Vec`
             // says it by position: the entry taken out and pushed back is the most recent.
@@ -3496,6 +3618,7 @@ impl RasterCache {
         let parts = decode_parts(document, stream, resources, fill_of(fill), into, masks)?;
         let bytes = parts.bytes();
         self.entries.push(Cached {
+            identity,
             stream: Arc::clone(stream),
             resources: resources.clone(),
             fill,
@@ -3531,14 +3654,26 @@ impl Cached {
     /// The three cheap components are compared before the dictionary, which is what keeps a
     /// probe that misses to one pointer comparison: no two entries share an address unless
     /// they differ in something else, so at most one dictionary comparison happens per probe.
+    ///
+    /// [`StreamIdentity`] goes first for the same reason. For an allocation it is one
+    /// discriminant and the address decides; for §8.9.7's inline image it is the digest, and a
+    /// probe reaches the exact comparison of the content only where the digest already agreed.
     fn answers(
         &self,
         stream: &Arc<Stream>,
+        identity: StreamIdentity,
         resources: &Dictionary,
         fill: [u32; 4],
         into: Compositing,
     ) -> bool {
-        Arc::ptr_eq(&self.stream, stream)
+        self.identity == identity
+            && match identity {
+                StreamIdentity::Allocation => Arc::ptr_eq(&self.stream, stream),
+                // Exact, the way `DisplayList::add_clip` is exact about a clip it found by
+                // digest: the digest above narrows the search and this decides it, so two
+                // inline images that collide cost a decode rather than each other's raster.
+                StreamIdentity::Content(_) => *self.stream == **stream,
+            }
             && self.fill == fill
             && self.into == into
             && self.resources == *resources

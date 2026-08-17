@@ -93,7 +93,14 @@ impl Interpreter<'_> {
                 None => self.alternate_image(&stream.dict, &name),
             };
             let drawn = alternate.as_ref().unwrap_or(&stream);
-            self.draw_image(drawn, &name, resources, state);
+            // An `XObject` is an object the resource dictionary hands out, so the same `Do`
+            // twice is the same allocation twice and its address is the name of the image.
+            self.draw_image(
+                crate::image::NamedStream::allocation(drawn),
+                &name,
+                resources,
+                state,
+            );
             return;
         }
         if subtype != b"Form" {

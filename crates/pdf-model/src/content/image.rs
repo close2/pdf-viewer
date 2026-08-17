@@ -159,11 +159,12 @@ impl Interpreter<'_> {
 
     pub(super) fn draw_image(
         &mut self,
-        stream: &Arc<pdf_syntax::Stream>,
+        image: crate::image::NamedStream<'_>,
         name: &str,
         resources: &Dictionary,
         state: &GraphicsState,
     ) {
+        let stream = image.stream;
         // §8.6.8, of a `d1` glyph description or an uncoloured tiling pattern's stream:
         // "unless painting an image mask, all image painting operators shall be ignored".
         // Its NOTE 1 gives the reason, and it is the whole of what those two circumstances
@@ -244,7 +245,7 @@ impl Interpreter<'_> {
         // says — which is the property trap 5 is about, and `tests/image_reuse.rs` pins it.
         match self.image_rasters.parts(
             self.document,
-            stream,
+            image,
             resources,
             state.fill,
             self.compositing,

@@ -175,6 +175,17 @@ change to *what* is bounded, and both need the argument before the code.
   cells replayed *and* operators executed, checked as the loop runs, with the same refusal by
   name at the end. The empty-cell measurement is the one that says the count cannot simply be
   dropped in favour of `MAX_OPERATIONS`.
+
+  **Those two seconds figures were measured through a quadratic and a round re-taking the survey
+  should expect both to fall** (ADR 0399). A cell whose content is §8.9.7's inline image — which is
+  what `iTextSharp`/`CubePDF` hatching is, and a large part of the population that reaches this
+  bound — cost `image::RasterCache` one unfindable entry per cell and a linear probe over all of
+  them, so a tiling's cost grew with the *square* of its cell count and had nothing to do with
+  `MAX_TILES`. Two documents of the same family went from 122.7 s and 12.0 s to 1.0 s and 0.5 s
+  without a bound moving. **The argument in this bullet survives that** — an empty cell executes no
+  operator, so the trip count is still unbounded by anything but this constant — but the *inversion*
+  it rests on is now evidence of the memo rather than of the count, and re-measuring is the way to
+  find out which of the two it was.
 - **`MAX_OPERATIONS` has the same defect one layer up**, and its population says so: 30 of the 31
   documents it stops are legitimate drawings wanting 4.1–53.6 M tokens, and the thirty-first
   produces 495 marks from 53.6 M. A count cannot tell them apart because one operator's cost is

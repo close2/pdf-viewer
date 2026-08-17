@@ -17,6 +17,26 @@ compares 1794 pages
 Blocked on: nothing technical — but the honest precondition is that its cost is a rewrite against
 the oracle, so it wants the other two roads' numbers in hand first
 
+## The two documents filed here in the five-hundred-and-sixtieth session were not this item's
+
+Session 560 measured two corpus documents at **2 m 13 s** and **35.6 s** for one page and recorded
+them here and in `doc/todo/10` as a latency finding — the first documents in this tree measured in
+minutes, and on the face of it the strongest case anybody had for a live window during a long read.
+**They were a defect, and they are fixed** (ADR 0399): `image::RasterCache` gave §8.9.7's inline
+image a key that could never be hit, so a page's cost was quadratic in the number of images it drew.
+The same two documents now take **1.0 s** and **0.5 s**, with every display list byte-identical.
+
+Two things follow, and the second is the one that binds a round taking this file:
+
+- **This item's witness is still `tmp/Entwurf.pdf` and still only that**, which is what the header
+  above already says. Nothing in the corpus, and nothing in the 66 000-document SafeDocs cache that
+  anybody has looked at, now takes a person more than about a second to open.
+- **A latency finding is a defect until it has been attributed.** Both roads C and A are about work
+  the file genuinely asks for; work nobody asked for looks identical from the outside — a slow open
+  — and is a hundred times larger. So a document filed here wants a profile before it wants an
+  architecture, and `examples/callgrind_interpret` under `RAYON_NUM_THREADS=1` is a single command
+  that gives one.
+
 ## Why third
 
 It is the only road that is *genuinely always interruptible*, which is the owner's own phrase —

@@ -701,7 +701,17 @@ impl Interpreter<'_> {
                     if !self.is_hidden() {
                         match scanned.image {
                             Ok(stream) => {
-                                self.draw_image(&Arc::new(stream), "<inline>", resources, &state);
+                                // The stream is new at every `BI`, so `image::RasterCache` is
+                                // told to name it by its content: a hatching states the same
+                                // few samples once per tiling cell, and an entry named by this
+                                // allocation's address could answer none of them (ADR 0399).
+                                let stream = Arc::new(stream);
+                                self.draw_image(
+                                    crate::image::NamedStream::inline(&stream),
+                                    "<inline>",
+                                    resources,
+                                    &state,
+                                );
                             }
                             Err(error) => self.note(Unsupported::Image {
                                 name: format!("<inline>: {error}"),

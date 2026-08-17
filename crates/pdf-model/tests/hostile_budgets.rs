@@ -356,3 +356,65 @@ fn contents_parts_inside_the_bound_are_one_stream() {
          second, is drawn — which is what Table 31's concatenation means"
     );
 }
+
+/// **A `/Mask` that names an image mask carrying a mask of its own is refused, not followed.**
+///
+/// Found by the `page` fuzz target in the five-hundred-and-sixty-fourth session, and it is not a
+/// budget: `decode_parts` → `apply_explicit_mask` → `decode` → `decode_parts` had **no bound at
+/// all**, so a stencil naming itself overflowed the stack. §C.2's *Nested objects* row above
+/// anticipates exactly this — "PDF processors may implement recursive algorithms which may cause
+/// issues for excessively nested constructs" — but the bound here needs no constant, because
+/// Table 87 gives an image mask no `/Mask` and there is no depth beyond one to allow. ADR 0399.
+///
+/// The fixture is generated for the reason this file's header gives, and for a second one: the
+/// artefact libFuzzer wrote is a mutation of a `SafeDocs` member of a Common Crawl archive, which
+/// `.gitignore` and `doc/third-party-data.md` keep out of this history.
+#[test]
+fn an_image_mask_that_masks_itself_is_refused_by_name() {
+    let document = page(
+        "q 100 0 0 100 0 0 cm /Im Do Q",
+        "<< /XObject << /Im 5 0 R >> >>",
+        "5 0 obj\n<< /Type /XObject /Subtype /Image /Width 2 /Height 2 \
+         /BitsPerComponent 8 /ColorSpace /DeviceGray /Mask 6 0 R /Length 4 >>\n\
+         stream\n\x01\x02\x03\x04\nendstream\nendobj\n\
+         6 0 obj\n<< /Type /XObject /Subtype /Image /Width 2 /Height 2 \
+         /ImageMask true /Mask 6 0 R /Length 2 >>\nstream\n\x08\x40\nendstream\nendobj\n",
+    );
+    let reported = reported(&document);
+    assert!(
+        reported.contains("carrying a /Mask of its own"),
+        "a stencil whose own /Mask is itself must be refused by name: {reported}"
+    );
+    assert!(
+        commands(&document) > 0,
+        "and the base image is still drawn, unmasked — Table 87's rule is about the mask"
+    );
+}
+
+/// **The same door on §11.6.5.2's side**: an `/SMask` carrying a `/Mask` is refused, not followed.
+///
+/// Table 143 says of a soft-mask image's `/Mask` entry "Shall be absent", and the `/SMask`-inside-
+/// `/SMask` half of that row was already guarded while this half was not — so `apply_soft_mask`
+/// reached `apply_explicit_mask` and the descent was unbounded from there. ADR 0399.
+#[test]
+fn a_soft_mask_carrying_an_explicit_mask_is_refused_by_name() {
+    let document = page(
+        "q 100 0 0 100 0 0 cm /Im Do Q",
+        "<< /XObject << /Im 5 0 R >> >>",
+        "5 0 obj\n<< /Type /XObject /Subtype /Image /Width 2 /Height 2 \
+         /BitsPerComponent 8 /ColorSpace /DeviceGray /SMask 6 0 R /Length 4 >>\n\
+         stream\n\x01\x02\x03\x04\nendstream\nendobj\n\
+         6 0 obj\n<< /Type /XObject /Subtype /Image /Width 2 /Height 2 \
+         /BitsPerComponent 8 /ColorSpace /DeviceGray /Mask 6 0 R /Length 4 >>\n\
+         stream\n\x10\x20\x30\x40\nendstream\nendobj\n",
+    );
+    let reported = reported(&document);
+    assert!(
+        reported.contains("carries a /Mask of its own"),
+        "a soft mask whose own /Mask is itself must be refused by name: {reported}"
+    );
+    assert!(
+        commands(&document) > 0,
+        "and the base image is still drawn, opaque — Table 143's rule is about the mask"
+    );
+}

@@ -135,6 +135,16 @@ The clean statement, and the test to apply to every bound in the tree:
 > a small input that commands unbounded work. `MAX_OPERATIONS` and `MAX_STATE_DEPTH` guard none of
 > those. They cap size.**
 
+**And the sentence has a fourth member the table below did not have a column for, found in the
+five-hundred-and-sixty-fourth session: a *memo*.** ADR 0399's two documents took 2 m 13 s and 35.6 s
+not because any bound was too small or too large, but because `image::RasterCache`'s probe is linear
+in its entries and §8.9.7's inline image added one entry per *draw* that nothing could ever find —
+so a page's cost was quadratic in its own image count while every bound in the table below refused
+nothing. **A memo is a bound's opposite and belongs to the same audit**: a bound that is too small
+draws less than the file says and says so, and a memo whose key cannot be hit draws exactly what the
+file says and takes minutes doing it. The question to ask of one is *what population does its
+lookup walk, and can a document grow that population without limit?*
+
 | bound | if removed, a *small malicious* input can… | verdict |
 |---|---|---|
 | `MAX_FORM_DEPTH` 16 | recurse until the **stack** aborts the process — which the address-space ceiling cannot see, and which Rust turns into an abort rather than a report | **load-bearing, do not touch** |
@@ -142,6 +152,7 @@ The clean statement, and the test to apply to every bound in the tree:
 | `MAX_TILES` 4096 | state `/XStep 0.001` over 600 units — 3.6×10¹¹ empty cells, about four days; an empty cell executes no operator, so nothing else sees it (ADR 0271) | **load-bearing**, but bounds a *count* where it means to bound *work* |
 | `pdf-sandbox`'s `MAX_PIXELS`/`MAX_SAMPLES`, `RLIMIT_AS`, seccomp, Landlock | unbounded decode in the historically worst attack surface | **load-bearing** |
 | `xmp` ×5, `der`/`cms`/`x509`/`pkcs1`, `function.rs`'s `MAX_STITCH_DEPTH` (a 720-byte file overflowed every stack until session 425), `icc`, `mesh`, `image::MAX_SAMPLES`, every cycle guard | each turns a tiny file into unbounded work | **load-bearing** |
+| §8.9.6.3's and §11.6.5.2's mask chains — `explicit_entry`, `soft_mask_entry` | until ADR 0399, **nothing at all**: an image whose `/Mask` names an image mask stating a `/Mask` of its own recursed `decode_parts` → `apply_explicit_mask` → `decode` until the stack aborted the process, and Table 143's `/Mask` row was unread while its `/SMask` row was guarded | **load-bearing, and it is not a constant** — Table 87 and Table 143 both say the entry "shall not be present", so the standard's depth is one and the guard is a refusal rather than a number |
 | **`MAX_OPERATIONS` 4 M** | nothing a bomb needs: the memory is already spent, and the time is unbounded either way because one `sh` can paint the whole page | **caps an honest document** — and capped it seven times harder than it said, until ADR 0306 |
 | **`MAX_STATE_DEPTH` 256** | nothing — the cost is per saved state and the ceiling sees it (1 document of 65 944 wants 337; Table C.1's own figure is 28) | **caps an honest document** |
 | `readback::BUDGET`, `MASK_BUDGET`, quorra's device budget, `MAX_PIXELS`, the zoom range | LRU clamps and refusals sized to a device, not refusals of content | **neither — good citizens** |
@@ -187,6 +198,16 @@ They were not architecture and did not wait for a decision, which is why they we
   `ImageStream`'s error; nothing about it is hard and no document exercises it.
 - **A ceiling breach in the confined worker is still `WorkerDied { detail: "killed by signal 6" }`**,
   indistinguishable from a crash. That is §5 B's item and not this one's.
+- **`image::RasterCache`'s probe is still linear in its entries**, and after ADR 0399 those entries
+  are the *distinct* images a page draws rather than the draws — which is the property a resource
+  image always had, and it is what took the two witnesses from 330.5 G and 71.9 G instructions to
+  10.7 G and 6.3 G. A page stating tens of thousands of **distinct** inline images would still be
+  quadratic in them, three orders of magnitude below the rate measured there: the sharper of the two
+  witnesses draws 12 092 inline images of which **five** are distinct. Nothing in reach exercises it,
+  so this is written down rather than built, and what would build it is `DisplayList::add_clip`'s own
+  construction one level up — bucket the entries by the digest the key already carries. **The
+  measurement to take first is the population**, not the probe: a census of distinct images per page
+  over the corpus would say whether any document has more than a handful.
 
 ## 4. What exists to build on
 
