@@ -1552,6 +1552,47 @@ mod tests {
         assert_eq!(actions.len(), 2, "each action once: {actions:?}");
     }
 
+    /// ISO 32000-2 §12.7.6.1's three form action types, each reaching its own answer.
+    ///
+    /// That clause is a list and nothing else — submit-form, reset-form, import-data, "in
+    /// addition to those described in 12.6.4" — so what a processor owes it is that all three
+    /// names arrive somewhere deliberate. Two are performed and the third is refused *by name*,
+    /// which is the distinction worth pinning: a reader that dropped `SubmitForm` on the floor
+    /// and one that refuses it out loud are indistinguishable from the action's own return
+    /// value, and only the second tells a person why nothing happened.
+    #[test]
+    fn each_of_the_three_form_action_types_reaches_its_own_answer() {
+        let doc = document(&[
+            "<< /Type /Catalog >>",
+            "<< /S /ResetForm >>",
+            "<< /S /ImportData /F (data.fdf) >>",
+            "<< /S /SubmitForm /F << /F (https://example.invalid/) >> >>",
+        ]);
+
+        assert!(
+            matches!(
+                read(&doc, &Object::Reference(id(2))).as_slice(),
+                [Action::ResetForm(_)]
+            ),
+            "§12.7.6.3's reset is performed"
+        );
+        assert!(
+            matches!(
+                read(&doc, &Object::Reference(id(3))).as_slice(),
+                [Action::ImportData(_)]
+            ),
+            "§12.7.6.4's import is performed"
+        );
+        let submission = read(&doc, &Object::Reference(id(4)));
+        let [Action::Refused(reason)] = submission.as_slice() else {
+            panic!("§12.7.6.2's submission is refused: {submission:?}");
+        };
+        assert!(
+            reason.contains("SubmitForm"),
+            "the refusal names the action: {reason}"
+        );
+    }
+
     /// An `/S` outside Table 201 is not an action, and is not reported as a refused one.
     #[test]
     fn a_name_the_table_does_not_hold_is_not_an_action() {

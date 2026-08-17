@@ -248,6 +248,16 @@ share and the two that break it:
   dozens of files and sorts last, a rare word sorts first. Read the **cousin** it prints before
   anything else — a row that is not `inapplicable` and says the same word is the seventh failure
   shape, and it is where all five of this sweep's defects have been.
+- **One reads the status whose own definition promises a debt**: `cargo run --release -p
+  conformance --bin owed`, seconds, over `ledger.toml` and the source roots — the fourteenth sweep
+  as a program (ADR 0397), and the last of the four descriptions whose *level* moved with the
+  session. A `partial` row must say which requirements are not executed; a note that names a debt
+  names a **thing**, and a thing this tree does not have is a name no source carries. So the
+  discriminator is the seventh sweep's with the sign reversed — there a term the tree *names* under
+  a row claiming absence, here a term the tree *lacks* under a row claiming a debt — and the
+  reading list is every row whose vocabulary the tree names in full, the one naming nothing
+  specific first. The noise is a debt named in prose with no identifier in it, printed rather than
+  filtered.
 - **One reads *these documents'* quotation marks and the ledger's**, on the same discriminator and
   for the same reason: `cargo run --release -p conformance --bin quotations`, seconds, over every
   Markdown file this project wrote under `doc/` **and over `ledger.toml`'s notes**, which is the
@@ -262,7 +272,20 @@ share and the two that break it:
 - **One is not run from here at all**: `cargo run --release -p spec-errata -- check doc/*.pdf`,
   seconds, asking the same spans a *different* question — does one of them quote a sentence Errata
   Collection 3 struck out? That needs none of ADR 0249's syntax, because the erratum supplies the
-  other side. ADR 0254.
+  other side. ADR 0254. **And `check` is only one direction of that question**, which the
+  five-hundred-and-fifty-fifth and -sixty-second sessions each paid for: it compares *quotations
+  this tree has written*, so an erratum over text nobody has quoted is invisible to it — a clause
+  deleted, a subclause renumbered, a table's requirement column raised. The other direction is
+  `emit`, read against what the ledger **claims**:
+
+  ```sh
+  cargo run --release -p spec-errata -- emit doc/*.pdf
+  ```
+
+  Three filters find the errata `check` cannot: the words *delete*, *move* and *renumber* in an
+  editor's note, and a strikeout whose whole text is a requirement word (`Optional`, `Required`,
+  `Deprecated`). `doc/errata-read.md` has what each run found. A round implementing a clause runs
+  `emit` on that document **before** it writes, and not `check` afterwards alone.
 
 ## 5. Put the binaries where a person can run them
 

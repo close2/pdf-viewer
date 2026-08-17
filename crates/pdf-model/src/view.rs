@@ -1624,6 +1624,17 @@ impl ViewState {
     /// program could not lay out, and the annotation is written with `/Contents` and no `/AP` so
     /// that the next reader constructs from Table 177's Required `/DA` rather than drawing text
     /// nothing in the file claims any more.
+    ///
+    /// **That is a departure from Table 166 and is taken deliberately.** The entry's own row binds
+    /// a writer — "[a] PDF writer shall include an appearance dictionary when writing or updating
+    /// the PDF file except for the two cases listed below" — and a free text annotation is neither
+    /// exception (its `/Rect` is not degenerate and its `/Subtype` is not `Popup`, `Projection` or
+    /// `Link`); Errata Collection 3's Issue #22 raises the same requirement into the entry's
+    /// column for PDF 2.0. The cost is an annotation the amended table calls non-conforming; the
+    /// alternative is keeping a stream that draws words the file no longer states, which Table 177
+    /// makes decisive over the `/DA` a reader would otherwise construct from. It is **reported**
+    /// rather than silent, which is what separates the two: [`Written::unappeared`] names every
+    /// annotation this happened to. §12.5.2's ledger row carries the argument.
     fn write_retypings(&self, document: &Document, update: &mut Update) -> Vec<ObjectId> {
         let mut unappeared = Vec::new();
         for (annotation, text) in &self.retyped {
@@ -2885,8 +2896,18 @@ fn widgets_at(document: &Document, page: &crate::Page, x: f32, y: f32) -> Vec<Ob
 ///
 /// Silent where the construction produces nothing — there is no such markup, since
 /// `ViewState::add_markup` refuses an empty set of quadrilaterals and Table 166's `/C` is always
-/// written — and deliberately so: an annotation with no `/AP` is legal, and every reader this
-/// project compares against constructs one.
+/// written.
+///
+/// **This comment said an annotation with no `/AP` is legal until the five-hundred-and-sixty-second
+/// session, and Table 166 says the opposite of a writer**: "[a] PDF writer shall include an
+/// appearance dictionary when writing or updating the PDF file except for the two cases listed
+/// below", the two being a `/Rect` whose opposite corners coincide and a `/Subtype` of `Popup`,
+/// `Projection` or `Link`. Errata Collection 3's Issue #22 moves the same requirement into the
+/// entry's own column ("Required except for conditions listed below (PDF 2.0)"). A markup this
+/// function is called for is none of the exceptions, which is why writing the appearance is
+/// obligatory here rather than a courtesy — and why the silence above is safe only because the
+/// construction cannot fail for these subtypes. [`ViewState::write_retypings`] is where the same
+/// rule is departed from on purpose.
 fn write_added_appearance(document: &Document, update: &mut Update, dict: &mut Dictionary) {
     let Some(subtype) = document
         .get_key(dict, "Subtype")

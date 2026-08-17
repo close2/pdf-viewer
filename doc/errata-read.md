@@ -402,3 +402,53 @@ erratum in place of a session's correction. Both now rest on what survives §7.1
 NOTE about pre-PDF-1.6 identification, and on §7.7.4's name tree for what a key is. The corrected
 comment in `panel.rs` quotes the wording it retired, so it will land every run from now on: this
 file's own known false positive, and the reason the "elsewhere" bucket grows.
+
+## The errata `check` cannot see, swept in the five-hundred-and-sixty-second
+
+The five-hundred-and-fifty-fifth session found ISO/TS 32001 §5.1.3 deleted by Issue #236 while this
+tree had been asserting its content since ADR 0314, and wrote the rule at the top of this file: **a
+round implementing a clause runs `spec-errata emit` on that document before it writes, and not
+`check` afterwards alone.** This round ran `emit` over all fourteen PDFs and asked the output a
+different question from `check`'s — not *does a quotation land on struck text*, but **does an
+erratum move ground the ledger is standing on**, whether or not anybody quoted a word of it.
+
+`emit` prints **1097 annotations over the three documents that carry any**. Twenty of them are
+structural — a clause deleted, moved or renumbered, a subclause inserted — and those are the ones
+`check` is blind to by construction: a heading is not a sentence, so no quotation can land on it.
+
+| issue | what it does | what it stood under |
+|---|---|---|
+| **#452** `Completed` | "Move entire subclause 14.7.5.1.1 up one heading level to become 14.7.5.2 and renumber later subclauses of 14.7.5 appropriately. Subclause text is otherwise unchanged" | five ledger rows and some twenty source citations, all of them the 2020 numbers. **Recorded in §14.7.5.1.1's note.** |
+| **#196** `Completed` | inserts "7.6.5.3 Public-key security permissions" below Table 23's NOTE, "current text and Table 24 remain unchanged" | §7.6.5.3's existing row holds the 2020 number for what becomes the clause after it. **Recorded in §7.6.5.2's note.** |
+| #133 `Completed` | inserts §14.8.4.7.3 (link elements) and renumbers ruby to §14.8.4.7.4 | already read — ADR 0273, the four-hundred-and-thirty-seventh. The instrument agreeing with a known finding is what says it works. |
+| #236 `Accepted` | "Delete all of clause 5.1.3" (ISO/TS 32001) | already read — the five-hundred-and-fifty-fifth. |
+
+**The numbers are not changed anywhere.** `doc/md/` is the published text, the citation gate resolves
+against it, and `the_ledgers_own_prose_names_clauses_and_tables_that_exist` refuses a post-erratum
+number outright — which this round confirmed by writing two of them and watching the gate fail. What
+changes is that the three affected families now say so in their own notes.
+
+### And one erratum that changes a requirement rather than a number
+
+Filtering the same output for a strikeout whose text is a table's *requirement* word — `Optional`,
+`Required`, `Deprecated` — printed nine pairs. Eight are already read or fall outside scope; the
+ninth is **Issue #22** (`Completed`), which replaces Table 166's `/AP` requirement "Optional; PDF
+1.2" with "Required except for conditions listed below (PDF 2.0); optional in PDF 1.2 through PDF
+1.7", the conditions being a degenerate `/Rect` and a `/Subtype` of `Popup`, `Projection` or `Link`.
+
+**The 2020 text already said it in prose**, which is the part worth keeping: "[a] PDF writer shall
+include an appearance dictionary when writing or updating the PDF file except for the two cases
+listed below". So the erratum moves a requirement into the column it belonged in, and two doc
+comments in `pdf-model/src/view.rs` — the file that writes annotations under §7.5.6 — said "an
+annotation with no `/AP` is legal", which was false before the erratum as well as after. Corrected,
+with the one place this program departs from the `shall` argued in place and in §12.5.2's row:
+`write_retypings` removes a producer's appearance for a free text annotation whose new text it could
+not lay out, because Table 177 makes `/AP` decisive over `/DA` and the alternative is drawing words
+the file no longer states. It is reported — `Written::unappeared` — which is what makes it a
+departure rather than an oversight.
+
+**What this adds to the method.** `check` asks whether this tree quotes something struck; that is
+one direction of one question. The other direction is whether an erratum has moved something this
+tree *claims*, and a claim needs no quotation. `emit` plus the ledger is the instrument for it, and
+its three signals are cheap to filter for: the words *delete*, *move* and *renumber*, and a
+strikeout whose whole text is a requirement word.

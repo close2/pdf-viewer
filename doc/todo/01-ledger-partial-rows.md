@@ -37,7 +37,7 @@ written: a `'` … `'` is a quotation too (ADR 0375).
 Priority: 01 — the population with no gate, and it has paid on every session that touched it
 Code: `doc/conformance/ledger.toml`, checked by `cargo test -p conformance`
 
-**A sweep round commits one prose sweep as a program before running any of them.** Eleven of the
+**A sweep round commits one prose sweep as a program before running any of them.** Twelve of the
 fifteen are commands (`conformance --bin entries`, `--bin quotations`, `--bin unread` since the
 four-hundred-and-eighty-ninth, `--bin blockers` since the five-hundred-and-first, `--bin
 capabilities` since the five-hundred-and-tenth, `--bin retired` since the
@@ -54,7 +54,10 @@ five-hundred-and-forty-fifth, `--bin tables`, the ninth, which states in code wh
 the five-hundred-and-fifty-third, `--bin inapplicable`, the seventh, the only sweep that reads the
 status nobody expects to come back to, whose count of naming files replaces the stop-list every
 hand-run wrote from memory and whose *cousin* is the pair all five of its defects have been,
-ADR 0388) and four are
+ADR 0388; and, since the five-hundred-and-sixty-second, `--bin owed`, the fourteenth — the last of
+the four whose *level* moved with the session, which stops guessing which words name a debt and
+measures instead whether the tree has the **thing** a note names, which is the seventh sweep's own
+discriminator with the sign reversed, ADR 0397) and three are
 still
 descriptions, and a description is what let the fifteenth go unrun for twenty-four rounds and then
 be rebuilt from its own paragraph (ADR 0319) — `CLAUDE.md`'s "write down the command, not the
@@ -2677,6 +2680,114 @@ the attributes §12.8.3.4.3 names and nothing where the `/SubFilter` is not `ETS
 §12.6.4's nine refusals still reaching `Action::Refused` under its own name — which is what moves
 the blame pointer without a stamp.
 
+## All fifteen run again in the five-hundred-and-sixty-second, the twelfth committed as a program, and the errata a `check` cannot see
+
+Nine rounds since the last full sweep. Over `ledger.toml`, `crates/`, `tools/`, `fuzz/` and every
+Markdown document under `doc/` this project wrote bar `doc/history/`:
+
+- **Sweep 14, as a program** (`cargo run --release -p conformance --bin owed`, ADR 0397). The last
+  of the four descriptions whose *level* moved with the session — nine hand-runs printed 16, 24, 5,
+  15, 19, 10, 8, 9 and 19 hits over rounds that moved almost no rows, each under a debt vocabulary
+  written that morning. **The discriminator is the seventh sweep's with the sign reversed**: there a
+  term the tree *names* under an `inapplicable` row claiming absence, here a term the tree *lacks*
+  under a `partial` row claiming a debt. A note that names a debt names a **thing**, and a thing
+  this tree does not have is a name no source carries, which is a count rather than a guess.
+  First run: **225 `partial` rows stating 2983 terms — 159 named by no source, over 105 rows,
+  leaving 120 rows whose every stated term this tree already names.** The rows are ordered by their
+  *rarest* term's reach, commonest first, so a row that names nothing specific heads the list.
+  **One defect, and it is at the top of that order**: §12.7.6.1, `partial` above a note naming
+  nothing owed, over a clause that is three bullets and no `shall` at all — `implemented`, with the
+  three form action types' three answers asserted rather than described.
+  - **A learned debt vocabulary was tried first and does not work**, which is worth recording so
+    that nobody builds it again. Scoring each word by how much likelier it is in an owing note than
+    in a settled one measures **topic** rather than debt: the top terms come out `digest`, `stored`,
+    `appearance`, `knockout`, `signature` — the subjects of the clauses that happen to be `partial`
+    — and every one of the 228 notes then holds some word from any lexicon wide enough to be useful,
+    so the hit count is zero at every threshold. Requiring a debt word to span half the clause
+    families removes the topic and leaves function words. The ledger cannot teach a vocabulary
+    because status and subject are not independent in it.
+- **The errata, from the other end** (`cargo run --release -p spec-errata -- emit doc/*.pdf`), which
+  is this round's second hazard and is now a line in `doc/todo/02` §4. `check` compares *quotations
+  this tree has written*, so an erratum over text nobody has quoted is invisible to it — which is how
+  ISO/TS 32001 §5.1.3's deletion went unseen until the five-hundred-and-fifty-fifth went looking.
+  `emit` prints **1097 annotations over the three documents that carry any**; twenty are structural,
+  and **two of the three renumbering errata were unrecorded**: Issue #452 moves §14.7.5.1.1 up a
+  level and renumbers the rest of §14.7.5, under five ledger rows and some twenty source citations,
+  and Issue #196 inserts a new §7.6.5.3 and pushes the existing one down. The third is #133, which
+  ADR 0273 read in the four-hundred-and-thirty-seventh — an instrument agreeing with a known finding
+  is what says it works. **And one erratum changes a requirement rather than a number**: Issue #22
+  raises Table 166's `/AP` to "Required except for conditions listed below (PDF 2.0)", and the 2020
+  text already bound a writer in prose, against which `view.rs` said in two places that "an
+  annotation with no `/AP` is legal". `doc/errata-read.md` carries the table and the argument.
+- **Blockers (program)**: ledger 22 sentences — 6 expired, 10 holding, 6 naming no clause; source 28
+  — 10, 10, 8. 0 defects; every printed-expired hit a correction quoting the wording it retired or a
+  past tense.
+- **Capabilities (program)**: ledger 53 sentences — 38 witnessed by the tree, 46 about the program,
+  7 about one crate; source 153 — 126, 87, 66. 0 defects; every source hit a true statement about a
+  boundary a crate keeps.
+- **Unread (program)**: 64 rows claim, 175 keys; 48 confirmed, 127 quoted over 54 rows, 55 by the
+  row's own code. 0 defects — the known one-short-key population.
+- **Entries (program)**: 249 rows explain themselves by an arrival and name code, 2 name none; 788
+  table entries stated, 193 reported over 47 rows — 56 named nowhere, 137 only elsewhere, 55 not
+  named by the row's own note. The known populations; nothing worked.
+- **Quotations (program)**: 3755 quotations in 590 documents, 1662 verbatim, 25 diverging; 1428 in
+  794 ledger notes, 1112 verbatim, **1 diverging** — §8.4.4's correction quoting the sentence ISO
+  32000-2 does not contain, which is the known shape. 0 defects.
+- **Callers (program)**: 122 names no crate under `crates/` asks, 177 named by a dependent crate.
+  The delta is clean.
+- **Pointers (program)**: 5276 path pointers — 2920 live, 100 absent, 14 in another crate, 1845
+  unrooted, 123 a form, 274 not carried; 54 symbol pointers, 12 undefined. 0 defects; every absent
+  path is an ADR naming a `doc/todo/NN` its own round deleted or a correction quoting the pointer it
+  retired.
+- **Table numbers (program)**: 409 tables captioned, 305 stating entries; 4778 sentences name a
+  table; **1879 attributed key citations — 1735 the table agrees with, 91 absent, 4 a denial the
+  table contradicts, 49 under a table that states no entries, 0 under no such table. 0 defects.**
+  The absent are up from 89 because this round wrote its own record of what it corrected, which is
+  this sweep's own level moving under the round that reads it. One suspect was checked to the end
+  rather than assumed: ADR 0301's "Table 377's `/Placement`" is right, and reads as absent only
+  because Table 377's first column is a *structure element* rather than a `Key`.
+- **`inapplicable` (program)**: 80 rows stating 310 terms — 60 named by no source, 250 named over 72
+  rows, 235 carrying a cousin. None wrong.
+- **Retired claim (program)**, over the wave's fourteen nouns — `Presenter`, `detach_presenter`,
+  `Layer`, `PresentCost`, `QuorraWindowRenderer`, `render_retained`, `Digest::ALL`,
+  `TRIED_WHEN_UNSTATED`, `Shake256`, `substituted_media_box`, `ccitt_rows`, `Tree::child`,
+  `supports_text_ranges`, `select::continues`: **913 mentions, 8 carrying both shapes, 0 defects**
+  — and 768 of the 913 are `Layer` and `Presenter`, which is this file's own warning about an
+  ordinary English word arriving as a type name for the fourth wave running.
+- **Arithmetic (6)**: two hits, §7.9.2 and §O, read and kept before. Clean, and still the only sweep
+  of the fifteen that has never printed anything else.
+- **Parent counts (10)**: 4 counted claims against a family under a session-local pattern, 0
+  matching neither the children nor the descendants. **This is the last sweep whose level is still
+  session-local**, and it is the next one a program should take over.
+- **The errata (12)**, `check`: "151 struck passage(s) of 4 words or more that `doc/md/` still
+  carries as current text" over all fourteen PDFs, unchanged, and **71 quotations quoting text
+  struck out of the clause they cite — the same 71 as the five-hundred-and-forty-fifth and the
+  -fifty-third**. The population is still read to the end, which is what makes `emit`'s findings
+  above legible as a *different* question rather than as a gap in this one.
+
+### Ten rows read off the blame list, the band from commit 541 to 546
+
+Oldest first: §11.3.7.2, §11.6.4, §11.6.4.1, §11.6.4.4 (541), §12.7.2 (542), §11.4, §11.4.3,
+§11.4.8 (544), §12.3, §14.11 (546). **Three were wrong, two of them statuses, and one is the fifth
+failure shape found twice on one row.**
+
+| row | shape | was | is |
+|---|---|---|---|
+| **§11.6.4.1** | 525's | `partial` because "[w]hat this row owes is which of the two quantities the last two are, which is `/AIS` and is §11.6.4.3's" | `/AIS` is Table 57's, stated by §11.6.4.3's and §11.6.4.4's own text and by nothing in this clause. Its own prose states one requirement — the values "shall come from one or more of the following sources" — and all three sources are here. A row `partial` for a **neighbour's** debt, which is §E.1's and §I's shape one family over and which no sweep looks for — **`implemented`** |
+| **§12.7.2** | 14th sweep's, found in the band | `partial` above a note naming nothing owed | every other sentence of the clause is definitional; the one `shall` addressed to a processor — an appearance "shall be consistent with the object's current value as a field" — is what `appearance::regenerates` does. **`implemented`**, with the merged single-widget dictionary given evidence rather than an assertion |
+| **§14.11** | 5 | "§14.11.2 is `partial` for §14.11.2.2's guidelines", and §14.11.2's page boundaries listed among the `partial` ones | §14.11.2 and §14.11.2.1 moved to `implemented` in the four-hundred-and-forty-second, **a hundred and twenty sessions before**. The row's own last sentence is "[a] parent row is not maintained by the sessions that correct its children" — written by the four-hundred-and-second, about the half of the row that was then wrong, while the half beside it went the same way. §14.11.3 is what keeps it `partial`, alone |
+
+**The seven kept rows each record the evidence that kept them** — §11.3.7.2's six sources against the
+clause's own bullets (with one precision: `/AIS` is borrowed from §11.6.4.3 and §11.6.4.4 and kept
+because this clause is where the shape/opacity distinction is drawn), §11.6.4's four children,
+§11.6.4.4's own last sentence stating `/AIS` outright, §11.4's eight rows still saying what its note
+says, §11.4.3's live deferral to §11.4.4, §11.4.8's having no requirement of its own, and §12.3's
+five subclauses counted against the rows rather than believed.
+
+**And one by-catch about the file rather than about a claim.** §7.2.3's note read "worth 5." and then,
+four sentences later, "`doc/todo/53`.84% of the whole. ADR 0370." — a percentage split in half by an
+append, exactly as §Q's sentence was spliced in the five-hundred-and-fifty-third. Repaired.
+
 ## What is still owed, named
 
 - **The `partial` rows not yet re-read against the code.** Nothing below commit 534 is
@@ -2684,8 +2795,9 @@ the blame pointer without a stamp.
   under the fold) to 500 (§I, §I.2), fifteen rows, the five-hundred-and-thirty-seventh the band
   from 511 (§12.7.4) to 517 (§12.8.2.4), thirteen rows, and the five-hundred-and-forty-fifth the
   band from 518 (§9.9.1) to 534 (§12.8.2.2.2), eleven rows, and the five-hundred-and-fifty-third
-  the band from 534 (§12.8.3.4.3) to 536 (§12.6.4), eleven more, plus the read-and-kept sets whose
-  evidence is in their notes. **The next band begins at commit 541, with §11.3.7.2.**
+  the band from 534 (§12.8.3.4.3) to 536 (§12.6.4), eleven more, and the five-hundred-and-sixty-second
+  the band from 541 (§11.3.7.2) to 546 (§14.11), ten more, plus the read-and-kept sets whose
+  evidence is in their notes. **The next band begins at commit 553, with §12.5.1.**
 - **§12.8.2.4's transform, named rather than built.** `has_transform(document, dict, b"FieldMDP")`
   plus Table 259's `/Action` and `/Fields` beside `UsageRights` is the whole of the recognition
   half; the validation half is §12.8.2.2.2's and needs the signed revision reconstructed.
@@ -2693,12 +2805,20 @@ the blame pointer without a stamp.
   `joining` between them produced 298 of the first run's 544 mentions and not one finding, and
   `Window` and `widen` produced 1462 of the five-hundred-and-thirty-seventh's 1512. Choosing
   the invented nouns first is free; widening the program's matching would only make it worse.
-- **The fourteenth sweep's vocabulary is the next one a program should take over.** It is the last
-  of the four descriptions whose *level* moves with the session rather than with the tree — 16, 24,
-  5, 15, 19, 10, 8, 9 and now 19 hits, each under a debt vocabulary the round wrote that morning —
-  and the seventh sweep's own answer is available to it: a discriminator taken from the ledger
-  instead of from memory. Widening the word list makes the first number smaller and §9.3.1's
-  inverse no better, which is what the four-hundred-and-thirty-seventh's run already established.
+- ~~**The fourteenth sweep's vocabulary is the next one a program should take over.**~~ **Taken over
+  in the five-hundred-and-sixty-second** (ADR 0397), and the answer was not the one this entry
+  predicted. It said the seventh sweep's discriminator was "available to it: a discriminator taken
+  from the ledger instead of from memory" — and a vocabulary *learned* from the ledger measures
+  topic rather than debt, because status and subject are not independent in it. What the seventh
+  sweep actually supplies is its **measurement**, taken from the tree: a note that names a debt names
+  a thing, and a thing this tree does not have is a name no source carries. **§9.3.1's inverse is
+  still no better** — a row that names a debt and is wrong about it remains invisible — and that is
+  a property of the question rather than of the instrument.
+- **Sweep 10's level is the last one that is still session-local.** A parent row that states a count
+  of its family is checkable arithmetic on prose, and every run has written its own pattern: 16, 185,
+  124, 10, 160, 17, 70, 25, 41 and now 4 counted claims, over a ledger whose families barely move.
+  It is the next one a program should take over, and unlike the fourteenth it needs no discriminator
+  at all — the count is in the sentence and the family is in the file.
 - **The fifth sweep's second population is still a by-hand run.** `--bin callers` reads functions;
   the four-hundred-and-thirteenth ran the sweep a second way over `viewer-core`'s own vocabulary —
   every `Command`, `Query`, `Answer`, `Event` and `Edit` variant against the crates that speak it —

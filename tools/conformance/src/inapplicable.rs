@@ -89,7 +89,7 @@ pub const COUSINS: usize = 3;
 pub const SHORTEST: usize = 3;
 
 /// How a term was written in the row that states it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Kind {
     /// A `/Key` of some table, searched for in [`KEY_FORMS`].
     Key,
