@@ -470,6 +470,16 @@ that attached its file to a page carried a file nothing here could reach. ADR 02
   fuzz target unwritten — while the binary had been on disk since 26 July and `doc/environment.md`
   said how to invoke it. The check that would have cost two more seconds is
   `ls ~/.cargo/bin`. Session 428, ADR 0264.
+- **`grep` over a corpus needs `-a`, and without it a census of PDFs reports zero.** These files
+  are binary, and grep's own binary detection suppresses the match — `grep -rl FieldMDP
+  doc/pdf.js/test/pdfs` prints nothing while `grep -arl` prints `xfa_filled_imm1344e.pdf`, with
+  `-l` and a recursive walk and no other difference. A ledger row spent thirty-one rounds saying
+  the corpus stated no §12.8.2.4 transform on the strength of the first form, and the document it
+  missed is the corpus's **one certification signature** — the file that row's own neighbours cite
+  by name. This is the counting half of the rule above it: a negative answer from a tool is a claim
+  about the tool. **The independent check is this tree's own reader**, and it is the one that found
+  it; where both are available, run both, because the reader is the instrument under test and the
+  grep is not. Session 568, ADR 0403.
 - **Ask the linker what a binary can execute.** `nm <binary> | grep -c <symbol>` answers "could
   this program ever run that code, under any input" with no fuzzing, no coverage build and no
   argument — it found that eleven of thirteen fuzz targets did not contain the function that

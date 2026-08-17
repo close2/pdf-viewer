@@ -15,6 +15,14 @@
 //! module's whole reason — a refusal that cannot become an *ask* is the thing `CLAUDE.md` says to
 //! avoid — and `crate::view::ViewState::set_free_text` therefore does not consult it.
 //!
+//! **And a sixth, which is the fourth's other half**: §12.8.2.4's `FieldMDP` transform names the
+//! same fields the signature field lock does — the standard has a writer copy one into the other
+//! — but from *inside* the signature rather than from the field dictionary, and it states a
+//! different thing about them. A lock says the value shall not change; a transform says a change
+//! invalidates the signature. Both are what the file says, neither is a verdict, and a person
+//! being asked whether to go ahead is owed the distinction rather than one sentence covering
+//! both. ADR 0403.
+//!
 //! # Why a reason and not a boolean
 //!
 //! The verdict is not this crate's to give. `CLAUDE.md`'s "A document's restrictions are the
@@ -137,6 +145,24 @@ pub enum Restriction {
     /// The only one of the four that is about **one field** rather than about the document, and
     /// therefore the only reason [`asserted`] needs to be told which field is being filled in.
     FieldLocked,
+    /// §12.8.2.4's `FieldMDP` transform, asserted by a signature that names this field.
+    ///
+    /// > The FieldMDP transform method shall be used to detect changes to the values of a list of
+    /// > form fields.
+    ///
+    /// **Not [`Restriction::FieldLocked`] under another name, and the difference is the whole
+    /// reason it is its own variant.** §12.7.5.5's lock is a prohibition — the field's value
+    /// "shall no longer be changed" — while this clause states a *consequence*, in the sentence
+    /// addressed to the author who asks for it: "any modifications to specific form fields shall
+    /// invalidate that recipient's signature". A person is owed which of the two they are being
+    /// told, because one says the document forbids the edit and the other says the edit costs a
+    /// signature; a reader who would accept the second may well refuse the first.
+    ///
+    /// The two arrive together on a document written the way §12.8.2.4 tells a writer to write
+    /// one, because Table 259's entries "shall be copied from the corresponding fields in the
+    /// signature field lock dictionary" — and [`asserted`] then returns both, which is §12.8.6's
+    /// composition rule doing its job rather than a duplicate.
+    FieldCovered,
     /// §12.5.3's Table 167 bit 10, asserted by the annotation being edited.
     ///
     /// > LockedContents … If set, do not allow the contents of the annotation to be modified by
@@ -162,7 +188,9 @@ pub enum Restriction {
 /// §12.8.6's `/Perms /DocMDP` first, because it applies whether or not the document is encrypted
 /// — the clause says these permissions "do not require that the document be encrypted" — and
 /// then §7.6.4.2's Table 22, which applies only where a security handler granted anything, and
-/// last §12.7.5.5's signature field lock.
+/// last the two that name a field: §12.7.5.5's signature field lock and §12.8.2.4's `FieldMDP`
+/// transform, which a conforming writer states as copies of each other and which are therefore
+/// both returned where a document states both.
 ///
 /// # `field` and `annotation`
 ///
@@ -191,11 +219,19 @@ pub fn asserted(
     }
     if operation == Operation::FillInForm
         && let Some(field) = field
-        && crate::signature::field_locks(document)
-            .iter()
-            .any(|lock| lock.locks(field))
     {
-        out.push(Restriction::FieldLocked);
+        if crate::signature::field_locks(document)
+            .iter()
+            .any(|lock| lock.covers(field))
+        {
+            out.push(Restriction::FieldLocked);
+        }
+        if crate::signature::field_mdp(document)
+            .iter()
+            .any(|covered| covered.covers(field))
+        {
+            out.push(Restriction::FieldCovered);
+        }
     }
     if operation == Operation::Annotate
         && let Some(annotation) = annotation

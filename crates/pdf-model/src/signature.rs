@@ -1299,7 +1299,61 @@ pub fn read(document: &Document, dict: &Dictionary) -> Option<Signature> {
     })
 }
 
-/// §12.7.5.5's signature field lock, from a signature field that **has been signed**.
+/// Which form fields an `/Action` and `/Fields` pair names — Table 236's, and Table 259's.
+///
+/// **One type for two tables, because the standard makes them copies of each other.** §12.8.2.4
+/// says so outright about the writer's obligation:
+///
+/// > The Action and Fields entries in the transform parameters dictionary shall be copied from
+/// > the corresponding fields in the signature field lock dictionary.
+///
+/// So Table 236's signature field lock (§12.7.5.5) and Table 259's `FieldMDP` transform parameters
+/// (§12.8.2.4) state the same three actions over the same array of names. What differs is what
+/// each *means* — a lock is a prohibition on a reader and a transform is a statement about what
+/// invalidates a signature — and that difference lives in [`crate::restriction::Restriction`],
+/// where a person is told which of the two applies. A second enum with the same three variants
+/// would have claimed a distinction the vocabulary does not have.
+///
+/// **Neither table's action values are in `doc/md/`** — the conversion drops the list inside the
+/// `/Action` row's cell, exactly where `doc/HANDOVER.md` says to expect a loss: Table 236 is left
+/// with "[t]he value shall be one of the following:" and nothing following it, and Table 259 with
+/// "Valid values shall be: All All form fields." and the other two gone. Both readings below are
+/// `pdftotext -layout` over `doc/ISO_32000-2_sponsored_EC3.pdf`, which is the check that file
+/// names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FieldSelection {
+    /// `/Action /All`: "All fields in the document" (Table 236), "All form fields" (Table 259).
+    All,
+    /// `/Action /Include`: "All fields specified in Fields", "Only those form fields specified in
+    /// Fields".
+    Include(Vec<String>),
+    /// `/Action /Exclude`: "All fields except those specified in Fields", "Only those form fields
+    /// not specified in Fields".
+    Exclude(Vec<String>),
+}
+
+impl FieldSelection {
+    /// Whether this selection names the field with this fully qualified name (§12.7.4.2).
+    ///
+    /// Both tables say only "[a]n array of text strings containing field names", and §12.7.4.2's
+    /// fully qualified name is the only name in the clause that identifies a field uniquely —
+    /// a partial name repeats across the tree, and covering every `Total` in a document because
+    /// one was named would refuse edits the file never asked to refuse.
+    ///
+    /// **The corpus agrees with the argument**, which it did not have to: the transform in
+    /// `xfa_filled_imm1344e.pdf` states `form1[0].SignatureField3[0]`, and `crate::form::fields`
+    /// derives exactly that string as the fully qualified name of the document's one field.
+    #[must_use]
+    pub fn covers(&self, field: &str) -> bool {
+        match self {
+            Self::All => true,
+            Self::Include(names) => names.iter().any(|name| name == field),
+            Self::Exclude(names) => !names.iter().any(|name| name == field),
+        }
+    }
+}
+
+/// Every §12.7.5.5 lock a *signed* signature field in this document asserts.
 ///
 /// The clause states the prohibition in prose rather than in Table 236, and the difference
 /// matters: the table's own column says the fields "should be locked", while the sentence under
@@ -1313,88 +1367,135 @@ pub fn read(document: &Document, dict: &Dictionary) -> Option<Signature> {
 /// is an instruction to whatever will do the signing (§12.7.5.5's NOTE 1 — "information needed
 /// later when the actual signing takes place"), and locks nothing in the meantime.
 ///
-/// Table 236's `/P` is deliberately *not* here. It reads like Table 257's `/P` and it is
+/// Table 236's `/P` is deliberately *not* read. It reads like Table 257's `/P` and it is
 /// addressed elsewhere: "absence of this key shall result in no effect on signature **validation
 /// rules**", so it says what invalidates the signature rather than what a reader may do. The
 /// entry that makes §12.8.2.2's equivalent binding on a processor is §12.8.6's permissions
 /// dictionary, and Table 236 names no such route.
-/// **Table 236's three action values are not in `doc/md/`** — the conversion drops the list
-/// inside the `/Action` row's cell, exactly where `doc/HANDOVER.md` says to expect a loss, and
-/// leaves the sentence "[t]he value shall be one of the following:" with nothing following it.
-/// The three below are `pdftotext -layout` over `doc/ISO_32000-2_sponsored_EC3.pdf`, which is the
-/// check that file names.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum FieldLock {
-    /// Table 236 `/Action /All`: "All fields in the document".
-    All,
-    /// `/Action /Include`: "All fields specified in Fields".
-    Include(Vec<String>),
-    /// `/Action /Exclude`: "All fields except those specified in Fields".
-    Exclude(Vec<String>),
-}
-
-impl FieldLock {
-    /// Whether this lock covers the field with this fully qualified name (§12.7.4.2).
-    ///
-    /// Table 236 says only "[a]n array of text strings containing field names", and §12.7.4.2's
-    /// fully qualified name is the only name in the clause that identifies a field uniquely —
-    /// a partial name repeats across the tree, and locking every `Total` in a document because
-    /// one was named would refuse edits the file never asked to refuse.
-    #[must_use]
-    pub fn locks(&self, field: &str) -> bool {
-        match self {
-            Self::All => true,
-            Self::Include(names) => names.iter().any(|name| name == field),
-            Self::Exclude(names) => !names.iter().any(|name| name == field),
-        }
-    }
-}
-
-/// Every §12.7.5.5 lock a *signed* signature field in this document asserts.
 ///
 /// Empty for a document with no form, no signature, or none whose signature field states a
-/// `/Lock` — which is every document in the corpus, because none of the six that carry a
-/// signature carries one of these.
+/// `/Lock` — which is every one of the documents in the pdf.js corpus and the four under
+/// `doc/corpora/`, counted by `signatures.rs::the_corpus_states_the_fields_one_signature_covers`.
+/// §12.8.2.4's transform is the copy of this that a real producer *does* write.
+#[must_use]
+pub fn field_locks(document: &Document) -> Vec<FieldSelection> {
+    let mut out = Vec::new();
+    for_each_signed_field(document, |field, _signature| {
+        if let Some(lock) = document.get_key(field, "Lock").as_dict()
+            && let Some(lock) = read_selection(document, lock)
+        {
+            out.push(lock);
+        }
+    });
+    out
+}
+
+/// Every §12.8.2.4 `FieldMDP` transform a *signed* signature field's signature states.
+///
+/// > The FieldMDP transform method shall be used to detect changes to the values of a list of
+/// > form fields.
+///
+/// **The same fields as [`field_locks`], stated in the other of the two places the standard puts
+/// them**, and a document can state either without the other. §12.8.2.4 makes the transform a
+/// copy of the field lock when a writer creates the signature, but the lock lives in the *field*
+/// dictionary while the transform lives inside the signature — which the clause's NOTE says is
+/// why the copy exists at all:
+///
+/// > This copying is done because all objects in a signature dictionary are direct objects if the
+/// > dictionary contains a byte range signature. Therefore, the transform parameters dictionary
+/// > cannot reference the signature field lock dictionary indirectly.
+///
+/// So a reader that consulted only §12.7.5.5's `/Lock` would miss what a signature says about
+/// itself — and the transform is the copy inside the signed byte range, where a later incremental
+/// update cannot quietly drop it.
+///
+/// **What is not done here is §12.8.2.2.2's comparison**, which "`FieldMDP` signatures shall be
+/// validated in a similar manner to" and which needs the signed revision reconstructed from the
+/// `/ByteRange`; [`Signature::integrity`] establishes only whether the signed bytes moved. Table
+/// 256's `/Data`, "[a]n indirect reference to the object in the document upon which the object
+/// modification analysis should be performed", is what that comparison would start from and is
+/// therefore unread rather than unnoticed: nothing here performs the analysis it scopes.
+///
+/// The condition is the same one [`field_locks`] applies — a signature that has been signed —
+/// and for the same reason: a `/Reference` on a signature nobody made covers nothing.
+///
+/// **The whole `/Reference` array is read rather than the first entry of it**, which is what the
+/// corpus's one certification signature turns out to need: `xfa_filled_imm1344e.pdf` states two
+/// signature reference dictionaries on one signature, a `DocMDP` and a `FieldMDP`, and this tree
+/// read only the first for its whole life. §12.8.2.1's plural is the clause behind that —
+/// "[t]ransform methods, along with transform parameters, shall determine which objects are
+/// included and excluded in revision comparison".
+#[must_use]
+pub fn field_mdp(document: &Document) -> Vec<FieldSelection> {
+    let mut out = Vec::new();
+    for_each_signed_field(document, |_field, signature| {
+        let references = document.get_key(signature, "Reference");
+        let Some(references) = references.as_array().map(<[Object]>::to_vec) else {
+            return;
+        };
+        for reference in &references {
+            let resolved = document.resolve(reference);
+            let Some(reference) = resolved.as_dict() else {
+                continue;
+            };
+            let is_field_mdp = document
+                .get_key(reference, "TransformMethod")
+                .as_name()
+                .is_some_and(|method| method.as_bytes() == b"FieldMDP");
+            if !is_field_mdp {
+                continue;
+            }
+            if let Some(parameters) = document.get_key(reference, "TransformParams").as_dict()
+                && let Some(covered) = read_selection(document, parameters)
+            {
+                out.push(covered);
+            }
+        }
+    });
+    out
+}
+
+/// Every signature field in this document that **has been signed**, as its field dictionary and
+/// the signature dictionary that signed it.
+///
+/// The test for "is a signature field" is that its `/V` is a signature dictionary this crate can
+/// read, rather than Table 226's `/FT /Sig`: §12.7.4.1 makes `/FT` inheritable, so a kid that
+/// states none is not thereby a different kind of field — and the two clauses that call this both
+/// condition on the signature existing rather than on the field's type.
 ///
 /// **The walk is not gated on Table 225's `/SigFlags`, which [`signatures`] is**, and the
 /// asymmetry is deliberate: that flag exists so a processor can *skip* work, and skipping it
 /// here would mean a document that under-describes itself escapes a restriction it wrote down.
 /// A missed signature costs a report; a missed lock costs a `shall`.
-#[must_use]
-pub fn field_locks(document: &Document) -> Vec<FieldLock> {
+fn for_each_signed_field(document: &Document, mut visit: impl FnMut(&Dictionary, &Dictionary)) {
     let Ok(catalog) = document.catalog() else {
-        return Vec::new();
+        return;
     };
     let form = document.get_key(&catalog, "AcroForm");
     let Some(form) = form.as_dict() else {
-        return Vec::new();
+        return;
     };
     let fields = document.get_key(form, "Fields");
     let Some(fields) = fields.as_array().map(<[Object]>::to_vec) else {
-        return Vec::new();
+        return;
     };
-    let mut out = Vec::new();
     let mut seen = std::collections::BTreeSet::new();
+    let mut visited = 0usize;
     for field in &fields {
-        collect_locks(document, field, &mut out, &mut seen, 0);
+        walk_signed_fields(document, field, &mut visit, &mut seen, &mut visited, 0);
     }
-    out
 }
 
-/// One level of the field walk, gathering the `/Lock` of every signature field that is signed.
-///
-/// The test for "is a signature field" is that its `/V` is a signature dictionary this crate can
-/// read, rather than Table 226's `/FT /Sig`: §12.7.4.1 makes `/FT` inheritable, so a kid that
-/// states none is not thereby a different kind of field — and the clause's own condition is about
-/// the signature existing rather than about the field's type.
-fn collect_locks(
+/// One level of [`for_each_signed_field`]'s walk.
+fn walk_signed_fields(
     document: &Document,
     field: &Object,
-    out: &mut Vec<FieldLock>,
+    visit: &mut impl FnMut(&Dictionary, &Dictionary),
     seen: &mut std::collections::BTreeSet<pdf_syntax::ObjectId>,
+    visited: &mut usize,
     depth: usize,
 ) {
-    if out.len() >= MAX_SIGNATURES || depth > 32 {
+    if *visited >= MAX_SIGNATURES || depth > 32 {
         return;
     }
     if let Some(id) = field.as_reference()
@@ -1408,10 +1509,9 @@ fn collect_locks(
     };
     if let Some(value) = document.get_key(dict, "V").as_dict()
         && read(document, value).is_some()
-        && let Some(lock) = document.get_key(dict, "Lock").as_dict()
-        && let Some(lock) = read_lock(document, lock)
     {
-        out.push(lock);
+        *visited = visited.saturating_add(1);
+        visit(dict, value);
     }
     if let Some(kids) = document
         .get_key(dict, "Kids")
@@ -1419,24 +1519,25 @@ fn collect_locks(
         .map(<[Object]>::to_vec)
     {
         for kid in &kids {
-            collect_locks(document, kid, out, seen, depth.saturating_add(1));
+            walk_signed_fields(document, kid, visit, seen, visited, depth.saturating_add(1));
         }
     }
 }
 
-/// Table 236's `/Action` and `/Fields`, or `None` where the dictionary states neither usefully.
+/// An `/Action` and `/Fields` pair, or `None` where the dictionary states neither usefully.
 ///
-/// `/Action` is "(Required)" and its three values are the whole of the table's vocabulary, so a
-/// name that is none of them states nothing this clause defines and is not guessed at: an
-/// unrecognised action that fell back to `All` would lock a document on a word the standard does
-/// not use. `Include` and `Exclude` need `/Fields` — "(Required if the value of Action is Include
-/// or Exclude)" — and an `Include` with none names no field, which is a lock over nothing.
-fn read_lock(document: &Document, lock: &Dictionary) -> Option<FieldLock> {
-    let action = document.get_key(lock, "Action");
+/// `/Action` is "(Required)" in both Table 236 and Table 259, and its three values are the whole
+/// of either table's vocabulary, so a name that is none of them states nothing the clause defines
+/// and is not guessed at: an unrecognised action that fell back to `All` would close a document's
+/// every field on a word the standard does not use. `Include` and `Exclude` need `/Fields` — "(Required if the
+/// value of Action is Include or Exclude)" — and an `Include` with none names no field, which is
+/// a selection over nothing.
+fn read_selection(document: &Document, dict: &Dictionary) -> Option<FieldSelection> {
+    let action = document.get_key(dict, "Action");
     let action = action.as_name()?;
     let names = || {
         document
-            .get_key(lock, "Fields")
+            .get_key(dict, "Fields")
             .as_array()
             .map(|fields| {
                 fields
@@ -1451,9 +1552,9 @@ fn read_lock(document: &Document, lock: &Dictionary) -> Option<FieldLock> {
             .unwrap_or_default()
     };
     match action.as_bytes() {
-        b"All" => Some(FieldLock::All),
-        b"Include" => Some(FieldLock::Include(names())),
-        b"Exclude" => Some(FieldLock::Exclude(names())),
+        b"All" => Some(FieldSelection::All),
+        b"Include" => Some(FieldSelection::Include(names())),
+        b"Exclude" => Some(FieldSelection::Exclude(names())),
         _ => None,
     }
 }

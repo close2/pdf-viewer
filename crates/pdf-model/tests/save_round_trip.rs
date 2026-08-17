@@ -274,6 +274,9 @@ fn reason(restriction: Restriction) -> String {
             format!("encryption withholds it (§7.6.4.2 Table 22, bit {bit})")
         }
         Restriction::FieldLocked => "a signature locks the field (§12.7.5.5)".to_owned(),
+        Restriction::FieldCovered => {
+            "a signature's FieldMDP transform covers the field (§12.8.2.4)".to_owned()
+        }
         Restriction::AnnotationLocked => "LockedContents (Table 167 bit 10)".to_owned(),
     }
 }

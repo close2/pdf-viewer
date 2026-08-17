@@ -101,6 +101,65 @@ fn no_corpus_documents_usage_rights_are_exceeded_by_what_this_program_does() {
     );
 }
 
+/// The two places §12.8.2.4 has a writer state which fields a signature covers, counted.
+///
+/// Table 259's transform parameters "shall be copied from the corresponding fields in the
+/// signature field lock dictionary", so a conforming document that states one states both — and
+/// this counts each independently, because the interesting document is the one that states only
+/// one of them. **This corpus has exactly that**: one document states the `FieldMDP` transform and
+/// **none** states a `/Lock` on a signed signature field, so the copy the clause describes is not
+/// what a real producer wrote.
+///
+/// **It is also the finding that this clause's own ledger row was reasoned from a `grep` that
+/// lied.** `grep -rl FieldMDP doc/pdf.js/test/pdfs` prints nothing on this machine and `grep
+/// -arl` prints `xfa_filled_imm1344e.pdf`: without `-a`, grep classes these files as binary and
+/// the `-l` never names them. Every "nothing in the corpus states X" taken that way is a
+/// measurement of the instrument. `doc/habits.md`'s *Measuring* section has it.
+///
+/// So this clause has a real witness and it is the corpus's **one certification signature**,
+/// whose `/Reference` array carries two entries — a `DocMDP` and a `FieldMDP` — of which this
+/// tree read only the first for its whole life. What the second names is the *signature field* of
+/// the recipient rather than a text field, which is the workflow §12.8.2.4's second bullet
+/// describes: "after a specific recipient has signed the document, any modifications to specific
+/// form fields shall invalidate that recipient's signature".
+#[test]
+fn the_corpus_states_the_fields_one_signature_covers() {
+    let Some(files) = corpus() else {
+        println!("skipped: the doc/pdf.js submodule is not checked out");
+        return;
+    };
+
+    let mut locks = Vec::new();
+    let mut transforms = Vec::new();
+    for path in &files {
+        let Ok(bytes) = std::fs::read(path) else {
+            continue;
+        };
+        let Ok(document) = Document::open(bytes) else {
+            continue;
+        };
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        if !pdf_model::signature::field_locks(&document).is_empty() {
+            locks.push(name.to_string());
+        }
+        let covered = pdf_model::signature::field_mdp(&document);
+        if !covered.is_empty() {
+            transforms.push(format!("{name}: {covered:?}"));
+        }
+    }
+
+    println!("§12.7.5.5 /Lock on a signed field: {}", locks.len());
+    for entry in &transforms {
+        println!("§12.8.2.4 FieldMDP: {entry}");
+    }
+    assert!(locks.is_empty(), "documents with a signed /Lock: {locks:?}");
+    assert_eq!(
+        transforms,
+        vec!["xfa_filled_imm1344e.pdf: [Include([\"form1[0].SignatureField3[0]\"])]".to_owned()],
+        "the corpus's FieldMDP transforms"
+    );
+}
+
 /// Every corpus signature, with what its range covers and what its document permits.
 #[test]
 fn every_signed_corpus_document_says_what_it_signed() {

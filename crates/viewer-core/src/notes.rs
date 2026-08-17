@@ -221,6 +221,15 @@ pub(crate) fn refusal(
                  (§12.7.5.5's /Lock) — {} was not done",
                 operation.as_str()
             ),
+            // §12.8.2.4 states a consequence where §12.7.5.5 states a prohibition, and the
+            // sentence keeps them apart: "any modifications to specific form fields shall
+            // invalidate that recipient's signature". So this one does not say the document
+            // forbids the edit — it says what the edit costs, which is what the clause says.
+            Restriction::FieldCovered => format!(
+                "a signature in this document covers this field, and changing it invalidates \
+                 that signature (§12.8.2.4's FieldMDP) — {} was not done",
+                operation.as_str()
+            ),
             // §12.5.3's Table 167 bit 10: "If set, do not allow the contents of the annotation to
             // be modified by the user." Bit 8's `Locked` is named in the same breath because it
             // is the flag a person would expect to be the reason and is not — its own row says it

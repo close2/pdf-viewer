@@ -584,6 +584,166 @@ fn a_signed_signature_field_locks_the_fields_its_lock_names() {
     );
 }
 
+/// The same form with a signature stating §12.8.2.4's `FieldMDP` transform, signed or not.
+///
+/// The signature field carries **no** `/Lock`: this fixture is about the copy that lives inside
+/// the signature, and a file stating both would not distinguish a reader that consulted the
+/// transform from one that consulted only §12.7.5.5.
+///
+/// Everything under `/Reference` is written as a *direct* object, which is the shape §12.8.2.4's
+/// NOTE explains — "all objects in a signature dictionary are direct objects if the dictionary
+/// contains a byte range signature. Therefore, the transform parameters dictionary cannot
+/// reference the signature field lock dictionary indirectly" — and is the reason the copy exists
+/// at all. Table 256's `/Data` is "(Required when `TransformMethod` is `FieldMDP`, shall be an
+/// indirect reference)" and names the interactive form dictionary's own object here.
+fn form_field_mdp(action: &str, fields: &[&str], signed: bool) -> Vec<u8> {
+    let form = String::from_utf8(form()).expect("the fixture is ASCII");
+    let with_field = form.replace("/Fields [5 0 R 6 0 R]", "/Fields [5 0 R 6 0 R 8 0 R]");
+    assert_ne!(with_field, form, "the fixture states a field list");
+    let mut names = String::new();
+    for name in fields {
+        let _ = write!(names, "({name}) ");
+    }
+    let value = if signed { "/V 9 0 R " } else { "" };
+    let objects = format!(
+        "8 0 obj\n<< /Type /Annot /Subtype /Widget /Rect [0 0 0 0] /F 4 /FT /Sig \
+         /T (sig) {value}>>\nendobj\n\
+         9 0 obj\n<< /Type /Sig /ByteRange [0 100 200 300] /Reference [ \
+         << /Type /SigRef /TransformMethod /FieldMDP /Data 1 0 R /DigestMethod /SHA256 \
+         /TransformParams << /Type /TransformParams /Action /{action} /Fields [{names}] \
+         /V /1.2 >> >> ] >>\nendobj\n"
+    );
+    let body = with_field
+        .split_once("xref\n")
+        .map_or(with_field.as_str(), |(body, _)| body);
+    rebuilt(&format!("{body}{objects}"))
+}
+
+/// §12.8.2.4's `FieldMDP` transform, in all three of Table 259's actions and unsigned.
+///
+/// > The FieldMDP transform method shall be used to detect changes to the values of a list of
+/// > form fields.
+///
+/// **The clause states a consequence rather than a prohibition**, which is why the restriction it
+/// asserts is its own and not §12.7.5.5's: the sentence addressed to the author asking for it is
+/// "any modifications to specific form fields shall invalidate that recipient's signature". A
+/// reader who would accept that cost may still refuse an edit the document forbids outright, so
+/// the two reach a host as two reasons.
+///
+/// **Nothing in any corpus checked out here states one**, which is trap 8's shape and why this is
+/// a hand-built file — a `grep` for `FieldMDP` over the pdf.js corpus and the four under
+/// `doc/corpora/` finds no document at all, exactly as for §12.7.5.5's `/Lock`. So the fixture is
+/// the only witness there is, and each case below is one line of Table 259.
+///
+/// The last case is the same condition §12.7.5.5's test ends on, and it is this clause's too: the
+/// transform describes what invalidates *this recipient's* signature, so a signature field with
+/// no `/V` has no signature for a later edit to invalidate.
+#[test]
+fn a_signature_covers_the_fields_its_field_mdp_transform_names() {
+    use pdf_model::restriction::{Operation, Restriction, asserted};
+
+    let covered = vec![Restriction::FieldCovered];
+
+    // Include: "Only those form fields specified in Fields".
+    let include = Document::open(form_field_mdp("Include", &["name"], true)).expect("a valid PDF");
+    assert_eq!(
+        asserted(&include, Operation::FillInForm, Some("name"), None),
+        covered
+    );
+    assert_eq!(
+        asserted(&include, Operation::FillInForm, Some("agree"), None),
+        Vec::new()
+    );
+    // The transform is about the *values* of form fields; §12.8.2.4 says nothing about annotating.
+    assert_eq!(
+        asserted(&include, Operation::Annotate, Some("name"), None),
+        Vec::new()
+    );
+
+    // All: "All form fields".
+    let all = Document::open(form_field_mdp("All", &[], true)).expect("a valid PDF");
+    for field in ["name", "agree", "sig"] {
+        assert_eq!(
+            asserted(&all, Operation::FillInForm, Some(field), None),
+            covered,
+            "{field} is a form field"
+        );
+    }
+
+    // Exclude: "Only those form fields not specified in Fields".
+    let exclude = Document::open(form_field_mdp("Exclude", &["name"], true)).expect("a valid PDF");
+    assert_eq!(
+        asserted(&exclude, Operation::FillInForm, Some("name"), None),
+        Vec::new()
+    );
+    assert_eq!(
+        asserted(&exclude, Operation::FillInForm, Some("agree"), None),
+        covered
+    );
+
+    // A name Table 259 does not define states nothing this clause defines, and the selection is
+    // not guessed at — the same rule Table 236's reading follows, and the same table cell the
+    // markdown conversion drops the values out of.
+    let unknown = Document::open(form_field_mdp("Everything", &[], true)).expect("a valid PDF");
+    assert_eq!(
+        asserted(&unknown, Operation::FillInForm, Some("name"), None),
+        Vec::new()
+    );
+
+    // And the condition: a transform on a signature field nobody has signed.
+    let unsigned = Document::open(form_field_mdp("All", &[], false)).expect("a valid PDF");
+    assert_eq!(
+        asserted(&unsigned, Operation::FillInForm, Some("name"), None),
+        Vec::new(),
+        "a FieldMDP transform describes what invalidates a signature, and there is none"
+    );
+}
+
+/// A document stating both places §12.8.2.4 has a writer put the same field list.
+///
+/// > The Action and Fields entries in the transform parameters dictionary shall be copied from
+/// > the corresponding fields in the signature field lock dictionary.
+///
+/// This is what a *conforming* writer produces, and it is the case that decides whether the two
+/// clauses are one restriction or two. They are two, and both arrive: §12.8.6's composition rule
+/// — "[f]or a permission to be actually granted for a document, it shall be allowed by each
+/// permission handler that is present" — is why [`asserted`] returns a list rather than the first
+/// reason it finds, and a person deciding whether to fill the field in is owed both sentences.
+///
+/// The converse is the case the clause's NOTE is about: a `/Lock` sits in the field dictionary,
+/// which a later incremental update can replace without touching a byte the signature covered,
+/// while the transform is inside the signature. A reader consulting only the first would then see
+/// nothing — which `a_signature_covers_the_fields_its_field_mdp_transform_names` is the witness
+/// for.
+#[test]
+fn a_lock_and_the_transform_copied_from_it_are_two_reasons_rather_than_one() {
+    use pdf_model::restriction::{Operation, Restriction, asserted};
+
+    let form = String::from_utf8(form()).expect("the fixture is ASCII");
+    let with_field = form.replace("/Fields [5 0 R 6 0 R]", "/Fields [5 0 R 6 0 R 8 0 R]");
+    let objects = "8 0 obj\n<< /Type /Annot /Subtype /Widget /Rect [0 0 0 0] /F 4 /FT /Sig \
+         /T (sig) /V 9 0 R /Lock 10 0 R >>\nendobj\n\
+         9 0 obj\n<< /Type /Sig /ByteRange [0 100 200 300] /Reference [ \
+         << /Type /SigRef /TransformMethod /FieldMDP /Data 1 0 R /DigestMethod /SHA256 \
+         /TransformParams << /Type /TransformParams /Action /Include /Fields [(name)] \
+         /V /1.2 >> >> ] >>\nendobj\n\
+         10 0 obj\n<< /Type /SigFieldLock /Action /Include /Fields [(name)] >>\nendobj\n";
+    let body = with_field
+        .split_once("xref\n")
+        .map_or(with_field.as_str(), |(body, _)| body);
+    let document = Document::open(rebuilt(&format!("{body}{objects}"))).expect("a valid PDF");
+
+    assert_eq!(
+        asserted(&document, Operation::FillInForm, Some("name"), None),
+        vec![Restriction::FieldLocked, Restriction::FieldCovered],
+        "one field list written in both of the places the standard puts it is two statements"
+    );
+    assert_eq!(
+        asserted(&document, Operation::FillInForm, Some("agree"), None),
+        Vec::new()
+    );
+}
+
 /// A form whose author certified the document with §12.8.2.2's `/P`.
 ///
 /// The catalog gains §12.8.6's `/Perms /DocMDP`, pointing at a signature whose `/Reference`

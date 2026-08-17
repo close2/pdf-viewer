@@ -99,6 +99,67 @@ fn the_corpus_certification_permits_filling_in_and_not_annotating() {
     );
 }
 
+/// The same signature's *second* transform, which this tree read nothing of until ADR 0403.
+///
+/// `xfa_filled_imm1344e.pdf`'s `/Perms /DocMDP` signature carries a `/Reference` array of two
+/// signature reference dictionaries — a `DocMDP` and a **`FieldMDP`** — and §12.8.2.1 makes that
+/// array plural for exactly this reason: "[t]ransform methods, along with transform parameters,
+/// shall determine which objects are included and excluded in revision comparison". Reading the
+/// first and stopping is what a `/Reference` array cannot be read as.
+///
+/// **The field it names is the whole of this document's form**, and its name is Table 259's
+/// verbatim: `form1[0].SignatureField3[0]`, which `pdf_model::form::fields` independently derives
+/// as §12.7.4.2's fully qualified name for the one field on page 1. That agreement is what
+/// `FieldSelection::covers` was written on argument alone and now has a producer's own file for —
+/// a partial-name reading would have matched here too, and a document with two `SignatureField3`
+/// under different parents is what it would have got wrong.
+///
+/// The restriction that results does not withhold anything this program does: the covered field
+/// is a signature field, and `ViewState::set_field` fills in text and choice fields. It is
+/// asserted anyway, because [`asserted`] answers what the *document* says rather than what this
+/// program happens to be able to do — a host that grows a way to sign is owed the sentence
+/// without anyone remembering to add it.
+#[test]
+fn the_corpus_certification_also_covers_a_field_by_name() {
+    let Some(bytes) = corpus_bytes("xfa_filled_imm1344e.pdf") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    let document = Document::open(bytes).expect("a valid PDF");
+    assert_eq!(
+        asserted(
+            &document,
+            Operation::FillInForm,
+            Some("form1[0].SignatureField3[0]"),
+            None
+        ),
+        vec![Restriction::FieldCovered]
+    );
+    assert_eq!(
+        asserted(
+            &document,
+            Operation::FillInForm,
+            Some("form1[0].SignatureField3"),
+            None
+        ),
+        Vec::new(),
+        "the name Table 259 states is the whole name, and a prefix of it is another field"
+    );
+    // §12.8.2.4 is about "the values of a list of form fields" and says nothing about annotating,
+    // so the only reason that survives here is §12.8.2.2's level.
+    assert_eq!(
+        asserted(
+            &document,
+            Operation::Annotate,
+            Some("form1[0].SignatureField3[0]"),
+            None
+        ),
+        vec![Restriction::Certified {
+            level: pdf_model::signature::Modification::FormFilling
+        }]
+    );
+}
+
 /// A document that is not encrypted and states no `/Perms` asserts nothing.
 ///
 /// The answer for 961 of the 968 corpus documents that open, and worth pinning: an empty list has
