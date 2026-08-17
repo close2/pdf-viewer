@@ -7,6 +7,8 @@
 //! cargo run --release -p spec-errata -- census doc/*.pdf
 //! # the hazard: rustdoc blockquotes that quote a sentence an erratum struck out
 //! cargo run --release -p spec-errata -- check doc/*.pdf
+//! # the other direction: a clause number an erratum moves, and what stands on it here
+//! cargo run --release -p spec-errata -- moved doc/*.pdf
 //! ```
 //!
 //! `emit`'s output is derived from documents this project may not redistribute (ADR 0187) and
@@ -32,6 +34,8 @@ enum Command {
     /// Quotations in `crates/` that quote struck-out text, and struck text `doc/md/` still
     /// carries.
     Check,
+    /// Errata that move a clause *number*, and what this tree has standing on each.
+    Moved,
 }
 
 fn main() -> std::process::ExitCode {
@@ -40,8 +44,9 @@ fn main() -> std::process::ExitCode {
         Some("emit") => Command::Emit,
         Some("census") => Command::Census,
         Some("check") => Command::Check,
+        Some("moved") => Command::Moved,
         _ => {
-            println!("usage: spec-errata <emit|census|check> <document.pdf>...");
+            println!("usage: spec-errata <emit|census|check|moved> <document.pdf>...");
             return std::process::ExitCode::FAILURE;
         }
     };
@@ -61,6 +66,12 @@ fn main() -> std::process::ExitCode {
         Command::Census => census(&notes),
         Command::Check => {
             if let Err(error) = check(&notes) {
+                println!("{error}");
+                return std::process::ExitCode::FAILURE;
+            }
+        }
+        Command::Moved => {
+            if let Err(error) = moved(&notes) {
                 println!("{error}");
                 return std::process::ExitCode::FAILURE;
             }
@@ -167,6 +178,78 @@ fn check(notes: &[Note]) -> Result<(), spec_errata::Error> {
     for landing in &elsewhere {
         print_landing(landing);
     }
+    Ok(())
+}
+
+/// The errata that move a clause number, and what this tree has standing on each.
+///
+/// **The other direction of `check`'s question**, and the reason it needs a command of its own: a
+/// renumbering strikes a *heading*, so no quotation can land on it and `check` is blind to it by
+/// construction. The five-hundred-and-sixty-second session filtered `emit`'s 1097 annotations for
+/// these verbs by hand; this prints the same population with the ground each one moves counted
+/// beside it, which is what a round writing a new citation needs to see.
+///
+/// # Errors
+///
+/// Whatever [`spec_errata::standing_on`] answered.
+fn moved(notes: &[Note]) -> Result<(), spec_errata::Error> {
+    let structural = spec_errata::structural(notes);
+    println!(
+        "{} of {} annotation(s) move, renumber, insert or delete a numbered clause.",
+        structural.len(),
+        notes.len()
+    );
+    for erratum in &structural {
+        let ground = spec_errata::standing_on(
+            &erratum.clauses,
+            &PathBuf::from("doc/conformance/ledger.toml"),
+            &[
+                PathBuf::from("crates"),
+                PathBuf::from("tools"),
+                PathBuf::from("fuzz"),
+            ],
+            &PathBuf::from("doc"),
+        )?;
+        println!(
+            "\n{} p.{} {} [{}] — {}",
+            erratum.note.document,
+            erratum.note.page,
+            erratum.note.subject.as_deref().unwrap_or("(no /Subj)"),
+            erratum
+                .note
+                .states
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<&str>>()
+                .join(", "),
+            erratum.verbs.join(", ")
+        );
+        println!(
+            "  says: {}",
+            erratum.note.contents.as_deref().unwrap_or("(no /Contents)")
+        );
+        for standing in &ground {
+            println!(
+                "  §{} — {} ledger row(s), {} source citation(s), {} in this project's documents",
+                standing.clause,
+                standing.rows.len(),
+                standing.citations.len(),
+                standing.documents.len()
+            );
+            for row in &standing.rows {
+                println!("      row §{row}");
+            }
+            for (file, line) in &standing.citations {
+                println!("      {}:{}", file.display(), line);
+            }
+        }
+    }
+    println!(
+        "\nThe numbers are not changed anywhere: `doc/md/` is the published text and the citation \
+         gate resolves against it, so a post-erratum number is refused outright. What this answers \
+         is which published numbers stand on ground an erratum has moved, and how much of this tree \
+         stands with them — `doc/errata-read.md` carries the reading."
+    );
     Ok(())
 }
 

@@ -50,6 +50,7 @@ pub mod callers;
 pub mod capabilities;
 pub mod citation;
 pub mod clause;
+pub mod counts;
 pub mod entries;
 pub mod inapplicable;
 pub mod ledger;

@@ -452,3 +452,70 @@ one direction of one question. The other direction is whether an erratum has mov
 tree *claims*, and a claim needs no quotation. `emit` plus the ledger is the instrument for it, and
 its three signals are cheap to filter for: the words *delete*, *move* and *renumber*, and a
 strikeout whose whole text is a requirement word.
+
+## The filter becomes a command, and it found two the hand-run missed
+
+The paragraph above ends by naming three words to filter for. **A filter written down is a filter
+somebody re-invents**, which is `CLAUDE.md`'s own rule and the reason the fifteenth sweep went unrun
+for twenty-four rounds (ADR 0319), so since the five-hundred-and-sixty-fifth session it is a command:
+
+```sh
+cargo run --release -p spec-errata -- moved doc/*.pdf
+```
+
+It takes every annotation whose own instruction uses one of `move`, `renumber`, `delete` or `insert`
+**and names a clause number** — a number with a full stop in it whose first component is one of the
+technical clauses, which is what keeps `PDF 1.7`, `Table 24` and `ISO 32000-2` out — and prints
+beside each one what this tree has standing on that number: its ledger rows, its `§` citations under
+`crates/`, `tools/` and `fuzz/`, and its mentions in this project's own Markdown. That last column is
+the reader's hazard as a count.
+
+**Its first run printed 15 of 2 865 annotations and two of them were unrecorded**, both of which the
+five-hundred-and-sixty-second's hand-filter for *Move*, *delete* and *renumber* had walked past:
+
+| issue | what it does | what stands on it |
+|---|---|---|
+| **#477** `Completed` | "all of subclause 12.3.6 Navigators was moved and demoted one level to subclause 12.3.5.3 Collection navigators" | §12.3.6's ledger row, 7 source citations, 10 mentions in these documents. **Recorded in §12.3.6's note.** |
+| **#256** `Completed` | "[t]he remaining text in subclause 12.6.4.8 about Base and the URI dictionary … applies to all relative URIs in a PDF document and is not limited to only URI actions as is currently implied. A future edition of ISO 32000 will move this text into a new subclause" | §12.6.4.8's row and 34 source citations. **Recorded in §12.6.4.8's note.** |
+
+**#477 is the same shape as #452 and it is invisible to a grep for the verb**, because this collection
+writes an instruction in two voices: #452 says "Move entire subclause 14.7.5.1.1", an imperative, and
+#477 says "was moved and demoted", a past passive. A command that takes the verb *and* the number
+finds both; a person filtering by eye finds the one that reads like an instruction. That is the whole
+argument for the program.
+
+**#256 is a different kind and is the more interesting of the two**: it changes no number and no
+sentence, and says that a clause's text has a wider *scope* than its placement implies. Nothing here
+is owed by Errata Collection 3 — the move is deferred to "a future edition" — but the reading is
+owed now, and it is taken: `uri::resolve` is RFC 3986's reference transformation over a base and a
+reference and knows nothing about actions, so the arithmetic is already general. Its one caller is
+§12.6.4.8's action; the other relative-URI site this tree reads is §7.11.2.2's URL-based file
+specification, which `file_spec::is_valid_relative_url` validates and does **not** resolve, because
+nothing here fetches a URL and there is no target for a resolved one to name. A documented choice
+with the erratum beside it, and a second caller the day a host opens one.
+
+### What this tree does about a clause number the errata have moved
+
+Asked and answered in the five-hundred-and-sixty-fifth, because a citation that is right against the
+published text and wrong against the amended one is a real hazard for a reader. Three parts, and the
+first is not a preference:
+
+- **The published numbers stay, and the gate enforces it.** `doc/md/` is the text every `§` is
+  resolved against, and `the_ledgers_own_prose_names_clauses_and_tables_that_exist` refuses a number
+  ISO 32000-2 does not have. §12.3.6's note above was written with a section sign in front of the
+  amended number and **failed that gate**, which is the second round running to confirm it by walking
+  into it. So the amended number is written as the erratum writes it — *subclause 12.3.5.3* — and a
+  renumbering can never quietly enter the tree as a citation.
+- **The row is where the amendment is recorded**, because a row is what a round reading a clause
+  opens. Four families say so in their own notes now: §14.7.5.1.1, §7.6.5.2, §12.3.6 and §12.6.4.8.
+- **And the command is what makes it findable at all**, because a note in one row is not read by the
+  round that writes the twentieth citation in `crates/`. Nothing is renamed, nothing is deprecated and
+  no comment is annotated: a citation of §12.3.6 is correct about the standard this project is checked
+  against and *incomplete* about a reader holding Errata Collection 3, and one command closes that gap
+  in a second.
+
+**The noise it prints rather than filters**: four of the fifteen renumber a *NOTE* rather than a
+clause (#598, #649, #655, #303/#334) and four insert a NOTE or an EXAMPLE whose replacement text
+happens to cite a clause (#53 twice, #151, #65, #62). A NOTE's number moves nothing this tree cites,
+and the instruction says which it is in its own words — which is cheaper to read than a predicate that
+would have to tell an inserted heading from an inserted note.

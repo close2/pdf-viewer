@@ -784,6 +784,181 @@ pub fn still_in_conversion(notes: &[Note], directory: &Path) -> Result<Vec<Note>
         .collect())
 }
 
+/// The verbs an editor's note uses when an erratum moves *ground* rather than words.
+///
+/// Matched lower-cased against the note's own `/Contents`, which in these files is the
+/// instruction — "Move entire subclause 14.7.5.1.1 up one heading level to become 14.7.5.2 and
+/// renumber later subclauses". Deliberately four: this is the population [`landings`] is blind to
+/// by construction, because a heading is not a sentence and no quotation can land on one.
+pub const STRUCTURAL: [&str; 4] = ["move", "renumber", "delete", "insert"];
+
+/// One erratum whose instruction moves a clause number, with the numbers it names.
+#[derive(Debug, Clone)]
+pub struct Structural {
+    /// The annotation the instruction is in.
+    pub note: Note,
+    /// Which of [`STRUCTURAL`]' verbs it uses.
+    pub verbs: Vec<&'static str>,
+    /// The clause numbers its own instruction names, in the order it names them.
+    pub clauses: Vec<conformance::clause::ClauseNumber>,
+}
+
+/// What this tree has standing on one clause number.
+///
+/// The reader's hazard stated as a count: a citation correct against the published text is wrong
+/// against the amended one, and until this is printed nobody writing a new citation of a moved
+/// number can know that it moved.
+#[derive(Debug, Clone)]
+pub struct Ground {
+    /// The number an erratum moves.
+    pub clause: conformance::clause::ClauseNumber,
+    /// The ledger's rows at or under it.
+    pub rows: Vec<conformance::clause::ClauseNumber>,
+    /// Every SECTION SIGN citation of it or of a number under it, in the tree's Rust sources.
+    pub citations: Vec<(PathBuf, usize)>,
+    /// The same, in this project's own Markdown.
+    pub documents: Vec<(PathBuf, usize)>,
+}
+
+impl Ground {
+    /// How many places stand on the number altogether.
+    #[must_use]
+    pub fn places(&self) -> usize {
+        self.rows
+            .len()
+            .saturating_add(self.citations.len())
+            .saturating_add(self.documents.len())
+    }
+}
+
+/// Every erratum that moves, renumbers, inserts or deletes a numbered clause.
+///
+/// **The question [`landings`] cannot ask.** `check` compares the quotations this tree has written
+/// against struck passages, so an erratum over text nobody has quoted is invisible to it — and a
+/// renumbering strikes a *heading*, which no quotation lands on. The five-hundred-and-fifty-fifth
+/// session found ISO/TS 32001 section 5.1.3 deleted by hand, the five-hundred-and-sixty-second found
+/// Issues #452 and #196 by filtering `emit`'s output for these four verbs by hand, and this is that
+/// filter as a command.
+///
+/// A number is only reported where it belongs to one of the standard's technical clauses, which is
+/// what keeps `PDF 1.7` and `ISO 32000-2` out of the list.
+#[must_use]
+pub fn structural(notes: &[Note]) -> Vec<Structural> {
+    let mut found = Vec::new();
+    for note in notes {
+        if note.role == Role::Reply {
+            continue;
+        }
+        let Some(contents) = note.contents.as_deref() else {
+            continue;
+        };
+        let lowered = contents.to_lowercase();
+        let verbs: Vec<&'static str> = STRUCTURAL
+            .into_iter()
+            .filter(|verb| lowered.contains(verb))
+            .collect();
+        let clauses = clauses_named(contents);
+        if verbs.is_empty() || clauses.is_empty() {
+            continue;
+        }
+        found.push(Structural {
+            note: note.clone(),
+            verbs,
+            clauses,
+        });
+    }
+    found
+}
+
+/// The clause numbers an editor's note names without a SECTION SIGN.
+///
+/// An instruction writes "subclause 14.7.5.1.1" rather than a citation, so the SECTION SIGN scanner the rest
+/// of this tree uses finds nothing here. A number needs at least one full stop and a first
+/// component inside [`conformance::ledger::TECHNICAL_CLAUSES`]: `PDF 1.7`, `Table 24` and
+/// `ISO 32000-2` are all excluded by that alone, which is why there is no word list.
+#[must_use]
+pub fn clauses_named(text: &str) -> Vec<conformance::clause::ClauseNumber> {
+    let mut found: Vec<conformance::clause::ClauseNumber> = Vec::new();
+    for word in text.split(|character: char| {
+        !character.is_ascii_digit() && character != '.' && character != '-'
+    }) {
+        let word = word.trim_matches(|character: char| !character.is_ascii_digit());
+        if !word.contains('.') {
+            continue;
+        }
+        let Ok(number) = word.parse::<conformance::clause::ClauseNumber>() else {
+            continue;
+        };
+        if number
+            .clause()
+            .is_some_and(|clause| conformance::ledger::TECHNICAL_CLAUSES.contains(&clause))
+            && !found.contains(&number)
+        {
+            found.push(number);
+        }
+    }
+    found
+}
+
+/// What the ledger, the sources and this project's documents have standing on each number.
+///
+/// # Errors
+///
+/// [`Error::Ledger`] where the ledger cannot be read, [`Error::Sources`] or [`Error::Documents`]
+/// where a tree cannot be walked, and [`Error::Unreadable`] for a file inside one.
+pub fn standing_on(
+    clauses: &[conformance::clause::ClauseNumber],
+    ledger: &Path,
+    roots: &[PathBuf],
+    documents: &Path,
+) -> Result<Vec<Ground>, Error> {
+    let rows = conformance::ledger::Ledger::read(ledger)?.rows;
+    let mut cited: Vec<(PathBuf, usize, conformance::clause::ClauseNumber)> = Vec::new();
+    let sources = conformance::citation::rust_sources(roots)
+        .map_err(|error| Error::Sources(roots.first().cloned().unwrap_or_default(), error))?;
+    for file in sources {
+        let text = std::fs::read_to_string(&file)
+            .map_err(|error| Error::Unreadable(file.clone(), error))?;
+        for citation in conformance::citation::scan(&text).citations {
+            cited.push((file.clone(), citation.line, citation.number));
+        }
+    }
+    let mut written: Vec<(PathBuf, usize, conformance::clause::ClauseNumber)> = Vec::new();
+    for file in conformance::prose::documents(documents)? {
+        let text = std::fs::read_to_string(&file)
+            .map_err(|error| Error::Unreadable(file.clone(), error))?;
+        for citation in conformance::citation::scan_prose(&text).citations {
+            written.push((file.clone(), citation.line, citation.number));
+        }
+    }
+
+    let at_or_under = |number: &conformance::clause::ClauseNumber,
+                       clause: &conformance::clause::ClauseNumber| {
+        number == clause || clause.is_ancestor_of(number)
+    };
+    Ok(clauses
+        .iter()
+        .map(|clause| Ground {
+            clause: clause.clone(),
+            rows: rows
+                .iter()
+                .map(|row| row.clause.clone())
+                .filter(|number| at_or_under(number, clause))
+                .collect(),
+            citations: cited
+                .iter()
+                .filter(|(_, _, number)| at_or_under(number, clause))
+                .map(|(file, line, _)| (file.clone(), *line))
+                .collect(),
+            documents: written
+                .iter()
+                .filter(|(_, _, number)| at_or_under(number, clause))
+                .map(|(file, line, _)| (file.clone(), *line))
+                .collect(),
+        })
+        .collect())
+}
+
 /// The notes, as a Markdown document keyed to page and section.
 ///
 /// Replies are left out: §12.5.6.4's state annotations say a reviewer finished with an erratum
@@ -939,6 +1114,53 @@ mod tests {
             })
             .collect();
         assert_eq!(roles, vec![Role::Primary, Role::Reply, Role::Group]);
+    }
+
+    /// An editor's note writes a clause number without a SECTION SIGN, and the numbers around it in a
+    /// standard's prose are not clause numbers at all.
+    #[test]
+    fn an_instruction_names_its_clause_numbers_without_a_section_sign() {
+        assert_eq!(
+            clauses_named(
+                "Move entire subclause 14.7.5.1.1 up one heading level to become 14.7.5.2"
+            )
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<String>>(),
+            vec!["14.7.5.1.1", "14.7.5.2"]
+        );
+        assert!(
+            clauses_named("valid for use in PDF 1.7 and in ISO 32000-2, see Table 24").is_empty(),
+            "a version, a standard's number and a table are not clauses"
+        );
+    }
+
+    /// A structural erratum needs a verb and a number; the passive voice is one of the two forms
+    /// this collection writes, and it is the one a hand-filter for `Move` misses.
+    #[test]
+    fn a_structural_erratum_is_a_verb_and_a_number() {
+        let note = |contents: &str| Note {
+            document: "ISO_32000-2_sponsored_EC3.pdf".to_owned(),
+            page: 1,
+            section: None,
+            subject: None,
+            title: None,
+            subtype: "Caret".to_owned(),
+            role: Role::Primary,
+            contents: Some(contents.to_owned()),
+            covered: None,
+            created: None,
+            states: BTreeSet::new(),
+        };
+        let notes = vec![
+            note("all of subclause 12.3.6 Navigators was moved and demoted one level"),
+            note("Insert a new NOTE after the first paragraph, with no number in it"),
+            note("Table 166's /AP becomes Required except for conditions listed below"),
+        ];
+        let structural = structural(&notes);
+        assert_eq!(structural.len(), 1, "only the first is both");
+        assert_eq!(structural[0].verbs, vec!["move"]);
+        assert_eq!(structural[0].clauses[0].to_string(), "12.3.6");
     }
 
     #[test]

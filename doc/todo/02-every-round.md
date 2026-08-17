@@ -248,6 +248,15 @@ share and the two that break it:
   dozens of files and sorts last, a rare word sorts first. Read the **cousin** it prints before
   anything else — a row that is not `inapplicable` and says the same word is the seventh failure
   shape, and it is where all five of this sweep's defects have been.
+- **One asks whether the family a sentence counts holds that many rows**: `cargo run --release -p
+  conformance --bin counts`, seconds, over `ledger.toml`, the source roots and every Markdown document
+  under `doc/` bar `doc/history/` — the tenth sweep as a program (ADR 0400), and the last of the ten
+  whose *level* moved with the session. A cardinal is a claim about a family only where it governs one
+  of the ledger's own words for a row and only inside the sentence's own punctuation, and the answer
+  side is the family's own arithmetic rather than a reader's memory of the convention — a count that
+  leaves out the `General` row is right, and so is one that counts the clause's own row in. Read the
+  **contradictions** first: two numbers for one family in two sentences of one note are wrong whatever
+  the ledger holds, which is where both of this sweep's largest findings were.
 - **One reads the status whose own definition promises a debt**: `cargo run --release -p
   conformance --bin owed`, seconds, over `ledger.toml` and the source roots — the fourteenth sweep
   as a program (ADR 0397), and the last of the four descriptions whose *level* moved with the
@@ -280,11 +289,17 @@ share and the two that break it:
 
   ```sh
   cargo run --release -p spec-errata -- emit doc/*.pdf
+  cargo run --release -p spec-errata -- moved doc/*.pdf
   ```
 
-  Three filters find the errata `check` cannot: the words *delete*, *move* and *renumber* in an
-  editor's note, and a strikeout whose whole text is a requirement word (`Optional`, `Required`,
-  `Deprecated`). `doc/errata-read.md` has what each run found. A round implementing a clause runs
+  **The first of those two filters is a command since the five-hundred-and-sixty-fifth** (ADR 0400):
+  `moved` prints every annotation whose instruction uses *move*, *renumber*, *delete* or *insert* **and
+  names a clause number**, with what this tree has standing on that number — its ledger rows, its
+  citations and its mentions in these documents. Its first run found two errata the hand-filter had
+  walked past, one of them because this collection writes an instruction in the past passive as well as
+  in the imperative. The other filter is still by eye and still pays: a strikeout whose whole text is a
+  requirement word (`Optional`, `Required`, `Deprecated`). `doc/errata-read.md` has what each run found,
+  and what this tree does about a number an erratum has moved. A round implementing a clause runs
   `emit` on that document **before** it writes, and not `check` afterwards alone.
 
 ## 5. Put the binaries where a person can run them

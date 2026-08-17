@@ -4,9 +4,11 @@ Status: **standing** — `tools/state.sh` prints the counts; the failure modes l
 Read by: whoever is about to write or correct a ledger row, or to believe one.
 
 `doc/PLAN.md` §5a owns the ledger's format, statuses and checker; `doc/todo/01-ledger-partial-rows.md`
-owns the sweeps — fifteen now, twelve of them committed programs, the twelfth being the fourteenth
-sweep, which reads the status whose own definition promises a debt and measures that debt against
-the tree rather than against a word list (ADR 0397) — and what each run found — the eleventh is new in the
+owns the sweeps — fifteen now, thirteen of them committed programs, the thirteenth being the tenth
+sweep, which reads a parent row's stated count of its family against the arithmetic of the rows below
+it and decides which numbers are claims about a family by the ninth sweep's attribution rule (ADR
+0400), after the fourteenth, which reads the status whose own definition promises a debt and measures
+that debt against the tree rather than against a word list (ADR 0397) — and what each run found — the eleventh is new in the
 four-hundred-and-thirteenth and is the first that reads a row's *quotation marks* (ADR 0249),
 a program since the five-hundred-and-fortieth and reading single-quoted spans as well as double
 ones from that round on (ADR 0375), and
