@@ -1,6 +1,6 @@
 # What is left of font substitution
 
-Status: reported at runtime; five distinct gaps — the first still **empty of witnesses**, the second unchanged, the third **characterised, fixed and re-measured** (ADR 0270), the fourth **half taken — the width on Table 109's own sentence (ADR 0358), the cap height still declined** (ADR 0267), the fifth **refused on the clause's own words, counted, split by cause, and one population of it closed out of Annex D** (ADR 0311, ADR 0318).
+Status: reported at runtime; six distinct gaps — the first still **empty of witnesses**, the second unchanged, the third **characterised, fixed and re-measured** (ADR 0270), the fourth **half taken — the width on Table 109's own sentence (ADR 0358), the cap height still declined** (ADR 0267), the fifth **refused on the clause's own words, counted, split by cause, and one population of it closed out of Annex D** (ADR 0311, ADR 0318), the sixth **closed** — the compiled-in fourteen no longer disagree with themselves about contour direction (ADR 0396).
 Priority: 21
 Corpus: 40 documents. **The corpus gate's own three silence lines are where the counts are, and
 this file does not repeat them** (ADR 0281): `codes reaching no glyph *in silence*` and `codes
@@ -267,56 +267,49 @@ is one of the shapes above and whose own tables answer anyway. The instrument to
 now, and the honest expectation is that most of what is left does not move — a count that stops
 falling where the clause says "there is no way" is the answer rather than a backlog.
 
-## 6. Two substitutes for one Type 1 family, wound in opposite directions — **new in the five-hundred-and-fifty-eighth**
+## 6. Two substitutes for one Type 1 family, wound in opposite directions — **closed in the five-hundred-and-sixty-first** (ADR 0396)
 
-Found by taking `doc/corpora/pdf-differences` (`doc/todo/03` §14). `OverlappingGlyphClipping.pdf`
-is the head of that corpus's ink ranking by two orders of magnitude — ours 70.812 against three
-references that agree with each other to 0.32 at 79.80, 79.96 and 80.12 — and the difference is
-structural rather than a matter of glyph weight: where a glyph of one substituted face overlaps a
-glyph of another, this tree leaves a **hole** and every reference fills it.
+Found in the five-hundred-and-fifty-eighth by taking `doc/corpora/pdf-differences`
+(`doc/todo/03` §14), and fixed in the five-hundred-and-sixty-first. **What the section is kept for
+is the reading and the ordering it got wrong**, both of which outlive the three lines of code.
 
-**The mechanism, confirmed by construction rather than inferred.** The page accumulates two
-strings, `/Times-Bold` and `/Helvetica`, into §9.3.6's text clip, which the clause combines with
-one rule:
+`OverlappingGlyphClipping.pdf` was the head of that corpus's ink ranking by two orders of
+magnitude, and the difference was structural rather than a matter of glyph weight: where a glyph of
+one substituted face overlapped a glyph of another inside §9.3.6's text clip, this tree left a
+**hole** and every reference filled it.
 
-> the accumulated glyph outlines, if any, shall be combined into a single path, treating the
-> individual outlines as subpaths of that path and applying the non-zero winding number rule
+**Three clauses decide it and the order matters.** §9.3.6 combines a text object's accumulated
+outlines "into a single path … applying the non-zero winding number rule", and its NOTE 2 says that
+"the direction of the paths comprising each glyph can cause different output for overlapping
+glyphs" — so the standard has considered the case and calls it a difference rather than an error.
+§9.5's NOTE 5 makes the *choice of face* ours. And §9.6.2.2 names its fourteen as "14 Type 1
+fonts" — **one set, of one kind of program** — so a document may draw two of them into one path and
+the two it names do not disagree about direction. This tree answered Helvetica with an `sfnt` and
+Times with a bare CFF, which manufactured a disagreement the thing it stands in for does not have.
 
-Neither font is embedded. This tree's compiled-in set answers Helvetica with **LiberationSans**, an
-`sfnt` whose `glyf` outlines wind one way, and Times-Bold with **FoxitSerifBold**, a bare CFF whose
-charstrings wind the other. Under the non-zero rule two overlapping contours of opposite sign
-cancel. Three hand-built pairs settle it in one look — Helvetica-Bold over Helvetica unions,
-Times-Bold over Times-Roman unions, Times-Bold over Helvetica cancels — and nothing about the page,
-the clip or the rasteriser is involved.
+**So the rule is about the set rather than about the page**, and it is checkable in-tree with no
+reference at all: *every compiled-in substitute for one of the standard 14 winds its contours the
+same way.* `crates/pdf-font/src/standard.rs::every_compiled_in_face_winds_its_contours_the_same_way`
+asserts exactly that, over all fourteen.
 
-**Which of the three things it is.** §9.5 NOTE 5 — "some details of font naming, font substitution,
-and glyph selection are implementation-dependent" — makes the *choice of face* ours, and §9.3.6
-NOTE 2 says outright that "the direction of the paths comprising each glyph can cause different
-output for overlapping glyphs". So this is a difference the standard permits, and it is our choice
-inside that permission that is bad: §9.6.2.2 calls the standard 14 "14 Type 1 fonts", so any two of
-them are two members of one family of Type 1 programs and their outlines agree in direction. A
-substitution set that answers one with an `sfnt` and another with a CFF manufactures a disagreement
-that the fourteen faces it stands in for do not have — in the one place §9.3.6 makes direction
-visible.
+**What was taken is the third of the three options this section listed** — reverse at load, with
+one amendment: the direction is **measured** (`Path::signed_area`) rather than keyed on the
+program's format, because an OpenType face is an `sfnt` wrapper around CFF charstrings and is wound
+the CFF way. So a machine-installed substitute is normalised too, which is broader than this
+section's rule and costs nothing. The choice of *which* direction — counter-clockwise — is
+documented as a choice, on two reasons that are not derivations: ten of the fourteen already carry
+it, and §9.6.2.2 calls them Type 1 fonts.
 
-**So the rule to state is about the set rather than about the page**, and it is checkable in-tree
-with no reference at all: *two compiled-in substitutes for two of the standard 14 shall have the
-same contour orientation.* That is a property of `data/standard-fonts/`, and it is what a test
-should assert.
+**And this section owed "a population first", which was the wrong order.** The reasoning was that
+outside the text-clip construction the defect costs nothing, so the pages it reaches should be
+counted before anything is written. What that pricing missed is that the *fix* was three lines and
+a measurement while the count was a corpus sweep — and that the property needed no population at
+all, because it is a statement about `data/standard-fonts/` rather than about any document. A
+count would have priced the symptom. **The general form is worth keeping**: when the thing that is
+wrong is a property of this program's own data, a corpus census measures how often it has been
+noticed, not whether it is wrong.
 
-Three ways to get there, unpriced:
+What the fix cost and what moved is ADR 0396: the witness at −8.989 → −1.116 of 255, 162 of 974
+first-page display lists changed with every oracle metric line and every ink-sweep line
+byte-identical, and 0.19% to 0.36% of interpretation on two substituted-text pages.
 
-- **Normalise the orientation of a substituted glyph's contours** when accumulating §9.3.6's clip.
-  Correct in principle — the document supplied no outline, so its direction is ours — and it must
-  be conditional on the face being *substituted*, because an embedded font's direction is the
-  producer's statement and NOTE 2 protects it.
-- **Reverse at load** for one of the two formats in `standard.rs`, which is the same rule applied
-  earlier and to fewer places, but it changes what every glyph of those faces is rather than what
-  a clip does with it.
-- **Replace the four Liberation faces with CFF ones** so the whole compiled-in set shares a
-  convention. No code, a data and licence question, and it would have to keep ADR 0133's
-  machine-independence and the Helvetica metrics.
-
-What is owed first is neither: **a population**. `examples/glyph_reuse` and the corpus's own
-clipping-mode documents are the place to start counting pages that accumulate glyphs from two
-substituted faces into one clip, because outside that construction this costs nothing at all.

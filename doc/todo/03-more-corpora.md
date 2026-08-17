@@ -780,12 +780,14 @@ Four findings, three of them left with their witnesses:
   `w/(2·sin(φ/2))` says. The cause is `tiny-skia`'s `AngleType::Nearly180` shortcut, which bevels a
   join sharper than about 1.27° whatever the limit says — a ratio cutoff near 90 hiding inside an
   angle test.
-- **§9.3.6's non-zero winding over two substituted faces — `doc/todo/21` §6.** The ranking's head.
-  Our compiled-in Helvetica is an `sfnt` and our Times is a bare CFF, their contours wind opposite
-  ways, and a text clip that overlaps a glyph of each cancels where every reference unions. The
-  permission is §9.5 NOTE 5's; the bad choice inside it is ours, and it is stateable with no
-  reference at all — two substitutes for two of §9.6.2.2's "14 Type 1 fonts" should wind the same
-  way.
+- **§9.3.6's non-zero winding over two substituted faces — `doc/todo/21` §6, and fixed in the
+  five-hundred-and-sixty-first (ADR 0396).** The ranking's head. Our compiled-in Helvetica is an
+  `sfnt` and our Times was a bare CFF wound the other way, and a text clip that overlaps a glyph of
+  each cancelled where every reference unions. The permission is §9.5 NOTE 5's; the bad choice
+  inside it was ours, and it was stateable with no reference at all — two substitutes for two of
+  §9.6.2.2's "14 Type 1 fonts" wind the same way now, which a test asserts over all fourteen. The
+  page goes from −8.989 of 255 to −1.116, so this corpus's ranking has no head standing out from
+  its body any more.
 - **A rebuild that misses every compressed object — `doc/todo/17`.** `UnknownFilter-Linearized.pdf`
   is documented as fully processable and loses its text here: the scan `xref::rebuild` falls back to
   finds `N G obj` headers only, so the font inside an object stream is invisible. §7.5.7 states the

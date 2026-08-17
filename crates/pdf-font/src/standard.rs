@@ -264,6 +264,56 @@ mod tests {
         assert_eq!(checked, 14, "§9.6.2.2's fourteen");
     }
 
+    /// The fourteen compiled-in faces agree about which way a contour runs.
+    ///
+    /// **This is the property `OverlappingGlyphClipping.pdf` needs and it is checkable with no
+    /// reference at all.** §9.3.6 combines a text object's glyph outlines into one path under
+    /// the non-zero winding number rule and its NOTE 2 says that "the direction of the paths
+    /// comprising each glyph can cause different output for overlapping glyphs", so a document
+    /// that draws two of §9.6.2.2's fourteen into one clip sees the difference: where two
+    /// glyphs wound opposite ways overlap, the overlap cancels instead of uniting. §9.6.2.2
+    /// calls the fourteen one set of Type 1 fonts, so the set standing in for them may not
+    /// disagree with itself.
+    ///
+    /// Ten of these faces are Foxit's bare CFF and four are Liberation Sans `sfnt`s, and the
+    /// two formats carry **opposite** conventions — measured, in the
+    /// five-hundred-and-sixty-first session, at −0.186 against +0.165 for a capital `B` in the
+    /// em square. [`crate::substituted::wound_counter_clockwise`] is what makes this pass, so
+    /// deleting it fails here rather than on a page nobody looks at.
+    #[test]
+    fn every_compiled_in_face_winds_its_contours_the_same_way() {
+        // A letter every one of the fourteen draws, including the two symbolic faces, whose
+        // encodings answer this code with something of their own (Annex D.5, D.6).
+        let code = crate::Code::single_byte(b'B');
+        let mut checked = 0;
+        for name in [
+            "Helvetica",
+            "Helvetica-Bold",
+            "Helvetica-Oblique",
+            "Helvetica-BoldOblique",
+            "Times-Roman",
+            "Times-Bold",
+            "Times-Italic",
+            "Times-BoldItalic",
+            "Courier",
+            "Courier-Bold",
+            "Courier-Oblique",
+            "Courier-BoldOblique",
+            "Symbol",
+            "ZapfDingbats",
+        ] {
+            let font = crate::LoadedFont::standard(name).expect("one of the fourteen");
+            let outline = font.outline(code).expect("a glyph with contours");
+            assert!(
+                outline.signed_area() > 0.0,
+                "{name} draws {:+} where every other face draws counter-clockwise",
+                outline.signed_area()
+            );
+            checked += 1;
+        }
+        assert_eq!(checked, 14, "§9.6.2.2's fourteen");
+    }
+
     /// Every request this crate can derive has a face, and the styles are not transposed.
     #[test]
     fn every_family_and_style_answers() {

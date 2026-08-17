@@ -587,6 +587,132 @@ impl Path {
         *self.hull.get_or_init(|| self.walked(Transform::IDENTITY))
     }
 
+    /// The area this path encloses, signed by the direction its subpaths run in.
+    ///
+    /// Positive where the subpaths run counter-clockwise in the path's own space, negative
+    /// where they run clockwise, and zero for a path that encloses nothing. A subpath that is
+    /// not closed is treated as closed, which is what §8.5.3.3's fill rules do with one and
+    /// therefore the only reading under which the number describes what would be painted.
+    ///
+    /// **What it is for is the *sign*, and one caller has it**: ISO 32000-2 §9.3.6 combines a
+    /// text object's glyph outlines into a single path under the non-zero winding number rule,
+    /// so two glyphs drawn in opposite directions cancel where they overlap instead of
+    /// uniting — NOTE 2 of that clause says so outright. A face this program chose for a
+    /// document that supplied none has no direction the file stated, so the direction is this
+    /// program's to normalise; see `pdf_font`'s substituted-outline handling.
+    ///
+    /// The area of each cubic is exact rather than flattened. Integrating Green's theorem
+    /// ∮(x dy − y dx)/2 over a cubic Bézier gives a weighted sum of the cross products of its
+    /// four control points, and the weights below are that integral's — a curve that bulges
+    /// away from its control polygon therefore contributes what it encloses and not what its
+    /// handles suggest.
+    #[must_use]
+    pub fn signed_area(&self) -> f32 {
+        // Green's theorem over a cubic: ∫₀¹(x y' − y x')dt/2 = Σ wᵢⱼ (xᵢyⱼ − xⱼyᵢ) with the
+        // weights below, which fall out of ∫ bᵢ bⱼ' dt over the Bernstein basis. The straight
+        // segment is the same integral over the linear basis, where it is half one cross
+        // product.
+        let cross = |a: Point, b: Point| a.x * b.y - b.x * a.y;
+        let mut area = 0.0;
+        let mut previous: Option<Point> = None;
+        let mut start: Option<Point> = None;
+        for command in &self.commands {
+            match *command {
+                PathCommand::MoveTo(p) => {
+                    // A new subpath closes the one before it, which is what a fill does with
+                    // an unclosed subpath (§8.5.3.3).
+                    if let (Some(from), Some(to)) = (previous, start) {
+                        area += cross(from, to) / 2.0;
+                    }
+                    previous = Some(p);
+                    start = Some(p);
+                }
+                PathCommand::LineTo(p) => {
+                    if let Some(from) = previous {
+                        area += cross(from, p) / 2.0;
+                    }
+                    previous = Some(p);
+                }
+                PathCommand::CurveTo(a, b, c) => {
+                    if let Some(from) = previous {
+                        area += 0.3 * cross(from, a)
+                            + 0.15 * cross(from, b)
+                            + 0.05 * cross(from, c)
+                            + 0.15 * cross(a, b)
+                            + 0.15 * cross(a, c)
+                            + 0.3 * cross(b, c);
+                    }
+                    previous = Some(c);
+                }
+                PathCommand::Close => {
+                    if let (Some(from), Some(to)) = (previous, start) {
+                        area += cross(from, to) / 2.0;
+                    }
+                    previous = start;
+                }
+            }
+        }
+        if let (Some(from), Some(to)) = (previous, start) {
+            area += cross(from, to) / 2.0;
+        }
+        area
+    }
+
+    /// The same shape with every subpath running the other way.
+    ///
+    /// The geometry is untouched: each subpath keeps its start point and its segments, and only
+    /// the order they are travelled in changes. Filling the result under either of §8.5.3.3's
+    /// rules paints exactly the same pixels, because reversing every subpath negates every
+    /// winding number and both rules test the winding number's *magnitude*. What changes is how
+    /// it combines with a path that was **not** reversed, which is §9.3.6 NOTE 2's case and the
+    /// only reason this exists.
+    ///
+    /// An unclosed subpath comes back closed, which costs nothing at a fill — §8.5.3.3 closes it
+    /// anyway — and keeps the reversal expressible: the segment a fill implies has to be
+    /// travelled first on the way back.
+    #[must_use]
+    pub fn reversed(&self) -> Self {
+        let mut path = Self::new();
+        path.commands.reserve(self.commands.len());
+        // One subpath at a time: `run` holds each segment beside the point it left, which is
+        // the point that segment ends at once the subpath is travelled backwards.
+        let mut run: Vec<(PathCommand, Point)> = Vec::new();
+        let mut start: Option<Point> = None;
+        let mut previous: Option<Point> = None;
+        for command in &self.commands {
+            match *command {
+                PathCommand::MoveTo(p) => {
+                    reverse_subpath(start, &run, &mut path);
+                    run.clear();
+                    start = Some(p);
+                    previous = Some(p);
+                }
+                PathCommand::LineTo(p) => {
+                    if let Some(from) = previous {
+                        run.push((PathCommand::LineTo(p), from));
+                    }
+                    previous = Some(p);
+                }
+                PathCommand::CurveTo(a, b, c) => {
+                    if let Some(from) = previous {
+                        run.push((PathCommand::CurveTo(a, b, c), from));
+                    }
+                    previous = Some(c);
+                }
+                // The closing segment is the one back to the subpath's start, which the
+                // reversal writes for itself; what `h` decides here is that the subpath has
+                // ended, and §8.5.2.1 leaves the current point on its start.
+                PathCommand::Close => {
+                    reverse_subpath(start, &run, &mut path);
+                    run.clear();
+                    previous = start;
+                }
+            }
+        }
+        reverse_subpath(start, &run, &mut path);
+        path
+    }
+
     /// [`Self::bounds`] without the cache: every control point, transformed and met.
     fn walked(&self, transform: Transform) -> Option<Rect> {
         let mut bounds: Option<Rect> = None;
@@ -694,6 +820,159 @@ impl Path {
             }
         }
     }
+}
+
+#[cfg(test)]
+mod direction_tests {
+    use super::{Path, PathCommand, Point};
+
+    /// A closed square of straight segments, counter-clockwise from the origin.
+    fn square(side: f32) -> Path {
+        let mut path = Path::new();
+        path.push(PathCommand::MoveTo(Point::new(0.0, 0.0)));
+        path.push(PathCommand::LineTo(Point::new(side, 0.0)));
+        path.push(PathCommand::LineTo(Point::new(side, side)));
+        path.push(PathCommand::LineTo(Point::new(0.0, side)));
+        path.push(PathCommand::Close);
+        path
+    }
+
+    /// The same square with every side written as a cubic whose handles sit on it.
+    ///
+    /// A cubic with its control points at the thirds of a straight segment *is* that segment,
+    /// so this path and [`square`] enclose the same area exactly — which is what makes it a
+    /// check on the cubic weights rather than on the arithmetic around them.
+    fn curved_square(side: f32) -> Path {
+        // The first corner repeated, so that the four sides are consecutive pairs.
+        let corners = [
+            Point::new(0.0, 0.0),
+            Point::new(side, 0.0),
+            Point::new(side, side),
+            Point::new(0.0, side),
+            Point::new(0.0, 0.0),
+        ];
+        let mut path = Path::new();
+        path.push(PathCommand::MoveTo(Point::new(0.0, 0.0)));
+        for side in corners.windows(2) {
+            let (from, to) = (side[0], side[1]);
+            let third =
+                |t: f32| Point::new(from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * t);
+            path.push(PathCommand::CurveTo(third(1.0 / 3.0), third(2.0 / 3.0), to));
+        }
+        path.push(PathCommand::Close);
+        path
+    }
+
+    /// The signed area is the area, and its sign is the direction the subpath runs in.
+    #[test]
+    fn a_squares_signed_area_is_its_area_by_both_constructions() {
+        assert!((square(4.0).signed_area() - 16.0).abs() < 1e-4, "straight");
+        assert!(
+            (curved_square(4.0).signed_area() - 16.0).abs() < 1e-3,
+            "cubic: {}",
+            curved_square(4.0).signed_area()
+        );
+        assert!(
+            (square(4.0).reversed().signed_area() + 16.0).abs() < 1e-4,
+            "reversed"
+        );
+    }
+
+    /// A subpath left unclosed encloses what closing it would, which is what a fill paints.
+    #[test]
+    fn an_unclosed_subpath_encloses_what_a_fill_would_paint() {
+        let mut open = Path::new();
+        open.push(PathCommand::MoveTo(Point::new(0.0, 0.0)));
+        open.push(PathCommand::LineTo(Point::new(4.0, 0.0)));
+        open.push(PathCommand::LineTo(Point::new(4.0, 4.0)));
+        open.push(PathCommand::LineTo(Point::new(0.0, 4.0)));
+
+        assert!((open.signed_area() - 16.0).abs() < 1e-4);
+    }
+
+    /// A counter inside an outer contour subtracts, which is the sign a glyph relies on.
+    ///
+    /// This is why the *total* decides a glyph's direction: an outer contour always encloses
+    /// more than the counters inside it, so the sum carries the outer contour's sign.
+    #[test]
+    fn a_counter_wound_the_other_way_subtracts() {
+        let mut glyph = square(10.0);
+        // The counter sits inside the outer contour and runs the other way.
+        glyph.extend_transformed(
+            &square(4.0).reversed(),
+            super::Transform::translate(3.0, 3.0),
+        );
+
+        assert!((glyph.signed_area() - (100.0 - 16.0)).abs() < 1e-3);
+    }
+
+    /// Reversing twice is the identity on the geometry, point for point.
+    ///
+    /// Not merely on the area: a reversal that dropped a control point or closed the wrong
+    /// subpath would keep the area and change the shape, which is trap 1's failure one
+    /// directory over.
+    #[test]
+    fn reversing_twice_restores_every_point() {
+        let mut path = Path::new();
+        path.push(PathCommand::MoveTo(Point::new(1.0, 2.0)));
+        path.push(PathCommand::CurveTo(
+            Point::new(3.0, 9.0),
+            Point::new(7.0, 8.0),
+            Point::new(6.0, 1.0),
+        ));
+        path.push(PathCommand::LineTo(Point::new(2.0, 0.5)));
+        path.push(PathCommand::Close);
+        path.push(PathCommand::MoveTo(Point::new(20.0, 20.0)));
+        path.push(PathCommand::LineTo(Point::new(24.0, 20.0)));
+        path.push(PathCommand::LineTo(Point::new(24.0, 24.0)));
+        path.push(PathCommand::Close);
+
+        let twice = path.reversed().reversed();
+
+        // The same subpaths, each starting where it started and running the way it ran. The
+        // start point of a closed subpath is arbitrary, so this asserts the stronger thing
+        // the implementation actually promises.
+        assert_eq!(twice.commands(), path.commands());
+    }
+
+    /// Every subpath of a many-subpath path is reversed, not only the first.
+    #[test]
+    fn every_subpath_turns_around() {
+        let mut path = square(2.0);
+        path.extend(square(3.0).commands());
+
+        let reversed = path.reversed();
+
+        assert!((reversed.signed_area() + 4.0 + 9.0).abs() < 1e-4);
+    }
+}
+
+/// Writes one subpath into `path` travelled backwards, for [`Path::reversed`].
+///
+/// `run` is the subpath's segments in order, each beside the point it started from. Travelled
+/// backwards, that point is where the segment now ends — and a cubic's two control points swap,
+/// because the first handle belongs to whichever end is now the start.
+fn reverse_subpath(start: Option<Point>, run: &[(PathCommand, Point)], path: &mut Path) {
+    let (Some(start), Some(&(last, _))) = (start, run.last()) else {
+        // A subpath of no segments encloses nothing and is dropped rather than reversed: a
+        // lone `m` marks no pixels under either of §8.5.3.3's rules.
+        return;
+    };
+    let end = match last {
+        PathCommand::LineTo(p) | PathCommand::CurveTo(_, _, p) => p,
+        PathCommand::MoveTo(_) | PathCommand::Close => start,
+    };
+    path.push(PathCommand::MoveTo(end));
+    for &(command, from) in run.iter().rev() {
+        match command {
+            PathCommand::LineTo(_) => path.push(PathCommand::LineTo(from)),
+            PathCommand::CurveTo(first, second, _) => {
+                path.push(PathCommand::CurveTo(second, first, from));
+            }
+            PathCommand::MoveTo(_) | PathCommand::Close => {}
+        }
+    }
+    path.push(PathCommand::Close);
 }
 
 #[cfg(test)]

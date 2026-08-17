@@ -13,6 +13,7 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
+use pdf_render::Path;
 use pdf_syntax::{Dictionary, Document};
 use skrifa::{FontRef, MetadataProvider};
 
@@ -285,6 +286,75 @@ pub(crate) fn substitute_face(
         Some(better) => (better, substitute::Format::Sfnt),
         None => (data, format),
     }
+}
+
+/// One substituted glyph outline, wound the way every other substituted outline is wound.
+///
+/// # The clause, and why this is a defect rather than a taste
+///
+/// ISO 32000-2 §9.3.6 combines the glyphs of a text object in a clipping render mode into one
+/// path:
+///
+/// > At the end of the text object identified by the ET operator the accumulated glyph
+/// > outlines, if any, shall be combined into a single path, treating the individual outlines
+/// > as subpaths of that path and applying the non-zero winding number rule
+///
+/// and NOTE 2 says what follows:
+///
+/// > Due to the use of non-zero winding number rule, the direction of the paths comprising each
+/// > glyph can cause different output for overlapping glyphs.
+///
+/// So direction is *visible*, and where two glyphs run opposite ways their overlap cancels
+/// instead of uniting. For an embedded program that is the producer's own statement and this
+/// function never touches it. For a face **this program chose**, nothing in the file said
+/// anything: §9.5's NOTE 5 puts substitution outside the standard, so the direction is ours.
+///
+/// What makes one direction better than the other is §9.6.2.2, which names the fourteen faces a
+/// document may use without carrying them —
+///
+/// > The PostScript language names of 14 Type 1 fonts, known as the standard 14 fonts, are as
+/// > follows: Times-Roman, Helvetica, Courier, Symbol, Times-Bold, Helvetica-Bold, Courier-Bold,
+/// > ZapfDingbats, Times-Italic, Helvetica-Oblique, Courier-Oblique, Times-BoldItalic,
+/// > Helvetica-BoldOblique, CourierBoldOblique.
+///
+/// — as **one set of Type 1 programs**. A document may draw two of them into one path, as
+/// `OverlappingGlyphClipping.pdf` does with `/Times-Bold` and `/Helvetica`, and the fourteen it
+/// names do not disagree with each other about direction. A stand-in set that answered one with
+/// an `sfnt` and another with a CFF would manufacture a disagreement the fourteen do not have,
+/// in the one place the clause makes direction visible — which is what this tree did until the
+/// five-hundred-and-sixty-first session (ADR 0396).
+///
+/// # Which direction, and why measured rather than assumed
+///
+/// Counter-clockwise in the glyph's own y-upward space, which is the direction ten of the
+/// fourteen compiled-in faces already carry and the one the Type 1 charstrings among them are
+/// drawn in. The standard states no direction anywhere, so this is a documented choice in a
+/// place it leaves open, and `crates/pdf-font/src/standard.rs` asserts the set agrees.
+///
+/// The direction is **measured** — [`Path::signed_area`] over the whole glyph — rather than
+/// inferred from the program's format, because the format does not decide it: an OpenType face
+/// on this machine carries CFF charstrings inside an `sfnt` wrapper and is wound the CFF way, and
+/// a substitute may be any face `crate::substitute::installed_wider` found. An outer contour
+/// always encloses more than the counters inside it, so the sum has the outer contour's sign.
+///
+/// # What it costs
+///
+/// Nothing at startup, which is `CLAUDE.md`'s rule for compiled-in data: this runs inside
+/// `LoadedFont`'s outline cache, once per glyph a page actually shows, and only for a font
+/// whose program the document did not embed. The measurement is one pass over the outline's
+/// control points and the reversal a second, against the outline extraction that produced them.
+/// **Measured under callgrind** on two substituted-text pages of the corpus, interpretation
+/// end to end: `issue20489.pdf` 37 075 144 → 37 144 162 instructions and `pr12564.pdf`
+/// 182 243 769 → 182 901 300, which is 0.19% and 0.36% (ADR 0396).
+///
+/// **And it changes no glyph drawn on its own.** Reversing every subpath negates every winding
+/// number, and both of §8.5.3.3's rules test a winding number's magnitude, so a fill, a stroke
+/// and a clip of this glyph alone paint exactly what they painted before.
+pub(crate) fn wound_counter_clockwise(path: Path) -> Path {
+    if path.signed_area() < 0.0 {
+        return path.reversed();
+    }
+    path
 }
 
 /// Characters any face standing in for a registered character collection has to be able to draw.

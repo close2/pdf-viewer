@@ -38,6 +38,7 @@ use crate::program::{Embedded, Program, embedded_program, parsed_type1, simple_u
 use crate::substitute;
 use crate::substituted::{
     script_sample, substitute_code_table, substitute_encoding_names, substitute_face, symbolic_set,
+    wound_counter_clockwise,
 };
 use crate::tounicode;
 use crate::truetype::{invert_charmap, truetype_code_table};
@@ -1518,7 +1519,17 @@ impl LoadedFont {
             }
         }
 
-        (!pen.path.is_empty()).then(|| Arc::new(pen.path))
+        if pen.path.is_empty() {
+            return None;
+        }
+        // §9.3.6 NOTE 2 makes a glyph's contour direction visible where two glyphs overlap
+        // inside one clipping path, and a face this program chose has no direction the
+        // document stated — so every substituted outline is wound the same way, and an
+        // embedded program's is left exactly as its producer drew it.
+        if self.substituted {
+            return Some(Arc::new(wound_counter_clockwise(pen.path)));
+        }
+        Some(Arc::new(pen.path))
     }
 }
 
