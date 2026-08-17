@@ -92,7 +92,10 @@ fn collect(dir: &Path, into: &mut Vec<PathBuf>) {
         let path = entry.path();
         if path.is_dir() {
             collect(&path, into);
-        } else if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("pdf")) {
+        } else if path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"))
+        {
             into.push(path);
         }
     }
@@ -139,7 +142,10 @@ fn main() {
         .collect();
 
     let opened = results.iter().filter(|(_, f)| f.opened).count();
-    println!("{} PDF(s) read, {opened} opened by this tree", results.len());
+    println!(
+        "{} PDF(s) read, {opened} opened by this tree",
+        results.len()
+    );
 
     if want_names {
         report_names(&results);
@@ -209,7 +215,10 @@ fn report_names(results: &[(String, Found)]) {
     }
     let mut ranked: Vec<(&str, usize)> = tally.into_iter().collect();
     ranked.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
-    println!("{} distinct names stated across the population", ranked.len());
+    println!(
+        "{} distinct names stated across the population",
+        ranked.len()
+    );
     for (name, count) in &ranked {
         println!("  {count:>5}  /{name}");
     }

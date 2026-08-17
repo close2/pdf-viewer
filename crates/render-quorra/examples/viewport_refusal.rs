@@ -120,7 +120,10 @@ fn main() {
 
     let mut backend = QuorraRasterizer::new_headless().expect("an adapter");
     backend.set_coverage(quorra_gpu::Coverage::Cpu);
-    println!("{path} page {index} at {scale}×, {}", backend.adapter_description());
+    println!(
+        "{path} page {index} at {scale}×, {}",
+        backend.adapter_description()
+    );
     println!(
         "page {:.2} × {:.2} units → {} × {} px magnified; window {} × {}",
         list.page_size.width, list.page_size.height, whole.width, whole.height, window.0, window.1
