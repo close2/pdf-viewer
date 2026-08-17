@@ -282,7 +282,15 @@ impl Rasterizer for QuorraRasterizer {
     }
 
     fn rasterize(&mut self, list: &DisplayList, target: TargetSpec) -> Result<Raster, Self::Error> {
-        let mut data = self.render(list, target)?;
+        let began = std::time::Instant::now();
+        // The cost is a local the call fills as it goes, so that a refused frame still reports
+        // what it did before refusing — the same bargain [`present::FrameSlot::render`] keeps
+        // with its caller, and the reason `self.last` is assigned before the `?` rather than
+        // after it.
+        let mut cost = FrameCost::default();
+        let drawn = self.render(list, target, &mut cost);
+        self.last = cost;
+        let mut data = drawn?;
 
         // ISO 32000-2 §11.4.7 puts a colour space under the whole page — "[a]ll page-level
         // compositing shall be done in the default blending colour space of the page, and the
@@ -304,7 +312,10 @@ impl Rasterizer for QuorraRasterizer {
         if four_components.is_some() || self.background.a > 0.0 {
             premultiply(&mut data);
             if let Some((space, black)) = four_components {
-                let mut ink = self.render(black, target)?;
+                let mut ink_cost = FrameCost::default();
+                let drawn = self.render(black, target, &mut ink_cost);
+                self.last.add(ink_cost);
+                let mut ink = drawn?;
                 premultiply(&mut ink);
                 pdf_render::resolve_blending(&mut data, &ink, space);
             }
@@ -316,6 +327,7 @@ impl Rasterizer for QuorraRasterizer {
             demultiply(&mut data);
         }
 
+        self.last.total = began.elapsed();
         Ok(Raster {
             width: target.width,
             height: target.height,
@@ -333,6 +345,16 @@ impl QuorraRasterizer {
     /// caches, the same per-frame releases — and nothing about drawing one of them may
     /// depend on which of the two it is.
     ///
+    /// `cost` is filled as the call goes, so that a frame that refuses still reports what it
+    /// uploaded and settled — **and it is filled at all only since the
+    /// five-hundred-and-sixty-seventh session**, which is why a period-two atlas repack lived
+    /// on this path unseen through every corpus run this tree has made. [`FrameCost`] existed,
+    /// [`FrameCost::uploads`] is documented as the number that says whether the caches are
+    /// working at all, and only [`Self::rasterize_frame`] filled it: the one path every gate in
+    /// this tree takes was the one path with no instrument on it, and the defect was found by
+    /// the library on the other side of the boundary instead
+    /// (`render-lib/doc/notes-atlas-budget.md` section 5). ADR 0402.
+    ///
     /// # Errors
     ///
     /// As [`Rasterizer::rasterize`].
@@ -340,7 +362,9 @@ impl QuorraRasterizer {
         &mut self,
         list: &DisplayList,
         target: TargetSpec,
+        cost: &mut FrameCost,
     ) -> Result<Vec<u8>, QuorraRasterError> {
+        let began = std::time::Instant::now();
         // A single-list rasterisation is a different scene, and this path evicts: an entry the
         // retained window frame's scene still names could go, leaving that scene holding
         // released ids. Discarding it first is three lines against a class of reasoning about
@@ -359,7 +383,13 @@ impl QuorraRasterizer {
             &mut self.functions,
         )
         .commands(&mut builder, list.commands());
+        cost.uploads = self
+            .caches
+            .stored()
+            .saturating_add(u32::try_from(transient.len()).unwrap_or(u32::MAX));
+        cost.scene = began.elapsed();
 
+        let submitted = std::time::Instant::now();
         let rendered = built.and_then(|()| {
             let scene = builder.finish();
             // The target transform is baked into every command at translation
@@ -374,10 +404,13 @@ impl QuorraRasterizer {
                 .render(&scene, &viewport, quorra_gpu::Target::Readback)?)
         });
 
+        cost.device = submitted.elapsed();
+
         // Per-frame resources (clips, dashed strokes, meshes, sampled grids) go
         // back to the budget whether the frame drew or refused — every one of
         // them, even after a failure — and the frame's own error, if any,
         // outranks a release problem.
+        let settling = std::time::Instant::now();
         let mut release_error: Option<quorra_gpu::DeviceError> = None;
         for id in transient.drain(..) {
             if let Err(error) = self.device.release(id) {
@@ -386,11 +419,15 @@ impl QuorraRasterizer {
         }
         // Frames drawn and frames refused both settle the caches: a long session
         // must stay healthy through its refusals (QUORRA_FEEDBACK.md section 2).
-        self.caches.evict_settled(&mut self.device)?;
+        let evicted = self.caches.evict_settled(&mut self.device);
+        cost.settle = settling.elapsed();
+        evicted?;
         let frame = rendered?;
         if let Some(error) = release_error {
             return Err(error.into());
         }
+        // Read after the refusals above, because these are a *drawn* frame's own numbers.
+        cost.read(&frame, &mut self.phases);
 
         Ok(frame.into_raster()?.into_pixels())
     }

@@ -83,29 +83,20 @@ pub(crate) fn encode(
     let at = enc.placed(transform);
     if !solid.is_empty() {
         if anisotropy(to_device) > MAX_ISOTROPY_ERROR {
-            // The stroke is expanded here, in path space, where the transform
-            // scales its width per direction as §8.4.3.2 asks — through the same
-            // `kurbo::stroke` the Vello backend outlines with, so the corpus's
-            // sheared pattern marks (issue2177, issue6769) get the CPU oracle's
-            // geometry rather than the widest direction everywhere. quorra then
-            // fills the outline; its own stroke lane is for the scalar case.
-            let style = kurbo::Stroke::new(f64::from(path_width))
-                .with_caps(kurbo_cap(s.cap))
-                .with_join(kurbo_join(s.join))
-                .with_miter_limit(f64::from(s.miter_limit.max(1.0)));
-            // A quarter device pixel, expressed in path units — the same
-            // flattening tolerance quorra itself draws with.
-            let tolerance = f64::from((0.25 / to_device.max_stretch()).clamp(1e-4, 1.0));
-            let outlined = from_bez(
-                kurbo::stroke(
-                    bez(solid).iter(),
-                    &style,
-                    &kurbo::StrokeOpts::default(),
-                    tolerance,
-                )
-                .iter(),
-            );
-            let outline = enc.transient_outline(&outlined)?;
+            let outline = expanded(
+                enc,
+                Expansion {
+                    source: path,
+                    solid,
+                    stroke: s,
+                    path_width,
+                    to_device,
+                    // Whether `solid` *is* the display list's own path rather than geometry this
+                    // frame computed from it — which is what decides whether the expansion can be
+                    // cached, below.
+                    from_source: dashed.is_none() && split.is_none(),
+                },
+            )?;
             builder.fill(
                 outline,
                 at,
@@ -158,6 +149,83 @@ pub(crate) fn encode(
         )?;
     }
     Ok(())
+}
+
+/// One stroke to expand in path space, as [`expanded`] takes it.
+///
+/// `Copy`, so that it is passed by value like the other small parameter bundles here: every field
+/// is a reference or a scalar and there is nothing to move.
+#[derive(Clone, Copy)]
+struct Expansion<'a> {
+    /// The display list's own path — the identity the cache is keyed and pinned by, whether or
+    /// not it is the geometry being expanded.
+    source: &'a Arc<Path>,
+    /// What is actually expanded: [`Self::source`] itself, or what dashing and §8.5.3.2's
+    /// degenerate split left of it.
+    solid: &'a Path,
+    stroke: &'a Stroke,
+    /// The width in the path's own space, already resolved through §8.4.3.2 and §10.7.5.
+    path_width: f32,
+    to_device: Transform,
+    /// Whether [`Self::solid`] is [`Self::source`] rather than geometry this frame computed.
+    from_source: bool,
+}
+
+/// Expands a stroke into a fillable outline, in **path** space, and uploads it.
+///
+/// This is the route §8.4.3.2's own note forces wherever the placement is anisotropic: "the
+/// thickness of stroked lines in device space shall vary according to their orientation", and
+/// quorra widens from one scalar device width, which cannot. So the expansion happens here,
+/// through the same `kurbo::stroke` the Vello backend outlines with — which is what gives the
+/// corpus's sheared pattern marks (issue2177, issue6769) the CPU oracle's geometry rather than the
+/// widest direction everywhere — and quorra fills the result.
+///
+/// **Cached when the geometry going in is the display list's own path, transient when this frame
+/// computed it.** That is the same division the scalar branch makes, and it is here for a reason
+/// stated the other way round: an identifier that moves between two renders of one unchanged page
+/// makes every atlas key quorra derives from it foreign, and its atlas then repacks at period two
+/// for ever (ADR 0402). A dashed or degenerate stroke has no stable source to key on, so it stays
+/// a transient — and the expansion is a closure so that a cache hit skips `kurbo::stroke` as well
+/// as the upload.
+fn expanded(
+    enc: &mut Encoder<'_>,
+    parts: Expansion<'_>,
+) -> Result<quorra_scene::OutlineId, QuorraRasterError> {
+    let Expansion {
+        source,
+        solid,
+        stroke: s,
+        path_width,
+        to_device,
+        from_source,
+    } = parts;
+    let style = kurbo::Stroke::new(f64::from(path_width))
+        .with_caps(kurbo_cap(s.cap))
+        .with_join(kurbo_join(s.join))
+        .with_miter_limit(f64::from(s.miter_limit.max(1.0)));
+    // A quarter device pixel, expressed in path units — the same flattening tolerance quorra
+    // itself draws with.
+    let tolerance = (0.25 / to_device.max_stretch()).clamp(1e-4, 1.0);
+    let expand = || {
+        from_bez(
+            kurbo::stroke(
+                bez(solid).iter(),
+                &style,
+                &kurbo::StrokeOpts::default(),
+                f64::from(tolerance),
+            )
+            .iter(),
+        )
+    };
+    if from_source {
+        enc.expanded_stroke(
+            source,
+            crate::cache::StrokeKey::new(source, s, path_width, tolerance),
+            expand,
+        )
+    } else {
+        enc.transient_outline(&expand())
+    }
 }
 
 /// How far a scalar device width may sit from the truth before the path-space

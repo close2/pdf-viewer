@@ -145,7 +145,11 @@ pub enum FillRule {
 }
 
 /// How the ends of an open subpath are drawn.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+///
+/// `Hash` because a backend that caches an expanded stroke outline has to key it on every
+/// parameter that decided the geometry, and this is one of them (`render-quorra`'s
+/// `cache::StrokeKey`, ADR 0402).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum LineCap {
     /// Terminates exactly at the endpoint (PDF line cap 0).
     #[default]
@@ -157,7 +161,9 @@ pub enum LineCap {
 }
 
 /// How two connected segments are joined.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+///
+/// `Hash` for the same reason [`LineCap`] is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum LineJoin {
     /// Extends the outer edges to meet, subject to the miter limit (PDF join 0).
     #[default]

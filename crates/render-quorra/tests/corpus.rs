@@ -299,6 +299,18 @@ const REFUSED: [&str; 2] = ["bug1721218_reduced.pdf", "issue18032.pdf"];
 ///   on bytes — and the others to a quarter-gigabyte of per-frame upload, a page drawn at a cost
 ///   its own brief calls a failure. The ceiling that bites is that a clipped shape becomes one
 ///   coverage tile of its own device bounds; the open work upstream is on the tiling side.
+///
+///   **The first of the two has a fix upstream that this tree does not yet depend on**, and it is
+///   recorded here so that the next round to take a quorra release expects the name to leave
+///   rather than rediscovering why it did. quorra's ADR 0057 sizes a clipped mark's tile by its
+///   chain's own bounding box instead of by the open clip rectangle, and its §1 measures this page
+///   asking 1 008 561 911 texels where its 141 chains admit 2 297 897. It landed on their
+///   `cafadeb`; `Cargo.lock` pins `eada81ec`, which is earlier, so the refusal below is the
+///   correct behaviour of the revision this tree depends on. The five-hundred-and-sixty-seventh
+///   session was told the name could come off, ran the gate, and left it on — ADR 0402 decision 3
+///   is why, and it is `CLAUDE.md` principle 5 one boundary over: a report from another
+///   implementation is evidence about *that* implementation, and a ratchet held by name exists so
+///   that a name comes off by a run rather than by a message.
 /// - `bug1721218_reduced.pdf` and `issue18032.pdf` are this tree's own named refusals — the
 ///   §11.6.6/§11.7.2 group compositing in a four-component blending space and §11.4.6's
 ///   non-isolated knockout group ([`REFUSED`]'s two, ADR 0327) — which refuse *before the scene

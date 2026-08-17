@@ -35,7 +35,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use pdf_render::{Path, ProgramStep, ShadingKind};
+use pdf_render::{LineCap, LineJoin, Path, ProgramStep, ShadingKind, Stroke};
 use quorra_scene::ResourceId;
 
 use crate::QuorraRasterError;
@@ -50,6 +50,58 @@ use crate::QuorraRasterError;
 /// draw the page at the wrong resolution.
 type ImageKey = (usize, u32, u32);
 
+/// What an **expanded** stroke's outline is keyed by: the source path's address, and every
+/// parameter that decided the geometry `kurbo::stroke` produced from it.
+///
+/// `crate::stroke` outlines a stroke in path space wherever the placement is anisotropic —
+/// §8.4.3.2's own note, because a scalar device width is exactly wrong under a shear — and the
+/// result is computed geometry rather than the display list's own path. That used to make it a
+/// *transient*: uploaded and released every frame, so its identifier moved between two renders of
+/// one unchanged page. quorra keys every glyph-lane tile on that identifier, so every key went
+/// foreign every frame and its atlas repacked at period two, for ever
+/// (`render-lib/doc/notes-atlas-budget.md` section 5; ADR 0402).
+///
+/// **The key is the source path plus the arguments, never the expansion.** Hashing the expanded
+/// outline would be the obvious alternative and it is the wrong one twice over: it would cost a
+/// walk of geometry that is often larger than the path it came from, and it would have to be
+/// computed before it could be looked up — where this key is what lets a hit skip the expansion
+/// altogether. The pin is the source path for the module's ABA reason, which does not care that
+/// the bytes on the device are a different shape.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct StrokeKey {
+    /// The source `Arc<Path>`'s address, kept unique by the entry's pin.
+    path: usize,
+    /// The stroke width in the path's own space, by bits: two widths that differ in the last
+    /// place are two outlines, and `f32` has no `Eq`.
+    width: u32,
+    /// The flattening tolerance, by bits — it is a function of the placement's stretch, so a
+    /// page drawn at two magnifications expands its curves twice, as it must.
+    tolerance: u32,
+    /// §8.4.3.5's ratio, by bits, already clamped to the smallest legal value by the caller.
+    miter_limit: u32,
+    cap: LineCap,
+    join: LineJoin,
+}
+
+impl StrokeKey {
+    /// The key for `path` stroked with `stroke` at `width` in the path's own space, flattened
+    /// to `tolerance`.
+    ///
+    /// The two scalars are arguments rather than derived here because they are the caller's
+    /// resolution of §8.4.3.2 and §10.7.2 — the same values it hands `kurbo::stroke` — and a key
+    /// that recomputed either could disagree with the geometry it names.
+    pub(crate) fn new(path: &Arc<Path>, stroke: &Stroke, width: f32, tolerance: f32) -> Self {
+        Self {
+            path: key(Arc::as_ptr(path).cast::<u8>()),
+            width: width.to_bits(),
+            tolerance: tolerance.to_bits(),
+            miter_limit: stroke.miter_limit.max(1.0).to_bits(),
+            cap: stroke.cap,
+            join: stroke.join,
+        }
+    }
+}
+
 /// One cached upload: the pinned identity, the device id, and when it was last
 /// part of a frame.
 struct Entry<Pin, Id> {
@@ -62,9 +114,11 @@ struct Entry<Pin, Id> {
     last_used: u64,
 }
 
-/// The four caches, one frame clock, one eviction policy.
+/// The five caches, one frame clock, one eviction policy.
 pub(crate) struct ResourceCaches {
     outlines: HashMap<usize, Entry<Arc<Path>, quorra_scene::OutlineId>>,
+    /// Stroke outlines this crate expanded rather than uploaded as they stood ([`StrokeKey`]).
+    strokes: HashMap<StrokeKey, Entry<Arc<Path>, quorra_scene::OutlineId>>,
     images: HashMap<ImageKey, Entry<Arc<[u8]>, quorra_scene::ImageId>>,
     ramps: HashMap<usize, Entry<Arc<ShadingKind>, quorra_scene::RampId>>,
     /// §7.10.5 programs the device has admitted and compiled a shader for.
@@ -96,6 +150,7 @@ impl std::fmt::Debug for ResourceCaches {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ResourceCaches")
             .field("outlines", &self.outlines.len())
+            .field("strokes", &self.strokes.len())
             .field("images", &self.images.len())
             .field("ramps", &self.ramps.len())
             .field("programs", &self.programs.len())
@@ -109,6 +164,7 @@ impl ResourceCaches {
     pub(crate) fn new() -> Self {
         Self {
             outlines: HashMap::new(),
+            strokes: HashMap::new(),
             images: HashMap::new(),
             ramps: HashMap::new(),
             programs: HashMap::new(),
@@ -141,6 +197,39 @@ impl ResourceCaches {
         self.stored = self.stored.saturating_add(1);
         self.outlines.insert(
             key(Arc::as_ptr(path).cast::<u8>()),
+            Entry {
+                pin: Arc::clone(path),
+                id,
+                last_used: self.frame,
+            },
+        );
+    }
+
+    /// The expanded stroke outline `key` names, if this device already holds one.
+    ///
+    /// A hit is worth more than the upload it saves: the caller has not run `kurbo::stroke` yet,
+    /// so it also skips expanding caps, joins and miters over the whole path.
+    pub(crate) fn stroke(&mut self, key: StrokeKey) -> Option<quorra_scene::OutlineId> {
+        let entry = self.strokes.get_mut(&key)?;
+        entry.last_used = self.frame;
+        Some(entry.id)
+    }
+
+    /// Keeps `id` as the outline expanded from `path` under `key`.
+    ///
+    /// **The pin is the source path even though the upload is the expansion**, exactly as
+    /// [`Self::store_image`] pins the samples behind a reduced raster: the key holds the source's
+    /// address, and an entry that did not hold the source could have that address recycled under
+    /// it — the module's ABA argument, which does not care which bytes went to the device.
+    pub(crate) fn store_stroke(
+        &mut self,
+        path: &Arc<Path>,
+        key: StrokeKey,
+        id: quorra_scene::OutlineId,
+    ) {
+        self.stored = self.stored.saturating_add(1);
+        self.strokes.insert(
+            key,
             Entry {
                 pin: Arc::clone(path),
                 id,
@@ -243,6 +332,15 @@ impl ResourceCaches {
     ///
     /// Separate from [`Self::evict_settled`] so that it can be tested without a device: the
     /// rule is about `Arc` counts and needs no graphics adapter to be wrong.
+    ///
+    /// **The proof became a conservative one when [`Self::strokes`] arrived**, and saying so is
+    /// cheaper than pretending otherwise: one source path can now be pinned by two entries — its
+    /// own upload and an expansion of it, or two expansions at two widths — so a count above one
+    /// no longer means a display list holds it, and such a group keeps itself alive here. Nothing
+    /// leaks: those entries stop being *used*, so [`Self::evict_settled`]'s budget pass takes them
+    /// oldest-first like any other settled entry. What is lost is only the promptness of the free,
+    /// and what would buy it back is a reference count of this cache's own — a second bookkeeping
+    /// of a thing `Arc` already counts, for a reclaim the budget pass already makes.
     fn drop_unreachable(&mut self) -> Vec<ResourceId> {
         let mut released: Vec<ResourceId> = Vec::new();
         let frame = self.frame;
@@ -254,6 +352,13 @@ impl ResourceCaches {
             live
         };
         self.outlines.retain(|_, entry| {
+            keep(
+                entry.last_used,
+                Arc::strong_count(&entry.pin),
+                entry.id.into(),
+            )
+        });
+        self.strokes.retain(|_, entry| {
             keep(
                 entry.last_used,
                 Arc::strong_count(&entry.pin),
@@ -314,6 +419,12 @@ impl ResourceCaches {
                 .map(|(map_key, entry)| (entry.last_used, Slot::Outline(*map_key))),
         );
         settled.extend(
+            self.strokes
+                .iter()
+                .filter(|(_, entry)| entry.last_used < self.frame)
+                .map(|(map_key, entry)| (entry.last_used, Slot::Stroke(*map_key))),
+        );
+        settled.extend(
             self.images
                 .iter()
                 .filter(|(_, entry)| entry.last_used < self.frame)
@@ -342,6 +453,10 @@ impl ResourceCaches {
                     Some(entry) => entry.id.into(),
                     None => continue,
                 },
+                Slot::Stroke(map_key) => match self.strokes.remove(&map_key) {
+                    Some(entry) => entry.id.into(),
+                    None => continue,
+                },
                 Slot::Image(map_key) => match self.images.remove(&map_key) {
                     Some(entry) => entry.id.into(),
                     None => continue,
@@ -364,6 +479,7 @@ impl ResourceCaches {
 /// Which map an evictable entry lives in, by that map's own key.
 enum Slot {
     Outline(usize),
+    Stroke(StrokeKey),
     Image(ImageKey),
     Ramp(usize),
     Program(usize),
@@ -382,9 +498,118 @@ fn image_key(data: &Arc<[u8]>, factors: (u32, u32)) -> ImageKey {
 mod entries {
     use std::sync::Arc;
 
-    use quorra_scene::{ImageId, ResourceId};
+    use pdf_render::{LineCap, LineJoin, Path, PathCommand, Point, Stroke};
+    use quorra_scene::{ImageId, OutlineId, ResourceId};
 
-    use super::ResourceCaches;
+    use super::{ResourceCaches, StrokeKey};
+
+    /// A stroke with everything at a value a difference could be seen against.
+    fn stroke() -> Stroke {
+        Stroke {
+            width: 2.0,
+            adjust: false,
+            cap: LineCap::Round,
+            join: LineJoin::Bevel,
+            miter_limit: 4.0,
+            dash_array: Vec::new(),
+            dash_phase: 0.0,
+        }
+    }
+
+    fn line() -> Arc<Path> {
+        let mut path = Path::new();
+        path.push(PathCommand::MoveTo(Point::new(0.0, 0.0)));
+        path.push(PathCommand::LineTo(Point::new(10.0, 3.0)));
+        Arc::new(path)
+    }
+
+    /// Every argument the expansion was made with is in the key, and each one alone moves it.
+    ///
+    /// The device test in `tests/stable_ids.rs` can only show this for the width, because two
+    /// keys that collide draw the same pixels and only one difference at a time is visible that
+    /// way. Here the key is the thing under test, so all four are asked at once — and the failure
+    /// this discriminates is silent by nature: a key missing a field serves a valid outline
+    /// expanded from the wrong arguments, which nothing downstream can tell from the right one.
+    #[test]
+    fn every_argument_the_expansion_was_made_with_moves_the_key() {
+        let path = line();
+        let base = StrokeKey::new(&path, &stroke(), 2.0, 0.25);
+
+        assert_eq!(base, StrokeKey::new(&path, &stroke(), 2.0, 0.25), "stable");
+        assert_ne!(base, StrokeKey::new(&path, &stroke(), 2.5, 0.25), "width");
+        assert_ne!(
+            base,
+            StrokeKey::new(&path, &stroke(), 2.0, 0.5),
+            "tolerance"
+        );
+        assert_ne!(
+            base,
+            StrokeKey::new(&path, &line_join(LineJoin::Miter), 2.0, 0.25),
+            "join"
+        );
+        assert_ne!(
+            base,
+            StrokeKey::new(&path, &line_cap(LineCap::Butt), 2.0, 0.25),
+            "cap"
+        );
+        assert_ne!(
+            base,
+            StrokeKey::new(&path, &mitred(9.0), 2.0, 0.25),
+            "mitre limit"
+        );
+        assert_ne!(
+            base,
+            StrokeKey::new(&line(), &stroke(), 2.0, 0.25),
+            "a different path, whose only difference is its address"
+        );
+    }
+
+    fn line_join(join: LineJoin) -> Stroke {
+        Stroke { join, ..stroke() }
+    }
+
+    fn line_cap(cap: LineCap) -> Stroke {
+        Stroke { cap, ..stroke() }
+    }
+
+    fn mitred(miter_limit: f32) -> Stroke {
+        Stroke {
+            miter_limit,
+            ..stroke()
+        }
+    }
+
+    /// An expanded stroke settles and is released like any other entry once nothing holds it.
+    ///
+    /// The half that could have been got wrong: the entry pins the **source** path rather than
+    /// the expansion, so what decides its reachability is whether a display list still holds the
+    /// path it was expanded from.
+    #[test]
+    fn an_expanded_stroke_nothing_else_holds_is_released() {
+        let mut caches = ResourceCaches::new();
+        let held = line();
+        let dropped = line();
+        caches.begin_frame();
+        caches.store_stroke(
+            &held,
+            StrokeKey::new(&held, &stroke(), 2.0, 0.25),
+            OutlineId(1),
+        );
+        let gone = StrokeKey::new(&dropped, &stroke(), 2.0, 0.25);
+        caches.store_stroke(&dropped, gone, OutlineId(2));
+
+        drop(dropped);
+        caches.begin_frame();
+
+        assert_eq!(
+            caches.drop_unreachable(),
+            vec![ResourceId::Outline(OutlineId(2))]
+        );
+        assert_eq!(
+            caches.stroke(StrokeKey::new(&held, &stroke(), 2.0, 0.25)),
+            Some(OutlineId(1))
+        );
+    }
 
     /// Two reductions of one image are two entries, and neither answers for the other.
     ///

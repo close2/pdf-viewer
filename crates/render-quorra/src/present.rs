@@ -462,7 +462,7 @@ impl FrameCost {
     /// frame, and a host that cloned it would allocate every frame too. Cloning *into* a buffer
     /// the caller keeps reuses its capacity after the first frame, so what a still window pays
     /// for the finest instrument this boundary carries is a memcpy of a handful of entries.
-    fn read(
+    pub(crate) fn read(
         &mut self,
         drawn: &quorra_gpu::Frame,
         phases: &mut Vec<(&'static str, std::time::Duration)>,
@@ -494,7 +494,7 @@ impl FrameCost {
     /// [`Self::encode_source`] stays the *page's* — the lane whose reuse is worth reporting —
     /// and [`Self::execute_measured`] holds only where **both** lanes were measured, because a
     /// figure that is half a timestamp query and half a wall clock is neither.
-    fn add(&mut self, other: Self) {
+    pub(crate) fn add(&mut self, other: Self) {
         self.scene = self.scene.saturating_add(other.scene);
         self.device = self.device.saturating_add(other.device);
         self.encode = self.encode.saturating_add(other.encode);

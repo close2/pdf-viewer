@@ -7,6 +7,12 @@
 //! the keying `RENDER_LIBRARY.md` section 2.2 asks for — or transiently for the
 //! per-frame forms (clips, dashed strokes, meshes, sampled grids, area-averaged
 //! images), which the caller releases after the frame.
+//!
+//! **One resource is neither, and it is the one that was got wrong**: a stroke this crate
+//! expands itself under an anisotropic placement is computed geometry that a *stable* source
+//! determines, so it is cached under [`crate::cache::StrokeKey`] — the source path's identity
+//! plus the arguments — rather than uploaded fresh every frame. A transient's identifier moves
+//! between two renders of one unchanged page, and quorra keys its glyph atlas on that (ADR 0402).
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -1038,6 +1044,27 @@ impl<'a> Encoder<'a> {
         }
         let id = self.device.upload_outline(&segments(path))?;
         self.caches.store_outline(path, id);
+        Ok(id)
+    }
+
+    /// The outline expanded from `path` under `key`, uploading it only if this device does not
+    /// already hold one — and calling `expand` only then, which is the larger half of what a hit
+    /// saves (see [`crate::cache::StrokeKey`]).
+    ///
+    /// `expand` is a closure rather than a computed argument for exactly that reason: a caller
+    /// that produced the geometry before asking would run `kurbo::stroke` over every stroke on
+    /// every frame and save only the upload.
+    pub(crate) fn expanded_stroke(
+        &mut self,
+        path: &Arc<Path>,
+        key: crate::cache::StrokeKey,
+        expand: impl FnOnce() -> Path,
+    ) -> Result<quorra_scene::OutlineId, QuorraRasterError> {
+        if let Some(id) = self.caches.stroke(key) {
+            return Ok(id);
+        }
+        let id = self.device.upload_outline(&segments(&expand()))?;
+        self.caches.store_stroke(path, key, id);
         Ok(id)
     }
 
