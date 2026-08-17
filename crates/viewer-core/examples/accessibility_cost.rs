@@ -1,11 +1,15 @@
 //! What `Query::AccessibilityTree` costs, on the document whose size makes it a question.
 //!
 //! A screen reader asks this when it attaches and again on **every page turn**, so its cost is a
-//! latency a person waits through rather than a throughput. `doc/todo/31` records it at 67–91 ms
-//! on ISO 32000-2's 1023 pages against 0.13–0.25 ms on a five-page document, because
-//! `viewer_core::accessibility::nodes` walks the whole document's structure tree and prunes
-//! afterwards — and that number was measured with a stopwatch nobody could rerun. This is the
-//! stopwatch.
+//! latency a person waits through rather than a throughput. ADR 0228 measured it by hand and left
+//! nothing anybody could rerun; this is the stopwatch, and ADRs 0325 and 0394 are the two rounds
+//! that used it to take the cost down on the document whose size makes it a question.
+//!
+//! **A stopwatch is the wrong instrument for a small change on a busy machine** (ADR 0312), so an
+//! A/B belongs under `valgrind --tool=callgrind --collect-atstart=no
+//! "--toggle-collect=*Viewer*::query*"`, which counts only the query and is load-independent. Run
+//! it with one repeat and with three: the difference over two is what a *warm* page turn costs,
+//! and the single run is what a cold one does.
 //!
 //! It prints the best of `repeats` for the page it opens on and for one further page, because
 //! the second is what a page *turn* costs and the first includes nothing else.
@@ -88,14 +92,33 @@ struct Measured {
     bounded: usize,
     /// How many carry §14.8.4.8.3's header cells, and how many associations in all.
     headed: (usize, usize),
+    /// How many lines a caret could move through, and how many characters on them.
+    ///
+    /// Printed beside the time for the same reason the other two are: the lines are built per
+    /// element out of the page's text layer, so what they cost is proportional to them.
+    lined: (usize, usize),
+    /// The longest line the page answered with, which is what says the grouping is working.
+    ///
+    /// A page of prose whose longest line is three characters has grouped nothing, and the count
+    /// of lines alone cannot tell that from a page of short captions. Quoted rather than counted
+    /// for the same reason: a number cannot show a line broken in the middle of a word.
+    longest: String,
 }
 
 impl std::fmt::Display for Measured {
     fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             out,
-            "{:.3?}, {} node(s), {} with bounds, {} with headers ({} associations)",
-            self.best, self.nodes, self.bounded, self.headed.0, self.headed.1
+            "{:.3?}, {} node(s), {} with bounds, {} with headers ({} associations), \
+             {} line(s) of {} character(s), longest {:?}",
+            self.best,
+            self.nodes,
+            self.bounded,
+            self.headed.0,
+            self.headed.1,
+            self.lined.0,
+            self.lined.1,
+            self.longest
         )
     }
 }
@@ -112,6 +135,8 @@ fn ask(viewer: &Viewer, repeats: usize) -> Measured {
         nodes: 0,
         bounded: 0,
         headed: (0, 0),
+        lined: (0, 0),
+        longest: String::new(),
     };
     for _ in 0..repeats.max(1) {
         let started = Instant::now();
@@ -125,6 +150,15 @@ fn ask(viewer: &Viewer, repeats: usize) -> Measured {
                 tree.iter().filter(|node| !node.headers.is_empty()).count(),
                 tree.iter().map(|node| node.headers.len()).sum(),
             );
+            let lines = || tree.iter().flat_map(|node| node.lines.iter());
+            measured.lined = (
+                lines().count(),
+                lines().map(|line| line.characters.len()).sum(),
+            );
+            measured.longest = lines()
+                .max_by_key(|line| line.characters.len())
+                .map(|line| line.text.clone())
+                .unwrap_or_default();
         }
     }
     measured

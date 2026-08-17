@@ -101,7 +101,7 @@ mod viewer;
 
 pub mod transition;
 
-pub use accessibility::AccessibilityNode;
+pub use accessibility::{AccessibilityNode, Character, TextLine};
 pub use command::{
     Command, Edit, Find, FindDirection, FocusMove, PageTarget, PointerAction, PresentationMode,
     Purpose, Rendered, RestrictionLevel, Selection, Zoom,

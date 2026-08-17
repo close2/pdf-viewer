@@ -1611,6 +1611,7 @@ impl Viewer {
                     parent,
                     &page,
                     |start, end| self.device_quads(open, (start, end)),
+                    |ranges| self.device_lines(open, ranges),
                     |rect| self.device_rect(open, rect),
                 )
             })
@@ -1709,6 +1710,86 @@ impl Viewer {
                     place[1] = origin.1 + (height - corner[1]) * magnification;
                 }
                 out
+            })
+            .collect()
+    }
+
+    /// The same range of the readback as one line of characters each, for a caret to move through.
+    ///
+    /// [`Self::device_quads`]'s other half: that answers where a *selection* is and merges the
+    /// glyphs into as few shapes as it can, and this keeps every character apart because a caret
+    /// stands between two of them. [`crate::accessibility::TextLine`] says what a consumer does
+    /// with it; the space is the same one, so a host needs no second mapping.
+    ///
+    /// Each character's box is the *bounding rectangle* of its quadrilateral rather than the
+    /// quadrilateral itself. That is a loss on rotated or sheared text and it is the one every
+    /// platform text interface forces: a character's extent is asked for as a rectangle. The
+    /// quadrilaterals are still what [`crate::AccessibilityNode::quads`] answers with, so nothing
+    /// that wanted the shape has lost it.
+    fn device_lines(
+        &self,
+        open: &Open,
+        ranges: &[(usize, usize)],
+    ) -> Vec<crate::accessibility::TextLine> {
+        let Some(interpreted) = open.interpreted.as_ref() else {
+            return Vec::new();
+        };
+        let Some(magnification) = open.magnification(self.viewport, self.scale) else {
+            return Vec::new();
+        };
+        let Some(height) = open.page_size(open.page_index).map(|size| size.height) else {
+            return Vec::new();
+        };
+        let raster = crate::open::raster_extent(interpreted.list.page_size, magnification);
+        let origin = open.origin(self.viewport, raster);
+        crate::select::lines_for(&interpreted.placed, ranges)
+            .into_iter()
+            .filter_map(|line| {
+                let mut text = String::new();
+                let mut characters: Vec<crate::accessibility::Character> =
+                    Vec::with_capacity(line.len());
+                let mut written = 0usize;
+                for (span, quad) in line {
+                    // A span that is not on a character boundary of the readback names no slice,
+                    // and a character of no bytes is a caret position that cannot be left. Both
+                    // are dropped rather than carried as an empty entry — see
+                    // `crate::select::lines_for`.
+                    let Some(slice) = interpreted
+                        .text
+                        .get(span.clone())
+                        .filter(|slice| !slice.is_empty())
+                    else {
+                        continue;
+                    };
+                    // What the readback holds between the last glyph and this one, which is
+                    // usually a space — §9.4.3's `TJ` moves the pen instead of drawing one, so a
+                    // word gap has no character code and no box. It belongs to the character
+                    // *before* it, which is the convention AccessKit states for word boundaries:
+                    // "[t]railing whitespace is typically considered part of the word that
+                    // precedes it". A run built without it would say `twowords`.
+                    //
+                    // **Whitespace only, and that is a guard rather than a tidy-up.** A line is
+                    // decided by where the glyphs landed, so two glyphs beside each other on the
+                    // screen may be far apart in the readback — with another element's words in
+                    // between. Those are not this element's to speak, and the space that has no
+                    // glyph is the whole of what is being recovered here.
+                    if let Some(between) = interpreted.text.get(written..span.start)
+                        && !between.is_empty()
+                        && between.chars().all(char::is_whitespace)
+                        && let Some(previous) = characters.last_mut()
+                    {
+                        text.push_str(between);
+                        previous.bytes = previous.bytes.saturating_add(between.len());
+                    }
+                    text.push_str(slice);
+                    characters.push(crate::accessibility::Character {
+                        bytes: slice.len(),
+                        bounds: device_box(quad, origin, height, magnification),
+                    });
+                    written = span.end;
+                }
+                (!characters.is_empty())
+                    .then_some(crate::accessibility::TextLine { text, characters })
             })
             .collect()
     }
@@ -2498,6 +2579,29 @@ fn collection(open: &Open) -> Answer<'static> {
             initial,
         }
     })
+}
+
+/// One glyph's quadrilateral as a rectangle in device pixels of the viewport.
+///
+/// The mapping is [`Viewer::device_quads`]'s, corner by corner, and the bounding box is taken
+/// afterwards rather than before: the transform flips y, so a quadrilateral's lowest corner in the
+/// display list's space is its highest on the screen and a box taken first would come out inverted.
+fn device_box(quad: [f32; 8], origin: (f32, f32), height: f32, magnification: f32) -> [f32; 4] {
+    let mut bounds = [f32::MAX, f32::MAX, f32::MIN, f32::MIN];
+    for corner in quad.chunks_exact(2) {
+        let (Some(&x), Some(&y)) = (corner.first(), corner.get(1)) else {
+            continue;
+        };
+        let x = origin.0 + x * magnification;
+        let y = origin.1 + (height - y) * magnification;
+        bounds = [
+            bounds[0].min(x),
+            bounds[1].min(y),
+            bounds[2].max(x),
+            bounds[3].max(y),
+        ];
+    }
+    bounds
 }
 
 /// §12.4.2's label for a page, where the document states a non-empty one.

@@ -105,6 +105,86 @@ pub(crate) fn quads_for(placed: &[Placed], range: (usize, usize)) -> Vec<[f32; 8
     runs
 }
 
+/// The same range of the readback, **unmerged** and broken into the lines it was drawn on.
+///
+/// [`quads_for`]'s population, kept one entry per character code instead of one per run, and
+/// grouped by [`continues`] rather than merged by [`joins`]. A highlight wants the merged shapes;
+/// a caret wants the opposite — where each character begins, how wide it is, where one line ends —
+/// which is what AT-SPI's `org.a11y.atspi.Text` and every other platform's text interface ask
+/// for, and what §14.8.2.5's logical order is worth reading in the first place.
+///
+/// **A code that reads back as nothing is left out**, which is where this and [`quads_for`]
+/// deliberately differ. There it is ink a person dragged across and a hole in the highlight would
+/// be a lie; here it would be a character of zero bytes, and a caret cannot stand on one — a
+/// platform's arrays are indexed by character and a zero-length entry is a position that can be
+/// reached and never left. The glyph is still drawn and is still in the selection; what it is not
+/// is somewhere the caret can be.
+///
+/// Each entry is the code's range of the readback and its quadrilateral in the display list's own
+/// space, in the order the page drew them — which for a line of text is reading order and for a
+/// producer that wrote its glyphs out of order is not. Ordering by position is deliberately not
+/// done here: the readback's own order is what §14.8.2.5 makes the logical one.
+///
+/// **All of the caller's ranges at once, rather than one call each**, and that is not an
+/// optimisation. A structure element's own content items are one range per §14.7.5.2 sequence, and
+/// a producer that opened a new sequence in the middle of a line — which is what a `Span` inside a
+/// paragraph is — would otherwise have that line broken at the sequence boundary, into as many
+/// lines as it has pieces. What decides a line is where the glyphs landed, and that is a question
+/// about the whole element.
+pub(crate) fn lines_for(
+    placed: &[Placed],
+    ranges: &[(usize, usize)],
+) -> Vec<Vec<(std::ops::Range<usize>, [f32; 8])>> {
+    let mut lines: Vec<Vec<(std::ops::Range<usize>, [f32; 8])>> = Vec::new();
+    let mut last: Option<[f32; 8]> = None;
+    for entry in placed {
+        let within = ranges.iter().any(|(from, to)| {
+            let (low, high) = (from.min(to), from.max(to));
+            entry.span.start < *high && entry.span.end > *low
+        });
+        if entry.span.is_empty() || !within {
+            continue;
+        }
+        match (last, lines.last_mut()) {
+            (Some(previous), Some(line)) if continues(previous, entry.quad) => {
+                line.push((entry.span.clone(), entry.quad));
+            }
+            _ => lines.push(vec![(entry.span.clone(), entry.quad)]),
+        }
+        last = Some(entry.quad);
+    }
+    lines
+}
+
+/// Whether a glyph continues the *line* the one before it is on.
+///
+/// [`joins`]'s question with the tolerances a **line** needs rather than the ones a highlight
+/// needs, and the difference was measured rather than assumed. Under `joins`, ISO 32000-2's cover
+/// answers `In`, `terna`, `tiona`, `l `, `Sta`, `nda`, `rd ` where the page says *International
+/// Standard*: its display face is tracked, so glyph boxes overlap their neighbours by a fraction
+/// of an em, and `joins` ends a run at the first overlap over a hundredth of a unit. A highlight
+/// does not care — the two rectangles abut and a person sees one band — and a caret does: those
+/// are seven lines to move through where a person sees one.
+///
+/// So the two conditions are stated against the glyph's own height, which is the only length
+/// available that scales with the text:
+///
+/// - **the same baseline** within a twentieth of the height, rather than exactly. Two glyphs of
+///   one line set in faces of slightly different metrics do not share a corner to the last bit.
+/// - **no further apart than one height, and no further overlapped than half of one.** A gap of a
+///   height is the widest inter-word space that is still a space; an overlap of half a glyph is
+///   more than tracking and more than kerning, and is text drawn over text.
+///
+/// It is deliberately not [`joins`] with looser numbers: a selection's merge is a statement about
+/// what a person dragged over, and this is a statement about where a caret may stop. Changing the
+/// first to suit the second would move a feature nobody was measuring.
+fn continues(previous: [f32; 8], quad: [f32; 8]) -> bool {
+    let height = (previous[7] - previous[1]).abs().max(f32::EPSILON);
+    let baseline = (previous[1] - quad[1]).abs() <= height / 20.0;
+    let gap = quad[0] - previous[2];
+    baseline && gap > -height / 2.0 && gap < height
+}
+
 /// Whether a glyph's box continues the run that ends with `run`.
 fn joins(run: [f32; 8], quad: [f32; 8]) -> bool {
     let same_line = (run[1] - quad[1]).abs() < 0.01 && (run[7] - quad[7]).abs() < 0.01;

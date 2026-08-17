@@ -12,11 +12,11 @@
     reason = "a test asserts; a failed assertion is the point"
 )]
 
-use accesskit::{Node, NodeId, Role, Toggled};
+use accesskit::{Node, NodeId, Role, TextDirection, Toggled};
 use pdf_model::form::{ChoiceControl, Control, TextControl};
 use pdf_model::structure::HeaderScope;
 use viewer_accessibility::{PageView, tree};
-use viewer_core::AccessibilityNode;
+use viewer_core::{AccessibilityNode, Character, TextLine};
 
 /// One structure element, as `Query::AccessibilityTree` would answer with it.
 fn element(parent: Option<usize>, role: &str, name: &str) -> AccessibilityNode {
@@ -31,6 +31,7 @@ fn element(parent: Option<usize>, role: &str, name: &str) -> AccessibilityNode {
         bounds: None,
         control: None,
         headers: Vec::new(),
+        lines: Vec::new(),
     }
 }
 
@@ -480,5 +481,120 @@ fn a_toggling_button_carries_its_state_and_nothing_else_does() {
         )
         .toggled(),
         None
+    );
+}
+
+/// One paragraph of laid-out text, with each character a `width`-wide box on one baseline.
+fn typed(text: &str, origin: (f32, f32), width: f32) -> AccessibilityNode {
+    let mut characters = Vec::new();
+    for (index, letter) in text.chars().enumerate() {
+        let count = u16::try_from(index).unwrap_or(u16::MAX);
+        let at = origin.0 + f32::from(count) * width;
+        characters.push(Character {
+            bytes: letter.len_utf8(),
+            bounds: [at, origin.1, at + width, origin.1 + 10.0],
+        });
+    }
+    AccessibilityNode {
+        lines: vec![TextLine {
+            text: text.to_owned(),
+            characters,
+        }],
+        ..element(None, "P", text)
+    }
+}
+
+/// A paragraph's own text reaches the platform as a run a caret can move through.
+///
+/// The three arrays are what `org.a11y.atspi.Text` is built out of, and the invariant each of
+/// them has to keep is asserted rather than assumed: the lengths sum to the value, the positions
+/// are measured from the run's own edge, and there is one of each per character.
+#[test]
+fn a_paragraphs_own_text_reaches_the_platform_as_a_run() {
+    let nodes = [typed("two words", (100.0, 50.0), 6.0)];
+    let update = tree::build(&view(&nodes, &[]));
+    let paragraph = node(&update, NodeId(16));
+    assert_eq!(paragraph.role(), Role::Paragraph);
+    assert_eq!(paragraph.children(), [NodeId(2_000_000)]);
+    let run = node(&update, NodeId(2_000_000));
+    assert_eq!(run.role(), Role::TextRun);
+    assert_eq!(run.value(), Some("two words"));
+    assert_eq!(run.text_direction(), Some(TextDirection::LeftToRight));
+    assert_eq!(run.character_lengths().len(), 9);
+    assert_eq!(
+        usize::from(run.character_lengths().iter().copied().sum::<u8>()),
+        "two words".len(),
+        "AccessKit requires the lengths to sum to the value's bytes"
+    );
+    // The run begins at x = 100, so the first character stands at 0 and each is one width along.
+    assert_eq!(
+        run.character_positions(),
+        Some([0.0, 6.0, 12.0, 18.0, 24.0, 30.0, 36.0, 42.0, 48.0].as_slice())
+    );
+    assert_eq!(run.character_widths().map(<[f32]>::len), Some(9));
+    // "two" begins at character 0 and "words" at 4, the space belonging to the word before it.
+    assert_eq!(run.word_starts(), [0, 4]);
+}
+
+/// The page is the node that carries the text, and that is a platform's requirement.
+///
+/// `accesskit_consumer::Node::supports_text_ranges` answers `true` only for a text input or for
+/// `Label`, `Document` or `Terminal`, so no §14.8.4 role this crate maps to could carry AT-SPI's
+/// `Text` — a `Paragraph` cannot. The page node is this program's own rather than a structure
+/// element's, which is why it is the one that may take the role. See `tree`'s documentation.
+#[test]
+fn the_page_is_the_node_a_caret_moves_through() {
+    let nodes = [typed("a line", (0.0, 0.0), 5.0)];
+    let update = tree::build(&view(&nodes, &[]));
+    assert_eq!(node(&update, NodeId(2)).role(), Role::Document);
+}
+
+/// A line longer than one run's arrays becomes several runs of one line, joined.
+#[test]
+fn a_long_line_becomes_runs_that_say_they_are_one_line() {
+    let long = "x".repeat(300);
+    let nodes = [typed(&long, (0.0, 0.0), 1.0)];
+    let update = tree::build(&view(&nodes, &[]));
+    let first = node(&update, NodeId(2_000_000));
+    let second = node(&update, NodeId(2_000_001));
+    assert_eq!(first.character_lengths().len(), 255);
+    assert_eq!(second.character_lengths().len(), 45);
+    assert_eq!(first.next_on_line(), Some(NodeId(2_000_001)));
+    assert_eq!(second.previous_on_line(), Some(NodeId(2_000_000)));
+}
+
+/// §14.8.2.2's artifact is not somewhere a caret goes, for the reason it is not spoken.
+#[test]
+fn an_artifact_has_no_run_to_move_through() {
+    let artifact = AccessibilityNode {
+        role: "Artifact".to_owned(),
+        ..typed("page 7", (0.0, 0.0), 5.0)
+    };
+    let update = tree::build(&view(&[artifact], &[]));
+    assert!(
+        !update
+            .nodes
+            .iter()
+            .any(|(_, held)| held.role() == Role::TextRun),
+        "an artifact's words are not the document's content (ISO 32000-2 §14.8.2.2)"
+    );
+}
+
+/// Text drawn right to left is measured from the run's right edge, which is where a caret is.
+#[test]
+fn a_line_that_runs_the_other_way_says_so_and_measures_from_the_other_edge() {
+    let mut backwards = typed("abc", (0.0, 0.0), 10.0);
+    if let Some(line) = backwards.lines.first_mut() {
+        line.characters.reverse();
+        line.text = "cba".to_owned();
+    }
+    let update = tree::build(&view(&[backwards], &[]));
+    let run = node(&update, NodeId(2_000_000));
+    assert_eq!(run.text_direction(), Some(TextDirection::RightToLeft));
+    // The character drawn last sits at x = 0 and the run's right edge is at 30, so the three
+    // stand 0, 10 and 20 along the direction they are read in.
+    assert_eq!(
+        run.character_positions(),
+        Some([0.0, 10.0, 20.0].as_slice())
     );
 }

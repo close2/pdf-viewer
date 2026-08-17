@@ -3020,7 +3020,7 @@ mod tests {
             ViewerPreferences,
         };
         use pdf_model::xmp::{Name as XmpName, Value as XmpValue, Xmp};
-        use viewer_core::{AccessibilityNode, Layer, PopupWindow};
+        use viewer_core::{AccessibilityNode, Character, Layer, PopupWindow, TextLine};
 
         // §12.3.3.
         let outline = a_populated_outline();
@@ -3330,6 +3330,7 @@ mod tests {
                 bounds: None,
                 control: None,
                 headers: Vec::new(),
+                lines: Vec::new(),
             },
             // A `Figure` marks no text, so Table 379's `/BBox` is the only place it has — and
             // a rectangle that did not cross would leave a magnifier nothing to point at.
@@ -3344,6 +3345,7 @@ mod tests {
                 bounds: Some([8.0, 9.0, 10.0, 11.0]),
                 control: None,
                 headers: Vec::new(),
+                lines: Vec::new(),
             },
             // A `TH` whose axis Table 384 states, because a header cell that crossed as a
             // column's when the document called it a row's would be read out backwards.
@@ -3358,6 +3360,7 @@ mod tests {
                 bounds: None,
                 control: None,
                 headers: Vec::new(),
+                lines: Vec::new(),
             },
             // §14.8.4.7.2's `Form`, which is one widget annotation: the control it names is
             // what makes a screen reader say "check box, ticked" instead of "group", so a
@@ -3374,6 +3377,7 @@ mod tests {
                 bounds: Some([12.0, 13.0, 14.0, 15.0]),
                 control: Some(pdf_model::form::Control::CheckBox { on: true }),
                 headers: Vec::new(),
+                lines: Vec::new(),
             },
             // And a `TD` that §14.8.4.8.3's search gave the header beside it, because a cell
             // whose headers did not cross would be announced with nothing in front of it.
@@ -3388,6 +3392,23 @@ mod tests {
                 bounds: None,
                 control: None,
                 headers: vec![2],
+                // The lines a caret moves through, which are the only field of this answer whose
+                // two halves have to agree: the characters' byte counts sum to the text's length,
+                // and `read_lines` refuses a message where they do not. A `TD` whose lines did not
+                // cross would be a cell an assistive technology could hear and not move through.
+                lines: vec![TextLine {
+                    text: "north".to_owned(),
+                    characters: vec![
+                        Character {
+                            bytes: 1,
+                            bounds: [0.0, 0.0, 4.0, 10.0],
+                        },
+                        Character {
+                            bytes: 4,
+                            bounds: [4.0, 0.0, 20.0, 10.0],
+                        },
+                    ],
+                }],
             },
         ];
         let Reply::Accessibility(read) = round_trip(&Answer::Accessibility(nodes.clone())) else {

@@ -3,16 +3,51 @@
 //! # The shape
 //!
 //! ```text
-//! Window        the window, named as its title bar is
-//!  └ PdfRoot    the document
-//!     ├ Group   the page: §12.4.2's label where it has one, its number where it has not
-//!     │  └ …    §14.7's elements, parent-first, in §14.8.2.5's logical order
-//!     └ Status  what this reader could not draw on it — present only when something was
+//! Window          the window, named as its title bar is
+//!  └ PdfRoot      the document
+//!     ├ Document  the page: §12.4.2's label where it has one, its number where it has not
+//!     │  └ …      §14.7's elements, parent-first, in §14.8.2.5's logical order
+//!     │     └ …   each element's own text as [`Role::TextRun`], one per line — see below
+//!     └ Status    what this reader could not draw on it — present only when something was
 //! ```
 //!
 //! The root has to be [`accesskit::Role::Window`]: `accesskit_atspi_common` treats the root
 //! specially and only for that role, and a tree whose root is anything else appears on the bus
 //! without the frame an assistive technology looks for.
+//!
+//! # A caret, and the one node that may carry it
+//!
+//! A structure element crossed as a node with a name, so an assistive technology could read a
+//! paragraph and could not move through it. Moving by character, by word or by line, and saying
+//! where the caret is, is `org.a11y.atspi.Text`, and AccessKit builds that interface out of
+//! [`Role::TextRun`] children carrying each character's length, position and width — which this
+//! program has, one per character code, since ADR 0118's text layer.
+//!
+//! **Which node gets the interface is AccessKit's decision and not this crate's, and it is the
+//! whole reason the page is a [`Role::Document`].** `accesskit_consumer::Node::supports_text_ranges`
+//! is
+//!
+//! ```text
+//! (self.is_text_input() || matches!(self.role(), Role::Label | Role::Document | Role::Terminal))
+//!     && self.text_runs().next().is_some()
+//! ```
+//!
+//! so **no role any §14.8.4 type maps to can carry it**: not `Paragraph`, not `Heading`, not
+//! `Cell`. Putting the interface on the paragraphs would mean mapping `P` to `Label`, which trades
+//! the vocabulary §14.8.4 spends five tables defining for a platform interface — the opposite of
+//! the trade ADR 0338 made when it refused to call a signature field a button. So the interface
+//! goes on the **page**, which is this program's own node rather than a structure element's: it
+//! was an unnamed group standing between the document and its elements, and AT-SPI's
+//! `DocumentFrame` is what a text-bearing document container is there. Every element keeps the
+//! role §14.8.4 gives it, and the caret crosses the page in §14.8.2.5's logical order because
+//! that is the order the runs are in.
+//!
+//! `common_filter` answers `ExcludeNode` for a [`Role::TextRun`], so **not one of the runs appears
+//! on the bus**: the tree an assistive technology walks is the same tree it walked before, with an
+//! interface on it that was not there. What this does not do is give each *element* its own text
+//! interface — a client asking a paragraph for `org.a11y.atspi.Text` still gets nothing, and that
+//! is the platform's answer rather than this one's. `doc/todo/31` records it as owed upstream,
+//! beside `Table`, `TableCell` and the relation set.
 //!
 //! # What a page that is not tagged says
 //!
@@ -31,7 +66,7 @@
 //! counts and the terminal prints. They go into the tree as a [`accesskit::Role::Status`] group,
 //! which is AT-SPI's `StatusBar`: advisory, findable, and not an alert that interrupts.
 
-use accesskit::{Node, NodeId, Rect, Role, Toggled, Tree, TreeId, TreeUpdate};
+use accesskit::{Node, NodeId, Rect, Role, TextDirection, Toggled, Tree, TreeId, TreeUpdate};
 use viewer_core::AccessibilityNode;
 
 /// The window, and the root of the tree.
@@ -52,6 +87,18 @@ const ELEMENT_BASE: u64 = 16;
 /// Above `viewer_core`'s own bound on how many structure elements one page answers with (8192),
 /// so the two ranges cannot meet however many elements a page has.
 const REPORT_BASE: u64 = 1_000_000;
+/// The first identifier a line of text may take.
+///
+/// A range of its own above the reports', for the reason [`ELEMENT_BASE`] has one: a page's lines
+/// are counted in thousands where its elements are counted in tens, and a scheme that derived a
+/// line's identifier from its element's would have to bound the lines per element to stay
+/// injective.
+const RUN_BASE: u64 = 2_000_000;
+/// How many characters one [`Role::TextRun`] may hold.
+///
+/// AccessKit's word starts are indices into the run's characters, held in a `u8`, so a run of more
+/// than this could not state where its later words begin. See [`runs`].
+const MAX_RUN: usize = u8::MAX as usize;
 
 /// What the host knows about the page, which is everything this crate needs to build a tree.
 ///
@@ -87,7 +134,7 @@ pub struct PageView<'a> {
 pub fn build(view: &PageView) -> TreeUpdate {
     let mut nodes: Vec<(NodeId, Node)> = Vec::new();
 
-    let mut page = Node::new(Role::Group);
+    let mut page = Node::new(Role::Document);
     page.set_label(page_name(view));
     page.set_bounds(Rect {
         x0: 0.0,
@@ -187,6 +234,7 @@ fn elements(view: &PageView, out: &mut Vec<(NodeId, Node)>) -> Vec<NodeId> {
     }
 
     // The nodes themselves, in the same order, once every child list is complete.
+    let mut allocated: u64 = 0;
     for (index, node) in view.nodes.iter().enumerate() {
         if !published.get(index).copied().unwrap_or(false) {
             continue;
@@ -231,8 +279,19 @@ fn elements(view: &PageView, out: &mut Vec<(NodeId, Node)>) -> Vec<NodeId> {
         if let Some(bounds) = place(node) {
             built.set_bounds(bounds);
         }
+        // §14.8.2.5's order within one element is the file's `/K` order, and the answer this crate
+        // is handed does not record where an element's own content items sat among its child
+        // elements — so the lines go first and the child elements after them. It costs nothing on
+        // the elements that have both kinds in the corpus, because an element with text of its own
+        // and structure elements below it is rare: a `P` has text and no element children, a
+        // `Sect` has element children and no text. Where a document does write both, a caret
+        // crosses this element's own words before its children's rather than between them.
+        let mut below: Vec<NodeId> = runs(node, mapping.speaks, &mut allocated, out);
         if let Some(list) = children.get(index) {
-            built.set_children(list.clone());
+            below.extend(list.iter().copied());
+        }
+        if !below.is_empty() {
+            built.set_children(below);
         }
         out.push((element_id(index), built));
     }
@@ -251,6 +310,230 @@ fn elements(view: &PageView, out: &mut Vec<(NodeId, Node)>) -> Vec<NodeId> {
         roots.push(id);
     }
     roots
+}
+
+/// One [`Role::TextRun`] per line of the element's own text, appended, and their identifiers.
+///
+/// # What this is for, and why the nodes are invisible
+///
+/// A structure element crosses as one node with one name, so an assistive technology reads the
+/// paragraph or it does not. Moving through it — by character, by word, by line — and saying where
+/// the caret is, is `org.a11y.atspi.Text`, and AccessKit builds that interface out of nodes of
+/// this one role: `accesskit_consumer`'s `supports_text_ranges` asks for text runs below the node
+/// and `character_index_at_point` reads their arrays. The runs themselves are `ExcludeNode` in
+/// `common_filter`, which every platform adapter applies, so **none of them appears on the bus**:
+/// what the change adds is an interface on the nodes that were already there, not nodes.
+///
+/// # An artifact has no run, for the reason it has no name
+///
+/// §14.8.2.2.1 divides a page into the author's content and everything "generated by the PDF
+/// writer in the course of pagination, layout, or other mechanical processes or introduced by the
+/// document author for decoration", and a caret that walked through a running head would be
+/// walking through what tagging exists to keep out of the reading. The same `speaks` that
+/// withholds the label withholds these.
+///
+/// # What the platform is told about direction, and where that comes from
+///
+/// AccessKit states a run's character positions "in the direction given by `text_direction`", so
+/// the direction is not decoration — it is the axis the numbers are measured along. Nothing in the
+/// document states it: §9.4.4's text matrix says where each glyph landed and a reader has to look.
+/// So it is read off the glyphs, first to last, and a run of one character is left-to-right
+/// because there is nothing to read. A `/Rotate 90` page comes out top-to-bottom, which is the
+/// truth about the screen rather than about the text.
+/// # A line may be more than one run, and the two are not the same thing
+///
+/// AccessKit's word starts are indices into a run's characters held in a `u8`, so a run of more
+/// than [`MAX_RUN`] characters could not say where its later words begin. A line longer than that
+/// is therefore published as several runs joined by `previous_on_line` and `next_on_line`, which
+/// is the pair `accesskit_consumer::is_line_start` and `is_line_end` read: the line stays one line
+/// to a caret moving by line, and the arrays stay addressable. It is not hypothetical — a
+/// two-column page of ISO 32000-2 has lines of about ninety characters and a full-width table row
+/// has more.
+fn runs(
+    node: &AccessibilityNode,
+    speaks: bool,
+    allocated: &mut u64,
+    out: &mut Vec<(NodeId, Node)>,
+) -> Vec<NodeId> {
+    if !speaks {
+        return Vec::new();
+    }
+    let mut ids = Vec::new();
+    for line in &node.lines {
+        let direction = direction(line);
+        let mut on_line: Vec<NodeId> = Vec::new();
+        for characters in chunked(line) {
+            let Some(bounds) = surrounding(&characters) else {
+                continue;
+            };
+            let mut run = Node::new(Role::TextRun);
+            let mut value = String::new();
+            let mut lengths: Vec<u8> = Vec::with_capacity(characters.len());
+            let mut positions: Vec<f32> = Vec::with_capacity(characters.len());
+            let mut widths: Vec<f32> = Vec::with_capacity(characters.len());
+            for (text, length, place) in &characters {
+                let (position, width) = along(*place, bounds, direction);
+                value.push_str(text);
+                lengths.push(*length);
+                positions.push(position);
+                widths.push(width);
+            }
+            run.set_value(value);
+            run.set_bounds(bounds);
+            run.set_text_direction(direction);
+            run.set_word_starts(word_starts(&characters));
+            run.set_character_lengths(lengths);
+            run.set_character_positions(positions);
+            run.set_character_widths(widths);
+            let id = NodeId(RUN_BASE.saturating_add(*allocated));
+            *allocated = allocated.saturating_add(1);
+            out.push((id, run));
+            on_line.push(id);
+        }
+        join(&on_line, out);
+        ids.extend(on_line);
+    }
+    ids
+}
+
+/// A line's characters as text and place, in runs of at most [`MAX_RUN`].
+///
+/// A character whose readback does not fit a `u8` is left out with its text: AccessKit's character
+/// lengths are bytes in a `u8` and their sum must equal the run's value, so carrying such a
+/// character with a truncated length would break the invariant the whole interface is indexed by.
+/// It takes a `/ToUnicode` mapping one code to more than 255 bytes, which no document does and
+/// which a hostile one may.
+fn chunked(line: &viewer_core::TextLine) -> Vec<Vec<(&str, u8, [f32; 4])>> {
+    let mut chunks: Vec<Vec<(&str, u8, [f32; 4])>> = Vec::new();
+    let mut at = 0usize;
+    for character in &line.characters {
+        let text = line.text.get(at..at.saturating_add(character.bytes));
+        at = at.saturating_add(character.bytes);
+        let Some((text, length)) = text
+            .filter(|text| !text.is_empty())
+            .and_then(|text| Some((text, u8::try_from(text.len()).ok()?)))
+        else {
+            continue;
+        };
+        match chunks.last_mut() {
+            Some(chunk) if chunk.len() < MAX_RUN => chunk.push((text, length, character.bounds)),
+            _ => chunks.push(vec![(text, length, character.bounds)]),
+        }
+    }
+    chunks
+}
+
+/// Links the runs of one line, so that a caret moving by line crosses all of them.
+fn join(on_line: &[NodeId], out: &mut [(NodeId, Node)]) {
+    for pair in on_line.windows(2) {
+        let (Some(first), Some(second)) = (pair.first(), pair.get(1)) else {
+            continue;
+        };
+        for (id, node) in out.iter_mut() {
+            if id == first {
+                node.set_next_on_line(*second);
+            } else if id == second {
+                node.set_previous_on_line(*first);
+            }
+        }
+    }
+}
+
+/// The rectangle a run's characters cover, or `None` for a run with none.
+fn surrounding(characters: &[(&str, u8, [f32; 4])]) -> Option<Rect> {
+    let mut bounds: Option<Rect> = None;
+    for (_, _, place) in characters {
+        let rect = Rect {
+            x0: f64::from(place[0]),
+            y0: f64::from(place[1]),
+            x1: f64::from(place[2]),
+            y1: f64::from(place[3]),
+        };
+        bounds = Some(match bounds {
+            None => rect,
+            Some(so_far) => Rect {
+                x0: so_far.x0.min(rect.x0),
+                y0: so_far.y0.min(rect.y0),
+                x1: so_far.x1.max(rect.x1),
+                y1: so_far.y1.max(rect.y1),
+            },
+        });
+    }
+    bounds
+}
+
+/// Which way a line runs, read off where its first and last glyphs are.
+///
+/// The larger of the two displacements decides the axis and its sign decides the way round. A line
+/// of one character has no displacement and is called left to right, which is a default and is
+/// marked as one: a single glyph is the same rectangle whichever direction is claimed for it, so
+/// the choice can only be wrong about a run that has nothing to be wrong about.
+fn direction(line: &viewer_core::TextLine) -> TextDirection {
+    let (Some(first), Some(last)) = (line.characters.first(), line.characters.last()) else {
+        return TextDirection::LeftToRight;
+    };
+    let across = (last.bounds[0] + last.bounds[2]) - (first.bounds[0] + first.bounds[2]);
+    let down = (last.bounds[1] + last.bounds[3]) - (first.bounds[1] + first.bounds[3]);
+    if across.abs() >= down.abs() {
+        if across < 0.0 {
+            TextDirection::RightToLeft
+        } else {
+            TextDirection::LeftToRight
+        }
+    } else if down < 0.0 {
+        TextDirection::BottomToTop
+    } else {
+        TextDirection::TopToBottom
+    }
+}
+
+/// Where one character begins along the run, and how far it reaches — the two arrays' entries.
+///
+/// Measured from the run's own edge, which edge depending on the direction, because that is what
+/// `accesskit_consumer::character_index_at_point` subtracts: `point.x - rect.x0` going one way and
+/// `rect.x1 - point.x` going the other. A width is the extent along the same axis and is never
+/// negative, so it is the same number whichever way the run reads.
+fn along(character: [f32; 4], run: Rect, direction: TextDirection) -> (f32, f32) {
+    let (x0, y0, x1, y1) = (character[0], character[1], character[2], character[3]);
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "the run's rectangle came from these same `f32` corners one function up; the \
+                  widening to `f64` is AccessKit's rectangle type and the narrowing back is exact"
+    )]
+    match direction {
+        TextDirection::LeftToRight => (x0 - run.x0 as f32, x1 - x0),
+        TextDirection::RightToLeft => (run.x1 as f32 - x1, x1 - x0),
+        TextDirection::TopToBottom => (y0 - run.y0 as f32, y1 - y0),
+        TextDirection::BottomToTop => (run.y1 as f32 - y1, y1 - y0),
+    }
+}
+
+/// Which characters begin a word, as indices into the line's own characters.
+///
+/// AccessKit asks for this and says why it will not compute it: "not all assistive technologies
+/// require information about word boundaries … users will get unpredictable results if the word
+/// boundaries exposed by the accessibility tree don't match the editor's behavior". There is no
+/// editor here and no clause either — a PDF states glyphs and positions, and §9.4 has no word — so
+/// this is a choice, and the plainest one: a word begins where a run of whitespace ends. The
+/// leading whitespace of a line belongs to the word that follows it rather than being a word of
+/// its own, which is the one place this differs from AccessKit's own description of the common
+/// case; the difference is a caret step at the very start of an indented line.
+fn word_starts(characters: &[(&str, u8, [f32; 4])]) -> Vec<u8> {
+    let mut starts = Vec::new();
+    let mut previous_was_space = true;
+    for (index, (text, _, _)) in characters.iter().enumerate() {
+        let space = text.chars().all(char::is_whitespace);
+        // The index fits by construction — `chunked` stops a run at `MAX_RUN` characters — and a
+        // run that somehow held more would rather lose a word boundary than an assertion.
+        if previous_was_space
+            && !space
+            && let Ok(index) = u8::try_from(index)
+        {
+            starts.push(index);
+        }
+        previous_was_space = space;
+    }
+    starts
 }
 
 /// What a table cell's header cells are, in words a person is meant to hear.

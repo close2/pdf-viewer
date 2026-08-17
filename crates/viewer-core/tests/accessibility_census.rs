@@ -46,9 +46,10 @@
 //! Then what the tree actually carries, each a census `doc/todo/31` already names as an example
 //! and this promotes to a printed count: elements reached, §14.9.3's `/Alt` (and §14.9.5's `/E`)
 //! carried, elements placed by Table 379's `/BBox` or §12.5.2's `/Rect`, §14.8.4.8.3's resolved
-//! header cells, and §12.7.5's controls behind §14.7.5.3's object references. And last, the count
-//! that guards a *decision* rather than a capability: an untagged page answers with the honest
-//! empty tree and is never given an invented reading order (ADR 0214).
+//! header cells, §12.7.5's controls behind §14.7.5.3's object references, and the elements a
+//! **caret** can move through rather than only listen to (ADR 0394). And last, the count that
+//! guards a *decision* rather than a capability: an untagged page answers with the honest empty
+//! tree and is never given an invented reading order (ADR 0214).
 //!
 //! # The denominator
 //!
@@ -149,6 +150,23 @@ struct Census {
     header_cells: usize,
     header_associations: usize,
     controls: usize,
+    /// Elements a caret can move through, the lines they cross, and the characters on them.
+    ///
+    /// The class this is about is an element that is *read* and cannot be *moved through*: until
+    /// a text run existed, a paragraph crossed as one string and an assistive technology could
+    /// speak it whole or not at all. So the count worth watching is the third one against
+    /// [`Self::nodes`] — how much of what a page says has a place a caret can stand in.
+    with_lines: usize,
+    lines: usize,
+    characters: usize,
+    /// An element whose own text a caret reaches and whose own text is empty, which cannot happen.
+    ///
+    /// Not a count but an assertion in the shape of one: [`viewer_core::TextLine`] states that its
+    /// text is exactly the readback of its characters, and every consumer of the type indexes one
+    /// by the other. A line breaking it would put a platform's caret arithmetic out of step with
+    /// its own strings, which is the kind of defect that shows up as a screen reader reading the
+    /// wrong word rather than as a crash.
+    inconsistent_lines: Vec<(String, String)>,
     /// Page one of every document with no structure tree, and how many answer the honest nothing.
     untagged_pages: usize,
     untagged_honest: usize,
@@ -180,6 +198,10 @@ impl Census {
             .header_associations
             .saturating_add(from.header_associations);
         self.controls = self.controls.saturating_add(from.controls);
+        self.with_lines = self.with_lines.saturating_add(from.with_lines);
+        self.lines = self.lines.saturating_add(from.lines);
+        self.characters = self.characters.saturating_add(from.characters);
+        self.inconsistent_lines.extend(from.inconsistent_lines);
         self.untagged_pages = self.untagged_pages.saturating_add(from.untagged_pages);
         self.untagged_honest = self.untagged_honest.saturating_add(from.untagged_honest);
         self.invented.extend(from.invented);
@@ -187,7 +209,7 @@ impl Census {
     }
 
     /// Adds what one page's answer carries.
-    fn carried(&mut self, nodes: &[AccessibilityNode]) {
+    fn carried(&mut self, nodes: &[AccessibilityNode], where_: &str) {
         self.nodes = self.nodes.saturating_add(nodes.len());
         for node in nodes {
             if node.substituted {
@@ -203,6 +225,28 @@ impl Census {
             }
             if node.control.is_some() {
                 self.controls = self.controls.saturating_add(1);
+            }
+            if !node.lines.is_empty() {
+                self.with_lines = self.with_lines.saturating_add(1);
+            }
+            self.lines = self.lines.saturating_add(node.lines.len());
+            for line in &node.lines {
+                self.characters = self.characters.saturating_add(line.characters.len());
+                let stated: usize = line
+                    .characters
+                    .iter()
+                    .map(|character| character.bytes)
+                    .sum();
+                if stated != line.text.len() {
+                    self.inconsistent_lines.push((
+                        where_.to_owned(),
+                        format!(
+                            "a {} line's characters state {stated} byte(s) and its text is {}",
+                            node.role,
+                            line.text.len()
+                        ),
+                    ));
+                }
             }
         }
     }
@@ -378,7 +422,7 @@ fn sweep(
             continue;
         };
         census.structured_pages = census.structured_pages.saturating_add(1);
-        census.carried(&nodes);
+        census.carried(&nodes, &where_);
         if nodes.len() >= ANSWER_BOUND {
             census.at_bound.push((
                 where_.clone(),
@@ -505,6 +549,14 @@ fn report(census: &Census, files: usize, seconds: f64) {
         census.controls
     );
     println!(
+        "  elements a caret can move through: {} ({} lines, {} characters)",
+        census.with_lines, census.lines, census.characters
+    );
+    print_witnesses(
+        "a line whose characters and text disagree, which no consumer could index",
+        &census.inconsistent_lines,
+    );
+    println!(
         "untagged pages answering the honest empty tree: {} of {}",
         census.untagged_honest, census.untagged_pages
     );
@@ -561,6 +613,14 @@ fn what_a_screen_reader_is_told_about_every_document() {
         "an untagged page was answered with structure: {:?}",
         census.invented
     );
+    // `TextLine`'s own invariant, over the whole population rather than over an example: the
+    // characters' byte counts sum to the line's text. Every platform text interface indexes one
+    // by the other, so a line that broke it would misplace a caret rather than fail.
+    assert!(
+        census.inconsistent_lines.is_empty(),
+        "a line's characters and its text disagree: {:?}",
+        census.inconsistent_lines
+    );
 }
 
 /// One tagged document through the whole census, un-ignored, so the classification cannot rot
@@ -585,6 +645,13 @@ fn the_census_reads_a_tagged_document_as_structured_and_answering() {
     assert!(census.named_but_silent.is_empty());
     assert!(census.no_parent_key_silent.is_empty());
     assert_eq!(census.untagged_pages, 0, "it is not in that population");
+    // And a caret reaches its words. The count is not pinned — that is the ratchet's business —
+    // but "some element of a document that draws text has a line" is the shape of the answer,
+    // and a page that lost every line would still pass every assertion above it.
+    assert!(
+        census.with_lines > 0 && census.characters > 0,
+        "a tagged page that draws text answers with somewhere for a caret to stand"
+    );
 }
 
 /// And an untagged one, which is 885 of the corpus's 974: the honest empty answer, counted as

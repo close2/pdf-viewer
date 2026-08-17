@@ -8,7 +8,8 @@ few of a large tagged document got** in the four-hundred-and-ninetieth (ADR 0325
 **§14.7.5.3's object reference — a place and a control** in the five-hundred-and-third (ADR 0338),
 and **page one of ten tagged documents, answered against a page-tree node instead of the page**,
 in the five-hundred-and-seventh (ADR 0342) — found by the census that round built, which is what
-`tools/state.sh accessibility` now prints.
+`tools/state.sh accessibility` now prints; and **a caret, with a third taken off what a page turn
+was paying for**, in the five-hundred-and-fifty-ninth (ADR 0394).
 Priority: 31 — capability
 Clauses: §12.5.2, §12.7.5, §14.7, §14.7.5.3, §14.7.5.4, §14.8.4, §14.8.4.7.2, §14.8.4.8.3,
 §14.8.5.4.3, §14.8.5.7, §14.9
@@ -99,7 +100,10 @@ search rather than from the array**.
   to the labelled-by nodes' text where a node has no label of its own, so an empty table cell would
   be announced as its own headers. That is why §14.8.4.8.3's answer goes into the node's
   description instead, which is a choice about a platform and is argued in `tree::headers`. The
-  upstream question is one question for all three: `Table`, `TableCell` and the relation set.
+  upstream question is one question for all **four** since ADR 0394 found the fourth: `Table`,
+  `TableCell`, the relation set, and **which roles may carry a text interface** —
+  `supports_text_ranges` admits `Label`, `Document`, `Terminal` and a text input, and not one of
+  §14.8.4's forty-one types maps to any of them.
 
 - ~~An element that marks no text and states no `/BBox` still has no place~~ — **the strongest
   route is taken** (ADR 0338), and it was the same missing link the `Form` entry needed: an object
@@ -130,11 +134,24 @@ search rather than from the array**.
   *printed* form of a field, for a form that was flattened — is still read by nobody, which is a
   separate entry rather than this one, and 0 corpus elements state it.
 
-- **AT-SPI's `Text` interface.** A paragraph crosses as a node with a name, so an assistive
-  technology reads it whole. Moving through it by word, character or line — and reporting a
-  caret inside it — is `org.a11y.atspi.Text`, which AccessKit exposes for a node with text runs
-  (`Role::TextRun` children carrying offsets). This tree has the offsets: `Interpretation::text_layer`
-  is one `Placed` per character code. What is missing is the shape, not the data.
+- ~~AT-SPI's `Text` interface~~ — **taken in the five-hundred-and-fifty-ninth session**
+  (ADR 0394), and checked on a real bus with `GetText`, `GetStringAtOffset` by word and by line,
+  and `GetCharacterExtents`. `AccessibilityNode::lines` carries the element's own text one line at
+  a time with each character's byte count and place, and `viewer-accessibility` turns each line
+  into a `Role::TextRun` — invisible on the bus, because `common_filter` excludes that role, so
+  what the change adds is an interface on the nodes that were already there rather than nodes.
+  `tools/state.sh accessibility` counts the elements a caret can move through.
+
+  **Three things it leaves, and the first is the platform's.**
+  `accesskit_consumer::supports_text_ranges` admits only a text input or `Label`, `Document`,
+  `Terminal`, so **no role §14.8.4 maps to can carry the interface**: a client asking a paragraph
+  for `org.a11y.atspi.Text` gets nothing, and the interface sits on the *page* node instead. That
+  is the same upstream question as `Table`, `TableCell` and the relation set above, and it should
+  be asked as one. Second: an element with text of its own *and* structure elements below it
+  publishes its lines before its children, because the flat answer does not record where its own
+  content items sat among them — rare, and unmeasured. Third: a run's text is the readback rather
+  than §14.9's speech, deliberately, because a substitution has no glyphs — so a document stating
+  `/ActualText` on a sequence inside a paragraph says one thing to a caret and another to a voice.
 
 - **Actions.** The tree declares none, so a conforming client requests none; one that arrives
   anyway reaches `Bridge::requested` and `pdf-viewer` prints it by name. The first worth carrying
@@ -143,6 +160,12 @@ search rather than from the array**.
   changed about it**: a check box now announces itself as a check box and says whether it is
   ticked, which invites exactly the request this tree declines. `Command::Activate` on the widget
   is the answer and `AccessibilityNode::control` is already the evidence that the node is one.
+  **And the five-hundred-and-fifty-ninth added a second invitation of the same kind**: a page that
+  says a caret may move through it invites `SetCaretOffset` as surely as a check box invites a
+  click. This is the sharpest entry left on the file, and what it needs is not a reading of a
+  clause — it is two halves of one change in two crates, `viewer-accessibility` declaring the
+  action on the node and `pdf-viewer`'s `App` carrying it out. ADR 0394 says why the round that
+  took the other two entries did not take this one.
 
 - **The question costs tens of milliseconds on a thousand-page document**, and a screen reader asks
   it on every page turn — against the 0.13–0.25 ms ADR 0228 recorded on a five-page one.
@@ -157,6 +180,17 @@ search rather than from the array**.
   whoever takes `doc/todo/45` next as much as it belongs here. **`viewer-core --example
   accessibility_cost` is the stopwatch** since ADR 0301, which is what the entry needed: the
   four-hundred-and-sixty-fifth measured this by hand and left nothing anybody could rerun.
+
+  **Measured in the five-hundred-and-fifty-ninth session and taken down by a third** (ADR 0394),
+  and the answer was neither of the two candidates above. 70.8% of the query was
+  `Tree::identified_children`, and inside it `Tree::child`, which read one `/K` entry with **three
+  deep copies of it**: one resolution to test for §14.7.5.1.1's bare integer, a second for the
+  dictionary, and a clone into `Child::Element`. It resolves once and moves. The role map was not
+  the cost, and the reason is worth keeping: it is asked once per element the walk *enters*, which
+  is tens, while the resolution is asked of every child of every ancestor, which is thousands. The
+  skip stays rejected and now has a second reason — the narrowest sound variant of it, skipping
+  unresolved only under an element §14.7.5.4 does not name as an owner, would lose exactly the
+  short-`/StructParents` case the residue above is about.
 
   **And a stopwatch is the wrong instrument for a small change on a busy machine**, which ADR 0312
   found the hard way with five other rounds building beside it: the same binary read 56 ms and

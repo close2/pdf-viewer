@@ -22,7 +22,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use pdf_syntax::{Dictionary, Document, Object, ObjectId, tree};
+use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId, tree};
 
 /// The `/StructParents`-keyed map from a marked-content identifier to its structure element.
 ///
@@ -262,19 +262,37 @@ impl Tree {
     }
 
     /// One entry of a `/K`, in whichever of the four forms it takes.
+    ///
+    /// # One resolution, and the dictionary is moved rather than copied
+    ///
+    /// [`Document::resolve`] answers with an **owned** object, so every call is a deep copy of
+    /// whatever the document's cache holds — and for a `/K` entry naming a structure element that
+    /// is the element's whole dictionary, its own `/K` array included. This asked for three of
+    /// them per child: one to test for §14.7.5.1.1's bare integer, a second for the dictionary,
+    /// and a third where the entry turned out to be an element. It asks for one and moves it into
+    /// [`Child::Element`].
+    ///
+    /// It is worth the paragraph because of where this function sits rather than because of the
+    /// arithmetic. `viewer_core`'s accessibility walk resolves **every child of every ancestor**
+    /// of a page's own elements, to find out which of them are elements at all — so on a document
+    /// whose structure tree is the size of its page count this is where a screen reader's page
+    /// turn goes: 70.8% of `Query::AccessibilityTree` on ISO 32000-2's page 700, measured under
+    /// callgrind. ADR 0394 has the A/B and `viewer-core --example accessibility_cost` is the
+    /// instrument.
     fn child(document: &Document, entry: &Object, page: Option<ObjectId>) -> Option<Child> {
-        if let Some(mcid) = document.resolve(entry).as_integer() {
+        let resolved = document.resolve(entry);
+        if let Some(mcid) = resolved.as_integer() {
             return Some(Child::MarkedContent { mcid, page });
         }
-        let resolved = document.resolve(entry);
-        let dict = resolved.as_dict()?;
-        let kind = document.get_key(dict, "Type");
-        let kind = kind.as_name().map(|name| name.as_bytes().to_vec());
-        match kind.as_deref() {
+        let Object::Dictionary(dict) = resolved else {
+            return None;
+        };
+        let kind = document.get_key(&dict, "Type");
+        match kind.as_name().map(Name::as_bytes) {
             // Table 357: a marked-content reference names the sequence and may move both the
             // page and the stream it lives in.
             Some(b"MCR") => Some(Child::MarkedContent {
-                mcid: document.get_key(dict, "MCID").as_integer()?,
+                mcid: document.get_key(&dict, "MCID").as_integer()?,
                 page: dict.get("Pg").and_then(Object::as_reference).or(page),
             }),
             // Table 358: an object reference. `/Obj` is required and is what identifies it.
@@ -282,7 +300,7 @@ impl Tree {
                 object: dict.get("Obj").and_then(Object::as_reference)?,
                 page: dict.get("Pg").and_then(Object::as_reference).or(page),
             }),
-            _ => Some(Child::Element(dict.clone())),
+            _ => Some(Child::Element(dict)),
         }
     }
 

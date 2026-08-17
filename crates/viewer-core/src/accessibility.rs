@@ -243,6 +243,69 @@ pub struct AccessibilityNode {
     /// this answer is one page's, so a table whose header row is on the page before has its data
     /// cells' headers pruned away with it. Nothing in §14.8 makes a table stay on one page.
     pub headers: Vec<usize>,
+    /// The element's own text again, one line at a time, with each character's place.
+    ///
+    /// [`Self::name`] is what the element is *called* and this is what it *says*, and the two are
+    /// different questions with different answers. A name is one string for a whole paragraph, so
+    /// an assistive technology reads the paragraph or does not; moving through it by character, by
+    /// word or by line, and reporting where the caret is, needs to know where each character
+    /// begins and which characters share a line. That is what a platform text interface asks for —
+    /// AT-SPI's `org.a11y.atspi.Text`, `NSAccessibility`'s marked ranges, UIA's `TextPattern` —
+    /// and none of them can be built from a string.
+    ///
+    /// # Why this is the readback and not the speech
+    ///
+    /// [`Self::name`] applies §14.9's substitutions: an `/ActualText` inside the element replaces
+    /// what was drawn, and an `/E` expands an abbreviation. This does **not**, deliberately. A
+    /// caret moves over what is on the page, and `GetCharacterExtents` asks where the *glyph* is;
+    /// a substitution has no glyphs, so a run built out of one would report positions for
+    /// characters nobody drew. The two answers are carried side by side for the same reason
+    /// [`Self::quads`] and [`Self::bounds`] are.
+    ///
+    /// Empty for an element that states §14.9.3's `/Alt` or §14.9.5's `/E` of its own — the phrase
+    /// substitutes for the whole element, which is why [`Self::substituted`] also stops a host
+    /// descending — and for one whose own content items drew no text, which is most of them.
+    ///
+    /// The lines are the element's **own** content items, as [`Self::name`] is, and in the order
+    /// the page drew them within §14.8.2.5's order over the elements.
+    pub lines: Vec<TextLine>,
+}
+
+/// One line of an element's text, and where each of its characters is.
+///
+/// A *line* here is what [`crate::Query::Selection`]'s merge already means by one: a run of
+/// character codes sharing both baseline corners' y, each beginning no further along than the last
+/// one ended. It is the page's own geometry rather than a paragraph's logical line, which is the
+/// only definition available to a reader — a PDF states no line breaks, and §9.4.2's `TJ` and `T*`
+/// leave the line to be recovered from where the glyphs landed.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TextLine {
+    /// Exactly the readback of [`Self::characters`], concatenated.
+    ///
+    /// The invariant a text interface needs and the reason the two are one type: the sum of the
+    /// characters' [`Character::bytes`] is this string's length, so an offset into the string and
+    /// an index into the characters convert into each other without either side guessing.
+    pub text: String,
+    /// One entry per character code the page drew, in the order it drew them.
+    pub characters: Vec<Character>,
+}
+
+/// One character code's share of a line: how much of the text it produced, and where it is.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Character {
+    /// How many bytes of [`TextLine::text`] this code produced.
+    ///
+    /// Usually one character's worth and not always: a code mapped through `/ToUnicode` to a
+    /// several-character string — a ligature read back as `ffi` — produced one glyph in one place,
+    /// and splitting its box into thirds would invent positions the file does not state. So the
+    /// unit a caret moves by is the *code*, which is the unit the page actually drew.
+    pub bytes: usize,
+    /// Where the glyph is, in device pixels of the viewport: `[x0, y0, x1, y1]`.
+    ///
+    /// The same space [`AccessibilityNode::quads`] and [`AccessibilityNode::bounds`] are in. A
+    /// rectangle rather than the quadrilateral, because a platform asks a character's extent as
+    /// one; the quadrilateral is still what `quads` carries.
+    pub bounds: [f32; 4],
 }
 
 /// What one element contributes before its quads are mapped into the viewport.
@@ -700,17 +763,18 @@ pub(crate) fn finish(
     parent: Option<usize>,
     page: &Readback<'_>,
     quads: impl Fn(usize, usize) -> Vec<[f32; 8]>,
+    lines: impl Fn(&[(usize, usize)]) -> Vec<TextLine>,
     place: impl Fn([f32; 4]) -> Option<[f32; 4]>,
 ) -> AccessibilityNode {
     let substituted = gathered.phrase.is_some();
+    let own = ranges(page.marked, &gathered.own);
     let name = gathered.phrase.unwrap_or_else(|| {
         // The element's own content items, not its descendants': see `AccessibilityNode::name`.
-        spoken(
-            page.text,
-            page.described,
-            &ranges(page.marked, &gathered.own),
-        )
+        spoken(page.text, page.described, &own)
     });
+    // Nothing to move a caret through where the element has said what to say instead of its
+    // content: see `AccessibilityNode::lines`.
+    let drawn = if substituted { Vec::new() } else { lines(&own) };
     let mut all = Vec::new();
     for (start, end) in ranges(page.marked, &gathered.mcids) {
         all.extend(quads(start, end));
@@ -734,6 +798,7 @@ pub(crate) fn finish(
             .iter()
             .find_map(|object| page.controls.get(object).cloned()),
         headers: gathered.headers,
+        lines: drawn,
     }
 }
 

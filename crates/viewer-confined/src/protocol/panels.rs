@@ -55,7 +55,9 @@ use pdf_model::viewer_preferences::{
 use pdf_model::xmp::{Name as XmpName, Value as XmpValue, Xmp, XmpError};
 use pdf_render::{Color, Image};
 use pdf_syntax::{Name, Object};
-use viewer_core::{AccessibilityNode, FormField, FormWidget, Layer, PopupWindow};
+use viewer_core::{
+    AccessibilityNode, Character, FormField, FormWidget, Layer, PopupWindow, TextLine,
+};
 
 use super::{ProtocolError, Reader, Uncarried, Writer};
 use crate::Attachment;
@@ -1446,6 +1448,7 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
             bounds,
             control,
             headers,
+            lines,
         } = node;
         writer
             .option_usize(*parent)
@@ -1478,6 +1481,16 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
         writer.usize(quads.len());
         for quad in quads {
             writer.quad(*quad);
+        }
+        // Each line's text, then one character at a time: how many bytes of that text it produced
+        // and where it is. The invariant the far side checks is that the two agree — see
+        // `read_lines`.
+        writer.usize(lines.len());
+        for line in lines {
+            writer.str(&line.text).usize(line.characters.len());
+            for character in &line.characters {
+                writer.usize(character.bytes).numbers(&character.bounds);
+            }
         }
     }
 }
@@ -1528,7 +1541,37 @@ pub(super) fn decode_accessibility(
                 Ok(header)
             })?,
             quads: super::read_quads(reader, "a node's shapes")?,
+            lines: read_lines(reader)?,
         })
+    })
+}
+
+/// Reads the lines of one element's own text, with the invariant a text interface indexes by.
+///
+/// [`viewer_core::TextLine`] states that its text is exactly the readback of its characters, and
+/// every platform's text interface turns an offset into the string into an index into the
+/// characters by walking their byte counts. A confined side that sent the two out of step would
+/// put a host's caret arithmetic past the end of its own string, so the sum is checked here —
+/// which is the side of the wire where the producer is not to be trusted.
+fn read_lines(reader: &mut Reader<'_>) -> Result<Vec<TextLine>, ProtocolError> {
+    reader.list("a node's lines", |reader| {
+        let text = reader.string("a line's text")?;
+        let characters = reader.list("a line's characters", |reader| {
+            Ok(Character {
+                bytes: reader.usize("a character's bytes")?,
+                bounds: reader.rect("a character's box")?,
+            })
+        })?;
+        let stated = characters
+            .iter()
+            .try_fold(0usize, |sum, character| sum.checked_add(character.bytes));
+        if stated != Some(text.len()) {
+            return Err(ProtocolError::Unrecognised {
+                what: "a line whose characters and text disagree",
+                value: u32::try_from(stated.unwrap_or(usize::MAX)).unwrap_or(u32::MAX),
+            });
+        }
+        Ok(TextLine { text, characters })
     })
 }
 
