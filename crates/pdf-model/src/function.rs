@@ -210,7 +210,7 @@ impl Function {
             )?)),
             2 => Self::parse_exponential(document, &dict)?,
             3 => Self::parse_stitching(document, &dict, &domain, budget)?,
-            4 => Self::parse_postscript(document, &resolved)?,
+            4 => Self::parse_postscript(document, &resolved, domain.len())?,
             other => return Err(FunctionError::UnsupportedType { kind: other }),
         };
 
@@ -713,7 +713,11 @@ impl Function {
         })
     }
 
-    fn parse_postscript(document: &Document, object: &Object) -> Result<Kind, FunctionError> {
+    fn parse_postscript(
+        document: &Document,
+        object: &Object,
+        inputs: usize,
+    ) -> Result<Kind, FunctionError> {
         let stream = object.as_stream().ok_or_else(|| FunctionError::Malformed {
             detail: "a PostScript function must be a stream".to_owned(),
         })?;
@@ -724,7 +728,10 @@ impl Function {
                     detail: "program did not decode".to_owned(),
                 })?;
         let program = compile_postscript(&data)?;
-        Ok(Kind::PostScript(program.into()))
+        // §7.10.5.3 makes the inputs "the initial operand stack", so the walk starts where the
+        // evaluator does — which is what lets it model the depth at all.
+        let folded = fold_constants(&program, inputs).unwrap_or(program);
+        Ok(Kind::PostScript(folded.into()))
     }
 }
 
@@ -1289,6 +1296,292 @@ fn without_comments(program: &str) -> String {
                 .map_or(line, |at| line.get(..at).unwrap_or_default()),
         );
         out.push('\n');
+    }
+    out
+}
+
+/// How many operands `operator` reads, given what is known of the stack under it.
+///
+/// `None` where the count `copy`, `index` or `roll` takes is not known at compile time, which is
+/// the one thing that stops [`fold_constants`] from modelling the operand stack's depth — and it
+/// gives up on the whole program when that happens rather than guessing, because a wrong depth
+/// would make its `MAX_STACK` reasoning wrong.
+///
+/// The three §B.5 counting operators are the reason this is a function of the stack rather than a
+/// constant per operator: `n copy` reads `n` operands and the count, `n index` reads `n + 1` and
+/// the count, and `n j roll` reads `n` and both of its own.
+fn operand_demand(operator: Operator, stack: &[Option<Value>]) -> Option<usize> {
+    /// The literal at `depth` below the top, where the walk knows it and it is a count.
+    fn count(stack: &[Option<Value>], depth: usize) -> Option<i32> {
+        stack
+            .len()
+            .checked_sub(depth.checked_add(1)?)
+            .and_then(|at| stack.get(at).copied())
+            .flatten()
+            .map(Value::integer)
+    }
+    Some(match operator {
+        Operator::True | Operator::False => 0,
+        Operator::Abs
+        | Operator::Ceiling
+        | Operator::Cos
+        | Operator::Cvi
+        | Operator::Cvr
+        | Operator::Floor
+        | Operator::Ln
+        | Operator::Log
+        | Operator::Neg
+        | Operator::Not
+        | Operator::Round
+        | Operator::Sin
+        | Operator::Sqrt
+        | Operator::Truncate
+        | Operator::Dup
+        | Operator::Pop => 1,
+        Operator::Add
+        | Operator::Atan
+        | Operator::Div
+        | Operator::Exp
+        | Operator::Idiv
+        | Operator::Mod
+        | Operator::Mul
+        | Operator::Sub
+        | Operator::And
+        | Operator::Bitshift
+        | Operator::Eq
+        | Operator::Ge
+        | Operator::Gt
+        | Operator::Le
+        | Operator::Lt
+        | Operator::Ne
+        | Operator::Or
+        | Operator::Xor
+        | Operator::Exch => 2,
+        // A non-positive count makes each of these read nothing but its own operands, which is
+        // what the arms in `apply_operator` do with one.
+        Operator::Copy => usize::try_from(count(stack, 0)?)
+            .unwrap_or(0)
+            .saturating_add(1),
+        Operator::Index => usize::try_from(count(stack, 0)?)
+            .unwrap_or(0)
+            .saturating_add(2),
+        Operator::Roll => usize::try_from(count(stack, 1)?)
+            .unwrap_or(0)
+            .saturating_add(2),
+    })
+}
+
+/// Replaces each run of instructions whose value is settled at compile time with that value.
+///
+/// # Why a compiled function is worth folding at all
+///
+/// ISO 32000-2 §8.7.4.5.2's type 1 shading evaluates its function **once per device pixel**, so a
+/// subexpression built only from literals is recomputed a million times a frame for an answer that
+/// never changes. `tmp/pi.pdf` is the witness this was written from: three blocks of the BBP series
+/// for π, fifteen `div`s, three `exp`s and a `truncate`, every operand of every one of them a
+/// literal — 94.09% of that page's rasterisation measured in `Function::eval_into`, and most of it
+/// computing the constant 3141 again.
+///
+/// **And it decides where the shading is drawn.** ADR 0376 hands a type 4 program to the graphics
+/// device where the device will state a bound on its disagreement with this evaluator; quorra's
+/// rule (their ADR 0053) refuses a program in which an operator WGSL 15.7.4.1 gives an error
+/// budget — `div` at 2.5 ULP, `exp` through `exp2(y · log2(x))` — reaches one that turns a last-bit
+/// difference into a whole unit. An operator whose operands are literals is not evaluated on the
+/// device at all after this pass, so there is nothing for the two evaluations to disagree about,
+/// and the rule admits the program with no part of it weakened. ADR 0406.
+///
+/// # What makes the answer the same in every bit
+///
+/// A run is folded only where it is a *closed island*: it starts with a literal push, contains no
+/// jump and no jump target, never reads below the depth it started at, and ends with exactly one
+/// value above that depth. Such a run is then evaluated by [`evaluate_postscript`] itself, on a
+/// stack holding only the run's own values — the same instructions through the same operators in
+/// the same order, so the value is the one the run would have produced in place.
+///
+/// Two things could make an isolated evaluation differ from an in-place one, and both are
+/// [`MAX_STACK`]: a push is dropped at the ceiling, and `copy` declines above it. So the walk
+/// models the operand stack's *absolute* depth and abandons the whole program the moment that
+/// depth could reach the ceiling — after which neither guard can fire anywhere a fold happens.
+/// Modelling the depth needs each `if`'s two arms to leave the same one, which is checked at the
+/// join rather than assumed.
+fn fold_constants(program: &[Instruction], inputs: usize) -> Option<Vec<Instruction>> {
+    let mut is_target = vec![false; program.len().saturating_add(1)];
+    // The depth a jump promises at its target, which is what makes the join checkable.
+    let mut promised: Vec<Option<usize>> = vec![None; program.len().saturating_add(1)];
+    for instruction in program {
+        if let Instruction::Jump(target) | Instruction::JumpUnless(target) = instruction
+            && let Some(slot) = is_target.get_mut(*target)
+        {
+            *slot = true;
+        }
+    }
+
+    let mut stack: Vec<Option<Value>> = vec![None; inputs.min(MAX_VALUES)];
+    let mut islands = Islands::default();
+    let mut scratch: Vec<Value> = Vec::new();
+
+    for (at, instruction) in program.iter().enumerate() {
+        if is_target.get(at).copied().unwrap_or(false) {
+            islands.close();
+            // Two arms that leave different depths make the model wrong from here on, and a wrong
+            // depth is what the ceiling reasoning above rests on. A value that survived a join
+            // may have come from either arm, so nothing below it is known any more.
+            match promised.get(at).copied().flatten() {
+                Some(depth) if depth == stack.len() => stack.fill(None),
+                _ => return None,
+            }
+        }
+        match instruction {
+            Instruction::Push(value) => {
+                if stack.len() >= MAX_STACK {
+                    return None;
+                }
+                islands.open(at, stack.len());
+                stack.push(Some(*value));
+            }
+            Instruction::Operator(operator) => {
+                // The window the operator reads, which is the whole stack where the program
+                // reads past the bottom of it — §7.10.5.3's underflow, answered by
+                // `EMPTY_STACK`. Running the operator over exactly that window is what makes
+                // the depth this walk models the depth the evaluator will have: the length
+                // `apply_operator` leaves is the length it leaves, whatever the arm does.
+                let demand = operand_demand(*operator, &stack)?;
+                let below = stack.len().saturating_sub(demand);
+                let known = stack.len() >= demand
+                    && stack
+                        .get(below..)
+                        .is_some_and(|top| top.iter().all(Option::is_some));
+                let folding = known && islands.holds(below);
+                scratch.clear();
+                scratch.extend(stack.drain(below..).map(|cell| cell.unwrap_or(EMPTY_STACK)));
+                apply_operator(*operator, &mut scratch);
+                if below.saturating_add(scratch.len()) > MAX_STACK {
+                    return None;
+                }
+                if folding {
+                    stack.extend(scratch.iter().copied().map(Some));
+                } else {
+                    islands.close();
+                    stack.resize(below.saturating_add(scratch.len()), None);
+                }
+            }
+            Instruction::JumpUnless(target) => {
+                islands.close();
+                stack.pop();
+                promise(&mut promised, *target, stack.len())?;
+            }
+            Instruction::Jump(target) => {
+                islands.close();
+                promise(&mut promised, *target, stack.len())?;
+                // Control does not fall through an unconditional jump, so the depth after it is
+                // whatever reaches the next instruction — which the compiler only ever emits as
+                // the target of the `JumpUnless` this `Jump` belongs to.
+                let depth = promised.get(at.saturating_add(1)).copied().flatten()?;
+                stack.clear();
+                stack.resize(depth, None);
+            }
+        }
+        islands.reached(at, &stack);
+    }
+    islands.close();
+
+    let folds = islands.folds;
+    (!folds.is_empty()).then(|| rewrite(program, &folds))
+}
+
+/// The constant islands [`fold_constants`] has found, and the one it is still extending.
+#[derive(Default)]
+struct Islands {
+    /// Where the island being extended starts, and the operand-stack depth under it.
+    open: Option<(usize, usize)>,
+    /// The longest fold that island has reached: its first and last instruction, and its value.
+    best: Option<(usize, usize, Value)>,
+    /// The islands already closed, in program order.
+    folds: Vec<(usize, usize, Value)>,
+}
+
+impl Islands {
+    /// Begins an island at `at` over a stack `base` deep, where none is open.
+    fn open(&mut self, at: usize, base: usize) {
+        if self.open.is_none() {
+            self.open = Some((at, base));
+        }
+    }
+
+    /// Whether the open island's own values reach down to `depth`.
+    fn holds(&self, depth: usize) -> bool {
+        self.open.is_some_and(|(_, base)| depth >= base)
+    }
+
+    /// Notes that the island now stands as one value, where it does.
+    fn reached(&mut self, at: usize, stack: &[Option<Value>]) {
+        if let Some((from, base)) = self.open
+            && stack.len() == base.saturating_add(1)
+            && let Some(Some(value)) = stack.last().copied()
+        {
+            self.best = Some((from, at, value));
+        }
+    }
+
+    /// Ends the open island, keeping the longest fold it reached.
+    ///
+    /// A fold of one instruction is not one: replacing a push with the same push is the identity,
+    /// and emitting it would put every literal in the program through [`rewrite`] for nothing.
+    fn close(&mut self) {
+        if let Some((from, to, value)) = self.best.take()
+            && to > from
+        {
+            self.folds.push((from, to, value));
+        }
+        self.open = None;
+    }
+}
+
+/// Records the depth a jump leaves at its target, refusing where two jumps disagree.
+fn promise(promised: &mut [Option<usize>], target: usize, depth: usize) -> Option<()> {
+    match promised.get_mut(target)? {
+        slot @ None => {
+            *slot = Some(depth);
+            Some(())
+        }
+        Some(already) if *already == depth => Some(()),
+        Some(_) => None,
+    }
+}
+
+/// The program with each fold replaced by one push, and every jump moved to where it now points.
+fn rewrite(program: &[Instruction], folds: &[(usize, usize, Value)]) -> Vec<Instruction> {
+    let mut moved = vec![usize::MAX; program.len().saturating_add(1)];
+    let mut out: Vec<Instruction> = Vec::with_capacity(program.len());
+    let mut folds = folds.iter().peekable();
+    let mut at = 0usize;
+    while at < program.len() {
+        if let Some((from, to, value)) = folds.peek().copied()
+            && *from == at
+        {
+            folds.next();
+            for index in *from..=*to {
+                if let Some(slot) = moved.get_mut(index) {
+                    *slot = out.len();
+                }
+            }
+            out.push(Instruction::Push(*value));
+            at = to.saturating_add(1);
+            continue;
+        }
+        if let Some(slot) = moved.get_mut(at) {
+            *slot = out.len();
+        }
+        out.push(program[at].clone());
+        at = at.saturating_add(1);
+    }
+    if let Some(slot) = moved.last_mut() {
+        *slot = out.len();
+    }
+    for instruction in &mut out {
+        if let Instruction::Jump(target) | Instruction::JumpUnless(target) = instruction {
+            *target = moved.get(*target).copied().unwrap_or(usize::MAX);
+        }
     }
     out
 }
@@ -2037,7 +2330,7 @@ fn to_integer(value: f32) -> i32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{Function, Value, compile_postscript, evaluate_postscript};
+    use super::{Function, Instruction, Operator, Value, compile_postscript, evaluate_postscript};
 
     /// Compiles and runs a type 4 program, which needs no document to exist, and reads what it
     /// left behind the way §7.10.5.3 does — as numbers.
@@ -2715,5 +3008,218 @@ mod tests {
                 "{breaks:?} should be [-1, 0, 1]"
             );
         }
+    }
+
+    /// The instructions a source compiles to, with [`super::fold_constants`] applied as
+    /// `parse_postscript` applies it.
+    fn folded(source: &str, inputs: usize) -> Vec<Instruction> {
+        let program = compile_postscript(source.as_bytes()).expect("compiles");
+        super::fold_constants(&program, inputs).unwrap_or(program)
+    }
+
+    /// The program run twice — as compiled and as folded — so that the fold is checked against
+    /// the thing it claims to be equal to rather than against a value written down here.
+    ///
+    /// Bit patterns and discriminants, because the whole argument for folding is that it changes
+    /// nothing: a `-0.0` where a `0.0` was, or a real where an integer was, is a difference `==`
+    /// hides and seven of Table 42's operators can see.
+    fn agrees(source: &str, inputs: &[f32]) -> Vec<Value> {
+        let program = compile_postscript(source.as_bytes()).expect("compiles");
+        let start =
+            |values: &[f32]| -> Vec<Value> { values.iter().copied().map(Value::Real).collect() };
+        let mut plain = start(inputs);
+        evaluate_postscript(&program, &mut plain);
+        let folded = super::fold_constants(&program, inputs.len()).unwrap_or(program);
+        let mut after = start(inputs);
+        evaluate_postscript(&folded, &mut after);
+        assert_eq!(plain.len(), after.len(), "{source} left a different depth");
+        for (before, now) in plain.iter().zip(after.iter()) {
+            assert_eq!(
+                std::mem::discriminant(before),
+                std::mem::discriminant(now),
+                "{source} changed a value's type: {before:?} against {now:?}"
+            );
+            assert_eq!(
+                before.number().to_bits(),
+                now.number().to_bits(),
+                "{source} changed a value: {before:?} against {now:?}"
+            );
+        }
+        plain
+    }
+
+    /// A run of literals is one value, and the compiler is what computes it.
+    #[test]
+    fn a_program_of_literals_becomes_the_value_it_computes() {
+        assert_eq!(
+            folded("{ 2 3 add 4 mul }", 0),
+            vec![Instruction::Push(Value::Integer(20))]
+        );
+        agrees("{ 2 3 add 4 mul }", &[]);
+    }
+
+    /// An island may not reach below the stack it built, because what is under it is the
+    /// document's own input and no compiler knows that.
+    #[test]
+    fn an_island_stops_where_it_would_read_an_input() {
+        assert_eq!(
+            folded("{ 2 add }", 1),
+            vec![
+                Instruction::Push(Value::Integer(2)),
+                Instruction::Operator(Operator::Add),
+            ]
+        );
+        // …and the literals after it are their own island, which stops at the second `add`.
+        assert_eq!(
+            folded("{ 2 add 3 4 add add }", 1),
+            vec![
+                Instruction::Push(Value::Integer(2)),
+                Instruction::Operator(Operator::Add),
+                Instruction::Push(Value::Integer(7)),
+                Instruction::Operator(Operator::Add),
+            ]
+        );
+        agrees("{ 2 add 3 4 add add }", &[5.0]);
+    }
+
+    /// A fold shortens the program, so every jump over one has to move with it.
+    #[test]
+    fn a_jump_over_a_fold_still_lands_where_it_did() {
+        let source = "{ 0 gt { 2 3 add } { 10 4 sub } ifelse }";
+        assert_eq!(
+            folded(source, 1),
+            vec![
+                Instruction::Push(Value::Integer(0)),
+                Instruction::Operator(Operator::Gt),
+                // The else arm, which the fold moved from 7 to 5…
+                Instruction::JumpUnless(5),
+                Instruction::Push(Value::Integer(5)),
+                // …and the instruction past the end, which it moved from 10 to 6.
+                Instruction::Jump(6),
+                Instruction::Push(Value::Integer(6)),
+            ]
+        );
+        assert_eq!(agrees(source, &[1.0]), vec![Value::Integer(5)]);
+        assert_eq!(agrees(source, &[-1.0]), vec![Value::Integer(6)]);
+    }
+
+    /// §B.5's three counting operators move values without reading them, so a fold has to carry
+    /// the count as well as the window it names.
+    #[test]
+    fn the_counting_operators_fold_with_their_windows() {
+        assert_eq!(agrees("{ 1 2 3 3 1 roll }", &[]).len(), 3);
+        assert_eq!(agrees("{ 1 2 2 index }", &[]).len(), 3);
+        assert_eq!(agrees("{ 1 2 2 copy }", &[]).len(), 4);
+        // A count that reaches below the island is not the island's to fold.
+        agrees("{ 1 2 3 index }", &[7.0, 8.0]);
+        agrees("{ 1 3 1 roll }", &[7.0, 8.0]);
+    }
+
+    /// The operators whose two evaluations may disagree are exactly the ones a fold removes,
+    /// wherever their operands are the program's own literals.
+    #[test]
+    fn an_inexact_operator_over_literals_is_gone_after_folding() {
+        for source in [
+            "{ 1 3 div }",
+            "{ 16 2 exp }",
+            "{ 2 sqrt }",
+            "{ 1 1 atan }",
+            "{ 2 ln }",
+        ] {
+            let program = folded(source, 0);
+            assert!(
+                matches!(program.as_slice(), [Instruction::Push(_)]),
+                "{source} folded to {program:?}"
+            );
+            agrees(source, &[]);
+        }
+    }
+
+    /// Every arm of [`super::apply_operator`] driven through the fold, so that an operator whose
+    /// arity this pass has wrong is caught by the depth it leaves rather than by a corpus page.
+    #[test]
+    fn folding_agrees_with_the_evaluator_over_every_operator() {
+        for source in [
+            "{ 3 abs 2 add 7 atan 3 ceiling 1 cos 2.6 cvi 3 cvr 2 div add }",
+            "{ 2 3 exp 1.5 floor 7 2 idiv 3 ln 4 log 7 3 mod mul add }",
+            "{ 3 neg 2.5 round 30 sin 4 sqrt 5 2 sub 9.9 truncate add add add add add }",
+            "{ 6 3 and 1 2 bitshift 3 3 eq true 4 5 ge 6 7 gt and and }",
+            "{ 8 9 le 9 8 lt 1 2 ne false not 5 6 or 3 5 xor }",
+            "{ 1 2 3 2 copy 4 dup exch 1 index pop 3 1 roll }",
+            // A negative or zero count is the arm each of the three takes on its own operands.
+            "{ 1 2 0 copy 1 -1 roll 5 -2 index }",
+            // Nested conditionals over folded arms, which is where the jump map earns its place.
+            "{ 0 gt { 1 2 add 0 gt { 3 4 mul } { 5 6 mul } ifelse } { 7 8 add } ifelse }",
+            // An `if` with no else, whose target is the instruction after the arm.
+            "{ 1 2 add 0 gt { 9 9 mul } if }",
+        ] {
+            for inputs in [&[1.0f32][..], &[-1.0][..], &[0.0][..]] {
+                agrees(source, inputs);
+            }
+        }
+    }
+
+    /// §7.10.5.3's underflow is not a reason to leave a program alone.
+    ///
+    /// The witness page reads past the bottom of its own operand stack in three places, and the
+    /// first version of this pass declined the whole program for it — which would have left the
+    /// one document the pass was written for exactly where it was. The walk runs each operator
+    /// over the window that is actually there, so [`super::EMPTY_STACK`] costs it nothing.
+    #[test]
+    fn a_program_that_underflows_is_still_folded_where_it_can_be() {
+        assert_eq!(
+            folded("{ pop pop pop 4 5 add }", 0),
+            vec![
+                Instruction::Operator(Operator::Pop),
+                Instruction::Operator(Operator::Pop),
+                Instruction::Operator(Operator::Pop),
+                Instruction::Push(Value::Integer(9)),
+            ]
+        );
+        agrees("{ pop pop pop 4 5 add }", &[1.0]);
+        agrees("{ 3 index 2 add }", &[1.0, 2.0]);
+    }
+
+    /// The witness this pass was written from, and the claim that matters about it.
+    ///
+    /// `doc/corpora-own/pi_seven_segment.pdf` draws π's first four digits on a seven-segment
+    /// display, and every operand of every `div` and `exp` in it is a literal: the BBP series it
+    /// evaluates once per device pixel is a *constant*. After folding, no operator that WGSL
+    /// 15.7.4.1 gives an error budget is left in the program a device is handed — which is what
+    /// lets that device evaluate the shading under quorra's agreement rule unweakened. ADR 0406.
+    #[test]
+    fn the_witness_pages_program_keeps_no_inexact_operator() {
+        use pdf_render::{ProgramOperator, ProgramStep};
+
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../doc/corpora-own/pi_seven_segment.pdf");
+        let bytes = std::fs::read(&path).expect("the witness is in the repository");
+        let document = pdf_syntax::Document::open(bytes).expect("opens");
+        let object = document.get(pdf_syntax::ObjectId {
+            number: 6,
+            generation: 0,
+        });
+        let function = Function::parse(&document, &object).expect("parses");
+        let steps = function
+            .device_program([0.0, 1.0, 0.0, 1.0])
+            .expect("every operator lowers");
+
+        let inexact: Vec<ProgramOperator> = steps
+            .iter()
+            .filter_map(|step| match step {
+                ProgramStep::Operator(
+                    operator @ (ProgramOperator::Div
+                    | ProgramOperator::Exp
+                    | ProgramOperator::Atan
+                    | ProgramOperator::Ln
+                    | ProgramOperator::Log
+                    | ProgramOperator::Sin
+                    | ProgramOperator::Cos
+                    | ProgramOperator::Sqrt),
+                ) => Some(*operator),
+                _ => None,
+            })
+            .collect();
+        assert!(inexact.is_empty(), "{inexact:?} survived the fold");
     }
 }

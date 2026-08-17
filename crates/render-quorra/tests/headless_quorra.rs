@@ -690,6 +690,55 @@ fn cpu_and_quorra_agree_on_a_device_evaluated_function_shading() {
     );
 }
 
+/// The witness page whose program the device used to refuse, drawn on both paths.
+///
+/// `doc/corpora-own/pi_seven_segment.pdf` computes π by the BBP series and draws its first four
+/// digits on a seven-segment display, and until session 572 the `div` in that series reached the
+/// `truncate` that turns the sum into digits — so quorra's `Agreement::Unbounded` refused it and
+/// the page was drawn from the grid, one processor evaluation per device pixel. Every operand of
+/// every one of those operators is a *literal*: the series is a constant, and
+/// `pdf_model::function::fold_constants` now computes it once at compile time. ADR 0406.
+///
+/// **What this asserts is the pair, because either half alone would be worth little.** That the
+/// device takes the program is the whole performance claim; that the two rasters agree is what
+/// says the digits are still π's. A page of digits is exactly where a difference of *branch*
+/// rather than of colour would show, which is why this is a real document and not a fixture.
+#[test]
+fn cpu_and_quorra_agree_on_the_witness_pages_folded_program() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../doc/corpora-own/pi_seven_segment.pdf");
+    let bytes = std::fs::read(&path).expect("the witness is in the repository");
+    let document = pdf_syntax::Document::open(bytes).expect("opens");
+    let pages = pdf_model::Pages::new(&document);
+    let page = pages.get(0).expect("has a page");
+    let list = pdf_model::content::interpret(&document, &page).display_list;
+    assert!(
+        carries_a_program(&list),
+        "this tree offers the program; the assertion below is that the device now takes it"
+    );
+
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("target fits the budget");
+    let mut ours = quorra();
+    let drawn = ours
+        .rasterize(&list, target)
+        .expect("quorra draws the page");
+    let paints = ours.last_function_paints();
+    assert_eq!(
+        paints.refusals(),
+        &[] as &[String],
+        "the folded program carries no operator WGSL 15.7.4.1 gives an error budget"
+    );
+    assert_eq!(paints.evaluated(), 1, "the device evaluated the shading");
+
+    let cpu = CpuRasterizer::new()
+        .rasterize(&list, target)
+        .expect("the CPU oracle draws every fixture");
+    let comparison = raster_compare::compare(&cpu, &drawn).expect("same dimensions");
+    // Seven-segment digits are all edge, so the differing-channel fraction is the boundary
+    // allowance every other step-function scene here takes.
+    assert_within("the witness page's folded program", comparison, 0.06);
+}
+
 /// A program the device will not bound is refused **by name**, and the page still draws.
 ///
 /// This is the fallback ADR 0376 rests on, asserted rather than assumed: `2 div` is inexact

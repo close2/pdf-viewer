@@ -665,6 +665,28 @@ every strip, so a page in sixteen strips resolves the whole grid sixteen times. 
 path the owner reported — quorra builds the scene once, on one thread — and named in ADR 0364 for
 whoever measures that backend next.
 
+**Then session 572 asked why the work was being done at all, and most of it was not work** (ADR
+0405). The owner reported that zooming that same `pi.pdf` drops frames; the attribution was a
+`callgrind` profile rather than an inference — **94.09%** of the page in `Function::eval_into`,
+15 240 instructions per device pixel — and the two obvious levers were eliminated by measurement:
+the grid is already divided (781.3 ms serial against 93.5 on 24 threads at load 17, A/B in one
+sitting) and the interpreter has no fat left after ADRs 0364 and 0371. What the *program* had was a
+constant: the BBP series for π it evaluates per pixel is built entirely from literals.
+`fold_constants` computes it once at compile time, and the consequence is not mainly a processor
+saving — **9.6%**, 2.591 G instructions to 2.343 G, because the folded instructions are the cheap
+ones — but that the program handed to the device no longer contains an operator WGSL 15.7.4.1 gives
+an error budget, so quorra evaluates the shading per fragment under its unweakened agreement rule:
+
+| frame | pixels | total | scene | bytes uploaded |
+|---|---|---:|---:|---:|
+| before, 1× | 400×400 | 24.6 → **19.8** | 21.1 → **0.2** | 640 032 → 32 |
+| zoom, 2× | 800×800 | 96.1 → **3.5** | 93.5 → **0.1** | 2 560 032 → 32 |
+
+`examples/zoom_frame`, real Radeon 890M, minima of five rounds, the *after* arm at the higher load
+average of the two. **The lesson is the one about which number to quote**: 96.1 → 3.5 ms is a change
+of path and 9.6% is the change to the path a still-refused page takes, and adding them together
+would describe neither.
+
 What is left, in order, on the halved page: `build_soft_mask` 17.1%, `Mask::intersect_path` 8.3%,
 `fill_path_impl` 7.7%, `calloc` 4.5%, `gradient` 2.9%. **The two mask lines are one item**:
 `MaskCache::get` is now **41.5%** of the page — 3554 chains built, no eviction and no duplication
