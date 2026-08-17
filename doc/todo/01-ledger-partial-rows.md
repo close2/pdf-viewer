@@ -2900,6 +2900,60 @@ under §8.11.4.3, and — under §8.10.2 — `Xmp::read` and `attachment::associ
 any dictionary while their one caller each passes the catalog, which is the fifth sweep's shape rather
 than that row's.
 
+## A sixteenth sweep, and it reads a claim no other one looks at: **"no corpus document does X"**
+
+Built in the five-hundred-and-seventieth session (ADR 0405). The fifteen above all read a row's
+*reason* — a blocker, a vocabulary, an architecture, a capability, a citation, a count of children.
+This one reads a row's **evidence**, and specifically the negative kind: a sentence asserting that
+nothing in the corpus exercises the clause. That sentence is what parks a requirement, and nothing
+in the tree had ever re-run one.
+
+The population is one grep and it is large — around 165 live sentences of the shape "no corpus
+document …", "nothing in the corpus …", "no witness", across `doc/conformance/ledger.toml`,
+`doc/todo/`, the standing `doc/*.md` and `crates/`. What makes the sweep tractable is that most of
+them name a **PDF name**, and a name is countable:
+
+```sh
+cargo run --release -p pdf-model --example witness_census -- --pdfjs Collection Threads IDTree
+cargo run --release -p pdf-model --example absence_audit          # the structural half
+```
+
+`witness_census` asks each term three ways of the same document — the file's raw bytes (what a
+grep sees), every object the cross-reference table names *including the ones inside object
+streams*, and every stream's decoded data — and prints the three counts side by side.
+`absence_audit` re-asks the same claims through the readers that would act on them, because a name
+being present is not the structure being present. **Run both**: that is ADR 0403's rule, and here
+it is the object walk that finds what the byte search cannot rather than the other way round.
+
+### The three ways such a claim goes wrong, and the first run found all three
+
+- **A stale count.** §14.7.2's `/IDTree` was "no corpus document has one at all — the 89 tagged
+  ones state none" in three places while `Tree::element_by_id`'s own note, corrected by an earlier
+  round, said 12 of those 89. A correction that stops at the document it was written in is
+  `doc/habits.md`'s "a retired claim is a string, and strings are greppable", and this is its
+  largest instance: one crate contradicting itself in two files.
+- **A count contradicted inside one file.** §14.10.2's row said "[n]o corpus document writes a
+  `/SpiderInfo`" while §7.7.2's row, in the same `ledger.toml`, listed "`/SpiderInfo` (§14.10's web
+  capture, **5 documents**)". Both were written from a measurement; only one of the measurements
+  was taken.
+- **A population the sentence does not name.** §12.4.3's articles and §12.3.5's collections were
+  each "no corpus document" and each true *of pdf.js*. The four `doc/corpora/` submodules hold four
+  documents with 115 beads between them and one portable collection with a folder tree — and every
+  other absence claim in this tree is stated over those submodules too. **"The corpus" is two
+  populations, and a claim is only true against the one it was measured over.**
+
+### The rule that comes out of it, and it is what a round should apply
+
+**Say which corpus.** A sentence that says "no corpus document" without naming a population cannot
+be checked without re-deriving what the writer meant, and two of the five falsifications above were
+nothing but that ambiguity. `--pdfjs` exists on both examples so that the narrower answer is one
+flag rather than a different run.
+
+**And a negative claim about a population needs a re-run, not a re-read.** The other fifteen sweeps
+find a reason that expired; this one finds a *number* that was wrong when it was written, and no
+amount of reading the sentence beside the code reveals that. It is the only sweep here whose
+instrument is a program over the corpus rather than a pattern over the tree.
+
 ## What is still owed, named
 
 - **The `partial` rows not yet re-read against the code.** Nothing below commit 534 is
@@ -2935,6 +2989,11 @@ than that row's.
   What settled it was again another sweep's measurement rather than a new heuristic: the ninth's
   attribution rule for the population, the sixth's family arithmetic for the answer. **Only sweep 6
   itself is left as a description**, and it is two hits long and has never printed anything else.
+- **The sixteenth sweep's structural half names seven claims and there are more.**
+  `absence_audit` hard-codes one block per claim, which is what makes each honest — the reader that
+  would act on the entry is the one asked — and what makes it incomplete. The claims a name census
+  cannot settle are the ones left: a flag's bit, a value's range, a group's colour space, a
+  producer's arithmetic. A round adding one adds a block, not a heuristic.
 - **The fifth sweep's second population is still a by-hand run.** `--bin callers` reads functions;
   the four-hundred-and-thirteenth ran the sweep a second way over `viewer-core`'s own vocabulary —
   every `Command`, `Query`, `Answer`, `Event` and `Edit` variant against the crates that speak it —

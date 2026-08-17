@@ -591,9 +591,13 @@ fn an_embedded_file_stops_the_parameters_after_it() {
 ///
 /// The second is the annex's stated outcome rather than a failure: "[i]f no content is contained
 /// within the hierarchy of the structure element or structID does not match a structure element,
-/// the first page in the document shall be identified." **No corpus document has an `/IDTree`**,
-/// so the half of `structelem` that finds one is tested in `pdf_model::destination` against a
-/// document written for it; this is the half a real file can reach.
+/// the first page in the document shall be identified." This is the half a real file reaches
+/// *without* naming anything; the half that finds an element is tested in `pdf_model::destination`
+/// against a document written for it.
+///
+/// **This comment used to justify that fixture with "no corpus document has an `/IDTree`", and
+/// that was false when it was written**: 12 of the 974 state one. `Tree::element_by_id` carries
+/// the count. ADR 0405.
 #[test]
 fn a_parameter_no_table_defines_and_an_identifier_that_matches_nothing_are_both_named() {
     let Some((viewer, events)) = opened("vertical.pdf", "page=2&pagemode=bookmarks&structelem=x")

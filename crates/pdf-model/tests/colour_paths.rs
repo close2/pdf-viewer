@@ -516,8 +516,14 @@ fn an_icc_image_is_converted_through_the_same_profile_as_a_fill() {
 /// The second sentence is the one that was missing. An image's space was parsed against an
 /// *empty* resource dictionary — defensible on the reading that an image states its space in
 /// full, and wrong, because "in full" is about resolving a *name* and this clause is about
-/// replacing a *device space*. One corpus document names a default at all and its images
-/// state their space directly, so nothing in the corpus could have found this.
+/// replacing a *device space*.
+///
+/// **This comment said "[o]ne corpus document names a default at all", and the count was wrong**:
+/// nine of the 974 do — eight a `/DefaultRGB` and `bug886717.pdf` a `/DefaultCMYK` — one of them
+/// stating it inside an object stream, where a byte search over the file sees nothing. That does
+/// not make the fixture unnecessary, because a default's effect on an image is only visible where
+/// the image names a *device* space rather than its own, and this fixture is that shape by
+/// construction. It makes the reason for the fixture an argument rather than a count. ADR 0405.
 #[test]
 fn a_default_colour_space_replaces_an_images_device_space() {
     let objects = "5 0 obj\n<< /Type /XObject /Subtype /Image /Width 1 /Height 1 \

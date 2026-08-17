@@ -45,7 +45,11 @@
 //! that this standard replaced, and the exclusion argument that rested on it was about a
 //! document nobody in this project had read. It is a reader's question, and it is here.
 //!
-//! No corpus document states a `/Collection`.
+//! **One corpus document states a `/Collection`**, and this line read "[n]o corpus document" until the
+//! five-hundred-and-seventieth session, because the count had only ever been taken over pdf.js:
+//! `doc/corpora/format-corpus/pdfCabinetOfHorrors/digitally_signed_3D_Portfolio.pdf` states one with eight
+//! schema fields and a `/Folders` tree — which is the one entry here a hand-built fixture was the only
+//! witness for. ADR 0405.
 
 use std::collections::BTreeMap;
 

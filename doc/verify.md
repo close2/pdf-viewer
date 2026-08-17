@@ -114,6 +114,19 @@ cargo run --release -p pdf-model --example presentation_census -- doc/pdf.js/tes
   # states a /Trans, a /Dur or a /PresSteps — asked of the page tree rather than of the raw bytes,
   # so a /Trans inside an object stream would have counted. `--example presentation_fixture` writes
   # the three-slide document that therefore has to stand in for one (ADR 0230)
+cargo run --release -p pdf-model --example witness_census -- --pdfjs Collection Threads IDTree
+cargo run --release -p pdf-model --example absence_audit
+  # the pair `doc/todo/01`'s sixteenth sweep runs, and the two halves of one question: **is there
+  # really no corpus document that does X?** The first asks a name three ways of each of the 1251
+  # PDFs — the file's raw bytes, every object the cross-reference table names *including the ones
+  # inside object streams*, and every stream's decoded data — and prints the three counts side by
+  # side, so a term a byte search undercounts is visible as a term. `--names` ranks every distinct
+  # name in the population, which turns "is there a witness for this entry" into a lookup;
+  # `--pdfjs` narrows to the 974, because half of this tree's absence claims were about that
+  # population and said "the corpus". The second re-asks seven written claims through the readers
+  # that would act on them, since a name being stated is not the structure being stated. Run both:
+  # on §14.7.2's /IDTree the object walk finds four documents no grep over the bytes can see,
+  # which is ADR 0403's rule with the instruments the other way round (ADR 0405)
 cargo run --release -p pdf-model --example cell_header_census -- doc/pdf.js/test/pdfs/*.pdf doc/*.pdf doc/corpora/*/**/*.pdf
   # §14.8.4.8.3's two routes to a table cell's header cells, counted apart: over 1251 files, 21 883
   # cells, 281 stating Table 384's /Headers (2 of them an empty array) and **17 152 of the 17 431

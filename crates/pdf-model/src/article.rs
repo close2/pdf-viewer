@@ -51,14 +51,23 @@
 //! fits a whole page to its surface, which is the same reason §12.3.2.1's view parameters are
 //! carried and unapplied.
 //!
-//! # The corpus has nothing to say about this clause
+//! # What the corpus says about this clause, and what it was said to say
 //!
 //! Measured, in `tests/articles.rs`: **no document of the 974 states an article**. Two catalogs
 //! carry a `/Threads` entry and neither carries a thread — one an empty array, one a reference
-//! resolving to null — and not one page carries a `/B`. So every line of this module comes from
-//! the clause and its EXAMPLE 2, which is trap 8's own case: a corpus cannot rank a requirement
-//! no file exercises, and "no corpus document does this" is a measurement rather than an
-//! impression.
+//! resolving to null — and not one page carries a `/B`.
+//!
+//! **This section used to be headed "the corpus has nothing to say about this clause", and that
+//! was a claim about pdf.js wearing the corpus's name.** The four submodules under
+//! `doc/corpora/` hold four documents with real threads and 115 beads between them, and
+//! `tests/articles.rs` walks the clearest of them: `PDFBOX-3110-poems-beads.pdf`, two poems as
+//! two threads, whose titles decode as §7.9.2.2 text strings, whose every bead names a page, and
+//! whose rings close. So this module is no longer written from the clause alone — which is worth
+//! knowing precisely because it was for a long time, and nothing announced the change. ADR 0405.
+//!
+//! The habit that survives is the one the old heading got right: a corpus cannot rank a
+//! requirement no file exercises, and "no corpus document does this" is a measurement rather than
+//! an impression — **of a stated population**, which is the half that was missing.
 
 use std::collections::BTreeSet;
 

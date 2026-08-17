@@ -66,7 +66,7 @@ with anyone. Bold is the panel's existing vocabulary and costs no row.
   draws one of them, which is §12.3.5's `partial` in the same words. `H` is met by construction —
   the sidebar is closed until a person opens it.
 - **No corpus document states a `/Collection`**, which is measured rather than assumed
-  (`crates/pdf-model/tests/collections.rs::no_corpus_document_is_a_portable_collection`). So this
+  (`crates/pdf-model/tests/collections.rs::no_pdfjs_document_is_a_portable_collection`). So this
   is coverage answering a question robustness cannot see, and the tests are hand-built: four
   synthetic documents in `viewer-core`'s `a_collections_initial_document_reaches_a_host`, one per
   outcome, and a panel test that draws each and compares ink.

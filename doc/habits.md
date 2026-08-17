@@ -480,6 +480,24 @@ that attached its file to a page carried a file nothing here could reach. ADR 02
   about the tool. **The independent check is this tree's own reader**, and it is the one that found
   it; where both are available, run both, because the reader is the instrument under test and the
   grep is not. Session 568, ADR 0403.
+- **A negative claim about a corpus names a population, and half of ours did not.** The round after
+  the one above re-ran every "no corpus document does X" sentence in the tree — about 165 of them —
+  and **five were false**. Two were stale counts (§14.7.2's `/IDTree` was "none" in three places
+  while the crate's own reader said twelve; §14.10.2's `/SpiderInfo` was "none" in one ledger row
+  and "5 documents" in another row of the *same file*). Two were neither stale nor miscounted but
+  **scoped**: §12.4.3's articles and §12.3.5's collections are absent from pdf.js and present in the
+  four submodules under `doc/corpora/`, which every other absence claim in this tree is measured
+  over. So the sentence was true of one population and written about another, and no re-reading of
+  it could say which. **Write which corpus.** Session 570, ADR 0405.
+- **A grep with `-a` is still a byte search, and a PDF hides its names from one.** ADR 0403's fix
+  makes `grep` see the file; it does not make it see a name inside a §7.5.7 object stream or a
+  content stream, which is where a modern producer puts most of them. `/SetOCGState` is the clean
+  demonstration: two corpus documents state it and `grep -a` finds **neither**. So a census over
+  names walks the *objects* the cross-reference table names — `examples/witness_census` prints the
+  raw, object and stream counts side by side for exactly this reason, and four of the twelve
+  `/IDTree` witnesses are visible only in the middle column. "Run both" means the reader and the
+  grep where a reader exists, and the object walk and the grep where one does not; never the grep
+  alone. Session 570, ADR 0405.
 - **Ask the linker what a binary can execute.** `nm <binary> | grep -c <symbol>` answers "could
   this program ever run that code, under any input" with no fuzzing, no coverage build and no
   argument — it found that eleven of thirteen fuzz targets did not contain the function that

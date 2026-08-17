@@ -3305,9 +3305,11 @@ fn a_page_stating_a_duration_advances_when_it_is_told_the_time() {
 /// the hundred-and-thirty-second session and stopped being true of destinations in the
 /// two-hundred-and-first (ADR 0162).
 ///
-/// **No corpus document states an article** — `pdf-model/tests/articles.rs` is a ratchet on that
-/// number — so the fixture is built from the clause, and the assertion is the magnification a
-/// 100-unit-wide bead earns in an 800-pixel window rather than a page number nothing distinguishes.
+/// **No corpus document states a thread *action*** — four state a thread, all outside pdf.js, and none
+/// of them states a `/Thread` action to reach it — so the fixture is built from the clause, and the
+/// assertion is the magnification a 100-unit-wide bead earns in an 800-pixel window rather than a
+/// page number nothing distinguishes. This comment said "no corpus document states an article" until
+/// the five-hundred-and-seventieth session, on a count taken over pdf.js alone; ADR 0405.
 #[test]
 fn a_thread_action_shows_the_bead_and_not_merely_its_page() {
     let mut viewer = Viewer::new(800, 1000, 1.0);
@@ -3359,7 +3361,9 @@ fn a_thread_action_shows_the_bead_and_not_merely_its_page() {
 
 /// Two pages, one thread of one bead on the second, and a link on the first that jumps to it.
 ///
-/// Built from §12.4.3 and Table 209, because the corpus states no article at all. The thread's
+/// Built from §12.4.3 and Table 209, because no corpus document states a thread *action* — and this
+/// comment used to say "the corpus states no article at all", which the four witnesses under
+/// `doc/corpora/` falsify (ADR 0405). `pdf-model/tests/articles.rs` reads one of them. The thread's
 /// `/F` and the bead's `/N` are the same object: "[i]n the last bead … shall refer to the first
 /// bead", and a thread of one bead is its own successor.
 fn with_a_thread() -> Vec<u8> {

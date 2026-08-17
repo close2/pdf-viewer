@@ -123,8 +123,10 @@ collection is how a document *arranges* its files rather than a new population o
 §14.3.3's `/Info`; §12.3.4's thumbnails, one row per page with the miniature fitted above
 §12.4.2's label; and §12.4.3's article threads, followed on a click to Table 163's `/R` rather
 than to the page the first bead sits on, because activating one composes §12.6.4.7's own thread
-action rather than adding a second route (ADR 0200). Not one corpus document states a thread,
-which is said out loud rather than around. `?` puts `/NOTICE` over the page in Courier. **The
+action rather than adding a second route (ADR 0200). **Not one *pdf.js* document states a thread —
+and this sentence said "not one corpus document" for as long as the panel has existed**, while four
+documents under `doc/corpora/` state one with 115 beads between them, two of them named for the
+fact. Which population a claim is about is part of the claim; ADR 0405. `?` puts `/NOTICE` over the page in Courier. **The
 document chooses what opens**: Table 29's `/PageMode` names a panel and §12.2's
 `/DisplayDocTitle` puts the document's own title in the title bar. §12.6.3's trigger events are
 raised by the pointer. Four clauses closed on the sidebar without anybody picking them off a list,

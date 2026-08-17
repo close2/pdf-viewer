@@ -890,10 +890,19 @@ mod tests {
     /// Annex O's `structelem`, end to end at the model's level: §14.7.2's `/IDTree` for the
     /// element and §12.3.2.3's algorithm for its page.
     ///
-    /// Written by hand because **no corpus document has an `/IDTree` at all** — the 89 tagged
-    /// ones state none — so this is trap 8's case: a rule the standard states and no file we
-    /// have exercises. §14.7.7's own worked example is the shape being imitated, down to the
-    /// `Chap1` key.
+    /// Written by hand, and **the reason written here was false from the round that wrote it**:
+    /// it said "no corpus document has an `/IDTree` at all — the 89 tagged ones state none", and
+    /// 12 of those 89 state one, holding between 1 and 285 identifiers. [`Tree::element_by_id`]
+    /// carries the correction and the count; this comment repeated the retired claim for the
+    /// whole time, which is `doc/habits.md`'s "a retired claim is a string, and strings are
+    /// greppable" (ADR 0405).
+    ///
+    /// [`Tree::element_by_id`]: crate::structure::Tree::element_by_id
+    ///
+    /// What the fixture is still for is the *other* half: a document whose `/IDTree` names an
+    /// element whose own `/Pg` is absent, so §12.3.2.3's algorithm has to find the page from the
+    /// element's content items. §14.7.7's own worked example is the shape being imitated, down to
+    /// the `Chap1` key.
     #[test]
     fn a_structure_element_named_by_id_identifies_its_page() {
         let doc = document(&[

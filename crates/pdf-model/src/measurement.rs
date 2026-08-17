@@ -56,6 +56,13 @@
 //!
 //! So §12.9.2's algorithm has no corpus witness at all and is tested against the clause's own
 //! worked example (trap 8), while §12.10's dictionaries have exactly one.
+//!
+//! **A census over names will contradict that sentence, and the sentence is right.** Asking the
+//! corpus "does any page state a `/VP`" answers *one*, which looks like a witness for this whole
+//! module; the distinction that decides it is one paragraph up — that viewport's `/Measure` is
+//! `GEO`, and §12.9.2's arithmetic is `RL`'s. The five-hundred-and-seventieth session re-ran every
+//! absence claim in this tree and this is the one that survived a measurement taken at the wrong
+//! granularity, which is why `examples/absence_audit` asks structures rather than names. ADR 0405.
 
 use pdf_syntax::{Dictionary, Document, Object};
 
