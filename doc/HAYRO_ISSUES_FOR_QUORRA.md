@@ -19,8 +19,39 @@ including it, because *why* it is right is the reusable part.
 
 **It is not a claim that hayro is right.** This project's rule (`CLAUDE.md` principle 5) is that
 another implementation is evidence about a reading of the specification and never the definition
-of correct. Every clause quoted below is quoted from ISO 32000-2, not paraphrased from an issue.
-Where hayro and this tree disagree about a page, that is a question for the standard.
+of correct. Every clause quoted below is quoted from ISO 32000-2 — **which is what this sentence
+claimed when the document was written, and it was false for two of them; see below** — not
+paraphrased from an issue. Where hayro and this tree disagree about a page, that is a question for
+the standard.
+
+**Five citations in this document were wrong when it was written, and they are corrected in
+place.** Four were sent back by quorra's reviewers after they read it; the fifth was found while
+checking theirs. Every one of the five is marked where it stands, with the standard's own sentence
+under the clause number and with what the correction changed — because a hand-over document that
+quietly acquired the right citation would teach nobody anything, and because two of the five are
+the same failure twice: **a sentence quoted from ISO 32000-1 and attributed to ISO 32000-2**. That
+one is worth naming as a shape rather than as two slips. The two editions read alike, `shall` and
+*conforming reader* survive in a great deal of secondary writing about PDF, and §0.3 of this
+standard says the second of those two words was retired outright — so a quotation that contains it
+is decidable as not-from-32000-2 by inspection, without ever finding the clause.
+
+**And one of the five had already been caught by a program in this tree, and nobody read the
+output.** `tools/conformance/quotations` sweeps every Markdown document under `doc/` — these
+included — against the conversions in `doc/md/`, and it had been printing the `/Interpolate`
+sentence as *matched 9 of 16 words, then diverged* since the day this document was written. The
+sweep's own preamble says why that is not a build failure ("a divergence is a question for a
+person, not a build failure"), which is right; what it does not do is make anybody the person.
+**The other four are invisible to it, and the reason is the sharp half of this.** The checker
+reports a quotation that matches a specification for at least five words and *then* diverges — a
+near-miss. A sentence that shares almost nothing with the standard, like the §10.7.4 one below,
+lands in the bucket it calls "sharing too little with any of them to be a quotation of one" and is
+counted rather than printed. So the instrument is most sensitive exactly where the error is
+smallest, and blind where the whole sentence came from somewhere else. A wrong *clause number*
+over a correct quotation — corrections 1 and 3 — it cannot see at all, because it checks what the
+words are and not what they are attributed to.
+
+Where the same citation appears in the code it was already right, in all four of quorra's cases,
+which is stated at each entry.
 
 **A note on the tracker itself.** Roughly ninety of the 167 issues are automated fuzzer reports —
 one file, one panic, one backtrace — mostly from `qarmin/Automated-Fuzzer`, and most of them
@@ -108,8 +139,22 @@ is treated there as a fact of life. This tree does not treat it that way, and ha
 rounds proving it does not have to. ISO 32000-2 §10.7.4 states the rule a device pixel is decided
 by, and a renderer that applies it gets the thin-mark cases right rather than approximately right:
 
-> ...a conforming reader may need to make a determination about whether the pixel is painted
-> or not, and, if painted, what its colour value shall be.
+> A shape shall be scan-converted by painting any pixel whose half-open square region intersects
+> the shape, no matter how small the intersection is. This ensures that no shape ever disappears
+> as a result of unfavourable placement relative to the device pixel grid … The area covered by
+> painted pixels shall always be at least as large as the area of the original shape.
+
+**This quotation was a different sentence until the five-hundred-and-sixty-sixth session, and
+the sentence was not in ISO 32000-2.** What stood here — "a conforming reader may need to make a
+determination about whether the pixel is painted or not" — is ISO 32000-1's wording, and §0.3 of
+this standard says why it cannot be quoted from it: "Starting with ISO 32000-2:2017 (PDF 2.0) the
+term 'conforming reader' is no longer used." The substance is unchanged and is in fact stronger,
+because §10.7.4's real sentence *states the rule* where the retired one only said a decision had
+to be made. Two things follow the sentence and are worth having beside it: §10.7.1's NOTE says
+"[t]he specifics of the scan conversion algorithm are not defined as part of PDF", so the binary
+rule above is what the clause decides and nothing about *fractional* coverage is; and §11.3.7.2's
+NOTE 1 is where an antialiased partial pixel gets its meaning, as shape. So "no disappearance" and
+"ink at least the shape's area" are the standard's, and proportionality is a choice.
 
 The reading and the measurements are in `doc/todo/11-shapes-that-still-disappear.md` and
 `doc/todo/_scan-conversion.md`; the code is `pdf-render`'s `sub_pixel.rs`, which detects a mark
@@ -170,9 +215,33 @@ back end, with a curve-stroke and a border-stroke witness.
 
 **Why the third matters to quorra.** "Gradient clipped incorrectly on a stroke" is the shape where
 a paint's coordinate space and the stroke outline's coordinate space are composed in the wrong
-order. §8.7.4.3 puts a shading pattern's coordinates in the space of the page at the time the
-pattern's parent content stream began, *not* the space in force when the paint is used — which is
-the rule the composition has to respect and the one that is easy to get wrong by one matrix.
+order. The rule the composition has to respect is **§8.7.2**, which states it twice — once as the
+construction and once as its consequence:
+
+> The concatenation of the pattern matrix with that of the parent content stream establishes the
+> pattern coordinate space, within which all graphics objects in the pattern shall be interpreted.
+
+> Changes to the page's transformation matrix that occur within the page's content stream, such
+> as rotation and scaling, have no effect on the pattern; it maintains its original relationship
+> to the page no matter where on the page it is used.
+
+and **§8.7.4.1**, which says it for the very operators #968 and #102 are about:
+
+> By setting a shading pattern as the current colour in the graphics state, a PDF content stream
+> may use it with painting operators such as f (fill), S (stroke), Tj (show text), or Do (paint
+> external object) with an image mask to paint a path, character glyph, or mask with a smooth
+> colour transition. When a shading is used in this way, the geometry of the gradient fill is
+> independent of that of the object being painted.
+
+**This entry cited §8.7.4.3 until the five-hundred-and-sixty-sixth session and that was wrong on
+two counts, one of which quorra's reviewers named and one of which they did not.** §8.7.4.3 is
+*Shading dictionaries*, and all it says about the space is NOTE 2 — which *names* the target space
+and hands the substance to §8.7.2 ("For shadings used with a Type 2 pattern dictionary, this is
+the pattern coordinate space, discussed in 8.7.2"). The count they did not name is that NOTE 2 is
+a **note**: it is informative, so it could not have been the normative source of anything even if
+it had stated the rule. §8.7.4.3 stays the right citation for what it does decide — Table 77's
+`/BBox`, whose coordinates "shall be interpreted in the shading's target coordinate space" — and
+that is exactly how this tree's own code cites it.
 
 ### [#394 — "Improve rendering of certain patterns"](https://github.com/LaurenzV/hayro/issues/394) (open)
 
@@ -200,10 +269,27 @@ operation is `bit -> 0 or 255`. Measured on a synthetic 2400×3150 Flate-compres
 48–60 ms down to 1.5–1.6 ms with a byte-wide lookup-table expansion, output pixel-identical.
 
 **Why both matter to quorra.** A stencil mask at a resolution different from the image it masks is
-the ordinary case rather than the exotic one — §8.9.6.4 explicitly allows it, and scanners produce
-it constantly. Two things are being measured here: the cost of *decoding* a packed mask, and the
-cost of *drawing* through one whose grid does not match. The second is the one that is quorra's,
-and 30× is the size of the prize on the first.
+the ordinary case rather than the exotic one — **§8.9.6.3** *Explicit masking* allows it in as many
+words, and scanners produce it constantly:
+
+> The base image and the image mask need not have the same resolution ( Width and Height values),
+> but since all images shall be defined on the unit square in user space, their boundaries on the
+> page will coincide; that is, they will overlay each other.
+
+Two things are being measured here: the cost of *decoding* a packed mask, and the cost of
+*drawing* through one whose grid does not match. The second is the one that is quorra's, and 30×
+is the size of the prize on the first.
+
+**This paragraph cited §8.9.6.4 until the five-hundred-and-sixty-sixth session and quorra's
+reviewers were right to send it back.** §8.9.6.4 is *Colour key masking* — the `/Mask` entry in
+its **array** form, a range of sample values — and it says nothing whatever about resolution,
+because a colour key is a test on the base image's own samples and there is no second grid for it
+to differ from. The two forms share one key and nothing else, which is what makes the slip easy
+and what Table 87 says outright: `/Mask` is "[a]n image XObject defining an image mask to be
+applied to this image (see 8.9.6.3, "Explicit masking"), or an array specifying a range of colours
+to be applied to it as a colour key mask (see 8.9.6.4, "Colour key masking")". This tree's code
+has always split them at that line — `pdf-model`'s `MaskEntry` reads the two under their own
+clause numbers — so the mistake was in this document alone.
 
 ### [#2 — "Downsample image masks with larger dimensions than original image"](https://github.com/LaurenzV/hayro/issues/2) (closed)
 
@@ -217,12 +303,31 @@ and that rendering at 2× and downscaling fixed it. Their workaround was to forc
 on regardless of what the PDF says.
 
 **Why it matters, and the caution.** ISO 32000-2 §8.9.5.1 Table 87 makes `/Interpolate` a request
-from the document — "( Optional ) A flag indicating whether image interpolation shall be performed
-by a conforming reader" — so overriding it is a viewer preference and not a correctness fix. The
-maintainer's reply is the right instinct and worth quoting: Chrome and mupdf also filter here even
-though they usually respect the flag, "so i think I will first look into whether there is a bug in
-our downsampling logic". A quality complaint about small marks is very often a scan-conversion
-defect wearing a filtering costume — cf. §2 above.
+from the document, and it is a *weak* one:
+
+> ( Optional ) A flag indicating whether image interpolation should be performed by a PDF
+> processor (see 8.9.5.3, "Image interpolation"). Default value: false .
+
+§8.9.5.3 then says how weak: "However, this is only a hint, and a PDF processor may ignore it."
+So overriding it is a viewer preference and not a correctness fix — but the clause is milder about
+that than this entry used to make it sound.
+
+**The quotation here was ISO 32000-1's until the five-hundred-and-sixty-sixth session — "shall be
+performed by a conforming reader" — and quorra's reviewers caught it.** Two words moved and both
+matter. `shall` became `should`, which turns an obligation into a recommendation; and *conforming
+reader* became *PDF processor*, which is not a rename but the removal of a term — §0.3 of this
+standard states it outright: "Starting with ISO 32000-2:2017 (PDF 2.0) the term 'conforming
+reader' is no longer used." **Their substantive point survives the correction and is strengthened
+by it**: the clause hands the decision to the processor by name, so a renderer that filters
+against the flag is not violating anything — what it must not do is take the decision *behind the
+viewer's back*, and the resolved-decision-on-the-image-command shape is what makes that
+impossible. This tree's own code has the EC3 wording (`pdf-render`'s `paint.rs` quotes the hint
+sentence verbatim), so again the error was this document's alone.
+
+The maintainer's reply is the right instinct and worth quoting: Chrome and mupdf also filter here
+even though they usually respect the flag, "so i think I will first look into whether there is a
+bug in our downsampling logic". A quality complaint about small marks is very often a
+scan-conversion defect wearing a filtering costume — cf. §2 above.
 
 ### [#494 — an image whose declared size is not its codestream's](https://github.com/LaurenzV/hayro/issues/494) (closed)
 
@@ -257,13 +362,48 @@ Every glyph outline came back beginning with a spurious `MoveTo((0,0))` before i
 turned out to be deliberate, and the reporter closed their own issue — but the maintainer's reply
 is the part to read: "Perhaps this is not ideal, I'll see whether I can solve it differently."
 
-**Why it matters.** A degenerate leading `MoveTo` is invisible to a fill and *not* invisible to a
-stroke: under a round or square line cap it can deposit a dot at the origin (§8.4.3.3's caps are
-applied to the ends of every open subpath, and a subpath of one point is an open subpath). This
-tree has a whole ADR family about exactly that mark — a single-point closed path under round caps
-is a disc, and the test `a_single_point_closed_path_is_a_disc_under_round_caps` pins it. If quorra
-ever receives an outline with a leading degenerate `MoveTo` from any producer, the question is
-whether it deposits a cap.
+**Why it matters, and the answer is *no dot, under any cap*.** §8.5.3.2's last paragraph settles
+it in three sentences that have to be read together, because the first two are about a different
+shape from the third:
+
+> If a subpath is degenerate (consists of a single-point closed path or of two or more points at
+> the same coordinates), the S operator shall paint it only if round line caps have been
+> specified, producing a filled circle centred at the single point. If butt or projecting square
+> line caps have been specified, S shall produce no output, because the orientation of the caps
+> would be indeterminate. … A single-point open subpath (specified by a trailing m operator)
+> shall produce no output.
+
+The cap-dependent rule is for a **degenerate** subpath, and the clause's own parenthesis says what
+that word means here: a single-point *closed* path, or two or more coincident points. A leading
+`m 0 0` immediately followed by another `m` is neither. It is a single-point **open** subpath, and
+the last sentence disposes of it with no cap condition at all.
+
+**This entry reasoned from §8.4.3.3 and reached the opposite answer until the
+five-hundred-and-sixty-sixth session; quorra's reviewers sent it back and they are right.**
+§8.4.3.3's "both ends of open subpaths" is the general statement, and §8.5.3.2's last sentence is
+the specific one that governs this subpath — a general rule and a specific one about the same
+mark, and the specific one wins.
+
+**One honest wrinkle nobody named, because it is the only thing the agreement rests on.** The
+sentence says "(specified by a trailing m operator)", and hayro's spurious `MoveTo` is *leading*
+rather than trailing. Read as a restriction, that parenthesis would leave a non-trailing
+single-point open subpath governed by no sentence in §8.5.3.2 at all — the degenerate rule above
+excludes it by definition, so §8.4.3.3's general cap rule would come back and the old answer would
+return. Read as a gloss — the ordinary way such a subpath arises — the clause is complete and the
+answer is no output. The gloss reading is the right one, and the sentence two above it is why:
+"[t]his rule shall apply only to zero-length subpaths of the path being stroked", which classifies
+by *shape* and not by position. This tree has always read it that way and its conformance ledger
+says so in those terms — "a subpath that is only a trailing `m` is no output under any cap" — with
+`pdf-render`'s `degenerate.rs` stating the rule once for both rasterisers, because `tiny-skia`
+painted a square where the clause asks for nothing and `kurbo` painted nothing where it asks for a
+circle.
+
+The mark that *is* real is the other one: a single-point **closed** path under round caps is a
+disc, `a_single_point_closed_path_is_a_disc_under_round_caps` pins it, and ADR 0290 is about how
+small that disc gets — `π w² / 4`, which at a tenth of a device pixel is 0.008 of one and
+disappeared entirely until somebody measured it. If quorra ever receives an outline with a leading
+degenerate `MoveTo`, the correct behaviour is to deposit nothing; the question worth gating is
+whether it deposits nothing *and* still draws the disc the closed case asks for.
 
 ### [#6 — "Improve font fallback"](https://github.com/LaurenzV/hayro/issues/6) (open)
 
