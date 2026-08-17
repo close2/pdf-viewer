@@ -228,17 +228,30 @@ fn a_d1_description_takes_its_colour_from_the_page_and_a_d0_one_does_not() {
     );
 }
 
-/// A `d1` glyph is one colour even where its description strokes.
+/// A `d1` glyph description strokes in the *stroking* colour it inherited.
 ///
-/// The same clause's reason for admitting an image mask is that it "merely defines a region
-/// of the page to be painted with the current colour", so a stroke inside an uncoloured
-/// description is part of that region rather than a request for the stroking colour. The
-/// page below sets a red fill and a green stroke; the glyph strokes, and comes out red.
+/// §9.6.4: "Aside from the CTM, the graphics state shall be inherited from the graphics
+/// state at the point of invocation of the text-showing operator that caused the glyph
+/// description to be invoked." Both colour parameters are in that state, and each is used
+/// by the operation that selects it. Three sentences of the clause say so and none of them
+/// is Table 111's singular "[i]ts colour":
 ///
-/// `Type3WordSpacing.pdf` in the corpus is the same case with three renderers on it:
-/// `poppler` and `ghostscript` read it this way, `mupdf` uses the stroking colour.
+/// - the sentence listing what a stroking description must set for itself — "the line
+///   width, line join, line cap, and dash pattern" — names no colour, because the inherited
+///   one is what it gets and §8.6.8 forbids it from stating another;
+/// - NOTE 2 is plural: "the text-showing operators are designed to paint glyphs with the
+///   current colours";
+/// - the clause's own EXAMPLE sets `0.2 0.8 0.0 rg 0.1 0.4 0.0 RG` before each `Tj` for a
+///   `d1` `square` glyph whose description is `72 w 0 0 750 750 re B` — a fill *and* a
+///   stroke — and Figure 62 draws the border in the second colour.
+///
+/// **This test asserted the opposite until the five-hundred-and-fifty-eighth session**, when
+/// `Type3Test.pdf` in `doc/corpora/pdf-differences` put the case in front of four renderers
+/// and the PDF Association's own statement of the correct appearance. `poppler` and
+/// `ghostscript` collapse the two colours as this tree did; `mupdf` and the corpus's
+/// reference image do not. ADR 0393.
 #[test]
-fn an_uncoloured_glyph_strokes_in_the_colour_it_is_painted_with() {
+fn an_uncoloured_glyph_strokes_in_the_stroking_colour_it_inherited() {
     let interpretation = Fixture {
         square: "1000 0 0 0 750 750 d1\n50 w\n30 30 690 690 re S",
         content: "1 0 0 rg 0 1 0 RG BT /FT3 10 Tf 0 0 Td (a) Tj ET",
@@ -260,8 +273,46 @@ fn an_uncoloured_glyph_strokes_in_the_colour_it_is_painted_with() {
         .collect();
     assert_eq!(
         strokes,
-        vec![[1.0, 0.0, 0.0, 1.0]],
-        "the glyph's stroke is part of its shape, painted in the text's own colour"
+        vec![[0.0, 1.0, 0.0, 1.0]],
+        "the description strokes, so it strokes in the inherited stroking colour"
+    );
+}
+
+/// A `d1` description that fills *and* strokes uses both inherited colours, as the clause's
+/// own EXAMPLE does.
+///
+/// §9.6.4's EXAMPLE is this fixture with different numbers: a page stating `rg` and `RG`,
+/// and a `d1` `square` whose body is `72 w 0 0 750 750 re B`. One glyph, two colours.
+#[test]
+fn an_uncoloured_glyph_that_fills_and_strokes_uses_both_inherited_colours() {
+    let interpretation = Fixture {
+        square: "1000 0 0 0 750 750 d1\n72 w\n0 0 750 750 re B",
+        content: "0.2 0.8 0.0 rg 0.1 0.4 0.0 RG BT /FT3 15 Tf 0 0 Td (a) Tj ET",
+        ..Fixture::default()
+    }
+    .interpret();
+
+    assert_eq!(
+        fill_colours(&interpretation),
+        vec![[0.2, 0.8, 0.0, 1.0]],
+        "the fill takes the non-stroking colour"
+    );
+    let strokes: Vec<[f32; 4]> = interpretation
+        .display_list
+        .commands()
+        .iter()
+        .filter_map(|command| match command {
+            Command::Stroke {
+                paint: Paint::Solid(colour),
+                ..
+            } => Some([colour.r, colour.g, colour.b, colour.a]),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        strokes,
+        vec![[0.1, 0.4, 0.0, 1.0]],
+        "and the stroke takes the stroking colour, which is why the EXAMPLE states one"
     );
 }
 

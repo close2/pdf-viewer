@@ -903,22 +903,31 @@ impl Interpreter<'_> {
                 // incorrect one it hides the defect rather than reporting it.
                 b"d0" | b"d1" => {
                     if operator == b"d1" && self.glyph_depth > 0 {
+                        // `d1` forbids the *description* from setting a colour, and nothing
+                        // more. What the description paints with is the graphics state
+                        // §9.6.4 says it inherited — both colour parameters, each used by
+                        // the operation that selects it, so a description that strokes
+                        // strokes in the stroking colour.
+                        //
+                        // **This branch collapsed the two into one until the
+                        // five-hundred-and-fifty-eighth session**, on Table 111's singular
+                        // "[i]ts colour shall be determined by the graphics state in effect
+                        // each time this glyph is painted by a text-showing operator". The
+                        // clause refutes that reading three times over. §9.6.4 NOTE 2 is
+                        // plural — "it is unnecessary and undesirable to initialise the
+                        // current colour parameters because the text-showing operators are
+                        // designed to paint glyphs with the current colours" — the sentence
+                        // above it lists what a stroking description must set for itself
+                        // ("the line width, line join, line cap, and dash pattern") and puts
+                        // no colour in that list, and §9.6.4's own EXAMPLE sets a distinct
+                        // `RG` before each `Tj` for a `d1` `square` glyph whose body is
+                        // `72 w 0 0 750 750 re B`, which the collapsed reading makes dead
+                        // syntax. `Type3Test.pdf` in `pdf-differences` is the corpus witness
+                        // and ADR 0393 has the argument; the image-mask sentence the old
+                        // comment leaned on is §8.9.6.2's rule about a *stencil*, which
+                        // paints with the non-stroking colour because that is what an image
+                        // mask does, not because a `d1` glyph has one colour.
                         self.uncoloured = true;
-                        // One shape, one colour. Table 111 says the description "is executed
-                        // solely to determine the glyph's shape. Its colour shall be
-                        // determined by the graphics state in effect each time this glyph is
-                        // painted" — singular, and the clause's own reason for admitting an
-                        // image mask is that a mask "merely defines a region of the page to
-                        // be painted with the current colour". A description that strokes is
-                        // therefore describing part of the same region, not asking for the
-                        // stroking colour, so the two colour parameters become one here.
-                        // Which of the two operations runs is the text rendering mode's
-                        // business (§9.3.6) and is decided in `show_text`; making them the
-                        // same colour is what stops that decision from changing the colour
-                        // of an uncoloured glyph, which Table 111 does not allow it to.
-                        state.stroke_colour = state.fill;
-                        state.stroke_pattern = state.fill_pattern.clone();
-                        state.stroke_alpha = state.fill_alpha;
                     }
                 }
 

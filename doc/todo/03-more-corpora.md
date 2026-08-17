@@ -336,12 +336,26 @@ Applied here it splits, and the split is the useful half:
 
 ### 4. Two instruments the new populations make possible — one built, one not
 
-- **The oracle over the new corpora.** `tests/oracle.rs` compares against poppler, mupdf and
-  ghostscript over the 974; `pdf-differences` exists *because* readers diverge on its files, so
-  it is the population where a reference comparison should be most informative and where the
-  three references are least likely to form a consensus. That is a session of its own and it
-  needs a decision first: an oracle run over files chosen for disagreement will produce
-  `ambiguous` almost everywhere, so the verdict vocabulary may not fit.
+- ~~**The oracle over the new corpora.**~~ **Decided in the five-hundred-and-fifty-eighth and the
+  answer is no** (ADR 0393). This bullet said `pdf-differences` "exists *because* readers diverge
+  on its files, so it is the population where a reference comparison should be most informative",
+  and asked for a decision about the verdict vocabulary before anybody ran it. **Both halves were
+  wrong, and reading the corpus is what showed it.** Sixteen of its eighteen test cases quote a
+  normative sentence of ISO 32000-2 and then state which rendering is correct — the repository's
+  README says so as a convention, "Correct renderings are always the _last_ image in the MarkDown"
+  — so the corpus is about *implementations* differing and not about the standard permitting them
+  to. On such a population the references are the **subject under test**, and voting them reads the
+  answer off the programs the corpus was assembled to catch out. §14 has the numbers that make that
+  concrete: on six of the eighteen cases at least one reference is wrong against the clause, and on
+  one of them two of the three are.
+
+  **The verdict vocabulary does not change either**, and the argument is in ADR 0393 §2: every
+  outcome `pdfref` has is a function of the rasters, "the standard permits this" is a function of a
+  clause, and a term the instrument cannot compute becomes the bucket every unexplained page goes
+  into. A permitted difference is `ambiguous` — or `contradicted`, and it stays `contradicted` —
+  held by a **named group quoting the permission**, which is the mechanism `oracle.rs` already has.
+  What this corpus is for instead is a reading list today and a per-case gate later, wherever the
+  clause supplies the expected value with no reference in it.
 - **`pdfbox`'s own expected text — done in the four-hundred-and-twenty-third** (ADR 0259).
   `text_extraction.rs::the_text_we_draw_agrees_with_pdfboxs_frozen_extraction`, **40** documents
   (that is how many of the 64 carry a `.pdf.txt`, not 64), whole documents rather than page one,
@@ -727,6 +741,60 @@ the `MAX_FORM_DEPTH` that table has recorded since the corpus arrived.
 and it is still §4's first bullet: an oracle run over files chosen for disagreement will produce
 `ambiguous` almost everywhere, so the verdict vocabulary wants deciding before anybody runs it.
 The other offer §1 still holds open is SafeDocs' 31 GB issue-tracker corpus.
+
+### 14. The chunk the five-hundred-and-fifty-eighth took: `pdf-differences`' 37, and the decision §4 held them behind
+
+§13 named its own successor and §4 named the decision it wanted first, so this chunk is both:
+**`doc/corpora/pdf-differences`, 18 test cases in 37 documents, CC BY 4.0**, and the verdict-vocabulary
+question. ADR 0393 has the argument; §4's bullet above carries the outcome. Three things belong here.
+
+- **Read the corpus before deciding what it is.** The round's premise — "files chosen for
+  disagreement", so `ambiguous` everywhere — described a bag of ambiguities, and the corpus is the
+  opposite: sixteen of eighteen cases quote a clause and publish the correct picture. **Exactly two
+  differences in the whole corpus are the standard's own permission**, §8.4.3.4's zero-length dash
+  at a zero-length subpath segment and §9.5 NOTE 5's substitution, and both say so in the
+  standard's words rather than in the corpus's. A decision taken on the premise would have been a
+  decision about a corpus that does not exist.
+- **The survey line**, a baseline for this population and never a ratchet: 37 documents, 0
+  unopenable, 0 locked, 0 encrypted beyond us, 0 pageless, 0 slow. It is one report above
+  `doc/oracle-and-corpus.md` §2's row and both moves are new reports on purpose (ADRs 0356, 0359).
+  **Run it with `PDF_SANDBOX_WORKER` pointing at a built worker**, or two JPEG 2000 images are
+  refused and the line reads two higher — the confinement working, not the files.
+- **The ranking's head is real for the first time since session 505.** Page one at 72 dpi against
+  `pdftoppm`, `mutool` and `gs`, every invocation explicit about the page box, ranked by our ink
+  minus the lightest live reference's, with session 554's size column beside it:
+  `OverlappingGlyphClipping.pdf` at **−8.989** against a next-largest of −1.237, and the three
+  references agreeing with each other to 0.32. And the size column found its second row in two
+  chunks — `LineCap-Degenerate.pdf` is 4000 × 4000 here, in `mutool` and in `gs`, and 400 × 400 in
+  `poppler`, which is Table 31's `/UserUnit 10`.
+
+Four findings, three of them left with their witnesses:
+
+- **§9.6.4's two colours — fixed.** A `d1` glyph description collapsed the stroking colour into the
+  non-stroking one, so `Type3Test.pdf`'s dashed squares came out blue where the clause draws them
+  red. §9.6.4's own EXAMPLE, its NOTE 2's plural "current colours" and the list of parameters a
+  stroking description must set for itself all refute the reading, and `poppler` and `ghostscript`
+  share it while `mupdf` does not. ADR 0393.
+- **§8.4.3.5's mitre — `doc/todo/11` §6.** `LargeMitreLimit.pdf` sets `333 M` on a 10-unit line and
+  this tree draws no mitre at all where `mutool` and `gs` put the tip exactly where
+  `w/(2·sin(φ/2))` says. The cause is `tiny-skia`'s `AngleType::Nearly180` shortcut, which bevels a
+  join sharper than about 1.27° whatever the limit says — a ratio cutoff near 90 hiding inside an
+  angle test.
+- **§9.3.6's non-zero winding over two substituted faces — `doc/todo/21` §6.** The ranking's head.
+  Our compiled-in Helvetica is an `sfnt` and our Times is a bare CFF, their contours wind opposite
+  ways, and a text clip that overlaps a glyph of each cancels where every reference unions. The
+  permission is §9.5 NOTE 5's; the bad choice inside it is ours, and it is stateable with no
+  reference at all — two substitutes for two of §9.6.2.2's "14 Type 1 fonts" should wind the same
+  way.
+- **A rebuild that misses every compressed object — `doc/todo/17`.** `UnknownFilter-Linearized.pdf`
+  is documented as fully processable and loses its text here: the scan `xref::rebuild` falls back to
+  finds `N G obj` headers only, so the font inside an object stream is invisible. §7.5.7 states the
+  recovery itself, and a strictly additive form of it cannot move a document that opens today.
+
+**What this chunk leaves, and for the first time it is not a successor.** Every population on this
+disk is ranked. §1's other standing offer is SafeDocs' 31 GB issue-tracker corpus; the cheaper item
+is the one §4 now names — the per-case gates this corpus makes possible, one clause and one
+hand-built witness apiece, each with its expected value derived rather than voted.
 
 ## What not to do
 

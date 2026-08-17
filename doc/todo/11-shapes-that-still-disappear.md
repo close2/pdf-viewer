@@ -415,3 +415,60 @@ shrinks by roughly half per doubling of the magnification and is gone by 8×**, 
 exactly where a reader is looking at a whole page rather than at its detail, and both cures cost
 their most on the frame where time-to-first-page is measured. A round that takes this owes the
 measurement above at both ends.
+
+## 6. A mitre the file asked for, drawn as a bevel — **new in the five-hundred-and-fifty-eighth**
+
+Found by taking `doc/corpora/pdf-differences`' 37 documents (`doc/todo/03` §14), which carry a case
+built for this: `LargeMitreLimit.pdf` and `LargeMitreLimit-Beziers.pdf` set `333 M` on a 10-unit
+line at angles from 16° down to 0.343°, and the whole subject of the page is whether the mitre is
+drawn to the length its own angle implies.
+
+**This tree draws no mitre at all on either file.** `poppler` draws none on the first and a short
+one on the second; `mutool` and `gs` draw the spike.
+
+§8.4.3.5 states the rule and its closed form, and the NOTE the corpus's own article is about:
+
+> The miter limit shall impose a maximum on the ratio of the miter length to the line width (see
+> "Figure 15 -Miter length"). When the limit is exceeded, the join is converted from a miter to a
+> bevel.
+
+> NOTE
+>
+> Very large miter lengths are allowed.
+
+So the expected value is derivable from the specification with no reference in it: for an interior
+angle φ the ratio is `1 / sin(φ/2)`, and a mitre is drawn whenever that is at or below the limit.
+
+**The witness is four lines and the arithmetic lands on a grid line.** Reduced from the corpus file
+to one join, on a page tall enough to contain the tip:
+
+```
+1 0 0 RG  10 w  0 j  333 M  1 J
+75 -75 m  100 -50 l  100 0 l  100.9 -75 l  S
+```
+
+φ = 0.68752°, so the ratio is **166.676** — well inside the stated 333 — and the tip sits
+`5 / sin(φ/2)` = **833.38** units above the join. `mutool` and `gs` put it there to the pixel;
+this tree and `poppler` put a bevel at the join.
+
+**The cause is `tiny-skia`'s stroker and not this tree's plumbing**, which is worth knowing before
+anybody looks in `content.rs`: the limit reaches the rasteriser intact (`convert::stroke` sets
+`miter_limit` explicitly because PDF's initial 10.0 is not skia's 4.0), and `stroker.rs` classifies
+a join by `dot_to_angle_type` *before* it ever compares against the limit — a normals' dot product
+within `SCALAR_NEARLY_ZERO`, 1/4096, of −1 is `AngleType::Nearly180` and goes straight to
+`do_blunt_or_clipped`. That threshold is an angle, so it is a *ratio* cutoff in disguise: joins
+sharper than about 1.27° — ratio above roughly 90 — are bevelled whatever `M` says.
+
+What a round taking this owes, in order:
+
+- **the population**, which nobody has: a census of joins whose stated `M` admits a mitre the
+  stroker's threshold refuses. The construct is rare enough that it may have no witness outside
+  this corpus, and that is the number that decides whether the fix is worth its risk.
+- **all three backends, or none.** Vello and quorra have their own strokers with their own
+  thresholds, and a fix in `render-cpu` alone would buy one mitre and lose the cross-backend
+  agreement `render-quorra/tests/corpus.rs` and `test-scenes` rest on. This is what stops it being
+  a small change.
+- **a report if it stays.** A bevel where the file asked for a mitre is silent today, which is the
+  shape this project reports everywhere else — but the condition is the rasteriser's rather than
+  the model's, so raising it from `content.rs` would be predicting a backend's behaviour from the
+  layer above it. `doc/todo/45` is where that boundary question lives.

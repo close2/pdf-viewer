@@ -266,3 +266,57 @@ names nothing (the control range, and code 0 reaching `.notdef`).
 is one of the shapes above and whose own tables answer anyway. The instrument to find it exists
 now, and the honest expectation is that most of what is left does not move — a count that stops
 falling where the clause says "there is no way" is the answer rather than a backlog.
+
+## 6. Two substitutes for one Type 1 family, wound in opposite directions — **new in the five-hundred-and-fifty-eighth**
+
+Found by taking `doc/corpora/pdf-differences` (`doc/todo/03` §14). `OverlappingGlyphClipping.pdf`
+is the head of that corpus's ink ranking by two orders of magnitude — ours 70.812 against three
+references that agree with each other to 0.32 at 79.80, 79.96 and 80.12 — and the difference is
+structural rather than a matter of glyph weight: where a glyph of one substituted face overlaps a
+glyph of another, this tree leaves a **hole** and every reference fills it.
+
+**The mechanism, confirmed by construction rather than inferred.** The page accumulates two
+strings, `/Times-Bold` and `/Helvetica`, into §9.3.6's text clip, which the clause combines with
+one rule:
+
+> the accumulated glyph outlines, if any, shall be combined into a single path, treating the
+> individual outlines as subpaths of that path and applying the non-zero winding number rule
+
+Neither font is embedded. This tree's compiled-in set answers Helvetica with **LiberationSans**, an
+`sfnt` whose `glyf` outlines wind one way, and Times-Bold with **FoxitSerifBold**, a bare CFF whose
+charstrings wind the other. Under the non-zero rule two overlapping contours of opposite sign
+cancel. Three hand-built pairs settle it in one look — Helvetica-Bold over Helvetica unions,
+Times-Bold over Times-Roman unions, Times-Bold over Helvetica cancels — and nothing about the page,
+the clip or the rasteriser is involved.
+
+**Which of the three things it is.** §9.5 NOTE 5 — "some details of font naming, font substitution,
+and glyph selection are implementation-dependent" — makes the *choice of face* ours, and §9.3.6
+NOTE 2 says outright that "the direction of the paths comprising each glyph can cause different
+output for overlapping glyphs". So this is a difference the standard permits, and it is our choice
+inside that permission that is bad: §9.6.2.2 calls the standard 14 "14 Type 1 fonts", so any two of
+them are two members of one family of Type 1 programs and their outlines agree in direction. A
+substitution set that answers one with an `sfnt` and another with a CFF manufactures a disagreement
+that the fourteen faces it stands in for do not have — in the one place §9.3.6 makes direction
+visible.
+
+**So the rule to state is about the set rather than about the page**, and it is checkable in-tree
+with no reference at all: *two compiled-in substitutes for two of the standard 14 shall have the
+same contour orientation.* That is a property of `data/standard-fonts/`, and it is what a test
+should assert.
+
+Three ways to get there, unpriced:
+
+- **Normalise the orientation of a substituted glyph's contours** when accumulating §9.3.6's clip.
+  Correct in principle — the document supplied no outline, so its direction is ours — and it must
+  be conditional on the face being *substituted*, because an embedded font's direction is the
+  producer's statement and NOTE 2 protects it.
+- **Reverse at load** for one of the two formats in `standard.rs`, which is the same rule applied
+  earlier and to fewer places, but it changes what every glyph of those faces is rather than what
+  a clip does with it.
+- **Replace the four Liberation faces with CFF ones** so the whole compiled-in set shares a
+  convention. No code, a data and licence question, and it would have to keep ADR 0133's
+  machine-independence and the Helvetica metrics.
+
+What is owed first is neither: **a population**. `examples/glyph_reuse` and the corpus's own
+clipping-mode documents are the place to start counting pages that accumulate glyphs from two
+substituted faces into one clip, because outside that construction this costs nothing at all.

@@ -45,7 +45,7 @@ and *ratchets none of them*.
 |---|---|---|---|---|
 | `doc/pdf.js/test/pdfs` (the gate) | 974 | — | **65 incomplete** | — |
 | `doc/corpora/pdf20examples` | 7 | **7** | 0 | CC BY-SA 4.0 |
-| `doc/corpora/pdf-differences` | 37 | 30 | 7 | Apache-2.0 |
+| `doc/corpora/pdf-differences` | 37 | 30 → **29** | 7 → **8** | CC BY 4.0 (the PDFs; the repository's code is Apache-2.0) |
 | `doc/corpora/pdfbox` (`.../test/resources/input`) | 64 | 63 → 62 | 1 → **2** | Apache-2.0 |
 | SafeDocs `CC-MAIN-2021-31`, archive `0000`, first 24 | 24 | 22 | 2 | crawled web, no grant — never committed |
 | SafeDocs `CC-MAIN-2021-31`, archive `3500`, first 24 | 24 | 22 | 2 | crawled web, no grant — never committed |
@@ -327,6 +327,44 @@ Neither is closed to a later round that wants it.
 `doc/third-party-data.md`'s rule binds here exactly as it binds SafeDocs. A test names a path inside
 the submodule and skips where it is absent — `crates/pdf-model/tests/page_tree_nodes.rs` and
 `contents_entry.rs` — so no gate in `doc/todo/02` §2 depends on the checkout.
+
+### 2d. `pdf-association/pdf-differences` is not an oracle population, and that is a decision
+
+**Taken in the five-hundred-and-fifty-eighth session** (ADR 0393), which is the round that ranked
+it — the last of the five populations on this disk to be put in front of a reference.
+
+`doc/todo/03` §4 had held this corpus back since the four-hundred-and-twenty-second on a worry
+about the verdict vocabulary: files chosen for disagreement would come out `ambiguous` almost
+everywhere, and a page where this tree differs from three references *by the standard's own
+permission* is not a contradiction. **The worry was about a corpus that does not exist.** The name
+means implementations differ; sixteen of the eighteen test cases quote a normative sentence of ISO
+32000-2 and then publish the correct picture, and the repository's own README makes that a
+convention — "Correct renderings are always the _last_ image in the MarkDown". Exactly two
+differences in the whole set are the standard's own permission, §8.4.3.4's zero-length dash at a
+zero-length subpath segment and §9.5 NOTE 5's substitution, and both are stated as such in the
+standard rather than in the corpus.
+
+Three consequences, and the first is the one that binds this file:
+
+- **It may not go through the oracle's vote, and the reason is stronger than principle 5's usual
+  one.** On this population the references are the *subject under test* — the files exist because
+  implementations split on them — so a vote reads the answer off the very programs the corpus was
+  assembled to catch out. The round's own numbers say what that would have cost: at least one
+  reference is wrong against the clause on six of the eighteen cases, and on `Type3Test.pdf` **two
+  of the three are**, so the majority reading is the wrong one and a vote would have ratified it.
+- **`pdfref::Outcome` gains no verdict.** Every outcome it has is a function of the rasters;
+  "the standard permits this difference" is a function of a clause, and a term the instrument
+  cannot compute becomes the bucket every page nobody wants to explain goes into. A permitted
+  difference is `ambiguous`, or `contradicted` where the references happen to agree on one of the
+  permitted answers — **and it stays `contradicted`**, because that verdict is a true statement
+  about the evidence and hiding it would lose the one fact a later round needs. What converts it
+  from an accusation into a documented choice is a **named group quoting the permission**, which is
+  what `CONTRADICTED_SUBSTITUTED_FONT` has always been. ADR 0393 §2 has the argument.
+- **What it is for instead**: a reading list of eighteen clauses with hand-built witnesses, and a
+  per-case gate wherever the clause supplies the expected value with no reference in it — the same
+  shape as §2b's one-line ink assertion. `IndexedColor`'s "both rows shall match exactly",
+  `Inline-Image-Abbreviations`' "the same image in all eight locations" and §8.4.3.5's
+  `w/(2·sin(φ/2))` are three that are ready to be written.
 
 ### 3. What the corpus still names
 
