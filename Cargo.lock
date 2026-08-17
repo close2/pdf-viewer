@@ -1918,7 +1918,7 @@ dependencies = [
 [[package]]
 name = "hayro-jpeg2000"
 version = "0.4.0"
-source = "git+https://github.com/close2/hayro?rev=1dc833f7e87dd6849a358d74af3586d7955e1e03#1dc833f7e87dd6849a358d74af3586d7955e1e03"
+source = "git+https://github.com/close2/hayro?rev=64efcaca54cdc71cf8a1cd3bfd2333b1ce85cda2#64efcaca54cdc71cf8a1cd3bfd2333b1ce85cda2"
 
 [[package]]
 name = "hayro-postscript"

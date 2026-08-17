@@ -78,12 +78,13 @@ allow-git = [
     "https://github.com/close2/quorra",
     # The second, third-party, and temporary — and a *fork*, which is the part to justify.
     # ISO/IEC 15444-1's E-6 reconstruction term is missing entirely from `hayro-jpeg2000`
-    # 0.4.0 and missing for fully decoded coefficients upstream; the second half was found
-    # here and fixed in `2a1abd14`, offered upstream and not yet merged there. Worst sample
-    # error against the reference software: 87 levels to 1. Pinned by revision in Cargo.lock,
-    # and it goes back to crates.io the moment a release carries all three halves — the third
-    # being `1dc833f7`, a reduced-resolution decode that no longer allocates the
-    # full-resolution image, pushed to the fork and offered upstream with the others
-    # (ADR 0233).
+    # 0.4.0 and was missing for fully decoded coefficients upstream; the second half was found
+    # here and is **merged upstream now**, as #1340 and in upstream's own reimplementation of
+    # it. Worst sample error against the reference software: 87 levels to 1. What is left, and
+    # the whole reason this entry survives, is a reduced-resolution decode that no longer
+    # allocates the full-resolution image — rebased onto upstream's main as `64efcaca` so the
+    # fork is that one commit and no more, and offered upstream as a pull request (ADR 0233).
+    # Pinned by revision in Cargo.lock; it goes back to crates.io the moment a release carries
+    # that commit.
     "https://github.com/close2/hayro",
 ]

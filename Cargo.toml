@@ -243,19 +243,26 @@ hayro-jbig2 = { version = "0.3.0", default-features = false, features = ["std"] 
 # upstream `9cce046b` applies it except where `Mb - Nb` is zero — which is a coefficient that
 # was *fully* decoded, where `2 ^ 0 = 1` makes the term `r` itself rather than nothing.
 # `doc/JPEG2000_FEEDBACK.md` reported the first in the two-hundredth session and found the
-# second in the three-hundred-and-eleventh, by bisecting on resolution; the fix for it is
-# `close2/hayro` `2a1abd14`, offered upstream. Against ISO/IEC 15444-5's reference software the
-# worst sample error over the corpus falls from **87 levels to 1**, and 3.4 M differing samples
-# to 5 900. Go back to crates.io the moment a release carries both; `deny.toml` says the same.
+# second in the three-hundred-and-eleventh, by bisecting on resolution. **Both are upstream
+# now**: the second was merged as #1340, reimplemented rather than taken — `reconstructed()`
+# carries an `irreversible: bool` and returns `f32` where our `2a1abd14` passed the
+# quantisation style, which is the better shape because it puts the lossless case in the type.
+# Against ISO/IEC 15444-5's reference software the worst sample error over the corpus falls
+# from **87 levels to 1**, and 3.4 M differing samples to 5 900.
 #
-# **The third fix is in this `rev`, which was `doc/todo/24`'s step 0.** `close2/hayro`
-# `1dc833f7`, pushed and offered upstream with the one above: a decode asked for a reduced
-# resolution level still reserved a coefficient for every sample of the full-resolution image,
-# which was 3.4 GB of address space for `issue19517.pdf` however small a raster was wanted and
-# a dead worker inside `pdf_sandbox::lockdown`'s gigabyte. `pdf-sandbox` asks for a reduced
-# level since the four-hundred-and-eighty-sixth session (ADR 0321), and that file draws.
-# ADR 0233 and `doc/JPEG2000_FEEDBACK.md` §10 have the measurements.
-hayro-jpeg2000 = { git = "https://github.com/close2/hayro", rev = "1dc833f7e87dd6849a358d74af3586d7955e1e03", version = "0.4.0", default-features = false, features = ["std"] }
+# **So one of the three is left, and it is why this `rev` still exists** — `doc/todo/24`'s
+# step 0. A decode asked for a reduced resolution level still reserved a coefficient for every
+# sample of the full-resolution image, which was 3.4 GB of address space for `issue19517.pdf`
+# however small a raster was wanted and a dead worker inside `pdf_sandbox::lockdown`'s
+# gigabyte. `pdf-sandbox` asks for a reduced level since the four-hundred-and-eighty-sixth
+# session (ADR 0321), and that file draws. ADR 0233 and `doc/JPEG2000_FEEDBACK.md` §10 have
+# the measurements.
+#
+# The `rev` is that fix rebased onto upstream `4aaabad7`, so the fork is now upstream's main
+# plus exactly one commit rather than a divergent branch — the pull request in
+# `doc/HAYRO_PR_REDUCED_RESOLUTION.md` is that commit and nothing else. Go back to crates.io
+# the moment a release carries it; `deny.toml` says the same.
+hayro-jpeg2000 = { git = "https://github.com/close2/hayro", rev = "64efcaca54cdc71cf8a1cd3bfd2333b1ce85cda2", version = "0.4.0", default-features = false, features = ["std"] }
 
 # Cryptography, for ISO 32000-2 §7.6's standard security handler. Five primitives, all
 # from RustCrypto, all named by the clause that needs them: RC4 and AES for §7.6.3.2's
