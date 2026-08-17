@@ -12,6 +12,12 @@
 //! for `N G obj` headers when it does not. **Both are bounded**: scanning is linear in
 //! file size and the offset table cannot exceed the object count, because unbounded
 //! recovery is a denial of service dressed up as robustness.
+//!
+//! **The scan is half of the second path and not all of it**, because §7.5.7 lets a file store
+//! its objects inside a stream instead of at the outermost level, and those have no header to
+//! scan for. What this module can do about them is name the object streams it found
+//! ([`XrefTable::object_streams`]); entering their contents needs the filter chain and the
+//! decryption a table being built cannot have, so it is [`crate::Document`]'s second phase.
 
 use std::collections::BTreeMap;
 
@@ -49,6 +55,12 @@ pub struct XrefTable {
     recovered_by_scan: bool,
     /// Entries a cross-reference *stream* stated and did not carry. See [`Self::entries_lost`].
     entries_lost: u64,
+    /// Object streams a scan found, in the order their headers stand in the file.
+    ///
+    /// Only [`scan_for_objects`] fills this, and it is what [`crate::Document`] reads to enter
+    /// §7.5.7's compressed objects into a rebuilt table. A table read from the file itself needs
+    /// nothing of the kind: it already says which objects are in which stream.
+    object_streams: Vec<u32>,
 }
 
 impl XrefTable {
@@ -104,6 +116,52 @@ impl XrefTable {
             .iter()
             .filter(|(_, entry)| entry.is_some())
             .map(|(number, _)| *number)
+    }
+
+    /// The object streams a scan found, earliest in the file first.
+    ///
+    /// Empty for a table the file's own cross-references produced, and for a scan of a file that
+    /// packs nothing. §7.5.7 is what makes a scan able to find these at all: it forbids a stream
+    /// object from being stored in an object stream, so every object stream is written at the
+    /// outermost level with an `N G obj` header of its own.
+    ///
+    /// The order is the file's, because that is the only evidence a rebuilt table has about which
+    /// of two statements is the more recent (§7.5.6) — the same rule [`scan_for_objects`] applies
+    /// to two headers bearing one object number.
+    #[must_use]
+    pub fn object_streams(&self) -> &[u32] {
+        &self.object_streams
+    }
+
+    /// Files §7.5.7's compressed objects into a rebuilt table, and says how many it filed.
+    ///
+    /// **Only where the number names nothing yet.** The scan's own entry is an object with a
+    /// header, written at the outermost level, and §7.5.7 says what that means when an object
+    /// stream also claims the number:
+    ///
+    /// > If either an object stream or a compressed object is deleted and the object number is
+    /// > freed, that object number shall be reused only for an ordinary (uncompressed) object
+    /// > other than an object stream.
+    ///
+    /// so a number in both places is a number the file freed and reused, and the ordinary object
+    /// is the live one. The alternative reading — that an object stream later in the file is a
+    /// newer revision of the same number — is what [`Document::recover_compressed_objects`] holds
+    /// the count of, so that a file exercising it is visible rather than assumed absent.
+    ///
+    /// [`Document::recover_compressed_objects`]: crate::Document::recover_compressed_objects
+    pub(crate) fn enter_compressed(
+        &mut self,
+        entries: impl IntoIterator<Item = (u32, Location)>,
+    ) -> usize {
+        let mut entered = 0_usize;
+        for (number, location) in entries {
+            if self.entries.contains_key(&number) {
+                continue;
+            }
+            self.entries.insert(number, Some(location));
+            entered = entered.saturating_add(1);
+        }
+        entered
     }
 
     /// Returns `true` if this table was rebuilt by scanning rather than read from the file.
@@ -215,6 +273,12 @@ pub fn read(input: &[u8], limits: Limits) -> SyntaxResult<XrefTable> {
 /// self-consistent and pointing at the wrong bytes.
 ///
 /// `had_header` decides only which error is reported when nothing is found.
+///
+/// **What it returns is the outermost level of the file and no more.** §7.5.7's compressed
+/// objects have no header to scan for, and the table this hands back therefore names the object
+/// streams themselves and not one object inside them; [`crate::Document::open`] finishes the job
+/// with the pairs each stream's own header states. A caller reaching this directly gets the scan
+/// alone, which is what its two callers here want.
 ///
 /// # Errors
 ///
@@ -912,6 +976,11 @@ fn find_catalog_by_scan(input: &[u8], limits: Limits, table: &XrefTable) -> Opti
 pub fn scan_for_objects(input: &[u8], limits: Limits) -> XrefTable {
     let mut table = XrefTable::default();
     let mut latest: BTreeMap<u32, usize> = BTreeMap::new();
+    // Which of those objects is an object stream, asked while the parsed object is in hand
+    // rather than by parsing the file a second time. A number whose *last* definition is not
+    // an object stream is not one, which is why this is a map keyed the same way as `latest`
+    // rather than a set that only grows.
+    let mut streams: BTreeMap<u32, usize> = BTreeMap::new();
 
     let mut at = 0usize;
     while let Some(found) = input
@@ -924,8 +993,13 @@ pub fn scan_for_objects(input: &[u8], limits: Limits) -> XrefTable {
         // Walk back over `G` and `N` to find where the header starts.
         if let Some(start) = header_start(input, keyword_at) {
             let mut parser = Parser::at(input, start, limits);
-            if let Ok((id, _)) = parser.parse_indirect_object() {
+            if let Ok((id, object)) = parser.parse_indirect_object() {
                 latest.insert(id.number, start);
+                if is_object_stream(&object) {
+                    streams.insert(id.number, start);
+                } else {
+                    streams.remove(&id.number);
+                }
             }
         }
     }
@@ -933,7 +1007,33 @@ pub fn scan_for_objects(input: &[u8], limits: Limits) -> XrefTable {
     for (number, offset) in latest {
         table.entries.insert(number, Some(Location::Offset(offset)));
     }
+    // Earliest in the file first: `Document`'s recovery reads them in that order so that a
+    // later stream's copy of an object number wins, which is the rule this scan already
+    // applies to two headers bearing one number.
+    let mut ordered: Vec<(usize, u32)> = streams
+        .into_iter()
+        .map(|(number, offset)| (offset, number))
+        .collect();
+    ordered.sort_unstable();
+    table.object_streams = ordered.into_iter().map(|(_, number)| number).collect();
     table
+}
+
+/// Whether a parsed object is Table 16's object stream.
+///
+/// §7.5.7's Table 16 makes the entry required and its value one name:
+///
+/// > The type of PDF object that this dictionary describes; shall be ObjStm for an object stream.
+///
+/// The entry is read from the dictionary as written, because a scan has no table to resolve an
+/// indirect value through — and §7.3.10's `/Type` is a name here in every file that obeys the
+/// table above.
+fn is_object_stream(object: &Object) -> bool {
+    object
+        .as_stream()
+        .and_then(|stream| stream.dict.get("Type"))
+        .and_then(Object::as_name)
+        .is_some_and(|name| name == &"ObjStm")
 }
 
 /// Walks backwards from an `obj` keyword to the start of `N G obj`.

@@ -458,7 +458,21 @@ fn objects_lost_inside_a_damaged_object_stream_are_said_out_loud() {
 /// arrives and nothing says the stream is over — which is what leaves the *last* object's end
 /// unstated under §7.5.7's NOTE 7, while the page dictionary ahead of it ends where the next offset
 /// says and is read as usual.
+///
+/// `readable_table` decides whether the file's own cross-reference stream can be decoded. With it
+/// false the reader falls to `xref::rebuild`, which is the other half of §7.5.7 — see
+/// [`a_rebuild_says_what_it_recovered_from_an_object_stream`].
 fn a_page_stored_beside_an_object_the_damage_takes() -> Vec<u8> {
+    packed_page(true)
+}
+
+/// The same document with a cross-reference stream no filter chain here can decode.
+fn a_packed_page_behind_an_unreadable_table() -> Vec<u8> {
+    packed_page(false)
+}
+
+/// Both of the above.
+fn packed_page(readable_table: bool) -> Vec<u8> {
     let compressed = [
         "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>\n",
         "(the object the damage takes)\n",
@@ -519,10 +533,15 @@ fn a_page_stored_beside_an_object_the_damage_takes() -> Vec<u8> {
         table.extend_from_slice(&u32::try_from(row[1]).expect("a small offset").to_be_bytes());
         table.extend_from_slice(&u16::try_from(row[2]).expect("a small field").to_be_bytes());
     }
+    let filter = if readable_table {
+        ""
+    } else {
+        "/Filter /XXXDecode "
+    };
     out.extend_from_slice(
         format!(
-            "4 0 obj\n<< /Type /XRef /Size 7 /Index [0 7] /W [1 4 2] /Root 1 0 R /Length {} >>\n\
-             stream\n",
+            "4 0 obj\n<< /Type /XRef /Size 7 /Index [0 7] /W [1 4 2] /Root 1 0 R {filter}\
+             /Length {} >>\nstream\n",
             table.len()
         )
         .as_bytes(),
@@ -531,6 +550,47 @@ fn a_page_stored_beside_an_object_the_damage_takes() -> Vec<u8> {
     out.extend_from_slice(b"\nendstream\nendobj\n");
     out.extend_from_slice(format!("startxref\n{stream_at}\n%%EOF\n").as_bytes());
     out
+}
+
+/// A rebuilt document says how much of itself the rebuild recovered, §7.5.7 and §C.4.
+///
+/// The document above with its cross-reference stream made undecodable, so the reader falls to a
+/// scan — which finds `N G obj` headers and therefore no compressed object at all until the
+/// rebuild reads the object stream's own header (ADR 0395). What the host is told has to carry
+/// both halves: **a rebuild that recovered part of a file must not read like one that recovered
+/// all of it**, and the page here is drawable exactly because the recovery worked while one
+/// object inside the stream is still lost to the damage.
+#[test]
+fn a_rebuild_says_what_it_recovered_from_an_object_stream() {
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    let mut said: Vec<String> = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: a_packed_page_behind_an_unreadable_table(),
+            password: None,
+            fragment: None,
+        })
+        .filter_map(|event| match event {
+            Event::Reported { notes, .. } => Some(notes),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    // Both channels, because they are two: what the file says about itself is said when it opens,
+    // and what a damaged object stream cost is said when it becomes known (`notes::losses`).
+    if let Answer::Reports(all) = viewer.query(Query::Reports) {
+        said.extend(all.iter().cloned());
+    }
+    assert!(
+        said.iter().any(|note| note.contains("rebuilt by scanning")
+            && note.contains("object stream(s) (§7.5.7)")),
+        "the rebuild says what it entered from the file's object streams: {said:?}"
+    );
+    assert!(
+        said.iter()
+            .any(|note| note.contains("object stream (§7.5.7) could not be read")),
+        "and the object the damage takes is still named, by the account that owns it: {said:?}"
+    );
 }
 
 #[test]

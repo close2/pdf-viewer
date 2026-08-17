@@ -861,6 +861,200 @@ fn a_trailer_further_back_than_the_window_is_still_the_files_trailer() {
     );
 }
 
+/// A document whose page tree is inside an object stream, with the table readable or not.
+///
+/// The two arms differ in one entry: `/XXXDecode` on the cross-reference stream, which is the
+/// witness's own defect — `pdf-differences/UnknownFilter/UnknownFilter-Linearized.pdf` puts an
+/// unimplementable filter on the cross-reference stream of a file whose objects are all intact.
+/// Everything else, the object stream included, is byte for byte the same.
+///
+/// `spare_at_top_level` writes a second definition of object 4 *after* the object stream, which
+/// is §7.5.7's freed-and-reused number: "that object number shall be reused only for an ordinary
+/// (uncompressed) object other than an object stream".
+fn packed_document(readable: bool, spare_at_top_level: bool, filter: &str) -> Vec<u8> {
+    let pages = "<< /Type /Pages /Count 1 /Kids [4 0 R] >>";
+    let page = "<< /Type /Page /Parent 3 0 R /MediaBox [0 0 10 10] >>";
+    let header = format!("3 0 4 {} ", pages.len() + 1);
+    let first = header.len();
+    let data = format!("{header}{pages} {page}");
+
+    let (out, offsets) = body(&[
+        "1 0 obj\n<< /Type /Catalog /Pages 3 0 R >>\nendobj\n",
+        &format!(
+            "2 0 obj\n<< /Type /ObjStm /N 2 /First {first} {filter}/Length {} >>\nstream\n{data}\n\
+             endstream\nendobj\n",
+            data.len()
+        ),
+    ]);
+    let mut bytes = out.into_bytes();
+    let reused_at = bytes.len();
+    if spare_at_top_level {
+        bytes.extend_from_slice(b"4 0 obj\n(the reused number)\nendobj\n");
+    }
+
+    let stream_at = bytes.len();
+    let entries: [[u64; 3]; 6] = [
+        [0, 0, 65535],
+        [1, offset_of(offsets[0]), 0],
+        [1, offset_of(offsets[1]), 0],
+        [2, 2, 0],
+        // Object 4: a type 1 entry at the ordinary object where the file reuses the number, and
+        // otherwise the object stream's second member.
+        if spare_at_top_level {
+            [1, offset_of(reused_at), 0]
+        } else {
+            [2, 2, 1]
+        },
+        [1, offset_of(stream_at), 0],
+    ];
+    let extra = if readable {
+        "/Root 1 0 R "
+    } else {
+        "/Root 1 0 R /Filter /XXXDecode "
+    };
+    bytes.extend_from_slice(&xref_stream_object(5, Some(0), &entries, extra, [1, 4, 2]));
+    bytes.extend_from_slice(format!("startxref\n{stream_at}\n%%EOF\n").as_bytes());
+    bytes
+}
+
+/// Opens a document, insisting a scan is what produced its cross-reference information.
+fn open_rebuilt(bytes: Vec<u8>) -> Document {
+    let document = Document::open(bytes).expect("the fixture's objects are all intact");
+    assert!(
+        document.was_recovered(),
+        "the table is unreadable and a scan must be what answered"
+    );
+    document
+}
+
+/// ISO 32000-2 §7.5.7 and §C.4: a rebuild reaches the objects an object stream holds.
+///
+/// §C.4 licenses the reconstruction and says what it scans:
+///
+/// > When a PDF processor reads a PDF file with a damaged or missing cross-reference table, it
+/// > may attempt to rebuild the table by scanning all the objects in the file.
+///
+/// and §7.5.7 says where a file may put an object:
+///
+/// > An object stream is a stream object in which a sequence of indirect objects may be stored,
+/// > as an alternative to their being stored at the outermost PDF file level.
+///
+/// So a scan for `N G obj` headers finds *some* of the objects in the file, and a modern file
+/// packs everything but its streams where that scan cannot see. The recovery is stated by the
+/// same clause rather than guessed:
+///
+/// > N pairs of integers separated by white-space, where the first integer in each pair shall
+/// > represent the object number of a compressed object and the second integer shall represent
+/// > the byte offset in the decoded stream of that object
+///
+/// The pair below is one document whose page tree and page are compressed, read once through its
+/// own cross-reference stream and once through a rebuild. A reader that stops at the outermost
+/// level opens the second and has no page tree at all — which is what the witness does.
+#[test]
+fn a_rebuild_enters_the_objects_an_object_stream_names() {
+    let read = open(packed_document(true, false, ""));
+    let rebuilt = open_rebuilt(packed_document(false, false, ""));
+
+    for (document, how) in [(&read, "its own table"), (&rebuilt, "a rebuild")] {
+        let catalog = document.catalog().expect("/Root");
+        let pages = document
+            .get_key(&catalog, "Pages")
+            .as_dict()
+            .cloned()
+            .unwrap_or_else(|| {
+                panic!("the page tree is inside the object stream, read through {how}")
+            });
+        assert_eq!(
+            document.get_key(&pages, "Count").as_integer(),
+            Some(1),
+            "and its entries are the producer's own, read through {how}"
+        );
+        assert!(
+            document
+                .get_key(&pages, "Kids")
+                .as_array()
+                .and_then(|kids| kids.first().cloned())
+                .map(|kid| document.resolve(&kid))
+                .and_then(|kid| kid.as_dict().cloned())
+                .is_some(),
+            "as is the page it names, read through {how}"
+        );
+    }
+
+    let recovered = rebuilt.compressed_objects_recovered();
+    assert_eq!(
+        (recovered.streams, recovered.read, recovered.objects),
+        (1, 1, 2),
+        "and the rebuild says what it recovered: one object stream, two objects"
+    );
+    assert!(recovered.is_whole(), "with nothing left unread");
+    assert!(
+        read.compressed_objects_recovered().is_empty(),
+        "while a document read from its own table expands nothing at all — the recovery is the \
+         one place in this reader that opens an object stream nobody has asked for"
+    );
+}
+
+/// ISO 32000-2 §7.5.7: an ordinary object outranks an object stream's claim on its number.
+///
+/// > If either an object stream or a compressed object is deleted and the object number is
+/// > freed, that object number shall be reused only for an ordinary (uncompressed) object other
+/// > than an object stream.
+///
+/// So a number a rebuild finds at the outermost level *and* inside an object stream is a number
+/// the file freed and reused, and the ordinary object is the live one. The fixture writes the
+/// reuse the clause describes — object 4 as a string after the object stream that used to hold
+/// the page — and the entry the scan made must survive the recovery.
+#[test]
+fn a_scanned_object_outranks_an_object_streams_claim_on_its_number() {
+    let rebuilt = open_rebuilt(packed_document(false, true, ""));
+
+    assert_eq!(
+        object(&rebuilt, 4).as_string().map(<[u8]>::to_vec),
+        Some(b"the reused number".to_vec()),
+        "the ordinary object is what the number names"
+    );
+    assert!(
+        object(&rebuilt, 3).as_dict().is_some(),
+        "and the compressed object whose number nothing else claims is still entered"
+    );
+    let recovered = rebuilt.compressed_objects_recovered();
+    assert_eq!(
+        (recovered.objects, recovered.already_at_top_level),
+        (1, 1),
+        "and the recovery says how many of its offers were declined, because the rule above is a \
+         reading and a file that exercises it should be visible"
+    );
+}
+
+/// A stream this reader cannot decode loses its objects loudly, §7.5.7 and trap 5.
+///
+/// The same document again, with the unimplementable filter moved from the cross-reference
+/// stream onto the *object* stream: the rebuild finds the stream, cannot read what is inside it,
+/// and must say so rather than reporting a recovery that reached everything. The witness is
+/// `pdf-differences/UnknownFilter/UnknownFilter-objstm.pdf`, whose README calls the file
+/// "effectively unprocessable as many objects are inaccessible".
+#[test]
+fn a_rebuild_that_cannot_read_an_object_stream_says_so() {
+    let rebuilt = open_rebuilt(packed_document(false, false, "/Filter /XXXDecode "));
+
+    let recovered = rebuilt.compressed_objects_recovered();
+    assert_eq!(
+        (recovered.streams, recovered.read, recovered.objects),
+        (1, 0, 0),
+        "the stream was found and nothing came out of it"
+    );
+    assert_eq!(
+        recovered.unreadable, 1,
+        "which is the count that keeps a partial recovery from reading like a whole one"
+    );
+    assert!(!recovered.is_whole());
+    assert!(
+        object(&rebuilt, 3).is_null(),
+        "and what the stream held is missing rather than invented"
+    );
+}
+
 /// One zlib stream holding `payload` in a single stored block, finished or not.
 ///
 /// RFC 1951 section 3.2.3's BFINAL is the only difference between the two, which is what makes the pair

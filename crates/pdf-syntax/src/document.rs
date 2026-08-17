@@ -57,6 +57,23 @@ const MAX_REFERENCE_DEPTH: usize = 64;
 /// in ADR 0317 and in the A/B on [`Document::decoded_streams`].
 pub const DECODED_BUDGET: usize = 4 * 1024 * 1024;
 
+/// How many decoded bytes of object stream a *rebuild* spends recovering §7.5.7's objects.
+///
+/// [`Document::recover_compressed_objects`] decodes every object stream a header scan found, far
+/// enough to read its header, which is work an attacker chooses: a file may carry any number of
+/// them, each claiming to inflate to [`Limits::max_stream_len`]. The count of streams is not the
+/// axis to bound — a kilobyte of headers can name thousands — so what is bounded is the decoded
+/// total, checked before each stream is started. The worst case is therefore this budget plus one
+/// stream, which is the exposure an ordinary document already has for one `/Contents`.
+///
+/// **64 MiB, and the floor under it is measured.** The widest object-stream total among every
+/// document on this disk that reaches a rebuild — 261 of the 65 944 crawled, 28 of the 974 and 108
+/// of the 277 in the corpora — is 12.6 MiB, in a 10 MB file with 316 object streams
+/// (`pdf-model/examples/rebuild_census`). Five times the widest real one refuses none of them, and
+/// a file that does exceed it is not refused either: it recovers what the budget reached and
+/// [`CompressedRecovery::beyond_the_budget`] says how many streams it did not.
+pub const RECOVERY_DECODE_BUDGET: usize = 64 * 1024 * 1024;
+
 /// An open PDF file.
 ///
 /// Holds the bytes and resolves objects on demand. Cheap to open and cheap to clone the
@@ -112,6 +129,12 @@ pub struct Document {
     lost_to_damage: RwLock<LostToDamage>,
     /// §7.4's filter chain already run, under [`DECODED_BUDGET`]. See [`DecodedStreams`].
     decoded: RwLock<DecodedStreams>,
+    /// What entering §7.5.7's compressed objects into a rebuilt table found, and did not.
+    ///
+    /// Default for every document whose cross-reference information the file itself supplied,
+    /// which is what makes it a statement about the recovery rather than about the file. See
+    /// [`Document::recover_compressed_objects`].
+    recovered_compressed: CompressedRecovery,
     /// ISO 32000-2 §7.6's security handler, absent when the trailer has no `/Encrypt`.
     ///
     /// > The absence of this entry from the trailer dictionary means that a PDF processor
@@ -154,6 +177,36 @@ fn write<T>(lock: &RwLock<T>) -> RwLockWriteGuard<'_, T> {
     lock.write().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// ISO 32000-2 §7.5.7's header: the `(object number, relative offset)` pairs an object stream
+/// begins with.
+///
+/// > N pairs of integers separated by white-space, where the first integer in each pair shall
+/// > represent the object number of a compressed object and the second integer shall represent
+/// > the byte offset in the decoded stream of that object, relative to the first object stored in
+/// > the object stream, the offset for which is the value of the stream's First entry.
+///
+/// Bounded by `count`, which is Table 16's `/N`, and **not** by `/First`: that entry is "[t]he
+/// byte offset in the decoded stream of the first compressed object", so a producer that leaves
+/// white-space between the last pair and the first object gives a prefix whose tail is the
+/// object's own bytes, and reading on takes integers out of them. Stops early where the decoded
+/// prefix runs out mid-header, which is what a damaged stream leaves — the pairs it did carry are
+/// whole, and how many it did not is `/N` minus what came back.
+fn object_stream_pairs(data: &[u8], first: usize, count: i64) -> Vec<(u32, usize)> {
+    let mut header = crate::lexer::Lexer::new(data.get(..first).unwrap_or_default());
+    let mut pairs = Vec::new();
+    for _ in 0..count.max(0) {
+        let (Some(crate::Token::Integer(number)), Some(crate::Token::Integer(at))) =
+            (header.next_token(), header.next_token())
+        else {
+            break;
+        };
+        if let (Ok(number), Ok(at)) = (u32::try_from(number), usize::try_from(at)) {
+            pairs.push((number, at));
+        }
+    }
+    pairs
+}
+
 /// What object streams this document could only partly decode did not yield, as it accumulates.
 #[derive(Default)]
 struct LostToDamage {
@@ -190,6 +243,59 @@ impl ObjectsLost {
     #[must_use]
     pub fn count(&self) -> usize {
         self.objects.len().saturating_add(self.unnamed)
+    }
+}
+
+/// What entering §7.5.7's compressed objects into a rebuilt table recovered, and what it did not.
+///
+/// Every field is zero for a document whose cross-reference information came from the file, and
+/// [`Self::is_empty`] says which case a caller is looking at. The fields beside `objects` are
+/// there for one reason, and it is the reason this is a struct rather than a count: **a rebuild
+/// that recovers some of a file's objects must not look like one that recovered all of them.**
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CompressedRecovery {
+    /// Object streams the header scan found at the outermost level of the file.
+    pub streams: usize,
+    /// Those whose own header this reader could read, so that what they hold has a location.
+    pub read: usize,
+    /// Object numbers entered into the table from those headers, and so reachable again.
+    ///
+    /// A number here has a *location*, which is what a cross-reference entry is. Whether the
+    /// bytes at it are whole is a second question, asked when something reads the object and
+    /// answered by [`Document::objects_lost_to_damage`] — the same account for a stream reached
+    /// through a rebuilt table as through one the file supplied.
+    pub objects: usize,
+    /// Streams whose header this reader could not read: a filter chain it has no decoder for, a
+    /// decode that stopped before the pairs, or a header naming nothing.
+    ///
+    /// Every object such a stream holds is unreachable and unnamed — not even its number
+    /// survives — which is what makes this a count of streams rather than of objects.
+    pub unreadable: usize,
+    /// Streams left unexpanded because [`RECOVERY_DECODE_BUDGET`] was spent on the earlier ones.
+    pub beyond_the_budget: usize,
+    /// Numbers an object stream names that the scan had already found at the outermost level.
+    ///
+    /// Declined rather than entered, on §7.5.7's rule for a freed number's reuse — see
+    /// [`crate::XrefTable::object_streams`]. Counted because that rule is a *reading*, and a
+    /// file that exercises it should be visible to whoever next questions it.
+    pub already_at_top_level: usize,
+}
+
+impl CompressedRecovery {
+    /// Whether the recovery ran at all: false for every table the file's own bytes supplied.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.streams == 0
+    }
+
+    /// Whether it entered everything the file's object streams offered.
+    ///
+    /// The question a caller wanting one sentence asks: a rebuild that lost nothing says the
+    /// same thing as a rebuild that met no object stream, and both differ from one that met
+    /// eight and could read three.
+    #[must_use]
+    pub const fn is_whole(&self) -> bool {
+        self.unreadable == 0 && self.beyond_the_budget == 0
     }
 }
 
@@ -257,6 +363,11 @@ impl Document {
         let xref = crate::xref::read(&bytes, limits)?;
         let mut document = Self::around(Arc::clone(&bytes), xref, limits);
         document.authenticate(password)?;
+        // Nothing for a document whose table the file supplied, and §7.5.7's other half of the
+        // recovery for one whose table came from a scan. It runs *after* authentication because
+        // an object stream in an encrypted file is ciphertext until there is a key, and before
+        // the catalogue is asked for below because `/Root` may be one of the objects it enters.
+        document.recover_compressed_objects();
 
         // §7.5.5 makes the trailer's `/Root` "[t]he catalog dictionary for the PDF file", so
         // **a cross-reference table that leads to no catalog has been disproved by the file
@@ -272,8 +383,11 @@ impl Document {
             && let Ok(rebuilt) = crate::xref::rebuild(&bytes, limits, true)
         {
             let mut second = Self::around(bytes, rebuilt, limits);
-            if second.authenticate(password).is_ok() && second.catalog().is_ok() {
-                return Ok(second);
+            if second.authenticate(password).is_ok() {
+                second.recover_compressed_objects();
+                if second.catalog().is_ok() {
+                    return Ok(second);
+                }
             }
         }
         Ok(document)
@@ -311,6 +425,7 @@ impl Document {
             misfiled: RwLock::new(BTreeSet::new()),
             lost_to_damage: RwLock::new(LostToDamage::default()),
             decoded: RwLock::new(DecodedStreams::with_budget(DECODED_BUDGET)),
+            recovered_compressed: CompressedRecovery::default(),
             encryption: None,
             encrypt_object: None,
         }
@@ -425,6 +540,22 @@ impl Document {
             unnamed: held.unnamed,
             streams: held.streams.iter().copied().collect(),
         }
+    }
+
+    /// What a rebuilt table recovered from §7.5.7's object streams, and what it did not.
+    ///
+    /// [`CompressedRecovery::is_empty`] for every document whose cross-reference information came
+    /// from the file itself, which is the overwhelming majority: this is a statement about the
+    /// *recovery*, not about the file's use of object streams. Where it is not empty, the fields
+    /// that are not `objects` are what keep a partial recovery from reading like a whole one —
+    /// see [`Self::recover_compressed_objects`].
+    ///
+    /// Unlike [`Self::objects_lost_to_damage`] this is complete the moment the document opens,
+    /// because the recovery is the one place in this reader that expands an object stream nothing
+    /// has asked for yet.
+    #[must_use]
+    pub const fn compressed_objects_recovered(&self) -> &CompressedRecovery {
+        &self.recovered_compressed
     }
 
     /// How many cross-reference entries this file's streams state and do not carry, §7.5.8.
@@ -965,21 +1096,7 @@ impl Document {
             .get_key(&stream.dict, "First")
             .as_integer()
             .and_then(|value| usize::try_from(value).ok())?;
-
-        // The header is a list of (object number, relative offset) pairs.
-        let mut header = crate::lexer::Lexer::new(data.get(..first).unwrap_or_default());
-        let mut pairs = Vec::new();
-        for _ in 0..count.max(0) {
-            let (Some(crate::Token::Integer(object_number)), Some(crate::Token::Integer(at))) =
-                (header.next_token(), header.next_token())
-            else {
-                break;
-            };
-            if let (Ok(object_number), Ok(at)) = (u32::try_from(object_number), usize::try_from(at))
-            {
-                pairs.push((object_number, at));
-            }
-        }
+        let pairs = object_stream_pairs(&data, first, count);
 
         // §7.5.7 states where each compressed object ends as well as where it begins — "[t]he
         // byte offsets shall be in increasing order", and NOTE 7 (2020): "processing of each
@@ -1036,6 +1153,143 @@ impl Document {
         let expanded = Arc::new(objects);
         write(&self.expanded_streams).insert(number, Arc::clone(&expanded));
         Some(expanded)
+    }
+
+    /// The object numbers one object stream's header names, without parsing any of them.
+    ///
+    /// What a cross-reference entry needs is the *number*; the object itself is what
+    /// [`Self::expand_object_stream`] reads when something asks for it. Reading them here would
+    /// be the eager work `CLAUDE.md`'s startup rule forbids, and the difference is measured
+    /// rather than assumed — see [`Self::recover_compressed_objects`].
+    ///
+    /// Returns the numbers in the order the header names them and how many decoded bytes were
+    /// read to find that out.
+    fn object_stream_members(&self, number: u32) -> Option<(Vec<u32>, usize)> {
+        if let Some(cached) = read(&self.expanded_streams).get(&number) {
+            return Some((cached.keys().copied().collect(), 0));
+        }
+
+        let Location::Offset(offset) = self.xref.location(number)? else {
+            // As in `expand_object_stream`: an object stream inside another one is not
+            // permitted, and following it would be a route to unbounded recursion.
+            return None;
+        };
+        let (_, object) = self.parse_at(offset)?;
+        let stream = object.as_stream()?;
+        let decoded = self.decoded_stream_data_reported(stream).ok()?;
+
+        let count = self.get_key(&stream.dict, "N").as_integer().unwrap_or(0);
+        let first = self
+            .get_key(&stream.dict, "First")
+            .as_integer()
+            .and_then(|value| usize::try_from(value).ok())?;
+        let numbers = object_stream_pairs(&decoded.data, first, count)
+            .into_iter()
+            .map(|(number, _)| number)
+            .collect();
+        Some((numbers, decoded.data.len()))
+    }
+
+    /// Enters §7.5.7's compressed objects into a table that was rebuilt by scanning.
+    ///
+    /// # Why a rebuilt table needs this and a read one does not
+    ///
+    /// [`crate::xref::rebuild`] finds objects by their `N G obj` headers, which §C.4 licenses:
+    ///
+    /// > When a PDF processor reads a PDF file with a damaged or missing cross-reference table,
+    /// > it may attempt to rebuild the table by scanning all the objects in the file.
+    ///
+    /// **and an object inside an object stream has no header to scan for.** §7.5.7's first
+    /// sentence is why:
+    ///
+    /// > An object stream is a stream object in which a sequence of indirect objects may be
+    /// > stored, as an alternative to their being stored at the outermost PDF file level.
+    ///
+    /// so a scan that stops at that level has found some of the objects in the file rather than
+    /// all of them, and every object a modern producer packed is missing from the recovery. The
+    /// step that finds them is stated by the same clause rather than guessed at:
+    ///
+    /// > N pairs of integers separated by white-space, where the first integer in each pair shall
+    /// > represent the object number of a compressed object and the second integer shall
+    /// > represent the byte offset in the decoded stream of that object
+    ///
+    /// The scan can always reach the streams themselves, because §7.5.7 forbids storing a stream
+    /// object inside one — so each is written at the outermost level with a header of its own.
+    ///
+    /// # Why it is here rather than in `xref`
+    ///
+    /// Reading those pairs means decoding the stream, which means §7.4's filter chain and §7.6's
+    /// decryption, and `xref` deliberately has neither: it builds the table that resolving an
+    /// indirect `/Filter` would need. So the rebuild grows a second phase that runs *after* the
+    /// table exists and after [`Self::authenticate`] — an object stream in an encrypted file is
+    /// ciphertext until there is a key.
+    ///
+    /// # What it will not do
+    ///
+    /// **It does not read the objects.** Only each stream's header is read, which is what a
+    /// cross-reference entry is made of; every object stays unparsed until something asks for it,
+    /// exactly as it does under a table the file supplied. That is `CLAUDE.md`'s startup rule,
+    /// and the difference is measured rather than assumed: on the widest rebuilt document on this
+    /// disk — 10 MB, 316 object streams, 142 641 compressed objects — `Document::open` is
+    /// **13.0–17.5 ms** without this recovery and **52.3–75.6 ms** with it, five samples apiece
+    /// in one sitting through `pdf-model/examples/open_cost`. Expanding every stream's objects
+    /// instead of its header measured **196.5 ms** on the same file, one sample, which is what
+    /// this shape costs a broken document and what the lazy one gives back. What the objects
+    /// themselves cost is paid by the page that wants them.
+    ///
+    /// **An entry the scan already made wins**, and [`CompressedRecovery::already_at_top_level`]
+    /// counts what that declined; [`crate::XrefTable::object_streams`] has the clause.
+    ///
+    /// **A number whose object turns out to be unreadable is still entered**, because the header
+    /// naming it is the file's own statement about where it is, and what a damaged stream then
+    /// fails to yield is [`Self::objects_lost_to_damage`]'s account — ADR 0366's rule, reached
+    /// through this one rather than restated inside it. The two compose in the same order they
+    /// would for a whole table: the entry says where the object lives, the expansion says whether
+    /// the bytes are there.
+    fn recover_compressed_objects(&mut self) {
+        if !self.xref.recovered_by_scan() {
+            return;
+        }
+        let streams = self.xref.object_streams().to_vec();
+        let mut report = CompressedRecovery {
+            streams: streams.len(),
+            ..CompressedRecovery::default()
+        };
+        // Earliest stream first, so that a later one's copy of an object number replaces it here
+        // before anything is entered — the rule `scan_for_objects` applies to two headers bearing
+        // one number, and §7.5.6's "most recent copy" behind it.
+        let mut members: BTreeMap<u32, Location> = BTreeMap::new();
+        let mut spent = 0_usize;
+        for stream in streams {
+            if spent >= RECOVERY_DECODE_BUDGET {
+                report.beyond_the_budget = report.beyond_the_budget.saturating_add(1);
+                continue;
+            }
+            let Some((named, decoded)) = self.object_stream_members(stream) else {
+                report.unreadable = report.unreadable.saturating_add(1);
+                continue;
+            };
+            spent = spent.saturating_add(decoded);
+            if named.is_empty() {
+                report.unreadable = report.unreadable.saturating_add(1);
+                continue;
+            }
+            report.read = report.read.saturating_add(1);
+            for (index, number) in named.iter().enumerate() {
+                members.insert(
+                    *number,
+                    Location::InStream {
+                        stream,
+                        index: u32::try_from(index).unwrap_or(u32::MAX),
+                    },
+                );
+            }
+        }
+
+        let offered = members.len();
+        report.objects = self.xref.enter_compressed(members);
+        report.already_at_top_level = offered.saturating_sub(report.objects);
+        self.recovered_compressed = report;
     }
 
     /// Returns a stream's decoded data.

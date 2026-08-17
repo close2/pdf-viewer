@@ -93,6 +93,14 @@ cargo run --release -p pdf-model --example content_budget_census -- doc doc/pdf.
   # (ADR 0306). Also the largest single decoded stream and the largest page /Contents total, which
   # are the two numbers `Limits::max_stream_len` is set against: 483.84 MiB over 5 047 187 streams
   # of 65 967 crawled documents. Every argument is walked recursively, so `corpus-cache` is one
+cargo run --release -p pdf-model --example rebuild_census -- corpus-cache doc/pdf.js doc/corpora
+  # what a *rebuilt* cross-reference table loses to §7.5.7's object streams: how many documents
+  # reach `xref::rebuild` at all, how many of those carry object streams the scan can see, and
+  # where the table then puts each number the streams' own headers name — at an offset, inside a
+  # stream, or nowhere. It takes directories as well as files and reads the `N` pairs itself, so
+  # the count is the documents' rather than the recovery's (trap 8), which is what lets one run
+  # print both arms of a before-and-after. It is also where the recovery's budget comes from: the
+  # widest object-stream expansion among the rebuilt documents on this disk (ADR 0395)
 cargo run --release -p pdf-model --example field_flag_census -- doc/pdf.js/test/pdfs/*.pdf
   # which of §12.7's twenty field flags any real document states (ADR 0197)
 cargo run --release -p pdf-model --example variable_text_census -- doc/pdf.js/test/pdfs/*.pdf

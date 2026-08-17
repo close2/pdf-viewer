@@ -112,13 +112,18 @@ fn a_page_that_states_a_structural_parent_key_resolves_it() {
         "these documents' parent trees hold an entry for page one's key and this reader read \
          no elements from it: {missed:?}"
     );
-    assert_eq!(roots, 89);
-    assert_eq!(keyed, 76);
+    // Each of these was one lower until session 560, and the document that joined is
+    // `issue17147.pdf`: its cross-reference stream cannot be decoded, so the table is rebuilt by
+    // scanning, and everything §7.5.7 packed into its object stream — the `/StructTreeRoot` among
+    // them — was invisible to a scan for `N G obj` headers until the rebuild learnt to read an
+    // object stream's own header (ADR 0395). The document is unchanged; what it says is reachable.
+    assert_eq!(roots, 90);
+    assert_eq!(keyed, 77);
     // The one page that names no element is `bug1978317.pdf`, whose parent tree holds an
     // *empty array* for page one — a document saying its first page's content belongs to no
     // structure element, which the loop above checks rather than inferring from the number.
-    assert_eq!(resolved, 75);
-    assert_eq!(with_actual_text, 8);
+    assert_eq!(resolved, 76);
+    assert_eq!(with_actual_text, 9);
 }
 
 /// The largest structure tree this project owns is walked whole, and says so.

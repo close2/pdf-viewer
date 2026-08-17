@@ -187,14 +187,18 @@ fn the_two_orders_of_a_tagged_page_mostly_coincide() {
          {tagged_pages_needing_none} of {with_items} pages needed none"
     );
 
-    assert_eq!(tagged, 89, "documents with a /StructTreeRoot");
-    assert_eq!(with_items, 77, "first pages carrying an /MCID");
+    // 89 documents until session 560, where `issue17147.pdf` joined the population: its
+    // cross-reference stream is unreadable, so it is rebuilt by scanning, and its
+    // `/StructTreeRoot` is one of the nine objects §7.5.7 packs into an object stream that a
+    // scan for `N G obj` headers cannot see. Nothing about the document changed (ADR 0395).
+    assert_eq!(tagged, 90, "documents with a /StructTreeRoot");
+    assert_eq!(with_items, 78, "first pages carrying an /MCID");
     assert_eq!(
         differing.len(),
         5,
         "pages whose logical order is not their stream order: {differing:?}"
     );
-    assert_eq!(coinciding, 72);
+    assert_eq!(coinciding, 73);
     assert_eq!(
         unreached, 3,
         "sequences no structure element reaches, which are not part of either order"

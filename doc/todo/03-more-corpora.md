@@ -788,10 +788,11 @@ Four findings, three of them left with their witnesses:
   §9.6.2.2's "14 Type 1 fonts" wind the same way now, which a test asserts over all fourteen. The
   page goes from −8.989 of 255 to −1.116, so this corpus's ranking has no head standing out from
   its body any more.
-- **A rebuild that misses every compressed object — `doc/todo/17`.** `UnknownFilter-Linearized.pdf`
-  is documented as fully processable and loses its text here: the scan `xref::rebuild` falls back to
-  finds `N G obj` headers only, so the font inside an object stream is invisible. §7.5.7 states the
-  recovery itself, and a strictly additive form of it cannot move a document that opens today.
+- **A rebuild that missed every compressed object — taken, ADR 0395.** `UnknownFilter-Linearized.pdf`
+  is documented as fully processable and lost its text here: the scan `xref::rebuild` falls back to
+  finds `N G obj` headers only, so the font inside an object stream was invisible. §7.5.7 states the
+  recovery itself, and a rebuild now reads each object stream's own header; the item's file is gone
+  and its population is in the ADR.
 
 **What this chunk leaves, and for the first time it is not a successor.** Every population on this
 disk is ranked. §1's other standing offer is SafeDocs' 31 GB issue-tracker corpus; the cheaper item

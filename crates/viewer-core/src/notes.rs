@@ -18,9 +18,35 @@ pub(crate) fn about(document: &Document) -> Vec<String> {
     if document.was_recovered() {
         // Worth saying: the file's own cross-reference table was unusable and the document was
         // reconstructed by scanning. It may still be missing content.
-        notes.push(
-            "this file's cross-reference table was broken and was rebuilt by scanning".to_owned(),
-        );
+        //
+        // And where the file packs its objects into §7.5.7's streams, the rebuild has a second
+        // half whose result is not all-or-nothing: it enters what each stream's own header names
+        // and reports the streams it could not read. **A rebuild that recovered some of a file
+        // must not read like one that recovered all of it**, so the sentence carries both counts
+        // rather than stopping at the good news.
+        let recovered = document.compressed_objects_recovered();
+        let compressed = if recovered.is_empty() {
+            String::new()
+        } else if recovered.is_whole() {
+            format!(
+                ", including {} object(s) stored inside {} object stream(s) (§7.5.7)",
+                recovered.objects, recovered.read
+            )
+        } else {
+            format!(
+                ", including {} object(s) stored inside {} of its {} object streams (§7.5.7) — \
+                 the other {} could not be read, so what they hold is missing from what you see",
+                recovered.objects,
+                recovered.read,
+                recovered.streams,
+                recovered
+                    .unreadable
+                    .saturating_add(recovered.beyond_the_budget),
+            )
+        };
+        notes.push(format!(
+            "this file's cross-reference table was broken and was rebuilt by scanning{compressed}"
+        ));
     }
 
     // §7.5.8's cross-reference stream states its own length twice over — Table 17 makes `/W`'s
