@@ -1051,36 +1051,53 @@ fn span(values: &[u32]) -> u32 {
     high.saturating_sub(*low)
 }
 
-/// ISO 32000-2 §12.7.5.4: a combo box draws its value and a list box is refused.
+/// A one-page fixture holding one `Ch` widget, with the entries the caller spells added to it.
 ///
-/// > A choice field shall have a field type of Ch that contains several text items, one or more
-/// > of which shall be selected as the field value. The items may be presented to the user in
-/// > one of the following two forms:
+/// The `/Rect` is 160 × 30 at 12 points of leading, so three options are more than it holds —
+/// which is the arrangement §12.7.5.4 calls "a scrollable list box" and the one Table 234's
+/// `/TI` exists for.
+fn choice_field(entries: &str) -> Vec<u8> {
+    choice_field_sized("/Helv 12 Tf 0 g", entries)
+}
+
+/// The same, with the `/DA` given — which is the entry a test about auto-sizing has to move.
 ///
-/// Half the clause draws and half does not, and the two halves are one bit apart — which is
-/// exactly why they are one test. A combo box shows its value in an edit box, so it is a text
-/// field with a different `/FT`; a list box shows a *selection* out of `/Opt`, and the clause
-/// states no highlight colour, no rule and no metric for one. Drawing a list box as unmarked
-/// text would put every option on the page with nothing saying which is chosen, which is worse
-/// than refusing and is the plausible-looking wrong page trap 1 is about.
+/// A parameter rather than another entry in `entries`, because §7.3.7 gives a dictionary "an
+/// associative table containing pairs of objects" and this tree's parser answers a duplicated
+/// key with the first of the two: a fixture appending a second `/DA` would state a size and be
+/// laid out at the first one, silently, and this test suite spent a round finding that out.
+fn choice_field_sized(default_appearance: &str, entries: &str) -> Vec<u8> {
+    pdf_with(
+        "",
+        &format!(
+            "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Ch \
+             /T (choice) /DA ({default_appearance}) {entries} >>"
+        ),
+    )
+}
+
+/// ISO 32000-2 §12.7.5.4: a combo box draws its value, and a list box draws its `/Opt` array.
 ///
-/// The refusal is checked by name rather than by count: a report that fired for some other
-/// reason would satisfy "something was reported".
+/// > The Opt array specifies the list of options in the choice field, each of which shall be
+/// > represented by a text string that shall be displayed on the screen.
+///
+/// The two halves of the clause are one bit apart, which is why they are one test. A combo box
+/// shows its *value* in an edit box, so it is a text field with a different `/FT`; a list box
+/// shows the *options*, and Table 233 bit 20 fixes their order — "PDF readers shall display the
+/// options in the order in which they occur in the Opt array".
+///
+/// **This test used to assert that a list box draws nothing**, on the reasoning that §12.7.5.4
+/// states no appearance for the selection. It states none for the *highlight*; it states the
+/// options outright, and a mark added over an item that is drawn either way may not take the
+/// item down with it (ADR 0106's test). So the options are drawn and the missing mark is
+/// reported — checked by name, because a report that fired for some other reason would satisfy
+/// "something was reported".
 #[test]
-fn a_combo_box_draws_its_value_and_a_list_box_says_it_cannot() {
-    let choice = |flags: &str| {
-        pdf_with(
-            "",
-            &format!(
-                "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Ch \
-                 /T (choice) /V (Beta) /Opt [(Alpha) (Beta) (Gamma)] /DA (/Helv 12 Tf 0 g) \
-                 {flags} >>"
-            ),
-        )
-    };
+fn a_combo_box_draws_its_value_and_a_list_box_draws_its_options() {
+    let options = "/V (Beta) /Opt [(Alpha) (Beta) (Gamma)]";
 
     // Bit 18 is the combo flag, which is 1 << 17.
-    let (reports, raster) = draw(choice("/Ff 131072"));
+    let (reports, raster) = draw(choice_field(&format!("{options} /Ff 131072")));
     assert!(
         !inked_columns(&raster).is_empty(),
         "a combo box draws its value like a text field: {reports:?}"
@@ -1090,13 +1107,186 @@ fn a_combo_box_draws_its_value_and_a_list_box_says_it_cannot() {
         "and reports nothing while doing it: {reports:?}"
     );
 
-    let (reports, raster) = draw(choice(""));
+    let (reports, text) = read_back(choice_field(options));
+    assert_eq!(
+        text.replace('\n', " ").trim(),
+        "Alpha Beta Gamma",
+        "a list box draws every option, in the array's own order"
+    );
+    let named = reports.iter().any(|report| report.contains("selects"));
+    assert!(
+        named,
+        "and says that which of them the value selects is not marked: {reports:?}"
+    );
+}
+
+/// Table 234's `/TI`: "the index in the Opt array of the first option visible in the list".
+///
+/// The entry only means something where the array is longer than the box shows, which is what
+/// makes it the clause's own statement that a list box is a *window* onto its options. Three
+/// values, and the third is the one a hand-written fixture would never think of: the default,
+/// an index inside the array, and one past its end — where obeying the entry literally would
+/// erase what §12.7.5.4 says shall be displayed, so it is clamped to the last option instead
+/// (ADR 0111's rule about an optional entry).
+#[test]
+fn the_top_index_says_which_option_the_list_starts_at() {
+    let with = |entry: &str| {
+        read_back(choice_field(&format!(
+            "/V (Gamma) /Opt [(Alpha) (Beta) (Gamma)] {entry}"
+        )))
+        .1
+        .replace('\n', " ")
+        .trim()
+        .to_owned()
+    };
+
+    assert_eq!(with(""), "Alpha Beta Gamma", "the table's default is 0");
+    assert_eq!(with("/TI 1"), "Beta Gamma", "and the list starts there");
+    assert_eq!(
+        with("/TI 9"),
+        "Gamma",
+        "an index the array does not have scrolls to its end rather than emptying the list"
+    );
+}
+
+/// Table 234's own answer for a choice field that states no `/Opt` (ISO 32000-2 §12.7.5.4).
+///
+/// > If this entry is not present, no choices should be presented to the user.
+///
+/// So an empty list box is the entry's absence working, not a shortfall — nothing is drawn and
+/// nothing is owed. And §12.7.5.4 gives `/V` the default null, "indicating that no item is
+/// currently selected": with the options present and nothing selected there is no mark to make,
+/// so the list draws and reports nothing either. Trap 11's rule, on the report's own condition.
+#[test]
+fn a_list_box_reports_only_what_the_clause_leaves_unsaid() {
+    let (reports, raster) = draw(choice_field("/V (Beta)"));
     assert!(
         inked_columns(&raster).is_empty(),
-        "a list box draws nothing, because the clause states no appearance for a selection"
+        "no /Opt, so no choices are presented: {reports:?}"
     );
-    let named = reports.iter().any(|report| report.contains("list box"));
-    assert!(named, "and says so by name: {reports:?}");
+    assert!(reports.is_empty(), "and none is owed: {reports:?}");
+
+    let (reports, text) = read_back(choice_field("/Opt [(Alpha) (Beta)]"));
+    assert_eq!(
+        text.replace('\n', " ").trim(),
+        "Alpha Beta",
+        "the options are drawn with no value selecting any of them"
+    );
+    assert!(
+        reports.is_empty(),
+        "and nothing is owed, because there is no selection to mark: {reports:?}"
+    );
+}
+
+/// Choosing an item rebuilds the list box's appearance, which is where this was owed.
+///
+/// §12.7.4.3's own NOTE names the case: "scrollable list boxes whose contents are determined
+/// interactively at the time the document is displayed". Every list box in the pdf.js corpus
+/// states an `/AP`, so the *file's* picture is right for a document nobody has touched — and
+/// this program has been able to choose an item since `Edit::SetField` learned to carry indices
+/// (ADR 0248), after which the page went on showing the producer's stream and the clause's
+/// splice could not be performed. The fixture makes that visible by filling the `/Tx` region
+/// with a blue square: what the page shows before the choice is the file's own marks, and what
+/// it shows after is §12.7.5.4's array in their place.
+#[test]
+fn choosing_an_item_replaces_the_stored_list_with_the_clauses_own_options() {
+    let bytes = pdf_with_appearance(
+        "",
+        "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Ch /T (choice) \
+         /V (Alpha) /Opt [(Alpha) (Beta)] /AP << /N 6 0 R >> /DA (/Helv 12 Tf 0 g) >>",
+        "/Tx BMC 0 0 1 rg 0 0 160 30 re f EMC",
+    );
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+
+    let mut view = pdf_model::view::ViewState::of(&document);
+    let untouched = pdf_model::interpret(&document, &page);
+    assert!(
+        untouched.text.trim().is_empty() && is_blue(&draw_with(&document, &page, &view)),
+        "an untouched document shows the stream its producer wrote: {:?}",
+        untouched.text
+    );
+    assert!(untouched.unsupported.is_empty(), "{untouched:?}");
+
+    let applied = view.set_field(&document, "choice", &Entered::Chosen(vec![1]));
+    assert_eq!(applied, 1, "one widget takes the choice");
+    assert!(
+        !is_blue(&draw_with(&document, &page, &view)),
+        "and the marks inside /Tx BMC … EMC give way to the new contents"
+    );
+
+    let chosen = pdf_model::content::interpret_with(&document, &page, &view);
+    assert_eq!(
+        chosen.text.replace('\n', " ").trim(),
+        "Alpha Beta",
+        "and a document whose value a person changed shows the options"
+    );
+    let reports: Vec<String> = chosen
+        .unsupported
+        .iter()
+        .map(|item| format!("{item:?}"))
+        .collect();
+    assert!(
+        reports.iter().any(|report| report.contains("selects")),
+        "with the mark that would say which is chosen named as owed: {reports:?}"
+    );
+}
+
+/// §12.7.4.3's auto-sizing fits the options Table 234's `/TI` makes visible, not the whole array.
+///
+/// > A zero value for size means that the font shall be auto-sized : its size shall be computed
+/// > as an implementation dependent function.
+///
+/// The clause hands the function over and this tree gives every shape the same one — the largest
+/// size at which what is laid out fits the box — so what decides a list box's size is *which
+/// options are laid out*, and `/TI` decides that: "the index in the Opt array of the first
+/// option visible in the list". A reader that laid out the whole array and scrolled afterwards
+/// would size a scrolled list exactly as it sizes an unscrolled one, which is what this
+/// discriminates. Same array, same box, one entry apart.
+#[test]
+fn auto_sizing_a_list_box_fits_the_options_the_top_index_shows() {
+    let options = (0..20).fold(String::new(), |mut all, index| {
+        let _ = write!(all, "(Item{index}) ");
+        all
+    });
+    let at = |top: &str| {
+        let (reports, raster) = draw(choice_field_sized(
+            "/Helv 0 Tf 0 g",
+            &format!("/V (Item19) /Opt [{options}] {top}"),
+        ));
+        (reports, span(&inked_columns(&raster)))
+    };
+
+    // The ink's *width* rather than its height, and the fixture is why: twenty options in a
+    // 30-point box are set small enough that their rows touch, so a band of ink says nothing
+    // about one line. `Item18` and `Item19` are the widest option in both fixtures, so how far
+    // across the box the ink reaches is the size, measured on the axis the lines do not share.
+    let (whole, narrow) = at("");
+    let (scrolled, wide) = at("/TI 18");
+    assert!(
+        narrow > 0,
+        "twenty options are drawn at some size: {whole:?}"
+    );
+    assert!(
+        wide > narrow.saturating_mul(2),
+        "and the two the /TI leaves are drawn far larger: {narrow} then {wide}, {scrolled:?}"
+    );
+}
+
+/// What §12.7.5.4's options put on the page, and what the page says it could not do.
+///
+/// The readback rather than the ink, because the question is *which* strings were laid out and
+/// no measurement of pixels can say that (ADR 0299's rule, one clause over).
+fn read_back(bytes: Vec<u8>) -> (Vec<String>, String) {
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let interpretation = pdf_model::interpret(&document, &page);
+    let reports = interpretation
+        .unsupported
+        .iter()
+        .map(|item| format!("{item:?}"))
+        .collect();
+    (reports, interpretation.text.clone())
 }
 
 /// What a person typing into one field reaches the page as.

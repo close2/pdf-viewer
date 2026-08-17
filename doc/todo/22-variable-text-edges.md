@@ -2,9 +2,10 @@
 
 Status: **one document, and it is `doc/todo/21`'s.** Table 231's `DoNotScroll` closed in the
 three-hundred-and-thirty-eighth session (ADR 0197), the baseline's guard and the list box's cost
-both closed in the four-hundred-and-third (ADR 0240), and **the composite `/DA` font closed in the
-five-hundred-and-second** (ADR 0337). What is left of this file is one refusal that belongs to
-another item, and the reasoning behind three closed ones.
+both closed in the four-hundred-and-third (ADR 0240), **the composite `/DA` font closed in the
+five-hundred-and-second** (ADR 0337), and **the list box itself drew in the
+five-hundred-and-seventy-first** (ADR 0405), reversing what this file had concluded about it. What
+is left is one refusal that belongs to another item, and the reasoning behind four closed ones.
 Priority: 22
 Corpus: 1 document
 Clauses: §12.7.4.3, §12.7.5.3, §12.7.5.4, §9.6.5.2, §9.7.6.2
@@ -79,32 +80,49 @@ silent about all of it.
 
 `/DS` and `/RV` are XFA, which `CLAUDE.md` excludes.
 
-## ~~§12.7.5.4's list box~~ — **measured and left refused in the four-hundred-and-third session**
+## ~~§12.7.5.4's list box~~ — **drawn in the five-hundred-and-seventy-first session**
 
-ADR 0240. The clause states *which* items are selected and *in what order* they are shown — Table
-234's `/Opt` "shall be presented to the user", Table 233's `Sort` row adds "PDF readers shall
-display the options in the order in which they occur in the Opt array" — and states nothing
-whatever about how a selected item differs from an unselected one. Drawing the options would draw
-all of a list and none of its selection, which is ADR 0112's asymmetry one clause over.
+**ADR 0405 reversed this section's conclusion by reading one sentence further, and the argument
+below is kept because the reversal is only legible beside it.** What was written in the
+four-hundred-and-third (ADR 0240) is next, unchanged.
 
-**What it costs the corpus is 0**, which `examples/variable_text_census` measured before any code:
+> The clause states *which* items are selected and *in what order* they are shown — Table
+> 234's `/Opt` "shall be presented to the user", Table 233's `Sort` row adds "PDF readers shall
+> display the options in the order in which they occur in the Opt array" — and states nothing
+> whatever about how a selected item differs from an unselected one. Drawing the options would draw
+> all of a list and none of its selection, which is ADR 0112's asymmetry one clause over.
+
+Two sentences of that are exactly right and the inference from them is not. The clause does state
+what is shown — the same paragraph makes each option "a text string that shall be displayed on the
+screen" — so refusing the list is refusing what the clause states in order to avoid what it does
+not. ADR 0106's test is the one that decides it: a selection mark is drawn *over* an item that is
+drawn either way, so it is additive, and a refusal of it may not take the item with it. ADR 0112's
+asymmetry is about something else — a stand-in that draws *part* of a value, where the drawn part
+is wrong rather than incomplete — and a list drawn whole with no highlight is not part of a list.
+
+**What it cost the corpus was 0**, which `examples/variable_text_census` measured before any code:
 **10 list-box widgets over 8 documents, every one with an `/AP` `/N` stream, none in a
-`/NeedAppearances` document**. Where the refusal does fire under a regeneration,
-`appearance::regenerate` leaves the file's own stream standing and names the shortfall. The
+`/NeedAppearances` document**. That measurement was right and it measured the wrong population:
+the construction is only ever reached under a regeneration, so the count that mattered was of
+documents whose value has *changed*, which no census of files can take. The
 clause's `shall` about the items is discharged by `pdf_model::form::ChoiceControl`, which hands a
 host the items in the array's order (ADR 0235).
 
-**Revisit it with a document in front of you**, not on principle: a list box whose file states no
-appearance stream is the case the choice was made without, and there is none in 974 files.
+**Revisit it with a document in front of you**, said this file, "not on principle: a list box whose
+file states no appearance stream is the case the choice was made without, and there is none in 974
+files." That instruction is the reason the item sat for a hundred and sixty-eight rounds, and it was
+looking for the wrong document — the one that was needed is any list box at all, with a person's
+choice applied to it.
 
-**The refusal stands and the *host* half is finished**, since the four-hundred-and-twelfth (ADR
-0248). The page still draws nothing for a list box, for exactly the reason above; what changed is
-the other direction, which this file never owed and `doc/todo/30` did. A host can now say which
+**The *host* half was finished first**, in the four-hundred-and-twelfth (ADR
+0248), and that is what made the page half a debt rather than a curiosity: this program could
+choose an item and could not show the result. A host can now say which
 items a person selected — Table 233 bit 22 sets **4** of the corpus's widgets, over 4 documents —
 because `Edit::SetField` carries a set of Table 234 `/Opt` indices instead of one string. §12.7.5.4's
 two shapes of `/V` and Table 234's `/I` are both written. So the clause's `shall`s are discharged
-everywhere except the one place it states nothing, which is what a refusal with an argument behind
-it should end up looking like.
+everywhere except the one place it states nothing — and since ADR 0405 that place is the *mark*
+alone: the options are drawn, from Table 234's `/TI`, and which of them the value selects is
+reported rather than invented.
 
 ## ~~Table 231 bit 24's `DoNotScroll`~~ — **done in the three-hundred-and-thirty-eighth session**
 

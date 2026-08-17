@@ -9,9 +9,14 @@
 //!   (ADR 0216). Where the two disagree the baseline moves, and this counts the widgets that
 //!   would move — not the font dictionaries a page draws with, which
 //!   `examples/font_metric_census` already counts and which are a different population.
-//! - **§12.7.5.4's list box**, which is refused because the clause states which items are
-//!   selected and nothing about how a selection looks. A refusal costs a page only where the
-//!   file states no appearance stream to draw instead, so that is what is counted.
+//! - **§12.7.5.4's list box**, whose options are drawn since the five-hundred-and-seventy-first
+//!   (ADR 0405) and whose *selection* is reported, because that is the only part of the control
+//!   the clause states no appearance for. The counts here were taken while the whole control was
+//!   refused, and they are what said the refusal cost no untouched page: every list box in the
+//!   corpus states an `/AP` and none is in a `/NeedAppearances` document, so the population that
+//!   was owed was the one the file cannot speak for — a value a person changed. The three counts
+//!   below still answer that question and are worth re-running against a corpus this tree has
+//!   not seen.
 //!
 //! The field types, their flags and their widgets are `pdf_model::form::fields`' — the program's
 //! own reading — so the only rule spelled a second time here is the guard being replaced, which
@@ -94,7 +99,7 @@ struct Counts {
     combo_boxes_without_appearance: usize,
     /// §12.7.5.4's list boxes: Table 233 bit 18 clear on a `/Ch` field.
     list_boxes: usize,
-    /// Of those, the ones with no `/AP` `/N` stream, where the refusal leaves nothing drawn.
+    /// Of those, the ones with no `/AP` `/N` stream, where the construction is the only mark.
     list_boxes_without_appearance: usize,
     /// §12.5.6.6's free text annotations, the *other* thing §12.7.4.3 lays text out for.
     ///
@@ -250,9 +255,9 @@ impl Census {
             "  with a list box and no appearance stream: {}",
             self.bare_list_boxes.join(" ")
         );
-        // The second way the refusal is reached: Table 224's `/NeedAppearances` sets a stored
-        // stream aside for both choice-field arms, so a list box in such a document is
-        // regenerated, refused, and left drawing what the file states with the shortfall named.
+        // The second way the construction is reached: Table 224's `/NeedAppearances` sets a
+        // stored stream aside for both choice-field arms, so a list box in such a document is
+        // regenerated from `/Opt` rather than drawn from the stream its producer wrote.
         println!(
             "  with a list box in a /NeedAppearances document: {}",
             self.regenerated_list_boxes.join(" ")
@@ -284,8 +289,9 @@ fn walk(
         };
         for field in pdf_model::form::fields(document, &page, &view) {
             // §12.7.4.3's subject is "a field that may contain text whose value is not known
-            // until viewing time", and §12.7.5.4 makes only a combo box's selection such a
-            // value: a list box's is the other arm of the same match in `appearance.rs`.
+            // until viewing time", and a combo box's value is such a text. A list box is counted
+            // apart because what it lays out is Table 234's `/Opt` rather than a value, which is
+            // the other arm of the same match in `appearance.rs`.
             let lays_out = match field.control {
                 Control::Text(_) => true,
                 Control::Choice(ref choice) => choice.combo,

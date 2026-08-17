@@ -12,6 +12,12 @@
 //! and a free text annotation's `/Contents` (§12.5.6.6). [`Request`] is that difference and
 //! nothing else.
 //!
+//! **One of the four does not take a value at all**, and it is the one the clause names first:
+//! §12.7.4.3's own NOTE gives "scrollable list boxes whose contents are determined interactively
+//! at the time the document is displayed" as an example of what has to be built here, and what
+//! a list box shows is Table 234's `/Opt` array rather than Table 226's `/V`. [`Shape::ListBox`]
+//! is where that difference lives.
+//!
 //! # What the clause states, and what it hands back
 //!
 //! Stated, and implemented here: the `/DA` string supplies "the field's text size and colour"
@@ -90,6 +96,20 @@ pub(crate) enum Shape {
     /// spaced positions, or combs, as the value of `MaxLen`, and the text is laid out into
     /// those combs." The count is Table 232's `/MaxLen`.
     Comb(u32),
+    /// §12.7.5.4's scrollable list box, whose lines are Table 234's `/Opt` entries.
+    ///
+    /// The one shape whose text is not the field's value. §12.7.5.4 makes the `/Opt` array the
+    /// thing displayed — each option "a text string that shall be displayed on the screen" —
+    /// and Table 233 bit 20 fixes the order: "PDF readers shall display the options in the
+    /// order in which they occur in the Opt array". So the caller joins the options with line
+    /// breaks and this shape lays one out per line, top down, from wherever Table 234's `/TI`
+    /// starts the window.
+    ///
+    /// It differs from [`Shape::Multiline`] in the two places a *list* differs from a
+    /// paragraph, and each is stated beside the code that reads it: a line is an item, so it is
+    /// never rewrapped, and the box is a scrolling window onto the array rather than a bound on
+    /// it, so auto-sizing fits one line rather than all of them.
+    ListBox,
 }
 
 /// Where the next character would go: the segment a host draws a text cursor along.
@@ -182,8 +202,14 @@ pub(crate) enum Owed {
     CharactersNotInFont(String),
     /// The value is longer than [`MAX_CODES`] and the rest is not laid out.
     Truncated(usize),
-    /// §12.7.5.4's list box: the clause states which items are selected and nothing about how
-    /// a selection looks.
+    /// §12.7.5.4's list box: its options are drawn and which of them are selected is not marked.
+    ///
+    /// **A report beside a drawing rather than a refusal**, since the round that read the clause
+    /// past the sentence this variant was named after. §12.7.5.4 states what is *shown* — the
+    /// `/Opt` array, in its own order, from Table 234's `/TI` — and states no appearance for the
+    /// selection alone. A mark distinguishing a selected item is added over an item that is
+    /// drawn either way, which is ADR 0106's test for an entry a refusal may not take the whole
+    /// annotation down with.
     ListBoxSelection,
     /// The `/DA`'s `Tm` scales or rotates, and the positions computed here do not account for
     /// it. The clause admits at most one `Tm` and has a processor "replace the horizontal and
@@ -216,8 +242,9 @@ impl Owed {
             Self::CharactersNotInFont(characters) => {
                 format!("its value contains {characters}, for which its /DA's font states no code")
             }
-            Self::ListBoxSelection => "§12.7.5.4 states no appearance for a list box's \
-                                       selected items"
+            Self::ListBoxSelection => "its /Opt options are drawn and which of them its value \
+                                       selects is not marked, because §12.7.5.4 states no \
+                                       appearance for a list box's selected items"
                 .to_owned(),
             Self::Truncated(limit) => {
                 format!("its value is longer than the {limit} characters laid out here")
@@ -648,6 +675,7 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
     let leading = appearance.leading.unwrap_or(size * LINE_HEIGHT);
     let lines = match request.shape {
         Shape::Multiline => wrap(&measure, &runs.codes, size, width),
+        Shape::ListBox => hard_lines(&runs.codes),
         Shape::SingleLine | Shape::Comb(_) => std::iter::once(0..runs.codes.len()).collect(),
     };
 
@@ -1070,10 +1098,21 @@ impl Measure<'_> {
 /// found by halving rather than solved, because line breaking is not a continuous function of
 /// the size — a size that fits on three lines may not fit on four — and because the same
 /// search then serves the single-line and multiline cases.
+///
+/// **§12.7.5.4's list box takes the same rule, and Table 234's `/TI` is why it needs no
+/// exception of its own.** A first attempt gave it one, reasoning that a list box's rectangle is
+/// a scrolling *window* onto its options rather than a bound on them, so the height to fit was
+/// one line rather than all of them. The picture rejected it: fitting a single line's width to
+/// the whole box made a 120-point-wide list of six short labels choose 34-point type and show
+/// two and a half of them, which is not a list. The window argument survives and is answered
+/// somewhere better — [`crate::appearance`] lays out the options **from `/TI` onward**, so the
+/// run measured here already *is* the window a producer scrolled to, and fitting it to the box
+/// is fitting the visible options. Trap 1's rule applied to a rule rather than to a defect.
 fn auto_size(measure: &Measure, codes: &[Placed], shape: Shape, width: f32, height: f32) -> f32 {
     let fits = |size: f32| {
         let lines = match shape {
             Shape::Multiline => wrap(measure, codes, size, width),
+            Shape::ListBox => hard_lines(codes),
             Shape::SingleLine | Shape::Comb(_) => std::iter::once(0..codes.len()).collect(),
         };
         let widest = lines
@@ -1120,7 +1159,10 @@ fn write_lines(
     let ascent = set.metrics.ascent * set.size;
     let descent = set.metrics.descent * set.size;
     let text_height = leading.mul_add(count(lines.len().saturating_sub(1)), ascent - descent);
-    let top = if matches!(request.shape, Shape::Multiline) {
+    // A list box runs from the top for the reason a paragraph does and one more: Table 234's
+    // `/TI` names the option the list *starts* at, so the first line drawn has to be the first
+    // line of the box or the entry names nothing.
+    let top = if matches!(request.shape, Shape::Multiline | Shape::ListBox) {
         box_[3]
     } else {
         box_[1] + (height + text_height) * 0.5
@@ -1307,6 +1349,12 @@ fn overflows(
         Shape::SingleLine => lines
             .iter()
             .any(|line| measure.width(line_codes(codes, line), set.size) > width),
+        // Table 231 is §12.7.5.3's alone and reaches no choice field, so no flag asks this
+        // question of a list box — and the answer it would want is *no* either way: §12.7.5.4
+        // makes the control "a scrollable list box" and Table 234's `/TI` says which option its
+        // window starts at, so more options than the box holds is the arrangement the clause
+        // describes rather than a value that will not fit.
+        Shape::ListBox => false,
         // The same height [`write_lines`] lays out: one ascent above the first baseline, one
         // descent below the last, and a leading between each pair.
         Shape::Multiline => {
@@ -1358,6 +1406,26 @@ fn wrap(measure: &Measure, codes: &[Placed], size: f32, width: f32) -> Vec<std::
         reached = measure.width(codes.get(at..=index).unwrap_or_default(), size);
         start = at;
         last_space = None;
+    }
+    lines.push(start..codes.len());
+    lines
+}
+
+/// Breaks a run of codes at its line breaks and nowhere else.
+///
+/// [`wrap`] without the width, and the difference is the whole of what a list is: §12.7.5.4's
+/// options are separate *items*, so an option too wide for the box is clipped by the box's own
+/// clip rather than continued on the next line. Rewrapping it would show the array as holding
+/// more entries than it does, against the sentence that makes each option "a text string that
+/// shall be displayed on the screen" — one string, one item, one line.
+fn hard_lines(codes: &[Placed]) -> Vec<std::ops::Range<usize>> {
+    let mut lines = Vec::new();
+    let mut start = 0_usize;
+    for (index, code) in codes.iter().enumerate() {
+        if matches!(code, Placed::Break) {
+            lines.push(start..index);
+            start = index.saturating_add(1);
+        }
     }
     lines.push(start..codes.len());
     lines

@@ -2211,6 +2211,58 @@ impl Rotation {
     }
 }
 
+/// What §12.7.5.4's list box shows, and whether its selection is left unmarked.
+///
+/// **The clause states the whole of what is drawn here and one thing about it that it does not
+/// state**, and this arm used to refuse the annotation over the second. What is displayed is
+/// Table 234's `/Opt` array — "[t]he Opt array specifies the list of options in the choice
+/// field, each of which shall be represented by a text string that shall be displayed on the
+/// screen" — in the array's own order, which Table 233 bit 20 makes a `shall` addressed to a
+/// reader: "PDF readers shall display the options in the order in which they occur in the Opt
+/// array". §12.7.4.3's own NOTE names a scrollable list box as its example of what a processor
+/// "shall construct … dynamically at rendering time".
+///
+/// What no clause states is the *selection's* appearance. `/V` "identifies the item or items
+/// currently selected" and nothing anywhere says what a selected item looks like — no highlight
+/// colour, no rule, nothing. That is a mark **added over** an item that is drawn either way,
+/// which is ADR 0106's test for whether a refusal may take the rest of an annotation down with
+/// it; the answer is no, so the options are drawn and the mark is reported (ADR 0030's shape).
+/// A host that builds a real list draws the selection in its own colours from
+/// [`crate::form::ChoiceControl::selected`] — the same division this tree makes for a text
+/// selection, whose colour is likewise nobody's here to invent.
+///
+/// `None` for a field stating no `/Opt`, which is Table 234's own answer rather than a gap: "If
+/// this entry is not present, no choices should be presented to the user."
+fn list_box_options(
+    document: &Document,
+    field: &Field,
+    annotation: &Dictionary,
+) -> Option<(String, bool)> {
+    let options = crate::form::options(document, field);
+    let last = options.len().checked_sub(1)?;
+    // Table 234's `/TI`, "the index in the Opt array of the first option visible in the list",
+    // default 0. Clamped rather than obeyed where it names an index the array does not have: an
+    // optional entry may not erase what the clause states (ADR 0111), and a list scrolled past
+    // its end is one showing its last option.
+    let top = crate::form::inherited_number(document, field, annotation, "TI")
+        .and_then(|top| usize::try_from(top).ok())
+        .unwrap_or_default()
+        .min(last);
+    // Reported only where there is something to mark. §12.7.5.4 gives `/V` the default null,
+    // "indicating that no item is currently selected", and a list with nothing selected is drawn
+    // completely — trap 11's rule that a report fires on the clause's own condition rather than
+    // wherever the unimplemented thing could be involved.
+    let unmarked = !crate::form::selected(document, field, &options).is_empty();
+    let shown = options
+        .get(top..)
+        .unwrap_or_default()
+        .iter()
+        .map(|option| option.label.as_str())
+        .collect::<Vec<&str>>()
+        .join("\n");
+    Some((shown, unmarked))
+}
+
 /// Lays out whatever text the field behind a widget states, if any.
 ///
 /// One function because the field types differ only in where the text comes from; §12.7.4.3
@@ -2243,6 +2295,9 @@ fn field_text(
         return Ok(None);
     };
 
+    // Set by the one field type whose drawing is complete and whose *marking* is not; see the
+    // list box's arm for why that is a report beside the options rather than a refusal of them.
+    let mut selection_unmarked = false;
     let (text, shape) = match kind {
         // Table 192's `/CA`, "the widget annotation's normal caption, which shall be displayed
         // when it is not interacting with the user" — the entry that "may be used with any
@@ -2291,11 +2346,15 @@ fn field_text(
             };
             (value, field.text_shape(document, annotation))
         }
-        // §12.7.5.4: the value "identifies the item or items currently selected". A combo box
-        // shows the value in an edit box; a list box shows the whole `/Opt` array with the
-        // selected items marked, and the clause states nothing about what a marked item looks
-        // like — no highlight colour, no rule, nothing.
-        FieldKind::Choice { combo: false } => return Err(Refusal::Text(Owed::ListBoxSelection)),
+        FieldKind::Choice { combo: false } => {
+            match list_box_options(document, &field, annotation) {
+                Some((shown, unmarked)) => {
+                    selection_unmarked = unmarked;
+                    (shown, Shape::ListBox)
+                }
+                None => return Ok(None),
+            }
+        }
         FieldKind::Choice { combo: true } => {
             let value = field
                 .value
@@ -2336,7 +2395,16 @@ fn field_text(
         asked,
     };
     variable_text::lay_out(document, &request)
-        .map(Some)
+        .map(|mut laid_out| {
+            // Behind whatever the layout itself owed, and the order is an argument rather than a
+            // habit: `Owed` carries one statement, and a shortfall in the glyphs that *were*
+            // drawn — a font `/DR` does not define, a character it states no code for — explains
+            // the picture, where an unmarked selection only adds to it.
+            if selection_unmarked {
+                laid_out.owed = laid_out.owed.or(Some(Owed::ListBoxSelection));
+            }
+            Some(laid_out)
+        })
         .map_err(Refusal::Text)
 }
 
@@ -2358,9 +2426,12 @@ fn field_text(
 /// own appearance. What the standard decides here is only where the glyphs go; the segment this
 /// answers with is derived from that, and what it looks like is the host's (ADR 0211).
 ///
-/// `None` for a field §12.7.4.3 lays no text out for — a button, a signature, a list box — and for
-/// a widget whose value could not be laid out at all, which is the same condition that makes the
-/// page report the field.
+/// `None` for a field whose value is not characters — a button, a signature, and §12.7.5.4's list
+/// box, whose value names *items* and whose laid-out text is the `/Opt` array rather than the
+/// value, so a byte offset into it would answer about some option's spelling and not about `/V` —
+/// and for a widget whose value could not be laid out at all, which is the same condition that
+/// makes the page report the field. [`frame`] is where that population is chosen, once, for this
+/// question and for its two siblings.
 ///
 /// # Which space the value is laid out in
 ///
@@ -3486,7 +3557,11 @@ impl Field {
     pub(crate) fn comb_cells(&self, document: &Document, annotation: &Dictionary) -> Option<u32> {
         match self.text_shape(document, annotation) {
             Shape::Comb(cells) => Some(cells),
-            Shape::SingleLine | Shape::Multiline => None,
+            // `text_shape` reads Table 231, which is §12.7.5.3's alone, so it never answers
+            // with the list box shape — that one is chosen by field *type* rather than by a
+            // flag, in `field_text`. Named rather than swept into a wildcard so that a shape
+            // added later has to be thought about here.
+            Shape::SingleLine | Shape::Multiline | Shape::ListBox => None,
         }
     }
 }

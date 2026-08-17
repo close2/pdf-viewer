@@ -659,7 +659,7 @@ pub(crate) fn options(document: &Document, field: &Field) -> Vec<Choice> {
 /// that occurs twice cannot say which occurrence the value means. Where they disagree the clause is
 /// explicit and the value wins: "[i]f the items identified by this entry differ from those in the V
 /// entry of the field dictionary ... the V entry shall be used."
-fn selected(document: &Document, field: &Field, options: &[Choice]) -> Vec<usize> {
+pub(crate) fn selected(document: &Document, field: &Field, options: &[Choice]) -> Vec<usize> {
     let mut wanted: Vec<String> = Vec::new();
     match field.value.as_ref() {
         Some(Object::String(bytes)) => wanted.push(pdf_syntax::text_string(bytes)),
@@ -726,7 +726,7 @@ fn selected(document: &Document, field: &Field, options: &[Choice]) -> Vec<usize
 /// §12.5.6.19 describes, where the field and the annotation "may be merged into a single
 /// dictionary" that the walk has already visited — which costs one lookup and covers a file whose
 /// merge the walk could not confirm.
-fn inherited_number(
+pub(crate) fn inherited_number(
     document: &Document,
     field: &Field,
     annotation: &Dictionary,

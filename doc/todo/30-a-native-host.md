@@ -59,9 +59,9 @@ them**:
 
 **Every item below is a function to add to the C ABI, a widget to place, or a clause to obey.** No
 new message, and no new decision about the boundary. **Four of the five are closed in the
-five-hundred-and-eleventh** (ADR 0346), and what remains of this file is the two struck items' own
-tails — Qt's measurement being on the far side of a `cxx` bridge, and §12.7.5.4's list box drawing
-nothing — plus the standing note about where the `unsafe` is.
+five-hundred-and-eleventh** (ADR 0346) and **the fifth in the five-hundred-and-seventy-first**
+(ADR 0405), so what remains of this file is one tail — Qt's measurement being on the far side of a
+`cxx` bridge — plus the standing note about where the `unsafe` is.
 
 - ~~**The ABI is 43 entry points and not the whole vocabulary.**~~ **Closed in the
   five-hundred-and-eleventh** (ADR 0346): 43 → **111**, and the list this entry carried is all of
@@ -111,10 +111,15 @@ nothing — plus the standing note about where the `unsafe` is.
   in both hosts, which wrote **byte-identical** files. The variant changed and every consumer failed
   to compile, which is the shape ADRs 0166, 0167 and 0247 established and the fourth time it has
   been used.
-- **§12.7.5.4's list box still draws nothing on the page**, and says so: the clause states which
-  items are selected and states no highlight, so `variable_text` refuses it. A host with the items
-  and the selection draws a real list — which is the point — but a page with a list box on it is
-  still light, and the report is what says so.
+- ~~**§12.7.5.4's list box still draws nothing on the page.**~~ **Closed in the
+  five-hundred-and-seventy-first** (ADR 0405), and the entry was wrong in the way a refusal is
+  usually wrong: the clause states no highlight for the *selection* and states the options
+  outright — "each of which shall be represented by a text string that shall be displayed on the
+  screen", in the array's own order by Table 233 bit 20, from Table 234's `/TI`. A mark added over
+  an item that is drawn either way may not take the item down with it (ADR 0106's test), so the
+  options are drawn and the unmarked selection is reported. What is left on the page is the mark,
+  which no clause states and which this tree will not invent; a host draws it from
+  `ChoiceControl::selected`, as it draws a text selection, in its own colour.
 
 ## Three hosts, and what turned out not to be a toolkit's
 
