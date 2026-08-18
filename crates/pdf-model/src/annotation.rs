@@ -994,11 +994,17 @@ fn appearance_damage(
     stored: &Stream,
     name: &str,
 ) -> Option<crate::content::DamagedStream> {
-    let decoded = document.decoded_stream_data_reported(stored).ok()?;
+    let detail = format!("a {name} annotation's appearance stream (§12.5.5)");
+    // Asked through the same source the drawing reads (ADR 0427), so that a stream the memo
+    // keeps is decoded exactly once for both questions and one it declines — a bomb, always —
+    // is *read* for this answer rather than materialised for it.
+    let content =
+        crate::content::reader::NestedContent::of(document, stored, detail.clone()).ok()?;
+    let (damage, kept) = content.damage()?;
     Some(crate::content::DamagedStream {
-        detail: format!("a {name} annotation's appearance stream (§12.5.5)"),
-        damage: decoded.damage?,
-        kept: decoded.data.len(),
+        detail,
+        damage,
+        kept,
     })
 }
 

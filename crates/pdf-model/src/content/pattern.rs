@@ -52,8 +52,10 @@ type CellFold = Vec<(usize, pdf_render::Repeats)>;
 /// A tiling pattern: a cell of content, and how to repeat it.
 #[derive(Debug)]
 pub(super) struct Tiling {
-    /// The cell's content stream.
-    content: Arc<[u8]>,
+    /// The cell's content stream, held whole for the tiling's lifetime — which is why a
+    /// reader is made per cell and the bytes are not. The type is what keeps that decision:
+    /// see [`crate::content::reader::HeldContent`]. ADR 0427.
+    content: super::reader::HeldContent,
     /// The resources its operators name.
     resources: Dictionary,
     /// Spacing between cells, in pattern space. Never zero.
@@ -243,7 +245,7 @@ impl Interpreter<'_> {
             self.uncoloured = true;
         }
         self.run(
-            &tiling.content,
+            tiling.content.content(),
             &tiling.resources,
             &cell,
             MAX_FORM_DEPTH - 1,
@@ -809,8 +811,12 @@ impl Interpreter<'_> {
         // in the same places, and the tiling replicates that shorter cell at the file's own
         // `/XStep` and `/YStep` — nothing stands in place of the marks the damage took.
         // See [`Interpreter::content_stream`].
+        // Held rather than windowed, which is the one exception to ADR 0427's rule and has a
+        // measurement behind it: this cell is run once per cell painted and `Tiling` keeps the
+        // bytes for all of them, so a window would inflate it again for each. See
+        // [`crate::content::reader::HeldContent`].
         let content =
-            self.content_stream(stream, &format!("a tiling pattern /{name} (§8.7.3.1)"))?;
+            self.held_content_stream(stream, &format!("a tiling pattern /{name} (§8.7.3.1)"))?;
 
         // `/XStep` and `/YStep` may differ from the cell's bounding box, which is how a
         // pattern tiles with gaps or with overlap. Zero would mean an infinite number of

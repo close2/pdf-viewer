@@ -15,6 +15,7 @@ use crate::colour::{ColourSpace, Compositing, InkScale, Press, Presses};
 use crate::page::Page;
 
 use super::colour::output_intent_space;
+use super::reader::NestedContent;
 use super::report::Unsupported;
 use super::{GraphicsState, Interpreter, MAX_SOFT_MASK_DEPTH};
 
@@ -1341,7 +1342,7 @@ impl Interpreter<'_> {
     pub(super) fn run_transparency_group(
         &mut self,
         group: &TransparencyGroup,
-        content: &[u8],
+        content: &NestedContent,
         resources: &Dictionary,
         inner: &GraphicsState,
         outer: &GraphicsState,
@@ -1629,7 +1630,7 @@ impl Interpreter<'_> {
     fn group_commands(
         &mut self,
         group: &TransparencyGroup,
-        content: &[u8],
+        content: &NestedContent,
         resources: &Dictionary,
         inner: &GraphicsState,
         form_depth: usize,
@@ -1713,7 +1714,7 @@ impl Interpreter<'_> {
     /// what a subtractive run drew. See [`Interpreter::group_commands`] for the two cases.
     fn rerun_on_device(
         &mut self,
-        content: &[u8],
+        content: &NestedContent,
         resources: &Dictionary,
         inner: &GraphicsState,
         form_depth: usize,

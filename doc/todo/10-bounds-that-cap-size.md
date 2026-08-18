@@ -127,7 +127,10 @@ capacity + length. ADR 0354.
 **It was still a gibibyte commanded by 1.85 MB of file, and D took it back**: since ADR 0365 the
 page's `/Contents` is read through a 64 KiB window, and Bomb B costs **8.4 MB** and reports
 `MAX_OPERATIONS`. The row above is what the bound used to buy; §5's table carries what replaced
-it. A bomb in a *form* still costs the gibibyte, which is `doc/todo/14`'s remainder.
+it. **And since ADR 0427 the same bomb hidden in a form XObject costs 10.7 MB where it cost 1032**
+— the sentence here read "a bomb in a *form* still costs the gibibyte" until then. A bomb in a
+**tiling pattern's cell** still does, on a measurement that round's fuzzing produced rather than on
+an omission, and that plus a filter family is what is left of `doc/todo/14`.
 
 The clean statement, and the test to apply to every bound in the tree:
 
@@ -255,7 +258,7 @@ argument and the table is the arithmetic.
 | **A** deadline + callback | unbounded *time* | one parameter on `interpret`, one check at `run.rs`'s existing increment site, two boundary messages, and a rule pinning the gates | **no** — the check point is where 471 left it |
 | **B** ship the confinement | unbounded *anything*, by killing | a tier change (`doc/todo/34`), a `try_reserve`/`Refused` path for the ceiling breach, worker restart, Linux-only | **cheaper** — see below |
 | **C** resumable interpretation | unbounded *latency* | a state-machine rewrite of `Interpreter::run`, against an oracle of 1794 pages | **no** |
-| **D** stream the decompression | the *allocation* | **shipped for a page's `/Contents` in 530** (ADR 0365); what is left is the four nested content streams and a pump for the four filters that are not Flate — `doc/todo/14` §"What is still owed" | **done and measured: Bomb B costs 8.4 MB against 1032, the witness 194 MB against 381, every gate identical, +5.74% instructions on an ordinary page** |
+| **D** stream the decompression | the *allocation* | **shipped for four of the five content streams §7.8.2 names** — a page's `/Contents` in 530 (ADR 0365) and the other four in 592 (ADR 0427); what is left is a pump for the four filters that are not Flate — `doc/todo/14` §"What is still owed" | **done and measured: Bomb B costs 8.4 MB against 1032 in `/Contents` and 10.7 MB against 1032 in a form, the witness 194 MB against 381, every gate identical, +5.74% then +0.089% instructions on an ordinary page** |
 
 **D is half-built and nobody set out to build it.** §5 D below says "`filter::flate` already holds a
 *streaming* decoder — `flate2::read::ZlibDecoder`, an `io::Read` — and then calls `read_to_end`".
@@ -274,6 +277,7 @@ removes is now:
 | | before ADR 0354 | after | what D left, **shipped and measured** |
 |---|---|---|---|
 | Bomb B, 1.85 MB of file | 1811 MB | **1031 MB** (the bound, exactly) | **8.4 MB**, and `MAX_OPERATIONS` four million operators in |
+| the same bomb inside a form `XObject` | — | 1032 MB, `undecodable form /Fx` | **10.7 MB**, and `MAX_OPERATIONS` (ADR 0427) |
 | `Entwurf.pdf`, 141 MiB content stream | 429 MB | **381 MB** | **193.7 MB**, display list included (ADR 0365) |
 
 So D is still the only road that changes the *kind* of the quantity, and the last column is a
@@ -301,9 +305,11 @@ along**: §3's defects, then D's measurement, then D. **D is shipped for the str
 about** — ADR 0365, the five-hundred-and-thirtieth session — and the two bombs are the row above:
 Bomb B commands 8.4 MB where it commanded a gibibyte, and the witness draws whole from 194 MB.
 The gibibyte in §2's sentence "**It is still a gibibyte commanded by 1.85 MB of file**" is no
-longer commanded by that file, and `max_stream_len` is no longer what refuses it. What is left of
-D is in [`14`](14-stream-the-decompression.md) §"What is still owed" — the nested content streams
-and four filters — and the owner's order is at **B** next.
+longer commanded by that file, and `max_stream_len` is no longer what refuses it. **And three of the four nested content streams followed in the
+five-hundred-and-ninety-second**, on the decoded-stream memo's own condition rather than on a new
+number (ADR 0427); the fourth, §8.7.3.1's cell, is an exception that round's own fuzzing measured.
+What is left of D is in [`14`](14-stream-the-decompression.md) §"What is still owed" — that cell
+and one filter family — and the owner's order is at **B** next.
 
 ## 5.1 The four roads themselves
 
@@ -335,7 +341,7 @@ and A, which nobody chose.
 
 | road | file | one line |
 |---|---|---|
-| **D** | [`14-stream-the-decompression.md`](14-stream-the-decompression.md) | removes the allocation; the producer half is written (ADR 0343), the sink is measured and not yet built (ADR 0362) |
+| **D** | [`14-stream-the-decompression.md`](14-stream-the-decompression.md) | removes the allocation; shipped for four of the five content streams §7.8.2 names (ADRs 0365, 0427), and what is left is §8.7.3.1's cell and a pump for the four filters that are not Flate |
 | **B** | [`15-ship-the-confinement.md`](15-ship-the-confinement.md) | hands the bound to the kernel; a tier change and two defects, and its arithmetic objection is answered |
 | **C** | [`16-resumable-interpretation.md`](16-resumable-interpretation.md) | always interruptible; a state-machine rewrite against an oracle of 1794 pages, and it contains A |
 

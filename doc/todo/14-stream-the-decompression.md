@@ -1,15 +1,17 @@
 # Road D — stream the decompression, so the bomb never becomes an allocation
 
-Status: **the page's `/Contents` is done and shipped** (ADR 0365) — a bomb costs 8.4 MB where it
+Status: **four of §7.8.2's five content streams are done and shipped** (ADRs 0365, 0427) — a bomb
+in a page's `/Contents` costs 8.4 MB where it cost 1032 MB, one in a form XObject 10.7 MB where it
 cost 1032 MB, the witness 194 MB where it took 381, and every gate's output is identical. **Two
-things are left and they are §"What is still owed" below**: the four other content streams
-§7.8.2 names, and a pump for the four filters that are not `FlateDecode`. The producer half was
-ADR 0343's, the measurement ADR 0362's, and the rewrite ADR 0365's; what remains of the argument
-lives in those three and this file keeps what is not yet done.
+things are left and they are §"What is still owed" below**: §8.7.3.1's tiling cell, which is an
+exception with a measurement behind it, and a pump for the four filters that are not
+`FlateDecode`. The producer half was ADR 0343's, the measurement ADR 0362's, the page's rewrite
+ADR 0365's and the other four ADR 0427's; what remains of the argument lives in those four and
+this file keeps what is not yet done.
 Priority: 14 — the first road of [`10`](10-bounds-that-cap-size.md), whose §5 table prices all
-four and whose §6 binds whatever lands here. **The page's half is shipped; what is left is
-priced in §"What is still owed" and is no longer what the owner's order is waiting on** — road B
-([`15`](15-ship-the-confinement.md)) is next.
+four and whose §6 binds whatever lands here. **Four of §7.8.2's five streams are shipped; what is
+left is a tiling cell and one filter family, priced in §"What is still owed", and is no longer
+what the owner's order is waiting on** — road B ([`15`](15-ship-the-confinement.md)) is next.
 Witness: `tmp/Entwurf.pdf` — **not in the repository and not addable to it**, so no test may name
 that path; and Bomb B, which `doc/todo/10` §2 describes precisely enough to rebuild (sessions 519
 and 527 rebuilt both bombs to the byte from that description)
@@ -24,7 +26,8 @@ Clauses: §7.4 (filters), §7.8.2 (content stream syntax — including the array
 rule this road leans on), §8.9.7 (inline images)
 Code: `crates/pdf-syntax/src/filter.rs` (`inflate_buffer` — the pump), `crates/pdf-syntax/src/lexer.rs`
 (`Lexer::new(&'a [u8])` — the sink), `crates/pdf-model/src/inline_image.rs` (`scan`'s lookahead),
-`crates/pdf-syntax/src/document.rs` (`decoded_stream_data`, which stays whole for the paths below)
+`crates/pdf-syntax/src/document.rs` (`is_pumpable`, which decides the route for both
+`stream_source` and `nested_content_source`, and is the one function a filter pump changes)
 
 ## Why this one is first
 
@@ -175,7 +178,7 @@ each comes from:
    rather than of bytes. The second copy of the *encoded* stream that ADR 0362 found is still
    there and is `Parser::parse_stream_data`'s, which is `doc/todo/10` §3's residue and not this
    road's.
-4. **The other filters** are **not** done — see below.
+4. **The other filters** are **not** done — see below, and they are all that is left.
 
 Both obligations were met: `ContentReader::with_token` lends the token to a closure, so the
 compiler refuses anything that keeps a borrowed keyword past a refill, and ADR 0343's damage is
@@ -186,17 +189,37 @@ produced as the pump goes and reported after the run.
 first operator is counted. Under a window there is no memory to spend, and Bomb B now reports
 `MAX_OPERATIONS` in 0.24 s.
 
+## What the other four content streams did — carried out in ADR 0427
+
+This section asked for "a route that streams the *first* read and remembers the bytes for the
+second, or a measurement saying the re-inflation is cheaper than the memo", and the answer was
+neither: **the memo already draws that line and draws it for the same reason.**
+`DecodedStreams::put` declines any decode it cannot hold beside its encoded bytes, so a stream it
+declines is *already* re-decoded on every read — which means windowing exactly that half costs
+nothing that was not already being paid, and every bomb is in that half by construction. Nothing
+arbitrary was replaced by something equally arbitrary, which is `doc/todo/10` §6's rule: the split
+is `put`'s own condition, asked before the decode instead of after it, through one function.
+
+`Document::nested_content_source` is the rule, `NestedContent` is what the interpreter holds
+instead of a buffer, and a reader is made per run — which is what lets §11.6.6's paired runs, a
+tiling pattern's cell loop and a Type 3 glyph description keep reading the same stream as often as
+they like. Measured: a bomb in a form is **10.7 MB against 1032**, ISO 32000-2 page 101 costs
+**+0.089%** instructions, and the 974 corpus display lists are byte-identical.
+
+**The rule has one exception and the `page` fuzz target found it.** "A decode the memo declines is
+re-run on every read anyway" is a claim about *who reads*, and it is false of §8.7.3.1: `Tiling`
+holds the cell's decode for the whole tiling, so windowing that one inflates the cell again for
+every cell painted — 0.24 s against 9.0 s on a mutated pattern, with `MAX_TILES` allowing four
+thousand cells. The cell keeps its whole decode, in a *type* rather than in a comment, and **the
+cost of that is a bomb hidden in a tiling pattern's cell, which still costs its gibibyte** —
+exactly what it cost before this round and no more. Whoever takes it needs the cell drawn once and
+its commands repeated, which is `pdf_render::Repeats` one step further than `fold_repeated_marks`
+takes it today.
+
 ## What is still owed
 
-**1. The four other content streams §7.8.2 names** — form XObjects, tiling patterns, Type 3 glyph
-procedures, annotation appearance streams. They are decoded whole, as they always were, and the
-reason is this file's own criterion for the good case: a stream read "once, forwards". §11.6.6's
-paired runs read the *same* form two and three times over (`group_commands`, then
-`rerun_on_device`), so a window would inflate it again for each where ADR 0317's memo hands back
-what it already has. **The cost of that decision is a bomb hidden in a form XObject, which still
-costs its gibibyte** — exactly what it cost before ADR 0365 and no more. Whoever takes this needs
-a route that streams the *first* read and remembers the bytes for the second, or a measurement
-saying the re-inflation is cheaper than the memo.
+**1. A bomb in a tiling pattern's cell**, which is the paragraph above: the one of §7.8.2's five
+that still costs its gibibyte, for a reason that is measured rather than assumed.
 
 **2. A pump for the other four filters.** `Document::stream_source` pumps a single `FlateDecode`
 with no predictor and hands everything else back whole. LZW, ASCII85, ASCIIHex and RunLength are
@@ -206,6 +229,10 @@ existing one**, which is trap 6 and is how two implementations of one clause dri
 each existing decoder resumable — a state struct, `pump(&mut self, out: &mut [u8])`, and the
 whole-buffer entry point expressed as a loop over it — the way `filter::Pump` and `inflate_buffer`
 now share `turn`.
+
+`Document::is_pumpable` is the one place that decides a chain is pumpable, so the page route and
+the other four cannot answer it differently, and it is the one function a filter pump has to
+change.
 
 `doc/todo/10` §6 binds whatever lands: nothing arbitrary replaced by something equally arbitrary,
 the gates stay reproducible, a count that reports says what it counted, and **a bound on an

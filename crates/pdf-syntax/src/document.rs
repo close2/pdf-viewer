@@ -1322,6 +1322,17 @@ impl Document {
     ///
     /// [`StreamRefusal`], whose variants are the reasons.
     pub fn decoded_stream_data_reported(&self, stream: &Stream) -> Result<Decoded, StreamRefusal> {
+        self.decoded_under(stream, self.limits)
+    }
+
+    /// The same, under bounds that need not be the document's.
+    ///
+    /// The one caller that passes anything else is [`Self::nested_content_source`], which asks
+    /// for a decode no larger than the memo would keep — see there for why that is the whole of
+    /// the routing rule. The bytes are the same bytes: a decode that succeeds under a smaller
+    /// bound is byte for byte the decode that succeeds under a larger one, so what it puts in
+    /// the memo is what the memo would have held anyway.
+    fn decoded_under(&self, stream: &Stream, limits: Limits) -> Result<Decoded, StreamRefusal> {
         if stream.decryption_failed {
             return Err(StreamRefusal::DecryptionFailed);
         }
@@ -1355,16 +1366,12 @@ impl Document {
         // the last stage's complaint would describe the symptom rather than the file.
         let mut damage = None;
         for (filter, parms) in &chain {
-            let stage = crate::filter::decode_with_parms_reported(
-                filter,
-                &data,
-                parms.as_ref(),
-                self.limits,
-            )
-            .map_err(|why| StreamRefusal::Filter {
-                name: String::from_utf8_lossy(filter).into_owned(),
-                why,
-            })?;
+            let stage =
+                crate::filter::decode_with_parms_reported(filter, &data, parms.as_ref(), limits)
+                    .map_err(|why| StreamRefusal::Filter {
+                        name: String::from_utf8_lossy(filter).into_owned(),
+                        why,
+                    })?;
             data = stage.data;
             damage = damage.or(stage.damage);
         }
@@ -1539,32 +1546,95 @@ impl Document {
         if Self::is_external(stream) {
             return Err(StreamRefusal::External);
         }
+        if !self.is_pumpable(stream) {
+            return self
+                .decoded_stream_data_reported(stream)
+                .map(StreamSource::Whole);
+        }
+        Ok(StreamSource::Pumped(crate::filter::Pump::inflating(
+            Arc::clone(&stream.data),
+        )))
+    }
+
+    /// How one of §7.8.2's *other* content streams is to be read — a form `XObject`, a tiling
+    /// pattern's cell, a Type 3 glyph description, an annotation's appearance.
+    ///
+    /// > Each page of a document shall be represented by one or more content streams. Content
+    /// > streams shall also be used to package sequences of instructions as self-contained
+    /// > graphical elements, such as forms (see 8.10, "Form XObjects"), patterns (8.7,
+    /// > "Patterns"), certain fonts (9.6.4, "Type 3 fonts"), and annotation appearances (12.5.5,
+    /// > "Appearance streams").
+    ///
+    /// These differ from a page's `/Contents` in one respect that decides the route: they are
+    /// read **more than once**. §11.6.6's paired runs interpret the same form twice and
+    /// sometimes three times, a tiling pattern's cell is run once per cell, and a Type 3 glyph
+    /// description once per character drawn with it. A window that re-inflated the stream for
+    /// each of those would trade an allocation for unbounded work, which is not the trade
+    /// `doc/todo/14` is about.
+    ///
+    /// **So the memo decides, and it is not a new number.** [`DecodedStreams::put`] already
+    /// declines any decode it cannot hold beside its encoded bytes, and that condition is
+    /// exactly the one wanted here:
+    ///
+    /// - A stream the memo would keep is decoded **whole**, as it always was, and every read
+    ///   after the first is a cache hit. Nothing about that population changes.
+    /// - A stream the memo would decline is **pumped through a window**. Re-reading it costs a
+    ///   re-inflation, which is what it cost before as well — a decode the memo declines is
+    ///   re-run on every read today — and the gibibyte it used to command is not spent at all.
+    ///
+    /// Every decompression bomb is in the second half by construction, because a bomb is a
+    /// stream whose decode dwarfs anything a cache would keep. ADR 0427; ADR 0365 is the same
+    /// road for a page's `/Contents`.
+    ///
+    /// # Errors
+    ///
+    /// [`StreamRefusal`], exactly as [`Self::decoded_stream_data_reported`] gives it.
+    pub fn nested_content_source(&self, stream: &Stream) -> Result<StreamSource, StreamRefusal> {
+        if !self.is_pumpable(stream) {
+            return self
+                .decoded_stream_data_reported(stream)
+                .map(StreamSource::Whole);
+        }
+        let allowance = read(&self.decoded).allowance(&stream.data);
+        let within = Limits {
+            max_stream_len: allowance.min(self.limits.max_stream_len),
+            ..self.limits
+        };
+        match self.decoded_under(stream, within) {
+            Ok(decoded) => Ok(StreamSource::Whole(decoded)),
+            // The one refusal that is not the file's: this decode outgrew what the memo would
+            // have kept, so there is nothing to be gained by finishing it into a buffer nobody
+            // will read twice. The window takes it from here, under the document's own bound.
+            Err(StreamRefusal::Filter {
+                why: FilterRefusal::TooLarge { .. },
+                ..
+            }) => Ok(StreamSource::Pumped(crate::filter::Pump::inflating(
+                Arc::clone(&stream.data),
+            ))),
+            Err(other) => Err(other),
+        }
+    }
+
+    /// Whether a stream's whole filter chain is one [`crate::filter::Pump`] can produce.
+    ///
+    /// A single `FlateDecode` with no predictor, which is what the overwhelming majority of
+    /// content streams state. A predictor is part of decoding (see
+    /// [`crate::filter::decode_with_parms`]) and reverses rows against their predecessors,
+    /// which is not a transformation a window can apply to a few thousand bytes at a time; it
+    /// occurs on cross-reference streams and images rather than on content streams. The other
+    /// four filters §7.4 states are streaming by construction and are not pumped **yet** —
+    /// `doc/todo/14` carries what that needs.
+    fn is_pumpable(&self, stream: &Stream) -> bool {
         let filters = self.filter_chain(&stream.dict);
         if filters.is_empty() || self.states_no_data(stream) {
-            return Ok(StreamSource::Whole(Decoded {
-                data: Arc::clone(&stream.data),
-                damage: None,
-            }));
+            return false;
         }
-        // A predictor is part of decoding (see [`crate::filter::decode_with_parms`]) and reverses
-        // rows against their predecessors, which is not a transformation a window can apply to a
-        // few thousand bytes at a time. It occurs on cross-reference streams and images rather
-        // than on content streams, and either way this is a route decision: such a stream is
-        // decoded whole below.
         let predicted = self
             .decode_parms(&stream.dict, 0)
             .and_then(|parms| parms.get("Predictor").and_then(Object::as_integer))
             .is_some_and(|predictor| predictor > 1);
-        if !predicted
-            && let [only] = filters.as_slice()
-            && matches!(only.as_slice(), b"FlateDecode" | b"Fl")
-        {
-            return Ok(StreamSource::Pumped(crate::filter::Pump::inflating(
-                Arc::clone(&stream.data),
-            )));
-        }
-        self.decoded_stream_data_reported(stream)
-            .map(StreamSource::Whole)
+        !predicted
+            && matches!(filters.as_slice(), [only] if matches!(only.as_slice(), b"FlateDecode" | b"Fl"))
     }
 
     /// Returns the bytes the document was opened from.
@@ -1734,6 +1804,17 @@ impl DecodedStreams {
         })
     }
 
+    /// How many decoded bytes this cache would keep beside `encoded`.
+    ///
+    /// [`Self::put`]'s own condition, asked before the decode rather than after it: the entry
+    /// is charged for both halves, so a decode longer than this is one the cache declines
+    /// however empty it is. [`Document::nested_content_source`] is what asks, and it is the
+    /// whole of that routing rule — which is why the two are one function rather than two
+    /// comparisons that can drift.
+    fn allowance(&self, encoded: &Arc<[u8]>) -> usize {
+        self.budget.saturating_sub(encoded.len())
+    }
+
     /// Keeps a decode, dropping least-recently-used entries until it fits.
     ///
     /// The charge is the decoded bytes **plus the encoded ones**, because the entry holds both
@@ -1750,7 +1831,7 @@ impl DecodedStreams {
     ) {
         let data = &decoded.data;
         let size = data.len().saturating_add(encoded.len());
-        if size > self.budget {
+        if data.len() > self.allowance(encoded) {
             return;
         }
         self.clock = self.clock.saturating_add(1);

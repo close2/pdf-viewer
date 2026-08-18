@@ -80,7 +80,11 @@ fuzz_target!(|data: &[u8]| {
             inside(key.q);
             inside(key.g);
             inside(key.y);
-            for signature in [data, &[][..], &[0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x01]] {
+            for signature in [
+                data,
+                &[][..],
+                &[0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x01],
+            ] {
                 match dsa::verify(key, signature, &digest) {
                     Ok(false) => {}
                     Ok(true) => {

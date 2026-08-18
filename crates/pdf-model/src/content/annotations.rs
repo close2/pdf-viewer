@@ -308,16 +308,29 @@ impl Interpreter<'_> {
             self.note(Unsupported::DamagedContentStream { stream });
         }
         let data = match &appearance.content {
+            // §12.5.5's stream is one of §7.8.2's four, and it is read as a source rather
+            // than as a buffer for the reason ADR 0427 gives: a bomb inside an appearance is
+            // as effective as one inside a page, and the memo's own condition decides which
+            // of the two shapes it gets.
             crate::annotation::Content::Stored(stream) => {
-                let Some(data) = self.document.decoded_stream_data(stream) else {
+                let Ok(content) = crate::content::reader::NestedContent::of(
+                    self.document,
+                    stream,
+                    "an annotation's appearance stream (§12.5.5)".to_owned(),
+                ) else {
                     self.note(Unsupported::Annotation {
                         detail: "undecodable appearance stream".to_owned(),
                     });
                     return;
                 };
-                data
+                content
             }
-            crate::annotation::Content::Constructed { bytes, .. } => Arc::from(bytes.as_slice()),
+            crate::annotation::Content::Constructed { bytes, .. } => {
+                crate::content::reader::NestedContent::constructed(
+                    Arc::from(bytes.as_slice()),
+                    "a constructed appearance stream (§12.7.4.3)".to_owned(),
+                )
+            }
         };
 
         let transform = appearance.transform.then(base);

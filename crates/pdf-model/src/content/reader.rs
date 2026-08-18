@@ -43,7 +43,9 @@
 
 use std::sync::Arc;
 
-use pdf_syntax::{Document, Lexer, Object, Pumped, Stream, StreamRefusal, StreamSource, Token};
+use pdf_syntax::{
+    Damage, Document, Lexer, Object, Pumped, Stream, StreamRefusal, StreamSource, Token,
+};
 
 use crate::page::{ContentIssue, Page, filter_names};
 
@@ -133,18 +135,245 @@ impl Word {
     }
 }
 
+/// One of §7.8.2's other four content streams, ready to be read — once, or several times.
+///
+/// > Content streams shall also be used to package sequences of instructions as self-contained
+/// > graphical elements, such as forms (see 8.10, "Form XObjects"), patterns (8.7, "Patterns"),
+/// > certain fonts (9.6.4, "Type 3 fonts"), and annotation appearances (12.5.5, "Appearance
+/// > streams").
+///
+/// **This is a source rather than a buffer, and that is the whole of ADR 0427.** Each of those
+/// four is read more than once — §11.6.6's paired runs interpret the same form two and three
+/// times, a tiling pattern's cell runs once per cell, a glyph description once per character —
+/// so a reader is *made* for each run instead of a decode being handed round. Which of the two
+/// shapes it makes is [`Document::nested_content_source`]'s decision and is the decoded-stream
+/// memo's own condition: a stream the memo keeps is held here whole, and one it declines is
+/// held here as its *encoded* bytes and pumped through a window, so that a bomb inside a form
+/// costs the window rather than the gibibyte it used to.
+#[derive(Debug, Clone)]
+pub struct NestedContent {
+    /// Which of §7.8.2's kinds this is and how the page reached it, for the report.
+    detail: String,
+    /// Where the bytes come from.
+    source: Nested,
+}
+
+/// The two shapes of [`NestedContent`]. See there.
+#[derive(Debug, Clone)]
+enum Nested {
+    /// Decoded whole, and held by the document's memo, so every read after the first is a
+    /// cache read exactly as it was before ADR 0427.
+    Whole {
+        /// The decoded bytes.
+        data: Arc<[u8]>,
+        /// Why the decode stopped short, where it did (ADR 0343).
+        damage: Option<Damage>,
+    },
+    /// Still encoded, inflated through a window once per read.
+    Windowed {
+        /// The encoded bytes, which is what the document already holds: a [`pdf_syntax::Pump`]
+        /// takes its input from the stream object rather than copying it.
+        data: Arc<[u8]>,
+        /// The `/Filter` names it declared, for the report.
+        filters: Vec<String>,
+        /// `Limits::max_stream_len`, which still bounds this one stream.
+        limit: usize,
+    },
+}
+
+impl NestedContent {
+    /// How one of the four is to be read, or why it cannot be.
+    ///
+    /// `detail` says which kind and which resource, because each of the four costs a different
+    /// mark and a report that did not distinguish them could not be acted on.
+    ///
+    /// # Errors
+    ///
+    /// [`StreamRefusal`], exactly as [`Document::nested_content_source`] gives it.
+    pub fn of(document: &Document, stream: &Stream, detail: String) -> Result<Self, StreamRefusal> {
+        let source = match document.nested_content_source(stream)? {
+            StreamSource::Whole(decoded) => Nested::Whole {
+                data: decoded.data,
+                damage: decoded.damage,
+            },
+            StreamSource::Pumped(_) => Nested::Windowed {
+                data: Arc::clone(&stream.data),
+                filters: filter_names(document, &stream.dict),
+                limit: document.limits().max_stream_len,
+            },
+        };
+        Ok(Self { detail, source })
+    }
+
+    /// The same, for a consumer that holds one decode across every read of it.
+    ///
+    /// Private, and reached through [`HeldContent`], so that a consumer which needs this cannot
+    /// be pointed at [`Self::of`] by a later round without the type changing under it.
+    ///
+    /// §8.7.3.1's tiling cell is the one of the four, and it is an exception with a measurement
+    /// behind it rather than a doubt. [`Self::of`]'s rule rests on a decode the memo declines
+    /// being re-run on every read *already* — true of a form, a glyph description and an
+    /// appearance, each of which asks for its bytes afresh every time it is drawn, and **false
+    /// of a tiling pattern**, whose `Tiling` keeps the bytes for the whole tiling. So a window
+    /// there would inflate the cell again for every cell painted, which is road D's trade
+    /// backwards: unbounded work in place of an allocation something already bounds. A mutated
+    /// pattern the `page` fuzz target reached costs 0.24 s whole and **9.0 s** windowed, and
+    /// `MAX_TILES` allows four thousand cells. The pattern is its own memo with exactly the
+    /// right lifetime; ADR 0427.
+    ///
+    /// # Errors
+    ///
+    /// [`StreamRefusal`], exactly as [`Document::decoded_stream_data_reported`] gives it.
+    fn held(document: &Document, stream: &Stream, detail: String) -> Result<Self, StreamRefusal> {
+        let decoded = document.decoded_stream_data_reported(stream)?;
+        Ok(Self {
+            detail,
+            source: Nested::Whole {
+                data: decoded.data,
+                damage: decoded.damage,
+            },
+        })
+    }
+
+    /// Bytes that are already this program's own, with no stream behind them.
+    ///
+    /// §12.7.4.3's regenerated widget appearance is the case: what reaches the drawing is a
+    /// spliced copy rather than anything the file states, so there is nothing to decode and
+    /// nothing that can be damaged.
+    #[must_use]
+    pub fn constructed(data: Arc<[u8]>, detail: String) -> Self {
+        Self {
+            detail,
+            source: Nested::Whole { data, damage: None },
+        }
+    }
+
+    /// Whether the bytes are inflated through a window rather than held whole.
+    ///
+    /// **A route decision is not observable from its output**, which is the whole difficulty: the
+    /// bytes are the same bytes and the report is the same report either way, so a round that
+    /// pointed §8.7.3.1's cell at the wrong constructor would break nothing a gate can see and
+    /// would cost 0.24 s → 9.0 s on a document nobody times. This is what
+    /// `tests/nested_content_window.rs` asks instead — the same reason `inflate_buffer` exists
+    /// so that a test can read `Vec::capacity` (ADR 0354).
+    #[must_use]
+    pub fn windowed(&self) -> bool {
+        matches!(self.source, Nested::Windowed { .. })
+    }
+
+    /// Which of §7.8.2's kinds this is, for the report.
+    #[must_use]
+    pub fn detail(&self) -> &str {
+        &self.detail
+    }
+
+    /// A reader over it, from the beginning. One per run.
+    #[must_use]
+    pub fn reader(&self) -> ContentReader<'_> {
+        match &self.source {
+            Nested::Whole { data, .. } => ContentReader::over(data),
+            Nested::Windowed {
+                data,
+                filters,
+                limit,
+            } => ContentReader {
+                held: Held::Window(Box::new(Window::single(
+                    Arc::clone(data),
+                    filters.clone(),
+                    *limit,
+                ))),
+            },
+        }
+    }
+
+    /// Why the decode stopped short, where that is known without reading the stream.
+    ///
+    /// Always `None` for the windowed shape, which is not a silence: there the damage is met
+    /// as the pump reaches it, in the middle of the run, and `Interpreter::run` reports it in
+    /// the same words. ADR 0343 requires the report either way and neither route drops it.
+    #[must_use]
+    pub fn stated_damage(&self) -> Option<(Damage, usize)> {
+        match &self.source {
+            Nested::Whole { data, damage } => damage.map(|damage| (damage, data.len())),
+            Nested::Windowed { .. } => None,
+        }
+    }
+
+    /// Why the decode stopped short and how many bytes are on the page, ISO 32000-2 §7.4.1.
+    ///
+    /// `None` where the stream decodes whole, which is every stream but ADR 0343's. For the
+    /// windowed shape the answer costs one pass of the pump and **no allocation past the
+    /// window** — which is the point: asking a bomb whether it is damaged may not cost what
+    /// reading it costs. §12.5.5's appearance is the one caller, because that clause's damage
+    /// has to be known where the stream is read rather than where it is drawn (ADR 0359).
+    #[must_use]
+    pub fn damage(&self) -> Option<(Damage, usize)> {
+        match &self.source {
+            Nested::Whole { data, damage } => damage.map(|damage| (damage, data.len())),
+            Nested::Windowed { .. } => {
+                let mut reader = self.reader();
+                loop {
+                    let held = reader.lookahead(WINDOW).0.len();
+                    if held == 0 {
+                        break;
+                    }
+                    reader.skip(held);
+                }
+                reader
+                    .take_issues()
+                    .into_iter()
+                    .find_map(|issue| match issue {
+                        ContentIssue::Damaged { damage, kept, .. } => Some((damage, kept)),
+                        _ => None,
+                    })
+            }
+        }
+    }
+}
+
+/// One of §7.8.2's four whose *decode* is held for as long as the thing that reads it.
+///
+/// §8.7.3.1's tiling cell is the only one, and it is an exception with a measurement behind it
+/// rather than a doubt. [`NestedContent::of`]'s rule rests on a decode the memo declines being
+/// re-run on every read **already** — true of a form `XObject`, a Type 3 glyph description and
+/// an annotation appearance, each of which asks for its bytes afresh every time it is drawn,
+/// and **false of a tiling pattern**, because `Tiling` keeps the bytes for the whole tiling. So
+/// a window there would inflate the cell again for every cell painted, which is road D's trade
+/// backwards: unbounded work in place of an allocation something else already bounds, with
+/// `MAX_TILES` allowing four thousand cells. A mutated pattern the `page` fuzz target reached
+/// costs **0.24 s held and 9.0 s windowed**; ADR 0427.
+///
+/// It is a type rather than a comment for the reason the exception is easy to lose: a later
+/// round pointing the pattern at the routing constructor would cost no compile error and no
+/// gate, only a document nobody times.
+#[derive(Debug)]
+pub struct HeldContent(NestedContent);
+
+impl HeldContent {
+    /// Decodes `stream` whole, by the route every caller took before ADR 0427.
+    ///
+    /// # Errors
+    ///
+    /// [`StreamRefusal`], exactly as [`Document::decoded_stream_data_reported`] gives it.
+    pub fn of(document: &Document, stream: &Stream, detail: String) -> Result<Self, StreamRefusal> {
+        NestedContent::held(document, stream, detail).map(Self)
+    }
+
+    /// What the interpreter runs, which is a [`NestedContent`] like any other.
+    #[must_use]
+    pub fn content(&self) -> &NestedContent {
+        &self.0
+    }
+}
+
 /// One content stream, read forwards.
 ///
 /// Two shapes, and the difference is only whether the bytes exist all at once:
 ///
-/// - [`ContentReader::over`] reads a buffer that is already whole — a form `XObject`, a tiling
-///   pattern, a Type 3 glyph procedure, an annotation's appearance. Those are decoded by
-///   [`Document::decoded_stream_data`] as they always were, because §11.6.6's paired runs read
-///   the *same* stream two and three times over and a window would have to inflate it again
-///   for each; `doc/todo/14`'s own criterion for the good case is a stream read "once,
-///   forwards", and those are not it.
-/// - [`ContentReader::for_page`] reads a page's `/Contents` through a window, which is the
-///   stream the criterion describes and the one every measurement in ADR 0362 is about.
+/// - [`ContentReader::over`] reads a buffer that is already whole — a page's `/Contents`
+///   assembled by an examiner, or one of §7.8.2's four that the memo keeps.
+/// - [`ContentReader::for_page`] reads a page's `/Contents` through a window, and
+///   [`NestedContent::reader`] one of the other four whose decode the memo declines.
 #[derive(Debug)]
 pub struct ContentReader<'a> {
     /// Where the bytes come from.
@@ -317,6 +546,8 @@ struct Window {
     limit: usize,
     /// Whether the newline that follows the part just ended is still owed.
     separator: bool,
+    /// Which of the two things §7.8.2 names this window is over.
+    shape: Shape,
     /// Set once no further byte can arrive.
     exhausted: bool,
     /// Set where a comment was cut by the end of the buffer, so that the rest of it is
@@ -324,6 +555,23 @@ struct Window {
     in_comment: bool,
     /// What the assembly and the pumping have found.
     issues: Vec<ContentIssue>,
+}
+
+/// Which of the two things §7.8.2 names a [`Window`] is over.
+///
+/// They differ in one byte and it is Table 31's: the array's parts are concatenated "with at
+/// least one white-space character added between the streams' data", and
+/// `Page::content_with_report` has always written that byte after every part including the
+/// last. One of §7.8.2's other four is not an array, and is handed to the interpreter as the
+/// bytes its filter produced and nothing else — the window has to deliver exactly what the
+/// whole decode it replaces delivered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Shape {
+    /// A page's `/Contents`, ISO 32000-2 §7.7.3.3 Table 31.
+    Contents,
+    /// A form `XObject`, a tiling pattern's cell, a Type 3 glyph description or an
+    /// annotation's appearance — §7.8.2's "self-contained graphical elements".
+    SelfContained,
 }
 
 /// One `/Contents` part.
@@ -371,10 +619,29 @@ impl Window {
             total: 0,
             limit,
             separator: false,
+            shape: Shape::Contents,
             exhausted: false,
             in_comment: false,
             issues: Vec::new(),
         }
+    }
+
+    /// A window over one of §7.8.2's other four content streams, which has exactly one part.
+    ///
+    /// The part index is zero because there is one, and `ContentIssue` is Table 31's noun —
+    /// so the issues this window raises are translated by the interpreter into the vocabulary
+    /// the four are reported in, and never reach a page's own `/Contents` report. See
+    /// `Interpreter::run`.
+    fn single(data: Arc<[u8]>, filters: Vec<String>, limit: usize) -> Self {
+        let mut window = Self::new(limit);
+        window.shape = Shape::SelfContained;
+        window.parts.push(Part {
+            index: 0,
+            source: PartSource::Pumped(pdf_syntax::Pump::inflating(data)),
+            filters,
+            kept: 0,
+        });
+        window
     }
 
     /// Adds one `/Contents` part, or reports why it contributes nothing.
@@ -695,7 +962,7 @@ impl Window {
     /// Moves to the next part, owing the white space Table 31 puts between them.
     fn end_part(&mut self) {
         self.index += 1;
-        self.separator = true;
+        self.separator = self.shape == Shape::Contents;
     }
 
     /// See [`ContentReader::lookahead`].

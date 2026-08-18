@@ -264,6 +264,16 @@ cd fuzz && cargo +nightly fuzz run page -- -runs=50000 -fork=6 -rss_limit_mb=409
   # a page tree, a content stream and a resource dictionary that agree with each other:
   #   find corpus-cache/safedocs doc/corpora doc/pdf.js/test/pdfs -name '*.pdf' -print0 \
   #     | xargs -0 python3 fuzz/seed_page.py fuzz/corpus/page
+  # **And a second seeder since the five-hundred-and-ninety-second**, for what no real document
+  #   states: `python3 fuzz/seed_nested_content.py <dir>` builds 26 whole one-page documents whose
+  #   drawing goes through one of §7.8.2's four *nested* content streams — a form XObject, a tiling
+  #   pattern's cell, a Type 3 glyph description, an annotation appearance — with each stream's
+  #   decoded size straddling the decoded-stream memo's allowance, which is the line ADR 0427's
+  #   route decision is drawn on. Trap 8 is the reason it exists: no document on this disk states
+  #   one of the four whose decode outgrows four mebibytes, so `seed_page.py` cannot reach the
+  #   pumped branch at all. Aim it at a directory of its own rather than at `fuzz/corpus/page`
+  #   when what is wanted is the branch rather than the merge — 26 seeds start fuzzing in seconds
+  #   where 40 000 spend most of an hour merging, which is the warning two entries down.
   # 1882 seeds under the target's own 256 KiB ceiling, `cmin` to 1535, **28 535 edges** against the
   # best of the other thirteen at 6483. The run prints the current numbers and `doc/todo/02` §2 carries the
   # warning: libFuzzer merges the corpus once per run, and on the seeds `seed_page.py` produces that

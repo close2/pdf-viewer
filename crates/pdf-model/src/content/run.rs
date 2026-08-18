@@ -14,7 +14,7 @@ use super::colour::{BlackPoint, assign_colour};
 use super::font::Font;
 use super::marked::Marked;
 use super::path::{begin_subpath, close_subpath};
-use super::reader::{ContentReader, Word};
+use super::reader::{ContentReader, HeldContent, NestedContent, Word};
 use super::report::{ArtifactSpan, DamagedStream, MarkedSpan, Unsupported};
 use super::text::TextObject;
 use super::{
@@ -43,22 +43,51 @@ impl Interpreter<'_> {
     /// `None` where nothing decoded at all. The caller words that one itself: there the whole
     /// element is missing rather than the end of it, and the five callers already had five
     /// different sentences for it.
+    ///
+    /// **What comes back is a source rather than a buffer** (ADR 0427): each of the four is
+    /// read more than once, so a reader is made per run, and whether the bytes are held whole
+    /// or inflated through a window each time is
+    /// [`pdf_syntax::Document::nested_content_source`]'s decision. Where they are held whole
+    /// the damage is known now and is reported here; where they are windowed it is met during
+    /// the run and [`Interpreter::run`] reports it then, in the same words.
     pub(super) fn content_stream(
         &mut self,
         stream: &pdf_syntax::Stream,
         what: &str,
-    ) -> Option<Arc<[u8]>> {
-        let decoded = self.document.decoded_stream_data_reported(stream).ok()?;
-        if let Some(damage) = decoded.damage {
+    ) -> Option<NestedContent> {
+        let content = NestedContent::of(self.document, stream, what.to_owned()).ok()?;
+        if let Some((damage, kept)) = content.stated_damage() {
             self.note(Unsupported::DamagedContentStream {
                 stream: DamagedStream {
                     detail: what.to_owned(),
                     damage,
-                    kept: decoded.data.len(),
+                    kept,
                 },
             });
         }
-        Some(decoded.data)
+        Some(content)
+    }
+
+    /// The same, for §8.7.3.1's tiling cell, which holds its decode for the whole tiling.
+    ///
+    /// See [`HeldContent`] for why that one is not routed the way the other three are, and for
+    /// the measurement that decided it.
+    pub(super) fn held_content_stream(
+        &mut self,
+        stream: &pdf_syntax::Stream,
+        what: &str,
+    ) -> Option<HeldContent> {
+        let held = HeldContent::of(self.document, stream, what.to_owned()).ok()?;
+        if let Some((damage, kept)) = held.content().stated_damage() {
+            self.note(Unsupported::DamagedContentStream {
+                stream: DamagedStream {
+                    detail: what.to_owned(),
+                    damage,
+                    kept,
+                },
+            });
+        }
+        Some(held)
     }
 
     /// Reads the inline image whose `BI` the reader has just consumed, ISO 32000-2 §8.9.7.
@@ -110,13 +139,62 @@ impl Interpreter<'_> {
     /// variables with a struct that exists only to be passed back and forth.
     pub(super) fn run(
         &mut self,
-        content: &[u8],
+        content: &NestedContent,
         resources: &Dictionary,
         initial: &GraphicsState,
         form_depth: usize,
     ) {
-        let mut reader = ContentReader::over(content);
+        let mut reader = content.reader();
         self.run_reader(&mut reader, resources, initial, form_depth);
+        for issue in reader.take_issues() {
+            self.note_nested(issue, content.detail());
+        }
+    }
+
+    /// Says what reading one of §7.8.2's other four content streams through a window found.
+    ///
+    /// [`ContentIssue`] is Table 31's noun and every one of its indexed variants is about a
+    /// part of a *page's* `/Contents`, so what the window raises here is translated rather
+    /// than passed on: a form reached through `/XObject` has no part index, and putting a
+    /// zero there would say something about `/Contents` that is not true. ADR 0359 made the
+    /// same distinction for the damage report and this is the rest of it.
+    fn note_nested(&mut self, issue: crate::page::ContentIssue, what: &str) {
+        match issue {
+            // ADR 0343's sentence, in the same words the whole-decode route uses — see
+            // [`Interpreter::content_stream`].
+            crate::page::ContentIssue::Damaged { damage, kept, .. } => {
+                self.note(Unsupported::DamagedContentStream {
+                    stream: DamagedStream {
+                        detail: what.to_owned(),
+                        damage,
+                        kept,
+                    },
+                });
+            }
+            // Neither of these is indexed by a part, so both carry across as themselves: a
+            // token no buffer of `CEILING` bytes can hold, and a stream that reached
+            // `max_stream_len`. The second is a bound of ours and the first is this reader's
+            // buffer, and both are refusals rather than damage — ADR 0365's distinction.
+            issue @ crate::page::ContentIssue::TokenTooLong { .. } => {
+                self.note(Unsupported::Content { issue });
+            }
+            crate::page::ContentIssue::TooLarge { limit, .. } => {
+                self.note(Unsupported::Content {
+                    issue: crate::page::ContentIssue::TooLarge { part: None, limit },
+                });
+            }
+            // A stream the window could not decode at all reaches the caller's own sentence
+            // instead, because `nested_content_source` only windows a stream whose decode has
+            // already produced bytes. It is written rather than left out because a silence
+            // here would be exactly the failure trap 5 is about.
+            crate::page::ContentIssue::Undecodable { .. }
+            | crate::page::ContentIssue::NotAStream { .. }
+            | crate::page::ContentIssue::Unreachable { .. } => {
+                self.note(Unsupported::Operator {
+                    operator: format!("undecodable {what}"),
+                });
+            }
+        }
     }
 
     /// The same, over a stream that need not be resident all at once.
