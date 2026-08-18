@@ -385,8 +385,13 @@ references about one is `doc/oracle-and-corpus.md` §3d (ADR 0410).
 *reading of the specification* rather than finding a defect. `issue6621.pdf` and `issue7901.pdf`
 were both code that was right about the clause it cited.
 
-**A contradicted page's group names a hypothesis, not a diagnosis — ten for ten on being
-wrong**, the newest being `issue9940.pdf`, whose group had said for hundreds of sessions that
+**A contradicted page's group names a hypothesis, not a diagnosis — eleven for eleven on being
+wrong**, the newest being `smask_luminosity_oob_transfer.pdf`, whose `CONTRADICTED_MASK_QUANTISATION`
+had said since the sixth session that the level it differs by "comes from the mask being quantised" —
+and the mask is one byte, the byte is 191, and one byte of mask predicts the closed form exactly.
+What produced the level was `tiny-skia` compiling its *low-precision* pipeline, whose `div255` is an
+upper bound on a division by 255 rather than its rounding, twice per pixel (ADR 0418). The one before
+it is `issue9940.pdf`, whose group had said for hundreds of sessions that
 `mupdf` and `ghostscript` "take its components for `DeviceRGB`" — and no renderer does: ours and
 `poppler`'s are §8.6.5.3 plus IEC 61966-2-1 to the level, the pair that contradicts us moves *one
 channel*, and the `DeviceRGB` reading moves all three (ADR 0349). The one before it is
@@ -398,8 +403,11 @@ spaces of zero width and the side-by-side said so in one look. Open the artefact
 project wrote is still a label**. **A group's note that names another group's mechanism is the
 cheapest tell there is**: `calrgb.pdf`'s said "a residue of colour management rather than of fonts"
 and stayed under the *font* group's name for four hundred and fifty-five sessions after the session
-that wrote it. Twice the instrument that settled one was the font's own `cmap`,
-`loca` and `post` tables read directly: ten minutes, exact.
+that wrote it, and `CONTRADICTED_MASK_QUANTISATION`'s argued the verdict from two references
+agreeing "within one level of *each other*", which is `CONTRADICTED_TIGHT_CONSENSUS`'s sentence,
+while its *name* claimed a cause no line under it measured. **Two claims in one note, one of them
+another group's and one of them unmeasured, is the shape to read first.** Twice the instrument that
+settled one was the font's own `cmap`, `loca` and `post` tables read directly: ten minutes, exact.
 
 ### 2. A paint is positioned in the *path's* space, not the device's
 
@@ -732,12 +740,21 @@ a point, take it from the document rather than from the code under test**.
 `oracle.rs` judges us relative to how far the consensus references sit from one another. That is
 right — it stops a page where every renderer differs from being called our defect — and **where
 two references agree very closely the bound can be tighter than eight-bit arithmetic**.
-`smask_luminosity_oob_transfer.pdf`: the closed form is `(223, 99, 80)`, `mupdf` `(222, 98, 79)`,
-`ghostscript` `(223, 99, 79)`, we `(223, 100, 81)`. Everybody is within a level of the arithmetic;
-the two references are within a level of *each other*, so the bound is 1.11 and ours is 2.02.
+`issue7891_bc1.pdf` is the standing witness (`CONTRADICTED_TIGHT_CONSENSUS`): two ladders agree to
+0.0014 of 255, ours at the page's own scale is 0.004 from the limit and the nearest of all five, and
+the two renderers that vote sit 0.09 under — together, which is why they vote.
 **Check the closed form** — write the clause's arithmetic down — then list the page with the
 calculation beside it. Tightening our rounding until a reference's is matched is curve-fitting
 with extra steps.
+
+**And the closed form can answer the other way, which is what this trap's first witness turned out
+to be.** `smask_luminosity_oob_transfer.pdf` stood here for hundreds of sessions with "the closed
+form is `(223, 99, 80)`, `mupdf` `(222, 98, 79)`, `ghostscript` `(223, 99, 79)`, we `(223, 100, 81)`
+— everybody within a level of the arithmetic". Everybody *except us*: `hayro` is on the closed form
+byte for byte, an eight-bit mask predicts the closed form, and our extra level was a library
+approximation this tree could turn off (ADR 0418). **Being inside a level of the clause is not the
+same as being the clause**, and where one renderer is exactly on it and you are not, the tie has an
+owner. The page agrees now.
 ---
 
 ## Habits these sessions earned

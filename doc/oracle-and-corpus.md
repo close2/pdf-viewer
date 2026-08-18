@@ -703,7 +703,7 @@ of it is `hayro`, which shares `skrifa` with this tree, so it is not evidence ab
 status is unchanged and now has a reason beside it.
 
 **Two cautions the contradicted list earned.** A page may be contradicted for a reason other than
-the one its group names — **ten for ten, so far, on the group being wrong**. (The tally did not move
+the one its group names — **eleven for eleven, so far, on the group being wrong**. (The tally did not move
 in the five-hundred-and-forty-sixth session, which re-opened the ratio ranking's head — the seven
 JBIG2 pages, the three link borders, the two the references did not draw and the `DeviceCMYK` ramp
 — and found every *diagnosis* right. What was wrong on those pages was the evidence inside three of
@@ -711,6 +711,17 @@ the notes: a log generalised from one page to seven, a claim about `ghostscript`
 true without the `-q` the gate passes, and a fourth renderer's silence nobody had recorded. **A
 sweep that confirms is not a sweep that found nothing**, and the distinction between a wrong label
 and stale evidence under a right one is the thing to report.) The newest is
+`smask_luminosity_oob_transfer.pdf` in the five-hundred-and-eighty-third, whose
+`CONTRADICTED_MASK_QUANTISATION` had said since the sixth session that the level it differs by
+"comes from the mask being quantised". The mask is one byte, the byte is 191, and 191 through
+§11.3.6's weighted average is the closed form `(223, 99, 80)` the note itself quotes — so an
+eight-bit mask predicts the answer we were *not* producing. What produced ours was `tiny-skia`
+compiling its low-precision raster pipeline, whose `div255(v) = (v + 255) >> 8` is an upper bound on
+`v ÷ 255` rather than its rounding, spent twice per pixel and biased the same way both times; asking
+for the floating-point pipeline instead makes the average exact at all 256 mask values and costs
+nothing measurable, and the page agrees (ADR 0418). **Its note carried the cheapest tell in the
+file**: the paragraph arguing the verdict was `CONTRADICTED_TIGHT_CONSENSUS`'s mechanism in that
+group's own words, while the *name* asserted a cause no line under it measured. The one before it is
 `issue9940.pdf` in the five-hundred-and-fourteenth, whose `CONTRADICTED_CALIBRATED_COLOUR` had said
 that `mupdf` and `ghostscript` take a `CalRGB`'s components for `DeviceRGB`; a swatch carrying that
 file's own `/CalRGB` dictionary says nobody does, ours and `poppler`'s reproduce §8.6.5.3 plus IEC

@@ -74,10 +74,30 @@ const TOLERANCE: f32 = 0.08;
 /// that knife edge the worst is 9.5%, at 0.05 of a pixel where an eight-bit raster has one level
 /// to spend.
 ///
-/// 14% is therefore what the measurement allows, and it still catches the defect the test exists
-/// for by a factor of two: the hairline it replaced carried `cos θ` of the rule's area, **29.3%
-/// short at 45°** and short at every thickness under a pixel rather than only near the quantum.
-const TURNED_TOLERANCE: f32 = 0.14;
+/// **The two thinnest rungs of that ladder were being flattered by a library bias, and the
+/// five-hundred-and-eighty-third session removed it** (ADR 0418). `tiny-skia` compiled the
+/// low-precision raster pipeline for these draws, whose division by 255 rounds *up* twice per
+/// pixel, and the substitute of ADR 0268 carries a rule's given-up width in the paint's **alpha**
+/// — so the thinner the rule, the larger a share of its whole ink that upward bias was. It very
+/// nearly cancelled the quantum, and at the thinnest rung it cancelled it exactly:
+///
+/// ```text
+///   45°, cpu       0.05     0.10     0.20     0.50     1.00     2.00
+///   low precision  -0.2%    -8.5%    -9.9%   -11.3%   -11.3%    -2.7%
+///   this clause   -16.8%   -11.3%    -9.9%   -11.3%   -11.3%    -2.7%
+/// ```
+///
+/// Nothing about the substitute moved; what moved is that the ladder now measures it. **A
+/// measurement taken through an approximation measures the approximation too** — and a residual
+/// that is flat in the width, as the right column now is, is what a scan converter's quantum
+/// looks like, where one that shrinks towards zero as the mark thins is not.
+///
+/// 20% is therefore what the measurement allows — 16.8% worst with room for another adapter's
+/// rounding — and it still catches the defect the test exists for: the hairline it replaced
+/// carried `cos θ` of the rule's area, **29.3% short at 45°** and short at every thickness under
+/// a pixel rather than only near the quantum. That margin is 1.7× rather than the 2× this comment
+/// used to claim, and the narrowing is the honest half of the correction.
+const TURNED_TOLERANCE: f32 = 0.20;
 
 /// A rule of the given thickness, filled.
 fn sliver(thickness: f32) -> DisplayList {

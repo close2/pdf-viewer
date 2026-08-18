@@ -131,7 +131,18 @@ paints `L/√2` pixels — so the finding does not rest on this tree's anti-alia
 **The 45° knife edge is `tiny-skia`'s and survives the fix.** The plain fill of a one-device-pixel
 band at exactly 45° reads 177.44 of its own 200, because that converter quantises the band's
 per-row run to quarter pixels. 177.44 is much better than 141.42 and it is not the geometry; the
-gate's `TURNED_TOLERANCE` of 14% is set by it.
+gate's `TURNED_TOLERANCE` is set by it.
+
+**And the ladder that set it was reading the substitute through a second approximation** — found in
+the five-hundred-and-eighty-third (ADR 0418). This construction carries a rule's given-up width in
+the paint's **alpha**, so anything that biases the alpha's arithmetic biases a thin mark's ink in
+proportion to how thin it is; `tiny-skia`'s low-precision raster pipeline was doing exactly that,
+rounding a division by 255 *up* twice per pixel. At 45° the ladder read −0.2% at 0.05 of a pixel and
+−8.5% at 0.1 where the wider rungs read a flat −11.3%: the bias very nearly cancelled the knife edge
+and at the thinnest rung cancelled it outright. With the high-precision pipeline the column is
+**−16.8%, −11.3%, −9.9%, −11.3%, −11.3%, −2.7%** and `TURNED_TOLERANCE` is 20%. Nothing about the
+substitute moved; what moved is that the ladder measures it. **A residual flat in the width is a
+scan converter's quantum; one that shrinks to nothing as the mark thins is an instrument.**
 
 **And one thing this cost that no gate would have shown**: `zero_area_fill.rs`'s placement of
 `50.3` put the stroke's band 0.1 of a pixel off its row at scale 2, which is *below* `tiny-skia`'s

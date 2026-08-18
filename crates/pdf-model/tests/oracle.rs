@@ -931,6 +931,43 @@ const CONTRADICTED_IMAGE_RESAMPLING: [&str; 0] = [];
 /// costs four times the memory of every mask on every page to move a page-wide difference of
 /// one level. Worth revisiting only if a page is ever contradicted by *more* than that.
 ///
+/// # Both of those paragraphs were wrong, and the page is fixed
+///
+/// **Empty since the five-hundred-and-eighty-third session, and the emptying is a defect
+/// found.** The name and the diagnosis under it were a hypothesis nobody had put a number
+/// behind: the mask value *is* eight bits, the byte *is* 191, and eight bits is enough. Drive
+/// 191 through §11.3.6's weighted average by hand — `0.85 · 191/255 + 0.949020 · 64/255` and
+/// its two siblings, with `0.949020` the byte the grey fill actually wrote — and the answer is
+/// `(223, 99, 80)`, the closed form the paragraph above already states. An eight-bit mask
+/// predicts the closed form; it does not predict our `(223, 100, 81)`.
+///
+/// What did was `tiny-skia`'s **low-precision raster pipeline**. It compiles two, picks the
+/// lowp one whenever every stage of the pipeline has a lowp implementation — a solid colour
+/// drawn through a mask always does — and lowp's division by 255 is
+/// `div255(v) = (v + 255) >> 8`, an *upper* bound on `v ÷ 255` rather than its rounding. This
+/// path spends two of them per pixel, one scaling the source by the mask and one scaling the
+/// destination by `1 − α`, and both biases point the same way. Reproduced by hand out of the
+/// library's own source, in bytes: source `(217, 51, 26)`, destination `242`, mask `191` gives
+/// `div255(217·191) + div255(242·64) = 162 + 61 = 223`, `39 + 61 = 100`, `20 + 61 = 81` —
+/// which is this page, arrived at from the arithmetic rather than from the raster.
+///
+/// **Swept over all 256 mask values, the high-precision pipeline reproduces the closed form at
+/// every one of them and the low-precision one departs by up to two levels**, always towards
+/// the backdrop. `render-cpu`'s `HIGH_PRECISION_PIPELINE` asks for the first since that
+/// session, `render-cpu/tests/soft_mask.rs` sweeps all 256 with no slack at all, and the page
+/// agrees. It cost nothing: ISO 32000-2 page 101 is 2.1% *fewer* instructions, `alphatrans.pdf`
+/// 1.4% fewer, `firefox_logo.pdf` 0.6% more. ADR 0418.
+///
+/// **Eleventh for eleven on a group's name naming a hypothesis rather than a diagnosis**, and
+/// this one is the shape `doc/HANDOVER.md`'s trap 1 calls the cheapest tell: the note's own
+/// paragraph said the verdict comes from "`mupdf` and `ghostscript` … within one level of
+/// *each other*", which is [`CONTRADICTED_TIGHT_CONSENSUS`]'s mechanism, while the name
+/// asserted a cause of its own that no line under it measured. Two claims in one note, one of
+/// them another group's and one of them unmeasured, is what a round should read first.
+///
+/// The name is kept rather than corrected, on [`CONTRADICTED_CALIBRATED_COLOUR`]'s precedent:
+/// this is the group whose name was wrong, and renaming it would lose the record of that.
+///
 /// # The gate printed 27.02 here and the entry had to state its own numbers
 ///
 /// Until the four-hundred-and-sixth session this page's line read `ours at worst mean 27.02
@@ -946,7 +983,14 @@ const CONTRADICTED_IMAGE_RESAMPLING: [&str; 0] = [];
 /// 0.9998 of 0.9900. One bound of four, missed by 0.14 of a level — which is what a mask
 /// quantised to a byte costs, stated by the gate instead of by this paragraph. (The 2.02 this
 /// entry used to quote was measured by hand in the sessions before the gate could say it.)
-const CONTRADICTED_MASK_QUANTISATION: [&str; 1] = ["smask_luminosity_oob_transfer.pdf page 1"];
+///
+/// That correction was right about whose number the 27.02 was and wrong about what the 1.25
+/// was: "what a mask quantised to a byte costs" is the claim the section above disproves. The
+/// gate's own line was never at fault — it said `mean 1.25 against a bound of 1.11`, which is
+/// exactly the two levels the pipeline was adding, and no reading of it could have named the
+/// cause. **A number stated correctly is not a mechanism explained**, which is the second
+/// lesson this entry has taught about itself.
+const CONTRADICTED_MASK_QUANTISATION: [&str; 0] = [];
 
 /// Contradicted, and **we are the ones who are right**: a visibility expression.
 ///

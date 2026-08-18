@@ -403,6 +403,7 @@ fn fill_with_raster(
         ),
         blend_mode: blend,
         anti_alias,
+        force_hq_pipeline: crate::HIGH_PRECISION_PIPELINE,
         ..tiny_skia::Paint::default()
     };
     // The shape carries its own transform; the pattern's is in *device* space, which is what

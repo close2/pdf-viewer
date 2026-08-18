@@ -33,6 +33,40 @@ use pdf_render::{
     Raster, RasterFormat, Rasterizer, SoftMaskId, Stroke, TargetSpec, Transform, impose_on_medium,
 };
 
+/// Every paint this backend hands `tiny-skia` asks for its high-precision pipeline, ISO 32000-2
+/// §11.3.6.
+///
+/// `tiny-skia` compiles a raster pipeline twice over: a *lowp* one that carries a pixel as four
+/// `u16`s in 0..=255, and a *highp* one that carries it as `f32`. It picks the first whenever
+/// every stage of the pipeline has a lowp implementation, which for a solid colour drawn through
+/// a mask is always — and the lowp arithmetic is not this clause's:
+///
+/// > the compositing formula collapses to a simple weighted average of the backdrop and source
+/// > colours, controlled by the backdrop and source alpha values
+///
+/// A weighted average by `α` needs a division by 255 to get back from two byte factors to one,
+/// and lowp's is `div255(v) = (v + 255) >> 8`. That is an *upper* bound on `v ÷ 255` rather than
+/// its rounding — `255·(v + 255) ≥ 256·v` for every `v ≤ 255²` — and this path spends two of
+/// them per pixel, one scaling the source by the mask and one scaling the destination by
+/// `1 − α`. Both biases point the same way, so a masked mark comes out **up to two levels of 255
+/// too close to the backdrop**, always in that direction.
+///
+/// Measured, on the whole range a mask value can take: `smask_luminosity_oob_transfer.pdf`'s
+/// page composites `0.85 0.2 0.1 rg` over `0.95 0.95 0.95 rg` at a mask of `191`, whose closed
+/// form is `(223, 99, 80)`; the lowp pipeline gives `(223, 100, 81)` and the highp pipeline gives
+/// the closed form. Swept over all 256 mask values the highp pipeline reproduces the closed form
+/// **exactly at every one of them** and the lowp pipeline departs by up to two levels. The
+/// eight-bit mask is not the cause and was blamed for it for five hundred sessions; ADR 0418.
+///
+/// # What it costs, because a correctness fix still has to be priced
+///
+/// Nothing measurable, and on two pages of three it is cheaper —
+/// `examples/callgrind_rasterise`, A/B in one sitting: ISO 32000-2 page 101 **5568.7 M → 5454.1 M**
+/// instructions (−2.1%), `alphatrans.pdf` **1977.3 M → 1949.7 M** (−1.4%), `firefox_logo.pdf`
+/// **855.2 M → 860.0 M** (+0.6%). The lowp pipeline processes sixteen pixels a stage against the
+/// highp one's eight, and pays for it in the `u16` packing and in `div255` itself.
+const HIGH_PRECISION_PIPELINE: bool = true;
+
 /// Renders display lists on the CPU.
 #[derive(Debug, Clone)]
 pub struct CpuRasterizer {
@@ -141,6 +175,7 @@ impl CpuRasterizer {
             shader,
             blend_mode: blend,
             anti_alias: self.anti_alias,
+            force_hq_pipeline: HIGH_PRECISION_PIPELINE,
             ..tiny_skia::Paint::default()
         })
     }
@@ -1721,6 +1756,7 @@ impl CpuRasterizer {
             ),
             blend_mode: blend,
             anti_alias: self.anti_alias,
+            force_hq_pipeline: HIGH_PRECISION_PIPELINE,
             ..tiny_skia::Paint::default()
         };
 

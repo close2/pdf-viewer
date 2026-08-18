@@ -511,9 +511,15 @@ fn a_knockout_group_paints_only_its_topmost_element() {
         [127, 127, 255, 255],
         "half blue over the page, because the red under it was knocked out"
     );
+    // §11.3.6's weighted average of two opaque byte colours at α = 0.5 is 127.5 in *both*
+    // moving channels — `0.5 · 0 + 0.5 · 255` for the red and `0.5 · 255 + 0.5 · 0` for the
+    // blue — so they round alike. This read `[127, 0, 128]` until the
+    // five-hundred-and-eighty-third session, and the asymmetry was `tiny-skia`'s
+    // low-precision pipeline rather than the clause (ADR 0418): identical arithmetic in two
+    // channels cannot land a level apart.
     assert_eq!(
         pixel(&ordinary, 40, 50),
-        [127, 0, 128, 255],
+        [128, 0, 128, 255],
         "and half blue over the red, when it is not"
     );
     // Where only the lower element is, both models paint it.

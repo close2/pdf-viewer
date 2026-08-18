@@ -20,7 +20,7 @@ use std::sync::Arc;
 
 use pdf_render::{
     Color, Command, DisplayList, FillRule, Paint, Path, PathCommand, Point, Rasterizer, Size,
-    SoftMask, SoftMaskKind, TargetSpec, Transform,
+    SoftMask, SoftMaskKind, TargetSpec, Transfer, Transform,
 };
 use render_cpu::CpuRasterizer;
 
@@ -108,11 +108,56 @@ fn a_constant_mask_interpolates_between_the_object_and_the_backdrop() {
         expected(red.b, grey.b),
         255,
     ];
-    for (channel, (got, want)) in pixel.iter().zip(want.iter()).enumerate() {
-        assert!(
-            got.abs_diff(*want) <= 1,
-            "channel {channel}: {got} is more than one level from the clause's {want} \
-             (whole pixel {pixel:?} against {want:?})"
+    assert_eq!(pixel, want, "§11.3.6's weighted average, to the level");
+}
+
+/// The same average, at **every** value a mask can take, and it is exact at all 256.
+///
+/// This is the discriminating form of the test above, and the reason it exists is that the
+/// test above used to allow one level of slack — "quantised to the eight bits a mask value
+/// holds", which sounded like arithmetic and was a hypothesis. It hid a departure of up to
+/// two levels for five hundred sessions, on a page the oracle had listed the whole time
+/// (`CONTRADICTED_MASK_QUANTISATION`, ADR 0418). The eight-bit mask was never the cause:
+/// `tiny-skia` compiles two raster pipelines and picked the low-precision one, whose
+/// `div255(v) = (v + 255) >> 8` is an upper bound on `v ÷ 255` rather than its rounding, twice
+/// per pixel and both times in the same direction.
+///
+/// A single mask value cannot tell one pipeline from the other — at 64 of 255 the two agree —
+/// so the sweep is the test. `crate::HIGH_PRECISION_PIPELINE` is what makes it pass;
+/// **flipping that constant to `false` makes it fail**, which is what establishes that it
+/// guards the decision rather than describing it.
+#[test]
+fn the_weighted_average_is_exact_at_every_mask_value() {
+    let grey = Color::rgb(0.95, 0.95, 0.95);
+    let red = Color::rgb(0.85, 0.2, 0.1);
+    // The destination is what the first fill actually wrote, which is the byte the raster
+    // holds rather than the 0.95 the display list states: §11.3.6's backdrop colour `Cb` is
+    // the pixel already there.
+    let backdrop = f32::from((0.95_f32 * 255.0).round() as u8) / 255.0;
+
+    for value in 0..=u8::MAX {
+        // A `/TR` that answers this value for every input makes the mask exactly `value`
+        // everywhere, whatever §11.5.3 derives — which is how one assertion reaches all 256.
+        let mut list = DisplayList::new(Size::new(PAGE, PAGE));
+        let mask = list
+            .add_soft_mask(SoftMask {
+                commands: Vec::new(),
+                kind: SoftMaskKind::Luminosity {
+                    backdrop: Color::WHITE,
+                },
+                transfer: Some(Transfer::from_samples([value; 256])),
+            })
+            .expect("the first soft mask");
+        list.push(fill(grey, None));
+        list.push(fill(red, Some(mask)));
+
+        let alpha = f32::from(value) / 255.0;
+        let expected =
+            |source: f32| (source.mul_add(alpha, backdrop * (1.0 - alpha)) * 255.0).round() as u8;
+        assert_eq!(
+            centre_pixel(&list),
+            [expected(red.r), expected(red.g), expected(red.b), 255],
+            "mask value {value} of 255"
         );
     }
 }
