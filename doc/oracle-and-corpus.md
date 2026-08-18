@@ -549,6 +549,64 @@ family whose name does not begin `bitmap-`, sitting on the contradicted list wit
 could judge it filtering it out. **Ask what a population's filter is made of, and which members were
 named after something else.**
 
+### 3d. `no render` is the one verdict reached without asking the references
+
+**Taken in the five-hundred-and-seventy-fifth session** (ADR 0410), which went looking for the
+robustness question rather than the ledger's and found that the bucket where a defect is *worst* was
+the bucket nothing watched.
+
+`examine` returns as soon as `render_ours` fails, so on a `no render` page the three reference
+renderers are never invoked. Every other verdict this gate reaches is a statement about a
+comparison; that one is a statement about us alone — and it had **no ratchet in either direction**,
+so a change that stopped a document opening would have printed one more line in a report of 888 and
+failed nothing. `tools/state.sh oracle` prints today's count; `doc/HANDOVER.md`'s trap 1 has called
+it "a to-do list of pages nobody has looked at" since the hundred-and-seventy-seventh session, and
+until this round nobody had.
+
+**The recipe, and it is cheap** — the references are asked by hand, with
+`tools/pdfref/src/reference.rs`'s own invocations copied verbatim so that every one of them is
+explicit about the page box, because trap 3 binds a measurement taken outside the harness exactly as
+it binds one inside it:
+
+```sh
+pdftoppm -r 72 -png -f N -l N -singlefile -cropbox -aa yes -aaVector yes <file> out
+mutool  draw -b CropBox -r 72 -o out.png <file> N
+gs -q -dNOPAUSE -dBATCH -dSAFER -sDEVICE=png16m -dUseCropBox -r72 \
+   -dGraphicsAlphaBits=4 -dTextAlphaBits=4 -dFirstPage=N -dLastPage=N -sOutputFile=out.png <file>
+```
+
+then `magick identify` each output and take its ink. **Read the stderr as well as the raster**: three
+of the answers here are a renderer printing why it refused, and two are a renderer producing a sheet
+of *zero ink*, which is not a page and must not be counted as one.
+
+Four things the first whole run said, and the second is what made the round:
+
+- **Most of the bucket is the standard working.** Eight pages are §7.6.4.1's password, which this
+  gate supplies none of, and all three references refuse each of them in the same words — the
+  evidence that the empty user password is being correctly *rejected* rather than our derivation
+  failing. Two are encryption ISO 32000-2 states no algorithm for. Six are a page tree that yields
+  nothing, which `tests/corpus.rs` documents one file at a time.
+- **One page was ours, and it is the whole reason to ask.** `boundingBox_invalid.pdf` page 1 states
+  `/MediaBox [0 0 0 0]`; `poppler` and `mutool` draw it at 612 × 792 and this tree drew **nothing at
+  all**, because §7.9.5's NOTE makes that array a rectangle and nothing downstream asked Table 31
+  whether it is a medium. ADR 0410 and §7.7.3.4's ledger row.
+- **One page is the *gate* refusing, not the program**, and the verdict could not say so.
+  `issue19517.pdf` is 12 608 × 16 806 at one pixel per point, past `PIXEL_BUDGET`; drawn through
+  `examples/render_at` with the interpreter's own bound it is ink **172.597** against `pdftoppm`
+  172.602, `mutool` 172.599 and `gs` 172.599 — agreement with all three to **0.005 of 255** on a page
+  this gate has never judged. The budget stays where it is; what was wrong is that the bucket it
+  lands in named the program. **A verdict that accuses the program when the instrument is what
+  declined is the shape to watch for.**
+- **One page is two references implementing an unpublished extension.** `Brotli-Prototype-FileA.pdf`
+  is drawn by `mutool` and `gs` and by neither `poppler` nor this tree; its object streams use
+  `/BrotliDecode`, which ISO 32000-2 does not define, so two renderers agreeing about it is not
+  evidence about a clause.
+
+**The bucket is held by name now**, in `oracle.rs`'s `NO_RENDER_*` groups, over *all* pages rather
+than the complete ones — a page that renders nothing is never complete, so a list filtered on
+`complete` would hold nothing against nothing. A page arriving is a page that stopped being
+comparable at all; a page leaving has been fixed or has to be deleted from its group.
+
 ### 3c. The bound those thirty-eight fail was never derived, and it is left where it is
 
 **The four-hundred-and-seventh session asked the question §3b's last paragraph raises** — a bound a

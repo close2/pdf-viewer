@@ -374,7 +374,12 @@ the GPU; `issue7901.pdf` drawing `üãÍ†Ë` because Table 115's presence cond
 condition on meaning. **A page a feature makes drawable can be one that never rendered at all** —
 the oracle's `no render` count is a to-do list of pages nobody has looked at, and `tools/state.sh
 oracle` prints it — one left it in the hundred-and-seventy-seventh session when a page the file's
-own cross-reference table had hidden started rendering (ADR 0148).
+own cross-reference table had hidden started rendering (ADR 0148). **That sentence stood for four
+hundred rounds and nobody had looked**, which the five-hundred-and-seventy-fifth found out by
+looking: it is the one verdict the gate reaches *before* the references are asked, so a page three
+readers draw and we do not was indistinguishable there from a page nobody can read — one of each was
+in it. Every page of the bucket is diagnosed and held by name now, and the recipe for asking the
+references about one is `doc/oracle-and-corpus.md` §3d (ADR 0410).
 
 **And the rule inverts, which is the version worth having**: twice the picture has rejected a
 *reading of the specification* rather than finding a defect. `issue6621.pdf` and `issue7901.pdf`

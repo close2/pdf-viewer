@@ -511,6 +511,9 @@ fn interpret_into(
                         "no /MediaBox anywhere in the page's ancestry (§7.7.3.4)",
                     crate::page::MediaBoxSubstitution::NotARectangle =>
                         "a /MediaBox that is not §7.9.5's four finite numbers",
+                    crate::page::MediaBoxSubstitution::Empty =>
+                        "a /MediaBox enclosing no area, which §7.9.5 admits as a rectangle \
+                         and Table 31 does not admit as a medium",
                 },
                 x1 - x0,
                 y1 - y0,

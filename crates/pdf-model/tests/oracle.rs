@@ -2270,6 +2270,132 @@ const CONTRADICTED_TIGHT_CONSENSUS: [&str; 1] = ["issue7891_bc1.pdf page 1"];
 /// box, `/Rotate` or `/UserUnit` read differently means the comparison cannot even proceed.
 const GEOMETRY: [&str; 0] = [];
 
+// ---------------------------------------------------------------------------------------
+// `no render`: the verdict this gate reaches without asking the references
+// ---------------------------------------------------------------------------------------
+//
+// [`examine`] returns as soon as [`render_ours`] fails, so on a `no render` page the three
+// reference renderers are never invoked at all. Every other verdict in this file is a
+// statement about a comparison; this one is a statement about us alone, and until the
+// five-hundred-and-seventy-fifth session **nothing held it in either direction** — a change
+// that stopped a document opening would have printed one more line in a report of 888 and
+// failed nothing. It is also the bucket where a defect is worst: a page here is not a page
+// drawn differently, it is a page a person is shown nothing of.
+//
+// So the bucket was sized, and then every one of its pages was put to `pdftoppm`, `mutool`
+// and `gs` by hand — the same invocations `tools/pdfref/src/reference.rs` builds, explicit
+// about the page box, because trap 3 binds a measurement taken outside the harness exactly
+// as it binds one inside it. The groups below are what that produced, and the recipe is in
+// `doc/oracle-and-corpus.md` §3d so that the next round need not rebuild it.
+//
+// The lists are held to equality in both directions by [`check_the_ratchets`], over **all**
+// pages rather than the complete ones: a page that renders nothing is never complete, so
+// filtering on `complete` would hold nothing at all.
+
+/// Pages refused because §7.6.4.1 asks for a password nobody has supplied.
+///
+/// > If a user attempts to open an encrypted document that has a user password, the PDF reader
+/// > shall first try to authenticate the encrypted document using the padding string defined in
+/// > 7.6.4.3, "File encryption key algorithm" (default user password):
+///
+/// and where that fails, "the interactive PDF processor should prompt for a password". This gate
+/// is not interactive and supplies none, so the refusal is the clause working rather than a gap.
+///
+/// What makes that more than an assertion is the **first** sentence: the empty user password is
+/// tried on every one of these eight and rejected, and all three references reject it too, each in
+/// its own words — `gs` prints *This file requires a password for access*, `mutool` *cannot
+/// authenticate password*, `pdftoppm` *Incorrect password*. Four independent derivations of
+/// §7.6.4.3's key agreeing that the default password is not this document's is evidence about our
+/// reading of that clause, in principle 5's one permitted direction, and it is the only thing this
+/// list needs from them.
+///
+/// `bug1782186.pdf` is the one worth a sentence, because a reference does produce a raster
+/// there: `poppler` prints *Unsupported version/revision (4/4) of Standard security handler*
+/// and then emits an 842x596 sheet of **zero ink**, so what it drew is not the document. `gs`
+/// and `mutool` refuse it as they refuse the rest.
+const NO_RENDER_NEEDS_A_PASSWORD: [&str; 8] = [
+    "bug1782186.pdf page 1",
+    "issue15893_reduced.pdf page 1",
+    "issue3371.pdf page 1",
+    "issue6010_1.pdf page 1",
+    "issue6010_2.pdf page 1",
+    "pr6531_1.pdf page 1",
+    "print_protection.pdf page 1",
+    "saslprep-r6.pdf page 1",
+];
+
+/// Pages refused because the file's encryption is not something §7.6 states an algorithm for.
+///
+/// `issue21579.pdf` is Table 21's `/R` 5, the deprecated proprietary extension ISO 32000-2
+/// describes and does not specify; `doc/HANDOVER.md` records the decision to leave it, and the
+/// crawl puts it at 0.03% of the web. All three references refuse it too.
+///
+/// `PDFBOX-4352-0.pdf` is a fuzzed cross-reference table — one entry reads
+/// `0007777777770000130 00000 n`, nineteen digits where §7.5.4 states twenty bytes — so object 6
+/// is unreachable and the `/Encrypt` the trailer names resolves to nothing. §7.6.1 makes that
+/// dictionary the statement of which security handler applies, so a reader that cannot read it
+/// cannot decrypt one stream of the file, and opening it would mean reading ciphertext as
+/// content. `poppler` and `mutool` rebuild the table and produce a 200x50 sheet of **zero ink**;
+/// `gs` produces nothing. A blank page is not a recovery, and nothing here is owed to it.
+const NO_RENDER_ENCRYPTION_THE_STANDARD_DOES_NOT_STATE: [&str; 2] =
+    ["PDFBOX-4352-0.pdf page 1", "issue21579.pdf page 1"];
+
+/// Pages the page tree does not yield, which `tests/corpus.rs` documents one file at a time.
+///
+/// Six documents and one second page, and the references say the same thing about all but one
+/// of them: `REDHAT-1531897-0.pdf`, `bug1020226.pdf` and `poppler-85140-0.pdf` are drawn by
+/// nobody; `Pages-tree-refs.pdf` page 2 is a `/Kids` cycle that `poppler` answers with a 1x1
+/// sheet — *Syntax Error: Loop in Pages tree* — while `mutool` says *cycle in page tree* and
+/// refuses, as we do; `poppler-742-0-fuzzed.pdf` and `poppler-937-0-fuzzed.pdf` are the same
+/// 1x1 from the same reader and nothing from the other two.
+///
+/// **`Brotli-Prototype-FileA.pdf` is the one where two references draw a page and we draw
+/// none**, and it is the one page of this whole bucket where that is true and the reason is not
+/// ours: `mutool` and `gs` produce 1224x792 at ink 17.12 and 22.28, `poppler` refuses with
+/// *Unknown filter 'BrotliDecode'*, and the file is a prototype of a filter ISO 32000-2 does not
+/// define — its object streams are compressed with it, so the page tree is inside a stream this
+/// reader cannot inflate. Two renderers implementing an unpublished extension is not evidence
+/// about a clause. `tests/corpus.rs` carries the same reading and nothing is owed until the
+/// filter is published.
+const NO_RENDER_NO_PAGE_IN_THE_TREE: [&str; 7] = [
+    "Brotli-Prototype-FileA.pdf page 1",
+    "Pages-tree-refs.pdf page 2",
+    "REDHAT-1531897-0.pdf page 1",
+    "bug1020226.pdf page 1",
+    "poppler-742-0-fuzzed.pdf page 1",
+    "poppler-85140-0.pdf page 1",
+    "poppler-937-0-fuzzed.pdf page 1",
+];
+
+/// The page this *gate* will not raster, which the program draws perfectly well.
+///
+/// `issue19517.pdf` is 12608x16806 at one device pixel per point — 211 890 048 pixels, past
+/// [`PIXEL_BUDGET`]'s 67 108 864 — so [`render_ours`] never reaches the rasteriser and the
+/// verdict reads exactly like a document this reader cannot handle. It is not one.
+/// `examples/render_at` draws the same page at the same scale with the interpreter's own bound
+/// and gets **12608x16806 at ink 172.597**, against `pdftoppm` 172.602, `mutool` 172.599 and
+/// `gs` 172.599: agreement with all three to **0.005 of 255**, on a page this gate has never
+/// judged.
+///
+/// It is listed rather than exempted, and the budget is not moved. Three rasters of 212
+/// megapixels are 2.5 GiB of reference renders to hold and to cache for one page, which is what
+/// the constant is there to refuse; what was wrong was not the refusal but that the bucket it
+/// lands in said nothing about whose refusal it is. **A verdict that names the program when the
+/// instrument is what declined is the shape to watch for**, and this is the one instance of it
+/// in 1794 pages.
+const NO_RENDER_LARGER_THAN_THIS_GATES_BUDGET: [&str; 1] = ["issue19517.pdf page 1"];
+
+/// Every page the gate produced no render of, in one list.
+fn no_render_expected() -> Vec<&'static str> {
+    NO_RENDER_NEEDS_A_PASSWORD
+        .iter()
+        .chain(&NO_RENDER_ENCRYPTION_THE_STANDARD_DOES_NOT_STATE)
+        .chain(&NO_RENDER_NO_PAGE_IN_THE_TREE)
+        .chain(&NO_RENDER_LARGER_THAN_THIS_GATES_BUDGET)
+        .copied()
+        .collect()
+}
+
 /// Ambiguous because the two references that share a JBIG2 decoder both fail, and fail
 /// *differently*.
 ///
@@ -7753,7 +7879,8 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
 ///
 /// # What it checks, and why that rule and not a stricter one
 ///
-/// For every non-empty `AMBIGUOUS_*` and `CONTRADICTED_*` array: the doc comment above it names
+/// For every non-empty `AMBIGUOUS_*`, `CONTRADICTED_*` and `NO_RENDER_*` array: the doc comment
+/// above it names
 /// at least one of the documents in it. That is deliberately weak. A group of 370 pages cannot
 /// name them all, several notes cite a *neighbouring* group's page on purpose to say how the
 /// two differ, and a rule that forbade either would be a rule this file has to fight. What the
@@ -7819,7 +7946,10 @@ fn every_group_of_pages_carries_a_diagnosis_naming_one_of_them() {
 fn group_name(line: &str) -> Option<&str> {
     let rest = line.strip_prefix("const ")?;
     let name = rest.split(':').next()?;
-    (name.starts_with("AMBIGUOUS_") || name.starts_with("CONTRADICTED_")).then_some(name)
+    (name.starts_with("AMBIGUOUS_")
+        || name.starts_with("CONTRADICTED_")
+        || name.starts_with("NO_RENDER_"))
+    .then_some(name)
 }
 
 /// The documents named in the array declared at `index`, without their page numbers.
@@ -8765,6 +8895,8 @@ fn check_the_ratchets(results: &[Examined]) {
          so the comparison cannot even proceed.",
     );
 
+    check_the_no_render_bucket(results);
+
     // A page this tree reports cannot fail the ratchet above — `named` filters on `complete`,
     // for the reason the module comment gives — so the diagnoses in
     // `CONTRADICTED_ON_A_PAGE_WE_REPORT` are held the way a stale `AMBIGUOUS_*` group is held
@@ -8819,6 +8951,34 @@ fn check_the_ratchets(results: &[Examined]) {
         "Each is a page the references used to settle and no longer do — or one this gate \
          has never judged. Read the artefacts, then either fix the page or write down what \
          is going on with it in an AMBIGUOUS_* group.",
+    );
+}
+
+/// Holds the `no render` bucket by name, in both directions.
+///
+/// Over **every** page rather than the complete ones, which is the one place in this file that
+/// filter is wrong: a page this gate produced no raster of is never `complete`, so a list built
+/// through `check_the_ratchets`' `named` would hold an empty list against an empty list and watch
+/// nothing at all.
+///
+/// It is a function of its own for the reason the ratchet exists — the population it reads is not
+/// the population every other assertion in that function reads, and a filter that differs by one
+/// word is the kind of difference a reader skims past.
+fn check_the_no_render_bucket(results: &[Examined]) {
+    let no_render: Vec<&str> = results
+        .iter()
+        .filter(|e| matches!(e.verdict, Verdict::NoRender(_)))
+        .map(|e| e.name.as_str())
+        .collect();
+    assert_ratchet(
+        "producing no render at all",
+        &no_render,
+        &no_render_expected(),
+        "A page nobody is shown is the worst outcome this gate has a name for, and it is the \
+         one verdict reached without asking the references — so the reason has to be written \
+         down rather than measured. Put the page in the NO_RENDER_* group whose argument \
+         covers it, or ask the three renderers what they make of it: \
+         doc/oracle-and-corpus.md §3d has the recipe.",
     );
 }
 

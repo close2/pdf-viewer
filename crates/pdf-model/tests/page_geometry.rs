@@ -515,3 +515,109 @@ fn a_media_box_that_is_not_a_rectangle_is_reported_as_the_different_mistake_it_i
         "the sentence names the shape the value failed to be: {detail}"
     );
 }
+
+/// The fourth file of the same family: §7.9.5's rectangle, enclosing no area.
+///
+/// This one is not a malformed value at all, which is what made it invisible. §7.9.5 says so
+/// itself, in the NOTE under the sentence the test above quotes:
+///
+/// > NOTE Rectangles can have a width of zero or height of zero.
+///
+/// So the array passes every test a rectangle reader can apply, and the requirement it fails is
+/// Table 31's — that this rectangle "shall define the boundaries of the physical medium on which
+/// the page shall be displayed or printed". A medium of zero extent bounds nothing, and a page
+/// measured against one has no area for a mark to land in: before the five-hundred-and-seventy-fifth
+/// session `TargetSpec::for_page` refused it as degenerate and the whole document was **unviewable**,
+/// which is a worse outcome than any wrong pixel and the one outcome the substitution exists to
+/// avoid.
+///
+/// Both axes are pinned, because a producer can flatten a page in one: `[0 0 0 0]` is the corpus
+/// witness (`boundingBox_invalid.pdf`, whose first page is captioned *Empty `/MediaBox`*) and
+/// `[0 0 612 0]` is the same failure with a width. **§14.11.2's other four boxes have never had
+/// this defect** — each of them *defaults* to a larger box, so `build_page` falls back to one
+/// already known good, and the media box is the one they all fall back to. ADR 0410.
+#[test]
+fn a_media_box_enclosing_no_area_is_a_rectangle_and_still_not_a_medium() {
+    use pdf_model::{MediaBoxSubstitution, Unsupported};
+
+    for entry in ["/MediaBox [0 0 0 0]", "/MediaBox [0 0 612 0]"] {
+        let document = Document::open(page_stating(entry)).expect("a valid PDF");
+        let pages = pdf_model::Pages::new(&document);
+        let page = pages.get(0).expect("the one page");
+        assert_eq!(
+            page.media_box,
+            pdf_model::Page::DEFAULT_MEDIA_BOX,
+            "{entry} bounds no medium, so the page's extent is this reader's"
+        );
+        assert_eq!(
+            page.substituted_media_box,
+            Some(MediaBoxSubstitution::Empty),
+            "{entry} is §7.9.5's rectangle, so it is not the NotARectangle mistake"
+        );
+        assert!(
+            page.width() > 0.0 && page.height() > 0.0,
+            "{entry} must leave a page with somewhere to draw"
+        );
+        let interpretation = pdf_model::interpret(&document, &page);
+        let detail = interpretation
+            .unsupported
+            .iter()
+            .find_map(|item| match item {
+                Unsupported::MediaBox { detail } => Some(detail.clone()),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("{entry}: the substitution is reported"));
+        assert!(
+            detail.contains("Table 31"),
+            "{entry}: the sentence names the requirement the value failed, which is not \
+             §7.9.5's: {detail}"
+        );
+    }
+
+    // The other direction, and it is what makes the rule a rule rather than a clamp: a stated
+    // rectangle *with* area is still the producer's, however small.
+    let thin = Document::open(page_stating("/MediaBox [0 0 612 1]")).expect("a valid PDF");
+    let pages = pdf_model::Pages::new(&thin);
+    let page = pages.get(0).expect("the one page");
+    assert_eq!(page.media_box, [0.0, 0.0, 612.0, 1.0]);
+    assert_eq!(
+        page.substituted_media_box, None,
+        "one unit of height is a medium; zero is not"
+    );
+}
+
+/// An unusable `/MediaBox` on the page does not take a usable one on its parent away.
+///
+/// §7.7.3.4 makes the entry inheritable, so a value written higher in the tree is a value the
+/// file *has* stated for this page. A leaf that then writes nonsense has made a mistake about
+/// its own entry, not about its ancestry — and discarding the ancestor's rectangle over it would
+/// throw away the one statement of the page's size the producer got right. So the value falls
+/// back and only the fault is remembered, for the case where there is nothing to fall back to.
+///
+/// Pinned for both faults, because `Inherited::overlay` handles them on one path. ADR 0410.
+#[test]
+fn an_unusable_media_box_falls_back_to_the_ancestors_rather_than_erasing_it() {
+    for entry in ["/MediaBox [0 0 0 0]", "/MediaBox [0 612 792]"] {
+        let content = "0 g 0 0 10 10 re f";
+        let body = format!(
+            "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+             2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 100 50] >>\nendobj\n\
+             3 0 obj\n<< /Type /Page /Parent 2 0 R {entry} \
+             /Resources << >> /Contents 4 0 R >>\nendobj\n\
+             4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n",
+            content.len().saturating_add(1)
+        );
+        let document = Document::open(assemble(&body)).expect("a valid PDF");
+        let pages = pdf_model::Pages::new(&document);
+        let page = pages.get(0).expect("the one page");
+        assert_eq!(
+            page.media_box,
+            [0.0, 0.0, 100.0, 50.0],
+            "{entry}: the ancestor's rectangle is the file's own statement of the page's size"
+        );
+        assert_eq!(
+            page.substituted_media_box, None,
+            "{entry}: nothing was substituted, so nothing is reported"
+        );
+    }
+}

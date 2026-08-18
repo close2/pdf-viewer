@@ -136,12 +136,13 @@ fn declares_a_node(document: &Document, node: Node<'_>) -> bool {
 struct Inherited {
     resources: Option<Dictionary>,
     media_box: Option<[f32; 4]>,
-    /// Whether any node in the ancestry *wrote* `/MediaBox`, whatever the value turned out to be.
+    /// Why the nearest node that *wrote* `/MediaBox` supplied no usable rectangle.
     ///
-    /// Distinct from `media_box.is_some()`, and only where the two disagree is it read: a file
-    /// that states the entry and states nonsense has made a different mistake from one that
-    /// states nothing at all, and [`MediaBoxSubstitution`] is what tells a reader which.
-    media_box_stated: bool,
+    /// Read only where `media_box` is `None`, and it exists because a file that states the entry
+    /// and states something unusable has made a different mistake from one that states nothing at
+    /// all — and the two unusable values are different mistakes from each other again.
+    /// [`MediaBoxSubstitution`] is what tells a reader which.
+    media_box_fault: Option<MediaBoxSubstitution>,
     crop_box: Option<[f32; 4]>,
     rotate: Option<i64>,
 }
@@ -153,14 +154,24 @@ impl Inherited {
     /// ancestor's value applies, not the root's.
     fn overlay(&self, document: &Document, node: Node<'_>) -> Self {
         let entry = |key| node.key(document, key).unwrap_or(Object::Null);
-        let media_box = entry("MediaBox");
+        // A node that states the entry and states something unusable does not take the ancestor's
+        // rectangle away — the file has still said how big the page is, one level up — so the
+        // value falls back and only the *fault* is remembered, for the case where nothing falls
+        // back to.
+        let (media_box, media_box_fault) = match entry("MediaBox") {
+            Object::Null => (self.media_box, self.media_box_fault),
+            stated => match usable_media_box(document, &stated) {
+                Ok(rectangle) => (Some(rectangle), None),
+                Err(fault) => (self.media_box, Some(fault)),
+            },
+        };
         Self {
             resources: entry("Resources")
                 .as_dict()
                 .cloned()
                 .or_else(|| self.resources.clone()),
-            media_box: rectangle(document, &media_box).or(self.media_box),
-            media_box_stated: self.media_box_stated || !matches!(media_box, Object::Null),
+            media_box,
+            media_box_fault,
             crop_box: rectangle(document, &entry("CropBox")).or(self.crop_box),
             rotate: entry("Rotate").as_integer().or(self.rotate),
         }
@@ -187,6 +198,23 @@ pub enum MediaBoxSubstitution {
     Absent,
     /// A node writes it, and no node writes §7.9.5's rectangle: four numbers, each finite.
     NotARectangle,
+    /// A node writes §7.9.5's rectangle and it encloses no area.
+    ///
+    /// §7.9.5 admits the value at the *type* level and says so in as many words —
+    ///
+    /// > NOTE Rectangles can have a width of zero or height of zero.
+    ///
+    /// — which is why this is not [`Self::NotARectangle`]: the array is a rectangle, and the
+    /// requirement it fails is Table 31's, that this particular rectangle "shall define the
+    /// boundaries of the physical medium on which the page shall be displayed or printed". A
+    /// medium of zero extent bounds nothing, so §7.7.3.4's "a value shall be supplied in an
+    /// ancestor node" is unmet exactly as it is when the entry is absent.
+    ///
+    /// It is a third variant rather than a wider [`Self::NotARectangle`] because the two are
+    /// different mistakes by the producer, and because this reader had no name for it: the
+    /// enum's own vocabulary said the only two ways to fail were absence and malformation, and
+    /// the case §7.9.5's NOTE describes went through both tests and out the other side. ADR 0410.
+    Empty,
 }
 
 /// Reads a four-number rectangle, normalising the corner order.
@@ -221,6 +249,35 @@ fn rectangle(document: &Document, array: &Object) -> Option<[f32; 4]> {
         values[0].max(values[2]),
         values[1].max(values[3]),
     ])
+}
+
+/// A stated `/MediaBox` that can serve as a page's extent, or why it cannot.
+///
+/// Two questions in order, because the standard asks them in two places. §7.9.5 decides whether
+/// the array is a rectangle at all; Table 31 then requires *this* rectangle to "define the
+/// boundaries of the physical medium on which the page shall be displayed or printed", which one
+/// enclosing no area does not — and §7.9.5's own NOTE makes such a value well formed, so nothing
+/// earlier in the read rejects it.
+///
+/// **Only the media box asks the second question**, and that asymmetry is the clause's rather
+/// than this reader's convenience: §14.11.2.1 gives the crop, bleed, trim and art boxes a
+/// *default* — "[t]he default value is the page's media box", "the page's crop box" — so an empty
+/// one falls back to a
+/// larger box that is already known good, and [`build_page`] has done exactly that for all four
+/// since they were read. The media box is what they fall back *to*, so there is nothing behind
+/// it and an empty one takes the whole page's geometry with it.
+fn usable_media_box(
+    document: &Document,
+    stated: &Object,
+) -> Result<[f32; 4], MediaBoxSubstitution> {
+    let rectangle = rectangle(document, stated).ok_or(MediaBoxSubstitution::NotARectangle)?;
+    // `rectangle` has already put the corners in ascending order, so a strict comparison is the
+    // whole test for "encloses an area".
+    if rectangle[2] > rectangle[0] && rectangle[3] > rectangle[1] {
+        Ok(rectangle)
+    } else {
+        Err(MediaBoxSubstitution::Empty)
+    }
 }
 
 /// One of §14.11.2's five page boundaries.
@@ -934,10 +991,13 @@ fn build_page(
     // §7.7.3.4 puts a required inheritable entry in the page or in an ancestor; a page whose
     // whole ancestry supplies neither leaves this reader with no geometry to place its marks
     // against, and the substitute is remembered so that it can be reported rather than assumed.
-    let substituted_media_box = match (inherited.media_box, inherited.media_box_stated) {
-        (Some(_), _) => None,
-        (None, true) => Some(MediaBoxSubstitution::NotARectangle),
-        (None, false) => Some(MediaBoxSubstitution::Absent),
+    let substituted_media_box = match inherited.media_box {
+        Some(_) => None,
+        None => Some(
+            inherited
+                .media_box_fault
+                .unwrap_or(MediaBoxSubstitution::Absent),
+        ),
     };
     let media_box = inherited.media_box.unwrap_or(Page::DEFAULT_MEDIA_BOX);
 

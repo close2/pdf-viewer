@@ -213,7 +213,7 @@ pub enum Unsupported {
     /// built to carry this defect and nothing else — and **one document of the 65 703 crawled
     /// pages that open**. `examples/media_box_census` prints today's. ADR 0389.
     MediaBox {
-        /// Which of [`crate::page::MediaBoxSubstitution`]'s two it was, and what stood in.
+        /// Which of [`crate::page::MediaBoxSubstitution`]'s three it was, and what stood in.
         detail: String,
     },
 }
