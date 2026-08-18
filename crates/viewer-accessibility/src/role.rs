@@ -46,10 +46,11 @@
 //!
 //! # A `Form` is a control, and §14.8.4.7.2 says which one
 //!
-//! Table 368 makes the `Form` structure type "[e]ither an association between content enclosed by
-//! the Form structure element and a corresponding widget annotation or a mechanism to include a
-//! widget annotation in the structure tree", and requires one per widget: "[i]n a tagged PDF, Form
-//! shall be used for each PDF widget annotation that belongs to the real content of the document."
+//! Table 368 makes the `Form` structure type one that "[e]ncloses a PDF widget annotation and
+//! associated content, if any" — Errata Collection 3's Issue #437, which strikes the *association*
+//! wording this comment quoted until the five-hundred-and-ninetieth session and puts the annotation
+//! where the content was — and requires one per widget: "[i]n a tagged PDF, Form shall be used for
+//! each PDF widget annotation that belongs to the real content of the document."
 //! So it is **one widget annotation**, which is why [`Role::Form`] — a container *of* fields — has
 //! never been the answer, and why [`Role::Group`] was not either: a person is told there is
 //! something on the page and not that it is a check box.

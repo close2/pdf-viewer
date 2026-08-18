@@ -49,6 +49,12 @@ reference cannot be naming one of the places. That half is left unanswered rathe
 > tagged PDF, Form shall be used for each PDF widget annotation that belongs to the real content of
 > the document.
 
+(**The first sentence of that quotation is struck out**, and this round did not know it: Errata
+Collection 3's Issue #437 replaces it with "Encloses a PDF widget annotation and associated content,
+if any". Nothing here changes — the reading is the same one, and the replacement states it more
+plainly — but the quotation above is the *pre-errata* text and is left as this session wrote it.
+Found and corrected everywhere else in the five-hundred-and-ninetieth session; ADR 0425.)
+
 One widget annotation, one per widget. The neighbouring `Annot` row is the same sentence in the
 negative — "Annot shall not be used for link annotations (see the Link structure element) or widget
 annotations (see the Form structure element)" — so the standard has divided the annotations between
@@ -239,7 +245,8 @@ cost item is unchanged and now has one more thing in it.
 - **Nothing acts on the control.** A screen reader that asked to tick the box would reach
   `Bridge::requested` and be printed by name: this tree declares no actions, which is
   `doc/todo/31`'s own entry and is now the sharpest one on it — a check box announced as a check
-  box invites the question.
+  box invites the question. (Taken in the five-hundred-and-ninetieth session; the box can be
+  ticked from the bus. ADR 0425.)
 
 ## What it corrected on the way
 

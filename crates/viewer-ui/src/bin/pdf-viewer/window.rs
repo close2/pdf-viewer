@@ -20,7 +20,50 @@ use crate::surface::State;
 use crate::trace::{Topic, describe_window_event};
 use crate::typing::Drawing;
 
+impl App {
+    /// One end of a click on the page, at a point of the page's own viewport.
+    ///
+    /// **What a click *is* on this host, in one place rather than in the mouse handler.** It is
+    /// three things and the order matters: §12.5.1's activation aims the keyboard where a field
+    /// takes one, §12.7.5.2's toggling gives a check box or a radio button its value, and
+    /// `Command::Pointer` is what the core sees — §12.6.3's triggers, §12.5.5's appearance state,
+    /// §12.5.6.5's link, and the anchor a selection is dragged from.
+    ///
+    /// It is a method of its own because a mouse is no longer the only thing that clicks: an
+    /// assistive technology asking `org.a11y.atspi.Action` for a click on a node reaches
+    /// [`App::act`], which sends a press and a release here. Two callers of one definition, so a
+    /// screen reader's click cannot become a *different* click from a person's by drifting from
+    /// it (ADR 0425).
+    pub(crate) fn click_page(&mut self, at: (f32, f32), element: ElementState) {
+        if element == ElementState::Pressed {
+            self.aim_at_field(at);
+            // And §12.7.5.2's other kind of press, which takes no keyboard: a click on a check
+            // box or a radio button is what *gives* it a value. Nothing happens where the press
+            // was not on one.
+            self.toggle_button(at);
+        }
+        self.dragging = element == ElementState::Pressed;
+        self.dispatch(Command::Pointer {
+            at,
+            action: match element {
+                ElementState::Pressed => PointerAction::Pressed,
+                ElementState::Released => PointerAction::Released,
+            },
+        });
+    }
+}
+
 impl ApplicationHandler for App {
+    /// An assistive technology asked for something, on a thread this loop is not in.
+    ///
+    /// The only user event this program has, and it carries nothing: `viewer_accessibility`'s
+    /// queue holds the requests and this is only what makes the loop come round to read them. A
+    /// window resting in [`ControlFlow::Wait`] would otherwise carry a screen reader's request out
+    /// at the next unrelated event, which for a person using only a screen reader is never.
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, (): ()) {
+        self.act();
+    }
+
     /// The percentiles, printed on the way out.
     ///
     /// **The shape of the question "why did it feel slow" is a distribution**, and the trace
@@ -361,21 +404,7 @@ impl ApplicationHandler for App {
                     self.dragging = element == ElementState::Pressed;
                     return;
                 }
-                if element == ElementState::Pressed {
-                    self.aim_at_field();
-                    // And §12.7.5.2's other kind of press, which takes no keyboard: a click on a
-                    // check box or a radio button is what *gives* it a value. Nothing happens
-                    // where the press was not on one.
-                    self.toggle_button();
-                }
-                self.dragging = element == ElementState::Pressed;
-                self.dispatch(Command::Pointer {
-                    at: self.on_page(self.cursor),
-                    action: match element {
-                        ElementState::Pressed => PointerAction::Pressed,
-                        ElementState::Released => PointerAction::Released,
-                    },
-                });
+                self.click_page(self.on_page(self.cursor), element);
             }
 
             WindowEvent::Resized(size) => {

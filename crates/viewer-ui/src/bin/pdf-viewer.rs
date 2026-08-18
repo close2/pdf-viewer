@@ -301,9 +301,14 @@ fn main() {
         cadence: cadence::Cadence::default(),
         accessibility: None,
         spoken: None,
+        waker: None,
     };
 
     let event_loop = EventLoop::new().expect("an event loop requires a display server");
+    // The proxy is the only way into this loop from another thread, and the accessibility bridge's
+    // is the only such thread. Taken here rather than where the bridge comes up, because
+    // `ActiveEventLoop` — which is all a running loop hands its callbacks — cannot make one.
+    app.waker = Some(event_loop.create_proxy());
     app.launch.mark("event loop");
     // Redraw on request rather than continuously: a document viewer is idle almost all the time,
     // and a spinning loop would drain a battery for nothing.

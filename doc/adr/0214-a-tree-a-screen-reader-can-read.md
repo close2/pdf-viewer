@@ -225,7 +225,9 @@ recipe above, which is what `doc/HANDOVER.md`'s "Verify it" now carries.
 `Scope` attribute; the `Form` element's control role, which needs the widget behind its `/OBJR`;
 AT-SPI's `Text` interface, so that a screen reader can move through a paragraph by word and
 character rather than hear it whole; and the actions an assistive technology may request, which
-this tree declares none of and reports by name if one arrives anyway.
+this tree declares none of and reports by name if one arrives anyway. (All four are closed: ADRs
+0300, 0338, 0394 and — the actions — 0425.) (All four are closed: ADRs
+0300, 0338, 0394 and — the actions — 0425.)
 
 ## The lesson
 

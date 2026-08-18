@@ -12,7 +12,7 @@
     reason = "a test asserts; a failed assertion is the point"
 )]
 
-use accesskit::{Node, NodeId, Role, TextDirection, Toggled};
+use accesskit::{Action, Node, NodeId, Role, TextDirection, Toggled};
 use pdf_model::form::{ChoiceControl, Control, TextControl};
 use pdf_model::structure::HeaderScope;
 use viewer_accessibility::{PageView, tree};
@@ -30,6 +30,7 @@ fn element(parent: Option<usize>, role: &str, name: &str) -> AccessibilityNode {
         header_scope: None,
         bounds: None,
         control: None,
+        annotation: None,
         headers: Vec::new(),
         lines: Vec::new(),
     }
@@ -430,11 +431,10 @@ fn a_header_cell_whose_text_is_in_a_child_is_still_named() {
 
 /// §14.8.4.7.2's `Form` becomes the control its widget is, with the state a toggling one has.
 ///
-/// Table 368 makes the type "[e]ither an association between content enclosed by the Form
-/// structure element and a corresponding widget annotation or a mechanism to include a widget
-/// annotation in the structure tree", and requires one per widget: "[i]n a tagged PDF, Form shall
-/// be used for each PDF widget annotation that belongs to the real content of the document". So
-/// it is a control, and a group was the wrong answer for all 272 of the corpus's.
+/// Table 368 makes the type one that "[e]ncloses a PDF widget annotation and associated content,
+/// if any" — Errata Collection 3's Issue #437 — and requires one per widget: "[i]n a tagged PDF,
+/// Form shall be used for each PDF widget annotation that belongs to the real content of the
+/// document". So it is a control, and a group was the wrong answer for all 272 of the corpus's.
 #[test]
 fn a_form_element_becomes_the_control_its_widget_annotation_is() {
     let combo = |combo: bool, editable: bool| {
@@ -644,4 +644,57 @@ fn a_line_that_runs_the_other_way_says_so_and_measures_from_the_other_edge() {
         run.character_positions(),
         Some([0.0, 10.0, 20.0].as_slice())
     );
+}
+
+/// An element with a place says a client may scroll to it; one with none says nothing.
+///
+/// The condition is the answerable one rather than the plausible one: `Command::Scroll` takes a
+/// rectangle, and an element that marked no text and states no Table 379 `/BBox` names none.
+#[test]
+fn an_element_that_has_a_place_invites_being_scrolled_to() {
+    let placed = AccessibilityNode {
+        bounds: Some([10.0, 20.0, 30.0, 40.0]),
+        ..element(None, "Figure", "a chart")
+    };
+    let nowhere = element(None, "Div", "");
+    let update = tree::build(&view(&[placed, nowhere], &[]));
+    assert!(node(&update, NodeId(16)).supports_action(Action::ScrollIntoView));
+    assert!(!node(&update, NodeId(17)).supports_action(Action::ScrollIntoView));
+}
+
+/// An element whose content is an annotation says a client may click it, and a paragraph does not.
+///
+/// §12.5.1: "[w]hen the user activates the annotation by clicking it, it exhibits its associated
+/// object". Table 368 gives three structure types whose content is an annotation, and §14.7.5.3's
+/// object reference is how each names one — which is what `AccessibilityNode::annotation` carries.
+/// `accesskit_atspi_common` puts `org.a11y.atspi.Action` on a node only where `Action::Click` is
+/// declared, so this is the one of the three declarations that decides whether the request can
+/// arrive at all.
+#[test]
+fn an_element_that_is_an_annotation_invites_a_click() {
+    let widget = AccessibilityNode {
+        annotation: Some(pdf_syntax::ObjectId::new(12, 0)),
+        bounds: Some([10.0, 20.0, 30.0, 40.0]),
+        ..form(Some(Control::CheckBox { on: false }))
+    };
+    let update = tree::build(&view(&[widget, element(None, "P", "words")], &[]));
+    assert!(node(&update, NodeId(16)).supports_action(Action::Click));
+    assert!(
+        !node(&update, NodeId(17)).supports_action(Action::Click),
+        "clicking a paragraph does nothing, so the tree may not invite it"
+    );
+}
+
+/// The page says a caret may be placed in it, and only where there is text to place one in.
+///
+/// The same node that carries `org.a11y.atspi.Text` — see this file's `tree` module comment — is
+/// where `set_caret_offset` and `set_selection` raise the action, so it is where the declaration
+/// belongs. A page whose elements drew no text has no run and declares nothing.
+#[test]
+fn the_page_invites_a_caret_only_where_there_is_text_to_put_one_in() {
+    let with_text = tree::build(&view(&[typed("abc", (0.0, 0.0), 10.0)], &[]));
+    assert!(node(&with_text, NodeId(2)).supports_action(Action::SetTextSelection));
+
+    let without = tree::build(&view(&[element(None, "Figure", "a chart")], &[]));
+    assert!(!node(&without, NodeId(2)).supports_action(Action::SetTextSelection));
 }

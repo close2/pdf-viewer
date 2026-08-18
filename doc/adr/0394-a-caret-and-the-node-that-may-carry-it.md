@@ -219,7 +219,8 @@ census asserts it over the whole population.
 
 **Actions.** Unchanged in substance and sharper in shape after this round: the tree declares none,
 so a conforming client requests none, and one that arrives anyway reaches `Bridge::requested` and is
-printed by name. This round adds a second invitation to the one ADR 0338 added — a page that says a
+printed by name. (Taken in the five-hundred-and-ninetieth session, and the two invitations this
+paragraph names are what it declared. ADR 0425.) This round adds a second invitation to the one ADR 0338 added — a page that says a
 caret may move through it invites `ScrollIntoView` and `SetCaretOffset` as surely as a check box
 invites a click. Both halves of that are one change: this crate declares the action, and
 `pdf-viewer`'s `App` carries it out as `Command::Scroll` or `Command::Activate`. It was not taken

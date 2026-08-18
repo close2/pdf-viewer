@@ -1447,6 +1447,7 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
             header_scope,
             bounds,
             control,
+            annotation,
             headers,
             lines,
         } = node;
@@ -1474,6 +1475,10 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
                 writer.u8(control_kind::NONE);
             }
         }
+        // §12.5's annotation the element's own object reference names, which is what says the
+        // element *is* one — the fact an action request needs and neither the rectangle nor the
+        // control carries.
+        writer.option_object(*annotation);
         writer.usize(headers.len());
         for header in headers {
             writer.usize(*header);
@@ -1527,6 +1532,7 @@ pub(super) fn decode_accessibility(
             header_scope: read_scope(reader)?,
             bounds: reader.option_rect("a node's stated bounding box")?,
             control: decode_optional_control(reader)?,
+            annotation: reader.option_object("a node's annotation")?,
             // §14.8.4.8.3's header cells, checked the same way the parent link is: a header is a
             // cell the search walked *out to*, so it is always a node already read, and one that
             // is not would be a confined side pointing a host at something it has not been given.

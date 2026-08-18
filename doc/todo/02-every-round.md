@@ -32,6 +32,7 @@ cargo build --profile gates -p hayro-compare --bin pdfref-hayro      # trap 10 a
 cargo test  --profile gates -p pdf-model      --test oracle          -- --ignored --nocapture
 cargo test  --profile gates -p pdf-model      --test text_extraction -- --ignored --nocapture   # three gates
 cargo test  --profile gates -p viewer-core    --test selection_census -- --ignored --nocapture
+cargo test  --profile gates -p viewer-core    --test accessibility_census -- --ignored --nocapture
 cargo test  --profile gates -p pdf-model      --test dates           -- --ignored --nocapture
 cargo test  --profile gates -p pdf-model      --test xmp             -- --ignored --nocapture
 cargo test  --profile gates -p pdf-model      --test jpeg2000        -- --nocapture
@@ -102,6 +103,16 @@ here:
   printed and **not** ratcheted, by `doc/todo/05`'s standing rule; what fails the line is a
   selection that is not the interpreter's readback, a caret whose own point lands somewhere else,
   or a panic. Six seconds with a warm extraction cache, which it shares with the line above it.
+- **The `accessibility_census` line is a *ratchet* and says so**, which is the third of ADR 0323's
+  instruments and the shape it was designed with: no other implementation puts a comparable tree on
+  AT-SPI, so there is nobody to disagree with us and a count that cannot fall is what is honestly
+  available. It entered this list in the five-hundred-and-ninetieth session rather than in the one
+  that built it (ADR 0425), on `doc/todo/05`'s own rule — the counts had to hold across rounds
+  first, and they did. Twenty seconds. What fails the line is a capability count falling, a defect
+  class growing, a panic, an untagged page given a structure it does not state, or a line whose
+  characters disagree with its own text. **A tree without the `doc/pdf.js` submodule prints why it
+  is not ratcheted instead of failing**, because a smaller population is the one reason a floor can
+  break that is not a regression.
 - **The `text_extraction` line is three gates and gains no line**, which is the other side of the same
   mechanism and is correct: `the_text_we_draw_agrees_with_pdfboxs_frozen_extraction` is a gate. It
   compares documents against the `PDFTextStripper` output Apache PDFBox checked in beside them — a

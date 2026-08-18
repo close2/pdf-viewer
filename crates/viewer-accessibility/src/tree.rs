@@ -49,6 +49,25 @@
 //! is the platform's answer rather than this one's. `doc/todo/31` records it as owed upstream,
 //! beside `Table`, `TableCell` and the relation set.
 //!
+//! # What a client may ask a node to do
+//!
+//! A tree that only *says* things invites nothing, and this one declared no [`Action`] at all
+//! until the five-hundred-and-ninetieth session. Three are declared now, each on the condition
+//! that makes it answerable rather than on the role that suggests it:
+//!
+//! | action | on | because |
+//! |---|---|---|
+//! | [`Action::ScrollIntoView`] | an element with a place | a scroll takes a rectangle, and an element with no place names none |
+//! | [`Action::Click`] | an element whose content is an annotation | §12.5.1: "[w]hen the user activates the annotation by clicking it, it exhibits its associated object" |
+//! | [`Action::SetTextSelection`] | the page, where it has runs | the interface a caret moves through is on this node and nowhere else, for the reason above |
+//!
+//! **Two of the three would arrive whether or not they were declared**, which is why declaring
+//! them is about honesty rather than about capability: `accesskit_atspi_common` offers
+//! `Component.ScrollTo` to any node with bounds and `Text.SetCaretOffset` to whatever supports
+//! text ranges, both without consulting the action set. Only [`Action::Click`] is gated on the
+//! declaration — it is what puts `org.a11y.atspi.Action` on the node at all. So the tree now
+//! invites exactly what it answers, and [`crate::Bridge::requested`] turns each into a place.
+//!
 //! # What a page that is not tagged says
 //!
 //! 885 of this project's 974 corpus documents state no structure tree at all, and §14.7 leaves a
@@ -66,7 +85,9 @@
 //! counts and the terminal prints. They go into the tree as a [`accesskit::Role::Status`] group,
 //! which is AT-SPI's `StatusBar`: advisory, findable, and not an alert that interrupts.
 
-use accesskit::{Node, NodeId, Rect, Role, TextDirection, Toggled, Tree, TreeId, TreeUpdate};
+use accesskit::{
+    Action, Node, NodeId, Rect, Role, TextDirection, Toggled, Tree, TreeId, TreeUpdate,
+};
 use viewer_core::AccessibilityNode;
 
 /// The window, and the root of the tree.
@@ -154,6 +175,14 @@ pub fn build(view: &PageView) -> TreeUpdate {
         y1: f64::from(view.viewport.1),
     });
     let roots = elements(view, &mut nodes);
+    // §14.8.2.5's order as somewhere a caret may be *put*, which is the other half of the interface
+    // ADR 0394 gave this node: `accesskit_atspi_common`'s `set_caret_offset` and `set_selection`
+    // both raise [`Action::SetTextSelection`] on whatever carries the text, and that is this node
+    // for the reason the module comment gives. Declared only where there is something to put a
+    // caret in — an empty claim would be a client offered a caret it cannot place.
+    if nodes.iter().any(|(id, _)| id.0 >= RUN_BASE) {
+        page.add_action(Action::SetTextSelection);
+    }
     page.set_children(roots);
     nodes.push((PAGE, page));
 
@@ -289,6 +318,24 @@ fn elements(view: &PageView, out: &mut Vec<(NodeId, Node)>) -> Vec<NodeId> {
         }
         if let Some(bounds) = place(node) {
             built.set_bounds(bounds);
+            // **An element that has a place can be brought into view**, and that is the whole
+            // condition: `Command::Scroll` takes a rectangle of the viewport and an element with no
+            // place names none. AT-SPI reaches this through `Component.ScrollTo`, which the adapter
+            // offers for any node with bounds whether or not the action is declared — so declaring
+            // it is what stops the tree inviting a request it means to decline (trap 5), rather
+            // than what makes the request possible.
+            built.add_action(Action::ScrollIntoView);
+        }
+        // **And an element that *is* an annotation can be clicked.** §12.5.1: "[w]hen the user
+        // activates the annotation by clicking it, it exhibits its associated object, such as by
+        // opening a popup window displaying a text note." Table 368 gives three structure types
+        // whose content is an annotation — `Link`, `Annot` and `Form` — and §14.7.5.3's object
+        // reference is how each names one, which is exactly what
+        // [`AccessibilityNode::annotation`] carries. A paragraph declares no click, because
+        // clicking a paragraph does nothing and a declared action that does nothing is worse than
+        // an absent one.
+        if node.annotation.is_some() {
+            built.add_action(Action::Click);
         }
         // §14.8.2.5's order within one element is the file's `/K` order, and the answer this crate
         // is handed does not record where an element's own content items sat among its child

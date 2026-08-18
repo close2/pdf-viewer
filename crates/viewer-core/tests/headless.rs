@@ -3204,10 +3204,9 @@ fn with_a_form() -> Vec<u8> {
 /// corpus elements in that position are placed this way (`pdf-model --example
 /// element_bounds_census`).
 ///
-/// The control is §14.8.4.7.2's, whose Table 368 makes `Form` "[e]ither an association between
-/// content enclosed by the Form structure element and a corresponding widget annotation or a
-/// mechanism to include a widget annotation in the structure tree" — one widget, and therefore one
-/// control rather than a group.
+/// The control is §14.8.4.7.2's, whose Table 368 makes `Form` one that "[e]ncloses a PDF widget
+/// annotation and associated content, if any" — Errata Collection 3's Issue #437 — one widget, and
+/// therefore one control rather than a group.
 ///
 /// **The expected rectangles are written out from the clause's own space**, which is trap 12a's
 /// rule: `/Rect` is in default user space with y pointing up from the bottom of a 100-unit page,
@@ -3286,6 +3285,24 @@ fn an_element_reached_through_an_object_reference_is_placed_and_says_what_contro
     assert!(!caption.quads.is_empty());
     assert_eq!(caption.bounds, None);
     assert_eq!(caption.control, None);
+
+    // **Which of them *is* an annotation**, which is a different question from where it is and
+    // from what control it is — and the one an assistive technology asking to click needs
+    // answered. §12.5.1 makes activation something a person does to an annotation, and the three
+    // widget-bearing elements above each name one through §14.7.5.3 while the paragraph names
+    // none. A rectangle cannot tell the two apart: the caption has quads and the `Figure` in
+    // other documents has a stated `/BBox`.
+    assert!(check_box.annotation.is_some());
+    assert!(text.annotation.is_some());
+    assert!(
+        margin.annotation.is_some(),
+        "Table 368's `Annot` encloses a PDF annotation as much as `Form` encloses a widget"
+    );
+    assert_eq!(caption.annotation, None);
+    assert_ne!(
+        check_box.annotation, text.annotation,
+        "two elements, two widgets"
+    );
 }
 
 /// §14.8.4.8.3's search gives each cell the header cells that describe it.

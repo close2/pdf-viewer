@@ -59,12 +59,16 @@
 //! defect this instrument's first count is about only appears on a document big enough for a
 //! bound to run out.
 //!
-//! # What is asserted, and what is only printed
+//! # What is asserted
 //!
-//! ADR 0323's rule is that an instrument's numbers enter `doc/todo/02` §2 only after they have
-//! held across rounds, so the counts are printed and not ratcheted here. Two things are asserted
-//! from the first run, because both are decisions rather than counts: no input panics (principle
-//! 1), and no untagged page is answered with structure it does not state (ADR 0214).
+//! ADR 0323's rule is that an instrument's numbers enter a gate only after they have held across
+//! rounds. **They have, and this is a gate since the five-hundred-and-ninetieth session**: every
+//! count was unchanged from the five-hundred-and-seventh to the five-hundred-and-fifty-ninth, which
+//! added a caret to every one of them without moving a single count (ADR 0394), so [`ratchet`] now
+//! puts a floor under each capability and a ceiling over each defect class. Three things were
+//! asserted before it and are decisions rather than counts: no input panics (principle 1), no
+//! untagged page is answered with structure it does not state (ADR 0214), and no line's characters
+//! disagree with its own text.
 //!
 //! ```text
 //! cargo test --profile gates -p viewer-core --test accessibility_census -- --ignored --nocapture
@@ -150,6 +154,14 @@ struct Census {
     header_cells: usize,
     header_associations: usize,
     controls: usize,
+    /// Elements whose content *is* an annotation, which is what a client may ask to click.
+    ///
+    /// §12.5.1 makes activation something a person does to an annotation, and Table 368 gives
+    /// three structure types — `Link`, `Annot` and `Form` — whose content is one. This counts the
+    /// elements that name one through §14.7.5.3, which is the population `viewer-accessibility`
+    /// declares [`accesskit::Action::Click`] on. It is a superset of [`Self::controls`]: every
+    /// widget is an annotation and most annotations are not widgets.
+    annotations: usize,
     /// Elements a caret can move through, the lines they cross, and the characters on them.
     ///
     /// The class this is about is an element that is *read* and cannot be *moved through*: until
@@ -198,6 +210,7 @@ impl Census {
             .header_associations
             .saturating_add(from.header_associations);
         self.controls = self.controls.saturating_add(from.controls);
+        self.annotations = self.annotations.saturating_add(from.annotations);
         self.with_lines = self.with_lines.saturating_add(from.with_lines);
         self.lines = self.lines.saturating_add(from.lines);
         self.characters = self.characters.saturating_add(from.characters);
@@ -225,6 +238,9 @@ impl Census {
             }
             if node.control.is_some() {
                 self.controls = self.controls.saturating_add(1);
+            }
+            if node.annotation.is_some() {
+                self.annotations = self.annotations.saturating_add(1);
             }
             if !node.lines.is_empty() {
                 self.with_lines = self.with_lines.saturating_add(1);
@@ -549,6 +565,10 @@ fn report(census: &Census, files: usize, seconds: f64) {
         census.controls
     );
     println!(
+        "  elements whose content is §12.5's annotation, which a client may click: {}",
+        census.annotations
+    );
+    println!(
         "  elements a caret can move through: {} ({} lines, {} characters)",
         census.with_lines, census.lines, census.characters
     );
@@ -621,6 +641,96 @@ fn what_a_screen_reader_is_told_about_every_document() {
         "a line's characters and its text disagree: {:?}",
         census.inconsistent_lines
     );
+    ratchet(&census, files.len());
+}
+
+/// The ratchet, which is what ADR 0323 called this instrument's verdict shape.
+///
+/// # Why the numbers may be written down here and nowhere else
+///
+/// `CLAUDE.md`'s rule is that a fact a command can print is not written down — and a ratchet is
+/// the exception it names, because a floor is not a *report* of a count but the previous run's
+/// count used as a *bound*. The same shape `pdf-model`'s text-extraction gate has carried since
+/// ADR 0333. What must not appear is these numbers in an instruction file, and they do not.
+///
+/// # Why now, and not in the round that built the census
+///
+/// ADR 0323's rule: an instrument's counts enter a gate only once they have held across rounds.
+/// They have — every one of them was unchanged from the five-hundred-and-seventh session to the
+/// five-hundred-and-fifty-ninth, which added the caret without moving anything else — and this is
+/// `doc/todo/05`'s third instrument being closed rather than a new promise.
+///
+/// # Which way each number moves
+///
+/// A **capability** count may only rise: elements reached, elements placed, cells given headers,
+/// somewhere a caret can stand. A **defect** count may only fall: a page whose file names elements
+/// for it and that answers nothing, an answer cut at the bound, a document that will not open.
+/// Trap 5's amendment applies to the first kind and not to the second — a rise in a capability
+/// count is always welcome, and a *fall* is what this catches.
+///
+/// # The population is checked before the counts are
+///
+/// Every floor here is a count over 988 documents, and a tree with the `doc/pdf.js` submodule
+/// unchecked has 14. Comparing a smaller population against these would fail for the one reason
+/// that is not a regression, so the floors are skipped and the skip says so — which is the same
+/// guard ADR 0421 put under the selection verdict's judged set.
+fn ratchet(census: &Census, files: usize) {
+    /// How many documents the floors below were measured over.
+    const POPULATION: usize = 988;
+
+    if files < POPULATION {
+        println!(
+            "not ratcheted: {files} documents against the {POPULATION} the floors were taken \
+             over — `git submodule update --init doc/pdf.js`, and `doc/environment.md`'s one unzip"
+        );
+        return;
+    }
+    // A capability may only rise. Each is one line of `report` above.
+    let floor = |what: &str, is: usize, was: usize| {
+        assert!(
+            is >= was,
+            "{what}: {is}, and it was {was} — a screen reader is being told less than it was"
+        );
+    };
+    floor("documents with structure", census.with_structure, 104);
+    floor("pages that answer at all", census.answered_pages, 1502);
+    floor("elements reached", census.nodes, 102_853);
+    floor("§14.9.3's /Alt carried", census.substituted, 664);
+    floor("elements placed", census.placed, 7538);
+    floor("cells with headers", census.header_cells, 16_617);
+    floor("header associations", census.header_associations, 27_273);
+    floor("§12.7.5's controls", census.controls, 272);
+    floor("elements that are annotations", census.annotations, 7413);
+    floor("elements a caret reaches", census.with_lines, 57_116);
+    floor("lines", census.lines, 114_011);
+    floor("characters", census.characters, 2_974_185);
+    floor(
+        "untagged pages answering honestly",
+        census.untagged_honest,
+        876,
+    );
+
+    // A defect class may only fall. The first two are already empty and stay so; the other two are
+    // populations with a number, and each has its own entry in `doc/todo/31`.
+    let ceiling = |what: &str, entries: &[(String, String)], was: usize| {
+        assert!(
+            entries.len() <= was,
+            "{what}: {} of them, and there were {was}: {entries:?}",
+            entries.len()
+        );
+    };
+    ceiling(
+        "pages whose file names elements and whose answer is empty",
+        &census.named_but_silent,
+        0,
+    );
+    ceiling("answers cut at the node bound", &census.at_bound, 0);
+    ceiling(
+        "pages with no /StructParents whose fallback answered nothing",
+        &census.no_parent_key_silent,
+        56,
+    );
+    ceiling("documents that would not open", &census.refused_open, 2);
 }
 
 /// One tagged document through the whole census, un-ignored, so the classification cannot rot

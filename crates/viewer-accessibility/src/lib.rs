@@ -27,5 +27,5 @@ mod bridge;
 pub mod role;
 pub mod tree;
 
-pub use bridge::{Bridge, Requested};
+pub use bridge::{Act, Bridge, Requested};
 pub use tree::PageView;

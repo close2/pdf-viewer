@@ -144,12 +144,13 @@ tools/state.sh selection
   # printed rather than ratcheted (ADR 0421). `crates/viewer-core/tests/selection_census.rs`
 tools/state.sh accessibility
   # ADR 0323's third instrument, and the only one of the three with nobody to disagree with it: no
-  # other implementation puts a comparable tree on AT-SPI, so it is a **ratchet** and says so. Page
+  # other implementation puts a comparable tree on AT-SPI, so it is a **ratchet** and says so —
+  # and it is a `doc/todo/02` §2 line since ADR 0425, its counts having held across rounds. Page
   # one of every corpus document and of every specification in `doc/`, plus every page of every
   # document that states a structure tree, through `Query::AccessibilityTree` — with an *empty*
   # answer classified by §14.7.5.4 rather than counted, because an empty answer is also what an
-  # untagged page honestly gives. It found a defect on its first run (ADR 0342). The counts are
-  # printed and not yet ratcheted, by ADR 0323's rule; `crates/viewer-core/tests/accessibility_census.rs`
+  # untagged page honestly gives. It found a defect on its first run (ADR 0342). Every capability
+  # count has a floor and every defect class a ceiling; `crates/viewer-core/tests/accessibility_census.rs`
   # is the instrument and its two un-ignored tests keep the classification from rotting between runs
 cargo run --release -p pdf-model --example signature_algorithm_census -- @/tmp/paths
   # Table 260's three algorithm families as documents actually state them, over as large a
@@ -322,6 +323,16 @@ cd fuzz && cargo +nightly fuzz run sfnt          -- -runs=50000   # §9.6.3's tw
 # answers**: each of its nine `Form` elements sits beside a paragraph reading "Check box, checked",
 # "Radio button, unselected" and so on, so the walk is checked against the document rather than
 # against this program. `prefilled_f1040.pdf` is the same feature at scale — 242 `Form` elements.
+# **And since ADR 0425 the client may *ask for things* rather than only read**, which is the only
+# way to check an action end to end: `org.a11y.atspi.Action.GetActions` names one action, `click`,
+# on every node whose content is an annotation; `DoAction(0)` on it ticks the check box and
+# `GetState` says so on the next read — the three answers on that document are ticked, unticked and
+# refused-because-read-only, which is Table 227 obeyed out loud. `Component.ScrollTo` answers true
+# and moves nothing where the element is already on the screen, which is the designed answer;
+# `Text.SetCaretOffset` on the page node answers true. On ISO 32000-2's cover, `DoAction` on the two
+# `Link` elements opens both URIs. **Read the *viewer's* stdout beside the bus**: `--trace=access`
+# prints one line per request carried out, and a request this host cannot place is printed by name
+# instead — which is the half of trap 5 the actions did not change.
 # **Orca is not installed on this machine**, so
 # what a person on a desktop still has to do is run one and listen.
 cd fuzz && cargo +nightly fuzz run fragment      -- -runs=50000   # Annex O's fragment identifier,

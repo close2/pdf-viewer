@@ -4365,6 +4365,7 @@ dependencies = [
  "accesskit",
  "accesskit_unix",
  "pdf-model",
+ "pdf-syntax",
  "viewer-core",
 ]
 

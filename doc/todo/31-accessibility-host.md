@@ -9,15 +9,17 @@ few of a large tagged document got** in the four-hundred-and-ninetieth (ADR 0325
 and **page one of ten tagged documents, answered against a page-tree node instead of the page**,
 in the five-hundred-and-seventh (ADR 0342) — found by the census that round built, which is what
 `tools/state.sh accessibility` now prints; and **a caret, with a third taken off what a page turn
-was paying for**, in the five-hundred-and-fifty-ninth (ADR 0394).
+was paying for**, in the five-hundred-and-fifty-ninth (ADR 0394), and **the actions a client may
+request**, in the five-hundred-and-ninetieth (ADR 0425) — which also made the census a ratchet and
+so closed `doc/todo/05`'s third instrument.
 Priority: 31 — capability
 Clauses: §12.5.2, §12.7.5, §14.7, §14.7.5.3, §14.7.5.4, §14.8.4, §14.8.4.7.2, §14.8.4.8.3,
 §14.8.5.4.3, §14.8.5.7, §14.9
 Code: `crates/viewer-accessibility/` (`role.rs`, `tree.rs`, `bridge.rs`),
 `crates/viewer-core/src/accessibility.rs`, `crates/pdf-model/src/structure.rs`,
-`crates/viewer-ui/src/bin/pdf-viewer.rs` (`App::attend`, `App::speak`)
+`crates/viewer-ui/src/bin/pdf-viewer/access.rs` (`App::attend`, `App::speak`, `App::act`)
 Instruments: `tools/state.sh accessibility` — the corpus-scale census of what a screen reader is
-told (ADR 0342) — `pdf-model --example element_bounds_census`,
+told, a **ratchet** and a `doc/todo/02` §2 line since ADR 0425 (built by ADR 0342) — `pdf-model --example element_bounds_census`,
 `pdf-model --example cell_header_census`, `viewer-core --example accessibility_cost`
 
 The item this file used to hold — "the answer exists and nothing asks" — is closed.
@@ -153,50 +155,40 @@ search rather than from the array**.
   than §14.9's speech, deliberately, because a substitution has no glyphs — so a document stating
   `/ActualText` on a sequence inside a paragraph says one thing to a caret and another to a voice.
 
-- **Actions.** The tree declares none, so a conforming client requests none; one that arrives
-  anyway reaches `Bridge::requested` and `pdf-viewer` prints it by name. The first worth carrying
-  out is `ScrollIntoView` on an element, which is `Command::Scroll` and a rectangle this crate
-  already has. **This entry got sharper in the five-hundred-and-third session and nothing else
-  changed about it**: a check box now announces itself as a check box and says whether it is
-  ticked, which invites exactly the request this tree declines. `Command::Activate` on the widget
-  is the answer and `AccessibilityNode::control` is already the evidence that the node is one.
-  **And the five-hundred-and-fifty-ninth added a second invitation of the same kind**: a page that
-  says a caret may move through it invites `SetCaretOffset` as surely as a check box invites a
-  click. This is the sharpest entry left on the file, and what it needs is not a reading of a
-  clause — it is two halves of one change in two crates, `viewer-accessibility` declaring the
-  action on the node and `pdf-viewer`'s `App` carrying it out. ADR 0394 says why the round that
-  took the other two entries did not take this one.
+- ~~Actions~~ — **taken in the five-hundred-and-ninetieth session** (ADR 0425), and checked on a
+  real bus by asking for each of the three and reading back what changed. `ScrollIntoView` is
+  declared on an element that has a place, `Click` on one whose content *is* §12.5's annotation —
+  which needed `AccessibilityNode::annotation` to cross, because neither a rectangle nor a control
+  says that an element is an annotation — and `SetTextSelection` on the page node that carries the
+  text interface. Each resolves to a **place** in the viewport's own device pixels
+  (`viewer_accessibility::Act`), so the host sends the `Command::Scroll` or `Command::Pointer` it
+  already had and the boundary gained no message. `App::click_page` is one definition of a click
+  for the mouse and for a client, so the two cannot drift apart.
 
-- **The question costs tens of milliseconds on a thousand-page document**, and a screen reader asks
-  it on every page turn — against the 0.13–0.25 ms ADR 0228 recorded on a five-page one.
-  **The first of the two levers this entry named is taken** (ADR 0325): the walk no longer descends
-  the whole document's tree, so what is left to price is what remains — the ancestors' `/K` arrays,
-  every child of which is resolved to find out whether it is one of the page's, and §14.7.3's role
-  map resolved per element. **Nothing here has been measured since**, deliberately: the round that
-  made the change ran beside nine others and a stopwatch would have measured the machine. Two
-  candidates for whoever takes it, both recorded rather than taken — memoise the role map, and skip
-  a child whose reference is outside the page's set *before* resolving it, which ADR 0325 rejects
-  as written because §14.7.5.1.1's content items may themselves be indirect. This belongs to
-  whoever takes `doc/todo/45` next as much as it belongs here. **`viewer-core --example
-  accessibility_cost` is the stopwatch** since ADR 0301, which is what the entry needed: the
-  four-hundred-and-sixty-fifth measured this by hand and left nothing anybody could rerun.
+  **Three things it leaves.** A `Click` is refused politely where the point lands on nothing —
+  which is right, but it is the *node's* middle rather than a hit test, so an element whose place
+  is a union of two far-apart quadrilaterals could be clicked between them; no corpus document has
+  been checked for this. `Action::ScrollToPoint` is deliberately not carried out and is printed by
+  name: AT-SPI's `Component.ScrollToPoint` asks for the node to be moved *to a stated point*, which
+  is a different request. And the other five actions AccessKit defines that a client might raise —
+  `Focus`, `SetValue` and the rest — reach `Bridge::requested` with `means: None` and are printed;
+  `SetValue` on a text field is the one worth taking next, and it is `Edit::SetField`.
 
-  **Measured in the five-hundred-and-fifty-ninth session and taken down by a third** (ADR 0394),
-  and the answer was neither of the two candidates above. 70.8% of the query was
-  `Tree::identified_children`, and inside it `Tree::child`, which read one `/K` entry with **three
-  deep copies of it**: one resolution to test for §14.7.5.1.1's bare integer, a second for the
-  dictionary, and a clone into `Child::Element`. It resolves once and moves. The role map was not
-  the cost, and the reason is worth keeping: it is asked once per element the walk *enters*, which
-  is tens, while the resolution is asked of every child of every ancestor, which is thousands. The
-  skip stays rejected and now has a second reason — the narrowest sound variant of it, skipping
-  unresolved only under an element §14.7.5.4 does not name as an owner, would lose exactly the
-  short-`/StructParents` case the residue above is about.
+- ~~The question costs tens of milliseconds on a thousand-page document~~ — **measured and taken
+  down by a third in the five-hundred-and-fifty-ninth session** (ADR 0394), and neither of the two
+  candidates this entry had named was the cost. 70.8% of the query was `Tree::identified_children`,
+  and inside it `Tree::child`, which read one `/K` entry with three deep copies of it; it resolves
+  once now, and a warm page turn on ISO 32000-2's page 700 went from 65.9 M instructions to 43.8 M
+  while gaining the caret. The skip ADR 0325 rejected stays rejected and has a second reason: the
+  narrowest sound variant of it would lose exactly the short-`/StructParents` case the residue
+  above is about.
 
-  **And a stopwatch is the wrong instrument for a small change on a busy machine**, which ADR 0312
-  found the hard way with five other rounds building beside it: the same binary read 56 ms and
-  151 ms for the same work. `valgrind --tool=callgrind` over the example is load-independent and
-  exact, and the query's own cost separates from the open by running it 1 and 11 times and taking
-  the difference over ten. The wall clock stays worth printing; it is not worth an A/B.
+  **What is left is the instrument rather than the number.** `viewer-core --example
+  accessibility_cost` is the stopwatch, and `valgrind --tool=callgrind` over it is what to use — a
+  stopwatch is the wrong instrument for a small change on a busy machine, which ADR 0312 found the
+  hard way when the same binary read 56 ms and 151 ms for the same work. Nothing has been measured
+  since ADR 0394, and the actions added in the five-hundred-and-ninetieth cost the *query* nothing:
+  they are a declaration per node and a lookup per request.
 
 ## And two things that are decided rather than owed
 

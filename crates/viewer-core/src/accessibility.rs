@@ -195,13 +195,14 @@ pub struct AccessibilityNode {
     /// Which of §12.7.5's controls the widget annotation behind this element is, where it names
     /// one.
     ///
-    /// §14.8.4.7.2's `Form` is the structure type this exists for. Table 368 makes it "[e]ither an
-    /// association between content enclosed by the Form structure element and a corresponding
-    /// widget annotation or a mechanism to include a widget annotation in the structure tree", and
-    /// requires one per widget: "[i]n a tagged PDF, Form shall be used for each PDF widget
-    /// annotation that belongs to the real content of the document". So a `Form` is a *control*,
-    /// and a host that announced it as a group would tell a person there is a box on the page
-    /// without saying it is a check box, what it is called, or whether it is ticked.
+    /// §14.8.4.7.2's `Form` is the structure type this exists for. Table 368 makes it one that
+    /// "[e]ncloses a PDF widget annotation and associated content, if any" — Errata Collection 3's
+    /// Issue #437, which strikes the *association* wording this comment quoted until the
+    /// five-hundred-and-ninetieth session — and requires one per widget: "[i]n a tagged PDF, Form
+    /// shall be used for each PDF widget annotation that belongs to the real content of the
+    /// document". So a `Form` is a *control*, and a host that announced it as a group would tell a
+    /// person there is a box on the page without saying it is a check box, what it is called, or
+    /// whether it is ticked.
     ///
     /// The route is §14.7.5.3's object reference, which is the only thing that names the widget,
     /// and the answer is `pdf_model::form`'s — the same [`pdf_model::form::Control`] a host
@@ -217,6 +218,34 @@ pub struct AccessibilityNode {
     /// (`pdf-model --example element_bounds_census`) — and for a widget the field tree does not
     /// reach, which §12.7.4.2 makes "simply a Widget annotation" belonging to no field.
     pub control: Option<pdf_model::form::Control>,
+    /// §12.5's annotation this element's **own** §14.7.5.3 object reference names, where the page
+    /// lists one.
+    ///
+    /// # What it is for, and why a host cannot work it out
+    ///
+    /// [`Self::bounds`] says where such an element is and [`Self::control`] says what control it
+    /// is; neither says *that the element is an annotation*, and after Errata Collection 3's Issue
+    /// #437 that is what Table 368's three annotation types state outright — `Annot` "[e]ncloses
+    /// one or more PDF annotations and associated content, if any", `Form` "[e]ncloses a PDF widget
+    /// annotation and associated content, if any", and §14.8.4.7.2 gives a `Link` element "[o]ne
+    /// object reference (see 14.7.5.3, "PDF objects as content items") to one link annotation
+    /// associated with the content".
+    ///
+    /// §12.5.1 is what makes the distinction worth a field: "[w]hen the user activates the
+    /// annotation by clicking it, it exhibits its associated object". An assistive technology
+    /// asking to *act* on an element is asking about that sentence, and a host with only a
+    /// rectangle cannot tell an element that would answer a click from a paragraph that would not.
+    ///
+    /// **The union is deliberately not taken.** [`Self::bounds`] unions the rectangles where an
+    /// element names several, because a magnifier wants one place; an *action* needs one object, so
+    /// this is the first annotation of this page the element's own references name — which for
+    /// `Form` is the only one the clause permits, and for `Annot` is one of a set Table 368
+    /// requires to "be of the same annotation type".
+    ///
+    /// `None` for every element whose own content items name no annotation of this page, which is
+    /// all but a few hundred of the corpus's — and for an `XObject` object reference, which is the
+    /// clause's other case and is not an annotation at all.
+    pub annotation: Option<ObjectId>,
     /// The header cells that describe this one, as indices into the answer.
     ///
     /// §14.8.4.8.3 gives a table cell its headers twice over — Table 384's `/Headers`, an array of
@@ -797,6 +826,13 @@ pub(crate) fn finish(
             .objects
             .iter()
             .find_map(|object| page.controls.get(object).cloned()),
+        // The first of this element's own references that names an annotation this page lists:
+        // see `AccessibilityNode::annotation` for why one rather than the union `bounds` takes.
+        annotation: gathered
+            .objects
+            .iter()
+            .find(|object| page.places.contains_key(*object))
+            .copied(),
         headers: gathered.headers,
         lines: drawn,
     }

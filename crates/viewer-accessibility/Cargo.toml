@@ -27,5 +27,11 @@ viewer-core.workspace = true
 [target.'cfg(target_os = "linux")'.dependencies]
 accesskit_unix.workspace = true
 
+# Only to *name* an object in a test. `viewer_core::AccessibilityNode::annotation` is an
+# `Option<pdf_syntax::ObjectId>` — the same type `Command::Activate` carries — and this crate
+# never constructs one outside its own fixtures, which is why it is here and not above.
+[dev-dependencies]
+pdf-syntax.workspace = true
+
 [lints]
 workspace = true

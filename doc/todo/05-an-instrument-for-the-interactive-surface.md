@@ -1,12 +1,12 @@
 # An instrument for the interactive surface
 
-Status: **all three built (ADRs 0333, 0334, 0342), and the first one's verdict gates (ADR 0421);
-what is left is the standing rule at the foot of this file and the three named remainders under
-the items.** ADR 0323 is the design, with the measured reference-vs-reference spread the tolerance
+Status: **all three built (ADRs 0333, 0334, 0342), and two of them gate — the first one's verdict
+since ADR 0421 and the third one's counts since ADR 0425; what is left is the save round-trip's
+ratchet, the standing rule at the foot of this file, and the named remainders under the items.** ADR 0323 is the design, with the measured reference-vs-reference spread the tolerance
 rests on. Each instrument's first-run numbers are in its session's history file, not here. **The
-file stays open for the rule rather than for the build**: instrument 1's geometry verdict has now
-held across rounds and therefore ratchets, the other two instruments' counts have not, and this is
-where that promise is kept.
+file stays open for the rule rather than for the build**: instrument 1's geometry verdict and
+instrument 3's counts have each held across rounds and therefore ratchet, instrument 2's have not,
+and this is where that promise is kept.
 Priority: 05 — standing band, because it is an instrument like 00 and 01 rather than a feature
 Corpus: the denominator is stated per instrument in ADR 0323, with every refusal printed by reason
 Clauses: §9.10 (extraction), §12.7 (forms), §7.5.6 (the incremental update a save appends),
@@ -93,11 +93,14 @@ text-domain entry.
    by §14.7.5.4 rather than counted, into the file naming elements for a page that answers
    nothing (the defect class), the page stating no `/StructParents`, and the file naming nothing.
    Then structure by two predicates, `/Alt`, placement, headers, controls, and untagged honesty.
-   Nothing is ratcheted yet, by the rule below; two *decisions* are asserted from the first run —
-   no panic, and no untagged page given a structure it does not state (ADR 0214).
-   **What remains of this item:** the ratchet itself once the counts have held, and a §2 line with
-   it. Its first run found a defect on the page-object join and `doc/todo/31`'s two residues now
-   have numbers — both in ADR 0342.
+   Three *decisions* are asserted whatever the counts do — no panic, no untagged page given a
+   structure it does not state (ADR 0214), and no line whose characters disagree with its own text.
+   **And the counts ratchet since ADR 0425**, the rule below having been met: every one of them was
+   unchanged from this instrument's own round to the five-hundred-and-fifty-ninth, which added a
+   caret to all of them and moved none. A capability has a floor and a defect class a ceiling, the
+   population is checked before either, and the line is in `doc/todo/02` §2. Its first run found a
+   defect on the page-object join and `doc/todo/31`'s two residues now have numbers — both in ADR
+   0342. **What remains of this item is instrument 2's ratchet**, plus what each item names.
 
 Each instrument's numbers enter `doc/todo/02` §2 only once they have held across rounds, never
 before.

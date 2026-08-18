@@ -281,6 +281,18 @@ pub(crate) struct App {
     /// every rectangle in it. Those are the two things this remembers, and everything else a
     /// person does costs the bridge nothing.
     pub(crate) spoken: Option<(usize, u32, u32)>,
+    /// What wakes this event loop from a thread that is not in it.
+    ///
+    /// **The one thing in this program that arrives from outside the window system.**
+    /// `accesskit_unix` runs its D-Bus connection on a thread of its own, so a client's action
+    /// request is handed to [`App::act`] through a queue rather than through winit — and a window
+    /// resting in `ControlFlow::Wait` would not come round to read it. This is winit's only answer
+    /// to that, and it is the whole of what the user event carries.
+    ///
+    /// `None` before the loop exists, which is every path that never gets one: the constructor
+    /// runs before `EventLoop::new`, and a bridge given a waker that does nothing still publishes
+    /// its tree.
+    pub(crate) waker: Option<winit::event_loop::EventLoopProxy<()>>,
 }
 
 impl App {

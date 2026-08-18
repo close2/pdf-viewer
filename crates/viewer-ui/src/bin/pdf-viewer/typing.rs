@@ -265,7 +265,13 @@ impl App {
         }
     }
 
-    /// Starts or stops typing, from where the pointer just went down.
+    /// Starts or stops typing, at a point of the page's own viewport.
+    ///
+    /// **The point is the caller's since the five-hundred-and-ninetieth session**, because a
+    /// pointer is no longer the only thing that clicks: an assistive technology asking
+    /// `org.a11y.atspi.Action` for a click names a *node*, and [`App::click_page`] turns that into
+    /// the same three steps a mouse takes. Reading `self.cursor` here would have aimed the
+    /// keyboard wherever the mouse happened to be resting.
     ///
     /// A press inside a field somebody can type into aims the keyboard at it; a press anywhere
     /// else puts the keyboard back on the page. §12.7.5.1's four field types are not equal here —
@@ -273,8 +279,7 @@ impl App {
     /// draws that line: `Answer::Field`'s value is `None` for a field whose value is not text and
     /// `Some("")` for an empty one, which is the same distinction §12.7.4.3 makes when it decides
     /// what to lay out.
-    pub(crate) fn aim_at_field(&mut self) {
-        let at = self.on_page(self.cursor);
+    pub(crate) fn aim_at_field(&mut self, at: (f32, f32)) {
         let was = self.typing.is_some();
         // §12.5.6.6 first, because the core hit-tests it first: an annotation a person added is
         // drawn after the page's own `/Annots` and the thing on top is the thing under the
@@ -394,7 +399,9 @@ impl App {
         }
     }
 
-    /// §12.7.5.2's two toggling kinds, clicked.
+    /// §12.7.5.2's two toggling kinds, clicked at a point of the page's own viewport.
+    ///
+    /// The point is the caller's, for the reason [`App::aim_at_field`] gives.
     ///
     /// **What `Query::Fields` made possible and nothing else could.** `Edit::SetField` takes a
     /// string, and for a check box or a radio button the only strings that mean anything are the
@@ -418,8 +425,7 @@ impl App {
     /// Table 227 bit 1 is checked here as well as in the core, and neither is redundant: the core
     /// refuses the edit, and a host that sent it anyway would be a program that looks broken
     /// rather than one that obeys the document.
-    pub(crate) fn toggle_button(&mut self) {
-        let at = self.on_page(self.cursor);
+    pub(crate) fn toggle_button(&mut self, at: (f32, f32)) {
         let Answer::Field {
             name, value: None, ..
         } = self.viewer.query(Query::FieldAt(at))

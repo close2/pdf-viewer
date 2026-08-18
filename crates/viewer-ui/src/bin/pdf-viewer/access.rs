@@ -5,7 +5,9 @@
 //! beside the frame rather than inside it. The three questions it asks are the three only a host
 //! knows — what the window is called, which page is showing, and what the page could not draw.
 
-use viewer_core::{Answer, Query};
+use viewer_accessibility::Act;
+use viewer_core::{Answer, Command, PointerAction, Query};
+use winit::event::ElementState;
 
 use crate::app::App;
 use crate::trace::Topic;
@@ -29,7 +31,17 @@ impl App {
     /// the page turn is left with the query that is actually about the page.
     pub(crate) fn attend(&mut self) {
         if self.accessibility.is_none() {
-            self.accessibility = Some(viewer_accessibility::Bridge::new());
+            // What the bridge wakes this loop with. `EventLoopProxy` is the only thing winit gives
+            // a foreign thread, and a request that arrived without one would wait for whatever
+            // else made the loop come round — which on a window resting in `ControlFlow::Wait` is
+            // nothing at all.
+            let waker = self.waker.clone();
+            self.accessibility = Some(viewer_accessibility::Bridge::new(move || {
+                if let Some(waker) = waker.as_ref() {
+                    // The loop has exited: the program is closing and there is nobody to wake.
+                    let _ = waker.send_event(());
+                }
+            }));
             // **One of these two sentences used to be false, and ADR 0227 settled which.**
             // The Windows trace printed `note: this build has no accessibility bridge` at line
             // 2 and `trace: accessibility bridge up` at line 46. The note was right:
@@ -60,6 +72,97 @@ impl App {
         }
         self.spoken = Some((page, width, height));
         self.speak();
+    }
+
+    /// Carries out whatever an assistive technology has asked for since this was last called.
+    ///
+    /// **Called from the loop's user event and from nowhere else**, which is the fix for a drain
+    /// that could not run: the requests used to be read inside [`App::speak`], and `speak` runs
+    /// only when the page or the window changes — so a request arriving while a person read one
+    /// page sat in the queue until they turned it, and on a window nobody touched, for ever.
+    ///
+    /// Everything a request means is a **place**, in the same device pixels a pointer works in
+    /// (`viewer_accessibility::Act`), so this is three existing commands and no new message.
+    /// A request this program cannot place is printed by name rather than dropped, which is what
+    /// the whole of this function used to be (trap 5).
+    pub(crate) fn act(&mut self) {
+        let Some(bridge) = self.accessibility.as_mut() else {
+            return;
+        };
+        let asked = bridge.requested();
+        for one in asked {
+            let Some(means) = one.means else {
+                println!(
+                    "note: an assistive technology asked for {:?} on node {:?}, which this host \
+                     does not carry out",
+                    one.action, one.node
+                );
+                continue;
+            };
+            match means {
+                Act::Show { at } => self.show(at),
+                // A press and a release at one point, through the same three steps a mouse takes:
+                // see `App::click_page`.
+                Act::Click { at } => {
+                    self.click_page(at, ElementState::Pressed);
+                    self.click_page(at, ElementState::Released);
+                }
+                // A press puts the anchor down and a drag carries it to the other end, which is
+                // exactly what a person's drag sends. A caret is the degenerate case where the
+                // two points are equal, and then the drag is not sent at all: `Command::Pointer`
+                // with `Dragged` at the anchor would set a selection of nothing, which is what a
+                // press has already done.
+                Act::Caret { from, to } => {
+                    self.dispatch(Command::Pointer {
+                        at: from,
+                        action: PointerAction::Pressed,
+                    });
+                    if to != from {
+                        self.dispatch(Command::Pointer {
+                            at: to,
+                            action: PointerAction::Dragged,
+                        });
+                    }
+                    self.dispatch(Command::Pointer {
+                        at: to,
+                        action: PointerAction::Released,
+                    });
+                }
+            }
+            self.trace
+                .say(Topic::Access, format_args!("carried out {:?}", one.action));
+        }
+        self.redraw();
+    }
+
+    /// Brings a rectangle of the page into the viewport, which is AT-SPI's `Component.ScrollTo`.
+    ///
+    /// **The smallest scroll that makes it visible**, rather than one that centres it: a magnifier
+    /// following a caret down a page should move the page as little as it can, and a rectangle
+    /// already on the screen should not move it at all. A rectangle taller or wider than the
+    /// viewport is aligned to its top-left corner, because the beginning of an element is what a
+    /// person is being taken to.
+    ///
+    /// `Command::Scroll`'s `dy` is positive to move the *content* up, so bringing something below
+    /// the viewport into view is a positive delta.
+    fn show(&mut self, at: [f32; 4]) {
+        let Some((width, height, _)) = self.window() else {
+            return;
+        };
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a viewport in device pixels; f32 is exact to 2^24 and no display is"
+        )]
+        let viewport = (
+            width.saturating_sub(self.inset()).max(1) as f32,
+            height.max(1) as f32,
+        );
+        let dx = delta(at[0], at[2], viewport.0);
+        let dy = delta(at[1], at[3], viewport.1);
+        if dx == 0.0 && dy == 0.0 {
+            return;
+        }
+        self.dispatch(Command::Scroll { dx, dy });
     }
 
     /// Tells the bridge where the window is, which is what AT-SPI needs to place a node.
@@ -183,17 +286,49 @@ impl App {
         };
         if let Some(bridge) = self.accessibility.as_mut() {
             bridge.publish(&view);
-            // An action nobody carries out is said out loud rather than dropped. The tree this
-            // program publishes declares no actions at all, so this list is expected to be empty
-            // — and a line here would mean a client asked for something anyway, which is worth
-            // knowing (trap 5).
-            for asked in bridge.requested() {
-                println!(
-                    "note: an assistive technology asked for {:?} on node {:?}, which this host \
-                     does not carry out",
-                    asked.action, asked.node
-                );
-            }
         }
+    }
+}
+
+/// How far the content must move along one axis to bring `low..high` inside `0..extent`.
+///
+/// Zero where it is already inside, which is what makes a client's repeated `ScrollTo` on the
+/// element it is reading cost nothing.
+fn delta(low: f32, high: f32, extent: f32) -> f32 {
+    if low < 0.0 || high - low > extent {
+        // Above the viewport, or too large to fit: take the near edge to the near edge.
+        low
+    } else if high > extent {
+        high - extent
+    } else {
+        0.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::delta;
+
+    /// The smallest move that brings a span inside the viewport, and none where it already is.
+    ///
+    /// The zero case is the one worth a test rather than a comment: a client that reads a page
+    /// asks `Component.ScrollTo` on every element it speaks, so an implementation that centred
+    /// each one would move the page under a person on every word. Verified on a real bus — a link
+    /// already on the screen answered `ScrollTo` with its extents unchanged.
+    #[expect(
+        clippy::float_cmp,
+        reason = "every one of these is a difference of two of the inputs, so each is exact in \
+                  binary and a tolerance would only hide an arithmetic that stopped being one"
+    )]
+    #[test]
+    fn a_span_already_in_the_viewport_is_not_scrolled_to() {
+        assert_eq!(delta(10.0, 40.0, 100.0), 0.0);
+        assert_eq!(delta(0.0, 100.0, 100.0), 0.0);
+        // Below: the far edge comes to the far edge.
+        assert_eq!(delta(120.0, 140.0, 100.0), 40.0);
+        // Above: the near edge comes to the near edge, and the delta is negative.
+        assert_eq!(delta(-30.0, -10.0, 100.0), -30.0);
+        // Larger than the viewport: the beginning of it is what a person is being taken to.
+        assert_eq!(delta(20.0, 400.0, 100.0), 20.0);
     }
 }

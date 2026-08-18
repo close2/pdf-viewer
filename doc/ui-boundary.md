@@ -270,9 +270,11 @@ amendments the ABI waited on are taken** (ADR 0247): `RasterFormat` is no longer
 `pdf_model::view::ShownValue` — the characters *and* whether Table 231 bit 14 replaced them — because
 the third of those was not a doc sentence but a bug `viewer-ui` had been shipping: it read a
 password field's value back after every keystroke and sent the bullets as the next value —
-[31](todo/31-accessibility-host.md) the four edges the AccessKit
-bridge does not yet cover — a `TH` cell's axis, a `Form` element's control role, AT-SPI's `Text`
-interface and the actions a client may request — and
+[31](todo/31-accessibility-host.md), whose four named edges — a `TH` cell's axis, a `Form` element's
+control role, AT-SPI's `Text` interface and the actions a client may request — are all four closed
+(ADRs 0300, 0338, 0394, 0425), the last of them without adding a message: an action resolves to a
+*place* and `Command::Scroll` and `Command::Pointer` already take places. What is left there is
+upstream and geometric rather than a vocabulary question — and
 [32](todo/32-presentation-player.md) a presentation player. **Ctrl + wheel zooming landed in the
 two-hundred-and-fourteenth session**, and the interesting half was in the core rather than in the
 host: a zoom anchored at the pointer has to hold a page point that `Open::origin` knows about and

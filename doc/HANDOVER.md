@@ -242,9 +242,13 @@ none did — a `TH` carrying the axis §14.8.5.7 gives it rather than a guess, a
 Table 379's `/BBox` where its content marked no text, and a `StatusBar` group carrying **what the
 page could not draw**, because the person who cannot see the page is the one for whom a count in
 the title bar is no answer. An untagged page says that it is one rather than being given an
-invented reading order. The one async runtime this tree has is confined to that crate, it is
-Linux-only in its own manifest, and the adapter is created **after** the first frame is presented.
-ADR 0214.
+invented reading order. **And a client may now *act* rather than only listen**: a check box says a
+click may be asked of it and a person using a screen reader alone can tick one, an element says it
+may be scrolled to, and the page says a caret may be put in it — each carried out as a place, in the
+device pixels a pointer already works in, so the boundary gained no message and one definition of a
+click serves the mouse and the bus alike (ADR 0425). The one async runtime this tree has is confined
+to that crate, it is Linux-only in its own manifest, and the adapter is created **after** the first
+frame is presented. ADR 0214.
 
 ---
 
