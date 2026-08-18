@@ -1,6 +1,6 @@
 # The todo directory
 
-One file per piece of owed work. `doc/HANDOVER.md` says what the project *is*; these say what
+One file per piece of owed work. `doc/state-of-play.md` says what the program *is*; these say what
 it still owes, and they hold the detail that used to make that file long — the evidence, the
 clause reading, the measurement and the cost of each item live with the item.
 
@@ -72,7 +72,7 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 | [40](40-mask-chain-crop.md) | A clip chain as one crop and one intersect — unblocked and re-priced (ADR 0236). The arithmetic over the target-sized buffers is gone (ADR 0271) and the copying went in the four-hundred-and-ninety-third (ADR 0328, byte-identical); what is left is the chain itself, whose exactness question ADR 0219 still owns |
 | [41](41-decoded-stream-cache.md) | A decoded-stream cache: priced at a fraction of a percent on a corpus walked one page a document, taken on the population a reader is in (ADR 0317); a memoised *refusal* is what is left |
 | [42](42-the-launch-path.md) | The launch path: four of five items closed, the fifth is quorra's |
-| [43](43-the-projects-own-turnaround.md) | The *project's* performance rather than the program's: §5's fat link is what is left and is still unmeasured against what it buys, caching our own renders is priced and refused, and the "three gates that doubled" was bisected to one gate and a non-gate test sharing its binary (ADR 0282) |
+| [43](43-the-projects-own-turnaround.md) | The *project's* performance rather than the program's: §2 is eight per cent of a round and the rest is what a round *reads* and which gates it *chooses*, both taken in the five-hundred-and-ninety-third (ADR 0428). §5's fat link is still unmeasured against what it buys, caching our own renders is priced and refused, and the "three gates that doubled" was bisected to one gate and a non-gate test sharing its binary (ADR 0282) |
 | [44](44-a-draft-that-takes-ten-seconds.md) | A draft the owner supplied that **took** ten seconds to appear and now takes one and a half, every phase of it named (ADRs 0332, 0341, 0351, 0370, 0423). What is left is one upstream ask — quorra builds an outline's quadratics at upload time and a `Coverage::Cpu` launch never reads them — and §3.1's page-space scene, which this document does not exercise |
 | [45](45-where-a-frame-goes.md) | Where a frame goes, once the instrument could attribute one (ADRs 0227, 0228): the reduced raster recomputed on every redraw is kept in the window's backend now (ADR 0297); quorra's `encode`, the other two backends, and no run on the owner's own machine are what is left |
 | [48](48-the-specification-we-check-against.md) | The specification we check against: `doc/md/` dropped every annotation and the annotations are the **errata** (ADRs 0252, 0253, 0254, 0255). The sixth population — every quotation of the standard in the Markdown this project wrote — **is read since the four-hundred-and-seventy-fourth** and its first run produced thirteen corrections (ADR 0309). What is left: §8.9.5.4, §14.8.6.3's enclosure requirement, and single-quoted ledger spans |
@@ -84,10 +84,21 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 | — | [`_scan-conversion.md`](_scan-conversion.md) — shared: §10.7.4, what this tree departs from and why |
 | — | [`_image-codecs-and-the-sandbox.md`](_image-codecs-and-the-sandbox.md) — shared: the three sandboxed codecs are already pure safe Rust, what the sandbox is really for, and what a subset would and would not buy |
 
+**What is not implemented has a file, and that is what this index is.** Every one of them is
+*reported* at runtime rather than silently skipped; the corpus witnesses, the clause and what it
+would cost live with the item rather than here.
+
 **Closed by decision rather than by work** — recorded in `doc/conformance/ledger.toml` and not
 here: `/ColorTransform` (Table 13, whose one corpus witness contradicts the clause), a stream
 whose data is in an external file (§7.3.8.1 — the renderer has no filesystem, principle 3),
 §12.7.6.2's submit and §12.6.4's remote, launch, sound and movie actions (a network, a second
 file, a media engine), a filled degenerate subpath's device pixel (§8.5.3.3.1, which the clause
-itself calls "device-dependent and not generally useful"), and grid-fitting a stroke's
-coordinates under `/SA` (see `_scan-conversion.md`).
+itself calls "device-dependent and not generally useful"), grid-fitting a stroke's
+coordinates under `/SA` (see `_scan-conversion.md`), rendering intents beyond
+`AbsoluteColorimetric`, and **a glyph a document's own embedded subset does not contain**, which
+was traced to the end of every route the standard states: §9.7.4.2's and §9.6.5.4's rows carry
+the evidence, and `poppler` draws such glyphs from a face this machine has, which is a fallback
+rather than a reading. **The two halves of that last one are two different refusals** (ADR
+0270): a `loca` entry that is empty *is* the program's statement that the code makes no mark, and
+`Interpretation::codes_reaching_a_blank_glyph` counts it apart from a code that reaches nothing
+at all.

@@ -559,7 +559,7 @@ the bucket nothing watched.
 renderers are never invoked. Every other verdict this gate reaches is a statement about a
 comparison; that one is a statement about us alone — and it had **no ratchet in either direction**,
 so a change that stopped a document opening would have printed one more line in a report of 888 and
-failed nothing. `tools/state.sh oracle` prints today's count; `doc/HANDOVER.md`'s trap 1 has called
+failed nothing. `tools/state.sh oracle` prints today's count; `doc/traps/pixels-and-rasterisers.md`'s trap 1 has called
 it "a to-do list of pages nobody has looked at" since the hundred-and-seventy-seventh session, and
 until this round nobody had.
 

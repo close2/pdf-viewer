@@ -3,8 +3,9 @@
 A PDF viewer in Rust, targeting Acrobat-class fidelity, with the goal of being the
 noticeably fastest PDF viewer available — and clean enough to be taught from.
 
-> **New here?** Read `doc/HANDOVER.md` after this file: what the program is, the traps, and
-> where each kind of round is told to look.
+> **New here?** Read `doc/HANDOVER.md` after this file. It is an index: which file this round
+> opens, and which of `doc/traps/`'s five groups this round is in a position to spring.
+> `doc/state-of-play.md` is what the program already does.
 
 **This file holds the principles and nothing that a command can print.** A fact that can be
 counted is not written down here; what is written down is the command that counts it, and

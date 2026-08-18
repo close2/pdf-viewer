@@ -34,6 +34,12 @@ was a list of integers, so `§K.2` was a malformed citation and Annex O could no
 0206. Counts come from `cargo run -p conformance --bin ledger`, which prints them
 — **not** from arithmetic in this file, which has been wrong about them twice.
 
+**`silent` is the status worth hunting**: it means a requirement this program fails without saying
+so. Every other status names what it owes, and all eight are defined at the top of
+`doc/conformance/ledger.toml`. This paragraph was `doc/HANDOVER.md`'s until the
+five-hundred-and-ninety-third; the sweeps that catch a wrong row are `doc/todo/01`'s and running
+them is `doc/todo/02` §4.
+
 | status | rows | |
 |---|---|---|
 | `implemented` | 410 | every normative requirement in the clause is executed |

@@ -1,6 +1,7 @@
 # Habits these sessions earned
 
-Status: **standing** — method, not code. `doc/HANDOVER.md`'s Traps are the code half.
+Status: **standing** — method, not code. `doc/traps/` is the code half, five files grouped by
+what a round is doing.
 Read by: whoever is about to read a clause, judge against another renderer, write a gate, correct
 a ledger row, or take a measurement — which is most rounds, one section at a time.
 
@@ -106,6 +107,39 @@ anchor that makes it checkable.
   verb** — writing, editing, pointing — **re-read the clauses it already claims, for the half
   addressed to the other side.** ADR 0129, and the same shape as ADR 0122's re-read of the rows
   whose reason began "this program has no".
+
+**And what all of the above is read *through*.** These three were `doc/HANDOVER.md`'s "Things
+worth knowing" until the five-hundred-and-ninety-third, and they belong here because every clause
+reading in this project goes through them:
+
+- **`doc/md/` is the specification in a form code can read** — markdown conversions of the 14
+  PDFs. **This entry said "committed" and had been false since the three-hundred-and-eleventh
+  session**: `.gitignore` covers `/doc/md/` and `/doc/*.pdf`, and what is tracked is the encrypted
+  `doc/specifications.zip` (ADR 0187). A test may still depend on them without a skip path, but for
+  the other reason — a test that cannot find them **fails loudly** rather than skipping, which is
+  what the owner decided in that session.
+  `ISO_32000-2_sponsored_EC3.md` is 24 MB and its 860 `##` headings give a clause number, title and
+  line range apiece, which is the whole basis of the citation checker and the ledger. **Three
+  caveats, each met the hard way**: it is a *conversion*, so a quotation the checker cannot find
+  may be an artefact — check `doc/`'s PDF before editing the comment; one heading number
+  (`14.8.4.7.3`) occurs twice; and **the conversion drops content** — Table 164's `/Di` row ends
+  "Default value: 0." in the PDF and the markdown has no such line, so a reading taken from
+  `doc/md/` alone would record a silence the standard does not have. `pdftotext -layout` over the
+  PDF is the check, and a **table** is where to expect it. When a gate accuses the standard of a
+  gap, suspect the conversion first. **It also *changes* text rather than only dropping it**, and
+  the shapes are known: the hyphen of a word broken across a line disappears (`text-tospeech`,
+  `implementationdependent`), and one double quotation mark comes out as `"` on one page and as
+  `' … '` with spaces inside it on the next — §14.8.6.1 against §14.8.6.3 is the witness, and a
+  blockquote quoting the second would have failed the gate with the standard blamed for it. That is
+  why `conformance::quote::normalise` drops every quotation mark and `prose::folded` drops hyphens;
+  ADR 0375. Extract spec data from here rather than writing it from
+  memory; `grep -v '^!\[Image\]'` first, the files carry base64 images inline.
+- **`doc/` holds more than ISO 32000-2.** `PDF20_AN001-BPC.md` is the PDF Association's note on
+  black point compensation by ISO 32000's own co-project-leader, and it settled a design question
+  the base specification leaves to ISO 18619 — while sitting unread as the same question was being
+  answered by looking at other renderers.
+- **The Arlington model is the object model, not the semantics.** It says `/BaseEncoding` must be
+  one of three names; it does not say what those encodings contain.
 
 ### Judging against other implementations
 

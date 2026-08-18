@@ -5,7 +5,7 @@ sequence and **owns those commands**; this file owns everything a round runs whe
 to, which is most of what is here.
 
 Read by: whoever needs `cargo deny`, a fuzz target, a callgrind counter, a cross-target check, a
-census example or the AT-SPI recipe. `doc/HANDOVER.md`'s "Verify it" is the pointer to this file.
+census example or the AT-SPI recipe. `doc/HANDOVER.md`'s reading table is the pointer to this file.
 
 **The gate sequence is not repeated here, deliberately.** Two documents stating the same commands
 is how they drift apart, and they had: this list said 1369 tests where the gate printed 1371, and

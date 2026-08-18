@@ -4,7 +4,7 @@ Status: **standing** — one row per crate, and the thing about it worth knowing
 Read by: whoever is looking for where something lives. `CLAUDE.md` states the layering rule; this
 says what each crate is responsible for and which decision sits in it.
 
-`doc/HANDOVER.md`'s "Crate map" is the pointer to this file.
+`doc/HANDOVER.md`'s reading table is the pointer to this file.
 
 | Crate | Does | Notes |
 |---|---|---|

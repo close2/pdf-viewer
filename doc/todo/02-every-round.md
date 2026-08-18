@@ -17,9 +17,29 @@ Demand-driven is what the corpus and the oracle name (todos `10`–`29`); spec-d
 ledger's `reported` rows and the notes on its `partial` ones (todos `00`–`09`). A project
 running only the first finishes when the corpus goes quiet, which can happen with much of the
 standard unimplemented and nothing able to say which parts; one running only the second ships
-features no file exercises.
+features no file exercises. This is a principle-5 rule, not a suggestion.
+
+**But the map is not the territory.** Four of the six findings in the ten sessions from the
+hundred-and-twentieth were on no list at all: a `shall` hiding behind a silence about artwork (ADR
+0109), a clause with two populations where the row named one (0110), a malformed optional entry
+that erased a font (0111), and a font cache keyed by a name that drew wrong glyphs in silence for
+thirty-one sessions (0115). None was `silent`, none was `reported`, and no gate could see the
+last. Three were found by reading the clause beside the code; the fourth by measuring something
+else.
+
+**The six shapes a refusal takes when it has outlived its reason** — a reason that names a
+vocabulary, a reason that names an architecture, a capability that arrived and announced nothing,
+a capability that reached the crate and never reached the program, a row that would have
+survived the capability arriving, and a row *corrected* by naming the capability that arrived while
+the entry it turns on stayed unread — are in [`../habits.md`](../habits.md)'s ledger section, beside
+the sweeps that find each. They are the highest-yield reading this project has.
 
 ## 2. Run the gates that can see what you touched
+
+**The whole sequence is below, and the map after it says which of it a given change needs.** Two
+rules bound the map and are the whole of its safety: **the full sequence runs every fifth round,
+and on any round that can change a pixel**; and the merge rule two paragraphs down is not relaxed
+at all. `tools/round.sh` says whether this is a fifth round.
 
 ```sh
 cargo fmt --all --check
@@ -43,6 +63,38 @@ cargo test -p conformance -- --nocapture
 `tools/state.sh` runs the same sequence and prints each gate's own summary lines; run that when
 what you want is the state, and run the list above when what you want is a gate to fail. Either
 way the numbers come off the run, never off a document.
+
+**This section owns the sequence, and nothing else states it.** `doc/HANDOVER.md` used to carry a
+second copy under "Verify it" and the two drifted — one said 1369 tests where the gate printed
+1371, and it never listed `render-quorra`'s corpus gate at all (ADR 0232 §4). Two documents stating
+one command is how they drift, so one owns it.
+
+### The change → gate map
+
+**The first four lines are the core and every round runs them**, whatever it touched — they are
+about a tenth of the sequence's cost and they are the only thing that sees a lint, a broken
+doctest or a test somewhere else in the workspace. The rest is chosen by what the change can
+reach, and *reach* is the crate graph rather than the file's own crate:
+
+| a change in | is under | so run, beyond the core |
+|---|---|---|
+| `pdf-render`, `pdf-syntax`, `pdf-font`, `pdf-model`, `pdf-spec`, `pdf-sandbox`, `render-cpu` | everything | **everything** — these are what draws the page and what every gate rasterises with |
+| `render-quorra` | the third rasteriser only | the quorra gate, and its second coverage lane where the change is a quorra release or the zoom path |
+| `render-gpu` | no gate at all | the workspace tests are the only judge (`headless_gpu`); say so, and consider `doc/verify.md`'s cross-backend runs |
+| `viewer-core`, `viewer-accessibility` | the two censuses | `selection_census`, `accessibility_census` |
+| `viewer-ui`, `viewer-gtk`, `viewer-qt`, `viewer-ffi`, `viewer-host`, `viewer-confined` | no corpus gate | the core, which builds and tests them; §5 rebuilds what a person runs |
+| `tools/conformance`, `doc/conformance/ledger.toml`, a doc comment citing a clause | the conformance gate | `cargo test -p conformance` |
+| `raster-compare`, `test-scenes`, `pdfref` | whichever gate names them | the core, plus the gate whose harness they are — `raster-compare` and `pdfref` are the oracle's and quorra's |
+| **documents only** (`doc/`, `CLAUDE.md`, a `tools/*.sh`) | nothing the gates rasterise | the core, **and `cargo test -p conformance`**, which reads citations and quotations out of the tree; plus `--bin quotations` and `--bin pointers` where the change moved a document or a pointer |
+
+Three things the map does not license:
+
+- **A round that can change a pixel runs everything.** That is any change to the crates in the
+  first row, and it is not a judgement about how small the diff looked: trap 1's whole subject is
+  that a change nobody expected to draw differently did.
+- **Every fifth round runs everything**, whatever it touched, because a map is a claim about the
+  crate graph and a claim decays. `tools/round.sh` says which round this is.
+- **A merge runs everything, always**, and the paragraph below is not relaxed by any of this.
 
 **A merge is a round of its own, and it runs this sequence on `main`.** Green in a worktree
 establishes nothing about `main`: a parallel round's gates are the truth about a tree that
@@ -98,7 +150,7 @@ here:
   changes when one is added.
 - **The `selection_census` line is the one that clicks**, and it is here rather than in
   `doc/verify.md` because two of its three properties are exact and it is what catches a defect in
-  the loop from a press to a selection — which is the loop `doc/HANDOVER.md`'s trap 12a is about and
+  the loop from a press to a selection — which is the loop `doc/traps/the-interactive-loop.md`'s trap 12a is about and
   which nothing gated until the five-hundred-and-eighty-sixth session. Its *drag fraction* is
   printed and **not** ratcheted, by `doc/todo/05`'s standing rule; what fails the line is a
   selection that is not the interpreter's readback, a caret whose own point lands somewhere else,
@@ -193,157 +245,38 @@ share and the two that break it:
   that table — `tools/conformance` verifies a cited table *exists* and prints its title, so a
   number that exists and names the wrong table reads exactly like a right one, and those arrive in
   **blocks**, a run of consecutive rows written in one sitting against the older standard. That one
-  is `--bin tables` since the five-hundred-and-forty-fifth, below.
-- **One reads the ledger's own quotation marks**, which no gate in this project does: the checker
-  verifies every rustdoc blockquote in `crates/` and nothing at all in `ledger.toml`. Report only
-  the misses that match the standard for at least five words and then diverge — a claim this
-  project invented shares no words with it and a misquotation shares most of them. ADR 0249, and
-  it is not a gate for a reason the ADR prices.
-- **One asks who reads an *entry the clause states***, and it is the only sweep that reads no reason
-  at all: `cargo run --release -p conformance --bin entries`, seconds, over `ledger.toml`, the
-  standard's own tables and the source roots. It exists for the refusal shape every other sweep
-  passes — a row that retires its refusal by naming a capability that arrived, and then nobody asks
-  whether the *entry* that turns the capability on was wired to it. **It was described here and not
-  committed for twenty-four rounds**, so the round that wanted it rebuilt it from the description,
-  which is `CLAUDE.md`'s own rule failing in the direction it was written for. Three findings so far
-  (ADRs 0295, 0315, 0319); read the hits whose entry the row's own **note** does not name first.
-- **One asks who *quotes* an entry a note claims is unread**: `cargo run --release -p conformance
-  --bin unread`, seconds, over `ledger.toml` and the source roots — the second sweep as a program
-  (ADR 0324). A hit is a key some source quotes as a lookup string while a note says nobody reads
-  it, sharpest where the quoting file is in the row's own `code = [...]`; the dominant noise is
-  one short key in three clauses, so read the witness path it prints before believing a hit.
-- **One asks whether a stated *blocker* has expired**: `cargo run --release -p conformance
-  --bin blockers`, seconds, over `ledger.toml` and the source roots — the first sweep as a program
-  (ADR 0336). A blocker sentence naming a clause is judged against the ledger's own account of
-  that clause, and the expired ones print first; the three noise shapes it prints rather than
-  filters — a correction quoting the wording it retired, a past tense no grep can see, and a
-  clause named as the route to something outside the standard — are in the module doc. Read the
-  sentence before believing a hit.
-- **One asks whether the tree names a capability a note says is absent**: `cargo run --release
-  -p conformance --bin capabilities`, seconds, over `ledger.toml` and the source roots — the
-  third sweep as a program (ADR 0345). A hit carries the witness path where any source file
-  names the lacking noun, and says whether the claim is about *the program* (the population
-  that decays) or about *one crate* (usually a boundary it keeps on purpose); the dominant
-  noise is a true boundary statement, which a witness does not disprove. Read the sentence
-  before believing a hit.
-- **One asks the question from the other end — who *calls* it?**: `cargo run --release -p
-  conformance --bin callers`, a fifth of a second, over every `pub fn` in `pdf-model` and every
-  crate, tool and fuzz target whose manifest names it — the fifth sweep as a program (ADR 0360).
-  **Its output is a delta rather than a level**: the finding has twice been that a whole new host
-  program took no name off the bottom rungs. Read the rungs from the bottom, and know the two
-  directions it is loose in — a short name shared with another type's method reads as named, and a
-  name reached through a wrapper reads as unnamed.
-- **One asks where else a claim a round *retired* is still written**: `cargo run --release
-  -p conformance --bin retired -- <noun> …`, seconds, over `ledger.toml`, the source roots and
-  every Markdown document under `doc/` bar `doc/history/` — the fourth sweep as a program (ADR
-  0352). It is the one sweep that cannot derive its own population, because what was retired is
-  what the last rounds decided, so the nouns are arguments and the rule is `doc/todo/01`'s: give
-  it the *mechanism*, not the sentence. Each mention is printed as a correction or as a standing
-  claim, and **a noun carrying both is the shape to read first** — somebody wrote the retirement
-  here and not there.
-- **One asks whether the file — and the symbol — a note names still exists**: `cargo run --release
-  -p conformance --bin pointers`, a third of a second, over `ledger.toml`, the source roots and
-  every Markdown document under `doc/` bar `doc/history/` — the eighth sweep as a program (ADR
-  0372). **A pointer is resolved from where it is written**, so a `tests/x.rs` in a doc comment
-  means its own crate's tests and the same words in a document under `doc/` are *unrooted* rather
-  than dead; the other three rungs it prints instead of a finding are a fragment that resolves in
-  another crate, a metavariable (`doc/todo/NN`), and a path this tree deliberately does not carry.
-  The oldest false positive is a correction quoting the pointer it retired, and it is marked rather
-  than dropped. Read the sentence before believing a hit.
-- **One asks whether the table a sentence cites states the key it gives it**: `cargo run --release
-  -p conformance --bin tables`, seconds, over `ledger.toml`, the source roots and every Markdown
-  document under `doc/` bar `doc/history/` — the ninth sweep as a program (ADR 0380). It counts a
-  key only where the sentence **attributes** it, prints which table *does* state it, and reads a
-  **denial** as a claim in the other direction, so "Table 119 gives a Type 0 dictionary no
-  `/FontDescriptor`" is agreement and a denial the table contradicts is a hit. Its findings arrive
-  in blocks, and its most durable population is a *document*: a number a round retires in the code
-  goes on living in the ADR the code came from.
-- **One reads the status nobody expects to come back to**: `cargo run --release -p conformance
-  --bin inapplicable`, a fraction of a second, over `ledger.toml` and the source roots — the
-  seventh sweep as a program (ADR 0388). Every other sweep walks the rows that *owe* something; this
-  one takes an `inapplicable` row's own title and note apart into `/Key`s and identifiers and asks
-  whether the tree names them. **The count of naming files is the discriminator** and it replaces
-  the stop-list nine hand-runs each wrote from memory: the standard's shared vocabulary reaches
-  dozens of files and sorts last, a rare word sorts first. Read the **cousin** it prints before
-  anything else — a row that is not `inapplicable` and says the same word is the seventh failure
-  shape, and it is where all five of this sweep's defects have been.
-- **One asks whether the family a sentence counts holds that many rows**: `cargo run --release -p
-  conformance --bin counts`, seconds, over `ledger.toml`, the source roots and every Markdown document
-  under `doc/` bar `doc/history/` — the tenth sweep as a program (ADR 0400), and the last of the ten
-  whose *level* moved with the session. A cardinal is a claim about a family only where it governs one
-  of the ledger's own words for a row and only inside the sentence's own punctuation, and the answer
-  side is the family's own arithmetic rather than a reader's memory of the convention — a count that
-  leaves out the `General` row is right, and so is one that counts the clause's own row in. Read the
-  **contradictions** first: two numbers for one family in two sentences of one note are wrong whatever
-  the ledger holds, which is where both of this sweep's largest findings were.
-- **One reads the status whose own definition promises a debt**: `cargo run --release -p
-  conformance --bin owed`, seconds, over `ledger.toml` and the source roots — the fourteenth sweep
-  as a program (ADR 0397), and the last of the four descriptions whose *level* moved with the
-  session. A `partial` row must say which requirements are not executed; a note that names a debt
-  names a **thing**, and a thing this tree does not have is a name no source carries. So the
-  discriminator is the seventh sweep's with the sign reversed — there a term the tree *names* under
-  a row claiming absence, here a term the tree *lacks* under a row claiming a debt — and the
-  reading list is every row whose vocabulary the tree names in full, the one naming nothing
-  specific first. The noise is a debt named in prose with no identifier in it, printed rather than
-  filtered.
-- **One reads *these documents'* quotation marks and the ledger's**, on the same discriminator and
-  for the same reason: `cargo run --release -p conformance --bin quotations`, seconds, over every
-  Markdown file this project wrote under `doc/` **and over `ledger.toml`'s notes**, which is the
-  eleventh sweep and had been a hand-written script since the four-hundred-and-thirteenth. Its first
-  run over the documents found three sentences quoted as the standard's that ISO 32000-2 does not
-  contain, two of which were also standing in `crates/` in prose the gate does not read; its first
-  run over the ledger found three more. **Suspect the conversion before the document**: four of its
-  suspects were `doc/md/` losing text the PDF has, and the hyphen of a word broken across a line is
-  the commonest of them. It reads single-quoted spans as well as double since the
-  five-hundred-and-fortieth, and it prints how many so that a clean run says what it was clean over.
-  ADRs 0309 and 0375.
-- **One is not run from here at all**: `cargo run --release -p spec-errata -- check doc/*.pdf`,
-  seconds, asking the same spans a *different* question — does one of them quote a sentence Errata
-  Collection 3 struck out? That needs none of ADR 0249's syntax, because the erratum supplies the
-  other side. ADR 0254. **And `check` is only one direction of that question**, which the
-  five-hundred-and-fifty-fifth and -sixty-second sessions each paid for: it compares *quotations
-  this tree has written*, so an erratum over text nobody has quoted is invisible to it — a clause
-  deleted, a subclause renumbered, a table's requirement column raised. The other direction is
-  `emit`, read against what the ledger **claims**:
+  is `--bin tables`, and the catalogue below says how to read it.
+- **The rest are a catalogue rather than a rule**, and it lives with the reading:
+  [`01-ledger-partial-rows.md`](01-ledger-partial-rows.md)'s *The sweeps as commands* holds every
+  one of them unchanged — what it asks, the command that runs it, what its output's noise looks
+  like and which hits to read first. Most are `cargo run --release -p conformance --bin <name>` and
+  seconds apiece; the errata ones are `tools/spec-errata`'s `check`, `emit`, `moved` and `applied`,
+  and **a round implementing a clause runs `emit` on that document *before* it writes, rather than
+  `check` afterwards alone**. `tools/state.sh counts` is where a population goes, not a sentence
+  here.
 
-  ```sh
-  cargo run --release -p spec-errata -- emit doc/*.pdf
-  cargo run --release -p spec-errata -- moved doc/*.pdf
-  ```
-
-  **And a third direction is a command since the five-hundred-and-ninety-first** (ADR 0426), for the
-  hole `check` and `emit` between them still left — a place that *records* an erratum and then
-  quotes the words it removed:
-
-  ```sh
-  cargo run --release -p spec-errata -- applied doc/*.pdf
-  ```
-
-  Two seconds, over `ledger.toml`, every comment run under `crates/`, `tools/` and `fuzz/`, and
-  every Markdown block under `doc/` bar `doc/history/`. **Its discriminator is that the erratum is
-  named as data, by the writer, in the place itself**, so nothing is inferred: the `StrikeOut` and
-  the `Caret` supply both sides and a hit is a quotation matching what the erratum struck and not
-  what it put there. Read the hits that carry **no** mark of a correction first — a correction
-  quoting the wording it retired is this family's oldest false positive and is marked rather than
-  dropped, `doc/errata-read.md` is that shape from end to end and is counted apart, and a `#NNN`
-  this collection does not carry is dropped and counted so that a clean run says what it was clean
-  over. Its first run found the §14.8.4.7.2 shape one clause family over, in §9.6.2.2's row, twice.
-
-  **The first of those two filters is a command since the five-hundred-and-sixty-fifth** (ADR 0400):
-  `moved` prints every annotation whose instruction uses *move*, *renumber*, *delete* or *insert* **and
-  names a clause number**, with what this tree has standing on that number — its ledger rows, its
-  citations and its mentions in these documents. Its first run found two errata the hand-filter had
-  walked past, one of them because this collection writes an instruction in the past passive as well as
-  in the imperative. The other filter is still by eye and still pays: a strikeout whose whole text is a
-  requirement word (`Optional`, `Required`, `Deprecated`). `doc/errata-read.md` has what each run found,
-  and what this tree does about a number an erratum has moved. A round implementing a clause runs
-  `emit` on that document **before** it writes, and not `check` afterwards alone.
-
-## 5. Put the binaries where a person can run them
+## 5. Put the binaries where a person can run them — every fifth round, and before any measurement
 
 **The agent builds into `/home/AI/cargo-target/pdf-viewer/`, which the human's shell never looks
-at.** So at the end of every round, copy what a person would run into the project's own
-`target/`. `tools/state.sh binaries` says what is there and how old it is.
+at.** So what a person would run has to be copied into the project's own `target/`.
+`tools/state.sh binaries` says what is there and how old it is; `tools/round.sh` says whether this
+round owes the rebuild.
+
+**Its cadence is stated as a *rule about staleness* rather than as a habit**, and the rule is the
+one this section has always argued from: **a stale binary is a measurement of the past.** The
+hundred-and-forty-second session was reported as "still lags" against a binary three hours and six
+commits old, one of which was the 40× page-turn fix. So:
+
+- **before any measurement, always** — of the launch path, a page turn, a frame, a memory
+  high-water, anything §2's gates do not print. There is no round that may measure against
+  whatever was last linked;
+- **every fifth round otherwise**, which is the same cadence as §2's full sequence and is bounded
+  by the same argument: what a person picks up should never be more than a handful of rounds
+  behind `HEAD`, and the link is the single largest item in a round (`doc/todo/43` §1).
+
+A round in between may still run it and nothing goes wrong if it does — Cargo skips what did not
+change. What is no longer required is paying for a whole-graph fat link at the end of a round that
+moved a document.
 
 ```sh
 cargo build --release --bin pdf-viewer --bin pdf-sandbox-worker --bin pdf-view-worker \
@@ -379,10 +312,8 @@ default is the safe one"); `pdf-view-worker` is the whole viewer confined, which
 a window but a program a person runs, and the only one whose whole output is text a caller pipes
 (ADR 0257).
 
-Build them first, in release. `cargo test` only ever builds the debug binaries, and a stale
-executable is a measurement of the past — the hundred-and-forty-second session was reported as
-"still lags" against a binary three hours and six commits old, one of which was the 40×
-page-turn fix.
+Build them first, in release: `cargo test` only ever builds the debug binaries, which is why the
+cadence above exists at all.
 
 **`viewer-confined`'s two binaries used to be built in release *before* the gates**, on a note
 saying the gates needed them. They do not: those tests run under `cargo test --workspace`, which
@@ -426,8 +357,11 @@ change.
   and not the neighbouring file. A number, a date or a session reference in any other document is
   bookkeeping and belongs in that file; a citation of an ADR for an *argument* is a pointer and
   stays where it is. (ADR 0281.)
-- `doc/HANDOVER.md`, `doc/todo/README.md` and this file: only if what they *claim* stopped being
-  true. None of them holds a number, so a round that only moved numbers writes nothing here.
+- `doc/HANDOVER.md`, `doc/state-of-play.md`, the `doc/traps/` group the round was in,
+  `doc/todo/README.md` and this file: only if what they *claim* stopped being true. None of them
+  holds a number, so a round that only moved numbers writes nothing here. **A new trap goes in the
+  group whose rounds would spring it**, keeps the next free number, and gains a row in the
+  handover's index — the numbers are consecutive across the five files, not inside one.
 - The todo file: delete it if the item is done, correct it if the round changed what it owes.
 
 ## 7. Three habits these rounds added, which belong here rather than in a trap

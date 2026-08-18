@@ -71,6 +71,158 @@ round that next has to run it, because that round has to reconstruct it anyway; 
 round the backlog is gone in ten, without ever being a marathon. A sweep that is genuinely
 twenty lines of Python belongs under `tools/conformance` with the four that already live there.
 
+## The sweeps as commands — what each one asks, and how to read its output
+
+**This section was `doc/todo/02` §4's, and it is here because a round that is not sweeping does not
+need it.** §4 keeps the rule — run them after a round that adds a verb, over `crates/`, `tools/`
+and `fuzz/` as well as over `ledger.toml` — and the shape they share; what each one *is* belongs
+with the reading, which is this file. Every bullet below is unchanged.
+
+- **One reads the ledger's own quotation marks**, which no gate in this project does: the checker
+  verifies every rustdoc blockquote in `crates/` and nothing at all in `ledger.toml`. Report only
+  the misses that match the standard for at least five words and then diverge — a claim this
+  project invented shares no words with it and a misquotation shares most of them. ADR 0249, and
+  it is not a gate for a reason the ADR prices.
+- **One asks who reads an *entry the clause states***, and it is the only sweep that reads no reason
+  at all: `cargo run --release -p conformance --bin entries`, seconds, over `ledger.toml`, the
+  standard's own tables and the source roots. It exists for the refusal shape every other sweep
+  passes — a row that retires its refusal by naming a capability that arrived, and then nobody asks
+  whether the *entry* that turns the capability on was wired to it. **It was described here and not
+  committed for twenty-four rounds**, so the round that wanted it rebuilt it from the description,
+  which is `CLAUDE.md`'s own rule failing in the direction it was written for. Three findings so far
+  (ADRs 0295, 0315, 0319); read the hits whose entry the row's own **note** does not name first.
+- **One asks who *quotes* an entry a note claims is unread**: `cargo run --release -p conformance
+  --bin unread`, seconds, over `ledger.toml` and the source roots — the second sweep as a program
+  (ADR 0324). A hit is a key some source quotes as a lookup string while a note says nobody reads
+  it, sharpest where the quoting file is in the row's own `code = [...]`; the dominant noise is
+  one short key in three clauses, so read the witness path it prints before believing a hit.
+- **One asks whether a stated *blocker* has expired**: `cargo run --release -p conformance
+  --bin blockers`, seconds, over `ledger.toml` and the source roots — the first sweep as a program
+  (ADR 0336). A blocker sentence naming a clause is judged against the ledger's own account of
+  that clause, and the expired ones print first; the three noise shapes it prints rather than
+  filters — a correction quoting the wording it retired, a past tense no grep can see, and a
+  clause named as the route to something outside the standard — are in the module doc. Read the
+  sentence before believing a hit.
+- **One asks whether the tree names a capability a note says is absent**: `cargo run --release
+  -p conformance --bin capabilities`, seconds, over `ledger.toml` and the source roots — the
+  third sweep as a program (ADR 0345). A hit carries the witness path where any source file
+  names the lacking noun, and says whether the claim is about *the program* (the population
+  that decays) or about *one crate* (usually a boundary it keeps on purpose); the dominant
+  noise is a true boundary statement, which a witness does not disprove. Read the sentence
+  before believing a hit.
+- **One asks the question from the other end — who *calls* it?**: `cargo run --release -p
+  conformance --bin callers`, a fifth of a second, over every `pub fn` in `pdf-model` and every
+  crate, tool and fuzz target whose manifest names it — the fifth sweep as a program (ADR 0360).
+  **Its output is a delta rather than a level**: the finding has twice been that a whole new host
+  program took no name off the bottom rungs. Read the rungs from the bottom, and know the two
+  directions it is loose in — a short name shared with another type's method reads as named, and a
+  name reached through a wrapper reads as unnamed.
+- **One asks where else a claim a round *retired* is still written**: `cargo run --release
+  -p conformance --bin retired -- <noun> …`, seconds, over `ledger.toml`, the source roots and
+  every Markdown document under `doc/` bar `doc/history/` — the fourth sweep as a program (ADR
+  0352). It is the one sweep that cannot derive its own population, because what was retired is
+  what the last rounds decided, so the nouns are arguments and the rule is `doc/todo/01`'s: give
+  it the *mechanism*, not the sentence. Each mention is printed as a correction or as a standing
+  claim, and **a noun carrying both is the shape to read first** — somebody wrote the retirement
+  here and not there.
+- **One asks whether the file — and the symbol — a note names still exists**: `cargo run --release
+  -p conformance --bin pointers`, a third of a second, over `ledger.toml`, the source roots and
+  every Markdown document under `doc/` bar `doc/history/` — the eighth sweep as a program (ADR
+  0372). **A pointer is resolved from where it is written**, so a `tests/x.rs` in a doc comment
+  means its own crate's tests and the same words in a document under `doc/` are *unrooted* rather
+  than dead; the other three rungs it prints instead of a finding are a fragment that resolves in
+  another crate, a metavariable (`doc/todo/NN`), and a path this tree deliberately does not carry.
+  The oldest false positive is a correction quoting the pointer it retired, and it is marked rather
+  than dropped. Read the sentence before believing a hit.
+- **One asks whether the table a sentence cites states the key it gives it**: `cargo run --release
+  -p conformance --bin tables`, seconds, over `ledger.toml`, the source roots and every Markdown
+  document under `doc/` bar `doc/history/` — the ninth sweep as a program (ADR 0380). It counts a
+  key only where the sentence **attributes** it, prints which table *does* state it, and reads a
+  **denial** as a claim in the other direction, so "Table 119 gives a Type 0 dictionary no
+  `/FontDescriptor`" is agreement and a denial the table contradicts is a hit. Its findings arrive
+  in blocks, and its most durable population is a *document*: a number a round retires in the code
+  goes on living in the ADR the code came from.
+- **One reads the status nobody expects to come back to**: `cargo run --release -p conformance
+  --bin inapplicable`, a fraction of a second, over `ledger.toml` and the source roots — the
+  seventh sweep as a program (ADR 0388). Every other sweep walks the rows that *owe* something; this
+  one takes an `inapplicable` row's own title and note apart into `/Key`s and identifiers and asks
+  whether the tree names them. **The count of naming files is the discriminator** and it replaces
+  the stop-list nine hand-runs each wrote from memory: the standard's shared vocabulary reaches
+  dozens of files and sorts last, a rare word sorts first. Read the **cousin** it prints before
+  anything else — a row that is not `inapplicable` and says the same word is the seventh failure
+  shape, and it is where all five of this sweep's defects have been.
+- **One asks whether the family a sentence counts holds that many rows**: `cargo run --release -p
+  conformance --bin counts`, seconds, over `ledger.toml`, the source roots and every Markdown document
+  under `doc/` bar `doc/history/` — the tenth sweep as a program (ADR 0400), and the last of the ten
+  whose *level* moved with the session. A cardinal is a claim about a family only where it governs one
+  of the ledger's own words for a row and only inside the sentence's own punctuation, and the answer
+  side is the family's own arithmetic rather than a reader's memory of the convention — a count that
+  leaves out the `General` row is right, and so is one that counts the clause's own row in. Read the
+  **contradictions** first: two numbers for one family in two sentences of one note are wrong whatever
+  the ledger holds, which is where both of this sweep's largest findings were.
+- **One reads the status whose own definition promises a debt**: `cargo run --release -p
+  conformance --bin owed`, seconds, over `ledger.toml` and the source roots — the fourteenth sweep
+  as a program (ADR 0397), and the last of the four descriptions whose *level* moved with the
+  session. A `partial` row must say which requirements are not executed; a note that names a debt
+  names a **thing**, and a thing this tree does not have is a name no source carries. So the
+  discriminator is the seventh sweep's with the sign reversed — there a term the tree *names* under
+  a row claiming absence, here a term the tree *lacks* under a row claiming a debt — and the
+  reading list is every row whose vocabulary the tree names in full, the one naming nothing
+  specific first. The noise is a debt named in prose with no identifier in it, printed rather than
+  filtered.
+- **One reads *these documents'* quotation marks and the ledger's**, on the same discriminator and
+  for the same reason: `cargo run --release -p conformance --bin quotations`, seconds, over every
+  Markdown file this project wrote under `doc/` **and over `ledger.toml`'s notes**, which is the
+  eleventh sweep and had been a hand-written script since the four-hundred-and-thirteenth. Its first
+  run over the documents found three sentences quoted as the standard's that ISO 32000-2 does not
+  contain, two of which were also standing in `crates/` in prose the gate does not read; its first
+  run over the ledger found three more. **Suspect the conversion before the document**: four of its
+  suspects were `doc/md/` losing text the PDF has, and the hyphen of a word broken across a line is
+  the commonest of them. It reads single-quoted spans as well as double since the
+  five-hundred-and-fortieth, and it prints how many so that a clean run says what it was clean over.
+  ADRs 0309 and 0375.
+- **One is not run from here at all**: `cargo run --release -p spec-errata -- check doc/*.pdf`,
+  seconds, asking the same spans a *different* question — does one of them quote a sentence Errata
+  Collection 3 struck out? That needs none of ADR 0249's syntax, because the erratum supplies the
+  other side. ADR 0254. **And `check` is only one direction of that question**, which the
+  five-hundred-and-fifty-fifth and -sixty-second sessions each paid for: it compares *quotations
+  this tree has written*, so an erratum over text nobody has quoted is invisible to it — a clause
+  deleted, a subclause renumbered, a table's requirement column raised. The other direction is
+  `emit`, read against what the ledger **claims**:
+
+  ```sh
+  cargo run --release -p spec-errata -- emit doc/*.pdf
+  cargo run --release -p spec-errata -- moved doc/*.pdf
+  ```
+
+  **And a third direction is a command since the five-hundred-and-ninety-first** (ADR 0426), for the
+  hole `check` and `emit` between them still left — a place that *records* an erratum and then
+  quotes the words it removed:
+
+  ```sh
+  cargo run --release -p spec-errata -- applied doc/*.pdf
+  ```
+
+  Two seconds, over `ledger.toml`, every comment run under `crates/`, `tools/` and `fuzz/`, and
+  every Markdown block under `doc/` bar `doc/history/`. **Its discriminator is that the erratum is
+  named as data, by the writer, in the place itself**, so nothing is inferred: the `StrikeOut` and
+  the `Caret` supply both sides and a hit is a quotation matching what the erratum struck and not
+  what it put there. Read the hits that carry **no** mark of a correction first — a correction
+  quoting the wording it retired is this family's oldest false positive and is marked rather than
+  dropped, `doc/errata-read.md` is that shape from end to end and is counted apart, and a `#NNN`
+  this collection does not carry is dropped and counted so that a clean run says what it was clean
+  over. Its first run found the §14.8.4.7.2 shape one clause family over, in §9.6.2.2's row, twice.
+
+  **The first of those two filters is a command since the five-hundred-and-sixty-fifth** (ADR 0400):
+  `moved` prints every annotation whose instruction uses *move*, *renumber*, *delete* or *insert* **and
+  names a clause number**, with what this tree has standing on that number — its ledger rows, its
+  citations and its mentions in these documents. Its first run found two errata the hand-filter had
+  walked past, one of them because this collection writes an instruction in the past passive as well as
+  in the imperative. The other filter is still by eye and still pays: a strikeout whose whole text is a
+  requirement word (`Optional`, `Required`, `Deprecated`). `doc/errata-read.md` has what each run found,
+  and what this tree does about a number an erratum has moved. A round implementing a clause runs
+  `emit` on that document **before** it writes, and not `check` afterwards alone.
+
 ## Why
 
 All 823 subclauses of the eight technical clauses have been read against this code since the

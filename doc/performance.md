@@ -12,7 +12,7 @@ number is quoted against a number taken the same afternoon.
 
 **Page one goes to the graphics device by the project owner's decision**, so GPU bring-up is on the
 critical path and what it costs is a number to keep rather than a cost to hide —
-`doc/HANDOVER.md`'s "Where we are" states the decision and this is the timeline under it.
+`doc/state-of-play.md` states the decision and this is the timeline under it.
 
 **Since the two-hundred-and-seventy-fourth session `--trace` prints the whole
 launch as a timeline** — one `Instant` taken at `main`'s first statement, one mark per milestone,

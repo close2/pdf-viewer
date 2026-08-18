@@ -816,7 +816,7 @@ was. ADR 0416 has the reproduction, the attribution and the three roads; three t
 - **Every survey line in this file that counts an incomplete over the crawl was measured with it.**
   The instrument shared `colour::MAX_PRESSES` between the documents it was judging: a table of
   eight, `static`, never evicted, so the ninth distinct press a process meets is refused and which
-  documents those are is the scheduler's answer. `doc/HANDOVER.md` trap 8's third entry is the
+  documents those are is the scheduler's answer. `doc/traps/parsers-and-streams.md` trap 8's third entry is the
   general form — a measurement taken with the instrument under test is not independent of it — and
   this is the shape one step further out, where the instrument is not under test and is not
   independent of *itself*. The numbers in §1's tables are not retracted: the affected population is

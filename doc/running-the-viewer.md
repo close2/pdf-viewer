@@ -4,7 +4,7 @@ Status: **standing** — what the program does when a person starts it.
 Read by: whoever is running the viewer rather than the gates. `doc/todo/02-every-round.md` §5 is
 what puts the binaries where a person can reach them; `doc/verify.md` is the instruments.
 
-`doc/HANDOVER.md`'s "Run it" is the pointer to this file.
+`doc/HANDOVER.md`'s reading table is the pointer to this file.
 
 **One of the six binaries `doc/todo/02` §5 installs is not a viewer at all**: `target/pdf-retrieve`
 answers a *program*'s questions about a document as JSON on stdout — a page, a section addressed by

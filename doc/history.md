@@ -11,8 +11,8 @@ than a sentence, and that pressure is what put 816 lines of per-round narrative 
 file (ADR 0281). This table is kept exactly as it is: splitting a record up for tidiness is the one
 thing a record may not have done to it.
 
-One line per session; the argument is in the ADR, and every durable lesson is in `doc/HANDOVER.md`'s
-Traps, in `doc/habits.md` or in the todo file that owns the work, rather than here. This table was
+One line per session; the argument is in the ADR, and every durable lesson is in `doc/traps/`,
+in `doc/habits.md` or in the todo file that owns the work, rather than here. This table was
 `doc/HANDOVER.md`'s last section until the three-hundred-and-ninety-fifth moved it out: it is
 narrative by that file's own definition, and a round needs it only when it is asking *when*.
 

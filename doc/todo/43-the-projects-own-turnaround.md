@@ -153,3 +153,39 @@ belong here because they are about a round's wall clock rather than about the ca
   (`multiple input files`, because cargo composes `sccache clippy-driver rustc …` and the parser sees two
   inputs). That is the same population §1 and the gate-binary row are about: **the remaining prize is
   fewer and cheaper links, not a better cache**, and this is now measured rather than assumed.
+
+## The denominator nobody had measured: what a round *reads* and which gates it *chooses*
+
+Opened and half-closed in the five-hundred-and-ninety-third, on a measurement the project owner
+took (ADR 0428). Every number above is about a *command*; this section is about the two costs
+around them, and the owner's measurement is what put them here:
+
+| step | cost |
+|---|---|
+| `fmt` + `clippy --workspace --all-targets` + `nextest --workspace` + doctests | 37 s |
+| the eight corpus-scale gates, `pdfref-hayro` and the conformance gate | 120 s |
+| **all of `doc/todo/02` §2** | ~2.6 min warm; ~4 min after touching `pdf-model` |
+| §5's release binaries, after touching `pdf-model` | 95 s |
+| a whole round, seventeen rounds measured | 24–82 min, mean ~50 |
+
+**So §2 is about eight per cent of a round**, and this file's first four sections have been
+optimising eight per cent. The other ninety-two is reading and choosing, and neither had ever been
+measured or even named as a cost.
+
+- **Reading.** `doc/HANDOVER.md` was ~850 lines and `doc/todo/02` ~420, and every round read both
+  whole. Both are indexes now and the detail is reachable by what the round is *about* —
+  `doc/state-of-play.md`, `doc/traps/`'s five groups, and `doc/todo/01`'s sweep catalogue. The
+  every-round pair is 513 lines where it was 1336.
+- **Choosing.** §2 now carries a change→gate map derived from the crate graph, with the full
+  sequence kept for every fifth round, for any round that can change a pixel, and for every merge.
+  §5's binaries follow the same cadence with one addition that is not a relaxation: **before any
+  measurement, always.**
+- **`tools/round.sh`** is the third piece and the one that makes the first two operative: it says
+  which session is next, what this kind of round reads, which gates it needs, whether the full
+  sequence is owed, and whether the four things a round has got wrong here are wrong now.
+
+**What is left in this section** is a measurement rather than a change, and it is the same shape as
+§1's: nobody has measured what the map *saves* across a run of rounds, or what it costs when it is
+wrong. The instrument is the one this file already uses — a round's own wall clock, said with what
+else was on the machine — and the tell that the map is too loose is a merge round finding something
+the branch rounds did not.
