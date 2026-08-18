@@ -305,8 +305,18 @@ mark.
 
 **Both arrived at quorra `89d7dd77`** as `Compose::DestOut` and `Compose::Plus` (its ADR 0025),
 with `DestOut` weighted by the mark's shape rather than by its paint's alpha, which is exactly what
-the second mark above carries. `render-quorra` has not yet expanded `Command::Shaped` into the
-pair, and until it does it refuses the command by name (`doc/todo/23`).
+the second mark above carries. **`render-quorra` expands `Command::Shaped` into that pair** —
+`Scene::shaped` emits the shape half under `DestOut` and the object half under `Plus`, both or
+neither — since the four-hundred-and-fifty-sixth session (ADR 0291); this paragraph said it still
+refused the command by name for a hundred and twenty rounds after it stopped.
+
+**And quorra amended `DestOut`'s weight in `1adf479`** (their ADR 0066), which matters to anyone
+reading this section as a specification: a soft mask is a knockout element's *opacity* and not its
+shape, so the shape half is §11.6.4.2's geometry met with §8.5.4's clip and nothing else. That is
+a no-op for this translator by construction rather than by luck — `pdf_model`'s `stated_shape`
+removes the mask and the constant before the shape half is built (ADRs 0234, 0327) — and it was
+measured over this corpus rather than assumed: 16 documents emit a knockout group, five emit a
+`Shaped` command, and in all six of those commands the shape half carries no soft mask.
 
 ### 4.2 Soft masks, evaluated on the device (§11.5, §11.6.5.1)
 

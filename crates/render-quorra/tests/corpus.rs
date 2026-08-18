@@ -292,25 +292,27 @@ const REFUSED: [&str; 2] = ["bug1721218_reduced.pdf", "issue18032.pdf"];
 ///   budget is a question about who is spending the bytes, and this time the answer was upstream
 ///   of the backend entirely. Nobody raised `max_resource_bytes`, and a budget raised to admit one
 ///   page would still be a budget chosen by that page.
-/// - `bug1703683_page2_reduced.pdf` and `issue1905.pdf` exceed the **16 384 × 16 384 texture**
-///   this adapter allows for the rasterised-coverage sheet. That is a device capability, not a
-///   policy. Quorra measured a multi-sheet fix at its `5483996` and **declined it with the
-///   numbers written down**: a second sheet takes one of these pages to 287 MB — refused again,
-///   on bytes — and the others to a quarter-gigabyte of per-frame upload, a page drawn at a cost
-///   its own brief calls a failure. The ceiling that bites is that a clipped shape becomes one
-///   coverage tile of its own device bounds; the open work upstream is on the tiling side.
+/// - `issue1905.pdf` exceeds the **16 384 × 16 384 texture** this adapter allows for the
+///   rasterised-coverage sheet. That is a device capability, not a policy. Quorra measured a
+///   multi-sheet fix at its `5483996` and **declined it with the numbers written down**: a second
+///   sheet takes this page to 287 MB — refused again, on bytes — and its neighbours to a
+///   quarter-gigabyte of per-frame upload, a page drawn at a cost its own brief calls a failure.
+///   The ceiling that bites is that a clipped shape becomes one coverage tile of its own device
+///   bounds; the open work upstream is on the tiling side. Its *message* changed with the release
+///   this list last moved on: the refusal now names the sheet it met rather than only the
+///   adapter's wall (quorra's ADR 0057 decision 2), which is that ADR's other half.
 ///
-///   **The first of the two has a fix upstream that this tree does not yet depend on**, and it is
-///   recorded here so that the next round to take a quorra release expects the name to leave
-///   rather than rediscovering why it did. quorra's ADR 0057 sizes a clipped mark's tile by its
-///   chain's own bounding box instead of by the open clip rectangle, and its §1 measures this page
-///   asking 1 008 561 911 texels where its 141 chains admit 2 297 897. It landed on their
-///   `cafadeb`; `Cargo.lock` pins `eada81ec`, which is earlier, so the refusal below is the
-///   correct behaviour of the revision this tree depends on. The five-hundred-and-sixty-seventh
-///   session was told the name could come off, ran the gate, and left it on — ADR 0402 decision 3
-///   is why, and it is `CLAUDE.md` principle 5 one boundary over: a report from another
-///   implementation is evidence about *that* implementation, and a ratchet held by name exists so
-///   that a name comes off by a run rather than by a message.
+///   **`bug1703683_page2_reduced.pdf` was here for the same reason and left in the
+///   five-hundred-and-seventy-sixth session, by a run.** quorra's ADR 0057 sizes a clipped mark's
+///   coverage tile by its chain's own bounding box instead of by the open clip rectangle, and its
+///   §1 measures this page asking 1 008 561 911 texels where its 141 chains admit 2 297 897. That
+///   landed on their `cafadeb`, which `cad50156` carries; at 4× on this lane the page now **agrees
+///   with the CPU oracle**. Two rounds were *told* the name could come off before one could watch
+///   it come off — the five-hundred-and-sixty-seventh ran the gate against `eada81ec` and left it
+///   on, which ADR 0402 decision 3 argues was right — and that is `CLAUDE.md` principle 5 one
+///   boundary over: a report from another implementation is evidence about *that* implementation,
+///   and a ratchet held by name exists so that a name comes off by a run rather than by a message.
+///   The message was accurate this time, which is not the same thing as its having been sufficient.
 /// - `bug1721218_reduced.pdf` and `issue18032.pdf` are this tree's own named refusals — the
 ///   §11.6.6/§11.7.2 group compositing in a four-component blending space and §11.4.6's
 ///   non-isolated knockout group ([`REFUSED`]'s two, ADR 0327) — which refuse *before the scene
@@ -324,15 +326,10 @@ const REFUSED: [&str; 2] = ["bug1721218_reduced.pdf", "issue18032.pdf"];
 /// So this list is held to equality for the same reason [`REFUSED`] is, and it is a **stronger**
 /// statement than that one: a page arriving here is a hole in the backend that only appears under
 /// magnification, and a page leaving it is a hole closed. It is checked on the default lane only,
-/// because the two lanes put *different tiles* in the coverage sheet that two of these four
-/// refuse for — the encoder chooses per command (quorra's ADR 0029) — so the sheet a frame
+/// because the two lanes put *different tiles* in the coverage sheet that one of these three
+/// refuses for — the encoder chooses per command (quorra's ADR 0029) — so the sheet a frame
 /// commits is a property of the lane, and a lane's refusals are its own.
-const REFUSED_AT_FOUR: [&str; 4] = [
-    "bug1703683_page2_reduced.pdf",
-    "bug1721218_reduced.pdf",
-    "issue18032.pdf",
-    "issue1905.pdf",
-];
+const REFUSED_AT_FOUR: [&str; 3] = ["bug1721218_reduced.pdf", "issue18032.pdf", "issue1905.pdf"];
 
 /// Pages where the two rasterisers differ only at the **edges** of what they draw.
 ///

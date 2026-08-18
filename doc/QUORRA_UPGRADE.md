@@ -760,3 +760,83 @@ lanes above are what turns that argument into a measurement.
 - **`ForeignPresenter::into_presenter`**, the recovery on a mis-attach. This tree detaches once and
   never attaches back, so the path is unreachable here — which is itself the reason it costs
   nothing to have.
+
+## `cad50156`, taken in the five-hundred-and-seventy-sixth session (2026-08-18)
+
+**121 commits past `eada81ec`**, 92 of them non-merge, with fourteen new ADRs of theirs — the
+largest range this tree has ever taken in one bump, and **the seventh in a row that cost it not
+one line to take**. `cargo build -p render-quorra --all-targets` passes against `cad50156` with
+no source change at all: nothing was removed, renamed or resignatured, and everything new is new.
+The only edit the release *required* is a ratchet coming off, which is the opposite of a cost.
+ADR 0411 is the argument; this section is what a reader of the correspondence needs.
+
+### What is in it, out of 32 000 changed lines
+
+Most of the range is the library's own tests, notes, ADRs and module splits — `error.rs` into
+seven files, `raster.rs` into three, `pipeline.rs`, `geom.rs`, `outline.rs`, all separately
+verified upstream as pure code moves and confirmed null over this corpus by their own matrices.
+Four things reach this tree:
+
+| | |
+|---|---|
+| `cafadeb`, their ADR 0057 | a clipped mark's coverage tile is bounded by **its chain's own device box** rather than by the open clip rectangle, and a refused frame names the *sheet* it met rather than only the adapter's wall |
+| `c443bc2`, their ADR 0070 | a mark whose thin axis is under the device coverage lane's sample-column spacing **keeps the processor lane** — §10.7.4's first requirement, on the lane that was breaking it |
+| `1adf479`, their ADR 0066 | a soft mask is a knockout element's **opacity**, not its shape. A no-op for this translator *by construction*: `stated_shape` removes the mask and the constant before the shape half reaches quorra (ADRs 0234, 0327), and their matrix measured that the corpus reaches the path — 16 documents emit a knockout group, 5 a `Shaped` command, and in all six `Shaped` commands the shape half carries no soft mask |
+| `b5a09d7`, their ADR 0069 | a *group* used as an element of a knockout group is refused by name. This tree refuses `issue18032.pdf` one crate earlier, in `render-quorra/src/scene.rs`, so their variant reaches no corpus page here |
+
+Plus `SceneError::InvalidImageAlpha`, `RenderError::ViewportTransformTooLarge`,
+`Counters::{coverage,lanes,atlas_overflow_tiles}`, `Limits::atlas_bytes`, ADR 0058's present
+rectangle, and a new `quorra-pages` member crate this tree does not depend on.
+
+### The four lanes, and the two that moved
+
+Both revisions run here side by side, one sitting, real Radeon 890M under RADV, `--profile gates`:
+
+| lane, scale | `eada81ec` | `cad50156` |
+|---|---|---|
+| scale 1, `cpu` (the default gate) | 932 / 23 / 2 / 17 | **932 / 23 / 2 / 17** |
+| scale 1, `gpu` | 930 / 25 / 2 / 17 | **932 / 23 / 2 / 17** |
+| scale 4, `cpu` | 937 / 11 / 4 / 22 | **938 / 11 / 3 / 22** |
+| scale 4, `gpu` | 938 / 10 / 4 / 22 | **939 / 10 / 3 / 22** |
+
+Agree / differ / refused / not comparable. The default lane is character-identical across the
+whole bump — **which is exactly why `doc/todo/02` §2 asks a release round for the other lane**.
+On the `gpu` lane at scale 1 the two columns were `diff`ed line by line: exactly two lines leave,
+`bug1883609.pdf` and `vertical.pdf`, and every other line is identical to the character. At 4×
+`issue12295.pdf` moves toward the oracle without reaching it (mean 0.9517 → 0.9201, differing
+0.0490 → 0.0473, similarity 0.95585 → 0.95881, worst tile unmoved at 16.31), so that row's totals
+alone would have read as null.
+
+The refusal that moved is `bug1703683_page2_reduced.pdf`, off the 4× list on both lanes and
+**agreeing with the CPU oracle** when rendered alone. `REFUSED_AT_FOUR` is three names now. Three
+separate upstream messages had said this name could come off; ADR 0411 §2 is why none of them was
+what took it off.
+
+### The one question the release asks, answered
+
+`doc/api-change-image-alpha.md` puts a decision to this tree rather than taking it: whether
+`SceneError` should be `#[non_exhaustive]`, since it is not, and the next variant would break a
+downstream `match` with no wildcard arm.
+
+**Yes for `SceneError` and `RenderError`; no for `SurfaceProblem`.** This tree reaches the first
+through one `#[from]` and matches it nowhere; it matches `RenderError` in `viewer-ui`'s
+`surface.rs` behind a catch-all that reports whatever quorra said. Both are open-ended
+vocabularies of refusals and marking them costs this caller nothing, now or later.
+`SurfaceProblem` is the opposite: that same `match` covers all five variants **with no wildcard**,
+because a swapchain state is a decision rather than a report — two ask for a redraw, two for
+nothing, one for a failure the person is told about. Its own module comment says its completeness
+is `wgpu`'s rather than quorra's, so if `wgpu` grows a sixth arm the right thing is that this tree
+**fails to compile**, and `#[non_exhaustive]` is what would take that away.
+
+The rule, if a third enum ever raises the question: mark the one whose variants a caller
+*reports*; leave exhaustive the one whose variants a caller *decides on*.
+
+### What this round did not take, and one thing only the owner can run
+
+- **No timing.** Two lanes were run twice and this desktop was busy; which pages refuse is
+  arithmetic, which lane is faster is not.
+- **The presenting path.** ADR 0058's layer rectangle and `present.wgsl` are reachable only from
+  a device built with a surface, which no gate in this tree has. `doc/environment.md` puts that
+  in the owner's session.
+- **`quorra-pages`.** A new member crate; this tree names `quorra-gpu` and `quorra-scene` and has
+  no reason yet to name a third.
