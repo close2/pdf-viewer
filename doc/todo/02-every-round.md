@@ -200,15 +200,31 @@ Three rules bind a round rather than a count:
   `page` target exists because `nm` found `pdf_model::interpret` — clauses 8, 9 and 11 — in one of
   the thirteen binaries that preceded it, and that one calls it on a page with no `/Resources`
   (ADR 0264).
-- **`page`'s corpus is the expensive part and the cost is paid every time.** libFuzzer's fork mode
-  merges the corpus before it fuzzes, one execution per seed, and on the seeds
-  `fuzz/seed_page.py` produces that merge has been most of the run's wall clock. Nothing writes
-  the reduced set back: `cargo fuzz cmin page` once would take `fuzz/corpus/page` down to the
-  distinct-coverage set and make the stated invocation an hour's job rather than an afternoon's.
-  It costs one more merge to do and no round has spent it. A round with an hour rather than three
-  should `cmin` first or pass a smaller `-runs`. **And a `slow-unit-` artefact is the sanitiser's,
-  which is checkable rather than assumed**: render the largest of them under `examples/render_at`
-  against a release build before believing one.
+- **`page`'s corpus is the expensive part, and the merge that reduces it has been spent.**
+  libFuzzer's fork mode merges the corpus before it fuzzes, one execution per seed, and on the
+  seeds `fuzz/seed_page.py` produces that merge had become most of every run's wall clock — one
+  round spent fifty minutes inside it and got nothing back. `cargo fuzz cmin page` writes the
+  reduced set back, and the five-hundred-and-ninety-third session ran it: **the corpus fell to
+  about a quarter of its files and a seventh of its bytes, at no cost in coverage at all** — a
+  `cmin` keeps exactly the distinct-coverage set, so the reduced corpus carries the same edges and
+  the same features the whole one did — `cmin`'s own `MERGE-OUTER` line says so, and a fork-mode
+  run over the reduced corpus reports the same two figures back, with no crash, timeout or OOM.
+  `du -sh fuzz/corpus/page` and `ls | wc -l` are where the level is.
+
+  **What it bought is less than this file expected, and the reason is worth having.** This bullet
+  said a `cmin` would "make the stated invocation an hour's job rather than an afternoon's". A
+  fork-mode start over the reduced corpus is about **a third** of what the same pass costs over the
+  whole one — not a quarter, which is where the *file count* went. **`cmin` throws away the cheap
+  seeds**: what distinguishes a seed is coverage, and the ones with distinct coverage are the large
+  slow documents. Its own rate says it, falling from 256 executions a second at the start to 14 at
+  the end. So the merge is still most of a short run's wall clock, and a round with an hour rather
+  than three still passes a smaller `-runs`.
+
+  **The merge that does the reducing is not free and is not a round's default**: about three
+  quarters of an hour, one execution per seed. A round `cmin`s when the corpus has grown rather
+  than as a habit. **And a `slow-unit-` artefact is the sanitiser's, which is checkable rather than
+  assumed**: render the largest of them under `examples/render_at` against a release build before
+  believing one.
 - **`cargo-fuzz` is installed and always was**; it is in `~/.cargo/bin`, which is not on `PATH`,
   which is what two rounds read as its absence.
 

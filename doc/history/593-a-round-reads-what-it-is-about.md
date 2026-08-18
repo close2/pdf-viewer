@@ -17,8 +17,8 @@ Todo: [43](../todo/43-the-projects-own-turnaround.md), which gains the denominat
 | | before | after |
 |---|---|---|
 | `doc/HANDOVER.md` | 882 | 125 |
-| `doc/todo/02-every-round.md` | 454 | 388 |
-| **the every-round pair** | **1336** | **513** |
+| `doc/todo/02-every-round.md` | 454 | 404 |
+| **the every-round pair** | **1336** | **529** |
 
 The rest is one hop away and reachable by what the round is about: `doc/state-of-play.md` took
 "Where we are" verbatim (209 lines), `doc/traps/`'s five files took the traps and the standing
@@ -76,7 +76,18 @@ reads and a check somebody learns to ignore.
 `doc/todo/02` §2 has said for many rounds that one `cargo fuzz cmin page` would take
 `fuzz/corpus/page` down to the distinct-coverage set, and that "it costs one more merge to do and
 no round has spent it". Session 592 spent fifty minutes inside that merge and got nothing back.
-This round started it first and let it run beside the documents.
+This round started it first and let it run beside the documents. It took three quarters of an hour
+and it worked: **40 089 files and 4.1 GB became 9 169 files and 653 MB**, and the reduced corpus
+was then run — 9 033 seeds, `cov: 37 932`, `ft: 206 585`, no crash, timeout or OOM — against the
+`cmin`'s own `37 927 new coverage edges; 206 645 new features`. Coverage kept, three quarters of
+the files gone.
+
+**And it bought less than §2 predicted, which is the finding rather than the number.** That
+sentence expected "an hour's job rather than an afternoon's". A fork-mode start over the reduced
+corpus is about a *third* of the same pass over the whole one, where the file count fell to a
+*quarter* — because what `cmin` keeps is the seeds with distinct coverage, and those are the large
+slow documents. Its own execution rate says it: 256 a second at the start of the merge, 14 at the
+end. §2 carries the correction.
 
 ## One edit that looks like a rule broken and is not
 

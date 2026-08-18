@@ -277,8 +277,9 @@ cd fuzz && cargo +nightly fuzz run page -- -runs=50000 -fork=6 -rss_limit_mb=409
   # 1882 seeds under the target's own 256 KiB ceiling, `cmin` to 1535, **28 535 edges** against the
   # best of the other thirteen at 6483. The run prints the current numbers and `doc/todo/02` §2 carries the
   # warning: libFuzzer merges the corpus once per run, and on the seeds `seed_page.py` produces that
-  # merge has been most of the wall clock. `cargo fuzz cmin page` once would write
-  # the reduced ~9000 back and nothing has spent that merge. The script prints what the seeds *state* — 100 with a
+  # merge had been most of the wall clock. `cargo fuzz cmin page` writes the reduced set back and
+  # the five-hundred-and-ninety-third spent that merge: about a quarter of the files and a seventh
+  # of the bytes, same edges and same features, three quarters of an hour to do. The script prints what the seeds *state* — 100 with a
   # `/Function`, 58 with a `/Shading`, 62 with a `/Pattern` — because a corpus that states none
   # seeds nothing about §8.7.4.5.
   # **It is the slow one, and the flags say why.** Interpreting a page under the sanitiser is

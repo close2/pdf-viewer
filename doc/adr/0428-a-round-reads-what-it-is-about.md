@@ -148,8 +148,8 @@ A fact a command can print is not written down. What came out:
 
 ## Consequences
 
-**What a round reads to start**: `doc/HANDOVER.md` 882 → 125 lines, `doc/todo/02` 454 → 388. The
-every-round pair goes from 1336 lines to 513, and the rest is reachable by what the round is about.
+**What a round reads to start**: `doc/HANDOVER.md` 882 → 125 lines, `doc/todo/02` 454 → 404. The
+every-round pair goes from 1336 lines to 529, and the rest is reachable by what the round is about.
 
 **Nothing was lost, and it was checked rather than asserted.** Every non-blank line of the old
 file's three large sections — the 405 lines of traps, the 82 of "Things worth knowing", the 195 of

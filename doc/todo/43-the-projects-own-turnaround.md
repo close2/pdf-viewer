@@ -175,7 +175,7 @@ measured or even named as a cost.
 - **Reading.** `doc/HANDOVER.md` was ~850 lines and `doc/todo/02` ~420, and every round read both
   whole. Both are indexes now and the detail is reachable by what the round is *about* —
   `doc/state-of-play.md`, `doc/traps/`'s five groups, and `doc/todo/01`'s sweep catalogue. The
-  every-round pair is 513 lines where it was 1336.
+  every-round pair is 529 lines where it was 1336.
 - **Choosing.** §2 now carries a change→gate map derived from the crate graph, with the full
   sequence kept for every fifth round, for any round that can change a pixel, and for every merge.
   §5's binaries follow the same cadence with one addition that is not a relaxation: **before any
