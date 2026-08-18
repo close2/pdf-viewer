@@ -296,6 +296,58 @@ fn main() {
     }
 
     caps_and_dots(scale);
+    below_one_level(scale);
+}
+
+/// Section 7: the thicknesses at which the *alpha* the substitution rides in runs out.
+///
+/// Every construction above carries a mark's given-up area in the paint's alpha, and an alpha is
+/// eight bits. So the ladders stop being about the rasteriser's coverage quantum and start being
+/// about the raster's own level somewhere below the rungs sections 1 and 4 walk, and nobody had
+/// asked where. §10.7.4's sentence is the one that decides what an answer of zero means there:
+///
+/// > This ensures that no shape ever disappears as a result of unfavourable placement relative to
+/// > the device pixel grid, as might happen with other possible scan conversion rules.
+///
+/// The rungs are chosen around one level of 255 — a mark 1/255 of a pixel thick puts down exactly
+/// one level, and everything under it rounds to nothing unless something states a floor.
+fn below_one_level(scale: f32) {
+    println!();
+    println!("a turned sliver below one level of 255, at scale {scale}");
+    println!("  drawn as   angle   thickness   backend   total ink   its own area   error");
+    for turned in [Turn::Fill, Turn::Stroke] {
+        for degrees in [0.0_f32, 30.0] {
+            for thickness in [0.02_f32, 0.01, 0.005, 0.002, 0.001] {
+                let mut list = DisplayList::new(TURNED);
+                list.push(turned.command(degrees, thickness));
+                let area = 2.0 * REACH * thickness * scale * scale;
+                for (name, raster) in draw(&list, scale) {
+                    let total = total_ink(&raster);
+                    println!(
+                        "  {:<8}   {degrees:>5.0}   {thickness:>9.3}   {name:<8}  {total:>9.4}   \
+                         {area:>12.4}   {:>6.1}%",
+                        turned.label(),
+                        100.0 * (total - area) / area
+                    );
+                }
+            }
+        }
+    }
+
+    println!();
+    println!("a degenerate subpath under round caps, below one level, at scale {scale}");
+    println!("  width   backend   total ink   its own area   error");
+    for width in [0.05_f32, 0.02, 0.01] {
+        let list = capped_rule(0.0, 0.0, width, pdf_render::LineCap::Round);
+        let area = capped_area(0.0, width, pdf_render::LineCap::Round) * scale * scale;
+        for (name, raster) in draw(&list, scale) {
+            let total = total_ink(&raster);
+            println!(
+                "  {width:>5.2}   {name:<8}  {total:>9.4}   {area:>12.4}   {:>7.1}%",
+                100.0 * (total - area) / area
+            );
+        }
+    }
 }
 
 /// Sections 5 and 6: the marks whose area goes as the *square* of the width.

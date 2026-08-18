@@ -12,11 +12,15 @@ a *clipping region* meets a filled mark's own coverage by `min` on this backend 
 product, and since ADR 0363 a clip standing *beside* a soft mask does too.** What is left of it is a
 stroke, an image, **a group's raster — which ADR 0355 called not owed and §8.5.4's third sentence
 says is owed** — and the two
-backends that still multiply; and what is left of the file is what an eight-bit
-raster does to a mark whose ink is under one of its levels, and two marks abutting — which item 2
+backends that still multiply; and what is left of the file is two marks abutting — which item 2
 had only across a cell's box edge and which the four-hundred-and-seventy-third session measured in
 its general form on a document the project owner reported (ADR 0308). **It is not a defect of this
-program**, and item 5 says on what evidence.
+program**, and item 5 says on what evidence. **What an eight-bit raster does to a mark whose ink is
+under one of its levels was this file's standing question and is answered** (ADR 0419): the standard
+states a floor of one whole device pixel for the *aliased* algorithm and none at all for the
+anti-aliased one §10.7.1's NOTE permits instead, beyond "no shape ever disappears" — which this tree
+was failing at the very bottom of the range and now is not. Two marks are left there, both measured,
+and the cap-and-dot section below carries them.
 Priority: 11
 Corpus: 4 known witnesses; the general shape of the residual is stated
 Clauses: §10.7.4, §8.4.3.3 and §8.5.3.2 for the marks that are `O(w²)`, §8.4.3.5 for item 6,
@@ -164,7 +168,59 @@ whose ink would be overstated by `W / w`.
 at the single point", is `π w² / 4` and vanished outright at 0.1 and 0.2 of a device pixel — silent,
 ungated and unwitnessed. It takes the same substitution, as does a zero-length dash's mark.
 
-### What is left of it: an eight-bit raster's own floor
+### What is left of it: an eight-bit raster's own floor — **the reading is settled (ADR 0419), two marks are left**
+
+**The five-hundred-and-eighty-fourth session read the clauses this item rests on and the answer is
+that the standard states no floor for an anti-aliasing device**, so this item is no longer "what an
+eight-bit raster does" as an open question. What it is now is two measured residuals with a reason
+apiece.
+
+The reading, in three sentences and with the ladders in ADR 0419. §8.4.3.2's one-device-pixel
+`shall` is about a width of **zero**; about a positive sub-pixel width the same subclause is
+permissive — "[t]he actual line width achieved can differ from the requested width by as much as 2
+device pixels" — and points at §10.7.5. §10.7.5 states the references' floor outright and conditions
+it on stroke adjustment, whose Table 52 initial value is `false`, and `issue12295.pdf` states no
+`/SA`, no `/ExtGState` and no `/GS`. §10.7.4's floor is one whole device pixel and belongs to the
+**aliased** algorithm — `pdftoppm -aa no`, `gs -dGraphicsAlphaBits=1` and `mutool draw -A 0` all
+answer exactly 1.02 of ink at every sub-pixel width on the same ladder, agreeing about the clause —
+and for the anti-aliased algorithm §10.7.1's NOTE permits instead, the only unconditional
+requirement left is that no shape ever disappears. With anti-aliasing on the four references floor
+at **four different device-pixel widths**: `poppler` and `hayro` 1.0, `mupdf` 0.2, `ghostscript`
+0.27. That is not one convention; it is four choices where the clause is silent, and `hayro`'s
+source calls its own "as required by the PDF specification" while exempting text, patterns and
+Type 3 glyphs from it.
+
+**What was ours, and is paid.** Our column was the straight line through the origin at both
+resolutions and it *reached zero* — a 200-unit rule at 0.002 and 0.001 of a device pixel drew no ink
+at all, on both backends, at 0° and 30°. Every construction in `pdf_render::sub_pixel` carries a
+mark's given-up area in the paint's **alpha**, and an alpha is eight bits, so each has a second
+floor below the coverage quantum ADR 0226 answered. `pdf_render::expressible_coverage` states a
+positive coverage under one level *at* one level — the one place the raster's depth is named — and
+it reaches all three coverages: `SubPixelBand::coverage`, `EnlargedMark::coverage` and the turned
+body's `style.width / width`, which `render-cpu` had been computing itself (trap 2). No document on
+this disk is a witness: `sub_pixel_width_census` over 1005 first pages of every corpus here puts the
+thinnest stated sub-pixel stroke at **0.05 of a device pixel**, and the three documents that can
+reach the floor at all — `issue12810.pdf`, `issue13211.pdf`, `issue14117.pdf` — move by 0.00001 of a
+level, 0.0000 and nothing at scale 1 and are byte-identical at 4×.
+
+**What is left, each with what it needs:**
+
+- **`render-quorra` still loses the mark**, at 0.002 and 0.001 on an axis and at 0.001 turned. It
+  takes no substitution here — it hands quorra the document's own width, and that rasteriser's
+  coverage is what runs out — so the floor has nowhere to be applied. Either `render-quorra` adopts
+  the widen-and-scale-the-alpha construction `render-cpu` has, or it is `doc/QUORRA_FEEDBACK.md`'s
+  ask; nothing on this disk states a width that reaches it, so it is unwitnessed either way.
+  `sub_pixel_coverage.rs`'s new test holds the processor only and says why.
+- **§8.5.3.2's dot is worse than ADR 0290 recorded, and the alpha floor does not recover it.** Both
+  backends draw **nothing** for a degenerate subpath under round caps at 0.1, 0.05, 0.02 and 0.01 of
+  a device pixel. ADR 0290's own ladder has printed the 0.1 row as −100% since it landed and the
+  gate's rungs start at 0.2, so this had been on screen and unread. Raising the alpha does not help
+  and the reason is the *shape* rather than the arithmetic: the substitute is a circle **inscribed
+  in** one device pixel, which covers no pixel fully, so the raster's rounding takes the mark a
+  second time after the alpha survived it. Recovering it means stating the mark as the whole pixel
+  it lies in — which is snapping a mark that has a width, which §10.7.5 conditions on `/SA` and ADR
+  0208 declines. Left, with its threshold measured.
+- **And the page below, which is the conclusion rather than a shortfall.**
 
 `issue12295.pdf` is the witness and the residual is the *raster's*. All 65 859 of its sub-pixel
 strokes are 0.1366 of a device pixel wide (`pdf-model/examples/sub_pixel_width_census`), so their

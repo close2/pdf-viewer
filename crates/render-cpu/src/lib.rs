@@ -2040,8 +2040,12 @@ fn draw_rule_at_one_pixel(
         return false;
     };
     let mut faint = brush.clone();
-    // `width` is a reciprocal of a positive stretch, so it is finite and above zero.
-    faint.shader.apply_opacity(style.width / width);
+    // `width` is a reciprocal of a positive stretch, so it is finite and above zero. The floor is
+    // §10.7.4's "no shape ever disappears" reaching the *alpha* the substitute rides in, which is
+    // eight bits and runs out below 1/255 of a device pixel of thickness.
+    faint
+        .shader
+        .apply_opacity(pdf_render::expressible_coverage(style.width / width));
     scan::fill(
         pixmap,
         &outline,

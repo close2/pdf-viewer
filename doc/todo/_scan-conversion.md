@@ -147,6 +147,30 @@ buffer carries *alpha*, which is shape times opacity, so the construction needs 
 beside the raster. Measured with the set kept apart at that blit, the witness's edge goes
 **0.306 → 0.571** of the mark against departure (1)'s 0.827. `doc/todo/11` item 4 carries it.
 
+**And since the five-hundred-and-eighty-fourth, the floor under all of it** — which is departure (1)
+meeting the eight bits its coverage is carried in (ADR 0419). Every substitution above states a mark
+wider than the document's own and puts the area it gave up in the paint's **alpha**, so each has a
+second floor below the rasteriser's coverage quantum: a coverage under `1/255` rounds to nothing and
+the mark is gone by a third road. Measured, a 200-unit rule at 0.002 and 0.001 of a device pixel drew
+**no ink at all** on both backends, and a ladder of one rule at seventeen widths against `pdftoppm`,
+`mutool`, `gs` and `hayro` puts ours as the only column that reaches zero.
+`pdf_render::expressible_coverage` states a positive coverage under one level *at* one level — the
+one place this crate names the raster's depth — and the mark is then drawn heavier than its geometry,
+which is the side of "[t]he area covered by painted pixels shall always be at least as large as the
+area of the original shape" that the `shall` is on. It is not §10.7.5's promotion: the mark keeps its
+place and the substitute's width, and only the last level of its alpha moves.
+
+**The same round settled what this file's departure (1) is a departure *from*, at the bottom of the
+range.** §10.7.4's floor is one whole device pixel and it belongs to the aliased algorithm — asked
+for it, `pdftoppm -aa no`, `gs -dGraphicsAlphaBits=1` and `mutool draw -A 0` each answer exactly one
+whole pixel at every sub-pixel width, agreeing about the clause. With anti-aliasing on the four
+references floor at four *different* device-pixel widths (`poppler` and `hayro` 1.0, `mupdf` 0.2,
+`ghostscript` 0.27), which is where §10.7.1's NOTE hands the question to the implementation. §10.7.5
+states that floor as a `shall` and conditions it on stroke adjustment, whose Table 52 initial value
+is `false`. So for an anti-aliasing device the clause's only unconditional requirement here is that
+no shape ever disappears, and `issue12295.pdf`'s pale ECG traces are this departure working rather
+than a defect. `doc/todo/11` carries the two marks that are still lost.
+
 ## Where the departure is *visible*, and how to tell it from a defect
 
 Three oracle groups turn on this, and the distinction that matters is between a difference the

@@ -5798,6 +5798,43 @@ const AMBIGUOUS_STACKED_SCREEN_UNDER_MASKS: [&str; 0] = [];
 /// went −1.712 → **−2.956** of our ink minus the lightest reference's, because moving toward a
 /// geometry every reference overpaints is moving away from all of them. ADR 0290 moves it back to
 /// −2.823 for the same reason in reverse.
+///
+/// ## What the references are doing on that page, settled in the five-hundred-and-eighty-fourth
+///
+/// The picture is what makes this page worth a session rather than a row: its two ECG panels are a
+/// **ghost** in our render and dark in all four references, and the side-by-side says so at a
+/// glance. ADR 0419 asked which reading of the standard that is, and the answer came off a ladder
+/// rather than off any of them — one 160-unit rule per page at seventeen widths, ink against the
+/// geometry's own `1.02 × w`, at 72 dpi and again at 576:
+///
+/// ```text
+///    width   geometry      ours   poppler     mupdf        gs     hayro
+///   0.1366     0.1393     0.136      1.02     0.204     0.272     1.024
+///     0.05     0.0510     0.048      1.02     0.204     0.272     1.024
+///    0.001     0.0010         0      0.128     0.204     0.272     1.024
+/// ```
+///
+/// Each reference floors a sub-pixel rule at a **device-pixel** width — the same numbers at 8× —
+/// and **no two of the four floors agree**: `poppler` and `hayro` at 1.0 device pixels, `mupdf` at
+/// 0.2, `ghostscript` at 0.27. Ours is the straight line through the origin at both resolutions.
+/// Ask the three C references for the clause's *own* algorithm instead — `pdftoppm -aa no`,
+/// `gs -dGraphicsAlphaBits=1`, `mutool draw -A 0` — and the disagreement vanishes: **1.02 apiece at
+/// every sub-pixel width**, one whole device pixel, which is §10.7.4 read literally. They agree
+/// about the clause and part the moment anti-aliasing is switched on, which is exactly the region
+/// §10.7.1's NOTE hands to the implementation.
+///
+/// §10.7.5 states the floor they draw — "[i]f stroke adjustment is enabled and the requested line
+/// width, transformed into device space, is less than half a pixel, the stroke shall be rendered as
+/// a single-pixel line" — and Table 52 initialises that parameter to `false`. **`issue12295.pdf`
+/// states no `/SA`, no `/ExtGState` and no `/GS` at all**, so the clause that would darken its
+/// traces is not asked for. `hayro`'s source is the one on this disk and it says the quiet part:
+/// "Best-effort attempt to ensure a line width of at least 1.0, as required by the PDF
+/// specification" — with a different threshold for text and the rule disabled inside patterns and
+/// Type 3 glyphs, three exceptions no clause states.
+///
+/// So the page stays here, with the citation beside it rather than a target: the group's subject is
+/// every renderer painting more than the geometry, and this one is the extreme of it because its
+/// marks are the thinnest.
 /// # A fourth, in the two-hundred-and-sixty-eighth, and the tightest limit the bucket has
 ///
 /// `issue12963.pdf` page 7 is page 8's neighbour and says the same thing more exactly: `poppler`

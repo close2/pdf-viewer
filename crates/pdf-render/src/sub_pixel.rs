@@ -155,6 +155,30 @@
 //! draws composite as `1 − (1 − a)(1 − b)` where one scan conversion would have added. That is one
 //! pixel line at the end of a mark this whole module exists because it is under a pixel, and it is
 //! the same seam `doc/todo/11`'s last item carries for a tiling's cell boundary.
+//!
+//! # Where the alpha itself runs out, and what the clause says about that
+//!
+//! Every construction above carries a mark's given-up area in the paint's **alpha**, and an alpha
+//! is eight bits. So each of them has a second floor, further down than the rasteriser's coverage
+//! quantum and reached by a different road: a coverage under `1/255` rounds to nothing, and the
+//! mark is gone as completely as it was before any of this existed. Measured on
+//! `render-quorra/examples/sub_pixel_marks`' seventh section, a 200-unit rule at 0.002 and 0.001
+//! of a device pixel drew **no ink at all** on both backends, and §8.5.3.2's dot — whose alpha is
+//! a *square* — was gone at 0.05, which is twenty times thicker and is a width the corpus states.
+//!
+//! §10.7.4 decides what an answer of zero means, and it is the sentence this whole module opens
+//! with: "[t]his ensures that no shape ever disappears". [`expressible_coverage`] is that sentence
+//! as arithmetic — a coverage that is positive and under one level is stated at one level — and it
+//! is the only place the raster's depth is named, so that neither backend decides it alone.
+//!
+//! **It costs ink, deliberately, and the clause asks for that direction rather than the other**:
+//! the same paragraph says "[t]he area covered by painted pixels shall always be at least as large
+//! as the area of the original shape", so a mark this floor raises is a mark drawn heavier than
+//! its geometry, which is the side of the sentence a `shall` is on. What it does *not* do is what
+//! §10.7.5 would: the mark stays where the document put it and keeps the width the substitution
+//! gave it, and only the last level of its alpha moves. §10.7.5's promotion of a sub-half-pixel
+//! stroke to a single-pixel line is a different rule with a different trigger — "[i]f stroke
+//! adjustment is enabled" — and Table 52 gives that parameter an initial value of `false`.
 
 use crate::collapsed::{Extent, subpath_extents};
 use crate::degenerate::KAPPA;
@@ -171,7 +195,8 @@ use crate::paint::{FillRule, LineCap};
 pub struct SubPixelBand {
     /// The whole device pixel line the shape lies in, expressed in the path's own space.
     pub shape: Path,
-    /// The coverage the shape's own area implies there, in `0.0 < coverage <= 1.0`.
+    /// The coverage the shape's own area implies there, in `0.0 < coverage <= 1.0`, and never
+    /// under one level of the raster: [`expressible_coverage`].
     pub coverage: f32,
 }
 
@@ -232,11 +257,45 @@ pub fn sub_pixel_bands(
         for band in &plan.bands {
             bands.push(SubPixelBand {
                 shape: stated_in_path_space(*band, inverse)?,
-                coverage: band.coverage,
+                coverage: expressible_coverage(band.coverage),
             });
         }
     }
     Some(bands)
+}
+
+/// The smallest coverage an eight-bit raster can hold: one level of 255.
+///
+/// Named here because it is the raster's depth rather than any clause's number, and because
+/// [`expressible_coverage`] is the only place this crate is allowed to know it.
+const ONE_LEVEL: f32 = 1.0 / 255.0;
+
+/// A substituted mark's coverage, raised to what the raster can hold — ISO 32000-2 §10.7.4.
+///
+/// Every substitution in this module states a mark wider than the document's own and carries the
+/// area it gave up in the paint's alpha. That alpha is eight bits, so a coverage under one level
+/// of 255 puts down nothing at all, and the mark disappears — which is what the clause's stated
+/// purpose forbids:
+///
+/// > This ensures that no shape ever disappears as a result of unfavourable placement relative to
+/// > the device pixel grid, as might happen with other possible scan conversion rules.
+///
+/// So a coverage that is positive and under one level is stated *at* one level. Anything at or
+/// above it, and anything that is not positive, is returned unchanged: a mark with no area names
+/// no shape, and [`crate::collapsed`] rather than this answers a subpath that has none.
+///
+/// The mark is drawn heavier than its geometry wherever this bites, which is the direction the
+/// same paragraph asks for — "[t]he area covered by painted pixels shall always be at least as
+/// large as the area of the original shape" — and it is the only thing that moves: the mark keeps
+/// its place and the width the substitution gave it, so this is not §10.7.5's promotion, which
+/// needs a stroke adjustment parameter Table 52 initialises to `false`.
+#[must_use]
+pub fn expressible_coverage(coverage: f32) -> f32 {
+    if coverage > 0.0 && coverage < ONE_LEVEL {
+        ONE_LEVEL
+    } else {
+        coverage
+    }
 }
 
 /// The stroke width, in the path's own space, at which a mark is one whole device pixel across
@@ -272,7 +331,8 @@ pub fn substitute_width(to_device: Transform) -> Option<f32> {
 pub struct EnlargedMark {
     /// The width the mark is to be stated at, in the path's own space: [`substitute_width`]'s.
     pub width: f32,
-    /// What the paint's alpha is multiplied by, in `0.0 < coverage < 1.0`.
+    /// What the paint's alpha is multiplied by, in `0.0 < coverage < 1.0`, and never under one
+    /// level of the raster: [`expressible_coverage`].
     pub coverage: f32,
 }
 
@@ -285,7 +345,9 @@ pub struct EnlargedMark {
 ///
 /// The module comment argues the construction and lists the three marks that reach it. The arithmetic
 /// is one line: a shape of width `w` restated at `W` covers `(W / w)²` times the area, so an alpha of
-/// `(w / W)²` puts down what the document asked for, exactly, at every width under the quantum.
+/// `(w / W)²` puts down what the document asked for, exactly, at every width under the quantum —
+/// except at the bottom, where the *square* takes it under one level of 255 and
+/// [`expressible_coverage`] states the least the raster can hold instead of nothing at all.
 #[must_use]
 pub fn enlarged_mark(width: f32, to_device: Transform) -> Option<EnlargedMark> {
     let substitute = substitute_width(to_device)?;
@@ -295,7 +357,9 @@ pub fn enlarged_mark(width: f32, to_device: Transform) -> Option<EnlargedMark> {
     let ratio = width / substitute;
     Some(EnlargedMark {
         width: substitute,
-        coverage: ratio * ratio,
+        // A square is where the alpha runs out first: at 0.05 of a device pixel a cap's own
+        // `(w / W)²` is 0.0025, which is under one level of 255 and drew nothing.
+        coverage: expressible_coverage(ratio * ratio),
     })
 }
 
@@ -1180,5 +1244,39 @@ mod tests {
         ]);
         assert!(!only_flat_subpaths(&corner));
         assert!(!only_flat_subpaths(&Path::new()), "nothing to stroke");
+    }
+
+    /// ISO 32000-2 §10.7.4's "no shape ever disappears", reaching the eight bits the substituted
+    /// coverage is carried in.
+    ///
+    /// The three rungs are the whole rule: a coverage the raster can hold is untouched, one it
+    /// cannot is stated at the least it can, and nothing at all stays nothing — a mark with no
+    /// area names no shape, and `crate::collapsed` rather than this answers a subpath with none.
+    #[test]
+    fn a_coverage_under_one_level_is_stated_at_one_level() {
+        assert!((super::expressible_coverage(0.5) - 0.5).abs() < f32::EPSILON);
+        let floor = 1.0 / 255.0;
+        assert!((super::expressible_coverage(floor) - floor).abs() < f32::EPSILON);
+        assert!((super::expressible_coverage(floor / 10.0) - floor).abs() < f32::EPSILON);
+        assert!((super::expressible_coverage(0.0) - 0.0).abs() < f32::EPSILON);
+    }
+
+    /// A mark whose area is a *square* of the width reaches that floor twenty times sooner.
+    ///
+    /// `(w / W)²` at a fiftieth of a device pixel is 0.0004, which is a tenth of a level: the body
+    /// of a rule that thin still lands and §8.4.3.3's cap on the end of it would not.
+    #[test]
+    fn an_enlarged_marks_coverage_is_floored_where_its_square_takes_it_under_a_level() {
+        let mark = super::enlarged_mark(0.02, Transform::IDENTITY).expect("under the quantum");
+        assert!((mark.width - 1.0).abs() < f32::EPSILON, "one device pixel");
+        assert!(
+            (mark.coverage - 1.0 / 255.0).abs() < f32::EPSILON,
+            "0.02 squared is 0.0004, a tenth of a level, and one level is what the raster holds"
+        );
+        let ordinary = super::enlarged_mark(0.2, Transform::IDENTITY).expect("under the quantum");
+        assert!(
+            (ordinary.coverage - 0.04).abs() < f32::EPSILON,
+            "0.2 squared is well above a level and is left exactly where the arithmetic puts it"
+        );
     }
 }

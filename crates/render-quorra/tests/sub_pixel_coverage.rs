@@ -477,3 +477,49 @@ fn a_zero_width_rule_is_one_device_pixel_wide_on_both_backends() {
         );
     }
 }
+
+/// A rule too thin for the *alpha* the substitute rides in still marks the raster.
+///
+/// Every construction under `pdf_render::sub_pixel` carries a mark's given-up area in the paint's
+/// alpha, and an alpha is eight bits. So below `1/255` of a device pixel of thickness the mark was
+/// gone again — not through the rasteriser's coverage quantum, which ADR 0226 answered, and not
+/// through the hairline's projection, which ADR 0268 answered, but through the substitute's own
+/// arithmetic. §10.7.4 forbids the outcome however it is reached:
+///
+/// > This ensures that no shape ever disappears as a result of unfavourable placement relative to
+/// > the device pixel grid, as might happen with other possible scan conversion rules.
+///
+/// `pdf_render::expressible_coverage` states a positive coverage under one level *at* one level,
+/// so what lands is heavier than the geometry — which is the direction the same paragraph asks
+/// for, "[t]he area covered by painted pixels shall always be at least as large as the area of the
+/// original shape". This therefore checks that ink exists rather than what it comes to; the ladder
+/// is `sub_pixel_marks`' seventh section.
+///
+/// **The processor only, and the device's answer is the reason.** quorra takes no substitution
+/// here — it strokes the document's own width and its rasteriser's coverage is what runs out — so
+/// at 0.002 and 0.001 of a device pixel it draws nothing, measured on that ladder. That is
+/// `doc/todo/11`'s, not this test's, and holding the device to a rule it has not been given would
+/// only say so twice.
+#[test]
+fn a_rule_under_one_level_of_alpha_still_marks_the_processors_raster() {
+    for degrees in [0.0_f32, 30.0] {
+        for width in [0.002_f32, 0.001] {
+            let list = turned_rule(degrees, width);
+            let Some(drawn) = both(&list, total_ink) else {
+                println!("skipped: no adapter on this machine");
+                return;
+            };
+            let (backend, ink) = drawn[0];
+            assert_eq!(
+                backend, "processor",
+                "the processor is the first of the two"
+            );
+            assert!(
+                ink > 0.0,
+                "§10.7.4: no shape ever disappears, and a {width}-unit rule at {degrees} \
+                 degrees did on the {backend} — run `cargo run --release -p render-quorra \
+                 --example sub_pixel_marks` for both backends' ladders"
+            );
+        }
+    }
+}
