@@ -310,6 +310,16 @@ impl Viewer {
                 .map_or(Answer::Reports(&[]), |interpreted| {
                     Answer::Reports(&interpreted.reports)
                 }),
+            // `Answer::None` rather than an empty tally where no page has been interpreted:
+            // "nothing was lost" and "nothing has been read yet" are different answers, and a
+            // host that showed the first for the second would be reassuring a person about a
+            // page it has not looked at.
+            Query::Readback => open
+                .interpreted
+                .as_ref()
+                .map_or(Answer::None, |interpreted| {
+                    Answer::Readback(interpreted.shortfall)
+                }),
         }
     }
 
@@ -1977,6 +1987,7 @@ impl Viewer {
                 .put(page, &Arc::from(interpretation.text.as_str()));
             open.interpreted = Some(Interpreted {
                 page,
+                shortfall: interpretation.shortfall(),
                 list: Arc::new(interpretation.display_list),
                 reports,
                 text: interpretation.text,

@@ -452,6 +452,66 @@ fn objects_lost_inside_a_damaged_object_stream_are_said_out_loud() {
     );
 }
 
+/// A page whose codes ISO 32000-2 §9.10.2 cannot name says how many, without reporting one.
+///
+/// **The counterpart of the test above, and the distinction between them is the whole decision.**
+/// That one is a *refusal* — something this program could not do — and it goes into
+/// `Query::Reports` where a host puts it in a status bar. This one is the clause's own answer:
+/// "there is no way to determine what the character code represents", said of a page that
+/// interprets whole and draws every glyph. It may not become a report, because a page that
+/// reports leaves the oracle's judged set (ADR 0152) and nothing here failed — so it crosses as a
+/// count instead, which is what `Query::Readback` is. ADR 0422.
+///
+/// The fixture is `french_diacritics.pdf` reduced to two codes: a `/Differences` naming `/a192`
+/// and `/a224`, pdfTeX's private labels for `À` and `à`, which neither list the clause names
+/// holds. `A` and `a` beside them are the control — a page where *nothing* could be named would
+/// pass with a viewer that counted every code.
+#[test]
+fn a_page_whose_codes_no_method_can_name_answers_with_a_count_and_not_a_report() {
+    let body = "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] \
+         /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length 45 >>\nstream\nBT /F1 12 Tf 20 40 Td (A\\300a\\340) Tj ET\n\
+         endstream\nendobj\n\
+         5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica \
+         /Encoding << /Type /Encoding /Differences [192 /a192 224 /a224] >> >>\nendobj\n";
+    let mut viewer = Viewer::new(400, 300, 1.0);
+
+    // Before a page is interpreted there is no answer, which is not the same as an answer of
+    // zero: a host must not be able to tell a person that nothing was lost off a page nobody
+    // has read.
+    assert!(matches!(viewer.query(Query::Readback), Answer::None));
+
+    let _ = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: assemble(body),
+            password: None,
+            fragment: None,
+        })
+        .count();
+
+    let Answer::Reports(reports) = viewer.query(Query::Reports) else {
+        panic!("a page that was interpreted answers with its reports");
+    };
+    assert!(
+        reports.is_empty(),
+        "the clause's own 'there is no way' is not a refusal of ours: {reports:?}"
+    );
+
+    let Answer::Readback(shortfall) = viewer.query(Query::Readback) else {
+        panic!("a page that was interpreted answers with what its codes cost");
+    };
+    assert_eq!(shortfall.unnamed.total(), 2);
+    assert_eq!(shortfall.unnamed.unlisted_name, 2, "{shortfall:?}");
+    assert_eq!(
+        shortfall.without_a_glyph, 0,
+        "a substitute drew all four: the gap is in the reading and not in the picture"
+    );
+    assert!(!shortfall.is_whole());
+}
+
 /// One document whose page dictionary is compressed beside an object its stream stops short of.
 ///
 /// The stream is a single RFC 1951 stored block with BFINAL clear and no Adler-32, so every byte

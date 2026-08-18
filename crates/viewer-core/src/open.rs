@@ -363,6 +363,11 @@ pub(crate) struct Interpreted {
     pub(crate) list: Arc<DisplayList>,
     /// What could not be drawn, already worded.
     pub(crate) reports: Vec<String>,
+    /// What could not be *read*: the per-code counts `Query::Readback` answers with.
+    ///
+    /// Kept rather than recomputed for the reason `placed` is kept — it is only knowable while
+    /// the page is being interpreted — and it costs three words per page rather than a vector.
+    pub(crate) shortfall: pdf_model::content::Shortfall,
     /// The page's text, in the order the content stream showed it.
     pub(crate) text: String,
     /// Where each of that text's character codes sits on the page.

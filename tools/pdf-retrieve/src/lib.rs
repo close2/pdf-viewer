@@ -174,6 +174,14 @@ pub struct PageText {
     pub complete: bool,
     /// What it could not do, in its own words.
     pub unsupported: Vec<String>,
+    /// What the *text* cost, which [`Self::unsupported`] never says.
+    ///
+    /// A page can interpret completely, draw perfectly and still read back short, because
+    /// ISO 32000-2 §9.10.2 ends "there is no way to determine what the character code
+    /// represents" — and a caller quoting this text is the one person entitled to know how many
+    /// of its codes that sentence applies to. It is deliberately not in [`Self::unsupported`]: that list is
+    /// what the interpreter could not *do*, and this is what the standard could not *say*.
+    pub shortfall: pdf_model::content::Shortfall,
     /// The annotations, where they were asked for.
     pub annotations: Vec<Note>,
 }
@@ -201,6 +209,8 @@ pub struct SectionText {
     pub complete: bool,
     /// What could not be interpreted, over all its pages.
     pub unsupported: Vec<String>,
+    /// [`PageText::shortfall`] summed over the pages it was assembled from.
+    pub shortfall: pdf_model::content::Shortfall,
     /// The annotations attached to it, where they were asked for.
     pub annotations: Vec<Note>,
 }
@@ -340,6 +350,11 @@ impl Retrieval {
                 .iter()
                 .flat_map(|page| page.shown.unsupported.clone())
                 .collect(),
+            shortfall: read
+                .iter()
+                .fold(pdf_model::content::Shortfall::default(), |sum, page| {
+                    sum.merge(page.shown.shortfall)
+                }),
             annotations: attached,
             section,
             text,
@@ -393,6 +408,7 @@ impl Retrieval {
                 .iter()
                 .map(|report| format!("{report:?}"))
                 .collect(),
+            shortfall: interpretation.shortfall(),
             annotations: if wanted.wants_annotations() {
                 self.notes(index, page, &interpretation, &wanted.subtypes)
             } else {

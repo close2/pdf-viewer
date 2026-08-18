@@ -149,6 +149,13 @@ impl App {
             Answer::Reports(notes) => notes.to_vec(),
             _ => Vec::new(),
         };
+        // The other half of what a person who cannot see the page is owed, and it is a *count*
+        // rather than a note: §9.10.2's own "there is no way to determine what the character code
+        // represents" is not a refusal of ours and may not join the list above (ADR 0422).
+        let readback = match self.viewer.query(Query::Readback) {
+            Answer::Readback(shortfall) => shortfall,
+            _ => pdf_model::content::Shortfall::default(),
+        };
         let nodes = match self.viewer.query(Query::AccessibilityTree) {
             Answer::Accessibility(nodes) => nodes,
             _ => Vec::new(),
@@ -156,9 +163,10 @@ impl App {
         self.trace.say(
             Topic::Access,
             format_args!(
-                "accessibility: {} element(s), {} report(s) on page {}",
+                "accessibility: {} element(s), {} report(s), {} unreadable code(s) on page {}",
                 nodes.len(),
                 reports.len(),
+                readback.unnamed.total(),
                 page.saturating_add(1)
             ),
         );
@@ -171,6 +179,7 @@ impl App {
             viewport,
             nodes: &nodes,
             reports: &reports,
+            readback,
         };
         if let Some(bridge) = self.accessibility.as_mut() {
             bridge.publish(&view);

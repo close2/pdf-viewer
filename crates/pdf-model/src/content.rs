@@ -53,7 +53,8 @@ mod transparency;
 mod xobject;
 
 pub use report::{
-    ArtifactSpan, DamagedStream, Interpretation, MarkedSpan, Placed, UnnamedCodes, Unsupported,
+    ArtifactSpan, DamagedStream, Interpretation, MarkedSpan, Placed, Shortfall, UnnamedCodes,
+    Unsupported,
 };
 
 /// Deepest nesting of `q`/`Q` that will be tracked.

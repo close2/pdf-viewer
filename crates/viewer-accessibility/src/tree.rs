@@ -123,6 +123,17 @@ pub struct PageView<'a> {
     pub nodes: &'a [AccessibilityNode],
     /// What this page could not draw, as `viewer_core::Query::Reports` answers.
     pub reports: &'a [String],
+    /// What this page could not be *read* as, as `viewer_core::Query::Readback` answers.
+    ///
+    /// **The half of the same omission that had no channel.** The reports above are what the
+    /// interpreter could not draw; this is the text a person who cannot see the page is being
+    /// spoken *short* of, on a page that drew perfectly — ISO 32000-2 §9.10.2's own "there is no
+    /// way to determine what the character code represents", counted. It is not a report and must
+    /// not become one (ADR 0422), and it belongs here for the reason the reports do: the person
+    /// for whom the picture is no answer is the one entitled to know the words are missing.
+    ///
+    /// [`Default::default`] is a page whose every code was named and drawn, which is most of them.
+    pub readback: pdf_model::content::Shortfall,
 }
 
 /// Builds the whole tree, which is what an assistive technology is handed when it attaches.
@@ -147,7 +158,7 @@ pub fn build(view: &PageView) -> TreeUpdate {
     nodes.push((PAGE, page));
 
     let mut children = vec![PAGE];
-    if !view.reports.is_empty() {
+    if !view.reports.is_empty() || !view.readback.is_whole() {
         children.push(STATUS);
         let status = reports(view, &mut nodes);
         nodes.push((STATUS, status));
@@ -656,23 +667,64 @@ fn element_id(index: usize) -> NodeId {
     NodeId(ELEMENT_BASE.saturating_add(u64::try_from(index).unwrap_or(u64::MAX)))
 }
 
-/// The group holding what the page could not draw, and one node per item.
+/// The group holding what the page could not draw and what it could not be read as.
+///
+/// **Two kinds of item under one group, and they are worded apart.** A report is a refusal of
+/// this program's; a code §9.10.2 could not name is the standard's own answer about a page that
+/// drew correctly, and calling the second "not drawn as the document specifies" would tell a
+/// person the picture is wrong when it is not. The sentence for the second says what a reader
+/// loses instead: characters missing from what this page can be read as.
 fn reports(view: &PageView, out: &mut Vec<(NodeId, Node)>) -> Node {
     let mut children = Vec::new();
-    for (index, note) in view.reports.iter().enumerate() {
-        let id = NodeId(REPORT_BASE.saturating_add(u64::try_from(index).unwrap_or(u64::MAX)));
+    let mut said = 0_usize;
+    for note in view.reports {
         let mut item = Node::new(Role::Label);
         say(&mut item, note);
-        out.push((id, item));
-        children.push(id);
+        children.push(push_report(out, &mut said, item));
+    }
+    if !view.readback.is_whole() {
+        let mut item = Node::new(Role::Label);
+        say(&mut item, &readback_note(view.readback));
+        children.push(push_report(out, &mut said, item));
     }
     let mut group = Node::new(Role::Status);
     group.set_label(format!(
-        "{} thing(s) on this page were not drawn as the document specifies",
-        view.reports.len()
+        "{said} thing(s) on this page were not drawn or could not be read as the document \
+         specifies"
     ));
     group.set_children(children);
     group
+}
+
+/// Files one item of the status group under the next identifier in the reports' own range.
+fn push_report(out: &mut Vec<(NodeId, Node)>, said: &mut usize, item: Node) -> NodeId {
+    let id = NodeId(REPORT_BASE.saturating_add(u64::try_from(*said).unwrap_or(u64::MAX)));
+    *said = said.saturating_add(1);
+    out.push((id, item));
+    id
+}
+
+/// One sentence for what a page's codes cost its reading.
+///
+/// Two numbers at most, because they are two different losses and a person hearing one number
+/// could not tell them apart: a code no method of §9.10.2 could name is text that is on the page
+/// and not in what can be read off it, and a code that reached no glyph is a mark that was never
+/// drawn. A blank glyph is neither and is deliberately not said — the font describing a glyph as
+/// empty is how every one of them stores a space (ADR 0270).
+fn readback_note(shortfall: pdf_model::content::Shortfall) -> String {
+    let named = shortfall.unnamed.total();
+    let drawn = shortfall.without_a_glyph;
+    match (named, drawn) {
+        (0, missing) => format!(
+            "{missing} character(s) shown on this page have no glyph in the font that shows them, so they were not drawn"
+        ),
+        (unnamed, 0) => format!(
+            "{unnamed} character(s) shown on this page cannot be read: nothing in the document says which characters their codes stand for"
+        ),
+        (unnamed, missing) => format!(
+            "{unnamed} character(s) shown on this page cannot be read, and {missing} more have no glyph in the font that shows them"
+        ),
+    }
 }
 
 /// Where a magnifier is pointed at this element, and which of two statements decides it.

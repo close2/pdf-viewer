@@ -1763,6 +1763,9 @@ mod query_kind {
     // the fragment identifier's own shape, which no host can derive because no host sees the
     // fragment. ADR 0357.
     pub(super) const HIGHLIGHT: u8 = 30;
+    // What the page's codes cost the readback, carried since the five-hundred-and-eighty-seventh
+    // session: §9.10.2's own "there is no way", counted rather than reported. ADR 0422.
+    pub(super) const READBACK: u8 = 31;
 }
 
 /// Encodes one question.
@@ -1776,6 +1779,12 @@ mod query_kind {
     clippy::unnecessary_wraps,
     reason = "the symmetry with `encode_command` and `encode_answer` is the shape a caller reads, \
               and a question this transport cannot carry is a thing that has existed twice"
+)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one arm per variant of a `viewer-core` enum, and the count is that enum's — the same \
+              reason `encode_answer` carries this, and splitting it would lose the property this \
+              module rests on: the compiler naming the variant nobody handled"
 )]
 pub(crate) fn encode_query(query: Query<'_>) -> Result<Vec<u8>, Uncarried> {
     use query_kind as k;
@@ -1839,6 +1848,9 @@ pub(crate) fn encode_query(query: Query<'_>) -> Result<Vec<u8>, Uncarried> {
         }
         Query::Reports => {
             writer.u8(k::REPORTS);
+        }
+        Query::Readback => {
+            writer.u8(k::READBACK);
         }
         Query::Outline => {
             writer.u8(k::OUTLINE);
@@ -1924,6 +1936,7 @@ pub(crate) enum PlainQuery {
     Highlight,
     Frame,
     Reports,
+    Readback,
     Outline,
     Layers,
     Attachments,
@@ -1963,6 +1976,7 @@ impl OwnedQuery {
                 PlainQuery::Highlight => Query::Highlight,
                 PlainQuery::Frame => Query::Frame,
                 PlainQuery::Reports => Query::Reports,
+                PlainQuery::Readback => Query::Readback,
                 PlainQuery::Outline => Query::Outline,
                 PlainQuery::Layers => Query::Layers,
                 PlainQuery::Attachments => Query::Attachments,
@@ -2024,6 +2038,7 @@ pub(crate) fn decode_query(bytes: &[u8]) -> Result<OwnedQuery, ProtocolError> {
         k::HIGHLIGHT => OwnedQuery::Plain(PlainQuery::Highlight),
         k::FRAME => OwnedQuery::Plain(PlainQuery::Frame),
         k::REPORTS => OwnedQuery::Plain(PlainQuery::Reports),
+        k::READBACK => OwnedQuery::Plain(PlainQuery::Readback),
         k::OUTLINE => OwnedQuery::Plain(PlainQuery::Outline),
         k::LAYERS => OwnedQuery::Plain(PlainQuery::Layers),
         k::ATTACHMENTS => OwnedQuery::Plain(PlainQuery::Attachments),
@@ -2086,6 +2101,8 @@ mod answer_kind {
     pub(super) const FREE_TEXT: u8 = 30;
     // Annex O's highlighted rectangles, since the five-hundred-and-twenty-second. ADR 0357.
     pub(super) const HIGHLIGHTED: u8 = 31;
+    // The three per-code counts, since the five-hundred-and-eighty-seventh session. ADR 0422.
+    pub(super) const READBACK: u8 = 32;
 }
 
 /// Encodes one answer.
@@ -2219,6 +2236,33 @@ pub(crate) fn encode_answer(answer: &Answer<'_>) -> Result<Vec<u8>, Uncarried> {
             for note in *notes {
                 writer.str(note);
             }
+        }
+        Answer::Readback(shortfall) => {
+            // Destructured rather than written field by field off `shortfall`, so that a field
+            // added to either struct fails to compile here instead of crossing as a zero.
+            let pdf_model::content::Shortfall {
+                unnamed:
+                    pdf_model::content::UnnamedCodes {
+                        empty_mapping,
+                        incomplete_to_unicode,
+                        unlisted_name,
+                        unnamed_cid,
+                        unaddressable_cid,
+                        unnamed_glyph,
+                    },
+                without_a_glyph,
+                reaching_a_blank_glyph,
+            } = *shortfall;
+            writer
+                .u8(k::READBACK)
+                .usize(empty_mapping)
+                .usize(incomplete_to_unicode)
+                .usize(unlisted_name)
+                .usize(unnamed_cid)
+                .usize(unaddressable_cid)
+                .usize(unnamed_glyph)
+                .usize(without_a_glyph)
+                .usize(reaching_a_blank_glyph);
         }
         Answer::Accessibility(nodes) => {
             writer.u8(k::ACCESSIBILITY);
@@ -2395,6 +2439,18 @@ pub(crate) fn decode_answer(bytes: &[u8]) -> Result<Reply, ProtocolError> {
             }
         }
         k::REPORTS => Reply::Reports(reader.strings("a report's notes")?),
+        k::READBACK => Reply::Readback(pdf_model::content::Shortfall {
+            unnamed: pdf_model::content::UnnamedCodes {
+                empty_mapping: reader.usize("an unnamed-code count")?,
+                incomplete_to_unicode: reader.usize("an unnamed-code count")?,
+                unlisted_name: reader.usize("an unnamed-code count")?,
+                unnamed_cid: reader.usize("an unnamed-code count")?,
+                unaddressable_cid: reader.usize("an unnamed-code count")?,
+                unnamed_glyph: reader.usize("an unnamed-code count")?,
+            },
+            without_a_glyph: reader.usize("a missing-glyph count")?,
+            reaching_a_blank_glyph: reader.usize("a blank-glyph count")?,
+        }),
         k::OUTLINE => Reply::Outline(panels::decode_outline(&mut reader)?),
         k::LAYERS => Reply::Layers(panels::decode_layers(&mut reader)?),
         k::ATTACHMENTS => Reply::Attachments(panels::decode_attachments(&mut reader)?),
@@ -2787,7 +2843,7 @@ mod tests {
     /// Every question `viewer-core` states, encoded and read back.
     ///
     /// **The list used to have two halves** — what crossed and what was refused by name — and the
-    /// second half is empty since the three-hundred-and-eighty-sixth session. All thirty are
+    /// second half is empty since the three-hundred-and-eighty-sixth session. All of them are
     /// here, written out rather than generated, so that a question added to `viewer-core` makes
     /// `encode_query`'s match fail to compile and somebody then notices there is no round trip
     /// for it.
@@ -2834,8 +2890,9 @@ mod tests {
             Query::Popups,
             Query::Fields,
             Query::AccessibilityTree,
+            Query::Readback,
         ];
-        assert_eq!(carried.len(), 30, "every question `viewer-core` states");
+        assert_eq!(carried.len(), 31, "every question `viewer-core` states");
         for query in carried {
             let encoded = encode_query(query).unwrap();
             let read = decode_query(&encoded).unwrap();
@@ -3423,6 +3480,28 @@ mod tests {
             panic!("form fields come back as form fields");
         };
         assert_eq!(read, fields);
+
+        // The eight per-code counts, each a different number: an encoder that wrote them in the
+        // wrong order would pass with any two of them equal, and a host reading "3 codes no
+        // /ToUnicode named" for "3 codes an Identity ordering left unaddressable" would be told
+        // the wrong thing about whose gap it is.
+        let shortfall = pdf_model::content::Shortfall {
+            unnamed: pdf_model::content::UnnamedCodes {
+                empty_mapping: 1,
+                incomplete_to_unicode: 2,
+                unlisted_name: 3,
+                unnamed_cid: 4,
+                unaddressable_cid: 5,
+                unnamed_glyph: 6,
+            },
+            without_a_glyph: 7,
+            reaching_a_blank_glyph: 8,
+        };
+        let Reply::Readback(read) = round_trip(&Answer::Readback(shortfall)) else {
+            panic!("a readback shortfall comes back as one");
+        };
+        assert_eq!(read, shortfall);
+        assert_eq!(read.unnamed.total(), 21);
     }
 
     /// One field per control §12.7.5 defines, with no default among them.

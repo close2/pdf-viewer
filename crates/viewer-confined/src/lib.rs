@@ -476,6 +476,11 @@ pub enum Reply {
     },
     /// What the current page could not draw.
     Reports(Vec<String>),
+    /// What the current page could not be read as: the per-code counts, never a report.
+    ///
+    /// See [`viewer_core::Query::Readback`] for why counting is the answer here and reporting is
+    /// not.
+    Readback(pdf_model::content::Shortfall),
     /// §12.3.3's outline, whole.
     Outline(pdf_model::outline::Outline),
     /// §8.11.4.3's layers, in `/Order`.

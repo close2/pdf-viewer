@@ -1,6 +1,6 @@
 # What is left of font substitution
 
-Status: reported at runtime; six distinct gaps — the first still **empty of witnesses**, the second unchanged, the third **characterised, fixed and re-measured** (ADR 0270), the fourth **half taken — the width on Table 109's own sentence (ADR 0358), the cap height still declined** (ADR 0267), the fifth **refused on the clause's own words, counted, split by cause, and one population of it closed out of Annex D** (ADR 0311, ADR 0318), the sixth **closed** — the compiled-in fourteen no longer disagree with themselves about contour direction (ADR 0396).
+Status: reported at runtime; six distinct gaps — the first still **empty of witnesses**, the second unchanged, the third **characterised, fixed and re-measured** (ADR 0270), the fourth **half taken — the width on Table 109's own sentence (ADR 0358), the cap height still declined** (ADR 0267), the fifth **refused on the clause's own words, counted, split by cause, one population of it closed out of Annex D, and the rest given a voice outside `pdf-model` rather than a report** (ADR 0311, ADR 0318, ADR 0422), the sixth **closed** — the compiled-in fourteen no longer disagree with themselves about contour direction (ADR 0396).
 Priority: 21
 Corpus: 40 documents. **The corpus gate's own three silence lines are where the counts are, and
 this file does not repeat them** (ADR 0281): `codes reaching no glyph *in silence*` and `codes
@@ -266,6 +266,29 @@ names nothing (the control range, and code 0 reaching `.notdef`).
 is one of the shapes above and whose own tables answer anyway. The instrument to find it exists
 now, and the honest expectation is that most of what is left does not move — a count that stops
 falling where the clause says "there is no way" is the answer rather than a backlog.
+
+### The band has a voice outside `pdf-model`, and that is what was owed rather than a smaller count
+
+**Closed in the five-hundred-and-eighty-seventh session** (ADR 0422). The question this section had
+left open was not the reading — it was what the program *says* — and it was asked in the wrong two
+terms: report it, or leave it as a number in a struct nobody outside the crate could reach. The
+reading was re-derived from the clause first and did not move: all three methods are implemented,
+each falls through to the next **per code**, the third honours both of its disjuncts (an
+`Identity-H` font whose descendant states a registered collection *is* inside it), and the second
+and third cannot be tried out of order because a simple font and a composite one are what they are
+conditioned on. `spec-errata emit` over clause 9 lands nothing on §9.10.2.
+
+So there was no route unwalked, and reporting would cost the oracle 41 judged pages to repeat what
+the standard already says. The third option is what was built: `Interpretation::shortfall` carries
+this count and ADR 0270's two as one value, and three consumers read it —
+`viewer_core::Query::Readback` beside `Query::Reports`, `viewer-accessibility`'s status group, and
+`pdf-retrieve`'s `readback` object beside the text. The sentences are worded apart from a refusal's
+on purpose: a code §9.10.2 ends at is the clause's own answer about a page that drew correctly, and
+calling it a drawing fault would tell a person the picture is wrong when it is not.
+
+**What is still owed here is a file and not a decision.** Nothing above changes the counts, and the
+census remains the instrument for the day one of the four shapes turns out to have a document whose
+own tables answer.
 
 ## 6. Two substitutes for one Type 1 family, wound in opposite directions — **closed in the five-hundred-and-sixty-first** (ADR 0396)
 

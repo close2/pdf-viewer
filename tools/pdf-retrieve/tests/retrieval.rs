@@ -31,9 +31,18 @@ fn committed(name: &str) -> PathBuf {
 }
 
 /// A three-object fixture written to a temporary file, because [`Retrieval::open`] takes a path.
+///
+/// **The name carries a counter as well as the process**, because two tests in this file ask for
+/// one and the harness runs them on two threads of one process: with the process alone in the
+/// name they wrote the same path, and one of them read a file the other had just truncated —
+/// `NoHeader { searched: 0 }`, which reads exactly like a fixture builder that emits nothing.
 fn fixture() -> PathBuf {
-    let path =
-        std::env::temp_dir().join(format!("pdf-retrieve-fixture-{}.pdf", std::process::id()));
+    static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let serial = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let path = std::env::temp_dir().join(format!(
+        "pdf-retrieve-fixture-{}-{serial}.pdf",
+        std::process::id()
+    ));
     std::fs::write(&path, two_sections()).expect("the temporary directory is writable");
     path
 }
@@ -343,5 +352,50 @@ fn a_clause_of_the_standard_is_addressed_by_its_number() {
     assert!(
         kept.text.len() > annotated.text.len(),
         "and the text itself is longer with the running heads in it"
+    );
+}
+
+/// A page that draws its text, interprets whole, and cannot say what half of it means.
+///
+/// **The case the `readback` field exists for**, and the reason it is not in `unsupported`:
+/// ISO 32000-2 §9.10.2's methods all fail on a `/Differences` naming `/a192` — no `/ToUnicode`,
+/// a name neither the Adobe Glyph List nor the Adobe Glyph List for New Fonts holds, and no
+/// composite route for a simple font — and the clause's own answer is that "there is no way to
+/// determine what the character code represents". So the page is complete, its report list is
+/// empty, and a caller reading the text has to be told from somewhere else that two of its four
+/// characters are missing from it. ADR 0422; `pdf-model/tests/silent_fonts.rs` holds the corpus
+/// witness this fixture is the reduced form of.
+///
+/// `/a192` and `/a224` are pdfTeX's own labels for `À` and `à` — the code in decimal — which this
+/// tree refuses to follow because Annex D gives code 192 three different meanings and pdfTeX's is
+/// none of them (ADR 0311). The refusal is the subject; the count is what says it happened.
+#[test]
+fn a_page_whose_codes_no_method_can_name_says_so_beside_its_text() {
+    let body = "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+                2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+                3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] \
+                /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>\nendobj\n\
+                4 0 obj\n<< /Length 45 >>\nstream\nBT /F1 12 Tf 20 260 Td (A\\300a\\340) Tj ET\n\
+                endstream\nendobj\n\
+                5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica \
+                /Encoding << /Type /Encoding /Differences [192 /a192 224 /a224] >> >>\nendobj\n";
+    let path =
+        std::env::temp_dir().join(format!("pdf-retrieve-unnamed-{}.pdf", std::process::id()));
+    std::fs::write(&path, assemble(body)).expect("the temporary directory is writable");
+    let retrieval = Retrieval::open(&path).expect("the fixture opens");
+    let read = retrieval.page(0, &Wanted::default()).expect("page one");
+    let _ = std::fs::remove_file(&path);
+
+    assert!(read.complete, "the interpreter skipped nothing");
+    assert!(read.unsupported.is_empty(), "{:?}", read.unsupported);
+    assert_eq!(
+        read.text, "Aa",
+        "the two named codes read back and no others"
+    );
+    assert_eq!(read.shortfall.unnamed.total(), 2);
+    assert_eq!(read.shortfall.unnamed.unlisted_name, 2);
+    assert_eq!(
+        read.shortfall.without_a_glyph, 0,
+        "the substitute draws something for both: this is a reading gap, not a drawing one"
     );
 }

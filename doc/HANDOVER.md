@@ -807,7 +807,14 @@ are no longer here.
   `examples/unnamed_code_census` splits it by which method the font could have answered with (ADR
   0318). **None of the three is a report**, deliberately, on ADR 0152's arithmetic: a report takes
   a page off the oracle's judged set, and these are shortfalls in the readback of pages that mostly
-  draw perfectly. The volume is measured; what to do with it is not settled.
+  draw perfectly. **What to do with them is settled and is neither of the two things that sentence
+  weighed** (ADR 0422): the three are one value on `Interpretation::shortfall` and they *cross* —
+  `Query::Readback` beside `Query::Reports` for a host, §14.7's status group for a screen reader,
+  `pdf-retrieve`'s `readback` object for a program — worded apart from a refusal, because a code
+  §9.10.2 ends at is the standard's own answer and not something this program failed to do. The
+  reading that settled it is on §9.10.2's ledger row: all three methods are walked, per code, in
+  the clause's order, and the second and third cannot be tried out of order because no font can
+  satisfy both conditions.
 - **`doc/md/` is the specification in a form code can read** — markdown conversions of the 14
   PDFs. **This entry said "committed" and had been false since the three-hundred-and-eleventh
   session**: `.gitignore` covers `/doc/md/` and `/doc/*.pdf`, and what is tracked is the encrypted

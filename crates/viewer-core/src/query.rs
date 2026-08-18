@@ -328,6 +328,26 @@ pub enum Query<'a> {
     /// The same sentences [`crate::Event::Reported`] carried, kept so that a host which cleared
     /// its status bar can ask again rather than remembering.
     Reports,
+    /// What the current page's text cost the reader: the codes nothing could name or draw.
+    ///
+    /// **[`Query::Reports`]'s counterpart for the readback**, and the reason it is a separate
+    /// question rather than more sentences on that one is ISO 32000-2 §9.10.2's own closing
+    /// sentence: "there is no way to determine what the character code represents". A code that
+    /// route ends at is not something this program failed to do — it is an answer the standard
+    /// states — so it may not join a list of refusals, and ADR 0152 prices what happens if it
+    /// does: a page that reports leaves the oracle's judged set, and these are pages that draw
+    /// perfectly and read back short.
+    ///
+    /// **A question no host can answer for itself**, which is `doc/ui-boundary.md`'s test: the
+    /// counts come from the font programs' own tables during interpretation, and a host holds
+    /// neither the fonts nor the codes. What it can do with them is the thing a person actually
+    /// needs — say that a search found nothing on a page whose text cannot be read, or that a
+    /// copied selection is short — which is why the number crosses. ADR 0422.
+    ///
+    /// Always an answer for a document with a page interpreted, and
+    /// [`pdf_model::content::Shortfall::is_whole`] is true for the great majority of pages.
+    /// [`Answer::None`] where nothing is open or no page has been interpreted yet.
+    Readback,
 }
 
 /// The answer to a [`Query`].
@@ -522,6 +542,11 @@ pub enum Answer<'a> {
     Frame(FrameView<'a>),
     /// What the current page could not draw.
     Reports(&'a [String]),
+    /// What the current page could not be *read* as, in the three ways this tree tells apart.
+    ///
+    /// See [`Query::Readback`] for why this is not a report, and
+    /// [`pdf_model::content::Shortfall`] for why the three counts travel together.
+    Readback(pdf_model::content::Shortfall),
 }
 
 /// Where the page sits on the screen, and how large.

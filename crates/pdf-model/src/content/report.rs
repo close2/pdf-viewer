@@ -481,6 +481,33 @@ impl UnnamedCodes {
             .saturating_add(self.unnamed_glyph)
     }
 
+    /// Adds another tally to this one, cause by cause.
+    ///
+    /// Destructured rather than summed field by field from `self` so that a variant added to
+    /// [`pdf_font::NamingGap`] — and therefore a field added here — fails to compile instead of
+    /// being dropped from every total that uses this.
+    #[must_use]
+    pub const fn merge(self, other: Self) -> Self {
+        let Self {
+            empty_mapping,
+            incomplete_to_unicode,
+            unlisted_name,
+            unnamed_cid,
+            unaddressable_cid,
+            unnamed_glyph,
+        } = other;
+        Self {
+            empty_mapping: self.empty_mapping.saturating_add(empty_mapping),
+            incomplete_to_unicode: self
+                .incomplete_to_unicode
+                .saturating_add(incomplete_to_unicode),
+            unlisted_name: self.unlisted_name.saturating_add(unlisted_name),
+            unnamed_cid: self.unnamed_cid.saturating_add(unnamed_cid),
+            unaddressable_cid: self.unaddressable_cid.saturating_add(unaddressable_cid),
+            unnamed_glyph: self.unnamed_glyph.saturating_add(unnamed_glyph),
+        }
+    }
+
     /// Counts one code against the method that could have named it.
     pub(super) fn count(&mut self, gap: &pdf_font::NamingGap) {
         let slot = match gap {
@@ -527,5 +554,82 @@ impl Interpretation {
     #[must_use]
     pub fn is_complete(&self) -> bool {
         self.unsupported.is_empty()
+    }
+
+    /// The three per-code counts, as one value a consumer outside this crate can hold.
+    ///
+    /// See [`Shortfall`] for why they travel together.
+    #[must_use]
+    pub const fn shortfall(&self) -> Shortfall {
+        Shortfall {
+            unnamed: self.codes_without_a_character,
+            without_a_glyph: self.codes_without_a_glyph,
+            reaching_a_blank_glyph: self.codes_reaching_a_blank_glyph,
+        }
+    }
+}
+
+/// What a page's codes cost the reader, in the three ways this tree can tell apart.
+///
+/// [`Interpretation`] carries the three as separate fields because they are counted at three
+/// different places; they are one type here because a **consumer** of them cannot use one without
+/// the others. Two of them are about the picture and one is about the readback, and the
+/// distinction between the first two is the whole of ADR 0270 — a code that reached a glyph the
+/// program describes as empty is a space and not a loss, so a host told only
+/// [`Self::without_a_glyph`] would be reading a fraction of a fraction. `Answer::Field` and
+/// `Answer::Fields` carry one type for the same reason: a host must not be able to learn an
+/// exception from one question and miss it in the other.
+///
+/// **None of the three is an [`Unsupported`] report, and that is a decision rather than an
+/// omission.** ADR 0152's arithmetic prices one: a page that reports leaves the oracle's judged
+/// set, and these are shortfalls on pages that otherwise draw perfectly — 41 of the 892 corpus
+/// page ones that report nothing show a code §9.10.2 could not name. So the number crosses to a
+/// host and to `pdf-retrieve` instead, where a reader who searched, selected or extracted can be
+/// told that what came back is short and by how much. ADR 0422.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Shortfall {
+    /// Codes ISO 32000-2 §9.10.2 could not name, by which of its methods could have.
+    ///
+    /// [`Interpretation::codes_without_a_character`].
+    pub unnamed: UnnamedCodes,
+    /// Codes that reached no glyph at all, which is a mark the reader loses.
+    ///
+    /// [`Interpretation::codes_without_a_glyph`].
+    pub without_a_glyph: usize,
+    /// Codes that reached a glyph the font program describes as empty, which a space is.
+    ///
+    /// [`Interpretation::codes_reaching_a_blank_glyph`]. Carried beside the one above rather than
+    /// folded into it because only the other is a loss; ADR 0270 measured what folding them cost.
+    pub reaching_a_blank_glyph: usize,
+}
+
+impl Shortfall {
+    /// Whether every code this page showed was named and drawn.
+    ///
+    /// [`Self::reaching_a_blank_glyph`] does **not** make this false: a glyph the program
+    /// describes as empty is the program saying the code makes no mark, which is what a space is.
+    #[must_use]
+    pub const fn is_whole(&self) -> bool {
+        self.unnamed.total() == 0 && self.without_a_glyph == 0
+    }
+
+    /// Adds another page's counts to these, field by field.
+    ///
+    /// Written out rather than derived for the reason `examples/unnamed_code_census`'s own sum is:
+    /// a field added later must fail to compile here rather than be dropped in silence.
+    #[must_use]
+    pub const fn merge(self, other: Self) -> Self {
+        let Self {
+            unnamed,
+            without_a_glyph,
+            reaching_a_blank_glyph,
+        } = other;
+        Self {
+            unnamed: self.unnamed.merge(unnamed),
+            without_a_glyph: self.without_a_glyph.saturating_add(without_a_glyph),
+            reaching_a_blank_glyph: self
+                .reaching_a_blank_glyph
+                .saturating_add(reaching_a_blank_glyph),
+        }
     }
 }

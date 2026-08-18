@@ -230,8 +230,60 @@ fn page(read: &PageText) -> Value {
             "unsupported".to_owned(),
             Value::Array(read.unsupported.iter().cloned().map(Value::Text).collect()),
         ),
+        ("readback".to_owned(), shortfall(read.shortfall)),
         ("text".to_owned(), Value::text(read.text.clone())),
         ("annotations".to_owned(), notes(&read.annotations)),
+    ])
+}
+
+/// What a page's or a section's codes cost the text beside it.
+///
+/// A count and never a refusal: ISO 32000-2 §9.10.2's own closing sentence is that where its
+/// methods fail "there is no way to determine what the character code represents", so a code in
+/// `unnamed` is an answer the standard gives rather than something this program failed to do — it
+/// may not join `unsupported`, and a caller quoting the text still has to be able to see it.
+/// `missing_glyphs` is the other direction and *is* a loss on the page; `blank_glyphs` is not one
+/// at all, because a glyph the program describes as empty is how every font stores a space
+/// (ADR 0270). ADR 0422.
+fn shortfall(counts: pdf_model::content::Shortfall) -> Value {
+    let pdf_model::content::Shortfall {
+        unnamed,
+        without_a_glyph,
+        reaching_a_blank_glyph,
+    } = counts;
+    Value::Object(vec![
+        ("unnamed".to_owned(), Value::count(unnamed.total())),
+        (
+            "unnamed_by_method".to_owned(),
+            Value::Object(vec![
+                (
+                    "empty_mapping".to_owned(),
+                    Value::count(unnamed.empty_mapping),
+                ),
+                (
+                    "incomplete_to_unicode".to_owned(),
+                    Value::count(unnamed.incomplete_to_unicode),
+                ),
+                (
+                    "unlisted_name".to_owned(),
+                    Value::count(unnamed.unlisted_name),
+                ),
+                ("unnamed_cid".to_owned(), Value::count(unnamed.unnamed_cid)),
+                (
+                    "unaddressable_cid".to_owned(),
+                    Value::count(unnamed.unaddressable_cid),
+                ),
+                (
+                    "unnamed_glyph".to_owned(),
+                    Value::count(unnamed.unnamed_glyph),
+                ),
+            ]),
+        ),
+        ("missing_glyphs".to_owned(), Value::count(without_a_glyph)),
+        (
+            "blank_glyphs".to_owned(),
+            Value::count(reaching_a_blank_glyph),
+        ),
     ])
 }
 
@@ -259,6 +311,7 @@ fn section(read: &SectionText) -> Value {
             "unsupported".to_owned(),
             Value::Array(read.unsupported.iter().cloned().map(Value::Text).collect()),
         ),
+        ("readback".to_owned(), shortfall(read.shortfall)),
         (
             "words".to_owned(),
             Value::count(read.text.split_whitespace().count()),

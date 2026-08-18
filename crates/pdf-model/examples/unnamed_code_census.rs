@@ -89,7 +89,7 @@ fn main() {
         if counts.total() == 0 {
             continue;
         }
-        total = sum(total, counts);
+        total = total.merge(counts);
         let name = path.rsplit('/').next().unwrap_or(&path).to_owned();
         by_document.push((name, counts));
     }
@@ -135,30 +135,5 @@ fn main() {
             })
             .collect();
         println!("  {:6} {name}: {}", counts.total(), split.join("; "));
-    }
-}
-
-/// Adds one page's tally to a running one, field by field.
-///
-/// Written out rather than derived so that a field added to [`UnnamedCodes`] fails to compile
-/// here — a census that silently drops a population is worse than no census.
-fn sum(left: UnnamedCodes, right: UnnamedCodes) -> UnnamedCodes {
-    let UnnamedCodes {
-        empty_mapping,
-        incomplete_to_unicode,
-        unlisted_name,
-        unnamed_cid,
-        unaddressable_cid,
-        unnamed_glyph,
-    } = right;
-    UnnamedCodes {
-        empty_mapping: left.empty_mapping.saturating_add(empty_mapping),
-        incomplete_to_unicode: left
-            .incomplete_to_unicode
-            .saturating_add(incomplete_to_unicode),
-        unlisted_name: left.unlisted_name.saturating_add(unlisted_name),
-        unnamed_cid: left.unnamed_cid.saturating_add(unnamed_cid),
-        unaddressable_cid: left.unaddressable_cid.saturating_add(unaddressable_cid),
-        unnamed_glyph: left.unnamed_glyph.saturating_add(unnamed_glyph),
     }
 }

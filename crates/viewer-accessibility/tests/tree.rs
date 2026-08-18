@@ -62,6 +62,7 @@ fn view<'a>(nodes: &'a [AccessibilityNode], reports: &'a [String]) -> PageView<'
         viewport: (800.0, 1000.0),
         nodes,
         reports,
+        readback: pdf_model::content::Shortfall::default(),
     }
 }
 
@@ -190,6 +191,52 @@ fn what_the_page_could_not_draw_is_in_the_tree() {
 
     // And a page with nothing to report grows no such group.
     let quiet = tree::build(&view(&nodes, &[]));
+    assert!(quiet.nodes.iter().all(|(id, _)| *id != NodeId(3)));
+}
+
+/// What the page could not be *read* as reaches the same group, and is not called a drawing fault.
+///
+/// **The one population for whom this is not a nicety.** A page whose codes ISO 32000-2 §9.10.2
+/// cannot name draws perfectly and speaks short, so every other channel this program has says the
+/// page is fine — `Interpretation::is_complete` is true and `Query::Reports` is empty. The
+/// sentence has to say the words are missing and must not say the picture is wrong; ADR 0422.
+#[test]
+fn what_the_page_could_not_be_read_as_is_in_the_tree_and_is_not_a_refusal() {
+    let nodes = [element(None, "P", "text that drew and cannot be read")];
+    let short = PageView {
+        readback: pdf_model::content::Shortfall {
+            unnamed: pdf_model::content::UnnamedCodes {
+                unlisted_name: 28,
+                ..pdf_model::content::UnnamedCodes::default()
+            },
+            ..pdf_model::content::Shortfall::default()
+        },
+        ..view(&nodes, &[])
+    };
+    let update = tree::build(&short);
+    let status = node(&update, NodeId(3));
+    assert_eq!(status.role(), Role::Status);
+    assert_eq!(status.children().len(), 1);
+    let said = node(&update, NodeId(1_000_000))
+        .value()
+        .unwrap_or_default()
+        .to_owned();
+    assert!(said.contains("28"), "{said}");
+    assert!(said.contains("cannot be read"), "{said}");
+    assert!(
+        !said.contains("not drawn"),
+        "a code the standard leaves unnameable is not a mark this program failed to make: {said}"
+    );
+
+    // A glyph the font describes as empty is a space, and says nothing at all (ADR 0270).
+    let spaces = PageView {
+        readback: pdf_model::content::Shortfall {
+            reaching_a_blank_glyph: 12,
+            ..pdf_model::content::Shortfall::default()
+        },
+        ..view(&nodes, &[])
+    };
+    let quiet = tree::build(&spaces);
     assert!(quiet.nodes.iter().all(|(id, _)| *id != NodeId(3)));
 }
 
