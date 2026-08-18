@@ -49,18 +49,76 @@ fn long_form_content() -> Vec<u8> {
     out
 }
 
+/// How the fixture's form states its bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Coding {
+    /// No `/Filter` at all, so there is nothing to pump.
+    Plain,
+    /// `/FlateDecode`.
+    Flate,
+    /// `/LZWDecode`, at Table 8's default `/EarlyChange`.
+    Lzw,
+}
+
+/// Encodes `content` as §7.4.4.2 codes, one literal code per byte, then EOD.
+///
+/// **A valid LZW stream that happens not to compress**, which is all this fixture needs: what is
+/// under test is the *route*, and a stream whose decode outgrows the memo is what chooses it. The
+/// width rule is written out rather than shared with the decoder, for the reason
+/// `filter.rs`'s own packer gives — a test that asked the decoder what width to use would agree
+/// with it however wrong both were.
+fn lzw_literals(content: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut held: u32 = 0;
+    let mut bits: u32 = 0;
+    let mut width = 9u32;
+    let mut next: u16 = 258;
+    let mut previous = false;
+
+    let codes = content
+        .iter()
+        .map(|&byte| u16::from(byte))
+        .chain(std::iter::once(257));
+    for code in codes {
+        held = (held << width) | (u32::from(code) & ((1u32 << width) - 1));
+        bits += width;
+        while bits >= 8 {
+            out.push(((held >> (bits - 8)) & 0xFF) as u8);
+            bits -= 8;
+        }
+        if code == 257 {
+            continue;
+        }
+        if previous && usize::from(next) < 4096 {
+            next += 1;
+            // Table 8's `/EarlyChange` default is 1.
+            if width < 12 && u32::from(next) + 1 >= (1u32 << width) {
+                width += 1;
+            }
+        }
+        previous = true;
+    }
+    if bits > 0 {
+        out.push(((held << (8 - bits)) & 0xFF) as u8);
+    }
+    out
+}
+
 /// A one-page document whose only content is `/Fx Do`, with `Fx` carrying `content`.
 ///
-/// `compressed` says whether the form's stream states `/FlateDecode`, which is the only thing
-/// that differs between the two arms: the *same* instructions, decoded by the same filter table,
-/// reaching the interpreter by the two routes `Document::nested_content_source` chooses between.
-fn document_with_form(content: &[u8], compressed: bool) -> Document {
-    let (data, filter) = if compressed {
-        let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::best());
-        encoder.write_all(content).expect("in-memory write");
-        (encoder.finish().expect("finish"), " /Filter /FlateDecode")
-    } else {
-        (content.to_vec(), "")
+/// `coding` says what the form's stream states for `/Filter`, which is the only thing that
+/// differs between the arms: the *same* instructions, decoded by the same filter table, reaching
+/// the interpreter by the routes `Document::nested_content_source` chooses between.
+fn document_with_form(content: &[u8], coding: Coding) -> Document {
+    let (data, filter) = match coding {
+        Coding::Plain => (content.to_vec(), ""),
+        Coding::Flate => {
+            let mut encoder =
+                flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::best());
+            encoder.write_all(content).expect("in-memory write");
+            (encoder.finish().expect("finish"), " /Filter /FlateDecode")
+        }
+        Coding::Lzw => (lzw_literals(content), " /Filter /LZWDecode"),
     };
 
     let mut objects: Vec<Vec<u8>> = vec![
@@ -134,8 +192,8 @@ fn route(document: &Document) -> StreamSource {
 #[test]
 fn a_form_read_through_the_window_draws_what_the_whole_decode_draws() {
     let content = long_form_content();
-    let windowed = document_with_form(&content, true);
-    let whole = document_with_form(&content, false);
+    let windowed = document_with_form(&content, Coding::Flate);
+    let whole = document_with_form(&content, Coding::Plain);
 
     assert!(
         matches!(route(&windowed), StreamSource::Pumped(_)),
@@ -158,6 +216,36 @@ fn a_form_read_through_the_window_draws_what_the_whole_decode_draws() {
     );
 }
 
+/// The same, for `LZWDecode`, which is the sharper bomb of §7.4's five.
+///
+/// **`Document::pumping` is one function on purpose**, so a filter gaining a pump reaches a page's
+/// `/Contents` and §7.8.2's other four at once; what this asserts is the half that costs
+/// something if it is wrong — the form is *routed* through the window and the page it draws is
+/// the page the whole decode drew. LZW reaches about 1365:1 on a long run of one byte, which is
+/// why it is the one taken first.
+#[test]
+fn an_lzw_form_is_read_through_the_window_and_draws_what_the_whole_decode_draws() {
+    let content = long_form_content();
+    let windowed = document_with_form(&content, Coding::Lzw);
+    let whole = document_with_form(&content, Coding::Plain);
+
+    assert!(
+        matches!(route(&windowed), StreamSource::Pumped(_)),
+        "an LZW form whose decode outgrows the memo is read through the window"
+    );
+
+    let through_the_window = commands(&windowed);
+    assert!(
+        through_the_window.contains("Fill"),
+        "the fixture has to draw something for this to be a comparison"
+    );
+    assert_eq!(
+        through_the_window,
+        commands(&whole),
+        "the window changed what the LZW form draws"
+    );
+}
+
 /// §8.7.3.1's cell is decoded whole however large it is, which is the rule's one exception.
 ///
 /// **Found by fuzzing rather than reasoned about.** A mutated tiling pattern the `page` target
@@ -169,7 +257,7 @@ fn a_form_read_through_the_window_draws_what_the_whole_decode_draws() {
 #[test]
 fn a_tiling_cell_is_held_whole_where_a_form_of_the_same_size_is_windowed() {
     let content = long_form_content();
-    let document = document_with_form(&content, true);
+    let document = document_with_form(&content, Coding::Flate);
     let object = document.get(ObjectId::new(5, 0));
     let stream = object.as_stream().expect("object 5 is the form");
 
@@ -199,7 +287,7 @@ fn a_tiling_cell_is_held_whole_where_a_form_of_the_same_size_is_windowed() {
 /// untouched.
 #[test]
 fn a_form_the_memo_keeps_is_decoded_once_however_often_it_is_read() {
-    let document = document_with_form(b"0 0 1 rg 10 20 30 40 re f\n", true);
+    let document = document_with_form(b"0 0 1 rg 10 20 30 40 re f\n", Coding::Flate);
     assert!(
         matches!(route(&document), StreamSource::Whole(_)),
         "an ordinary form is held whole"

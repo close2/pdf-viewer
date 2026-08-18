@@ -7,9 +7,10 @@ annotations are the **errata**, and `doc/md/` presents struck-out passages as th
 current text. Reading all of them found **four clauses this tree implemented differently** —
 §12.5.2's `/BM`, §14.13.5's `/MCAF`, §7.8.3's Type 3 glyph resources and §8.9.5.4, the last of
 which is implemented as the erratum states it since the five-hundred-and-fortieth.
-**What is left is steps 3b, 4 and 5 below** — and 3b is new rather than old: the
-five-hundred-and-ninety-first repaired the comparison and 27 more struck passages became visible
-with it.
+**What is left is steps 4 and 5 below.** Step 3b was the 27 struck passages the
+five-hundred-and-ninety-first's repair of the comparison made visible, and the
+five-hundred-and-ninety-fourth read them: three findings, one owed behaviour, and a count of the
+unread remainder corrected from twenty to nineteen by re-deriving it.
 Priority: 48 — kept, by the convention that the `40`–`49` band is *the project's own instruments*.
 **Its real weight is higher than the number**: this is a list of known-wrong passages in the file
 principle 5 rests on.
@@ -17,7 +18,7 @@ Corpus: —, the subject is `doc/md/` and the fourteen documents under `doc/`
 Code: `tools/spec-errata` (built), `conformance::prose` and its `quotations` binary (the sixth
 population, built in the four-hundred-and-seventy-fourth),
 `crates/pdf-model/examples/spec_annotation_census.rs` (the census)
-Read: `doc/errata-read.md` — all 120, their verdicts, and what is owed
+Read: `doc/errata-read.md` — every passage `check` names, its verdict, and what is owed
 
 ## What the census found, and what it corrected in this file
 
@@ -113,15 +114,29 @@ defect in the standard. ADR 0252 has the argument.
    columns — the caveat above, now with witnesses. ADR 0309. **A gate is still refused for ADR
    0249's reason** and the price has gone up: the syntax it needs would have to be migrated onto
    1401 spans rather than 417.
-3b. **The 27 struck passages the repaired comparison made visible**, new in the
-   five-hundred-and-ninety-first (ADR 0426). `squeezed` kept square brackets and dash shapes, so it
-   could not find a passage quoted in `CLAUDE.md`'s own `"[e]ncloses"` spelling of an altered first
-   letter, nor one carrying a table caption `doc/md/` writes with a hyphen where the standard sets
-   an em dash. It is `conformance::prose::folded` now, and `check`'s struck-passage list went from
-   151 lines to **178**. Three of the new ones are in Annex A and four in clause 13, both outside
-   scope; **the other twenty are unread**, and `doc/errata-read.md` names their clauses. This is the
-   same reading task items 1 to 3 were, at the rates that file records, and it is the one thing this
-   item gained rather than closed.
+3b. ~~**The 27 struck passages the repaired comparison made visible**~~ — **read in the
+   five-hundred-and-ninety-fourth, and the split was not the one this entry printed.** The repair
+   itself stands as written: `squeezed` kept square brackets and dash shapes, so it could not find a
+   passage quoted in `CLAUDE.md`'s own `"[e]ncloses"` spelling of an altered first letter, nor one
+   carrying a table caption `doc/md/` writes with a hyphen where the standard sets an em dash; it is
+   `conformance::prose::folded` now and `check`'s struck-passage list went from 151 lines to **178**
+   (ADR 0426). What was wrong is the arithmetic under it. Three of the new lines are in Annex A and
+   **five** in clause 13 — not four — so the unread remainder is **nineteen** and not twenty, over
+   exactly the seventeen clauses `doc/errata-read.md` named. The count was corrected by re-deriving
+   it rather than by re-reading the tables: the pre-repair `squeezed` is four lines in the commit
+   that replaced it, so a copy of the tree with those four lines back prints exactly 151 and `diff`
+   names the 27 with nothing inferred. **Three findings**, which is the highest rate this file's
+   history records and is explained rather than celebrated in `doc/errata-read.md`: §9.8.3.3's
+   self-contradiction is a defect in the 2020 printing that Issue #5 repairs; §12.3.2.4's named
+   destination has an `/SD` whose definition Issue #162 and #288 make reachable, which
+   `Destination::read_within` does not read while `Destination::of_go_to` does; and Issue #384's
+   bulleted list of the standard 14 font names spells the fourteenth `Courier-BoldOblique`, where
+   `doc/md/` loses the hyphen across a line break and `pdf_font::standard::STANDARD_NAMES` built an
+   argument on the loss. **One behaviour is owed and it is small**: the dictionary arm of
+   `pdf_model::destination::Destination::read_within` needs `of_go_to`'s `/SD`-then-`/D` order with
+   the same fallback argument, a test only the new step can answer, a corpus count, and §12.3.2.4's
+   row moved from `implemented` to `partial` until it lands. The other two findings are annotations
+   — one comment in `crates/pdf-font/src/standard.rs` and the ledger notes already written.
 4. **The disagreement sweep** (the old step 3), unchanged: compare our extraction against `doc/md/`
    and report every span where they differ. The annotations were one loss of four; three others are
    recorded in this file's history and none has been swept for.
@@ -166,10 +181,18 @@ last clause this tree knowingly implemented a retired version of is implemented 
 states it, and the reason it had been declined turned out to be a misreading of the amended steps'
 own ordering rather than a defect in them. ADR 0375.
 
-The replacement condition, for whoever picks it up: **the reading half is done for the passages the
-instrument could see, the correctness question it was asked to answer is answered, and items 1 to 3
-are closed.** What is left is step 3b — twenty passages the five-hundred-and-ninety-first's repair
-of the comparison made visible, which is reading of exactly the kind items 1 to 3 were — and steps 4
+**The five-hundred-and-ninety-fourth ran it a seventh time, over step 3b, and it passed again** —
+and from the direction step 4 exists for. Reading Issue #384 found the standard's own
+`Courier-BoldOblique` written `CourierBoldOblique` by the conversion, because the name is set broken
+across a line and the converter drops the hyphen of a word it breaks; `pdf_font::standard` carries a
+fifteenth entry for the fourteen names and a doc comment arguing that the missing hyphen "reads as
+the standard's own typography rather than as a distinct name". It reads as the conversion's. That is
+the third witness for step 4 after the four-hundred-and-seventy-fourth's truncated `/OpenAction` row
+and shifted Table 179, and the first that cost an argument rather than a suspect.
+
+The replacement condition, for whoever picks it up: **the reading half is done for every passage the
+instrument can see, the correctness question it was asked to answer is answered, and items 1 to 3b
+are closed.** What is left is steps 4
 and 5, the disagreement sweep and the substrate question, which this file has carried since it was
 written and which are *work* rather than documentation debt. The item stays where it is with that
 scope and no other. If a round closes step 4 and it turns up nothing, what remains is one

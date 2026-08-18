@@ -1,17 +1,17 @@
 # Road D — stream the decompression, so the bomb never becomes an allocation
 
-Status: **four of §7.8.2's five content streams are done and shipped** (ADRs 0365, 0427) — a bomb
-in a page's `/Contents` costs 8.4 MB where it cost 1032 MB, one in a form XObject 10.7 MB where it
-cost 1032 MB, the witness 194 MB where it took 381, and every gate's output is identical. **Two
-things are left and they are §"What is still owed" below**: §8.7.3.1's tiling cell, which is an
-exception with a measurement behind it, and a pump for the four filters that are not
-`FlateDecode`. The producer half was ADR 0343's, the measurement ADR 0362's, the page's rewrite
-ADR 0365's and the other four ADR 0427's; what remains of the argument lives in those four and
-this file keeps what is not yet done.
+Status: **four of §7.8.2's five content streams are done and shipped, and the two streaming bombs'
+filters both pump** (ADRs 0365, 0427, 0429) — a bomb in a page's `/Contents` costs 8.4 MB (flate) or
+10 MB (LZW) where it cost 1032/1035 MB, one in a form XObject 10.7 MB where it cost 1032 MB, the
+witness 194 MB where it took 381, and every gate's output is identical. **One thing is left and it
+is §"What is still owed" below**: §8.7.3.1's tiling cell, which is an exception with a measurement
+behind it. The producer half was ADR 0343's, the measurement ADR 0362's, the page's rewrite
+ADR 0365's, the other four ADR 0427's and the LZW pump ADR 0429's; what remains of the argument
+lives in those five and this file keeps what is not yet done.
 Priority: 14 — the first road of [`10`](10-bounds-that-cap-size.md), whose §5 table prices all
-four and whose §6 binds whatever lands here. **Four of §7.8.2's five streams are shipped; what is
-left is a tiling cell and one filter family, priced in §"What is still owed", and is no longer
-what the owner's order is waiting on** — road B ([`15`](15-ship-the-confinement.md)) is next.
+four and whose §6 binds whatever lands here. **The tiling cell is all that is left of road D**, and
+it is no longer what the owner's order is waiting on — road B
+([`15`](15-ship-the-confinement.md)) is next.
 Witness: `tmp/Entwurf.pdf` — **not in the repository and not addable to it**, so no test may name
 that path; and Bomb B, which `doc/todo/10` §2 describes precisely enough to rebuild (sessions 519
 and 527 rebuilt both bombs to the byte from that description)
@@ -218,23 +218,28 @@ takes it today.
 
 ## What is still owed
 
-**1. A bomb in a tiling pattern's cell**, which is the paragraph above: the one of §7.8.2's five
-that still costs its gibibyte, for a reason that is measured rather than assumed.
+**A bomb in a tiling pattern's cell**, which is the paragraph above: the one of §7.8.2's five
+that still costs its gibibyte, for a reason that is measured rather than assumed. It is a
+`pdf-render` change rather than a filter one — the cell drawn once and its commands repeated,
+`pdf_render::Repeats` one step past `fold_repeated_marks` — which removes the reason
+`Document::nested_content_source` has to exclude §8.7.3.1 from the window, and should also be
+*faster*, so measure both directions.
 
-**2. A pump for the other four filters.** `Document::stream_source` pumps a single `FlateDecode`
-with no predictor and hands everything else back whole. LZW, ASCII85, ASCIIHex and RunLength are
-streaming by construction (§7.4) — and LZW reaches about 1365:1 on a long run of one byte, so it
-is the sharper bomb of the two. **The way to write them is not a second decoder beside the
-existing one**, which is trap 6 and is how two implementations of one clause drift: it is to make
-each existing decoder resumable — a state struct, `pump(&mut self, out: &mut [u8])`, and the
-whole-buffer entry point expressed as a loop over it — the way `filter::Pump` and `inflate_buffer`
-now share `turn`.
+## What was owed and is done — the filter pump (ADR 0429)
 
-`Document::is_pumpable` is the one place that decides a chain is pumpable, so the page route and
-the other four cannot answer it differently, and it is the one function a filter pump has to
-change.
+`Document::stream_source` used to pump a single `FlateDecode` and hand everything else back whole.
+It now pumps a single `LZWDecode` too, which was the sharper of road D's two remaining bombs
+(1365:1 against 585:1 measured on operators). The three §7.4 filters *not* pumped are left out on
+their expansion ratio, which is the whole point — a filter that cannot name a bomb has nothing for
+a window to save: `ASCIIHexDecode` shrinks its input (1:2), `ASCII85Decode` reaches 4:1 from a
+stream of nothing but `z`, `RunLengthDecode` 64:1. Should one ever be wanted for a reason other
+than a bomb, the shape is `Lzw`'s: a resumable state struct with `pump(&mut self, out: &mut [u8])`
+and the whole-buffer entry point a loop over it (trap 6 — one decoder, not two). `Document::pumping`
+(was `is_pumpable`) is the one place a chain's route is decided, and it is the one function a
+further filter pump changes.
 
 `doc/todo/10` §6 binds whatever lands: nothing arbitrary replaced by something equally arbitrary,
 the gates stay reproducible, a count that reports says what it counted, and **a bound on an
 allocation is measured on the allocation** — ADR 0354's lesson, which is why `capacity`,
-`VmHWM` or `massif`'s peak snapshot has to be read rather than the refusal believed.
+`VmHWM` or `massif`'s peak snapshot has to be read rather than the refusal believed. The LZW bomb
+was measured on `VmHWM` from `/proc`: **1035 MB whole → 10 MB windowed**, 2.12 s → 0.11 s.

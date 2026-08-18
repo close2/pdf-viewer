@@ -1525,10 +1525,9 @@ impl Document {
     ///
     /// [`Self::decoded_stream_data_reported`] answers "what does this stream decode to", which
     /// is a question with an allocation the size of the answer in it. This one answers "how
-    /// shall I read it", and for the one chain a window can pump — a single `FlateDecode` with
-    /// no predictor, which is what the overwhelming majority of content streams state — the
-    /// answer is a [`crate::filter::Pump`] that never holds more than the reader's window.
-    /// ADR 0365, and `doc/todo/14` for the road.
+    /// shall I read it", and for the chains a window can pump — [`Self::pumping`] says which and
+    /// why — the answer is a [`crate::filter::Pump`] that never holds more than the reader's
+    /// window. ADR 0365, and `doc/todo/14` for the road.
     ///
     /// Every other chain comes back whole, decoded by exactly the route it always took, cache
     /// and bound included. That is a route decision and never a silence: the bytes a caller
@@ -1546,12 +1545,13 @@ impl Document {
         if Self::is_external(stream) {
             return Err(StreamRefusal::External);
         }
-        if !self.is_pumpable(stream) {
+        let Some(pumping) = self.pumping(stream) else {
             return self
                 .decoded_stream_data_reported(stream)
                 .map(StreamSource::Whole);
-        }
-        Ok(StreamSource::Pumped(crate::filter::Pump::inflating(
+        };
+        Ok(StreamSource::Pumped(crate::filter::Pump::new(
+            pumping,
             Arc::clone(&stream.data),
         )))
     }
@@ -1590,11 +1590,11 @@ impl Document {
     ///
     /// [`StreamRefusal`], exactly as [`Self::decoded_stream_data_reported`] gives it.
     pub fn nested_content_source(&self, stream: &Stream) -> Result<StreamSource, StreamRefusal> {
-        if !self.is_pumpable(stream) {
+        let Some(pumping) = self.pumping(stream) else {
             return self
                 .decoded_stream_data_reported(stream)
                 .map(StreamSource::Whole);
-        }
+        };
         let allowance = read(&self.decoded).allowance(&stream.data);
         let within = Limits {
             max_stream_len: allowance.min(self.limits.max_stream_len),
@@ -1608,33 +1608,72 @@ impl Document {
             Err(StreamRefusal::Filter {
                 why: FilterRefusal::TooLarge { .. },
                 ..
-            }) => Ok(StreamSource::Pumped(crate::filter::Pump::inflating(
+            }) => Ok(StreamSource::Pumped(crate::filter::Pump::new(
+                pumping,
                 Arc::clone(&stream.data),
             ))),
             Err(other) => Err(other),
         }
     }
 
-    /// Whether a stream's whole filter chain is one [`crate::filter::Pump`] can produce.
+    /// Which of §7.4's filters a [`crate::filter::Pump`] would run over this stream, if any.
     ///
-    /// A single `FlateDecode` with no predictor, which is what the overwhelming majority of
-    /// content streams state. A predictor is part of decoding (see
-    /// [`crate::filter::decode_with_parms`]) and reverses rows against their predecessors,
+    /// **The one place the route is decided**, so that a page's `/Contents` and §7.8.2's other
+    /// four cannot answer it differently, and so that a filter gaining a pump is one edit.
+    ///
+    /// A single `FlateDecode` or `LZWDecode`, with no predictor. A predictor is part of decoding
+    /// (see [`crate::filter::decode_with_parms`]) and reverses rows against their predecessors,
     /// which is not a transformation a window can apply to a few thousand bytes at a time; it
-    /// occurs on cross-reference streams and images rather than on content streams. The other
-    /// four filters §7.4 states are streaming by construction and are not pumped **yet** —
-    /// `doc/todo/14` carries what that needs.
-    fn is_pumpable(&self, stream: &Stream) -> bool {
-        let filters = self.filter_chain(&stream.dict);
-        if filters.is_empty() || self.states_no_data(stream) {
-            return false;
+    /// occurs on cross-reference streams and images rather than on content streams.
+    ///
+    /// **The three §7.4 filters left out are left out on their own expansion ratio**, which is
+    /// what road D is about — a bomb is a small file that names a large allocation, and a filter
+    /// that cannot name one has nothing for a window to save:
+    ///
+    /// - `ASCIIHexDecode` produces **one byte per two** of §7.4.2's hexadecimal digits, so its
+    ///   output is smaller than its input and no file can inflate through it at all.
+    /// - `ASCII85Decode` produces four bytes per five characters, or four per `z` — **4:1 at the
+    ///   very most**, and only from a stream that is nothing but `z`. §7.4.3 also makes a
+    ///   character outside its grammar one that "shall cause an error", which discards the whole
+    ///   decode; a window has already handed its bytes to a lexer and cannot.
+    /// - `RunLengthDecode` produces at most 128 bytes per two, so **64:1**.
+    ///
+    /// `LZWDecode` reaches about **1365:1** on a long run of one byte and `FlateDecode` was
+    /// measured at 1032:1 on `doc/todo/10` §2's Bomb B. Those two are the bombs and those two are
+    /// pumped. `doc/todo/14` carries the ratios and what the remaining three would still need.
+    fn pumping(&self, stream: &Stream) -> Option<crate::filter::Pumping> {
+        if self.states_no_data(stream) {
+            return None;
         }
-        let predicted = self
-            .decode_parms(&stream.dict, 0)
+        let filters = self.filter_chain(&stream.dict);
+        let [only] = filters.as_slice() else {
+            return None;
+        };
+        // The stage's own parameters, read exactly as `decoded_stream_data_reported` reads them,
+        // so that the two routes cannot disagree about what the stream says.
+        let parms = self.decode_parms(&stream.dict, 0);
+        let predicted = parms
+            .as_ref()
             .and_then(|parms| parms.get("Predictor").and_then(Object::as_integer))
             .is_some_and(|predictor| predictor > 1);
-        !predicted
-            && matches!(filters.as_slice(), [only] if matches!(only.as_slice(), b"FlateDecode" | b"Fl"))
+        if predicted {
+            return None;
+        }
+        match only.as_slice() {
+            b"FlateDecode" | b"Fl" => Some(crate::filter::Pumping::Inflate),
+            b"LZWDecode" | b"LZW" => {
+                // Table 8's default is 1, and `filter::decode_reported` says why that is the
+                // *incorrect* behaviour of a widely-copied encoder and therefore the one almost
+                // every file needs.
+                let early = parms
+                    .and_then(|parms| parms.get("EarlyChange").and_then(Object::as_integer))
+                    .unwrap_or(1);
+                Some(crate::filter::Pumping::Lzw {
+                    early_change: early != 0,
+                })
+            }
+            _ => None,
+        }
     }
 
     /// Returns the bytes the document was opened from.

@@ -584,3 +584,135 @@ clause (#598, #649, #655, #303/#334) and four insert a NOTE or an EXAMPLE whose 
 happens to cite a clause (#53 twice, #151, #65, #62). A NOTE's number moves nothing this tree cites,
 and the instruction says which it is in its own words — which is cheaper to read than a predicate that
 would have to tell an inserted heading from an inserted note.
+
+## The twenty the repaired comparison uncovered, and there were nineteen — the five-hundred-and-ninety-fourth
+
+The section above ends by naming the debt with a number: *twenty* unread struck passages, over
+seventeen clauses. **The number was nineteen and the clause list was right.** It was arrived at by
+subtracting the Annex A and clause 13 lines from the 27 the repair added, and clause 13 gained
+**five** lines rather than four — #179 in §13.2.4.2, a third #156 in §13.6.4.7, #283 in §13.6.7.4, and
+#127 in §13.7.2.2.4 and again in §13.7.2.3.2. So the split is **3 + 5 + 19** and
+not 3 + 4 + 20, and it is recorded that way rather than quietly corrected: the seventeen clause
+names the previous section printed name nineteen lines, because §7.5.8.2 carries two and §12.11.2
+two.
+
+**How the nineteen were identified, which is the part worth keeping.** The tables in this file
+count lines unevenly — some rows carry an explicit `×N` and most do not — so they cannot be
+subtracted from a fresh run. What can is the instrument itself: `squeezed`'s pre-repair body is
+four lines in the commit that replaced it, so a copy of the tree with those four lines back prints
+**exactly 151**, and `diff` against the 178 names the 27 with nothing inferred. A comparison that
+is a function of the source is a comparison a later round can re-derive, which a table of
+verdicts is not.
+
+Every line is filed under the clause the *outline* puts its page in, and eight of the nineteen are
+a page-straddle away from the clause the sentence is in — the bucket is a sort order and not a
+verdict, for the fifth round running. Both are given below.
+
+| outline says | the sentence is in | p. | issue | verdict | what it turned out to be |
+|---|---|---|---|---|---|
+| §0.4 | §0.4 | 15 | #181 | untouched | The ICC.1 bullet in the Introduction's list of changes, deleted with no replacement: the dated ISO 15076-1 reference "can be supplemented by the Errata list and approved revisions available from the ICC website". The same erratum as §3's and §8.6.5.5's, in the Introduction, which states no requirement. |
+| §7.5.8.2 | §7.5.8.2 | 81 | #246 | **cites — the erratum vindicates the code** | The directness rule a cross-reference stream's reader stands on is widened from a condition to a rule. 2020: "If the stream is encoded, the Filter and DecodeParms entries in" Table 5 "shall also be direct objects." Amended: "The values of all entries shown in" it "shall also be direct objects. For arrays, all array elements shall be direct objects and for dictionaries, all key values shall be direct objects as well. The F entry defined in Table 5 shall not be used." `xref::decode_direct` has read both entries straight from the dictionary unconditionally since it was written, and refuses an indirect `/Filter` outright; the new prohibition on `/F` is met by construction, since nothing here opens §7.3.8.1's external file. **Recorded in §7.5.8.2's note.** |
+| §7.5.8.2 | §7.5.8.2 | 81 | #720 | cites | The same change from the other side: "not listed in" Table 17 struck from the bullet that says which entries *may* be indirect, because #246 makes the exception set two tables rather than one. `Root` stays the example of one that "shall be indirect". |
+| §7.6.3.1 | §7.6.3.1 | 89 | #95 | untouched | RSA Security's postal address struck from the availability note for PKCS#5. Editorial. |
+| §7.10.4 | §7.10.3 | 143 | #30 | cites | Type 2's `/Domain` constraint becomes two bullets and not one sentence: "if N is not an integer, all values of x will be non-negative; and … if N is negative, no value of x will be zero." The rule is unchanged and it binds the *file*; `function.rs`'s exponential arm is `x.powf(N)` and rests on it. |
+| §8.2 | §8.2 | 162 | #85 | untouched | Table 32's marked-content row cited "Table 351 -Entries in a data dictionary" for the five operators; the erratum points it at Table 352. A pointer in a summary table, and all five operators are interpreted. |
+| §9.6.2.3 | §9.6.2.2 | 330 | #384 | **a finding** | The fourteen names become a bulleted list in alphabetical order — and the erratum's own text spells the fourteenth `Courier-BoldOblique`. See the findings below. |
+| §9.8.3.3 | §9.8.3.3 | 364 | #5 | **a finding** | The sentence this row calls a self-contradiction is repaired. See the findings below. |
+| §9.10.3 | §9.10.3 | 372 | #462 | quotes | Already read, in the five-hundred-and-ninety-first, by the *other* half of `check`: two rustdoc blockquotes quoted "[t]he only pertinent entry in the CMap stream dictionary … is UseCMap, which", and both were corrected. The struck passage itself becomes visible only now, which is the two halves of `check` having different populations again. |
+| §12.3.3 | §12.3.2.4 | 459 | #162 and #288 | **a finding** | A named destination's dictionary form and its `/SD`. See the findings below. |
+| §12.5.6.3 | §12.5.6.3 | 496 | #479 | cites — the erratum vindicates the code | The sentence defining a state annotation cites "Table 176 -Additional entries specific to a link annotation" for the `/IRT` entry, which is a link's table; the erratum cites Table 172, the markup annotations' one. `conformance`'s own table claims already put `/IRT` under Table 172, and `markup::group_source` cites §12.5.6.2 rather than any table. **Recorded in §12.5.6.3's note.** |
+| §12.5.6.5 | §12.5.6.3 | 497 | #479 | cites | The same correction on the bullet two paragraphs down, where the entry that "shall refer to the original annotation" cites Table 176 as well, and which the page break files under the next clause. |
+| §12.7.5.2.3 | §12.7.5.2.2 | 551 | #386 | quotes | Already read, in the four-hundred-and-eighteenth and -nineteenth: "Because this type of retains no permanent value, it shall not use the V and DV entries in the field dictionary", struck with no replacement, corrected in `form.rs`, `appearance.rs`, `pdf-viewer.rs` and §12.7.5.2.2's row. This file recorded then that #386 was **not** on the 151; it is on the 178. |
+| §12.11.1 | §12.11.1 | 621 | #187 | cites — the erratum vindicates the code | Table 273's `/S` row says "See" Table 276 "for valid values", which is the requirement *handler* dictionary; the erratum says Table 275, the requirement types. `requirements::Kind::read` has matched Table 275's names since it was written. **Recorded in §12.11.1's note.** |
+| §12.11.2 | §12.11.1 | 622 | #187 | cites | The paragraph above Table 274 is rewritten to name Table 273 as the table its two type-specific keys are additional to, and the table is retitled "Additional entries for specific types of requirements". `/Encrypt` and `/DigSig` are unread and §12.11.1's row says why. |
+| §12.11.2 | §12.11.1 | 625 | #187 | cites | The same retitling on the table's own caption, four pages later, because Table 274 spans them. |
+| §14.8.2.2.2 | §14.8.2.2.2 | 762 | #484 | quotes | Already read, in the four-hundred-and-eighteenth: the paragraph carrying two `shall`s about the marked-content artifact forms is split into a NOTE 2 with both softened to "is", and `tests/accessibility.rs`'s blockquote stays verbatim because `doc/md/` is what the gate verifies against. Like #386, it was "not on the 151" and is on the 178. |
+| §14.10.5.3 | §14.10.5.3 | 827 | #222 | untouched | "Table 393 -Entries in a Web Capture command dictionary" repointed at Table 394, the command *flags*. The row is `inapplicable` and reads neither. |
+| ISO/TS 32001 §5.1.4 | ISO/TS 32001 §5.1.3 | 10 | #236 | implements | Already read, in the five-hundred-and-fifty-fifth: "Delete all of clause 5.1.3", so Table 256's `/DigestMethod` is not extended with the SHA-3 family. The deleted clause's body sits on the page the outline files under §5.1.4, which is why it appears under that heading here. The first table's own row for it says `check` never named it; `check` names it now, and the row's lesson stands unchanged — the session that implemented the clause found it by looking, four rounds before the instrument could. |
+
+### The three findings
+
+1. **§9.8.3.3, Issue #5 — the clause does not contradict itself; the 2020 printing does.** This
+   file's neighbour in the ledger has said since it was written that §9.8.3.3 "contradicts itself,
+   and the corpus's one witness proves it": an `/FD` dictionary's value "shall contain entries for
+   metric information only; it shall not include FontFile , FontFile2 , FontFile3 , or any of the
+   entries listed in ' Table 120 -Entries common to all font descriptors '", and every metric a
+   descriptor can state is in Table 120 — so `issue13147.pdf`'s `/FD << /Proportional … >>`, holding
+   ten Table 120 entries, breaks a rule it has no way to keep. The erratum makes three changes to
+   that one sentence: it inserts "be a subset of the keys defined in "Table 120 - Entries common to
+   all font descriptors" that", it softens "shall contain" to "contains", and it repoints the
+   prohibition at "Table 122 - Additional font descriptor entries for CIDFonts". Read whole, the
+   amended sentence says an `/FD` descriptor's keys are drawn *from* Table 120 and may not be
+   Table 122's CIDFont-specific ones — `/Style`, `/Lang`, `/FD` itself, `/CIDSet` — which is
+   consistent, checkable, and exactly what the corpus's one witness does. **No behaviour moves**:
+   `/FD` is still read and applied to nothing for the licensing reason the row gives, and
+   enforcement was and remains a validator's job. What moves is the reason, and a reason recorded
+   as a defect in the standard is worth correcting when it turns out to be a defect in one printing
+   of it. **Corrected in §9.8.3.3's note.**
+
+2. **§12.3.2.4, Issue #162 and #288 — a named destination's `/SD` is unread, and §12.3.2.3's row
+   claimed there was no such entry.** The clause's sentence about the `/Dests` dictionary's values
+   ends "or a dictionary with a D entry whose value is such an array and may optionally contain an
+   SD entry as defined in "Table 201 -Action types"" — and Table 201 is the list of action *types*,
+   which defines no `/SD` at all. The erratum splits the sentence into bullets and replaces the
+   dead reference: "In PDF 2.0, this dictionary may also optionally contain an SD entry. See "Table
+   202 — Additional entries specific to a go-to action", "Table 203 - Additional entries specific to
+   a remote go-to action" and "Table 204 - Additional entries specific to an embedded go-to
+   action"." So the rule a named destination's `/SD` obeys is reachable from §12.3.2.4 for the first
+   time, and it is Table 202's: "If present, the structure destination should take precedence over
+   destination in the D entry."
+
+   Two things follow. `Destination::of_go_to` applies that precedence and has since the
+   four-hundred-and-eighty-fourth session; `Destination::read_within`, which is what reads a
+   *named* destination's value, has a dictionary arm that takes `/D` and never looks for `/SD` — so
+   a document stating both gets the weaker of the two, silently, and §12.3.2.3's algorithm is not
+   reached although this tree has had it since that session. And §12.3.2.3's own row
+   called Table 202's entry "the only entry in the standard that states a structure destination in
+   *this* document", which was false when it was written: §12.3.2.4 stated a second one in 2020 as
+   well, behind a reference that named nothing. **The erratum did not move the requirement; it made
+   the requirement legible, and the false claim was found by reading it.** Both rows are corrected,
+   and §12.3.2.4's carries the price: `read_within`'s dictionary arm needs `of_go_to`'s two lines
+   with the same fallback argument — an `/SD` that does not resolve falls back to `/D`, because the
+   precedence is a `should` and `/D` is the required entry — a test only the new step can answer, a
+   count of the corpus named destinations that state one, and the row moved to `partial` until it
+   lands.
+
+3. **§9.6.2.2, Issue #384 — the fourteenth standard font's name has a hyphen in it, and this tree
+   argued from a conversion artefact that it does not.** The erratum replaces the clause's inline
+   list of the fourteen names with a bulleted one in alphabetical order, and the change is
+   typographic — except that the erratum's own text spells the last of them `Courier-BoldOblique`.
+   `doc/md/` writes `CourierBoldOblique`. The standard sets the name broken across a line, and the
+   conversion drops the hyphen of a word it breaks — the failure `conformance::prose::folded`'s own
+   doc comment describes with `text-tospeech` and `markedcontent`, here producing a **name** rather
+   than a mangled word. A second extractor over the same page prints `Courier-` and `BoldOblique`
+   on two lines, which is what the erratum's extraction says as well.
+
+   `pdf_font::standard::STANDARD_NAMES` carries fifteen entries for the fourteen names, and its
+   comment argues that the unhyphenated spelling "reads as the standard's own typography rather
+   than as a distinct name". It reads as the conversion's. Nothing this program accepts changes —
+   a resource named `/CourierBoldOblique` is still matched — but the warrant does: it is a
+   documented tolerance for a producer who copied the same broken line, not one of the clause's
+   own names. The blockquote of the retired inline list stays verbatim, because `doc/md/` is what
+   `cargo test -p conformance` verifies against; what is owed is the annotation beside it and the
+   corpus count that says whether any file writes the name at all. **Recorded in §9.6.2.2's note.**
+
+   **This is a witness for `doc/todo/48`'s step 4** — the disagreement sweep, which compares this
+   project's own extraction against `doc/md/` and has never been run — and it is the third of its
+   kind after the four-hundred-and-seventy-fourth session's truncated `/OpenAction` row and shifted
+   Table 179. The first two cost a suspect each; this one cost an argument in a doc comment and an
+   entry in a constant.
+
+### What the nineteen say about the rates
+
+Sixty-six passages gave two findings, the next 54 gave one, and these nineteen gave three — the
+highest rate this file records, and the reason is not that the passages are richer. Four of the
+nineteen were **already read**, by one of `check`'s other halves or by a round that went looking
+(#462, #386, #484, #236), so the nineteen are fifteen genuinely new readings. And **seven of the
+fifteen are cross-reference corrections** — a wrong table number in the standard, repaired — which
+is a shape this file had not met in quantity before: #85, #222, #479 twice and #187 three times.
+Six of the seven are in clauses this tree implements, and each one is a place where a wrong pointer
+in the standard meets a right one in the code, so each is cheap to read and says something about a
+claim either way. Two of the three findings came out of that shape rather than out of a changed
+`shall`: §12.3.2.4's `/SD` was invisible behind a reference to a table that defines no such entry,
+and §9.8.3.3's contradiction was a prohibition pointing at the wrong table. **A struck pointer is
+worth reading, and this is the evidence for it.**

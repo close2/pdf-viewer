@@ -44,7 +44,7 @@
 use std::sync::Arc;
 
 use pdf_syntax::{
-    Damage, Document, Lexer, Object, Pumped, Stream, StreamRefusal, StreamSource, Token,
+    Damage, Document, Lexer, Object, Pumped, Pumping, Stream, StreamRefusal, StreamSource, Token,
 };
 
 use crate::page::{ContentIssue, Page, filter_names};
@@ -169,11 +169,14 @@ enum Nested {
         /// Why the decode stopped short, where it did (ADR 0343).
         damage: Option<Damage>,
     },
-    /// Still encoded, inflated through a window once per read.
+    /// Still encoded, decoded through a window once per read.
     Windowed {
         /// The encoded bytes, which is what the document already holds: a [`pdf_syntax::Pump`]
         /// takes its input from the stream object rather than copying it.
         data: Arc<[u8]>,
+        /// Which filter a fresh pump is to run, decided once by the document rather than
+        /// re-derived per read.
+        pumping: Pumping,
         /// The `/Filter` names it declared, for the report.
         filters: Vec<String>,
         /// `Limits::max_stream_len`, which still bounds this one stream.
@@ -196,8 +199,9 @@ impl NestedContent {
                 data: decoded.data,
                 damage: decoded.damage,
             },
-            StreamSource::Pumped(_) => Nested::Windowed {
+            StreamSource::Pumped(pump) => Nested::Windowed {
                 data: Arc::clone(&stream.data),
+                pumping: pump.pumping(),
                 filters: filter_names(document, &stream.dict),
                 limit: document.limits().max_stream_len,
             },
@@ -274,10 +278,12 @@ impl NestedContent {
             Nested::Whole { data, .. } => ContentReader::over(data),
             Nested::Windowed {
                 data,
+                pumping,
                 filters,
                 limit,
             } => ContentReader {
                 held: Held::Window(Box::new(Window::single(
+                    *pumping,
                     Arc::clone(data),
                     filters.clone(),
                     *limit,
@@ -632,12 +638,12 @@ impl Window {
     /// so the issues this window raises are translated by the interpreter into the vocabulary
     /// the four are reported in, and never reach a page's own `/Contents` report. See
     /// `Interpreter::run`.
-    fn single(data: Arc<[u8]>, filters: Vec<String>, limit: usize) -> Self {
+    fn single(pumping: Pumping, data: Arc<[u8]>, filters: Vec<String>, limit: usize) -> Self {
         let mut window = Self::new(limit);
         window.shape = Shape::SelfContained;
         window.parts.push(Part {
             index: 0,
-            source: PartSource::Pumped(pdf_syntax::Pump::inflating(data)),
+            source: PartSource::Pumped(pdf_syntax::Pump::new(pumping, data)),
             filters,
             kept: 0,
         });

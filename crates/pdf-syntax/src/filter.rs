@@ -398,140 +398,241 @@ pub fn decode_reported(
 /// > a multiple-character sequence that has been encountered previously in the input (258 or
 /// > greater).
 ///
-/// The table is held as a prefix code and one byte per entry rather than as a growing
-/// sequence per entry, which is the standard construction and the reason the clause can say
-/// "the encoder and the decoder shall maintain identical copies of this table" without
-/// either of them copying anything: entry *n* is entry `prefix[n]` followed by `suffix[n]`,
-/// so appending one is two stores.
-///
-/// Three details decide whether a decoder is right, and each is a sentence of the clause:
-///
-/// - **The code width grows before the entry that needs it.** "The first output code that is
-///   10 bits long shall be the one following the creation of table entry 511", and Table 8's
-///   `/EarlyChange` moves that one code earlier, which is the default because a widely-copied
-///   encoder did it. Getting this wrong desynchronises the bit stream from that point on and
-///   produces plausible bytes for ever after.
-/// - **A code may name the entry about to be created.** The encoder emits the code for a
-///   sequence it has just added, so a decoder that has not added it yet must reconstruct it:
-///   it is the previous sequence followed by that sequence's own first byte. This is the case
-///   an input of one repeated character reaches immediately.
-/// - **Bits are packed high-order first**, across byte boundaries, "thus, codes may straddle
-///   byte boundaries arbitrarily".
+/// [`Lzw`] holds the table and [`Lzw::step`] reads one code; the three details that decide
+/// whether a decoder is right are stated there, each beside the sentence of the clause it comes
+/// from.
 ///
 /// A truncated or corrupt stream keeps what it decoded, for [`flate`]'s reason: a partial
 /// content stream still renders most of a page. **A stream that passes
 /// [`Limits::max_stream_len`] does not**, and the difference is the whole of ADR 0306: damage
 /// means the encoder had no more to give, and the bound means it had a great deal more.
+///
+/// **The algorithm is [`Lzw`] and this function is a loop over it**, which is the shape
+/// `doc/todo/14` asks of a filter that gains a pump: the clause is implemented once and the two
+/// routes differ in where the bytes go. What stays here rather than moving into the state is the
+/// **bound**, because a bound is a statement about an allocation and the windowed route has none
+/// to make it about — there the aggregate bound belongs to the reader that owns the window.
 fn lzw(data: &[u8], early_change: bool, limits: Limits) -> Result<Decoded, FilterRefusal> {
-    /// Restart with the initial table and a nine-bit code.
-    const CLEAR: u16 = 256;
-    /// End of data.
-    const EOD: u16 = 257;
-    /// The first code the table assigns; 0 to 255 are themselves and 256, 257 are markers.
-    const FIRST: u16 = 258;
-    /// "Codes shall never be longer than 12 bits; therefore, entry 4095 is the last entry."
-    const ENTRIES: usize = 4096;
-
-    let mut prefix = [0u16; ENTRIES];
-    let mut suffix = [0u8; ENTRIES];
-
-    let mut next = FIRST;
-    let mut width = 9u32;
-    let mut previous: Option<u16> = None;
+    let mut state = Lzw::new(early_change);
     let mut out: Vec<u8> = Vec::new();
-    // One entry's sequence, built backwards by walking the prefix chain. Bounded by the
-    // table's size, since a chain longer than that would be a cycle.
-    let mut scratch: Vec<u8> = Vec::with_capacity(ENTRIES);
+    loop {
+        match state.step(data) {
+            Step::Again => {
+                if out.len().saturating_add(state.pending().len()) > limits.max_stream_len {
+                    // A bomb rather than a stream: LZW reaches about 1365:1 on long runs of one
+                    // byte, so a small file can name a very large output. **What it decoded so
+                    // far is discarded rather than handed back**, because a prefix of a bomb
+                    // read as a whole stream is exactly the silence this guard exists to break.
+                    return Err(FilterRefusal::TooLarge {
+                        limit: limits.max_stream_len,
+                    });
+                }
+                out.extend_from_slice(state.pending());
+            }
+            Step::Ended => return Ok(Decoded::whole(out.as_slice())),
+            Step::Damaged(damage) => return salvage(&out, damage),
+        }
+    }
+}
 
-    let mut held: u32 = 0;
-    let mut bits: u32 = 0;
-    for &byte in data {
-        held = (held << 8) | u32::from(byte);
-        bits += 8;
-        while bits >= width {
+/// Restart with the initial table and a nine-bit code.
+const LZW_CLEAR: u16 = 256;
+/// End of data.
+const LZW_EOD: u16 = 257;
+/// The first code the table assigns; 0 to 255 are themselves and 256, 257 are markers.
+const LZW_FIRST: u16 = 258;
+/// "Codes shall never be longer than 12 bits; therefore, entry 4095 is the last entry."
+const LZW_ENTRIES: usize = 4096;
+
+/// What one call of [`Lzw::step`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Step {
+    /// A code was read and the sequence it names is [`Lzw::pending`].
+    Again,
+    /// §7.4.4.2's EOD marker was read: the stream is whole.
+    Ended,
+    /// The decode stopped short, and the bytes before it are what the encoder wrote.
+    Damaged(Damage),
+}
+
+/// One `LZWDecode` in progress: §7.4.4.2's table, its bit accumulator and its input cursor.
+///
+/// **This is the state a decoder keeps between codes, held in a struct so that it can also be
+/// kept between *calls*.** [`lzw`] drives it into a growing `Vec` and [`Pump`] drives it into a
+/// fixed window; neither owns a copy of the algorithm. Trap 6 is the reason it is one type
+/// rather than two functions — a second decoder beside the first is how two implementations of
+/// one clause drift — and `doc/todo/14` names this shape outright.
+///
+/// The table is a prefix code and one byte per entry rather than a growing sequence per entry,
+/// which is the standard construction and the reason the clause can say "the encoder and the
+/// decoder shall maintain identical copies of this table" without either of them copying
+/// anything: entry *n* is entry `prefix[n]` followed by `suffix[n]`, so appending one is two
+/// stores.
+struct Lzw {
+    /// Each entry's predecessor, by code.
+    prefix: [u16; LZW_ENTRIES],
+    /// Each entry's own last byte, by code.
+    suffix: [u8; LZW_ENTRIES],
+    /// The first code not yet assigned.
+    next: u16,
+    /// How many bits the next code occupies, 9 to 12.
+    width: u32,
+    /// The code before this one, which step (d) needs to create the next entry.
+    previous: Option<u16>,
+    /// Table 8's `/EarlyChange`, which moves the width increase one code earlier.
+    early_change: bool,
+    /// The bits read from the input and not yet consumed by a code.
+    held: u32,
+    /// How many of `held`'s low bits are those.
+    bits: u32,
+    /// How many of the encoded bytes have been read.
+    at: usize,
+    /// The sequence the last code named, built backwards by walking the prefix chain and then
+    /// reversed. Bounded by the table's size, since a chain longer than that would be a cycle.
+    spill: Vec<u8>,
+    /// How much of `spill` has been handed over, which is always zero on [`lzw`]'s route and
+    /// moves only where a window took the sequence in pieces.
+    spill_at: usize,
+}
+
+/// Everything but the table, which is twelve kilobytes of it and says nothing a reader of a
+/// panic message wants.
+impl std::fmt::Debug for Lzw {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Lzw")
+            .field("next", &self.next)
+            .field("width", &self.width)
+            .field("previous", &self.previous)
+            .field("early_change", &self.early_change)
+            .field("at", &self.at)
+            .field("pending", &self.pending().len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl Lzw {
+    /// A decoder at §7.4.4.2's initial state.
+    fn new(early_change: bool) -> Self {
+        Self {
+            prefix: [0; LZW_ENTRIES],
+            suffix: [0; LZW_ENTRIES],
+            next: LZW_FIRST,
+            width: 9,
+            previous: None,
+            early_change,
+            held: 0,
+            bits: 0,
+            at: 0,
+            spill: Vec::with_capacity(LZW_ENTRIES),
+            spill_at: 0,
+        }
+    }
+
+    /// The bytes the last [`Step::Again`] produced that nobody has taken yet.
+    fn pending(&self) -> &[u8] {
+        self.spill.get(self.spill_at..).unwrap_or_default()
+    }
+
+    /// Reads one code from `data` and decodes the sequence it names into [`Self::pending`].
+    ///
+    /// Three details decide whether a decoder is right, and each is a sentence of the clause:
+    ///
+    /// - **The code width grows before the entry that needs it.** "The first output code that is
+    ///   10 bits long shall be the one following the creation of table entry 511", and Table 8's
+    ///   `/EarlyChange` moves that one code earlier, which is the default because a
+    ///   widely-copied encoder did it. Getting this wrong desynchronises the bit stream from
+    ///   that point on and produces plausible bytes for ever after.
+    /// - **A code may name the entry about to be created.** The encoder emits the code for a
+    ///   sequence it has just added, so a decoder that has not added it yet must reconstruct it:
+    ///   it is the previous sequence followed by that sequence's own first byte. This is the
+    ///   case an input of one repeated character reaches immediately.
+    /// - **Bits are packed high-order first**, across byte boundaries, "thus, codes may straddle
+    ///   byte boundaries arbitrarily".
+    fn step(&mut self, data: &[u8]) -> Step {
+        loop {
+            while self.bits < self.width {
+                let Some(&byte) = data.get(self.at) else {
+                    // No EOD marker: the encoder is required to emit one, and a file that does
+                    // not is truncated rather than empty.
+                    return Step::Damaged(Damage::Truncated);
+                };
+                self.at += 1;
+                self.held = (self.held << 8) | u32::from(byte);
+                self.bits += 8;
+            }
             #[expect(
                 clippy::cast_possible_truncation,
                 reason = "masked to `width` bits, and the clause caps a code at twelve"
             )]
-            let code = ((held >> (bits - width)) & ((1u32 << width) - 1)) as u16;
-            bits -= width;
+            let code =
+                ((self.held >> (self.bits - self.width)) & ((1u32 << self.width) - 1)) as u16;
+            self.bits -= self.width;
 
-            if code == EOD {
-                return Ok(Decoded::whole(out.as_slice()));
+            if code == LZW_EOD {
+                return Step::Ended;
             }
-            if code == CLEAR {
-                next = FIRST;
-                width = 9;
-                previous = None;
+            if code == LZW_CLEAR {
+                self.next = LZW_FIRST;
+                self.width = 9;
+                self.previous = None;
                 continue;
             }
 
             // The sequence this code names, or — where it names the entry about to be
             // created — the one the encoder just added.
-            scratch.clear();
-            let mut walk = if code < next {
+            self.spill.clear();
+            self.spill_at = 0;
+            let mut walk = if code < self.next {
                 code
-            } else if code == next && previous.is_some() {
+            } else if code == self.next && self.previous.is_some() {
                 // Reconstructed below from `previous`; start the walk there and append its
                 // own first byte afterwards.
-                previous.unwrap_or(0)
+                self.previous.unwrap_or(0)
             } else {
                 // A code past the end of the table is corrupt data, not a sequence.
-                return salvage(&out, Damage::Corrupt);
+                return Step::Damaged(Damage::Corrupt);
             };
-            let extends = code == next;
-            for _ in 0..ENTRIES {
+            let extends = code == self.next;
+            for _ in 0..LZW_ENTRIES {
                 let index = usize::from(walk);
                 if walk < 256 {
-                    scratch.push(u8::try_from(walk).unwrap_or(0));
+                    self.spill.push(u8::try_from(walk).unwrap_or(0));
                     break;
                 }
-                scratch.push(suffix.get(index).copied().unwrap_or(0));
-                walk = prefix.get(index).copied().unwrap_or(0);
+                self.spill
+                    .push(self.suffix.get(index).copied().unwrap_or(0));
+                walk = self.prefix.get(index).copied().unwrap_or(0);
             }
-            scratch.reverse();
+            self.spill.reverse();
             if extends {
-                let first = scratch.first().copied().unwrap_or(0);
-                scratch.push(first);
+                let first = self.spill.first().copied().unwrap_or(0);
+                self.spill.push(first);
             }
-
-            if out.len().saturating_add(scratch.len()) > limits.max_stream_len {
-                // A bomb rather than a stream: LZW reaches about 1365:1 on long runs of one
-                // byte, so a small file can name a very large output. **What it decoded so far
-                // is discarded rather than handed back**, because a prefix of a bomb read as a
-                // whole stream is exactly the silence this guard exists to break.
-                return Err(FilterRefusal::TooLarge {
-                    limit: limits.max_stream_len,
-                });
-            }
-            out.extend_from_slice(&scratch);
 
             // Step (d): "create a new table entry for the first unused code. Its value is
             // the sequence found in step (a) followed by the next input character" — which
             // the decoder sees as the previous code followed by this sequence's first byte.
-            if let Some(previous) = previous
-                && usize::from(next) < ENTRIES
+            if let Some(previous) = self.previous
+                && usize::from(self.next) < LZW_ENTRIES
             {
-                let index = usize::from(next);
-                if let Some(slot) = prefix.get_mut(index) {
+                let index = usize::from(self.next);
+                if let Some(slot) = self.prefix.get_mut(index) {
                     *slot = previous;
                 }
-                if let Some(slot) = suffix.get_mut(index) {
-                    *slot = scratch.first().copied().unwrap_or(0);
+                if let Some(slot) = self.suffix.get_mut(index) {
+                    *slot = self.spill.first().copied().unwrap_or(0);
                 }
-                next += 1;
-                let grown = u32::from(next) + u32::from(early_change);
-                if width < 12 && grown >= (1u32 << width) {
-                    width += 1;
+                self.next += 1;
+                let grown = u32::from(self.next) + u32::from(self.early_change);
+                if self.width < 12 && grown >= (1u32 << self.width) {
+                    self.width += 1;
                 }
             }
-            previous = Some(code);
+            self.previous = Some(code);
+            return Step::Again;
         }
     }
-
-    // No EOD marker: the encoder is required to emit one, and a file that does not is
-    // truncated rather than empty.
-    salvage(&out, Damage::Truncated)
 }
 
 /// What a *damaged* stream hands back: whatever it decoded and why it stopped, or
@@ -682,7 +783,25 @@ pub enum Pumped {
     Damaged(usize, Damage),
 }
 
-/// An inflate in progress, producing its output a window at a time.
+/// Which of §7.4's filters a [`Pump`] is to run, and with which of its parameters.
+///
+/// **The route is chosen once, by `Document::pumping`, and carried rather than re-derived.**
+/// One of §7.8.2's content streams is read more than once — a form, a tiling cell, a glyph
+/// description — so a fresh pump is made per read, and a value that says which decoder to build
+/// is what keeps the second read from asking the question again and answering it differently.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pumping {
+    /// `FlateDecode`, with no predictor.
+    Inflate,
+    /// `LZWDecode`, with no predictor.
+    Lzw {
+        /// Table 8's `/EarlyChange`, which decides where the code width grows and therefore
+        /// what every bit after that point decodes to. Its default is 1, hence `true`.
+        early_change: bool,
+    },
+}
+
+/// A decode in progress, producing its output a window at a time.
 ///
 /// [`decode`] and its neighbours answer "what does this stream decode to", which is a
 /// question with an allocation in it. This one answers "what are the next few thousand bytes
@@ -690,19 +809,40 @@ pub enum Pumped {
 /// difference is the whole of road D in `doc/todo/14`: a bomb becomes time rather than an
 /// allocation nothing can take back. ADR 0365.
 ///
-/// The bytes are the same bytes. Both routes drive one `flate2::Decompress` and classify its
-/// outcomes through [`turn`]; what differs is where the output goes and whether the input's
-/// two framings are tried whole or resumed.
+/// **The bytes are the same bytes**, and that is a property of how the two routes are built
+/// rather than a hope: each filter is one resumable decoder, and the whole-buffer entry point is
+/// a loop over the same decoder. `FlateDecode` shares [`turn`] between its two loops;
+/// `LZWDecode` shares [`Lzw`] itself.
 #[derive(Debug)]
 pub struct Pump {
     /// The still-encoded bytes, held whole because they are already resident: the pump takes
     /// its input from the stream object rather than copying it.
     data: Arc<[u8]>,
     /// The decoder, held across turns — which is what makes this a pump rather than a decode.
+    engine: Engine,
+    /// Set once end-of-data or damage has been reported, so that a further turn is a no-op
+    /// rather than a second report.
+    finished: bool,
+}
+
+/// The decoder a [`Pump`] holds across its turns.
+#[derive(Debug)]
+enum Engine {
+    /// `FlateDecode`, driven through `flate2::Decompress`.
+    Inflate(Inflate),
+    /// `LZWDecode`. **Boxed**, because §7.4.4.2's table is twelve kilobytes and an inflating
+    /// pump would otherwise carry room for one it will never fill.
+    Lzw(Box<Lzw>),
+}
+
+/// One `FlateDecode` in progress. See [`Pump`].
+#[derive(Debug)]
+struct Inflate {
+    /// The decoder, held across turns.
     decoder: flate2::Decompress,
     /// Whether `decoder` expects zlib's two-byte header.
     zlib_header: bool,
-    /// How many of `data`'s bytes the decoder has taken, from `start`.
+    /// How many of the encoded bytes the decoder has taken, from `start`.
     consumed: usize,
     /// Where the encoded data begins; [`flate`] skips leading white space before the header,
     /// and a resumable decoder has to skip the same bytes.
@@ -710,45 +850,75 @@ pub struct Pump {
     /// How much output the pump has produced, which is what says whether a restart under the
     /// other framing is still free.
     produced: u64,
-    /// Set once end-of-data or damage has been reported, so that a further turn is a no-op
-    /// rather than a second report.
-    finished: bool,
 }
 
 impl Pump {
-    /// A pump over `data`, inflating it as [`flate`] would.
+    /// A pump over `data`, decoding it as [`decode_reported`] would.
     ///
-    /// The white-space skip and the zlib-then-raw fallback are [`flate`]'s, kept exactly: a
-    /// stream missing its two-byte header is common in the wild, and a decoder that has
-    /// produced nothing yet can be restarted under the other framing for nothing.
+    /// `FlateDecode`'s white-space skip and zlib-then-raw fallback are [`flate`]'s, kept
+    /// exactly: a stream missing its two-byte header is common in the wild, and a decoder that
+    /// has produced nothing yet can be restarted under the other framing for nothing.
     #[must_use]
-    pub fn inflating(data: Arc<[u8]>) -> Self {
-        let start = data
-            .iter()
-            .position(|&byte| !crate::lexer::is_whitespace(byte))
-            .unwrap_or(data.len());
+    pub fn new(pumping: Pumping, data: Arc<[u8]>) -> Self {
+        let engine = match pumping {
+            Pumping::Inflate => {
+                let start = data
+                    .iter()
+                    .position(|&byte| !crate::lexer::is_whitespace(byte))
+                    .unwrap_or(data.len());
+                Engine::Inflate(Inflate {
+                    decoder: flate2::Decompress::new(true),
+                    zlib_header: true,
+                    consumed: 0,
+                    start,
+                    produced: 0,
+                })
+            }
+            Pumping::Lzw { early_change } => Engine::Lzw(Box::new(Lzw::new(early_change))),
+        };
         Self {
             data,
-            decoder: flate2::Decompress::new(true),
-            zlib_header: true,
-            consumed: 0,
-            start,
-            produced: 0,
+            engine,
             finished: false,
+        }
+    }
+
+    /// Which filter this pump runs, so that a second read of the same stream builds the same
+    /// decoder without asking the document again.
+    #[must_use]
+    pub fn pumping(&self) -> Pumping {
+        match &self.engine {
+            Engine::Inflate(_) => Pumping::Inflate,
+            Engine::Lzw(lzw) => Pumping::Lzw {
+                early_change: lzw.early_change,
+            },
         }
     }
 
     /// Writes the next bytes of the decoded stream into `out`.
     ///
-    /// `out` must not be empty: a decoder given no room makes no progress, and no progress is
-    /// how [`turn`] recognises a truncated input.
+    /// `out` must not be empty: a decoder given no room makes no progress, and for
+    /// `FlateDecode` no progress is how [`turn`] recognises a truncated input.
     pub fn pump(&mut self, out: &mut [u8]) -> Pumped {
         if self.finished || out.is_empty() {
             return Pumped::Wrote(0);
         }
+        let pumped = match &mut self.engine {
+            Engine::Inflate(inflate) => inflate.pump(&self.data, out),
+            Engine::Lzw(lzw) => lzw.pump(&self.data, out),
+        };
+        if matches!(pumped, Pumped::Ended(_) | Pumped::Damaged(_, _)) {
+            self.finished = true;
+        }
+        pumped
+    }
+}
+
+impl Inflate {
+    /// One turn of the inflate, writing into `out`. See [`Pump::pump`].
+    fn pump(&mut self, data: &[u8], out: &mut [u8]) -> Pumped {
         loop {
-            let input = self
-                .data
+            let input = data
                 .get(self.start.saturating_add(self.consumed)..)
                 .unwrap_or_default();
             let (before_in, before_out) = (self.decoder.total_in(), self.decoder.total_out());
@@ -765,10 +935,7 @@ impl Pump {
 
             match turn(&status, took > 0 || wrote > 0) {
                 Turn::Again => return Pumped::Wrote(wrote),
-                Turn::Whole => {
-                    self.finished = true;
-                    return Pumped::Ended(wrote);
-                }
+                Turn::Whole => return Pumped::Ended(wrote),
                 // Nothing has come out under this framing, so the other one gets its turn —
                 // [`flate`]'s fallback, taken here at the point the first framing fails
                 // rather than after a whole decode. A restart is free exactly while the
@@ -780,9 +947,53 @@ impl Pump {
                         self.consumed = 0;
                         continue;
                     }
-                    self.finished = true;
                     return Pumped::Damaged(wrote, damage);
                 }
+            }
+        }
+    }
+}
+
+impl Lzw {
+    /// One turn of the LZW decode, writing into `out`. See [`Pump::pump`].
+    ///
+    /// **A code names a sequence and a window has room for however much it has room for**, so
+    /// the sequence the last [`Self::step`] produced is handed over in pieces across as many
+    /// turns as it takes. That is the only thing this route has that [`lzw`]'s has not: an
+    /// entry can be 4096 bytes and a window is not obliged to be larger than one.
+    fn pump(&mut self, data: &[u8], out: &mut [u8]) -> Pumped {
+        let mut wrote = 0usize;
+        let mut stopped: Option<Step> = None;
+        loop {
+            let room = out.len().saturating_sub(wrote);
+            let pending = self.pending();
+            let take = pending.len().min(room);
+            if take > 0
+                && let Some(slot) = out.get_mut(wrote..wrote.saturating_add(take))
+                && let Some(source) = self
+                    .spill
+                    .get(self.spill_at..self.spill_at.saturating_add(take))
+            {
+                slot.copy_from_slice(source);
+                wrote = wrote.saturating_add(take);
+                self.spill_at = self.spill_at.saturating_add(take);
+            }
+            if self.spill_at < self.spill.len() {
+                // The window filled before the sequence did; the rest is the next turn's.
+                return Pumped::Wrote(wrote);
+            }
+            match stopped {
+                Some(Step::Ended) => return Pumped::Ended(wrote),
+                Some(Step::Damaged(damage)) => return Pumped::Damaged(wrote, damage),
+                // `step` never hands back `Again` as a stopping reason.
+                Some(Step::Again) | None => {}
+            }
+            if wrote >= out.len() {
+                return Pumped::Wrote(wrote);
+            }
+            match self.step(data) {
+                Step::Again => {}
+                ended => stopped = Some(ended),
             }
         }
     }
@@ -1220,6 +1431,222 @@ mod tests {
             "a bound of {} bought a buffer of {}",
             limits.max_stream_len,
             out.capacity()
+        );
+    }
+
+    /// Packs codes at the width §7.4.4.2's decoder reads each of them at.
+    ///
+    /// The mirror of [`super::Lzw::step`]'s width rule, written out here rather than shared,
+    /// because a test that computed the width by asking the decoder would agree with it however
+    /// wrong both were. This is an *encoder*; the thing under test is the decoder.
+    fn pack_lzw(codes: &[u16], early_change: bool) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut held: u32 = 0;
+        let mut bits: u32 = 0;
+        let mut width = 9u32;
+        let mut next: u16 = 258;
+        let mut previous: Option<u16> = None;
+
+        for &code in codes {
+            held = (held << width) | (u32::from(code) & ((1u32 << width) - 1));
+            bits += width;
+            while bits >= 8 {
+                out.push(((held >> (bits - 8)) & 0xFF) as u8);
+                bits -= 8;
+            }
+            match code {
+                256 => {
+                    next = 258;
+                    width = 9;
+                    previous = None;
+                }
+                257 => {}
+                _ => {
+                    if previous.is_some() && usize::from(next) < 4096 {
+                        next += 1;
+                        let grown = u32::from(next) + u32::from(early_change);
+                        if width < 12 && grown >= (1u32 << width) {
+                            width += 1;
+                        }
+                    }
+                    previous = Some(code);
+                }
+            }
+        }
+        if bits > 0 {
+            out.push(((held << (8 - bits)) & 0xFF) as u8);
+        }
+        out
+    }
+
+    /// A stream of `entries - 258` codes that names ever longer runs of one byte.
+    ///
+    /// This is the shape LZW reaches about 1365:1 on: after the literal, every code names the
+    /// entry the decoder is about to create, so entry *n* is *n* − 256 bytes long and the output
+    /// grows with the square of the number of codes while the input grows linearly.
+    fn lzw_bomb(entries: u16) -> Vec<u8> {
+        let mut codes = vec![256u16, u16::from(b'A')];
+        codes.extend(258..entries);
+        codes.push(257);
+        pack_lzw(&codes, true)
+    }
+
+    /// Everything a [`super::Pump`] hands over, in windows of `window` bytes, and how it ended.
+    fn drain(pump: &mut super::Pump, window: usize) -> (Vec<u8>, super::Pumped) {
+        let mut out = Vec::new();
+        let mut buffer = vec![0u8; window];
+        loop {
+            let pumped = pump.pump(&mut buffer);
+            let (wrote, done) = match pumped {
+                super::Pumped::Wrote(wrote) => (wrote, false),
+                super::Pumped::Ended(wrote) | super::Pumped::Damaged(wrote, _) => (wrote, true),
+            };
+            out.extend_from_slice(buffer.get(..wrote).unwrap_or_default());
+            if done {
+                return (out, pumped);
+            }
+        }
+    }
+
+    /// The two routes through §7.4.4.2 are one decoder, so they agree byte for byte.
+    ///
+    /// The window sizes are deliberately smaller than a table entry: an entry may be 4096 bytes
+    /// and a window is not obliged to be larger than one, so a window of **one byte** is the
+    /// case that exercises handing a sequence over in pieces. `doc/todo/14`'s road is only worth
+    /// taking if the bytes are the same bytes, and this is what says so.
+    #[test]
+    fn an_lzw_pump_and_the_whole_decode_agree() {
+        let clauses_example: &[u8] = &[0x80, 0x0B, 0x60, 0x50, 0x22, 0x0C, 0x0C, 0x85, 0x01];
+        let bomb = lzw_bomb(600);
+        for data in [clauses_example, bomb.as_slice()] {
+            let whole = decode(b"LZWDecode", data, None, Limits::DEFAULT).expect("decodes whole");
+            for window in [1usize, 3, 7, 64, 4096] {
+                let mut pump = super::Pump::new(
+                    super::Pumping::Lzw { early_change: true },
+                    std::sync::Arc::from(data),
+                );
+                let (pumped, end) = drain(&mut pump, window);
+                assert_eq!(
+                    pumped.as_slice(),
+                    &*whole,
+                    "a window of {window} bytes read something else"
+                );
+                assert!(
+                    matches!(end, super::Pumped::Ended(_)),
+                    "a window of {window} bytes ended as {end:?}"
+                );
+            }
+        }
+    }
+
+    /// `/EarlyChange` decides the bit stream, and the pump reads it from the route decision.
+    #[test]
+    fn the_lzw_pump_reads_early_change() {
+        let literals: Vec<u16> = (0..300u16).map(|index| index % 256).collect();
+        let packed = pack_lzw(&literals, false);
+        let mut parms = Dictionary::new();
+        parms.insert(Name::new(b"EarlyChange".as_slice()), Object::Integer(0));
+        let whole = decode(b"LZWDecode", &packed, Some(&parms), Limits::DEFAULT).expect("decodes");
+
+        let mut late = super::Pump::new(
+            super::Pumping::Lzw {
+                early_change: false,
+            },
+            std::sync::Arc::from(packed.as_slice()),
+        );
+        assert_eq!(drain(&mut late, 16).0.as_slice(), &*whole);
+
+        let mut early = super::Pump::new(
+            super::Pumping::Lzw { early_change: true },
+            std::sync::Arc::from(packed.as_slice()),
+        );
+        assert_ne!(
+            drain(&mut early, 16).0.as_slice(),
+            &*whole,
+            "the two settings read the same bytes as different codes"
+        );
+    }
+
+    /// Damage is the same statement about the stream on both routes, and reaches the window
+    /// where it falls rather than at the end. ADR 0343.
+    #[test]
+    fn the_lzw_pump_reports_the_damage_the_whole_decode_does() {
+        // A code past the end of the table: two literals leave the first unused code at 259.
+        let corrupt = pack_lzw(&[65, 66, 400], true);
+        // Codes with no EOD after them.
+        let truncated = pack_lzw(&[65, 66, 67], true);
+
+        for (data, damage) in [
+            (corrupt, super::Damage::Corrupt),
+            (truncated, super::Damage::Truncated),
+        ] {
+            let whole = super::decode_reported(b"LZWDecode", &data, None, Limits::DEFAULT)
+                .expect("a prefix survives");
+            assert_eq!(whole.damage, Some(damage));
+
+            let mut pump = super::Pump::new(
+                super::Pumping::Lzw { early_change: true },
+                std::sync::Arc::from(data.as_slice()),
+            );
+            let (bytes, end) = drain(&mut pump, 2);
+            assert_eq!(bytes.as_slice(), &*whole.data);
+            assert!(
+                matches!(end, super::Pumped::Damaged(_, met) if met == damage),
+                "the window ended as {end:?}"
+            );
+        }
+    }
+
+    /// **The kind of the quantity changes, which is the whole of road D.**
+    ///
+    /// The same bytes are a refusal on the whole route — [`Limits::max_stream_len`] is a bound
+    /// on an allocation and the decode wants more than it — and on the windowed route they are
+    /// simply read, in a buffer that never grows. `doc/todo/14`; the bound the windowed route
+    /// still answers to is the *reader's* aggregate one, which `pdf_model::content` applies.
+    #[test]
+    fn an_lzw_bomb_costs_the_window_rather_than_its_decode() {
+        // The whole table, which is where §7.4.4.2's ratio is highest: 3 838 codes naming
+        // entries of 2 to 3 839 bytes.
+        let bomb = lzw_bomb(4096);
+        let limits = Limits {
+            max_stream_len: 1 << 16,
+            ..Limits::DEFAULT
+        };
+
+        assert_eq!(
+            super::decode_reported(b"LZWDecode", &bomb, None, limits).err(),
+            Some(super::FilterRefusal::TooLarge {
+                limit: limits.max_stream_len
+            }),
+            "the whole route refuses it"
+        );
+
+        let window = 4096usize;
+        let mut buffer = vec![0u8; window];
+        let mut pump = super::Pump::new(
+            super::Pumping::Lzw { early_change: true },
+            std::sync::Arc::from(bomb.as_slice()),
+        );
+        let mut produced = 0usize;
+        loop {
+            match pump.pump(&mut buffer) {
+                super::Pumped::Wrote(wrote) => produced += wrote,
+                super::Pumped::Ended(wrote) => {
+                    produced += wrote;
+                    break;
+                }
+                super::Pumped::Damaged(_, damage) => panic!("the bomb is whole, not {damage:?}"),
+            }
+        }
+        assert!(
+            produced > limits.max_stream_len * 6,
+            "{produced} bytes came through a {window}-byte window"
+        );
+        assert_eq!(buffer.len(), window, "the window never grew");
+        assert!(
+            produced > bomb.len() * 1000,
+            "{} encoded bytes named {produced} decoded ones",
+            bomb.len()
         );
     }
 
