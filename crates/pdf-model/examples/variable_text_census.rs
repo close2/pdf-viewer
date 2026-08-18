@@ -10,7 +10,7 @@
 //!   would move — not the font dictionaries a page draws with, which
 //!   `examples/font_metric_census` already counts and which are a different population.
 //! - **§12.7.5.4's list box**, whose options are drawn since the five-hundred-and-seventy-first
-//!   (ADR 0405) and whose *selection* is reported, because that is the only part of the control
+//!   (ADR 0407) and whose *selection* is reported, because that is the only part of the control
 //!   the clause states no appearance for. The counts here were taken while the whole control was
 //!   refused, and they are what said the refusal cost no untouched page: every list box in the
 //!   corpus states an `/AP` and none is in a `/NeedAppearances` document, so the population that

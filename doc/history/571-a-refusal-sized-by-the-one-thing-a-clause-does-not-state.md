@@ -6,7 +6,7 @@ paragraph, one sentence along. Reading past the sentence that justified the refu
 nothing" into "draws the options and reports the mark".
 
 Date: 2026-08-18.
-Argued by: [ADR 0405](../adr/0405-a-refusal-sized-by-the-one-thing-a-clause-does-not-state.md).
+Argued by: [ADR 0407](../adr/0407-a-refusal-sized-by-the-one-thing-a-clause-does-not-state.md).
 Files touched: `crates/pdf-model/src/{variable_text,appearance,form}.rs`,
 `crates/pdf-model/tests/variable_text.rs`, `crates/pdf-model/examples/variable_text_census.rs`,
 `doc/conformance/ledger.toml` (§12.7.4.3, §12.7.5, §12.7.5.4), `doc/todo/{22,30,README}.md`,
