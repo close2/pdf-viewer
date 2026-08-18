@@ -36,7 +36,7 @@
 use std::fmt::Write as _;
 use std::sync::Arc;
 
-use pdf_model::colour::{Compositing, Half, PressId};
+use pdf_model::colour::{Compositing, Half};
 use pdf_model::image::{MaskCache, NamedStream, Parts, RasterCache, StreamIdentity, decode_parts};
 use pdf_render::Color;
 use pdf_syntax::{Dictionary, Document, Name, Object, Stream};
@@ -153,7 +153,7 @@ fn decoded(
     stream: &Stream,
     resources: &Dictionary,
     fill: Color,
-    into: Compositing,
+    into: &Compositing,
 ) -> Arc<[u8]> {
     let mut masks = MaskCache::default();
     let parts = decode_parts(document, stream, resources, fill, into, &mut masks)
@@ -168,7 +168,7 @@ fn cached(
     stream: &Arc<Stream>,
     resources: &Dictionary,
     fill: Color,
-    into: Compositing,
+    into: &Compositing,
 ) -> Arc<[u8]> {
     named(
         cache,
@@ -187,7 +187,7 @@ fn named(
     image: NamedStream<'_>,
     resources: &Dictionary,
     fill: Color,
-    into: Compositing,
+    into: &Compositing,
 ) -> Arc<[u8]> {
     let mut masks = MaskCache::default();
     let parts = cache
@@ -215,7 +215,7 @@ fn a_second_do_of_one_stream_reuses_its_raster() {
         &stream,
         &resources,
         Color::BLACK,
-        Compositing::Device,
+        &Compositing::Device,
     );
     let second = cached(
         &mut cache,
@@ -223,7 +223,7 @@ fn a_second_do_of_one_stream_reuses_its_raster() {
         &stream,
         &resources,
         Color::BLACK,
-        Compositing::Device,
+        &Compositing::Device,
     );
 
     assert!(
@@ -259,14 +259,14 @@ fn a_stream_cannot_inherit_the_raster_of_one_whose_allocation_it_reuses() {
             &stream,
             &resources,
             Color::BLACK,
-            Compositing::Device,
+            &Compositing::Device,
         );
         let fresh = decoded(
             &document,
             &stream,
             &resources,
             Color::BLACK,
-            Compositing::Device,
+            &Compositing::Device,
         );
         assert_eq!(
             &*through_the_cache, &*fresh,
@@ -305,7 +305,7 @@ fn a_second_bi_of_one_inline_image_reuses_its_raster() {
         NamedStream::inline(&first_stream),
         &resources,
         Color::BLACK,
-        Compositing::Device,
+        &Compositing::Device,
     );
     let second = named(
         &mut cache,
@@ -313,7 +313,7 @@ fn a_second_bi_of_one_inline_image_reuses_its_raster() {
         NamedStream::inline(&second_stream),
         &resources,
         Color::BLACK,
-        Compositing::Device,
+        &Compositing::Device,
     );
 
     assert!(
@@ -346,7 +346,7 @@ fn two_inline_images_do_not_share_a_raster() {
         NamedStream::inline(&first_stream),
         &resources,
         Color::BLACK,
-        Compositing::Device,
+        &Compositing::Device,
     );
     let second = named(
         &mut cache,
@@ -354,7 +354,7 @@ fn two_inline_images_do_not_share_a_raster() {
         NamedStream::inline(&second_stream),
         &resources,
         Color::BLACK,
-        Compositing::Device,
+        &Compositing::Device,
     );
 
     assert_ne!(
@@ -368,7 +368,7 @@ fn two_inline_images_do_not_share_a_raster() {
             &second_stream,
             &resources,
             Color::BLACK,
-            Compositing::Device,
+            &Compositing::Device,
         ),
         "the second inline image was answered with the first's raster"
     );
@@ -387,7 +387,7 @@ fn a_raster_is_not_shared_across_resource_dictionaries() {
         &stream,
         &resources_naming("DeviceRGB"),
         Color::BLACK,
-        Compositing::Device,
+        &Compositing::Device,
     );
     let grey = cached(
         &mut cache,
@@ -395,7 +395,7 @@ fn a_raster_is_not_shared_across_resource_dictionaries() {
         &stream,
         &resources_naming("DeviceGray"),
         Color::BLACK,
-        Compositing::Device,
+        &Compositing::Device,
     );
 
     assert_ne!(&*rgb, &*grey, "the fixture does not distinguish the two");
@@ -406,7 +406,7 @@ fn a_raster_is_not_shared_across_resource_dictionaries() {
             &stream,
             &resources_naming("DeviceGray"),
             Color::BLACK,
-            Compositing::Device,
+            &Compositing::Device,
         ),
         "the second resource dictionary was answered with the first's raster"
     );
@@ -439,7 +439,7 @@ fn a_raster_is_not_shared_across_fill_colours() {
         &stream,
         &resources,
         red,
-        Compositing::Device,
+        &Compositing::Device,
     );
     let in_blue = cached(
         &mut cache,
@@ -447,7 +447,7 @@ fn a_raster_is_not_shared_across_fill_colours() {
         &stream,
         &resources,
         blue,
-        Compositing::Device,
+        &Compositing::Device,
     );
 
     assert_ne!(
@@ -456,7 +456,7 @@ fn a_raster_is_not_shared_across_fill_colours() {
     );
     assert_eq!(
         &*in_blue,
-        &*decoded(&document, &stream, &resources, blue, Compositing::Device),
+        &*decoded(&document, &stream, &resources, blue, &Compositing::Device),
         "the second fill colour was answered with the first's raster"
     );
 }
@@ -469,7 +469,7 @@ fn a_raster_is_not_shared_across_compositing() {
     let stream = named_space_image();
     let resources = resources_naming("DeviceRGB");
     let mut cache = RasterCache::default();
-    let press = Compositing::Subtractive(Half::Black, PressId::ASSUMED);
+    let press = Compositing::Subtractive(Half::Black, pdf_model::colour::assumed_press());
 
     let on_the_device = cached(
         &mut cache,
@@ -477,7 +477,7 @@ fn a_raster_is_not_shared_across_compositing() {
         &stream,
         &resources,
         Color::BLACK,
-        Compositing::Device,
+        &Compositing::Device,
     );
     let on_the_press = cached(
         &mut cache,
@@ -485,7 +485,7 @@ fn a_raster_is_not_shared_across_compositing() {
         &stream,
         &resources,
         Color::BLACK,
-        press,
+        &press,
     );
 
     assert_ne!(
@@ -494,7 +494,7 @@ fn a_raster_is_not_shared_across_compositing() {
     );
     assert_eq!(
         &*on_the_press,
-        &*decoded(&document, &stream, &resources, Color::BLACK, press),
+        &*decoded(&document, &stream, &resources, Color::BLACK, &press),
         "the second quantity was answered with the first's raster"
     );
 }

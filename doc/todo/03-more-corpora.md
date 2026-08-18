@@ -820,8 +820,10 @@ was. ADR 0416 has the reproduction, the attribution and the three roads; three t
   general form — a measurement taken with the instrument under test is not independent of it — and
   this is the shape one step further out, where the instrument is not under test and is not
   independent of *itself*. The numbers in §1's tables are not retracted: the affected population is
-  0.44% of the crawl (287 of 65 703), and what is owed a round re-taking that survey is the new
-  summary line, which subtracts the process's own verdicts and prints what is left.
+  0.44% of the crawl (287 of 65 703). **The instrument is deterministic again since ADR 0417 made
+  the budget the interpretation's**, so a round re-taking that survey should expect its incomplete
+  count to fall and to hold still: over the same 287 documents it is 19 on three runs with every
+  verdict line byte-identical, where it was 45, 46 and 47 with the lines differing.
 - **The population is re-established with a census instead**, because a census shares nothing
   between documents and a survey shares a process. `cargo run --release -p pdf-model --example
   press_census -- <files>`, one process per archive, run twice and byte-identical over all 145:
@@ -832,10 +834,11 @@ was. ADR 0416 has the reproduction, the attribution and the three roads; three t
   wc -l`. The 974 name **0** and the four submodule corpora none, which is why no gate has ever
   moved for this.
 
-**What this chunk leaves** is the bound itself, priced in `doc/todo/49`'s third-bound section. It
-is a viewer defect before it is an instrument one — the same file draws differently depending on
-what was opened before it — and the road that fixes it makes the press budget per-interpretation,
-which is what every other budget in this tree already is.
+**What this chunk left** was the bound itself, and it was **taken in the five-hundred-and-eighty-second**
+(ADR 0417): the press budget is per interpretation, which is what every other budget in this tree
+already is, over a bounded process-wide cache of the *sampling*, which is a cache and may be shared
+because it changes how fast an answer is reached and never what it is. `doc/todo/49`'s third-bound
+section has the measurement that forced that split and the one number it leaves open.
 
 ## What not to do
 

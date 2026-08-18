@@ -363,19 +363,25 @@ pub fn interpret_with(
     // components are three plus one: the page is interpreted twice, once carrying cyan,
     // magenta and yellow and once carrying black, and `pdf_render::blending` puts the two
     // rasters back together where the clause puts the conversion. ADR 0262.
-    if let PagePress::In(press) = page_press(document, page) {
+    // One table for the whole interpretation, so that the two runs of the pair below name the
+    // same press once between them and §11.7.2's refusal is a fact about this page rather than
+    // about what the process opened before it. ADR 0417.
+    let presses = crate::colour::Presses::default();
+    if let PagePress::In(press) = page_press(document, page, &presses) {
         let (chromatic, drawable) = interpret_into(
             document,
             page,
             state,
-            Compositing::Subtractive(crate::colour::Half::Chromatic, press),
+            Compositing::Subtractive(crate::colour::Half::Chromatic, Arc::clone(&press)),
+            &presses,
         );
         if drawable {
             let (black, _) = interpret_into(
                 document,
                 page,
                 state,
-                Compositing::Subtractive(crate::colour::Half::Black, press),
+                Compositing::Subtractive(crate::colour::Half::Black, Arc::clone(&press)),
+                &presses,
             );
             // The two runs differ only in what a colour resolves to, so their geometry is
             // identical by construction — and this is what checks it, because the halves are
@@ -387,12 +393,12 @@ pub fn interpret_with(
             if chromatic.display_list.geometry_digest() == black.display_list.geometry_digest() {
                 chromatic
                     .display_list
-                    .set_blending(crate::colour::blending_space_of(press), black.display_list);
+                    .set_blending(press.blending_space(), black.display_list);
                 return chromatic;
             }
         }
     }
-    interpret_into(document, page, state, Compositing::Device).0
+    interpret_into(document, page, state, Compositing::Device, &presses).0
 }
 
 impl<'a> Interpreter<'a> {
@@ -407,6 +413,7 @@ impl<'a> Interpreter<'a> {
         page: &Page,
         state: &'a crate::view::ViewState,
         compositing: Compositing,
+        presses: &'a crate::colour::Presses,
     ) -> Self {
         let size = displayed_size(page);
         // §6.3.2.2's "unless otherwise instructed", asked once per page and only where a host
@@ -414,7 +421,7 @@ impl<'a> Interpreter<'a> {
         // one that has pays a walk of §12.7.4.1's field tree — the same walk `Query::Fields`
         // already makes for the same page, which is what keeps the two sets identical rather
         // than similar.
-        let beyond = match page_press(document, page) {
+        let beyond = match page_press(document, page, presses) {
             PagePress::Beyond(beyond) => Some(beyond),
             PagePress::Device | PagePress::In(_) => None,
         };
@@ -474,8 +481,7 @@ impl<'a> Interpreter<'a> {
             blending_changed: false,
             black_generation_stated: false,
             nested_space_departed: false,
-            press_beyond_this_process: false,
-            reports_beyond_this_process: 0,
+            presses,
             blending_beyond: beyond,
         }
     }
@@ -490,6 +496,7 @@ fn interpret_into(
     page: &Page,
     state: &crate::view::ViewState,
     compositing: Compositing,
+    presses: &crate::colour::Presses,
 ) -> (Interpretation, bool) {
     // **The page's `/Contents` is read through a window and never assembled into one buffer**,
     // which is road D of `doc/todo/10` §5 and ADR 0365. What it buys, measured: a
@@ -499,7 +506,7 @@ fn interpret_into(
     // to interpret an ordinary page, and one report arriving late: a part damaged half way
     // through is met half way through, so the reader is asked twice, here and after the run.
     let mut reader = reader::ContentReader::for_page(document, page);
-    let mut interpreter = Interpreter::for_page(document, page, state, compositing);
+    let mut interpreter = Interpreter::for_page(document, page, state, compositing, presses);
 
     for issue in reader.take_issues() {
         interpreter.note(Unsupported::Content { issue });
@@ -628,8 +635,6 @@ fn finished(document: &Document, interpreter: Interpreter<'_>) -> Interpretation
         codes_without_a_glyph: interpreter.codes_without_a_glyph,
         codes_reaching_a_blank_glyph: interpreter.codes_reaching_a_blank_glyph,
         codes_without_a_character: interpreter.codes_without_a_character,
-        press_beyond_this_process: interpreter.press_beyond_this_process,
-        reports_beyond_this_process: interpreter.reports_beyond_this_process,
         described: interpreter.described,
         artifacts: interpreter.artifacts,
         marked: interpreter.marked,
@@ -1068,18 +1073,13 @@ struct Interpreter<'a> {
     /// [`PagePress::Beyond`]'s reason, carried into the report. Since the
     /// four-hundred-and-thirty-sixth session a press a *document* names is drawn rather than
     /// reported (ADR 0272), so what is left here is a four-component space that is not an ICC
-    /// profile and a profile arriving after this process has sampled its last.
+    /// profile, and a page naming more distinct presses than [`crate::colour::MAX_PRESSES`].
     blending_beyond: Option<transparency::BeyondPress>,
-    /// Whether a press this page names went unsampled because *this process* had spent its
-    /// budget, at the page or inside a group.
+    /// The distinct presses this interpretation has named, and the budget it spends on them.
     ///
-    /// [`Interpretation::press_beyond_this_process`] is what this becomes; ADR 0416 is why it
-    /// is separate from the report it accompanies.
-    press_beyond_this_process: bool,
-    /// How many entries of the report exist for that reason and no other.
-    ///
-    /// [`Interpretation::reports_beyond_this_process`] is what this becomes.
-    reports_beyond_this_process: usize,
+    /// Shared by every run of the page — §11.4.7's pair is one content stream interpreted
+    /// twice — so that a press is sampled once and counted once. ADR 0417.
+    presses: &'a crate::colour::Presses,
 }
 
 /// Applies the `d` dash operator.

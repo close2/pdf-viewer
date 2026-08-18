@@ -113,7 +113,7 @@ impl Cache {
         resources: &Dictionary,
         transform: Transform,
         smoothness: Option<f32>,
-        into: Compositing,
+        into: &Compositing,
     ) -> Result<Shading, ShadingError> {
         // §10.7.3's tolerance is part of the key rather than of the object: the same shading
         // painted under two `/SM` values is two sets of colours, and a page that changes it
@@ -130,7 +130,7 @@ impl Cache {
             !matches!(space, Some(Object::Name(_)))
         });
         if let Some(id) = key
-            && let Some((kind, own)) = self.built.get(&(id, resolution, into))
+            && let Some((kind, own)) = self.built.get(&(id, resolution, into.clone()))
         {
             return Ok(Shading {
                 kind: Arc::clone(kind),
@@ -142,7 +142,7 @@ impl Cache {
         let kind = Arc::new(kind);
         if let Some(id) = key {
             self.built
-                .insert((id, resolution, into), (Arc::clone(&kind), own));
+                .insert((id, resolution, into.clone()), (Arc::clone(&kind), own));
         }
         Ok(Shading {
             kind,
@@ -202,7 +202,7 @@ pub fn build(
         object,
         resources,
         Ramp::RESOLUTION,
-        Compositing::Device,
+        &Compositing::Device,
         None,
     )?;
     Ok(Shading {
@@ -221,7 +221,7 @@ fn kind_of(
     object: &Object,
     resources: &Dictionary,
     resolution: usize,
-    into: Compositing,
+    into: &Compositing,
     space: Option<ColourSpace>,
 ) -> Result<(ShadingKind, Transform), ShadingError> {
     let resolved = document.resolve(object);
@@ -360,7 +360,7 @@ fn ramp(
     dict: &Dictionary,
     space: &ColourSpace,
     resolution: usize,
-    into: Compositing,
+    into: &Compositing,
 ) -> Result<Ramp, ShadingError> {
     let functions =
         Function::parse_group(document, &document.get_key(dict, "Function")).map_err(|e| {
@@ -415,7 +415,7 @@ fn colour_from(
     functions: &[Function],
     inputs: &[f32],
     space: &ColourSpace,
-    into: Compositing,
+    into: &Compositing,
 ) -> Color {
     colour_into(functions, inputs, space, into, &mut Components::default())
 }
@@ -446,7 +446,7 @@ fn colour_into(
     functions: &[Function],
     inputs: &[f32],
     space: &ColourSpace,
-    into: Compositing,
+    into: &Compositing,
     scratch: &mut Components,
 ) -> Color {
     if let [only] = functions {
@@ -466,7 +466,7 @@ fn axial(
     dict: &Dictionary,
     space: &ColourSpace,
     resolution: usize,
-    into: Compositing,
+    into: &Compositing,
 ) -> Result<ShadingKind, ShadingError> {
     let coords = coords(document, dict, 4).ok_or_else(|| ShadingError::Malformed {
         detail: "an axial shading needs four /Coords".to_owned(),
@@ -484,7 +484,7 @@ fn radial(
     dict: &Dictionary,
     space: &ColourSpace,
     resolution: usize,
-    into: Compositing,
+    into: &Compositing,
 ) -> Result<ShadingKind, ShadingError> {
     let coords = coords(document, dict, 6).ok_or_else(|| ShadingError::Malformed {
         detail: "a radial shading needs six /Coords".to_owned(),
@@ -513,7 +513,7 @@ fn mesh(
     space: &ColourSpace,
     kind: i64,
     resolution: usize,
-    into: Compositing,
+    into: &Compositing,
 ) -> Result<ShadingKind, ShadingError> {
     let stream = object.as_stream().ok_or_else(|| ShadingError::Malformed {
         detail: "a mesh shading must be a stream".to_owned(),
@@ -547,7 +547,7 @@ fn function_based(
     document: &Document,
     dict: &Dictionary,
     space: &ColourSpace,
-    into: Compositing,
+    into: &Compositing,
 ) -> Result<ShadingKind, ShadingError> {
     let functions =
         Function::parse_group(document, &document.get_key(dict, "Function")).map_err(|e| {
@@ -589,7 +589,7 @@ fn function_based(
         source: pdf_render::DeferredColours::new(Arc::new(FunctionColours {
             functions,
             space: space.clone(),
-            into,
+            into: into.clone(),
             domain: rectangle,
             opaque,
         })),
@@ -630,10 +630,10 @@ fn function_based(
 fn device_program(
     functions: &[Function],
     space: &ColourSpace,
-    into: Compositing,
+    into: &Compositing,
     rectangle: [f32; 4],
 ) -> Option<pdf_render::ShadingProgram> {
-    if into != Compositing::Device {
+    if *into != Compositing::Device {
         return None;
     }
     let [function] = functions else {
@@ -828,7 +828,7 @@ impl FunctionColours {
                 &self.functions,
                 &[x, y],
                 &self.space,
-                self.into,
+                &self.into,
                 &mut scratch,
             );
         }

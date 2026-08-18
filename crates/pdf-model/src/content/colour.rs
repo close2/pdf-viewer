@@ -45,7 +45,7 @@ impl Interpreter<'_> {
         values: &[f32],
         black_point: BlackPoint,
     ) -> Color {
-        convert(space, values, black_point, self.compositing)
+        convert(space, values, black_point, &self.compositing)
     }
 
     /// Sets a colour space, which decides how the operands of `sc`/`scn` are read.
@@ -296,7 +296,7 @@ pub(super) fn convert(
     space: &ColourSpace,
     values: &[f32],
     black_point: BlackPoint,
-    into: Compositing,
+    into: &Compositing,
 ) -> Color {
     into.paint(space, values, black_point.applies())
 }

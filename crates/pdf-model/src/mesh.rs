@@ -63,7 +63,7 @@ pub(crate) fn read(
     space: &ColourSpace,
     functions: &[Function],
     resolution: usize,
-    into: Compositing,
+    into: &Compositing,
 ) -> Option<(Vec<Triangle>, Option<Ramp>)> {
     let dict = &stream.dict;
     let data = document.decoded_stream_data(stream)?;
@@ -260,7 +260,7 @@ struct MeshReader<'a> {
     space: &'a ColourSpace,
     functions: &'a [Function],
     /// What the mesh's vertex colours are being composited into (`crate::colour`).
-    into: Compositing,
+    into: &'a Compositing,
 }
 
 impl MeshReader<'_> {

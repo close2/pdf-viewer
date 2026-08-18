@@ -111,13 +111,21 @@ fn assemble(body: &str) -> Vec<u8> {
 /// comes from this function rather than from what the tree happens to draw. Each ink absorbs a
 /// different share of each connection-space axis, so a page drawn with the components
 /// transposed is a different picture.
-fn press_xyz(inks: [f32; 4]) -> [f32; 3] {
+///
+/// Variant 0 is the press every test here has always stated, to the bit — `0.80 * 1.0` is
+/// `0.80` — so nothing written before the budget moved states different numbers. Every other
+/// variant weakens the black ink by a hundredth and is a *different* press: a different
+/// profile, a different identity and a different picture on the same content, which is what
+/// makes a test that opens nine of them a test about nine presses rather than about nine
+/// copies of one.
+fn press_xyz_of(variant: usize, inks: [f32; 4]) -> [f32; 3] {
     // D50, which is the connection space's white point.
     let mut xyz = [0.964_2f32, 1.0, 0.824_9];
+    let weaker = 1.0 - variant as f32 / 100.0;
     let absorb = [
-        [0.60f32, 0.10, 0.10, 0.80],
-        [0.10, 0.60, 0.20, 0.80],
-        [0.10, 0.20, 0.70, 0.80],
+        [0.60f32, 0.10, 0.10, 0.80 * weaker],
+        [0.10, 0.60, 0.20, 0.80 * weaker],
+        [0.10, 0.20, 0.70, 0.80 * weaker],
     ];
     for (axis, row) in absorb.iter().enumerate() {
         for (ink, factor) in inks.iter().zip(row) {
@@ -127,13 +135,18 @@ fn press_xyz(inks: [f32; 4]) -> [f32; 3] {
     xyz
 }
 
-/// A v2 ICC profile whose `A2B1` table is [`press_xyz`] at the sixteen corners of the ink cube.
+/// A v2 ICC profile whose `A2B1` table is [`press_xyz_of`] at the sixteen corners of the cube.
 ///
 /// Positional, like `pdf_model::icc`'s own fixture: a 128-byte header, a tag count, one 12-byte
 /// tag entry, then the `mft2` tag — sizes, matrix, input curves, CLUT, output curves. Two grid
 /// points per axis, so the table *is* the sixteen corners and the profile's own interpolation
 /// fills in between them.
 fn icc_cmyk_profile() -> Vec<u8> {
+    icc_cmyk_profile_of(0)
+}
+
+/// [`icc_cmyk_profile`] over [`press_xyz_of`]'s variant, so that a test can name several.
+fn icc_cmyk_profile_of(variant: usize) -> Vec<u8> {
     let mut header = vec![0u8; 128];
     header[8] = 2; // major version
     header[12..16].copy_from_slice(b"prtr");
@@ -161,7 +174,7 @@ fn icc_cmyk_profile() -> Vec<u8> {
     // The CLUT, with the *last* input varying fastest, which is ICC's own order.
     for corner in 0..16usize {
         let at = |axis: usize| f32::from(u8::try_from((corner >> (3 - axis)) & 1).expect("a bit"));
-        let xyz = press_xyz([at(0), at(1), at(2), at(3)]);
+        let xyz = press_xyz_of(variant, [at(0), at(1), at(2), at(3)]);
         for value in xyz {
             // `u1Fixed15`: 0x8000 is 1.0, which is the encoding XYZ uses in a lookup table.
             let encoded = (value * 32768.0).clamp(0.0, 65535.0) as u16;
@@ -185,8 +198,13 @@ fn icc_cmyk_profile() -> Vec<u8> {
 
 /// [`icc_cmyk_profile`] as the `ASCIIHexDecode` text a fixture can hold.
 fn profile_stream() -> String {
+    profile_stream_of(0)
+}
+
+/// [`icc_cmyk_profile_of`] as the `ASCIIHexDecode` text a fixture can hold.
+fn profile_stream_of(variant: usize) -> String {
     let mut hex = String::new();
-    for byte in icc_cmyk_profile() {
+    for byte in icc_cmyk_profile_of(variant) {
         let _ = write!(hex, "{byte:02X}");
     }
     hex.push('>');
@@ -1570,6 +1588,146 @@ fn the_route_this_round_replaced_moves_a_colour_that_composites_with_nothing() {
 /// §11.3.4 applies the compositing formula per component, so an opaque `0 0 0 0 k` under a
 /// half-opaque `1 1 1 1 k` leaves every one of the four at 0.5 — whatever the press is. What
 /// the press decides is the colour those four *are*, which §11.4.7 converts once at the end.
+/// A one-page fixture whose page composites in the press [`icc_cmyk_profile_of`] describes.
+///
+/// [`press_fixture`] over a variant, so that a test can open several documents naming
+/// *different* presses in one process — which is what the budget being the interpretation's
+/// makes drawable and what it used to make a report. ADR 0417.
+fn press_variant_fixture(variant: usize, content: &str) -> Vec<u8> {
+    let hex = profile_stream_of(variant);
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+         /Group << /S /Transparency /CS [/ICCBased 5 0 R] >> \
+         /Resources << /ExtGState << /GS << /ca 0.5 /CA 0.5 >> >> >> \
+         /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n\
+         5 0 obj\n<< /N 4 /Filter /ASCIIHexDecode /Length {} >>\nstream\n{hex}\nendstream\n\
+         endobj\n",
+        content.len() + 1,
+        hex.len() + 1
+    );
+    assemble(&body)
+}
+
+/// A one-page fixture whose content states `presses` sibling groups, each naming its own press.
+///
+/// One page, one `Do` per group, each group isolated and each stating a four-component
+/// `ICCBased` `/CS` of its own — so the page names `presses` **distinct** presses and
+/// `pdf_model::colour::MAX_PRESSES` is a statement about this file rather than about whatever
+/// else the process has open. Each group composites, which is the condition §11.6.6's report
+/// fires on, so a group drawn in its press says nothing and a group refused one says so.
+///
+/// `first` is which [`press_xyz_of`] variant the run of presses starts at, so that two of these
+/// can name two **disjoint** sets. That is not decoration: two pages naming the same eight
+/// presses would be drawn identically by a process-wide table as well as by this one, and the
+/// test would pass with the defect put back.
+fn many_press_fixture(presses: usize, first: usize) -> Vec<u8> {
+    // `/ca 0.5` and two fills, because a group whose commands do not composite is a group the
+    // colour space cannot change the picture of — and therefore one that reports nothing
+    // either way, which would make the test pass without discriminating.
+    let inside = "/GS gs 0 0 0 0 k 0 0 100 100 re f\n1 1 1 1 k 0 0 100 100 re f";
+    let mut names = String::new();
+    let mut content = String::new();
+    let mut body = String::new();
+    for index in 0..presses {
+        let profile = 5 + 2 * index;
+        let form = profile + 1;
+        let _ = write!(names, "/F{index} {form} 0 R ");
+        let _ = writeln!(content, "q /F{index} Do Q");
+    }
+
+    let _ = write!(
+        body,
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+         /Resources << /XObject << {names}>> >> /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n",
+        content.len() + 1
+    );
+    for index in 0..presses {
+        let profile = 5 + 2 * index;
+        let form = profile + 1;
+        let hex = profile_stream_of(first + index);
+        let _ = write!(
+            body,
+            "{profile} 0 obj\n<< /N 4 /Filter /ASCIIHexDecode /Length {} >>\nstream\n{hex}\n\
+             endstream\nendobj\n\
+             {form} 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] \
+             /Group << /S /Transparency /I true /CS [/ICCBased {profile} 0 R] >> \
+             /Resources << /ExtGState << /GS << /ca 0.5 /CA 0.5 >> >> >> \
+             /Length {} >>\nstream\n{inside}\nendstream\nendobj\n",
+            hex.len() + 1,
+            inside.len() + 1
+        );
+    }
+    assemble(&body)
+}
+
+/// Nine documents in one process, each naming a press of its own, and every one is drawn in it.
+///
+/// **This is the defect ADR 0416 diagnosed and ADR 0417 fixed, as a page rather than as a
+/// survey.** `pdf_model::colour::MAX_PRESSES` used to bound a `static` table that was filled
+/// from the front and never evicted, so the ninth *distinct* press a process met was refused —
+/// a viewer left open across a working day would silently stop compositing in the press the
+/// tenth document names, and which document that fell on was decided by the nine before it.
+/// The budget is the interpretation's now, so the ninth document is drawn exactly as the first
+/// is, and nothing about the order they were opened in reaches the answer.
+///
+/// A test could not be written at all while the table was a `static`: filling eight slots here
+/// would have spent them for every other test in this binary, which is why ADR 0416 recorded
+/// the rule as unpinned and said what would make it pinnable.
+#[test]
+fn every_document_in_one_process_is_drawn_in_the_press_it_names() {
+    // Two more than the budget, so the run passes the old bound rather than reaching it.
+    for variant in 0..(pdf_model::colour::MAX_PRESSES + 2) {
+        let drawn = interpret(press_variant_fixture(variant, HALF_REGISTRATION));
+        let reported = format!("{:?}", drawn.unsupported);
+        assert!(
+            !reported.contains("blending colour space"),
+            "document {variant} of a process is drawn in its own press: {reported}"
+        );
+        assert!(
+            drawn.display_list.blending().is_some(),
+            "document {variant} of a process carries the pair §11.4.7 asks for"
+        );
+    }
+}
+
+/// The budget is spent by the page that names the presses, and by nothing else.
+///
+/// Two claims, and the second is the one the `static` made untestable. **A page naming more
+/// distinct presses than `pdf_model::colour::MAX_PRESSES` is refused past the budget**, which
+/// is §11.7.2 reported on the group that introduced the space — the same shape every other
+/// budget in this tree has, and the same answer on every run and on every machine. **And a
+/// page that spends the whole budget takes nothing from the next page**: the eight-press fixture
+/// below is interpreted *after* the nine-press one and is complete, where a process-wide table
+/// would have had nothing left to give it.
+#[test]
+fn a_pages_press_budget_is_its_own_and_it_spends_no_other_pages() {
+    let over = interpret(many_press_fixture(pdf_model::colour::MAX_PRESSES + 1, 0));
+    let reported = format!("{:?}", over.unsupported);
+    assert!(
+        reported.contains("blending colour space"),
+        "a page naming one press more than the budget is refused the last one: {reported}"
+    );
+
+    // A disjoint set of presses, so that what the page above spent is what is being asked
+    // about rather than what it happened to sample.
+    let at_the_bound = interpret(many_press_fixture(
+        pdf_model::colour::MAX_PRESSES,
+        pdf_model::colour::MAX_PRESSES + 1,
+    ));
+    let reported = format!("{:?}", at_the_bound.unsupported);
+    assert!(
+        !reported.contains("blending colour space"),
+        "and a page naming exactly the budget is drawn in all of them, however many presses \\
+         the pages before it named: {reported}"
+    );
+}
+
 const HALF_REGISTRATION: &str = "0 0 0 0 k 0 0 100 100 re f\n\
                                  /GS gs 1 1 1 1 k 0 0 100 100 re f";
 
@@ -1588,7 +1746,7 @@ const HALF_REGISTRATION: &str = "0 0 0 0 k 0 0 100 100 re f\n\
 /// > blending colour space
 ///
 /// The expected pixel is the *clause's* arithmetic and not this tree's: half of registration
-/// black is `[0.5, 0.5, 0.5, 0.5]` by §11.3.4, and `press_xyz` says what colour that is. ADR
+/// black is `[0.5, 0.5, 0.5, 0.5]` by §11.3.4, and `press_xyz_of` says what colour that is. ADR
 /// 0272.
 #[test]
 fn the_three_routes_to_a_press_all_composite_in_it() {
@@ -1723,7 +1881,7 @@ fn a_presss_grid_is_the_profile_at_its_samples_and_near_it_between_them() {
     let profile =
         pdf_model::icc::Profile::parse(&icc_cmyk_profile()).expect("the fixture profile parses");
     let press = pdf_model::colour::press_for_profile(&profile).expect("a press slot");
-    let space = pdf_model::colour::blending_space_of(press);
+    let space = press.blending_space();
     let last = space.side() - 1;
 
     let mut at_samples = 0.0f32;
@@ -1781,7 +1939,7 @@ fn a_colour_converted_into_a_named_press_comes_back() {
     let profile =
         pdf_model::icc::Profile::parse(&icc_cmyk_profile()).expect("the fixture profile parses");
     let press = pdf_model::colour::press_for_profile(&profile).expect("a press slot");
-    let space = pdf_model::colour::blending_space_of(press);
+    let space = press.blending_space();
     let rgb = pdf_model::colour::ColourSpace::Rgb;
 
     let mut worst = 0.0f32;
@@ -1792,7 +1950,7 @@ fn a_colour_converted_into_a_named_press_comes_back() {
             ((step * 23) % 51) as f32 / 50.0,
             ((step * 37) % 51) as f32 / 50.0,
         ];
-        let inks = rgb.to_cmyk(&colour, true, press);
+        let inks = rgb.to_cmyk(&colour, true, &press);
         let back = space.convert(inks[0], inks[1], inks[2], inks[3]);
         for (got, want) in back.iter().zip(colour) {
             let gap = (got - want).abs() * 255.0;

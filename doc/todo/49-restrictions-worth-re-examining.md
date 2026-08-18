@@ -205,51 +205,56 @@ Neither is a defect today: both bounds refuse loudly and both refuse 0.127% of t
 here so that a round which wants to admit `MAX_TILES`' 48 knows the price is a new mechanism
 rather than a bigger number.
 
-## A third bound, and it is the only one spent by another document
+## A third bound, and it was the only one spent by another document — **taken**
 
 **Found in the five-hundred-and-eighty-first session** (ADR 0416), by reproducing a nondeterminism
-`tools/safedocs survey` had had since `colour::Press` existed. `MAX_PRESSES` is 8, the table is
+`tools/safedocs survey` had had since `colour::Press` existed. `MAX_PRESSES` was 8, the table was
 `static`, filled from the front and never evicted — so the ninth *distinct* four-component blending
-space a process meets is refused, and which document that falls on is decided by the order rayon ran
-them in. Three quiet runs of one unchanged binary over 287 crawled documents printed **30, 36 and 33**
-such refusals; with the constant raised to 256 in a scratch build, two runs were byte-identical and
-none.
+space a process met was refused, and which document that fell on was decided by the order rayon ran
+them in. Three quiet runs of one unchanged binary over 287 crawled documents printed **30, 36 and
+33** such refusals; with the constant raised to 256 in a scratch build, two runs were byte-identical
+and none.
 
-**The two bounds above count the wrong quantity; this one counts the right quantity and charges it to
-the wrong payer.** Every other budget in this tree is spent by the document that reaches it, which is
-what let ADR 0271 open the 84 documents that reach one and say what each costs. This one is spent by
-whatever the process interpreted first, so the same file draws differently depending on what else was
-opened before it — a viewer defect as much as an instrument one, and invisible to every gate because
-the 974 name **0** distinct ICC presses and the four submodule corpora none at all. The web names
-**28** (`examples/press_census`, twice, identical).
+**The two bounds above count the wrong quantity; this one counted the right quantity and charged it
+to the wrong payer.** Every other budget in this tree is spent by the document that reaches it,
+which is what let ADR 0271 open the 84 documents that reach one and say what each costs. That one
+was spent by whatever the process interpreted first, so the same file drew differently depending on
+what else had been opened before it — a viewer defect as much as an instrument one, and invisible to
+every gate because the 974 name **0** distinct ICC presses and the four submodule corpora none at
+all. The web names **28** (`examples/press_census`, twice, identical).
 
-What the survey does about it now is say so: a document whose verdict is the budget's carries
-`[this process's press budget]`, and the summary subtracts them and prints the file-decided count,
-which three runs agree on. That is honest and it is not a fix.
+**Road 3 was taken in the five-hundred-and-eighty-second** (ADR 0417), with one amendment to how
+this file had priced it. The three roads were: raise the constant (rejected — it moves the line
+rather than the payer); lease a slot and reclaim it (rejected — a refusal would still depend on the
+neighbours, and then on the core count, which looks reproducible and is not); or make the budget
+per-interpretation, which is what every other bound here is.
 
-**Three roads, and the choice is the owner's because each has a memory number on it.**
+**The amendment is that road 3 named one object where there are two.** It priced "memory becomes
+live interpretations × their own presses", which treats the budget and the *store of sampled
+presses* as one thing. A budget decides what is drawn and must be the file's; a store decides how
+fast an answer is reached and never what it is, so it may be shared where a budget may not — which
+is this file's own "keep" list about `Document`, one item up. **The measurement is what forced the
+split**: `examples/press_cost` puts sampling a press at 17 to 46 ms against a 14 to 18 ms
+interpretation of the same page, so a table with the interpretation's lifetime and nothing behind it
+would have doubled to quadrupled every page turn of a document whose pages share a press.
 
-1. **Raise the constant.** Rejected outright: it moves the line rather than the payer, it is
-   curve-fitting to one corpus (28 today, 29 tomorrow), and the flipping returns at the new number.
-2. **Reclaim a slot nothing is using**, with a lease held for an interpretation's life and a
-   generation in `PressId` so a stale handle is detectable. Removes the *retention* half but not the
-   dependence: under the survey's 24-way walk more than eight presses can be live at once, so a
-   refusal still depends on the neighbours — and it would then depend on the machine's core count,
-   which is worse than depending on the scheduler because it looks reproducible.
-3. **Make the budget per-interpretation**, which is what every other bound in this tree is. A
-   document is refused if *it* names more than `MAX_PRESSES` presses, and memory becomes live
-   interpretations × their own presses: 8.6 MB for a viewer, 205 MB worst case for a 24-thread
-   survey against 8.6 MB today. This is the only road whose refusal is a function of the file. What
-   it costs is that a press can no longer be `&'static`: `PressId` is `Copy`, is threaded through
-   every painting function as part of `Compositing` and is a `BTreeMap` key in `crate::shading`, and
-   the four call sites that resolve one (`to_cmyk`, `blending_space_of`, `rgb_to_ink`,
-   `assumed_blending_space`) would each need the table in hand. The doc comment on `PRESSES` says why
-   it is an array of `OnceLock`s — a read happens *per colour* and takes no lock — so whatever
-   replaces it has to keep that property or be measured against it.
+So `colour::MAX_PRESSES` bounds the distinct presses **one interpretation** may name — a page naming
+a ninth is refused the ninth, on every run and on every machine — and `colour::MAX_CACHED_PRESSES`
+holds eight sampled presses most-recently-used-first behind it, which is exactly what the process
+spent before, so nothing about the change costs steady-state memory. The survey's incomplete count
+over those 287 documents is **19 on three runs with every verdict line byte-identical**, against 45,
+46 and 47 before with the lines differing; 19 is what the `MAX_PRESSES = 256` build printed with the
+bound removed altogether. What it costs is +0.0045% of the instructions to interpret an ordinary
+page and about 5% of the survey's wall clock, the second of which is mostly work rather than
+overhead — 27 more documents are drawn in ink, which is a page interpreted twice.
 
-Until one of those is taken, `Interpretation::press_beyond_this_process` and
-`reports_beyond_this_process` are what keep the defect legible, and the census is what measures the
-population.
+**What is left here is one number and one sentence, neither of them a defect.** The cache is eight
+and the crawl names 28, so a 24-thread survey samples 60 to 69 times for 28 presses; a cache of 32
+would hold the whole population at 34.6 MB and what it buys is inside the run-to-run spread, which is
+why it was not taken. And the budget bounds one interpretation rather than all of them at once,
+exactly as `MAX_TILES` and `MAX_OPERATIONS` do, so a host running N holds up to N × 8 presses —
+8.6 MB for a viewer, 207 MB for a 24-thread survey at its worst, and no host in this tree comes near
+it.
 
 **Worth a flag, and the tree already has the idiom** (`--no-sandbox`, `--cpu`, `--backend`,
 `--ignore-restrictions`, `--trace=<topics>`):

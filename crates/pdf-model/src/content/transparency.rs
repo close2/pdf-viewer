@@ -11,7 +11,7 @@ use pdf_render::{
 };
 use pdf_syntax::{Dictionary, Document, Name, Object};
 
-use crate::colour::{ColourSpace, Compositing, InkScale, PressId};
+use crate::colour::{ColourSpace, Compositing, InkScale, Press, Presses};
 use crate::page::Page;
 
 use super::colour::output_intent_space;
@@ -831,51 +831,34 @@ fn knockout_can_show(commands: &[Command]) -> bool {
 }
 
 /// What §11.4.7's page group asks a page to composite in.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub(super) enum PagePress {
     /// The device's three components: no page group, or one whose space is a three-component
     /// RGB space, which is what this raster already holds.
     Device,
-    /// Four components, and these are whose.
-    In(PressId),
-    /// Four components this run cannot model, and this says why and whose reason it is.
+    /// Four components, and this is whose.
+    In(Arc<Press>),
+    /// Four components this page cannot be drawn in, and this says why.
     Beyond(BeyondPress),
 }
 
-/// Why four components were not sampled into a press, and whether the file decided it.
+/// Why four components were not sampled into a press.
 ///
-/// The two are different kinds of statement and were one string until the
-/// five-hundred-and-eighty-first session. A space this tree cannot sample is a fact about the
-/// document, the same on every run and on every machine; [`crate::colour::MAX_PRESSES`] being
-/// spent is a fact about **this process**, and which documents it falls on is decided by the
-/// order in which they were interpreted. Folding them together makes a report that says a
-/// different thing about the same file on two runs of one instrument, which is what
-/// `tools/safedocs survey` was doing. The report's own sentence has always said "this
-/// process"; what was missing is a way for a caller to tell the two apart without matching on
-/// prose. ADR 0416.
+/// **Every reason here is the document's**, which it was not until ADR 0417: one of them used
+/// to be [`crate::colour::MAX_PRESSES`] being spent by other files, so the same page carried a
+/// different verdict depending on what the process had opened first, and ADR 0416 had to give
+/// a caller a way to tell the two apart. The budget is the interpretation's now, so the
+/// distinction has nothing left to separate and the sentence is a fact about the file again.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct BeyondPress {
     /// The sentence the report carries.
     pub(super) why: &'static str,
-    /// Whether the reason is this process's press budget rather than anything the file states.
-    pub(super) this_process: bool,
 }
 
 impl BeyondPress {
-    /// A refusal the document itself decides: the same answer on every run.
+    /// A refusal the document decides: the same answer on every run and on every machine.
     const fn stated(why: &'static str) -> Self {
-        Self {
-            why,
-            this_process: false,
-        }
-    }
-
-    /// A refusal this process's press budget decides, which another process would not make.
-    const fn this_process(why: &'static str) -> Self {
-        Self {
-            why,
-            this_process: true,
-        }
+        Self { why }
     }
 }
 
@@ -896,10 +879,11 @@ impl BeyondPress {
 /// outright, which is §11.7.2's paragraph about `DeviceCMYK` being redefined inside the group.
 ///
 /// Where none of the three names one, the four components are the assumed inks of ADR 0263 and
-/// this is `PressId::ASSUMED`. Where one names a space this tree cannot sample — four
-/// components that are not an ICC profile, or a profile arriving after `MAX_PRESSES` others —
+/// this is [`crate::colour::assumed_press`], which no budget applies to because no file asked
+/// for it. Where one names a space this tree cannot sample — four components that are not an ICC
+/// profile, or a press past this *page's* [`crate::colour::MAX_PRESSES`] —
 /// [`PagePress::Beyond`] carries the reason into the report.
-pub(super) fn page_press(document: &Document, page: &Page) -> PagePress {
+pub(super) fn page_press(document: &Document, page: &Page, presses: &Presses) -> PagePress {
     let attributes = document.get_key(&page.dict, "Group");
     let Some(attributes) = attributes.as_dict() else {
         return PagePress::Device;
@@ -913,7 +897,7 @@ pub(super) fn page_press(document: &Document, page: &Page) -> PagePress {
         return PagePress::Device;
     }
     let entry = document.get_key(attributes, "CS");
-    press_for_entry(document, &entry, &page.resources)
+    press_for_entry(document, &entry, &page.resources, presses)
 }
 
 /// The press a group or page `/CS` entry names, resolved against `resources`.
@@ -923,10 +907,17 @@ pub(super) fn page_press(document: &Document, page: &Page) -> PagePress {
 /// `ICCBased` CMYK space, and Table 145 subjects a device space here to §8.6.5.6's
 /// remapping) — with the
 /// resource dictionary in force at the group rather than the page's.
-fn press_for_entry(document: &Document, entry: &Object, resources: &Dictionary) -> PagePress {
+fn press_for_entry(
+    document: &Document,
+    entry: &Object,
+    resources: &Dictionary,
+    presses: &Presses,
+) -> PagePress {
     match ColourSpace::parse(document, entry, &Dictionary::new()) {
-        Some(ColourSpace::Cmyk) => named_press(document, resources),
-        Some(ColourSpace::Icc { profile }) if profile.channels() == 4 => press_or_beyond(&profile),
+        Some(ColourSpace::Cmyk) => named_press(document, resources, presses),
+        Some(ColourSpace::Icc { profile }) if profile.channels() == 4 => {
+            press_or_beyond(&profile, presses)
+        }
         // A four-component space that is not a profile — a `DeviceN` of four inks, say — names
         // components this tree has no conversion out of, so it keeps its report.
         Some(space) if space.components() == 4 => PagePress::Beyond(BeyondPress::stated(
@@ -943,7 +934,7 @@ fn press_for_entry(document: &Document, entry: &Object, resources: &Dictionary) 
 /// while §8.6.5.7 NOTE 3 says an output intent "can suggest" a calibration — the nearer and
 /// stronger statement wins, which is the ranking ADR 0009 recorded for a colour on its way to a
 /// pixel and this is the same ranking one clause up.
-fn named_press(document: &Document, resources: &Dictionary) -> PagePress {
+fn named_press(document: &Document, resources: &Dictionary, presses: &Presses) -> PagePress {
     // `None` cannot happen for a literal device name — `ColourSpace::by_name` falls back on the
     // device space when a `/DefaultCMYK` will not parse — and it is grouped with the plain
     // answer because a space that did not parse names no press.
@@ -954,7 +945,7 @@ fn named_press(document: &Document, resources: &Dictionary) -> PagePress {
     ) {
         Some(ColourSpace::Cmyk) | None => {}
         Some(ColourSpace::Icc { profile }) if profile.channels() == 4 => {
-            return press_or_beyond(&profile);
+            return press_or_beyond(&profile, presses);
         }
         Some(space) if space.components() == 4 => {
             return PagePress::Beyond(BeyondPress::stated(
@@ -965,22 +956,24 @@ fn named_press(document: &Document, resources: &Dictionary) -> PagePress {
         Some(_) => {}
     }
     match output_intent_space(document) {
-        Some(ColourSpace::Icc { profile }) if profile.channels() == 4 => press_or_beyond(&profile),
-        _ => PagePress::In(PressId::ASSUMED),
+        Some(ColourSpace::Icc { profile }) if profile.channels() == 4 => {
+            press_or_beyond(&profile, presses)
+        }
+        _ => PagePress::In(crate::colour::assumed_press()),
     }
 }
 
-/// A profile sampled into a press, or the reason this process would not sample it.
+/// A profile sampled into a press, or the reason this page is not drawn in it.
 ///
-/// The refusal here is [`BeyondPress::this_process`] and is the only one in this module that
-/// is: a process that had sampled fewer presses would draw the same document differently, and
-/// [`crate::Interpretation::press_beyond_this_process`] is how a caller knows that is what
-/// happened.
-fn press_or_beyond(profile: &crate::icc::Profile) -> PagePress {
-    crate::colour::press_for_profile(profile).map_or(
-        PagePress::Beyond(BeyondPress::this_process(
-            "the press it names is one more than this process samples (§11.7.2), so its four \
-             components are not converted out",
+/// The refusal is [`crate::colour::MAX_PRESSES`], and since ADR 0417 it is this page's own: a
+/// page naming a ninth distinct press is refused the ninth on every run and on every machine,
+/// where before the ninth press of the *process* was refused and which page that fell on
+/// depended on the order the scheduler ran the others in.
+fn press_or_beyond(profile: &crate::icc::Profile, presses: &Presses) -> PagePress {
+    presses.press_for_profile(profile).map_or(
+        PagePress::Beyond(BeyondPress::stated(
+            "it is the ninth distinct press this page names and eight is the budget \
+             (§11.7.2), so its four components are not converted out",
         )),
         PagePress::In,
     )
@@ -1092,7 +1085,7 @@ impl Interpreter<'_> {
         &mut self,
         group: &TransparencyGroup,
         resources: &Dictionary,
-    ) -> Option<PressId> {
+    ) -> Option<Arc<Press>> {
         if self.compositing != Compositing::Device
             || !group.isolated
             || group.knockout
@@ -1101,16 +1094,12 @@ impl Interpreter<'_> {
         {
             return None;
         }
-        match press_for_entry(self.document, &group.colour_space, resources) {
+        match press_for_entry(self.document, &group.colour_space, resources, self.presses) {
             PagePress::In(press) => Some(press),
-            PagePress::Device => None,
-            // `&mut self` is for this line alone: a group whose press this process had no slot
-            // left for is drawn in the parent's space and keeps §11.6.6's report, and the one
-            // thing that would otherwise be lost is that the *process* decided it. ADR 0416.
-            PagePress::Beyond(beyond) => {
-                self.press_beyond_this_process |= beyond.this_process;
-                None
-            }
+            // A group whose press this page has no budget left for is drawn in the parent's
+            // space and keeps §11.6.6's report, which is the answer that was right before this
+            // construction existed and is still right.
+            PagePress::Device | PagePress::Beyond(_) => None,
         }
     }
 
@@ -1138,8 +1127,8 @@ impl Interpreter<'_> {
     /// every `DeviceCMYK` mask group was reported for being composited in device RGB, which
     /// covered this case without naming it; that sentence now fires only for `Lab`, and this
     /// one says the part of it that is still true.
-    fn note_blended_luminosity(&mut self, compositing: Compositing, commands: &[Command]) {
-        if compositing != Compositing::Luminosity(InkScale::Double)
+    fn note_blended_luminosity(&mut self, compositing: &Compositing, commands: &[Command]) {
+        if *compositing != Compositing::Luminosity(InkScale::Double)
             || !any_command(commands, &|command| command_blends(command))
         {
             return;
@@ -1251,7 +1240,8 @@ impl Interpreter<'_> {
         // this tree's two routes answers that space. A mask group nested inside another one
         // may name a different space, so this is saved and restored like `uncoloured` rather
         // than set once.
-        let saved_compositing = std::mem::replace(&mut self.compositing, request.compositing);
+        let saved_compositing =
+            std::mem::replace(&mut self.compositing, request.compositing.clone());
         // And §11.6.6's blending space stops being a departure in here, which is ADR 0220's
         // finding rather than a simplification: a mask group whose space is subtractive is
         // painted in the ink §10.4.2.3 weighs, that weighting is linear in the components, and
@@ -1327,7 +1317,7 @@ impl Interpreter<'_> {
                 },
             );
         }
-        self.note_blended_luminosity(request.compositing, &commands);
+        self.note_blended_luminosity(&request.compositing, &commands);
 
         let evaluated = pdf_render::SoftMask {
             commands,
@@ -1655,7 +1645,7 @@ impl Interpreter<'_> {
         );
         let outer_ais_mark = std::mem::replace(&mut self.alpha_sources_mark, mark);
         let ink = self.group_press(group, resources);
-        let saved = self.compositing;
+        let saved = self.compositing.clone();
         // Scoped only where a pair is being attempted: everywhere else the record has to
         // propagate *up* to whatever pair run this group may be inside.
         let saved_departed = if ink.is_some() {
@@ -1663,14 +1653,14 @@ impl Interpreter<'_> {
         } else {
             self.nested_space_departed
         };
-        if let Some(press) = ink {
+        if let Some(press) = ink.clone() {
             self.compositing = Compositing::Subtractive(crate::colour::Half::Chromatic, press);
         }
         self.run(content, resources, inner, form_depth.saturating_add(1));
-        self.compositing = saved;
+        self.compositing = saved.clone();
         let mut commands = self.list.split_off_commands(mark);
         let mut pair = None;
-        if let Some(press) = ink
+        if let Some(press) = ink.clone()
             && !commands.is_empty()
         {
             if !self.nested_space_departed
@@ -1678,14 +1668,15 @@ impl Interpreter<'_> {
                 && !self.black_generation_stated
             {
                 let rewind = self.readback_mark();
-                self.compositing = Compositing::Subtractive(crate::colour::Half::Black, press);
+                self.compositing =
+                    Compositing::Subtractive(crate::colour::Half::Black, Arc::clone(&press));
                 self.run(content, resources, inner, form_depth.saturating_add(1));
-                self.compositing = saved;
+                self.compositing = saved.clone();
                 self.rewind_readback(rewind);
                 let black = self.list.split_off_commands(mark);
                 if paired(&commands, &black) {
                     pair = Some(pdf_render::GroupBlending {
-                        space: crate::colour::blending_space_of(press),
+                        space: press.blending_space(),
                         black,
                     });
                 } else {
@@ -1791,16 +1782,6 @@ impl Interpreter<'_> {
             "its components are not four this tree can sample into a press, so §11.3.4 has \
                  no per-component formula to apply and no conversion back out",
         ));
-        // Counted where the *report* is made rather than where the press was refused, which is
-        // what makes the number exact: a page that met the budget and composites nothing is not
-        // reported at all, and there is nothing about it for a survey to call unstable. The
-        // flag beside it is the wider question — whether the budget was met anywhere — and the
-        // two are separate because only one of them can be subtracted from a count of reports.
-        // ADR 0416.
-        if because.this_process {
-            self.press_beyond_this_process = true;
-            self.reports_beyond_this_process = self.reports_beyond_this_process.saturating_add(1);
-        }
         self.note(Unsupported::TransparencyGroup {
             detail: format!(
                 "the page group's blending colour space {name} (§11.4.7): {}",
@@ -1824,16 +1805,15 @@ impl Interpreter<'_> {
     /// its chromatic bullet is what [`crate::colour::Half::Chromatic`] holds, and the rule it
     /// gives the black component is what its own four functions return on the neutral colour
     /// [`crate::colour::Half::Black`] holds. `render-cpu`'s `blend` module has the derivation.
-    /// **The order among them is a reading rule since ADR 0416**: a reason the *file* states is
-    /// returned before one this *process* states, so a page that would be reported whatever the
-    /// press table held is reported for what it says about itself. Only a page whose sole
-    /// reason is [`crate::colour::MAX_PRESSES`] carries that sentence, which is what makes the
-    /// sentence itself say something — and what stops a document's own answer from being
-    /// masked, on some runs and not others, by a budget eight other files spent.
+    /// **The order among them is not a reading rule any more, and ADR 0417 is why.** ADR 0416
+    /// had to put a file-stated reason in front of the one [`crate::colour::MAX_PRESSES`]
+    /// supplied, because that one was a fact about the process and reporting it in place of
+    /// what the page says about itself made a verdict that moved between runs. Every reason
+    /// here is the document's now, so the order is back to the plain one — the space itself
+    /// first, then what a group inside did to it, then what an `/ExtGState` said about the
+    /// conversion — and any of them is the same answer on every run.
     pub(super) fn blending_undrawable(&self) -> Option<BeyondPress> {
-        if let Some(beyond) = self.blending_beyond
-            && !beyond.this_process
-        {
+        if let Some(beyond) = self.blending_beyond {
             return Some(beyond);
         }
         if self.blending_changed {

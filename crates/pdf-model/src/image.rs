@@ -367,7 +367,7 @@ pub fn decode(
     stream: &Stream,
     resources: &Dictionary,
     fill: pdf_render::Color,
-    into: Compositing,
+    into: &Compositing,
 ) -> Result<Image, ImageError> {
     let mut masks = MaskCache::default();
     Ok(
@@ -400,7 +400,7 @@ pub fn decode_parts(
     stream: &Stream,
     resources: &Dictionary,
     fill: pdf_render::Color,
-    into: Compositing,
+    into: &Compositing,
     masks: &mut MaskCache,
 ) -> Result<Parts, ImageError> {
     let dict = &stream.dict;
@@ -545,7 +545,7 @@ fn samples_of(
     is_mask: bool,
     fill: pdf_render::Color,
     colour_key: Option<&[(u32, u32)]>,
-    into: Compositing,
+    into: &Compositing,
 ) -> Result<SamplesOnGrid, ImageError> {
     let Dictionaries {
         document,
@@ -662,7 +662,7 @@ fn colour_space(
     document: &Document,
     dict: &Dictionary,
     resources: &Dictionary,
-    into: Compositing,
+    into: &Compositing,
 ) -> Result<ColourSpace, ImageError> {
     let space = document.get_key(dict, "ColorSpace");
     // §8.9.5.1 Table 87, of `/ColorSpace`: "it can be any type of colour space except
@@ -704,7 +704,7 @@ fn colour_space(
                 space: String::from_utf8_lossy(&family).into_owned(),
             }
         })?;
-    Ok(ColourSpace::reduced(resolved, into))
+    Ok(ColourSpace::reduced(resolved, into.clone()))
 }
 
 /// How a row of raw bytes becomes colour: the layout, and what a value means.
@@ -733,7 +733,7 @@ struct Samples<'a> {
     /// A sample is a colour like any other, and §11.6.5.1's mask group composites in a
     /// quantity that is not the device's — so a raster that ignored this would be the one
     /// thing in such a group painted in the wrong units (ADR 0220).
-    into: Compositing,
+    into: &'a Compositing,
 }
 
 /// Unpacks raw samples into RGBA8.
@@ -856,7 +856,7 @@ fn convert_three(
     space: &crate::colour::ColourSpace,
     rgba: &mut [u8],
     band: Option<usize>,
-    into: Compositing,
+    into: &Compositing,
 ) {
     let convert = |chunk: &mut [u8], slots: usize| {
         let mut cache = Conversion::for_pixels(slots.max(1));
@@ -905,7 +905,7 @@ fn convert_four(
     space: &crate::colour::ColourSpace,
     rgba: &mut [u8],
     band: Option<usize>,
-    into: Compositing,
+    into: &Compositing,
 ) {
     let convert = |chunk: &mut [u8], slots: usize| {
         let mut cache = Conversion::for_pixels(slots.max(1));
@@ -1094,7 +1094,7 @@ fn resolved_sample(
     bits: u32,
     decode: &Decode,
     cache: &mut Option<Conversion>,
-    into: Compositing,
+    into: &Compositing,
 ) -> pdf_render::Color {
     let count = space.components();
     let at = x.saturating_mul(count);
@@ -1151,7 +1151,7 @@ fn palette(
     space: &crate::colour::ColourSpace,
     bits: u32,
     decode: &Decode,
-    into: Compositing,
+    into: &Compositing,
 ) -> Vec<pdf_render::Color> {
     let max = (1u32 << bits.min(8)).saturating_sub(1);
     debug_assert!(bits <= 8, "the caller keeps a 16-bit image off this path");
@@ -1318,7 +1318,7 @@ fn decode_jbig2(
     height: u32,
     is_mask: bool,
     fill: pdf_render::Color,
-    into: Compositing,
+    into: &Compositing,
 ) -> Result<Vec<u8>, ImageError> {
     let Dictionaries {
         document,
@@ -1460,7 +1460,7 @@ fn decode_ccitt(
     height: u32,
     is_mask: bool,
     fill: pdf_render::Color,
-    into: Compositing,
+    into: &Compositing,
 ) -> Result<Vec<u8>, ImageError> {
     let Dictionaries {
         document,
@@ -1571,7 +1571,7 @@ fn decode_jpx(
     height: u32,
     is_mask: bool,
     fill: pdf_render::Color,
-    into: Compositing,
+    into: &Compositing,
 ) -> Result<SamplesOnGrid, ImageError> {
     let Dictionaries {
         document,
@@ -1663,7 +1663,7 @@ fn decode_jpx(
                     fill,
                     // A stencil carries no colour, so nothing here depends on what the
                     // samples are composited into; the fill has been redirected already.
-                    into: Compositing::Device,
+                    into: &Compositing::Device,
                 },
             )?,
             grid: (raster.width, raster.height),
@@ -1698,7 +1698,7 @@ fn jpx_samples_to_rgba(
     space: &crate::colour::ColourSpace,
     use_opacity: bool,
     premultiplied: bool,
-    into: Compositing,
+    into: &Compositing,
 ) -> Vec<u8> {
     // An `Indexed` space takes an *index*, not a fraction: `to_rgb` rounds its input and
     // looks it up. Every other space takes components in 0..1.
@@ -2136,7 +2136,7 @@ fn convert_channels(
     is_mask: bool,
     components: usize,
     rgba: &mut [u8],
-    into: Compositing,
+    into: &Compositing,
 ) -> Result<(), ImageError> {
     if is_mask {
         return Ok(());
@@ -2318,7 +2318,7 @@ fn colour_key_entry(
     }
     // Asked for its component count and nothing else, so what the samples are composited
     // into does not enter: `Compositing::Device` is the question rather than an assumption.
-    let Ok(space) = colour_space(document, dict, resources, Compositing::Device) else {
+    let Ok(space) = colour_space(document, dict, resources, &Compositing::Device) else {
         return MaskEntry::Unusable(
             "colour-key /Mask on an image whose colour space this cannot read".to_owned(),
         );
@@ -2747,7 +2747,7 @@ fn apply_explicit_mask(
         resources,
         pdf_render::Color::BLACK,
         // A stencil is read for where it marks, so it carries no colour to redirect.
-        Compositing::Device,
+        &Compositing::Device,
     )
     .map_err(|error| ImageError::Malformed {
         detail: format!("/Mask did not decode: {error}"),
@@ -2889,7 +2889,7 @@ fn soft_mask_entry(
             "/SMask carries a /Mask of its own, which Table 143 says shall be absent".to_owned(),
         );
     }
-    match colour_space(document, &mask.dict, resources, Compositing::Device) {
+    match colour_space(document, &mask.dict, resources, &Compositing::Device) {
         Ok(space) if space.components() == 1 => {}
         Ok(space) => {
             return SoftMaskEntry::Unusable(format!(
@@ -2984,7 +2984,7 @@ fn matte_colour(
     // this can invert; anything outside that is clamped by `channel` rather than refused,
     // which is what §8.9.5.2 does with an out-of-range sample.
     match (
-        colour_space(document, dict, resources, Compositing::Device),
+        colour_space(document, dict, resources, &Compositing::Device),
         components.as_slice(),
     ) {
         (Ok(ColourSpace::Gray), [grey]) => {
@@ -3104,7 +3104,7 @@ fn eligible_for_the_device_scale(
         return false;
     }
     if !matches!(
-        colour_space(document, mask_dict, resources, Compositing::Device),
+        colour_space(document, mask_dict, resources, &Compositing::Device),
         Ok(ColourSpace::Gray)
     ) {
         return false;
@@ -3595,7 +3595,7 @@ impl RasterCache {
         image: NamedStream<'_>,
         resources: &Dictionary,
         fill: pdf_render::Color,
-        into: Compositing,
+        into: &Compositing,
         masks: &mut MaskCache,
     ) -> Result<Parts, ImageError> {
         let NamedStream { stream, identity } = image;
@@ -3625,7 +3625,7 @@ impl RasterCache {
             stream: Arc::clone(stream),
             resources: resources.clone(),
             fill,
-            into,
+            into: into.clone(),
             parts: parts.clone(),
             bytes,
         });
@@ -3667,7 +3667,7 @@ impl Cached {
         identity: StreamIdentity,
         resources: &Dictionary,
         fill: [u32; 4],
-        into: Compositing,
+        into: &Compositing,
     ) -> bool {
         self.identity == identity
             && match identity {
@@ -3678,7 +3678,7 @@ impl Cached {
                 StreamIdentity::Content(_) => *self.stream == **stream,
             }
             && self.fill == fill
-            && self.into == into
+            && self.into == *into
             && self.resources == *resources
     }
 }
@@ -3773,7 +3773,7 @@ fn apply_soft_mask(
         resources,
         pdf_render::Color::BLACK,
         // §11.6.5.2's mask is read for its one channel of opacity, not for colour.
-        Compositing::Device,
+        &Compositing::Device,
     ) else {
         return image;
     };
@@ -3874,7 +3874,7 @@ mod tests {
             &space,
             &mut serial,
             None,
-            crate::colour::Compositing::Device,
+            &crate::colour::Compositing::Device,
         );
         // A conversion that changed nothing would pass every comparison below.
         assert_ne!(serial, raster(pixels), "the space converts nothing");
@@ -3885,7 +3885,7 @@ mod tests {
                 &space,
                 &mut split,
                 Some(band),
-                crate::colour::Compositing::Device,
+                &crate::colour::Compositing::Device,
             );
             assert_eq!(split, serial, "band of {band} pixels");
         }

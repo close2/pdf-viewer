@@ -149,7 +149,7 @@ pub fn read(document: &Document, page: &Dictionary) -> Option<Result<Thumbnail, 
             &resources,
             pdf_render::Color::BLACK,
             // A thumbnail is a picture on its own, never inside a transparency group.
-            crate::colour::Compositing::Device,
+            &crate::colour::Compositing::Device,
         )
         .map(|image| Thumbnail {
             image,

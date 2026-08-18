@@ -248,7 +248,7 @@ impl Interpreter<'_> {
             image,
             resources,
             state.fill,
-            self.compositing,
+            &self.compositing,
             &mut self.image_masks,
         ) {
             Ok(decoded) => self.list.push(Command::Image {
@@ -343,7 +343,7 @@ impl Interpreter<'_> {
             stream,
             resources,
             Color::BLACK,
-            Compositing::Device,
+            &Compositing::Device,
         ) {
             Ok(image) => image,
             Err(error) => {

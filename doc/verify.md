@@ -167,6 +167,17 @@ cargo run --release -p pdf-model --example luminosity_mask_census -- doc/pdf.js/
   # what a §11.5.3 mask group is painted *with*, against what its /CS declares — 87 groups on
   # this corpus, 39 blending in /DeviceCMYK and 36 in /DeviceGray, and not one setting a `k`
   # colour, which is what turned a report's condition into the departure itself (ADR 0217)
+cargo run --release -p pdf-model --example press_census -- <dir>/*.pdf    # one process per archive
+  # which press §11.4.7 gives a page and whether `crate::icc` can evaluate the profile behind it.
+  # It shares nothing between documents, so its answer is a function of the files and two runs are
+  # byte-identical — which is what `tools/safedocs survey` could not say while the press table was
+  # a process-wide budget (ADR 0416). `--sample` measures what a grid of a given side departs from
+  # evaluating the profile, which is what `PRESS_SIDE` is answerable to (ADR 0272)
+cargo run --release -p pdf-model --example press_cost -- [file.pdf]…
+  # what *sampling* a press costs, as the difference between a cold interpretation and a warm one
+  # in the same process. It is the benchmark under `colour::SAMPLED`: a press is 17 to 46 ms of
+  # profile evaluation against a 14 to 18 ms interpretation of the same page, so the cache behind
+  # the per-interpretation budget is what keeps a page turn a page turn (ADR 0417)
 cargo run --release -p pdf-model --example interface_font_census -- doc/pdf.js/test/pdfs/*.pdf
   # which characters a *program's own* text needs — §12.3.3's outline titles, §8.11.4.3's layer
   # names, §7.11.4's file names, §14.3.3's `/Info`, §14.3.2's XMP, §12.4.2's page labels and

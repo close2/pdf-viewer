@@ -278,10 +278,7 @@ fn survey_documents(documents: &[PathBuf]) {
         count(|outcome| matches!(outcome, Outcome::Incomplete(_))),
         verdicts.iter().filter(|verdict| verdict.is_slow()).count(),
     );
-    report_press_budget(
-        &verdicts,
-        count(|outcome| matches!(outcome, Outcome::Incomplete(_))),
-    );
+    report_press_cache();
     let missed: usize = verdicts
         .iter()
         .map(|verdict| verdict.codes_without_a_glyph)
@@ -329,13 +326,9 @@ fn survey_documents(documents: &[PathBuf]) {
     }
     for verdict in &verdicts {
         match &verdict.outcome {
-            Outcome::Complete => println!("  complete: {}{}", verdict.name, budget_mark(verdict)),
+            Outcome::Complete => println!("  complete: {}", verdict.name),
             Outcome::Incomplete(reported) => {
-                println!(
-                    "  incomplete: {}{}: {reported}",
-                    verdict.name,
-                    budget_mark(verdict)
-                );
+                println!("  incomplete: {}: {reported}", verdict.name);
             }
             Outcome::Locked => println!("  locked: {}", verdict.name),
             Outcome::UnreadableEncryption(why) => {
@@ -352,45 +345,26 @@ fn survey_documents(documents: &[PathBuf]) {
     }
 }
 
-/// Says how much of the incomplete count belongs to this process rather than to the documents.
+/// Says what this run held in the press cache, which qualifies nothing above it.
 ///
-/// Printed on every run, including a clean one, so that a run says what it was clean over — and
-/// printed under the counts, because it qualifies the incomplete figure above rather than adding
-/// to it. The subtraction is done here rather than left to a reader for `doc/HANDOVER.md`'s
-/// reason: a total nobody printed is a total that goes stale. ADR 0416.
-fn report_press_budget(verdicts: &[survey::Verdict], incomplete: usize) {
-    let by_the_budget = verdicts
-        .iter()
-        .filter(|verdict| {
-            matches!(verdict.outcome, Outcome::Incomplete(_))
-                && verdict.incomplete_only_beyond_this_process
-        })
-        .count();
+/// **It qualified the incomplete count until ADR 0417, and that is why the line survives the
+/// fix rather than being deleted with it.** `pdf_model::colour::MAX_PRESSES` used to be a
+/// process-wide table that was the budget as well as the store, so a document naming the ninth
+/// distinct press this survey met was reported for a reason belonging to eight other files —
+/// three runs of one unchanged tree over one unchanged directory printed 30, 36 and 33 such
+/// reports (ADR 0416). The budget is the interpretation's now, so every verdict above is the
+/// document's and the counts agree between runs. What is left to say is a fact about *speed*:
+/// a run that sampled many more presses than it cached is a run that paid for the sampling
+/// more than once.
+fn report_press_cache() {
     println!(
-        "  of those incomplete, {by_the_budget} are this process's press budget (§11.7.2) and \
-         not the document's — it sampled {} of its {} presses, and which documents meet it is \
-         decided by the order the scheduler ran them in, so this figure differs between runs. \
-         {} is the file-decided count, which two runs agree on; `pdf-model --example \
-         press_census` is the reading that is a function of the files alone (doc/todo/03, section 15)",
+        "  press cache: {} presses sampled, {} still held (§11.7.2). It decides no verdict — \
+         since ADR 0417 the budget is per interpretation, so every count above is the \
+         documents' own and two runs agree; `pdf-model --example press_census` reads the \
+         population, and samplings above what is held is the cache paying twice",
         pdf_model::colour::presses_sampled(),
-        pdf_model::colour::MAX_PRESSES,
-        incomplete.saturating_sub(by_the_budget)
+        pdf_model::colour::presses_cached(),
     );
-}
-
-/// The mark a document carries where this process's press budget, and not the file, is part
-/// of its verdict.
-///
-/// A *mark* rather than a category of its own, and that is the point of it: a document can be
-/// incomplete for both reasons at once — three of the crawl's 287 press-naming documents are —
-/// so moving it to a bucket would take its file-decided report out of the list nobody should
-/// have to grep twice. ADR 0416.
-fn budget_mark(verdict: &survey::Verdict) -> &'static str {
-    if verdict.press_beyond_this_process {
-        " [this process's press budget]"
-    } else {
-        ""
-    }
 }
 
 /// A byte count somebody has to read on a mobile connection.

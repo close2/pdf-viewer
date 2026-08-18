@@ -672,7 +672,7 @@ impl Interpreter<'_> {
             resources,
             state.transform,
             state.smoothness,
-            self.compositing,
+            &self.compositing,
         ) {
             Ok(shading) => {
                 // §8.7.4.5.2's domain, which for a type 1 shading is where it marks at all.
@@ -773,7 +773,7 @@ impl Interpreter<'_> {
             resources,
             matrix.then(self.base),
             state.smoothness,
-            self.compositing,
+            &self.compositing,
         ) {
             Ok(shading) => Some(PatternPaint::Shading(
                 Arc::new(shading),
@@ -884,7 +884,12 @@ impl Interpreter<'_> {
                 // `/Luminosity` mask group is poured through §11.5.3's luminosity like every
                 // other colour there. `BlackPoint::Default`: the tint arrived with `scn` and
                 // §8.6.5.9's setting belongs to the state that paints the cell.
-                Some(convert(&space, tint, BlackPoint::Default, self.compositing))
+                Some(convert(
+                    &space,
+                    tint,
+                    BlackPoint::Default,
+                    &self.compositing,
+                ))
             }
             _ => None,
         };

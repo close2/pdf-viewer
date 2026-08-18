@@ -128,6 +128,15 @@ index costs none of those a lifetime or an ordering, and reading a press — whi
 colour — takes no lock. `MAX_PRESSES` is **8**, which is 8.6 MB of grids and tables, and a
 document arriving after the eighth keeps the report it had before this construction existed.
 
+> **Amended by ADR 0417 (session 582): this paragraph's shape is reversed and its last sentence
+> was the defect.** A budget spent by whichever eight documents a process opened first is not a
+> fact about the file, which ADR 0416 diagnosed and 0417 fixed by scoping it to one
+> interpretation. `PressId` is gone; `Compositing::Subtractive` carries an `Arc<Press>` and
+> `Compositing` is `Clone` rather than `Copy`, with its ordering and hashing written out over a
+> `PressIdentity`. The property this paragraph was protecting is kept exactly — a press is a
+> pointer already in hand, so the per-colour read still takes no lock — and the cost of the whole
+> change is +0.0045% of the instructions to interpret an ordinary page.
+
 ## Decision 2 — seventeen samples per axis, and the residue is measured rather than assumed
 
 A real press is not multilinear between the corners of its ink cube — that is exactly what makes

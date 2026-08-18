@@ -35,9 +35,11 @@
 //! **And it is the reading `tools/safedocs survey` cannot give**, which is why the
 //! five-hundred-and-eighty-first session came back to it (ADR 0416): this census shares nothing
 //! between documents, so its answer is a function of the files and two runs agree, where a survey
-//! shares `colour::MAX_PRESSES` between the documents it is judging and reports a different set of
-//! them every run. It reads a **page** group; a group inside a content stream can name a press of
-//! its own, and `Interpretation::press_beyond_this_process` is what sees that one.
+//! shared `colour::MAX_PRESSES` between the documents it was judging and reported a different set
+//! of them every run. **The survey agrees between runs since ADR 0417 made that budget the
+//! interpretation's**, and this census keeps its own reason for existing: it reads a **page**
+//! group and a survey reads whatever the page draws, so the two answer different questions about
+//! the same population rather than one checking the other.
 
 #![expect(
     clippy::print_stdout,

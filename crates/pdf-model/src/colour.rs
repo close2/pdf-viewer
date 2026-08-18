@@ -31,7 +31,7 @@
 //! tree without anything looking wrong, and an XYZ matrix copied into a second place would
 //! fail the same way and be just as invisible.
 
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use rayon::iter::{IntoParallelIterator as _, ParallelIterator as _};
 
@@ -66,7 +66,16 @@ const MAX_DEPTH: usize = 8;
 /// routes and only one of them is an operator: an image's samples (`crate::image`) and a
 /// shading's ramp (`crate::shading`) are colours too, and a group composited in one quantity
 /// cannot have two of its three sources painting in another (ADR 0220).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// # Why this carries the press itself
+///
+/// It held a `Copy` index into a process-wide table until ADR 0417, and the table was the
+/// budget as well as the store — so which document was refused a press depended on which
+/// eight had been interpreted first. Scoping the budget to an interpretation means the press
+/// has to be reachable from wherever a colour is resolved, and a colour is resolved *per
+/// colour*: an index into a table behind a lock would put that lock on the hottest path in the
+/// module. An `Arc` in here is a pointer already in hand, so the read stays what it was and
+/// what is cloned is a refcount, once per structure that holds one.
+#[derive(Debug, Clone)]
 pub enum Compositing {
     /// The page, or any group this tree composites on the device's three components.
     Device,
@@ -74,8 +83,53 @@ pub enum Compositing {
     /// passing through RGB, painted in the ink that clause weighs rather than in colour.
     Luminosity(InkScale),
     /// A page §11.4.7 composites in four components, painted in the half of them this raster
-    /// carries. See [`Half`], [`PressId`] for whose four they are, and `pdf_render::blending`.
-    Subtractive(Half, PressId),
+    /// carries. See [`Half`] for which half, [`Press`] for whose four, and
+    /// `pdf_render::blending`.
+    Subtractive(Half, Arc<Press>),
+}
+
+/// What distinguishes one [`Compositing`] from another, for the caches keyed on one.
+///
+/// Written out rather than derived because the press is behind an `Arc` and two `Arc`s of one
+/// profile are one press — [`SAMPLED`] evicts, so that case is reachable. Ordering and hashing
+/// both go through here, which is what keeps them agreeing with equality.
+type CompositingKey = (u8, Option<InkScale>, Option<Half>, Option<PressIdentity>);
+
+impl Compositing {
+    /// This value as the tuple every derived trait below is defined on.
+    fn key(&self) -> CompositingKey {
+        match self {
+            Self::Device => (0, None, None, None),
+            Self::Luminosity(scale) => (1, Some(*scale), None, None),
+            Self::Subtractive(half, press) => (2, None, Some(*half), Some(press.identity)),
+        }
+    }
+}
+
+impl PartialEq for Compositing {
+    fn eq(&self, other: &Self) -> bool {
+        self.key() == other.key()
+    }
+}
+
+impl Eq for Compositing {}
+
+impl PartialOrd for Compositing {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Compositing {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.key().cmp(&other.key())
+    }
+}
+
+impl std::hash::Hash for Compositing {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.key().hash(state);
+    }
 }
 
 /// Which of a `DeviceCMYK` blending space's four components one raster carries.
@@ -119,7 +173,7 @@ impl Compositing {
     /// function deciding which spaces mark the page, which is exactly the drift trap 6 exists
     /// for.
     #[must_use]
-    pub fn paint(self, space: &ColourSpace, values: &[f32], black_point: bool) -> Color {
+    pub fn paint(&self, space: &ColourSpace, values: &[f32], black_point: bool) -> Color {
         let colour = if black_point {
             space.to_rgb(values)
         } else {
@@ -133,7 +187,7 @@ impl Compositing {
             },
             Self::Subtractive(half, press) => {
                 let [cyan, magenta, yellow, black] = space.to_cmyk(values, black_point, press);
-                let painted = match half {
+                let painted = match *half {
                     Half::Chromatic => Color::rgb(1.0 - cyan, 1.0 - magenta, 1.0 - yellow),
                     Half::Black => Color::grey(1.0 - black),
                 };
@@ -936,7 +990,7 @@ impl ColourSpace {
     /// where sRGB holds it, and clipped where it does not, which is the same gamut question
     /// one space earlier.
     #[must_use]
-    pub fn to_cmyk(&self, values: &[f32], black_point: bool, press: PressId) -> [f32; 4] {
+    pub fn to_cmyk(&self, values: &[f32], black_point: bool, press: &Press) -> [f32; 4] {
         self.to_cmyk_at(values, 0, black_point, press)
     }
 
@@ -946,7 +1000,7 @@ impl ColourSpace {
         values: &[f32],
         depth: usize,
         black_point: bool,
-        press: PressId,
+        press: &Press,
     ) -> [f32; 4] {
         if depth > MAX_DEPTH {
             return [0.0, 0.0, 0.0, 1.0];
@@ -955,7 +1009,7 @@ impl ColourSpace {
         match self {
             Self::Cmyk => [at(0), at(1), at(2), at(3)],
             Self::Icc { profile }
-                if press.press().identity == Some(profile.identity())
+                if press.identity == PressIdentity::Profile(profile.identity())
                     && profile.channels() == 4 =>
             {
                 [at(0), at(1), at(2), at(3)]
@@ -1191,82 +1245,95 @@ fn cmyk(c: f32, m: f32, y: f32, k: f32) -> Color {
     Color::rgb(channel(rgb[0]), channel(rgb[1]), channel(rgb[2]))
 }
 
-/// Which press a page's four components belong to.
+/// Which press a colour's four components belong to, for the things keyed on one.
 ///
-/// A `Copy` handle rather than the press itself, and that is a shape decision worth its
-/// sentence: [`Compositing`] is `Copy`, is threaded through every painting function in this
-/// crate, and is a `BTreeMap` key in `crate::shading`. Carrying an `Arc` in it would cost a
-/// lifetime or an ordering on every one of those; carrying an index costs neither, and the
-/// presses themselves live in [`PRESSES`] for as long as the process does.
+/// A press is recognised by the profile it was sampled from, never by where it is held:
+/// [`SAMPLED`] evicts, so the same profile can be sampled into two different [`Press`] values
+/// over a process's life and they are the same press. `crate::shading`'s cache is keyed on
+/// [`Compositing`], which carries this.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct PressId(usize);
-
-impl PressId {
-    /// The press this tree assumes when a document says nothing: [`CMYK_CORNERS`].
-    pub const ASSUMED: Self = Self(0);
-
-    /// The press itself.
-    ///
-    /// A handle is only ever made by [`press_for_profile`] or by [`PressId::ASSUMED`], and
-    /// neither can name a slot that was not filled first, so an unfilled one falls back on the
-    /// assumed inks rather than failing: a colour has to come back from here.
-    #[must_use]
-    fn press(self) -> &'static Press {
-        if self.0 > 0
-            && let Some(press) = PRESSES
-                .get(self.0.saturating_sub(1))
-                .and_then(OnceLock::get)
-        {
-            return press;
-        }
-        ASSUMED.get_or_init(Press::assumed)
-    }
+pub enum PressIdentity {
+    /// ADR 0263's assumed process inks — [`CMYK_CORNERS`] — which no document names.
+    Assumed,
+    /// The profile of this [`crate::icc::Profile::identity`].
+    Profile(u128),
 }
 
-/// How many presses one process will sample.
+/// How many *distinct* presses one interpretation may name.
 ///
 /// A press costs its grid — `PRESS_SIDE⁴` device colours — plus, if a page converts a colour
 /// *into* it, [`INK_TABLE_SIDE`]³ separations. At the sizes below that is 1.0 MB and 78 KB
-/// apiece, so this bound is **8.6 MB**, and it is a bound rather than a cache because nothing
-/// here is ever evicted: a viewer holding several documents open at once, each naming its own
-/// press, is the case it exists for. A document arriving after the bound is reached keeps the
-/// report it had before this construction existed rather than being drawn in somebody else's
-/// four components.
+/// apiece, so an interpretation that spends the whole budget holds **8.6 MB** of press.
 ///
-/// **It is a bound on the process rather than on a document, and that is the thing about it
-/// worth saying out loud** (ADR 0416). Every other budget in this tree — `MAX_TILES`,
-/// `MAX_OPERATIONS`, `MAX_FORM_DEPTH` — is spent by the document that reaches it, so its
-/// refusal is a function of the file and is the same on every run. This one is spent by
-/// whatever the process interpreted *first*, so the ninth distinct press meets a refusal
-/// decided by eight other files. [`crate::Interpretation::press_beyond_this_process`] is how a
-/// caller tells such a verdict from a file's own; `doc/todo/49`'s third-bound section prices closing the gap.
+/// **It is a budget on the interpretation rather than on the process, and that is the thing
+/// about it worth saying out loud** (ADR 0417). It was the other way round until the
+/// five-hundred-and-eighty-second session: the table was a `static` filled from the front and
+/// never evicted, so the ninth distinct press a *process* met was refused and which document
+/// that fell on was decided by the order the scheduler ran the eight before it in. Every other
+/// budget in this tree — `MAX_TILES`, `MAX_OPERATIONS`, `MAX_FORM_DEPTH` — is spent by the
+/// document that reaches it, and this one now is too: a page naming nine presses is refused the
+/// ninth on every run and on every machine, and a page naming one is never refused whatever
+/// else the process has open. ADR 0416 is the diagnosis and `doc/todo/49`'s third-bound section
+/// the three roads.
+///
+/// What is *not* per interpretation is the sampling, which is [`SAMPLED`]: a cache changes how
+/// fast an answer is reached and never what it is, so it may be shared where a budget may not.
 pub const MAX_PRESSES: usize = 8;
 
-/// The presses [`press_for_profile`] has sampled, filled from the front.
+/// How many sampled presses this process keeps, so that a second page need not sample again.
 ///
-/// An array of `OnceLock`s rather than a locked `Vec` so that reading one — which happens per
-/// colour — takes no lock at all. [`NEXT_PRESS`] is held only while a slot is being filled,
-/// and never across anything that could run another job (ADR 0269).
-static PRESSES: [OnceLock<Press>; MAX_PRESSES] = [const { OnceLock::new() }; MAX_PRESSES];
-
-/// How many of [`PRESSES`] are filled, and the lock that fills the next one.
-static NEXT_PRESS: Mutex<usize> = Mutex::new(0);
-
-/// How many of [`MAX_PRESSES`] this process has sampled.
+/// A **cache** bound rather than a budget, and the difference is the whole of ADR 0417: past
+/// this the least recently used press is dropped and a document naming it again pays for the
+/// sampling a second time, which is slower and is the same picture. So it may be sized against
+/// what the population measures — the web names 28 distinct presses over 65 703 documents
+/// (`examples/press_census`) — where [`MAX_PRESSES`] may not.
 ///
-/// For an instrument that has to say what its own run was: a survey whose press table
-/// saturated is a survey whose later documents were judged by a budget rather than by
-/// themselves, and the count is what says whether that happened at all. ADR 0416.
+/// Eight is what this process spent on presses before the budget moved, so nothing about that
+/// change costs a byte of steady-state memory; a run holding more is holding them in the
+/// interpretations that named them.
+const MAX_CACHED_PRESSES: usize = 8;
+
+/// The presses this process has sampled, most recently used first.
+///
+/// The lock is taken once per press an interpretation names — never per colour, which is what
+/// [`Compositing`] carrying the press itself buys — and it is **never** held across
+/// [`sample_press`], because a lock held across work rayon can steal is what hung three
+/// archives in the four-hundred-and-thirty-third session (ADR 0269).
+static SAMPLED: Mutex<Vec<Arc<Press>>> = Mutex::new(Vec::new());
+
+/// How many times this process has built a press out of a profile.
+///
+/// Together with [`presses_cached`] this is what an instrument needs to say whether the cache
+/// was worth its size: a run whose samplings exceed what it holds paid [`sample_press`] more
+/// than once for the same profile. Neither number says anything about a verdict — since ADR
+/// 0417 the budget is the interpretation's — which is exactly what makes them measurements of
+/// speed rather than of correctness.
+static SAMPLINGS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// How many times this process has built a press out of a profile. See [`SAMPLINGS`].
 #[must_use]
 pub fn presses_sampled() -> usize {
-    PRESSES
-        .iter()
-        .take_while(|slot| slot.get().is_some())
-        .count()
+    SAMPLINGS.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-/// [`PressId::ASSUMED`]'s press, built on first use like any other.
-static ASSUMED: OnceLock<Press> = OnceLock::new();
+/// How many sampled presses this process still holds, at most [`MAX_CACHED_PRESSES`].
+#[must_use]
+pub fn presses_cached() -> usize {
+    SAMPLED.lock().map_or(0, |sampled| sampled.len())
+}
+
+/// [`PressIdentity::Assumed`]'s press, built on first use like any other.
+///
+/// Outside [`SAMPLED`] and outside [`MAX_PRESSES`], because it is a pure function of
+/// [`CMYK_CORNERS`] — a compile-time constant — rather than anything a document names. No
+/// budget applies to a press no file asked for.
+static ASSUMED: OnceLock<Arc<Press>> = OnceLock::new();
+
+/// The press this tree assumes when a document says nothing: [`CMYK_CORNERS`].
+#[must_use]
+pub fn assumed_press() -> Arc<Press> {
+    Arc::clone(ASSUMED.get_or_init(|| Arc::new(Press::assumed())))
+}
 
 /// The four components a page composites in, in both directions.
 ///
@@ -1279,13 +1346,19 @@ static ASSUMED: OnceLock<Press> = OnceLock::new();
 pub struct Press {
     /// §11.4.7's conversion out of the space, as the grid a backend interpolates.
     space: pdf_render::BlendingSpace,
-    /// The profile this was sampled from, or `None` for the assumed inks.
-    identity: Option<u128>,
+    /// Which press this is: the profile it was sampled from, or the assumed inks.
+    identity: PressIdentity,
     /// [`search_ink`] over a grid of sRGB, built on first use. See [`Press::table`].
     table: OnceLock<Vec<[f32; 4]>>,
 }
 
 impl Press {
+    /// Which press this is.
+    #[must_use]
+    pub fn identity(&self) -> PressIdentity {
+        self.identity
+    }
+
     /// The press [`CMYK_CORNERS`] describes, whose grid is those sixteen corners.
     fn assumed() -> Self {
         let mut corners = [[0.0f32; 3]; 16];
@@ -1297,7 +1370,7 @@ impl Press {
         Self {
             space: pdf_render::BlendingSpace::new(2, corners.into())
                 .unwrap_or_else(|| unreachable!("sixteen samples is a grid of side two")),
-            identity: None,
+            identity: PressIdentity::Assumed,
             table: OnceLock::new(),
         }
     }
@@ -1352,54 +1425,126 @@ impl Press {
 /// > colour space that shall be used is DeviceGray , DeviceRGB , or DeviceCMYK , depending on
 /// > whether the value of N is 1 , 3 , or 4 , respectively.
 ///
-/// For four components that is `DeviceCMYK`, which [`PressId::ASSUMED`] already composites in.
+/// For four components that is `DeviceCMYK`, which [`assumed_press`] already composites in.
+///
+/// # The budget this does *not* spend
+///
+/// This is the sampling and the cache behind it, and it refuses nothing a document states: a
+/// profile of four components always comes back with a press. What is bounded is how many
+/// distinct presses one **interpretation** may name, and that is [`Presses`], which is where
+/// §11.7.2's refusal is decided. ADR 0417.
 #[must_use]
-pub fn press_for_profile(profile: &crate::icc::Profile) -> Option<PressId> {
+pub fn press_for_profile(profile: &crate::icc::Profile) -> Option<Arc<Press>> {
     if profile.channels() != 4 {
         return None;
     }
-    let identity = profile.identity();
-    if let Some(found) = registered(identity) {
+    let identity = PressIdentity::Profile(profile.identity());
+    if let Some(found) = cached(identity) {
         return Some(found);
     }
-    // The lock is held across the sampling and nothing else. That sampling is serial by
-    // construction — 83 521 profile evaluations, no rayon — because a `Mutex` held across a
-    // work-stealing call is what hung three archives in the four-hundred-and-thirty-third
-    // session (ADR 0269).
-    let mut next = NEXT_PRESS.lock().ok()?;
-    if let Some(found) = registered(identity) {
-        return Some(found);
-    }
-    let slot = PRESSES.get(*next)?;
+    // Sampled with no lock held. That is not an optimisation: a `Mutex` held across work rayon
+    // can steal is what hung three archives in the four-hundred-and-thirty-third session (ADR
+    // 0269), and it is why the entry is looked up again below rather than assumed absent.
     let space = sample_press(profile)?;
-    let filled = slot
-        .set(Press {
-            space,
-            identity: Some(identity),
-            table: OnceLock::new(),
-        })
-        .is_ok();
-    if !filled {
-        return None;
+    SAMPLINGS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let sampled = Arc::new(Press {
+        space,
+        identity,
+        table: OnceLock::new(),
+    });
+    let mut held = SAMPLED.lock().ok()?;
+    if let Some(found) = held
+        .iter()
+        .find(|press| press.identity == identity)
+        .map(Arc::clone)
+    {
+        // Another thread sampled the same profile while this one was working. Its copy wins,
+        // so that one identity is one press and `crate::shading`'s cache cannot hold two
+        // entries meaning the same thing; this one is dropped.
+        return Some(found);
     }
-    *next = next.saturating_add(1);
-    Some(PressId(*next))
+    held.insert(0, Arc::clone(&sampled));
+    held.truncate(MAX_CACHED_PRESSES);
+    Some(sampled)
 }
 
-/// The press already sampled from a profile of this identity, if there is one.
+/// The press already sampled from a profile of this identity, if this process still holds it.
 ///
-/// The slots are filled from the front and never emptied, so the first unfilled one ends the
-/// scan: everything past it is unfilled too.
-fn registered(identity: u128) -> Option<PressId> {
-    for (index, slot) in PRESSES.iter().enumerate() {
-        let Some(press) = slot.get() else {
-            break;
-        };
-        if press.identity == Some(identity) {
-            return Some(PressId(index.saturating_add(1)));
+/// Moves the entry to the front, which is the whole of the eviction policy: [`SAMPLED`] is
+/// most-recently-used first and [`press_for_profile`] truncates the tail.
+fn cached(identity: PressIdentity) -> Option<Arc<Press>> {
+    let mut held = SAMPLED.lock().ok()?;
+    let at = held.iter().position(|press| press.identity == identity)?;
+    let found = held.remove(at);
+    held.insert(0, Arc::clone(&found));
+    Some(found)
+}
+
+/// The distinct presses one interpretation has named, and the budget it spends on them.
+///
+/// # Why this is a table and not a counter
+///
+/// §11.4.7 gives the page one press and §11.7.2 lets a transparency group inside it name
+/// another, so an interpretation can name several — and the same one twice, which must cost
+/// the budget once. Holding what was named answers both questions with one structure, and it
+/// is what makes the refusal a function of the file: the ninth *distinct* press of one page is
+/// refused on every run and on every machine, where until ADR 0417 the ninth press of the
+/// *process* was, and which page that fell on depended on the scheduler.
+///
+/// The lock is taken once per press a page names — a handful of times at most — and never
+/// while a colour is being converted, because [`Compositing`] carries the press itself rather
+/// than a handle into here.
+#[derive(Debug, Default)]
+pub struct Presses {
+    /// The presses named so far, in the order they were named.
+    named: Mutex<Vec<Arc<Press>>>,
+}
+
+impl Presses {
+    /// The press this profile describes, or `None` if this interpretation has spent its budget.
+    ///
+    /// `None` is [`MAX_PRESSES`] distinct presses already named, which
+    /// `crate::content::transparency` turns into §11.7.2's report. A profile of other than four
+    /// components is not a press at all and also answers `None`; the caller asks that question
+    /// first.
+    #[must_use]
+    pub fn press_for_profile(&self, profile: &crate::icc::Profile) -> Option<Arc<Press>> {
+        let identity = PressIdentity::Profile(profile.identity());
+        {
+            let named = self.named.lock().ok()?;
+            if let Some(found) = named.iter().find(|press| press.identity == identity) {
+                return Some(Arc::clone(found));
+            }
+            // Asked before the sampling rather than after it, so that a page naming a hundred
+            // presses pays for eight rather than for a hundred: the budget is a refusal and a
+            // refusal that costs the work it refused is not one.
+            if named.len() >= MAX_PRESSES {
+                return None;
+            }
         }
+        // Sampled with no lock of this table held, for ADR 0269's reason: `sample_press` is
+        // 83 521 profile evaluations and a lock held across work is a lock rayon can deadlock.
+        let sampled = press_for_profile(profile)?;
+        let mut named = self.named.lock().ok()?;
+        if let Some(found) = named
+            .iter()
+            .find(|press| press.identity == identity)
+            .map(Arc::clone)
+        {
+            return Some(found);
+        }
+        if named.len() >= MAX_PRESSES {
+            return None;
+        }
+        named.push(Arc::clone(&sampled));
+        Some(sampled)
     }
-    None
+
+    /// How many distinct presses this interpretation has named, for a test that asks.
+    #[must_use]
+    pub fn named(&self) -> usize {
+        self.named.lock().map_or(0, |named| named.len())
+    }
 }
 
 /// How many samples per axis a press's grid holds.
@@ -1464,16 +1609,10 @@ fn sample_press(profile: &crate::icc::Profile) -> Option<pdf_render::BlendingSpa
     pdf_render::BlendingSpace::new(side, grid.into())
 }
 
-/// The conversion out of the assumed press, for a caller that has no [`PressId`] to hand.
+/// The conversion out of the assumed press, for a caller that has no [`Press`] to hand.
 #[must_use]
 pub fn device_cmyk_blending_space() -> pdf_render::BlendingSpace {
-    PressId::ASSUMED.press().blending_space()
-}
-
-/// The conversion out of one press, for the interpreter that chose it.
-#[must_use]
-pub fn blending_space_of(press: PressId) -> pdf_render::BlendingSpace {
-    press.press().blending_space()
+    assumed_press().blending_space()
 }
 
 /// ISO 32000-2 §10.4.2.4's conversion from `DeviceRGB` to `DeviceCMYK`.
@@ -1643,8 +1782,7 @@ fn build_ink_table(space: &pdf_render::BlendingSpace) -> Vec<[f32; 4]> {
 /// is that question answered from nothing; this is it answered from [`ink_table`] and landed
 /// by [`polish_four_inks`], which is the same answer 998 times in 1000 and **16 times faster**
 /// on the colours a document is made of.
-fn rgb_to_ink(press: PressId, colour: Color) -> [f32; 4] {
-    let press = press.press();
+fn rgb_to_ink(press: &Press, colour: Color) -> [f32; 4] {
     let target = [channel(colour.r), channel(colour.g), channel(colour.b)];
     polish_four_inks(&press.space, target, ink_lookup(press, target))
 }
@@ -2439,7 +2577,7 @@ mod tests {
 
     /// The assumed press's grid, for the tests that search against it directly.
     fn assumed() -> pdf_render::BlendingSpace {
-        super::PressId::ASSUMED.press().blending_space()
+        super::assumed_press().blending_space()
     }
 
     /// A space's initial colour is the one ISO 32000-2 §8.6.8 gives it, which is often not
@@ -2613,7 +2751,7 @@ mod tests {
     #[test]
     fn the_conversion_into_ink_is_a_right_inverse_of_the_conversion_out() {
         let round_trip = |colour: Color| {
-            let ink = super::rgb_to_ink(super::PressId::ASSUMED, colour);
+            let ink = super::rgb_to_ink(&super::assumed_press(), colour);
             super::cmyk(ink[0], ink[1], ink[2], ink[3])
         };
         let gap = |a: Color, b: Color| {

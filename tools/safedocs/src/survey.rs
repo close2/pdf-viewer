@@ -65,23 +65,6 @@ pub struct Verdict {
     /// Separated from the count above in the four-hundred-and-thirty-fourth session, because
     /// only one of the two is a mark the reader loses. ADR 0270.
     pub codes_reaching_a_blank_glyph: usize,
-    /// Whether *this process's* press budget decided the verdict rather than the document.
-    ///
-    /// `pdf_model::colour::MAX_PRESSES` is spent by whichever documents the process interpreted
-    /// first, so a document naming the ninth distinct press is reported for a reason that
-    /// belongs to eight other files. This survey walks its documents under `rayon`, so which
-    /// ones those are is decided by the scheduler — which is why three runs of one unchanged
-    /// tree over one unchanged directory printed 30, 36 and 33 such reports. A verdict carrying
-    /// this is not a fact about the document and is counted apart from one that is. ADR 0416.
-    pub press_beyond_this_process: bool,
-    /// Whether every report this document made was one of those, so that it would have been
-    /// [`Outcome::Complete`] in a process with a press slot to spare.
-    ///
-    /// The exact half of the flag above, and the one the summary subtracts. `3990833.pdf` is
-    /// why the two are separate: it is incomplete for §11.4.4's non-isolated group whatever
-    /// the press table holds, *and* met the budget on some runs, so counting it as the budget's
-    /// moved the file-decided figure the subtraction exists to hold still.
-    pub incomplete_only_beyond_this_process: bool,
 }
 
 impl Verdict {
@@ -89,15 +72,6 @@ impl Verdict {
     #[must_use]
     pub const fn is_complete(&self) -> bool {
         matches!(self.outcome, Outcome::Complete)
-    }
-
-    /// Whether the verdict is the document's own rather than this process's press budget's.
-    ///
-    /// A document can be incomplete for both reasons at once — three of the crawl's 287
-    /// press-naming documents are — and this says the report is not *only* the budget's.
-    #[must_use]
-    pub const fn is_the_documents_own(&self) -> bool {
-        !self.press_beyond_this_process
     }
 
     /// Whether it took longer than [`PER_DOCUMENT_BUDGET`].
@@ -144,9 +118,6 @@ fn examine(path: &Path) -> Verdict {
         taken: started.elapsed(),
         codes_without_a_glyph: noted.without_a_glyph,
         codes_reaching_a_blank_glyph: noted.blank,
-        press_beyond_this_process: noted.press_beyond_this_process,
-        incomplete_only_beyond_this_process: noted.reports > 0
-            && noted.reports == noted.reports_beyond_this_process,
     }
 }
 
@@ -157,12 +128,6 @@ struct Noted {
     without_a_glyph: usize,
     /// Codes that reached a glyph the program describes as empty.
     blank: usize,
-    /// Whether this process's press budget decided the verdict. See [`Verdict`]'s field.
-    press_beyond_this_process: bool,
-    /// How many reports the page made at all.
-    reports: usize,
-    /// How many of them this process's press budget made.
-    reports_beyond_this_process: usize,
 }
 
 /// The body of [`examine`], separated so that the timing wraps every path out of it.
@@ -184,11 +149,6 @@ fn read_and_draw(path: &Path, noted: &mut Noted) -> Outcome {
     };
 
     let interpretation = pdf_model::interpret(&document, &page);
-    // Unconditionally, unlike the two counts below it: what it says is *why* a document is
-    // incomplete, so recording it only for the complete ones would record it nowhere.
-    noted.press_beyond_this_process = interpretation.press_beyond_this_process;
-    noted.reports = interpretation.unsupported.len();
-    noted.reports_beyond_this_process = interpretation.reports_beyond_this_process;
     if interpretation.is_complete() {
         noted.without_a_glyph = interpretation.codes_without_a_glyph;
         noted.blank = interpretation.codes_reaching_a_blank_glyph;
