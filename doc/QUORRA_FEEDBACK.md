@@ -3762,3 +3762,49 @@ is what `viewer-ui` draws with below ten times magnification and the gpu lane ab
 pass everything we hold them to. The reason it is written down at all is the one this document was
 started for — **two rasterisers that disagree by an eighth of a pixel disagree about something**,
 and it is cheaper to name it now than to meet it as a mystery on a page that matters.
+
+## 32. §8.5.3.2's dot again — **and this one is ours, with no ask attached**
+
+Written at the end of this viewer's five-hundred-and-eighty-fifth session. §21 above reported two
+marks the device did not draw and both were answered at `87898c69`. This is the same mark one
+question deeper, and the reason it is here rather than in an ask is that **the measurement clears
+quorra**.
+
+### 32.1 What we found
+
+`sub_pixel_marks`' sixth section grew a **placement** column — the same dot drawn with its centre on
+a device pixel's corner and on a device pixel's centre — and that column is what settled it:
+
+```text
+  width   placed at         backend   total ink   its own area
+   0.10   a pixel's corner  cpu          0.0000         0.0079
+   0.10   a pixel's corner  quorra       0.0000         0.0079
+   0.10   a pixel's centre  cpu          0.0078         0.0079
+   0.10   a pixel's centre  quorra       0.0078         0.0079
+```
+
+One mark, one width, two answers, and the difference is where the grid falls under it. A mark of
+0.0079 of a pixel divided between four pixels is 0.5 of a level of 255 in each, and half a level is
+what an eight-bit raster rounds away. **Given the true circle, that is the right answer to give** —
+it is exact analytic coverage met by the raster's depth, not a rasteriser being wrong — and quorra
+gives it at both placements. Nothing here is an ask.
+
+### 32.2 What changed on our side, and what you will see
+
+The decision moved into `pdf-render`, which is the crate all three of our backends consume, so what
+we hand you for a degenerate subpath under round caps is no longer always a circle of the
+document's own width. Below the width at which a widened mark can still put one level into some
+pixel, we hand you **the device pixel the mark's centre lies in, with the paint's alpha scaled by
+the mark's own area** — ISO 32000-2 §10.7.4's own "let i = floor( x ) and j = floor( y )". The total
+ink is unchanged; what changes is that it arrives in one pixel instead of four.
+
+Two consequences worth knowing:
+
+- The shape we send is a pixel-aligned rectangle stated in the path's own space (the pixel carried
+  back through the inverse of the draw transform), so it lands on exactly one device pixel under
+  any transform you are given, including a rotation.
+- The alpha is folded into a **solid** paint only. Inside §11.4.6's knockout, and for any paint
+  that is not `Paint::Solid`, we withhold the substitution entirely and send the clause's own
+  circle — because your `Compose::Src` reads an element's shape off the coverage it is drawn with,
+  and a coverage folded into an alpha would be read back as opacity there. If `SceneBuilder::fill`
+  ever grows an alpha of its own beside the paint, that second condition goes away.

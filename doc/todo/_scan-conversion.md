@@ -160,6 +160,25 @@ which is the side of "[t]he area covered by painted pixels shall always be at le
 area of the original shape" that the `shall` is on. It is not §10.7.5's promotion: the mark keeps its
 place and the substitute's width, and only the last level of its alpha moves.
 
+**And since the five-hundred-and-eighty-fifth, the mark an alpha the raster *can* hold still loses**
+— which is the same floor one step along and is where departure (1) meets §10.7.4's *second*
+sentence rather than its third (ADR 0420). An alpha of one level is not a level of ink: what a pixel
+receives is the alpha times the shape's coverage there, and the widened mark covers no pixel fully.
+§8.5.3.2's dot at 0.1 of a device pixel arrived with 2.55 levels of alpha and deposited half a level
+in each of four pixels, because its substitute is a circle one pixel across whose centre sat on a
+pixel *corner*; the same dot half a pixel over landed with the geometry's own ink. That is
+"unfavourable placement relative to the device pixel grid" in the clause's own words, and it is the
+measurement that separates it from an arithmetic floor. The answer is the one shape whose coverage
+is not a fraction and the clause identifies it — "let i = floor( x ) and j = floor( y ). The pixel
+that contains this point is the one identified as ( i, j )" — so `pdf_render::point_mark` states a
+mark centred at a single point as *that* pixel, at the coverage its own area implies, as soon as the
+widened form can reach no level in any of the at most nine pixels it can be divided between. **It is
+not the snapping ADR 0208 declines**: the ink is the mark's own area rather than a whole pixel's and
+the pixel is the one the mark's own centre is in, so nothing moves to a grid line; what is given up
+is the mark's shape *within* one pixel. All three rasterisers take it, because all three lost the
+mark — the processor and quorra drew nothing at 0.1 and below, vello half the area at 0.2 and
+nothing under it.
+
 **The same round settled what this file's departure (1) is a departure *from*, at the bottom of the
 range.** §10.7.4's floor is one whole device pixel and it belongs to the aliased algorithm — asked
 for it, `pdftoppm -aa no`, `gs -dGraphicsAlphaBits=1` and `mutool draw -A 0` each answer exactly one

@@ -75,7 +75,7 @@ impl Census {
                     self.strokes = self.strokes.saturating_add(1);
                     let to_device = transform.then(self.to_device);
                     let width = stroke.device_width(to_device);
-                    if pdf_render::split_degenerate(path, stroke.cap, width).is_some() {
+                    if pdf_render::split_degenerate(path, stroke.cap, width, None).is_some() {
                         self.degenerate = self.degenerate.saturating_add(1);
                     }
                     if !stroke.dash_array.is_empty() && stroke.dash_array.iter().sum::<f32>() > 0.0

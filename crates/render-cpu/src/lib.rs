@@ -404,6 +404,10 @@ impl CpuRasterizer {
     /// > latter case, the line caps shall always be painted, since their orientation is
     /// > determined by the direction of the underlying path
     ///
+    /// Errata Collection 3 qualifies that sentence — "In the opaque imaging model, this"
+    /// for "This", Issue #103 — and `pdf_render::degenerate`'s module comment carries the
+    /// reading; the quotation above is `doc/md/`'s, which is what the quotation gate reads.
+    ///
     /// `tiny-skia` paints such a cap, so a dotted line is *drawn* here without this — but it
     /// faces a square cap upright, because Skia's dasher loses the direction and its stroker
     /// says so: "since the zero length segment has no direction, set the orientation to
@@ -418,9 +422,9 @@ impl CpuRasterizer {
     fn zero_length_dashes(
         geometry: &Path,
         stroke: &Stroke,
-        width: f32,
+        (width, substitute): (f32, Option<Transform>),
         dots: &mut Path,
-    ) -> Option<Path> {
+    ) -> Option<(Path, f32)> {
         let pattern = pdf_render::dashes_showing_direction(&stroke.dash_array, stroke.cap)?;
         let source = convert::path(geometry)?;
         let dash = tiny_skia::StrokeDash::new(pattern, stroke.dash_phase)?;
@@ -429,10 +433,14 @@ impl CpuRasterizer {
         // path already in device-sized units, and a dash's *position* is what this needs
         // rather than the smoothness of its ends.
         let dashed = source.dash(&dash, 1.0)?;
-        let split =
-            pdf_render::split_dash_marks(&convert::from_skia_path(&dashed), stroke.cap, width);
+        let split = pdf_render::split_dash_marks(
+            &convert::from_skia_path(&dashed),
+            stroke.cap,
+            width,
+            substitute,
+        );
         dots.extend(split.dots.commands());
-        Some(split.stroked)
+        Some((split.stroked, split.coverage))
     }
 
     /// Draws a stroked path, including the marks its own geometry has no length to make.
@@ -467,26 +475,29 @@ impl CpuRasterizer {
         // §8.5.3.2's marks are circles and squares of the line's width, so a width under the
         // device's coverage quantum makes each of them a shape whose *area* is under the square
         // of it — a 0.2-unit dot is 0.03 of a pixel at scale 1 and this rasteriser drew nothing
-        // at all for it. §10.7.4 forbids that by name, and `pdf_render::enlarged_mark` is the
-        // same substitution `draw_rule_at_one_pixel` makes for the body: the mark is stated at
-        // one device pixel and the area it gave up is carried in the paint's alpha. It is
-        // conditioned on the same question as every other use of that identity.
-        let enlarged = carries_coverage_as_alpha(self.anti_alias, blend)
-            .then(|| pdf_render::enlarged_mark(width, at))
-            .flatten();
-        let mark_width = enlarged.map_or(width, |mark| mark.width);
+        // at all for it. §10.7.4 forbids that by name, and `pdf_render::point_mark` is where the
+        // substitution is decided, for all three backends at once (trap 2). Handing it the
+        // transform is what asks for it; it is withheld on the same question as every other use
+        // of the coverage-as-alpha identity.
+        let substitute = carries_coverage_as_alpha(self.anti_alias, blend).then_some(at);
         // ISO 32000-2 §8.5.3.2's two rules about a stroke with no length. Neither is
         // Skia's answer: it paints a projecting square cap where the clause asks for
         // no output, it refuses a path that is only a `m` rather than drawing
         // nothing, and it faces a zero-length dash's square cap upright rather than
         // along the path. Both are decided in `pdf-render` so that the two backends
         // cannot answer them differently.
-        let split = pdf_render::split_degenerate(path, stroke.cap, mark_width);
+        let split = pdf_render::split_degenerate(path, stroke.cap, width, substitute);
         let geometry = split.as_ref().map_or(path, |s| &s.stroked);
         let mut dots = split.as_ref().map_or_else(Path::new, |s| s.dots.clone());
+        // The two rules make marks of one width under one cap, so they are stated at one
+        // coverage; whichever produced marks answers for both.
+        let mut coverage = split.as_ref().map_or(1.0, |s| s.coverage);
         let (geometry, dashed) =
-            match Self::zero_length_dashes(geometry, stroke, mark_width, &mut dots) {
-                Some(remainder) => (remainder, true),
+            match Self::zero_length_dashes(geometry, stroke, (width, substitute), &mut dots) {
+                Some((remainder, dashed_coverage)) => {
+                    coverage = dashed_coverage;
+                    (remainder, true)
+                }
                 None => (geometry.clone(), false),
             };
 
@@ -545,10 +556,8 @@ impl CpuRasterizer {
                 (pixmap.width(), pixmap.height()),
                 &mut scratch,
             )?;
-            if let Some(mark) = enlarged {
-                // The mark was built at `mark.width` above, so this is the area it gave up.
-                brush.shader.apply_opacity(mark.coverage);
-            }
+            // The marks were stated by `pdf-render` above, so this is the area they gave up.
+            brush.shader.apply_opacity(coverage);
             scan::fill(
                 pixmap,
                 &converted,

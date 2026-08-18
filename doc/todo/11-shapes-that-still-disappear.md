@@ -19,8 +19,10 @@ program**, and item 5 says on what evidence. **What an eight-bit raster does to 
 under one of its levels was this file's standing question and is answered** (ADR 0419): the standard
 states a floor of one whole device pixel for the *aliased* algorithm and none at all for the
 anti-aliased one §10.7.1's NOTE permits instead, beyond "no shape ever disappears" — which this tree
-was failing at the very bottom of the range and now is not. Two marks are left there, both measured,
-and the cap-and-dot section below carries them.
+was failing at the very bottom of the range and now is not. **One of the two marks that were left
+there is paid** — §8.5.3.2's dot, on all three rasterisers, by stating it as the device pixel the
+clause's own flooring identifies rather than as a circle no placement lets a raster hold (ADR 0420)
+— and what remains is the body of a sub-pixel rule on `render-quorra` alone.
 Priority: 11
 Corpus: 4 known witnesses; the general shape of the residual is stated
 Clauses: §10.7.4, §8.4.3.3 and §8.5.3.2 for the marks that are `O(w²)`, §8.4.3.5 for item 6,
@@ -154,7 +156,7 @@ quarter-row sample quantum, so the snapped fill and the unsnapped band came back
 the test failed with both constructions correct. A test must be placed off the rasteriser's own
 sample grid and not merely off the pixel boundary. ADR 0285 §"the test that had to move".
 
-## The cap ADR 0268 did not draw — **closed (ADR 0290), and it brought §8.5.3.2's dot with it**
+## The cap ADR 0268 did not draw — **closed (ADR 0290), the dot with it, and the dot again (ADR 0420)**
 
 ADR 0268's substitute was the stroke's **swept body**, butt-capped, because a cap's area goes as
 the square of the width where the body's goes with it: widening by `k` multiplies the cap by `k²`
@@ -205,21 +207,48 @@ level, 0.0000 and nothing at scale 1 and are byte-identical at 4×.
 
 **What is left, each with what it needs:**
 
-- **`render-quorra` still loses the mark**, at 0.002 and 0.001 on an axis and at 0.001 turned. It
-  takes no substitution here — it hands quorra the document's own width, and that rasteriser's
-  coverage is what runs out — so the floor has nowhere to be applied. Either `render-quorra` adopts
-  the widen-and-scale-the-alpha construction `render-cpu` has, or it is `doc/QUORRA_FEEDBACK.md`'s
-  ask; nothing on this disk states a width that reaches it, so it is unwitnessed either way.
-  `sub_pixel_coverage.rs`'s new test holds the processor only and says why.
-- **§8.5.3.2's dot is worse than ADR 0290 recorded, and the alpha floor does not recover it.** Both
-  backends draw **nothing** for a degenerate subpath under round caps at 0.1, 0.05, 0.02 and 0.01 of
-  a device pixel. ADR 0290's own ladder has printed the 0.1 row as −100% since it landed and the
-  gate's rungs start at 0.2, so this had been on screen and unread. Raising the alpha does not help
-  and the reason is the *shape* rather than the arithmetic: the substitute is a circle **inscribed
-  in** one device pixel, which covers no pixel fully, so the raster's rounding takes the mark a
-  second time after the alpha survived it. Recovering it means stating the mark as the whole pixel
-  it lies in — which is snapping a mark that has a width, which §10.7.5 conditions on `/SA` and ADR
-  0208 declines. Left, with its threshold measured.
+- **`render-quorra` still loses a sub-pixel *rule***, at 0.002 and 0.001 on an axis and at 0.001
+  turned. It takes no substitution for a stroke's body — it hands quorra the document's own width,
+  and that rasteriser's coverage is what runs out — so the floor has nowhere to be applied. Either
+  `render-quorra` adopts the widen-and-scale-the-alpha construction `render-cpu` has, or it is
+  `doc/QUORRA_FEEDBACK.md`'s ask; nothing on this disk states a width that reaches it, so it is
+  unwitnessed either way. `sub_pixel_coverage.rs`'s test holds the processor only and says why.
+  **This no longer covers §8.5.3.2's marks**: since ADR 0420 the dot and the zero-length dash's mark
+  are stated in `pdf_render::split_degenerate` itself, which all three backends call, so those two
+  are answered on every backend and only the *body* of a thin rule is left one-sided.
+- ~~**§8.5.3.2's dot is worse than ADR 0290 recorded, and the alpha floor does not recover it.**~~
+  **Closed (ADR 0420), and the diagnosis above was half wrong.** The alpha did survive: at 0.1 of a
+  device pixel it is 2.55 levels. What took the mark was **placement**, which is the thing §10.7.4's
+  second sentence is about — the same dot drawn on a pixel's *centre* landed with the geometry's own
+  ink and on a pixel's *corner* landed with none, because a circle one device pixel across covers
+  `π/4` of a pixel at the first and `π/16` at the second, and a quarter of 2.55 levels rounds away.
+  So it was never "the raster's rounding takes the mark a second time" in general; it was one
+  placement in four.
+
+  The answer is the one shape whose coverage is not a fraction, and §10.7.4 identifies it: "let i =
+  floor( x ) and j = floor( y ). The pixel that contains this point is the one identified as ( i,
+  j )". `pdf_render::point_mark` states such a mark as that pixel, at the coverage its own area
+  implies, as soon as the widened form can put no level into any of the at most nine pixels it can
+  be divided between. **It is not the snapping ADR 0208 declines**: the ink is the mark's own area
+  rather than a whole pixel's, and the pixel is the one the mark's own centre is in, so no
+  coordinate moves to a grid line — what is given up is the mark's shape *within* one pixel. Total
+  ink is the mark's own area on both sides of the boundary, so the two constructions differ about
+  where the ink is and not about how much.
+
+  **All three rasterisers needed it and all three take it**: the processor and quorra drew nothing
+  at 0.1 and below, and vello drew half the area at 0.2 and nothing under it — which is why the
+  decision is in `pdf-render` and why `sub_pixel_coverage.rs` and `headless_gpu.rs` both gate it
+  now. Unwitnessed: 97 dots over 7 of 1242 corpus and specification first pages, the thinnest at
+  **0.36** of a device pixel, and 30 zero-length dashes on one document at 0.5030.
+- **§8.4.3.3's cap was deliberately *not* moved to that construction, and the reason is a
+  distinction rather than an omission.** A cap is stated at the end of a body that lands — a
+  0.1366-pixel rule's body is 35 levels — so the shape §10.7.4 forbids from disappearing does not,
+  and what a cap loses is a share of one mark's ink rather than the mark. §8.5.3.2's dot is the
+  whole mark, which is why it is the one that had to move. Concentrating a cap into the endpoint's
+  pixel would also have to answer how it composites with the body's own substitute, which abuts it
+  — the "one draw rather than two" the paragraph below prices — and that is a round of its own with
+  `issue12295.pdf`'s 65 859 strokes as its measurement.
+
 - **And the page below, which is the conclusion rather than a shortfall.**
 
 `issue12295.pdf` is the witness and the residual is the *raster's*. All 65 859 of its sub-pixel

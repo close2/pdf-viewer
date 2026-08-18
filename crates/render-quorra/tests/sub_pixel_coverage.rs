@@ -432,7 +432,9 @@ fn a_sub_pixel_rules_cap_carries_its_own_area() {
 /// are answered by stating the mark at one device pixel and carrying its area in the alpha.
 ///
 /// 1.0 is the boundary, where nothing is widened and the rasteriser draws the document's own
-/// circle; 2.0 is above it and must be untouched.
+/// circle; 2.0 is above it and must be untouched. The rungs **below** 0.2 are
+/// [`a_dot_lands_in_one_pixel_at_every_width_and_every_placement`]'s, because down there the
+/// quantity a raster can be held to is a level rather than a fraction of the area.
 ///
 /// **Gates both backends since the five-hundred-and-twelfth session.** The device used to flatten
 /// a small circle into a polygon inscribed in it — the one-pixel dot read 0.5020 against `pi/4`,
@@ -451,6 +453,107 @@ fn a_degenerate_subpaths_dot_carries_its_own_area() {
             &format!("a {width}-unit dot"),
         );
     }
+}
+
+/// §8.5.3.2's dot lands, at every sub-pixel width and wherever the grid falls under it.
+///
+/// The rungs above stop at 0.2 of a device pixel, and the defect was under them: both backends
+/// drew **nothing at all** at 0.1, 0.05, 0.02 and 0.01, and ADR 0290's own ladder had printed the
+/// 0.1 row as `-100.0%` from the day it landed. What the placement column says is which of the two
+/// suspects it was — measured, by drawing the same mark half a pixel over:
+///
+/// ```text
+///   width   placed at         backend   total ink   its own area
+///    0.10   a pixel's corner  cpu          0.0000         0.0079
+///    0.10   a pixel's centre  cpu          0.0078         0.0079
+/// ```
+///
+/// One mark, one width, one alpha, two answers. The widened circle covers `π/4` of a pixel when
+/// its centre is at one and `π/16` when its centre is on a corner, so the alpha the raster could
+/// hold arrived and was divided by four before it was rounded — which is
+/// "unfavourable placement relative to the device pixel grid" in the clause's own words.
+/// `pdf_render::point_mark` answers it with the one shape whose coverage is not a fraction: the
+/// device pixel §10.7.4 identifies by flooring the mark's own centre.
+///
+/// **What the mark is held to down here is a level, not a percentage.** The pixel is painted at
+/// the mark's own area and an eight-bit raster quantises that, so a mark of 4.5 levels lands as 5;
+/// and below a width of `0.0707` the area itself is under one level, where
+/// `pdf_render::expressible_coverage` states the least the raster can hold. Both are bounded by
+/// one level of the closed form, which is the finest statement there is about an eight-bit raster.
+#[test]
+fn a_dot_lands_in_one_pixel_at_every_width_and_every_placement() {
+    /// One level of an eight-bit raster: see [`pdf_render::expressible_coverage`].
+    const ONE_LEVEL: f32 = 1.0 / 255.0;
+
+    for width in [0.2_f32, 0.15, 0.1, 0.05, 0.02, 0.01] {
+        // A whole page coordinate at scale 1 is a device pixel's corner; half a unit over is its
+        // centre. The clause's guarantee is about the difference between them.
+        for (where_, offset) in [("a pixel's corner", 0.0_f32), ("a pixel's centre", 0.5)] {
+            let mut list = capped_rule(0.0, 0.0, width, LineCap::Round);
+            list = shifted(&list, offset);
+            let Some(drawn) = both(&list, total_ink) else {
+                println!("skipped: no adapter on this machine");
+                return;
+            };
+            let area = capped_area(0.0, width, LineCap::Round);
+            let expected = area.max(ONE_LEVEL);
+            for (backend, ink) in drawn {
+                assert!(
+                    ink > 0.0,
+                    "§10.7.4: no shape ever disappears, and a {width}-unit dot at {where_} did \
+                     on the {backend}"
+                );
+                assert!(
+                    (ink - expected).abs() <= ONE_LEVEL,
+                    "a {width}-unit dot at {where_} drew {ink:.5} of ink on the {backend} where \
+                     its own area is {area:.5} — more than one level of 255 from the \
+                     {expected:.5} an eight-bit raster can state. Run `cargo run --release -p \
+                     render-quorra --example sub_pixel_marks` for both backends' ladders"
+                );
+            }
+        }
+    }
+}
+
+/// The same scene with every stroked path moved `offset` user units along both axes.
+///
+/// Rebuilding it rather than parameterising [`capped_rule`]: the placement is this test's
+/// question alone, and the other scenes are pinned where they are by measurements in their own
+/// comments.
+fn shifted(list: &DisplayList, offset: f32) -> DisplayList {
+    let mut out = DisplayList::new(TURNED);
+    for command in list.commands() {
+        let Command::Stroke {
+            path,
+            stroke,
+            paint,
+            blend,
+            ..
+        } = command
+        else {
+            continue;
+        };
+        let mut moved = Path::new();
+        for at in path.commands() {
+            let shift = |p: Point| Point::new(p.x + offset, p.y + offset);
+            moved.push(match *at {
+                PathCommand::MoveTo(p) => PathCommand::MoveTo(shift(p)),
+                PathCommand::LineTo(p) => PathCommand::LineTo(shift(p)),
+                PathCommand::CurveTo(a, b, p) => PathCommand::CurveTo(shift(a), shift(b), shift(p)),
+                PathCommand::Close => PathCommand::Close,
+            });
+        }
+        out.push(Command::Stroke {
+            path: Arc::new(moved),
+            transform: Transform::IDENTITY,
+            stroke: stroke.clone(),
+            paint: paint.clone(),
+            clip: None,
+            mask: None,
+            blend: *blend,
+        });
+    }
+    out
 }
 
 /// A **zero-width** rule is one device pixel wide on both backends, at every angle.

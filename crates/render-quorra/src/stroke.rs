@@ -71,13 +71,31 @@ pub(crate) fn encode(
     let path_width = s.device_width(to_device);
     let width = path_width * to_device.max_stretch();
 
+    // §10.7.4's substitution for a mark whose area is under what the raster can hold, decided
+    // in `pdf-render` for all three backends (trap 2). Two conditions withhold it, and both are
+    // about the coverage having nowhere but the alpha to go: inside §11.4.6's knockout an
+    // element replaces its backdrop within its own *shape*, which quorra reads off the coverage
+    // a mark is drawn with; and this builder's `fill` takes no alpha of its own, so a coverage
+    // can only be carried in a solid colour. A mark painted by a shading therefore keeps the
+    // shape §8.5.3.2 states, and the cross-backend gate is what would show such a page.
+    let substitute =
+        (!enc.inside_knockout() && matches!(paint, Paint::Solid(_))).then_some(to_device);
     // §8.5.3.2's zero-length subpaths, split by the shared rule — in path space,
     // with the path-space width, as the shared helpers expect.
-    let split = pdf_render::split_degenerate(path, s.cap, path_width);
+    let split = pdf_render::split_degenerate(path, s.cap, path_width, substitute);
     let geometry: &Path = split.as_ref().map_or(path.as_ref(), |d| &d.stroked);
     let mut dots: Path = split.as_ref().map_or_else(Path::new, |d| d.dots.clone());
+    // The two rules make marks of one width under one cap, so they share one coverage;
+    // whichever produced marks answers for both.
+    let mut coverage = split.as_ref().map_or(1.0, |d| d.coverage);
 
-    let dashed = dash(geometry, s, path_width, &mut dots);
+    let dashed = dash(
+        geometry,
+        s,
+        (path_width, substitute),
+        &mut dots,
+        &mut coverage,
+    );
     let solid: &Path = dashed.as_ref().unwrap_or(geometry);
 
     let at = enc.placed(transform);
@@ -141,7 +159,7 @@ pub(crate) fn encode(
             outline,
             at,
             quorra_scene::FillRule::NonZero,
-            quorra_paint,
+            faint(quorra_paint, coverage),
             clip,
             blend_mode(blend),
             quorra_scene::Compose::SrcOver,
@@ -269,7 +287,13 @@ fn kurbo_join(join: LineJoin) -> kurbo::Join {
 /// ISO 32000-2 §8.4.3.6: an empty dash array — or one whose lengths sum to
 /// nothing — is a solid line. Zero-length dashes whose caps would show become
 /// marks appended to `dots`, by the shared §8.5.3.2 rule.
-fn dash(geometry: &Path, s: &Stroke, width: f32, dots: &mut Path) -> Option<Path> {
+fn dash(
+    geometry: &Path,
+    s: &Stroke,
+    (width, substitute): (f32, Option<Transform>),
+    dots: &mut Path,
+    coverage: &mut f32,
+) -> Option<Path> {
     if s.dash_array.is_empty() || s.dash_array.iter().sum::<f32>() <= 0.0 {
         return None;
     }
@@ -282,8 +306,9 @@ fn dash(geometry: &Path, s: &Stroke, width: f32, dots: &mut Path) -> Option<Path
             phase,
             &pattern,
         ));
-        let marks = pdf_render::split_dash_marks(&cut, s.cap, width);
+        let marks = pdf_render::split_dash_marks(&cut, s.cap, width, substitute);
         dots.extend(marks.dots.commands());
+        *coverage = marks.coverage;
         Some(marks.stroked)
     } else {
         let pattern: Vec<f64> = s.dash_array.iter().copied().map(f64::from).collect();
@@ -292,6 +317,22 @@ fn dash(geometry: &Path, s: &Stroke, width: f32, dots: &mut Path) -> Option<Path
             phase,
             &pattern,
         )))
+    }
+}
+
+/// A paint at `coverage` of its own alpha, for a mark ISO 32000-2 §10.7.4 states wider than the
+/// document's own width.
+///
+/// The coverage a substituted mark gave up rides in the paint's alpha — §11.3.7.1 makes shape and
+/// opacity one product — and this builder's `fill` takes no alpha beside the paint. Only a solid
+/// colour is reached: [`encode`] withholds the substitution for every other paint, so `coverage`
+/// is 1 here whenever the paint is not one.
+fn faint(paint: quorra_scene::Paint, coverage: f32) -> quorra_scene::Paint {
+    match paint {
+        quorra_scene::Paint::Solid(c) if coverage < 1.0 => {
+            quorra_scene::Paint::Solid(quorra_scene::Color::new(c.r, c.g, c.b, c.a * coverage))
+        }
+        other => other,
     }
 }
 

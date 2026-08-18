@@ -1194,6 +1194,76 @@ fn cpu_and_gpu_agree_on_a_stroke_with_no_length() {
     }
 }
 
+/// §8.5.3.2's dot marks this rasteriser too, at a width no rasteriser can measure.
+///
+/// The scene above draws its discs 20 units across, where every backend can see them. What
+/// none of them could see is the same mark under a device pixel: its area goes as the
+/// *square* of the width, so at a tenth of a pixel it is eight thousandths of one, and
+/// §10.7.4 forbids the outcome by name.
+///
+/// > This ensures that no shape ever disappears as a result of unfavourable placement relative
+/// > to the device pixel grid, as might happen with other possible scan conversion rules.
+///
+/// **A cross-backend comparison cannot gate this and that is why the assertion is absolute.**
+/// One lost pixel out of forty thousand moves no differing-channel fraction, so the quantity
+/// checked here is the raster's own ink against the mark's own area — the same reading
+/// `render-quorra/tests/sub_pixel_coverage.rs` takes of the other two rasterisers.
+///
+/// The mark lands in one device pixel (`pdf_render::point_mark`), so what an eight-bit raster
+/// can hold is the mark's area quantised to a level, and the least it can hold at all is one
+/// level: below a width of `0.0707` the area is under that and the ink stops tracking it.
+#[test]
+fn a_sub_pixel_dot_marks_the_devices_raster() {
+    use pdf_render::{
+        BlendMode, Color, Command, DisplayList, LineCap, Paint, Path, PathCommand, Point, Size,
+        Stroke, Transform,
+    };
+    use std::sync::Arc;
+
+    /// One level of an eight-bit raster, which is what a mark stated in one pixel is held to.
+    const ONE_LEVEL: f32 = 1.0 / 255.0;
+
+    for width in [0.2_f32, 0.1, 0.05, 0.01] {
+        let mut path = Path::new();
+        // A whole number at scale 1 is a device pixel's *corner*, which is the placement the
+        // clause names and the one this mark used to be lost at.
+        path.push(PathCommand::MoveTo(Point::new(100.0, 100.0)));
+        path.push(PathCommand::Close);
+        let mut list = DisplayList::new(Size::new(200.0, 200.0));
+        list.push(Command::Stroke {
+            path: Arc::new(path),
+            transform: Transform::IDENTITY,
+            stroke: Stroke {
+                width,
+                cap: LineCap::Round,
+                ..Stroke::default()
+            },
+            paint: Paint::Solid(Color::BLACK),
+            clip: None,
+            mask: None,
+            blend: BlendMode::Normal,
+        });
+        let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+        let raster = gpu().rasterize(&list, target).expect("supported");
+        let ink: f32 = raster
+            .data
+            .chunks_exact(4)
+            .map(|pixel| f32::from(255 - pixel[0]) / 255.0)
+            .sum();
+        assert!(
+            ink > 0.0,
+            "§10.7.4: no shape ever disappears, and a {width}-unit dot did on the device"
+        );
+        let area = core::f32::consts::PI * width * width / 4.0;
+        let expected = area.max(ONE_LEVEL);
+        assert!(
+            (ink - expected).abs() <= ONE_LEVEL,
+            "a {width}-unit dot drew {ink:.5} of ink where its own area is {area:.5}, which is \
+             more than one level of 255 from the {expected:.5} a raster can state"
+        );
+    }
+}
+
 /// A clip that admits nothing admits nothing on both backends: ISO 32000-2 §8.5.4.
 ///
 /// The empty clipping path is the third shape in this file that each rasteriser answers for

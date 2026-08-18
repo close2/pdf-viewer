@@ -47,10 +47,17 @@
 //! area goes as the *square* of the width rather than with it: §8.4.3.3's two projecting caps, and
 //! §8.5.3.2's dot. A ladder of capped rules at two angles and a ladder of degenerate subpaths,
 //! each against the area Table 53 states for it. They are what found this instrument's two
-//! standing observations about the device — that it draws no round cap at all, and that it
-//! flattens a small circle into a polygon inscribed in it — which are section 21 of
-//! `doc/QUORRA_FEEDBACK.md` and are why `tests/sub_pixel_coverage.rs` holds only the processor to
-//! those two rows.
+//! standing observations about the device — that it drew no round cap at all, and that it
+//! flattened a small circle into a polygon inscribed in it — which are section 21 of
+//! `doc/QUORRA_FEEDBACK.md` and were both answered at `87898c69`, so
+//! `tests/sub_pixel_coverage.rs` holds both backends to those rows now.
+//!
+//! **A seventh column since the five-hundred-and-eighty-fifth, and it is the one that decides
+//! rather than reports**: the dot ladder draws each width at *two placements*, on a device pixel's
+//! corner and on its centre. §10.7.4's own sentence about disappearance names placement, and the
+//! two rows are what say whether a mark was lost to an alpha the raster cannot hold or to an alpha
+//! it can, divided by where the grid fell. Before ADR 0420 they read 0.0000 and 0.0078 at 0.1 of a
+//! device pixel on both backends.
 //!
 //! ```sh
 //! cargo run --release -p render-quorra --example sub_pixel_marks
@@ -333,21 +340,6 @@ fn below_one_level(scale: f32) {
             }
         }
     }
-
-    println!();
-    println!("a degenerate subpath under round caps, below one level, at scale {scale}");
-    println!("  width   backend   total ink   its own area   error");
-    for width in [0.05_f32, 0.02, 0.01] {
-        let list = capped_rule(0.0, 0.0, width, pdf_render::LineCap::Round);
-        let area = capped_area(0.0, width, pdf_render::LineCap::Round) * scale * scale;
-        for (name, raster) in draw(&list, scale) {
-            let total = total_ink(&raster);
-            println!(
-                "  {width:>5.2}   {name:<8}  {total:>9.4}   {area:>12.4}   {:>7.1}%",
-                100.0 * (total - area) / area
-            );
-        }
-    }
 }
 
 /// Sections 5 and 6: the marks whose area goes as the *square* of the width.
@@ -395,20 +387,68 @@ fn caps_and_dots(scale: f32) {
     // 6. §8.5.3.2's own dot, which is the cap above with no rule under it: a degenerate subpath
     //    under round caps is "a filled circle centred at the single point", of area `pi w^2 / 4`,
     //    and that circle is a fill the same quantum can swallow.
+    dots(scale);
+}
+
+/// Section 6: §8.5.3.2's dot, at every width and at **two placements**.
+///
+/// The placement column is the instrument rather than a decoration, and §10.7.4 is where its word
+/// for the failure comes from:
+///
+/// > This ensures that no shape ever disappears as a result of unfavourable placement relative to
+/// > the device pixel grid, as might happen with other possible scan conversion rules.
+///
+/// A mark whose ink arrives as a scaled alpha lands as that alpha times the shape's coverage in
+/// each pixel, and a circle one device pixel across covers `π/4` of a pixel when its centre is at
+/// one and `π/16` when its centre is on a corner. So the two rows say which of the two suspects
+/// is the loss — an alpha the raster cannot hold, or an alpha it can, divided by a placement — and
+/// they part by exactly the factor four the geometry predicts.
+///
+/// The rungs run below the four this ladder started with, because the row that mattered was under
+/// them: ADR 0290's own table printed `-100.0%` at 0.1 from the day it landed.
+fn dots(scale: f32) {
     println!();
     println!("a degenerate subpath under round caps, at scale {scale}");
-    println!("  width   backend   total ink   its own area   error");
-    for width in [0.1_f32, 0.2, 0.5, 1.0, 2.0] {
-        let list = capped_rule(0.0, 0.0, width, pdf_render::LineCap::Round);
-        let area = capped_area(0.0, width, pdf_render::LineCap::Round) * scale * scale;
-        for (name, raster) in draw(&list, scale) {
-            let total = total_ink(&raster);
-            println!(
-                "  {width:>5.2}   {name:<8}  {total:>9.4}   {area:>12.4}   {:>7.1}%",
-                100.0 * (total - area) / area
-            );
+    println!("  width   placed at         backend   total ink   its own area   error");
+    for width in [2.0_f32, 1.0, 0.5, 0.25, 0.2, 0.15, 0.1, 0.05, 0.02, 0.01] {
+        for (where_, offset) in [("a pixel's corner", 0.0_f32), ("a pixel's centre", 0.5)] {
+            let list = dot(width, offset / scale);
+            let area = core::f32::consts::PI * width * width / 4.0 * scale * scale;
+            for (name, raster) in draw(&list, scale) {
+                let total = total_ink(&raster);
+                println!(
+                    "  {width:>5.2}   {where_:<16}  {name:<8}  {total:>9.4}   {area:>12.4}   \
+                     {:>7.1}%",
+                    100.0 * (total - area) / area
+                );
+            }
         }
     }
+}
+
+/// §8.5.3.2's dot: a degenerate subpath stroked `width` wide under round caps, `offset` user units
+/// from [`TURNED`]'s own centre — which at scale 1 lands on a device pixel's corner.
+fn dot(width: f32, offset: f32) -> DisplayList {
+    let (cx, cy) = (TURNED.width / 2.0 + offset, TURNED.height / 2.0 + offset);
+    let mut path = Path::new();
+    path.push(PathCommand::MoveTo(Point::new(cx, cy)));
+    path.push(PathCommand::LineTo(Point::new(cx, cy)));
+
+    let mut list = DisplayList::new(TURNED);
+    list.push(Command::Stroke {
+        path: Arc::new(path),
+        transform: Transform::IDENTITY,
+        stroke: Stroke {
+            width,
+            cap: pdf_render::LineCap::Round,
+            ..Stroke::default()
+        },
+        paint: Paint::Solid(Color::BLACK),
+        clip: None,
+        mask: None,
+        blend: BlendMode::Normal,
+    });
+    list
 }
 
 /// A capped rule of `length` at `degrees`, centred on [`TURNED`], stroked `width` wide.

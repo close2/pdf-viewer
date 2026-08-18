@@ -42,6 +42,13 @@ pub(crate) struct Encoder<'a> {
     functions: &'a mut FunctionPaints,
     clips: HashMap<usize, ResolvedClip>,
     masks: HashMap<usize, quorra_scene::MaskId>,
+    /// How many enclosing groups are ISO 32000-2 §11.4.6's knockout groups.
+    ///
+    /// Read by [`Self::inside_knockout`], and there for one question: inside such a group an
+    /// element replaces its backdrop within its own **shape**, which quorra reads off the
+    /// coverage a mark is drawn with — so the coverage-as-alpha substitutions §10.7.4 asks for
+    /// are withheld there, exactly as `render-cpu` withholds them under Porter-Duff Source.
+    knockouts: u32,
 }
 
 /// What this frame's §8.7.4.5.2 type 1 shadings did: how many the device evaluated, and the
@@ -203,7 +210,16 @@ impl<'a> Encoder<'a> {
             functions,
             clips: HashMap::new(),
             masks: HashMap::new(),
+            knockouts: 0,
         }
+    }
+
+    /// Whether this command is being encoded inside ISO 32000-2 §11.4.6's knockout group.
+    ///
+    /// See [`Self::knockouts`]: it is the one place a coverage folded into a paint's alpha would
+    /// be read back as opacity, so the substitutions §10.7.4 asks for are withheld under it.
+    pub(crate) fn inside_knockout(&self) -> bool {
+        self.knockouts > 0
     }
 
     /// Translates one command list into the builder — the page's, a group's or a
@@ -338,12 +354,18 @@ impl<'a> Encoder<'a> {
             isolated: parts.isolated,
         };
         let mut walked = Ok(());
+        // §11.4.6's group is counted around the walk rather than tested inside it, because what
+        // its elements may not do — carry a coverage in the paint's alpha — is true of every
+        // element at every depth under it, not only of its immediate children.
+        let outer = self.knockouts;
+        self.knockouts = outer.saturating_add(u32::from(parts.knockout));
         builder.group(spec, |body| {
             walked = self.commands(body, parts.commands);
             // The builder's own error channel carries scene refusals;
             // upload and translation errors travel beside it.
             Ok(())
         })?;
+        self.knockouts = outer;
         walked
     }
 

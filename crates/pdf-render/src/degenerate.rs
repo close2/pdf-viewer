@@ -48,9 +48,27 @@
 //! So `[0 6] 0 d 1 J S` is a *dotted line* and every dot is painted, including under a
 //! projecting square cap — the opposite answer to the one above, for a shape that looks the
 //! same. [`dash_mark`] is that rule, and it needs the direction the other one cannot have.
+//!
+//! **Errata Collection 3 qualifies that sentence and `doc/md/` still carries it unqualified** —
+//! Issue #103, `/State` `Review`/`Completed`, p. 188: "This" is struck for "In the opaque imaging
+//! model, this", so the amended rule reads *In the opaque imaging model, this rule shall apply
+//! only to zero-length subpaths of the path being stroked*. The blockquote above is the
+//! conversion's wording because the quotation gate reads the conversion; what the erratum adds is
+//! a scope rather than a different answer, and §11.6.2 already makes a stroked path one object in
+//! the transparent model, so nothing here changes. The same clause's Issue #434 adds a NOTE about
+//! path construction and states no requirement.
+//!
+//! # Where the mark is too small for the device to hold, which is a different clause
+//!
+//! Both marks are shapes of the line's own width in *both* directions, so their area goes as the
+//! square of it and a width under a device pixel makes them the first marks a raster loses.
+//! §10.7.4 forbids that by name and [`crate::sub_pixel::point_mark`] is the answer; the callers
+//! here hand it the transform, which is what keeps the two backends drawing one mark rather than
+//! each deciding for itself. See that module's comment for the construction and what it gives up.
 
-use crate::geom::{Path, PathCommand, Point};
+use crate::geom::{Path, PathCommand, Point, Transform};
 use crate::paint::LineCap;
+use crate::sub_pixel::{PointMark, marks_in_their_pixels, point_mark};
 
 /// A stroked path separated into the part with length and the part without.
 ///
@@ -66,6 +84,61 @@ pub struct DegenerateStroke {
     ///
     /// Empty under butt and projecting square caps, where the clause asks for no output.
     pub dots: Path,
+    /// What the paint's alpha is to be multiplied by when filling [`Self::dots`], in
+    /// `0.0 < coverage <= 1.0`.
+    ///
+    /// 1.0 wherever nothing was substituted, which is every mark at or above the device's
+    /// coverage quantum and every caller that passed no transform. Below it the mark is stated
+    /// wider than the document's own width — or as the device pixel it lies in — and this is the
+    /// area it gave up: [`crate::sub_pixel::point_mark`].
+    pub coverage: f32,
+}
+
+/// The area a mark centred at a single point covers at a width of one.
+///
+/// §8.5.3.2's dot and a round cap's mark are "a filled circle" of the line's width, and Table
+/// 53's projecting square cap's is a square of it. The two are what
+/// [`crate::sub_pixel::point_mark`] needs to know a mark's area from its width.
+const CIRCLE: f32 = core::f32::consts::PI / 4.0;
+
+/// See [`CIRCLE`]: a square of the line's width covers the width squared.
+const SQUARE: f32 = 1.0;
+
+/// How the marks of one stroke are stated, decided once for all of them.
+///
+/// `to_device` is `Some` where the caller can carry a mark's coverage in the paint's alpha —
+/// §11.3.7.1 makes shape and opacity one product, which is [`crate::sub_pixel`]'s whole warrant —
+/// and `None` where it cannot: an aliased raster, or §11.4.6's knockout, where a scaled alpha
+/// would leave a partly transparent pixel where a partly covered one is meant.
+fn stated(cap: LineCap, width: f32, to_device: Option<Transform>) -> PointMark {
+    // Under a projecting square cap the only mark either rule makes is Table 53's square. The
+    // direction-less case §8.4.3.4 leaves to the implementation is drawn as a circle by
+    // [`dash_mark`] — one shape for every orientation it could have had — and is measured here as
+    // the square the document asked for, which is the cap it is standing in for.
+    let unit_area = if cap == LineCap::Square {
+        SQUARE
+    } else {
+        CIRCLE
+    };
+    to_device.map_or(
+        PointMark {
+            width,
+            coverage: 1.0,
+            in_its_pixel: false,
+        },
+        |at| point_mark(width, unit_area, at),
+    )
+}
+
+/// The marks, restated as device pixels where [`PointMark::in_its_pixel`] asks for it.
+fn placed(dots: Path, mark: PointMark, to_device: Option<Transform>) -> Path {
+    if !mark.in_its_pixel {
+        return dots;
+    }
+    // A singular transform leaves the clause's own shape rather than no mark at all.
+    to_device
+        .and_then(|at| marks_in_their_pixels(&dots, at))
+        .unwrap_or(dots)
 }
 
 /// Control-point distance for a quarter circle of unit radius, shared with
@@ -83,12 +156,23 @@ pub(crate) const KAPPA: f32 = 0.552_284_8;
 /// not the field — because §8.4.3.2's zero-width minimum decides a dot's diameter just as it
 /// decides a line's thickness: `0 w 1 J` at a single point is a one-device-pixel dot.
 ///
+/// `to_device` maps the path's own space onto the device pixel grid, and is `Some` where the
+/// caller can carry a mark's coverage in the paint's alpha — see [`stated`]. Where it is,
+/// §10.7.4's substitution for a mark too small for the raster to hold is applied here, and
+/// [`DegenerateStroke::coverage`] is what the alpha is to be multiplied by; where it is not, the
+/// dots are the clause's own circles at the document's own width.
+///
 /// Returns `None` when there is nothing to separate, so that a path without degenerate
 /// subpaths costs one pass over its commands and no allocation.
 ///
 /// [`Stroke::device_width`]: crate::paint::Stroke::device_width
 #[must_use]
-pub fn split_degenerate(path: &Path, cap: LineCap, width: f32) -> Option<DegenerateStroke> {
+pub fn split_degenerate(
+    path: &Path,
+    cap: LineCap,
+    width: f32,
+    to_device: Option<Transform>,
+) -> Option<DegenerateStroke> {
     if !matches!(path.commands().first(), Some(PathCommand::MoveTo(_))) {
         // §8.5.2.1: "the first one invoked shall be m or re to begin a new subpath", and a
         // segment with no current point is an error rather than a shape. No corpus
@@ -100,6 +184,7 @@ pub fn split_degenerate(path: &Path, cap: LineCap, width: f32) -> Option<Degener
         return None;
     }
 
+    let mark = stated(cap, width, to_device);
     let mut stroked = Path::new();
     let mut dots = Path::new();
     for subpath in subpaths(path) {
@@ -108,13 +193,17 @@ pub fn split_degenerate(path: &Path, cap: LineCap, width: f32) -> Option<Degener
             // under any cap, which is the clause's last sentence and is not the same rule as
             // the one above it.
             if subpath.segments > 0 && cap == LineCap::Round {
-                append_circle(&mut dots, subpath.start, width);
+                append_circle(&mut dots, subpath.start, mark.width);
             }
         } else {
             stroked.extend(&path.commands()[subpath.range()]);
         }
     }
-    Some(DegenerateStroke { stroked, dots })
+    Some(DegenerateStroke {
+        stroked,
+        dots: placed(dots, mark, to_device),
+        coverage: mark.coverage,
+    })
 }
 
 /// The length a zero-length dash is dispensed at so that its direction survives dashing.
@@ -181,7 +270,13 @@ pub fn dashes_showing_direction(array: &[f32], cap: LineCap) -> Option<Vec<f32>>
 /// different libraries' types and would otherwise each decide for themselves what counts as
 /// a dash of no length and which way its cap faces — which is the whole of trap 2.
 #[must_use]
-pub fn split_dash_marks(dashed: &Path, cap: LineCap, width: f32) -> DegenerateStroke {
+pub fn split_dash_marks(
+    dashed: &Path,
+    cap: LineCap,
+    width: f32,
+    to_device: Option<Transform>,
+) -> DegenerateStroke {
+    let mark = stated(cap, width, to_device);
     let mut stroked = Path::new();
     let mut dots = Path::new();
     for subpath in subpaths(dashed) {
@@ -194,12 +289,16 @@ pub fn split_dash_marks(dashed: &Path, cap: LineCap, width: f32) -> DegenerateSt
         // whole 974-document corpus is 0.02, ten times this; a dash truncated by the end of
         // the path could be shorter, and drawing its cap is what §8.5.3.2 asks for there too.
         if crate::geom::length(span.x, span.y) <= ZERO_DASH * 2.0 {
-            dash_mark(&mut dots, subpath.start, width, cap, span);
+            dash_mark(&mut dots, subpath.start, mark.width, cap, span);
         } else {
             stroked.extend(&dashed.commands()[subpath.range()]);
         }
     }
-    DegenerateStroke { stroked, dots }
+    DegenerateStroke {
+        stroked,
+        dots: placed(dots, mark, to_device),
+        coverage: mark.coverage,
+    }
 }
 
 /// The mark a zero-length *dash* leaves, ISO 32000-2 §8.5.3.2's second rule.
@@ -395,12 +494,12 @@ mod tests {
             PathCommand::Close,
         ]);
 
-        let round = split_degenerate(&dot, LineCap::Round, 4.0).expect("degenerate");
+        let round = split_degenerate(&dot, LineCap::Round, 4.0, None).expect("degenerate");
         assert!(round.stroked.is_empty(), "nothing is left to stroke");
         assert!(!round.dots.is_empty(), "§8.5.3.2 asks for a filled circle");
 
         for cap in [LineCap::Butt, LineCap::Square] {
-            let other = split_degenerate(&dot, cap, 4.0).expect("degenerate");
+            let other = split_degenerate(&dot, cap, 4.0, None).expect("degenerate");
             assert!(other.stroked.is_empty());
             assert!(
                 other.dots.is_empty(),
@@ -417,7 +516,7 @@ mod tests {
             PathCommand::LineTo(Point::new(5.0, 7.0)),
             PathCommand::LineTo(Point::new(5.0, 7.0)),
         ]);
-        let split = split_degenerate(&dot, LineCap::Round, 4.0).expect("degenerate");
+        let split = split_degenerate(&dot, LineCap::Round, 4.0, None).expect("degenerate");
         assert!(split.stroked.is_empty());
         assert_eq!(
             split.dots.commands().len(),
@@ -433,7 +532,7 @@ mod tests {
         let at = Point::new(1.0, 2.0);
         let dot = path(&[PathCommand::MoveTo(at), PathCommand::CurveTo(at, at, at)]);
         assert!(
-            !split_degenerate(&dot, LineCap::Round, 4.0)
+            !split_degenerate(&dot, LineCap::Round, 4.0, None)
                 .expect("degenerate")
                 .dots
                 .is_empty()
@@ -445,7 +544,7 @@ mod tests {
     #[test]
     fn a_single_point_open_subpath_paints_nothing_even_under_round_caps() {
         let stray = path(&[PathCommand::MoveTo(Point::new(5.0, 7.0))]);
-        let split = split_degenerate(&stray, LineCap::Round, 4.0).expect("degenerate");
+        let split = split_degenerate(&stray, LineCap::Round, 4.0, None).expect("degenerate");
         assert!(split.stroked.is_empty());
         assert!(
             split.dots.is_empty(),
@@ -460,7 +559,7 @@ mod tests {
             PathCommand::MoveTo(Point::new(0.0, 0.0)),
             PathCommand::LineTo(Point::new(10.0, 0.0)),
         ]);
-        assert_eq!(split_degenerate(&line, LineCap::Round, 4.0), None);
+        assert_eq!(split_degenerate(&line, LineCap::Round, 4.0, None), None);
     }
 
     /// A dot beside a real subpath keeps the real one, and `h` ends a subpath so that what
@@ -476,8 +575,11 @@ mod tests {
             PathCommand::MoveTo(Point::new(0.0, 5.0)),
             PathCommand::LineTo(Point::new(10.0, 5.0)),
         ]);
-        let DegenerateStroke { stroked, dots } =
-            split_degenerate(&mixed, LineCap::Round, 4.0).expect("degenerate");
+        let DegenerateStroke {
+            stroked,
+            dots,
+            coverage: _,
+        } = split_degenerate(&mixed, LineCap::Round, 4.0, None).expect("degenerate");
         assert_eq!(
             stroked.commands(),
             [

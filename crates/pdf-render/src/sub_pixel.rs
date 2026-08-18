@@ -171,6 +171,35 @@
 //! as arithmetic — a coverage that is positive and under one level is stated at one level — and it
 //! is the only place the raster's depth is named, so that neither backend decides it alone.
 //!
+//! # Where an alpha the raster *can* hold still lands as nothing
+//!
+//! An alpha of one level is not a level of ink. What a pixel receives is the alpha times the
+//! **shape's own coverage there**, and the widened mark above covers no pixel fully: §8.5.3.2's
+//! circle at one device pixel across covers `π/4` of a pixel when its centre sits at one and a
+//! quarter of that — `π/16` — when its centre sits on a pixel corner, which is the placement the
+//! clause names in the same breath as the disappearance it forbids. So the dot at 0.1 of a device
+//! pixel arrived with an alpha of 2.55 levels and deposited **half a level in each of four
+//! pixels**, and half a level is nothing.
+//!
+//! There is one shape whose coverage is not a fraction, and §10.7.4 identifies it:
+//!
+//! > let i = floor( x ) and j = floor( y ). The pixel that contains this point is the one
+//! > identified as ( i, j )
+//!
+//! §8.5.3.2 gives such a mark "a filled circle centred at the single point", so it *has* a single
+//! point, and the pixel that contains that point is where the whole of its ink can go without
+//! being divided again. [`point_mark`] states a mark that way — [`pixel_containing`] is the shape
+//! and the coverage is the mark's own area — as soon as the widened form can no longer put one
+//! level anywhere, and keeps the widened form above that, where the mark still has the shape the
+//! clause names. Total ink is the mark's own area on both sides of that boundary, so the two
+//! constructions agree about how much and differ only about where.
+//!
+//! It is not §10.7.5's stroke adjustment, and the difference is the one ADR 0208 drew: nothing is
+//! promoted to a whole pixel of *ink* — the pixel is painted at the mark's own area, a fiftieth of
+//! it where that is what the mark covers — and the pixel a mark lands in is the one its own centre
+//! is in, so no coordinate is moved to a grid line. What is given up is the mark's shape *within*
+//! one pixel, which is exactly what an eight-bit raster cannot hold anyway.
+//!
 //! **It costs ink, deliberately, and the clause asks for that direction rather than the other**:
 //! the same paragraph says "[t]he area covered by painted pixels shall always be at least as large
 //! as the area of the original shape", so a mark this floor raises is a mark drawn heavier than
@@ -361,6 +390,154 @@ pub fn enlarged_mark(width: f32, to_device: Transform) -> Option<EnlargedMark> {
         // `(w / W)²` is 0.0025, which is under one level of 255 and drew nothing.
         coverage: expressible_coverage(ratio * ratio),
     })
+}
+
+/// How many device pixels a mark stated at [`substitute_width`] can be divided between.
+///
+/// Every mark [`point_mark`] widens is centred at a single point and lies inside the disc of `√2`
+/// device pixels about it: §8.5.3.2's circle is one device pixel across, and Table 53's square is
+/// one across each side and therefore `√2` across its diagonal. A span of `√2` pixels meets at
+/// most three pixel columns and three rows, so some pixel holds at least a ninth of the mark's
+/// area — and where a ninth of the area is under one level of 255, no pixel can hold a level at
+/// all, whatever the placement.
+const PIXELS_A_WIDENED_MARK_REACHES: f32 = 9.0;
+
+/// How a mark ISO 32000-2 §8.5.3.2 centres at a single point is stated, so that an eight-bit
+/// raster holds its ink — §10.7.4.
+///
+/// Produced by [`point_mark`]. The two substituted forms are the module comment's: the mark
+/// widened to [`substitute_width`] with its area carried in the alpha, and — where even that
+/// cannot put one level into any pixel — the whole device pixel the mark's own centre lies in.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PointMark {
+    /// The width the clause's own shape is to be stated at, in the path's own space.
+    ///
+    /// The document's own width where nothing is substituted, and [`substitute_width`]'s
+    /// otherwise. Ignored where [`Self::in_its_pixel`] is set, since a pixel has no width of its
+    /// own to be given.
+    pub width: f32,
+    /// What the paint's alpha is to be multiplied by, in `0.0 < coverage <= 1.0`, and never under
+    /// one level of the raster: [`expressible_coverage`].
+    pub coverage: f32,
+    /// Whether the mark is stated as the whole device pixel its centre lies in
+    /// ([`pixel_containing`]) rather than as the shape the clause names.
+    pub in_its_pixel: bool,
+}
+
+/// How a mark centred at a single point is stated at `width`, ISO 32000-2 §10.7.4.
+///
+/// `unit_area` is the area the mark covers at a width of one — `π/4` for §8.5.3.2's circle and 1
+/// for Table 53's square — which is what makes the mark's own area `unit_area × w²` and is the
+/// only thing the two shapes differ by here.
+///
+/// The three answers, and the module comment argues each:
+///
+/// - **at or above the device's quantum**, and for a width that names no mark, the document's own
+///   width with the paint untouched: the rasteriser can measure what the document wrote;
+/// - **under it**, [`enlarged_mark`]'s substitution, which is the clause's own shape at a width
+///   the rasteriser can measure with the area it gave up in the alpha;
+/// - **under the width at which that alpha can no longer reach one level of any pixel it covers**,
+///   the whole device pixel the mark's centre lies in, at the coverage the mark's own area
+///   implies. Total ink is the mark's own area either way, so the boundary moves where the ink is
+///   and not how much of it there is.
+#[must_use]
+pub fn point_mark(width: f32, unit_area: f32, to_device: Transform) -> PointMark {
+    let stated = PointMark {
+        width,
+        coverage: 1.0,
+        in_its_pixel: false,
+    };
+    let Some(mark) = enlarged_mark(width, to_device) else {
+        return stated;
+    };
+    // `enlarged_mark` widens to exactly one device pixel, so the ratio of the two widths *is* the
+    // mark's width in device pixels and `unit_area · w²` is its area in device pixels squared.
+    let device_width = width / mark.width;
+    let area = unit_area * device_width * device_width;
+    if !area.is_finite() || area <= 0.0 {
+        return stated;
+    }
+    if area >= ONE_LEVEL * PIXELS_A_WIDENED_MARK_REACHES {
+        return PointMark {
+            width: mark.width,
+            coverage: mark.coverage,
+            in_its_pixel: false,
+        };
+    }
+    PointMark {
+        width: mark.width,
+        coverage: expressible_coverage(area),
+        in_its_pixel: true,
+    }
+}
+
+/// The whole device pixel that contains `point`, stated in the path's own space — ISO 32000-2
+/// §10.7.4.
+///
+/// The clause identifies the pixel itself:
+///
+/// > let i = floor( x ) and j = floor( y ). The pixel that contains this point is the one
+/// > identified as ( i, j )
+///
+/// All four corners are carried back through the inverse rather than two opposite ones, because a
+/// transform that turns the page maps the pixel's square to a turned square and two corners would
+/// name an upright one. Drawing the result under `to_device` therefore lands on exactly the device
+/// pixel, whatever the transform.
+///
+/// Returns `None` where the transform is singular or the point does not land on a finite pixel.
+#[must_use]
+pub fn pixel_containing(point: Point, to_device: Transform) -> Option<Path> {
+    let at = to_device.apply(point);
+    if !(at.x.is_finite() && at.y.is_finite()) {
+        return None;
+    }
+    let (i, j) = (at.x.floor(), at.y.floor());
+    if !(i.is_finite() && j.is_finite()) {
+        return None;
+    }
+    let inverse = to_device.invert()?;
+    let corners = [
+        Point::new(i, j),
+        Point::new(i + 1.0, j),
+        Point::new(i + 1.0, j + 1.0),
+        Point::new(i, j + 1.0),
+    ]
+    .map(|corner| inverse.apply(corner));
+    if corners
+        .iter()
+        .any(|corner| !(corner.x.is_finite() && corner.y.is_finite()))
+    {
+        return None;
+    }
+    let mut shape = Path::new();
+    shape.push(PathCommand::MoveTo(corners[0]));
+    for corner in &corners[1..] {
+        shape.push(PathCommand::LineTo(*corner));
+    }
+    shape.push(PathCommand::Close);
+    Some(shape)
+}
+
+/// Every mark in `marks` restated as the whole device pixel its own centre lies in — ISO 32000-2
+/// §10.7.4, and the shape [`PointMark::in_its_pixel`] asks for.
+///
+/// Each subpath of `marks` is one mark centred at a single point, so its centre is the middle of
+/// its own bounding box: §8.5.3.2's circle is stated here as four cubics whose control points
+/// reach exactly its radius, and Table 53's square as its own four corners.
+///
+/// Returns `None` where the transform is singular, which leaves the caller with the shape the
+/// clause names rather than with no mark at all.
+#[must_use]
+pub fn marks_in_their_pixels(marks: &Path, to_device: Transform) -> Option<Path> {
+    let mut out = Path::new();
+    for extent in subpath_extents(marks) {
+        let centre = Point::new(
+            f32::midpoint(extent.min.x, extent.max.x),
+            f32::midpoint(extent.min.y, extent.max.y),
+        );
+        out.extend(pixel_containing(centre, to_device)?.commands());
+    }
+    Some(out)
 }
 
 /// The shapes ISO 32000-2 §8.4.3.3's line cap adds at the ends of a path's open subpaths, stated at

@@ -14,7 +14,12 @@
 //!   because ink is a colour times an area and a census of areas alone is not comparable with a
 //!   raster's;
 //! - **what their caps' own area comes to**, in device pixels and in levels of 255 over the whole
-//!   raster, which is the number to compare a before-and-after ink measurement with.
+//!   raster, which is the number to compare a before-and-after ink measurement with;
+//! - and **§8.5.3.2's own marks** — a degenerate subpath's dot and a zero-length dash's — with the
+//!   device widths they are stated at, because those are the two marks §10.7.4's substitution
+//!   reaches through `pdf_render::point_mark` and a population is what says whether a document
+//!   ever asks for one. The line is printed even where the count is zero, so that a sweep over a
+//!   corpus can say what it looked at rather than only what it found.
 //!
 //! ```sh
 //! cargo run --release -p pdf-model --example sub_pixel_width_census -- <file.pdf> [page]
@@ -31,8 +36,10 @@
     clippy::expect_used,
     clippy::arithmetic_side_effects,
     clippy::cast_precision_loss,
-    reason = "a measurement example: its output is the point, and a missing file or page should \
-              stop it loudly rather than be reported as a page with no strokes on it"
+    clippy::too_many_lines,
+    reason = "a measurement example: its output is the point, a missing file or page should stop \
+              it loudly rather than be reported as a page with no strokes on it, and one walk of \
+              one page's commands answering every question this prints is clearer than four"
 )]
 
 use pdf_render::{Command, LineCap, Paint, PathCommand};
@@ -54,6 +61,9 @@ fn main() {
     let mut cap_area = 0.0_f64;
     let mut solid = 0_usize;
     let mut darkness = 0.0_f64;
+    // §8.5.3.2's two marks, each device width recorded once per mark.
+    let mut dots: Vec<f32> = Vec::new();
+    let mut dashes: Vec<f32> = Vec::new();
     for command in list.commands() {
         let Command::Stroke {
             transform,
@@ -68,6 +78,25 @@ fn main() {
         let at = transform.then(target.transform);
         let one_pixel = pdf_render::thinnest_line(at).unwrap_or(0.0);
         let width = stroke.device_width(at);
+        if one_pixel > 0.0 {
+            // The clause's own shapes, asked for with no transform so that the answer is the
+            // document's marks rather than the substitution's.
+            let stated = pdf_render::split_degenerate(path, stroke.cap, width, None);
+            let made = stated.map_or(0, |split| {
+                split
+                    .dots
+                    .commands()
+                    .iter()
+                    .filter(|c| matches!(c, PathCommand::MoveTo(_)))
+                    .count()
+            });
+            dots.extend(std::iter::repeat_n(width / one_pixel, made));
+            // A zero-length dash is dispensed by a backend's own dasher, so what a display list
+            // can be asked is whether the pattern states one whose cap is drawn.
+            if pdf_render::dashes_showing_direction(&stroke.dash_array, stroke.cap).is_some() {
+                dashes.push(width / one_pixel);
+            }
+        }
         if !(one_pixel > 0.0 && width < one_pixel) {
             continue;
         }
@@ -103,6 +132,8 @@ fn main() {
             };
     }
 
+    report("§8.5.3.2 dots", &mut dots);
+    report("zero-length dash patterns", &mut dashes);
     widths.sort_by(f32::total_cmp);
     let n = widths.len();
     println!("{path} page {index}: {n} strokes under the device's quantum");
@@ -126,5 +157,31 @@ fn main() {
         "  those caps' own area: {cap_area:.2} device pixels over a raster of {pixels:.0}, which \
          is {:.4} levels of 255 if every one of them were black",
         cap_area / pixels * 255.0
+    );
+}
+
+/// One population of §8.5.3.2 marks, by the device width each is stated at.
+///
+/// The two thresholds are the ones `pdf_render::point_mark` turns on and are printed rather than
+/// left to a reader's arithmetic: **1** device pixel, below which the mark is widened at all, and
+/// **0.212**, below which even the widened mark cannot put one level of 255 into any pixel it
+/// covers and is stated as the device pixel its own centre lies in. The second is
+/// `sqrt(9 / (255 · π/4))` and the ninth is [`pdf_render::point_mark`]'s own bound on how many
+/// pixels such a mark can be divided between.
+fn report(what: &str, widths: &mut [f32]) {
+    widths.sort_by(f32::total_cmp);
+    let n = widths.len();
+    let under_quantum = widths.iter().filter(|w| **w < 1.0).count();
+    let concentrated = widths.iter().filter(|w| **w < 0.212).count();
+    print!("  {what}: {n}, {under_quantum} under a device pixel, {concentrated} under 0.212");
+    if n == 0 {
+        println!();
+        return;
+    }
+    println!(
+        " — device width min {:.4} median {:.4} max {:.4}",
+        widths[0],
+        widths[n / 2],
+        widths[n.saturating_sub(1)]
     );
 }

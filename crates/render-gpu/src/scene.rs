@@ -286,6 +286,10 @@ fn stroke(s: &Stroke, to_device: Transform) -> kurbo::Stroke {
 /// > case, the line caps shall always be painted, since their orientation is determined by
 /// > the direction of the underlying path except in the case of a degenerate subpath.
 ///
+/// Errata Collection 3 qualifies that sentence — "In the opaque imaging model, this" for
+/// "This", Issue #103 — and `pdf_render::degenerate`'s module comment carries the reading; the
+/// quotation above is `doc/md/`'s, which is what the quotation gate reads.
+///
 /// So `[0 6] 0 d 1 J S` is a dotted line, and `kurbo` expands a dash of no length into an
 /// empty outline — the `0 w` hairline defect of the nineteenth session in a second place, a
 /// rasteriser convention standing in for a clause nobody had written down.
@@ -297,15 +301,15 @@ fn stroke(s: &Stroke, to_device: Transform) -> kurbo::Stroke {
 fn zero_length_dashes(
     shape: &kurbo::BezPath,
     s: &Stroke,
-    width: f32,
+    (width, substitute): (f32, Option<Transform>),
     dots: &mut Path,
-) -> Option<kurbo::BezPath> {
+) -> Option<(kurbo::BezPath, f32)> {
     let pattern = pdf_render::dashes_showing_direction(&s.dash_array, s.cap)?;
     let pattern: Vec<f64> = pattern.iter().copied().map(f64::from).collect();
     let dashed = kurbo::dash(shape.iter(), f64::from(s.dash_phase), &pattern);
-    let split = pdf_render::split_dash_marks(&from_bez_path(dashed), s.cap, width);
+    let split = pdf_render::split_dash_marks(&from_bez_path(dashed), s.cap, width, substitute);
     dots.extend(split.dots.commands());
-    Some(bez_path(&split.stroked))
+    Some((bez_path(&split.stroked), split.coverage))
 }
 
 /// Converts a `kurbo` path back to the display list's own, for [`zero_length_dashes`].
@@ -370,18 +374,27 @@ fn encode_stroke(
     let (brush, brush_at) = brush_for(paint, spaces.page_to_path)?;
     let width = s.device_width(to_path);
 
+    // §10.7.4's substitution for a mark whose area is under what the raster can hold, decided
+    // in `pdf-render` for all three backends (trap 2). Withheld inside §11.4.6's knockout, where
+    // an element replaces its backdrop within its own *shape* and a coverage folded into the
+    // alpha would leave a partly transparent pixel where a partly covered one is meant.
+    let substitute = (compose == Compose::Over).then_some(to_path);
     // §8.5.3.2's two rules about a stroke with no length, neither of which `kurbo` answers:
     // it drops a contour that expanded to nothing, so a dot and a dotted line both came out
     // blank on this backend.
-    let split = pdf_render::split_degenerate(path, s.cap, width);
+    let split = pdf_render::split_degenerate(path, s.cap, width, substitute);
     let geometry = split.as_ref().map_or(path, |d| &d.stroked);
     let mut dots = split.as_ref().map_or_else(Path::new, |d| d.dots.clone());
+    // The two rules make marks of one width under one cap, so they share one coverage;
+    // whichever produced marks answers for both.
+    let mut coverage = split.as_ref().map_or(1.0, |d| d.coverage);
     let shape = bez_path(geometry);
     let style = stroke(s, to_path);
-    let (shape, style) = match zero_length_dashes(&shape, s, width, &mut dots) {
+    let (shape, style) = match zero_length_dashes(&shape, s, (width, substitute), &mut dots) {
         // The dashes have already been dispensed, so what is left is stroked solid. The
         // width is the resolved one either way.
-        Some(remainder) => {
+        Some((remainder, dashed_coverage)) => {
+            coverage = dashed_coverage;
             let mut solid = style;
             solid.dash_pattern = kurbo::Dashes::new();
             (remainder, solid)
@@ -389,6 +402,7 @@ fn encode_stroke(
         None => (shape, style),
     };
     let dots = bez_path(&dots);
+    let dot_brush = brush.clone().multiply_alpha(coverage);
 
     // The stroke width is in the command's own coordinate space, and the transform scales it
     // along with the geometry, as PDF specifies.
@@ -397,7 +411,7 @@ fn encode_stroke(
             scene.stroke(&style, at, &brush, brush_at, &shape);
         }
         if !dots.is_empty() {
-            scene.fill(peniko::Fill::NonZero, at, &brush, brush_at, &dots);
+            scene.fill(peniko::Fill::NonZero, at, &dot_brush, brush_at, &dots);
         }
     };
     // Clipping to the *unstroked* path would cut the stroke in half, since a stroke

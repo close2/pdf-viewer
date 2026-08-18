@@ -69,6 +69,7 @@ pub use strips::{
     unsplittable_rows,
 };
 pub use sub_pixel::{
-    EnlargedMark, SubPixelBand, enlarged_mark, expressible_coverage, only_flat_subpaths,
-    sub_pixel_bands, sub_pixel_caps, substitute_width,
+    EnlargedMark, PointMark, SubPixelBand, enlarged_mark, expressible_coverage,
+    marks_in_their_pixels, only_flat_subpaths, pixel_containing, point_mark, sub_pixel_bands,
+    sub_pixel_caps, substitute_width,
 };
