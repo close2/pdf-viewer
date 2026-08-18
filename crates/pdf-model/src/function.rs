@@ -728,6 +728,14 @@ impl Function {
                     detail: "program did not decode".to_owned(),
                 })?;
         let program = compile_postscript(&data)?;
+        // Before the fold rather than after it, and the order is load-bearing: `true 0 gt` is a
+        // closed island, so folding replaces the whole departure with the one value this reading
+        // says it does not have. [`ordering_reaches_a_boolean`] has the clause and the argument.
+        if ordering_reaches_a_boolean(&program, inputs) {
+            return Err(FunctionError::Malformed {
+                detail: "ge, gt, lt or le on a boolean operand (§7.10.5.2)".to_owned(),
+            });
+        }
         // §7.10.5.3 makes the inputs "the initial operand stack", so the walk starts where the
         // evaluator does — which is what lets it model the depth at all.
         let folded = fold_constants(&program, inputs).unwrap_or(program);
@@ -991,6 +999,14 @@ fn narrow(value: f64) -> f32 {
 /// clause's next sentence is why the other two directions are error cases and not readings — "A
 /// real number shall not be present when an integer is expected" — and a file that does it
 /// anyway is a file this viewer still has to draw.
+///
+/// **One operand class is outside this policy altogether, and was inside it for forty-one
+/// sessions.** `ge`, `gt`, `lt` and `le` are typed `num 1 num 2` by §B.3 *and* by §7.10.5.2's
+/// normative deferral, so a boolean under one of them has no reading that loses least — it has no
+/// reading. A program in which one provably reaches such an operand is refused at parse time and
+/// its caller reports it; [`ordering_reaches_a_boolean`] is the whole argument, and ADR 0412 is
+/// the correction. The conversion above still answers where that walk could not decide, because
+/// an evaluator cannot raise §7.10.5's error at a device pixel.
 ///
 /// The alternative — answering the zero of the operator's result type, so that `true 0 gt` were
 /// `false` rather than `1 > 0` — was considered and declined for two reasons. It puts a second
@@ -1307,18 +1323,30 @@ fn without_comments(program: &str) -> String {
 /// gives up on the whole program when that happens rather than guessing, because a wrong depth
 /// would make its `MAX_STACK` reasoning wrong.
 ///
+/// Two compile-time walks need this and they know different things about a slot, so `counted`
+/// is what each of them supplies: [`fold_constants`] knows a slot's [`Value`] or nothing, and
+/// [`ordering_reaches_a_boolean`] knows a slot's value, or only its type, or nothing. Both answer
+/// `None` for a slot they cannot read a count out of, and both abandon the program when they do.
+///
 /// The three §B.5 counting operators are the reason this is a function of the stack rather than a
 /// constant per operator: `n copy` reads `n` operands and the count, `n index` reads `n + 1` and
 /// the count, and `n j roll` reads `n` and both of its own.
-fn operand_demand(operator: Operator, stack: &[Option<Value>]) -> Option<usize> {
+fn operand_demand<T: Copy>(
+    operator: Operator,
+    stack: &[T],
+    counted: impl Fn(T) -> Option<i32>,
+) -> Option<usize> {
     /// The literal at `depth` below the top, where the walk knows it and it is a count.
-    fn count(stack: &[Option<Value>], depth: usize) -> Option<i32> {
+    fn count<T: Copy>(
+        stack: &[T],
+        depth: usize,
+        counted: impl Fn(T) -> Option<i32>,
+    ) -> Option<i32> {
         stack
             .len()
             .checked_sub(depth.checked_add(1)?)
             .and_then(|at| stack.get(at).copied())
-            .flatten()
-            .map(Value::integer)
+            .and_then(counted)
     }
     Some(match operator {
         Operator::True | Operator::False => 0,
@@ -1359,13 +1387,13 @@ fn operand_demand(operator: Operator, stack: &[Option<Value>]) -> Option<usize> 
         | Operator::Exch => 2,
         // A non-positive count makes each of these read nothing but its own operands, which is
         // what the arms in `apply_operator` do with one.
-        Operator::Copy => usize::try_from(count(stack, 0)?)
+        Operator::Copy => usize::try_from(count(stack, 0, &counted)?)
             .unwrap_or(0)
             .saturating_add(1),
-        Operator::Index => usize::try_from(count(stack, 0)?)
+        Operator::Index => usize::try_from(count(stack, 0, &counted)?)
             .unwrap_or(0)
             .saturating_add(2),
-        Operator::Roll => usize::try_from(count(stack, 1)?)
+        Operator::Roll => usize::try_from(count(stack, 1, &counted)?)
             .unwrap_or(0)
             .saturating_add(2),
     })
@@ -1445,7 +1473,7 @@ fn fold_constants(program: &[Instruction], inputs: usize) -> Option<Vec<Instruct
                 // `EMPTY_STACK`. Running the operator over exactly that window is what makes
                 // the depth this walk models the depth the evaluator will have: the length
                 // `apply_operator` leaves is the length it leaves, whatever the arm does.
-                let demand = operand_demand(*operator, &stack)?;
+                let demand = operand_demand(*operator, &stack, |slot| slot.map(Value::integer))?;
                 let below = stack.len().saturating_sub(demand);
                 let known = stack.len() >= demand
                     && stack
@@ -1534,6 +1562,371 @@ impl Islands {
             self.folds.push((from, to, value));
         }
         self.open = None;
+    }
+}
+
+/// One of the three types §7.10.5.1's subset admits.
+///
+/// > This subset is comprised of the following PostScript language features: … Expressions
+/// > involving only integers, real numbers, and boolean values
+///
+/// The same three [`Value`] carries at run time, without the value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Sort {
+    /// An integer.
+    Integer,
+    /// A real number.
+    Real,
+    /// A boolean.
+    Boolean,
+}
+
+/// What [`ordering_reaches_a_boolean`] knows about one slot of the operand stack.
+///
+/// Three rungs rather than two, which is what makes the walk worth running at all: a program
+/// whose comparison reads a *computed* boolean — `x 0.5 gt 0 gt` — has no literal under the
+/// second `gt`, and [`fold_constants`]' `Option<Value>` would say only that it does not know.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Slot {
+    /// The value itself, computed from the program's own literals.
+    Known(Value),
+    /// Which of the three types the slot holds, but not which value.
+    Sorted(Sort),
+    /// Nothing.
+    Unknown,
+}
+
+impl Slot {
+    /// The type this slot certainly holds, or `None` where the walk cannot say.
+    fn sort(self) -> Option<Sort> {
+        match self {
+            Self::Known(Value::Integer(_)) => Some(Sort::Integer),
+            Self::Known(Value::Real(_)) => Some(Sort::Real),
+            Self::Known(Value::Boolean(_)) => Some(Sort::Boolean),
+            Self::Sorted(sort) => Some(sort),
+            Self::Unknown => None,
+        }
+    }
+
+    /// The count `copy`, `index` or `roll` would read here, which only a known value states.
+    fn count(self) -> Option<i32> {
+        match self {
+            Self::Known(value) => Some(value.integer()),
+            Self::Sorted(_) | Self::Unknown => None,
+        }
+    }
+
+    /// Whether this slot is certainly a boolean.
+    fn is_boolean(self) -> bool {
+        self.sort() == Some(Sort::Boolean)
+    }
+}
+
+/// Whether the program **provably** applies `ge`, `gt`, `lt` or `le` to a boolean operand.
+///
+/// # The clause, and why this is a refusal rather than a conversion
+///
+/// §7.10.5.2 does not state the operators' semantics itself. It hands them over, and the deferral
+/// is normative:
+///
+/// > The PostScript Language Reference, Third Edition shall define the semantics of these
+/// > operators and all other syntax rules of the PostScript language.
+///
+/// That document is in clause 2, "Normative references", whose own preamble says the documents
+/// listed there are "referred to in the text in such a way that some or all of their content
+/// constitutes requirements of this document". So the operand types of `ge`, `gt`, `lt` and `le`
+/// are a requirement of ISO 32000-2, stated by reference — and §B.3, informative and therefore
+/// only corroborating, types the four the same way in its own operand column: `num 1 num 2 … bool`,
+/// against `any 1 any 2` for `eq` and `ne` and `bool 1 | int 1 …` for `and`, `or`, `xor` and `not`.
+/// Three operand classes in one table, distinguished on purpose. There is no silence here to fill.
+///
+/// A boolean under one of the four is therefore not an operand at all, and the referenced document
+/// gives the operator no value there. [`Value`]'s conversion policy answers everywhere else because
+/// the operand *has* a reading that loses least; here there is nothing to read. Trap 5's test says
+/// which way that falls: the invented answer does not add a mark, it **substitutes** for the branch
+/// the producer wrote, so the wrong colour is painted over the whole region the branch decides. The
+/// same test refuses a type 0 function whose sample array is short (see [`Function::sample_extent`]).
+///
+/// # Why it is decided here and not where the operator runs
+///
+/// [`EMPTY_STACK`] states the other half of this and states it for the underflow case: refusing at
+/// run time would refuse a document that draws, and a report at run time would be one report per
+/// device pixel of a shading. Both objections are to a *runtime* answer. This one is compile time —
+/// once per `Function::parse`, on the program the file states — so it costs nothing per pixel, and
+/// it leaves through [`FunctionError`], which every caller of `Function::parse` already reports.
+///
+/// # What "provably" means, and which way it errs
+///
+/// The walk is [`fold_constants`]' — the same forward pass, the same absolute-depth model, the
+/// same abandonment where the depth stops being modellable — over [`Slot`] instead of
+/// `Option<Value>`. It answers `true` **only** where a slot is certainly a boolean, and `Unknown`
+/// wherever a type depends on a value the walk does not have:
+///
+/// - a join is a join of two arms, so every slot below it becomes [`Slot::Unknown`] rather than
+///   being merged, which is what [`fold_constants`] does with the same reasoning;
+/// - `add`, `sub`, `mul`, `abs`, `ceiling`, `floor`, `neg`, `round` and `truncate` answer a real
+///   when an operand is one and otherwise an integer *or* a real, since [`arithmetic2`]'s
+///   `checked_` arm falls back to a real on overflow — so the type is `Unknown` there;
+/// - a count `copy`, `index` or `roll` takes that is not a known value abandons the program,
+///   because the depth below it is no longer modelled.
+///
+/// So it under-approximates, deliberately: a program it cannot decide is a program it admits. That
+/// is the direction with no cost — a departure it misses is drawn exactly as it was drawn before —
+/// where the other direction would refuse a document over an analysis this project wrote.
+///
+/// `inputs` is `/Domain`'s pair count, because §7.10.5.3 makes the input variables the initial
+/// operand stack and `Function::eval_into` pushes each of them as a [`Value::Real`].
+fn ordering_reaches_a_boolean(program: &[Instruction], inputs: usize) -> bool {
+    let mut is_target = vec![false; program.len().saturating_add(1)];
+    let mut promised: Vec<Option<usize>> = vec![None; program.len().saturating_add(1)];
+    for instruction in program {
+        if let Instruction::Jump(target) | Instruction::JumpUnless(target) = instruction
+            && let Some(slot) = is_target.get_mut(*target)
+        {
+            *slot = true;
+        }
+    }
+
+    let mut stack: Vec<Slot> = vec![Slot::Sorted(Sort::Real); inputs.min(MAX_VALUES)];
+    let mut window: Vec<Slot> = Vec::new();
+
+    for (at, instruction) in program.iter().enumerate() {
+        if is_target.get(at).copied().unwrap_or(false) {
+            match promised.get(at).copied().flatten() {
+                Some(depth) if depth == stack.len() => stack.fill(Slot::Unknown),
+                _ => return false,
+            }
+        }
+        match instruction {
+            Instruction::Push(value) => {
+                if stack.len() >= MAX_STACK {
+                    return false;
+                }
+                stack.push(Slot::Known(*value));
+            }
+            Instruction::Operator(operator) => {
+                let Some(demand) = operand_demand(*operator, &stack, Slot::count) else {
+                    return false;
+                };
+                let below = stack.len().saturating_sub(demand);
+                window.clear();
+                window.extend(stack.drain(below..));
+                if matches!(
+                    operator,
+                    Operator::Ge | Operator::Gt | Operator::Le | Operator::Lt
+                ) {
+                    let (a, b) = ordering_operands(&window);
+                    if a.is_boolean() || b.is_boolean() {
+                        return true;
+                    }
+                }
+                apply_sorts(*operator, &mut window);
+                // One rung stricter than [`fold_constants`]' `>`: at the ceiling itself the
+                // evaluator's own `dup` and `copy` guards start declining where this walk does
+                // not, and a depth that has stopped matching is a slot read at the wrong place.
+                if below.saturating_add(window.len()) >= MAX_STACK {
+                    return false;
+                }
+                stack.extend(window.iter().copied());
+            }
+            Instruction::JumpUnless(target) => {
+                stack.pop();
+                if promise(&mut promised, *target, stack.len()).is_none() {
+                    return false;
+                }
+            }
+            Instruction::Jump(target) => {
+                if promise(&mut promised, *target, stack.len()).is_none() {
+                    return false;
+                }
+                let Some(depth) = promised.get(at.saturating_add(1)).copied().flatten() else {
+                    return false;
+                };
+                stack.clear();
+                stack.resize(depth, Slot::Unknown);
+            }
+        }
+    }
+    false
+}
+
+/// The two operands `binary` in [`apply_operator`] would hand a comparison, given its window.
+///
+/// A window shorter than two is §7.10.5.3's underflow, which the evaluator answers from
+/// [`EMPTY_STACK`] — an integer, so a short window never carries a boolean into the test.
+fn ordering_operands(window: &[Slot]) -> (Slot, Slot) {
+    let empty = Slot::Known(EMPTY_STACK);
+    let b = window.last().copied().unwrap_or(empty);
+    let a = window
+        .len()
+        .checked_sub(2)
+        .and_then(|at| window.get(at).copied())
+        .unwrap_or(empty);
+    (a, b)
+}
+
+/// [`apply_operator`] over types instead of values, on the window the operator reads.
+///
+/// Every arm mirrors its opposite number's *shape* — the same pops, the same pushes, the same
+/// guards — so that the depth this leaves is the depth the evaluator leaves; only the values are
+/// replaced by what can be said about their types. The match has no wildcard arm for the reason
+/// [`device_step`]'s has none: a Table 42 operator added to [`Operator`] stops this compiling
+/// rather than silently reaching the walk as nothing.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one arm per PostScript operator, beside the evaluator it mirrors"
+)]
+fn apply_sorts(operator: Operator, stack: &mut Vec<Slot>) {
+    /// Pops one slot, or the underflow [`EMPTY_STACK`] answers.
+    fn pop(stack: &mut Vec<Slot>) -> Slot {
+        stack.pop().unwrap_or(Slot::Known(EMPTY_STACK))
+    }
+    /// A one-operand operator, applied where its operand already is.
+    fn unary(stack: &mut Vec<Slot>, apply: impl Fn(Slot) -> Slot) {
+        match stack.last_mut() {
+            Some(slot) => *slot = apply(*slot),
+            None => stack.push(apply(Slot::Known(EMPTY_STACK))),
+        }
+    }
+    /// A two-operand operator, applied where its first operand already is.
+    fn binary(stack: &mut Vec<Slot>, apply: impl Fn(Slot, Slot) -> Slot) {
+        let b = pop(stack);
+        match stack.last_mut() {
+            Some(slot) => *slot = apply(*slot, b),
+            None => stack.push(apply(Slot::Known(EMPTY_STACK), b)),
+        }
+    }
+    /// A slot of a stated type.
+    fn sorted(sort: Sort) -> Slot {
+        Slot::Sorted(sort)
+    }
+    /// [`arithmetic1`]'s and [`arithmetic2`]'s result type, which only a real operand settles.
+    ///
+    /// With no real among the operands the answer is an integer *unless* the `checked_` arm
+    /// overflows, and whether it does is a fact about the values.
+    fn arithmetic(a: Slot, b: Slot) -> Slot {
+        if a.sort() == Some(Sort::Real) || b.sort() == Some(Sort::Real) {
+            sorted(Sort::Real)
+        } else {
+            Slot::Unknown
+        }
+    }
+    /// [`logic`]'s result type: two booleans answer a boolean and anything else an integer.
+    fn logic(a: Slot, b: Slot) -> Slot {
+        match (a.sort(), b.sort()) {
+            (Some(Sort::Boolean), Some(Sort::Boolean)) => sorted(Sort::Boolean),
+            (Some(Sort::Integer | Sort::Real), _) | (_, Some(Sort::Integer | Sort::Real)) => {
+                sorted(Sort::Integer)
+            }
+            _ => Slot::Unknown,
+        }
+    }
+
+    match operator {
+        Operator::Abs
+        | Operator::Ceiling
+        | Operator::Floor
+        | Operator::Neg
+        | Operator::Round
+        | Operator::Truncate => unary(stack, |a| arithmetic(a, a)),
+        Operator::Add | Operator::Mul | Operator::Sub => binary(stack, arithmetic),
+        Operator::Atan | Operator::Div | Operator::Exp => {
+            binary(stack, |_, _| sorted(Sort::Real));
+        }
+        Operator::Cos
+        | Operator::Cvr
+        | Operator::Ln
+        | Operator::Log
+        | Operator::Sin
+        | Operator::Sqrt => unary(stack, |_| sorted(Sort::Real)),
+        Operator::Cvi => unary(stack, |_| sorted(Sort::Integer)),
+        Operator::Idiv | Operator::Mod | Operator::Bitshift => {
+            binary(stack, |_, _| sorted(Sort::Integer));
+        }
+        Operator::And | Operator::Or | Operator::Xor => binary(stack, logic),
+        Operator::Not => unary(stack, |a| match a.sort() {
+            Some(Sort::Boolean) => sorted(Sort::Boolean),
+            Some(Sort::Integer | Sort::Real) => sorted(Sort::Integer),
+            None => Slot::Unknown,
+        }),
+        Operator::Eq | Operator::Ge | Operator::Gt | Operator::Le | Operator::Lt | Operator::Ne => {
+            binary(stack, |_, _| sorted(Sort::Boolean));
+        }
+        Operator::True | Operator::False => stack.push(sorted(Sort::Boolean)),
+        Operator::Pop => {
+            stack.pop();
+        }
+        Operator::Dup => {
+            if let Some(top) = stack.last().copied()
+                && stack.len() < MAX_STACK
+            {
+                stack.push(top);
+            }
+        }
+        Operator::Exch => {
+            let len = stack.len();
+            if len >= 2 {
+                stack.swap(len.saturating_sub(1), len.saturating_sub(2));
+            }
+        }
+        // §B.5's counting operators. Their own count is a known value or [`operand_demand`] has
+        // already abandoned the program, so the `unwrap_or` below is unreachable rather than a
+        // default — except for `roll`'s *second* number, which the demand does not read.
+        Operator::Copy => {
+            let count = pop(stack).count().unwrap_or(0);
+            if count <= 0 {
+                return;
+            }
+            let count = usize::try_from(count).unwrap_or(MAX_STACK).min(MAX_STACK);
+            let start = stack.len().saturating_sub(count);
+            if stack.len().saturating_add(count) > MAX_STACK {
+                return;
+            }
+            stack.extend_from_within(start..);
+        }
+        Operator::Index => {
+            let n = pop(stack).count().unwrap_or(0);
+            if n < 0 {
+                stack.push(Slot::Known(EMPTY_STACK));
+                return;
+            }
+            let n = usize::try_from(n).unwrap_or(usize::MAX);
+            let value = stack
+                .len()
+                .checked_sub(n.saturating_add(1))
+                .and_then(|at| stack.get(at).copied())
+                .unwrap_or(Slot::Known(EMPTY_STACK));
+            stack.push(value);
+        }
+        Operator::Roll => {
+            let shift = pop(stack).count();
+            let count = pop(stack).count().unwrap_or(0);
+            if count <= 0 {
+                return;
+            }
+            let count = usize::try_from(count)
+                .unwrap_or(usize::MAX)
+                .min(stack.len());
+            let start = stack.len().saturating_sub(count);
+            let Some(window) = stack.get_mut(start..) else {
+                return;
+            };
+            if count == 0 {
+                return;
+            }
+            // A rotation by an amount the walk does not know is a permutation of the window it
+            // cannot follow, and the *length* is all it can still be sure of. Every slot in the
+            // window is forgotten rather than moved — the one place where a slot loses what was
+            // known about it without a join.
+            let Some(shift) = shift else {
+                window.fill(Slot::Unknown);
+                return;
+            };
+            let count_i = i32::try_from(count).unwrap_or(1);
+            let amount = shift.rem_euclid(count_i);
+            let amount = usize::try_from(amount).unwrap_or(0);
+            window.rotate_right(amount);
+        }
     }
 }
 
@@ -2149,12 +2542,21 @@ fn apply_operator(operator: Operator, stack: &mut Vec<Value>) {
         // `/Range` clamp maps a `NaN` output to a bound before any caller sees it.
         Operator::Eq => binary(stack, |a, b| Value::Boolean(a.equals(b))),
         Operator::Ne => binary(stack, |a, b| Value::Boolean(!a.equals(b))),
-        // §B.3 types these four `num 1 num 2 … bool`, so unlike `eq` they do not admit a
-        // boolean at all and PostScript refuses one. The subset cannot express that refusal,
-        // and [`Value`]'s policy therefore converts: `true 0 gt` compares 1 with 0 and is true.
-        // That is a choice, it is the one quorra left with this tree
-        // (`doc/QUORRA_FUNCTION_PAINT_BUILT.md` section 3), and `doc/QUORRA_FEEDBACK.md`
-        // section 26 is the answer sent back with its ground.
+        // §B.3 types these four `num 1 num 2 … bool`, so unlike `eq` they do not admit a boolean
+        // at all — and §7.10.5.2 makes that a requirement rather than a summary, by handing the
+        // semantics to a document clause 2 lists as normative:
+        //
+        // > The PostScript Language Reference, Third Edition shall define the semantics of these
+        // > operators and all other syntax rules of the PostScript language.
+        //
+        // **So a boolean does not reach these arms.** `Function::parse_postscript` refuses a
+        // program in which one provably can, which is where the whole argument lives
+        // ([`ordering_reaches_a_boolean`]); what is left here is every program the walk could not
+        // decide, and there [`Value`]'s conversion policy still stands — `true 0 gt` compares 1
+        // with 0 — because an evaluator has no way to raise §7.10.5's error at a device pixel.
+        // The five-hundred-and-thirty-sixth session's reading, that this was a choice rather than
+        // a departure, is what ADR 0412 corrected; the question came from the quorra team's ADR
+        // 0053 section 3.2 by way of `doc/QUORRA_FUNCTION_PAINT_BUILT.md` section 3.
         Operator::Ge => binary(stack, |a, b| Value::Boolean(a.as_f64() >= b.as_f64())),
         Operator::Gt => binary(stack, |a, b| Value::Boolean(a.as_f64() > b.as_f64())),
         Operator::Le => binary(stack, |a, b| Value::Boolean(a.as_f64() <= b.as_f64())),
@@ -2330,7 +2732,10 @@ fn to_integer(value: f32) -> i32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{Function, Instruction, Operator, Value, compile_postscript, evaluate_postscript};
+    use super::{
+        Function, FunctionError, Instruction, Operator, Value, compile_postscript,
+        evaluate_postscript, ordering_reaches_a_boolean,
+    };
 
     /// Compiles and runs a type 4 program, which needs no document to exist, and reads what it
     /// left behind the way §7.10.5.3 does — as numbers.
@@ -2637,13 +3042,19 @@ mod tests {
         assert_eq!(typed("{ 1 cvr }", &[]), vec![Value::Real(1.0)]);
     }
 
-    /// The four ordering operators take a boolean as the 1 or 0 it stands for, deliberately.
+    /// The four ordering operators still read a boolean as 1 or 0 where nothing proved they would.
     ///
     /// §B.3 types them `num 1 num 2`, so unlike `eq` they do not admit a boolean at all and
-    /// PostScript refuses one. The subset has no value meaning *error*, so [`Value`]'s policy
-    /// converts instead of refusing — and this test is the contract answer quorra asked for in
+    /// PostScript refuses one — and §7.10.5.2's normative deferral makes that a requirement of
+    /// ISO 32000-2 rather than a summary of another language. **A function whose program
+    /// provably does it is refused before it is ever evaluated** (ADR 0412), which is what
+    /// `a_program_whose_comparison_provably_reads_a_boolean_is_refused` pins.
+    ///
+    /// What this one pins is the arm underneath that refusal: for every program the compile-time
+    /// walk could not decide, the evaluator still has to answer at a device pixel, and there
+    /// [`Value`]'s conversion policy stands. It is also the contract answer quorra asked for in
     /// `doc/QUORRA_FUNCTION_PAINT_BUILT.md` section 3, pinned so that the two evaluators cannot
-    /// drift apart on it. `doc/QUORRA_FEEDBACK.md` section 26 carries the ground.
+    /// drift apart on it.
     #[test]
     fn an_ordering_operator_reads_a_boolean_as_a_number_rather_than_refusing_it() {
         assert_eq!(calculator("{ true 0 gt }", &[]), vec![1.0]);
@@ -2653,6 +3064,87 @@ mod tests {
         // The conforming operands are untouched by any of it.
         assert_eq!(calculator("{ 2 1 gt }", &[]), vec![1.0]);
         assert_eq!(calculator("{ 1 2 gt }", &[]), vec![0.0]);
+    }
+
+    /// Whether [`ordering_reaches_a_boolean`] proves it of a program with `inputs` inputs.
+    fn reaches(source: &str, inputs: usize) -> bool {
+        let program = compile_postscript(source.as_bytes()).expect("compiles");
+        ordering_reaches_a_boolean(&program, inputs)
+    }
+
+    /// A program that provably compares a boolean is refused, and the walk says why.
+    ///
+    /// §7.10.5.2 hands the four operators' semantics to a document clause 2 makes normative, and
+    /// §B.3 corroborates with `num 1 num 2` — three operand classes in one table, `any 1 any 2`
+    /// for `eq` and `bool | int` for `and`. So the operand is not one, and
+    /// [`ordering_reaches_a_boolean`] has the argument for refusing rather than converting.
+    ///
+    /// Each line is a different route a boolean takes to the operand: a literal, an `eq`, a
+    /// comparison of its own, `and` on two booleans, `not` on one, and one arriving through the
+    /// stack operators rather than in place.
+    #[test]
+    fn a_program_whose_comparison_provably_reads_a_boolean_is_refused() {
+        assert!(reaches("{ true 0 gt }", 0));
+        assert!(reaches("{ 0 false ge }", 0));
+        assert!(reaches("{ 1 1 eq 0 lt }", 0));
+        assert!(reaches("{ 1 2 gt 0 le }", 0));
+        assert!(reaches("{ true true and 0 gt }", 0));
+        assert!(reaches("{ true not 0 gt }", 0));
+        assert!(reaches("{ 0 true exch gt }", 0));
+        assert!(reaches("{ true dup pop 0 gt }", 0));
+        assert!(reaches("{ true 0 2 1 roll gt }", 0));
+        // An input is a real (§7.10.5.3), so a comparison against one is not this.
+        assert!(reaches("{ true lt }", 1));
+    }
+
+    /// Every conforming shape a type 4 program takes stays admitted.
+    ///
+    /// The walk under-approximates on purpose: what it cannot prove it admits, so the cost of it
+    /// being wrong is a departure left where it was rather than a document refused. These are the
+    /// shapes the corpus's own type 4 functions are made of — a coordinate against a literal, a
+    /// pair of comparisons joined by `and`, a comparison inside a branch, and one whose operand
+    /// arrives through `index` or `copy`.
+    #[test]
+    fn a_conforming_program_is_not_refused() {
+        assert!(!reaches("{ 0.5 gt }", 1));
+        assert!(!reaches("{ dup 0.1 ge exch 0.2 le and }", 1));
+        assert!(!reaches("{ 2 copy gt exch pop exch pop }", 2));
+        assert!(!reaches("{ 1 index 0.5 lt { 0 } { 1 } ifelse }", 2));
+        assert!(!reaches("{ dup 0.5 gt { 1 sub } if 0.25 lt }", 1));
+        assert!(!reaches("{ 4 mul cvi 2 mod 0 eq }", 1));
+        // `eq` and `ne` are §B.3's `any 1 any 2` and admit a boolean by the clause's own word.
+        assert!(!reaches("{ true false eq }", 0));
+        assert!(!reaches("{ 1 2 gt true eq }", 0));
+    }
+
+    /// The walk declines to prove anything about a join, which is where it errs on purpose.
+    ///
+    /// Both arms of an `ifelse` leave a boolean, so a *merging* analysis would prove the `gt`
+    /// below reads one. This one forgets the stack at a join instead — [`fold_constants`]'
+    /// discipline — so the program is admitted and the evaluator's conversion answers it. The
+    /// test is here so that the imprecision is a decision on the record rather than a surprise.
+    #[test]
+    fn a_boolean_that_survives_a_join_is_not_proven() {
+        assert!(!reaches("{ 0.5 gt { true } { false } ifelse 0 gt }", 1));
+    }
+
+    /// A refused program leaves through [`FunctionError`], which every caller already reports.
+    #[test]
+    fn a_refused_program_is_a_function_error_rather_than_a_value() {
+        let source = b"%PDF-1.7\n1 0 obj\n<< /FunctionType 4 /Domain [0 1] /Range [0 1] \
+                       /Length 15 >>\nstream\n{ true 0 gt }\nendstream\nendobj\n\
+                       trailer\n<< /Root 1 0 R >>\n"
+            .to_vec();
+        let document = pdf_syntax::Document::open(source).expect("opens");
+        let object = document.get(pdf_syntax::ObjectId {
+            number: 1,
+            generation: 0,
+        });
+        let error = Function::parse(&document, &object).expect_err("refused");
+        assert!(
+            matches!(&error, FunctionError::Malformed { detail } if detail.contains("boolean")),
+            "{error:?}"
+        );
     }
 
     /// A pop from an empty operand stack is the integer zero, and `not` is what says so.

@@ -1,6 +1,6 @@
 # What quorra's answer asked of this tree
 
-Status: **open** — five residues, three of them ours alone, one with a code witness.
+Status: **open** — four residues, three of them ours alone.
 Priority: 54 — the same slot [`53`](53-what-hayros-tracker-asked.md) holds for the same reason: it
 is a list extracted from *another project's* account of where it stands, so it arrives as a set of
 questions rather than as one piece of work.
@@ -23,41 +23,22 @@ item below is written so that a round closes it by measuring rather than by beli
 - **Drop `bug1703683_page2_reduced.pdf` from the scale-4 refusal list.** Done in the same session,
   and done *by a run*: their ADR 0057 sizes a clipped mark's coverage tile by its chain's own
   bounding box, the page now agrees with the CPU oracle at 4×, and `REFUSED_AT_FOUR` is three names.
+- **Type 4's comparison operators on a boolean** — their ADR 0053 §3.2's question, and the item this
+  file carried as number 1. Settled by the clause in the five-hundred-and-seventy-seventh session
+  and settled the *third* way none of the three outcomes anticipated: §7.10.5.2 states no semantics
+  itself and **defers** them to a document clause 2 makes normative, so the type restriction is
+  ISO 32000-2's own requirement and the coercion was a silent departure. A program in which a
+  boolean provably reaches `ge`, `gt`, `lt` or `le` is refused at parse time now and its caller
+  reports it; where the compile-time walk cannot prove one, the conversion still answers. The
+  population was measured first and is **zero** provable cases in 1 251 documents against two
+  *containment* witnesses, both the owner's own files and neither actually doing it — trap 11 in one
+  line. ADR 0412, and `doc/QUORRA_FEEDBACK.md` §26.3(b) carries the withdrawal for them to read.
 - **Re-baseline the scale-1 ratchet for `issue2177.pdf`.** Already done, and long before they wrote
   — the five-hundred-and-thirty-second session took it out of `DIFFERS_STRUCTURALLY` when their
   ADR 0049's `fill_mask` cut an edge piece at the tile border instead of clamping it. The comment on
   `DIFFERS_AT_THE_EDGES` in `crates/render-quorra/tests/corpus.rs` carries the geometry.
 
-## 1. Type 4's comparison operators on a boolean — ours, with a witness in the code
-
-**This is the one with a defect behind it, and it is trap 5's shape exactly.**
-
-Their ADR 0053 §3.2 asks what the contract is when `gt`, `ge`, `lt` or `le` compare booleans, where
-PostScript raises `typecheck`. In this tree they do not compare booleans — they *coerce* them:
-
-- `crates/pdf-model/src/function.rs:2158` — `Operator::Ge => binary(stack, |a, b| Value::Boolean(a.as_f64() >= b.as_f64()))`, and `Gt`, `Lt`, `Le` beside it.
-- `Value::as_f64` at `function.rs:1105` maps `Boolean(value)` to `f64::from(u8::from(value))`.
-
-So `true 0 gt` yields `true` where PostScript raises an error, **and nothing is reported**. A
-type 4 function is §7.10.5, and what it says about the operand types of the four comparison
-operators is the question — not what PLRM3 says, which is evidence about the language the clause
-borrows from. §7.10.5.2's own list of operators and whatever it states about types decides it, and
-`doc/md/ISO_32000-2_sponsored_EC3.md` is where to read it rather than from memory.
-
-Three outcomes and they are different work: the clause states the type restriction, in which case
-this is a silent departure to make loud (principle 3 and trap 5); the clause states nothing, in
-which case it is a documented choice under `CLAUDE.md`'s "where the standard genuinely defines
-nothing" rule — **and read the titles around it first**, because that claim decays; or the clause
-states the coercion, in which case the code is right and the comment above it should say so with
-the clause number.
-
-**No corpus witness is known.** What would produce one is a grep for a `/FunctionType 4` stream
-whose program pushes a comparison operator onto a value the program itself produced with `eq`,
-`and`, `or` or `not` — the only way a boolean reaches the operand stack. Measure the population
-before pricing the fix; a departure no document can reach is still a departure, but it ranks
-differently.
-
-## 2. `REFUSED_AT_FOUR` flattens two kinds of refusal — ours
+## 1. `REFUSED_AT_FOUR` flattens two kinds of refusal — ours
 
 Their note, and it is right on inspection. `crates/render-quorra/tests/corpus.rs:332` holds three
 names and their reasons are not the same *kind*:
@@ -74,7 +55,7 @@ which. The fix is to split the constant along the stage the refusal happens at, 
 doc comment naming what a departure from it would mean. Small, and it makes the *next* release
 round's report legible rather than needing prose to disambiguate it.
 
-## 3. The two censuses they say are still ours
+## 2. The two censuses they say are still ours
 
 From `QUORRA_FEEDBACK.md` §27.4, restated in their answer and still not run:
 
@@ -86,14 +67,14 @@ From `QUORRA_FEEDBACK.md` §27.4, restated in their answer and still not run:
 **One walk over the corpus, not two**, and both are instrument work rather than a change to what
 gets drawn. They have been open for several rounds and no round has spent the walk.
 
-## 4. The fifth-frame tile-cache loss
+## 3. The fifth-frame tile-cache loss
 
 Reported in our own §2 and declined as a defect at the time. `Counters::atlas_repacked` has been
 wired here since the five-hundred-and-thirty-second session, which is where a round starts — the
 question is whether the fifth frame's loss is a repack or something else, and the counter answers it
 without a new probe.
 
-## 5. The two lanes' differing sets — the five-hundred-and-seventy-sixth's own residue
+## 4. The two lanes' differing sets — the five-hundred-and-seventy-sixth's own residue
 
 Not from their answer but from the round that took their release, and it belongs with these because
 it is the same instrument. The two coverage lanes' page counts converge and their *sets* do not:

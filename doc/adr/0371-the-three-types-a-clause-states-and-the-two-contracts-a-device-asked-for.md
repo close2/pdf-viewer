@@ -98,6 +98,14 @@ would be one per device pixel of a shading (ADR 0339).
 
 ### (b) `gt`, `ge`, `lt` and `le` read a boolean as the number it stands for
 
+> **Superseded by ADR 0412 (session 577), which found the reading below wrong at its first step.**
+> The subset's lack of an error value is a fact about the *evaluator*, and this decision took it for
+> a fact about the *clause* — but §7.10.5.2 hands the four operators' semantics to a document
+> clause 2 makes normative, so the type restriction is ISO 32000-2's own requirement, and §B.3's
+> `num 1 num 2` corroborates rather than merely summarises. A program in which a boolean provably
+> reaches one of the four is refused at parse time now. What survives is everything below about the
+> programs a compile-time walk cannot decide, where the conversion still answers.
+
 They are typed `num 1 num 2`, so PostScript refuses a boolean and the subset cannot express the
 refusal. The answer is the general rule above: `true 0 gt` compares 1 with 0 and is true.
 

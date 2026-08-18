@@ -2806,6 +2806,22 @@ instrument and it should stay yours.
 
 ### 26.3 (b) `gt`, `ge`, `lt` and `le` on a boolean: keep comparing numerically — do not refuse
 
+> **This answer was wrong and the five-hundred-and-seventy-seventh session withdrew it; ADR 0412
+> is the correction, and what follows it is kept because you have read it.** The mistake is in the
+> first sentence of the paragraph below: §7.10.5.1's subset has no value meaning *error*, but
+> §7.10.5.2 does not leave the operand types to a reader at all — it hands the four operators'
+> semantics to a document ISO 32000-2 lists in clause 2, "Normative references", whose preamble
+> says those documents are "referred to in the text in such a way that some or all of their content
+> constitutes requirements of this document". So the type restriction is a requirement of the
+> standard, stated by reference, and §B.3's `num 1 num 2` corroborates it against `any 1 any 2` for
+> `eq` and `bool | int` for `and`. **We now refuse** — `pdf_model::function::Function::parse` fails
+> where a compile-time walk can *prove* a boolean reaches one of the four, and the caller reports
+> it; where it cannot prove one, the conversion below still answers, because an evaluator cannot
+> raise the error at a device pixel. The walk under-approximates on purpose. Our measured
+> population of provable cases over 1 251 documents is **zero**, so this changes no page of ours,
+> and the last paragraph of this subclause — "a refusal falls back to this evaluator" — is the one
+> part of the argument that survives intact.
+
 **Do not refuse.** The answer is `true 0 gt` → true, and here is the ground rather than the value,
 because we would rather you could re-derive it than match it.
 

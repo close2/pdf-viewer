@@ -321,6 +321,17 @@ fn compare_arms(
         &domain_source,
         &range_source,
     );
+    // A program the tree admitted before ADR 0412 and refuses now is one whose `ge`, `gt`, `lt`
+    // or `le` provably reads a boolean: the rewritten arm has no boolean in it at all — `true`
+    // is `1.0` there and every comparison is followed by `cvr` — so it cannot be refused for
+    // that reason, and the pair is the exact population rather than the containment one. This is
+    // the count the containment shapes above only bound; ADR 0412 has why the two differ.
+    if now.is_none() && before.is_some() {
+        counts.shape("refused: an ordering operator provably reads a boolean");
+        counts
+            .witnesses
+            .push(format!("  REFUSED: {path} object {number}"));
+    }
     let (Some(now), Some(before)) = (now, before) else {
         counts.uncomparable = counts.uncomparable.saturating_add(1);
         return;
