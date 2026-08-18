@@ -10,7 +10,8 @@ since the four-hundred-and-forty-second**: order the rows by the commit that las
 `note = ` line, and the ones nothing has touched are the ones nothing has read — 40 of the 248 were
 older than commit 110 of 590, and **fourteen of the 32** read off the top of that list were wrong,
 with a fifteenth found beside them — the `implemented` neighbour one of the fourteen deferred to.
-**Fifteen sweeps**, twelve run every round, a thirteenth run once and declined
+**Seventeen sweeps** — fifteen of them here, a sixteenth over the corpus (ADR 0405) and a
+seventeenth in `tools/spec-errata`, where the errata are (ADR 0426) — twelve run every round, a thirteenth run once and declined
 (ADR 0265), a fourteenth built in the four-hundred-and-thirty-seventh, and **the fifteenth built
 in the four-hundred-and-sixtieth** — the first that ignores what a row says and asks instead who
 reads the entries the clause states (ADR 0295), and **the first of the fifteen to be a committed
@@ -37,8 +38,8 @@ written: a `'` … `'` is a quotation too (ADR 0375).
 Priority: 01 — the population with no gate, and it has paid on every session that touched it
 Code: `doc/conformance/ledger.toml`, checked by `cargo test -p conformance`
 
-**A sweep round commits one prose sweep as a program before running any of them.** Thirteen of the
-fifteen are commands (`conformance --bin entries`, `--bin quotations`, `--bin unread` since the
+**A sweep round commits one prose sweep as a program before running any of them.** Fifteen of the
+seventeen are commands (`conformance --bin entries`, `--bin quotations`, `--bin unread` since the
 four-hundred-and-eighty-ninth, `--bin blockers` since the five-hundred-and-first, `--bin
 capabilities` since the five-hundred-and-tenth, `--bin retired` since the
 five-hundred-and-seventeenth — the fourth sweep, which is the only one whose population cannot be
@@ -2953,6 +2954,60 @@ flag rather than a different run.
 find a reason that expired; this one finds a *number* that was wrong when it was written, and no
 amount of reading the sentence beside the code reveals that. It is the only sweep here whose
 instrument is a program over the corpus rather than a pattern over the tree.
+
+## A seventeenth sweep, and it reads a claim the twelfth cannot: **an erratum this tree *records***
+
+Built in the five-hundred-and-ninety-first session (ADR 0426), out of the five-hundred-and-ninetieth's
+finding: the §14.8.4.7.2 row had **recorded** Errata Collection 3's Issue #437 since the
+four-hundred-and-eighteenth and then **quoted the sentence that erratum struck out**, two sentences
+later, while four places in `crates/` quoted it as current text. Its lesson is the sweep's whole
+subject — **a row that records an erratum is not a row that has applied it** — and nothing looked
+for it. The twelfth sweep (`spec-errata check`) asks whether a quotation lands on struck text and
+knows nothing about whether the writer had read the erratum, so a place that names it and quotes
+the old words reads exactly like a place that never heard of it. **A row that names the erratum
+looks maximally diligent, which is precisely why nobody re-reads it.**
+
+```sh
+cargo run --release -p spec-errata -- applied doc/*.pdf
+```
+
+Two seconds, over `ledger.toml`, every comment run under `crates/`, `tools/` and `fuzz/`, and every
+Markdown block under `doc/` bar `doc/history/`. It is in the sidecar rather than under `conformance`
+for ADR 0252's reason, which is a rule and not a convenience: the errata are read out of fourteen
+PDFs, and nothing this project generates may become what the gate checks the standard against.
+
+**The discriminator is that nothing is inferred.** Every other sweep over quotations has to guess an
+attribution — `check` takes the clause from the nearest citation above the span and calls its own
+buckets a sort order rather than a verdict. Here the erratum is named as *data*, by the writer,
+inside the place itself, and the erratum supplies **both** sides of the comparison: the `StrikeOut`'s
+covered text and the `Caret`'s `/Contents`, joined by Table 172's `/IRT`.
+
+**The noise, printed rather than filtered.** A correction quoting the wording it retired is this
+family's oldest false positive and here the commonest hit by construction, since the honest way to
+record an erratum is to say what the sentence used to be; it is marked `[history]` from a window
+either side of the quotation, because this project writes a correction in both orders and a
+backwards-only window marks half of them. `doc/errata-read.md` is that shape from end to end and is
+counted apart. A `#NNN` this collection does not carry is dropped and counted, so a clean run says
+what it was clean over.
+
+**Its first run** compared 1068 quotation-against-erratum pairs over 43 976 places, 372 of which name
+an erratum, against 771 changes carrying 363 issue numbers, with 175 `#NNN` tokens naming none — and
+put **26** hits on the read-first list. Every one was read. **Two were the §14.8.4.7.2 shape one clause family over, both in §9.6.2.2's
+row**: the note opens by quoting the sentence Issue #47 and #48 strike outright, three thousand
+characters above its own record that they do, and the five-hundred-and-twenty-third session added a
+second quotation of it four sentences from that record while writing ADR 0358. The rest are the
+annotations sessions 417 to 419 wrote in place and four dated ADR records.
+
+**And the round that built it repaired the twelfth sweep's comparison**, which had been blind to two
+spellings this project's own rules produce: `CLAUDE.md`'s `"[e]ncloses"` for an altered first letter,
+and the em dash `doc/md/` writes as a hyphen in a table caption. `squeezed` is
+`conformance::prose::folded` now — one comparison in the crate rather than two — and the thirteen
+landings that became visible held three more defects, none of which `applied` could see because none
+of the three named the erratum: §9.6.2.1's row quoting both of Issue #47 and #48's struck sentences,
+and **two rustdoc blockquotes** quoting the sentence Issue #462 strikes out of §9.10.3, in the one
+population this project gates. §9.10.3's own row had recorded that erratum four rounds earlier and
+closed by warning that "a later round quoting it as current would be quoting text the collection has
+removed" — the quotations were already there when it was written.
 
 ## What is still owed, named
 

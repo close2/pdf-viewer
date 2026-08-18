@@ -456,6 +456,68 @@ tree *claims*, and a claim needs no quotation. `emit` plus the ledger is the ins
 its three signals are cheap to filter for: the words *delete*, *move* and *renumber*, and a
 strikeout whose whole text is a requirement word.
 
+## The erratum a row records, against the words it quotes — the five-hundred-and-ninety-first
+
+The five-hundred-and-ninetieth session found the §14.8.4.7.2 row naming Issue #437 since the
+four-hundred-and-eighteenth and quoting the sentence it struck out two sentences later, with four
+places in `crates/` quoting the same sentence as current text. **A row that records an erratum is
+not a row that has applied it**, and this file's whole first table is a list of rows that record
+one. So the question became a command:
+
+```sh
+cargo run --release -p spec-errata -- applied doc/*.pdf
+```
+
+It reads every place that *names* an erratum — a ledger note, a run of comment lines, a Markdown
+block — and asks whether the quotations inside it match what that erratum struck out or what it put
+there instead. **Nothing is inferred**: `check` has to guess which clause a quotation belongs to
+from the nearest citation above it, and here the erratum is named as data by the writer, with the
+`StrikeOut` and the `Caret` supplying both sides. ADR 0426; `doc/todo/01` has the noise shapes and
+`doc/todo/02` §4 the invocation.
+
+**Its first run put 26 hits on the read-first list and two of them were the §14.8.4.7.2 shape one
+clause family over**, both in §9.6.2.2's row:
+
+| where | issue | what it was |
+|---|---|---|
+| §9.6.2.2's row, its opening sentence | #47, #48 | "[t]he clause asks for '[t]hese fonts, or their font metrics and suitable substitution fonts'" — the sentence the erratum strikes outright, in the present tense, three thousand characters above the same note's own record that it does. **Corrected.** |
+| §9.6.2.2's row, beside ADR 0358 | #47, #48 | The five-hundred-and-twenty-third session quoted the same struck sentence as "the clause's substitution `shall`", four sentences from that record, while reading the clause for a substituted glyph's shape. **Corrected, and the conclusion is stronger without it**: with the availability `shall` retired the clause states no requirement about a substituted face at all. |
+
+The other twenty-four are the annotations sessions 417 to 419 wrote in place, where the retired
+words are kept deliberately because `doc/md/` is what the gate verifies against, plus four dated
+ADR records.
+
+### And the twelfth sweep's comparison was blind to two spellings this project's own rules produce
+
+`squeezed` was `normalise` plus the spaces and the case. It kept **square brackets** — so
+`CLAUDE.md`'s own `"[e]ncloses one or more PDF annotations"` spelling of an altered first letter
+made a passage unfindable — and it kept **dash shapes**, so a quotation carrying a table caption
+could not match `doc/md/`'s `Table 118 -Additional entries`. `conformance::prose::folded` had
+answered both for the Markdown sweep (ADR 0375) and is what `squeezed` is now: one comparison in
+the crate rather than two. Every folding is applied to both sides, so it can only hide a finding
+and never invent one.
+
+**It moved `check`'s three levels** — 151 struck passages still in the conversion to **178**, 73
+in-clause landings to **86**, 272 elsewhere to **293** — and the thirteen new landings, read one by
+one, held **three more defects**, none of which `applied` could see because none of the three named
+the erratum:
+
+| where | issue | what it was |
+|---|---|---|
+| §9.6.2.1's ledger row | #47, #48 | Quotes **both** struck sentences — the closing paragraph requiring a processor to supply glyph widths and font descriptor data for the standard 14, and the half of Table 109's `/FontDescriptor` row saying that stating the entries overrides a standard font — and names the erratum nowhere. Session 418 corrected this sentence in three doc comments and the 419th in two more; the row the code's own entry points at was never swept with them. **Corrected**, onto Table 109's permission and §6.3.2.2, which is the warrant `pdf_font::standard` already carries. |
+| `pdf-font/src/loading.rs`, `pdf-model/tests/composite_fonts.rs` | #462 | Two rustdoc **blockquotes** — the one population this project gates — quoting §9.10.3's "[t]he only pertinent entry in the CMap stream dictionary … is UseCMap, which", struck by Issue #462, which also inserts a table of the `/ToUnicode` stream's own entries. §9.10.3's row recorded the erratum in the five-hundred-and-eighty-seventh and closed by warning that a later round quoting it as current would be quoting removed text; the quotations were already there. **Both corrected**, and neither behaviour moves — `/UseCMap` is the entry under both readings. |
+
+### What the repair leaves owed, with its number
+
+The struck-passages list grew by **27 lines** and every one of them is a passage nobody has read:
+three in Annex A, which says *informative* on its own title line, four in clause 13, which
+`CLAUDE.md` excludes, and the remaining twenty across §7.5.8.2, §7.6.3.1, §7.10.4, §8.2, §9.6.2.3,
+§9.8.3.3, §9.10.3, §12.3.3, §12.5.6.3, §12.5.6.5, §12.7.5.2.3, §12.11.1, §12.11.2, §14.8.2.2.2,
+§14.10.5.3, ISO/TS 32001 §5.1.4 and §0.4. **They are visible for the first time and they are a
+round's reading**, at the rates this file already records — 66 passages gave two findings and the
+next 54 gave one. Recorded here rather than left to be rediscovered; `doc/todo/48` carries it as
+owed.
+
 ## The filter becomes a command, and it found two the hand-run missed
 
 The paragraph above ends by naming three words to filter for. **A filter written down is a filter

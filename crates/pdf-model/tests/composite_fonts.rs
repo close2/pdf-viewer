@@ -590,9 +590,13 @@ fn a_two_byte_code_is_not_read_as_a_character_when_nothing_names_it() {
 
 /// A `/ToUnicode` `CMap` that states only its differences from another one (§9.10.3).
 ///
-/// > The only pertinent entry in the CMap stream dictionary (see "Table 118 -Additional entries
-/// > in a CMap stream dictionary") is UseCMap , which may be used if the CMap is based on
-/// > another ToUnicode CMap.
+/// The entry is `/UseCMap`, which "may be used if the `CMap` is based on another `ToUnicode`
+/// `CMap`."
+/// The sentence naming it is rewritten by Errata Collection 3's Issue #462 (`/State` `Review`
+/// `Completed`), which strikes the clause's pointer at Table 118 and inserts a table of the
+/// `/ToUnicode` stream's own entries; this comment quoted the struck half as a blockquote until
+/// the five-hundred-and-ninety-first session. The entry is the same under both readings, which is
+/// what this test holds.
 ///
 /// `issue5010.pdf` is that shape and states the relationship the *other* way §9.7.5.4 a) allows
 /// it to be written — `/Adobe-Korea1-UCS2 usecmap` inside the file, with no `/UseCMap` in the

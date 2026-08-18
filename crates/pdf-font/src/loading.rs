@@ -1546,11 +1546,17 @@ const MAX_TO_UNICODE_DEPTH: u32 = 4;
 
 /// One `/ToUnicode` stream, with the `CMap` it states only its differences from beneath it.
 ///
-/// §9.10.3 names the one dictionary entry that means anything here:
+/// §9.10.3 names the one dictionary entry that means anything here, and it is `/UseCMap`, which
+/// "may be used if the `CMap` is based on another `ToUnicode` `CMap`".
 ///
-/// > The only pertinent entry in the CMap stream dictionary (see "Table 118 -Additional entries
-/// > in a CMap stream dictionary") is UseCMap , which may be used if the CMap is based on
-/// > another ToUnicode CMap.
+/// **The sentence that names it has been rewritten, and this comment quoted the retired half of
+/// it as a blockquote until the five-hundred-and-ninety-first session.** Errata Collection 3's
+/// Issue #462 (`/State` `Review` `Completed`) strikes everything in front of the entry's name —
+/// the clause used to introduce it as the only pertinent entry of a `CMap` stream dictionary and
+/// point at Table 118 for the rest — and inserts a table of the `/ToUnicode` stream's own entries
+/// instead. `doc/md/` carries neither change, because the sponsored copy records EC3 as review
+/// markup and the conversion dropped every annotation (ADR 0252). Nothing this function does
+/// moves: `/UseCMap` is the entry under both readings, and §9.10.3's ledger row carries the rest.
 ///
 /// A **name** is one of Adobe's published files, which this binary carries (see
 /// [`predefined::unicode_cmap`]); a **stream** is another `/ToUnicode` `CMap`, read the same way.

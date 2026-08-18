@@ -42,6 +42,8 @@
 
 #![forbid(unsafe_code)]
 
+pub mod applied;
+
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
@@ -137,6 +139,18 @@ pub struct Note {
     pub subtype: String,
     /// What §12.5.6.2 makes this annotation to its neighbours.
     pub role: Role,
+    /// Which *change* this note is part of: the primary annotation of its §12.5.6.2 group.
+    ///
+    /// A strikeout and the caret that replaces it are two marks stating one erratum, and
+    /// [`applied`] has to put them back together to ask whether a quotation is on the retired
+    /// side of the change or on the amended one. Table 172's `/IRT` is what joins them —
+    /// [`Role::Group`] means "part of the same change as the annotation I name" — so this is the
+    /// `/IRT` target where there is one and the annotation's own object otherwise.
+    ///
+    /// `None` where the file states the annotation directly in the `/Annots` array rather than
+    /// as an indirect object, which these documents never do and which is not worth guessing at:
+    /// a note with no identity is one no other note can name.
+    pub change: Option<pdf_syntax::ObjectId>,
     /// Table 166's `/Contents`.
     pub contents: Option<String>,
     /// The page's own text under `/QuadPoints`, for a markup that covers text.
@@ -230,12 +244,26 @@ pub const MIN_WORDS: usize = 4;
 /// case: that one decides whether a quotation is the standard's own words, and a lowered letter
 /// there is a real difference a reader should see. This function only asks whether a quotation is
 /// *about* a struck passage, which is a lead for a person to follow rather than a verdict.
+///
+/// # The square brackets, and the third time this comparison was half-blind
+///
+/// It was `normalise` plus the two foldings above until the five-hundred-and-ninety-first
+/// session, and what that missed is `CLAUDE.md`'s **own** convention for the altered letter the
+/// paragraph above describes: a quotation starting mid-sentence is written `"[e]ncloses one or
+/// more PDF annotations"`, with the change inside square brackets, and a comparison that keeps
+/// the brackets calls that passage absent. §14.8.4.7.2's ledger row is the witness — it quoted a
+/// sentence Issue #437 struck out, in exactly that spelling, and this crate could not see it
+/// while [`applied`] could. So the fold is [`conformance::prose::folded`] now, which is the same
+/// two foldings plus the brackets, the dash shapes and the fraction slash: one answer to *what
+/// two extractions of one sentence agree on*, shared with the sweep over this project's own
+/// Markdown rather than written twice.
+///
+/// **Every one of those is a coarsening applied to both sides**, so each can only ever hide a
+/// finding rather than invent one — which is the same argument ADR 0253 made for the spaces and
+/// ADR 0375 for the quotation marks, and this is the third instance of one instrument being
+/// blind to a spelling this project's own rules ask for.
 fn squeezed(text: &str) -> String {
-    conformance::quote::normalise(text)
-        .chars()
-        .filter(|character| !character.is_whitespace())
-        .flat_map(char::to_lowercase)
-        .collect()
+    conformance::prose::folded(text)
 }
 
 /// Reads every note out of one document.
@@ -303,6 +331,10 @@ pub fn read(path: &Path) -> Result<Vec<Note>, Error> {
                 title: text_of(&document, annotation, "T"),
                 subtype,
                 role: Role::of(&document, annotation),
+                change: match Role::of(&document, annotation) {
+                    Role::Group => annotation.get("IRT").and_then(Object::as_reference),
+                    Role::Primary | Role::Reply => entry.as_reference(),
+                },
                 contents: text_of(&document, annotation, "Contents"),
                 covered,
                 created: text_of(&document, annotation, "CreationDate"),
@@ -1147,6 +1179,7 @@ mod tests {
             title: None,
             subtype: "Caret".to_owned(),
             role: Role::Primary,
+            change: None,
             contents: Some(contents.to_owned()),
             covered: None,
             created: None,
@@ -1176,6 +1209,7 @@ mod tests {
             title: None,
             subtype: "StrikeOut".to_owned(),
             role: Role::Primary,
+            change: None,
             contents: None,
             covered: None,
             created: None,

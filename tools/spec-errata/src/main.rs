@@ -9,6 +9,8 @@
 //! cargo run --release -p spec-errata -- check doc/*.pdf
 //! # the other direction: a clause number an erratum moves, and what stands on it here
 //! cargo run --release -p spec-errata -- moved doc/*.pdf
+//! # the third: a place that records an erratum and quotes the words it removed
+//! cargo run --release -p spec-errata -- applied doc/*.pdf
 //! ```
 //!
 //! `emit`'s output is derived from documents this project may not redistribute (ADR 0187) and
@@ -36,6 +38,8 @@ enum Command {
     Check,
     /// Errata that move a clause *number*, and what this tree has standing on each.
     Moved,
+    /// Places that name an erratum and quote the text it removed.
+    Applied,
 }
 
 fn main() -> std::process::ExitCode {
@@ -45,8 +49,9 @@ fn main() -> std::process::ExitCode {
         Some("census") => Command::Census,
         Some("check") => Command::Check,
         Some("moved") => Command::Moved,
+        Some("applied") => Command::Applied,
         _ => {
-            println!("usage: spec-errata <emit|census|check|moved> <document.pdf>...");
+            println!("usage: spec-errata <emit|census|check|moved|applied> <document.pdf>...");
             return std::process::ExitCode::FAILURE;
         }
     };
@@ -72,6 +77,12 @@ fn main() -> std::process::ExitCode {
         }
         Command::Moved => {
             if let Err(error) = moved(&notes) {
+                println!("{error}");
+                return std::process::ExitCode::FAILURE;
+            }
+        }
+        Command::Applied => {
+            if let Err(error) = applied(&notes) {
                 println!("{error}");
                 return std::process::ExitCode::FAILURE;
             }
@@ -250,6 +261,95 @@ fn moved(notes: &[Note]) -> Result<(), spec_errata::Error> {
          is which published numbers stand on ground an erratum has moved, and how much of this tree \
          stands with them — `doc/errata-read.md` carries the reading."
     );
+    Ok(())
+}
+
+/// Places that name an erratum and quote the words it removed.
+///
+/// **The question `check` cannot ask, from the third direction.** `check` asks whether a
+/// quotation lands on struck text and cannot see whether the writer had read the erratum;
+/// `moved` asks whether an erratum shifts ground this tree stands on. This one asks whether a
+/// place that *records* an erratum has **applied** it — the five-hundred-and-ninetieth session's
+/// finding, whose lesson is that a row recording an erratum is not a row that has applied it.
+///
+/// The rungs are printed in the order they are worth reading: a live quotation of retired text,
+/// then a correction quoting the wording it retired, then this project's own record of the
+/// reading, which is that shape from end to end.
+///
+/// # Errors
+///
+/// Whatever [`spec_errata::applied::ledger_places`], [`spec_errata::applied::source_places`] or
+/// [`spec_errata::applied::document_places`] answered.
+fn applied(notes: &[Note]) -> Result<(), spec_errata::Error> {
+    let errata = spec_errata::applied::errata(notes);
+    let mut places =
+        spec_errata::applied::ledger_places(&PathBuf::from("doc/conformance/ledger.toml"))?;
+    places.extend(spec_errata::applied::source_places(&[
+        PathBuf::from("crates"),
+        PathBuf::from("tools"),
+        PathBuf::from("fuzz"),
+    ])?);
+    places.extend(spec_errata::applied::document_places(&PathBuf::from(
+        "doc",
+    ))?);
+    let report = spec_errata::applied::sweep(&errata, &places);
+
+    println!(
+        "{} change(s) over {} issue number(s); {} strike out {} words or more and can be \
+         compared against.",
+        report.errata,
+        report.issues,
+        report.comparable,
+        spec_errata::MIN_WORDS
+    );
+    println!(
+        "{} place(s) read — a ledger note, a comment run or a Markdown block — of which {} name \
+         an erratum this collection carries; {} `#NNN` token(s) name none and are dropped.",
+        report.places, report.citing, report.unknown
+    );
+    println!(
+        "{} quotation-against-erratum comparison(s): {} quote the erratum's own replacement, {} \
+         match both sides, {} quote what it struck out.",
+        report.compared,
+        report.applied,
+        report.both,
+        report.hits.len()
+    );
+    println!(
+        "\n{} of those carry no mark of a correction and are the list to read first; {} read like \
+         a correction quoting the wording it retired; {} are in {}, which is the reading itself.",
+        report.unmarked(),
+        report
+            .hits
+            .len()
+            .saturating_sub(report.unmarked())
+            .saturating_sub(report.reading()),
+        report.reading(),
+        spec_errata::applied::THE_READING
+    );
+    for hit in &report.hits {
+        let marks = match (hit.reading, hit.history) {
+            (true, _) => " [the reading]",
+            (false, true) => " [history]",
+            (false, false) => "",
+        };
+        println!(
+            "\n  [{}] {} — Issue #{} — {}{marks}",
+            hit.kind.as_str(),
+            hit.location,
+            hit.issue,
+            hit.erratum
+        );
+        println!("      quoted: {}", hit.quotation);
+        println!("      struck: {}", hit.struck);
+        if hit.replacement.is_empty() {
+            println!("      the erratum states no replacement: it deletes.");
+        } else {
+            for replacement in &hit.replacement {
+                println!("      instead: {replacement}");
+            }
+        }
+    }
     Ok(())
 }
 

@@ -4,7 +4,7 @@ Status: **standing** — `tools/state.sh` prints the counts; the failure modes l
 Read by: whoever is about to write or correct a ledger row, or to believe one.
 
 `doc/PLAN.md` §5a owns the ledger's format, statuses and checker; `doc/todo/01-ledger-partial-rows.md`
-owns the sweeps — fifteen now, thirteen of them committed programs, the thirteenth being the tenth
+owns the sweeps — seventeen now, fifteen of them committed programs, the thirteenth being the tenth
 sweep, which reads a parent row's stated count of its family against the arithmetic of the rows below
 it and decides which numbers are claims about a family by the ninth sweep's attribution rule (ADR
 0400), after the fourteenth, which reads the status whose own definition promises a debt and measures
@@ -13,7 +13,8 @@ four-hundred-and-thirteenth and is the first that reads a row's *quotation marks
 a program since the five-hundred-and-fortieth and reading single-quoted spans as well as double
 ones from that round on (ADR 0375), and
 the twelfth lives in `tools/spec-errata` and asks the same spans whether an erratum struck one
-(ADR 0254). The counts below were read off `cargo run -p conformance --bin ledger` in the
+(ADR 0254) — and the **seventeenth** lives beside it and asks the question that one cannot, whether a
+place *recording* an erratum has applied it (ADR 0426). The counts below were read off `cargo run -p conformance --bin ledger` in the
 four-hundred-and-forty-second, which read the `partial` rows nobody had re-read — ordered by when
 each row's *note* was last written, which `git blame` answers and no sweep here had asked — and
 moved four to `implemented`. The four-hundred-and-thirty-seventh's fourteenth sweep — a `partial`

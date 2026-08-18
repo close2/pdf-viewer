@@ -493,10 +493,25 @@ fn segments(quotation: &str) -> Vec<String> {
         .collect()
 }
 
-/// Every quotation one Markdown document makes, in the order it makes them.
+/// One block of a Markdown document, joined into one text.
 ///
-/// Three shapes — a blockquote, and the two pairs of marks [`quote::quoted_spans`] finds in a
-/// paragraph — and the rules that keep each of them honest:
+/// A paragraph, a blockquote, a table row or a list item — whatever [`blocks`]'s rules make a
+/// unit. It is the unit *quotations* are collected from, and it is also the unit a claim
+/// belongs to: a sweep asking whether the prose beside a quotation says something about it
+/// needs the prose as well as the span.
+#[derive(Debug, Clone)]
+pub struct Block {
+    /// The 1-based line the block starts on.
+    pub line: usize,
+    /// Whether the block is a blockquote or ordinary prose.
+    pub shape: Shape,
+    /// Its lines, trimmed of their `>` markers and joined with one space.
+    pub text: String,
+}
+
+/// Every block one Markdown document is made of, in the order it writes them.
+///
+/// The rules that keep each of them honest:
 ///
 /// - **A fenced block is not prose.** These documents are full of shell invocations, Rust
 ///   snippets and sample output, every string literal in which would otherwise be read as a
@@ -508,32 +523,24 @@ fn segments(quotation: &str) -> Vec<String> {
 ///   on different lines, and a line-at-a-time reader sees two unmatched marks and reports
 ///   nothing. This is `spec-errata`'s lesson about doc comments, and Markdown wraps harder.
 #[must_use]
-pub fn quotations(text: &str) -> Vec<(usize, Shape, String)> {
-    let mut found: Vec<(usize, Shape, String)> = Vec::new();
+pub fn blocks(text: &str) -> Vec<Block> {
+    let mut found: Vec<Block> = Vec::new();
     let mut fenced = false;
     let mut block: Vec<String> = Vec::new();
     let mut shape = Shape::Quoted;
     let mut start = 0usize;
 
-    let flush = |block: &mut Vec<String>,
-                 shape: Shape,
-                 start: usize,
-                 found: &mut Vec<(usize, Shape, String)>| {
+    let flush = |block: &mut Vec<String>, shape: Shape, start: usize, found: &mut Vec<Block>| {
         if block.is_empty() {
             return;
         }
         let joined = block.join(" ");
         block.clear();
-        match shape {
-            Shape::Blockquote => found.push((start, shape, joined)),
-            // A paragraph carries whichever marks it carries, and the span itself says which
-            // pair delimited it: the block only ever knew that it was not a blockquote.
-            _ => {
-                for (marked, span) in quoted_spans(&joined) {
-                    found.push((start, marked, span));
-                }
-            }
-        }
+        found.push(Block {
+            line: start,
+            shape,
+            text: joined,
+        });
     };
 
     for (index, line) in text.lines().enumerate() {
@@ -575,6 +582,30 @@ pub fn quotations(text: &str) -> Vec<(usize, Shape, String)> {
         block.push(body.to_owned());
     }
     flush(&mut block, shape, start, &mut found);
+    found
+}
+
+/// Every quotation one Markdown document makes, in the order it makes them.
+///
+/// Three shapes — a blockquote, and the two pairs of marks [`quote::quoted_spans`] finds in a
+/// paragraph. [`blocks`] is where the rules that decide what a paragraph *is* live; this is the
+/// one step after them, and the reason the two are separate functions is that a sweep asking
+/// what the prose around a quotation says needs the block and not only the span.
+#[must_use]
+pub fn quotations(text: &str) -> Vec<(usize, Shape, String)> {
+    let mut found: Vec<(usize, Shape, String)> = Vec::new();
+    for block in blocks(text) {
+        match block.shape {
+            Shape::Blockquote => found.push((block.line, block.shape, block.text)),
+            // A paragraph carries whichever marks it carries, and the span itself says which
+            // pair delimited it: the block only ever knew that it was not a blockquote.
+            _ => {
+                for (marked, span) in quoted_spans(&block.text) {
+                    found.push((block.line, marked, span));
+                }
+            }
+        }
+    }
     found
 }
 

@@ -7,7 +7,9 @@ annotations are the **errata**, and `doc/md/` presents struck-out passages as th
 current text. Reading all of them found **four clauses this tree implemented differently** —
 §12.5.2's `/BM`, §14.13.5's `/MCAF`, §7.8.3's Type 3 glyph resources and §8.9.5.4, the last of
 which is implemented as the erratum states it since the five-hundred-and-fortieth.
-**What is left is steps 4 and 5 below, and nothing else.**
+**What is left is steps 3b, 4 and 5 below** — and 3b is new rather than old: the
+five-hundred-and-ninety-first repaired the comparison and 27 more struck passages became visible
+with it.
 Priority: 48 — kept, by the convention that the `40`–`49` band is *the project's own instruments*.
 **Its real weight is higher than the number**: this is a list of known-wrong passages in the file
 principle 5 rests on.
@@ -47,7 +49,9 @@ page is wanted.
 
 ## What is built
 
-`tools/spec-errata`, with `census`, `emit` and `check`. Seven seconds over all fourteen documents.
+`tools/spec-errata`, with `census`, `emit`, `check`, `moved` and — since the
+five-hundred-and-ninety-first — `applied`, which asks whether a place that *records* an erratum has
+applied it (ADR 0426, `doc/todo/01`'s seventeenth sweep). Seven seconds over all fourteen documents.
 Not a gate and not a test, and `conformance` does not know it exists — the gate must keep checking
 quotations against a conversion this project did not make, or a defect in our extractor becomes a
 defect in the standard. ADR 0252 has the argument.
@@ -109,6 +113,15 @@ defect in the standard. ADR 0252 has the argument.
    columns — the caveat above, now with witnesses. ADR 0309. **A gate is still refused for ADR
    0249's reason** and the price has gone up: the syntax it needs would have to be migrated onto
    1401 spans rather than 417.
+3b. **The 27 struck passages the repaired comparison made visible**, new in the
+   five-hundred-and-ninety-first (ADR 0426). `squeezed` kept square brackets and dash shapes, so it
+   could not find a passage quoted in `CLAUDE.md`'s own `"[e]ncloses"` spelling of an altered first
+   letter, nor one carrying a table caption `doc/md/` writes with a hyphen where the standard sets
+   an em dash. It is `conformance::prose::folded` now, and `check`'s struck-passage list went from
+   151 lines to **178**. Three of the new ones are in Annex A and four in clause 13, both outside
+   scope; **the other twenty are unread**, and `doc/errata-read.md` names their clauses. This is the
+   same reading task items 1 to 3 were, at the rates that file records, and it is the one thing this
+   item gained rather than closed.
 4. **The disagreement sweep** (the old step 3), unchanged: compare our extraction against `doc/md/`
    and report every span where they differ. The annotations were one loss of four; three others are
    recorded in this file's history and none has been swept for.
@@ -153,11 +166,13 @@ last clause this tree knowingly implemented a retired version of is implemented 
 states it, and the reason it had been declined turned out to be a misreading of the amended steps'
 own ordering rather than a defect in them. ADR 0375.
 
-The replacement condition, for whoever picks it up: **the reading half is done, the correctness
-question it was asked to answer is answered, and items 1 to 3 are closed.** What is left is steps 4
-and 5 below — the disagreement sweep and the substrate question — which this file has carried since
-it was written and which are *work* rather than documentation debt, so the item stays where it is
-with that scope and no other. If a round closes step 4 and it turns up nothing, what remains is one
+The replacement condition, for whoever picks it up: **the reading half is done for the passages the
+instrument could see, the correctness question it was asked to answer is answered, and items 1 to 3
+are closed.** What is left is step 3b — twenty passages the five-hundred-and-ninety-first's repair
+of the comparison made visible, which is reading of exactly the kind items 1 to 3 were — and steps 4
+and 5, the disagreement sweep and the substrate question, which this file has carried since it was
+written and which are *work* rather than documentation debt. The item stays where it is with that
+scope and no other. If a round closes step 4 and it turns up nothing, what remains is one
 API question and this file should become a paragraph in `doc/todo/01` rather than a file. The rates
 are worth carrying: 66 passages gave two findings, the next 54 gave one, and the *quotation* sweep —
 a different question over the same errata — gave nine in one round, six in the next, three in the

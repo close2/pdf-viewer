@@ -311,6 +311,24 @@ share and the two that break it:
   cargo run --release -p spec-errata -- moved doc/*.pdf
   ```
 
+  **And a third direction is a command since the five-hundred-and-ninety-first** (ADR 0426), for the
+  hole `check` and `emit` between them still left — a place that *records* an erratum and then
+  quotes the words it removed:
+
+  ```sh
+  cargo run --release -p spec-errata -- applied doc/*.pdf
+  ```
+
+  Two seconds, over `ledger.toml`, every comment run under `crates/`, `tools/` and `fuzz/`, and
+  every Markdown block under `doc/` bar `doc/history/`. **Its discriminator is that the erratum is
+  named as data, by the writer, in the place itself**, so nothing is inferred: the `StrikeOut` and
+  the `Caret` supply both sides and a hit is a quotation matching what the erratum struck and not
+  what it put there. Read the hits that carry **no** mark of a correction first — a correction
+  quoting the wording it retired is this family's oldest false positive and is marked rather than
+  dropped, `doc/errata-read.md` is that shape from end to end and is counted apart, and a `#NNN`
+  this collection does not carry is dropped and counted so that a clean run says what it was clean
+  over. Its first run found the §14.8.4.7.2 shape one clause family over, in §9.6.2.2's row, twice.
+
   **The first of those two filters is a command since the five-hundred-and-sixty-fifth** (ADR 0400):
   `moved` prints every annotation whose instruction uses *move*, *renumber*, *delete* or *insert* **and
   names a clause number**, with what this tree has standing on that number — its ledger rows, its
