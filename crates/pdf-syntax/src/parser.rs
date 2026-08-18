@@ -508,11 +508,42 @@ pub(crate) fn endstream_follows(input: &[u8], offset: usize) -> bool {
 /// Returns the offset of the data end, excluding the end-of-line that precedes the
 /// keyword — that byte belongs to the delimiter, not the data, and including it corrupts
 /// every stream recovered this way.
+///
+/// # Why it looks for one byte before comparing nine
+///
+/// This search is not an error path. Table 5 makes `/Length` "shall be an indirect
+/// reference" for a producer that does not know the length until the data is written, and a
+/// parser cannot follow one (see [`Document::with_stated_length`]) — so on such a file this
+/// runs on the launch path, from the stream's first byte to wherever `endstream` is.
+///
+/// `windows(9).position(..)` compares nine bytes at every offset and measured **five
+/// instructions a byte**: 446 M of the 11 471 M it takes to interpret page one of
+/// `doc/todo/44`'s witness, whose page content is one 49.7 MB stream with an indirect
+/// length. Looking for `e` and comparing the other eight only where one is found is the
+/// same answer for a fraction of the work, because compressed stream data holds about one
+/// `e` in 256. ADR 0424 has the A/B.
+///
+/// [`Document::with_stated_length`]: crate::Document
 fn find_endstream(input: &[u8], from: usize) -> Option<usize> {
+    const NEEDLE: &[u8] = b"endstream";
     let haystack = input.get(from..)?;
-    let found = haystack
-        .windows(b"endstream".len())
-        .position(|window| window == b"endstream")?;
+
+    let mut at = 0usize;
+    let found = loop {
+        let hit = haystack
+            .get(at..)?
+            .iter()
+            .position(|&byte| byte == b'e')?
+            .saturating_add(at);
+        if haystack
+            .get(hit..)
+            .is_some_and(|tail| tail.starts_with(NEEDLE))
+        {
+            break hit;
+        }
+        // Past the `e` that did not begin one, so the search always advances.
+        at = hit.saturating_add(1);
+    };
 
     let mut end = from.saturating_add(found);
     // Trim one end-of-line sequence.

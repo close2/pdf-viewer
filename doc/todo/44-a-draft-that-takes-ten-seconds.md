@@ -18,6 +18,12 @@ it did. **Session 535 retook §2's attribution, which three rounds of its own wo
 and took the three levers the new one names** (§2a, ADR 0370) — a fixed-size operand marshalling,
 §7.2.3's classification as a table, and §7.3.3's fixed format asked before the digit scan.
 **Session 588 divided the `scene` phase and finished the launch table** (§6, ADR 0423).
+**Session 589 then divided the largest phase of all** — interpretation — and took what the division
+named: 85% of this page's 20.8 million tokens are §7.3.3 numbers, each walked once to find its run
+and once to read its value, and fusing the two with §7.3.8.2's `endstream` search is **−7.12%** of
+interpreting the page and −6.8% of the launch's interpretation step, byte-identical over 1178 first
+pages (ADR 0424). That ADR also settles the other half of session 588's attribution: the 23% of
+inflation is one pass over the stream and there is nothing to memoise.
 What is left of this file is §3.1's second half — the page-space construction that would
 buy the `scene` phase back across *zoom* steps, which needs nothing from upstream and which the
 trace this file is about does not exercise — and §6's ask, which is upstream's.

@@ -440,6 +440,33 @@ impl<'a> Lexer<'a> {
     /// arrives after the point and before any digit — keeps the older reading of zero.
     /// That is a different question from this one and the corpus offers no witness for it.
     fn read_number(&mut self) -> Token<'a> {
+        // §7.3.3's fixed format is read **straight off the cursor**, before the run this
+        // function used to find first. Both statements are about the same bytes, so finding
+        // the run and then parsing it walked every well-formed number twice — and on
+        // `doc/todo/44`'s witness 17.65 million of the page's 20.83 million tokens are
+        // numbers, so that second walk was most of what [`Self::read_regular_run`] did.
+        // Fusing the two passes is worth **5.4%** of interpreting that page — 11 470.9 M
+        // instructions to 10 848.7 M, callgrind, A/B in one sitting, with
+        // [`Self::read_regular_run`] itself falling from 417.5 M to 16.1 M (ADR 0424).
+        //
+        // What it costs in clarity is one condition that has to be read beside §7.2.3
+        // rather than beside §7.3.3: [`fixed_format_number`] stops at the first byte outside
+        // its grammar, and *that byte must also end the token*. Where it does not — `12pt`,
+        // `1.2.3`, `5f` — the fixed format has read a prefix of something longer, so the
+        // answer is thrown away and the slower path below owns the run exactly as it always
+        // did. A delimiter or white space, or the end of the input, means the run is over
+        // and the parse stands.
+        let rest = self.input.get(self.position..).unwrap_or_default();
+        if let Some((value, taken)) = fixed_format_number(rest)
+            && !rest.get(taken).copied().is_some_and(is_regular)
+        {
+            self.position = self.position.saturating_add(taken);
+            return match value {
+                Fixed::Integer(value) => Token::Integer(value),
+                Fixed::Real(value) => Token::Real(value),
+            };
+        }
+
         let raw = self.read_regular_run();
 
         // §7.3.3 states both numeric forms in terms of digits. An integer:
@@ -458,21 +485,16 @@ impl<'a> Lexer<'a> {
         // Almost every number a content stream states is the fixed format the two sentences
         // above define, and the standard library's parser — correct for exponents,
         // subnormals and worst-case roundings a PDF number never uses — was 15.1% of
-        // interpreting a dense page (ADR 0341). `fixed_format_number` parses exactly that
-        // grammar and nothing else; anything it declines falls through to the two readings
-        // below, unchanged.
+        // interpreting a dense page (ADR 0341). [`fixed_format_number`], asked above, parses
+        // exactly that grammar and nothing else; anything it declines falls through to the
+        // two readings here, unchanged.
         //
         // **It is asked before the digit scan, and that is an ordering rather than a rule
-        // change**: both forms are "one or more decimal digits", so a run this function
+        // change**: both forms are "one or more decimal digits", so a run that function
         // accepts is a run that holds one, and the scan below could only have agreed with it.
         // Asking the scan first walked every well-formed number's bytes a second time — three
         // passes over a token that is almost always four characters — and this is the pass
         // that is skipped when the fast path answers (ADR 0370).
-        match fixed_format_number(raw) {
-            Some(Fixed::Integer(value)) => return Token::Integer(value),
-            Some(Fixed::Real(value)) => return Token::Real(value),
-            None => {}
-        }
 
         // A run holding no decimal digit is neither form, however many signs and points it
         // carries: `.` is not a numeric object, and neither is `-`. What it *is* is a run of
@@ -536,7 +558,7 @@ enum Fixed {
     Real(f64),
 }
 
-/// Parses §7.3.3's two numeric forms directly from their bytes.
+/// Parses §7.3.3's two numeric forms directly from their bytes, and says how many it read.
 ///
 /// The clause states both forms it accepts, and this function accepts precisely those:
 ///
@@ -546,10 +568,18 @@ enum Fixed {
 /// > A real value shall be written as one or more decimal digits with an optional sign and
 /// > a leading, trailing, or embedded PERIOD (2Eh) (decimal point).
 ///
-/// One optional leading sign, decimal digits, at most one period, nothing else. Everything
-/// outside that grammar — an exponent, a repeated sign, a second period, a byte that is no
-/// digit — is declined to the caller's standing `parse`-then-salvage path, so every
-/// malformed form keeps the reading it always had.
+/// One optional leading sign, decimal digits, at most one period, nothing else. It *stops*
+/// at the first byte outside that grammar rather than refusing the whole input, and the
+/// returned length is where it stopped — which is what lets [`Lexer::read_number`] read a
+/// number without first finding the run it sits in. **Stopping is not accepting**: the
+/// caller decides, and its rule is §7.2.3's, that the byte which stopped the scan must also
+/// end the token. Everything else — an exponent, a repeated sign, a second period, a byte
+/// that is no digit — therefore still reaches the caller's standing `parse`-then-salvage
+/// path, so every malformed form keeps the reading it always had.
+///
+/// The digit count is refused past fifteen (below), and nothing else is refused: a run of
+/// signs and points with no digit in it returns `None`, because both of the clause's forms
+/// are "one or more decimal digits".
 ///
 /// # Why the arithmetic is exact rather than approximate
 ///
@@ -565,10 +595,12 @@ enum Fixed {
 #[expect(
     clippy::arithmetic_side_effects,
     reason = "`digits` is checked against 15 before every multiply, so the mantissa holds \
-              at most 15 decimal digits and cannot overflow a u64; the counters are \
-              bounded by the run's length"
+              at most 15 decimal digits and cannot overflow a u64; `read` is bounded by \
+              `body.len()` because the loop ends when `get` returns nothing, `sign` is 0 \
+              or 1, and `read - at - 1` is non-negative because `at` indexes a byte the \
+              loop consumed before it"
 )]
-fn fixed_format_number(raw: &[u8]) -> Option<Fixed> {
+fn fixed_format_number(raw: &[u8]) -> Option<(Fixed, usize)> {
     /// `10^f` for every fractional length the mantissa bound admits; each is a power of
     /// ten below `2^53` and therefore exactly representable.
     const POWERS_OF_TEN: [f64; 16] = [
@@ -580,11 +612,29 @@ fn fixed_format_number(raw: &[u8]) -> Option<Fixed> {
         Some((b'+', rest)) => (false, rest),
         _ => (false, raw),
     };
+    let sign = raw.len() - body.len();
 
+    // **Where the period is, rather than how many digits have followed it.** The loop used
+    // to carry `fraction: Option<usize>` and increment it inside the digit arm, which is a
+    // load, a test and a store on every digit of every number a page states — 104.5 million
+    // of them on `doc/todo/44`'s witness. The index of the period says the same thing once,
+    // because everything between it and the end of the scan is a digit by construction.
+    // Worth 69.8 M instructions of that page, measured against this same loop keeping the
+    // accumulator (ADR 0424).
+    //
+    // **And the loop is indexed rather than iterated, which is not a style choice.** It has
+    // to say where it stopped, and a slice iterator cannot: `for &byte in body` with a
+    // `read += 1` beside it is two cursors the compiler then has to keep in step, and it
+    // does not — the same function, the same arithmetic, spelled that way costs
+    // **750 M more instructions** on that page, 6.5% of interpreting it, almost all of it
+    // in code with no line of this file to attribute it to. That is ADR 0370's finding
+    // arriving from the other side: there a slice iterator replacing an index measured
+    // *worse* for the same reason.
     let mut mantissa: u64 = 0;
     let mut digits = 0usize;
-    let mut fraction: Option<usize> = None;
-    for &byte in body {
+    let mut point: Option<usize> = None;
+    let mut read = 0usize;
+    while let Some(&byte) = body.get(read) {
         match byte {
             b'0'..=b'9' => {
                 digits += 1;
@@ -592,33 +642,43 @@ fn fixed_format_number(raw: &[u8]) -> Option<Fixed> {
                     return None;
                 }
                 mantissa = mantissa * 10 + u64::from(byte - b'0');
-                if let Some(count) = fraction.as_mut() {
-                    *count += 1;
-                }
             }
-            b'.' if fraction.is_none() => fraction = Some(0),
-            _ => return None,
+            b'.' if point.is_none() => point = Some(read),
+            // Anything else — a second period included — is where this grammar ends. The
+            // caller reads that byte and decides whether the token ended with it.
+            _ => break,
         }
+        read += 1;
     }
     // "One or more decimal digits" in both forms, so a run stating none is not this
-    // function's to read — the caller has already returned such a run as a keyword.
+    // function's to read — the caller returns such a run as the keyword it lexically is.
     if digits == 0 {
         return None;
     }
+    let taken = sign + read;
 
-    match fraction {
+    match point {
         // Fits because the mantissa holds at most 15 decimal digits.
-        None => i64::try_from(mantissa)
-            .ok()
-            .map(|magnitude| Fixed::Integer(if negative { -magnitude } else { magnitude })),
-        Some(count) => {
+        None => i64::try_from(mantissa).ok().map(|magnitude| {
+            (
+                Fixed::Integer(if negative { -magnitude } else { magnitude }),
+                taken,
+            )
+        }),
+        Some(at) => {
+            // Every byte after the period and before where the scan stopped is a digit, so
+            // this is the count the old accumulator kept.
+            let count = read - at - 1;
             #[expect(
                 clippy::cast_precision_loss,
                 reason = "the mantissa is below 2^53, where every integer is exactly \
                           representable — the doc comment's exactness argument rests on it"
             )]
             let magnitude = mantissa as f64 / POWERS_OF_TEN.get(count).copied()?;
-            Some(Fixed::Real(if negative { -magnitude } else { magnitude }))
+            Some((
+                Fixed::Real(if negative { -magnitude } else { magnitude }),
+                taken,
+            ))
         }
     }
 }
@@ -820,6 +880,68 @@ mod tests {
         assert_eq!(
             tokens(b"5 f"),
             vec![Token::Integer(5), Token::Keyword(b"f")]
+        );
+    }
+
+    /// **A token ends where §7.2.3 says it does, whichever path read it.**
+    ///
+    /// [`super::Lexer::read_number`] parses §7.3.3's fixed format straight off the cursor,
+    /// so that parse stops at the first byte outside *its* grammar — which is not the same
+    /// place the token ends. `1e5`, `1,5` and `5f` are each one run of regular characters
+    /// (§7.2.3) and therefore one token, and a fast path that took its own stopping point
+    /// for the token's would hand the interpreter an `e`, a `,` or an `f` as an operator.
+    ///
+    /// Asserted over every byte value rather than over a list, because the discriminating
+    /// input is exactly "a byte that is regular but is not part of a number", and which
+    /// bytes those are is a table this test must not restate. The invariant is the clause's:
+    /// after lexing `1<byte>`, either the whole input was consumed as one token, or the byte
+    /// is one §7.2.3 classifies as ending a token.
+    #[test]
+    fn a_number_does_not_end_in_the_middle_of_a_run() {
+        for byte in 0u8..=255 {
+            let input = [b'1', byte];
+            let mut lexer = Lexer::new(&input);
+            assert!(lexer.next_token().is_some(), "{byte:#04x} lexed nothing");
+            let ended = lexer.position();
+            if super::is_regular(byte) {
+                assert_eq!(
+                    ended,
+                    2,
+                    "{byte:#04x} is a regular character, so `1{}` is one token",
+                    char::from(byte)
+                );
+            } else {
+                assert_eq!(
+                    ended, 1,
+                    "{byte:#04x} ends a token, so the number is the first of two"
+                );
+            }
+        }
+    }
+
+    /// The other side of the rule above: a delimiter needs no white space in front of it,
+    /// and the number before one is a whole number rather than a salvaged prefix.
+    #[test]
+    fn a_number_against_a_delimiter_is_a_whole_number() {
+        assert_eq!(
+            tokens(b"[1.5]"),
+            vec![Token::ArrayOpen, Token::Real(1.5), Token::ArrayClose]
+        );
+        // And the counter-example that says the rule is §7.2.3's rather than arithmetic:
+        // `-` is a regular character, so `1.5-2` is one run and one token, salvaged to its
+        // leading value exactly as it was before the fast path read numbers off the cursor.
+        assert_eq!(
+            tokens(b"[1.5-2]"),
+            vec![Token::ArrayOpen, Token::Real(1.5), Token::ArrayClose]
+        );
+        assert_eq!(
+            tokens(b"3(x)"),
+            vec![Token::Integer(3), Token::String(b"x".to_vec())]
+        );
+        assert_eq!(
+            tokens(b"4%c\n5"),
+            vec![Token::Integer(4), Token::Integer(5)],
+            "a comment is a delimiter's business and ends the number before it"
         );
     }
 

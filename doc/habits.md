@@ -522,6 +522,17 @@ that attached its file to a page carried a file nothing here could reach. ADR 02
   phantom win. Session 500, ADR 0335.
 - **Attribute a regression by removing the suspect, not by reading the profile.** The profile shows
   the *shape* of the extra work, not its cause; one stubbed field said 96 of 110 M.
+- **Two spellings of one loop are two programs, and the difference can exceed the optimisation you
+  came for.** A fused number parse that removed a whole pass over every token measured as a **+1.1%
+  regression** written as `for &byte in body { … _ => break } read += 1;` and as **−5.4%** written as
+  `while let Some(&byte) = body.get(read)` — same function, same arithmetic, byte-identical answers,
+  **750 M instructions apart**, 6.5% of the page, and 454 M of the difference sat in code callgrind
+  could attribute to no source line. A slice iterator that must also report where it stopped is two
+  cursors the compiler has to keep in step. The suspect was eliminated by *removing* it — capping the
+  slice at seventeen bytes made it worse, so the slice length was not the cause — rather than by
+  reading the disassembly. **So an optimisation that measures badly has two hypotheses, not one**:
+  the idea is wrong, or the spelling is. ADR 0370 met the same thing from the other side, where
+  replacing an index *with* an iterator measured +2.64%. Session 589, ADR 0424.
 - **A gate's own printed timings are only as good as what else is in its process.** The oracle's
   `processor time` and `slowest pages` rows read a factor of two high for thirty-nine rounds,
   because a second test in the same binary was walking the same corpus under `rayon` beside it, and

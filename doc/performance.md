@@ -164,6 +164,32 @@ said and which no launch measurement could have told anybody — the instrument 
 `examples/callgrind_interpret`, and the run this came off was `examples/zoom_frame` under callgrind,
 which interprets the page on its way to drawing it.
 
+**And the five-hundred-and-eighty-ninth divided both halves** (ADR 0424), which is what the rule above
+asks a round to do rather than optimise from a share. Three things belong here because no command
+prints them.
+
+- **The lexer's 40% is numbers.** That page states 20 831 607 tokens and 17.65 million of them are
+  §7.3.3 numbers over 104.5 million digits — a drawing's coordinates — so the lexer's cost is the
+  *number* path and not the token dispatch. It walked each of them twice, once to find the run
+  §7.2.3 bounds and once to read the value, and fusing the two is worth 5.4% of the page. What the
+  fused loop is *spelled* as turned out to matter more than the fusion: `for &byte in body` with a
+  `read += 1` beside it measured **750 M worse** than `while let Some(&byte) = body.get(read)` — the
+  same function, the same answers, 6.5% of the page in code with no line to attribute it to. ADR
+  0370 met that from the other side and this is the second instance; **on a per-byte loop, ask what
+  the spelling costs before believing the algorithm.**
+- **The inflation is one inflation and there is nothing to memoise.** All of it is inside
+  `Window::refill`, 2 409 calls of about 60 KiB producing the stream's 147 972 263 bytes once, at
+  16.6 instructions per output byte on a stream that compresses only 2.96:1 and is therefore mostly
+  literals. `doc/todo/41`'s cache and `doc/todo/14`'s window were both read and neither applies.
+- **What is ours around it costs 613 M**, and is on the launch path rather than on an error path,
+  because Table 5 makes `/Length` an indirect reference for a producer that streams its own output:
+  §7.3.8.2's `endstream` search scanned 89 MB nine bytes at a time (446 M, now 253 M on a first-byte
+  search), and the encoded stream is copied **twice** — once by the parser's guess and once by
+  `Document::with_stated_length`'s correction, 99 MB of `memcpy` for a 49.7 MB stream. The second is
+  `doc/todo/10` §3's residue, priced and not taken. `memchr` was declined for the search on principle
+  3: hand-written `unsafe` SIMD fed a hostile file's bytes in the crate that most wants
+  `#![forbid(unsafe_code)]`, for 2.3% of one document's launch.
+
 **And the second rule is about reading a share rather than a number.** ADR 0370 found
 `Lexer::next_token` within 0.07% of where ADR 0341 had left it while its *share* had fallen two
 points — the denominator had grown. A share that moves because the denominator moved says nothing

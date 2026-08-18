@@ -430,6 +430,47 @@ fn a_stamps_appearance_is_reported_and_the_other_two_icons_are_drawn() {
     }
 }
 
+/// A caret with no appearance stream is reported rather than drawn, `/Sy` or no `/Sy`.
+///
+/// §12.5.6.11 says a caret annotation "is a visual symbol that indicates the presence of text
+/// edits" and states no artwork for the caret, so there is nothing to derive — the same
+/// position §12.5.6.12's stamp is in and for the same reason.
+///
+/// **The second half of the assertion is the one worth having, and the ledger row was wrong
+/// about it until the five-hundred-and-eighty-ninth session.** Table 183 does state a symbol,
+/// by name and by character: "P A new paragraph symbol (¶) shall be associated with the
+/// caret" — a `shall` and a code point, which is more than §12.5.6.4's seven icons get. What keeps the
+/// refusal whole is trap 5's additive-or-substitutive test, read off `/RD`'s own sentence in the
+/// same table — the difference "can occur. When a paragraph symbol specified by Sy is displayed
+/// along with the caret" — so the pilcrow accompanies the caret rather than standing for it,
+/// and drawing it alone would put a mark on the page beside the mark nobody can derive.
+///
+/// No corpus document states `/Sy` as a name (0 of 974, `examples/witness_census`), and all four
+/// that state `/Caret` carry an `/AP`, so nothing but reading Table 183 reaches this.
+#[test]
+fn a_caret_is_reported_whether_or_not_it_asks_for_a_paragraph_symbol() {
+    for entries in [
+        "<< /Type /Annot /Subtype /Caret /Rect [20 20 60 60] /F 4 >>",
+        "<< /Type /Annot /Subtype /Caret /Rect [20 20 60 60] /F 4 /Sy /P >>",
+        "<< /Type /Annot /Subtype /Caret /Rect [20 20 60 60] /F 4 /Sy /None \
+         /RD [2 2 2 2] >>",
+    ] {
+        let caret = interpret(pdf_with(
+            entries,
+            "/BBox [0 0 10 10]",
+            "1 0 0 rg 0 0 10 10 re f",
+        ));
+        assert!(
+            caret.display_list.commands().is_empty(),
+            "{entries}: the caret's own shape is stated nowhere, so nothing may be drawn"
+        );
+        assert!(
+            !caret.is_complete(),
+            "{entries}: and its absence is reported"
+        );
+    }
+}
+
 /// A text annotation with no appearance stream draws the icon Table 175's `/Name` selects.
 ///
 /// §12.5.6.4 states the obligation — "Interactive PDF processors shall provide predefined icon
