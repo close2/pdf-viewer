@@ -31,13 +31,20 @@
 //! ```sh
 //! cargo run --release -p pdf-model --example press_census -- corpus-cache/safedocs/*/0000/*.pdf
 //! ```
+//!
+//! **And it is the reading `tools/safedocs survey` cannot give**, which is why the
+//! five-hundred-and-eighty-first session came back to it (ADR 0416): this census shares nothing
+//! between documents, so its answer is a function of the files and two runs agree, where a survey
+//! shares `colour::MAX_PRESSES` between the documents it is judging and reports a different set of
+//! them every run. It reads a **page** group; a group inside a content stream can name a press of
+//! its own, and `Interpretation::press_beyond_this_process` is what sees that one.
 
 #![expect(
     clippy::print_stdout,
     reason = "an example whose entire output is a measurement"
 )]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use pdf_model::colour::ColourSpace;
 use pdf_syntax::{Dictionary, Document, Object};
@@ -189,6 +196,12 @@ fn main() {
     let mut spaces: BTreeMap<String, usize> = BTreeMap::new();
     let mut classes: BTreeMap<String, usize> = BTreeMap::new();
     let mut lines: Vec<String> = Vec::new();
+    // The identities `pdf_model::colour`'s press table is keyed by, so that this census answers
+    // the question the table's bound raises: how many *distinct* presses does this population
+    // name, against the `MAX_PRESSES` one process holds. Added in the five-hundred-and-eighty-first
+    // session, when a survey of 287 press-naming crawled documents was found reporting a
+    // different set of them on every run for want of it. ADR 0416.
+    let mut presses: BTreeSet<u128> = BTreeSet::new();
     let mut gaps: Vec<(String, f32, f32, f32)> = Vec::new();
     let sampling = std::env::args().any(|argument| argument == "--sample");
 
@@ -211,6 +224,12 @@ fn main() {
         *counter = counter.saturating_add(1);
         if matches!(press, Press::Device) {
             continue;
+        }
+        if let Some(facts) = &profile
+            && let Some(parsed) = pdf_model::icc::Profile::parse(&facts.data)
+            && parsed.channels() == 4
+        {
+            presses.insert(parsed.identity());
         }
         if let Some(facts) = &profile {
             if facts.evaluable {
@@ -283,6 +302,30 @@ fn main() {
                  linear 17 {thirty_three:.2}"
             );
         }
+    }
+    let stated: usize = rows
+        .iter()
+        .filter(|(row, _)| **row != Press::Device.row())
+        .map(|(_, count)| *count)
+        .sum();
+    println!(
+        "  {stated} document(s) state §11.4.7's condition — a page group whose blending colour \
+         space is not the device's — naming {} distinct press(es); one process samples {}",
+        presses.len(),
+        pdf_model::colour::MAX_PRESSES
+    );
+    // One line apiece, because this census is run one process per archive the way the surveys
+    // are (`doc/todo/03` §1), and the union over those processes is what the population's
+    // answer is: `grep -h '^  press ' | sort -u | wc -l`.
+    for press in &presses {
+        println!("  press {press:032x}");
+    }
+    if presses.len() > pdf_model::colour::MAX_PRESSES {
+        println!(
+            "  more presses than a process holds, so a *survey* of this population reports a \
+             different set of documents on each run and this census is the reading to take \
+             (ADR 0416)"
+        );
     }
     println!("  profile data colour spaces: {spaces:?}");
     println!("  profile device classes: {classes:?}");

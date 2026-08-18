@@ -271,8 +271,12 @@ pub enum ResetTarget {
 /// > data format that it supports into the document's interactive form from a specified file.
 ///
 /// This action is read here and performed nowhere, for §12.6.4.8's URI's reason (ADR 0070): the
-/// two things it needs are a file this program has no filesystem to open and a decision about
+/// two things it needs are a file this *crate* has no filesystem to open and a decision about
 /// *which* files a document may name, and both belong to a caller rather than to a renderer.
+/// **The first half used to say "this program" and that had stopped being true** (ADR 0416):
+/// all three hosts write a file when a person clicks an embedded one, and `viewer-host` carries
+/// §12.7.6.4's own file policy for two of them — so what is missing is a host's *decision*
+/// rather than a machine's filesystem, which is a smaller and nameable thing.
 /// What this crate can do is everything else — [`crate::forms_data::FormsData::read`] reads the
 /// file's bytes once somebody has them, and [`crate::view::ViewState::import`] applies it.
 ///

@@ -1232,7 +1232,15 @@ impl PressId {
 /// press, is the case it exists for. A document arriving after the bound is reached keeps the
 /// report it had before this construction existed rather than being drawn in somebody else's
 /// four components.
-const MAX_PRESSES: usize = 8;
+///
+/// **It is a bound on the process rather than on a document, and that is the thing about it
+/// worth saying out loud** (ADR 0416). Every other budget in this tree — `MAX_TILES`,
+/// `MAX_OPERATIONS`, `MAX_FORM_DEPTH` — is spent by the document that reaches it, so its
+/// refusal is a function of the file and is the same on every run. This one is spent by
+/// whatever the process interpreted *first*, so the ninth distinct press meets a refusal
+/// decided by eight other files. [`crate::Interpretation::press_beyond_this_process`] is how a
+/// caller tells such a verdict from a file's own; `doc/todo/49`'s third-bound section prices closing the gap.
+pub const MAX_PRESSES: usize = 8;
 
 /// The presses [`press_for_profile`] has sampled, filled from the front.
 ///
@@ -1243,6 +1251,19 @@ static PRESSES: [OnceLock<Press>; MAX_PRESSES] = [const { OnceLock::new() }; MAX
 
 /// How many of [`PRESSES`] are filled, and the lock that fills the next one.
 static NEXT_PRESS: Mutex<usize> = Mutex::new(0);
+
+/// How many of [`MAX_PRESSES`] this process has sampled.
+///
+/// For an instrument that has to say what its own run was: a survey whose press table
+/// saturated is a survey whose later documents were judged by a budget rather than by
+/// themselves, and the count is what says whether that happened at all. ADR 0416.
+#[must_use]
+pub fn presses_sampled() -> usize {
+    PRESSES
+        .iter()
+        .take_while(|slot| slot.get().is_some())
+        .count()
+}
 
 /// [`PressId::ASSUMED`]'s press, built on first use like any other.
 static ASSUMED: OnceLock<Press> = OnceLock::new();

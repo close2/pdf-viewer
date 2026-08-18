@@ -414,6 +414,10 @@ impl<'a> Interpreter<'a> {
         // one that has pays a walk of §12.7.4.1's field tree — the same walk `Query::Fields`
         // already makes for the same page, which is what keeps the two sets identical rather
         // than similar.
+        let beyond = match page_press(document, page) {
+            PagePress::Beyond(beyond) => Some(beyond),
+            PagePress::Device | PagePress::In(_) => None,
+        };
         let delegated = match state.widget_appearances() {
             crate::view::WidgetAppearances::Drawn => BTreeSet::new(),
             crate::view::WidgetAppearances::Delegated => {
@@ -470,10 +474,9 @@ impl<'a> Interpreter<'a> {
             blending_changed: false,
             black_generation_stated: false,
             nested_space_departed: false,
-            blending_beyond: match page_press(document, page) {
-                PagePress::Beyond(why) => Some(why),
-                PagePress::Device | PagePress::In(_) => None,
-            },
+            press_beyond_this_process: false,
+            reports_beyond_this_process: 0,
+            blending_beyond: beyond,
         }
     }
 }
@@ -625,6 +628,8 @@ fn finished(document: &Document, interpreter: Interpreter<'_>) -> Interpretation
         codes_without_a_glyph: interpreter.codes_without_a_glyph,
         codes_reaching_a_blank_glyph: interpreter.codes_reaching_a_blank_glyph,
         codes_without_a_character: interpreter.codes_without_a_character,
+        press_beyond_this_process: interpreter.press_beyond_this_process,
+        reports_beyond_this_process: interpreter.reports_beyond_this_process,
         described: interpreter.described,
         artifacts: interpreter.artifacts,
         marked: interpreter.marked,
@@ -1064,7 +1069,17 @@ struct Interpreter<'a> {
     /// four-hundred-and-thirty-sixth session a press a *document* names is drawn rather than
     /// reported (ADR 0272), so what is left here is a four-component space that is not an ICC
     /// profile and a profile arriving after this process has sampled its last.
-    blending_beyond: Option<&'static str>,
+    blending_beyond: Option<transparency::BeyondPress>,
+    /// Whether a press this page names went unsampled because *this process* had spent its
+    /// budget, at the page or inside a group.
+    ///
+    /// [`Interpretation::press_beyond_this_process`] is what this becomes; ADR 0416 is why it
+    /// is separate from the report it accompanies.
+    press_beyond_this_process: bool,
+    /// How many entries of the report exist for that reason and no other.
+    ///
+    /// [`Interpretation::reports_beyond_this_process`] is what this becomes.
+    reports_beyond_this_process: usize,
 }
 
 /// Applies the `d` dash operator.

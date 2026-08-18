@@ -330,6 +330,32 @@ pub struct Interpretation {
     /// unanswerable or to a route this program does not walk. [`UnnamedCodes::total`] is what
     /// this field used to be.
     pub codes_without_a_character: UnnamedCodes,
+    /// Whether a press this page names went unsampled because *this process* had spent its
+    /// budget, rather than because of anything the document states.
+    ///
+    /// §11.4.7 gives a page a blending colour space and §11.7.2 says what a four-component one
+    /// is; `crate::colour`'s press table samples such a space onto a grid a backend can
+    /// interpolate, and holds [`crate::colour::MAX_PRESSES`] of them for the life of the
+    /// process because nothing is ever evicted. A document naming the ninth distinct press a
+    /// process meets is therefore drawn on the device's three components and reported — and a
+    /// process that had met fewer would have drawn the same file differently.
+    ///
+    /// **Not a report, and not a second report**: the page already carries
+    /// [`Unsupported::TransparencyGroup`]'s sentence, which says "this process" in prose. This
+    /// is that sentence in a form a caller can count, and it exists because an instrument that
+    /// cannot tell a process-decided verdict from a file-decided one reports a different set of
+    /// documents on every run. `tools/safedocs survey` did, over roughly ten of the crawl's 287
+    /// press-naming documents, for as long as the press table has existed. ADR 0416.
+    pub press_beyond_this_process: bool,
+    /// How many of [`Self::unsupported`] exist for that reason and no other.
+    ///
+    /// The countable half of the flag above, and the one an instrument subtracts: a document
+    /// whose every report is in this count would have been complete in a process that had a
+    /// press slot free, and one whose reports outnumber it is incomplete whatever the budget
+    /// did. Counted where each report is made, so a press the budget refused on a page that
+    /// composites nothing — where §11.4.7 can change no pixel and nothing is reported — adds
+    /// nothing here while still setting the flag. ADR 0416.
+    pub reports_beyond_this_process: usize,
     /// ISO 32000-2 §14.9's accessibility spans over [`Self::text`], in the order they closed.
     ///
     /// One entry per marked-content sequence stating an `/Alt`, an `/E` or a `/Lang`, in

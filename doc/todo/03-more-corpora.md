@@ -799,6 +799,44 @@ disk is ranked. §1's other standing offer is SafeDocs' 31 GB issue-tracker corp
 is the one §4 now names — the per-case gates this corpus makes possible, one clause and one
 hand-built witness apiece, each with its expected value derived rather than voted.
 
+### 15. The chunk the five-hundred-and-eighty-first took: the survey itself
+
+**Not a population but the instrument that measures them**, and it is the one chunk in this file
+whose subject is a previous chunk's tool. Session 580 reported that re-running `safedocs survey`
+moved about ten documents in and out of §11.4.7's report and left it; this section is what that
+was. ADR 0416 has the reproduction, the attribution and the three roads; three things belong here.
+
+- **It was nondeterminism, not load sensitivity, and the two have different fixes.** Three quiet
+  runs of one unchanged binary over one unchanged directory of 287 documents printed 30, 36 and 33
+  press refusals; a fourth under twelve spinning cores printed 35, inside that range. What load
+  changes is the interleaving, which is the mechanism rather than the cause. The `slow` count *is*
+  load-sensitive and §1 already said so — **that is the entry a round should read first before
+  reading anything else in this file as unstable**, because the two look alike in a diff and only
+  one of them is about the documents.
+- **Every survey line in this file that counts an incomplete over the crawl was measured with it.**
+  The instrument shared `colour::MAX_PRESSES` between the documents it was judging: a table of
+  eight, `static`, never evicted, so the ninth distinct press a process meets is refused and which
+  documents those are is the scheduler's answer. `doc/HANDOVER.md` trap 8's third entry is the
+  general form — a measurement taken with the instrument under test is not independent of it — and
+  this is the shape one step further out, where the instrument is not under test and is not
+  independent of *itself*. The numbers in §1's tables are not retracted: the affected population is
+  0.44% of the crawl (287 of 65 703), and what is owed a round re-taking that survey is the new
+  summary line, which subtracts the process's own verdicts and prints what is left.
+- **The population is re-established with a census instead**, because a census shares nothing
+  between documents and a survey shares a process. `cargo run --release -p pdf-model --example
+  press_census -- <files>`, one process per archive, run twice and byte-identical over all 145:
+  **2296 of the 65 703 crawled documents that open state §11.4.7's condition** — a page group whose
+  blending colour space is not the device's, 3.49% — of which **287** name their press through a
+  four-component ICC profile this tree evaluates, and those name **28 distinct presses**. The union
+  over archives is what the census prints one line apiece for: `grep -h '^  press ' | sort -u |
+  wc -l`. The 974 name **0** and the four submodule corpora none, which is why no gate has ever
+  moved for this.
+
+**What this chunk leaves** is the bound itself, priced in `doc/todo/49`'s third-bound section. It
+is a viewer defect before it is an instrument one — the same file draws differently depending on
+what was opened before it — and the road that fixes it makes the press budget per-interpretation,
+which is what every other budget in this tree already is.
+
 ## What not to do
 
 - **Do not start a multi-gigabyte download without asking**, and on a metered connection do not
