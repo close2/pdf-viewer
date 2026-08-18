@@ -1038,3 +1038,227 @@ fn the_owners_bbp_series_evaluates_to_pi_to_three_places() {
 
     assert_eq!(function.eval(&[0.0]), vec![3.141]);
 }
+
+/// A clipped block of §8.7.4.5.2's grid carries the *same bits* as the whole grid's cells.
+///
+/// ADR 0408 clips the grid to the part of the domain a target can sample, which is only worth
+/// having if it is exact: a shading whose colours shifted at a zoom boundary would be far
+/// worse than a slow one. The clause's own sentence is why the bar is bits rather than levels
+/// — "[t]he function need not be smooth or continuous" — and the function below is exactly
+/// such a discontinuity, so a sample that moved across the step is a whole unit of colour
+/// rather than a rounding.
+///
+/// The guarantee is structural: a cell's centre is decided by its index in the *lattice*, and
+/// the lattice is `Patch::grid` whatever block is asked for. This walks a ladder of blocks
+/// against the whole grid and compares `f32::to_bits` of every channel, because `==` hides a
+/// `-0.0` where a `0.0` was — ADR 0406's own reason for comparing bit patterns.
+#[test]
+fn a_clipped_grid_is_the_whole_grids_cells_bit_for_bit() {
+    // Discontinuous in x at 0.5 and continuous in y, so a block that moved a sample either
+    // side of the step shows as a whole unit and one that moved it elsewhere shows as an ulp.
+    let function = "7 0 obj\n<< /FunctionType 4 /Domain [0 1 0 1] /Range [0 1 0 1 0 1] \
+                    /Length 49 >>\n\
+                    stream\n{ exch 0.5 lt { 1 0 } { 0 1 } ifelse 3 2 roll }\nendstream\nendobj\n";
+    let shading = "<< /ShadingType 1 /ColorSpace /DeviceRGB /Domain [0 1 0 1] \
+                   /Matrix [100 0 0 100 0 0] /Function 7 0 R >>";
+
+    let document = Document::open(pdf_with_extra(shading, "/Sh0 sh", function))
+        .expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let list = pdf_model::interpret(&document, &page).display_list;
+    let source = list
+        .commands()
+        .iter()
+        .find_map(|command| match command {
+            pdf_render::Command::Fill {
+                paint: pdf_render::Paint::Shading(shading),
+                ..
+            } => match shading.kind.as_ref() {
+                pdf_render::ShadingKind::Sampled { source, .. } => Some(source.clone()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .expect("the page paints one type 1 shading");
+
+    let lattice = pdf_render::Grid {
+        width: 137,
+        height: 91,
+    };
+    let whole = source.colours(pdf_render::Patch::whole(lattice));
+    assert_eq!((whole.width, whole.height), (lattice.width, lattice.height));
+    #[expect(
+        clippy::float_cmp,
+        reason = "the domain here is [0 1 0 1] and an unclipped block takes its bounds \
+                  verbatim rather than computing them, which is the property being checked"
+    )]
+    {
+        assert!(
+            whole.covers == [0.0, 1.0, 0.0, 1.0],
+            "an unclipped grid covers its whole domain, stated by the domain's own numbers"
+        );
+    }
+
+    // Blocks against each edge, one in the middle, one straddling the step, and one narrower
+    // than the margin the filter asks for.
+    for within in [
+        [0.0, 0.25, 0.0, 0.25],
+        [0.4, 0.6, 0.4, 0.6],
+        [0.75, 1.0, 0.75, 1.0],
+        [0.49, 0.51, 0.0, 1.0],
+        [0.5, 0.5, 0.5, 0.5],
+    ] {
+        let block = source.colours(pdf_render::Patch {
+            grid: lattice,
+            within,
+        });
+        // Where the block sits in the lattice, read back from the rectangle it says it
+        // covers — which is the only thing a backend has to place it by.
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            clippy::cast_precision_loss,
+            reason = "a fraction of the unit domain times a lattice this test states, both \
+                      small integers"
+        )]
+        let first = |edge: f32, cells: u32| (edge * cells as f32).round() as u32;
+        let left = first(block.covers[0], lattice.width);
+        let top = first(block.covers[2], lattice.height);
+        assert!(
+            left + block.width <= lattice.width && top + block.height <= lattice.height,
+            "the block {within:?} sits inside the lattice"
+        );
+        assert!(
+            block.width * block.height < lattice.width * lattice.height,
+            "a block of part of the domain is smaller than the whole grid; {within:?} \
+             asked for {} × {}",
+            block.width,
+            block.height
+        );
+
+        let bits = |colour: pdf_render::Color| {
+            [
+                colour.r.to_bits(),
+                colour.g.to_bits(),
+                colour.b.to_bits(),
+                colour.a.to_bits(),
+            ]
+        };
+        for row in 0..block.height {
+            for column in 0..block.width {
+                let here = block.pixels[(row * block.width + column) as usize];
+                let there = whole.pixels[((top + row) * lattice.width + left + column) as usize];
+                assert_eq!(
+                    bits(here),
+                    bits(there),
+                    "block {within:?} cell ({column}, {row}) is lattice cell ({}, {}) and \
+                     must carry the same bits",
+                    left + column,
+                    top + row
+                );
+            }
+        }
+    }
+}
+
+/// The picture a window draws of a magnified page is the picture the whole page has in it.
+///
+/// The end of ADR 0408's argument, one level above the cells: the same display list at the
+/// same magnification, drawn once into a raster of the whole page — where the domain is
+/// entirely on the target and nothing is clipped away — and once into a window-sized target
+/// whose transform differs only by an integer translation, where most of the domain is off
+/// the target and the grid is a block. The window's pixels must be the whole page's, byte for
+/// byte, and the offset is an integer so that "the same pixel" means something.
+///
+/// # Every constant below is chosen so that removing the margin fails this test
+///
+/// The margin `pdf_render::Patch::within` states is what this really exercises, and a test
+/// that merely *renders a window* does not exercise it at all — at one cell per device pixel
+/// the cell centres coincide with the pixel centres, the bilinear filter's second weight is
+/// zero, and a block cut exactly to the target draws the same page. Three things together
+/// make the filter reach past the block's edge:
+///
+/// - **A magnification at which the budget bites.** `MAX_FUNCTION_CELLS` halves the lattice
+///   above 2²² cells, and 100 units at 24× is 2400 × 2400 device pixels, so the lattice is
+///   1200 × 1200 and one cell is two device pixels. Now the filter genuinely interpolates.
+/// - **An offset that puts the block's first cell on a whole cell.** 1200 device pixels is
+///   unit 0.5 is lattice cell 600 exactly, so the window's first column samples at cell
+///   600.25 and reads cells 599 and 600 — and 599 is outside a block cut without a margin.
+/// - **A discontinuity there.** The function steps from red to blue at domain x = 0.5, which
+///   is that very boundary, so the tap that a clipped block would lose is a whole colour
+///   away rather than a level. A smooth function hides this: over 1200 cells its neighbours
+///   differ by a fifth of a level and every rounding absorbs it.
+///
+/// Checked by deleting the margin: 151 pixels — one whole column of the window — differ.
+#[test]
+fn a_window_of_a_magnified_page_draws_what_the_whole_page_has_there() {
+    /// The magnification: past what fits the window below, and past where the cell budget
+    /// halves the lattice — see the note above on why both are needed.
+    const ZOOM: f32 = 24.0;
+    /// The window, in device pixels.
+    const WINDOW: (u32, u32) = (137, 151);
+    /// Where its top-left corner sits in the magnified page, in whole device pixels: the
+    /// domain's own half-way point, which is a whole lattice cell and the function's step.
+    const OFFSET: (u32, u32) = (1200, 1200);
+
+    // Red below domain x = 0.5 and blue at and above it, which is the step the margin has to
+    // carry across the window's own left edge; green rises with y so a block placed a row out
+    // shows as well.
+    let function = "7 0 obj\n<< /FunctionType 4 /Domain [0 1 0 1] /Range [0 1 0 1 0 1] \
+                    /Length 49 >>\n\
+                    stream\n{ exch 0.5 lt { 1 0 } { 0 1 } ifelse 3 2 roll }\nendstream\nendobj\n";
+    let shading = "<< /ShadingType 1 /ColorSpace /DeviceRGB /Domain [0 1 0 1] \
+                   /Matrix [100 0 0 100 0 0] /Function 7 0 R >>";
+    let bytes = pdf_with_extra(shading, "/Sh0 sh", function);
+
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let list = pdf_model::interpret(&document, &page).display_list;
+    let whole_page = TargetSpec::for_page(&list, ZOOM, GENEROUS).expect("valid target");
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "an offset of a hundred device pixels, which f32 holds exactly"
+    )]
+    let window = TargetSpec {
+        width: WINDOW.0,
+        height: WINDOW.1,
+        transform: whole_page.transform.then(pdf_render::Transform::translate(
+            -(OFFSET.0 as f32),
+            -(OFFSET.1 as f32),
+        )),
+    };
+
+    let draw = |target| {
+        CpuRasterizer::new()
+            .with_background(pdf_render::Color::TRANSPARENT)
+            .rasterize(&list, target)
+            .expect("supported")
+    };
+    let everything = draw(whole_page);
+    let cropped = draw(window);
+
+    let mut differing = 0usize;
+    for row in 0..WINDOW.1 {
+        for column in 0..WINDOW.0 {
+            let there = pixel(&everything, column + OFFSET.0, row + OFFSET.1);
+            if pixel(&cropped, column, row) != there {
+                differing += 1;
+            }
+        }
+    }
+    assert_eq!(
+        differing,
+        0,
+        "a window of the magnified page must be the magnified page's own pixels; {differing} \
+         of {} differ",
+        WINDOW.0 * WINDOW.1
+    );
+    // And it is a picture rather than a blank window, or the comparison above is vacuous.
+    assert!(
+        cropped
+            .data
+            .chunks_exact(4)
+            .any(|p| p[3] == 255 && p[0] != p[2]),
+        "the shading paints this window in colours that vary"
+    );
+}

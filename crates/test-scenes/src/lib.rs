@@ -1151,29 +1151,72 @@ pub fn sampled_colour_at(x: f32, y: f32) -> Color {
 /// the colours and the backend resolves them once it knows the scale, exactly as
 /// `pdf-model`'s function-based shading does — cell `(i, j)` of an `n × m` grid carries the
 /// closed form at `((2i + 1) / 2n, (2j + 1) / 2m)`, §10.7.4's centre rule.
+///
+/// It honours `Patch`'s block for the same reason: a scene that answered for the whole grid
+/// however small a block was asked for would draw the right picture and prove nothing about
+/// the clip the backends now ask for (ADR 0408). The domain is the unit square, so the block
+/// and the fraction of the domain it covers are the same numbers.
 #[derive(Debug)]
 struct SampledWaves;
 
+/// The cells of a `cells`-wide axis that the fraction `low..=high` of it needs.
+///
+/// `pdf-model`'s own producer states this once for the real thing; this is the same rule for
+/// the scene, margin included — snapped outward to whole cells and then one cell further on
+/// each side, which is what `pdf_render::Patch::within` asks for.
+#[expect(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::arithmetic_side_effects,
+    reason = "a fraction of 0..=1 times a device pixel count, rounded in i64 — which cannot \
+              overflow from a u32 — and clamped into 0..=cells before it is narrowed"
+)]
+fn sampled_block(low: f32, high: f32, cells: u32) -> (u32, u32) {
+    if cells == 0 {
+        return (0, 0);
+    }
+    let at = |value: f32, round: fn(f32) -> f32| round(value * cells as f32) as i64;
+    let first = (at(low, f32::floor) - 1).clamp(0, i64::from(cells) - 1) as u32;
+    let last = (at(high, f32::ceil) + 1).clamp(0, i64::from(cells)) as u32;
+    (first, last.max(first.saturating_add(1)))
+}
+
 impl pdf_render::ColoursAtDeviceScale for SampledWaves {
-    fn colours(&self, grid: pdf_render::Grid) -> pdf_render::ColourGrid {
+    fn colours(&self, patch: pdf_render::Patch) -> pdf_render::ColourGrid {
         #[expect(
             clippy::cast_precision_loss,
             reason = "grid axes are device pixel counts, far inside f32's exact range"
         )]
         let centre = |index: u32, cells: u32| (2.0 * index as f32 + 1.0) / (2.0 * cells as f32);
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "cell indices are device pixel counts, far inside f32's exact range"
+        )]
+        let fraction = |index: u32, cells: u32| index as f32 / cells as f32;
+
+        let [u0, u1, v0, v1] = patch.within;
+        let (left, right) = sampled_block(u0, u1, patch.grid.width);
+        let (top, bottom) = sampled_block(v0, v1, patch.grid.height);
         let mut pixels = Vec::new();
-        for row in 0..grid.height {
-            for column in 0..grid.width {
+        for row in top..bottom {
+            for column in left..right {
                 pixels.push(sampled_colour_at(
-                    centre(column, grid.width),
-                    centre(row, grid.height),
+                    centre(column, patch.grid.width),
+                    centre(row, patch.grid.height),
                 ));
             }
         }
         pdf_render::ColourGrid {
-            width: grid.width,
-            height: grid.height,
+            width: right.saturating_sub(left),
+            height: bottom.saturating_sub(top),
             pixels: pixels.into(),
+            covers: [
+                fraction(left, patch.grid.width),
+                fraction(right, patch.grid.width),
+                fraction(top, patch.grid.height),
+                fraction(bottom, patch.grid.height),
+            ],
         }
     }
 

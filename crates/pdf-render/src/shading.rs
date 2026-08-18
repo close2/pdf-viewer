@@ -173,17 +173,19 @@ impl Shading {
 
     /// For a [`ShadingKind::Sampled`] shading: its colours, resolved for the device.
     ///
-    /// `page_to_device` maps the space [`Self::transform`] targets onto the device. The grid
-    /// is [`Grid::for_placement`]'s answer for the placement carrying the unit square onto
-    /// the transformed domain rectangle — derived here and nowhere else, because a
-    /// resolution decision made per backend is a decision the backends can disagree about,
-    /// which is the same reason [`Grid::for_placement`] itself lives in this crate.
+    /// `page_to_device` maps the space [`Self::transform`] targets onto the device, and
+    /// `target` is that device's extent in pixels. The grid is [`Grid::for_placement`]'s
+    /// answer for the placement carrying the unit square onto the transformed domain
+    /// rectangle — derived here and nowhere else, because a resolution decision made per
+    /// backend is a decision the backends can disagree about, which is the same reason
+    /// [`Grid::for_placement`] itself lives in this crate — and the *block* of it worth
+    /// producing is [`Patch::for_target`]'s, for the same reason and in the same place.
     ///
     /// `None` for every other kind, which is how a backend that draws sampled shadings its
     /// own way (as a pattern, as a clipped image) shares the one grid while keeping its own
     /// drawing.
     #[must_use]
-    pub fn sampled_at(&self, page_to_device: Transform) -> Option<ColourGrid> {
+    pub fn sampled_at(&self, page_to_device: Transform, target: (u32, u32)) -> Option<ColourGrid> {
         let ShadingKind::Sampled { domain, source, .. } = self.kind.as_ref() else {
             return None;
         };
@@ -193,7 +195,8 @@ impl Shading {
         let [x0, x1, y0, y1] = *domain;
         let onto_domain = Transform::new(x1 - x0, 0.0, 0.0, y1 - y0, x0, y0);
         let placement = onto_domain.then(self.transform).then(page_to_device);
-        Some(source.colours(Grid::for_placement(placement)))
+        let grid = Grid::for_placement(placement);
+        Some(source.colours(Patch::for_target(grid, placement, target)))
     }
 
     /// For a [`ShadingKind::Sampled`] shading: the program a device may evaluate instead of
@@ -215,32 +218,145 @@ impl Shading {
 
 /// Colours on a grid, standing in for §8.7.4.5.2's function of two variables.
 ///
-/// Row-major with row zero at the domain's `y_min` edge, which is where the shading's own
-/// coordinates put it: a backend stretches the grid over the domain rectangle and the
-/// shading's transform carries any flip the page states.
+/// Row-major with row zero at the `y_min` edge of [`Self::covers`], which is where the
+/// shading's own coordinates put it: a backend stretches the grid over that rectangle —
+/// [`Self::onto_shading`] is the transform — and the shading's transform carries any flip the
+/// page states.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ColourGrid {
-    /// Cells across the domain, at least one.
+    /// Cells across [`Self::covers`], at least one.
     pub width: u32,
-    /// Cells down the domain, at least one.
+    /// Cells down [`Self::covers`], at least one.
     pub height: u32,
     /// Row-major colours, `width * height` of them.
     pub pixels: Arc<[Color]>,
+    /// The part of the domain these cells cover, in the shading's own coordinates and in
+    /// Table 78's `/Domain` order `[x_min, x_max, y_min, y_max]`.
+    ///
+    /// The whole domain wherever the target reaches all of it, which is every page drawn at
+    /// a magnification that fits. Past that it is the block [`Patch::for_target`] asked for,
+    /// and a backend that reads this instead of the shading's `/Domain` draws the same
+    /// picture at a fraction of the evaluation. ADR 0408.
+    pub covers: [f32; 4],
+}
+
+impl ColourGrid {
+    /// The transform carrying this grid's own unit square onto the shading's coordinates.
+    ///
+    /// What a backend places the cells with, so that neither of them derives it from the
+    /// shading's `/Domain` and a clipped block and a whole grid are drawn by one expression.
+    #[must_use]
+    pub fn onto_shading(&self) -> Transform {
+        let [x0, x1, y0, y1] = self.covers;
+        Transform::new(x1 - x0, 0.0, 0.0, y1 - y0, x0, y0)
+    }
+}
+
+/// Which cells of a [`Grid`] a target can actually sample.
+///
+/// [`Grid`] says how *finely* a producer is asked for colours; this says which of them are
+/// worth producing. A viewer past the magnification at which a page fits its window does not
+/// rasterise the page — it rasterises the **window**, at a transform that scales the page and
+/// translates the region of interest into view (`viewer-ui`'s own surface, and
+/// `render-quorra/examples/zoom_ladder.rs`) — so a shading's domain grows with the zoom while
+/// the target does not, and the share of the grid anybody can see falls as the square of the
+/// magnification. Measured rather than reasoned: over the four corpus documents that state a
+/// type 1 shading, `pdf-model/examples/shading_grid_census.rs` reads 55.7% of the resolved
+/// cells inside a 900×1100 window at 1× and **5.5%** at 8×.
+///
+/// # Why this is exact
+///
+/// **The lattice is [`Self::grid`] whatever [`Self::within`] names.** A cell's colour is the
+/// function at the cell's centre, and the centre is decided by the cell's index in the *full*
+/// grid — so a cell inside the block carries the colour it would have carried had the block
+/// been the whole grid, bit for bit rather than to a tolerance. Producing a smaller grid over
+/// a smaller domain instead would move every sample by whatever the arithmetic rounded to,
+/// and §8.7.4.5.2's function "need not be smooth or continuous": ADR 0406's own witness draws
+/// digits through a `truncate`, where an ulp is a whole unit.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Patch {
+    /// The lattice the colours sit on — one cell per device pixel of the *whole* domain.
+    pub grid: Grid,
+    /// The part of the domain's unit square the target's own pixels reach, as
+    /// `[u_min, u_max, v_min, v_max]`, each in `0.0..=1.0`.
+    ///
+    /// A producer answers for every cell this touches **and one more cell on each side**,
+    /// because both backends read the grid with a bilinear filter: a device pixel just inside
+    /// the target reads the cell either side of it, and a block cut exactly to the target
+    /// would show the block's own edge colour there instead of the domain's. That margin is
+    /// the whole of what the clip is conservative about.
+    pub within: [f32; 4],
+}
+
+impl Patch {
+    /// The whole grid: what a caller with no target to clip against asks for.
+    #[must_use]
+    pub fn whole(grid: Grid) -> Self {
+        Self {
+            grid,
+            within: [0.0, 1.0, 0.0, 1.0],
+        }
+    }
+
+    /// The part of `grid` a `target`-sized device can sample under `placement`.
+    ///
+    /// `placement` carries the domain's unit square onto the device, so the target's own
+    /// rectangle mapped back through it is the part of the domain that can be seen. The four
+    /// corners are mapped and their bounding box taken, which is exact under the scale and
+    /// translation a viewer's zoom produces and conservative under a rotation or a skew — a
+    /// clip that is too generous costs evaluations and a clip that is too tight costs
+    /// pixels, so the box errs in the only direction that is safe.
+    ///
+    /// The whole grid where the placement cannot be inverted, which is a domain collapsed to
+    /// a line: there is no back-mapping to take, and the producer's own answer for a
+    /// degenerate placement is what it always was.
+    #[must_use]
+    pub fn for_target(grid: Grid, placement: Transform, target: (u32, u32)) -> Self {
+        let Some(to_unit) = placement.invert() else {
+            return Self::whole(grid);
+        };
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a target extent, bounded by MAX_EXTENT = 2^24, which f32 holds exactly"
+        )]
+        let (width, height) = (target.0 as f32, target.1 as f32);
+        let mut box_ = [f32::MAX, f32::MIN, f32::MAX, f32::MIN];
+        for (x, y) in [(0.0, 0.0), (width, 0.0), (0.0, height), (width, height)] {
+            let unit = to_unit.apply(Point { x, y });
+            if !unit.x.is_finite() || !unit.y.is_finite() {
+                return Self::whole(grid);
+            }
+            box_[0] = box_[0].min(unit.x);
+            box_[1] = box_[1].max(unit.x);
+            box_[2] = box_[2].min(unit.y);
+            box_[3] = box_[3].max(unit.y);
+        }
+        Self {
+            grid,
+            within: [
+                box_[0].clamp(0.0, 1.0),
+                box_[1].clamp(0.0, 1.0),
+                box_[2].clamp(0.0, 1.0),
+                box_[3].clamp(0.0, 1.0),
+            ],
+        }
+    }
 }
 
 /// A sampled shading's colours, produced once the device grid is known.
 ///
 /// The same contract as [`crate::ImageAtDeviceScale`], one paint over: [`Self::colours`] is
-/// asked for a grid and answers with colours **no finer than it** in either axis — a producer
-/// bounding its own work (§10.7.3 permits "internal limits") answers coarser, and the caller
-/// draws whatever grid comes back stretched over the domain. It is infallible for the same
-/// reason that trait is: everything checkable without evaluating was checked and reported by
-/// the interpreter, and what remains is drawn as well as it can be.
+/// asked for a [`Patch`] — a lattice, and the block of it a target can sample — and answers
+/// with colours **no finer than that lattice** in either axis. A producer bounding its own
+/// work (§10.7.3 permits "internal limits") answers coarser, and the caller draws whatever
+/// grid comes back stretched over [`ColourGrid::covers`]. It is infallible for the same reason
+/// that trait is: everything checkable without evaluating was checked and reported by the
+/// interpreter, and what remains is drawn as well as it can be.
 ///
 /// Implementations are `Send + Sync` because a display list is drawn on every core.
 pub trait ColoursAtDeviceScale: std::fmt::Debug + Send + Sync {
-    /// The colours, on a grid no finer than `grid` in either axis.
-    fn colours(&self, grid: Grid) -> ColourGrid;
+    /// The colours of `patch`'s block, on a lattice no finer than `patch.grid` in either axis.
+    fn colours(&self, patch: Patch) -> ColourGrid;
 
     /// Whether every colour [`Self::colours`] can produce is fully opaque, answered without
     /// producing any.
@@ -265,10 +381,10 @@ impl DeferredColours {
         Self(source)
     }
 
-    /// The colours, on a grid no finer than `grid`.
+    /// The colours of `patch`'s block, on a lattice no finer than `patch.grid`.
     #[must_use]
-    pub fn colours(&self, grid: Grid) -> ColourGrid {
-        self.0.colours(grid)
+    pub fn colours(&self, patch: Patch) -> ColourGrid {
+        self.0.colours(patch)
     }
 
     /// Whether every colour this can produce is fully opaque, without producing any.
@@ -315,8 +431,8 @@ struct Faded {
 }
 
 impl ColoursAtDeviceScale for Faded {
-    fn colours(&self, grid: Grid) -> ColourGrid {
-        let inner = self.source.colours(grid);
+    fn colours(&self, patch: Patch) -> ColourGrid {
+        let inner = self.source.colours(patch);
         ColourGrid {
             width: inner.width,
             height: inner.height,
@@ -328,6 +444,7 @@ impl ColoursAtDeviceScale for Faded {
                     ..*colour
                 })
                 .collect(),
+            covers: inner.covers,
         }
     }
 

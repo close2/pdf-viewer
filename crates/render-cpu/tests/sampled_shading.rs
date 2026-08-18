@@ -39,7 +39,7 @@ use std::sync::{Arc, Mutex};
 
 use pdf_render::{
     BlendMode, Color, ColourGrid, ColoursAtDeviceScale, Command, DeferredColours, DisplayList,
-    FillRule, Grid, Paint, Path, PathCommand, Point, Raster, Rasterizer, Shading, ShadingKind,
+    FillRule, Paint, Patch, Path, PathCommand, Point, Raster, Rasterizer, Shading, ShadingKind,
     Size, TargetSpec, Transform,
 };
 use render_cpu::CpuRasterizer;
@@ -104,21 +104,23 @@ fn a_sampled_shading_carries_the_functions_value_at_each_device_pixel() {
     }
 }
 
-/// A producer that answers a flat colour and records every grid it was asked for.
+/// A producer that answers a flat colour and records every patch it was asked for.
 #[derive(Debug)]
-struct RecordingSource(Mutex<Vec<Grid>>);
+struct RecordingSource(Mutex<Vec<Patch>>);
 
 impl ColoursAtDeviceScale for RecordingSource {
-    fn colours(&self, grid: Grid) -> ColourGrid {
+    fn colours(&self, patch: Patch) -> ColourGrid {
         self.0
             .lock()
             .expect("no poisoned lock in a test")
-            .push(grid);
+            .push(patch);
+        let grid = patch.grid;
         ColourGrid {
             width: grid.width,
             height: grid.height,
             pixels: vec![Color::rgb(0.2, 0.4, 0.6); (grid.width as usize) * (grid.height as usize)]
                 .into(),
+            covers: [0.0, 1.0, 0.0, 1.0],
         }
     }
 
@@ -182,12 +184,25 @@ fn zooming_resolves_the_shading_again_without_rebuilding_the_list() {
     assert!(
         coarse
             .iter()
-            .all(|grid| grid.width == 80 && grid.height == 80),
+            .all(|patch| patch.grid.width == 80 && patch.grid.height == 80),
         "at 1x the domain covers 80 pixels; the producer was asked for {coarse:?}"
     );
     assert!(
         fine.iter()
-            .all(|grid| grid.width == 320 && grid.height == 320),
+            .all(|patch| patch.grid.width == 320 && patch.grid.height == 320),
         "at 4x the same list must ask four times as fine; the producer was asked for {fine:?}"
+    );
+    // The target is the whole page at both scales, so the domain is entirely on it and the
+    // block is the whole lattice: a clip that narrowed a grid nothing is hiding would be a
+    // clip that had lost a pixel.
+    #[expect(
+        clippy::float_cmp,
+        reason = "the whole domain is `Patch::whole`'s own literal, set rather than computed, \
+                  so equality with it is an identity check and not a tolerance"
+    )]
+    let unclipped = |patch: &Patch| patch.within == [0.0, 1.0, 0.0, 1.0];
+    assert!(
+        coarse.iter().chain(fine.iter()).all(unclipped),
+        "a target containing the whole domain clips nothing away"
     );
 }

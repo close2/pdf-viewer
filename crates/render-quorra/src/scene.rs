@@ -792,29 +792,31 @@ impl<'a> Encoder<'a> {
             BlendMode,
         ),
     ) -> Result<(), QuorraRasterError> {
-        let ShadingKind::Sampled { domain, .. } = shading.kind.as_ref() else {
+        if !matches!(shading.kind.as_ref(), ShadingKind::Sampled { .. }) {
             // The caller matched Sampled before dispatching here.
             return Err(QuorraRasterError::Unsupported(format!(
                 "shading {:?}",
                 shading.kind
             )));
-        };
-        let [x0, x1, y0, y1] = *domain;
-        let (span_x, span_y) = (x1 - x0, y1 - y0);
-        if span_x == 0.0 || span_y == 0.0 {
+        }
+
+        // The colours are produced here, where the device scale is known — the grid
+        // `pdf_render` derives from the domain's own placement, and the block of it this
+        // target can sample, so no backend picks either for itself (`Shading::sampled_at`,
+        // ADR 0408). Transient for the deferred image's reason: the grid is this placement's
+        // and its `Arc` is this frame's, so there is no identity for a cache to be keyed by.
+        let grid = shading
+            .sampled_at(
+                self.target.transform,
+                (self.target.width, self.target.height),
+            )
+            .ok_or_else(|| QuorraRasterError::Unsupported(format!("shading {:?}", shading.kind)))?;
+        let [x0, x1, y0, y1] = grid.covers;
+        if x1 - x0 == 0.0 || y1 - y0 == 0.0 {
             return Err(QuorraRasterError::Unsupported(
                 "a sampled shading with a degenerate domain".into(),
             ));
         }
-
-        // The colours are produced here, where the device scale is known — the grid
-        // `pdf_render` derives from the domain's own placement, so no backend picks its own
-        // (`Shading::sampled_at`). Transient for the deferred image's reason: the grid is
-        // this placement's and its `Arc` is this frame's, so there is no identity for a
-        // cache to be keyed by.
-        let grid = shading
-            .sampled_at(self.target.transform)
-            .ok_or_else(|| QuorraRasterError::Unsupported(format!("shading {:?}", shading.kind)))?;
 
         // The grid's row 0 sits at the domain's y0; quorra's image convention puts
         // the data's first row at unit y = 1 (ISO 32000-2 §8.9.5), so the rows
@@ -841,9 +843,8 @@ impl<'a> Encoder<'a> {
         // Clip to the filled path: quorra clips compose by chaining, so the fill's
         // own geometry becomes one more link under the command's clip.
         let shape_clip = builder.clip(outline, self.placed(transform), fill_rule(rule), clip)?;
-        // Unit square → domain rectangle → shading space → page.
-        let to_domain = Transform::new(span_x, 0.0, 0.0, span_y, x0, y0);
-        let placement = to_domain.then(shading.transform);
+        // Unit square → the part of the domain these cells cover → shading space → page.
+        let placement = grid.onto_shading().then(shading.transform);
         builder.image(
             image,
             self.placed(placement),

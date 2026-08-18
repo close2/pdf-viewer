@@ -33,6 +33,14 @@
 //! `examples/encode_threads.rs` states: this machine is shared, and a phase measured under load is
 //! a measurement of the load. Each round builds its own device, because a device that has drawn
 //! this pair already answers frame 1 from the atlas.
+//!
+//! **`ZOOM_FRAME_WINDOW=900x1100` draws the window instead of the page**, which is what a viewer
+//! past the magnification at which the page fits actually rasterises — `viewer-ui`'s own surface
+//! builds exactly this target, and `examples/zoom_ladder.rs` has modelled it since it was written.
+//! It is off by default because the page-sized target is the one every earlier measurement of this
+//! example was taken at, and a knob that changed the default would make two ADRs' tables
+//! incomparable. It is what ADR 0408 is measured with: a whole-page target contains the whole of
+//! every shading's domain, so nothing about clipping a grid to the target can show there.
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -147,8 +155,33 @@ fn main() {
         .get(index.saturating_sub(1))
         .expect("that page exists");
     let list = Arc::new(pdf_model::content::interpret(&document, &page).display_list);
-    let first = TargetSpec::for_page(&list, scale, 1 << 30).expect("a target");
-    let second = TargetSpec::for_page(&list, scale * factor, 1 << 30).expect("a target");
+    // The page's middle held in the window's middle, which is what the keyboard zoom does: the
+    // core keeps the viewport's centre when no anchor is given. `zoom_ladder`'s own arithmetic.
+    let window = variable("ZOOM_FRAME_WINDOW").map(|spec| {
+        let (w, h) = spec.split_once('x').expect("a window as WIDTHxHEIGHT");
+        (
+            w.parse::<u32>().expect("a window width"),
+            h.parse::<u32>().expect("a window height"),
+        )
+    });
+    let placed = |zoom: f32| {
+        let page = TargetSpec::for_page(&list, zoom, 1 << 30).expect("a target");
+        let Some((width, height)) = window else {
+            return page;
+        };
+        let size = list.page_size;
+        let centre = pdf_render::Transform::translate(
+            (width as f32).mul_add(0.5, -(size.width * zoom * 0.5)),
+            (height as f32).mul_add(0.5, -(size.height * zoom * 0.5)),
+        );
+        TargetSpec {
+            width,
+            height,
+            transform: page.transform.then(centre),
+        }
+    };
+    let first = placed(scale);
+    let second = placed(scale * factor);
 
     let before = load_average();
     let mut best: Vec<Option<Sample>> = vec![None, None];

@@ -692,13 +692,117 @@ impl std::fmt::Debug for FunctionColours {
     }
 }
 
+/// A rectangular run of cells of a lattice: which cells of it are actually evaluated.
+///
+/// `pdf_render::Patch` states the block as a fraction of the domain, because that is the form
+/// a device's own rectangle arrives in; this is the same block in cells, cut against the
+/// lattice `cells_within_budget` settled on. The two are separate types on purpose — the
+/// budget is this device's answer to §10.7.3's "internal limits" and no caller can name the
+/// lattice before it has been applied.
+#[derive(Debug, Clone, Copy)]
+struct Block {
+    /// The lattice the cells sit on. **What decides a cell's centre**, whatever the block is.
+    lattice: pdf_render::Grid,
+    /// The block's first column and row within that lattice.
+    origin: (u32, u32),
+    /// The block's own extent in cells, at least one each way.
+    extent: pdf_render::Grid,
+}
+
+/// The cells of a `cells`-wide axis that the fraction `low..=high` of it needs.
+///
+/// Snapped outward to whole cells — a cell partly covered is a cell that has to be
+/// evaluated — and then one cell further on each side, which is `Patch::within`'s stated
+/// margin for the bilinear filter both backends read the grid with. The whole axis where the
+/// fraction is not one: a caller that cannot say what the target reaches gets what every
+/// caller got before ADR 0408.
+#[expect(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::arithmetic_side_effects,
+    reason = "each product is a fraction of 0..=1 times a cell count bounded by \
+              MAX_FUNCTION_CELLS, and the rounding is done in i64 — which no u32 can \
+              overflow — before it is clamped into the 0..=cells a u32 holds"
+)]
+fn cells_touched(low: f32, high: f32, cells: u32) -> (u32, u32) {
+    if !low.is_finite() || !high.is_finite() || high < low || cells == 0 {
+        return (0, cells);
+    }
+    let at = |value: f32, round: fn(f32) -> f32| round(value * cells as f32) as i64;
+    let first = (at(low, f32::floor) - 1).clamp(0, i64::from(cells) - 1) as u32;
+    let last = (at(high, f32::ceil) + 1).clamp(0, i64::from(cells)) as u32;
+    (first, last.max(first.saturating_add(1)))
+}
+
+impl Block {
+    /// The cells of `lattice` that `within` touches, with the filter margin `Patch` asks for.
+    fn of(lattice: pdf_render::Grid, within: [f32; 4]) -> Self {
+        let (left, right) = cells_touched(within[0], within[1], lattice.width);
+        let (top, bottom) = cells_touched(within[2], within[3], lattice.height);
+        Self {
+            lattice,
+            origin: (left, top),
+            extent: pdf_render::Grid {
+                width: right.saturating_sub(left).max(1),
+                height: bottom.saturating_sub(top).max(1),
+            },
+        }
+    }
+
+    /// The part of `domain` this block covers, in the shading's own coordinates.
+    ///
+    /// A block that reaches an edge of the lattice takes the domain's own bound there rather
+    /// than computing one: `x0 + 1.0 * (x1 - x0)` is not `x1` in `f32` for most pairs, and an
+    /// unclipped grid has to be placed by exactly the numbers it was placed by before.
+    fn covers(&self, domain: [f32; 4]) -> [f32; 4] {
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "cell indices are bounded by MAX_FUNCTION_CELLS"
+        )]
+        fn edge(index: u32, cells: u32, low: f32, high: f32) -> f32 {
+            if index == 0 {
+                return low;
+            }
+            if index >= cells {
+                return high;
+            }
+            low + (index as f32 / cells.max(1) as f32) * (high - low)
+        }
+
+        let [x0, x1, y0, y1] = domain;
+        let (left, top) = self.origin;
+        [
+            edge(left, self.lattice.width, x0, x1),
+            edge(
+                left.saturating_add(self.extent.width),
+                self.lattice.width,
+                x0,
+                x1,
+            ),
+            edge(top, self.lattice.height, y0, y1),
+            edge(
+                top.saturating_add(self.extent.height),
+                self.lattice.height,
+                y0,
+                y1,
+            ),
+        ]
+    }
+}
+
 impl FunctionColours {
-    /// One row of the grid, at the cell centres §10.7.4's half-pixel rule puts them at.
+    /// One row of the block, at the cell centres §10.7.4's half-pixel rule puts them at.
     ///
     /// A row is the parallel unit as well as the serial one, so that the two paths run the
     /// same arithmetic in the same order and a raster cannot depend on how many threads drew
     /// it. Each call brings its own [`Components`] and reuses it across the row.
-    fn row(&self, row: usize, cells: pdf_render::Grid, out: &mut [Color]) {
+    ///
+    /// **The centre is taken from the cell's index in the lattice, never in the block.** That
+    /// one line is what makes the clip exact: cell `(i, j)` of the lattice is the same
+    /// coordinate, in the same `f32` bits, whether the block is the whole grid or a corner of
+    /// it. ADR 0408.
+    fn row(&self, row: usize, block: Block, out: &mut [Color]) {
         let [x0, x1, y0, y1] = self.domain;
         #[expect(
             clippy::cast_precision_loss,
@@ -708,10 +812,18 @@ impl FunctionColours {
         let centre = |index: u32, cells: u32| -> f32 {
             (2.0 * index as f32 + 1.0) / (2.0 * cells.max(1) as f32)
         };
-        let y = y0 + centre(u32::try_from(row).unwrap_or(u32::MAX), cells.height) * (y1 - y0);
+        let row = block
+            .origin
+            .1
+            .saturating_add(u32::try_from(row).unwrap_or(u32::MAX));
+        let y = y0 + centre(row, block.lattice.height) * (y1 - y0);
         let mut scratch = Components::default();
         for (column, cell) in out.iter_mut().enumerate() {
-            let x = x0 + centre(u32::try_from(column).unwrap_or(u32::MAX), cells.width) * (x1 - x0);
+            let column = block
+                .origin
+                .0
+                .saturating_add(u32::try_from(column).unwrap_or(u32::MAX));
+            let x = x0 + centre(column, block.lattice.width) * (x1 - x0);
             *cell = colour_into(
                 &self.functions,
                 &[x, y],
@@ -724,7 +836,7 @@ impl FunctionColours {
 }
 
 impl pdf_render::ColoursAtDeviceScale for FunctionColours {
-    /// The function evaluated at each cell's centre, on a grid no finer than asked.
+    /// The function evaluated at each cell's centre, over the block the target can sample.
     ///
     /// The centre is §10.7.4's rule for reading a raster back — "the point whose coordinate
     /// values have fractional parts of one-half" — applied in the writing direction: when the
@@ -735,27 +847,35 @@ impl pdf_render::ColoursAtDeviceScale for FunctionColours {
     /// has the measurement; what it cost to divide is one pass filling the grid before writing it,
     /// because a slice has to exist before it can be handed out in pieces. That is a memset
     /// against the function evaluations it carries, and it is not measurable beside them.
-    fn colours(&self, grid: pdf_render::Grid) -> ColourGrid {
-        let cells = cells_within_budget(grid);
-        let width = cells.width as usize;
-        let total = width.saturating_mul(cells.height as usize);
+    ///
+    /// **The budget is applied to the lattice and not to the block**, which is the one place a
+    /// reader might expect the opposite. Bounding the block would be bounding the work; bounding
+    /// the lattice is bounding *where the samples fall*, and a magnified page has to keep the
+    /// lattice it would have had unclipped or the clip stops being exact. It costs nothing —
+    /// the block is never larger — and it leaves a magnified shading exactly as coarse as it
+    /// was before, which is a fidelity question ADR 0408 section 6 keeps separate from this one.
+    fn colours(&self, patch: pdf_render::Patch) -> ColourGrid {
+        let block = Block::of(cells_within_budget(patch.grid), patch.within);
+        let width = block.extent.width as usize;
+        let total = width.saturating_mul(block.extent.height as usize);
         let mut pixels = vec![Color::TRANSPARENT; total];
 
         if rows_in_parallel(total) {
             pixels
                 .par_chunks_mut(width.max(1))
                 .enumerate()
-                .for_each(|(row, out)| self.row(row, cells, out));
+                .for_each(|(row, out)| self.row(row, block, out));
         } else {
             for (row, out) in pixels.chunks_mut(width.max(1)).enumerate() {
-                self.row(row, cells, out);
+                self.row(row, block, out);
             }
         }
 
         ColourGrid {
-            width: cells.width,
-            height: cells.height,
+            width: block.extent.width,
+            height: block.extent.height,
             pixels: pixels.into(),
+            covers: block.covers(self.domain),
         }
     }
 

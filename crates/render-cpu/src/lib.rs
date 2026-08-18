@@ -107,7 +107,11 @@ impl CpuRasterizer {
     ///
     /// `page_to_device` is the other direction and answers the other question: how many
     /// device pixels a sampled shading's domain covers, which is where its colours are
-    /// produced (`Shading::sampled_at`). Only that kind reads it.
+    /// produced (`Shading::sampled_at`). `target` is the extent of the pixmap being drawn
+    /// into — the *band's*, where a page is banded, which clips a shading's grid tighter
+    /// still and stays exact because a band's transform differs from the page's by a
+    /// translation and its lattice is therefore the same one. Only the sampled kind reads
+    /// either.
     ///
     /// # Errors
     ///
@@ -122,12 +126,13 @@ impl CpuRasterizer {
         blend: tiny_skia::BlendMode,
         page_to_path: Transform,
         page_to_device: Transform,
+        target: (u32, u32),
         scratch: &'a mut Option<tiny_skia::Pixmap>,
     ) -> Result<tiny_skia::Paint<'a>, CpuRasterError> {
         let shader = match paint {
             Paint::Solid(colour) => tiny_skia::Shader::SolidColor(convert::color(*colour)),
             Paint::Shading(shading) => {
-                shading::shader(shading, page_to_path, page_to_device, scratch)
+                shading::shader(shading, page_to_path, page_to_device, target, scratch)
                     .ok_or_else(|| CpuRasterError::UnsupportedPaint(format!("{shading:?}")))?
             }
             other => return Err(CpuRasterError::UnsupportedPaint(format!("{other:?}"))),
@@ -463,6 +468,7 @@ impl CpuRasterizer {
                 blend,
                 page_to_path(transform)?,
                 to_device.of(Transform::IDENTITY),
+                (pixmap.width(), pixmap.height()),
                 &mut scratch,
             )?;
             if !draw_sub_pixel_rule(
@@ -501,6 +507,7 @@ impl CpuRasterizer {
                 blend,
                 page_to_path(transform)?,
                 to_device.of(Transform::IDENTITY),
+                (pixmap.width(), pixmap.height()),
                 &mut scratch,
             )?;
             if let Some(mark) = enlarged {
@@ -1372,6 +1379,7 @@ impl CpuRasterizer {
             blend,
             page_to_path(transform)?,
             to_device.of(Transform::IDENTITY),
+            (pixmap.width(), pixmap.height()),
             &mut scratch,
         )?;
         let split = pdf_render::split_collapsed_fill(source, at);
