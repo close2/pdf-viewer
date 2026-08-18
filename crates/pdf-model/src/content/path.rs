@@ -13,7 +13,7 @@ use pdf_render::{
 
 use super::pattern::PatternPaint;
 use super::report::Unsupported;
-use super::transparency::knockout_is_drawable;
+use super::transparency::knockout_group_elements;
 use super::{GraphicsState, Interpreter};
 
 impl Interpreter<'_> {
@@ -120,10 +120,18 @@ impl Interpreter<'_> {
                 // commands are already in. The group is the object, so it takes the alpha
                 // and the blend mode that would have been applied to each portion: they are
                 // on the elements, and the group composites once at 1.0 under Normal.
+                //
+                // The `/AIS` reading asked for is the one accumulated over the content so
+                // far rather than `state`'s own, and the difference matters where a part is
+                // a tiling pattern's group: §11.3.7.2 gives a group object the opacity of
+                // "all of the objects it contains", so the reading its *contents* ran under
+                // is what decides whether its alpha is its shape.
                 let parts = self.list.split_off_commands(mark);
-                if knockout_is_drawable(&parts) && !self.alpha_is_shape {
+                if let Some(elements) =
+                    knockout_group_elements(&parts, self.alpha_sources.settled())
+                {
                     self.list.push(Command::Group {
-                        commands: parts,
+                        commands: elements,
                         alpha: 1.0,
                         clip: None,
                         mask: None,

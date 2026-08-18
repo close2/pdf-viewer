@@ -9,11 +9,11 @@
 //! `/SMask` and its `/Mask` — is what found the gap, and it is the ledger's usual yield: not
 //! a defect, but a rule everybody believes with nothing pinning it.
 //!
-//! The clause the tests below quote is short and the whole of it is here. What is *not*
-//! implemented is named in the ledger rather than tested: `/AIS`, which decides whether the
-//! two constants are shape or opacity values, and the sentence that gives a transparency
-//! group's result the non-stroking constant — both of which need §11.4.6's groups before they
-//! can show on a page.
+//! The clause the tests below quote is short and the whole of it is here. `/AIS`, which
+//! decides whether the two constants are shape or opacity values, and the sentence that gives
+//! a transparency group's result the non-stroking constant both need §11.4.6's groups before
+//! they can show on a page, and are therefore measured in `transparency_groups.rs` rather than
+//! here — `alpha_is_shape_makes_the_drawn_alpha_the_knockout_shape` is the first of them.
 
 #![expect(
     clippy::expect_used,

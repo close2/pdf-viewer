@@ -57,7 +57,8 @@ fn fixture(group: &str, bbox: &str, form: &str, page: &str) -> Vec<u8> {
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
          /Resources << /ExtGState << /GS << /ca 0.5 /CA 0.5 >> /GB << /BM /Multiply >> \
          /GM << /SMask << /S /Luminosity /G 6 0 R >> >> \
-         /GA << /AIS true /SMask << /S /Luminosity /G 6 0 R >> >> >> \
+         /GA << /AIS true /SMask << /S /Luminosity /G 6 0 R >> >> \
+         /GT << /AIS true >> >> \
          /Shading << /Sh 8 0 R >> \
          /XObject << /Fm 5 0 R /In 7 0 R >> >> /Contents 4 0 R >>\nendobj\n\
          4 0 obj\n<< /Length {} >>\nstream\n{page}\nendstream\nendobj\n\
@@ -620,66 +621,94 @@ fn a_knockout_group_reports_only_where_the_two_models_differ() {
     );
 }
 
-/// §11.6.4.3's `/AIS` inverts what a knockout element's shape is, and is refused by name.
+/// §11.6.4.3's `/AIS` inverts what a knockout element's shape is, and both readings are drawn.
 ///
 /// > This is a boolean flag, set with the AIS ("alpha is shape") entry in a graphics state
 /// > parameter dictionary (8.4.5, "Graphics state parameter dictionaries"): true if the soft
 /// > mask contains shape values, false for opacity.
 ///
-/// Under `false` — the default, and what `stated_shape` builds — the mask and the two alpha
-/// constants are opacity, so an element's shape is its mark without them. Under `true` they
-/// are the shape, and removing them states exactly the wrong quantity. This is the one place
-/// in this renderer where the flag can change a pixel at all, because §11.3.7.1 makes alpha
-/// the product `f × q` everywhere else.
+/// and §11.6.4.4 says the same of the two alpha constants. Under `false` — the default — the
+/// mask and the constants are opacity, so an element's shape is its mark without them. Under
+/// `true` they are shape, and §11.6.4.2 has already given the object itself an intrinsic
+/// opacity of 1.0 everywhere, so **all three of §11.3.7.2's opacity inputs are 1.0 and the
+/// alpha a rasteriser draws the element with is its shape**. This is the one place in this
+/// renderer where the flag can change a pixel at all, because §11.3.7.1 makes alpha the
+/// product `f × q` everywhere else.
 ///
-/// **Nine of the corpus's 974 documents state `/AIS true`**, against a ledger row that said
-/// none did, and the flag costs no page: the corpus's incomplete list is the same 67 with it
-/// and without it.
+/// # What is measured
+///
+/// One fixture, two readings, 127 of 255 apart. An opaque red square and a blue one over it
+/// under a `/Luminosity` mask of a 0.5 grey. Under `/AIS false` the mask is opacity: the
+/// blue's shape is its whole path, it knocks the red out entirely, and the group holds blue
+/// at alpha ½ — `(127, 127, 255)` over the white page. Under `/AIS true` the mask is shape:
+/// `f = 0.5`, `q = 1`, so §11.4.6's weighted average keeps half the red and adds half the
+/// blue — `(127, 0, 127)`, a purple band where the other reading draws a pale blue one.
+///
+/// **Nine of the corpus's 974 documents state `/AIS true`** and none of their knockout groups
+/// reaches this at all, which is why the witness is built by hand.
 #[test]
-fn alpha_is_shape_refuses_the_knockout_it_would_invert() {
+fn alpha_is_shape_makes_the_drawn_alpha_the_knockout_shape() {
     let knockout = "/Group << /S /Transparency /I true /K true >>";
-    let reported = |form: &str| {
-        format!(
-            "{:?}",
-            interpret(fixture(knockout, "[0 0 100 100]", form, "/Fm Do")).unsupported
-        )
-    };
-    let under_ais = reported("1 0 0 rg 10 10 50 50 re f /GA gs 0 0 1 rg 30 30 50 50 re f");
-    assert!(
-        under_ais.contains("knockout") && under_ais.contains("/AIS"),
-        "the report names the entry that inverts the two quantities: {under_ais}"
-    );
-    // The same content under a mask that does *not* set the flag is drawn, which is what
-    // says the refusal is about `/AIS` rather than about the mask.
-    assert!(
-        !reported("1 0 0 rg 10 10 50 50 re f /GM gs 0 0 1 rg 30 30 50 50 re f")
-            .contains("knockout")
-    );
+    let masked = "1 0 0 rg 10 10 50 50 re f /GM gs 0 0 1 rg 30 30 50 50 re f";
+    // Page (40, 40) is inside both squares; device row 100 − 40 = 60.
+    let opacity = interpret(fixture(knockout, "[0 0 100 100]", masked, "/Fm Do"));
+    assert!(opacity.is_complete(), "{:?}", opacity.unsupported);
+    assert_eq!(pixel(&opacity, 40, 60), [127, 127, 255, 255]);
 
-    // The flag is a graphics state parameter, so `q`/`Q` bound it and a statement restored
-    // *before* the group's `Do` says nothing about the group's elements. It used to be
-    // monotone across the whole page, and `issue18032.pdf` is the corpus witness: `/AIS
-    // true` inside a form whose group draws nothing refused a knockout group two forms
-    // later (ADR 0327).
-    let page_scoped = |page: &str| {
+    let shape = interpret(fixture(knockout, "[0 0 100 100]", masked, "/GT gs /Fm Do"));
+    assert!(
+        shape.is_complete(),
+        "the reading is drawn rather than refused: {:?}",
+        shape.unsupported
+    );
+    // Within one level of the closed form on each channel: §11.4.6's pair is two eight-bit
+    // draws — `DestinationOut` with the shape and then `Plus` with the object — so each
+    // carries its own rounding where the closed form rounds once.
+    let drawn = pixel(&shape, 40, 60);
+    for (channel, expected) in drawn.iter().zip([127_u8, 0, 127, 255]) {
+        assert!(
+            channel.abs_diff(expected) <= 1,
+            "the mask is shape, so §11.4.6 keeps half of what it knocks out: {drawn:?}"
+        );
+    }
+    // Outside the blue square the red is untouched under either reading, which is what says
+    // the knockout is confined to a shape rather than applied to the group.
+    assert_eq!(pixel(&shape, 20, 80), [255, 0, 0, 255]);
+}
+
+/// The reading is a graphics state parameter, so what a group's *content* painted under
+/// decides it — and where that is both readings, no single one describes the group.
+///
+/// Three scopes, each a shape a real file has. A statement `Q` has restored before the `Do`
+/// reaches no element (ADR 0327's narrowing, whose corpus witness is `issue18032.pdf`); a
+/// statement that opens the form's own content reached no mark of the earlier reading either,
+/// so it *replaces* rather than mixes; and a statement in the middle of the content leaves two
+/// readings over one group, which is refused by name.
+#[test]
+fn alpha_is_shape_is_scoped_to_what_the_groups_content_painted_under() {
+    let knockout = "/Group << /S /Transparency /I true /K true >>";
+    let reported = |form: &str, page: &str| {
         format!(
             "{:?}",
-            interpret(fixture(
-                knockout,
-                "[0 0 100 100]",
-                "1 0 0 rg 10 10 50 50 re f /GS gs 0 0 1 rg 30 30 50 50 re f",
-                page,
-            ))
-            .unsupported
+            interpret(fixture(knockout, "[0 0 100 100]", form, page)).unsupported
         )
     };
+    let squares = "1 0 0 rg 10 10 50 50 re f 0 0 1 rg 30 30 50 50 re f";
     assert!(
-        !page_scoped("q /GA gs Q /Fm Do").contains("/AIS"),
+        !reported(squares, "q /GT gs Q /Fm Do").contains("/AIS"),
         "a statement `Q` has restored before the `Do` reaches no element of the group"
     );
     assert!(
-        page_scoped("/GA gs /Fm Do").contains("/AIS"),
-        "one in force at the `Do` is inherited by everything the group paints"
+        !reported(&format!("/GT gs {squares}"), "/Fm Do").contains("/AIS"),
+        "a statement in front of the group's first mark is the whole of what it painted under"
+    );
+    let mixed = reported(
+        "1 0 0 rg 10 10 50 50 re f /GA gs 0 0 1 rg 30 30 50 50 re f",
+        "/Fm Do",
+    );
+    assert!(
+        mixed.contains("knockout") && mixed.contains("/AIS was stated both ways"),
+        "two readings over one group is refused, and the report names why: {mixed}"
     );
 }
 

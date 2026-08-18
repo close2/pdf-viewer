@@ -271,7 +271,93 @@ fn command_bounds(command: &Command) -> Option<Rect> {
     }
 }
 
-/// Whether every element of a knockout group has a shape a rasteriser can draw.
+/// What §11.6.4.3's alpha source parameter makes of a soft mask and the two alpha constants.
+///
+/// Table 57's `/AIS` is one boolean and it decides which of §11.3.7.2's two products a value
+/// enters. §11.6.4.3's NOTE 1 states it of the mask:
+///
+/// > This is a boolean flag, set with the AIS ("alpha is shape") entry in a graphics state
+/// > parameter dictionary (8.4.5, "Graphics state parameter dictionaries"): true if the soft
+/// > mask contains shape values, false for opacity.
+///
+/// and §11.6.4.4 states it again of the constants:
+///
+/// > As described previously for the soft mask, the AIS ('alpha is shape') entry in a
+/// > graphics state parameter dictionary shall determine whether the alpha constants are
+/// > interpreted as shape values ( true ) or opacity values ( false ).
+///
+/// Alpha is their product either way (§11.3.7.1), so the flag changes no pixel outside a
+/// knockout group — and inside one it changes which quantity §11.4.6's weighted average is
+/// taken with. The two readings therefore build a knockout element's shape differently, and
+/// the difference is the whole of what this type is for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum AlphaSource {
+    /// `/AIS false`, Table 57's default: the mask and both constants are opacity.
+    Opacity,
+    /// `/AIS true`: they are shape, so §11.3.7.2's source opacity is 1.0 everywhere.
+    Shape,
+}
+
+/// Which readings of §11.6.4.3's alpha source parameter the content being run painted under.
+///
+/// `/AIS` is a graphics state parameter, so one content stream may paint some of its marks
+/// under each reading. A knockout group's construction differs between them, so a group whose
+/// content stated both is refused rather than drawn under either — which is what [`Mixed`]
+/// says and what [`Self::settled`] answers `None` for.
+///
+/// [`Mixed`]: Self::Mixed
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum AlphaSourcesSeen {
+    /// Only §11.6.4.3's `false`.
+    Opacity,
+    /// Only its `true`.
+    Shape,
+    /// Both, so no single reading describes what the content painted.
+    Mixed,
+}
+
+impl AlphaSourcesSeen {
+    /// What a graphics state whose `/AIS` is `alpha_is_shape` paints under.
+    pub(super) fn of(alpha_is_shape: bool) -> Self {
+        if alpha_is_shape {
+            Self::Shape
+        } else {
+            Self::Opacity
+        }
+    }
+
+    /// What content that painted under both `self` and `other` painted under.
+    pub(super) fn with(self, other: Self) -> Self {
+        if self == other { self } else { Self::Mixed }
+    }
+
+    /// The one reading that describes all of it, or `None` where there is no such reading.
+    pub(super) fn settled(self) -> Option<AlphaSource> {
+        match self {
+            Self::Opacity => Some(AlphaSource::Opacity),
+            Self::Shape => Some(AlphaSource::Shape),
+            Self::Mixed => None,
+        }
+    }
+}
+
+/// What was decided about a group, for the reports that ask what it did not get.
+///
+/// Grouped because these four always travel together and a report reads three of them
+/// against one entry of Table 145 apiece.
+#[derive(Debug, Clone, Copy)]
+struct GroupDrawn {
+    /// Whether §11.4.6's rule reached the display list rather than a report.
+    knockout: bool,
+    /// What the elements were composited onto — see `Command::Group`'s `isolated`.
+    isolated: bool,
+    /// §11.4.6's NOTE 6 — see [`Interpreter::transparent_initial_backdrop`].
+    backdrop_transparent: bool,
+    /// Which readings of §11.6.4.3's `/AIS` the group's content painted under.
+    alpha_sources: AlphaSourcesSeen,
+}
+
+/// Whether every element of a knockout group has a shape a rasteriser can draw bare.
 ///
 /// §11.4.6 replaces the accumulated group result "by only a fraction of the result of
 /// compositing the object with the initial backdrop", and that fraction is the element's
@@ -294,17 +380,28 @@ fn command_bounds(command: &Command) -> Option<Rect> {
 /// - **No nested group.** A group's result reaches the backends as a raster, so its shape
 ///   would be its alpha by construction — the same conflation one level down.
 ///
+/// All three are [`AlphaSource::Opacity`]'s. Under [`AlphaSource::Shape`] there is no bare
+/// draw at all, for the reason [`element_shape_is_coverage`] gives.
+///
 /// What is left is [`stated_shape`], which states the shape separately for the elements
 /// this refuses, and a report for the elements *that* refuses.
-fn knockout_shape_is_coverage(commands: &[Command]) -> bool {
-    commands.iter().all(element_shape_is_coverage)
+fn knockout_shape_is_coverage(commands: &[Command], alpha: AlphaSource) -> bool {
+    commands
+        .iter()
+        .all(|command| element_shape_is_coverage(command, alpha))
 }
 
 /// Whether one element's shape is the coverage a rasteriser draws it with.
 ///
 /// The three conditions are [`knockout_shape_is_coverage`]'s, asked of one command.
-fn element_shape_is_coverage(command: &Command) -> bool {
-    if command.mask().is_some() {
+///
+/// Never under [`AlphaSource::Shape`], and that is the flag inverting the question rather
+/// than a gap. A bare knockout draw is Porter-Duff Source modulated by coverage, so it
+/// computes `(1 − cov) × P + cov × α × C` — the paint's own alpha read as §11.6.4.4's
+/// *opacity*, which is exactly what `/AIS true` says it is not. The shape there is the whole
+/// drawn alpha, which a second command states exactly; see [`shape_the_alpha_already_is`].
+fn element_shape_is_coverage(command: &Command, alpha: AlphaSource) -> bool {
+    if alpha == AlphaSource::Shape || command.mask().is_some() {
         return false;
     }
     match command {
@@ -323,6 +420,125 @@ fn element_shape_is_coverage(command: &Command) -> bool {
 }
 
 /// §11.6.4.2's shape of one element, as a command whose alpha *is* that shape.
+///
+/// Which of the two constructions below applies is §11.6.4.3's and §11.6.4.4's `/AIS`.
+fn stated_shape(command: &Command, alpha: AlphaSource) -> Option<Command> {
+    match alpha {
+        AlphaSource::Opacity => shape_without_the_mask_and_the_constants(command),
+        AlphaSource::Shape => shape_the_alpha_already_is(command),
+    }
+}
+
+/// §11.6.4.2's shape under `/AIS true`, where the element's own drawn alpha is it.
+///
+/// Three sentences settle this and none of them is about a rasteriser. §11.6.4.2 gives every
+/// elementary object its intrinsic opacity:
+///
+/// > All elementary objects shall have an intrinsic opacity q j of 1.0 everywhere.
+///
+/// §11.6.4.3's NOTE 1 and §11.6.4.4 then hand the soft mask and both alpha constants to
+/// *shape* while the flag is set — see [`AlphaSource`] for both quotations. So all three of
+/// §11.3.7.2's opacity inputs are 1.0, their product is 1.0, and §11.3.7.1's alpha is the
+/// source shape and nothing else. **The number a rasteriser already draws the element with is
+/// the shape**, so the shape command is the element itself.
+///
+/// Only the blend mode is dropped, for the reason [`shape_without_the_mask_and_the_constants`]
+/// drops it: §11.4.6 leaves a knockout element nothing to blend against.
+///
+/// `None` for a nested group, which is the one element whose alpha is not its shape even here:
+/// §11.3.7.2 makes a group object's opacity "the result of the opacity computations for all of
+/// the objects it contains" rather than 1.0, and a non-isolated one accumulates its backdrop's
+/// alpha besides. That is the shape channel §11.3.7.2's row owes, and it stays owed.
+fn shape_the_alpha_already_is(command: &Command) -> Option<Command> {
+    match command {
+        Command::Fill {
+            path,
+            transform,
+            fill_rule,
+            paint,
+            clip,
+            mask,
+            ..
+        } => Some(Command::Fill {
+            path: Arc::clone(path),
+            transform: *transform,
+            fill_rule: *fill_rule,
+            paint: paint.clone(),
+            clip: *clip,
+            mask: *mask,
+            blend: BlendMode::Normal,
+        }),
+        Command::Stroke {
+            path,
+            transform,
+            stroke,
+            paint,
+            clip,
+            mask,
+            ..
+        } => Some(Command::Stroke {
+            path: Arc::clone(path),
+            transform: *transform,
+            stroke: stroke.clone(),
+            paint: paint.clone(),
+            clip: *clip,
+            mask: *mask,
+            blend: BlendMode::Normal,
+        }),
+        Command::Image {
+            image,
+            transform,
+            alpha,
+            clip,
+            mask,
+            ..
+        } => Some(Command::Image {
+            image: image.clone(),
+            transform: *transform,
+            alpha: *alpha,
+            clip: *clip,
+            mask: *mask,
+            blend: BlendMode::Normal,
+        }),
+        // A group's shape is the union of its elements' (§11.3.7.2), and under this reading
+        // each element's shape is its own alpha — which is exactly what an isolated group
+        // accumulates: compositing by Over takes the union of the alphas whatever blend
+        // function the *colours* go through, and §11.4.6's `(1 − f) × F + f` is that same
+        // union. Its opacity is 1.0 because every one of §11.3.7.2's opacity inputs inside it
+        // is 1.0, so the group's alpha is its shape and the shape command is the group itself.
+        //
+        // **Isolated only**, and that is the one place this reading does not simplify: a
+        // non-isolated group is drawn on a buffer seeded from its backdrop (ADR 0237), so what
+        // it accumulates carries the backdrop's alpha beside its own and is not a shape at all.
+        Command::Group {
+            commands,
+            alpha,
+            clip,
+            mask,
+            isolated: true,
+            knockout,
+            blending,
+            ..
+        } => Some(Command::Group {
+            commands: commands.clone(),
+            alpha: *alpha,
+            clip: *clip,
+            mask: *mask,
+            blend: BlendMode::Normal,
+            isolated: true,
+            knockout: *knockout,
+            blending: blending.clone(),
+        }),
+        // An inner knockout group's elements arrive with their shape already stated, under
+        // whichever reading that group's own content ran — which is this one, because the
+        // reading propagates outward (see `Interpreter::alpha_sources`).
+        Command::Shaped { shape, .. } => Some((**shape).clone()),
+        _ => None,
+    }
+}
+
+/// §11.6.4.2's shape under `/AIS false`, which is the element with the mask and the
+/// constants removed.
 ///
 /// The clause gives the shape from the object's geometry and nothing else — for a path
 ///
@@ -345,7 +561,7 @@ fn element_shape_is_coverage(command: &Command) -> bool {
 ///
 /// A [`Command::Shaped`] answers with the shape it already carries: an inner knockout group's
 /// elements arrive stated.
-fn stated_shape(command: &Command) -> Option<Command> {
+fn shape_without_the_mask_and_the_constants(command: &Command) -> Option<Command> {
     match command {
         Command::Fill {
             path,
@@ -398,7 +614,10 @@ fn stated_shape(command: &Command) -> Option<Command> {
         // `(1 − f) × F + f`, §11.4.4 accumulates `Union(F, f) = F + f − F × f`, and the two
         // expressions are equal.
         Command::Group { commands, clip, .. } => Some(Command::Group {
-            commands: commands.iter().map(stated_shape).collect::<Option<_>>()?,
+            commands: commands
+                .iter()
+                .map(shape_without_the_mask_and_the_constants)
+                .collect::<Option<_>>()?,
             alpha: 1.0,
             clip: *clip,
             mask: None,
@@ -418,7 +637,7 @@ fn stated_shape(command: &Command) -> Option<Command> {
 }
 
 /// A paint that marks where its argument marks, at full opacity, or `None` where the two
-/// cannot be told apart. See [`stated_shape`].
+/// cannot be told apart. See [`shape_without_the_mask_and_the_constants`].
 fn opaque_paint(paint: &Paint) -> Option<Paint> {
     match paint {
         Paint::Solid(_) => Some(Paint::Solid(Color::WHITE)),
@@ -432,16 +651,18 @@ fn opaque_paint(paint: &Paint) -> Option<Paint> {
 /// `None` where one element's shape cannot be stated, which leaves the whole group an
 /// ordinary one with the report [`Interpreter::note_group_structure`] gives it —
 /// per group rather than per element, because the model the clause states is the group's.
-fn knockout_elements(commands: &[Command]) -> Option<Vec<Command>> {
+fn knockout_elements(commands: &[Command], alpha: AlphaSource) -> Option<Vec<Command>> {
     commands
         .iter()
         .map(|command| {
-            if element_shape_is_coverage(command) || matches!(command, Command::Shaped { .. }) {
+            if element_shape_is_coverage(command, alpha)
+                || matches!(command, Command::Shaped { .. })
+            {
                 return Some(command.clone());
             }
             Some(Command::Shaped {
                 object: Box::new(command.clone()),
-                shape: Box::new(stated_shape(command)?),
+                shape: Box::new(stated_shape(command, alpha)?),
             })
         })
         .collect()
@@ -455,7 +676,7 @@ fn knockout_elements(commands: &[Command]) -> Option<Vec<Command>> {
 /// backend needs the shape of **every** element per pixel — the weighted average's factor —
 /// so each is stated, even where a single draw could have carried it. `None` where any
 /// element's shape cannot be stated, which leaves the group the report it has.
-fn stated_elements(commands: &[Command]) -> Option<Vec<Command>> {
+fn stated_elements(commands: &[Command], alpha: AlphaSource) -> Option<Vec<Command>> {
     commands
         .iter()
         .map(|command| {
@@ -464,7 +685,7 @@ fn stated_elements(commands: &[Command]) -> Option<Vec<Command>> {
             }
             Some(Command::Shaped {
                 object: Box::new(command.clone()),
-                shape: Box::new(stated_shape(command)?),
+                shape: Box::new(stated_shape(command, alpha)?),
             })
         })
         .collect()
@@ -529,20 +750,24 @@ fn paired(first: &[Command], second: &[Command]) -> bool {
 
 /// The first element of a knockout group whose shape this renderer cannot state, named for
 /// the report. See [`stated_shape`] for why each is refused.
-fn unstatable_shape(commands: &[Command]) -> Option<&'static str> {
+fn unstatable_shape(commands: &[Command], alpha: AlphaSource) -> Option<&'static str> {
     commands.iter().find_map(|command| {
-        if element_shape_is_coverage(command) || stated_shape(command).is_some() {
+        if element_shape_is_coverage(command, alpha) || stated_shape(command, alpha).is_some() {
             return None;
         }
-        Some(match command {
-            Command::Image { .. } => "an image whose samples state either shape or opacity",
-            Command::Fill { .. } | Command::Stroke { .. } => "a shading that is not opaque",
+        Some(match (command, alpha) {
+            (Command::Group { .. }, AlphaSource::Shape) => {
+                "a non-isolated group, whose accumulated alpha carries its backdrop's (§11.4.4)"
+            }
+            (Command::Image { .. }, _) => "an image whose samples state either shape or opacity",
+            (Command::Fill { .. } | Command::Stroke { .. }, _) => "a shading that is not opaque",
             _ => "an element this renderer cannot describe the shape of",
         })
     })
 }
 
-/// Whether §11.4.6's rule can be *drawn* for a non-isolated knockout group's elements.
+/// §11.4.6's elements for a group the specification itself makes a knockout group out of,
+/// or `None` where the rule cannot be drawn for them at all.
 ///
 /// Two conditions, and the clause states both. The first is
 /// [`knockout_shape_is_coverage`]: a rasteriser has one number per pixel where the clause
@@ -553,10 +778,26 @@ fn unstatable_shape(commands: &[Command]) -> Option<&'static str> {
 /// backdrop is composited in and removed again exactly, so it cancels. Where one blends it
 /// does not, and the caller reports instead.
 ///
+/// Under `/AIS true` the first condition is never met and never has to be: every element's
+/// drawn alpha *is* its shape there ([`shape_the_alpha_already_is`]), so each states the pair
+/// §11.4.6's two stages ask for and the group is drawn rather than reported.
+///
 /// The two callers are the places the specification itself makes a knockout group out of
 /// something that is not one: §9.3.8's text object and §11.6.2's one object in parts.
-pub(super) fn knockout_is_drawable(commands: &[Command]) -> bool {
-    knockout_shape_is_coverage(commands) && !any_command(commands, &command_blends)
+pub(super) fn knockout_group_elements(
+    commands: &[Command],
+    alpha: Option<AlphaSource>,
+) -> Option<Vec<Command>> {
+    let alpha = alpha?;
+    if any_command(commands, &command_blends) {
+        return None;
+    }
+    match alpha {
+        AlphaSource::Opacity => {
+            knockout_shape_is_coverage(commands, alpha).then(|| commands.to_vec())
+        }
+        AlphaSource::Shape => stated_elements(commands, alpha),
+    }
 }
 
 /// Whether §11.4.6's knockout could change a pixel of this group.
@@ -981,17 +1222,22 @@ impl Interpreter<'_> {
         // group is not an element of the knockout group the `gs` appears in, so nothing inside
         // it inherits that group's initial backdrop.
         let saved_backdrop = std::mem::replace(&mut self.transparent_initial_backdrop, false);
-        // And §11.6.4.3's `/AIS`, restored exactly rather than OR-ed back: the flag answers
-        // "was an element of the group being built painted under it", and a mask's content
-        // is not an element of anything — its marks become one alpha per pixel.
-        let saved_ais = std::mem::replace(&mut self.alpha_is_shape, state.alpha_is_shape);
+        // And §11.6.4.3's `/AIS`, restored exactly rather than folded back: the record answers
+        // "which readings did the elements of the group being built paint under", and a
+        // mask's content is not an element of anything — its marks become one alpha per pixel.
+        let saved_ais = std::mem::replace(
+            &mut self.alpha_sources,
+            AlphaSourcesSeen::of(state.alpha_is_shape),
+        );
+        let saved_ais_mark = std::mem::replace(&mut self.alpha_sources_mark, mark);
         // And the record of a space departure met on a subtractive run, for ADR 0276's
         // reason one construction over: a space declared inside a mask is answered by
         // §11.5.3's own derivation and says nothing about the group the `gs` sits in.
         let saved_departed = std::mem::replace(&mut self.nested_space_departed, false);
         self.run(&content, &resources, &inner, 0);
         self.nested_space_departed = saved_departed;
-        self.alpha_is_shape = saved_ais;
+        let mask_alpha_sources = std::mem::replace(&mut self.alpha_sources, saved_ais);
+        self.alpha_sources_mark = saved_ais_mark;
         self.transparent_initial_backdrop = saved_backdrop;
         self.blending_changed = saved_change;
         self.blending = saved_blending;
@@ -1017,7 +1263,16 @@ impl Interpreter<'_> {
             // a knockout group, and a soft mask is named by an `/ExtGState` rather than being
             // an element of anything — so a mask group's non-isolation is a departure however
             // it was reached.
-            self.note_group_structure(&group, &commands, false, true, false);
+            self.note_group_structure(
+                &group,
+                &commands,
+                GroupDrawn {
+                    knockout: false,
+                    isolated: true,
+                    backdrop_transparent: false,
+                    alpha_sources: mask_alpha_sources,
+                },
+            );
         }
         self.note_blended_luminosity(request.compositing, &commands);
 
@@ -1201,19 +1456,25 @@ impl Interpreter<'_> {
         // group is weighted by its own shape, which `Command::Group` does not carry; and
         // every element's shape statable, because the weighted average's factor has to
         // come from somewhere.
+        //
+        // And a fourth, which is §11.6.4.3's: the shape §11.4.6 weights by is built one way
+        // under each reading of `/AIS`, so a group whose content painted under both is
+        // refused. `ais_inside.settled()` is that question, and both of its answers draw.
         let mut backdrop_composited = false;
-        if group.knockout && !ais_inside {
+        if group.knockout
+            && let Some(alpha) = ais_inside.settled()
+        {
             if group.isolated || backdrop_transparent || !any_command(&commands, &command_blends) {
-                if knockout_shape_is_coverage(&commands) {
+                if knockout_shape_is_coverage(&commands, alpha) {
                     knockout = true;
-                } else if let Some(elements) = knockout_elements(&commands) {
+                } else if let Some(elements) = knockout_elements(&commands, alpha) {
                     commands = elements;
                     knockout = true;
                 }
             } else if knockout_shows
                 && !enclosing_knockout
                 && outer.blend == BlendMode::Normal
-                && let Some(elements) = stated_elements(&commands)
+                && let Some(elements) = stated_elements(&commands, alpha)
             {
                 commands = elements;
                 knockout = true;
@@ -1269,15 +1530,18 @@ impl Interpreter<'_> {
         self.note_group_departures(
             group,
             &commands,
-            knockout,
-            isolated,
+            GroupDrawn {
+                knockout,
+                isolated,
+                backdrop_transparent,
+                alpha_sources: ais_inside,
+            },
             // A group drawn in its own space has no colour-space departure to report.
             if pair.is_some() {
                 None
             } else {
                 introduced.as_deref()
             },
-            backdrop_transparent,
         );
         // §11.6.6's final compositing: the group's shape "shall then be painted into the
         // parent group or page, using the group's accumulated colour and opacity at each
@@ -1315,7 +1579,7 @@ impl Interpreter<'_> {
     /// condition the report fires on), and a run that stated §11.7.5.3's black generation,
     /// which the conversion into the space does not read.
     ///
-    /// The third value is whether §11.6.4.3's `/AIS` was in force while the content ran —
+    /// The third value is which of §11.6.4.3's `/AIS` readings the content ran under —
     /// scoped here, seeded from the state at the `Do`, because the entry is a graphics
     /// state parameter and the page-wide flag it used to be refused knockout groups whole
     /// forms away from any statement of it.
@@ -1326,9 +1590,17 @@ impl Interpreter<'_> {
         resources: &Dictionary,
         inner: &GraphicsState,
         form_depth: usize,
-    ) -> (Vec<Command>, Option<pdf_render::GroupBlending>, bool) {
+    ) -> (
+        Vec<Command>,
+        Option<pdf_render::GroupBlending>,
+        AlphaSourcesSeen,
+    ) {
         let mark = self.list.command_count();
-        let outer_ais = std::mem::replace(&mut self.alpha_is_shape, inner.alpha_is_shape);
+        let outer_ais = std::mem::replace(
+            &mut self.alpha_sources,
+            AlphaSourcesSeen::of(inner.alpha_is_shape),
+        );
+        let outer_ais_mark = std::mem::replace(&mut self.alpha_sources_mark, mark);
         let ink = self.group_press(group, resources);
         let saved = self.compositing;
         // Scoped only where a pair is being attempted: everywhere else the record has to
@@ -1380,8 +1652,16 @@ impl Interpreter<'_> {
         if ink.is_some() {
             self.nested_space_departed = saved_departed;
         }
-        let ais_inside = self.alpha_is_shape;
-        self.alpha_is_shape = outer_ais || ais_inside;
+        let ais_inside = self.alpha_sources;
+        // Folded into the enclosing scope's record, unless that scope had painted nothing
+        // before this group — in which case the enclosing reading reached no mark either and
+        // this group's is the whole of what the enclosing content has painted under so far.
+        self.alpha_sources = if mark == outer_ais_mark {
+            ais_inside
+        } else {
+            outer_ais.with(ais_inside)
+        };
+        self.alpha_sources_mark = outer_ais_mark;
         (commands, pair, ais_inside)
     }
 
@@ -1500,29 +1780,18 @@ impl Interpreter<'_> {
     /// Reports the parts of §11.4 this group asks for and does not get.
     ///
     /// A group is composited here under its own constant alpha and blend mode, onto the
-    /// backdrop `isolated_drawn` names. Three of Table 145's answers can ask for more than
-    /// the display list carries, and each is reported only where it can change a pixel —
+    /// backdrop [`GroupDrawn::isolated`] names. Three of Table 145's answers can ask for more
+    /// than the display list carries, and each is reported only where it can change a pixel —
     /// a report that fires where the output is provably identical costs the page its place
     /// in the oracle's comparison and buys nothing.
-    ///
-    /// `backdrop_transparent` is §11.4.6's NOTE 6 — see
-    /// [`Interpreter::transparent_initial_backdrop`].
     fn note_group_departures(
         &mut self,
         group: &TransparencyGroup,
         commands: &[Command],
-        knockout_drawn: bool,
-        isolated_drawn: bool,
+        drawn: GroupDrawn,
         introduced: Option<&str>,
-        backdrop_transparent: bool,
     ) {
-        self.note_group_structure(
-            group,
-            commands,
-            knockout_drawn,
-            isolated_drawn,
-            backdrop_transparent,
-        );
+        self.note_group_structure(group, commands, drawn);
 
         // §11.6.6: for an isolated group, a `/CS` means "all painting operators shall
         // convert source colours ... to the group colour space before compositing objects
@@ -1553,10 +1822,10 @@ impl Interpreter<'_> {
     /// group's the space its elements are composited in. `crate::soft_mask` decides the
     /// first; this decides what the two share.
     ///
-    /// `backdrop_transparent` is §11.4.6's NOTE 6: a group that is a direct element of a
-    /// knockout group whose initial backdrop is transparent **is** §11.4.5's isolated group
-    /// by that clause's own definition, whatever Table 145's `/I` says here, so both
-    /// questions below are asked of that rather than of the entry. See
+    /// [`GroupDrawn::backdrop_transparent`] is §11.4.6's NOTE 6: a group that is a direct
+    /// element of a knockout group whose initial backdrop is transparent **is** §11.4.5's
+    /// isolated group by that clause's own definition, whatever Table 145's `/I` says here,
+    /// so both questions below are asked of that rather than of the entry. See
     /// [`Interpreter::transparent_initial_backdrop`], and `knockout_inner_backdrop.pdf` is
     /// the page that showed the difference: its inner group states `/I false` inside an
     /// isolated knockout group, is drawn on the transparency the clause asks for, and was
@@ -1565,10 +1834,14 @@ impl Interpreter<'_> {
         &mut self,
         group: &TransparencyGroup,
         commands: &[Command],
-        knockout_drawn: bool,
-        isolated_drawn: bool,
-        backdrop_transparent: bool,
+        drawn: GroupDrawn,
     ) {
+        let GroupDrawn {
+            knockout: knockout_drawn,
+            isolated: isolated_drawn,
+            backdrop_transparent,
+            alpha_sources,
+        } = drawn;
         let isolated_by_clause = group.isolated || backdrop_transparent;
         // §11.4.4 composites a non-isolated group's elements onto the group's backdrop and
         // then removes that backdrop's contribution again (its NOTE 3). Under the Normal
@@ -1612,15 +1885,22 @@ impl Interpreter<'_> {
         // and this one had named neither.
         if group.knockout && !knockout_drawn && knockout_can_show(commands) {
             // Ordered by how precisely each condition is known, not by how it is tested:
-            // the first names an element, the second names this group, and the third is
-            // page-scoped and over-approximates. More than one can hold, and the most
-            // precise true statement is the one worth printing.
-            let refusal = if let Some(element) = unstatable_shape(commands) {
+            // the first names an element, the second names this group, and the third names
+            // a history of the group's whole run and over-approximates within it. More than
+            // one can hold, and the most precise true statement is the one worth printing.
+            // The first is asked only where there *is* a settled reading of `/AIS`, because
+            // which elements have a statable shape is a different question under each — and
+            // where there is not, the third is the answer by construction.
+            let refusal = if let Some(element) = alpha_sources
+                .settled()
+                .and_then(|alpha| unstatable_shape(commands, alpha))
+            {
                 element
             } else if !isolated_by_clause && any_command(commands, &command_blends) {
                 "non-isolated, and an element blends with the backdrop it excludes"
             } else {
-                "/AIS makes the mask and the alpha constants a shape (§11.6.4.3)"
+                "/AIS was stated both ways while the content ran, and §11.6.4.3 gives the \
+                 mask and the alpha constants a different meaning under each"
             };
             self.note(Unsupported::TransparencyGroup {
                 detail: format!("knockout, and an element composites over another ({refusal})"),

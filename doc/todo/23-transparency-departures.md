@@ -51,10 +51,19 @@ to the group in the same round), and `bug1721218_reduced.pdf` is drawn in ink an
 sit to each other. Both are refused by name on `render-gpu` and `render-quorra` and the frames go
 to the oracle, which is a backend row again only in the sense ADR 0327 prices: a scene under
 composition cannot resolve a pair per pixel or retain a backdrop beside a layer.
+**The five-hundred-and-eightieth honoured §11.6.4.3's `/AIS`** (ADR 0415), which had been read and
+refused since ADR 0234 and which this file had twice priced as "a second `stated_shape`": under
+`/AIS true` §11.3.7.2's three opacity inputs are all 1.0 — §11.6.4.2 gives the object's, this
+clause and §11.6.4.4 give the other two away — so the alpha a rasteriser already draws an element
+with *is* its shape, and the shape half of `Command::Shaped` is the element itself. No vocabulary,
+no backend arm, no raster. The refusal was **inverted**: `/AIS true` is the one reading under which
+one number per pixel cannot disagree with the shape. Corpus: 0 pages, measured over every page of
+the nine documents that state the entry. Web: 1 of 65 944, `6573550.pdf`, whose knockout group
+draws now.
 Priority: 23
 Corpus: 0 documents
-Clauses: §11.3.5.3, §11.4.4, §11.5.3, §11.6.6, §11.7.5.3, §8.6.5.5, §8.6.5.6, §8.6.5.7, §11.7.2,
-§14.11.5
+Clauses: §11.3.5.3, §11.3.7.2, §11.4.4, §11.4.6, §11.5.3, §11.6.4.3, §11.6.4.4, §11.6.6, §11.7.5.3,
+§8.6.5.5, §8.6.5.6, §8.6.5.7, §11.7.2, §14.11.5
 Code: `crates/pdf-model/src/content/transparency.rs`, `crates/pdf-model/src/colour.rs`,
 `crates/pdf-render/src/blending.rs`, `crates/pdf-render/src/display_list.rs`,
 `crates/render-cpu/src/lib.rs`
@@ -341,13 +350,21 @@ Plus: source-over there is 32 of 255 out at a half-covered pixel under a half-op
    carry §11.6.4.4's constant, so neither can be un-multiplied after the fact. An `ImageSource`
    that keeps the two apart would answer both, and it is a smaller construction than the
    population below.
-2. **§11.6.4.3's `/AIS`.** It inverts which of the two the mask and the constants are, so the
-   shape a `Shaped` states is exactly wrong while it is set — and a knockout group drawn by
-   modulating Source with coverage was *already* wrong under it, silently, since the seventy-first
-   session. The entry is read now and every knockout group is refused while it is set. **Nine
-   corpus documents state it true** (the ledger row said none did), and none of their knockout
-   groups is drawn today. Honouring it means composing the mask and the constants into the shape
-   instead of into the object, which is a second `stated_shape` rather than a new vocabulary.
+2. ~~**§11.6.4.3's `/AIS`.**~~ — **closed in the five-hundred-and-eightieth, ADR 0415**, and the
+   price this entry quoted was an overstatement of a construction that turned out to be an
+   identity. It said honouring the flag "means composing the mask and the constants into the shape
+   instead of into the object, which is a second `stated_shape` rather than a new vocabulary" —
+   right about the shape of the answer, and composing them *into* the shape yields the element
+   back. §11.6.4.2 makes an elementary object's intrinsic opacity 1.0 everywhere and the flag hands
+   the mask and both constants to shape, so §11.3.7.2's source opacity is 1.0 and §11.3.7.1's alpha
+   is the source shape: the shape command is the element with its blend mode dropped. **What this
+   entry got wrong besides the price was the population**: it said nine corpus documents state the
+   entry and "none of their knockout groups is drawn today", which had stopped being true when ADR
+   0327 scoped the flag — measured over every page of all nine, not one of their knockout groups
+   reaches the refusal. The world population was **1 of 65 944** crawled web documents. What is
+   refused in its place is a *scope*: a group whose content painted under **both** readings, and,
+   under the shape reading, a non-isolated group used as an element — whose accumulated alpha
+   carries its backdrop's beside its own, which is item 1's debt one level up.
 3. ~~**`render-quorra` refuses a `Shaped` element outright**~~ — **closed in the
    four-hundred-and-fifty-sixth, ADR 0291.** The history is the part worth keeping, because it is
    three rounds long and each one was a different kind of wrong. §14 asked for Destination-Out and

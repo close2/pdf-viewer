@@ -108,9 +108,10 @@ nested group or carries a soft mask draws rather than reporting; ADR 0237 then t
 pair themselves — a group whose `Do` states an alpha or a soft mask and whose elements blend is
 drawn on a buffer seeded from the page. Both are *checks* rather than questions, exactly as the
 twelve above became one. Two things could still be printed and neither is §11.4.4's: §11.4.7's
-`/DeviceCMYK` blending space, which is item 3 below, and §11.6.4.3's `/AIS` if this producer sets it,
-which refuses a knockout group by name. The catalogue is CMYK commercial work, which is where a
-producer is most likely to set it.
+`/DeviceCMYK` blending space, which is item 3 below, and §11.6.4.3's `/AIS` if this producer sets it —
+which since the five-hundred-and-eightieth refuses a knockout group only where the group's content
+painted under *both* of the entry's readings (ADR 0415). The catalogue is CMYK commercial work,
+which is where a producer is most likely to set it.
 
 **The measurement nobody in this tree can take is still worth taking**, because the file is the
 owner's and the pdf.js corpus's mask groups turned out to be grey artwork over ordinary backdrops

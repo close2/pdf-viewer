@@ -34,7 +34,7 @@ use font::{Font, FontKey};
 use pattern::{PatternPaint, shading_with_alpha};
 use run::narrow;
 use text::Coverage;
-use transparency::{PagePress, page_blending_space, page_press};
+use transparency::{AlphaSourcesSeen, PagePress, page_blending_space, page_press};
 
 mod annotations;
 mod colour;
@@ -191,7 +191,7 @@ struct GraphicsState {
     /// alpha constants state *shape* rather than opacity.
     ///
     /// A graphics state parameter like any other in this struct — set by `gs`, saved and
-    /// restored by `q`/`Q` — and carried here so that [`Interpreter::alpha_is_shape`] can be
+    /// restored by `q`/`Q` — and carried here so that [`Interpreter::alpha_sources`] can be
     /// seeded with the value actually in force when a group's content starts, rather than
     /// with the whole page's history. Initially `false` (§8.4.1 Table 52).
     alpha_is_shape: bool,
@@ -460,7 +460,11 @@ impl<'a> Interpreter<'a> {
             uncoloured: false,
             inside_knockout: false,
             transparent_initial_backdrop: false,
-            alpha_is_shape: false,
+            // §8.4.1 Table 52 gives the alpha source parameter an initial value of `false`,
+            // so a page that never states `gs` paints entirely under §11.6.4.3's opacity
+            // reading.
+            alpha_sources: AlphaSourcesSeen::Opacity,
+            alpha_sources_mark: 0,
             compositing,
             blending: page_blending_space(document, page),
             blending_changed: false,
@@ -969,25 +973,47 @@ struct Interpreter<'a> {
     /// its parent's *accumulated* content, which is what "it is not the immediate backdrop"
     /// distinguishes.
     transparent_initial_backdrop: bool,
-    /// Whether §11.6.4.3's `/AIS` has been in force anywhere in the content being run.
+    /// Which readings of §11.6.4.3's `/AIS` the content being run painted under.
     ///
-    /// While it is, a mask and the alpha constants are *shape* rather than opacity, and
-    /// `stated_shape` — which builds a knockout element's shape by removing exactly those
-    /// two — states the wrong quantity. A knockout group any of whose elements may have
-    /// been painted under it is therefore refused by name.
+    /// The entry decides whether a soft mask and the alpha constants are *shape* or
+    /// *opacity*, and §11.4.6's weighted average is taken with the shape — so a knockout
+    /// group's elements are built one way under each reading (`stated_shape`), and a group
+    /// whose content stated both is refused by name because no single reading describes it.
     ///
-    /// Monotone **within one group's content** rather than across the page, which is the
+    /// Scoped **to one group's content** rather than to the page, which is the
     /// four-hundred-and-ninety-second session's narrowing: the entry is a graphics state
     /// parameter, so `q`/`Q` bound it, and a `gs` inside one form said nothing about a
     /// sibling form's group — yet the page-wide flag refused every knockout group after it
     /// (`issue18032.pdf` states it inside a form whose group draws nothing at all, two
     /// forms before the knockout group it cost). [`Interpreter::run_transparency_group`]
     /// seeds this from [`GraphicsState::alpha_is_shape`] — the value actually in force at
-    /// the `Do` — runs the content, reads what the run left, and restores the enclosing
-    /// value OR-ed with it, so an enclosing group still sees a nested `gs`. Within one
-    /// scope it stays an over-approximation ("stated while the content ran", not "a mark
-    /// was painted under it"), which errs toward the report.
-    alpha_is_shape: bool,
+    /// the `Do` — runs the content, reads what the run left, and folds it into the enclosing
+    /// value, so an enclosing group still sees a nested `gs`.
+    ///
+    /// **It propagates outward on purpose**, and that is what makes the `Shape` reading safe
+    /// for a group that contains other groups: a nested group's own marks are the enclosing
+    /// group's marks too, so a `Shape` answer here means every mark inside, at every depth,
+    /// was painted under `/AIS true`. A soft mask's group is the one exception and is
+    /// restored exactly, because its marks become one alpha per pixel rather than elements.
+    ///
+    /// Within one scope it is an over-approximation in one direction only, and
+    /// [`Interpreter::alpha_sources_mark`] is what keeps it from being one in the other: a
+    /// reading that was in force while *nothing was painted* is replaced rather than mixed in.
+    alpha_sources: AlphaSourcesSeen,
+    /// The display list's length when [`Interpreter::alpha_sources`] last changed.
+    ///
+    /// A reading nothing was painted under says nothing about the group being built, and the
+    /// commonest shape in a real file is a form whose content opens with the `gs` that states
+    /// `/AIS` — where the value inherited from the `Do` reached no mark at all. So a statement
+    /// arriving while the list is still this long **replaces** the record instead of mixing
+    /// into it.
+    ///
+    /// The invariant it rests on is that a command is only ever taken off the list to be
+    /// folded into a replacement, or by a group that painted nothing — so the list being this
+    /// long again means nothing has been painted since. Where that ever stopped holding the
+    /// comparison would simply fail and the record would say `Mixed`, which is the direction
+    /// that costs a report rather than a wrong pixel.
+    alpha_sources_mark: usize,
     /// What the content being run is painting into, which decides what a colour becomes.
     compositing: Compositing,
     /// The blending colour space in force here, named where this tree does not composite in it.

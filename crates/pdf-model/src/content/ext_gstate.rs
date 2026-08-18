@@ -352,22 +352,34 @@ impl Interpreter<'_> {
         // Alpha is the product `α = f × q` (§11.3.7.1), so which of the two a value is called
         // changes nothing anywhere the product is all that is used — and until ADR 0234 that
         // was everywhere this tree draws, because §11.4.6's groups were reported. It is not
-        // now: `stated_shape` builds a knockout element's shape by *removing* the mask and the
-        // constant, which is the clause under `/AIS false` and is exactly wrong under true.
+        // now: a knockout element's shape is built by *removing* the mask and the constant
+        // under `/AIS false`, and under true the drawn alpha already is the shape, because
+        // §11.6.4.2 gives an elementary object an intrinsic opacity of 1.0 and this entry
+        // takes the other two opacity inputs away. Both readings are drawn; see
+        // `transparency::stated_shape`.
         //
-        // So the flag is read, and a knockout group is refused where an element may have
-        // been painted while it was set. Two records of it, with two scopes:
+        // So the flag is read, and both records of it are kept, with two scopes.
         // `state.alpha_is_shape` is the parameter itself — set either way here, bounded by
-        // `q`/`Q` like everything else in the struct — and `self.alpha_is_shape` is the
-        // question a *group* asks when it closes, "was this stated while my content ran",
-        // which is a history rather than a value and is therefore monotone within one
-        // group's run. It used to be monotone across the whole page, and nine corpus
-        // documents state the entry: `issue18032.pdf` states it inside a form whose group
-        // draws nothing, and the page-wide flag refused a knockout group two forms later
-        // for it (ADR 0327).
+        // `q`/`Q` like everything else in the struct — and `self.alpha_sources` is the
+        // question a *group* asks when it closes, "which readings did my content paint
+        // under", which is a history rather than a value and is therefore accumulated within
+        // one group's run. It used to be a single monotone flag across the whole page, and
+        // nine corpus documents state the entry: `issue18032.pdf` states it inside a form
+        // whose group draws nothing, and the page-wide flag refused a knockout group two
+        // forms later for it (ADR 0327).
         if let Object::Boolean(flag) = self.document.get_key(dict, "AIS") {
             state.alpha_is_shape = flag;
-            self.alpha_is_shape |= flag;
+            let stated = super::AlphaSourcesSeen::of(flag);
+            let painted = self.list.command_count();
+            // A reading nothing was painted under is replaced rather than mixed in — see
+            // `Interpreter::alpha_sources_mark`, and it is what lets a form that opens with
+            // the `gs` stating `/AIS` be drawn instead of reported.
+            self.alpha_sources = if painted == self.alpha_sources_mark {
+                stated
+            } else {
+                self.alpha_sources.with(stated)
+            };
+            self.alpha_sources_mark = painted;
         }
 
         // §11.6.4.3's soft mask: an independent source of shape or opacity, defined by a

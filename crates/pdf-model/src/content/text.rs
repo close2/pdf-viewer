@@ -17,7 +17,7 @@ use super::font::Font;
 use super::path::marks;
 use super::pattern::PatternPaint;
 use super::report::{Placed, Unsupported};
-use super::transparency::{knockout_is_drawable, outline_bounds};
+use super::transparency::{knockout_group_elements, outline_bounds};
 use super::{GraphicsState, Interpreter, MAX_FORM_DEPTH};
 
 /// What a text object owns, as against what the graphics state does.
@@ -871,8 +871,8 @@ impl Interpreter<'_> {
         // §11.7.4.4's implicit group is decided here too, and it has to be: a glyph shown in
         // mode 2 or 6 owes a knockout group of its own fill and stroke, and where the object
         // above is built that group is *inside* it. One knockout group inside another is not
-        // something either backend can state — `knockout_is_drawable` rejects an element that
-        // is a group — and it does not have to be stated, because it computes the same
+        // something either backend can state — `knockout_group_elements` rejects an element
+        // that is a group — and it does not have to be stated, because it computes the same
         // picture flat: in a knockout group every element composites with the initial
         // backdrop, so at each point the topmost element wins, and nesting cannot change
         // which element that is. So the whole-object group subsumes every glyph's, and the
@@ -881,7 +881,10 @@ impl Interpreter<'_> {
         if knockout_owed || !text.combined.is_empty() {
             let glyphs = text.composited.len();
             let elements = self.list.split_off_commands(text.start);
-            if knockout_owed && knockout_is_drawable(&elements) && !self.alpha_is_shape {
+            let stated = knockout_owed
+                .then(|| knockout_group_elements(&elements, self.alpha_sources.settled()))
+                .flatten();
+            if let Some(elements) = stated {
                 self.list.push(Command::Group {
                     commands: elements,
                     alpha: 1.0,
@@ -1005,9 +1008,9 @@ impl Interpreter<'_> {
                     .take(to.saturating_sub(from).saturating_sub(1)),
             );
             index = to;
-            if knockout_is_drawable(&parts) && !self.alpha_is_shape {
+            if let Some(elements) = knockout_group_elements(&parts, self.alpha_sources.settled()) {
                 self.list.push(Command::Group {
-                    commands: parts,
+                    commands: elements,
                     alpha: 1.0,
                     clip: None,
                     mask: None,
