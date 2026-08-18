@@ -41,6 +41,11 @@ angle", "approximately 30 degrees clockwise from perpendicular" — which was re
 and still states no size. `/Cap` replicates `/Contents` as a caption, which needs a font no entry
 of a line annotation supplies.
 
+> **Amended in the five-hundred-and-seventy-fourth**: the second of those two was this decision's
+> own lesson applied to the wrong half of the sentence. A font is not stated and the caption
+> *is* — "shall be replicated as a caption in the appearance of the line" — so the observation was
+> true and the refusal it supported was not. ADR 0409.
+
 ## What the fix is really about
 
 Two lessons, and the second is the sharper one.

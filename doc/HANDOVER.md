@@ -484,7 +484,7 @@ because they are all the file offers); §11.6.5.2's `/Matte` where pre-blending 
 (refusing would draw a rectangle of pure matte colour); a constructed appearance drawing what its
 clause states while naming what it does not (ADR 0030); §8.11.4.4's `/User` and `/Language`
 (switching a layer off would answer a question about this machine that nobody asked, ADR 0044);
-§12.5.6.7's `/LE` and `/Cap`, which decorate a line the clause makes *required* — **so ask whether
+§12.5.6.7's `/LE`, which decorates a line the clause makes *required* — **so ask whether
 the entry a refusal refuses is additive or substitutive**, and a cloudy `/BE` stays a whole
 refusal because a different border is not an extra mark (ADR 0106); a `/DA` font `/DR` lacks,
 laid out in a stand-in **that declines where it cannot draw the whole value** (ADR 0112); a

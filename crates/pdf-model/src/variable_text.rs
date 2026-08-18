@@ -289,6 +289,13 @@ pub(crate) struct LaidOut {
     /// ascent the caret stands between — so a host draws a highlight the same height as a cursor.
     /// Empty where nothing was asked for, and where the range covers no glyph.
     pub selection: Vec<[f32; 4]>,
+    /// How wide the widest line came out, at the size the layout chose.
+    ///
+    /// The sum of the advances [`write_lines`] positions each line by, so it is the same number
+    /// the glyphs were placed with rather than a second measurement of them. §12.5.6.7's caption
+    /// is what needs it: Figure 81 breaks the line around an inline caption, and where the break
+    /// goes is where the text is.
+    pub advance: f32,
     /// A font dictionary this module invented, to be added to the appearance's `/Resources`
     /// under the name the `/DA` used.
     ///
@@ -567,7 +574,7 @@ fn substituted_font(name: &str) -> Dictionary {
 /// EXAMPLE lays out two lines of a multiline text field at `/Ti 12 Tf` with `0 -13 Td` between
 /// them, so the standard's only worked example of this operation spaces lines at 13/12 of the
 /// size. A `TL` in the `/DA` outranks it, because that is the document stating the same thing.
-const LINE_HEIGHT: f32 = 13.0 / 12.0;
+pub(crate) const LINE_HEIGHT: f32 = 13.0 / 12.0;
 
 /// Where the baseline sits below the top of the em box, as a fraction of the font size.
 ///
@@ -736,6 +743,7 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
         caret: marks.caret,
         offset: marks.offset,
         selection: marks.selection,
+        advance: marks.advance,
         overflows: overflows(
             &measure,
             &runs.codes,
@@ -1174,6 +1182,7 @@ fn write_lines(
     for (index, line) in lines.iter().enumerate() {
         let codes = line_codes(written.codes, line);
         let advance = measure.width(codes, set.size);
+        marks.advance = marks.advance.max(advance);
         let x = match request.quadding {
             Quadding::Left => box_[0],
             Quadding::Centred => box_[0] + (width - advance) * 0.5,
@@ -1280,6 +1289,7 @@ struct Marks {
     caret: Option<Caret>,
     offset: Option<usize>,
     selection: Vec<[f32; 4]>,
+    advance: f32,
 }
 
 /// What is being written out, beside the box and the metrics it is written into.
@@ -1553,6 +1563,9 @@ fn comb(
         caret,
         offset,
         selection,
+        // A comb occupies the cells Table 231 bit 25 divides the box into rather than the sum of
+        // its advances, so the width it fills is the box's own up to the last cell it reached.
+        advance: edge(slot_of(codes.len())) - box_[0],
     }
 }
 

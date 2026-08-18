@@ -1416,10 +1416,11 @@ fn a_leader_line_has_an_offset_before_it_and_an_extension_beyond_it() {
 /// three-hundred-and-fourteenth the ends are drawn too, at a size taken from the only length the
 /// annotation supplies — §12.5.4's border width (ADR 0192).
 ///
-/// What is still named beside the line is `/Cap`, and it is a different kind of nothing: a
-/// caption needs a *font*, and no entry of a line annotation states one.
+/// `/Cap` was the third of these and is drawn since the five-hundred-and-seventy-fourth
+/// session; what is asserted below is that an *empty* one owes nothing, because Table 178
+/// replicates "the text specified by the Contents or RC entries" and this fixture states neither.
 #[test]
-fn a_line_ending_is_drawn_and_a_caption_is_still_named_beside_the_line() {
+fn a_line_ending_is_drawn_and_an_empty_caption_owes_nothing() {
     let line = |extra: &str| {
         format!(
             "<< /Type /Annot /Subtype /Line /Rect [0 0 100 100] /F 4 /C [0 0 0] \
@@ -1442,16 +1443,16 @@ fn a_line_ending_is_drawn_and_a_caption_is_still_named_beside_the_line() {
         "the arrowheads are marks the plain line does not have"
     );
 
-    // §12.5.6.7's caption is still owed, and naming it does not take the line with it.
+    // §12.5.6.7's caption replicates text this fixture does not state, so it asks for nothing.
     let captioned = of("/LE [/Square /Square] /Cap true");
     assert!(
         !captioned.display_list.commands().is_empty(),
         "the line the clause requires is drawn whatever the caption asks for"
     );
-    let reported = format!("{:?}", captioned.unsupported);
     assert!(
-        reported.contains("/Cap") && !reported.contains("line endings"),
-        "the caption alone is named: {reported}"
+        captioned.is_complete(),
+        "a /Cap with no /Contents and no /RC has nothing to replicate: {:?}",
+        captioned.unsupported
     );
 
     // And a polyline's ends are the same rule: Table 181 makes `/Vertices` required.
@@ -1980,6 +1981,133 @@ fn a_line_ending_style_the_table_does_not_have_is_reported() {
         format!("{:?}", interpretation.unsupported).contains("Table 179"),
         "{:?}",
         interpretation.unsupported
+    );
+}
+
+/// Table 178's `/Cap` puts the annotation's own words on the line, which is a `shall`.
+///
+/// ISO 32000-2 §12.5.6.7, Table 178:
+///
+/// > If true , the text specified by the Contents or RC entries shall be replicated as a caption
+/// > in the appearance of the line
+///
+/// The fixture is a horizontal line from (20, 50) to (80, 50) and the caption is centred on its
+/// midpoint, so the assertion is about the *rows* the two placements mark: `Top` puts ink above
+/// y = 50 and leaves the row below it clean, and `Inline` straddles the line. A reader that drew
+/// no caption at all fails both.
+#[test]
+fn a_captioned_line_draws_its_contents_where_cp_states() {
+    let captioned = |extra: &str| {
+        interpret(pdf_with(
+            &format!(
+                "<< /Type /Annot /Subtype /Line /Rect [0 0 100 100] /F 4 /C [0 0 0] \
+                 /BS << /W 1 >> /L [20 50 80 50] /Cap true /Contents (Hill) {extra} >>"
+            ),
+            "/BBox [0 0 10 10]",
+            "",
+        ))
+    };
+
+    let plain = interpret(pdf_with(
+        "<< /Type /Annot /Subtype /Line /Rect [0 0 100 100] /F 4 /C [0 0 0] \
+         /BS << /W 1 >> /L [20 50 80 50] /Contents (Hill) >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+    let top = captioned("/CP /Top");
+    assert!(
+        top.is_complete(),
+        "the caption is drawn rather than named: {:?}",
+        top.unsupported
+    );
+    assert!(
+        top.display_list.commands().len() > plain.display_list.commands().len(),
+        "a caption is glyphs the same line without /Cap does not have"
+    );
+
+    let ink = |interpretation: &pdf_model::Interpretation, from: u32, to: u32| {
+        let raster = render_incomplete(interpretation);
+        (from..to)
+            .flat_map(|y| (0..100).map(move |x| (x, y)))
+            .filter(|&(x, y)| painted(&raster, x, y))
+            .count()
+    };
+    // The line itself is one unit wide about y = 50, so the bands either side of it are the
+    // caption's alone.
+    assert!(
+        ink(&top, 52, 70) > 0,
+        "'Top , meaning the caption shall be on top of the line'"
+    );
+    assert_eq!(
+        ink(&top, 30, 48),
+        0,
+        "and nothing of it falls below the line"
+    );
+
+    let inline = captioned("");
+    assert!(
+        ink(&inline, 30, 48) > 0,
+        "'Inline , meaning the caption shall be centred inside the line', which is the default"
+    );
+
+    // `/CO`'s second number is "the vertical offset perpendicular to the annotation line, with a
+    // positive value indicating a shift up", so a shift moves the whole caption off the line.
+    let shifted = captioned("/CO [0 20]");
+    assert_eq!(
+        ink(&shifted, 30, 48),
+        0,
+        "a caption shifted twenty units up leaves the rows it used to occupy"
+    );
+    assert!(
+        ink(&shifted, 52, 80) > ink(&inline, 52, 80),
+        "and marks the rows twenty units higher"
+    );
+}
+
+/// The two entries that place the caption are refused by value, and the line survives both.
+///
+/// Table 178 gives `/CP` exactly two names and `/CO` exactly two numbers. A file outside either
+/// has asked for a caption and said nothing about where it goes, so the caption is named and the
+/// line — which `/L` makes required — is still drawn. ADR 0106's rule, and [`CALLOUT_SHAPE`]'s
+/// reasoning one subtype over.
+#[test]
+fn a_caption_this_table_cannot_place_is_named_and_the_line_is_still_drawn() {
+    let of = |extra: &str| {
+        interpret(pdf_with(
+            &format!(
+                "<< /Type /Annot /Subtype /Line /Rect [0 0 100 100] /F 4 /C [0 0 0] \
+                 /BS << /W 1 >> /L [20 50 80 50] /Cap true /Contents (Hill) {extra} >>"
+            ),
+            "/BBox [0 0 10 10]",
+            "",
+        ))
+    };
+
+    for (entry, expected) in [("/CP /Middle", "/CP"), ("/CO [1 2 3]", "/CO")] {
+        let interpretation = of(entry);
+        assert!(
+            !interpretation.display_list.commands().is_empty(),
+            "{entry}: the line the clause requires is still drawn"
+        );
+        let reported = format!("{:?}", interpretation.unsupported);
+        assert!(
+            reported.contains(expected),
+            "{entry}: the caption is named — {reported}"
+        );
+    }
+
+    // A line of no length has no axes for `/CO` to be measured in, and says so beside the dot
+    // §8.5.3.2 still puts on the page.
+    let degenerate = interpret(pdf_with(
+        "<< /Type /Annot /Subtype /Line /Rect [0 0 100 100] /F 4 /C [0 0 0] \
+         /BS << /W 4 >> /L [50 50 50 50] /Cap true /Contents (Hill) >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+    assert!(
+        format!("{:?}", degenerate.unsupported).contains("same point"),
+        "{:?}",
+        degenerate.unsupported
     );
 }
 

@@ -76,4 +76,11 @@ shape comes from Table 181's `/Path`, whose curves this routine does not hold th
   and no entry of a line annotation states one; the line is drawn and the caption is named beside
   it, as it has been since session 116. What changed is that the report no longer has to carry two
   refusals in one sentence, so `LINE_ENDINGS_AND_CAPTION` is gone.
+
+  > **Amended in the five-hundred-and-seventy-fourth session, and this paragraph is exactly the
+  > shape it warns about elsewhere.** The sentence is true and the conclusion drawn from it is
+  > not: Table 178's own cell says the text "shall be replicated as a caption in the appearance of
+  > the line", so the silence about a font sits inside a `shall` about the mark, which is ADR
+  > 0109's test and not this one's. `/Cap` is drawn; ADR 0409 has the reading, the two choices it
+  > costs and what Figure 81 rejected on the way.
 - **The oracle sees one page differently**, and it is the page that had the report.

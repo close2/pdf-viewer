@@ -4,7 +4,7 @@ Status: **one document, and it is `doc/todo/21`'s.** Table 231's `DoNotScroll` c
 three-hundred-and-thirty-eighth session (ADR 0197), the baseline's guard and the list box's cost
 both closed in the four-hundred-and-third (ADR 0240), **the composite `/DA` font closed in the
 five-hundred-and-second** (ADR 0337), and **the list box itself drew in the
-five-hundred-and-seventy-first** (ADR 0405), reversing what this file had concluded about it. What
+five-hundred-and-seventy-first** (ADR 0407), reversing what this file had concluded about it. What
 is left is one refusal that belongs to another item, and the reasoning behind four closed ones.
 Priority: 22
 Corpus: 1 document
@@ -82,7 +82,7 @@ silent about all of it.
 
 ## ~~§12.7.5.4's list box~~ — **drawn in the five-hundred-and-seventy-first session**
 
-**ADR 0405 reversed this section's conclusion by reading one sentence further, and the argument
+**ADR 0407 reversed this section's conclusion by reading one sentence further, and the argument
 below is kept because the reversal is only legible beside it.** What was written in the
 four-hundred-and-third (ADR 0240) is next, unchanged.
 
@@ -120,7 +120,7 @@ choose an item and could not show the result. A host can now say which
 items a person selected — Table 233 bit 22 sets **4** of the corpus's widgets, over 4 documents —
 because `Edit::SetField` carries a set of Table 234 `/Opt` indices instead of one string. §12.7.5.4's
 two shapes of `/V` and Table 234's `/I` are both written. So the clause's `shall`s are discharged
-everywhere except the one place it states nothing — and since ADR 0405 that place is the *mark*
+everywhere except the one place it states nothing — and since ADR 0407 that place is the *mark*
 alone: the options are drawn, from Table 234's `/TI`, and which of them the value selects is
 reported rather than invented.
 

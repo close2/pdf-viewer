@@ -58,6 +58,11 @@ Two constants where there was one refusal, plus a third for both at once — tra
 is that a report can hide another report, and a line stating `/LE` *and* `/Cap` now names both.
 One test, which draws the same line with and without an ending and checks the report by name.
 
+> **Amended in the five-hundred-and-seventy-fourth**: `/Cap` is no longer one of the two, because
+> the caption is drawn (ADR 0409). What survives is the rule this decision is about, and it is
+> what let the caption be taken at all — a line whose caption cannot be placed still draws its
+> line, and a break in the line that would leave no line is not taken.
+
 ## The rule worth carrying
 
 **An optional entry that states no shape must not erase the shape the clause does state.** The

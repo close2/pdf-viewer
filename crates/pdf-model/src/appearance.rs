@@ -1294,26 +1294,18 @@ fn ink(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Out
 /// its value, so `annotation-line-without-appearance.pdf`, which states `/LL 0` — Table 178's
 /// own "no leader lines" — was declined for asking for nothing.
 ///
-/// Two entries are still owed and each states a different kind of nothing: `/LE`'s endings
+/// One entry is still owed and it states a different kind of nothing: `/LE`'s endings
 /// name shapes with no size (Table 179 says "[a] square", "[t]wo short lines meeting in an
-/// acute angle" — re-read in the eighty-fifth session and it still states no dimension), and
-/// `/Cap` replicates `/Contents` as a caption, which needs a font no entry of a line annotation
-/// supplies. **Both are named beside the drawn line rather than instead of it**, since the
-/// hundred-and-sixteenth session: each is optional and additive where `/L` is required, so
-/// declining the whole annotation for either drew nothing where the clause states a line. That
+/// acute angle" — re-read in the eighty-fifth session and it still states no dimension).
+/// **It is named beside the drawn line rather than instead of it**, since the
+/// hundred-and-sixteenth session: it is optional and additive where `/L` is required, so
+/// declining the whole annotation for it drew nothing where the clause states a line. That
 /// is the same reasoning the refusal above records for `/LL`, applied one entry over.
+///
+/// **`/Cap` stood on that list until the five-hundred-and-seventy-fourth session and is drawn
+/// now** — [`caption`] holds the reading, and what it retires is a refusal whose sentence was
+/// true and whose inference was not.
 fn line(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Outcome {
-    // `/Cap` is additive: it changes nothing about the line and is optional where `/L` is
-    // required, so it is named beside the drawn line rather than instead of it.
-    let captioned = matches!(document.get_key(annotation, "Cap"), Object::Boolean(true));
-    let owed = captioned.then_some(LINE_CAPTION);
-    let drawn = |painted: Painted| match (painted.drawn, owed) {
-        // An annotation that draws nothing owes nothing: there is no line for a caption to sit
-        // on, so naming it would report a gap on a blank page.
-        (false, _) | (_, None) => Ok(painted),
-        (true, Some(refusal)) => Ok(Painted::partly(refusal)),
-    };
-
     let endings = line_endings(document, annotation)?;
     let ends = points(document, annotation, "L").unwrap_or_default();
     let (Some(start), Some(end)) = (ends.first().copied(), ends.get(1).copied()) else {
@@ -1323,54 +1315,56 @@ fn line(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Ou
     let shared = crate::markup::group_source(document, annotation);
     let border = Border::read(document, annotation, &shared, "C")?;
     if !border.strokes() {
-        return drawn(Painted::EMPTY);
+        // An annotation that draws nothing owes nothing: there is no line for a caption to sit
+        // on, so naming one would report a gap on a blank page.
+        return Ok(Painted::EMPTY);
     }
     border.apply(stream);
     let interior = colour(document, annotation, "IC")?;
     stream.set_colour(interior, false);
 
     let leader = entry_number(document, annotation, "LL").unwrap_or(0.0);
-    let Some(offset) = perpendicular(start, end) else {
-        // A line of no length has no direction to be perpendicular to, so its leader lines
-        // have nowhere to go; the degenerate line itself is still §8.5.3.2's business — and an
-        // ending has no direction to point in either.
-        stream.move_to(start);
-        stream.line_to(end);
-        stream.paint(false, true);
-        return drawn(Painted::DRAWN);
+    // A line of no length has no direction to be perpendicular to, so its leader lines have
+    // nowhere to go; the degenerate line itself is still §8.5.3.2's business — and an ending has
+    // no direction to point in either, which [`draw_endings`] answers for itself.
+    let (proper, leaders) = match perpendicular(start, end).filter(|_| leader != 0.0) {
+        None => ([start, end], Vec::new()),
+        Some(offset) => {
+            // "A non-negative number": a negative `/LLE` or `/LLO` states no length, so it is
+            // dropped rather than reflected — the sign the clause gives a meaning to is `/LL`'s.
+            let extension = entry_number(document, annotation, "LLE")
+                .unwrap_or(0.0)
+                .max(0.0);
+            let gap = entry_number(document, annotation, "LLO")
+                .unwrap_or(0.0)
+                .max(0.0);
+            let away = if leader < 0.0 { -1.0 } else { 1.0 };
+            let along = |point: [f32; 2], distance: f32| {
+                [
+                    distance.mul_add(offset[0], point[0]),
+                    distance.mul_add(offset[1], point[1]),
+                ]
+            };
+            // Each leader: from the offset the annotation states to the line, and `/LLE` past it.
+            let leaders = [start, end]
+                .map(|point| {
+                    [
+                        along(point, away * gap),
+                        along(point, away.mul_add(extension, leader)),
+                    ]
+                })
+                .to_vec();
+            // The line proper, at the leader lines' far end.
+            ([along(start, leader), along(end, leader)], leaders)
+        }
     };
 
-    if leader == 0.0 {
-        stream.move_to(start);
-        stream.line_to(end);
-        stream.paint(false, true);
-        draw_endings(stream, endings, [start, end], border.width, interior);
-        return drawn(Painted::DRAWN);
-    }
-
-    // "A non-negative number": a negative `/LLE` or `/LLO` states no length, so it is dropped
-    // rather than reflected — the sign the clause gives a meaning to is `/LL`'s.
-    let extension = entry_number(document, annotation, "LLE")
-        .unwrap_or(0.0)
-        .max(0.0);
-    let gap = entry_number(document, annotation, "LLO")
-        .unwrap_or(0.0)
-        .max(0.0);
-    let away = if leader < 0.0 { -1.0 } else { 1.0 };
-
-    let along = |point: [f32; 2], distance: f32| {
-        [
-            distance.mul_add(offset[0], point[0]),
-            distance.mul_add(offset[1], point[1]),
-        ]
-    };
-    // The line proper, at the leader lines' far end.
-    stream.move_to(along(start, leader));
-    stream.line_to(along(end, leader));
-    // Each leader: from the offset the annotation states to the line, and `/LLE` past it.
-    for point in [start, end] {
-        stream.move_to(along(point, away * gap));
-        stream.line_to(along(point, away.mul_add(extension, leader)));
+    // Read before the line is stroked rather than after, because Figure 81's inline caption is
+    // drawn in a *break* in the line and where that break goes is what the layout answers.
+    let caption = caption(document, annotation, proper, &border);
+    for [from, to] in caption.segments(proper).into_iter().chain(leaders) {
+        stream.move_to(from);
+        stream.line_to(to);
     }
     stream.paint(false, true);
     // **On the line proper's ends, not on `/L`'s**, where the two differ. Table 178 says `/LE`
@@ -1379,14 +1373,345 @@ fn line(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Ou
     // coordinates are "the endpoints of the leader lines rather than the endpoints of the line
     // itself". So the endpoints the first sentence names are not on the line; Figure 80 draws
     // the arrowhead on the line proper, and an ending is an ending *of a line*.
-    draw_endings(
-        stream,
-        endings,
-        [along(start, leader), along(end, leader)],
-        border.width,
-        interior,
-    );
-    drawn(Painted::DRAWN)
+    draw_endings(stream, endings, proper, border.width, interior);
+    if let Some(mark) = caption.drawn {
+        mark.write(stream);
+    }
+    Ok(Painted {
+        drawn: true,
+        report: caption.owed,
+    })
+}
+
+/// Table 178's `/Cap`: the annotation's own text, replicated as a caption on the line.
+///
+/// # What the table states, and what it does not
+///
+/// ISO 32000-2 §12.5.6.7, Table 178, on the entry:
+///
+/// > If true , the text specified by the Contents or RC entries shall be replicated as a caption
+/// > in the appearance of the line, as shown in "Figure 81 - Lines with captions appearing as
+/// > part of the line" and "Figure 82 - Line with a caption appearing as part of the offset". The
+/// > text shall be rendered in a manner appropriate to the content, taking into account factors
+/// > such as writing direction. Default value: false .
+///
+/// That is a **`shall`** about the appearance, and the two entries beside it state where the
+/// caption goes with no room left over. `/CP` names the placement — "Valid values are Inline ,
+/// meaning the caption shall be centred inside the line, and Top , meaning the caption shall be
+/// on top of the line. Default value: Inline " — and `/CO` states the offset in the line's own
+/// axes:
+///
+/// > The first value shall be the horizontal offset along the annotation line from its midpoint,
+/// > with a positive value indicating offset to the right and a negative value indicating offset
+/// > to the left. The second value shall be the vertical offset perpendicular to the annotation
+/// > line, with a positive value indicating a shift up and a negative value indicating a shift
+/// > down.
+///
+/// **`/CO`'s own wording is what says the caption is set along the line rather than along the
+/// page**: an offset measured "along the annotation line" and "perpendicular to the annotation
+/// line" is a statement in a frame whose axes are the line's, and the caption is placed from its
+/// midpoint in that frame. So the position is the clause's, to the point.
+///
+/// # The refusal this replaces, and why it was wrong
+///
+/// Until the five-hundred-and-seventy-fourth session this entry was refused whole, on the
+/// sentence *"§12.5.6.7's /Cap asks for /Contents as a caption, and no entry gives it a font"*.
+/// The sentence is true — no entry of a line annotation is a `/DA`, and Table 172 gives a markup
+/// annotation none either — and the inference from it is not, which is ADR 0109's rule: the
+/// question a silence poses is not *may I fill this* but *does a sentence around it require me
+/// to*, and the `shall` quoted above does. It is the same shape §12.7.5.4's list box was refused
+/// on one round earlier (ADR 0407): a true observation about what the clause leaves open, taken
+/// as a reason to draw nothing where the same clause states a mark outright.
+///
+/// # The two choices, and what the clause's own figure settled
+///
+/// - **The face.** §9.6.2.2's Helvetica, from this binary, which is exactly what
+///   `variable_text`'s stand-in already draws with where §12.7.4.3's `/DR` defines no font
+///   (ADR 0112). What it buys is ADR 0133's argument: the caption is drawn from the binary
+///   rather than from whatever face this machine happens to have installed, so the page
+///   reproduces where no fonts are.
+/// - **The size**, [`CAPTION_SIZE`], which is the one number the standard does not state here
+///   and is taken from the one worked example it does state.
+///
+/// **A first attempt auto-sized the caption to the line's own length**, on the reasoning that
+/// "centred inside the line" and "on top of the line" make the line's length the only extent the
+/// clause gives the caption. Figure 81 — which the entry cites by name — refutes it: its third
+/// example is captioned *This is a caption that is longer than the line* and is drawn at the same
+/// size as the other two, overhanging both ends. So the size does not depend on the line, and the
+/// figure settles two more things the sentence leaves open: **an inline caption sits in a break in
+/// the line** rather than over it (the figure draws the line in two pieces either side of the
+/// words), and the caption is the same colour as the line.
+///
+/// That colour is the annotation's `/C`, which is what the line itself is stroked in: the clause
+/// makes the caption part of "the appearance of the line", and Table 178 reserves `/IC` for "the
+/// annotation's line endings". A line with no `/C` strokes nothing and never reaches here.
+fn caption(
+    document: &Document,
+    annotation: &Dictionary,
+    ends: [[f32; 2]; 2],
+    border: &Border,
+) -> Caption {
+    if !matches!(document.get_key(annotation, "Cap"), Object::Boolean(true)) {
+        return Caption::NONE;
+    }
+    // §12.5.6.2 makes `/Contents` and `/RC` group attributes, so a captioned line that is a
+    // group's subordinate replicates the primary's words. The order is [`free_text_layout`]'s
+    // and for its reason: the table names "the Contents or RC entries" without ranking them, and
+    // `/Contents` is the plain text a reader typed.
+    let shared = crate::markup::group_source(document, annotation);
+    let text = variable_text::string(document, &[&shared], "Contents")
+        .filter(|contents| !contents.is_empty())
+        .or_else(|| crate::popup::rich_text(document, &shared))
+        .unwrap_or_default();
+    if text.is_empty() {
+        // `/Cap` replicates "the text specified by the Contents or RC entries" and this
+        // annotation specifies none, so there is nothing the clause asks for and nothing owed.
+        return Caption::NONE;
+    }
+    let Some(placement) = CaptionPlacement::read(document, annotation) else {
+        return Caption::owing(UNKNOWN_CAPTION_PLACEMENT);
+    };
+    let Some(offset) = caption_offset(document, annotation) else {
+        return Caption::owing(CAPTION_OFFSET_SHAPE);
+    };
+
+    let (dx, dy) = (ends[1][0] - ends[0][0], ends[1][1] - ends[0][1]);
+    // ADR 0189: the two backends must agree about every number a shape is built from, so a
+    // length here is the IEEE operations and nothing else.
+    let length = dx.mul_add(dx, dy * dy).sqrt();
+    if !(length.is_finite() && length > 0.0) {
+        return Caption::owing(CAPTION_WITHOUT_A_LINE);
+    }
+    // **Which way along the line the text reads is a choice**, and it is the narrowest one
+    // available: the clause fixes the axis and says nothing about the sense, and a line drawn
+    // right to left would otherwise carry its caption upside down. So the sense that leaves the
+    // text the right way up on the page is taken, which is the line's own direction unless that
+    // runs leftwards.
+    let sense = if dx < 0.0 { -1.0 } else { 1.0 };
+    let forward = [sense * dx / length, sense * dy / length];
+    // A quarter turn counterclockwise from the reading direction, which is "up" for the text and
+    // therefore what `/CO`'s second number and `/CP`'s `Top` are measured against.
+    let up = [-forward[1], forward[0]];
+    let middle = [
+        (ends[0][0] + ends[1][0]) * 0.5,
+        (ends[0][1] + ends[1][1]) * 0.5,
+    ];
+    let origin = [
+        offset[1].mul_add(up[0], offset[0].mul_add(forward[0], middle[0])),
+        offset[1].mul_add(up[1], offset[0].mul_add(forward[1], middle[1])),
+    ];
+
+    let resources = Dictionary::new();
+    // `/Helv` is one of `variable_text`'s fourteen standard abbreviations, so the layout resolves
+    // it to §9.6.2.2's Helvetica out of this binary and owes no report for having done so.
+    let default_appearance = format!("/Helv {CAPTION_SIZE} Tf");
+    let height = CAPTION_SIZE * variable_text::LINE_HEIGHT;
+    let lay_out = |box_: [f32; 4]| {
+        variable_text::lay_out(
+            document,
+            &Request {
+                text: &text,
+                box_,
+                default_appearance: default_appearance.as_bytes(),
+                resources: &resources,
+                // Both of `/CP`'s values centre the caption on the line, so the quadding is not the
+                // document's to state and is not read from one: Table 228's `/Q` belongs to variable
+                // text and Table 178 has no such entry.
+                quadding: Quadding::Centred,
+                // Table 178 states one caption rather than a paragraph, and `/CO` places it from a
+                // single midpoint.
+                shape: Shape::SingleLine,
+                asked: Asked::default(),
+            },
+        )
+    };
+    // **Two passes, and the first draws nothing.** §12.7.4.3's layout clips to the box it is
+    // given, and the box that does not clip this caption is the caption's own width — which is
+    // not known until it has been laid out. So the first pass is a measurement, taken from the
+    // advances the glyphs are positioned by rather than from a second opinion about them, and
+    // the second is the one whose stream is kept.
+    let measured = match lay_out([0.0, 0.0, 0.0, height]) {
+        Ok(laid_out) => laid_out.advance,
+        Err(owed) => return Caption::owing(Refusal::Text(owed)),
+    };
+    let half = measured * 0.5;
+    let box_ = match placement {
+        // "the caption shall be centred inside the line": the band is centred on the line.
+        CaptionPlacement::Inline => [-half, -height * 0.5, half, height * 0.5],
+        // "the caption shall be on top of the line": the band sits on it.
+        CaptionPlacement::Top => [-half, 0.0, half, height],
+    };
+    let laid_out = match lay_out(box_) {
+        Ok(laid_out) => laid_out,
+        Err(owed) => return Caption::owing(Refusal::Text(owed)),
+    };
+    Caption {
+        drawn: Some(CaptionMark {
+            content: laid_out.content,
+            font: laid_out.font,
+            colour: border.colour,
+            axes: [forward[0], forward[1], up[0], up[1]],
+            origin,
+            // Figure 81 draws an inline caption with the line broken around it, and a `Top` one
+            // over an unbroken line. The break is the caption's own extent, projected back onto
+            // the line: the first pass measured it and `/CO`'s first number is where its centre
+            // sits along the line from the midpoint.
+            //
+            // **And a `/CO` that lifts the caption clear of the line takes the break with it**,
+            // which is Figure 82's case — the entry offsets the caption "from its normal
+            // position", and the break exists because the words occupy that stretch of the line.
+            // Where they no longer do, nothing is in the line's way.
+            break_: match placement {
+                CaptionPlacement::Inline if offset[1].abs() < height * 0.5 => {
+                    let from = length * 0.5 + sense * (offset[0] - half);
+                    let to = length * 0.5 + sense * (offset[0] + half);
+                    Some((from.min(to), from.max(to)))
+                }
+                CaptionPlacement::Inline | CaptionPlacement::Top => None,
+            },
+        }),
+        owed: laid_out.owed.map(Refusal::Text),
+    }
+}
+
+/// What [`caption`] made of Table 178's `/Cap`, and what it could not.
+#[derive(Default)]
+struct Caption {
+    drawn: Option<CaptionMark>,
+    owed: Option<Refusal>,
+}
+
+impl Caption {
+    /// The annotation asks for no caption, which is every line but the ones that set `/Cap`.
+    const NONE: Self = Self {
+        drawn: None,
+        owed: None,
+    };
+
+    /// A caption the clause asks for and this construction cannot place.
+    fn owing(refusal: Refusal) -> Self {
+        Self {
+            drawn: None,
+            owed: Some(refusal),
+        }
+    }
+
+    /// The pieces of the line proper that survive an inline caption's break.
+    ///
+    /// §12.5.6.7 makes the line required — "[t]he purpose of a line annotation … is to display a
+    /// single straight line on the page" — so a break that would leave nothing is not taken at
+    /// all: a caption wider than the line it sits on is Figure 81's third example, where the line
+    /// is drawn whole under the overhanging words.
+    fn segments(&self, ends: [[f32; 2]; 2]) -> Vec<[[f32; 2]; 2]> {
+        let whole = vec![ends];
+        let Some((from, to)) = self.drawn.as_ref().and_then(|mark| mark.break_) else {
+            return whole;
+        };
+        let (dx, dy) = (ends[1][0] - ends[0][0], ends[1][1] - ends[0][1]);
+        let length = dx.mul_add(dx, dy * dy).sqrt();
+        if !(length.is_finite() && length > 0.0) {
+            return whole;
+        }
+        let direction = [dx / length, dy / length];
+        let at = |distance: f32| {
+            [
+                distance.mul_add(direction[0], ends[0][0]),
+                distance.mul_add(direction[1], ends[0][1]),
+            ]
+        };
+        let mut pieces = Vec::with_capacity(2);
+        if from > 0.0 {
+            pieces.push([ends[0], at(from.min(length))]);
+        }
+        if to < length {
+            pieces.push([at(to.max(0.0)), ends[1]]);
+        }
+        if pieces.is_empty() { whole } else { pieces }
+    }
+}
+
+/// One caption, ready to be written after the line it belongs to.
+struct CaptionMark {
+    /// §12.7.4.3's marked-content section, as [`variable_text::lay_out`] wrote it.
+    content: String,
+    /// The font dictionary the layout invented, for the appearance's `/Resources`.
+    font: Option<(pdf_syntax::Name, Dictionary)>,
+    /// Table 166's `/C`, which is what the line is stroked in.
+    colour: Colour,
+    /// The reading direction and the perpendicular, as the first four operands of a `cm`.
+    axes: [f32; 4],
+    /// Where the caption's own origin sits on the page, `/CO` already applied.
+    origin: [f32; 2],
+    /// The interval of the line the caption occupies, measured from the first endpoint, where
+    /// `/CP` asks for the break Figure 81 draws.
+    break_: Option<(f32, f32)>,
+}
+
+impl CaptionMark {
+    /// Writes the caption into the appearance, in the line's own axes.
+    ///
+    /// A `cm` rather than a `/Matrix`: a constructed appearance is written in the page's own
+    /// space, so §12.5.5's placement reduces to the identity and there is nowhere else to put the
+    /// turn — the same reason [`Rotation::begin`] writes one for Table 192's `/R`.
+    fn write(self, stream: &mut Stream) {
+        let [a, b, c, d] = self.axes;
+        stream.rotate(&format!("{a} {b} {c} {d}"), self.origin);
+        stream.set_colour(self.colour, false);
+        stream.text.push_str(&self.content);
+        stream.text.push_str("Q\n");
+        let resources = stream.resources.take().unwrap_or_default();
+        stream.resources = Some(with_stand_in_font(resources, self.font));
+    }
+}
+
+/// Table 178's `/CP`, which decides where on the line the caption sits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CaptionPlacement {
+    /// "Inline , meaning the caption shall be centred inside the line", and the table's default.
+    Inline,
+    /// "Top , meaning the caption shall be on top of the line".
+    Top,
+}
+
+impl CaptionPlacement {
+    /// Reads `/CP`, or `None` for a value outside the two the table defines.
+    ///
+    /// Table 178 lists exactly two valid values and states no tolerance for a third, unlike Table
+    /// 168's border styles ("[a]n interactive PDF processor shall tolerate other border styles
+    /// that it does not recognise"). A name outside the pair therefore states *no* position, and
+    /// drawing the caption at the default would put a mark where the file did not ask for one —
+    /// which is [`UNKNOWN_LINE_ENDING`]'s reasoning on the entry two rows above.
+    fn read(document: &Document, annotation: &Dictionary) -> Option<Self> {
+        match document.get_key(annotation, "CP") {
+            Object::Null => Some(Self::Inline),
+            Object::Name(name) => match name.as_bytes() {
+                b"Inline" => Some(Self::Inline),
+                b"Top" => Some(Self::Top),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+}
+
+/// Table 178's `/CO`, "[a]n array of two numbers", defaulting to no offset.
+///
+/// `None` for an entry that is present and is not two numbers: the table gives the offset its
+/// meaning one number at a time, so an array of some other length says which of its numbers is
+/// the horizontal one no more than `/CL`'s does (see [`CALLOUT_SHAPE`]).
+fn caption_offset(document: &Document, annotation: &Dictionary) -> Option<[f32; 2]> {
+    let entry = document.get_key(annotation, "CO");
+    if matches!(entry, Object::Null) {
+        // "Default value: [0, 0] (no offset from normal positioning)".
+        return Some([0.0, 0.0]);
+    }
+    let values = entry
+        .as_array()
+        .and_then(|values| numbers(document, values))?;
+    match values[..] {
+        [horizontal, vertical] => Some([horizontal, vertical]),
+        _ => None,
+    }
 }
 
 /// Draws both of Table 179's endings on a two-ended line.
@@ -3659,13 +3984,40 @@ const CALLOUT_SHAPE: Refusal = Refusal::NotDerivable(
      three-point one",
 );
 
-/// §12.5.6.7's `/Cap`, which replicates `/Contents` "as a caption in the appearance of the
-/// line" and gives no entry from which to take a font.
+/// A `/CP` naming neither of the two placements Table 178 defines.
 ///
-/// Additive like `/LE`, and named the same way: the line is drawn and the caption is not.
-const LINE_CAPTION: Refusal = Refusal::NotDerivable(
-    "§12.5.6.7's /Cap asks for /Contents as a caption, and no entry gives it a font",
+/// The table lists exactly two and tolerates no third, so a file stating a name outside them has
+/// asked for the caption and said nothing about where it goes. Named rather than drawn at the
+/// default: `/CP`'s default answers an *absent* entry, and using it for a stated one would put a
+/// mark where the file did not ask for it.
+const UNKNOWN_CAPTION_PLACEMENT: Refusal =
+    Refusal::NotDerivable("its /CP names a caption placement Table 178 does not define");
+
+/// A `/CO` that is present and is not the two numbers Table 178 states.
+///
+/// [`CALLOUT_SHAPE`]'s reasoning on the entry one subtype over: the table gives each of the two
+/// numbers its own meaning, so an array of any other length says which is the horizontal offset
+/// no more than a four-number `/CL` says which points are its ends.
+const CAPTION_OFFSET_SHAPE: Refusal =
+    Refusal::NotDerivable("its /CO states neither of the two numbers Table 178's offset is");
+
+/// A `/Cap` on a line of no length.
+///
+/// §8.5.3.2 still draws the degenerate line, and `/CO`'s "along the annotation line" and
+/// "perpendicular to the annotation line" name axes a line with no direction does not have — so
+/// the caption has no frame to be placed in, and this says so beside the mark that was made.
+const CAPTION_WITHOUT_A_LINE: Refusal = Refusal::NotDerivable(
+    "its /Cap asks for a caption along a line whose two endpoints are the same point",
 );
+
+/// The size a caption is set at where its line is long enough to hold one.
+///
+/// **The one number here that the clause does not state, and it is not invented.** §12.5.6.7
+/// says a caption "shall be replicated … in the appearance of the line" and states no size; the
+/// standard's only worked example of laying variable text out is §12.7.5.3's, which sets two
+/// lines at `/Ti 12 Tf` — the same example [`variable_text::LINE_HEIGHT`] takes its line spacing
+/// from. So a caption is 12 points, and less where the line it sits on is too short for that.
+const CAPTION_SIZE: f32 = 12.0;
 
 /// The border style names of §12.5.4 Table 168.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

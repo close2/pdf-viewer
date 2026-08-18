@@ -60,7 +60,7 @@ them**:
 **Every item below is a function to add to the C ABI, a widget to place, or a clause to obey.** No
 new message, and no new decision about the boundary. **Four of the five are closed in the
 five-hundred-and-eleventh** (ADR 0346) and **the fifth in the five-hundred-and-seventy-first**
-(ADR 0405), so what remains of this file is one tail — Qt's measurement being on the far side of a
+(ADR 0407), so what remains of this file is one tail — Qt's measurement being on the far side of a
 `cxx` bridge — plus the standing note about where the `unsafe` is.
 
 - ~~**The ABI is 43 entry points and not the whole vocabulary.**~~ **Closed in the
@@ -112,7 +112,7 @@ five-hundred-and-eleventh** (ADR 0346) and **the fifth in the five-hundred-and-s
   to compile, which is the shape ADRs 0166, 0167 and 0247 established and the fourth time it has
   been used.
 - ~~**§12.7.5.4's list box still draws nothing on the page.**~~ **Closed in the
-  five-hundred-and-seventy-first** (ADR 0405), and the entry was wrong in the way a refusal is
+  five-hundred-and-seventy-first** (ADR 0407), and the entry was wrong in the way a refusal is
   usually wrong: the clause states no highlight for the *selection* and states the options
   outright — "each of which shall be represented by a text string that shall be displayed on the
   screen", in the array's own order by Table 233 bit 20, from Table 234's `/TI`. A mark added over

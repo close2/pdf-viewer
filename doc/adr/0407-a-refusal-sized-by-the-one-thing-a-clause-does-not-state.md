@@ -1,4 +1,4 @@
-# ADR 0405 — A refusal sized by the one thing a clause does not state
+# ADR 0407 — A refusal sized by the one thing a clause does not state
 
 Status: accepted.
 Session: the five-hundred-and-seventy-first, a general improvement round.
