@@ -5,7 +5,7 @@
 //! `viewer-ui`'s `surface.rs` keeps the magnification in the transform and replaces the extent
 //! with the window's, so a page four times too big for the screen is drawn into a window-sized
 //! frame with most of it off the edge. Those are two different requests of the same device, and
-//! `REFUSED_AT_FOUR` is a statement about the first of them only.
+//! `REFUSED_BY_THE_DEVICE_AT_FOUR` is a statement about the first of them only.
 //!
 //! The quorra developers asked which of the two a named refusal belongs to — "it's a whole page at
 //! 4× in one target, and a viewer's viewport is its window" — and the answer is a measurement

@@ -3656,3 +3656,109 @@ right and its framing was too narrow.** The problem was never that the operation
 `Layer` is that operation — it was that it hung off `Device`. What you built is §28.6's method with
 the receiver corrected, which is a better description of the change than "the two halves fail for
 two different reasons" and worth having in the record for whoever reads both documents in order.
+
+## 31. The two coverage lanes disagree about **where a mark goes**, by up to an eighth of a device pixel — and it is visible on four corpus pages
+
+Written in this viewer's five-hundred-and-seventy-eighth session, from a measurement taken with
+one instrument at `cad50156`. It is a finding rather than an ask, and neither half of it is a
+wrong picture: on all four pages below the page's total ink agrees to under 1% and no mark
+disappears. What it is, is that **the two lanes are not the same rasteriser to a fraction of a
+pixel, and only one of them can be the exact one.**
+
+### 31.1 How it was found, and why it needed a new instrument
+
+`render-quorra/tests/corpus.rs` renders one lane per invocation, and writes a side-by-side artefact
+only for the pages *that lane* differs from the CPU oracle on. Both lanes differ from the oracle on
+**23** of the corpus's 957 comparable first pages at scale 1 — and the two sets of 23 are not the
+same set. Two pages are the default (`Coverage::Cpu`) lane's alone and two are `Coverage::Gpu`'s
+alone, so on each of the four there was no picture of the other lane at all. A count that agrees
+while its membership does not is exactly the shape that hides a finding.
+
+`crates/render-quorra/examples/lane_diff.rs` is the instrument: one display list, three rasters —
+the CPU oracle, `Coverage::Cpu`, `Coverage::Gpu` — all three comparisons printed and all three
+PNGs written. **The display list is built once and handed to both lanes**, so nothing below can be
+this tree's interpretation of the document; the only variable is the lane.
+
+| page | oracle vs cpu lane | oracle vs gpu lane | cpu lane vs gpu lane |
+|---|---|---|---|
+| `bug1743245.pdf` | mean **3.0919** worst 7.20 ssim 0.98770 | mean 0.7339 worst 5.40 ssim 0.99544 | mean 2.5978 |
+| `issue21068.pdf` | mean **2.5797** worst 5.95 ssim 0.98413 | mean 1.0939 worst 3.61 ssim 0.99208 | mean 1.5174 |
+| `bug1863910.pdf` | mean 1.1668 worst 1.73 ssim 0.99252 | mean 1.3679 worst 3.46 ssim **0.97911** | mean 1.1683 |
+| `issue16500.pdf` | mean 0.3863 worst 4.91 ssim 0.99567 | mean 0.4092 worst **7.30** ssim 0.99261 | mean 0.2539 |
+
+(The gate's bounds are mean 1.5, worst tile 7.0, ssim 0.99; the bold cells are the ones that put
+the page on a lane's list.)
+
+### 31.2 What the pixels say, which is the part worth reading
+
+Every one of the four pages is the same population — **axis-aligned rules about one device pixel
+wide** — and on every one of them the *amount* of ink is right and its *placement* is not. Page ink
+(mean darkness of the whole raster, 0–255): `bug1743245` oracle 35.083, cpu lane 35.042, gpu lane
+35.202; `issue16500` 4.396 / 4.319 / 4.286.
+
+**The default lane carries a sub-pixel offset that the gpu lane does not.** `bug1743245.pdf` is
+graph paper: 0.5-unit strokes under a `0.317` CTM, one `q … cm … S … Q` per rule. Taking the
+centroid of each rule's coverage along one raster row:
+
+```
+oracle     33.000  49.500  66.000  82.500  99.000  115.500     (pitch 16.500)
+gpu lane   33.000  49.500  66.000  82.500  99.000  115.500     identical to the oracle
+cpu lane   33.122  49.602  66.083  82.567  99.047  115.531     (pitch 16.482)
+```
+
+The document's own arithmetic gives the pitch: `52.0277778 × 0.317180616 = 16.5013`. So the oracle
+and the gpu lane both draw what the file states, to three decimals, and the default lane does not.
+`issue21068.pdf` is the same statement in the other axis — oracle and gpu lane agree exactly on all
+eight box rules (6.500, 27.500, 50.253, 71.253, 92.253, 113.253, 133.253, 154.253) while the
+default lane wobbles between **−0.118 and +0.110**.
+
+**The offset is constant within one drawing command and different between commands**, which is what
+makes it look like a scale error when the commands are a regular grid. `bug1863910.pdf` is two
+identical widget borders side by side: the default lane puts the first box's two vertical rules at
++0.103 and the second box's at +0.078, each pair internally consistent. The range over everything
+measured is about ±⅛ of a device pixel. **Offered as a hypothesis and not as a diagnosis**: that is
+what a position quantised once per command to a ¼-pixel grid looks like from the outside.
+
+**And the gpu lane has an error of its own, in y, on the pages the default lane gets right.**
+`bug1863910.pdf`'s box rules, as a column of coverage through one raster column:
+
+| | row 18 | row 19 | total |
+|---|---|---|---|
+| oracle | 0.247 | 0.753 | 1.000 |
+| cpu lane | 0.370 | 0.626 | 0.996 |
+| gpu lane | **0.500** | **0.500** | 1.000 |
+
+and `issue16500.pdf`'s table rule, where the loss is in the ink rather than only in the place:
+
+| | row 141 | row 142 | total |
+|---|---|---|---|
+| oracle | 0.439 | 0.439 | 0.878 |
+| cpu lane | 0.612 | 0.235 | 0.847 |
+| gpu lane | **0.753** | **0.000** | **0.753** |
+
+That last row is the one we would look at first: the mark is 14% lighter and entirely inside one
+raster row, where two independent rasterisers put half of it in each. It does not disappear —
+§10.7.4 is not broken — but a rule drawn at 0.75 of the coverage the geometry states is the kind of
+thing a table of hairlines shows as a stripe.
+
+**On the same page's other axis the gpu lane is exact**, which is why we are not reporting this as
+"the sampled lane is approximate": on `bug1743245.pdf` the gpu lane reproduces the oracle's
+horizontal rules to three decimals as well as its vertical ones. Whatever chooses between the exact
+and the sampled tile per command (your ADR 0029) is choosing differently on these two pages, and
+that is the level the question lives at.
+
+### 31.3 What we are asking
+
+Nothing urgent, and no ask that costs a release. Two questions:
+
+- **Is the default lane's per-command offset intended?** It is the lane every page this viewer
+  draws goes through, so if it is a quantisation with a stated bound we would like to know the
+  bound and write it down beside ours; if it is not, `bug1743245.pdf` reproduces it in one command.
+- **Is the gpu lane's y coverage quantised, and to what?** `issue16500.pdf` at page scale, raster
+  column 120, rows 141–142 is the smallest witness we have.
+
+Neither is a defect this tree can work around, and neither changes what we ship: the default lane
+is what `viewer-ui` draws with below ten times magnification and the gpu lane above it, and both
+pass everything we hold them to. The reason it is written down at all is the one this document was
+started for — **two rasterisers that disagree by an eighth of a pixel disagree about something**,
+and it is cheaper to name it now than to meet it as a mystery on a page that matters.

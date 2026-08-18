@@ -81,7 +81,7 @@ that reproduces each, and the same document now carries what closed them:
   session noticed while measuring something else and wrote up further down this file.
   `22060_A1_01_Plans.pdf` — 72 sampled images — would hold 548 104 348 resource bytes against the
   536 870 912 `max_resource_bytes` default. It is a ratchet now rather than a sentence
-  (`corpus.rs::REFUSED_AT_FOUR`), and that is the answer to a claim of this kind rather than a
+  (`corpus.rs::REFUSED_BY_THE_DEVICE_AT_FOUR`), and that is the answer to a claim of this kind rather than a
   better paragraph: nobody knows how many rounds passed between the zero becoming a one and
   somebody noticing, and a test is the only thing that would have.
   **And the ratchet is back to zero resource refusals since the five-hundred-and-thirty-ninth
@@ -98,7 +98,9 @@ that reproduces each, and the same document now carries what closed them:
 exactly wrong for a shear. Four documents left the list.
 
 **Where it stands is what the gate prints**, and it is not written here: `tools/state.sh` runs it
-and `crates/render-quorra/tests/corpus.rs`'s `REFUSED` holds the refusals to equality, so the count
+and `crates/render-quorra/tests/corpus.rs`'s `REFUSED_BEFORE_THE_SCENE` and `REFUSED_BY_THE_DEVICE`
+hold the refusals to equality — split since the five-hundred-and-seventy-eighth along the *stage*
+the refusal happens at, so that a name leaving one of them means one thing — so the count
 in a paragraph is always the one a round did not run. **What is worth stating is the *shape* of the
 refusal list, because that is an argument rather than a number**: at the page's own scale one page
 refuses and its reason is a *device capability* — `bug1721218_reduced.pdf`'s rasterised coverage
@@ -886,7 +888,8 @@ same run says about a claim in this file**: there is one resource refusal at 4×
 A/B, and it is what a ratcheted count looks like when nothing is ratcheting it. (That one is gone
 since the five-hundred-and-thirty-ninth, on the interpreter's side of the boundary — ADR 0374, and
 section 3b carries the argument.)
-**Something is ratcheting it since the four-hundred-and-seventy-eighth**: `corpus.rs::REFUSED_AT_FOUR`
+**Something is ratcheting it since the four-hundred-and-seventy-eighth**:
+`corpus.rs::REFUSED_BY_THE_DEVICE_AT_FOUR`
 holds that lane's refusals to equality by name, which the sentence above is the argument for.
 
 **What is left is quorra's and is reported rather than changed**: `encode` is 45% of a page turn,

@@ -1,6 +1,6 @@
 # What quorra's answer asked of this tree
 
-Status: **open** — four residues, three of them ours alone.
+Status: **open** — two residues, both ours alone.
 Priority: 54 — the same slot [`53`](53-what-hayros-tracker-asked.md) holds for the same reason: it
 is a list extracted from *another project's* account of where it stands, so it arrives as a set of
 questions rather than as one piece of work.
@@ -33,27 +33,25 @@ item below is written so that a round closes it by measuring rather than by beli
   population was measured first and is **zero** provable cases in 1 251 documents against two
   *containment* witnesses, both the owner's own files and neither actually doing it — trap 11 in one
   line. ADR 0412, and `doc/QUORRA_FEEDBACK.md` §26.3(b) carries the withdrawal for them to read.
+- **~~`REFUSED_AT_FOUR` flattens two kinds of refusal.~~** Split in the five-hundred-and-seventy-eighth
+  along the stage the refusal happens at: `REFUSED_BEFORE_THE_SCENE` is this tree's own two, raised
+  while translating a display list and therefore scale-free, and `REFUSED_BY_THE_DEVICE` /
+  `REFUSED_BY_THE_DEVICE_AT_FOUR` are the adapter's — empty at the page's own scale, which is a
+  statement rather than an omission. Both scales are now held against **one** copy of this tree's
+  names, which is what makes the five-hundred-and-twelfth session's stale second copy unrepeatable.
+  ADR 0413.
+- **~~The two lanes' differing sets.~~** Diagnosed in the same session, with an instrument rather
+  than an argument: `crates/render-quorra/examples/lane_diff.rs` puts one display list through both
+  lanes beside the oracle. All four pages are axis-aligned rules about a device pixel wide, the ink
+  is right on all four and the placement is not — the default lane carries a per-command offset of
+  up to ⅛ of a device pixel that the gpu lane does not have, and the gpu lane quantises some marks'
+  y coverage where the default lane does not. **All four differences are quorra's**, because the
+  display list is the same one; `doc/QUORRA_FEEDBACK.md` §31 is the write-up with the numbers.
+  ADR 0413.
 - **Re-baseline the scale-1 ratchet for `issue2177.pdf`.** Already done, and long before they wrote
   — the five-hundred-and-thirty-second session took it out of `DIFFERS_STRUCTURALLY` when their
   ADR 0049's `fill_mask` cut an edge piece at the tile border instead of clamping it. The comment on
   `DIFFERS_AT_THE_EDGES` in `crates/render-quorra/tests/corpus.rs` carries the geometry.
-
-## 1. `REFUSED_AT_FOUR` flattens two kinds of refusal — ours
-
-Their note, and it is right on inspection. `crates/render-quorra/tests/corpus.rs:332` holds three
-names and their reasons are not the same *kind*:
-
-- `issue1905.pdf` is refused **at render time** by the device — the rasterised-coverage sheet
-  exceeds this adapter's 16 384 × 16 384 texture. That is a capability, it is quorra's to move, and
-  its message changed with `cad50156` (it names the sheet now, their ADR 0057 decision 2).
-- `bug1721218_reduced.pdf` and `issue18032.pdf` are refused **before the scene is built**, by this
-  tree, for §11.6.6/§11.7.2's four-component blending space and §11.4.6's non-isolated knockout
-  group (ADR 0327). They refuse at every scale and no quorra release can move them.
-
-One array holds both, so a name leaving it means two unrelated things and the ratchet cannot say
-which. The fix is to split the constant along the stage the refusal happens at, with each half's
-doc comment naming what a departure from it would mean. Small, and it makes the *next* release
-round's report legible rather than needing prose to disambiguate it.
 
 ## 2. The two censuses they say are still ours
 
@@ -73,15 +71,6 @@ Reported in our own §2 and declined as a defect at the time. `Counters::atlas_r
 wired here since the five-hundred-and-thirty-second session, which is where a round starts — the
 question is whether the fifth frame's loss is a repack or something else, and the counter answers it
 without a new probe.
-
-## 4. The two lanes' differing sets — the five-hundred-and-seventy-sixth's own residue
-
-Not from their answer but from the round that took their release, and it belongs with these because
-it is the same instrument. The two coverage lanes' page counts converge and their *sets* do not:
-each differs from the CPU oracle on 23 pages at page scale and two of each 23 are its own —
-`bug1863910.pdf` and `issue16500.pdf` device-only, `bug1743245.pdf` and `issue21068.pdf`
-processor-only. A count that agrees while its membership does not is the shape
-`doc/todo/02` §7's second habit warns about. Four pages, four side-by-sides.
 
 ## What is the owner's rather than a round's
 

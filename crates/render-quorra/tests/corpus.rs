@@ -60,7 +60,7 @@ const PIXEL_BUDGET: u64 = 64 << 20;
 /// beside the artefacts that gate already writes.
 const SCALE: f32 = 1.0;
 
-/// The one *other* scale this gate has a ratchet for: [`REFUSED_AT_FOUR`]'s.
+/// The one *other* scale this gate has a ratchet for: [`REFUSED_BY_THE_DEVICE_AT_FOUR`]'s.
 ///
 /// Four times a page's own scale is where `viewer-ui` has switched coverage lanes and where a
 /// frame's allocations are sixteen times a page's, so it is the population a resource refusal
@@ -151,7 +151,13 @@ const MAX_WORST_TILE_ERROR: f64 = 7.0;
 /// See [`MAX_MEAN_ERROR`].
 const MIN_STRUCTURAL_SIMILARITY: f64 = 0.99;
 
-/// Documents whose first page quorra refuses to draw, by name.
+/// Documents whose first page is refused **before the scene is built**, by name.
+///
+/// This is the first of the two stages a refusal can happen at, and the two are split because a
+/// name leaving one array meant two unrelated things while they shared it: these refusals are
+/// `render-quorra`'s own, raised while translating a [`DisplayList`] into a
+/// `quorra_scene::Scene`, so they hold **at every scale** and no upstream release can move one.
+/// [`REFUSED_BY_THE_DEVICE`] and [`REFUSED_BY_THE_DEVICE_AT_FOUR`] are the other stage.
 ///
 /// Held to equality in both directions: a page arriving here is a new hole in the backend,
 /// and a page leaving it is a hole closed. The reason each one gives is printed by the run.
@@ -266,9 +272,34 @@ const MIN_STRUCTURAL_SIMILARITY: f64 = 0.99;
 /// `quorra_scene::GroupSpec` nor the staged `DestOut`/`Plus` pair (written on §11.4.5's
 /// transparent start) can express. Both frames go to the CPU backend, which draws them;
 /// `headless_quorra.rs` holds both refusals against the cross-backend scenes.
-const REFUSED: [&str; 2] = ["bug1721218_reduced.pdf", "issue18032.pdf"];
+///
+/// **What a departure from *this* list means, which is why it is no longer mixed with the
+/// device's.** A name arriving is a construction the CPU oracle states and this translation
+/// cannot, and the round that adds one owes `doc/QUORRA_FEEDBACK.md` the ask; a name leaving is
+/// a construction quorra's vocabulary grew a way to express, which is the only thing that has
+/// ever taken one off. What a departure here is **not** is a statement about the adapter: this
+/// stage never reaches a device, so a name here is unmoved by a texture ceiling, a byte budget
+/// or a driver. And because the stage is scale-free, this one array is what both scales are held
+/// to — the hazard that the five-hundred-and-twelfth session met, a second copy of these names
+/// living in the 4× list and going stale while nobody ran that lane, cannot recur.
+const REFUSED_BEFORE_THE_SCENE: [&str; 2] = ["bug1721218_reduced.pdf", "issue18032.pdf"];
 
-/// The same list at [`MAGNIFIED`], which is the population the zoom path actually draws.
+/// Documents whose first page **the device** refuses at [`SCALE`], by name — and there are none.
+///
+/// The second of the two stages, and the empty half of it. A refusal here is raised inside
+/// quorra at render time, against a capability or a budget the adapter states: a page that
+/// translated into a scene, went to the device, and could not be drawn there. **An empty array
+/// is a statement rather than an omission** — at a page's own resolution, which is what a
+/// document opens at, nothing in this corpus asks the adapter for more than it has.
+///
+/// **What a departure from this list means.** A name arriving is a page a person could open at
+/// 100% and not see: it is quorra's to move, or this adapter's, and the round that finds one
+/// reports it upstream with the message the run prints rather than adding a construction here.
+/// A name leaving is an allocation, a tiling or a ceiling that changed upstream, which is
+/// exactly what [`REFUSED_BY_THE_DEVICE_AT_FOUR`]'s own note records happening twice.
+const REFUSED_BY_THE_DEVICE: [&str; 0] = [];
+
+/// The same at [`MAGNIFIED`], which is the population the zoom path actually draws.
 ///
 /// **This ratchet exists because the number it holds finally stopped moving.** At four times a
 /// page's own scale this run has never been a gate: `doc/todo/02-every-round.md` section 2 makes
@@ -279,7 +310,8 @@ const REFUSED: [&str; 2] = ["bug1721218_reduced.pdf", "issue18032.pdf"];
 /// four pages over the 256 MiB frame budget by 4 % to 20 % is a list that moves the moment
 /// anything is allocated more tightly, and quorra's ADRs 0036 to 0039 allocated every plan, mask
 /// and root to what it marks. **Not one page of this corpus is refused for frame bytes at any
-/// scale now**, and what is left is three kinds of refusal that no allocation strategy reaches:
+/// scale now**, and what is left at this stage is one page and one ceiling that no allocation
+/// strategy reaches — the two bullets below being what left and what stayed:
 ///
 /// - **`22060_A1_01_Plans.pdf` left this list in the five-hundred-and-thirty-ninth session, and
 ///   what took it off was neither a larger budget nor a tighter allocation.** It held 522 014 748
@@ -313,23 +345,40 @@ const REFUSED: [&str; 2] = ["bug1721218_reduced.pdf", "issue18032.pdf"];
 ///   boundary over: a report from another implementation is evidence about *that* implementation,
 ///   and a ratchet held by name exists so that a name comes off by a run rather than by a message.
 ///   The message was accurate this time, which is not the same thing as its having been sufficient.
-/// - `bug1721218_reduced.pdf` and `issue18032.pdf` are this tree's own named refusals — the
-///   §11.6.6/§11.7.2 group compositing in a four-component blending space and §11.4.6's
-///   non-isolated knockout group ([`REFUSED`]'s two, ADR 0327) — which refuse *before the scene
-///   is built* and therefore at every scale. `issue18032.pdf` joined this list in the
-///   five-hundred-and-twelfth session, but the hole is the four-hundred-and-ninety-second's:
-///   that round added the refusal and re-ran the default lane only, and no round between it and
-///   this one ran the 4× lane this list is measured at. (`bug1721218_reduced.pdf` was already
-///   here for the sheet; its *reason* changed in the same session, preempting the texture
-///   refusal it still also has.)
 ///
-/// So this list is held to equality for the same reason [`REFUSED`] is, and it is a **stronger**
-/// statement than that one: a page arriving here is a hole in the backend that only appears under
-/// magnification, and a page leaving it is a hole closed. It is checked on the default lane only,
-/// because the two lanes put *different tiles* in the coverage sheet that one of these three
-/// refuses for — the encoder chooses per command (quorra's ADR 0029) — so the sheet a frame
-/// commits is a property of the lane, and a lane's refusals are its own.
-const REFUSED_AT_FOUR: [&str; 3] = ["bug1721218_reduced.pdf", "issue18032.pdf", "issue1905.pdf"];
+/// **This array used to hold [`REFUSED_BEFORE_THE_SCENE`]'s two names as well, and that is the
+/// flattening the split undoes.** Both stages in one list meant a name leaving it could be a
+/// device that grew a capability or a translation that grew a construction, and the ratchet
+/// could not say which; it also meant this tree's own refusals were written down **twice**, once
+/// per scale, which went wrong exactly the way a second copy does — `issue18032.pdf` was added
+/// at the scale-1 list in the four-hundred-and-ninety-second session and arrived here in the
+/// five-hundred-and-twelfth, not because anything changed but because no round in between ran
+/// the 4× lane. Those two names are one scale-free array now and this one holds only what the
+/// device refuses. (`bug1721218_reduced.pdf` meets the sheet ceiling too; it is refused before
+/// it can reach it, which is why it is not also named here.)
+///
+/// **What a departure from this list means.** A name arriving is a hole that only opens under
+/// magnification — a page a person can open and not zoom into — and it is quorra's or this
+/// adapter's rather than ours, so the round that finds one carries the message upstream. A name
+/// leaving is that hole closed upstream, which is what both departures recorded above were. It
+/// is checked on the default lane only, because the two lanes put *different tiles* in the
+/// coverage sheet this refusal is against — the encoder chooses per command (quorra's ADR 0029)
+/// — so the sheet a frame commits is a property of the lane, and a lane's refusals are its own.
+const REFUSED_BY_THE_DEVICE_AT_FOUR: [&str; 1] = ["issue1905.pdf"];
+
+/// The stage-free refusals and the device's, as one list sorted the way the run produces them.
+///
+/// Both halves are held to equality together, because what a run has is one list of names: the
+/// split is about what a *departure* means, not about running two comparisons.
+fn refused_pages(by_the_device: &[&'static str]) -> Vec<&'static str> {
+    let mut all: Vec<&'static str> = REFUSED_BEFORE_THE_SCENE
+        .iter()
+        .chain(by_the_device)
+        .copied()
+        .collect();
+    all.sort_unstable();
+    all
+}
 
 /// Pages where the two rasterisers differ only at the **edges** of what they draw.
 ///
@@ -652,12 +701,20 @@ fn hold(which: Ratchets, refused: &[String], differing: &[String]) {
         Ratchets::None => {}
         Ratchets::RefusalsUnderMagnification => {
             assert_eq!(
-                refused, REFUSED_AT_FOUR,
-                "the pages quorra refuses at {MAGNIFIED}× have changed"
+                refused,
+                refused_pages(&REFUSED_BY_THE_DEVICE_AT_FOUR),
+                "the pages refused at {MAGNIFIED}× have changed: a name in \
+                 REFUSED_BEFORE_THE_SCENE is this tree's translation, a name in \
+                 REFUSED_BY_THE_DEVICE_AT_FOUR is the adapter's"
             );
         }
         Ratchets::All => {
-            assert_eq!(refused, REFUSED, "the pages quorra refuses have changed");
+            assert_eq!(
+                refused,
+                refused_pages(&REFUSED_BY_THE_DEVICE),
+                "the pages refused at {SCALE}× have changed: a name in REFUSED_BEFORE_THE_SCENE \
+                 is this tree's translation, a name in REFUSED_BY_THE_DEVICE is the adapter's"
+            );
             assert_eq!(
                 differing,
                 differing_pages(),
@@ -672,7 +729,8 @@ fn hold(which: Ratchets, refused: &[String], differing: &[String]) {
 enum Ratchets {
     /// Both lists: the survey is the measurement they were taken from.
     All,
-    /// [`REFUSED_AT_FOUR`] alone. A *differing* list is a property of the coverage quantum and
+    /// The refusals alone, against [`REFUSED_BY_THE_DEVICE_AT_FOUR`]. A *differing* list is a
+    /// property of the coverage quantum and
     /// shrinks as a page grows, so it is a different measurement at every scale and nobody has
     /// stabilised one; a *refusal* at magnification is arithmetic against a stated budget or a
     /// stated device limit, and both of those hold still.
@@ -683,7 +741,7 @@ enum Ratchets {
 
 /// Which ratchets below the survey are checked, saying why when some are not.
 ///
-/// [`REFUSED`] and the differing lists are measured over the whole corpus, at [`SCALE`], on
+/// The refusal lists and the differing lists are measured over the whole corpus, at [`SCALE`], on
 /// quorra's default coverage lane — exactly, because a measurement taken anywhere else is a
 /// different measurement — so each of the three knobs turns them off. A list held to equality
 /// over a subset would report every document the filter excluded as fixed, and a list held over
@@ -691,7 +749,8 @@ enum Ratchets {
 /// in this backend.
 ///
 /// **One knob has a ratchet of its own since the four-hundred-and-seventy-eighth session**:
-/// the same corpus at [`MAGNIFIED`] on the default lane holds [`REFUSED_AT_FOUR`]. Its doc
+/// the same corpus at [`MAGNIFIED`] on the default lane holds [`REFUSED_BY_THE_DEVICE_AT_FOUR`]
+/// beside [`REFUSED_BEFORE_THE_SCENE`]. Its doc
 /// comment is the argument for why that list can be held now and could not be before.
 fn ratchets(
     documents: usize,

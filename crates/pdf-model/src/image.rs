@@ -3369,11 +3369,14 @@ impl MaskCache {
 /// counting it as work saved would have credited this cache with a saving somebody else already
 /// made. Its peak resident memory is unmoved by this cache, which is what says so.
 ///
-/// **The alternative `doc/todo/47` named — a cache of the *last* raster only — was simulated on
+/// **The alternative ADR 0374 weighed — a cache of the *last* raster only — was simulated on
 /// the same sequence**: 804.2 MB over 4534 decodes. It serves the witness's nine-in-a-row exactly,
 /// because the witness's nine are consecutive, and it is 2.9% short of the table above on a corpus
 /// where nothing interleaves two large images. What it cannot do is the interleave, which is one
-/// `Do` order away from the shape the witness already has.
+/// `Do` order away from the shape the witness already has. (This named `doc/todo/47` until the
+/// five-hundred-and-seventy-eighth session, and the file was deleted by the same commit that wrote
+/// the sentence — the pointer and its subject closing together, which is `doc/todo/01`'s eighth
+/// sweep's own shape.)
 ///
 /// **The doubling to 64 MiB is headroom for a shape the corpus does not contain and a page can
 /// state as easily as the witness's**: two large images drawn alternately. At 32 MiB two 26.1 MB

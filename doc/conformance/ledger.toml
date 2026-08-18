@@ -5749,14 +5749,16 @@ note = "The clause's five-step priority, of which the first four are here. A for
 [[clause]]
 clause = "14.8.5.4"
 title = "Layout attributes"
-status = "inapplicable"
-note = "Aggregate of the seven below. Layout attributes \"specify parameters of the layout process used to produce the appearance described by a document's PDF content\", and the NOTE states the intent outright: \"[t]he intent is that these parameters can be used to repurpose the content or export it to some other document format with at least basic styling preserved.\" The appearance is already drawn; nothing here can change it, and nothing in this program exports."
+status = "partial"
+code = ["crates/pdf-model/src/structure.rs", "crates/viewer-core/src/accessibility.rs", "crates/viewer-accessibility/src/tree.rs"]
+test = ["crates/pdf-model/src/structure.rs::a_block_level_element_states_the_rectangle_enclosing_its_visible_content", "crates/viewer-core/tests/headless.rs::an_element_that_marks_no_text_crosses_with_the_bounds_the_document_states"]
+note = "Aggregate of the seven below. Layout attributes \"specify parameters of the layout process used to produce the appearance described by a document's PDF content\", and the NOTE states the intent outright: \"[t]he intent is that these parameters can be used to repurpose the content or export it to some other document format with at least basic styling preserved.\" That is why every attribute of §14.8.5.4.2 and ten of §14.8.5.4.3's thirteen are `inapplicable` here: the appearance is already drawn, nothing in this program can change it, and nothing in it exports. **This row said exactly that about the whole family and was `inapplicable` on it until the five-hundred-and-seventy-eighth session, while §14.8.5.4.3 had been `partial` since ADR 0301** — three of Table 379's attributes are *results* rather than process, and `/BBox` is read: `Tree::bounds` takes the rectangle that \"completely encloses its visible content\" and `viewer_accessibility::tree::place` puts it on AT-SPI for an element the text layer cannot place, on 61 of the 132 elements that state one. So one requirement of this family is executed and the rest have no meaning for a screen, which is `partial` rather than `inapplicable` — the ledger's own definition of the second is that nothing is owed, and what is owed here is `/Width` and `/Height`, named in that child's row. Found by `doc/todo/01`'s seventh sweep: a family's parent row is not maintained by the session that implements one of its members, because the clauses do not cite each other."
 
 [[clause]]
 clause = "14.8.5.4.1"
 title = "General"
 status = "inapplicable"
-note = "Which attribute objects are layout ones — owner `Layout`, or any owner other than `List`, `Table`, `PrintField` and `Artifact` — and Table 377's map from attribute to the element types it applies to."
+note = "Which attribute objects are layout ones — owner `Layout`, or any owner other than `List`, `Table`, `PrintField` and `Artifact` — and Table 377's map from attribute to the element types it applies to. **Read and kept `inapplicable` in the five-hundred-and-seventy-eighth**, when the parent row above stopped being one: the clause's single `shall` — \"[a]ttributes in this category shall be defined in attribute objects whose O (owner) entry has the value Layout or whose owner is any other owner excluding List, Table, PrintField and Artifact\" — binds whoever *defines* an attribute object, and this program defines none. The one layout attribute it reads, §14.8.5.4.3's `/BBox`, is reached through §14.8.5.3's priority over the objects the element already attaches, which is that clause's rule rather than this one's; policing a producer that put a layout attribute where this sentence forbids it is not a requirement this clause places on a reader."
 
 [[clause]]
 clause = "14.8.5.4.2"
