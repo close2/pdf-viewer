@@ -286,6 +286,49 @@ fn text_rise_is_not_scaled_by_the_font_size() {
     );
 }
 
+/// §9.4.2, as Errata Collection 3 amends it: `q` and `Q` save and restore `Tm` and `Tlm`.
+///
+/// The requirement is an **addition** — issue #368, `/State` `Review` `Completed` — so it is in
+/// no blockquote here: the conformance checker verifies a blockquote against `doc/md/`, which is
+/// a conversion of the base text, and a sentence the errata add is not in it (ADRs 0252, 0253).
+/// In the collection's own words the clause now says that within a text object the graphics
+/// state stack operators q and Q "shall additionally push and pop Tm and Tlm as part of the
+/// graphics state stack", and §7.8.2 gained the pointer to it in the same collection: "[s]ee
+/// 9.4.1, 'General' for additional information that must be managed as part of the graphics
+/// state stack when q and Q operators occur within text objects". Found by running
+/// `spec-errata emit` over clause 9 before writing, which is what `doc/todo/02` §4 asks for; the
+/// row for §9.4.1 had said the opposite in as many words for hundreds of sessions. ADR 0421.
+///
+/// **A pair differing only in the rule**, which is trap 8's construction and is what this needs:
+/// 13 of the 974 corpus documents put a `q` or a `Q` inside a text object, and not one of them
+/// moves `Tm` between the two — so the corpus exercises the operators and cannot exercise the
+/// requirement. Both streams below show three glyphs; they differ by one `q` … `Q`.
+#[test]
+fn q_and_q_save_the_text_matrices_inside_a_text_object() {
+    // Without the save: the `Td` inside moves the line, and the third glyph follows the second
+    // on that line — 100 across and 100 up from where the first was.
+    let plain = placements("BT /F1 10 Tf 0 50 Td (A) Tj 100 100 Td (A) Tj (A) Tj ET");
+    assert_eq!(plain.len(), 3, "three glyphs: {plain:?}");
+    assert!(
+        (plain[2].1 - 150.0).abs() < 0.01 && plain[2].0 > 100.0,
+        "the third glyph stays on the line the Td moved to: {plain:?}"
+    );
+
+    // With it: `Q` puts `Tm` and `Tlm` back where the `q` found them, so the third glyph is
+    // exactly where the second would have been — one advance along the first line. Helvetica's
+    // `A` is 667/1000 em, which is 6.67 at size 10.
+    let saved = placements("BT /F1 10 Tf 0 50 Td (A) Tj q 100 100 Td (A) Tj Q (A) Tj ET");
+    assert_eq!(saved.len(), 3, "three glyphs: {saved:?}");
+    assert!(
+        (saved[2].1 - 50.0).abs() < 0.01 && (saved[2].0 - 6.67).abs() < 0.01,
+        "the third glyph is back on the first line, one advance along: {saved:?}"
+    );
+    assert!(
+        (saved[1].0 - plain[1].0).abs() < 0.01 && (saved[1].1 - plain[1].1).abs() < 0.01,
+        "and the glyph *inside* the q is unmoved by any of this: {saved:?} against {plain:?}"
+    );
+}
+
 /// §9.3.5: leading is used by `T*`, `'` and `"`, and `TD` sets it.
 ///
 /// Table 103 names exactly four operators, and Table 106 gives `T*` as `0 -Tl TD` — the

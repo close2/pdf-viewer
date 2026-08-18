@@ -1062,6 +1062,69 @@ fn a_drag_across_a_line_selects_what_it_crossed() {
     assert_eq!(ours, theirs, "the same characters, whatever the order");
 }
 
+/// A press on text that lies over an annotation still anchors a selection.
+///
+/// **The defect `viewer-core/tests/selection_census.rs` found on its first run** (ADR 0421), and
+/// it was in the loop no gate touches: `Command::Pointer` sets §12.5.5's appearance state before
+/// it decides where the press landed, and changing that state calls `Open::stale`, which throws
+/// the interpretation away. The anchor was then taken from an interpretation that no longer
+/// existed, so a press over any annotation stating a down appearance produced *no* selection at
+/// all and the drag from it selected nothing. 44 corpus documents, 78 of 1017 dragged words.
+///
+/// `annotation-tx.pdf` is the smallest witness: one text widget over the two words the page draws,
+/// and the drag's endpoints are `pdftotext`'s in `selection_census.rs`. Here they are the
+/// document's own — the widget's `/Rect` is `[47 704 199 726]` and the page shows "tx annotation"
+/// at 718.72 in default user space, both read out of the file — which is trap 12a's rule with the
+/// strongest source it admits.
+#[test]
+fn a_press_over_an_annotation_still_anchors_a_selection() {
+    let Some(bytes) = corpus_bytes("annotation-tx.pdf") else {
+        println!("the pdf.js submodule is not checked out; skipping");
+        return;
+    };
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    let events: Vec<Event> = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password: None,
+            fragment: None,
+        })
+        .collect();
+    serve(&mut viewer, &request(&events).clone());
+    let Answer::Geometry(geometry) = viewer.query(Query::PageGeometry(0)) else {
+        panic!("the page on the screen has a geometry");
+    };
+    // The page's own text: "tx annotation", drawn at y 718.72 in default user space, inside the
+    // widget whose `/Rect` covers 704 to 726. A point on that line, from the file rather than
+    // from the viewer.
+    let device = |x: f32, y: f32| {
+        (
+            geometry.origin.0 + x * geometry.scale,
+            geometry.origin.1 + (geometry.page.height - y) * geometry.scale,
+        )
+    };
+    let start = device(30.0, 724.0);
+    let end = device(95.0, 724.0);
+    for (at, action) in [
+        (start, PointerAction::Pressed),
+        (end, PointerAction::Dragged),
+        (end, PointerAction::Released),
+    ] {
+        viewer
+            .handle(Command::Pointer { at, action })
+            .for_each(drop);
+    }
+    let Answer::Selected(selection) = viewer.query(Query::Selection) else {
+        panic!("the drag across the line selected nothing at all — the defect under test");
+    };
+    assert!(
+        selection.text.contains("annotation"),
+        "the drag selected {:?}",
+        selection.text
+    );
+}
+
 /// §12.5.1's tab key: the focus walks the page's annotations and wraps.
 ///
 /// > Interactive PDF processors may permit the user to navigate through the annotations on a page

@@ -139,7 +139,19 @@ impl Interpreter<'_> {
         // malformed stream can show: `operands_before` is what turns this into that slice.
         let mut pending: Vec<Object> = Vec::new();
         let mut state = initial.clone();
-        let mut stack: Vec<GraphicsState> = Vec::new();
+        // §8.4.2's stack, carrying §9.4.2's two text matrices beside the graphics state.
+        //
+        // ISO 32000-2 §9.4.2, as Errata Collection 3 adds it (issue #368, `/State` `Review`
+        // `Completed`): within a text object the graphics state stack operators q and Q "shall
+        // additionally push and pop Tm and Tlm as part of the graphics state stack". Quoted in
+        // prose rather than as a blockquote because the sentence is an addition and `doc/md/`
+        // is a conversion of the base text — see `text_state.rs`'s test for the whole reading.
+        //
+        // So the entry is a triple rather than a `GraphicsState`: the two matrices are saved
+        // and restored *with* it, which is what "as part of the graphics state stack" says, and
+        // holding them in a stack of their own would let the two go out of step on a stream
+        // whose `q` is inside a text object and whose `Q` is outside it. ADR 0421.
+        let mut stack: Vec<(GraphicsState, Transform, Transform)> = Vec::new();
 
         // The path being built, and the pending clip requested by `W`/`W*`.
         let mut path = Path::new();
@@ -147,7 +159,8 @@ impl Interpreter<'_> {
         let mut current = Point::new(0.0, 0.0);
         let mut pending_clip: Option<FillRule> = None;
         let mut in_text = false;
-        // The text object's own parameters, which `BT` resets and `q`/`Q` do not touch.
+        // The text object's own parameters. `BT` resets them, and `q`/`Q` save and restore
+        // them with the graphics state — §9.4.2 as Errata Collection 3 amends it, above.
         let mut text_object = TextObject::default();
         // One entry per open marked-content section, saying whether it hid what follows.
         // Every `BMC` and `BDC` pushes, so an `EMC` closes the section it actually belongs
@@ -317,7 +330,7 @@ impl Interpreter<'_> {
                 // --- graphics state ---
                 b"q" => {
                     if stack.len() < MAX_STATE_DEPTH {
-                        stack.push(state.clone());
+                        stack.push((state.clone(), text_object.matrix, text_object.line));
                     } else {
                         self.note(Unsupported::LimitReached {
                             limit: "MAX_STATE_DEPTH",
@@ -325,8 +338,16 @@ impl Interpreter<'_> {
                     }
                 }
                 b"Q" => {
-                    if let Some(previous) = stack.pop() {
+                    if let Some((previous, matrix, line)) = stack.pop() {
                         state = previous;
+                        // The two matrices come back only *inside* a text object, which is
+                        // where §9.4.2's addition places them: outside one they are the
+                        // parameters of an object that has ended, and Table 105's `BT` sets
+                        // both to the identity before the next glyph is shown anyway.
+                        if in_text {
+                            text_object.matrix = matrix;
+                            text_object.line = line;
+                        }
                     }
                     // An unmatched `Q` is ignored: the alternative is to abandon the page,
                     // and files with one extra `Q` render correctly everywhere else.

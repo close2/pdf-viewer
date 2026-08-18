@@ -18,6 +18,10 @@ test-scenes.workspace = true
 # The accessibility census walks every page of every document this project holds; rule 4 forbids
 # this crate threads it was not handed, and a test that runs it over a corpus is not the crate.
 rayon.workspace = true
+# The selection census asks poppler where the words are, through the same cached invocation
+# `pdf-model`'s geometry instrument uses (ADR 0333), so the two share every cache entry. A
+# *reference* is what makes a drag's endpoints independent of the code the drag is testing.
+pdfref.workspace = true
 
 [lints]
 workspace = true

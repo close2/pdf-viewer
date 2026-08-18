@@ -1,18 +1,21 @@
 # An instrument for the interactive surface
 
-Status: **all three built (ADRs 0333, 0334, 0342); what is left is the standing rule at the foot
-of this file and the three named remainders under the items.** ADR 0323 is the design, with the
-measured reference-vs-reference spread the tolerance rests on. Each instrument's first-run numbers
-are in its session's history file, not here. **The file stays open for the rule rather than for
-the build**: no instrument's numbers have held across rounds yet, so none of them gates, and this
-is where that promise is kept.
+Status: **all three built (ADRs 0333, 0334, 0342), and the first one's verdict gates (ADR 0421);
+what is left is the standing rule at the foot of this file and the three named remainders under
+the items.** ADR 0323 is the design, with the measured reference-vs-reference spread the tolerance
+rests on. Each instrument's first-run numbers are in its session's history file, not here. **The
+file stays open for the rule rather than for the build**: instrument 1's geometry verdict has now
+held across rounds and therefore ratchets, the other two instruments' counts have not, and this is
+where that promise is kept.
 Priority: 05 — standing band, because it is an instrument like 00 and 01 rather than a feature
 Corpus: the denominator is stated per instrument in ADR 0323, with every refusal printed by reason
 Clauses: §9.10 (extraction), §12.7 (forms), §7.5.6 (the incremental update a save appends),
 §14.7–§14.9 (the tree a screen reader walks), §12.3.2/§12.6 (what a click does)
 Code: instrument 1 is `tools/pdfref/src/extract.rs` (the extractors and their cache),
-`crates/pdf-model/tests/text_extraction.rs` (the verdict and the derivation) and
-`crates/viewer-core/tests/headless.rs` (the drag half); instrument 2 is
+`crates/pdf-model/tests/text_extraction.rs` (the verdict, its ratchet and the derivation),
+`crates/viewer-core/tests/selection_census.rs` (the drag at corpus scale, and the two
+self-inverse properties) and `crates/viewer-core/tests/headless.rs` (the single-document drag and
+the press-over-an-annotation regression); instrument 2 is
 `crates/pdf-model/tests/save_round_trip.rs`; instrument 3 is
 `crates/viewer-core/tests/accessibility_census.rs`, asked by `tools/state.sh accessibility`
 
@@ -46,17 +49,26 @@ text-domain entry.
 
 ## The build items, one round each, in this order
 
-1. **Selection geometry — built (ADR 0333).** The frame audit, the unique-word
-   matcher, the two bounds re-derived by the instrument itself
+1. **Selection geometry — built (ADR 0333), ratcheted and composed (ADR 0421).** The frame audit,
+   the unique-word matcher, the two bounds re-derived by the instrument itself
    (`PDFVIEWER_SELECTION_SPREAD=1`, an environment guard on ADR 0282's rule), and the drag half
    in `viewer-core`'s headless harness with both endpoints from the reference's box. It runs in
-   §2's existing `text_extraction` line with no new line, printing and **not yet gating**: the
-   per-word bounds (horizontal edges 0.5 pt, vertical centres half the word's height) and the
-   verdict distribution enter §2 only once they have held across rounds — the rule below — and
-   the first full run's figures are session 498's history file, reprinted by the gate line
-   itself. **What remains of this item**: the ratchet, once held; and the two self-inverse
-   properties ADR 0323 puts beside the drag half (`Query::Offset` of `Query::Caret`'s point,
-   `Selection::All` byte-for-byte against `Interpretation::text`), which no round has written.
+   §2's existing `text_extraction` line with no new line. **Its verdict gates since the
+   five-hundred-and-eighty-sixth session**, which is the rule at the foot of this file being kept
+   rather than waived: the figures held from session 498 to session 586 — the same fraction of
+   matched words in bounds, one more document judged — so the gate now carries a named list of
+   the documents with a word out of bounds, checked in both directions, and a floor under the
+   judged set (trap 11's arithmetic as a ratchet).
+
+   **And the composed half is corpus-scale**, in `crates/viewer-core/tests/selection_census.rs`
+   with a §2 line of its own: poppler's word box → device pixels → `Command::Pointer` →
+   `Query::Selection`, over every corpus document at a *fitted* magnification, beside the two
+   self-inverse properties ADR 0323 asked for. It found a defect on its first run — a press over
+   an annotation set no selection anchor at all, because §12.5.5's appearance state is changed
+   before the anchor is taken and changing it discards the interpretation.
+
+   **What remains of this item**: the drag fraction's own ratchet, once it has held across
+   rounds, and the eleven drags that still miss, which ADR 0421 names in four classes.
 2. **The save round-trip — built (ADR 0334).** One synthetic `Edit::FreeText` per document
    plus `Edit::SetField` wherever a text field exists; the three exact assertions corpus-wide
    in `crates/pdf-model/tests/save_round_trip.rs`, with poppler asked through poppler-glib

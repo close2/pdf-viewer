@@ -30,7 +30,8 @@ cargo build --profile gates -p pdf-sandbox --bins   # trap 10: Cargo will not do
 cargo test  --profile gates -p pdf-model      --test corpus          -- --ignored --nocapture
 cargo build --profile gates -p hayro-compare --bin pdfref-hayro      # trap 10 again, see below
 cargo test  --profile gates -p pdf-model      --test oracle          -- --ignored --nocapture
-cargo test  --profile gates -p pdf-model      --test text_extraction -- --ignored --nocapture   # two gates
+cargo test  --profile gates -p pdf-model      --test text_extraction -- --ignored --nocapture   # three gates
+cargo test  --profile gates -p viewer-core    --test selection_census -- --ignored --nocapture
 cargo test  --profile gates -p pdf-model      --test dates           -- --ignored --nocapture
 cargo test  --profile gates -p pdf-model      --test xmp             -- --ignored --nocapture
 cargo test  --profile gates -p pdf-model      --test jpeg2000        -- --nocapture
@@ -94,7 +95,14 @@ here:
   the fix was**: a test in a gate binary that must not run in the gate declines *by itself*, because
   an invocation can be copied without its guard and a test cannot be run without itself. Nothing here
   changes when one is added.
-- **The `text_extraction` line is two gates and gains no line**, which is the other side of the same
+- **The `selection_census` line is the one that clicks**, and it is here rather than in
+  `doc/verify.md` because two of its three properties are exact and it is what catches a defect in
+  the loop from a press to a selection — which is the loop `doc/HANDOVER.md`'s trap 12a is about and
+  which nothing gated until the five-hundred-and-eighty-sixth session. Its *drag fraction* is
+  printed and **not** ratcheted, by `doc/todo/05`'s standing rule; what fails the line is a
+  selection that is not the interpreter's readback, a caret whose own point lands somewhere else,
+  or a panic. Six seconds with a warm extraction cache, which it shares with the line above it.
+- **The `text_extraction` line is three gates and gains no line**, which is the other side of the same
   mechanism and is correct: `the_text_we_draw_agrees_with_pdfboxs_frozen_extraction` is a gate. It
   compares documents against the `PDFTextStripper` output Apache PDFBox checked in beside them — a
   *frozen* second reference, which cannot drift under this tree the way the machine's poppler can

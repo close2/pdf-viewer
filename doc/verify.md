@@ -134,6 +134,14 @@ cargo run --release -p pdf-model --example cell_header_census -- doc/pdf.js/test
   # says the algorithm is the feature and the entry is the exception (ADR 0312). It also prints the
   # two counts that decided what was *not* taken: 0 of 6197 TH state /Short, and no document's
   # tables outgrow the grid `TableStack` keeps
+tools/state.sh selection
+  # ADR 0323's instrument 1, composed half, and the one thing in this tree that **clicks**: every
+  # corpus document opened at the boundary, poppler's word boxes mapped into device pixels through
+  # `Query::PageGeometry`, dragged across with `Command::Pointer`, and `Query::Selection` asked
+  # what came back — beside the two self-inverse properties ADR 0323 puts with it. It is a
+  # `doc/todo/02` §2 line as well, because two of its three properties are exact; this entry is
+  # here because the *section* is how a round reads its counts, and because the drag fraction is
+  # printed rather than ratcheted (ADR 0421). `crates/viewer-core/tests/selection_census.rs`
 tools/state.sh accessibility
   # ADR 0323's third instrument, and the only one of the three with nobody to disagree with it: no
   # other implementation puts a comparable tree on AT-SPI, so it is a **ratchet** and says so. Page

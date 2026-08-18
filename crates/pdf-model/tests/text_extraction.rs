@@ -1051,6 +1051,57 @@ const HORIZONTAL_BOUND: f64 = 0.5;
 /// The same derivation run as [`HORIZONTAL_BOUND`] reprints it.
 const VERTICAL_CENTRE_BOUND: f64 = 0.5;
 
+/// The judged documents with a word out of bounds, and the ratchet's whole population.
+///
+/// **This is the instrument's first ratchet, and ADR 0323's rule is what let it be one**: the
+/// figures held from the four-hundred-and-ninety-eighth session to the five-hundred-and-eighty-
+/// sixth — 98.26% of matched words in bounds both times, 486 of 508 documents fully in bounds
+/// against 485 of 507, the one document's difference being a document that entered the judged
+/// set rather than a word that moved. A number that survived eighty-eight rounds of unrelated
+/// work is a number a round can be held to; ADR 0421.
+///
+/// Checked in **both** directions, exactly as [`TEXT_BELOW_FLOOR`] is: a document arriving here
+/// fails the gate, and a document that leaves must be deleted from this list so that it cannot
+/// come back. What each one is is not written down per line — the gate prints every name with
+/// its fraction and its worst horizontal delta above, which is where a round reads them — and
+/// three classes account for most of it: a box convention on Type 3 and vertically-set text
+/// (`issue1350.pdf`'s hundred words agree horizontally to 0.00 pt and fail only the vertical
+/// centre; `vertical.pdf` and `issue11555.pdf` fail on the cross-axis), a substituted face whose
+/// advances are not the document's, and a genuine placement difference of a point or more.
+const SELECTION_BELOW_FLOOR: [&str; 22] = [
+    "TrueType_without_cmap.pdf",
+    "annotation-tx.pdf",
+    "bug1771477.pdf",
+    "bug1796741.pdf",
+    "bug1844576.pdf",
+    "bug1844583.pdf",
+    "bug868745.pdf",
+    "hello_world_rotated.pdf",
+    "issue11555.pdf",
+    "issue12750.pdf",
+    "issue1350.pdf",
+    "issue14497.pdf",
+    "issue16021.pdf",
+    "issue18099_reduced.pdf",
+    "issue1905.pdf",
+    "issue19389.pdf",
+    "issue20232.pdf",
+    "issue2391-2.pdf",
+    "issue4665.pdf",
+    "issue6127.pdf",
+    "issue6605.pdf",
+    "vertical.pdf",
+];
+
+/// The smallest judged set this instrument may have.
+///
+/// Trap 11's arithmetic as a ratchet rather than as a printed line: every refusal above takes a
+/// document off the judged set, so a change that made poppler refuse more documents — or made
+/// this tree read fewer words — would shrink the denominator and leave the verdict above looking
+/// unmoved. 508 in the five-hundred-and-eighty-sixth session, 507 in the four-hundred-and-ninety-
+/// eighth; it may rise, and a rise is written down here.
+const JUDGED_FLOOR: usize = 508;
+
 /// One point per axis before two statements of the page's frame count as the same frame.
 ///
 /// The harness's one-pixel-per-axis rule at 72 dpi, applied to the page's *size*: ADR 0323's
@@ -1693,8 +1744,11 @@ fn the_word_boxes_we_place_agree_with_the_references() {
     }
 
     ranked.sort_by(|left, right| left.0.total_cmp(&right.0));
-    println!("documents furthest out of bounds:");
-    for (fraction, name, pairs, worst_dx) in ranked.iter().take(10) {
+    // Every document with a word out of bounds, not the worst ten: this list *is* the ratchet
+    // below, and a ratchet whose population is printed truncated cannot be maintained from the
+    // gate's own output.
+    println!("documents not fully in bounds:");
+    for (fraction, name, pairs, worst_dx) in ranked.iter().filter(|(f, ..)| *f < 1.0) {
         println!(
             "  {name}: {:.1}% of {pairs} matched words in bounds, worst horizontal delta \
              {worst_dx:.2} pt",
@@ -1742,8 +1796,37 @@ fn the_word_boxes_we_place_agree_with_the_references() {
         stats.hits, stats.misses, stats.remembered_timeouts
     );
 
-    assert!(judged > 0, "the instrument has no population");
     assert!(pairs_total > 0, "no word was matched anywhere");
+    assert!(
+        judged >= JUDGED_FLOOR,
+        "the judged set fell to {judged} from {JUDGED_FLOOR}: {refused} documents are refused \
+         above, and a document off the judged set is a document this instrument stopped judging"
+    );
+    let mut below: Vec<&str> = ranked
+        .iter()
+        .filter(|(fraction, ..)| *fraction < 1.0)
+        .map(|(_, name, ..)| name.as_str())
+        .collect();
+    below.sort_unstable();
+    let newly: Vec<&&str> = below
+        .iter()
+        .filter(|name| !SELECTION_BELOW_FLOOR.contains(name))
+        .collect();
+    let fixed: Vec<&&str> = SELECTION_BELOW_FLOOR
+        .iter()
+        .filter(|name| !below.contains(name))
+        .collect();
+    assert!(
+        newly.is_empty(),
+        "{} document(s) newly carrying a word out of bounds: {newly:?}",
+        newly.len()
+    );
+    assert!(
+        fixed.is_empty(),
+        "{} document(s) no longer out of bounds: {fixed:?}. Delete them from \
+         SELECTION_BELOW_FLOOR: a fixed page must not be able to come back.",
+        fixed.len()
+    );
 }
 
 /// The environment variable that asks for the derivation below; `--ignored` alone must not.

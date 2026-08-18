@@ -597,6 +597,16 @@ impl Viewer {
         let viewport = self.viewport;
         let point = self.focused().and_then(|open| self.user_space(open, at));
         let on_page = self.focused().and_then(|open| self.page_point(open, at));
+        // **Where in the text this pointer message lands, decided against the display list the
+        // person is looking at rather than against whatever survives this function.** §12.5.5's
+        // appearance state is changed below, and changing it calls `Open::stale`, which throws
+        // the interpretation away — so a press on text that happens to lie over an annotation
+        // with a down appearance used to ask an interpretation that had just been dropped and
+        // get no anchor at all, and the whole drag from it selected nothing. Found by
+        // `viewer-core/tests/selection_census.rs` on its first run, on 44 corpus documents; ADR
+        // 0424. Asked once here for both arms below, which is also what a drag over a widget
+        // costs least.
+        let position = on_page.and_then(|point| self.focused()?.position_at(point));
         let Some(open) = self.focused_mut() else {
             return;
         };
@@ -669,12 +679,10 @@ impl Viewer {
                 // A press starts an empty selection where it landed, so that the first drag
                 // has an anchor. An empty selection highlights nothing and is not a selection
                 // a person can see.
-                let position = on_page.and_then(|point| open.position_at(point));
                 open.selection = position.map(|position| (position, position));
                 events.push(damage(viewport));
             }
             PointerAction::Dragged => {
-                let position = on_page.and_then(|point| open.position_at(point));
                 if let (Some((anchor, _)), Some(position)) = (open.selection, position) {
                     open.selection = Some((anchor, position));
                     events.push(damage(viewport));

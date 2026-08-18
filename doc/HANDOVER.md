@@ -83,7 +83,11 @@ everything a document says *about itself*: §14.7's logical structure, §14.8's
 tagged-PDF vocabulary, §7.11.4's embedded files, §14.13's associated files, §12.2's viewer
 preferences, §12.11's requirements, §7.12's extensions and §14.3.2's XMP.
 
-It is **used**, which is a separate claim from the one above and was owed for a long time. A
+It is **used**, which is a separate claim from the one above and was owed for a long time — and
+since the five-hundred-and-eighty-sixth session the first sentence of it is **measured** rather
+than asserted: a gate drags across `pdftotext`'s own word boxes on every corpus document and asks
+what came back, which is the first thing in this tree that clicks, and it found a press that set
+no selection anchor at all (ADR 0421). A
 locked document asks for its password (§7.6.4.1); the page zooms and scrolls; the cursor knows
 what it is over and §12.5.5's appearances follow it, as does §12.5.6.19's `/H`; a drag **selects
 text**, whose shapes cross to the host as geometry so that it draws them in its own colour; `/`

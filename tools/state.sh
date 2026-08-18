@@ -91,9 +91,21 @@ section_oracle() {
 
 section_text() {
     gate_binaries
-    run "text (pdftotext, and PDFBox's frozen extraction)" \
-        '^[0-9]+ documents in' \
+    # Three gates in one binary since ADR 0333: two about which characters a page reads back as,
+    # and one about *where* its words are — whose verdict and judged set are ratcheted since ADR
+    # 0424 and are therefore two lines worth keeping.
+    run "text (pdftotext, PDFBox's frozen extraction, and where the words are)" \
+        '^[0-9]+ documents in|^[0-9]+ of [0-9]+ documents judged|^verdict:' \
         cargo test --profile gates -p pdf-model --test text_extraction -- --ignored --nocapture
+}
+
+# ADR 0323's instrument 1, composed half: the loop from a press to a selection, which the line
+# above cannot see — it judges where the text layer *says* the words are and this drags across
+# poppler's boxes in device pixels. The filter keeps the three properties and the refusal classes.
+section_selection() {
+    run "the selection loop (a drag across poppler's word boxes)" \
+        '^[0-9]+ documents in|^the (drag|readback|caret)|^[0-9]+ of [0-9]+ documents refused|^ +[0-9]+ +[a-z/]|^  [a-z]' \
+        cargo test --profile gates -p viewer-core --test selection_census -- --ignored --nocapture
 }
 
 # ADR 0323's third instrument, and the only one of the three with no reference to disagree with
@@ -173,7 +185,7 @@ section_disk() {
     du -sh /home/AI/cargo-target/pdf-viewer/tmp/pdfref-cache 2>/dev/null
 }
 
-all="ledger conformance annex-o counts binaries disk tests corpus oracle text accessibility quorra dates xmp jpeg2000"
+all="ledger conformance annex-o counts binaries disk tests corpus oracle text selection accessibility quorra dates xmp jpeg2000"
 quick="ledger conformance annex-o counts binaries disk"
 
 case ${1-} in
@@ -194,6 +206,7 @@ for section in $sections; do
     corpus) section_corpus ;;
     oracle) section_oracle ;;
     text) section_text ;;
+    selection) section_selection ;;
     accessibility) section_accessibility ;;
     quorra) section_quorra ;;
     dates) section_dates ;;

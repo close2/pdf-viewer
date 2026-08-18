@@ -4391,6 +4391,7 @@ dependencies = [
  "pdf-model",
  "pdf-render",
  "pdf-syntax",
+ "pdfref",
  "rayon",
  "render-cpu",
  "test-scenes",
