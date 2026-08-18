@@ -242,6 +242,18 @@ covered pixel.
 **So the second variable is device area covered**, and the regression this bullet asks for can now
 be run against a column `command_extents` produces and a document that ranges over it.
 
-**And the second bullet stands unchanged, with a number against it**: on this document `scene` is
-**2.5%** of a frame, which is why nobody has needed to divide it and is not an argument that nobody
-will.
+**And the second bullet is half taken, by the population it was wrong about** (session 588, ADR
+0423). On a *zoom* frame `scene` is 2.5% and nobody needed to divide it; on a **launch** it is a
+fifth of the whole, because the first frame uploads every outline the page states — and the sentence
+"nobody has needed to divide it" was true of the frames this file measures and false of the one a
+person judges the program by. `FrameCost::handover` divides it in two: this host's own walk of the
+display list, and the `upload_*` calls across quorra's boundary. On `tmp/Entwurf.pdf`'s cold frame,
+on the real adapter, the second is **83%** of it — and `QuadOutline::from_segments` is six sevenths
+of that under callgrind, building quadratics only the GPU coverage lane reads. `doc/todo/44` §6 has
+the launch table it came out of and `doc/QUORRA_FEEDBACK.md` §33 is the ask.
+
+**What is left of the bullet is the other side of the same division**: the walk itself is undivided,
+and on a frame whose uploads are all cache hits it is what `scene` is made of. Nothing has needed
+that yet — a warm frame's `scene` is 9.7 ms — which is the same sentence this paragraph just had to
+correct, so it is written with the population named: *no frame measured so far*, and a launch was
+not one of them.

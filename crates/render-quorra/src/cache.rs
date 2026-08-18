@@ -144,6 +144,31 @@ pub(crate) struct ResourceCaches {
     /// entries are keyed by `Arc` identity, so a list rebuilt from scratch every
     /// frame would re-upload every resource and this is what would say so.
     stored: u32,
+    /// What those uploads cost — the wall clock spent *inside* quorra's own `upload_*` calls.
+    ///
+    /// **The duration [`Self::stored`] never had, and the reason the comment above says a timer
+    /// would cost a clock read is now an argument that was answered rather than one that stands.**
+    /// A cold frame of the project owner's own drawing hands 58 029 resources over and spends
+    /// hundreds of milliseconds in `scene`; which side of the boundary those milliseconds are on
+    /// decided nothing before this field, because `scene` was one number and `up` was a count
+    /// beside it (ADR 0387's trap, one phase along). The clock reads are two per *miss* rather
+    /// than two per lookup, and ADR 0423 measures what they cost on the frame that misses most.
+    ///
+    /// Accumulated here beside the count for one reason worth stating: transient outlines and the
+    /// fallback raster never reach a cache at all, so a timer hung on the miss path would leave
+    /// exactly the uploads no entry pins unmeasured, and a frame drawn entirely from transients
+    /// would report nothing handed over.
+    handed: std::time::Duration,
+    /// How many path segments went into those uploads — [`Self::handed`]'s denominator.
+    ///
+    /// **A duration with no denominator beside it is read as though the count next to it were
+    /// one**, which is the trap ADR 0387 found on the `transfer` row: the frame line printed a
+    /// *resource* count beside it and the two were unrelated by three orders of magnitude. An
+    /// outline upload's cost is not per resource — a glyph is a handful of segments and a
+    /// draughtsman's line work is tens each over tens of thousands of paths — so the number that
+    /// makes `handed` comparable between two documents is this one. Outlines only: they are the
+    /// per-segment upload, and an image's or a ramp's own size has quorra's `bytes_uploaded`.
+    segments: u64,
 }
 
 impl std::fmt::Debug for ResourceCaches {
@@ -156,6 +181,8 @@ impl std::fmt::Debug for ResourceCaches {
             .field("programs", &self.programs.len())
             .field("frame", &self.frame)
             .field("stored", &self.stored)
+            .field("handed", &self.handed)
+            .field("segments", &self.segments)
             .finish()
     }
 }
@@ -170,6 +197,8 @@ impl ResourceCaches {
             programs: HashMap::new(),
             frame: 0,
             stored: 0,
+            handed: std::time::Duration::ZERO,
+            segments: 0,
         }
     }
 
@@ -178,11 +207,35 @@ impl ResourceCaches {
     pub(crate) fn begin_frame(&mut self) {
         self.frame = self.frame.saturating_add(1);
         self.stored = 0;
+        self.handed = std::time::Duration::ZERO;
+        self.segments = 0;
     }
 
     /// How many lookups missed and became an upload since [`Self::begin_frame`].
     pub(crate) fn stored(&self) -> u32 {
         self.stored
+    }
+
+    /// Records that `spent` was passed inside one of quorra's `upload_*` calls.
+    pub(crate) fn hand_over(&mut self, spent: std::time::Duration) {
+        self.handed = self.handed.saturating_add(spent);
+    }
+
+    /// What this frame's uploads cost, since [`Self::begin_frame`]. See [`Self::handed`].
+    pub(crate) fn handed(&self) -> std::time::Duration {
+        self.handed
+    }
+
+    /// Records that an outline of `segments` segments is about to be handed over.
+    pub(crate) fn count_segments(&mut self, segments: usize) {
+        self.segments = self
+            .segments
+            .saturating_add(u64::try_from(segments).unwrap_or(u64::MAX));
+    }
+
+    /// How many outline segments this frame handed over. See [`Self::segments`].
+    pub(crate) fn segments(&self) -> u64 {
+        self.segments
     }
 
     pub(crate) fn outline(&mut self, path: &Arc<Path>) -> Option<quorra_scene::OutlineId> {

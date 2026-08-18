@@ -3808,3 +3808,76 @@ Two consequences worth knowing:
   circle — because your `Compose::Src` reads an element's shape off the coverage it is drawn with,
   and a coverage folded into an alpha would be read back as opacity there. If `SceneBuilder::fill`
   ever grows an alpha of its own beside the paint, that second condition goes away.
+
+## 33. `upload_outline` builds the GPU lane's quadratics eagerly, and a launch never reads them — **an ask, with the launch path's own numbers**
+
+Written at the end of this viewer's five-hundred-and-eighty-eighth session. It is one ask and it is
+about a phase neither of us had a number for, because it is on **our** side of the boundary and we
+had never divided it.
+
+### 33.1 What we could not see, and now can
+
+`FrameCost::scene` is our own translation of a display list into a `Scene`, and it has been one
+number since ADR 0227 — a number that includes every `upload_*` call we make on the way through.
+On a still page it is nothing (ADR 0351's retained frame reuses the scene) and on a zoom step it is
+2.5% of the frame, which is why nobody had needed to divide it. **On a launch it is a fifth of the
+whole**, because the first frame uploads every outline the page states.
+
+So `FrameCost` now carries `handover` — the part of `scene` spent inside your `upload_*` calls —
+and `outline_segments`, which is its denominator. Two `Instant::now()` per *miss*; A/B'd on the
+frame that misses most (58 029 uploads), the instrument is below the run-to-run spread.
+
+### 33.2 The numbers, on the project owner's own document
+
+`tmp/Entwurf.pdf` is a 49.7 MB single-page drawing, 58 009 display commands, **3 011 919 path
+segments**, and it is the document `doc/todo/44` exists for. Two instruments agree.
+
+**Wall clock**, `examples/zoom_frame` on the real adapter (AMD Radeon 890M, RADV STRIX1), page
+fitted to 800×228, minima of five rounds, in ms:
+
+| frame | scene | of it, handed over | uploads | segments handed |
+|---|---:|---:|---:|---:|
+| first (cold) | 187.6 | **156.0 — 83%** | 58 029 | 3 011 919 |
+| second (a zoom of the same list) | 9.7 | 0.2 | 40 | 4 550 |
+
+**Instructions**, one callgrind run of the same pair, `encode_threads` pinned to 1:
+
+| | Ir | share of the run |
+|---|---:|---:|
+| `render_quorra::scene::Encoder::commands` — our whole walk | 2 128.7 M | 8.21% |
+| — `Device::upload_outline` | **1 743.2 M** | 6.72% |
+| — — `QuadOutline::from_segments` | **1 476.9 M** | 5.69% |
+
+So four fifths of our scene translation is inside `upload_outline`, and **six sevenths of that is
+`QuadOutline::from_segments`** — 490 instructions per segment, of which `push_cubic` and its
+recursion are 852 M.
+
+### 33.3 The ask
+
+`upload_outline` validates, computes `axis_aligned_rect`, converts the segments to quadratics and
+stores both forms. The quadratics are read in exactly one place — `encode::fill`'s
+`if !stored.quads.is_empty() && self.take_gpu_lane(…)` — and `take_gpu_lane` answers `false` on
+sight under `Coverage::Cpu`, which is the caller's default and is what this viewer draws with below
+ten times magnification. **Every launch of this program therefore pays for a representation that
+frame will not read**, and on this document that is 156 ms of a 1.4-second launch.
+
+What we would like, in the order we would value it:
+
+- **Build `QuadOutline` on first use rather than at upload.** A `OnceCell` (or an
+  `Option<QuadOutline>` filled where `encode::fill` asks for it) keeps the stored outline's
+  contract exactly as it is and moves the cost onto the frames that read it. A host that never
+  crosses your coverage threshold never pays; one that does pays once, on the frame where it starts
+  drawing the GPU lane, which is already the expensive frame.
+- **Failing that, a way to say it at upload.** We know at `upload_outline` time no more than you
+  do — an outline uploaded under `Coverage::Cpu` may be drawn under `Coverage::Gpu` after a zoom —
+  which is why we are asking for laziness rather than for a flag. A device-level "this host never
+  takes the GPU lane" option would be the wrong shape for exactly that reason.
+- **And if neither, the geometry is the same shape as `encode`'s.** You already divide `encode`'s
+  geometry phase across `encode_threads` (your ADR 0054). An upload's quadratic conversion is
+  per-outline and independent, so a batch upload — `upload_outlines(&[&[Segment]])` — would be
+  divisible the same way. We would rather have the laziness, because the fastest conversion is the
+  one nobody asked for.
+
+**What we are not asking for**: nothing about the segments' own copy or the validation walk. Those
+are 266 M of the 1 743 M, they are the price of the boundary being a boundary, and the budget you
+charge for both forms is right as long as both are stored.

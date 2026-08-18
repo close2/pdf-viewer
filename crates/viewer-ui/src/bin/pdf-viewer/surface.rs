@@ -745,7 +745,7 @@ impl App {
         let outcome = self.present(&mut stages);
         stages.total = started.elapsed();
         if matches!(outcome, Some(Rendered::Presented | Rendered::Raster(_))) {
-            self.launch.arrived(self.trace);
+            self.launch.arrived(self.trace, &stages);
             // **After the timeline is closed, never before it.** Everything the accessibility
             // bridge does is off the launch path by construction, and this line is where that is
             // enforced rather than merely intended.

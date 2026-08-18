@@ -18,6 +18,12 @@
 //! Both are reported, because the pair is the measurement: the difference between them is what a
 //! warm cache is worth, and frame 2 alone is what a zoom step costs.
 //!
+//! **`handed` divides `scene`, which nothing divided before ADR 0423.** It is the part of the
+//! translation spent *inside* quorra's own `upload_*` calls, so `scene − handed` is this crate's
+//! own walk of the display list. Frame 1 is where the division earns its keep: it uploads every
+//! outline the page states and frame 2 uploads almost none, which is the difference between a
+//! launch and a zoom step.
+//!
 //! **`bytes_uploaded` is printed because nothing else in this tree prints it.** quorra counts the
 //! bytes it schedules for transfer and `FrameCost` has carried the number across the boundary
 //! since ADR 0227; no host had ever read it, so `transfer` was a duration with no denominator and
@@ -60,6 +66,8 @@ use render_quorra::{FrameCost, PresentFrame};
 struct Sample {
     total: f64,
     scene: f64,
+    handover: f64,
+    segments: u64,
     device: f64,
     encode: f64,
     upload: f64,
@@ -95,6 +103,8 @@ impl Sample {
         Self {
             total: ms(cost.total),
             scene: ms(cost.scene),
+            handover: ms(cost.handover),
+            segments: cost.outline_segments,
             device: ms(cost.device),
             encode: ms(cost.encode),
             upload: ms(cost.upload),
@@ -224,11 +234,12 @@ fn main() {
         }
     );
     println!(
-        "{:<8}{:>10}{:>9}{:>8}{:>8}{:>8}{:>9}{:>10}{:>8}{:>9}{:>11}{:>7}{:>8}",
+        "{:<8}{:>10}{:>9}{:>8}{:>8}{:>8}{:>8}{:>9}{:>10}{:>8}{:>9}{:>11}{:>7}{:>8}",
         "frame",
         "px",
         "total",
         "scene",
+        "handed",
         "device",
         "encode",
         "transfer",
@@ -244,10 +255,11 @@ fn main() {
         ("zoom", second, best[1].as_ref().expect("a second frame")),
     ] {
         println!(
-            "{name:<8}{:>10}{:>9.1}{:>8.1}{:>8.1}{:>8.1}{:>9.1}{:>10.1}{:>8.1}{:>9.1}{:>11}{:>7}{:>8}{}",
+            "{name:<8}{:>10}{:>9.1}{:>8.1}{:>8.1}{:>8.1}{:>8.1}{:>9.1}{:>10.1}{:>8.1}{:>9.1}{:>11}{:>7}{:>8}{}",
             format!("{}x{}", target.width, target.height),
             sample.total,
             sample.scene,
+            sample.handover,
             sample.device,
             sample.encode,
             sample.upload,
@@ -259,7 +271,10 @@ fn main() {
             sample.culled,
             if sample.replayed { " replayed" } else { "" }
         );
-        println!("        {} command(s) encoded", sample.commands);
+        println!(
+            "        {} command(s) encoded, {} outline segment(s) handed over",
+            sample.commands, sample.segments
+        );
         for (phase, spent) in &sample.phases {
             println!("        {phase:<20}{spent:>9.3}");
         }

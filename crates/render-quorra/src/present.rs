@@ -102,6 +102,25 @@ pub struct FrameCost {
     /// Translating this frame's display lists into a [`quorra_scene::Scene`] — the walk in
     /// [`build`], including every resource this crate uploaded on the way through.
     pub scene: std::time::Duration,
+    /// Inside `scene`: the part of it spent *inside* quorra's own `upload_*` calls.
+    ///
+    /// **The phase `doc/todo/45` §5 said nothing could see into**, and the launch path is where
+    /// it matters: a first frame builds every outline the page states, so on the project owner's
+    /// own drawing `scene` is a fifth of the whole launch while a *second* frame of the same page
+    /// spends almost nothing there. One number could not say whether that fifth is this crate's
+    /// walk of the display list or the boundary it hands each resource across, and the two have
+    /// different owners. ADR 0423; `crate::cache::ResourceCaches::handed` is where it accumulates
+    /// and what it costs to take.
+    ///
+    /// Zero on a frame that reused its scene, exactly as [`Self::scene`] is.
+    pub handover: std::time::Duration,
+    /// [`Self::handover`]'s denominator: path segments handed over in this frame's outlines.
+    ///
+    /// A count beside a duration is read as that duration's denominator whether or not it is one
+    /// (ADR 0387), so the one that *is* one is here rather than left to be inferred from
+    /// [`Self::uploads`] — an outline's upload costs by the segment, and a page of glyphs and a
+    /// draughtsman's line work differ by two orders of magnitude in segments per resource.
+    pub outline_segments: u64,
     /// [`quorra_gpu::Device::render`] end to end: the three below, plus acquiring the swapchain
     /// texture, presenting it and reading the instrumentation back.
     pub device: std::time::Duration,
@@ -398,6 +417,10 @@ impl FrameSlot {
         // The two are disjoint by construction — a rebuild does one and then the other, a reuse
         // does neither — so this reports what the trace's columns have always reported.
         cost.scene = began.elapsed().saturating_sub(cost.settle);
+        // A subdivision of the line above rather than a phase beside it: `begin_frame` zeroes it,
+        // and a frame that reused its scene never reached one, so a reuse reports zero for both.
+        cost.handover = caches.handed();
+        cost.outline_segments = caches.segments();
 
         let submitted = std::time::Instant::now();
         // The target transform is baked into every command at translation (`Encoder::placed`),
@@ -496,6 +519,8 @@ impl FrameCost {
     /// figure that is half a timestamp query and half a wall clock is neither.
     pub(crate) fn add(&mut self, other: Self) {
         self.scene = self.scene.saturating_add(other.scene);
+        self.handover = self.handover.saturating_add(other.handover);
+        self.outline_segments = self.outline_segments.saturating_add(other.outline_segments);
         self.device = self.device.saturating_add(other.device);
         self.encode = self.encode.saturating_add(other.encode);
         self.upload = self.upload.saturating_add(other.upload);
@@ -983,11 +1008,18 @@ pub(crate) fn build(
             .commands(builder, list.commands())?;
     }
     if let Some(raster) = frame.raster {
-        let image = device.upload_image(&quorra_scene::ImageSpec {
+        // Through the same clock as every other upload (`Encoder::handing_over`): a fallback
+        // frame's whole picture crosses here, and leaving the one upload that is not the
+        // encoder's outside the count would make `handover` mean two things.
+        let spec = quorra_scene::ImageSpec {
             width: raster.width,
             height: raster.height,
             data: Arc::from(raster.data.as_slice()),
-        })?;
+        };
+        let began = std::time::Instant::now();
+        let uploaded = device.upload_image(&spec);
+        caches.hand_over(began.elapsed());
+        let image = uploaded?;
         transient.push(image.into());
         #[expect(
             clippy::cast_precision_loss,

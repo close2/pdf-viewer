@@ -30,6 +30,20 @@ joined 72.9 — with five arrow keys turning to page 6 presenting in **9.2 to 16
 sample on a machine with a fuzz corpus merge on it, so it is a check that the shape holds rather than
 a new bound; the step that is furthest from the range above is `graphics device` at +25.4 ms against
 13 to 19, which is where a loaded machine would show first.
+**And the table itself ends with the first frame's own phases since the five-hundred-and-eighty-eighth
+session** (ADR 0423), which is ADR 0332's lesson one round of optimisation later: `first scene built`
+and `first present` are *one frame*, and on a large drawing they are half the launch under two names
+that say nothing about what happened inside them. `FrameCost::scene` gained `handover` — the part of
+the translation spent inside quorra's own `upload_*` calls, with `outline_segments` as its
+denominator — and the launch table prints scene, handover, encode, transfer, execute, elsewhere and
+present under the rows they are the inside of. The device's three phases were previously legible only
+from the summary at exit, as medians over a whole run, which cannot answer a question about the one
+frame a person waited for. What the division found on the owner's own document is
+[todo 44](todo/44-a-draft-that-takes-ten-seconds.md) §6's, and the shape of it is worth having here:
+**an upload is not a copy** — quorra converts an outline's cubics to quadratics inside
+`upload_outline`, four fifths of a cold frame's `scene` phase, for a representation only its GPU
+coverage lane reads and no launch of this viewer takes.
+
 **Two things on it broke a rule `CLAUDE.md` states and both are closed**, in
 [todo 42](todo/42-the-launch-path.md): `Document::open` cost 12 to 22 ms on 101 318 objects
 against 0.20 on a small file, where the rule is "a 500-page document must open no slower than a
@@ -141,6 +155,14 @@ the lexer at 63.6% and named two candidates under it; ADR 0341 took both and the
 under a lexer twice its size. **The rule that comes out of it**: a profile is a statement about a
 tree, it decays at the rate that tree changes, and a round that optimises from a table it did not
 print is optimising the wrong function. Retaking it costs one callgrind run.
+
+**A fourth retake, in the five-hundred-and-eighty-eighth**, and it is the rule working rather than
+failing: ADR 0370's three levers are gone from the profile, and what the interpretation of that page
+is now made of is `Lexer::next_token` at 40.2% and §7.4's inflation through ADR 0365's window at
+23.1%. **A quarter of the launch's largest step is decompression**, which no table in this tree had
+said and which no launch measurement could have told anybody — the instrument is
+`examples/callgrind_interpret`, and the run this came off was `examples/zoom_frame` under callgrind,
+which interprets the page on its way to drawing it.
 
 **And the second rule is about reading a share rather than a number.** ADR 0370 found
 `Lexer::next_token` within 0.07% of where ADR 0341 had left it while its *share* had fallen two

@@ -73,6 +73,14 @@ document that felt slow). Four things changed:
   where `execute` came from the adapter's timestamp queries, `elsewhere` subtracts a device clock
   from this host's wall clock, so it carries whatever the two disagree by along with the acquire,
   the present and the readback (ADR 0228 §4, `QUORRA_FEEDBACK.md` §13).
+- **A `handover` row nested under `scene`, since the five-hundred-and-eighty-eighth** (ADR 0423):
+  of the display-list-to-scene walk, the part spent inside quorra's own `upload_*` calls, which is
+  the only part of it this host does not do itself. It is a *subdivision* rather than a stage beside
+  the others, so adding it to the rows above it counts the same milliseconds twice. **And
+  `--trace=launch`'s table now ends with the first frame's own phases** — scene, handover, encode,
+  transfer, execute, elsewhere and present — because `first scene built` and `first present` are one
+  frame, and the percentiles above are medians over a run rather than an answer about the frame a
+  person waited for.
 - **`--trace=<topics>`**, comma-separated, of `launch, frames, events, window, pointer, access,
   selection` or `all`; a `-` prefix subtracts, and a list starting with one means "everything
   except". `--trace` alone is still everything. `--trace=frames` is 64 lines where `--trace` is

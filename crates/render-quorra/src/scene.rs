@@ -214,6 +214,41 @@ impl<'a> Encoder<'a> {
         }
     }
 
+    /// One call across quorra's boundary, with a clock on it.
+    ///
+    /// **Every `upload_*` in this file goes through here, and that is what divides the `scene`
+    /// phase in two.** A cold frame of a large drawing spends most of `scene` handing resources
+    /// over — 58 029 of them on the document `doc/todo/44` is about — and until ADR 0423 the
+    /// trace could say only that the display list took a long time to become a scene
+    /// (`doc/todo/45` §5). What it can say now is which side of the boundary the time is on: this
+    /// crate's walk of the display list, or quorra's own upload. They have different owners, so
+    /// the division is the difference between an item to take and an item to report upstream.
+    ///
+    /// The argument the resource is built from is deliberately *not* inside the timed span — a
+    /// caller binds it to a local first — because expanding a stroke, averaging an image or
+    /// converting a path's segments is this crate's work and would otherwise be charged to
+    /// quorra's.
+    fn handing_over<T>(&mut self, upload: impl FnOnce(&mut quorra_gpu::Device) -> T) -> T {
+        let began = std::time::Instant::now();
+        let handed = upload(self.device);
+        self.caches.hand_over(began.elapsed());
+        handed
+    }
+
+    /// One outline across the boundary, timed and **counted in segments**.
+    ///
+    /// The three outline call sites go through here rather than through
+    /// [`Self::handing_over`] directly, because an outline is the one resource whose upload
+    /// costs by the segment: see [`crate::cache::ResourceCaches::segments`] for why the
+    /// duration is worth nothing without that denominator.
+    fn upload_outline(
+        &mut self,
+        outline: &[quorra_scene::Segment],
+    ) -> Result<quorra_scene::OutlineId, quorra_gpu::DeviceError> {
+        self.caches.count_segments(outline.len());
+        self.handing_over(|device| device.upload_outline(outline))
+    }
+
     /// Whether this command is being encoded inside ISO 32000-2 §11.4.6's knockout group.
     ///
     /// See [`Self::knockouts`]: it is the one place a coverage folded into a paint's alpha would
@@ -790,7 +825,7 @@ impl<'a> Encoder<'a> {
         if let Some(id) = self.caches.program(key) {
             return Ok(id);
         }
-        let id = self.device.upload_function(steps)?;
+        let id = self.handing_over(|device| device.upload_function(steps))?;
         self.caches.store_program(key, id);
         Ok(id)
     }
@@ -855,11 +890,12 @@ impl<'a> Encoder<'a> {
                 data.extend_from_slice(&byte_colour(*c));
             }
         }
-        let image = self.device.upload_image(&quorra_scene::ImageSpec {
+        let grid_spec = quorra_scene::ImageSpec {
             width: grid.width,
             height: grid.height,
             data: Arc::from(data.as_slice()),
-        })?;
+        };
+        let image = self.handing_over(|device| device.upload_image(&grid_spec))?;
         self.transient.push(image.into());
 
         // Clip to the filled path: quorra clips compose by chaining, so the fill's
@@ -907,7 +943,8 @@ impl<'a> Encoder<'a> {
         let (id, smoothed) = if deferred {
             let reduced = image.area_averaged(placement);
             let uploaded: &Image = reduced.as_ref().unwrap_or(image);
-            let id = self.device.upload_image(&spec(uploaded))?;
+            let uploaded_spec = spec(uploaded);
+            let id = self.handing_over(|device| device.upload_image(&uploaded_spec))?;
             self.transient.push(id.into());
             (id, uploaded.is_smoothed(placement))
         } else {
@@ -1015,11 +1052,12 @@ impl<'a> Encoder<'a> {
         ) else {
             return Ok(None);
         };
-        let id = self.device.upload_mesh(&quorra_scene::MeshSpec {
+        let mesh = quorra_scene::MeshSpec {
             left: raster.left,
             top: raster.top,
             image: spec(&raster.image),
-        })?;
+        };
+        let id = self.handing_over(|device| device.upload_mesh(&mesh))?;
         self.transient.push(id.into());
         Ok(Some(id))
     }
@@ -1046,11 +1084,12 @@ impl<'a> Encoder<'a> {
         ) else {
             return Ok(None);
         };
-        let id = self.device.upload_mesh(&quorra_scene::MeshSpec {
+        let mesh = quorra_scene::MeshSpec {
             left: raster.left,
             top: raster.top,
             image: spec(&raster.image),
-        })?;
+        };
+        let id = self.handing_over(|device| device.upload_mesh(&mesh))?;
         self.transient.push(id.into());
         Ok(Some(id))
     }
@@ -1065,7 +1104,8 @@ impl<'a> Encoder<'a> {
         if let Some(id) = self.caches.outline(path) {
             return Ok(id);
         }
-        let id = self.device.upload_outline(&segments(path))?;
+        let outline = segments(path);
+        let id = self.upload_outline(&outline)?;
         self.caches.store_outline(path, id);
         Ok(id)
     }
@@ -1086,7 +1126,8 @@ impl<'a> Encoder<'a> {
         if let Some(id) = self.caches.stroke(key) {
             return Ok(id);
         }
-        let id = self.device.upload_outline(&segments(&expand()))?;
+        let outline = segments(&expand());
+        let id = self.upload_outline(&outline)?;
         self.caches.store_stroke(path, key, id);
         Ok(id)
     }
@@ -1097,7 +1138,8 @@ impl<'a> Encoder<'a> {
         &mut self,
         path: &Path,
     ) -> Result<quorra_scene::OutlineId, QuorraRasterError> {
-        let id = self.device.upload_outline(&segments(path))?;
+        let outline = segments(path);
+        let id = self.upload_outline(&outline)?;
         self.transient.push(id.into());
         Ok(id)
     }
@@ -1106,7 +1148,8 @@ impl<'a> Encoder<'a> {
         if let Some(id) = self.caches.image(&image.data, WHOLE) {
             return Ok(id);
         }
-        let id = self.device.upload_image(&spec(image))?;
+        let whole = spec(image);
+        let id = self.handing_over(|device| device.upload_image(&whole))?;
         self.caches.store_image(&image.data, WHOLE, id);
         Ok(id)
     }
@@ -1142,7 +1185,8 @@ impl<'a> Encoder<'a> {
         // it draws the same picture at a finer grid.
         let reduced = image.area_averaged(placement);
         let uploaded: &Image = reduced.as_ref().unwrap_or(image);
-        let id = self.device.upload_image(&spec(uploaded))?;
+        let reduced = spec(uploaded);
+        let id = self.handing_over(|device| device.upload_image(&reduced))?;
         self.caches.store_image(&image.data, reduction.factors, id);
         Ok(id)
     }
@@ -1167,7 +1211,7 @@ impl<'a> Encoder<'a> {
                 color: colour(stop.colour),
             })
             .collect();
-        let id = self.device.upload_ramp(&stops)?;
+        let id = self.handing_over(|device| device.upload_ramp(&stops))?;
         self.caches.store_ramp(&shading.kind, id);
         Ok(id)
     }

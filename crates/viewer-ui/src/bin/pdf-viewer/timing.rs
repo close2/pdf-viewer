@@ -92,7 +92,10 @@ impl Launch {
     /// Two columns because two questions are asked of a launch: *when did this step finish*,
     /// which is what a person waiting sees, and *what did it cost*, which is what a regression
     /// shows up in. Neither is derivable from the other once steps are added or reordered.
-    pub(crate) fn arrived(&mut self, trace: Trace) {
+    ///
+    /// `first` is the frame that closed the timeline, and it is an argument rather than something
+    /// this type could compute: see [`Self::frame`] for why the table is not finished without it.
+    pub(crate) fn arrived(&mut self, trace: Trace, first: &Stages) {
         if self.reported {
             return;
         }
@@ -118,6 +121,65 @@ impl Launch {
             );
             previous = *at;
         }
+        Self::frame(trace, first);
+    }
+
+    /// What the *first frame* was made of, under the table it is the last two rows of.
+    ///
+    /// **The launch table's last two steps are one frame, and a step is only as useful as its
+    /// name.** `first scene built` and `first present` are the frame's translation and the frame's
+    /// device work, and on a large drawing they are together half the launch — a lump exactly like
+    /// the one ADR 0332 split out of `document joined → first present`, one round of optimisation
+    /// later. The per-frame line the trace already prints carries `scene` and `device` and stops
+    /// there, and the only place the phases *inside* `device` appear is the summary at exit, as
+    /// medians over every frame of the run: a distribution cannot answer a question about the one
+    /// frame a person waited for, and a launch measured by killing the window never prints one at
+    /// all.
+    ///
+    /// So the phases are printed here, off the same [`render_quorra::FrameCost`] the frame line
+    /// reads — including [`render_quorra::FrameCost::handover`], which divides `scene` into this
+    /// host's own walk of the display list and the boundary it hands each resource across (ADR
+    /// 0423). `readback` is not in the arithmetic because a window frame never reads back; the
+    /// remainder is named `elsewhere` for the same reason and with the same caveat the summary
+    /// gives it.
+    fn frame(trace: Trace, first: &Stages) {
+        let gpu = first.gpu;
+        if gpu.total == std::time::Duration::ZERO {
+            // A window with no graphics device drew this page on the processor, so there are no
+            // phases to name and one number that says everything: `CLAUDE.md` puts page one on the
+            // device, and a launch that did not is the fact worth printing.
+            trace.more(
+                Topic::Launch,
+                format_args!(
+                    "the first frame was drawn on the processor in {:.1} ms — no device phases",
+                    ms(first.fallback)
+                ),
+            );
+            return;
+        }
+        let elsewhere = gpu.device.saturating_sub(
+            gpu.encode
+                .saturating_add(gpu.upload)
+                .saturating_add(gpu.execute),
+        );
+        trace.more(
+            Topic::Launch,
+            format_args!(
+                "the first frame's own phases, ms: scene {:.1} (of it {:.1} handed to the device, \
+                 {} outline segment(s) in {} upload(s)), device {:.1} = encode {:.1} + transfer \
+                 {:.1} + execute {:.1} + elsewhere {:.1}, present {:.1}",
+                ms(gpu.scene),
+                ms(gpu.handover),
+                gpu.outline_segments,
+                gpu.uploads,
+                ms(gpu.device),
+                ms(gpu.encode),
+                ms(gpu.upload),
+                ms(gpu.execute),
+                ms(elsewhere),
+                ms(first.present),
+            ),
+        );
     }
 }
 
@@ -213,10 +275,15 @@ type StageOf = fn(&Stages) -> std::time::Duration;
 ///
 /// One table rather than nine `format!`s, so that a stage added later cannot appear in the
 /// per-frame line and go missing from the percentiles.
-const SUMMARY_ROWS: [(&str, StageOf); 10] = [
+const SUMMARY_ROWS: [(&str, StageOf); 11] = [
     ("frame", |frame| frame.total),
     ("host", |frame| frame.host),
     ("scene", |frame| frame.gpu.scene),
+    // Inside `scene`, and the only part of it this host does not do itself: what the `upload_*`
+    // calls across quorra's boundary took. Nested under it exactly as the three device phases are
+    // nested under `device`, because it is a subdivision and not a phase beside one — a reader who
+    // added it to the rows above would be counting the same milliseconds twice. ADR 0423.
+    ("  handover", |frame| frame.gpu.handover),
     ("device", |frame| frame.gpu.device),
     ("  encode", |frame| frame.gpu.encode),
     ("  transfer", |frame| frame.gpu.upload),

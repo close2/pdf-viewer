@@ -1,10 +1,14 @@
-# A draft that takes ten seconds to appear, and a third of a second per frame after that
+# A draft that took ten seconds to appear, and takes one and a half
 
-Status: **open again, at a different phase** — both levers this file measured are built, and
-session 533 measured the one it never named: a *zoom* frame is 59% quorra's coverage rasterisation
-on one thread, and this file's remaining item is 2.4% of it (§5, ADR 0368). The owner asked whether displaying
-this document can be improved and supplied a trace; session 497 closed the trace's hole,
-attributed the interpretation with callgrind, and priced the encode cache (ADR 0332). Session 506
+Status: **open, and the title is now history** — the ten seconds is gone and this file is the
+record of where it went. Both levers §2 and §3 measured are built (ADRs 0341, 0351), and session
+588 re-measured the launch on this machine with the round's own binaries: **1.37 to 1.48 s** under
+`Xvfb`, against the owner's own later traces at 1.61 and 1.71 on their hardware
+(`tmp/trace2.entwurf.txt`, `tmp/trace3.entwurf.txt`). §6 is that measurement, phase by phase, and
+what it names next: not interpretation, and not anything this side can take.
+The owner asked whether displaying this document can be improved and supplied a trace; session 497
+closed the trace's hole, attributed the interpretation with callgrind, and priced the encode cache
+(ADR 0332). Session 506
 took §2's lexer candidate *and* its number-parsing second (ADR 0341): interpreting this document
 lost 39.8% of its instructions, byte-identical readback on this document and on ISO 32000-2.
 **Session 516 took §3** — upstream built the retained encode at `580fa4ac` (their ADR 0048, after
@@ -13,19 +17,22 @@ window, medium and chrome are the last frame's builds no scene and encodes nothi
 it did. **Session 535 retook §2's attribution, which three rounds of its own work had made stale,
 and took the three levers the new one names** (§2a, ADR 0370) — a fixed-size operand marshalling,
 §7.2.3's classification as a table, and §7.3.3's fixed format asked before the digit scan.
+**Session 588 divided the `scene` phase and finished the launch table** (§6, ADR 0423).
 What is left of this file is §3.1's second half — the page-space construction that would
 buy the `scene` phase back across *zoom* steps, which needs nothing from upstream and which the
-trace this file is about does not exercise.
+trace this file is about does not exercise — and §6's ask, which is upstream's.
 Priority: 44
 Corpus: none — `tmp/Entwurf.pdf` is the owner's own document (49.7 MB, one page, 58 009 display
-commands), outside the tree like `doc/todo/28`'s, with its trace beside it as
-`tmp/trace.entwurf.txt` (also untracked; the numbers below are copied from it so this file
-survives the trace's deletion, taken 2026-08-14 on the owner's machine, AMD 890M/RADV).
+commands, 3 011 919 path segments), outside the tree like `doc/todo/28`'s, with its traces beside it as
+`tmp/trace.entwurf.txt`, `tmp/trace2.entwurf.txt` and `tmp/trace3.entwurf.txt` (also untracked; the
+numbers below are copied from them so this file survives their deletion, the first taken 2026-08-14
+on the owner's machine, AMD 890M/RADV).
 Clauses: none — this is a performance item; §2's launch rules in `CLAUDE.md` are the standard it
 is judged against
-Code: `crates/viewer-ui/src/bin/pdf-viewer/timing.rs` (the launch table, now with the two stages),
-`crates/pdf-syntax/src/lexer.rs` (where the interpretation cost lives),
-`crates/render-quorra` (`encode`; where the retained scene would sit, beside ADR 0297's cache)
+Code: `crates/viewer-ui/src/bin/pdf-viewer/timing.rs` (the launch table, the two stages and the
+first frame's phases), `crates/pdf-syntax/src/lexer.rs` (where the interpretation cost lives),
+`crates/render-quorra` (`scene.rs`'s `handing_over`, `cache.rs`'s `handed`; `encode`, where the
+retained scene sits beside ADR 0297's cache)
 
 ## 1. The trace's hole is closed (session 497, ADR 0332)
 
@@ -244,6 +251,9 @@ rather than closing:
   encode across one. It needs nothing from quorra. **Session 533 priced it: 2.4% of a zoom frame**
   (§5). It stays open because it is cheap and correct — the brief's §2.3 already asks a scene to be
   viewport-independent — and not because it is a lever.
+- **`QuadOutline` built lazily upstream** — §6, `doc/QUORRA_FEEDBACK.md` §33. 156 ms of this
+  document's launch on the real adapter, 83% of its `scene` phase, and it is a representation no
+  frame of a `Coverage::Cpu` session reads. It is not this side's to take.
 
 ## 5. The zoom step, measured at last, and it is not the `scene` phase (session 533, ADR 0368)
 
@@ -304,6 +314,43 @@ batching by paint state 1.0% of the commands and a loss beyond that, damage noth
 sub-pixel marks forbidden by §10.7.4 outright. `doc/QUORRA_ENCODE_THREADS.md` is what went
 upstream: divide `encode` across more than one thread, with its own ceiling stated — geometry at
 zero still leaves a 235 ms frame.
+
+## 6. The launch re-measured, and the phase the table could not name (session 588, ADR 0423)
+
+**The ten seconds is one and a half, and every second of it is now named.** Four launches under
+`Xvfb` on `llvmpipe`, the round's own release binaries, `--trace=launch`:
+
+| | ms | share |
+|---|---:|---:|
+| everything before `document joined` | 62–93 | 5% |
+| interpretation of page one, 58 009 commands | 670–719 | **48%** |
+| scene translation | 285–316 | 21% |
+| — of it, inside quorra's `upload_*` calls | 221–245 | 77% of the scene |
+| the device — encode 135–195, transfer 71–92, execute 38–45, elsewhere 52–58 | 305–381 | 24% |
+| the present itself | 11–12 | 1% |
+
+**The hole this round closed is inside the last two rows**, which is `doc/todo/45` §5's second
+bullet arriving on the launch path: `FrameCost::scene` was one number covering this host's walk of
+the display list *and* every resource it hands across quorra's boundary, and the device's three
+phases were printed only in the summary at exit, as medians over a whole run. `FrameCost::handover`
+and `outline_segments` divide the first; the launch table prints the first frame's own phases under
+itself for the second. The instrument's own cost is A/B'd in ADR 0423 and is below this machine's
+spread on the frame that pays it most.
+
+**What the division names is upstream's, and the attribution is two instruments agreeing.** On the
+real adapter (`examples/zoom_frame`, minima of five) the cold frame's `scene` is 187.6 ms of which
+**156.0 is inside `upload_outline`**; under callgrind, `Device::upload_outline` is 1 743.2 M Ir of
+the walk's 2 128.7 M and `QuadOutline::from_segments` is 1 476.9 M of that. Those quadratics are
+read in one place — `encode::fill`'s GPU lane — and `take_gpu_lane` answers `false` under
+`Coverage::Cpu`, which is what this viewer draws with below ten times magnification. **So a launch
+builds a representation the frame never reads.** `doc/QUORRA_FEEDBACK.md` §33 asks for it to be
+built lazily; nothing on this side can decide it, because an outline uploaded under `Coverage::Cpu`
+may be drawn under `Coverage::Gpu` after a zoom.
+
+**And the interpretation's own shape was re-dated in the same run**, which §2a's rule demands
+rather than permits: `Lexer::next_token` is 40.2% of `interpret` and §7.4's inflation through ADR
+0365's window is 23.1% — a quarter of the launch's largest step is decompression, which no table in
+this tree had said, and ADR 0370's three levers are gone from the profile.
 
 ## Cross-references
 

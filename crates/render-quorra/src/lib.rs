@@ -388,6 +388,10 @@ impl QuorraRasterizer {
             .stored()
             .saturating_add(u32::try_from(transient.len()).unwrap_or(u32::MAX));
         cost.scene = began.elapsed();
+        // The offscreen lane's half of ADR 0423: `zoom_frame` and the corpus gate draw through
+        // here, so a subdivision only the window could see would be one no gate ever prints.
+        cost.handover = self.caches.handed();
+        cost.outline_segments = self.caches.segments();
 
         let submitted = std::time::Instant::now();
         let rendered = built.and_then(|()| {
