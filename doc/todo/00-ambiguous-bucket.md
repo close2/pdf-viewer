@@ -21,6 +21,14 @@ instrument was built to see and is now the only thing it has left to do. Step 7 
 it is the half of the work no ranking can perform, and it is re-run after any round that changes what
 gets drawn.
 
+**And every one of the gate's seven verdicts is held by name now.** This item carried the other
+unwatched buckets until the five-hundred-and-seventy-ninth session: `no render` was diagnosed and
+ratcheted in the five-hundred-and-seventy-fifth (ADR 0410), and `not comparable` and
+`reference geometry` in the five-hundred-and-seventy-ninth (ADR 0414) — the reading of all fifteen
+pages is `doc/oracle-and-corpus.md` §3e and the groups are `oracle.rs`'s `NOT_COMPARABLE_*` and
+`REFERENCE_GEOMETRY_*`. So what is left of this item is the two standing halves above and nothing
+else: the equality ratchet, and step 7's ink sweep after a round that moves pixels.
+
 ## Why this is work rather than a caveat
 
 `ambiguous` means "no two references agree closely enough for anybody to be called wrong". It is

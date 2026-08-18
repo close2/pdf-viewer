@@ -2396,6 +2396,162 @@ fn no_render_expected() -> Vec<&'static str> {
         .collect()
 }
 
+// ---------------------------------------------------------------------------------------
+// `not comparable` and `reference geometry`: the other two verdicts nothing watched
+// ---------------------------------------------------------------------------------------
+//
+// ADR 0410 held the `no render` bucket by name and left these two printed and ungated,
+// with the reason for leaving them written down: neither is an accusation against this
+// tree *by construction* — one is fewer than two references producing an image, the other
+// is the references disagreeing about the page's size — but "by construction" is a claim,
+// and the same claim had been true of `no render` for four hundred rounds.
+//
+// So the fifteen pages were put to `pdftoppm`, `mutool` and `gs` by hand on
+// `doc/oracle-and-corpus.md` §3d's recipe, and the groups below are what that produced.
+// The claim survives, with two things to say for it that nobody could say before:
+//
+// - **On four of the fifteen the one reference that did draw agrees with us**, at 0.06 to
+//   3.15 of 255 mean absolute difference. That is not a vote and it is not evidence in
+//   principle 5's sense — one renderer is one renderer — but it is the opposite of what a
+//   bucket nobody watches is feared to contain.
+// - **The `reference geometry` label is wrong about both of its own members**, and the
+//   mechanism is one line of trap 3: `pdftoppm` writes a **1x1 raster and exits 0** when it
+//   fails to create a page, so a refusal enters [`reconcile`] as an opinion about the
+//   page's extent and outvotes the one renderer that drew. Neither page has three
+//   references disagreeing about a size; both have one reference and two refusals.
+//
+// Held over **all** pages rather than the complete ones, for `no render`'s reason: what
+// these verdicts are about is the references, so filtering on our own completeness would
+// hold seven of the thirteen and watch the rest not at all.
+
+/// The two pages where `pdftoppm`'s refusal is counted as an opinion about the page's size.
+///
+/// [`reconcile`] takes the largest set of references agreeing about the extent, and with two
+/// rasters of different sizes there is no such set — so the verdict is
+/// "no two references agree about the page size". On both of these pages that sentence is
+/// true of the rasters and false about the page: one of the two rasters is **1x1 and of zero
+/// ink**, which is what `pdftoppm` leaves behind when it fails to create a page while still
+/// exiting 0, and `gs` produced nothing at all on either.
+///
+/// `bug1978317.pdf` page 1 is a browser's print-to-PDF whose annotation array `poppler`
+/// refuses — *Page annotations object (page 1) is likely malformed. Too big: (32768)*,
+/// *Failed to create page* — and `gs` fails silently under the `-q` this gate passes. So the
+/// evidence about that page is `mutool`'s 612x792 alone, and ours is 612x792 too: **1.69 of
+/// 255 mean absolute difference over the sheet**, the same text in the same places. A page
+/// the gate cannot judge, on which the only reading available agrees with ours.
+///
+/// `boundingBox_invalid.pdf` page 3 is the third construction of the file ADR 0410 took the
+/// first of, captioned by its own producer *Empty /CropBox and /MediaBox intersection*:
+/// `/MediaBox [0 0 600 800]` with `/CropBox [600 800 1000 1000]`, two rectangles meeting at
+/// one corner. §14.11.2.1 states the rule and this tree applies it —
+///
+/// > If the bounds of the crop, trim, bleed or art box extends outside of the bounds of the
+/// > media box, a processor shall treat the box as its intersection with the media box.
+///
+/// — and the intersection encloses no area, which the clause states no recovery for. Table
+/// 31 does: `/CropBox`'s "default value is the page's media box", so an unusable crop box
+/// falls back to a rectangle the *file* states rather than to one this program invented,
+/// which is why it is not reported the way ADR 0389's substituted media box is. We draw
+/// 600x800 at ink 1.502. **No reference draws the page at all**: `mutool` produces 612x792
+/// of ink 0, `pdftoppm` its 1x1, and `gs` exits *Unrecoverable error*. A blank sheet is not
+/// a page (ADR 0410), so there is nothing here that could contradict anybody.
+const REFERENCE_GEOMETRY_A_REFUSAL_WEARING_A_RASTER: [&str; 2] =
+    ["boundingBox_invalid.pdf page 3", "bug1978317.pdf page 1"];
+
+/// Every page whose references could not be reconciled into a size, in one list.
+fn reference_geometry_expected() -> Vec<&'static str> {
+    REFERENCE_GEOMETRY_A_REFUSAL_WEARING_A_RASTER.to_vec()
+}
+
+/// §7.6's encryption, where `poppler` and this tree open the file and the other two decline.
+///
+/// `auth-event-ef-open.pdf` and `encrypted-attachment.pdf` are both opened here and by
+/// `pdftoppm`, to **612x792 at ink 0.264989 against 0.269507** — 0.06 of 255 mean absolute
+/// difference, the same page. `mutool` answers *cannot authenticate password* on each and
+/// `gs` *This file requires a password for access*.
+///
+/// That is the mirror of [`NO_RENDER_NEEDS_A_PASSWORD`] and it is worth the distinction. There
+/// four derivations of §7.6.4.3's key agree that the empty user password is **not** the
+/// document's; here two say it is and two say it is not, which `doc/HANDOVER.md`'s trap 9
+/// already records for a different pair of files — two against two is not a tie but a question,
+/// and §7.6.6 puts a refusal on the stream whose key is missing rather than on the document.
+/// Nothing is owed unless the page we draw is wrong, and the reference that agrees with it is
+/// the one that got past the same clause.
+const NOT_COMPARABLE_ENCRYPTION_TWO_REFERENCES_DECLINE: [&str; 2] = [
+    "auth-event-ef-open.pdf page 1",
+    "encrypted-attachment.pdf page 1",
+];
+
+/// A cross-reference table one reference rebuilds, and its answer is ours.
+///
+/// Three pages, each with exactly one reference reaching a page and agreeing with us:
+///
+/// - `issue9418.pdf` page 1 — `gs` 3024x2304 at ink 20.376 against ours 20.698, **3.15 of 255
+///   mean absolute difference** on a text page whose class bound is 5.00. `pdftoppm` rebuilds
+///   the table and then finds no `/Pages`; `mutool` repairs the document and asks for page -1.
+/// - `poppler-67295-0.pdf` page 1 — `gs` 612x792 at ink 0.426603 against ours 0.409477,
+///   **0.14 of 255**. `pdftoppm` refuses a `/Count` of 1 410 065 407 against eight objects and
+///   `mutool` *Invalid number of pages*; §7.7.3.2 makes `/Count` "the number of leaf nodes",
+///   which a page tree with eight objects in it cannot have, and neither of us needs the entry
+///   to walk the tree.
+/// - `bug1980958.pdf` page 1 — `mutool` repairs the file to **10x10 of ink 0** and we produce
+///   10x10 of ink 0. The one page in this bucket where the agreement is about a blank sheet,
+///   which is worth naming rather than counting: ADR 0410's rule is that a blank is not a page,
+///   so what agrees here is the *geometry* and nothing else.
+const NOT_COMPARABLE_ONE_REFERENCE_REBUILT_THE_FILE: [&str; 3] = [
+    "bug1980958.pdf page 1",
+    "issue9418.pdf page 1",
+    "poppler-67295-0.pdf page 1",
+];
+
+/// Pages no reference reaches at all, so there is nothing to compare in either direction.
+///
+/// All three refuse each of these seven, and where `pdftoppm` leaves a raster behind it is the
+/// 1x1 of [`REFERENCE_GEOMETRY_A_REFUSAL_WEARING_A_RASTER`]. Five of the seven are documents
+/// this tree reports; `poppler-91414-0-53.pdf` and `poppler-91414-0-54.pdf` are not, and they
+/// are two names for one page — 795x842 at ink 0.185644 in both, the word *foobar*.
+///
+/// The reason to look rather than to shrug is that a page nobody else draws is a page nobody
+/// else can check, so what this tree draws on one is worth a glance on its own: they are one
+/// signature appearance (`poppler-395-0-fuzzed.pdf`, ink 1.077), one word
+/// (`poppler-91414-0-53.pdf`), and five blank sheets, four of which are pages this tree reports
+/// and one of which — `issue19484_1.pdf` — reports a corrupt object stream that its twin
+/// `issue19484_2.pdf` reports too. None is a plausible-looking page built out of nothing, which
+/// is the failure trap 5 exists for.
+const NOT_COMPARABLE_NO_REFERENCE_REACHES_A_PAGE: [&str; 7] = [
+    "issue15590.pdf page 1",
+    "issue19484_1.pdf page 1",
+    "issue19484_2.pdf page 1",
+    "issue9105_other.pdf page 1",
+    "poppler-395-0-fuzzed.pdf page 1",
+    "poppler-91414-0-53.pdf page 1",
+    "poppler-91414-0-54.pdf page 1",
+];
+
+/// The decompression bomb two references are killed on before they answer.
+///
+/// `bomb_giant.pdf` page 1: `pdftoppm` and `gs` are each given 30 seconds by
+/// `Reference::render_within` and neither returns, which is what the limit is for. Asked by
+/// hand with 40 seconds `pdftoppm` still does not finish and `mutool` draws **612x792 at ink
+/// 1.45335** against ours **1.33797** — 0.32 of 255 mean absolute difference on a page this
+/// tree reports, having stopped at the interpreter's own budget.
+///
+/// This is the one member of the bucket whose verdict is about the *instrument* rather than
+/// about the file, which is [`NO_RENDER_LARGER_THAN_THIS_GATES_BUDGET`]'s shape in the other
+/// bucket: the timeout stays where it is, and the group says whose refusal it is.
+const NOT_COMPARABLE_TWO_REFERENCES_RAN_OUT_OF_TIME: [&str; 1] = ["bomb_giant.pdf page 1"];
+
+/// Every page fewer than two references produced an image of, in one list.
+fn not_comparable_expected() -> Vec<&'static str> {
+    NOT_COMPARABLE_ENCRYPTION_TWO_REFERENCES_DECLINE
+        .iter()
+        .chain(&NOT_COMPARABLE_ONE_REFERENCE_REBUILT_THE_FILE)
+        .chain(&NOT_COMPARABLE_NO_REFERENCE_REACHES_A_PAGE)
+        .chain(&NOT_COMPARABLE_TWO_REFERENCES_RAN_OUT_OF_TIME)
+        .copied()
+        .collect()
+}
+
 /// Ambiguous because the two references that share a JBIG2 decoder both fail, and fail
 /// *differently*.
 ///
@@ -7879,7 +8035,8 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
 ///
 /// # What it checks, and why that rule and not a stricter one
 ///
-/// For every non-empty `AMBIGUOUS_*`, `CONTRADICTED_*` and `NO_RENDER_*` array: the doc comment
+/// For every non-empty `AMBIGUOUS_*`, `CONTRADICTED_*`, `NO_RENDER_*`, `NOT_COMPARABLE_*` and
+/// `REFERENCE_GEOMETRY_*` array: the doc comment
 /// above it names
 /// at least one of the documents in it. That is deliberately weak. A group of 370 pages cannot
 /// name them all, several notes cite a *neighbouring* group's page on purpose to say how the
@@ -7948,7 +8105,9 @@ fn group_name(line: &str) -> Option<&str> {
     let name = rest.split(':').next()?;
     (name.starts_with("AMBIGUOUS_")
         || name.starts_with("CONTRADICTED_")
-        || name.starts_with("NO_RENDER_"))
+        || name.starts_with("NO_RENDER_")
+        || name.starts_with("NOT_COMPARABLE_")
+        || name.starts_with("REFERENCE_GEOMETRY_"))
     .then_some(name)
 }
 
@@ -8399,7 +8558,13 @@ fn examine(work: &Work, work_root: &Path, available: &[Reference], cache: &Cache
         match rendered {
             Ok(references) => references,
             Err(detail) => {
-                let _ = std::fs::remove_dir_all(&work_dir);
+                // This directory used to be deleted here, on the reasoning that a page with
+                // fewer than two references has nothing to look at. It has exactly what a
+                // reader of this bucket needs — whichever reference *did* draw, which the
+                // cache has already written here, and our own page beside it — and it was the
+                // one bucket whose evidence had to be re-rendered from scratch to diagnose,
+                // which the five-hundred-and-seventy-ninth session paid for. Thirteen pages.
+                let _ = pdfref::png_io::write(&work_dir.join(format!("{case}-ours.png")), &ours);
                 return Examined::unjudged(name, Verdict::NotComparable(detail), complete, spent);
             }
         }
@@ -8896,6 +9061,7 @@ fn check_the_ratchets(results: &[Examined]) {
     );
 
     check_the_no_render_bucket(results);
+    check_the_buckets_reached_without_a_consensus(results);
 
     // A page this tree reports cannot fail the ratchet above — `named` filters on `complete`,
     // for the reason the module comment gives — so the diagnoses in
@@ -8979,6 +9145,46 @@ fn check_the_no_render_bucket(results: &[Examined]) {
          down rather than measured. Put the page in the NO_RENDER_* group whose argument \
          covers it, or ask the three renderers what they make of it: \
          doc/oracle-and-corpus.md §3d has the recipe.",
+    );
+}
+
+/// Holds the `not comparable` and `reference geometry` buckets by name, in both directions.
+///
+/// The other two verdicts nothing watched, taken in the five-hundred-and-seventy-ninth session
+/// for the reason ADR 0410 left written down: neither accuses this tree by construction, and
+/// "by construction" is a claim of exactly the kind that had been true of `no render` for four
+/// hundred rounds.
+///
+/// Over **every** page and not the complete ones, for [`check_the_no_render_bucket`]'s reason
+/// one bucket over: what these two verdicts are about is what the *references* did, so our own
+/// completeness is the wrong filter — it would hold seven of the thirteen and watch the rest not
+/// at all.
+fn check_the_buckets_reached_without_a_consensus(results: &[Examined]) {
+    let named = |predicate: &dyn Fn(&Examined) -> bool| -> Vec<&str> {
+        results
+            .iter()
+            .filter(|e| predicate(e))
+            .map(|e| e.name.as_str())
+            .collect()
+    };
+    assert_ratchet(
+        "not comparable",
+        &named(&|e| matches!(e.verdict, Verdict::NotComparable(_))),
+        &not_comparable_expected(),
+        "Fewer than two references produced an image, so nothing here can be triangulated — \
+         which makes this the bucket where a page of ours is least likely to be checked by \
+         anybody. Ask the three renderers what they make of it and put the page in the \
+         NOT_COMPARABLE_* group whose argument covers it: doc/oracle-and-corpus.md §3e has \
+         the recipe and what the last whole run of it found.",
+    );
+    assert_ratchet(
+        "unreconcilable with the references' page size",
+        &named(&|e| matches!(e.verdict, Verdict::ReferenceGeometry(_))),
+        &reference_geometry_expected(),
+        "No two references agree about the page's extent. Read the sizes in the verdict \
+         before believing the label: a 1x1 raster from `pdftoppm` is a refusal that exits 0, \
+         not an opinion about the page, and both pages this list held when it was written \
+         were that. doc/oracle-and-corpus.md §3e.",
     );
 }
 

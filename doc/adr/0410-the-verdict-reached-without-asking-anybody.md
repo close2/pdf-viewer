@@ -233,6 +233,14 @@ the cost when one does is the whole document.
   an image — but "by construction" is a claim, and the same claim was true of `no render`.
   `boundingBox_invalid.pdf` page 3 is in the first of them, which is this file's third page and the
   one construction of the three that nobody has taken.
+
+  *(**Taken in the five-hundred-and-seventy-ninth session**, so the first sentence of this bullet is
+  no longer true and is kept for the argument it makes. Both classes are held by name in `oracle.rs`
+  and read page by page in `doc/oracle-and-corpus.md` §3e; the claim survived, and what did not is
+  the label — `pdftoppm` writes a 1x1 raster and exits 0 when it fails to create a page, so on both
+  `reference geometry` pages a refusal had been counted as an opinion about the page's extent. ADR
+  0414, which also took this file's third page: §14.11.2.1's intersection `shall` is applied and no
+  reference draws that page at all.)*
 - **`PDFBOX-4352-0.pdf` could be reached by a rebuild.** Its `/Encrypt` is unreachable only because
   one cross-reference entry was fuzzed to nineteen digits; `poppler` and `mutool` rebuild the table
   and find it. What they then draw is blank, so the page is worth nothing — but the *route* is the one

@@ -39,7 +39,7 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 
 | | item |
 |---|---|
-| [00](00-ambiguous-bucket.md) | Empty the oracle's ambiguous bucket, page by page — emptied, so the item is now the ratchet plus step 7's ink sweep, which a round that changes pixels re-runs. The gate's *other* unwatched verdicts are `doc/oracle-and-corpus.md` §3d's: `no render` is diagnosed and ratcheted since ADR 0410, `reference geometry` and `not comparable` are not |
+| [00](00-ambiguous-bucket.md) | Empty the oracle's ambiguous bucket, page by page — emptied, so the item is now the ratchet plus step 7's ink sweep, which a round that changes pixels re-runs. **All seven of the gate's verdicts are held by name** since ADR 0414 took the last two, `reference geometry` and `not comparable` (`doc/oracle-and-corpus.md` §3e; `no render` was ADR 0410's §3d) |
 | [01](01-ledger-partial-rows.md) | Read the ledger's `partial` rows against the code — and the fifteen sweeps, of which the newest asks who reads an *entry the clause states* and is the first to be a committed program rather than a description (ADRs 0249, 0254, 0255, 0295, 0315, 0319) |
 | [02](02-every-round.md) | **What every round does** — the gates, the sweeps, the binaries, the commit |
 | [03](03-more-corpora.md) | More corpora, the fetcher and the survey: four submodules under `doc/corpora/`, plus `tools/safedocs` over the SafeDocs crawl. What is left is *taking* a chunk a round and the oracle over the new corpora; the rule for adding one is the owner's and is now *include unless a licence clearly forbids* (ADRs 0258, 0261, 0264, 0266, 0269, 0271, 0302, 0303, 0305) |

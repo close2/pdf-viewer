@@ -607,6 +607,66 @@ than the complete ones — a page that renders nothing is never complete, so a l
 `complete` would hold nothing against nothing. A page arriving is a page that stopped being
 comparable at all; a page leaving has been fixed or has to be deleted from its group.
 
+### 3e. `not comparable` and `reference geometry`, the other two verdicts nothing watched
+
+**Taken in the five-hundred-and-seventy-ninth session**, on the two ADR 0410 left printed and
+ungated with its reason written down: neither is an accusation against this tree *by
+construction* — one is fewer than two references producing an image, the other is the
+references disagreeing about the page's size — and "by construction" is a claim of exactly the
+kind that had been true of `no render` for four hundred rounds.
+
+The recipe is §3d's, unchanged, and its two rules earn their keep again: read the stderr beside
+the raster, and **a sheet of zero ink is not a page**. Both classes are held by name now, in
+`oracle.rs`'s `NOT_COMPARABLE_*` and `REFERENCE_GEOMETRY_*` groups, over *all* pages rather
+than the complete ones — `not comparable` is 7 complete of 13, and what the verdict is about is
+what the *references* did.
+
+**`reference geometry`'s label is wrong about both of its own members, and the mechanism is
+trap 3's.** `pdftoppm` writes a **1×1 raster and exits 0** when it fails to create a page, so a
+refusal enters `reconcile` as an opinion about the page's extent and outvotes the one renderer
+that drew. Neither page has three references disagreeing about a size; both have one reference
+and two refusals:
+
+- `bug1978317.pdf` page 1 — `poppler` refuses the annotation array (*Page annotations object
+  (page 1) is likely malformed. Too big: (32768)*, *Failed to create page*) and `gs` fails
+  silently under the `-q` this gate passes. The only reading available is `mutool`'s 612×792,
+  and ours is 612×792: **1.69 of 255 mean absolute difference**, the same text in the same
+  places.
+- `boundingBox_invalid.pdf` page 3 — the third construction of the file ADR 0410 took the first
+  of, its producer's own caption *Empty /CropBox and /MediaBox intersection*. **No reference
+  draws it at all**: `mutool` 612×792 of ink 0, `pdftoppm` its 1×1, `gs` *Unrecoverable error*.
+  We draw 600×800 at ink 1.502, which is §14.11.2.1's `shall` applied — "[i]f the bounds of the
+  crop, trim, bleed or art box extends outside of the bounds of the media box, a processor shall
+  treat the box as its intersection with the media box" — with the empty intersection falling
+  back to Table 31's stated default for the entry, "the page's media box". That fallback is not
+  reported the way ADR 0389's substituted media box is, and the difference is the argument: this
+  one substitutes a rectangle the *file* states, not one this program invented.
+
+**The classifier is not changed for it**, and that is a decision rather than an omission: a
+blanket "a 1×1 raster is a refusal" would be a rule about one program's output shape, and a page
+whose crop box really is one point square would be misread by it. What is owed instead is that
+the verdict's own line prints the sizes, which it does — so the group says to read them.
+
+**`not comparable`'s thirteen split four ways**, and the strong result is that on four of the
+fifteen pages across both classes the one reference that did draw agrees with us:
+
+| pages | what they are | what the references say |
+|---|---|---|
+| 2 | §7.6's encryption `poppler` and this tree get past | `mutool` *cannot authenticate password*, `gs` *This file requires a password for access*; ours 0.06 of 255 from `poppler`'s |
+| 3 | a cross-reference table one reference rebuilds | `gs` on two of them within 3.15 and 0.14 of 255 of ours; `mutool` on the third agreeing about a 10×10 blank |
+| 7 | a page no reference reaches at all | all three refuse; five of the seven are documents this tree reports |
+| 1 | `bomb_giant.pdf`, where two references are killed at 30 s | `mutool` 1.45335 against ours 1.33797 — the instrument's refusal, not the file's |
+
+The two encryption pages are the mirror of §3d's password group and worth the distinction: there
+four derivations of §7.6.4.3's key agree the empty user password is **not** the document's; here
+two say it is and two say it is not, which is trap 9's two-against-two — a question with an
+answer in the clause rather than a tie.
+
+**And the bucket's artefacts used to be deleted.** `examine` called `remove_dir_all` on a page
+whose references could not be reconciled, on the reasoning that there was nothing to look at —
+so the one bucket that cannot be diagnosed from disk was the one bucket with no disk. It keeps
+whichever reference *did* draw, and our own raster beside it, since this session.
+
 ### 3c. The bound those thirty-eight fail was never derived, and it is left where it is
 
 **The four-hundred-and-seventh session asked the question §3b's last paragraph raises** — a bound a
