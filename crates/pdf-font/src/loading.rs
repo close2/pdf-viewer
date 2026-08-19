@@ -688,6 +688,15 @@ impl LoadedFont {
             // hundred-and-fifty-sixth session, when this binary started carrying the
             // collections' own tables; before it, a CJK font without a `/ToUnicode` was
             // refused whatever its `/CIDSystemInfo` said.
+            //
+            // **And where the CMap is one of the two identity ones, §9.7.5.2 has already
+            // forbidden the file rather than left the reader a choice**: "The Identity-H and
+            // Identity-V CMaps shall not be used with a non-embedded font. Only standardized
+            // character sets may be used." A document that states `/Identity-H` over a
+            // descendant with no font program has broken that sentence, so the refusal below
+            // is not a gap in this reader — it is the one honest answer to a combination the
+            // standard says shall not exist. ADR 0433 measures what the other renderers do
+            // with it instead, and they do four different things.
             let direct = to_unicode(document, dict);
             let text = if direct.is_empty() {
                 collection_meaning(document, &descendant).ok_or_else(|| {

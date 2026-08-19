@@ -12,6 +12,15 @@ leaving a page already in this bucket does, and several rounds in this block did
 the one the test count taught: a number a round does not print is a number from the last round that
 did.
 
+**And "all 786 diagnosed" means two different things for the two halves of that split, which the
+five-hundred-and-ninety-eighth session found by opening the head of step 7's sweep.** The pages on
+*complete* documents are diagnosed by an `AMBIGUOUS_*` group with an argument beside it, held in
+both directions by `check_the_ratchets`. The pages on incomplete ones are outside that ratchet by
+construction — its `named` closure filters on `e.complete` — and what holds them is the corpus
+gate's own report. That is a ratchet rather than a diagnosis: it says *that* something was skipped
+and never *why the skip is right*. Eleven of them turned out to share one clause and nothing in the
+tree had said which (ADR 0433).
+
 Code: `crates/pdf-model/tests/oracle.rs`, `crates/pdf-model/tests/ambiguous_undiagnosed.txt`
 
 **The list emptied in the three-hundred-and-seventy-ninth session and the task does not end with it.**
@@ -306,6 +315,18 @@ rather than a defect) and `issue7821.pdf` at −1.00 (`AMBIGUOUS_GRADIENT_QUANTI
 unexplained anywhere in the bucket**, which is also the check the two long books' population
 argument needed.
 
+**The negative head has a name now, and it had gone unread for hundreds of sessions.** Every run
+below prints `issue12418_reduced.pdf` −19.4 at the top and every one of them passes over it,
+because the label `[incomplete]` reads as *explained*. It is not the same as *diagnosed*, and the
+five-hundred-and-ninety-eighth session opened the top of the list instead: **eleven of the negative
+tail's incomplete names are one cause**, including the top three. Each is a Type 0 font with
+`/Encoding /Identity-H` over a `CIDFontType2` with no font program, no `/ToUnicode` and
+`/Ordering (Identity)` — the combination §9.7.5.2 forbids in as many words ("The Identity-H and
+Identity-V CMaps shall not be used with a non-embedded font"), so this tree draws nothing and says
+so while the four references produce four different strings from the same bytes. **ADR 0433 has the
+clause, the eleven names, what each reference guesses, and the measurement that says the pages
+would be `ambiguous` whatever we drew.** Read it before re-deriving the head.
+
 **Re-run in the two-hundred-and-sixty-fifth over the tail, and it produced a defect** —
 `rc_annotation.pdf` page 1 at **−1.783 of 255**, past the −1 this file names as the alarm. The
 page is one text annotation with `/Rect [50 50 50 50]`, this tree drew **nothing** for it, and
@@ -355,6 +376,8 @@ leave the number unchanged, it leaves it unwatched.**
 **Re-run before and after in the four-hundred-and-forty-fourth**, the round that changed how the correctness oracle composes a clip chain (ADR 0280) — a change that moves pixels on any page where two clip boundaries fall in the same pixel. **The negative tail is byte-identical**: twenty at or past −1, sixteen of them documents this tree calls incomplete, and on the complete documents `issue16038.pdf` −5.734, `issue12295.pdf` −2.956, `issue14297.pdf` −1.150, `issue7821.pdf` −1.000, `jpx_smaskindata.pdf` −0.839, `issue16473.pdf` −0.717 and nothing past −0.536. **Twenty-one rows moved and twenty of them up**, by 0.001 to 0.025; the one that moves *down* is `22060_A1_01_Plans.pdf`, −0.265 → −0.280, and it is the right direction rather than a surprise — a clip that admits more of a *pale* mark subtracts ink rather than adding it, and that page is 72 sampled images. The *before* half was taken by stashing the round and re-running the gate, for the reason the three-hundred-and-ninety-seventh recorded.
 
 **Re-run before and after in the five-hundred-and-eighty-third**, the round that stopped `tiny-skia` compiling its low-precision raster pipeline for this backend's paints (ADR 0418) — a change that moves a pixel wherever a coverage or an alpha under 1 meets a destination, which is most pages that have any transparency at all. All 786 measured both ways: **our own ink is unchanged to a thousandth on 342 of them and the median move is 0.0035 of 255**, the head is the same names in the same order and all diagnosed, and the count at or past −1 on complete documents went **4 → 3** — `issue7821.pdf` crossed up, −1.000 → −0.957. **Exactly one page moves by more than 0.36 and it is `issue12295.pdf`, −2.827 → −3.773**, which needs no new hypothesis: `examples/sub_pixel_width_census` says that page states **65 859 sub-pixel strokes, every one 0.1366 of a device pixel wide and near-black**, so it is ADR 0268's alpha-carried construction over two thirds of a sheet and the low-precision pipeline's upward bias was a larger share of a thinner mark's whole ink. **That is the round's own lesson at page scale**: the same bias had been flattering `render-quorra`'s turned ladder, where the thinnest rung read −0.2% for a construction that is 16.8% short. And the side-by-side is why the movement is not a regression — our ECG traces are a ghost either way while all four references draw them dark, which is `doc/todo/11`'s standing item rather than this change's. Most moves are *upward*: `issue4402_reduced.pdf` +0.36 and `issue840.pdf` +0.13 are the largest, so this is a re-rounding rather than a loss.
+
+**Re-run whole in the five-hundred-and-ninety-eighth**, over all 786, on this file's own recipe (`-alpha off -channel R -colorspace Gray`): **19 at or past −1, 16 of them documents this tree calls incomplete**, head `issue12418_reduced.pdf` −19.447, `issue4722.pdf` −13.810, `issue15977_reduced.pdf` −12.927, `bug1050040.pdf` −11.272, `issue5801.pdf` −8.991. On the complete documents `issue16038.pdf` −5.737, `issue12295.pdf` −2.363, `issue14297.pdf` −1.130, then `issue7821.pdf` −0.957, `jpx_smaskindata.pdf` −0.840 and nothing past −0.536 — **three names past −1 and all three diagnosed**. The count on complete documents is 3 rather than 4 because `issue7821.pdf` crossed up in the five-hundred-and-eighty-third and has stayed there. The positive tail is unchanged in shape: `recursiveCompositGlyf.pdf` +198.653, `bug1743245.pdf` +23.277, `bug920426.pdf` +21.073, `issue4260_reduced.pdf` +17.607. **What this run added is not a number but a reading of the head** — see the paragraph above and ADR 0433.
 
 **Re-run whole in the five-hundred-and-fourteenth**, the round that let a `/FontFile` whose bytes are a bare CFF be read as one (ADR 0349) — a change that moves pixels on one page of the corpus, and on that page from nothing to a line of text. All 786 measured: **twenty at or past −1, sixteen of them documents this tree calls incomplete**, and on the complete documents `issue16038.pdf` −5.734, `issue12295.pdf` −2.823, `issue14297.pdf` −1.145, `issue7821.pdf` −1.000, `jpx_smaskindata.pdf` −0.840, `issue16473.pdf` −0.683 and nothing past −0.536. **The same four names past −1, in the same order, all four diagnosed** — the alarm's twelfth consecutive hold. The page this round moved is invisible to it for the reason the four-hundred-and-fifth's entry gives: `issue5751.pdf` was *contradicted* before and *agrees* after, and a page crossing those two states is not in the ambiguous bucket at either end. What the sweep does say about this round is the claim worth having — no ambiguous page's ink moved — and the oracle's own per-page lines say it a second way, byte-identical on all 786.
 
