@@ -1,7 +1,8 @@
 # Traps: instruments, reports, and reading what a gate prints
 
 Status: **standing** — each is a mistake somebody actually made in this tree.
-Read by: a round that runs a gate, believes a number, adds a report, or adds a lint exception.
+Read by: a round that runs a gate, believes a number, adds a report, sweeps the tree for a class of
+defect, or adds a lint exception.
 `doc/todo/02-every-round.md` §2 owns the gate sequence; this file is what the gates and their
 numbers do wrong.
 
@@ -72,6 +73,27 @@ conditions outlived the report**: they are what decides whether the implementati
 A condition worked out for a report is worth keeping when the feature lands. And the reverse worry
 is real: **a report can hide another report** — `knockout_smask.pdf`'s knockout gap was covered by
 its soft-mask report for four sessions.
+
+### 13. A sweep for a defect must be run against the defect before it is believed
+
+A round told to look for a class of defect writes a grep, gets a handful of hits, reads them and
+reports the tree clean. **That is a measurement with an instrument nobody calibrated**, and the
+six-hundred-and-fourth session calibrated one and watched it fail.
+
+The class was ADR 0438's: a byte string made into text by a lossy route and then used to *decide*
+something. The obvious sweep looks for the conversion — `from_utf8_lossy` inside a `get`, a `==`, a
+`match`. Run against a scratch copy of the very files the defect had lived in, at the revision
+before the fix, **it prints nothing**: the conversion was in one function and the lookup was in
+another, and no grep over a single line joins two functions.
+
+The sweep that worked inverted the question and looked at the *decision* — every dictionary lookup
+whose key is not a string literal — because ISO's own keys are literals in this source, so a key
+that is not one came out of a file. That sweep names the planted defect five times, and it found
+six more sites the first one could not see.
+
+So: **plant the defect back and confirm the sweep names it.** A scratch copy and `git show
+<commit>^:<path>` is the whole cost, and without it "the sweep came back clean" is a sentence about
+a grep rather than about the tree. ADR 0439 has both sweeps as commands.
 
 ## Things worth knowing
 

@@ -41,7 +41,7 @@
 use pdf_render::{Transform, geom::Point};
 use std::sync::Arc;
 
-use pdf_syntax::{Dictionary, Document, Object, Stream};
+use pdf_syntax::{Dictionary, Document, Name, Object, Stream};
 
 /// What an appearance's content is: a stream the file stored, or one this crate wrote.
 #[derive(Debug, Clone)]
@@ -299,7 +299,7 @@ pub(crate) fn highlight(document: &Document, annotation: &Dictionary, has_down: 
     // to every annotation is what made a `Square` invert under the cursor, in a test written for
     // a different flag.
     let subtype = document.get_key(annotation, "Subtype");
-    let subtype = subtype.as_name().map(pdf_syntax::Name::as_bytes);
+    let subtype = subtype.as_name().map(Name::as_bytes);
     if !matches!(subtype, Some(b"Link" | b"Widget")) {
         return Highlight::None;
     }
@@ -702,7 +702,7 @@ pub(crate) fn decide(
         // Unreachable until the two-hundred-and-seventeenth session gave the two flags a
         // meaning, and `icon.rs`'s module comment carried the blocker in prose the whole time.
         let subtype = document.get_key(annotation, "Subtype");
-        let subtype = subtype.as_name().map(pdf_syntax::Name::as_bytes);
+        let subtype = subtype.as_name().map(Name::as_bytes);
         if subtype == Some(b"Text".as_slice()) {
             flags |= FLAG_NO_ZOOM | FLAG_NO_ROTATE;
         }
@@ -1116,8 +1116,10 @@ fn stored_appearance(
                 .as_name()
                 .map(|name| name.as_bytes().to_vec())
         });
+    // §12.5.5 keys `/AP`'s subdictionary by the appearance states the *file* names, so the
+    // probe is §7.3.5's exact binary match on the bytes `/AS` states (ADR 0439).
     let resolved = selected
-        .and_then(|name| states.get(&String::from_utf8_lossy(&name)).cloned())
+        .and_then(|name| states.get_by_name(&Name::new(name)).cloned())
         .map(|state| document.resolve(&state));
     match resolved.as_ref().and_then(|state| state.as_stream()) {
         Some(stream) => Normal::Stream(Arc::clone(stream)),

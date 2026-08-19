@@ -348,16 +348,17 @@ impl Tree {
         let mut namespace = document.get_key(element, "NS").as_dict().cloned();
 
         for _ in 0..MAX_DEPTH {
-            let key = String::from_utf8_lossy(name.as_bytes()).into_owned();
             // §14.8.6.2 decides which of the two maps is consulted, and nothing else does:
             // an element in an explicit namespace is mapped by that namespace's own.
             let map = match &namespace {
                 Some(space) => document.get_key(space, "RoleMapNS"),
                 None => document.get_key(&self.root, "RoleMap"),
             };
+            // The key is the element's own `/S`, which is a name the document states, so it
+            // is probed as bytes — §7.3.5's exact binary match (ADR 0439).
             let mapped = map
                 .as_dict()
-                .map_or(Object::Null, |map| document.get_key(map, &key));
+                .map_or(Object::Null, |map| document.get_key_by_name(map, &name));
             match mapped {
                 // "a single name identifying a structure element type in the default standard
                 // structure namespace" — so the mapping leaves whatever namespace it was in.
@@ -483,7 +484,7 @@ impl Tree {
             let Object::Name(class) = name else { continue };
             let map = document.get_key(&self.root, "ClassMap");
             let Some(map) = map.as_dict() else { continue };
-            let named = document.get_key(map, &String::from_utf8_lossy(class.as_bytes()));
+            let named = document.get_key_by_name(map, &class);
             // "The corresponding value shall be an attribute object or an array of such
             // objects" — and this array is a plain list, since §14.7.6.3 puts the revision
             // beside the class *name* rather than beside the object it names.

@@ -92,7 +92,7 @@
 //! that answer them are in different subclauses.
 
 use pdf_render::{Transform, geom::Point};
-use pdf_syntax::{Dictionary, Document, Object};
+use pdf_syntax::{Dictionary, Document, Name, Object};
 use std::fmt::Write as _;
 
 use crate::icon::{self, Mark};
@@ -1642,7 +1642,7 @@ struct CaptionMark {
     /// §12.7.4.3's marked-content section, as [`variable_text::lay_out`] wrote it.
     content: String,
     /// The font dictionary the layout invented, for the appearance's `/Resources`.
-    font: Option<(pdf_syntax::Name, Dictionary)>,
+    font: Option<(Name, Dictionary)>,
     /// Table 166's `/C`, which is what the line is stroked in.
     colour: Colour,
     /// The reading direction and the perpendicular, as the first four operands of a `cm`.
@@ -3493,10 +3493,7 @@ fn is_free_text(document: &Document, annotation: &Dictionary) -> bool {
 /// answers, so the stand-in has to arrive with it or the interpreter would report a missing
 /// resource instead of the missing definition. `/DR`'s own entry always wins, because there is
 /// only a stand-in where `/DR` had none.
-fn with_stand_in_font(
-    mut resources: Dictionary,
-    font: Option<(pdf_syntax::Name, Dictionary)>,
-) -> Dictionary {
+fn with_stand_in_font(mut resources: Dictionary, font: Option<(Name, Dictionary)>) -> Dictionary {
     let Some((name, dict)) = font else {
         return resources;
     };
@@ -3506,10 +3503,7 @@ fn with_stand_in_font(
         .cloned()
         .unwrap_or_default();
     fonts.insert(name, Object::Dictionary(dict));
-    resources.insert(
-        pdf_syntax::Name::new(b"Font".to_vec()),
-        Object::Dictionary(fonts),
-    );
+    resources.insert(Name::new(b"Font".to_vec()), Object::Dictionary(fonts));
     resources
 }
 
@@ -3803,7 +3797,7 @@ impl Field {
             .as_dict()
             .map(|appearances| document.get_key(appearances, "N"));
         match states.as_ref().and_then(Object::as_dict) {
-            Some(states) if states.get(&String::from_utf8_lossy(&named)).is_none() => OFF.to_vec(),
+            Some(states) if states.get_by_name(&Name::new(named.clone())).is_none() => OFF.to_vec(),
             _ if self.an_earlier_button_answers_to(document, annotation, &named) => OFF.to_vec(),
             _ => named,
         }
@@ -3905,7 +3899,7 @@ fn holds_state(document: &Document, widget: &Dictionary, state: &[u8]) -> bool {
     let normal = document.get_key(appearances, "N");
     normal
         .as_dict()
-        .is_some_and(|states| states.get(&String::from_utf8_lossy(state)).is_some())
+        .is_some_and(|states| states.get_by_name(&Name::new(state)).is_some())
 }
 
 impl Field {
@@ -4228,7 +4222,7 @@ impl Border {
             .as_number()
             .map_or(DEFAULT_BORDER_WIDTH, narrow);
         let name = document.get_key(style, "S");
-        let kind = match name.as_name().map(pdf_syntax::Name::as_bytes) {
+        let kind = match name.as_name().map(Name::as_bytes) {
             Some(b"D") => Style::Dashed,
             Some(b"U") => Style::Underline,
             Some(b"B" | b"I") => Style::Simulated,
@@ -4342,7 +4336,7 @@ struct Stream {
     /// caption so that §12.5.6.19's code 6 puts the caption *over* it, and the caption is what
     /// replaces the resource dictionary wholesale with `/DR`'s. Merging at the end is what keeps
     /// the drawing order from deciding which resource survives.
-    icon: Option<(pdf_syntax::Name, Object)>,
+    icon: Option<(Name, Object)>,
 }
 
 impl Stream {
@@ -4360,7 +4354,7 @@ impl Stream {
         let Some((name, reference)) = self.icon else {
             return resources;
         };
-        let key = pdf_syntax::Name::new(b"XObject".to_vec());
+        let key = Name::new(b"XObject".to_vec());
         let mut forms = resources
             .get_by_name(&key)
             .and_then(Object::as_dict)
@@ -4379,16 +4373,16 @@ impl Stream {
     fn form(&mut self, document: &Document, reference: Object, placement: Transform) {
         let taken = default_resources(document);
         let taken = taken
-            .get_by_name(&pdf_syntax::Name::new(b"XObject".to_vec()))
+            .get_by_name(&Name::new(b"XObject".to_vec()))
             .and_then(Object::as_dict)
             .cloned()
             .unwrap_or_default();
-        let mut name = pdf_syntax::Name::new(b"Icon".to_vec());
+        let mut name = Name::new(b"Icon".to_vec());
         for suffix in 0..=u8::MAX {
             if taken.get_by_name(&name).is_none() {
                 break;
             }
-            name = pdf_syntax::Name::new(format!("Icon{suffix}").into_bytes());
+            name = Name::new(format!("Icon{suffix}").into_bytes());
         }
         let _ = writeln!(
             self.text,
@@ -4444,19 +4438,13 @@ impl Stream {
     fn multiply(&mut self) {
         let mut blend = Dictionary::new();
         blend.insert(
-            pdf_syntax::Name::new(b"BM".to_vec()),
-            Object::Name(pdf_syntax::Name::new(b"Multiply".to_vec())),
+            Name::new(b"BM".to_vec()),
+            Object::Name(Name::new(b"Multiply".to_vec())),
         );
         let mut states = Dictionary::new();
-        states.insert(
-            pdf_syntax::Name::new(b"Mul".to_vec()),
-            Object::Dictionary(blend),
-        );
+        states.insert(Name::new(b"Mul".to_vec()), Object::Dictionary(blend));
         let mut resources = self.resources.take().unwrap_or_default();
-        resources.insert(
-            pdf_syntax::Name::new(b"ExtGState".to_vec()),
-            Object::Dictionary(states),
-        );
+        resources.insert(Name::new(b"ExtGState".to_vec()), Object::Dictionary(states));
         self.resources = Some(resources);
         let _ = writeln!(self.text, "/Mul gs");
     }

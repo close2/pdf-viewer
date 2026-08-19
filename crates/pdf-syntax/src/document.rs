@@ -675,6 +675,21 @@ impl Document {
             .map_or(Object::Null, |object| self.resolve(object))
     }
 
+    /// Looks up a key stated by a **name the document itself supplies**, and resolves the result.
+    ///
+    /// [`Self::get_key`] is for a key ISO 32000-2 names — `/Type`, `/Kids`, `/CharProcs` — which
+    /// is an ASCII literal in this source. This one is for the other half: a key whose bytes came
+    /// out of the file, such as the glyph name a Type 3 `/Encoding` maps a code to or the
+    /// appearance state an annotation's `/AS` selects. Those must be probed with their own bytes,
+    /// because §7.3.5 makes two names one name only when "the resulting sequences of bytes are …
+    /// an exact binary match" — and a name carrying a byte no UTF-8 sequence begins survives no
+    /// trip through `str`.
+    #[must_use]
+    pub fn get_key_by_name(&self, dict: &Dictionary, key: &Name) -> Object {
+        dict.get_by_name(key)
+            .map_or(Object::Null, |object| self.resolve(object))
+    }
+
     /// Looks up one key **inside** an indirect object, without copying the rest of it.
     ///
     /// [`Self::get`] hands back a clone of the whole object, because that is the only thing a

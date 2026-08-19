@@ -1082,7 +1082,10 @@ impl Interpreter<'_> {
         // that way and two codes may reach one description. `glyph` above returned `Some`, so
         // the encoding does name this code; the fallback is unreachable and is written rather
         // than unwrapped because nothing in the type system says so.
-        let name = font.glyph_name(code).unwrap_or("?").to_owned();
+        let name = font.glyph_name(code).map_or_else(
+            || "?".to_owned(),
+            |name| String::from_utf8_lossy(name.as_bytes()).into_owned(),
+        );
         let Some(data) = self.content_stream(
             &glyph,
             &format!("a Type 3 glyph description /{name} (§9.6.4)"),

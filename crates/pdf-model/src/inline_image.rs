@@ -305,14 +305,13 @@ fn expand_names(document: &Document, dict: &mut Dictionary, resources: &Dictiona
             // adds was already true here, and only the sentence was out of date.
             Object::Name(name) => match expand_device_space(&name) {
                 Some(device) => Object::Name(device),
+                // Probed with the operand's own bytes: §7.3.5 makes two names one object only
+                // when "the resulting sequences of bytes are … an exact binary match", and this
+                // key is the *document's* name rather than one ISO 32000-2 states.
                 None => document
                     .get_key(resources, "ColorSpace")
                     .as_dict()
-                    .and_then(|table| {
-                        table
-                            .get(&String::from_utf8_lossy(name.as_bytes()))
-                            .cloned()
-                    })
+                    .and_then(|table| table.get_by_name(&name).cloned())
                     .unwrap_or(Object::Name(name)),
             },
             Object::Array(items) => Object::Array(

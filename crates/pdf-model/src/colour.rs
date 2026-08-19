@@ -36,7 +36,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use rayon::iter::{IntoParallelIterator as _, ParallelIterator as _};
 
 use pdf_render::Color;
-use pdf_syntax::{Dictionary, Document, Object};
+use pdf_syntax::{Dictionary, Document, Name, Object};
 
 use crate::function::Function;
 
@@ -384,8 +384,7 @@ impl ColourSpace {
         let resolved = document.resolve(object);
 
         if let Some(name) = resolved.as_name() {
-            let name = String::from_utf8_lossy(name.as_bytes()).into_owned();
-            return Self::by_name(document, &name, resources, depth);
+            return Self::by_name(document, name, resources, depth);
         }
 
         let items = resolved.as_array()?;
@@ -683,7 +682,7 @@ impl ColourSpace {
     /// Resolves a space named directly, looking it up in the resources if need be.
     fn by_name(
         document: &Document,
-        name: &str,
+        name: &Name,
         resources: &Dictionary,
         depth: usize,
     ) -> Option<Self> {
@@ -692,10 +691,12 @@ impl ColourSpace {
         // present, its value shall be used as the colour space for the operation currently
         // being performed." This is how a producer says "my DeviceCMYK means this press",
         // and ignoring it renders those documents in the wrong colours entirely.
-        let default = match name {
-            "DeviceGray" | "G" | "CalGray" => Some("DefaultGray"),
-            "DeviceRGB" | "RGB" | "CalRGB" => Some("DefaultRGB"),
-            "DeviceCMYK" | "CMYK" => Some("DefaultCMYK"),
+        // The families are ISO 32000-2's own names, so they are compared against literals —
+        // as bytes, which is §7.3.5's rule by the shorter route.
+        let default = match name.as_bytes() {
+            b"DeviceGray" | b"G" | b"CalGray" => Some("DefaultGray"),
+            b"DeviceRGB" | b"RGB" | b"CalRGB" => Some("DefaultRGB"),
+            b"DeviceCMYK" | b"CMYK" => Some("DefaultCMYK"),
             _ => None,
         };
         if let Some(default) = default
@@ -704,19 +705,20 @@ impl ColourSpace {
             return Some(space);
         }
 
-        match name {
-            "DeviceGray" | "G" | "CalGray" => return Some(Self::Gray),
-            "DeviceRGB" | "RGB" | "CalRGB" => return Some(Self::Rgb),
-            "DeviceCMYK" | "CMYK" => return Some(Self::Cmyk),
+        match name.as_bytes() {
+            b"DeviceGray" | b"G" | b"CalGray" => return Some(Self::Gray),
+            b"DeviceRGB" | b"RGB" | b"CalRGB" => return Some(Self::Rgb),
+            b"DeviceCMYK" | b"CMYK" => return Some(Self::Cmyk),
             // A bare `/Pattern` names no underlying space; the caller falls back on the
             // operand count when one is needed.
-            "Pattern" => return Some(Self::Pattern { base: None }),
+            b"Pattern" => return Some(Self::Pattern { base: None }),
             _ => {}
         }
-        // Anything else is a name in the page's `/ColorSpace` resource dictionary.
+        // Anything else is a name in the page's `/ColorSpace` resource dictionary — the
+        // document's own name, so §7.3.5's exact binary match decides it (ADR 0439).
         let table = document.get_key(resources, "ColorSpace");
         let table = table.as_dict()?;
-        let entry = table.get(name)?;
+        let entry = table.get_by_name(name)?;
         Self::parse_at(document, entry, resources, depth.saturating_add(1))
     }
 
@@ -2569,7 +2571,7 @@ fn narrow(value: f64) -> f32 {
               comparison would hide the very drift the test exists to catch"
 )]
 mod tests {
-    use pdf_syntax::{Dictionary, Document, Object};
+    use pdf_syntax::{Dictionary, Document, Name, Object};
 
     use pdf_render::Color;
 
@@ -2633,7 +2635,7 @@ mod tests {
         let space = ColourSpace::parse(
             &document,
             &Object::Array(vec![
-                Object::Name(pdf_syntax::Name::new(b"CalCMYK".as_slice())),
+                Object::Name(Name::new(b"CalCMYK".as_slice())),
                 Object::Dictionary(Dictionary::new()),
             ]),
             &Dictionary::new(),

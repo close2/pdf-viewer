@@ -35,7 +35,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use pdf_render::Transform;
-use pdf_syntax::{Dictionary, Document, Object, Stream};
+use pdf_syntax::{Dictionary, Document, Name, Object, Stream};
 
 /// Why a Type 3 font could not be drawn.
 ///
@@ -79,7 +79,10 @@ pub struct Type3Font {
     /// `/FontMatrix`, which Table 110 defines as "mapping glyph space to text space".
     font_matrix: Transform,
     /// What each code is named, from `/Encoding` (§9.6.5.3).
-    encoding: BTreeMap<u8, String>,
+    ///
+    /// A [`Name`] rather than a `String`, because §9.6.4's step b) looks this up in
+    /// `/CharProcs` and §7.3.5 makes that lookup a comparison of bytes.
+    encoding: BTreeMap<u8, Name>,
     /// The glyph descriptions, keyed by the names the encoding produces.
     char_procs: Dictionary,
     /// `/Widths`, in glyph space, starting at `/FirstChar`.
@@ -168,8 +171,12 @@ impl Type3Font {
     pub fn glyph(&self, document: &Document, code: u32) -> Option<Arc<Stream>> {
         let code = u8::try_from(code).ok()?;
         let name = self.encoding.get(&code)?;
+        // §7.3.5: two names denote one object only when "the resulting sequences of bytes are
+        // … an exact binary match", so the probe carries the encoding's own bytes. A trip
+        // through `str` would lose a name a producer wrote with a byte no UTF-8 sequence
+        // begins, and would make two such names one (ADR 0438, ADR 0439).
         document
-            .get_key(&self.char_procs, name)
+            .get_key_by_name(&self.char_procs, name)
             .as_stream()
             .cloned()
     }
@@ -180,9 +187,9 @@ impl Type3Font {
     /// *glyph* rather than the code that reached it: `/CharProcs` is keyed by name, and two
     /// codes may reach one description.
     #[must_use]
-    pub fn glyph_name(&self, code: u32) -> Option<&str> {
+    pub fn glyph_name(&self, code: u32) -> Option<&Name> {
         let code = u8::try_from(code).ok()?;
-        self.encoding.get(&code).map(String::as_str)
+        self.encoding.get(&code)
     }
 
     /// A code's advance width, in text-space units where one em is 1.0.
@@ -265,7 +272,7 @@ impl Type3Font {
         if let Some(text) = self
             .encoding
             .get(&u8::try_from(code).unwrap_or(0))
-            .and_then(|name| pdf_font::encoding::text_for(name))
+            .and_then(|name| pdf_font::encoding::text_for(name.as_str()?))
         {
             out.push_str(&text);
             return true;
@@ -296,7 +303,11 @@ impl Type3Font {
             .ok()
             .and_then(|code| self.encoding.get(&code))
         {
-            Some(name) => Some(pdf_font::NamingGap::UnlistedName(name.clone())),
+            // The gap is a *report*, which is §7.3.5's own "occasionally the need arises to
+            // treat a name object as text" and the one place the lossy spelling belongs.
+            Some(name) => Some(pdf_font::NamingGap::UnlistedName(
+                String::from_utf8_lossy(name.as_bytes()).into_owned(),
+            )),
             // §9.6.5.3 makes `/Differences` "the complete character encoding for this font" and
             // its NOTE adds that "Type 3 fonts do not support the concept of a default glyph
             // name", so a code the encoding does not name has no name anywhere — and no glyph
@@ -363,7 +374,7 @@ fn matrix(document: &Document, dict: &Dictionary) -> Option<Transform> {
 /// handful of producers use it here — but there is no *default* base: §9.6.5.1 excepts Type
 /// 3 fonts from having a built-in encoding at all, so a code neither `/BaseEncoding` nor
 /// `/Differences` names reaches nothing.
-fn encoding(document: &Document, dict: &Dictionary) -> BTreeMap<u8, String> {
+fn encoding(document: &Document, dict: &Dictionary) -> BTreeMap<u8, Name> {
     let mut table = BTreeMap::new();
     let entry = document.get_key(dict, "Encoding");
     let Some(encoding) = entry.as_dict() else {
@@ -378,7 +389,7 @@ fn encoding(document: &Document, dict: &Dictionary) -> BTreeMap<u8, String> {
         for code in 0..=u8::MAX {
             let name = base.glyph_name(code);
             if !name.is_empty() {
-                table.insert(code, name.to_owned());
+                table.insert(code, Name::new(name.as_bytes()));
             }
         }
     }
@@ -397,7 +408,7 @@ fn encoding(document: &Document, dict: &Dictionary) -> BTreeMap<u8, String> {
             Object::Integer(value) => code = u8::try_from(value).ok(),
             Object::Name(glyph) => {
                 let Some(at) = code else { continue };
-                table.insert(at, String::from_utf8_lossy(glyph.as_bytes()).into_owned());
+                table.insert(at, glyph.clone());
                 code = at.checked_add(1);
             }
             _ => {}
