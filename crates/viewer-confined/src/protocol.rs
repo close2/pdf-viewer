@@ -1395,6 +1395,7 @@ pub(crate) fn encode_event(event: &Event) -> Result<Vec<u8>, Uncarried> {
             asked,
             name,
             bytes,
+            fragment,
         } => {
             writer
                 .u8(k::EXTRACTED)
@@ -1408,7 +1409,12 @@ pub(crate) fn encode_event(event: &Event) -> Result<Vec<u8>, Uncarried> {
                     Extraction::Fragment => 1,
                 })
                 .str(name)
-                .bytes(bytes);
+                .bytes(bytes)
+                // §O.2.1's remaining parameters, which travel with the file: a host that opens
+                // these bytes as a document hands them straight back as `Command::Open`'s
+                // fragment, and one on the far side of a pipe needs them as much as one in the
+                // same process (ADR 0431).
+                .option_str(fragment.as_deref());
         }
         Event::Refused {
             document,
@@ -1554,6 +1560,7 @@ pub(crate) fn decode_event(bytes: &[u8]) -> Result<Event, ProtocolError> {
             },
             name: reader.string("an attachment's name")?,
             bytes: reader.bytes("an attachment")?.to_vec(),
+            fragment: reader.option_string("a fragment identifier")?,
         },
         k::REFUSED => Event::Refused {
             document: reader.document(what)?,
@@ -2762,6 +2769,7 @@ mod tests {
                 asked: Extraction::Asked,
                 name: "readme.txt".to_owned(),
                 bytes: b"hello".to_vec(),
+                fragment: None,
             },
             // Both of §O.2.1's provenances on the wire, because the byte that carries them is what
             // lets the host on the other side decline one and write the other.
@@ -2770,6 +2778,9 @@ mod tests {
                 asked: Extraction::Fragment,
                 name: "readme.txt".to_owned(),
                 bytes: b"hello".to_vec(),
+                // §O.2.1's remainder, on the wire: `#ef=readme.txt&page=3` is the case the far
+                // side has to be able to carry out rather than only to be told about.
+                fragment: Some("page=3".to_owned()),
             },
             Event::Refused {
                 document,

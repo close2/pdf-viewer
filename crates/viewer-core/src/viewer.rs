@@ -379,7 +379,7 @@ impl Viewer {
             Command::Undo => self.move_cursor(-1, events),
             Command::Redo => self.move_cursor(1, events),
             Command::Save => self.save(events),
-            Command::Extract { name } => self.extract(&name, Extraction::Asked, events),
+            Command::Extract { name } => self.extract(&name, Extraction::Asked, None, events),
             Command::Select(selection) => {
                 let viewport = self.viewport;
                 let Some(open) = self.focused_mut() else {
@@ -463,13 +463,15 @@ impl Viewer {
                 // Table Annex O.3 files this parameter under object identifiers, and the file is
                 // out of the bytes already read rather than out of a page nobody has drawn. The
                 // same channel `Command::Extract` uses, so a host needed no new message and every
-                // one of the six already handles it (ADR 0310).
-                if let Some(name) = self
+                // one of the six already handles it (ADR 0310). What travels with the bytes since
+                // ADR 0431 is the rest of the fragment: "[a]ny remaining parameters after this
+                // parameter apply to the selected embedded file", so they go where the file goes.
+                if let Some(file) = self
                     .documents
                     .get_mut(&id)
                     .and_then(|open| open.opening_file.take())
                 {
-                    self.extract(&name, Extraction::Fragment, events);
+                    self.extract(&file.name, Extraction::Fragment, file.fragment, events);
                 }
                 self.announce_page(events);
                 // §12.6.3 puts `/PO` "after … the OpenAction entry in the document Catalog",
@@ -959,7 +961,13 @@ impl Viewer {
     /// The list is re-read rather than cached, for the reason [`Query::Attachments`] is answered
     /// the same way: it is a walk of one name tree over a document that cannot change, and
     /// holding a copy of every attachment's stream would hold a copy of every attachment.
-    fn extract(&mut self, name: &str, asked: Extraction, events: &mut Vec<Event>) {
+    fn extract(
+        &mut self,
+        name: &str,
+        asked: Extraction,
+        fragment: Option<String>,
+        events: &mut Vec<Event>,
+    ) {
         let Some(id) = self.focused else { return };
         let Some(open) = self.focused() else { return };
         let Some(file) = pdf_model::attachment::attachments(&open.document)
@@ -973,7 +981,7 @@ impl Viewer {
             });
             return;
         };
-        hand_over(id, asked, &open.document, &file, events);
+        hand_over(id, asked, &open.document, &file, fragment, events);
     }
 
     /// Adds one edit to the log and applies it.
@@ -2743,6 +2751,7 @@ fn hand_over(
     asked: Extraction,
     document: &pdf_syntax::Document,
     file: &pdf_model::attachment::Attachment,
+    fragment: Option<String>,
     events: &mut Vec<Event>,
 ) {
     let name = file.file_name.clone().unwrap_or_else(|| file.name.clone());
@@ -2782,6 +2791,8 @@ fn hand_over(
         // would call it; the tree's key otherwise, which is all there is.
         name,
         bytes: bytes.to_vec(),
+        // §O.2.1's remaining parameters, for the one caller that has a URI behind it.
+        fragment,
     });
 }
 
@@ -2809,7 +2820,7 @@ fn hand_over(
 fn exhibit(id: DocumentId, open: &mut Open, annotation: ObjectId, events: &mut Vec<Event>) -> bool {
     let toggled = open.toggle_popup(annotation);
     if let Some(file) = attached_file(open, annotation) {
-        hand_over(id, Extraction::Asked, &open.document, &file, events);
+        hand_over(id, Extraction::Asked, &open.document, &file, None, events);
     }
     toggled
 }

@@ -99,6 +99,23 @@ pub struct Fragment {
     pub parameters: Vec<Parameter>,
     /// What it did not, in the same order. Never silently dropped.
     pub unread: Vec<Unread>,
+    /// The text after `ef`'s parameter, which is a fragment identifier for *another* document.
+    ///
+    /// Table Annex O.3's `ef` row, §O.2.1:
+    ///
+    /// > Any remaining parameters after this parameter apply to the selected embedded file.
+    ///
+    /// So they are not this document's parameters at all, and [`Self::parse`] stops reading where
+    /// it finds one: everything after it lands here undivided and unread, exactly as the URI spells
+    /// it, ready to be parsed again once §7.11.4's bytes have been opened as a document of their
+    /// own. Reading them here would put a page number belonging to the embedded file into
+    /// [`Self::parameters`], where the only thing that could happen to it is the wrong one.
+    ///
+    /// `None` where the fragment names no embedded file, and where `ef` is the last parameter in
+    /// it. **A shrinking string**, which is what makes a chain of them terminate without a counter:
+    /// each open consumes at least `ef=` and its argument, so the fragment handed to the embedded
+    /// document is strictly shorter than the one that named it.
+    pub after_embedded_file: Option<String>,
 }
 
 impl Fragment {
@@ -114,11 +131,19 @@ impl Fragment {
     /// No budget is stated and the reason is amplification: this reader's output is bounded by a
     /// constant times the length of the string it was given, where every budget elsewhere in this
     /// tree guards an input that can *expand*. A bound here would be a number nobody could derive.
+    ///
+    /// **It stops at `ef`**, because §O.2.1 says what follows one is about a different document —
+    /// see [`Self::after_embedded_file`], which is where the remainder goes untouched.
     #[must_use]
     pub fn parse(fragment: &str) -> Self {
         let mut read = Self::default();
-        // §O.2's AMPERSAND, by the name the sentence gives it rather than by the code it prints.
-        for part in fragment.split('&') {
+        let mut rest = fragment;
+        while !rest.is_empty() {
+            // §O.2's AMPERSAND, by the name the sentence gives it rather than by the code it
+            // prints. Split one at a time rather than all at once so that the tail is still a
+            // *substring of the URI* when Table Annex O.3's `ef` ends the reading below.
+            let (part, tail) = rest.split_once('&').unwrap_or((rest, ""));
+            rest = tail;
             // Two separators with nothing between them state no parameter, so there is nothing to
             // report the name of. Not an error: `page=1&` is a trailing separator and means what
             // `page=1` means.
@@ -135,7 +160,17 @@ impl Fragment {
             // §O.2's COMMA, and it separates arguments before anything is decoded.
             let arguments: Vec<Vec<u8>> = arguments.split(',').map(percent_decode).collect();
             match Parameter::read(name, &arguments) {
-                Some(parameter) => read.parameters.push(parameter),
+                Some(parameter) => {
+                    let embedded = matches!(parameter, Parameter::EmbeddedFile(_));
+                    read.parameters.push(parameter);
+                    // "Any remaining parameters after this parameter apply to the selected
+                    // embedded file", so this reader has read this document's fragment to its end
+                    // — whatever is left is a sentence about a file that is not open yet.
+                    if embedded {
+                        read.after_embedded_file = (!rest.is_empty()).then(|| rest.to_owned());
+                        break;
+                    }
+                }
                 None => read.unread.push(Unread {
                     name: name.to_owned(),
                     reason: if KNOWN.contains(&name) {
@@ -212,10 +247,11 @@ pub enum Parameter {
     ///
     /// The second sentence is not about this parameter but about the ones after it: everything
     /// following it names something in *another* document, and applying it to this one would
-    /// follow a URI to the wrong place. So a reader that carries this one out still stops here —
-    /// which is `viewer_core::Open::apply_fragment`'s business rather than [`Self::unhonoured`]'s,
-    /// and the difference between the two is what this variant was refused for until the
-    /// four-hundred-and-seventy-fifth session.
+    /// follow a URI to the wrong place. So the reading stops here and the remainder is kept whole
+    /// in [`Fragment::after_embedded_file`], to be parsed again against the document those bytes
+    /// turn out to be — which is `viewer_core` and its host's business rather than
+    /// [`Self::unhonoured`]'s, and the difference between the two is what this variant was refused
+    /// for until the four-hundred-and-seventy-fifth session.
     EmbeddedFile(Vec<u8>),
     /// Table Annex O.4's `zoom` — a percentage, and optionally where to put the page. §O.2.2.
     ///
@@ -628,14 +664,18 @@ mod tests {
         Fragment::parse(fragment)
     }
 
+    /// **`ef` is last here and that is §O.2.1's doing rather than the test's convenience**: the
+    /// parameters after one belong to the embedded file, so a fragment that named it earlier would
+    /// end the reading there. The next test is that half.
     #[test]
     fn every_parameter_the_two_tables_define_is_read() {
         let read = parse(
-            "page=12&nameddest=Chapter3&structelem=Sec1.1&comment=note-4&ef=data.xml\
+            "page=12&nameddest=Chapter3&structelem=Sec1.1&comment=note-4\
              &zoom=150,72,720&view=FitH,700&viewrect=10,20,300,400&highlight=1,2,3,4\
-             &search=\"ordered pair\"&fdf=values.fdf",
+             &search=\"ordered pair\"&fdf=values.fdf&ef=data.xml",
         );
         assert_eq!(read.unread, Vec::new());
+        assert_eq!(read.after_embedded_file, None, "nothing follows it here");
         assert_eq!(
             read.parameters,
             vec![
@@ -643,7 +683,6 @@ mod tests {
                 Parameter::NamedDestination(b"Chapter3".to_vec()),
                 Parameter::StructureElement(b"Sec1.1".to_vec()),
                 Parameter::Comment(b"note-4".to_vec()),
-                Parameter::EmbeddedFile(b"data.xml".to_vec()),
                 Parameter::Zoom {
                     percent: 150.0,
                     offset: Some((72.0, 720.0)),
@@ -663,7 +702,45 @@ mod tests {
                 },
                 Parameter::Search(vec![b"ordered".to_vec(), b"pair".to_vec()]),
                 Parameter::Fdf(b"values.fdf".to_vec()),
+                Parameter::EmbeddedFile(b"data.xml".to_vec()),
             ]
+        );
+    }
+
+    /// §O.2.1, Table Annex O.3's `ef` row: "[a]ny remaining parameters after this parameter apply
+    /// to the selected embedded file."
+    ///
+    /// So the reading stops there and the rest comes back **whole and undecoded**, which is what
+    /// lets it be handed to `Command::Open` for the document those bytes turn out to be: a
+    /// remainder this reader had split and re-spelled would be this program's sentence rather than
+    /// the URI's. A second `ef` inside the remainder is the annex's own answer to a file embedded
+    /// in a file, and it needs no rule of its own — it is read when that document is opened.
+    #[test]
+    fn the_parameters_after_an_embedded_file_are_kept_for_it() {
+        let read = parse("page=2&ef=inner.pdf&page=3&search=%22the%22");
+        assert_eq!(
+            read.parameters,
+            vec![
+                Parameter::Page(2),
+                Parameter::EmbeddedFile(b"inner.pdf".to_vec()),
+            ],
+            "page three is not this document's"
+        );
+        assert_eq!(
+            read.after_embedded_file.as_deref(),
+            Some("page=3&search=%22the%22"),
+            "and it is still the URI's own spelling"
+        );
+        assert_eq!(read.unread, Vec::new());
+        // A trailing separator states no parameter, so there is nothing for the embedded file.
+        assert_eq!(parse("ef=inner.pdf&").after_embedded_file, None);
+        assert_eq!(parse("ef=inner.pdf").after_embedded_file, None);
+        // The chain terminates because the remainder is strictly shorter every time.
+        assert_eq!(
+            parse("ef=a.pdf&ef=b.pdf&page=1")
+                .after_embedded_file
+                .as_deref(),
+            Some("ef=b.pdf&page=1")
         );
     }
 
@@ -883,9 +960,10 @@ mod tests {
     /// (ADR 0357).
     #[test]
     fn every_parameter_the_annex_defines_is_carried_out() {
+        // `ef` last, because §O.2.1 ends this document's fragment where one appears.
         let read = parse(
             "page=1&nameddest=a&structelem=b&comment=c&zoom=100&view=Fit&viewrect=0,0,1,1\
-             &ef=d&highlight=0,1,2,3&search=x&fdf=f.fdf",
+             &highlight=0,1,2,3&search=x&fdf=f.fdf&ef=d",
         );
         let refused: Vec<_> = read
             .parameters
@@ -907,10 +985,10 @@ mod tests {
                 "zoom",
                 "view",
                 "viewrect",
-                "ef",
                 "highlight",
                 "search",
-                "fdf"
+                "fdf",
+                "ef"
             ]
         );
     }

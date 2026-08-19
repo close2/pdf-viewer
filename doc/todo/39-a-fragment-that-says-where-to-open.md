@@ -1,10 +1,11 @@
 # A fragment that says where to open
 
-Status: **all eleven parameters are carried out since the five-hundred-and-twenty-second session,
-and `Parameter::unhonoured` names none.** §O.1, §O.2 and §O.2.2 are `implemented`; §O.2.1 is
-`partial` for one sentence of Table Annex O.3's `ef` row and nothing else, which is what is left of
-this item. ADRs 0209, 0250, 0310, 0357.
-Priority: 39 — capability, and what is left of it is one sentence about a second document
+Status: **done.** All eleven parameters are carried out since the five-hundred-and-twenty-second
+session and `Parameter::unhonoured` names none; **§O.2.1's last sentence — the parameters after `ef`
+— is carried out since the five-hundred-and-ninety-sixth**, so all four of Annex O's rows are
+`implemented` and nothing in the annex is reported. What is left is *not this annex's*: the two
+limits named below, and `doc/todo/38`'s ask level. ADRs 0209, 0250, 0310, 0357, 0431.
+Priority: 39 — closed; kept as the reading beside `tools/state.sh annex-o`
 Clauses: Annex O (§O.2.1, §O.2.2), §12.7.8, §7.11.4
 Code: `crates/pdf-model/src/fragment.rs`, `crates/viewer-core/src/open.rs`,
 `crates/viewer-host/src/policy.rs`
@@ -18,7 +19,8 @@ Code: `crates/pdf-model/src/fragment.rs`, `crates/viewer-core/src/open.rs`,
 order §O.2 makes normative, naming what it could not read rather than dropping it.
 `viewer_core::Open::apply_fragment` carries out **all eleven** — `page`, `nameddest`, `structelem`,
 `comment`, `ef`, `zoom`, `view`, `viewrect`, `highlight`, `search` and `fdf` — immediately after
-Table 29's `/OpenAction` as §O.2.2 asks. `Command::Open` carries the fragment undecoded, and
+Table 29's `/OpenAction` as §O.2.2 asks, and the parameters *after* `ef` leave with the file they
+are about. `Command::Open` carries the fragment undecoded, and
 `pdf-viewer doc.pdf#page=5` is the first caller.
 
 **Four parameters have come off the refused list, and not one for the reason the list gave.**
@@ -55,19 +57,27 @@ not read them as ones:
   out loud. That is a statement about these three hosts rather than about the annex, and a host
   with a network and a base URI would satisfy the same `Event::NeedsFile`.
 
-## What `ef` still owes, which is one sentence rather than the parameter
+## What `ef` owed, and how the sentence was finally composed
 
 §O.2.1: "[a]ny remaining parameters after this parameter apply to the selected embedded file." That
-would mean opening a *second document* from the first and applying the rest of the fragment to it,
-which `DocumentId` can express and nothing composes — `Command::Open` is a host's. So
-`apply_fragment` carries `ef` out and then stops, saying how many parameters it did not apply, and
-§O.2.1's ledger row is `partial` for that and nothing else.
+means opening a *second document* from the first and applying the rest of the fragment to it, which
+`DocumentId` could always express and nothing composed — `Command::Open` is a host's. The
+five-hundred-and-ninety-sixth session composed it in three pieces, each on a boundary that already
+existed (ADR 0431): `Fragment::parse` **stops** at `ef` and keeps the remainder whole and undecoded
+in `after_embedded_file`, because those parameters are not this document's; `Event::Extracted`
+carries that remainder beside the bytes — a variant changing shape, not a message added, since a
+host has the fragment but not §O.2's grammar; and a host hands both back as `Command::Open`. The
+window verifies it: `pdf-viewer 'issue17056.pdf#ef=destination-doc.pdf&page=3'` titles itself
+*destination-doc.pdf — 3 — page 3 of 30*.
 
-**The other half of `ef` is a host policy and it is built**: `viewer_host::may_write_extracted`,
-beside §12.7.6.4's import policy. `Event::Extracted` says whether a person or a URI asked, and the
-three hosts write the first and decline the second, in the annex's own words — "a PDF processor may
-choose to prompt the user or even prevent opening of the file". `doc/todo/38`'s *ask* level is where
-*prevent* becomes *prompt*, and the policy is already in the one place that would change.
+**`viewer_host::may_open_extracted` is the second policy question**, beside `may_write_extracted`:
+showing a file in this reader is the row's `shall` and is answered `Ok`, writing it into somebody's
+directory is what the row's caution is about and is still declined for a URI. `doc/todo/38`'s *ask*
+level is where either becomes a prompt, and neither has to be revisited for it.
+
+`Event::Extracted` is what says which of the two asked, so the annex's own words — "a PDF processor
+may choose to prompt the user or even prevent opening of the file" — are answered off a value rather
+than guessed at.
 
 ## What not to do
 
@@ -80,3 +90,9 @@ choose to prompt the user or even prevent opening of the file". `doc/todo/38`'s 
   array and Annex O's `view` parameter as its two callers.
 - **Not a fourth copy of the extraction policy.** Three hosts, one `viewer_host::policy` function;
   a fourth host calls it rather than deciding again.
+- **Not a counter on the chain.** A document may embed a document whose fragment names another
+  `ef`, and nothing guards the depth because nothing has to: each open consumes at least `ef=` and
+  its argument, so the remainder is strictly shorter every time.
+- **Not a second window rule.** `pdf-viewer` shows the embedded document *instead of* the one that
+  named it because it has one window, and that is written down as a host's choice. A host with tabs
+  opens a second `DocumentId` and changes nothing else.

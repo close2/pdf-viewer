@@ -548,17 +548,18 @@ fn an_embedded_file_the_fragment_names_comes_out_of_the_document() {
 /// Table Annex O.3's `ef` again: "[a]ny remaining parameters after this parameter apply to the
 /// selected embedded file."
 ///
-/// That sentence is about the parameters *after* it and is the half of this row still owed: a
-/// second document would have to be opened for them to mean anything, and `Command::Open` is the
-/// host's. So the fragment stops here and says how much it did not apply — applying the `page`
-/// would take a person to page three of the wrong document.
+/// That sentence is about the parameters *after* it, and this crate's whole part in it is to apply
+/// none of them to *this* document and to hand them on undivided: opening a second document is a
+/// `Command::Open` and therefore a host's (rule 2). So the `page` is not applied here — it would
+/// take a person to page three of the wrong document — the `search` raises no `Event::Searched`,
+/// and both leave in `Event::Extracted`'s fragment beside the bytes they are about (ADR 0431).
 ///
 /// `issue17056.pdf` files a whole PDF under the tree key `destination-doc.pdf`, which is the case
 /// that makes the sentence matter rather than a hypothetical one. The `search` is the witness
 /// rather than the `page`: a search that had been applied to *this* document would have raised
 /// `Event::Searched`, whatever number of pages the file turns out to have.
 #[test]
-fn an_embedded_file_stops_the_parameters_after_it() {
+fn an_embedded_file_carries_the_parameters_after_it() {
     let Some((viewer, events)) = opened(
         "issue17056.pdf",
         "ef=destination-doc.pdf&page=3&search=%22the%22",
@@ -569,7 +570,9 @@ fn an_embedded_file_stops_the_parameters_after_it() {
     assert_eq!(page(&viewer), 0, "page three was never applied");
     let notes = notes(&events);
     assert!(
-        notes.iter().any(|note| note.contains("2 parameter(s)")),
+        notes
+            .iter()
+            .any(|note| note.contains("the fragment continues `page=3&search=%22the%22`")),
         "{notes:?}"
     );
     assert!(
@@ -578,11 +581,47 @@ fn an_embedded_file_stops_the_parameters_after_it() {
             .any(|event| matches!(event, Event::Searched { .. })),
         "nor was the search after it"
     );
+    let carried = events.iter().find_map(|event| match event {
+        Event::Extracted {
+            fragment, bytes, ..
+        } => Some((fragment.clone(), bytes.clone())),
+        _ => None,
+    });
+    let Some((fragment, bytes)) = carried else {
+        panic!("the file it named still came out");
+    };
+    assert_eq!(
+        fragment.as_deref(),
+        Some("page=3&search=%22the%22"),
+        "the URI's own spelling, for the host to hand back to `Command::Open`"
+    );
+    // And the sentence is carried out by doing exactly that, which is what a host does with the
+    // two of them: the page after `ef` is the *embedded* document's page.
+    let mut second = Viewer::new(600, 800, 1.0);
+    let opened: Vec<Event> = second
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password: None,
+            fragment,
+        })
+        .collect();
     assert!(
-        events
+        opened
             .iter()
-            .any(|event| matches!(event, Event::Extracted { .. })),
-        "and the file it named still came out"
+            .any(|event| matches!(event, Event::Opened { .. })),
+        "the embedded bytes are a document"
+    );
+    assert_eq!(
+        page(&second),
+        2,
+        "page three of the file the parameters were about"
+    );
+    assert!(
+        opened
+            .iter()
+            .any(|event| matches!(event, Event::Searched { .. })),
+        "and its search is the one that runs"
     );
 }
 

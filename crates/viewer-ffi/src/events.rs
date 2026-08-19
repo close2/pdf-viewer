@@ -157,13 +157,29 @@ impl Events {
             // this. §O.2.1 is why it matters: a URI naming a file is not a person asking for one,
             // and a caller writing bytes to disk needs to know which it has (ADR 0310).
             Event::Extracted {
-                asked, name, bytes, ..
+                asked,
+                name,
+                bytes,
+                fragment,
+                ..
             } => format!(
-                "the embedded file {name:?} is {} byte(s), asked for by {}",
+                "the embedded file {name:?} is {} byte(s), asked for by {}{}",
                 bytes.len(),
                 match asked {
                     Extraction::Asked => "a person",
                     Extraction::Fragment => "the URI's fragment",
+                },
+                // §O.2.1's remaining parameters, **said rather than answered**: they reach a Rust
+                // host as `Event::Extracted`'s `fragment` and this ABI has no accessor for them,
+                // so a C caller cannot yet open the file at the place the URI named. Trap 5 —
+                // named here at runtime rather than passed over in silence, and an entry point is
+                // what it needs (ADR 0431).
+                match fragment {
+                    Some(rest) => format!(
+                        ", and the URI's fragment continues `{rest}` for it — this ABI states \
+                         that but cannot hand it to you yet"
+                    ),
+                    None => String::new(),
                 }
             ),
             Event::Refused {

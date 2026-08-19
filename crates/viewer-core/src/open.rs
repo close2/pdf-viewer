@@ -234,14 +234,15 @@ pub(crate) struct Open {
     /// are still to be read, and from where — while the selection is the one occurrence it has
     /// arrived at. `None` between searches, which is every moment nobody is looking for anything.
     pub(crate) searching: Option<crate::search::Searching>,
-    /// Table Annex O.3's `ef`, waiting to be handed to the host: §7.7.4's tree key it named.
+    /// Table Annex O.3's `ef`, waiting to be handed to the host: §7.7.4's tree key it named, and
+    /// the rest of the fragment that belongs to the file rather than to this document.
     ///
     /// The same shape [`Self::searching`] has and for the same reason — a fragment parameter whose
     /// work is not this type's — except that this one is finished as the document opens rather
     /// than pumped: the bytes are already in the file, so `Viewer::open` takes this and pushes
     /// `Event::Extracted`. `None` for every fragment that names no embedded file, which is every
     /// fragment anybody writes.
-    pub(crate) opening_file: Option<String>,
+    pub(crate) opening_file: Option<OpeningFile>,
     /// Table Annex O.4's `highlight`, one entry per time the fragment stated it.
     ///
     /// A *list* because §O.2 makes a fragment a sequence of parameters and states no rule against
@@ -278,6 +279,23 @@ pub(crate) struct Open {
     /// said twice. Host state deliberately: putting it in the page's report would make
     /// `pdf_model::interpret` depend on which pages had been read before it. ADR 0366.
     pub(crate) losses_said: usize,
+}
+
+/// §7.11.4's file Annex O's `ef` parameter named, and the fragment that belongs to it.
+///
+/// Two fields rather than two state fields on [`Open`], because they are one instruction: Table
+/// Annex O.3 says the processor "shall open the embedded file … identified by name" and then that
+/// "[a]ny remaining parameters after this parameter apply to the selected embedded file", so a name
+/// without its remainder would open the right file at the wrong place.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OpeningFile {
+    /// §7.7.4's `/EmbeddedFiles` key the fragment named, as text.
+    pub(crate) name: String,
+    /// The rest of the URI's fragment, undecoded — `pdf_model::fragment::Fragment` stopped there.
+    ///
+    /// `None` where `ef` was the last parameter: the file is opened and nothing is said about
+    /// where in it.
+    pub(crate) fragment: Option<String>,
 }
 
 /// One rectangle ISO 32000-2 Annex O's `highlight` parameter named, and the page it named it on.
@@ -885,8 +903,7 @@ impl Open {
     /// those found in 12.3.2.2", which are default user space's own, origin and all.
     pub(crate) fn apply_fragment(&mut self, fragment: &Fragment) -> Vec<String> {
         let mut notes = Vec::new();
-        let mut parameters = fragment.parameters.iter();
-        while let Some(parameter) = parameters.next() {
+        for parameter in &fragment.parameters {
             if let Some(reason) = parameter.unhonoured() {
                 notes.push(format!(
                     "this URI's fragment asks for `{}`, which this program does not do: {reason}",
@@ -898,15 +915,20 @@ impl Open {
             // "Any remaining parameters after this parameter apply to the selected embedded
             // file." So everything after `ef` is about a document this program has not opened,
             // and applying it to *this* one would take a person somewhere the URI did not name.
-            // Stop, and say how much was left — which is what is still owed of Table Annex O.3's
-            // `ef` now that the file itself comes out (ADR 0310).
+            // `Fragment::parse` has already stopped reading there and kept the remainder whole;
+            // it travels with the file as `Event::Extracted`'s fragment, for the host that opens
+            // those bytes as a document to hand straight back as `Command::Open`'s (ADR 0431).
+            // The loop still stops, because a `Fragment` this crate did not parse could carry
+            // parameters here and applying them would be the wrong document's instruction.
             if matches!(parameter, Parameter::EmbeddedFile(_)) {
-                let left = parameters.as_slice().len();
-                if left > 0 {
+                if let Some(rest) = fragment.after_embedded_file.clone() {
                     notes.push(format!(
-                        "and the {left} parameter(s) after it apply to that embedded file rather \
-                         than to this document, so none of them was applied"
+                        "and the fragment continues `{rest}` after it, which applies to that \
+                         embedded file rather than to this document and travels with it"
                     ));
+                    if let Some(file) = self.opening_file.as_mut() {
+                        file.fragment = Some(rest);
+                    }
                 }
                 break;
             }
@@ -1053,7 +1075,12 @@ impl Open {
             // makes: the annex gives its byte string no character encoding and §7.7.4's tree key
             // states one, so the match is against §7.9.2's *decoded* text string as UTF-8.
             Parameter::EmbeddedFile(name) => {
-                self.opening_file = Some(String::from_utf8_lossy(name).into_owned());
+                self.opening_file = Some(OpeningFile {
+                    name: String::from_utf8_lossy(name).into_owned(),
+                    // Filled by [`Self::apply_fragment`], which is the only place the *rest* of
+                    // the fragment is in scope.
+                    fragment: None,
+                });
             }
             // Table Annex O.4's `highlight` and `fdf`, each in a method of its own for the
             // reason `nameddest` and `structelem` are: the reading is longer than the arm.

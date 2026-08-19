@@ -141,6 +141,24 @@ pub enum Event {
         name: String,
         /// The file.
         bytes: Vec<u8>,
+        /// The rest of the URI's fragment, where Annex O's `ef` is what asked for this file and
+        /// something follows it. Undecoded, exactly as [`crate::Command::Open`]'s is.
+        ///
+        /// §O.2.1, Table Annex O.3's `ef` row:
+        ///
+        /// > Any remaining parameters after this parameter apply to the selected embedded file.
+        ///
+        /// **A host that opens these bytes as a document hands this straight back** as
+        /// `Command::Open`'s `fragment`, and the sentence is carried out: the page, the search or
+        /// the highlight after `ef` applies to the file that came out rather than to the one it
+        /// came out of. A host that does not open embedded files ignores it and loses nothing it
+        /// had — `Event::Reported` has already said, in words, that the fragment continued.
+        ///
+        /// It is here rather than left to a host to split for itself because splitting it is
+        /// §O.2's grammar, and six consumers re-deriving that grammar is six chances to disagree
+        /// about where a parameter ends. `None` for [`crate::Command::Extract`] and for
+        /// §12.5.6.15's annotation, which have no URI behind them at all. ADR 0431.
+        fragment: Option<String>,
     },
     /// An operation was not performed, because the document restricts it and this reader is
     /// obeying (§7.6.4.2, §12.8.2.2, §12.8.6).

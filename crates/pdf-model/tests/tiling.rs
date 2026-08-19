@@ -780,10 +780,10 @@ fn a_shading_pattern_inside_a_cell_is_anchored_to_the_cell() {
         );
     }
     let first = sites[0].1;
-    let last = sites[24].1;
+    let end = sites[24].1;
     assert!(
-        (last.0 - (first.0 + 80.0)).abs() < 1e-3 && (last.1 - (first.1 + 80.0)).abs() < 1e-3,
-        "and the lattice still separates the first gradient from the last: {first:?} {last:?}"
+        (end.0 - (first.0 + 80.0)).abs() < 1e-3 && (end.1 - (first.1 + 80.0)).abs() < 1e-3,
+        "and the lattice still separates the first gradient from the last: {first:?} {end:?}"
     );
 }
 

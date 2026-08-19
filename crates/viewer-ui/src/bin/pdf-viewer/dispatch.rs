@@ -116,29 +116,7 @@ impl App {
                 eprintln!("cannot open {}: {reason}", self.title);
                 std::process::exit(1);
             }
-            // §7.6.4.1: a processor tries the default user password and then prompts. This is the
-            // prompt, and it is the whole of what this program owed the clause.
-            Event::PasswordRequired { document } => {
-                self.attempts = self.attempts.saturating_add(1);
-                if self.attempts > PASSWORD_ATTEMPTS {
-                    eprintln!("{}: too many attempts", self.title);
-                    std::process::exit(1);
-                }
-                let Some(password) = ask_password(&self.title) else {
-                    eprintln!("{}: needs a password", self.title);
-                    std::process::exit(1);
-                };
-                let Ok(bytes) = std::fs::read(&self.path) else {
-                    eprintln!("cannot re-read {}", self.title);
-                    std::process::exit(1);
-                };
-                queue.push_back(Command::Open {
-                    id: document,
-                    bytes,
-                    password: Some(password),
-                    fragment: self.fragment.clone(),
-                });
-            }
+            Event::PasswordRequired { document } => self.ask_again(document, queue),
             Event::Closed(_) => {}
             Event::PageChanged {
                 index,
@@ -199,8 +177,12 @@ impl App {
             // Written beside the document with `.edited.pdf` appended rather than over it,
             // because overwriting somebody's file is a decision this program has not been given.
             Event::Extracted {
-                asked, name, bytes, ..
-            } => self.write_extracted(asked, &name, &bytes),
+                asked,
+                name,
+                bytes,
+                fragment,
+                ..
+            } => self.extracted(asked, &name, bytes, fragment, queue),
             Event::Saved { bytes, .. } => self.write_saved(&bytes),
             // What a host does with this is mark its window and ask before closing. This one
             // has no dialogue to ask with, so it marks the title and says so on the way past.
@@ -227,6 +209,43 @@ impl App {
                 ..
             } => self.searched(found, remaining, wrapped),
         }
+    }
+}
+
+impl App {
+    /// §7.6.4.1: a processor tries the default user password and then prompts.
+    ///
+    /// This is the prompt, and it is the whole of what this program owed the clause. Split out of
+    /// [`Self::react`] rather than written there because the *file* it re-opens has two
+    /// provenances since Annex O's `ef` opened one.
+    fn ask_again(&mut self, document: viewer_core::DocumentId, queue: &mut VecDeque<Command>) {
+        self.attempts = self.attempts.saturating_add(1);
+        if self.attempts > PASSWORD_ATTEMPTS {
+            eprintln!("{}: too many attempts", self.title);
+            std::process::exit(1);
+        }
+        let Some(password) = ask_password(&self.title) else {
+            eprintln!("{}: needs a password", self.title);
+            std::process::exit(1);
+        };
+        // The file again — off the disk, or out of the document it was embedded in, which is where
+        // Annex O's `ef` left it: §7.11.4 puts an embedded file inside another document, so there
+        // is no path to re-read for one (§O.2.1, ADR 0431).
+        let bytes = if let Some(bytes) = self.embedded.clone() {
+            bytes
+        } else {
+            let Ok(bytes) = std::fs::read(&self.path) else {
+                eprintln!("cannot re-read {}", self.title);
+                std::process::exit(1);
+            };
+            bytes
+        };
+        queue.push_back(Command::Open {
+            id: document,
+            bytes,
+            password: Some(password),
+            fragment: self.fragment.clone(),
+        });
     }
 }
 

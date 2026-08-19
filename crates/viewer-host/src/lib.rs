@@ -57,5 +57,7 @@ pub mod trace;
 pub use fit::ControlFit;
 pub use form::{ControlKind, control_kind};
 pub use panel::{PanelRow, RowAction, attachment_rows, layer_rows, outline_rows};
-pub use policy::{ImportRefusal, may_write_extracted, read_import, resolve_import};
+pub use policy::{
+    ImportRefusal, may_open_extracted, may_write_extracted, read_import, resolve_import,
+};
 pub use trace::{Topic, Trace, parse_topics};

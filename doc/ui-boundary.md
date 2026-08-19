@@ -25,7 +25,11 @@ host cannot place for itself because no host sees the fragment — it arrives in
 undecoded — and whose *look* the annex hands to a processor outright ("[t]he nature of the
 highlighting is implementation-dependent"), which is this boundary's own rule stated by the
 standard. Three consumers failed to compile and the C ABI gained its hundred-and-twelfth entry
-point (ADR 0357).
+point (ADR 0357). **And the five-hundred-and-ninety-sixth added nothing and changed one variant's
+shape**: `Event::Extracted` carries the rest of the URI's fragment beside the bytes, which is
+§O.2.1's "[a]ny remaining parameters after this parameter apply to the selected embedded file" —
+the annex's last unbuilt sentence, and the mechanism this file prefers to a new message whenever a
+host needs two things a variant carried one of (ADR 0431).
 Read by: anybody writing a host, adding a `Command`, `Event` or `Query`, or asking what the
 crate boundary permits. `doc/HANDOVER.md`'s reader table points a round writing a host here, and ADRs 0116 to 0121
 are the argument.
@@ -137,7 +141,13 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
   whoever knows which component it is decoding (ADR 0209).
 - `Event`: `Opened`, `OpenFailed`, **`PasswordRequired`**, `Closed`, `PageChanged`,
   `NeedsRender(RenderRequest)`, `Damage(Rect)`, `OpenUri`, `NeedsFile`, `Transition`, `Dirty`,
-  `Saved { bytes }`, **`Extracted { name, bytes }`**,
+  `Saved { bytes }`, **`Extracted { name, bytes, fragment }`** — a variant that changed shape
+  rather than becoming a second message, in the five-hundred-and-ninety-sixth: §O.2.1's "[a]ny
+  remaining parameters after this parameter apply to the selected embedded file" needs the rest of
+  the URI's fragment to travel with the file, and a host *has* the fragment but not §O.2's grammar,
+  so splitting it here and carrying it there is one channel rather than six re-derivations. The two
+  consumers that construct the event failed to compile, `PDFV_EVENT_KIND_COUNT` did not move, and a
+  host that opens the bytes hands the field straight back as `Command::Open`'s (ADR 0431) —
   **`Searched { document, found, remaining, wrapped }`** — one step of a document-wide search, and
   the only event a host has to *pump*: `remaining` above zero means send `Find::Continue` again,
   which is the same division `NeedsRender` makes and forced by the same two rules (ADR 0250) —

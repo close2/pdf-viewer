@@ -6,14 +6,76 @@
 //! all three hosts make and are stated once in `viewer_host::policy`; what stays here is the
 //! sentence a person in a terminal reads, because that part is this window's.
 
+use std::collections::VecDeque;
 use std::path::Path;
 
-use viewer_core::Purpose;
+use viewer_core::{Command, Purpose};
 use viewer_host::ImportRefusal;
 
 use crate::app::App;
 
 impl App {
+    /// What this window does with §7.11.4's bytes when they arrive: opens them, or writes them.
+    ///
+    /// **Annex O's `ef` is a `shall` about *opening*, and this is where it is carried out.**
+    /// ISO 32000-2 §O.2.1, Table Annex O.3:
+    ///
+    /// > When used as part of a PDF open parameter, the PDF processor shall open the embedded file
+    /// > contained within the EmbeddedFiles name tree identified by name .
+    ///
+    /// > Any remaining parameters after this parameter apply to the selected embedded file.
+    ///
+    /// `viewer-core` has no `Command::Open` of its own to send (rule 2), so it hands the bytes and
+    /// the rest of the fragment over and a host composes the two — which is the whole of the second
+    /// sentence: `Command::Open` with those bytes and that fragment applies `page`, `search` or
+    /// `highlight` to the file that came out rather than to the one it came out of.
+    ///
+    /// **One window, so the embedded document replaces the one that named it**, and that is this
+    /// host's choice rather than the annex's requirement: everything after `ef` is a sentence about
+    /// the embedded file, so the file the URI is *about* is the one this window shows. A host with
+    /// tabs would open a second `DocumentId` beside the first and needs no other change.
+    ///
+    /// **Only a PDF**, because this window can show nothing else: an embedded spreadsheet is handed
+    /// to [`Self::write_extracted`] and its policy, which is where a person can still get at it.
+    /// The header is §7.5.2's, checked here rather than by trying an open and printing a failure a
+    /// person did not ask for.
+    ///
+    /// It terminates without a counter: each open consumes at least one `ef=…` from the fragment,
+    /// so a document embedding itself under a name its own fragment repeats still runs out of
+    /// fragment. See `pdf_model::fragment::Fragment::after_embedded_file`.
+    pub(crate) fn extracted(
+        &mut self,
+        asked: viewer_core::Extraction,
+        name: &str,
+        bytes: Vec<u8>,
+        fragment: Option<String>,
+        queue: &mut VecDeque<Command>,
+    ) {
+        if !matches!(asked, viewer_core::Extraction::Fragment) || !bytes.starts_with(b"%PDF-") {
+            self.write_extracted(asked, name, &bytes);
+            return;
+        }
+        // The other half of §O.2.1's row, asked once and in the place all three hosts ask it.
+        if let Err(refusal) = viewer_host::may_open_extracted(asked) {
+            println!("note: {refusal}");
+            return;
+        }
+        match &fragment {
+            Some(rest) => println!("opening the embedded file {name:?} at `{rest}` (§O.2.1)"),
+            None => println!("opening the embedded file {name:?} (§O.2.1)"),
+        }
+        name.clone_into(&mut self.title);
+        // §7.6.4.1's prompt re-opens the document, and an embedded one has no path to re-read.
+        self.embedded = Some(bytes.clone());
+        self.fragment.clone_from(&fragment);
+        queue.push_back(Command::Open {
+            id: crate::DOCUMENT,
+            bytes,
+            password: None,
+            fragment,
+        });
+    }
+
     /// Writes an extracted embedded file beside the document.
     ///
     /// **Rule 2 in the other direction**: the core produced the bytes and the host decides where

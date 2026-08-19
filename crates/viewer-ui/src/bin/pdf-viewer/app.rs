@@ -35,6 +35,14 @@ pub(crate) struct App {
     /// The path rather than the bytes: a host that held a copy of every document it had failed
     /// to open would be holding a copy of every document.
     pub(crate) path: PathBuf,
+    /// The document this window is showing when it came out of another one — Annex O's `ef`.
+    ///
+    /// The bytes rather than a path, which is the exception [`Self::path`]'s rule needs and not a
+    /// contradiction of it: §7.11.4 puts an embedded file *inside* the document, so there is no
+    /// path to re-read when §7.6.4.1's prompt has to open it again. One file's worth, and only
+    /// while a fragment's `ef` has opened one — `None` for every window that opened a file from
+    /// the command line.
+    pub(crate) embedded: Option<Vec<u8>>,
     /// Annex O's fragment identifier, kept for the same reason as the path.
     ///
     /// A document that asked for a password and got one is opened a second time, and the URI that

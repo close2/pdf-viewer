@@ -12,7 +12,10 @@
 //! **§O.2.1** — a fragment identifier may name an embedded file, and the annex says in the same
 //! row that a processor "may choose to prompt the user or even prevent opening of the file". A
 //! URI is somebody else's sentence far more often than a click is, so the two are not one request
-//! and a host has to be able to decline the first (ADR 0310).
+//! and a host has to be able to decline the first (ADR 0310). **Two questions rather than one**,
+//! since ADR 0431: showing that file in this reader is the `shall` in the row above, and writing
+//! it into somebody's directory is the act the caution is about, so they are asked separately and
+//! answered differently.
 //!
 //! **§7.6.4.1** — an encrypted document asks for a password. The clause requires a processor to
 //! try the empty user password and then to ask; asking is a window, and a window is a host's.
@@ -88,6 +91,40 @@ pub fn resolve_import(directory: Option<&Path>, name: &str) -> Result<PathBuf, I
 pub fn read_import(directory: Option<&Path>, name: &str) -> Result<Vec<u8>, String> {
     let path = resolve_import(directory, name).map_err(|refusal| refusal.to_string())?;
     std::fs::read(&path).map_err(|error| format!("cannot read {}: {error}", path.display()))
+}
+
+/// Whether §7.11.4's extracted bytes may be **opened as a document** in this reader.
+///
+/// **A different question from [`may_write_extracted`], and Annex O asks both of them.** ISO 32000-2
+/// §O.2.1, Table Annex O.3's `ef` row, states the requirement first —
+///
+/// > When used as part of a PDF open parameter, the PDF processor shall open the embedded file
+/// > contained within the EmbeddedFiles name tree identified by name .
+///
+/// — and the caution second, about the same act: "[s]ecurity should be strongly considered when
+/// opening an embedded file … a PDF processor may choose to prompt the user or even prevent
+/// opening of the file."
+///
+/// **Both hosts' answers are `Ok` today, and that is a choice with a reason rather than a default.**
+/// Showing a file in this reader and writing it into somebody's directory are different acts with
+/// different costs: the first is what the `shall` above requires and stays inside a process that
+/// `CLAUDE.md`'s principle 3 gives no filesystem and no network, and the second leaves something
+/// behind on the machine after the window is closed. So the narrower policy is taken where it
+/// costs the annex nothing — the write — and the requirement is carried out where the annex states
+/// one.
+///
+/// It is a function rather than an `Ok(())` inlined at the call site for the reason `CLAUDE.md`'s
+/// principle 3 gives: the *policy* is asked once, in a place a host can supply, so that
+/// `doc/todo/38`'s *ask* and *warn* levels are a change here and nowhere else. ADR 0431.
+///
+/// # Errors
+///
+/// The sentence to say to the person, where the file is not to be opened. No level built today
+/// produces one.
+pub fn may_open_extracted(asked: Extraction) -> Result<(), String> {
+    match asked {
+        Extraction::Asked | Extraction::Fragment => Ok(()),
+    }
 }
 
 /// Whether §7.11.4's extracted bytes may be written to disk without asking a person first.
