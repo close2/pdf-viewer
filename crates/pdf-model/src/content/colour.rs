@@ -81,11 +81,7 @@ impl Interpreter<'_> {
             return;
         }
 
-        let space = ColourSpace::parse(
-            self.document,
-            &Object::Name(Name::new(name.as_bytes().to_vec())),
-            resources,
-        );
+        let space = ColourSpace::parse(self.document, &Object::Name(name.clone()), resources);
         if let (Some(id), Some(parsed)) = (stated, space.as_ref())
             && is_icc_based(self.document, id)
         {
@@ -93,7 +89,7 @@ impl Interpreter<'_> {
         }
         let space = space.unwrap_or_else(|| {
             self.note(Unsupported::Shading {
-                name: format!("colour space /{name}"),
+                name: format!("colour space /{}", String::from_utf8_lossy(name.as_bytes())),
             });
             ColourSpace::Gray
         });
@@ -144,18 +140,13 @@ impl Interpreter<'_> {
         fill: bool,
     ) {
         // A trailing name means a pattern rather than a colour.
-        if let Some(name) = operands
-            .iter()
-            .filter_map(|operand| operand.as_name())
-            .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned())
-            .next()
-        {
+        if let Some(name) = operands.iter().find_map(Object::as_name) {
             // Numeric operands alongside the name are the colour an *uncoloured* tiling
             // pattern is poured through, in the pattern's underlying space.
             let tint: Vec<f32> = (0..operands.len())
                 .filter_map(|index| number_at(operands, index))
                 .collect();
-            let pattern = self.pattern(&name, resources, &tint, state, fill);
+            let pattern = self.pattern(name, resources, &tint, state, fill);
             if fill {
                 state.fill_pattern = pattern;
             } else {

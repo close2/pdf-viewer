@@ -261,3 +261,60 @@ fn an_scn_naming_no_pattern_is_reported() {
         "the fill that follows paints nothing, which looks exactly like a producer's intent"
     );
 }
+
+/// §7.3.5's binary match, over a name that is not text.
+///
+/// > Beginning with PDF 1.2 a name object is an atomic symbol uniquely defined by a sequence of
+/// > any characters (8-bit values) except null (character code 0). Uniquely defined means that
+/// > any two name objects that, after all escaping is expanded (see below), and the resulting
+/// > sequences of bytes are not an exact binary match denote different objects.
+///
+/// `/Contr#F4le` decodes to a name whose sixth byte is 0xF4, which is a byte no UTF-8 sequence
+/// begins. The interpreter used to carry a resource name as a `String` built with
+/// `from_utf8_lossy`, so the probe was `Contr\u{FFFD}le` and the key was the file's bytes: the
+/// `Do` found nothing and the page came back blank with a report saying the file was malformed.
+/// A crawled document does exactly this — a scanner naming its `XObject` after a Windows path
+/// with an "ô" in it — and three reference renderers draw its full-page scan (ADR 0438).
+///
+/// Synthetic for trap 8's reason and for the promotion rule both: the witness is a crawled
+/// document out of the `SafeDocs` set, which this repository records by digest and never commits.
+#[test]
+fn a_resource_name_that_is_not_utf_8_is_found() {
+    let reported = reports(
+        "",
+        "/XObject << /Contr#F4le 5 0 R >>",
+        "/Contr#F4le Do",
+        &square_form(5),
+    );
+
+    assert_eq!(
+        reported,
+        Vec::<String>::new(),
+        "the name the file defines and the name the stream uses are an exact binary match"
+    );
+}
+
+/// The other half of the same sentence: two names differing only outside UTF-8 are two names.
+///
+/// This is the direction that draws the *wrong* thing rather than nothing. `from_utf8_lossy`
+/// maps every invalid byte to one replacement character, so `/A#F4` and `/A#F5` both became
+/// `A\u{FFFD}` and a `Do` on either found whichever the dictionary defined — a mark on the page
+/// from an object the content stream did not name, in silence.
+#[test]
+fn two_names_differing_only_in_a_byte_outside_utf_8_are_two_names() {
+    let reported = reports(
+        "",
+        "/XObject << /A#F4 5 0 R >>",
+        "/A#F5 Do",
+        &square_form(5),
+    );
+
+    assert_eq!(
+        reported,
+        vec![format!(
+            r#"MissingResource {{ category: "XObject", detail: "/A{} is not in /XObject" }}"#,
+            char::REPLACEMENT_CHARACTER
+        )],
+        "0xF4 and 0xF5 are different names however a text conversion renders them"
+    );
+}

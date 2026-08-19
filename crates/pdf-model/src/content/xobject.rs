@@ -78,6 +78,9 @@ impl Interpreter<'_> {
             return;
         }
 
+        // What a *report* and an image's diagnostic label want is text; §7.3.5 binds the lookups
+        // above, which take the name's own bytes.
+        let label = String::from_utf8_lossy(name.as_bytes()).into_owned();
         let subtype = self.document.get_key(&stream.dict, "Subtype");
         let subtype = subtype
             .as_name()
@@ -90,14 +93,14 @@ impl Interpreter<'_> {
             // identified "the base image shall be rendered".
             let alternate = match group {
                 Some(_) => None,
-                None => self.alternate_image(&stream.dict, &name),
+                None => self.alternate_image(&stream.dict, &label),
             };
             let drawn = alternate.as_ref().unwrap_or(&stream);
             // An `XObject` is an object the resource dictionary hands out, so the same `Do`
             // twice is the same allocation twice and its address is the name of the image.
             self.draw_image(
                 crate::image::NamedStream::allocation(drawn),
-                &name,
+                &label,
                 resources,
                 state,
             );
@@ -105,7 +108,7 @@ impl Interpreter<'_> {
         }
         if subtype != b"Form" {
             self.note(Unsupported::Operator {
-                operator: format!("Do on /{name}"),
+                operator: format!("Do on /{label}"),
             });
             return;
         }
@@ -121,10 +124,10 @@ impl Interpreter<'_> {
         // objects", which is §7.8.2's content stream under another name — so a form that
         // decoded only part-way is drawn to where its damage is and reported for the rest.
         // See [`Interpreter::content_stream`].
-        let Some(data) = self.content_stream(&stream, &format!("a form XObject /{name} (§8.10)"))
+        let Some(data) = self.content_stream(&stream, &format!("a form XObject /{label} (§8.10)"))
         else {
             self.note(Unsupported::Operator {
-                operator: format!("undecodable form /{name}"),
+                operator: format!("undecodable form /{label}"),
             });
             return;
         };

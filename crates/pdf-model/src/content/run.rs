@@ -613,7 +613,11 @@ impl Interpreter<'_> {
                 b"Tf" => {
                     if let Some(name) = name_at(operands, 0) {
                         state.text.font = self.font(resources, &name);
-                        state.text.font_name.clone_from(&name);
+                        // The trace's label rather than the lookup's key: §7.3.5's "the bytes
+                        // making up the name are never treated as text" binds the second, and
+                        // `font` above has them.
+                        state.text.font_name =
+                            String::from_utf8_lossy(name.as_bytes()).into_owned();
                     }
                     if let Some(size) = number_at(operands, 1) {
                         state.text.size = size;
@@ -758,7 +762,7 @@ impl Interpreter<'_> {
 
                 // --- shadings and inline images ---
                 b"sh" => {
-                    let name = name_at(operands, 0).unwrap_or_default();
+                    let name = name_at(operands, 0).unwrap_or_else(|| Name::new(Vec::new()));
                     self.paint_shading(&name, resources, &state);
                 }
                 // §8.9.7: an image written into the content stream rather than as an
@@ -806,7 +810,7 @@ impl Interpreter<'_> {
                     // including its own paper white and black; compensating for the black
                     // point would defeat that, so the specification forbids it here.
                     if let Some(name) = name_at(operands, 0) {
-                        state.black_point = if name == "AbsoluteColorimetric" {
+                        state.black_point = if name.as_bytes() == b"AbsoluteColorimetric" {
                             BlackPoint::Off
                         } else {
                             BlackPoint::Default
@@ -819,8 +823,12 @@ impl Interpreter<'_> {
                 // resource dictionary's `/Properties`; an inline dictionary cannot carry
                 // one, so it governs nothing.
                 b"BDC" => {
+                    // A *tag* is one of the standard's own names rather than a resource name, so
+                    // it is compared against an ASCII literal — as bytes, which §7.3.5 makes the
+                    // comparison a name has ("an exact binary match") and which costs nothing.
                     let tag = name_at(operands, 0);
-                    let hides = tag.as_deref() == Some("OC")
+                    let tag = tag.as_ref().map_or(&[][..], Name::as_bytes);
+                    let hides = tag == b"OC"
                         && name_at(operands, 1).is_some_and(|name| {
                             self.unresolved_resource(resources, "Properties", &name)
                                 .is_some_and(|oc| !self.shows_optional_content(&oc))
@@ -831,12 +839,12 @@ impl Interpreter<'_> {
                     // §14.8.2.2.2's two forms of an artifact are `/Artifact BMC` and
                     // `/Artifact <<propertyList>> BDC`; this is the second, and the property
                     // list is Table 363's.
-                    let artifact = (tag.as_deref() == Some("Artifact")).then(|| {
+                    let artifact = (tag == b"Artifact").then(|| {
                         self.property_list(resources, operands.get(1))
                             .map(|list| crate::structure::Artifact::read(self.document, &list))
                             .unwrap_or_default()
                     });
-                    let reversed = tag.as_deref() == Some("ReversedChars");
+                    let reversed = tag == b"ReversedChars";
                     // §14.13.5: "One or more files may be associated with sections of content in
                     // a content stream by enclosing those sections between the marked-content
                     // operators BDC and EMC … with a marked-content tag of AF." NOTE 2 is why
@@ -845,7 +853,7 @@ impl Interpreter<'_> {
                     // inside the property list is `/MCAF` since Errata Collection 3, and the
                     // two are not the same word by accident — see
                     // `attachment::associated_in_property_list`.
-                    let associated = if tag.as_deref() == Some("AF") {
+                    let associated = if tag == b"AF" {
                         self.property_list(resources, operands.get(1))
                             .map(|list| {
                                 crate::attachment::associated_in_property_list(self.document, &list)
@@ -878,13 +886,13 @@ impl Interpreter<'_> {
                 }
                 b"BMC" => {
                     let tag = name_at(operands, 0);
+                    let tag = tag.as_ref().map_or(&[][..], Name::as_bytes);
                     // The generic forms: `/Artifact BMC` states an artifact with no property
                     // list, and `/ReversedChars BMC` is the form §14.8.2.5.3's own EXAMPLE uses.
-                    let reversed = tag.as_deref() == Some("ReversedChars");
+                    let reversed = tag == b"ReversedChars";
                     marked.push(Marked {
                         starts_at: self.text.len(),
-                        artifact: (tag.as_deref() == Some("Artifact"))
-                            .then(crate::structure::Artifact::default),
+                        artifact: (tag == b"Artifact").then(crate::structure::Artifact::default),
                         reversed,
                         ..Marked::default()
                     });
@@ -1397,10 +1405,17 @@ pub(super) fn narrow(value: f64) -> f32 {
     }
 }
 
-/// Reads operand `index` as a name.
-pub(super) fn name_at(operands: &[Object], index: usize) -> Option<String> {
-    operands
-        .get(index)?
-        .as_name()
-        .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned())
+/// Reads operand `index` as a name, keeping the bytes §7.3.5 says a name is.
+///
+/// > Uniquely defined means that any two name objects that, after all escaping is expanded (see
+/// > below), and the resulting sequences of bytes are not an exact binary match denote different
+/// > objects.
+///
+/// So the operand travels to `resources.rs` as a [`Name`]: a `String` built with
+/// `from_utf8_lossy` on the way — which is what this returned until the
+/// six-hundred-and-third session — turns every byte outside UTF-8 into U+FFFD and makes the
+/// resource it names unfindable (ADR 0438). A *tag* is compared against one of the standard's
+/// own ASCII names and may be read as bytes here too, which is what `== b"OC"` is.
+pub(super) fn name_at(operands: &[Object], index: usize) -> Option<Name> {
+    operands.get(index)?.as_name().cloned()
 }

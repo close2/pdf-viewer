@@ -190,7 +190,7 @@ impl Interpreter<'_> {
         match operand? {
             Object::Dictionary(list) => Some(list.clone()),
             Object::Name(name) => self
-                .resource(resources, "Properties", name.as_str()?)
+                .resource(resources, "Properties", name)
                 .and_then(|list| list.as_dict().cloned()),
             _ => None,
         }

@@ -840,6 +840,47 @@ already is, over a bounded process-wide cache of the *sampling*, which is a cach
 because it changes how fast an answer is reached and never what it is. `doc/todo/49`'s third-bound
 section has the measurement that forced that split and the one number it leaves open.
 
+### 16. The chunk the six-hundred-and-third took: the crawl, in front of a reference for the first time
+
+§14 said "[e]very population on this disk is ranked" and it was true of the *curated* corpora only.
+**The crawl had never been put beside another renderer at all** — 145 archives of surveys, which
+ask whether this reader reports anything and never whether the page is right, so 64 507 documents
+called *complete* were a claim nothing had tested. That is `CLAUDE.md`'s two questions with the
+second one unanswered on the population it exists for.
+
+**Taken: two whole archives, `0100` and `7680`, 2000 documents**, page one at 72 dpi against
+`pdftoppm`, `mutool` and `gs`, every invocation explicit about the page box (trap 3), ranked by our
+ink minus the lightest live reference's with each panel's raster size beside it (§13). About 0.33 s
+a document at sixteen workers, so 2000 documents is eleven minutes — which is the number that says
+what the rest of this population would cost.
+
+- **The ranking's head separates by three orders of magnitude, and it is a defect of this tree.**
+  `0100223.pdf` at **−225.633 of 255** against a next-largest of −5.040: a full-page scan the three
+  references draw (their inks agree to 0.93) and this tree drew as a blank sheet, reporting an
+  `XObject` the file does not define. **The file defines it.** Its name holds the byte 0xF4 — a
+  Windows path with an *ô* in it — and the interpreter carried a resource name as a `String` built
+  with `from_utf8_lossy`, so the probe was U+FFFD where the key was 0xF4 and §7.3.5's "exact binary
+  match" could never happen. ADR 0438; the reverse direction, two names differing only outside UTF-8
+  colliding onto one, had no witness anywhere on this disk and would have drawn the *wrong* object
+  in silence.
+- **The fix moved one row of the 1000 and nothing else**, re-ranked whole and diffed panel by
+  panel, with every reference panel byte-identical. **No gate moved**: no document of the 974 states
+  such a name, so this was invisible to every ratchet — the same statement §7 makes about a corpus
+  measuring a construct's absence, from the other side.
+- **The rate this chunk can claim is 1 in 2000, measured.** A whole-crawl census wants a walk that
+  classifies a name by the entry that names it — `damaged_stream_census`'s `who_names_what` shape —
+  and is a round of its own.
+
+**What this chunk leaves**, and it is a successor with a number attached: **63 944 crawled documents
+unranked**, about six hours of wall clock at this round's settings, in archive-sized pieces a round
+can take one or two of. What is *not* answered is §4's question one population further out — the
+**oracle** proper over the crawl, with its structural similarity, its consensus vote and its seven
+verdicts. That is not a cost question but a meaning one, in ADR 0393's shape: on a population where
+nothing supplies an expected value and no file was chosen for anything, what does a verdict assert?
+Until somebody answers it, the ink ranking is what this corpus gets, and it has now produced a
+whole-page defect on its first 2000 documents.
+
+
 ## What not to do
 
 - **Do not start a multi-gigabyte download without asking**, and on a metered connection do not

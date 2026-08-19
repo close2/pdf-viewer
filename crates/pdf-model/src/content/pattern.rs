@@ -12,7 +12,7 @@ use pdf_render::{
     BlendMode, ClipId, Color, Command, DisplayListError, FillRule, Paint, Path, PathCommand, Point,
     Rect, Shading, ShadingKind, Transform,
 };
-use pdf_syntax::{Dictionary, Object};
+use pdf_syntax::{Dictionary, Name, Object};
 
 use crate::colour::ColourSpace;
 
@@ -721,7 +721,7 @@ impl Interpreter<'_> {
     /// it paints nothing, so the covered area is only ever as large as the shading says.
     pub(super) fn paint_shading(
         &mut self,
-        name: &str,
+        name: &Name,
         resources: &Dictionary,
         state: &GraphicsState,
     ) {
@@ -731,9 +731,11 @@ impl Interpreter<'_> {
         if self.is_hidden() {
             return;
         }
+        // The name's bytes do the finding (§7.3.5, `resources.rs`); the text says so afterwards.
+        let label = String::from_utf8_lossy(name.as_bytes()).into_owned();
         let Some(object) = self.resource_entry(resources, "Shading", name) else {
             self.note(Unsupported::Shading {
-                name: format!("/{name} is not in /Shading"),
+                name: format!("/{label} is not in /Shading"),
             });
             return;
         };
@@ -786,7 +788,7 @@ impl Interpreter<'_> {
                 });
             }
             Err(error) => self.note(Unsupported::Shading {
-                name: format!("/{name}: {error}"),
+                name: format!("/{label}: {error}"),
             }),
         }
     }
@@ -805,12 +807,13 @@ impl Interpreter<'_> {
     /// miss is reported rather than left to look like a producer's transparent figure.
     pub(super) fn pattern(
         &mut self,
-        name: &str,
+        name: &Name,
         resources: &Dictionary,
         tint: &[f32],
         state: &GraphicsState,
         fill: bool,
     ) -> Option<PatternPaint> {
+        let label = String::from_utf8_lossy(name.as_bytes()).into_owned();
         let Some(object) = self.resource(resources, "Pattern", name) else {
             self.note_missing_resource("Pattern", name, "is not in /Pattern");
             return None;
@@ -831,13 +834,13 @@ impl Interpreter<'_> {
         match self.document.get_key(&dict, "PatternType").as_integer() {
             Some(1) => {
                 return self
-                    .tiling(name, &object, &dict, tint, state, fill)
+                    .tiling(&label, &object, &dict, tint, state, fill)
                     .map(PatternPaint::Tiling);
             }
             Some(2) => {}
             other => {
                 self.note(Unsupported::Shading {
-                    name: format!("/{name} is pattern type {}", other.unwrap_or(0)),
+                    name: format!("/{label} is pattern type {}", other.unwrap_or(0)),
                 });
                 return None;
             }
@@ -869,7 +872,7 @@ impl Interpreter<'_> {
             )),
             Err(error) => {
                 self.note(Unsupported::Shading {
-                    name: format!("/{name}: {error}"),
+                    name: format!("/{label}: {error}"),
                 });
                 None
             }

@@ -3,8 +3,30 @@
 //! Three shapes of the same question — resolved, unresolved (identity matters for §8.11's
 //! optional content groups), and by way of a memoised category table — plus the report a
 //! name nobody defined earns.
+//!
+//! # A resource name is bytes, and that decides the signature
+//!
+//! Every lookup here takes a [`Name`] rather than a `&str`, because §7.3.5 states both what a
+//! name is and what makes two of them the same one:
+//!
+//! > Beginning with PDF 1.2 a name object is an atomic symbol uniquely defined by a sequence of
+//! > any characters (8-bit values) except null (character code 0). Uniquely defined means that
+//! > any two name objects that, after all escaping is expanded (see below), and the resulting
+//! > sequences of bytes are not an exact binary match denote different objects.
+//!
+//! and the same clause says what the bytes are not: "Ordinarily, the bytes making up the name are
+//! never treated as text to be presented to a human user or to an application external to a PDF
+//! processor." A producer that writes `/Contr#F4le` states a name whose sixth byte is 0xF4, which
+//! is not valid UTF-8 on its own. Converting such a name to a `String` before the lookup — which
+//! this module's callers did until the six-hundred-and-third session — replaces that byte with
+//! U+FFFD, so the probe's bytes are not the key's bytes and a resource the file *does* define
+//! cannot be found. ADR 0438: the witness draws a full-page scan in `poppler`, `mupdf` and
+//! `ghostscript` and drew a blank sheet here, reported as a resource nobody defined.
+//!
+//! Text is still what a *report* wants, and that conversion belongs at the report rather than at
+//! the lookup — [`Interpreter::note_missing_resource`] is where it happens, once.
 
-use pdf_syntax::{Dictionary, Object};
+use pdf_syntax::{Dictionary, Name, Object};
 
 use super::Interpreter;
 use super::report::Unsupported;
@@ -29,7 +51,7 @@ impl Interpreter<'_> {
     pub(super) fn note_missing_resource(
         &mut self,
         category: &'static str,
-        name: &str,
+        name: &Name,
         issue: &str,
     ) {
         if self.is_hidden() {
@@ -37,7 +59,7 @@ impl Interpreter<'_> {
         }
         self.note(Unsupported::MissingResource {
             category,
-            detail: format!("/{name} {issue}"),
+            detail: format!("/{} {issue}", String::from_utf8_lossy(name.as_bytes())),
         });
     }
 
@@ -46,7 +68,7 @@ impl Interpreter<'_> {
         &self,
         resources: &Dictionary,
         category: &str,
-        name: &str,
+        name: &Name,
     ) -> Option<Object> {
         Some(
             self.document
@@ -64,19 +86,19 @@ impl Interpreter<'_> {
         &self,
         resources: &Dictionary,
         category: &str,
-        name: &str,
+        name: &Name,
     ) -> Option<Object> {
         match resources.get(category)? {
             // Already in hand: read the entry out of the table rather than copying the table
             // to do it. This is the common shape and it costs nothing.
-            Object::Dictionary(table) => table.get(name).cloned(),
+            Object::Dictionary(table) => table.get_by_name(name).cloned(),
             // The expensive shape, and [`Interpreter::resource_tables`] is why: a reference is
             // resolved by *copying* the object out of the document's cache, so a page with one
             // entry per operator pays the whole table per operator.
             Object::Reference(id) => {
                 let id = *id;
                 if let Some(table) = self.resource_tables.borrow().get(&id) {
-                    return table.get(name).cloned();
+                    return table.get_by_name(name).cloned();
                 }
                 let resolved = self.document.get(id);
                 let Some(table) = resolved.as_dict() else {
@@ -86,14 +108,19 @@ impl Interpreter<'_> {
                         .document
                         .resolve(&resolved)
                         .as_dict()?
-                        .get(name)
+                        .get_by_name(name)
                         .cloned();
                 };
-                let entry = table.get(name).cloned();
+                let entry = table.get_by_name(name).cloned();
                 self.resource_tables.borrow_mut().insert(id, table.clone());
                 entry
             }
-            other => self.document.resolve(other).as_dict()?.get(name).cloned(),
+            other => self
+                .document
+                .resolve(other)
+                .as_dict()?
+                .get_by_name(name)
+                .cloned(),
         }
     }
 
@@ -108,9 +135,9 @@ impl Interpreter<'_> {
         &self,
         resources: &Dictionary,
         category: &str,
-        name: &str,
+        name: &Name,
     ) -> Option<Object> {
         let table = self.document.get_key(resources, category);
-        Some(table.as_dict()?.get(name)?.clone())
+        Some(table.as_dict()?.get_by_name(name)?.clone())
     }
 }

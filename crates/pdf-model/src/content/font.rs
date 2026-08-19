@@ -236,7 +236,7 @@ impl Interpreter<'_> {
     ///
     /// A failure is cached too: a page that names an unloadable font on every `Tf` should
     /// pay for the attempt once, and should report it once.
-    pub(super) fn font(&mut self, resources: &Dictionary, name: &str) -> Option<Font> {
+    pub(super) fn font(&mut self, resources: &Dictionary, name: &Name) -> Option<Font> {
         // **Keyed by the font's identity, never by the name the stream used.** A resource name
         // is scoped to the resource dictionary that defines it, and §8.10.1 gives a form
         // `XObject` a `/Resources` of its own — so a page's `/F1` and a form's `/F1` are two
@@ -244,9 +244,12 @@ impl Interpreter<'_> {
         // first's glyphs with nothing reported. That is trap 1's archetype, and it is what this
         // cache did for thirty-one sessions. `shading::Cache` had the same question and the
         // same answer (see `resource_entry`, whose whole reason for existing is this one).
+        // §9.6.2.2's fourteen are ASCII names, so a resource name that is not text cannot be one
+        // of them and `as_str` returning `None` is that answer rather than a lost lookup.
+        let label = String::from_utf8_lossy(name.as_bytes());
         let entry = self
             .resource_entry(resources, "Font", name)
-            .or_else(|| standard_font_named(name));
+            .or_else(|| name.as_str().and_then(standard_font_named));
         let key = entry
             .as_ref()
             .and_then(Object::as_reference)
@@ -254,7 +257,7 @@ impl Interpreter<'_> {
         let dict = entry
             .map(|object| self.document.resolve(&object))
             .and_then(|object| object.as_dict().cloned());
-        self.load_font(key, dict.as_ref(), name)
+        self.load_font(key, dict.as_ref(), &label)
     }
 
     /// Loads a font, caching it under `key`, which is what `Tf` and Table 57's `/Font` share.
