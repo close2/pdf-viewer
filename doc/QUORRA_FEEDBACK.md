@@ -3100,6 +3100,8 @@ repeated.
 
 ### 27.4 What is still ours, and one thing we now want to know
 
+- **Both censuses and the fifth frame are §34's, and all three are closed.** What follows was
+  written when they were not.
 - **The two censuses are still open and still ours** — the rectangular-fill census and the
   `(clip_residue_regions, clip_residue_tiles)` distribution. Your §5's `artwork` at 1.2× against the
   drawing's 6.6× makes the second one the more interesting of the two, exactly as you said: it is
@@ -3443,6 +3445,9 @@ offset to the later one. It is right for the reason you give and not because a p
 which is the same standard we would want applied to anything we sent you.
 
 ### 28.9 What is still ours
+
+**Both censuses were walked in §34** — 3.14% of this corpus states any residue at all — and the
+two bullets below stand as they were written.
 
 - **The residue census** — the `(clip_residue_regions, clip_residue_tiles)` distribution — is the
   one of our two open censuses that matters, for the reason you gave and your artwork archetype at
@@ -3881,3 +3886,129 @@ What we would like, in the order we would value it:
 **What we are not asking for**: nothing about the segments' own copy or the validation walk. Those
 are 266 M of the 1 743 M, they are the price of the boundary being a boundary, and the budget you
 charge for both forms is right as long as both are stored.
+
+---
+
+## 34. Both censuses walked, and the fifth-frame loss does not reproduce — the two things this document has recorded as ours since §25
+
+Written in the six-hundredth session against the pin this tree holds, on the project owner's own
+adapter (AMD Radeon 890M, RADV STRIX1) with no window. `render_quorra::options()` names no adapter,
+so a headless device lands on the real hardware here and every number below is that.
+
+The instrument is `crates/render-quorra/examples/rect_and_residue_census.rs`, and it is **one walk
+over the corpus** as §25.4 said it would be: the pdf.js corpus's 974 documents, first page each, at
+1×, which is `tests/corpus.rs`'s own population and scale. It was run twice and the two outputs are
+byte-for-byte identical — this project has had a census whose answer moved between runs, and an
+instrument that cannot answer the same thing twice establishes nothing.
+
+What it looked at, before any share is taken of anything: **955 pages drawn, 3 refused by the
+device, 16 not readable as a first page**, and **223 532 fills** reached across every page walked.
+
+### 34.1 The residue census — 3.14% of this corpus is in the shape at all, and it is not evenly spread
+
+`(clip_residue_regions, clip_residue_tiles)`, over the 955 pages a frame was counted for:
+
+| | pages |
+|---|---:|
+| report `(0, 0)` — no chain whose links are not all rectangles | **925** |
+| report a region or a tile | **30** (3.14%) |
+| of those: regions only | 20 |
+| of those: tiles only | 4 |
+| of those: both | 6 |
+
+**236 regions and 1 136 tiles in total.** The distribution is the answer rather than the totals,
+and it is short enough to print whole — the head of it, ordered by what the page paid:
+
+| regions | tiles | page |
+|---:|---:|---|
+| 4 | 408 | `issue14297.pdf` |
+| 3 | 330 | `pattern_text_embedded_font.pdf` |
+| 2 | 185 | `issue2177.pdf` |
+| 14 | 169 | `issue6961.pdf` |
+| 141 | 0 | `bug1703683_page2_reduced.pdf` |
+| 1 | 16 | `issue17069.pdf` |
+| 0 | 13 | `issue12810.pdf` |
+| 12 | 0 | `issue13520.pdf` |
+| 12 | 0 | `issue840.pdf` |
+| 10 | 0 | `personwithdog.pdf` |
+
+Three things in it are worth your reading, and the first is the one you asked for.
+
+- **Ninety-seven per cent of this corpus is in the cheap shape.** Your `artwork` archetype gains
+  1.2× from the divided encode where your drawing gains 6.6×, and residue-clipped marks are what
+  separates them; on this corpus, 925 pages of 955 have no residue at all, so **the population that
+  gets 6.6× is nearly all of it** and the 1.2× one is thirty pages. That is the number §25.3 and
+  §28.9 were asking for, and it says the divided encode was aimed at the right population. It also
+  says that dividing the residue rasterisation — your §6's "further round" — would move thirty
+  pages of this corpus, which is our evidence for *not* asking you for it.
+- **`bug1703683_page2_reduced.pdf` is 141 regions and not one tile**, which is your ADR 0057
+  arriving in a counter: it is the page whose 4× refusal came off in our five-hundred-and-seventy-sixth
+  session when a clipped mark's coverage tile started being sized by its chain's own bounding box.
+  A page that pays 141 regions and no tiles is a page where `admit` said yes every time.
+- **The four tiles-only pages are the rule working, not failing.** `issue12810.pdf`, `issue17730.pdf`,
+  `issue16287.pdf` and `issue6231_1.pdf` pay 13, 9, 4 and 1 tile with no region between them: the
+  region would have cost more than the tiles it replaced, which is `ResidueRegions::admit`'s first
+  half declining before anything was allocated. Neither is an error and neither changes a pixel —
+  we are recording it because a decline nobody counts is a cost nobody adds up, and now somebody
+  has counted it.
+
+### 34.2 The rectangular-fill census — 6.30% of this corpus's fills are rectangles, 5.81% reach the device as one
+
+Demoted by §28.9 to "a fact about the corpus rather than a decision input", and it stays that; here
+is the fact.
+
+| | fills | share |
+|---|---:|---:|
+| fills reached, over every page walked | 223 532 | |
+| are one axis-aligned rectangle and nothing else | 14 072 | **6.30%** |
+| of those, reach the device as one — the transform preserves the axes | 12 977 | **5.81%** |
+
+One caution on the fill rows, which is ours rather than yours: a glyph is a fill in this tree's
+display list, and one fill of the 223 532 moved between two builds of the session that measured
+them — not from the source, which was checked, and most likely from a font substituted off this
+machine. It moves no share by a hundredth of a point; we mention it because you would be right to
+ask what a fill *is* here.
+
+The predicate is `pdf_render::crop::whole_rectangle`, the one this tree's shipping crop path uses,
+made public for the census rather than copied into it: a census carrying its own rectangle test
+measures a second implementation of the test. The two rows are apart because they are two
+questions — a rectangle in the path's own space is a rectangle on the device only where the
+transform in force maps the axes onto the axes, and 1 095 of this corpus's rectangles do not.
+
+§19 is unchanged and this does not amend it: **not one corpus page emits a `Command::Rect`**, because
+this tree states every fill as a path. What the census adds is the size of what your ADR 0047's lane
+picks up on a corpus like this one — about one fill in seventeen — which is worth knowing on both
+sides and is a decision input for neither.
+
+### 34.3 The fifth-frame tile-cache loss — not a repack, and it does not reproduce
+
+Our §2 reported it, declined to call it a defect, and your §7 said to start at `Counters::atlas_repacked`.
+We did, and the answer is that there is nothing there to chase.
+
+ADR 0368's session was the project owner's 49.7 MB drawing driven by `xdotool` — settle, `+`, `+`,
+`-`, `-` — where the fourth frame returned to the second's magnification and paid almost no
+geometry while the *fifth* returned to the first's and paid full geometry again (406.3 ms). What
+that left open was whether the atlas had thrown the fit view's tiles away or whether the transform
+differed where that round did not look.
+
+`examples/zoom_frame.rs` now takes `ZOOM_FRAME_SEQUENCE`, which is its two-frame pair generalised to
+a session's magnifications in order against one device, and its frame line carries `repacked`. The
+same five frames, at the same fit view (801×228), run twice:
+
+| frame | zoom | total ms | encode ms | repacked |
+|---|---|---:|---:|---|
+| 1 | fit | 726.7 / 667.9 | 188.4 / 152.6 | no |
+| 2 | ×1.25 | 492.9 / 465.3 | 203.6 / 192.5 | no |
+| 3 | ×1.5625 | 465.5 / 441.0 | 193.8 / 186.5 | no |
+| 4 | ×1.25 | **91.0 / 90.5** | 75.4 / 73.7 | no |
+| 5 | **fit** | **92.3 / 93.1** | 76.4 / 82.2 | no |
+
+**The fifth frame is as cheap as the fourth**, at about a fifth of a frame at a new magnification,
+and `atlas_repacked` is false on every frame of the session. So it was never a repack — and on this
+tree at this revision the loss itself is gone: the atlas holds the fit view's tiles across three
+intervening magnifications. Between then and now this side landed ADR 0402's outline identity fix (a
+shear made an outline new every frame, which is exactly a key going foreign) and took two of your
+releases; we are not attributing it to either without a bisection nobody needs, because what the
+counter establishes is that the one cause you named is not it.
+
+**Nothing is asked of you in this section.** All three items were ours and all three are closed.

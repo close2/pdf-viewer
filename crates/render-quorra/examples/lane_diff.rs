@@ -2,7 +2,7 @@
 //!
 //! `tests/corpus.rs` runs one lane per invocation and writes an artefact only where that lane
 //! differs, so a page that differs on **one** lane leaves no picture of the other — which is
-//! exactly the population `doc/todo/54` item 4 is about: the two lanes' differing sets have the
+//! exactly the population ADR 0413 is about: the two lanes' differing sets have the
 //! same size and not the same members. This renders each named document's first page three
 //! times — the oracle, `Coverage::Cpu`, `Coverage::Gpu` — prints all three pairwise
 //! comparisons, and writes the three rasters so the side-by-side can be looked at.
@@ -27,7 +27,7 @@ use pdf_syntax::Document;
 use render_cpu::CpuRasterizer;
 use render_quorra::QuorraRasterizer;
 
-/// The pages `doc/todo/54` item 4 named: two each lane differs on alone.
+/// The pages ADR 0413 named: two each lane differs on alone.
 const DEFAULT: [&str; 4] = ["bug1743245", "issue21068", "bug1863910", "issue16500"];
 
 fn main() {

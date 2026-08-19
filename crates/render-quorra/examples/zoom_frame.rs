@@ -11,7 +11,17 @@
 //! cargo run --release -p render-quorra --example zoom_frame -- <file.pdf> [page] [scale] [factor]
 //! ZOOM_FRAME_ENCODE_PHASES=1 cargo run --release -p render-quorra --example zoom_frame -- …
 //! ZOOM_FRAME_ROUNDS=5        cargo run --release -p render-quorra --example zoom_frame -- …
+//! ZOOM_FRAME_SEQUENCE=1,1.25,1.5,1.25,1 cargo run … --example zoom_frame -- …
 //! ```
+//!
+//! **`ZOOM_FRAME_SEQUENCE` is the two-frame pair generalised to a session**, and it is what
+//! answers ADR 0368's open question: that ADR's fourth frame returned to the second's
+//! magnification and paid almost no geometry, and its *fifth* returned to the first's and paid
+//! full geometry again — leaving open whether the atlas had thrown the fit view's tiles away or
+//! whether the transform differed where that round did not look. The factors are multipliers on
+//! `scale`, drawn in order against one device, and each frame's line now carries `repacked` when
+//! quorra says it threw every tile placement away after it. Default: `1,<factor>`, which is the
+//! pair, at the same two targets, so every earlier table taken with this example is comparable.
 //!
 //! **Two frames, one device, one page.** Frame 1 places the page at `scale`; frame 2 places the
 //! same display list — the same `Arc`, so every outline is a cache hit — at `scale × factor`.
@@ -79,6 +89,8 @@ struct Sample {
     commands: u32,
     culled: u32,
     replayed: bool,
+    /// Whether the device threw every tile's atlas placement away after this frame.
+    repacked: bool,
     phases: Vec<(String, f64)>,
 }
 
@@ -116,6 +128,7 @@ impl Sample {
             commands: cost.commands,
             culled: cost.commands_culled,
             replayed: matches!(cost.encode_source, Some(quorra_gpu::EncodeSource::Replayed)),
+            repacked: cost.atlas_repacked,
             phases: phases
                 .iter()
                 .map(|(name, spent)| ((*name).to_owned(), ms(*spent)))
@@ -190,11 +203,21 @@ fn main() {
             transform: page.transform.then(centre),
         }
     };
-    let first = placed(scale);
-    let second = placed(scale * factor);
+    // The default is the pair every earlier measurement of this example was taken at; a
+    // sequence names the magnifications a *session* visits, in order, on one device.
+    let sequence: Vec<f32> = variable("ZOOM_FRAME_SEQUENCE").map_or_else(
+        || vec![1.0, factor],
+        |spec| {
+            spec.split(',')
+                .map(|zoom| zoom.trim().parse().expect("a zoom factor"))
+                .collect()
+        },
+    );
+    assert!(!sequence.is_empty(), "a sequence needs a frame in it");
+    let targets: Vec<TargetSpec> = sequence.iter().map(|zoom| placed(scale * zoom)).collect();
 
     let before = load_average();
-    let mut best: Vec<Option<Sample>> = vec![None, None];
+    let mut best: Vec<Option<Sample>> = targets.iter().map(|_| None).collect();
     let mut adapter = String::new();
     for _ in 0..rounds {
         let mut backend = render_quorra::QuorraRasterizer::with_options(&quorra_gpu::Options {
@@ -204,7 +227,7 @@ fn main() {
         })
         .expect("an adapter");
         backend.adapter_description().clone_into(&mut adapter);
-        for (slot, target) in best.iter_mut().zip([first, second]) {
+        for (slot, target) in best.iter_mut().zip(targets.iter().copied()) {
             let frame = PresentFrame {
                 width: target.width,
                 height: target.height,
@@ -250,12 +273,11 @@ fn main() {
         "up",
         "culled"
     );
-    for (name, target, sample) in [
-        ("before", first, best[0].as_ref().expect("a first frame")),
-        ("zoom", second, best[1].as_ref().expect("a second frame")),
-    ] {
+    for (order, (zoom, target)) in sequence.iter().zip(&targets).enumerate() {
+        let sample = best[order].as_ref().expect("a frame at every rung");
+        let name = format!("{}:{zoom}×", order.saturating_add(1));
         println!(
-            "{name:<8}{:>10}{:>9.1}{:>8.1}{:>8.1}{:>8.1}{:>8.1}{:>9.1}{:>10.1}{:>8.1}{:>9.1}{:>11}{:>7}{:>8}{}",
+            "{name:<8}{:>10}{:>9.1}{:>8.1}{:>8.1}{:>8.1}{:>8.1}{:>9.1}{:>10.1}{:>8.1}{:>9.1}{:>11}{:>7}{:>8}{}{}",
             format!("{}x{}", target.width, target.height),
             sample.total,
             sample.scene,
@@ -269,7 +291,8 @@ fn main() {
             sample.bytes,
             sample.uploads,
             sample.culled,
-            if sample.replayed { " replayed" } else { "" }
+            if sample.replayed { " replayed" } else { "" },
+            if sample.repacked { " repacked" } else { "" }
         );
         println!(
             "        {} command(s) encoded, {} outline segment(s) handed over",

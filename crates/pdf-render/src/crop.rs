@@ -65,7 +65,7 @@ pub fn cropped_rectangle(path: &Path, to_device: Transform, admits: Rect) -> Opt
     if !to_device.preserves_axes() || admits.contains(hull.mapped(to_device)) {
         return None;
     }
-    let (min, max) = the_whole_rectangle(path)?;
+    let (min, max) = whole_rectangle(path)?;
 
     // Back into the path's own space, where the corners that survive are the caller's own.
     // Mapping the rectangle *forward* and cropping there would restate every corner.
@@ -103,7 +103,14 @@ pub fn cropped_rectangle(path: &Path, to_device: Transform, admits: Rect) -> Opt
 /// Stricter than [`Path::narrowest_rectangle`], which asks whether *some* subpath is one: a
 /// path holding a rectangle and anything else is not a path that may be replaced by a
 /// rectangle.
-fn the_whole_rectangle(path: &Path) -> Option<(Point, Point)> {
+///
+/// The corners are in the path's own space; whether the *device* sees a rectangle is the
+/// caller's second question and [`Transform::preserves_axes`] is what answers it — which is
+/// why the two are apart. It is public because a census asks exactly this question of a
+/// corpus (`render-quorra/examples/rect_and_residue_census.rs`), and a census that carried its
+/// own copy of the predicate would be measuring a second implementation of it.
+#[must_use]
+pub fn whole_rectangle(path: &Path) -> Option<(Point, Point)> {
     let commands = path.commands();
     let mut only: Option<(Point, Point)> = None;
     for extent in subpath_extents(path) {

@@ -117,6 +117,8 @@ pub struct QuorraRasterizer {
     /// The window frame [`QuorraRasterizer::rasterize_frame`] last drew, kept for the next one.
     slot: present::FrameSlot,
     last: FrameCost,
+    /// See [`QuorraRasterizer::last_clip_residue`].
+    residue: (u32, u32),
     functions: FunctionPaints,
     /// See [`QuorraRasterizer::last_phases`]; filled rather than replaced, so it allocates once.
     phases: Vec<(&'static str, std::time::Duration)>,
@@ -166,6 +168,7 @@ impl QuorraRasterizer {
             caches: cache::ResourceCaches::new(),
             slot: present::FrameSlot::default(),
             last: FrameCost::default(),
+            residue: (0, 0),
             functions: FunctionPaints::default(),
             phases: Vec::new(),
         })
@@ -227,6 +230,9 @@ impl QuorraRasterizer {
     ) -> Result<Raster, QuorraRasterError> {
         let began = std::time::Instant::now();
         self.last = FrameCost::default();
+        // This path does not report the residue pair, and a pair left over from an earlier
+        // `rasterize` would read as this frame's. Cleared rather than kept.
+        self.residue = (0, 0);
         let drawn = self.slot.render(
             &mut self.device,
             &mut self.caches,
@@ -271,6 +277,24 @@ impl QuorraRasterizer {
     #[must_use]
     pub fn last_function_paints(&self) -> &FunctionPaints {
         &self.functions
+    }
+
+    /// How the last [`Rasterizer::rasterize`] paid for §8.5.4's clip chains that are not all
+    /// rectangles: `(regions, tiles)` — chains rasterised once over their own region, and
+    /// rasterisations charged to a single command's tile because a region would have cost more
+    /// than the tiles it replaced (quorra's ADR 0049).
+    ///
+    /// **Deliberately not a [`FrameCost`] field**, which is the argument
+    /// `doc/QUORRA_FEEDBACK.md` section 25.3 made to the quorra team and this keeps: the pair answers a question about a *corpus*
+    /// — how much of it is in the expensive shape — and a number printed on every frame of a
+    /// window to answer that is the wrong instrument in the wrong place. It is here because a
+    /// census is the right one, and a census needs a way to ask.
+    ///
+    /// A four-component page renders twice ([`Rasterizer::rasterize`] draws the ink pass against
+    /// the same device), and what is reported is the **last** of those renders.
+    #[must_use]
+    pub fn last_clip_residue(&self) -> (u32, u32) {
+        self.residue
     }
 }
 
@@ -370,6 +394,8 @@ impl QuorraRasterizer {
         // released ids. Discarding it first is three lines against a class of reasoning about
         // an instance used both ways, which nothing in this tree does but nothing forbids.
         self.slot.discard(&mut self.device)?;
+        // A refused frame has no counters, and the previous page's pair is not this page's.
+        self.residue = (0, 0);
         self.caches.begin_frame();
         let mut builder = quorra_scene::SceneBuilder::new();
         let mut transient: Vec<ResourceId> = Vec::new();
@@ -432,6 +458,8 @@ impl QuorraRasterizer {
         }
         // Read after the refusals above, because these are a *drawn* frame's own numbers.
         cost.read(&frame, &mut self.phases);
+        let counters = frame.counters();
+        self.residue = (counters.clip_residue_regions, counters.clip_residue_tiles);
 
         Ok(frame.into_raster()?.into_pixels())
     }

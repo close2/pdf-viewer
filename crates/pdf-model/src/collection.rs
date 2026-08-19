@@ -434,17 +434,21 @@ pub fn folder_of(key: &str) -> Option<(u32, &str)> {
 
 /// Whether a string is a *file name* by §12.3.5.2's five requirements.
 ///
-/// The clause's bullets: a PDF text string, with no "embedded NULL (U+0000) characters", none
-/// of "the eight special characters" it then lists, and a last character that "shall not be a
-/// FULL STOP (U+002E) (.)". The
+/// The clause's bullets: a PDF text string, with no "embedded NULL (U+0000) characters", a
+/// length where "[t]he number of characters in the string shall be between 1 and 255 inclusive",
+/// none of "the eight special characters" it then lists, and a last character that "shall not be
+/// a FULL STOP (U+002E) (.)". The
 /// clause leaves what to do about a bad one open — "[a]n interactive PDF processor may choose to
 /// support invalid names or not" — so this answers the question and refuses nothing.
 ///
-/// The length limit the clause states is on characters rather than bytes, and it is not applied
-/// here: this reader stores names it did not create, and truncating one would rename a file.
+/// The bound is counted in **characters** rather than bytes, which is what the sentence says, so
+/// a text string's scalar values are counted and not its UTF-8 length. It used to be left out
+/// here on a reason that named an operation this function does not perform — that truncating a
+/// name would rename a file — while the doc line above it claimed the clause's five rules and
+/// the code applied four (session 600).
 #[must_use]
 pub fn is_file_name(name: &str) -> bool {
-    !name.is_empty()
+    (1..=255).contains(&name.chars().count())
         && !name.ends_with('.')
         && !name
             .chars()
@@ -916,7 +920,8 @@ mod tests {
         );
     }
 
-    /// §12.3.5.2's file name rules: eight characters, no NUL, and no trailing full stop.
+    /// §12.3.5.2's file name rules: eight characters, no NUL, a length between 1 and 255, and no
+    /// trailing full stop.
     #[test]
     fn a_folder_name_is_a_file_name_by_the_clauses_five_rules() {
         assert!(is_file_name("Invoices 2024"));
@@ -929,7 +934,16 @@ mod tests {
             "the last character is a full stop"
         );
         assert!(!is_file_name("nul\0inside"));
-        assert!(!is_file_name(""));
+        assert!(!is_file_name(""), "the bound's low end is 1");
+        assert!(
+            is_file_name(&"a".repeat(255)),
+            "\"between 1 and 255 inclusive\" includes 255"
+        );
+        assert!(!is_file_name(&"a".repeat(256)), "and excludes 256");
+        assert!(
+            is_file_name(&"é".repeat(255)),
+            "the bound counts characters, and 255 of these are 510 bytes"
+        );
     }
 
     /// A folder tree, a navigator's layout preference, colours and a splitter bar.
