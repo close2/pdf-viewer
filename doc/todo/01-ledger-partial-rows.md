@@ -3150,6 +3150,17 @@ characters above its own record that they do, and the five-hundred-and-twenty-th
 second quotation of it four sentences from that record while writing ADR 0358. The rest are the
 annotations sessions 417 to 419 wrote in place and four dated ADR records.
 
+**And the marker was half the erratum, which the six-hundred-and-fifth found by reading the list
+again** (ADR 0440). Every hit still on the read-first list that lived under `crates/` was *correct
+writing* — `structure.rs` saying an erratum "replaced it", `type3.rs` saying one "replaces" a
+sentence, `write.rs` saying one "has edited that sentence", three places round §12.5.2 saying Issue
+#287 "sharpens" the `/BS` precedence. `HISTORY` carried the verbs for what an erratum **removes** and
+none for what it **puts there**, and both retire the quoted words equally. `replace` and `sharpen`
+join it; **`makes it` does not**, because the note this sweep was built for opens with it — that is
+the same line ADR 0426 drew against borrowing `blockers::HISTORY`'s `said`, and it is a test now
+rather than a sentence. The read-first list falls 22 → 10, which is where a round wanting to read one
+starts.
+
 **And the round that built it repaired the twelfth sweep's comparison**, which had been blind to two
 spellings this project's own rules produce: `CLAUDE.md`'s `"[e]ncloses"` for an altered first letter,
 and the em dash `doc/md/` writes as a hyphen in a table caption. `squeezed` is

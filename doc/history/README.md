@@ -19,8 +19,12 @@ earned.
 ## Why a directory rather than another row
 
 `doc/history.md` is a table with one row per session and it holds 5 to 445. It works, and it is
-kept exactly as it is. What it cannot do is take more than a sentence without the table becoming
-unreadable, and that is the pressure that produced this round's whole problem: a round with more to
+kept exactly as it is. **The one thing still written there is a *block* summary** — what a run of
+twenty or thirty rounds had in common — which a closing round appends below the table beside the
+others, because it is about a run of rounds rather than about one and the per-round files already
+hold each. That is the only exception to "a round writes one file here and nothing else about
+itself", and it belongs to the closing round alone. What the table cannot do is take more than a
+sentence without becoming unreadable, and that is the pressure that produced this round's whole problem: a round with more to
 say than a cell holds says it somewhere a round *reads*, and the gate table in `doc/HANDOVER.md`
 grew 816 lines of per-round narrative that way.
 

@@ -18,7 +18,11 @@ you find yourself retelling a session here, you are undoing that (ADRs 0232, 028
 **And the round's own record is one *new file*, never an edit to an existing one.** Write
 `doc/history/<session>-<slug>.md` — a file that did not exist before, named so that `ls` sorts it
 last — and write nothing about the round anywhere else. A round does **not** append to
-`doc/history.md`, which holds sessions 5 to 445 and is closed; it does not extend a table here, in
+`doc/history.md`, whose table holds sessions 5 to 445 and is closed — **a *closing* round is the
+one exception**, and what it appends is its block summary, below that table, beside the other
+blocks' (`doc/history.md`'s own preamble has the rule; this file and
+[`doc/history/README.md`](history/README.md) both stated the prohibition without its exception
+until the six-hundred-and-fifth round went looking for it). It does not extend a table here, in
 [`doc/todo/README.md`](todo/README.md) or in [`doc/todo/02-every-round.md`](todo/02-every-round.md);
 and it does not touch a neighbouring session's file. One round, one added file, and
 [`doc/history/README.md`](history/README.md) says what goes in it.

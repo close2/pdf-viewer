@@ -91,13 +91,30 @@ pub const HISTORY_WINDOW: usize = 400;
 /// with every object a strikeout can take — "strikes the whole sentence", "struck outright",
 /// "strikes §9.6.2.2's". They are the commonest mark by a distance, which is what one would
 /// expect: a writer recording an erratum says what it removed.
-pub const HISTORY: [&str; 11] = [
+///
+/// **`replace` and `sharpen` were missing and the whole read-first list was the cost.** An
+/// erratum has two halves and this list only carried the verbs for the first: a writer who
+/// records what the collection *removed* was marked, and a writer who records what it *put
+/// there* was not — "Errata Collection 3 replaced it" in `structure.rs`, "replaces Table 368's
+/// descriptions", "sharpens it to *shall be ignored*" in three places round §12.5.2. Both stems
+/// are bare for `strikes`' own reason: this tree writes `replaces`, `replaced`, `replacement`,
+/// `sharpens` and `sharpened`.
+///
+/// **And `makes it` is deliberately not here**, which is the same argument as `said` above with
+/// a second instance behind it: the §14.8.4.7.2 note this sweep was built for opens "Errata
+/// Collection 3 makes it enclosure (Issue #437)" and then quotes the struck sentence three
+/// sentences later. A phrase that says an erratum changed *something* is not a phrase that
+/// retires *the quoted words*, and adding it would mark this sweep's founding defect as noise —
+/// which `a_phrase_that_only_says_an_erratum_changed_something_does_not_mark` holds.
+pub const HISTORY: [&str; 13] = [
     "used to",
     "was corrected",
     "retired",
     "no longer",
     "struck",
     "strikes",
+    "replace",
+    "sharpen",
     "amended",
     "stays",
     "the old one",
@@ -857,6 +874,48 @@ mod tests {
         let report = sweep(&[form_description()], &[place(note)]);
         assert_eq!(report.hits.len(), 1, "printed rather than filtered");
         assert!(report.hits.first().expect("one hit").history);
+    }
+
+    /// A correction written from the *replacement* side is the other half of the same shape, and
+    /// [`HISTORY`] could not see it until the six-hundred-and-fifth session: every hit in the
+    /// read-first list that lived under `crates/` was writing of this kind.
+    #[test]
+    fn a_correction_written_from_the_replacement_side_is_marked() {
+        let quotation = "\"[e]ither an association between content enclosed by the Form \
+                         structure element and a corresponding widget annotation or a mechanism \
+                         to include a widget annotation in the structure tree\"";
+        for note in [
+            format!(
+                "The 2020 type is {quotation}, and Errata Collection 3 replaced it with an enclosure (Issue #437)."
+            ),
+            format!("The 2020 type is {quotation}, which Issue #437 sharpens to an enclosure."),
+        ] {
+            let report = sweep(&[form_description()], &[place(&note)]);
+            assert_eq!(report.hits.len(), 1, "printed rather than filtered");
+            assert!(
+                report.hits.first().expect("one hit").history,
+                "a writer recording what the collection put there has retired the quoted words \
+                 as surely as one recording what it removed: {note}"
+            );
+        }
+    }
+
+    /// The line [`HISTORY`] may not cross, held as a test because it is an argument rather than
+    /// a rule a reader can see in the array: a phrase saying an erratum changed *something* is
+    /// not a phrase retiring *the quoted words*, and the note this sweep was built for opens
+    /// with one.
+    #[test]
+    fn a_phrase_that_only_says_an_erratum_changed_something_does_not_mark() {
+        let note = "Errata Collection 3 makes it enclosure (Issue #437), and the type is \
+                    \"[e]ither an association between content enclosed by the Form structure \
+                    element and a corresponding widget annotation or a mechanism to include a \
+                    widget annotation in the structure tree\".";
+        let report = sweep(&[form_description()], &[place(note)]);
+        assert_eq!(report.hits.len(), 1);
+        assert!(
+            !report.hits.first().expect("one hit").history,
+            "`makes it` would mark this sweep's founding defect as noise"
+        );
     }
 
     /// An erratum that only deletes has no replacement side, so a quotation of what it removed

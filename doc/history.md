@@ -19,9 +19,12 @@ narrative by that file's own definition, and a round needs it only when it is as
 The block summaries below it are the same shape one level up — what a run of twenty or thirty rounds
 had in common — and they are kept because each states a finding the per-session rows cannot. The one
 measurement lesson the first of them carried went to `doc/habits.md`'s "Measuring", where it is used.
-A closing round writes one; there are two, for 315–334 and for 416–445, and a closing round from
-446 on appends its summary here rather than to its own file, because a summary is about a *run* of
-rounds and belongs beside the others.
+A closing round writes one, and appends it here rather than to its own file, because a summary is
+about a *run* of rounds and belongs beside the others. They run in session order below the table.
+**This sentence used to enumerate them** — "there are two, for 315–334 and for 416–445" — and was
+one block behind by the time the six-hundred-and-fifth read it, which is `CLAUDE.md`'s rule about
+counts arriving in the one file that is otherwise a record: a heading here is what says how many
+there are.
 
 | Session | What landed | Where |
 |---|---|---|
@@ -818,3 +821,195 @@ numbers the four-hundred-and-fifty-fifth and -sixth recorded: tests **1634 → 1
 four-hundred-and-seventy-first's figures), ledger **875 rows, 417
 implemented / 240 partial → 418 / 239**, oracle **905 / 68 / 786 → 906 / 67 / 786**, corpus
 **65 → 65 incomplete**, quorra **915 / 37 / 5 / 17 → 918 / 37 / 1 / 18**, and **30 ADRs** (0290 to 0319).
+
+## The thirty rounds from the five-hundred-and-seventy-sixth
+
+**What the thirty have in common is one sentence, and it is about this tree's own prose rather than
+about the standard or the corpus:**
+
+> **The sentence explaining a refusal was wrong more often than the refusal was — and the question
+> that found it, round after round, was *whose is this?***
+
+Twenty-nine rounds did the work and the thirtieth wrote this. **Twenty-four of the twenty-nine
+corrected a claim this tree had made about itself** — a ledger row's note, a doc comment, a todo
+file, an index line, a decision recorded in an ADR, an oracle group's *name* — against five that did
+not (584, 592, 596, 599, 604). That is not a ratio to be proud of and it is not a complaint either:
+every one of the twenty-four *also* shipped something, and the claim was found because the round
+opened the code the sentence was about. The lesson is the block's, and it is narrower than the
+previous block's "no program reads the sentence": **the sentences that go stale are the ones that
+explain why something is *not* done.** A row saying what the program does is checked by the program.
+A row saying why it refuses is checked by nobody.
+
+### 1. Six refusals, and the owner was somewhere else
+
+The shape recurred often enough to be the block's subject rather than a run of coincidences. In each,
+this tree had written down a reason, the reason named *us*, and the reading named somebody else.
+
+| the refusal | this tree's reason | whose it turned out to be |
+|---|---|---|
+| an ordering operator over a boolean, **converted in silence** (577) | §7.10.5.1's subset "has no value that means error" — true, and a fact about the *evaluator* | the standard's: §7.10.5.2 hands the semantics to a document clause 2 makes normative, and Annex B types the four ordering operators `num 1 num 2`. A deferral is a citation, not a silence |
+| §11.6.4.3's **`/AIS true`** refused inside a knockout group (580) | a rasteriser's one number per pixel cannot carry shape and opacity apart | nobody's. Under `/AIS true` the mask is shape, both alpha constants are shape, §11.6.4.2 has already made intrinsic opacity 1.0 — so the number a rasteriser already draws with **is** the shape. The refusal was not narrowed but **inverted** |
+| `CONTRADICTED_MASK_QUANTISATION`, one page, five hundred sessions (583) | "the level comes from the mask being quantised" — in the group's own name | `tiny-skia`'s. An eight-bit mask predicts the answer we were *not* producing; ours was the library's **low-precision** pipeline, whose `div255` is an upper bound spent twice per pixel. The high-precision one is exact at all 256 values |
+| a sub-pixel rule drawn as a ghost where four references draw it dark (584) | ours, presumed | the clause's. All three C references draw **one whole device pixel** at every sub-pixel width when asked for §10.7.4's own aliased algorithm; with anti-aliasing on they floor at 1.0, 0.2 and 0.27 — four rasterisers, four floors — and the `shall` that looks like theirs is §10.7.5's, conditioned on a stroke adjustment the witness does not state. What *was* ours was the last level of alpha, where every substitution reached zero |
+| the head of `doc/todo/00` step 7's ink sweep, eleven documents drawn blank (598) | unstated — nothing in the tree said why | the **file's**. §9.7.5.2: "The Identity-H and Identity-V CMaps shall not be used with a non-embedded font". The four references draw four *different* strings from the same twelve codes; `ours 0.000` is the answer, and the finding was that no row said so |
+| a press refused on about ten documents, differently on every run (581) | the file's, said the report | the **process's**. `MAX_PRESSES` was a `static` table of eight filled from the front and never evicted, so which document met the ninth distinct press was rayon's answer. Three quiet runs of one binary printed 30, 36 and 33 |
+
+Two more of the same family without a table row: §12.7.5.4's ledger row said the list box's top index
+"crosses", which was true of `pdf-model` and false of the mapping a host reads (601), so every native
+host's list started at row 0 over a picture that started somewhere else; and a fifth of the owner's
+launch was inside `upload_outline` converting cubics to quadratics that only a coverage lane no
+launch takes ever reads (588).
+
+**The bound that came out of it is a rule.** 581 found the nondeterminism and priced three roads;
+582 took the one that works and split it in two — **a budget decides what is drawn and must be the
+file's; a store decides how fast an answer is reached and never what it is, so it may be shared.**
+Sampling a press costs 17–46 ms against a 14–18 ms interpretation of the same page, so a table with
+the interpretation's lifetime would have doubled every page turn. Split: +0.0045% of the
+instructions, and the survey prints 19 incomplete on every run with every verdict line
+byte-identical.
+
+### 2. The instruments: three built or repaired, one that discriminates nothing, and a count that stood in for a reading
+
+- **The first instrument in this tree that clicks** (586). `selection_census` drags across
+  `pdftotext`'s own word boxes on every corpus document at a *fitted* magnification. Its first run:
+  **78 of 1017 drags selected the empty string**, because `Command::Pointer` set §12.5.5's appearance
+  state before deciding where the press landed and that state calls `Open::stale` — so every drag
+  beginning on text over an annotation took its anchor from an interpretation just discarded, on 44
+  documents, for seventy-five sessions. One line; 92.33% → 98.91%. Six deliberate breakages, each
+  reverted, established that a 1 pt shift of every glyph box is fatal to the *geometry* half and
+  invisible to the drag half, and a mirrored y flip the other way about: neither instrument is the
+  other's approximation.
+- **The accessibility census became a ratchet** (590), on `doc/todo/05`'s own rule that a count
+  gates once it has held across rounds — and building the actions behind it found that a screen
+  reader could hear this program's page and not act on it, that the request queue was drained from a
+  function which runs only on a page turn, and that a check box ticked *with the mouse* had been
+  announced as unticked since ADR 0214.
+- **`spec-errata applied`** (591), out of the previous round's finding that the §14.8.4.7.2 row had
+  **named** Errata Collection 3's Issue #437 since the four-hundred-and-eighteenth and then quoted
+  the sentence that erratum struck, two sentences later. The whole failure shape is one line — **a
+  row that records an erratum is not a row that has applied it** — and its condition is that naming
+  the erratum looks maximally diligent, so nobody re-reads it. Nothing is inferred: the writer names
+  the erratum as data and the `StrikeOut` and `Caret` supply both sides.
+- **And one sweep discriminated nothing, which became trap 13** (604). Session 603's defect was a
+  resource name made into text; the obvious sweep for "where else does that live" is over the
+  conversion, every `from_utf8_lossy` in the tree. Planted back against the real defect it **prints
+  nothing** — the two halves were two functions apart, and no grep over one line joins them. The
+  sweep that works is over the *lookup*: every dictionary probe whose key is not a string literal,
+  on the premise that ISO's own keys are literals in this source. Six sites, each of them two
+  defects, the second with no witness anywhere: a miss draws nothing, a collision draws something
+  the file did not name.
+- **A count cannot stand in for a reading** (596). `tools/state.sh annex-o` reads
+  `Parameter::unhonoured` and printed the same thing before and after the round that finished Annex
+  O, correctly: the sentence still owed was never a parameter's refusal. The instrument that could
+  see it was the ledger row's note, which said in words what the program did not do and would have
+  gone on saying it however green the gates ran.
+
+### 3. Road D, closed — and what closing it made visible
+
+Four rounds finished the road the owner ordered out of `doc/todo/10`: a decompression bomb never
+becomes an allocation. §7.8.2's four nested content streams got the page's own window (592), the
+window learned `LZWDecode` — NOTE 2's 1365:1 against Flate's measured 1032:1 (594) — and §8.7.3.1's
+tiling cell was reached by removing the loop rather than the exclusion (595). A gibibyte becomes ten
+megabytes in each case, and both directions improve: the whole route allocates the gibibyte it then
+refuses.
+
+Three things came out of it that the road did not predict:
+
+- **The premise had an exception and only the fuzzer had it.** "A decode the memo declines is re-run
+  on every read anyway" is a claim about *who reads*, true of a form and false of a tiling pattern,
+  whose `Tiling` held the decode for the whole tiling. A mutated pattern from `cargo fuzz run page`
+  ran 76 seconds under the sanitiser; in release the same routing took 0.242 s to 8.99 s (592).
+- **A cell whose stream could not be decoded had been dropped without a word** (595), where a form
+  has said `undecodable form /Fx` since it was written.
+- **And drawing the cell once made a five-hundred-session-old misreading visible in one page.**
+  §8.7.2: "[a] pattern can be used within another pattern", with the inner pattern's matrix related
+  to the *outer* pattern's space — and a pattern named inside a cell was anchored to the page.
+  Re-interpreting per site had hidden it, because every site re-derived the same page-anchored
+  gradient and whichever site sat at the pattern origin looked right. 18 of 958 display lists moved,
+  16 pixel-identical, one differing by 38.9%, and that one was the clause. Trap 1 paying for itself.
+
+### 4. The project turned the instrument on itself
+
+The owner measured a round and the number that decides everything else is that **`doc/todo/02` §2 is
+about eight per cent of it** (593). The gates were what four sessions had optimised; nobody had
+measured the other ninety-two per cent, which is what a round *reads* before it can start.
+`doc/HANDOVER.md` went from 882 lines to 125 and the every-round pair from 1336 to 529, with the
+traps regrouped by **what a round is doing** rather than by the order in which they were discovered,
+§2 given a change→gate map derived from the crate graph, §5's cadence restated as a rule about
+staleness, and `tools/round.sh` written to answer the four questions a round has actually got wrong
+here. Nothing was deleted, and that was *checked* rather than asserted — every non-blank line of the
+old file searched verbatim across every Markdown this project maintains, fifteen traps before and
+the same fifteen numbers after.
+
+The `cmin` §2 had asked for and no round had spent was spent in the same round: `fuzz/corpus/page`
+fell from 40 089 files and 4.1 GB to 9169 and 653 MB with the coverage kept. **And it bought less
+than §2 predicted, which is the finding rather than the number** — a fork-mode start over the reduced
+corpus is about a *third* of the same pass, where the file count fell to a *quarter*, because what
+`cmin` keeps is the seeds with distinct coverage and those are the large slow documents.
+
+### 5. The one defect no curated corpus could reach
+
+`doc/todo/03`'s chunk took 2000 documents of the SafeDocs crawl — the one population on this disk
+that had never been put beside a reference — and ranked them by step 7's ink number (603). **The head
+separates from the body by three orders of magnitude**: −225.633 of 255 against a next-largest of
+−5.040. A Hewlett-Packard scanner had named its image after a Windows path, so the name's byte is
+0xF4, written `#F4` in both the resource dictionary and the `Do` — byte for byte the same. What could
+not match them was this program: the operand was handed on as a `String` built with
+`from_utf8_lossy`, and §7.3.5 makes two names one when "the resulting sequences of bytes are … an
+exact binary match". U+FFFD is not 0xF4.
+
+**The direction with no witness is the worse one**: every invalid byte becomes the *same* replacement
+character, so `/A#F4` and `/A#F5` were one name and a `Do` could have drawn the object the stream did
+not name, in silence. **No gate moved at all** — no document of the 974 states such a name — which is
+`CLAUDE.md`'s two denominators written out in one page: a whole blank sheet on the web, invisible to
+every ratchet this project has.
+
+### What the project knows now that it did not thirty rounds ago
+
+- **That a refusal's stated reason decays faster than the refusal.** Six of them here, and the sweep
+  that finds one is to ask who owns the cost — the file, the process, the library, the device, the
+  clause, or us.
+- **That the two coverage lanes converge in count and not in set** (576, 578). After the largest
+  quorra bump this tree has taken — 121 commits, character-identical on the lane the gate runs — both
+  lanes differ from the CPU oracle on 23 pages and they are not the same 23. The four that fail to
+  overlap are one population: axis-aligned rules about a device pixel wide, whose *ink* both lanes get
+  right and whose **placement** neither does, one lane by up to ⅛ of a pixel per drawing command and
+  the other by quantising some marks' y coverage. Both are the renderer's, because the display list is
+  the same one.
+- **That a refusal list must be split along the stage that refuses** (578). One array held "the
+  adapter lacks a capability" beside "this tree has no construction for the clause", so a name leaving
+  it could not say which, and no upstream release can move the second kind. The empty array is the one
+  worth having: at a page's own scale this adapter refuses **nothing**, and an empty array with that
+  sentence on it is a statement where an absent array is an omission.
+- **That a program can decline while returning success** (579). `pdftoppm` writes a **1 × 1 raster and
+  exits 0** when it fails to create a page, so a refusal entered the oracle's reconciliation as an
+  opinion about the page's extent and outvoted the renderer that drew. Trap 3 says to check what
+  question a reference was asked; this is the same rule one step earlier — check whether it answered.
+- **That the corpus this project hands its renderer is 97% drawing** (600), which is why 925 of 955
+  pages report no clip residue at all and why an upstream gain of 6.6× on their archetype would move
+  thirty pages here. A census is how a tree declines to ask for something.
+- **That a fused loop's spelling can cost more than the fusion saves** (589): the same loop written
+  with a slice iterator instead of an index is 750 M instructions worse, which is 6.5% of the page
+  hiding in the spelling rather than in the algorithm.
+- **And that `doc/md/` goes on being the thing to suspect first**, for the ninth and tenth time —
+  §8.7.2's "relationship" broken across a line, §9.6.2.2's fourteenth standard font losing its hyphen
+  the same way, and Errata Collection 3 found rewriting §8.5.3.2, §9.4.2 and §12.3.2.4 out from under
+  quotations three files deep.
+
+### The block's own arithmetic
+
+Read off the gates in the six-hundred-and-fifth against the figures the five-hundred-and-seventy-sixth
+recorded: tests **2143 → 2218**, citations **8762 → 9170** and quotations **842 → 875**, oracle
+**906 / 67 / 786 → 907 / 66 / 786**, corpus **974 documents and 66 incomplete → 974 and 66**, quorra
+at a page's own scale **932 / 23 / 2 / 17 → 932 / 23 / 2 / 17**, and **29 ADRs** (0411 to 0439).
+
+**Three of those five did not move, and that is the block's arithmetic rather than an absence of
+one.** Sixty-six documents were incomplete at both ends and are not the same sixty-six; the quorra
+line is character-identical across a 121-commit upstream bump *and* across everything three rounds
+did to sub-pixel marks; and the oracle moved by one page in thirty rounds that closed road D,
+inverted a transparency refusal, changed the processor's compositing pipeline and rewrote how a
+tiling pattern is drawn. **The instruments that could see this block's work were the ones it built** —
+the drag census at 92.33% → 98.91%, the accessibility ratchet, `applied`'s read-first list, the ink
+sweep over a crawl nobody had ranked — and the two that could not are the two that count pages.
+`doc/todo/02` §7 already says a count that improves is not a picture; the other half is here, and it
+is the sharper one: **a count that does not move is not evidence that nothing happened.**
