@@ -280,8 +280,48 @@ fn table_233_bit_18_decides_a_drop_down_against_a_list() {
             options: vec!["One".to_owned(), "Two".to_owned()],
             selected: vec![0],
             multi: true,
+            top: 0,
         }
     );
+}
+
+/// Table 234's `/TI` reaches the control a host builds, and it is not the selection.
+///
+/// "(Optional; PDF 1.5) For scrollable list boxes, the top index (index in the Opt array) of the
+/// first option visible in the list." `pdf-model` has read the entry since the
+/// three-hundred-and-ninety-eighth session and the page's own appearance obeys it (ADR 0407); the
+/// mapping a host builds its list from dropped it, so the control started at row 0 over a picture
+/// that started somewhere else.
+#[test]
+fn table_234s_top_index_says_where_a_hosts_list_starts() {
+    let list = Control::Choice(ChoiceControl {
+        combo: false,
+        options: vec![
+            Choice {
+                export: None,
+                label: "One".to_owned(),
+            },
+            Choice {
+                export: None,
+                label: "Two".to_owned(),
+            },
+            Choice {
+                export: None,
+                label: "Three".to_owned(),
+            },
+        ],
+        // The clause makes these two different questions: the second option is selected and the
+        // third is the first one visible, which a control that read one of them for the other
+        // would show as the same row.
+        selected: vec![1],
+        top: 2,
+        ..ChoiceControl::default()
+    });
+    let ControlKind::List { top, selected, .. } = control_kind(&list) else {
+        unreachable!("Table 233 bit 18 is clear, so this is a list box");
+    };
+    assert_eq!(top, 2, "Table 234's /TI");
+    assert_eq!(selected, vec![1], "and the value, which is not it");
 }
 
 #[test]

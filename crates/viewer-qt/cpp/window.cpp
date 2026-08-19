@@ -874,6 +874,13 @@ void MainWindow::rebuildControls()
             // (ADR 0248).
             list->setSelectionMode(control.multi ? QAbstractItemView::ExtendedSelection
                                                  : QAbstractItemView::SingleSelection);
+            // Table 234's `/TI`, "the index in the Opt array of the first option visible in the
+            // list": where a scrollable list *starts*, which is not where the selection is. The
+            // page's own appearance has obeyed it since ADR 0407, and a control placed over that
+            // picture showing a different first row is the same disagreement a mark would be.
+            if (const int top = static_cast<int>(control.top); top > 0 && top < list->count()) {
+                list->scrollToItem(list->item(top), QAbstractItemView::PositionAtTop);
+            }
             connect(list, &QListWidget::itemSelectionChanged, this, [this, index, list] {
                 if (busy_ || writing_) {
                     return;
@@ -924,14 +931,15 @@ void MainWindow::placeControls()
     const qreal scale = page_->devicePixelRatioF() > 0.0 ? page_->devicePixelRatioF() : 1.0;
     // ADR 0244's second finding, measured again on a second toolkit. A `/Rect` is whatever the
     // document says; a platform control has a *minimum* size its style decides, so a control whose
-    // minimum exceeds its rectangle covers the page around it. Counting it here is what turns "a
-    // Qt entry is about N pixels tall" into a number that can be set beside GTK's.
-    int wider = 0;
-    int taller = 0;
-    int worstWidth = 0;
-    int atWidth = 0;
-    int worstHeight = 0;
-    int atHeight = 0;
+    // minimum exceeds its rectangle covers the page around it.
+    //
+    // What is taken here is only the pair of sizes: `minimumSizeHint` is a Qt style's opinion and
+    // nothing else can ask it, and everything done *with* the pairs is `viewer_host::ControlFit`'s
+    // on the Rust side, where `viewer-gtk`'s numbers go too (ADR 0346). This side used to count and
+    // report by itself, which meant two hosts computing one finding twice and only one of them able
+    // to offer the magnification that fixes it.
+    std::vector<QtMeasure> measured;
+    measured.reserve(wanted.size());
     writing_ = true;
     for (std::size_t index = 0; index < wanted.size(); ++index) {
         const QtControl& control = wanted[index];
@@ -939,20 +947,7 @@ void MainWindow::placeControls()
         const int askedWidth = qRound(control.width / scale);
         const int askedHeight = qRound(control.height / scale);
         const QSize least = widget->minimumSizeHint();
-        if (least.width() > askedWidth) {
-            ++wider;
-            if (least.width() - askedWidth > worstWidth) {
-                worstWidth = least.width() - askedWidth;
-                atWidth = askedWidth;
-            }
-        }
-        if (least.height() > askedHeight) {
-            ++taller;
-            if (least.height() - askedHeight > worstHeight) {
-                worstHeight = least.height() - askedHeight;
-                atHeight = askedHeight;
-            }
-        }
+        measured.push_back(QtMeasure{askedWidth, askedHeight, least.width(), least.height()});
         widget->setGeometry(QRect(qRound(control.x / scale), qRound(control.y / scale),
                                   askedWidth, askedHeight));
         // ADR 0201: a host keeps the *point* it clicked and never the text, because §12.7.5.3's
@@ -1015,20 +1010,11 @@ void MainWindow::placeControls()
         }
     }
     writing_ = false;
-    if (!wanted.empty()) {
-        const QString said =
-            QStringLiteral("%1 of %2 control(s) wider than their /Rect (worst +%3 on %4 px), "
-                           "%5 taller (worst +%6 on %7 px)")
-                .arg(wider)
-                .arg(static_cast<int>(wanted.size()))
-                .arg(worstWidth)
-                .arg(atWidth)
-                .arg(taller)
-                .arg(worstHeight)
-                .arg(atHeight);
-        const QByteArray utf8 = said.toUtf8();
-        host_->note(rust::Str(utf8.constData(), static_cast<std::size_t>(utf8.size())));
-    }
+    // One call rather than one per control: the answer is the worst ratio over the whole page, and
+    // a bridge crossing per widget would be seventy-six of them on `160F-2019.pdf` to compute one
+    // number. An empty page is still sent, because "nothing is placed" is what clears the previous
+    // page's magnification.
+    host_->measured(rust::Slice<const QtMeasure>(measured.data(), measured.size()));
 }
 
 void MainWindow::askForAPassword()

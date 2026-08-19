@@ -30,11 +30,12 @@ use viewer_core::{
     Answer, Command, DocumentId, Edit, Entered, Event, Extraction, Find, FindDirection, FormField,
     PageTarget, PointerAction, Query, Rendered, Viewer, Zoom,
 };
+use viewer_host::ControlFit;
 use viewer_host::form::{ControlKind, control_kind};
 use viewer_host::panel::{PanelRow, RowAction};
 use viewer_host::trace::{Topic, Trace};
 
-use crate::bridge::ffi::{QtControl, QtFrame, QtQuad, QtRow, QtUpdate};
+use crate::bridge::ffi::{QtControl, QtFrame, QtMeasure, QtQuad, QtRow, QtUpdate};
 use crate::keys;
 use crate::page;
 
@@ -145,6 +146,17 @@ pub struct Host {
     needle: String,
     /// How many pages a search still has to read. Zero when nothing is being searched for.
     pages_left: usize,
+    /// The magnification at which every control on this page would fit its `/Rect`, where they do
+    /// not fit now.
+    ///
+    /// **ADR 0245's third decision, on the far side of a bridge.** `viewer_host::ControlFit`
+    /// computes it from what `Query::Fields` answers and what Qt says a control's minimum is, and
+    /// the second of those two is the reason this host was the last to have it: a
+    /// `minimumSizeHint` is a C++ value, so the numbers have to cross before the arithmetic can
+    /// happen. `w` sends the answer as `Zoom::Scale`, as it does in `viewer-gtk`; it is offered
+    /// rather than applied, because a viewer that magnified a page by itself because a form is on
+    /// it would be answering a question nobody asked (rule 5).
+    fit_magnification: Option<f32>,
 }
 
 impl std::fmt::Debug for Host {
@@ -206,6 +218,7 @@ impl Host {
             presented: false,
             needle: String::new(),
             pages_left: 0,
+            fit_magnification: None,
         })
     }
 
@@ -237,6 +250,23 @@ impl Host {
 
     /// A key was pressed, as `Qt::Key`.
     pub(crate) fn key(&mut self, code: u32) {
+        // The one key whose meaning is not in `keys::command`'s table, and the reason is that it
+        // is not a fact about the key: what `w` sends depends on what this page's controls
+        // measured, so the command cannot be built without the host. `viewer-gtk` binds the same
+        // letter to the same thing.
+        if code == keys::FIT_CONTROLS {
+            match self.fit_magnification {
+                Some(wanted) => {
+                    self.say(&format!("fitting §12.7's controls at {wanted:.3}"));
+                    self.dispatch(Command::Zoom {
+                        zoom: Zoom::Scale(wanted),
+                        at: None,
+                    });
+                }
+                None => self.say("every control on this page already fits its /Rect"),
+            }
+            return;
+        }
         if let Some(command) = keys::command(code) {
             self.dispatch(command);
         }
@@ -399,6 +429,68 @@ impl Host {
         self.dispatch(command);
     }
 
+    /// Every control the window has just placed, measured against the rectangle it was given.
+    ///
+    /// The counting used to be in `cpp/window.cpp`, which meant the two native hosts computed the
+    /// same finding twice from the same numbers and only one of them could offer a magnification.
+    /// It is `viewer_host::ControlFit`'s now — `panel.rs`'s reason, and ADR 0346's: a mapping from
+    /// rectangles to a number is not a statement about a document, and two hosts measuring the
+    /// same thing must not be able to disagree about it.
+    pub(crate) fn measured(&mut self, controls: &[QtMeasure]) {
+        let mut fit = ControlFit::default();
+        for control in controls {
+            fit.record(
+                (control.asked_width, control.asked_height),
+                (control.minimum_width, control.minimum_height),
+            );
+        }
+        let (placed, wider, taller, widest, tallest) = fit.counts();
+        if placed == 0 {
+            self.fit_magnification = None;
+            return;
+        }
+        self.fit_magnification = self
+            .showing_at()
+            .and_then(|showing| fit.magnification(showing));
+        self.trace.say(
+            Topic::Panel,
+            format_args!(
+                "{wider} of {placed} control(s) wider than their /Rect (worst +{} on {} px), \
+                 {taller} taller (worst +{} on {} px){}",
+                widest.0,
+                widest.1,
+                tallest.0,
+                tallest.1,
+                match self.fit_magnification {
+                    Some(wanted) => format!("; every control fits at {wanted:.3}, which `w` sends"),
+                    None => String::from("; every control fits at this magnification"),
+                }
+            ),
+        );
+    }
+
+    /// The magnification the page is drawn at now, in the units [`Zoom::Scale`] takes.
+    ///
+    /// `PageGeometry::scale` is device pixels per user space unit — "the zoom and the display's
+    /// scale together" — and `Zoom::Scale` is *logical* pixels per user space unit, so the
+    /// display's own factor comes back out. The same arithmetic `viewer-gtk` does, and it has to
+    /// be the same: a doubled display would otherwise put one host's answer out by two.
+    fn showing_at(&self) -> Option<f32> {
+        let Answer::Page { index, .. } = self.viewer.query(Query::CurrentPage) else {
+            return None;
+        };
+        let Answer::Geometry(geometry) = self.viewer.query(Query::PageGeometry(index)) else {
+            return None;
+        };
+        let display = if self.scale.is_finite() && self.scale >= 1.0 {
+            self.scale
+        } else {
+            1.0
+        };
+        let logical = geometry.scale / display;
+        (logical.is_finite() && logical > 0.0).then_some(logical)
+    }
+
     /// What has changed since this was last called, which also clears it.
     pub(crate) fn take_update(&mut self) -> QtUpdate {
         std::mem::replace(&mut self.update, nothing_changed())
@@ -468,6 +560,7 @@ impl Host {
                 max_len,
                 multi,
                 editable,
+                top: top_option(&placed.kind),
                 tooltip: tooltip(field),
             });
         }
@@ -1025,6 +1118,21 @@ fn describe_kind(kind: &ControlKind) -> (u8, i32, bool, bool) {
         // in `placed`. Answered rather than asserted away, because a refusal that cannot happen
         // still has to say something if it does.
         ControlKind::Signature | ControlKind::Unstated => (255, -1, false, false),
+    }
+}
+
+/// Table 234's `/TI` for a list box, and 0 for every other control.
+///
+/// The clause states it of the list rather than of the value — "the index in the Opt array of the
+/// first option visible in the list" — so it decides where a scrollable list *starts*, which is a
+/// question about the control and not about what is selected in it. `pdf-model` has read the entry
+/// since the three-hundred-and-ninety-eighth session and the page's own appearance obeys it
+/// (ADR 0407); a host that started every list at row 0 showed a different first option than the
+/// picture underneath it.
+fn top_option(kind: &ControlKind) -> u32 {
+    match kind {
+        ControlKind::List { top, .. } => u32::try_from(*top).unwrap_or(0),
+        _ => 0,
     }
 }
 

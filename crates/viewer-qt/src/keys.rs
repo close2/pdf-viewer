@@ -42,6 +42,14 @@ const ZERO: u32 = 0x30;
 const A: u32 = 0x41;
 /// `Qt::Key_S`.
 const S: u32 = 0x53;
+/// `Qt::Key_W`, and the one key this module names without giving it a command.
+///
+/// What `w` means is *"magnify until every §12.7 control fits the `/Rect` the document states for
+/// it"*, and the number that makes that true is what the page's controls measured — so the
+/// command cannot be built from the key alone. `crate::host` binds it; the constant is here so
+/// that the table of `Qt::Key` numbers stays in one file.
+pub(crate) const FIT_CONTROLS: u32 = 0x57;
+
 /// `Qt::Key_Y`.
 const Y: u32 = 0x59;
 /// `Qt::Key_Z`.
@@ -112,5 +120,14 @@ mod tests {
     #[test]
     fn an_unbound_key_is_nothing_rather_than_something() {
         assert!(command(0x42).is_none());
+    }
+
+    /// And `w` is bound without being in this table, which is the one case worth stating.
+    ///
+    /// A later session adding `Zoom::Scale` here would be inventing the magnification, because
+    /// the number belongs to the controls the page measured rather than to the key.
+    #[test]
+    fn the_fit_key_is_the_hosts_rather_than_this_tables() {
+        assert!(command(super::FIT_CONTROLS).is_none());
     }
 }

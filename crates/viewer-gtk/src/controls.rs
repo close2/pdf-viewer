@@ -103,10 +103,16 @@ pub(crate) fn build(
         ControlKind::Combo {
             options, selected, ..
         } => combo(field, options, *selected, suppress, change),
+        // Table 234's `/TI` is deliberately not taken here, and it is a debt rather than a
+        // decision: `GtkListView` gained `scroll_to` in GTK 4.12 and this crate binds `v4_10`
+        // (`Cargo.toml`), so obeying the entry means either raising the floor or driving
+        // `GtkListBase`'s `list.scroll-to-item` action on a view that is not yet in a window.
+        // `viewer-qt` obeys it; `doc/todo/30` carries what this host still owes.
         ControlKind::List {
             options,
             selected,
             multi,
+            ..
         } => list(field, options, selected, *multi, suppress, change),
         // §12.7.5.5's signature has no control to build and Table 226's absent `/FT` names none,
         // so this host places nothing and the page's own appearance stands. Inventing a control

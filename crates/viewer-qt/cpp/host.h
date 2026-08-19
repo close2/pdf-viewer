@@ -18,6 +18,7 @@ struct Host;
 struct QtRow;
 struct QtFrame;
 struct QtControl;
+struct QtMeasure;
 struct QtQuad;
 struct QtUpdate;
 

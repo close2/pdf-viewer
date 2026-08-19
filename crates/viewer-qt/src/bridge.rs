@@ -136,8 +136,36 @@ pub mod ffi {
         multi: bool,
         /// Table 233 bit 19: whether a combo box's text may be typed into.
         editable: bool,
+        /// Table 234's `/TI` for a list box: which option the list is scrolled to show first.
+        ///
+        /// Zero for every other control, which is also the table's own default.
+        top: u32,
         /// What a person is shown on hovering, from Table 226's `/TU`.
         tooltip: String,
+    }
+
+    /// What one control's rectangle asked for and what the style says it cannot go below.
+    ///
+    /// **The only measurement in this bridge, and it goes the other way from everything else.**
+    /// A minimum size is the *toolkit's* answer and no clause's — `QWidget::minimumSizeHint` is a
+    /// Qt type's opinion about a Qt style — so it can only be taken on the C++ side; the
+    /// arithmetic over it belongs to `viewer_host::ControlFit`, which `viewer-gtk` already feeds
+    /// (ADR 0346). Carrying the pairs across is what stops two hosts computing two different
+    /// answers from the same numbers.
+    ///
+    /// Both pairs are **logical** pixels: `QtControl`'s extents are device pixels of the
+    /// viewport and a style's minimum is not, so the division by the device pixel ratio happens
+    /// once, where the widget is placed.
+    #[derive(Debug, Clone, Copy)]
+    struct QtMeasure {
+        /// The width the widget's `/Rect` asked the control to occupy.
+        asked_width: i32,
+        /// Its height.
+        asked_height: i32,
+        /// `QWidget::minimumSizeHint().width()`.
+        minimum_width: i32,
+        /// Its height.
+        minimum_height: i32,
     }
 
     /// One quadrilateral of interactive chrome, in device pixels of the viewport.
@@ -224,6 +252,12 @@ pub mod ffi {
         fn supply_password(self: &mut Host, password: &str);
         /// A toolbar button: 0 previous page, 1 next page, 2 zoom out, 3 zoom in, 4 fit page.
         fn command(self: &mut Host, what: u8);
+        /// Every control the window has just placed, with the minimum its style gives it.
+        ///
+        /// Sent once per placement rather than once per control: the answer is the *worst* ratio
+        /// over the page, so a call per widget would cross the bridge seventy-six times on
+        /// `160F-2019.pdf` to compute one number.
+        fn measured(self: &mut Host, controls: &[QtMeasure]);
 
         /// What has changed since this was last called, which also clears it.
         fn take_update(self: &mut Host) -> QtUpdate;

@@ -60,8 +60,23 @@ them**:
 **Every item below is a function to add to the C ABI, a widget to place, or a clause to obey.** No
 new message, and no new decision about the boundary. **Four of the five are closed in the
 five-hundred-and-eleventh** (ADR 0346) and **the fifth in the five-hundred-and-seventy-first**
-(ADR 0407), so what remains of this file is one tail — Qt's measurement being on the far side of a
-`cxx` bridge — plus the standing note about where the `unsafe` is.
+(ADR 0407). **The tail — Qt's measurement being on the far side of a `cxx` bridge — was taken in
+the six-hundred-and-first** (ADR 0436), and reading §12.7.5.4 against the mapping the hosts build
+their controls from left one item in its place, below. Plus the standing note about where the
+`unsafe` is.
+
+- **`viewer-gtk` does not obey Table 234's `/TI`.** The entry is "the index in the Opt array of the
+  first option visible in the list"; `pdf-model` has read it since the
+  three-hundred-and-ninety-eighth session, the page's own appearance obeys it since ADR 0407, and
+  `viewer_host::form::ControlKind::List` dropped it until the six-hundred-and-first — so every
+  native host's list box started at row 0 over a picture that started somewhere else
+  (`doc/habits.md`'s fifth sweep: *the model implements this, who calls it?*). `viewer-qt` obeys it
+  now with `scrollToItem(..., PositionAtTop)`. GTK's half is a *floor* rather than a decision:
+  `GtkListView::scroll_to` is GTK 4.12 and this crate binds `v4_10` (`Cargo.toml`), so it means
+  raising the feature or driving `GtkListBase`'s `list.scroll-to-item` action on a view that is not
+  yet in a window — and the second wants a witness, because a document whose `/TI` is not 0 is what
+  says the action fired. No corpus document is known to state one; `examples/variable_text_census`
+  counts 10 list-box widgets and is where to look first.
 
 - ~~**The ABI is 43 entry points and not the whole vocabulary.**~~ **Closed in the
   five-hundred-and-eleventh** (ADR 0346): 43 → **111**, and the list this entry carried is all of
@@ -86,11 +101,13 @@ five-hundred-and-eleventh** (ADR 0346) and **the fifth in the five-hundred-and-s
   the toolkit gives the minimums, `Zoom::Scale` applies the answer. Driven under `Xvfb` on
   `160F-2019.pdf`: `11 of 76 control(s) wider than their /Rect (worst +85 on 120 px), 76 taller
   (worst +22 on 12 px); every control fits at 3.278`, and after `w` sends it, `0 of 76 … 0 taller`.
-  **Two things are left of it, and both are small.** `viewer-qt` still measures in `cpp/window.cpp`,
-  so feeding the shared arithmetic means carrying the `(asked, minimum)` pairs across the `cxx`
-  bridge — a bridge change rather than a decision. And *when* to apply it is deliberately not
-  decided: a viewer that magnified a page by itself because a form is on it would be answering a
-  question nobody asked, so `w` offers it and nothing takes it.
+  **And the second host feeds the same arithmetic since the six-hundred-and-first** (ADR 0436): the
+  `(asked, minimum)` pairs cross the `cxx` bridge as `QtMeasure`, one call per placement, and
+  `cpp/window.cpp` lost the counting it used to do for itself. Qt answers 4.667 where GTK answers
+  3.278 on the same page, which is the finding standing rather than a disagreement — a minimum size
+  is a *style's*, and the two hosts now differ in the measurement alone. *When* to apply it is still
+  deliberately not decided: a viewer that magnified a page by itself because a form is on it would
+  be answering a question nobody asked, so `w` offers it and nothing takes it.
 - ~~**Table 229 bit 26's `RadiosInUnison` crosses and is not obeyed.**~~ **Obeyed since the
   five-hundred-and-eleventh, and this entry was wrong about it in both directions** (ADR 0346). The
   half it describes — turning on every button of a set that shares an on state — was already

@@ -256,6 +256,11 @@ question nobody asked.
 cargo run --release -p viewer-qt --bin pdf-viewer-qt -- doc/PDF20_AN001-BPC.pdf
 ```
 
+**`w` works here too since the six-hundred-and-first** (ADR 0436): the `(asked, minimum)` pairs
+cross the `cxx` bridge and `viewer_host::ControlFit` — the same arithmetic, the same trace line —
+answers for both hosts. The magnifications differ (4.667 here, 3.278 in GTK on `160F-2019.pdf`)
+because a control's minimum is its *style's*, which is the point of measuring rather than assuming.
+
 `pdf-viewer-qt` is the Qt 6 Widgets host (ADR 0246, `doc/todo/30`). It takes the same arguments
 `pdf-viewer-gtk` does — one document, Annex O's `#fragment` after it, `--trace[=topics]` in the same
 line format, `--draw-widget-appearances` — and binds the same keys, so the two hosts can be run side

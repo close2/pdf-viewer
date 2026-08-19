@@ -68,6 +68,15 @@ pub enum ControlKind {
         selected: Vec<usize>,
         /// Bit 22: "more than one of the field's option items may be selected simultaneously".
         multi: bool,
+        /// Table 234's `/TI`: "the index in the Opt array of the first option visible in the
+        /// list".
+        ///
+        /// **Read by `pdf-model` since the three-hundred-and-ninety-eighth session and dropped
+        /// here until the six-hundred-and-first**, which is `doc/habits.md`'s fifth sweep exactly:
+        /// the model implements it, and the question nobody asked was who calls it. The page's own
+        /// appearance obeys the entry (ADR 0407), so a host that started its list at row 0 showed
+        /// a different first option than the picture underneath it.
+        top: usize,
     },
     /// §12.7.5.5's signature field, which has no control and no value to type.
     Signature,
@@ -134,6 +143,7 @@ fn choice_of(choice: &ChoiceControl) -> ControlKind {
             options,
             selected: choice.selected.clone(),
             multi: choice.multi_select,
+            top: choice.top,
         }
     }
 }
