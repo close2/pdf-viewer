@@ -27,8 +27,8 @@ moved it.
 consumer they were waiting for arrived and, in §14.7.3's case, because the *query* that had read
 past its role map stopped doing so (ADR 0214).
 
-All **823** subclauses of the eight technical clauses have been read against this code, since the
-fifty-sixth session — **and, since the three-hundred-and-sixtieth, the 52 numbers of the standard's
+**Every** subclause of the eight technical clauses has been read against this code, since the
+fifty-sixth session — **and, since the three-hundred-and-sixtieth, every number of the standard's
 eight normative annexes**, which no instrument in this project could previously name: `ClauseNumber`
 was a list of integers, so `§K.2` was a malformed citation and Annex O could not have a row. ADR
 0206. Counts come from `cargo run -p conformance --bin ledger`, which prints them
@@ -40,15 +40,21 @@ so. Every other status names what it owes, and all eight are defined at the top 
 five-hundred-and-ninety-third; the sweeps that catch a wrong row are `doc/todo/01`'s and running
 them is `doc/todo/02` §4.
 
-| status | rows | |
-|---|---|---|
-| `implemented` | 410 | every normative requirement in the clause is executed |
-| `partial` | 244 | some are; the note says which are not |
-| **`silent`** | **0** | not implemented, and nothing says so — **Annex O's five were the last, and they were built in the three-hundred-and-sixty-ninth** |
-| `inapplicable` | 82 | a press, a layout engine, a production workflow — **and read at last**. §10.4.2.3 left in the three-hundred-and-eightieth, where a conversion this row called "[not] on any route to a pixel" turned out to be §11.5.3's own (ADR 0217), and **§10.4.2.4 left in the three-hundred-and-eighty-third on the same reasoning one clause over**: it said the two functions "cannot change a pixel" while §11.6.6 converts an RGB colour into a `DeviceCMYK` mask group by exactly this route, where every term the clause generates provably cancels (ADR 0220). Session 380 corrected two §10.4.2 rows and asked whether the neighbours had the same disease; one did |
-| `out-of-scope` | 113 | principle 5's closed exclusions, which the row names |
-| `reported` | 18 | not implemented, detected and named at runtime — **nine of §12.8.3's moved to `partial` in the three-hundred-and-seventy-seventh**, when the digest question turned out not to need the trust store the whole clause had been refused for (ADR 0215) |
-| `writer-side` | 8 | addresses a PDF *generator* |
+**How many rows each status holds is `cargo run -p conformance --bin ledger`'s to print**, and it
+is not written here — it was, in a column of this table, and by the five-hundred-and-ninety-third
+session that column disagreed with the gate in most of its cells while the sentence nine lines
+above it already named the command (ADR 0281). What a status *means*, and what its population has
+cost this project, is what a command cannot print:
+
+| status | |
+|---|---|
+| `implemented` | every normative requirement in the clause is executed |
+| `partial` | some are; the note says which are not |
+| **`silent`** | not implemented, and nothing says so — **Annex O's five were the last, and they were built in the three-hundred-and-sixty-ninth**. It has been zero since; the paragraph below is the claim that rests on it |
+| `inapplicable` | a press, a layout engine, a production workflow — **and read at last**. §10.4.2.3 left in the three-hundred-and-eightieth, where a conversion this row called "[not] on any route to a pixel" turned out to be §11.5.3's own (ADR 0217), and **§10.4.2.4 left in the three-hundred-and-eighty-third on the same reasoning one clause over**: it said the two functions "cannot change a pixel" while §11.6.6 converts an RGB colour into a `DeviceCMYK` mask group by exactly this route, where every term the clause generates provably cancels (ADR 0220). Session 380 corrected two §10.4.2 rows and asked whether the neighbours had the same disease; one did |
+| `out-of-scope` | principle 5's closed exclusions, which the row names |
+| `reported` | not implemented, detected and named at runtime — **nine of §12.8.3's moved to `partial` in the three-hundred-and-seventy-seventh**, when the digest question turned out not to need the trust store the whole clause had been refused for (ADR 0215) |
+| `writer-side` | addresses a PDF *generator* |
 
 **`silent` is zero, and Annex O's five were the last of them.** The three-hundred-and-sixtieth
 session gave the ledger the standard's **normative annexes** — D, E, F, I, K, L, O and Q, 52 rows —
@@ -83,8 +89,11 @@ function not, and §10.6.1 keeps the transfer for a device that needs no halfton
 owner split the scope line rather than dropping it, and the clause is implemented (ADR 0204).
 There is no requirement in the standard — the eight technical clauses or the
 eight normative annexes — that this program
-fails without saying so. That is a narrow claim: `partial` and `reported` are 262 rows between
-them and each names what it owes.
+fails without saying so. That is a narrow claim: `partial` and `reported` are the largest
+populations in the ledger after `implemented` and each row of both names what it owes. **The
+number that used to stand in that sentence was arithmetic on the table above** — the two figures
+added together — which is the shape `tools/state.sh` refuses for exactly this reason: a sum beside
+a stale figure is stale twice (ADR 0281, trap 12's second bullet).
 
 **A seventh way was found in the three-hundred-and-fifty-ninth, in the population no sweep had
 ever read: the `inapplicable` rows.** Every sweep in `doc/todo/01` walks the rows that *owe*

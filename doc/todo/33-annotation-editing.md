@@ -5,10 +5,10 @@ types into a field since the three-hundred-and-forty-ninth** (ADR 0201), **a car
 next character goes since the three-hundred-and-seventy-first** (ADR 0211), **a click places it
 and a drag selects since the three-hundred-and-eighty-eighth** (ADR 0225), **§12.5.6.6's free
 text since the four-hundred-and-first** (ADR 0238), and **the *file's* own free text annotation
-since the four-hundred-and-sixty-ninth** (ADR 0304), and **Table 177's callout line since the
-four-hundred-and-ninety-fourth** (ADR 0329). What is left is a border whose colour no clause states
-and whose default fires on every annotation, and a flag that waits on a verb this program does not
-have.
+since the four-hundred-and-sixty-ninth** (ADR 0304), **Table 177's callout line since the
+four-hundred-and-ninety-fourth** (ADR 0329), and **§12.5.4's border since the
+five-hundred-and-ninety-seventh** (ADR 0432). What is left is a flag that waits on a verb this
+program does not have.
 Priority: 33
 Clauses: §12.5.6.6, §12.5.6.10, §12.7.4.3, §7.5.6, §14.8.2.5
 Code: `crates/viewer-core/src/command.rs` (`Edit`), `crates/pdf-model/src/view.rs`,
@@ -108,13 +108,30 @@ ADR 0329 has the argument. Four things worth keeping here:
   annotations stating a `/CL`, so the fixtures are hand-built pairs differing in the two-point
   against three-point sentence, in `/LE`, in `/IT` and in `/RD`.
 
+## 1d. ~~The border~~ — **done in the five-hundred-and-ninety-seventh session**
+
+`appearance::free_text_border` draws §12.5.4's border round the inner rectangle `/RD` names, at
+Table 168's or Table 166's width, in Table 168's style, and in black. ADR 0432 has the argument.
+Three things worth keeping here:
+
+- **The refusal's reason was a claim about producers, and it had an instrument.** This file said
+  the `/Border` default `[0 0 1]` "fires on annotations that said nothing at all about a border".
+  `examples/free_text_census` now counts it: **6** of the corpus's 73 free text annotations reach a
+  constructed appearance at all, **every one states `/Border`** and **four state a width of zero**,
+  so §12.5.4's default fires on none of them and the report's whole population was two annotations
+  in one fuzzed document. A reason that says *would* rather than *does* is one nobody has measured
+  (trap 11).
+- **The colour is a choice and the silence was re-checked before it was recorded.** Every sentence
+  in ISO 32000-2 relating a border to a colour was read: a link's (Table 166's `/C`), a widget's
+  (Table 192's `/BC`), a collection card's, and a tagged element's `BorderColor`. For an
+  annotation's border in general the standard states nothing, so black comes from §8.4.1's Table
+  51 "Initial value: black" — the same place `/CL`'s does.
+- **A cloudy `/BE` is refused whole and was read by nothing before.** §12.5.4 gives this subtype
+  the entry — "Beginning with PDF 1.6, free text annotations may also have a BE entry" — and a
+  different border is not an extra mark (ADR 0106). The note is drawn either way.
+
 ### What is still owed on this subtype
 
-- **Table 177's `/BS` border drawn rather than reported.** The colour is stated nowhere — Table
-  166's `/C` is an icon's background, a popup's title bar and a link's border, none of which this
-  subtype has — and unlike the callout above, Table 166's `/Border` default `[0 0 1]` means the
-  refusal fires on annotations that said nothing at all about a border. Drawing it means both
-  inventing a colour and inventing it for annotations whose producers never asked.
 - **Table 167 bit 8, `Locked`, is still read by nothing**, and now for a reason that is a property
   of the code rather than a prediction: it restricts *deleting* an annotation and *moving* one, and
   this program does neither. The day either lands, the §12.5.3 row is the one to revisit.

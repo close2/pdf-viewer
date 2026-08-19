@@ -2643,3 +2643,122 @@ fn a_vertical_composite_da_font_is_refused_and_says_which() {
         "a refusal draws nothing rather than drawing along the wrong axis"
     );
 }
+
+/// A free text annotation stating no text at all, so that every mark on the page is its border.
+///
+/// `/Rect` is the callout fixtures' `[20 40 180 70]` and `/Contents` is absent, which
+/// [`pdf_model::appearance`] lays out as nothing — leaving §12.5.4's border as the only thing the
+/// construction can draw. Trap 8's shape again: `examples/free_text_census` counts **six** corpus
+/// free text annotations with no appearance stream, every one of them stating `/Border` and four
+/// of them stating a width of zero, so no corpus page can distinguish these cases.
+fn bordered_annotation(entries: &str) -> Vec<u8> {
+    pdf_with(
+        "",
+        &format!(
+            "<< /Type /Annot /Subtype /FreeText /Rect [20 40 180 70] /F 4 \
+             /DA (/Helv 12 Tf 0 g) {entries} >>"
+        ),
+    )
+}
+
+/// How many rows the border crosses at the middle of the rectangle: its top edge plus its bottom.
+///
+/// A rectangular outline at x = 100 is two runs of the border's own width, so this is twice the
+/// width in pixels and grows with it — which is what makes it a test of §12.5.4's width rather
+/// than of "something was drawn".
+fn edges_at_middle(raster: &pdf_render::Raster) -> usize {
+    (0..raster.height)
+        .filter(|row| opacity(raster, 100, *row) > 0)
+        .count()
+}
+
+/// §12.5.4's border is drawn round a free text annotation, at the width its entries state.
+///
+/// ISO 32000-2 §12.5.4:
+///
+/// > If neither the Border nor the BS entry is present, the border shall be drawn as a solid line
+/// > with a width of 1 point.
+///
+/// and Table 166, on the entry that overrides it: "if the border width is 0, no border is drawn",
+/// with "[i]f an annotation dictionary includes the BS entry, then the Border entry is ignored".
+/// Four fixtures differing in those entries alone:
+///
+/// - **neither** — the sentence above fires, and one point of border appears;
+/// - **`/Border [0 0 0]`** — a producer saying there is no border, and there is none;
+/// - **`/Border [0 0 6]`** — six times the default, and six times the pixels;
+/// - **`/Border [0 0 0] /BS << /W 6 >>`** — the two disagreeing, where Table 166 says `/BS` wins.
+///
+/// The colour is this program's choice and is not what these assert; see `free_text_border`'s
+/// doc comment for what black is taken from and why the standard states nothing here.
+#[test]
+fn a_free_texts_border_is_drawn_at_the_width_its_entries_state() {
+    let (default_reports, defaulted) = draw(bordered_annotation(""));
+    let (none_reports, none) = draw(bordered_annotation("/Border [0 0 0]"));
+    let (wide_reports, wide) = draw(bordered_annotation("/Border [0 0 6]"));
+    let (style_reports, styled) = draw(bordered_annotation("/Border [0 0 0] /BS << /W 6 >>"));
+    for reports in [
+        &default_reports,
+        &none_reports,
+        &wide_reports,
+        &style_reports,
+    ] {
+        assert!(reports.is_empty(), "{reports:?}");
+    }
+
+    assert!(
+        inked_rows(&none).is_empty(),
+        "a stated width of zero draws no border at all"
+    );
+    let thin = edges_at_middle(&defaulted);
+    assert!(
+        (2..=4).contains(&thin),
+        "§12.5.4's default is one point on each of two edges: {thin}"
+    );
+    let thick = edges_at_middle(&wide);
+    assert!(
+        thick >= 10 && thick > thin,
+        "six points of border cover six times the rows: {thick} against {thin}"
+    );
+    assert_eq!(
+        edges_at_middle(&styled),
+        thick,
+        "Table 166: a stated /BS is what a /Border beside it is ignored in favour of"
+    );
+}
+
+/// Table 169's cloudy border is named rather than drawn as the straight one it is not.
+///
+/// §12.5.4 gives this subtype the entry — "Beginning with PDF 1.6, free text annotations may also
+/// have a BE entry" — and Table 169 says the border "should be drawn as a series of convex curved
+/// line segments in a manner that simulates the appearance of a cloud". A rectangle in its place
+/// is a shape the file did not describe, which is ADR 0106's substitutive case and the same
+/// refusal `square_or_circle` takes.
+///
+/// **The note itself is still drawn**, which is the other half of that rule: the border is one
+/// mark of two and the text is what the subtype *is*.
+#[test]
+fn a_free_texts_cloudy_border_is_named_rather_than_drawn_straight() {
+    let (reports, cloudy) = draw(bordered_annotation("/Border [0 0 6] /BE << /S /C >>"));
+    assert!(
+        reports.iter().any(|report| report.contains("cloudy")),
+        "{reports:?}"
+    );
+    assert!(
+        inked_rows(&cloudy).is_empty(),
+        "and nothing is drawn in its place"
+    );
+
+    let (told, drawn) = draw(pdf_with(
+        "",
+        "<< /Type /Annot /Subtype /FreeText /Rect [20 40 180 70] /F 4 /Contents (visible) \
+         /DA (/Helv 12 Tf 0 g) /Border [0 0 6] /BE << /S /C >> >>",
+    ));
+    assert!(
+        told.iter().any(|report| report.contains("cloudy")),
+        "{told:?}"
+    );
+    assert!(
+        !inked_rows(&drawn).is_empty(),
+        "a border this reader cannot draw is not a reason to withhold the note"
+    );
+}

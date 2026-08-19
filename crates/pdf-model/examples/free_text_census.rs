@@ -18,6 +18,13 @@
 //! - **How many state Table 177's `/CL`**, the callout line — drawn since the
 //!   four-hundred-and-ninety-fourth session (ADR 0329), with this count (0 of 73) as the reason
 //!   its fixtures are hand-built pairs rather than corpus pages.
+//! - **What each says about its border**, which is a fifth question and the one trap 11 asks.
+//!   §12.5.4's "[i]f neither the Border nor the BS entry is present, the border shall be drawn as
+//!   a solid line with a width of 1 point" is a `shall` that fires on a file which said nothing,
+//!   so the population of a border report is *not* "documents stating `/BS`". The split below is
+//!   the clause's own three cases — a stated `/BS`, a stated `/Border`, and neither — counted
+//!   only over the annotations an appearance is *constructed* for, because §12.5.2 has a reader
+//!   "ignore the values of the C, IC, Border, BS, BE …" wherever an appearance stream exists.
 //!
 //! Every page is walked rather than the first: a note is typed into by a click, and a click can be
 //! on page 40.
@@ -65,6 +72,18 @@ struct Census {
     locked_contents: usize,
     /// Table 177's `/CL`, the callout line.
     callout: usize,
+    /// Of the annotations with no `/AP` `/N` stream — the ones an appearance is constructed for —
+    /// those stating Table 177's `/BS`.
+    constructed_style: usize,
+    /// Of the same population, those stating Table 166's `/Border` and no `/BS`.
+    constructed_border: usize,
+    /// Of the same population, those stating neither, where §12.5.4's one-point default fires.
+    constructed_default: usize,
+    /// Of the same population, those whose border width works out greater than zero — which is
+    /// what a border report actually matches.
+    constructed_bordered: usize,
+    /// The documents that hold one of those, so that a round can look at the page.
+    bordered: Vec<String>,
     /// The documents that state one, so that a round has somewhere to click.
     named: Vec<String>,
 }
@@ -93,7 +112,7 @@ impl Census {
                     .as_name()
                     .is_some_and(|subtype| subtype.as_bytes() == b"FreeText")
                 {
-                    self.count_annotation(document, annotation);
+                    self.count_annotation(name, document, annotation);
                     here = here.saturating_add(1);
                 }
             }
@@ -105,7 +124,7 @@ impl Census {
     }
 
     /// One free text annotation.
-    fn count_annotation(&mut self, document: &Document, annotation: &Dictionary) {
+    fn count_annotation(&mut self, name: &str, document: &Document, annotation: &Dictionary) {
         self.annotations = self.annotations.saturating_add(1);
         let flags = document
             .get_key(annotation, "F")
@@ -132,15 +151,17 @@ impl Census {
             self.with_contents = self.with_contents.saturating_add(1);
         }
         let appearances = document.get_key(annotation, "AP");
-        let Some(normal) = appearances
+        let normal = appearances
             .as_dict()
-            .map(|dict| document.get_key(dict, "N"))
-        else {
+            .map(|dict| document.get_key(dict, "N"));
+        let Some(Object::Stream(stream)) = normal else {
+            // §12.5.2 has a reader "ignore the values of the C, IC, Border, BS, BE …" wherever an
+            // appearance stream exists, so the border question below is only asked of the
+            // annotations this program constructs an appearance for.
+            self.count_border(name, document, annotation);
             return;
         };
-        let Object::Stream(stream) = &normal else {
-            return;
-        };
+        let stream = &stream;
         self.with_appearance = self.with_appearance.saturating_add(1);
         // §12.7.4.3 has a regenerating processor "replace the existing contents of the appearance
         // stream from … BMC to the matching EMC", and §12.5.6.6 sends this subtype to that
@@ -150,6 +171,33 @@ impl Census {
             && data.windows(3).any(|window| window == b"BMC")
         {
             self.with_marked_text = self.with_marked_text.saturating_add(1);
+        }
+    }
+
+    /// §12.5.4's three cases for one annotation an appearance is constructed for.
+    ///
+    /// The precedence is Table 166's — "[i]f an annotation dictionary includes the BS entry, then
+    /// the Border entry is ignored" — and the width is Table 168's `/W` (default 1), Table 166's
+    /// third element (default 1), or §12.5.4's sentence for a file that states neither.
+    fn count_border(&mut self, name: &str, document: &Document, annotation: &Dictionary) {
+        let width = if let Some(style) = document.get_key(annotation, "BS").as_dict() {
+            self.constructed_style = self.constructed_style.saturating_add(1);
+            document.get_key(style, "W").as_number().unwrap_or(1.0)
+        } else if let Some(border) = document.get_key(annotation, "Border").as_array() {
+            self.constructed_border = self.constructed_border.saturating_add(1);
+            border
+                .get(2)
+                .and_then(|item| document.resolve(item).as_number())
+                .unwrap_or(1.0)
+        } else {
+            self.constructed_default = self.constructed_default.saturating_add(1);
+            1.0
+        };
+        if width > 0.0 {
+            self.constructed_bordered = self.constructed_bordered.saturating_add(1);
+            if self.bordered.last().map(String::as_str) != Some(name) {
+                self.bordered.push(name.to_owned());
+            }
         }
     }
 
@@ -173,6 +221,22 @@ impl Census {
             self.read_only, self.locked, self.locked_contents
         );
         println!("  {} state Table 177's /CL callout line", self.callout);
+        println!(
+            "  of the {} with no /AP /N stream: {} state /BS, {} state /Border only, {} state \
+             neither (§12.5.4's one-point default)",
+            self.constructed_style
+                .saturating_add(self.constructed_border)
+                .saturating_add(self.constructed_default),
+            self.constructed_style,
+            self.constructed_border,
+            self.constructed_default
+        );
+        println!(
+            "  {} of those work out to a border width above zero, in {} document(s): {}",
+            self.constructed_bordered,
+            self.bordered.len(),
+            self.bordered.join(" ")
+        );
         println!("  documents: {}", self.named.join(" "));
     }
 }

@@ -114,6 +114,13 @@ const MAX_FIELD_ANCESTRY: usize = 32;
 /// the border shall be drawn as a solid line with a width of 1 point."
 const DEFAULT_BORDER_WIDTH: f32 = 1.0;
 
+/// The colour a construction paints in when no entry states one.
+///
+/// Not a choice of colour so much as the absence of one: §8.4.1's Table 51 gives the graphics
+/// state's colour parameter "Initial value: black", so a stream that names nothing paints in it.
+/// It is written out anyway, so that the mark cannot depend on what ran before the appearance.
+const BLACK: Colour = Colour::Components([0.0; 4], 1);
+
 /// The control-point distance, as a fraction of the radius, that makes a cubic Bézier an arc.
 ///
 /// `4/3 × (√2 − 1)`, the value at which the curve passes exactly through the quarter-arc's
@@ -3127,19 +3134,11 @@ pub(crate) fn accepted_prefix(
 /// Table 177's `/CL` is drawn beside it where the annotation's `/IT` asks for one — see
 /// [`callout`], which holds the whole of that entry and of `/LE`.
 ///
-/// No *border* is drawn. Table 177's `/BS` gives "the line width and dash pattern that
-/// shall be used in drawing the annotation's border" and no clause states its *colour* — Table
-/// 166's `/C` is the icon background, the popup title bar and a link's border, none of which a
-/// free text annotation has. So a border is refused on the same grounds as §12.5.6.10's marks,
-/// and reported wherever one has a width.
-///
-/// **This sentence said "reported only where a width is stated for it" until the
-/// four-hundred-and-first session**, and that is not the condition: Table 166's `/Border` states
-/// "Default value: [0 0 1]", so an annotation saying nothing at all about its border has one a
-/// point wide and is reported. The default is the *table's* rather than this module's, which is
-/// why the condition stands and the sentence changed — and it is why
-/// [`crate::view::ViewState::add_free_text`] writes a `/BS` with Table 168's `/W` 0 rather than
-/// leaving the question to a default.
+/// §12.5.4's border is drawn around the same inner rectangle — see [`free_text_border`], which
+/// holds the whole of that entry, the colour no clause states, and why it stopped being a
+/// refusal. [`crate::view::ViewState::add_free_text`] still writes a `/BS` with Table 168's `/W`
+/// 0, which is now a statement rather than an evasion: a note this program adds asks for no
+/// border, in the entry the table provides for saying so.
 ///
 /// # Where the text comes from, and Table 177's second source for it
 ///
@@ -3176,17 +3175,24 @@ fn free_text(
     // layout so that a callout still reaches the page where the text cannot be laid out: Table
     // 177 states the two independently and each is a mark the file asked for.
     let callout = callout(document, annotation, stream);
-    let decoration = undrawn_decoration(document, annotation);
+    // Before the text, so that a note whose glyphs reach the inner rectangle's edge sits over its
+    // own border rather than under it — §12.5.4 puts the border "completely inside the annotation
+    // rectangle" and says nothing about which of the two is on top.
+    let border = free_text_border(document, annotation, stream, box_);
+    let drawn_already = callout.drawn || border.drawn;
+    let decoration = border.report;
     let laid_out = match free_text_layout(document, annotation, box_, retyped, Asked::default()) {
         Ok(laid_out) => laid_out,
         // ADR 0075's rule, one subtype over: an entry that cannot be read is a reason to draw
         // the part that can be rather than a reason to decline the whole annotation.
-        Err(refusal) if callout.drawn => return Ok(Painted::partly(refusal)),
+        Err(refusal) if drawn_already => return Ok(Painted::partly(refusal)),
         Err(refusal) => return Err(refusal),
     };
     let Some(laid_out) = laid_out else {
+        // An empty note with a border is still a mark on the page: `drawn` is what decides
+        // whether the stream this function has been writing into reaches the display list.
         return Ok(Painted {
-            drawn: callout.drawn,
+            drawn: drawn_already,
             report: callout.owed.or(decoration),
         });
     };
@@ -3306,7 +3312,7 @@ fn callout(document: &Document, annotation: &Dictionary, stream: &mut Stream) ->
     let ending = ending.unwrap_or(Ending::None);
 
     stream.text.push_str("q\n");
-    stream.set_colour(Colour::Components([0.0; 4], 1), true);
+    stream.set_colour(BLACK, true);
     stream.set_stroke(DEFAULT_BORDER_WIDTH, &[]);
     polyline(stream, &line, false);
     stream.paint(false, true);
@@ -3327,24 +3333,86 @@ fn callout(document: &Document, annotation: &Dictionary, stream: &mut Stream) ->
     Callout { drawn: true, owed }
 }
 
-/// What Table 177 asks to be drawn *around* the text and no clause states a colour for.
+/// Draws §12.5.4's border around a free text annotation's inner rectangle.
 ///
-/// `/BS` gives "the line width and dash pattern that shall be used in drawing the annotation's
-/// border" and nothing anywhere states the colour: Table 166's `/C` is "the background of the
-/// annotation's icon when closed, the title bar of the annotation's popup window, [and] the
-/// border of a link annotation", none of which a free text annotation has.
+/// # The shape the standard states, in full
 ///
-/// **`/CL` stood beside it here and is now drawn** — [`callout`] holds what separates the two,
-/// and it is not the absence of a colour, which they share. It is that Table 166's `/Border`
-/// gives every annotation a border by default and no annotation a callout line.
-fn undrawn_decoration(document: &Document, annotation: &Dictionary) -> Option<Refusal> {
-    // §12.5.6.2: `/C` is a group attribute, and this refusal turns on whether there is a colour.
-    let shared = crate::markup::group_source(document, annotation);
-    Border::read(document, annotation, &shared, "C")
-        .is_ok_and(|border| border.width > 0.0)
-        .then_some(Refusal::NotDerivable(
-            "Table 177's /BS gives its border a width, and no clause states the colour",
-        ))
+/// ISO 32000-2 §12.5.4 opens the subclause and closes the question of what an annotation stating
+/// nothing has:
+///
+/// > An annotation may optionally be surrounded by a border when displayed or printed. If
+/// > present, the border shall be drawn completely inside the annotation rectangle.
+///
+/// > If neither the Border nor the BS entry is present, the border shall be drawn as a solid line
+/// > with a width of 1 point.
+///
+/// Table 177 gives this subtype the entry that carries it — a `/BS` "specifying the line width
+/// and dash pattern that shall be used in drawing **the annotation's border**" — and its `/RD`
+/// row says where the mark goes: "Any border styles and/or border effects specified by BS and BE
+/// entries, respectively, shall be applied to the border of the inner rectangle."
+///
+/// **Table 168's `/S` styles this border, unlike a square's or a circle's.** §12.5.4 names the
+/// subtypes whose `/BS` supplies less than a whole border style dictionary — "[s]uch dictionaries
+/// may also be used to specify the width and dash pattern for the lines drawn by line, square,
+/// circle, and ink annotations" — and free text is not among the four; `/RD`'s "border styles"
+/// is Table 168's `/S` by name. See [`square_or_circle`] for the other side of that division.
+///
+/// # The colour, which no clause states, and what black is taken from
+///
+/// Nothing in ISO 32000-2 gives this border a colour. Table 166's `/C` is a closed list of three
+/// purposes — "[t]he background of the annotation's icon when closed[,] [t]he title bar of the
+/// annotation's popup window[,] [t]he border of a link annotation" — and on a free text
+/// annotation it is the second of them, because a markup annotation has a `/Popup` and no icon
+/// and is not a link. §12.5.6.19's `/MK` `/BC` is "the colour of the widget annotation's border"
+/// and this is not a widget. Read across the neighbourhood, the standard states a border colour
+/// for a link and for a widget and for nothing else.
+///
+/// So **black is a choice**, and it is written down as one. What makes it the cheap choice rather
+/// than an invention is §8.4.1's Table 51, which gives the graphics state's colour parameter
+/// "Initial value: black": a construction that names no colour paints in it, and this one names
+/// it explicitly only so that the mark cannot depend on what ran before the appearance. It is the
+/// same choice [`callout`] takes one entry over.
+///
+/// # Why this is drawn where it was refused for a hundred sessions
+///
+/// The refusal rested on a claim about producers rather than about the standard — that Table
+/// 166's `/Border` default `[0 0 1]` would put a mark on nearly every free text annotation in the
+/// world on the strength of a default nobody wrote. That claim is measurable and
+/// `examples/free_text_census` measured it: of the corpus's 73 free text annotations, 67 carry an
+/// appearance stream and are not this path's business at all, and of the remaining six **every
+/// one states `/Border` explicitly and four of them state a width of zero**. Not one relies on
+/// §12.5.4's default. A producer who wants no border says so, in the entry the table provides for
+/// saying it.
+///
+/// What is left is ADR 0106's test, and the border passes it: an entry that states no shape must
+/// not erase the shape the clause does state. No entry claims this colour, so painting in the
+/// initial one substitutes for nothing — where a cloudy `/BE` *does* state a different shape and
+/// is refused below, exactly as it is on a square.
+fn free_text_border(
+    document: &Document,
+    annotation: &Dictionary,
+    stream: &mut Stream,
+    box_: [f32; 4],
+) -> Painted {
+    // Table 177 gives this subtype a `/BE`, and §12.5.4 says so: "Beginning with PDF 1.6, free
+    // text annotations may also have a BE entry". A cloudy border is a different border rather
+    // than an extra mark, so it is refused whole (ADR 0106) — the text is drawn either way.
+    if cloudy(document, annotation) {
+        return Painted {
+            drawn: false,
+            report: Some(CLOUDY),
+        };
+    }
+    let border = Border::geometry(document, annotation, BLACK);
+    if !border.strokes() {
+        return Painted::EMPTY;
+    }
+    stream.text.push_str("q\n");
+    border.apply(stream);
+    border.outline(stream, box_);
+    stream.paint(false, true);
+    stream.text.push_str("Q\n");
+    border.simulated()
 }
 
 /// §12.5.6.6's text, laid out by §12.7.4.3 in the box the annotation leaves for it.
@@ -4091,7 +4159,18 @@ impl Border {
         source: &Dictionary,
         key: &'static str,
     ) -> Result<Self, Refusal> {
-        let colour = colour(document, source, key)?;
+        Ok(Self::geometry(
+            document,
+            annotation,
+            colour(document, source, key)?,
+        ))
+    }
+
+    /// §12.5.4's width, style, dash and corner radii, stroked in a colour the caller supplies.
+    ///
+    /// Split from [`Self::read`] for §12.5.6.6, whose border has a geometry the standard states
+    /// in full and a colour no clause states at all — see [`free_text_border`].
+    fn geometry(document: &Document, annotation: &Dictionary, colour: Colour) -> Self {
         let entry = document.get_key(annotation, "Border");
         let border = entry.as_array().unwrap_or_default();
 
@@ -4129,7 +4208,7 @@ impl Border {
                 (width, style, dash.unwrap_or_default(), radii)
             };
 
-        Ok(Self {
+        Self {
             colour,
             width: if width.is_finite() {
                 width.max(0.0)
@@ -4139,7 +4218,7 @@ impl Border {
             dash,
             style,
             radii,
-        })
+        }
     }
 
     /// Reads Table 168's width, style and dash out of a `/BS` dictionary.
@@ -4220,8 +4299,9 @@ impl Border {
 
     /// The report a `B` or `I` border owes: the rectangle is drawn, the illusion is not.
     ///
-    /// Asked only by the subtypes whose `/BS` is a *border* — §12.5.6.5's link and §12.5.6.19's
-    /// widget. §12.5.4 gives "line, square, circle, and ink annotations" a `/BS` that supplies
+    /// Asked only by the subtypes whose `/BS` is a *border* — §12.5.6.5's link, §12.5.6.19's
+    /// widget and, since [`free_text_border`], §12.5.6.6's note. §12.5.4 gives "line, square,
+    /// circle, and ink annotations" a `/BS` that supplies
     /// "the width and dash pattern" alone, so on those four there is no style to be unable to
     /// draw; see [`square_or_circle`].
     fn simulated(&self) -> Painted {
