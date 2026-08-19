@@ -1356,8 +1356,8 @@ impl Document {
             .map(|(index, filter)| (filter, self.decode_parms(&stream.dict, index)))
             .collect();
 
-        if let Some(held) = write(&self.decoded).get(&stream.data, &chain) {
-            return Ok(held);
+        if let Some(held) = write(&self.decoded).get(&stream.data, &chain, limits.max_stream_len) {
+            return held;
         }
 
         let mut data: Arc<[u8]> = Arc::clone(&stream.data);
@@ -1365,15 +1365,29 @@ impl Document {
         // the rest: a stage fed a truncated prefix has no way to end well either, and naming
         // the last stage's complaint would describe the symptom rather than the file.
         let mut damage = None;
+        let mut refused = None;
         for (filter, parms) in &chain {
-            let stage =
-                crate::filter::decode_with_parms_reported(filter, &data, parms.as_ref(), limits)
-                    .map_err(|why| StreamRefusal::Filter {
+            match crate::filter::decode_with_parms_reported(filter, &data, parms.as_ref(), limits) {
+                Ok(stage) => {
+                    data = stage.data;
+                    damage = damage.or(stage.damage);
+                }
+                Err(why) => {
+                    refused = Some(StreamRefusal::Filter {
                         name: String::from_utf8_lossy(filter).into_owned(),
                         why,
-                    })?;
-            data = stage.data;
-            damage = damage.or(stage.damage);
+                    });
+                    break;
+                }
+            }
+        }
+        // The refusal is memoised for the same reason the bytes are, and it is the more
+        // expensive of the two to reach: `FilterRefusal::TooLarge` is answered only after
+        // inflating to the bound, so a stream refused on page one is a gibibyte per page
+        // without this. ADR 0437.
+        if let Some(why) = refused {
+            write(&self.decoded).refuse(&stream.data, chain, &why, limits.max_stream_len);
+            return Err(why);
         }
         let decoded = Decoded { data, damage };
         write(&self.decoded).put(&stream.data, chain, &decoded);
@@ -1729,7 +1743,47 @@ fn is_signature_dictionary(dict: &Dictionary) -> bool {
     }
 }
 
-/// One stream's decoded bytes, and what proves the key still names that stream.
+/// What running a chain over one buffer produced, which is bytes or a refusal.
+///
+/// **A refusal is an outcome and not an absence**, which is the whole of ADR 0437: reaching
+/// [`FilterRefusal::TooLarge`] costs up to [`Limits::max_stream_len`] of inflation, so a stream
+/// one page refuses is a stream every page re-inflates unless the answer is kept. The two arms
+/// are one memo rather than two maps because they are one question — what does this chain make
+/// of these bytes — and because eviction, the byte budget and the liveness invariant are then
+/// written once.
+enum Outcome {
+    /// The bytes the chain produced, and whether it produced all of them.
+    Decoded {
+        /// What that chain produced.
+        data: Arc<[u8]>,
+        /// Whether it produced all of it, memoised with the bytes.
+        ///
+        /// Held rather than re-derived because it is a property of the *decode* and the decode
+        /// is what this cache exists to avoid running twice. A hit that answered `None` here
+        /// would make a damaged stream report on its first reading and stay silent on every
+        /// later one, which is a report that depends on the cache's budget. ADR 0343.
+        damage: Option<Damage>,
+    },
+    /// A filter refused, and the bound it refused under.
+    Refused {
+        /// What [`Document::decoded_under`] would have returned.
+        why: StreamRefusal,
+        /// The [`Limits::max_stream_len`] in force when it did.
+        ///
+        /// **A refusal is only an answer under a bound at least as tight as the one that
+        /// produced it**, and this is the field that says so. [`Document::decoded_under`] is
+        /// asked under two different bounds — the document's, and
+        /// [`Document::nested_content_source`]'s smaller allowance — and
+        /// [`FilterRefusal::TooLarge`] means "longer than *this* limit", which says nothing
+        /// about a larger one. Serving such an entry to a caller under the document's own bound
+        /// would refuse a stream this reader can decode, on the strength of a routing decision
+        /// somewhere else. The other two refusals are properties of the bytes and the chain
+        /// alone, and are kept under the same rule rather than under a second one.
+        under: usize,
+    },
+}
+
+/// One stream's decode, and what proves the key still names that stream.
 struct DecodedEntry {
     /// The encoded bytes the key was taken from, held for as long as the entry is.
     ///
@@ -1748,17 +1802,35 @@ struct DecodedEntry {
     /// with different dictionaries — `pdf_model::thumbnail::significant` builds one such — and
     /// two chains over one buffer are two different decodes.
     chain: Vec<(Vec<u8>, Option<Dictionary>)>,
-    /// What that chain produced.
-    data: Arc<[u8]>,
-    /// Whether it produced all of it, memoised with the bytes.
-    ///
-    /// Held rather than re-derived because it is a property of the *decode* and the decode is
-    /// what this cache exists to avoid running twice. A hit that answered `None` here would
-    /// make a damaged stream report on its first reading and stay silent on every later one,
-    /// which is a report that depends on the cache's budget. ADR 0343.
-    damage: Option<Damage>,
+    /// What that chain made of those bytes.
+    outcome: Outcome,
     /// The value of [`DecodedStreams::clock`] when this entry was last read or written.
     used: u64,
+}
+
+impl DecodedEntry {
+    /// What this entry is charged against [`DecodedStreams::budget`].
+    ///
+    /// **Three terms, each of them something the entry holds**, and no constant chosen by
+    /// anybody: the entry itself, the encoded bytes it pins — see [`Self::encoded`] for why it
+    /// must — and the decoded bytes where there are any. A refusal holds none of the third,
+    /// which is why the first term had to exist before a refusal could be kept at all: charged
+    /// nothing, refusals would accumulate without a ceiling, and this cache's whole shape is
+    /// that it has one.
+    ///
+    /// What the charge does **not** count is heap the entry reaches rather than holds: the
+    /// chain's names and parameter dictionaries, and the filter name inside a
+    /// [`StreamRefusal::Filter`] — tens of bytes apiece, uncounted before this and uncounted
+    /// now. The budget's own rule is that it be legible rather than exact (ADR 0317).
+    fn charge(&self) -> usize {
+        let held = match &self.outcome {
+            Outcome::Decoded { data, .. } => data.len(),
+            Outcome::Refused { .. } => 0,
+        };
+        size_of::<Self>()
+            .saturating_add(self.encoded.len())
+            .saturating_add(held)
+    }
 }
 
 /// The decoded streams one open document is holding, under a byte budget.
@@ -1824,63 +1896,125 @@ impl DecodedStreams {
         }
     }
 
-    /// What this chain produced from these bytes before, marking it most recently used.
+    /// What this chain made of these bytes before, marking it most recently used.
+    ///
+    /// `bound` is the [`Limits::max_stream_len`] the asking caller will decode under, and it is
+    /// read only by [`Outcome::Refused`] — see that variant's `under` field for why a refusal
+    /// under a tighter bound is not an answer under a looser one.
     fn get(
         &mut self,
         encoded: &Arc<[u8]>,
         chain: &[(Vec<u8>, Option<Dictionary>)],
-    ) -> Option<Decoded> {
+        bound: usize,
+    ) -> Option<Result<Decoded, StreamRefusal>> {
         self.clock = self.clock.saturating_add(1);
         let clock = self.clock;
-        let entry = self.held.get_mut(&allocation(encoded));
-        let Some(entry) = entry.filter(|entry| entry.chain == chain) else {
+        let answer = self
+            .held
+            .get_mut(&allocation(encoded))
+            .filter(|entry| entry.chain == chain)
+            .and_then(|entry| {
+                let answer = match &entry.outcome {
+                    Outcome::Decoded { data, damage } => Ok(Decoded {
+                        data: Arc::clone(data),
+                        damage: *damage,
+                    }),
+                    Outcome::Refused { why, under } if bound <= *under => Err(why.clone()),
+                    Outcome::Refused { .. } => return None,
+                };
+                entry.used = clock;
+                Some(answer)
+            });
+        if answer.is_some() {
+            self.hits = self.hits.saturating_add(1);
+        } else {
             self.misses = self.misses.saturating_add(1);
-            return None;
-        };
-        entry.used = clock;
-        self.hits = self.hits.saturating_add(1);
-        Some(Decoded {
-            data: Arc::clone(&entry.data),
-            damage: entry.damage,
-        })
+        }
+        answer
     }
 
     /// How many decoded bytes this cache would keep beside `encoded`.
     ///
-    /// [`Self::put`]'s own condition, asked before the decode rather than after it: the entry
-    /// is charged for both halves, so a decode longer than this is one the cache declines
-    /// however empty it is. [`Document::nested_content_source`] is what asks, and it is the
-    /// whole of that routing rule — which is why the two are one function rather than two
-    /// comparisons that can drift.
+    /// [`Self::keep`]'s own condition, asked before the decode rather than after it: the entry
+    /// is charged for every part of itself ([`DecodedEntry::charge`]), so a decode longer than
+    /// this is one the cache declines however empty it is.
+    /// [`Document::nested_content_source`] is what asks, and it is the whole of that routing
+    /// rule — which is why the two are one function rather than two comparisons that can drift.
     fn allowance(&self, encoded: &Arc<[u8]>) -> usize {
-        self.budget.saturating_sub(encoded.len())
+        self.budget
+            .saturating_sub(encoded.len())
+            .saturating_sub(size_of::<DecodedEntry>())
     }
 
     /// Keeps a decode, dropping least-recently-used entries until it fits.
     ///
-    /// The charge is the decoded bytes **plus the encoded ones**, because the entry holds both
-    /// and an accounting that ignored the pin would understate what the cache costs for any
-    /// stream the document's object cache is not already holding.
-    ///
     /// A decode too large for the whole budget is not kept, rather than emptying the cache to
-    /// hold one entry that the next insertion would drop.
+    /// hold one entry that the next insertion would drop. [`DecodedEntry::charge`] is what
+    /// "too large" is measured with.
     fn put(
         &mut self,
         encoded: &Arc<[u8]>,
         chain: Vec<(Vec<u8>, Option<Dictionary>)>,
         decoded: &Decoded,
     ) {
-        let data = &decoded.data;
-        let size = data.len().saturating_add(encoded.len());
-        if data.len() > self.allowance(encoded) {
+        self.keep(
+            encoded,
+            chain,
+            Outcome::Decoded {
+                data: Arc::clone(&decoded.data),
+                damage: decoded.damage,
+            },
+        );
+    }
+
+    /// Keeps a refusal, under the bound it was reached under.
+    ///
+    /// **The bound is what makes this sound and the pin is what makes it addressable**, and
+    /// neither is new: [`Outcome::Refused`] argues the first and [`DecodedEntry::encoded`] the
+    /// second. What is new is that a refusal costing a gibibyte of inflation to reach is
+    /// reached once per document rather than once per page that names the stream (ADR 0437).
+    ///
+    /// A refusal whose *encoded* bytes do not fit the budget is declined, exactly as an
+    /// oversized decode is — so a bomb in a very large stream still costs its inflation per
+    /// read, and `doc/todo/41` says what that leaves.
+    fn refuse(
+        &mut self,
+        encoded: &Arc<[u8]>,
+        chain: Vec<(Vec<u8>, Option<Dictionary>)>,
+        why: &StreamRefusal,
+        under: usize,
+    ) {
+        self.keep(
+            encoded,
+            chain,
+            Outcome::Refused {
+                why: why.clone(),
+                under,
+            },
+        );
+    }
+
+    /// Puts one outcome in, evicting until its charge fits under the budget.
+    fn keep(
+        &mut self,
+        encoded: &Arc<[u8]>,
+        chain: Vec<(Vec<u8>, Option<Dictionary>)>,
+        outcome: Outcome,
+    ) {
+        self.clock = self.clock.saturating_add(1);
+        let entry = DecodedEntry {
+            encoded: Arc::clone(encoded),
+            chain,
+            outcome,
+            used: self.clock,
+        };
+        let size = entry.charge();
+        if size > self.budget {
             return;
         }
-        self.clock = self.clock.saturating_add(1);
         let key = allocation(encoded);
         if let Some(previous) = self.held.remove(&key) {
-            self.bytes = self
-                .bytes
-                .saturating_sub(previous.data.len().saturating_add(previous.encoded.len()));
+            self.bytes = self.bytes.saturating_sub(previous.charge());
         }
         while self.bytes.saturating_add(size) > self.budget {
             if !self.evict() {
@@ -1888,16 +2022,7 @@ impl DecodedStreams {
             }
         }
         self.bytes = self.bytes.saturating_add(size);
-        self.held.insert(
-            key,
-            DecodedEntry {
-                encoded: Arc::clone(encoded),
-                chain,
-                data: Arc::clone(data),
-                damage: decoded.damage,
-                used: self.clock,
-            },
-        );
+        self.held.insert(key, entry);
     }
 
     /// Drops the least recently used entry, answering whether there was one.
@@ -1915,9 +2040,7 @@ impl DecodedStreams {
             return false;
         };
         if let Some(entry) = self.held.remove(&oldest) {
-            self.bytes = self
-                .bytes
-                .saturating_sub(entry.data.len().saturating_add(entry.encoded.len()));
+            self.bytes = self.bytes.saturating_sub(entry.charge());
             self.evicted = self.evicted.saturating_add(1);
         }
         true
@@ -2223,8 +2346,8 @@ mod tests {
         let held = document.decoded_streams();
         assert_eq!((held.hits, held.misses), (1, 1));
         assert_eq!(held.budget, DECODED_BUDGET);
-        // The charge is the decoded bytes plus the encoded ones the entry pins.
-        assert_eq!(held.bytes, 3 + 7);
+        // The charge is the entry, the encoded bytes it pins and the decoded ones it holds.
+        assert_eq!(held.bytes, size_of::<DecodedEntry>() + 3 + 7);
     }
 
     /// One buffer, two filter chains, two decodes — and the key alone cannot tell them apart.
@@ -2284,22 +2407,28 @@ mod tests {
             data: bytes(size),
             damage: None,
         };
-        // Room for two of these three (each charged 5 encoded + 5 decoded) and not the third.
-        let mut cache = DecodedStreams::with_budget(25);
+        // Room for two of these three and not the third. Each is charged its own entry plus 5
+        // encoded and 5 decoded, so the budget is written that way rather than as a number
+        // that would have to be re-derived whenever the entry gains a field.
+        let one = size_of::<DecodedEntry>().saturating_add(10);
+        let mut cache = DecodedStreams::with_budget(one * 2 + 5);
         let (first, second, third) = (bytes(5), bytes(5), bytes(5));
         cache.put(&first, chain("A"), &whole(5));
         cache.put(&second, chain("A"), &whole(5));
-        assert!(cache.get(&first, &chain("A")).is_some());
+        assert!(cache.get(&first, &chain("A"), usize::MAX).is_some());
         cache.put(&third, chain("A"), &whole(5));
 
-        assert!(cache.get(&second, &chain("A")).is_none(), "the oldest went");
         assert!(
-            cache.get(&first, &chain("A")).is_some(),
+            cache.get(&second, &chain("A"), usize::MAX).is_none(),
+            "the oldest went"
+        );
+        assert!(
+            cache.get(&first, &chain("A"), usize::MAX).is_some(),
             "the wanted one stayed"
         );
-        assert!(cache.get(&third, &chain("A")).is_some());
+        assert!(cache.get(&third, &chain("A"), usize::MAX).is_some());
         let held = cache.report();
-        assert_eq!((held.streams, held.bytes, held.evicted), (2, 20, 1));
+        assert_eq!((held.streams, held.bytes, held.evicted), (2, one * 2, 1));
         assert!(held.bytes <= held.budget, "the ceiling is a ceiling");
     }
 
@@ -2312,16 +2441,92 @@ mod tests {
             data: bytes(size),
             damage: None,
         };
-        let mut cache = DecodedStreams::with_budget(25);
+        let mut cache = DecodedStreams::with_budget(size_of::<DecodedEntry>() + 15);
         let (small, large) = (bytes(5), bytes(5));
         cache.put(&small, chain.clone(), &whole(5));
         cache.put(&large, chain.clone(), &whole(30));
-        assert!(cache.get(&large, &chain).is_none(), "it never went in");
         assert!(
-            cache.get(&small, &chain).is_some(),
+            cache.get(&large, &chain, usize::MAX).is_none(),
+            "it never went in"
+        );
+        assert!(
+            cache.get(&small, &chain, usize::MAX).is_some(),
             "and took nothing with it"
         );
         assert_eq!(cache.report().evicted, 0);
+    }
+
+    /// A refusal is an answer, and reaching it twice is what `doc/todo/41` was left owing.
+    ///
+    /// Under a bound of a few bytes the inflation is instant, so what this asserts is the
+    /// *memo* rather than the saving: the second reading of a stream whose decode passed
+    /// [`Limits::max_stream_len`] runs no filter at all, and says the same thing it said the
+    /// first time. ADR 0437; `doc/todo/41` has the measurement on a document that pays a
+    /// gibibyte for it.
+    #[test]
+    fn a_stream_whose_decode_was_refused_is_refused_from_the_memo() {
+        let limits = Limits {
+            max_stream_len: 2,
+            ..Limits::DEFAULT
+        };
+        let document = Document::around(Arc::from(&[][..]), XrefTable::default(), limits);
+        // §7.4.5's run: a length byte above 128 repeats the byte after it 257 − length times,
+        // and 128 is the end of data. Seven bytes out of three, which is four too many.
+        let encoded: Arc<[u8]> = Arc::from([0xFA, b'x', 0x80].as_slice());
+        let stream = hex_stream(&encoded, &["RunLengthDecode"]);
+
+        let first = document.decoded_stream_data_reported(&stream);
+        let second = document.decoded_stream_data_reported(&stream);
+        let refusal = StreamRefusal::Filter {
+            name: "RunLengthDecode".to_owned(),
+            why: FilterRefusal::TooLarge { limit: 2 },
+        };
+        assert_eq!(first.err(), Some(refusal.clone()));
+        assert_eq!(
+            second.err(),
+            Some(refusal),
+            "the same answer, from the memo"
+        );
+
+        let held = document.decoded_streams();
+        assert_eq!((held.hits, held.misses), (1, 1));
+        assert_eq!(
+            held.bytes,
+            size_of::<DecodedEntry>() + encoded.len(),
+            "a refusal holds no decoded bytes and is charged for what it does hold"
+        );
+    }
+
+    /// And it is an answer *under a bound*, which is the one way this memo could lie.
+    ///
+    /// `Document::nested_content_source` decodes under the memo's own allowance rather than
+    /// under the document's `max_stream_len`, so a `TooLarge` reached there says only that the
+    /// stream is longer than that allowance. Serving it to a caller asking under the
+    /// document's own bound would refuse a stream this reader can decode.
+    #[test]
+    fn a_refusal_under_a_tighter_bound_is_not_an_answer_under_a_looser_one() {
+        let chain = vec![(b"ASCIIHexDecode".to_vec(), None)];
+        let encoded: Arc<[u8]> = Arc::from(b"41424344>".as_slice());
+        let refusal = StreamRefusal::Filter {
+            name: "ASCIIHexDecode".to_owned(),
+            why: FilterRefusal::TooLarge { limit: 2 },
+        };
+        let mut cache = DecodedStreams::with_budget(DECODED_BUDGET);
+        cache.refuse(&encoded, chain.clone(), &refusal, 2);
+
+        assert_eq!(
+            cache.get(&encoded, &chain, 2).and_then(Result::err),
+            Some(refusal),
+            "the bound it was reached under is an answer"
+        );
+        assert!(
+            cache.get(&encoded, &chain, 1).is_some(),
+            "and so is a tighter one"
+        );
+        assert!(
+            cache.get(&encoded, &chain, 4).is_none(),
+            "a looser bound has to run the filter"
+        );
     }
 
     /// Table 255 makes `/Type` optional, so a signature that omits it is still one.

@@ -54,11 +54,35 @@ least-recently-used and counted, and the liveness invariant is an entry that *ho
 allocation its key names — which is what makes the address a key rather than a guess, and is
 exactly the hazard the paragraph above met at 4 KB.
 
-## What is still open, and it is one line rather than a design
+## The refusal is memoised now, and the shape of the item had moved before it was taken
 
-**A refusal is not memoised.** `FilterRefusal::TooLarge` costs up to `Limits::max_stream_len` of
-inflation to reach, and a document naming one bomb stream from every page pays that per page —
-an amplification that predates this cache and that this cache is placed to remove. It is left out
-because a refusal holds no decoded bytes, so charging it to a *byte* budget needs a per-entry
-overhead constant, and this project does not invent constants. Whoever takes it owes that
-derivation, and a document that does it to measure against.
+**Taken in the six-hundred-and-second session; ADR 0437 has the measurement and the argument.** A
+refusal is an outcome beside the bytes rather than an absence: `DecodedEntry` holds an `Outcome`,
+the entry records the **bound the refusal was reached under** — a `TooLarge` under
+`nested_content_source`'s smaller allowance is not an answer under the document's own bound — and
+the per-entry overhead this file said was owed is `size_of::<DecodedEntry>()`, charged to every
+entry rather than only to refusals, so nothing was invented.
+
+**Three sessions had moved the item under it and the round checked first.** All five of §7.8.2's
+content streams have a window now (ADRs 0427, 0429, 0430), and `Document::pumping` grants one only
+to a *single* `FlateDecode` or `LZWDecode` with no predictor — so a bomb in a page's `/Contents`, a
+form or a pattern cell costs kilobytes and was never what remained. What remained is everything the
+window declines: a chain of two filters (`[/ASCIIHexDecode /FlateDecode]`, §7.4.7's own worked
+arrangement), a predictor, and every stream that is not content at all — a font program, an
+`ICCBased` profile, a cross-reference stream — read whole from every page that names them.
+
+The witness this file asked for is that shape: Bomb B inside a form `XObject` that twenty pages
+draw, hex-wrapped so no window can take it. One cold sweep of it went from **5.92–6.12 s to
+2.76–3.23 ms**, three runs an arm, alternating.
+
+## What is left, and it is a bound rather than a design
+
+**A refusal whose *encoded* bytes do not fit the budget is still re-run per read**, because the
+entry pins them and the cache declines what it cannot hold. At `DECODED_BUDGET` that is a stream
+above 4 MiB of encoded data — for `FlateDecode` a bomb far larger than one needs to be, since 2.5 MB
+of file already commands the gibibyte. Whoever wants it owes a document that reaches it and a reason
+the budget should hold what it holds.
+
+**And `image_stream` has no memo at all**, decoding outside this one by construction (a codec's
+bytes are not a filter chain's), so an image bomb is refused once per read of the image. That is a
+different cache with a different key and is not this item.

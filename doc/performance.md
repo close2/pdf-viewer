@@ -441,6 +441,23 @@ nothing else. A least-recently-used replay of the recorded sequence says what th
 1 MiB saves 21.4% of the sweep, 4 MiB saves 23.1%, and an unbounded cache holding the whole 46.6 MB
 working set saves 23.4%.
 
+### And the arm where the decode produces nothing, which was left out until ADR 0437
+
+A `FilterRefusal::TooLarge` costs up to `Limits::max_stream_len` of inflation to reach and was
+answered again on every read, so a document naming one refused stream from every page paid a
+gibibyte per page. The memo keeps the refusal now, under the bound it was reached under. Twenty
+pages of one hex-wrapped Bomb B in a form `XObject` — the chain that defeats §7.8.2's window, which
+is what the shape had become since ADRs 0427–0430 — one cold `find_cost` sweep, three runs an arm,
+alternating:
+
+| | cold sweep, 20 pages |
+|---|---|
+| without | 5.92 / 6.12 / 5.92 s |
+| with | **2.76 / 3.23 / 2.89 ms** |
+
+An ordinary 25-page document is inside the noise either way (47–51 ms against 36–55). What the memo
+still declines is a refusal whose *encoded* bytes do not fit the budget, because the entry pins them.
+
 ## What cross-page parallelism buys, and at what memory
 
 **`pdf-model/examples/parallel_sweep`** reads every page three ways — one thread; N threads over one
@@ -955,8 +972,9 @@ corpus's worst page ([todo 40](todo/40-mask-chain-crop.md)), which the
 three-hundred-and-ninety-ninth session unblocked and re-priced rather than took — and whose
 *copying* half the four-hundred-and-ninety-third then took byte-identically (ADR 0328), leaving
 the chain itself; and a
-decoded-stream cache, measured at 0.7% of interpretation and deliberately not taken
-([todo 41](todo/41-decoded-stream-cache.md)).
+decoded-stream cache, whose 0.7% was a corpus walked one page a document and which the
+population a *reader* is in has since paid for twice over — the bytes in ADR 0317 and the refusals
+in ADR 0437 ([todo 41](todo/41-decoded-stream-cache.md)).
 
 Two fixes worth carrying as patterns: unpacking JPEG output cost 6.89 G until two paired
 `chunks_exact` iterators took it to 1.25 G — **the safety habits this project enforces everywhere

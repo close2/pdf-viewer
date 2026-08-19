@@ -1079,7 +1079,30 @@ fn finish(out: &[u8], damage: Option<Damage>, limits: Limits) -> Result<Decoded,
     }
 }
 
-/// Decodes `ASCIIHexDecode`: hex digits terminated by `>`.
+/// Decodes `ASCIIHexDecode`, ISO 32000-2 §7.4.2: hex digits terminated by `>`.
+///
+/// > The ASCIIHexDecode filter shall produce one byte of binary data for each pair of ASCII
+/// > hexadecimal digits (0 -9 and A -F or a -f). All white-space characters (see 7.2, "Lexical
+/// > conventions") shall be ignored. A GREATER-THAN SIGN (3Eh) indicates EOD (End Of Data).
+/// > Any other characters shall cause an error. If the filter encounters the EOD marker after
+/// > reading an odd number of hexadecimal digits, it shall behave as if a 0 (zero) followed
+/// > the last digit.
+///
+/// Four of those five sentences are executed here. The fourth is a **deliberate departure**:
+/// a stray byte is skipped rather than made an error, because a hex stream with one bad byte
+/// in it decodes to what its producer meant everywhere except at that byte, and refusing loses
+/// the whole stream. §7.4.3's identical sentence *is* enforced, in [`ascii85`], and the
+/// difference between the two is that base-85 has no way to resynchronise: a skipped character
+/// shifts every group after it, so what would come back is not the producer's data. The ledger
+/// carries the departure as this clause's `partial`, and
+/// `ascii_hex_skips_a_character_the_clause_calls_an_error` is what pins it.
+///
+/// **The one filter here that takes no [`Limits`], and the reason is the clause's arithmetic
+/// rather than an omission.** One byte comes out for every two that go in, so this is a 2:1
+/// contraction and no file can inflate through it; the raw bytes are already bounded by
+/// `max_stream_len` where the parser reads them (`Parser::parse_stream_data`), which is what makes
+/// that bound "raw or decoded" rather than only the second. [`Document::pumping`] states the
+/// same ratio for the road not taken.
 fn ascii_hex(data: &[u8]) -> Arc<[u8]> {
     let mut out = Vec::new();
     let mut pending: Option<u8> = None;
@@ -1263,6 +1286,21 @@ mod tests {
     fn ascii_hex_pads_an_odd_final_digit() {
         let out = decode(b"ASCIIHexDecode", b"4A5>", None, Limits::DEFAULT).expect("valid");
         assert_eq!(&*out, &[0x4a, 0x50]);
+    }
+
+    /// §7.4.2 says a stray character "shall cause an error", and this decoder recovers instead.
+    ///
+    /// **A deliberate departure, and until this test only prose said so** — the ledger row for
+    /// the clause and a comment in [`ascii_hex`]. A departure nothing exercises is one a later
+    /// round can undo by accident and every gate will agree with, which is the same argument
+    /// the rest of this module's tests are written from. What is pinned is the recovery: the
+    /// bytes on either side of the stray character are the producer's and are decoded, so a
+    /// hex stream with one bad byte in it loses that byte rather than the page.
+    #[test]
+    fn ascii_hex_skips_a_character_the_clause_calls_an_error() {
+        let out = decode(b"ASCIIHexDecode", b"48 65 6C*6C 6F>", None, Limits::DEFAULT)
+            .expect("the stray asterisk is skipped, not refused");
+        assert_eq!(&*out, b"Hello", "and the white space is ignored beside it");
     }
 
     /// §7.4.4.2's own worked example, decoded.
