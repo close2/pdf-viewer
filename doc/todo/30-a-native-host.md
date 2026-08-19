@@ -162,3 +162,34 @@ test that reads its own sources back, and `viewer-ffi`'s additionally asserts th
 `#![forbid(unsafe_code)]` — the compiler-enforced rule this file promised would survive, checked
 rather than promised. A third name appearing in either list is a change to a rule the project owner
 stated and belongs in an ADR.
+
+## The UI itself is now work, and all three hosts stay level — the owner, 2026-08-20
+
+> even though low priority, I think we should start investing time into the UI (and its API for the
+> native versions).
+
+Two decisions come with it, and the second is the one that costs.
+
+**All three hosts stay level.** A feature lands on the boundary and `viewer-ui`, `viewer-gtk` and
+`viewer-qt` all adopt it, rather than one being a flagship the others follow. That is roughly three
+times the host-side work per feature and it is chosen deliberately: this file's proudest claim is
+that **six consumers have never asked for a new message**, and that claim is only evidence while the
+consumers are actually made to carry what is added. A feature living in one host is a message nobody
+has tested.
+
+**`/PageLayout` is the first item**, and it is not chosen for being easy. Table 29's entry is *read,
+reported, and not obeyed* — `app.rs` says so in as many words, "[t]his window shows one page at a
+time, which is Table 29's own `SinglePage`", and reports when a document asks for anything else. So
+there is no continuous scroll, no facing pages and no two-column view. It is worth taking first for
+three separate reasons that happen to agree:
+
+- it is a **normative entry** in a clause already `partial` (§12.2), so it is not UI work bought at
+  the spec track's expense;
+- it is the plainest thing a person notices missing in a reader;
+- and it is **the likeliest thing in the whole surface to demand new boundary vocabulary**, which
+  makes it the honest test of the claim above. `doc/ui-boundary.md` holds the test a message must
+  pass, and §12.4.4.2's `Command::Present` is the standing example of a good reason.
+
+It also sharpens [`37`](37-a-frame-that-says-it-is-stale.md)'s new item rather than competing with
+it: a continuous scroll reveals area that was not on the screen *constantly*, which is exactly what
+the retained low-resolution page is for.

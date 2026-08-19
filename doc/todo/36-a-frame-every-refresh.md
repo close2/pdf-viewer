@@ -203,3 +203,27 @@ item is visible, and it has moved a long way already: ADR 0378 measured this wit
 [`37`](37-a-frame-that-says-it-is-stale.md) holds — **the better the renderer gets, the less this
 should ever be seen** — and it is now legible as a number, because the summary says what share of
 the presents were correct.
+
+## The choice this file left to the owner is made: correct every frame, 2026-08-20
+
+ADR 0386 §3.3 offered one thing "available without any ask" — **defer the real frame until the view
+comes to rest**, which would give 60 Hz through a gesture today at the price of no longer trying to
+render a correct image every frame. This file said it was the owner's to choose because it
+contradicts their own sentence. **They have chosen, and they declined it**:
+
+> If possible we should always try to have correct frames, even when still zooming. For most
+> documents this should be achievable. If we can't correctly render a frame in time, we should
+> reproject. If possible we should reproject on intermediate frames.
+
+So the shape already built is the shape wanted, and nothing above changes: the render is on its own
+thread, a reprojection is drawn on a **miss** rather than on a policy of not trying, and repeated
+reprojection through a gesture composes against the base rather than chaining. What the decision
+closes is the option, not an item — and it re-ranks the rest of this file, because "every round that
+makes a frame cheaper moves that number" stops being a consolation and becomes the whole road. The
+2.9% ceiling stands as the honest statement of how much of a moving view can ever be correct on the
+owner's own measurement, and it is a reason to make frames cheaper rather than a reason to stop
+trying.
+
+**Do not re-open the deferral as an optimisation.** A later round finding that a gesture would be
+smoother if the real frame waited is rediscovering a trade the owner has refused, and owes this
+section an argument rather than a measurement.

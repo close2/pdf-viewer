@@ -128,3 +128,46 @@ Three things bind it, and none of them is new:
 Not progressive rendering (`doc/todo/16`'s road C), not a page turn — nothing about the outgoing
 page's pixels says anything true about the incoming one — and not §12.4.4's transitions, which are
 already a picture of two pages moving. ADR 0378 has each argument.
+
+## A second thing is left, asked for by the owner on 2026-08-20: pixels for the area that was not there
+
+**The module's own doc names this gap and has since it was written**: *"a scroll reveals an edge the
+old raster has no pixels for, and anything the new view would draw that the old one did not is
+simply absent."* So a reprojection answers a zoom **in** well and a zoom **out** or a scroll badly —
+the base covers the old view and nothing covers the margin that has just appeared. Today that margin
+shows nothing at all. The owner:
+
+> Another thing we should consider: keep a version of the page (possibly low resolution) so that we
+> can reproject onto it, when zooming out, this would allow us to display something onto the newly
+> appearing area.
+
+**Why the construction is a good one rather than merely a filler**, and this is the argument to keep:
+its error is smallest exactly where it is needed. A whole-page proxy at a small fraction of device
+scale is close to the *right* resolution when the view is zoomed out, which is when the margin
+appears; it would be badly blurred zoomed in, which is when the base already covers the view. The two
+sources are complementary rather than competing, so a reprojection becomes two layers — the proxy
+underneath, covering the page, and the sharp base over it, covering what was already on the screen.
+
+What binds it, none of it new:
+
+- **Nothing on the launch path.** `CLAUDE.md`'s startup rules forbid anything eager before page one,
+  so the proxy is produced *after* the first real frame — on the render thread, when it is otherwise
+  idle — and never in front of it. A round that measures a launch regression here has built it wrong.
+- **The five rules are still the five.** Rule 2 above all: the proxy and its resample belong in
+  `stale.rs`, a private module of the binary, so that no gate, oracle or harness can link to a
+  stand-in. Rule 1 is unchanged — a proxy is still never the last word.
+- **Rule 3 has to grow one distinction.** "Approximated from the last frame" and "approximated from a
+  low-resolution page" are *different amounts of wrong*, and a frame line that says only
+  `approximated` for both has stopped saying what it is showing. The trace names which source filled
+  which region, or the rule is weaker than it was.
+- **The cost is not memory.** A page at an eighth of device scale is a couple of hundred kilobytes;
+  what has to be priced is the render that makes it and where it is taken from — a crop of a real
+  frame will not do at high zoom, because the frame is then a crop of the page rather than the whole
+  of it.
+
+**It pays somewhere this file has not been looking**, which is the argument for taking it above the
+processor path: a page turn and a `GoTo` have **no base at all**, so they show nothing whatever the
+device does. A retained page is the only thing that can stand in there.
+
+Open, and for the round to settle rather than for this file to guess: whether the proxy is one page
+or a small window of neighbouring pages, and what scale earns its keep.
