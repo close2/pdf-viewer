@@ -26,9 +26,10 @@ pub enum Query<'a> {
     CurrentPage,
     /// Where a page sits on the screen and how large it is drawn.
     ///
-    /// The index is zero-based. A page that is not the one showing has no place on the screen,
+    /// The index is zero-based. A page the arrangement does not show has no place on the screen,
     /// so this answers [`Answer::None`] for it — the geometry is a property of the view, not of
-    /// the page.
+    /// the page. **Which pages those are is Table 29's `/PageLayout`**: one under `SinglePage`,
+    /// and every page of the column or the spread under the other five.
     PageGeometry(usize),
     /// §12.3.3's outline, as a panel would show it.
     Outline,
@@ -312,9 +313,11 @@ pub enum Query<'a> {
     /// Asked whenever a host repaints, which during a drag is every frame — so it is a query
     /// rather than an event carrying a payload nobody may want.
     Selection,
-    /// The pixels the viewer is holding for the focused document, if any.
+    /// The pixels the viewer is holding for the focused document, one entry per page on screen.
     ///
-    /// [`Answer::None`] for a tier-2 host, which draws its own and hands the viewer nothing.
+    /// [`Answer::None`] for a tier-2 host, which draws its own and hands the viewer nothing, and
+    /// an **empty list** for a tier-1 host that has not handed any back yet — the two are
+    /// different answers and a host waiting for its first frame needs the second.
     Frame,
     /// §14.7's logical structure for the page being shown, as an accessibility API takes it.
     ///
@@ -538,8 +541,17 @@ pub enum Answer<'a> {
     Opening(pdf_model::viewer_preferences::Opening),
     /// §12.2's Table 147, whole.
     Preferences(pdf_model::viewer_preferences::ViewerPreferences),
-    /// The pixels the viewer holds, and where they belong on the screen.
-    Frame(FrameView<'a>),
+    /// The pixels the viewer holds, and where each page's belong on the screen, in page order.
+    ///
+    /// **A list since Table 29's `/PageLayout` was obeyed**, and the variant changed shape rather
+    /// than a second question being added: `OneColumn` puts several pages in one window and a
+    /// host drawing only the first would be drawing a continuous view with a hole in it. That is
+    /// the mechanism `doc/ui-boundary.md` prefers — where a host needs several of what a variant
+    /// carried one of, the variant changes and every consumer fails to compile.
+    ///
+    /// One entry under `SinglePage`, which is Table 29's default and what this crate answered
+    /// with for four hundred sessions.
+    Frame(Vec<FrameView<'a>>),
     /// What the current page could not draw.
     Reports(&'a [String]),
     /// What the current page could not be *read* as, in the three ways this tree tells apart.

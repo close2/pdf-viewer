@@ -103,6 +103,15 @@ extern "C" {
 #define PDFV_RESTRICT_ON   0u
 #define PDFV_RESTRICT_OFF  1u
 
+/* Table 29's /PageLayout: how the pages are arranged. SINGLE_PAGE is the table's default, and
+ * the document's own value is what a session opens in — this is how a reader changes it. */
+#define PDFV_LAYOUT_SINGLE_PAGE      0u
+#define PDFV_LAYOUT_ONE_COLUMN       1u
+#define PDFV_LAYOUT_TWO_COLUMN_LEFT  2u
+#define PDFV_LAYOUT_TWO_COLUMN_RIGHT 3u
+#define PDFV_LAYOUT_TWO_PAGE_LEFT    4u
+#define PDFV_LAYOUT_TWO_PAGE_RIGHT   5u
+
 /* Whether §12.4.4's presentation is running. OFF is the default. */
 #define PDFV_PRESENT_OFF  0u
 #define PDFV_PRESENT_ON   1u
@@ -387,6 +396,8 @@ int32_t pdfv_set_group(pdfv_viewer *viewer, uint32_t number, uint16_t generation
 int32_t pdfv_tick(pdfv_viewer *viewer, uint32_t millis, pdfv_events **events);
 /* §12.4.4: whether a presentation is running. PDFV_PRESENT_*. Only a host knows. */
 int32_t pdfv_present(pdfv_viewer *viewer, uint32_t mode, pdfv_events **events);
+/* Table 29's arrangement, as the reader has chosen it. PDFV_LAYOUT_*. */
+int32_t pdfv_layout(pdfv_viewer *viewer, uint32_t layout, pdfv_events **events);
 /* The reader's policy about the document's restrictions. PDFV_RESTRICT_*. */
 int32_t pdfv_restrict(pdfv_viewer *viewer, uint32_t level, pdfv_events **events);
 /* §6.3.2.2's "unless otherwise instructed". PDFV_DELEGATE_*. Re-interprets the page. */
@@ -472,9 +483,13 @@ void pdfv_raster_free(pdfv_raster *raster);
 int32_t pdfv_page_count(const pdfv_viewer *viewer, size_t *pages);
 int32_t pdfv_current_page(const pdfv_viewer *viewer, size_t *page, size_t *of);
 int32_t pdfv_page_geometry(const pdfv_viewer *viewer, size_t page, pdfv_geometry *geometry);
-int32_t pdfv_frame_info(const pdfv_viewer *viewer, pdfv_frame *info);
+/* How many pages Table 29's arrangement is showing: 1 under PDFV_LAYOUT_SINGLE_PAGE, more under
+ * a column or a spread, 0 where the viewer holds no pixels. `frame` below indexes this. */
+size_t  pdfv_frame_count(const pdfv_viewer *viewer);
+int32_t pdfv_frame_info(const pdfv_viewer *viewer, size_t frame, pdfv_frame *info);
 /* One copy — what tier 1 costs everywhere in this project. Size `into` from info.bytes. */
-int32_t pdfv_frame_copy(const pdfv_viewer *viewer, uint8_t *into, size_t cap, size_t *written);
+int32_t pdfv_frame_copy(const pdfv_viewer *viewer, size_t frame, uint8_t *into, size_t cap,
+                        size_t *written);
 int32_t pdfv_dirty(const pdfv_viewer *viewer, bool *dirty);
 /* §12.5.6.5: whether activating here would follow a link. Asked on every pointer move. */
 int32_t pdfv_link_at(const pdfv_viewer *viewer, float x, float y, bool *link);

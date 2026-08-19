@@ -49,6 +49,12 @@ QString text(const rust::String& from)
 /// hundred items, so "do what the file asked" has to have an end.
 constexpr int kExpansionLimit = 4096;
 
+/// How far one notch of a wheel moves the page, in logical pixels.
+///
+/// A choice, and the same number `viewer-gtk` chose: the standard says nothing about a wheel, and
+/// what a notch is worth is not a fact about a toolkit.
+constexpr double kScrollStep = 48.0;
+
 /// Refuses a call into the host that arrives while another one is running.
 ///
 /// Two `&mut Host` at once is undefined behaviour and nothing here would say so, and Qt delivers
@@ -348,20 +354,23 @@ PageArea::PageArea(QWidget* parent) : QWidget(parent), chrome_(new ChromeOverlay
     setFocusPolicy(Qt::StrongFocus);
 }
 
-void PageArea::setFrame(QImage image, QPointF origin)
+void PageArea::setFrames(QList<QPair<QImage, QPointF>> frames)
 {
-    image_ = std::move(image);
-    origin_ = origin;
+    frames_ = std::move(frames);
     update();
 }
 
 void PageArea::paintEvent(QPaintEvent*)
 {
-    if (image_.isNull()) {
+    if (frames_.isEmpty()) {
         return;
     }
     QPainter painter(this);
-    painter.drawImage(origin_, image_);
+    for (const QPair<QImage, QPointF>& frame : frames_) {
+        if (!frame.first.isNull()) {
+            painter.drawImage(frame.second, frame.first);
+        }
+    }
 }
 
 void PageArea::resizeEvent(QResizeEvent* event)
@@ -377,6 +386,33 @@ void PageArea::resizeEvent(QResizeEvent* event)
     }
     Q_EMIT resizedTo(static_cast<unsigned int>(width), static_cast<unsigned int>(height),
                      static_cast<float>(scale));
+}
+
+void PageArea::wheelEvent(QWheelEvent* event)
+{
+    // **The wheel, which this host had no binding for until Table 29's `/PageLayout` was
+    // obeyed.** Qt reports a high-resolution device in pixels and a notched one in eighths of a
+    // degree, fifteen degrees to a notch; both are turned into the device pixels the boundary
+    // speaks. The distance a notch moves is this host's choice — see kScrollStep — and it is the
+    // same number `viewer-gtk` chose, because a wheel is not a fact about a toolkit.
+    const QPoint pixels = event->pixelDelta();
+    const qreal scale = devicePixelRatioF();
+    qreal dx = 0.0;
+    qreal dy = 0.0;
+    if (!pixels.isNull()) {
+        dx = -static_cast<qreal>(pixels.x()) * scale;
+        dy = -static_cast<qreal>(pixels.y()) * scale;
+    } else {
+        const QPoint degrees = event->angleDelta();
+        dx = -static_cast<qreal>(degrees.x()) / 120.0 * kScrollStep * scale;
+        dy = -static_cast<qreal>(degrees.y()) / 120.0 * kScrollStep * scale;
+    }
+    if (dx == 0.0 && dy == 0.0) {
+        QWidget::wheelEvent(event);
+        return;
+    }
+    event->accept();
+    Q_EMIT scrolledBy(static_cast<float>(dx), static_cast<float>(dy));
 }
 
 void PageArea::report(const QPointF& at, unsigned char action)
@@ -480,6 +516,14 @@ MainWindow::MainWindow(rust::Box<Host> host)
         }
         Busy guard(busy_);
         host_->pointer(x, y, action);
+        applyUpdates();
+    });
+    connect(page_, &PageArea::scrolledBy, this, [this](float dx, float dy) {
+        if (busy_) {
+            return;
+        }
+        Busy guard(busy_);
+        host_->scrolled(dx, dy);
         applyUpdates();
     });
 }
@@ -662,33 +706,49 @@ void MainWindow::applyUpdates()
 
 void MainWindow::showFrame()
 {
-    const QtFrame frame = host_->frame();
-    if (!frame.present || frame.width == 0 || frame.height == 0) {
+    const std::size_t count = host_->frame_count();
+    if (count == 0) {
         return;
     }
-    const rust::Slice<const std::uint8_t> pixels = host_->frame_pixels();
-    const qsizetype stride = static_cast<qsizetype>(frame.width) * 4;
-    if (static_cast<qsizetype>(pixels.size()) < stride * static_cast<qsizetype>(frame.height)) {
-        // The Rust side checks this too, in `page::describe`. Checked twice deliberately: this is
-        // the one number that decides how many bytes are read out of somebody else's allocation.
-        return;
-    }
-
     // Tier 1's whole cost, in the one place it is paid. `Raster` is row-major RGBA with straight
     // alpha and no padding, which is `QImage::Format_RGBA8888` exactly — so this is a `memcpy`
     // and no conversion, the same crossing `viewer-gtk` makes into a `gdk::MemoryTexture`.
-    // `QImage::copy` is what performs it: the constructor above only wraps the borrowed slice.
+    // `QImage::copy` is what performs it: the constructor below only wraps the borrowed slice.
+    // One copy per page of Table 29's arrangement, which under `SinglePage` is the one it
+    // always was.
     QElapsedTimer clock;
     clock.start();
-    const QImage borrowed(pixels.data(), static_cast<int>(frame.width), static_cast<int>(frame.height),
-                          static_cast<int>(stride), QImage::Format_RGBA8888);
-    QImage owned = borrowed.copy();
-    const qint64 nanos = clock.nsecsElapsed();
+    QList<QPair<QImage, QPointF>> frames;
+    std::size_t bytes = 0;
     const qreal scale = page_->devicePixelRatioF();
-    owned.setDevicePixelRatio(scale);
-    page_->setFrame(std::move(owned), QPointF(frame.origin_x / scale, frame.origin_y / scale));
-    host_->painted(static_cast<std::size_t>(stride) * static_cast<std::size_t>(frame.height),
-                   static_cast<std::uint64_t>(nanos));
+    for (std::size_t index = 0; index < count; ++index) {
+        const QtFrame frame = host_->frame(index);
+        if (!frame.present || frame.width == 0 || frame.height == 0) {
+            continue;
+        }
+        const rust::Slice<const std::uint8_t> pixels = host_->frame_pixels(index);
+        const qsizetype stride = static_cast<qsizetype>(frame.width) * 4;
+        if (static_cast<qsizetype>(pixels.size()) < stride * static_cast<qsizetype>(frame.height)) {
+            // The Rust side checks this too, in `page::describe`. Checked twice deliberately: this
+            // is the one number that decides how many bytes are read out of somebody else's
+            // allocation.
+            continue;
+        }
+        const QImage borrowed(pixels.data(), static_cast<int>(frame.width),
+                              static_cast<int>(frame.height), static_cast<int>(stride),
+                              QImage::Format_RGBA8888);
+        QImage owned = borrowed.copy();
+        owned.setDevicePixelRatio(scale);
+        frames.append(qMakePair(std::move(owned),
+                                QPointF(frame.origin_x / scale, frame.origin_y / scale)));
+        bytes += static_cast<std::size_t>(stride) * static_cast<std::size_t>(frame.height);
+    }
+    if (frames.isEmpty()) {
+        return;
+    }
+    const qint64 nanos = clock.nsecsElapsed();
+    page_->setFrames(std::move(frames));
+    host_->painted(bytes, static_cast<std::uint64_t>(nanos));
 }
 
 void MainWindow::rebuildPanels()

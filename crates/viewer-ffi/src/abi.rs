@@ -58,8 +58,9 @@ use viewer_core::RenderRequest;
 use crate::events::Events;
 use crate::form::Form;
 use crate::kinds::{
-    ControlKind, DelegateKind, EventKind, FocusKind, MarkupKind, PageTargetKind, PixelFormat,
-    PointerKind, PresentKind, PurposeKind, RestrictKind, RowKind, SelectKind, TextKind, ZoomKind,
+    ControlKind, DelegateKind, EventKind, FocusKind, LayoutKind, MarkupKind, PageTargetKind,
+    PixelFormat, PointerKind, PresentKind, PurposeKind, RestrictKind, RowKind, SelectKind,
+    TextKind, ZoomKind,
 };
 use crate::panels::{Outline, Panel};
 use crate::session::{self, FrameInfo, Session};
@@ -919,17 +920,35 @@ pub unsafe extern "C" fn pdfv_page_geometry(
     }
 }
 
-/// What the viewer is holding, without the pixels.
+/// How many frames the viewer is holding — Table 29's arrangement, counted.
+///
+/// **The one entry point `/PageLayout` cost this ABI**, and it exists because a C consumer cannot
+/// fail to compile: `pdfv_frame_info` and `pdfv_frame_copy` gained an index, and a caller has to
+/// be able to learn how many there are. Zero where the viewer holds none.
 ///
 /// # Safety
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_frame_info(viewer: *const Session, info: *mut PdfvFrame) -> c_int {
+pub unsafe extern "C" fn pdfv_frame_count(viewer: *const Session) -> usize {
+    viewer.as_ref().map_or(0, Session::frame_count)
+}
+
+/// What the viewer is holding for one page of the arrangement, without the pixels.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_frame_info(
+    viewer: *const Session,
+    frame: usize,
+    info: *mut PdfvFrame,
+) -> c_int {
     let (Some(viewer), Some(info)) = (viewer.as_ref(), info.as_mut()) else {
         return Status::NullArgument.code();
     };
-    match viewer.frame_info() {
+    match viewer.frame_info(frame) {
         Ok(FrameInfo {
             page,
             width,
@@ -965,6 +984,7 @@ pub unsafe extern "C" fn pdfv_frame_info(viewer: *const Session, info: *mut Pdfv
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pdfv_frame_copy(
     viewer: *const Session,
+    frame: usize,
     into: *mut u8,
     cap: usize,
     written: *mut usize,
@@ -976,7 +996,7 @@ pub unsafe extern "C" fn pdfv_frame_copy(
         return Status::NullArgument.code();
     }
     let room = core::slice::from_raw_parts_mut(into, cap);
-    match viewer.frame_copy(room) {
+    match viewer.frame_copy(frame, room) {
         Ok(bytes) => {
             if let Some(written) = written.as_mut() {
                 *written = bytes;
@@ -2525,6 +2545,31 @@ pub unsafe extern "C" fn pdfv_present(
         return Status::WrongKind.code();
     };
     *events = Box::into_raw(Box::new(viewer.present(kind.mode())));
+    Status::Ok.code()
+}
+
+/// Table 29's `/PageLayout`: how the pages are arranged in the window.
+///
+/// The document's own value is what a session opens in, and this is how a *reader* changes it —
+/// which is the whole reason the message exists: Table 29 states the layout "shall be used when
+/// the document is opened", an initial state and not a permanent one.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_layout(
+    viewer: *mut Session,
+    layout: u32,
+    events: *mut *mut Events,
+) -> c_int {
+    let (Some(viewer), Some(events)) = (viewer.as_mut(), events.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    let Some(kind) = LayoutKind::from_code(layout) else {
+        return Status::WrongKind.code();
+    };
+    *events = Box::into_raw(Box::new(viewer.layout(kind.layout())));
     Status::Ok.code()
 }
 

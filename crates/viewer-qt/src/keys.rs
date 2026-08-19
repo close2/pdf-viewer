@@ -50,6 +50,13 @@ const S: u32 = 0x53;
 /// that the table of `Qt::Key` numbers stays in one file.
 pub(crate) const FIT_CONTROLS: u32 = 0x57;
 
+/// `Qt::Key_L`, and the second key this module names without giving it a command.
+///
+/// Table 29's six arrangements are *cycled* rather than chosen, so what `l` sends depends on
+/// which one is in force — a fact about this host's state and not about the key. `viewer-gtk`
+/// binds the same letter to the same thing.
+pub(crate) const NEXT_LAYOUT: u32 = 0x4c;
+
 /// `Qt::Key_Y`.
 const Y: u32 = 0x59;
 /// `Qt::Key_Z`.

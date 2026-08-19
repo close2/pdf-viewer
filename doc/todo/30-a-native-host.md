@@ -177,19 +177,24 @@ that **six consumers have never asked for a new message**, and that claim is onl
 consumers are actually made to carry what is added. A feature living in one host is a message nobody
 has tested.
 
-**`/PageLayout` is the first item**, and it is not chosen for being easy. Table 29's entry is *read,
-reported, and not obeyed* — `app.rs` says so in as many words, "[t]his window shows one page at a
-time, which is Table 29's own `SinglePage`", and reports when a document asks for anything else. So
-there is no continuous scroll, no facing pages and no two-column view. It is worth taking first for
-three separate reasons that happen to agree:
+~~**`/PageLayout` is the first item**~~ **Taken in the six-hundred-and-sixth, and it did demand new
+vocabulary — one `Command` and one `Answer`'s shape** (ADR 0441). All six of Table 29's values are
+arranged by `viewer_core::layout`; `Command::Layout(PageLayout)` is the fourth policy value, because
+the clause states the arrangement a document *opens* in and says nothing about what a reader chooses
+afterwards; and `Answer::Frame` carries one entry per page on the screen, because a column has
+several. `Query::PageGeometry` needed nothing at all.
 
-- it is a **normative entry** in a clause already `partial` (§12.2), so it is not UI work bought at
-  the spec track's expense;
-- it is the plainest thing a person notices missing in a reader;
-- and it is **the likeliest thing in the whole surface to demand new boundary vocabulary**, which
-  makes it the honest test of the claim above. `doc/ui-boundary.md` holds the test a message must
-  pass, and §12.4.4.2's `Command::Present` is the standing example of a good reason.
+**Two of the three hosts took it and the third owes it, which is where this file's "all three stay
+level" decision stands today.** `viewer-gtk` draws one `gdk::MemoryTexture` per page and `viewer-qt`
+one `QImage`, both with `l` cycling the six and both now with a wheel binding they had never had —
+neither host had ever sent `Command::Scroll`, because under `SinglePage` at `Zoom::FitPage` there is
+nothing to scroll. **`viewer-ui` asks the viewer for `SinglePage`** and says so out loud: a tier-2
+surface draws exactly one `Arc<DisplayList>` per frame and `crate::stale`'s reprojection is keyed on
+that list's identity, so a column needs either a merge of display lists in `pdf-render` — which would
+have to remap clip and soft-mask identifiers through nested groups — or a second rendering path in
+`surface.rs`. **That is the next round's item**, and until it is done `viewer-ui` is a host declaring
+a capability rather than a host quietly drawing one page of a column.
 
-It also sharpens [`37`](37-a-frame-that-says-it-is-stale.md)'s new item rather than competing with
-it: a continuous scroll reveals area that was not on the screen *constantly*, which is exactly what
-the retained low-resolution page is for.
+It sharpens [`37`](37-a-frame-that-says-it-is-stale.md)'s new item rather than competing with it: a
+continuous scroll reveals area that was not on the screen *constantly*, which is exactly what the
+retained low-resolution page is for — and on the tier-2 host the two items are now the same item.

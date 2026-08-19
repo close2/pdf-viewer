@@ -121,15 +121,18 @@ whether the fixtures measured the real case. The other one, §11.4.7's `/DeviceC
 is untouched and stands exactly as below — and it is now the **only** departure this file's groups
 are expected to print.
 
-## 3. §7.7.2's `TwoColumnRight`, said once and correctly
+## 3. ~~§7.7.2's `TwoColumnRight`, said once and correctly~~ — obeyed since the six-hundred-and-sixth
 
-> this document asks for the TwoColumnRight page layout (§7.7.2); this window shows one page at a
-> time
+This section said the sentence `viewer-ui` printed was "the right sentence and … not a defect",
+because Table 29's `/PageLayout` was handed to the host and every host here showed one page — and it
+guessed correctly at what obeying it would cost: "the layout, the scroll and the page-turn arithmetic
+to change together" is exactly the three things `viewer_core::layout` changed (ADR 0441).
 
-That is the right sentence and it is not a defect: Table 29's `/PageLayout` is handed to the host
-and this host has one page. It is here because a catalogue is exactly the kind of document that
-means it — a spread is how the pages were designed — and a host that showed two pages would need
-the layout, the scroll and the page-turn arithmetic to change together.
+**`viewer-gtk` and `viewer-qt` show this catalogue as its producer designed it**, a spread at a time
+with page one alone on the right, which is what `TwoColumnRight` means. `viewer-ui` still prints a
+sentence, and it is a different sentence now: it says the window has *asked* the viewer for
+`SinglePage`, because a tier-2 surface draws one display list per frame. `doc/todo/30` carries what
+the third host owes.
 
 ## What "showing this PDF correctly" means, in order
 

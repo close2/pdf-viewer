@@ -1170,35 +1170,48 @@ fn decode_xmp_error(reader: &mut Reader<'_>) -> Result<XmpError, ProtocolError> 
 // Table 29 and Table 147, what the document asks of the window
 // ---------------------------------------------------------------------------------------------
 
-/// Encodes Table 29's `/PageMode` and `/PageLayout`.
-pub(super) fn encode_opening(writer: &mut Writer, opening: Opening) {
-    let Opening { mode, layout } = opening;
-    encode_page_mode(writer, mode);
-    writer.u8(match layout {
+/// One wire byte per value of Table 29's `/PageLayout`, in the order the table states them.
+///
+/// Named rather than written twice since `Command::Layout` crossed: the entry travels as an
+/// *answer* about what the document asked for and as a *command* saying what the reader chose,
+/// and two codings of one table would be two chances to disagree.
+pub(super) const fn layout_code(layout: PageLayout) -> u8 {
+    match layout {
         PageLayout::SinglePage => 0,
         PageLayout::OneColumn => 1,
         PageLayout::TwoColumnLeft => 2,
         PageLayout::TwoColumnRight => 3,
         PageLayout::TwoPageLeft => 4,
         PageLayout::TwoPageRight => 5,
-    });
+    }
+}
+
+/// That coding read back, refusing a byte Table 29 does not define.
+pub(super) fn layout_of(value: u8) -> Result<PageLayout, ProtocolError> {
+    Ok(match value {
+        0 => PageLayout::SinglePage,
+        1 => PageLayout::OneColumn,
+        2 => PageLayout::TwoColumnLeft,
+        3 => PageLayout::TwoColumnRight,
+        4 => PageLayout::TwoPageLeft,
+        5 => PageLayout::TwoPageRight,
+        value => return Err(unrecognised("a page layout", value)),
+    })
+}
+
+/// Encodes Table 29's `/PageMode` and `/PageLayout`.
+pub(super) fn encode_opening(writer: &mut Writer, opening: Opening) {
+    let Opening { mode, layout } = opening;
+    encode_page_mode(writer, mode);
+    writer.u8(layout_code(layout));
 }
 
 /// Reads Table 29's two display entries.
 pub(super) fn decode_opening(reader: &mut Reader<'_>) -> Result<Opening, ProtocolError> {
     let mode = decode_page_mode(reader)?;
-    let what = "a page layout";
     Ok(Opening {
         mode,
-        layout: match reader.u8(what)? {
-            0 => PageLayout::SinglePage,
-            1 => PageLayout::OneColumn,
-            2 => PageLayout::TwoColumnLeft,
-            3 => PageLayout::TwoColumnRight,
-            4 => PageLayout::TwoPageLeft,
-            5 => PageLayout::TwoPageRight,
-            value => return Err(unrecognised(what, value)),
-        },
+        layout: layout_of(reader.u8("a page layout")?)?,
     })
 }
 

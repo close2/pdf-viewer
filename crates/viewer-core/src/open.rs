@@ -59,7 +59,20 @@ pub(crate) struct Open {
     /// How many pages, counting §12.7.8.3.3's imported template pages after the document's own.
     pub(crate) page_count: usize,
     /// Which page is showing, zero-based.
+    ///
+    /// **Under an arrangement that shows more than one page it is the *current* page**, which is
+    /// two things at once and deliberately so: the page every question about "the page being
+    /// shown" is answered for, and the page whose row the scroll is measured from. Table 29's
+    /// continuous layouts move it as the scroll crosses a row boundary
+    /// ([`crate::layout::settle_scroll`]) and nothing on the screen shifts when they do.
     pub(crate) page_index: usize,
+    /// Table 29's `/PageLayout`, as it now stands.
+    ///
+    /// Read from the catalog when the document opens — the entry says the layout "shall be used
+    /// when the document is opened", which is an initial state and not a permanent one — and
+    /// changed afterwards by [`crate::Command::Layout`], because a reader who cannot leave the
+    /// arrangement a file asked for is a reader a file has taken over.
+    pub(crate) layout: pdf_model::viewer_preferences::PageLayout,
     /// How large the page is drawn.
     pub(crate) zoom: Zoom,
     /// §12.3.2.1's other two items, waiting for a viewport and a display list to be applied to.
@@ -88,19 +101,19 @@ pub(crate) struct Open {
     /// *at the same page and the same target*, and without this the scheduler would see a frame
     /// that matched and leave the old picture on the screen.
     pub(crate) revision: u64,
-    /// The page being shown, kept rather than looked up again.
+    /// Every page Table 29's arrangement puts in the viewport, in page order.
     ///
-    /// **`Pages::get` is a walk of the page tree**, and on ISO 32000-2's thousandth page that is
-    /// 3.8 ms. Hit-testing a link asks for the page on every pointer move and the geometry is
-    /// asked for on every frame, so looking it up each time put several milliseconds of tree
-    /// walking on paths a person drives with a mouse (ADR 0124).
+    /// **One entry rather than a cache of them, and the bound is the view's rather than
+    /// invented.** This was a single interpretation for four hundred sessions, with a comment
+    /// saying a cache "would also need a bound and an eviction rule, and both should be written
+    /// after somebody measures what a display list costs to hold". `/PageLayout` supplies both
+    /// without anybody choosing a number: what is kept is exactly what is on the screen, and what
+    /// is evicted is what has scrolled off it. `crate::layout::MOST` is the only figure, and it
+    /// bounds the *arrangement* rather than a cache.
     ///
-    /// Kept *beside* [`Self::interpreted`] rather than inside it, and that is the whole subtlety:
-    /// the display list is thrown away whenever the page's ink changes — a layer switched, a
-    /// value typed, §12.5.5's appearance following the pointer — and the *page* has not changed
-    /// at any of those. A cache tied to the display list's lifetime would be empty exactly when
-    /// a press asks what it landed on, which is how the first version of this failed.
-    pub(crate) current: Option<(usize, Page)>,
+    /// `SinglePage` — Table 29's default and every document that states nothing — puts one entry
+    /// here, which is what this crate has always held.
+    pub(crate) on_screen: Vec<OnScreen>,
     /// How long the page showing has been shown, in seconds — §12.4.4.1's `/Dur` clock.
     ///
     /// Accumulated from [`crate::Command::Tick`] and reset by every page change, because the
@@ -126,24 +139,6 @@ pub(crate) struct Open {
     /// "no optional content" onto a document that has none changes nothing. What says whether a
     /// presentation is running is the viewer's own mode, never this field.
     pub(crate) saved_groups: Option<pdf_model::optional_content::OptionalContent>,
-    /// The page that was interpreted last, and its drawing commands.
-    ///
-    /// One page rather than a cache of them. A display list is the expensive artefact and
-    /// keeping several would make page-turning free, but it would also need a bound and an
-    /// eviction rule, and both should be written after somebody measures what a display list
-    /// costs to hold rather than before. What this *does* buy is the case it was kept for: a
-    /// zoom or a scroll re-rasterises without re-interpreting.
-    pub(crate) interpreted: Option<Interpreted>,
-    /// The page, resolution and revision the host last drew, whichever tier it is.
-    ///
-    /// Separate from [`Self::frame`] because a tier-2 host hands back no pixels: it draws onto
-    /// its own surface and says so, and without this the scheduler would see nothing on the
-    /// screen and ask for the same frame again, for ever.
-    pub(crate) shown: Option<(usize, TargetSpec, u64)>,
-    /// The pixels a tier-1 host handed back, and what they are of.
-    pub(crate) frame: Option<Frame>,
-    /// The render that is outstanding, if one is.
-    pub(crate) pending: Option<Pending>,
     /// Which annotation the pointer is interacting with, and how (§12.5.5).
     ///
     /// Kept beside [`Self::view`] rather than read back out of it because the question asked
@@ -212,13 +207,16 @@ pub(crate) struct Open {
     /// makes an undo back to the saved state clean and a redo past it dirty again, which is the
     /// same reason the log has a cursor at all.
     pub(crate) saved_at: usize,
-    /// What is selected, as byte offsets into the interpreted page's readback.
+    /// What is selected, and which page's readback it is a range of.
     ///
-    /// Anchor first, then where the pointer is now — in that order rather than sorted, because
-    /// a selection dragged backwards is a selection, and which end moves is the difference
-    /// between extending it and starting again.
-    pub(crate) selection: Option<(usize, usize)>,
-    /// A selection to make once the page it names has been interpreted.
+    /// **The page is here since Table 29's continuous layouts were obeyed.** A range is into one
+    /// page's readback and nothing else, and until an arrangement could show several pages the
+    /// page it belonged to was always the current one — so a page turn ended a selection and that
+    /// was the whole rule. A scroll that crosses a row boundary changes the current page without
+    /// a person having done anything to what they had selected, so the rule is now the honest
+    /// one: a selection lives until its own page leaves the screen.
+    pub(crate) selection: Option<Chosen>,
+    /// A selection to make once the page it names has been interpreted, and which page that is.
     ///
     /// **Only a search sets this**, and it exists because the two rules about a selection and a
     /// page turn are both right and disagree here: a range is into *one page's* readback, so
@@ -227,7 +225,7 @@ pub(crate) struct Open {
     /// the command, and the difference is which side of the turn it was made on — which is what
     /// this field records. The same shape [`Self::pending_views`] uses for §12.3.2.1's
     /// magnification, and for the same reason: it waits for the page.
-    pub(crate) pending_selection: Option<(usize, usize)>,
+    pub(crate) pending_selection: Option<Chosen>,
     /// The document-wide search in progress, if one is.
     ///
     /// Kept beside the selection rather than inside it because a search is a *plan* — which pages
@@ -279,6 +277,76 @@ pub(crate) struct Open {
     /// said twice. Host state deliberately: putting it in the page's report would make
     /// `pdf_model::interpret` depend on which pages had been read before it. ADR 0366.
     pub(crate) losses_said: usize,
+}
+
+/// A range of one page's readback, and which page's.
+///
+/// Anchor first, then where the pointer is now — in that order rather than sorted, because a
+/// selection dragged backwards is a selection, and which end moves is the difference between
+/// extending it and starting again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Chosen {
+    /// The page whose readback the offsets are into, zero-based.
+    pub(crate) page: usize,
+    /// The anchor and the moving end, in bytes.
+    pub(crate) range: (usize, usize),
+}
+
+/// One page of Table 29's arrangement, as far as it has got towards the screen.
+///
+/// Everything that used to be four fields of [`Open`] describing *the* page — its object, its
+/// interpretation, the render outstanding for it and the pixels a host handed back — with the
+/// page itself beside them, because an arrangement has several and each is at a different stage.
+#[derive(Debug)]
+pub(crate) struct OnScreen {
+    /// Which page, zero-based.
+    pub(crate) page: usize,
+    /// The page itself, kept rather than looked up again.
+    ///
+    /// **`Pages::get` is a walk of the page tree**, and on ISO 32000-2's thousandth page that is
+    /// 3.8 ms. Hit-testing a link asks for the page on every pointer move and the geometry is
+    /// asked for on every frame, so looking it up each time put several milliseconds of tree
+    /// walking on paths a person drives with a mouse (ADR 0124).
+    ///
+    /// Kept *beside* [`Self::interpreted`] rather than inside it, and that is the whole subtlety:
+    /// the display list is thrown away whenever the page's ink changes — a layer switched, a
+    /// value typed, §12.5.5's appearance following the pointer — and the *page* has not changed
+    /// at any of those. A cache tied to the display list's lifetime would be empty exactly when
+    /// a press asks what it landed on, which is how the first version of this failed.
+    pub(crate) object: Page,
+    /// Where its raster's top-left corner sits in the viewport, in device pixels.
+    ///
+    /// Recomputed by `Viewer::settle` from [`crate::layout::place`] every time anything moves, so
+    /// that a question asked between two commands is answered against the arrangement on screen.
+    pub(crate) origin: (f32, f32),
+    /// The raster this page occupies at the current magnification, in device pixels.
+    ///
+    /// Kept beside the origin because the two together are what a hit test needs, and because
+    /// recomputing it per pointer move would be [`raster_extent`] on a path a person drives with
+    /// a mouse.
+    pub(crate) raster: (u32, u32),
+    /// Its drawing commands, once it has been interpreted.
+    pub(crate) interpreted: Option<Interpreted>,
+    /// Which interpretation of this page [`Self::interpreted`] holds.
+    ///
+    /// What makes a frame stale for a reason other than the resolution: an edit, a layer switch
+    /// or a pointer over a rollover appearance all rebuild the display list at the same page and
+    /// the same target. Taken from [`Open::revision`], which counts interpretations across the
+    /// document, so that two pages never collide on a number.
+    pub(crate) revision: u64,
+    /// The resolution and revision the host last drew, whichever tier it is.
+    ///
+    /// Separate from [`Self::frame`] because a tier-2 host hands back no pixels: it draws onto
+    /// its own surface and says so, and without this the scheduler would see nothing on the
+    /// screen and ask for the same frame again, for ever.
+    pub(crate) shown: Option<(TargetSpec, u64)>,
+    /// The pixels a tier-1 host handed back, row-major RGBA with no padding.
+    ///
+    /// What they were drawn *into* is [`Self::shown`], which is what makes them stale when the
+    /// magnification changes — one statement rather than two that have to agree.
+    pub(crate) frame: Option<Raster>,
+    /// The render that is outstanding for this page, if one is.
+    pub(crate) pending: Option<Pending>,
 }
 
 /// §7.11.4's file Annex O's `ef` parameter named, and the fragment that belongs to it.
@@ -374,9 +442,8 @@ pub(crate) enum Done {
 
 /// A page, interpreted.
 #[derive(Debug)]
+/// Which page it is of is [`OnScreen::page`], which is what holds it.
 pub(crate) struct Interpreted {
-    /// Which page, zero-based.
-    pub(crate) page: usize,
     /// Its drawing commands, resolution-independent and shared with whatever is drawing them.
     pub(crate) list: Arc<DisplayList>,
     /// What could not be drawn, already worded.
@@ -427,17 +494,6 @@ pub(crate) struct Pending {
     pub(crate) revision: u64,
 }
 
-/// The pixels showing now.
-#[derive(Debug)]
-pub(crate) struct Frame {
-    /// Which page they are of.
-    pub(crate) page: usize,
-    /// What they were drawn into, which is what makes them stale when the zoom changes.
-    pub(crate) target: TargetSpec,
-    /// Row-major RGBA, no padding.
-    pub(crate) raster: Raster,
-}
-
 impl Open {
     /// Opens a document and reads the three things every page turn would otherwise re-read.
     ///
@@ -480,6 +536,10 @@ impl Open {
         let open_view = open_action.map(|(_, view)| view);
         drop(pages);
         let view = ViewState::of(&document);
+        // Table 29: the layout "shall be used when the document is opened". One name off the
+        // catalog dictionary, which is already resolved — no page is read for it and no tree is
+        // walked, so it costs nothing on the launch path.
+        let layout = pdf_model::viewer_preferences::Opening::read(&document).layout;
         Self {
             document,
             view,
@@ -487,19 +547,16 @@ impl Open {
             outline,
             page_count,
             page_index,
+            layout,
             zoom: INITIAL_ZOOM,
             pending_views: open_view.into_iter().collect(),
             scroll: (0.0, 0.0),
-            current: None,
+            on_screen: Vec::new(),
             shown_for: 0.0,
             node: None,
             node_shown_for: 0.0,
             saved_groups: None,
-            interpreted: None,
             revision: 0,
-            shown: None,
-            frame: None,
-            pending: None,
             pointer: None,
             pressed: None,
             pressed_on: None,
@@ -536,8 +593,52 @@ impl Open {
     /// The cost is that a layer switch makes the next search cold again, which is written down
     /// in ADR 0256 as the deliberate half of the trade.
     pub(crate) fn stale(&mut self) {
-        self.interpreted = None;
+        for on_screen in &mut self.on_screen {
+            on_screen.interpreted = None;
+        }
         self.readbacks.clear();
+    }
+
+    /// The arrangement's entry for a page, where the arrangement shows it.
+    pub(crate) fn on(&self, page: usize) -> Option<&OnScreen> {
+        self.on_screen
+            .iter()
+            .find(|on_screen| on_screen.page == page)
+    }
+
+    /// The same, mutably.
+    pub(crate) fn on_mut(&mut self, page: usize) -> Option<&mut OnScreen> {
+        self.on_screen
+            .iter_mut()
+            .find(|on_screen| on_screen.page == page)
+    }
+
+    /// The current page's interpretation, where it has one.
+    ///
+    /// What was one field until Table 29's arrangements arrived. Every question this crate
+    /// answers about "the page being shown" comes through here, so that *which* page that is
+    /// stays one decision rather than one per caller.
+    pub(crate) fn interpreted(&self) -> Option<&Interpreted> {
+        self.on(self.page_index)?.interpreted.as_ref()
+    }
+
+    /// The interpretation of any page the arrangement shows.
+    pub(crate) fn interpretation(&self, page: usize) -> Option<&Interpreted> {
+        self.on(page)?.interpreted.as_ref()
+    }
+
+    /// Which page of the arrangement a viewport point is inside, where it is inside one.
+    ///
+    /// `None` for a point in the gap between two pages, in the margin beside them, or over
+    /// nothing at all — a caller that must answer anyway falls back to the current page and says
+    /// so, because a drag that has left the page is still a drag inside its text.
+    pub(crate) fn placed_at(&self, at: (f32, f32)) -> Option<&OnScreen> {
+        self.on_screen.iter().find(|on_screen| {
+            at.0 >= on_screen.origin.0
+                && at.0 < on_screen.origin.0 + px(on_screen.raster.0)
+                && at.1 >= on_screen.origin.1
+                && at.1 < on_screen.origin.1 + px(on_screen.raster.1)
+        })
     }
 
     /// How many pages there are now, which §12.7.8.3.3's imported templates may have changed.
@@ -599,8 +700,7 @@ impl Open {
             }
             crate::command::Edit::FreeText { colour, .. } => {
                 let [from, to] = drag?;
-                let interpreted = self.interpreted.as_ref()?;
-                let page = self.page(interpreted.page)?;
+                let page = self.page(self.page_index)?;
                 Some(Done::FreeText {
                     page: page.id?,
                     rect: [from.0, from.1, to.0, to.1],
@@ -608,9 +708,13 @@ impl Open {
                 })
             }
             crate::command::Edit::Markup { kind, colour } => {
-                let interpreted = self.interpreted.as_ref()?;
-                let quads = crate::select::quads_for(&interpreted.placed, self.selection?);
-                let page = self.page(interpreted.page)?;
+                // The *selection's* page rather than the current one: a mark-up is over what is
+                // selected, and Table 29's continuous arrangements let a person scroll on after
+                // selecting without having changed what they chose.
+                let selection = self.selection?;
+                let interpreted = self.interpretation(selection.page)?;
+                let quads = crate::select::quads_for(&interpreted.placed, selection.range);
+                let page = self.page(selection.page)?;
                 // §12.5.6.10's `/QuadPoints` is in default user space and everything this crate
                 // answers with is in the display list's, so the shapes go back through the
                 // transform that put them there. A page transform is a similarity with a flip
@@ -699,9 +803,9 @@ impl Open {
         self.saved_at = self.cursor;
     }
 
-    /// The text position a point in the display list's coordinates selects.
-    pub(crate) fn position_at(&self, point: (f32, f32)) -> Option<usize> {
-        let interpreted = self.interpreted.as_ref()?;
+    /// The text position a point in one page's display-list coordinates selects.
+    pub(crate) fn position_at(&self, page: usize, point: (f32, f32)) -> Option<usize> {
+        let interpreted = self.interpretation(page)?;
         crate::select::position_at(&interpreted.placed, point)
     }
 
@@ -715,15 +819,11 @@ impl Open {
     /// from it saves a walk of the page tree — which is what the magnification, the geometry and
     /// every mapping of a pointer position ask for.
     pub(crate) fn page_size(&self, index: usize) -> Option<Size> {
-        if let Some(interpreted) = self.interpreted.as_ref()
-            && interpreted.page == index
-        {
-            return Some(interpreted.list.page_size);
-        }
-        if let Some((cached, page)) = self.current.as_ref()
-            && *cached == index
-        {
-            return Some(pdf_model::content::displayed_size(page));
+        if let Some(on_screen) = self.on(index) {
+            if let Some(interpreted) = on_screen.interpreted.as_ref() {
+                return Some(interpreted.list.page_size);
+            }
+            return Some(pdf_model::content::displayed_size(&on_screen.object));
         }
         self.page(index)
             .map(|page| pdf_model::content::displayed_size(&page))
@@ -772,12 +872,14 @@ impl Open {
         true
     }
 
-    /// The page being shown, without walking the tree for it again.
+    /// The current page, without walking the tree for it again.
     pub(crate) fn shown_page(&self) -> Option<&Page> {
-        match &self.current {
-            Some((index, page)) if *index == self.page_index => Some(page),
-            _ => None,
-        }
+        self.placed_page(self.page_index)
+    }
+
+    /// Any page the arrangement shows, without walking the tree for it again.
+    pub(crate) fn placed_page(&self, page: usize) -> Option<&Page> {
+        self.on(page).map(|on_screen| &on_screen.object)
     }
 
     /// Device pixels per user space unit for the page showing, given the viewport.
@@ -814,25 +916,21 @@ impl Open {
         stepped.clamp(ZOOM_RANGE.0, ZOOM_RANGE.1)
     }
 
-    /// Where the raster's top-left corner sits in the viewport, in device pixels.
+    /// Where the current page's raster sits in the viewport, in device pixels.
     ///
-    /// Centred where the page is smaller than the viewport and scrolled where it is larger,
-    /// which is one expression because the clamp on the scroll makes the second case the only
-    /// one that can be non-zero.
-    pub(crate) fn origin(&self, viewport: (u32, u32), raster: (u32, u32)) -> (f32, f32) {
-        let centre = |viewport: u32, raster: u32, scroll: f32| {
-            let slack = f64::from(viewport) - f64::from(raster);
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "a difference of two pixel counts, both bounded by MAX_EXTENT"
-            )]
-            let slack = slack as f32;
-            if slack > 0.0 { slack / 2.0 } else { -scroll }
-        };
-        (
-            centre(viewport.0, raster.0, self.scroll.0),
-            centre(viewport.1, raster.1, self.scroll.1),
-        )
+    /// **The arrangement decides this since Table 29's layouts were obeyed**, and it is one call
+    /// rather than an arithmetic here so that a page standing beside or below another is placed
+    /// by the same code that places the current one — ADR 0118's rule about a second opinion.
+    /// Under `SinglePage` the answer is what it always was: centred where the page is smaller
+    /// than the viewport and scrolled where it is larger.
+    pub(crate) fn origin(
+        &self,
+        viewport: (u32, u32),
+        scale: f32,
+        magnification: f32,
+    ) -> (f32, f32) {
+        crate::layout::origin_of(self, self.page_index, viewport, scale, magnification)
+            .unwrap_or((0.0, 0.0))
     }
 
     /// Scrolls so that a point of the viewport keeps the point of the page it was over.
@@ -850,14 +948,12 @@ impl Open {
     pub(crate) fn hold(
         &mut self,
         viewport: (u32, u32),
+        scale: f32,
         before: f32,
         after: f32,
         at: Option<(f32, f32)>,
     ) {
-        let Some(size) = self.page_size(self.page_index) else {
-            return;
-        };
-        let origin = self.origin(viewport, raster_extent(size, before));
+        let origin = self.origin(viewport, scale, before);
         let at = at.unwrap_or((px(viewport.0) / 2.0, px(viewport.1) / 2.0));
         let ratio = after / before;
         let hold = |at: f32, origin: f32| ((at - origin) * ratio - at).max(0.0);
@@ -1346,7 +1442,7 @@ impl Open {
             }),
         };
         self.scroll_to(corner, view, magnification, size.height);
-        self.clamp_scroll(viewport, raster_extent(size, magnification));
+        crate::layout::settle_scroll(self, viewport, scale, magnification);
         (self.zoom, self.scroll) != before
     }
 
@@ -1390,21 +1486,6 @@ impl Open {
             // count down from the top, so the distance scrolled is measured from the *top*.
             self.scroll.1 = ((page_height - y) * magnification).max(0.0);
         }
-    }
-
-    /// Holds the scroll inside the page, which is what stops a page being scrolled out of view.
-    pub(crate) fn clamp_scroll(&mut self, viewport: (u32, u32), raster: (u32, u32)) {
-        let limit = |viewport: u32, raster: u32| {
-            let slack = f64::from(raster) - f64::from(viewport);
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "a difference of two pixel counts, both bounded by MAX_EXTENT"
-            )]
-            let slack = slack as f32;
-            slack.max(0.0)
-        };
-        self.scroll.0 = self.scroll.0.clamp(0.0, limit(viewport.0, raster.0));
-        self.scroll.1 = self.scroll.1.clamp(0.0, limit(viewport.1, raster.1));
     }
 }
 

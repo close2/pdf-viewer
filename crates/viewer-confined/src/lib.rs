@@ -378,6 +378,17 @@ impl Cancellation {
     }
 }
 
+/// One page's pixels as they crossed the confinement, and where they belong on the screen.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Framed {
+    /// Which page these pixels are of.
+    pub page: usize,
+    /// Row-major RGBA, no padding.
+    pub raster: Raster,
+    /// Where the raster's top-left corner sits in the viewport, in device pixels.
+    pub origin: (f32, f32),
+}
+
 /// The answer to a [`Query`], owned.
 ///
 /// [`viewer_core::Answer`] borrows the viewer's own state, and there is no viewer on this side of
@@ -462,18 +473,12 @@ pub enum Reply {
     },
     /// §14.8.2.5's logical content order for the selection.
     LogicalSelection(String),
-    /// **The pixels**, drawn in the confined process.
+    /// **The pixels**, drawn in the confined process — one entry per page on the screen.
     ///
     /// The payload the whole boundary exists for: the page was interpreted and rasterised behind
-    /// the seccomp filter, and what crossed is a raster.
-    Frame {
-        /// Which page these pixels are of.
-        page: usize,
-        /// Row-major RGBA, no padding.
-        raster: Raster,
-        /// Where the raster's top-left corner sits in the viewport, in device pixels.
-        origin: (f32, f32),
-    },
+    /// the seccomp filter, and what crossed is a raster. A list since Table 29's `/PageLayout`
+    /// was obeyed, because `OneColumn` puts several pages in one window.
+    Frame(Vec<Framed>),
     /// What the current page could not draw.
     Reports(Vec<String>),
     /// What the current page could not be read as: the per-code counts, never a report.

@@ -263,6 +263,7 @@ pub(crate) fn describe_command(command: &Command) -> String {
         Command::Delegate(appearances) => format!("widget appearances {appearances:?}"),
         Command::Tick { millis } => format!("tick {millis} ms"),
         Command::Present(mode) => format!("presentation {mode:?}"),
+        Command::Layout(layout) => format!("page layout {layout:?}"),
         Command::Focus(id) => format!("focus {id:?}"),
         Command::Resize {
             width,

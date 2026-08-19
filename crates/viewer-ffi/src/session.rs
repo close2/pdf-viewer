@@ -236,17 +236,34 @@ impl Session {
     ///
     /// [`Status::NoAnswer`] where the viewer holds no frame — before the first render, and for a
     /// tier-2 host that presented rather than handing pixels back.
-    pub fn frame_info(&self) -> Result<FrameInfo, Status> {
+    pub fn frame_info(&self, frame: usize) -> Result<FrameInfo, Status> {
         match self.viewer.query(Query::Frame) {
-            Answer::Frame(frame) => Ok(FrameInfo {
-                page: frame.page,
-                width: frame.raster.width,
-                height: frame.raster.height,
-                format: frame.raster.format,
-                bytes: frame.raster.data.len(),
-                origin: frame.origin,
+            Answer::Frame(frames) => frames.get(frame).map_or(Err(Status::NoAnswer), |frame| {
+                Ok(FrameInfo {
+                    page: frame.page,
+                    width: frame.raster.width,
+                    height: frame.raster.height,
+                    format: frame.raster.format,
+                    bytes: frame.raster.data.len(),
+                    origin: frame.origin,
+                })
             }),
             _ => Err(Status::NoAnswer),
+        }
+    }
+
+    /// How many frames the viewer is holding — Table 29's arrangement, counted.
+    ///
+    /// **The entry point a C caller could not have deduced**, and the reason it exists rather than
+    /// a changed `pdfv_frame_info` alone: a C consumer cannot fail to compile, so a `/PageLayout`
+    /// putting a second page on the screen has to be something a caller *asks* about. Zero for a
+    /// tier-2 host, which hands no pixels back, and one for the `SinglePage` every document that
+    /// says nothing about it opens in.
+    #[must_use]
+    pub fn frame_count(&self) -> usize {
+        match self.viewer.query(Query::Frame) {
+            Answer::Frame(frames) => frames.len(),
+            _ => 0,
         }
     }
 
@@ -261,8 +278,11 @@ impl Session {
     ///
     /// [`Status::NoAnswer`] where the viewer holds no frame, and [`Status::BufferTooSmall`] where
     /// `into` is shorter than [`FrameInfo::bytes`] said.
-    pub fn frame_copy(&self, into: &mut [u8]) -> Result<usize, Status> {
-        let Answer::Frame(frame) = self.viewer.query(Query::Frame) else {
+    pub fn frame_copy(&self, frame: usize, into: &mut [u8]) -> Result<usize, Status> {
+        let Answer::Frame(frames) = self.viewer.query(Query::Frame) else {
+            return Err(Status::NoAnswer);
+        };
+        let Some(frame) = frames.get(frame) else {
             return Err(Status::NoAnswer);
         };
         let data = &frame.raster.data;
@@ -587,6 +607,12 @@ impl Session {
         self.handle(Command::Present(mode))
     }
 
+    /// Table 29's `/PageLayout`, as the person reading has chosen it.
+    #[must_use]
+    pub fn layout(&mut self, layout: pdf_model::viewer_preferences::PageLayout) -> Events {
+        self.handle(Command::Layout(layout))
+    }
+
     /// How much of what a document asserts about its reader this viewer obeys.
     #[must_use]
     pub fn restrict(&mut self, level: viewer_core::RestrictionLevel) -> Events {
@@ -684,7 +710,7 @@ mod tests {
 
         assert_eq!(session.page_count(), Ok(5));
         assert_eq!(session.current_page(), Ok((0, 5)));
-        let before = session.frame_info().expect("a frame was handed back");
+        let before = session.frame_info(0).expect("a frame was handed back");
         assert_eq!(before.page, 0);
         assert!(
             before.bytes > 0 && before.bytes == before.width as usize * before.height as usize * 4
@@ -699,11 +725,11 @@ mod tests {
         let raster = rasterise(&request).expect("the note's second page draws");
         drop(session.render_ready_raster(&request, raster));
         assert_eq!(session.current_page(), Ok((1, 5)));
-        let after = session.frame_info().expect("a frame was handed back");
+        let after = session.frame_info(0).expect("a frame was handed back");
         assert_eq!(after.page, 1);
 
         let mut pixels = vec![0u8; after.bytes];
-        assert_eq!(session.frame_copy(&mut pixels), Ok(after.bytes));
+        assert_eq!(session.frame_copy(0, &mut pixels), Ok(after.bytes));
         assert!(
             pixels.iter().any(|byte| *byte != 0),
             "a drawn page is not all zeroes"
@@ -711,7 +737,10 @@ mod tests {
         // And the two-call idiom's refusal, which is what a caller that sized its buffer from a
         // stale `frame_info` would get instead of a partial page.
         let mut small = vec![0u8; after.bytes.saturating_sub(1)];
-        assert_eq!(session.frame_copy(&mut small), Err(Status::BufferTooSmall));
+        assert_eq!(
+            session.frame_copy(0, &mut small),
+            Err(Status::BufferTooSmall)
+        );
     }
 
     /// A viewer with no document answers `NoAnswer` rather than zero.
@@ -720,7 +749,7 @@ mod tests {
         let session = Session::new(100, 100, 1.0);
         assert_eq!(session.page_count(), Err(Status::NoAnswer));
         assert_eq!(session.current_page(), Err(Status::NoAnswer));
-        assert!(session.frame_info().is_err());
+        assert!(session.frame_info(0).is_err());
         assert!(session.outline().is_err());
     }
 

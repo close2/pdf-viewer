@@ -56,9 +56,12 @@ fn is_popup(document: &Document, dict: &Dictionary) -> bool {
         .is_some_and(|subtype| subtype.as_bytes() == b"Popup")
 }
 
-/// The annotation under a point in default user space, where it is a link.
-pub(crate) fn link_at(open: &Open, x: f32, y: f32) -> Option<ObjectId> {
-    let links = pdf_model::link::links(&open.document, open.shown_page()?);
+/// The annotation under a point in default user space of one page, where it is a link.
+///
+/// The page is named rather than assumed since Table 29's arrangements arrived: a window showing
+/// a column of pages has a link under the pointer on whichever of them the pointer is over.
+pub(crate) fn link_at(open: &Open, page: usize, x: f32, y: f32) -> Option<ObjectId> {
+    let links = pdf_model::link::links(&open.document, open.placed_page(page)?);
     pdf_model::link::at(&links, x, y).and_then(|link| link.id)
 }
 
@@ -89,11 +92,11 @@ pub(crate) fn has_appearance(open: &Open, annotation: ObjectId, pointer: Pointer
 ///
 /// Returns an empty outcome for a click on nothing, on a link whose action this program will not
 /// perform, or on a link to the page already shown.
-pub(crate) fn activate(open: &mut Open, x: f32, y: f32) -> Outcome {
-    let Some(page) = open.shown_page() else {
+pub(crate) fn activate(open: &mut Open, page: usize, x: f32, y: f32) -> Outcome {
+    let Some(object) = open.placed_page(page) else {
         return Outcome::default();
     };
-    let links = pdf_model::link::links(&open.document, page);
+    let links = pdf_model::link::links(&open.document, object);
     let Some(link) = pdf_model::link::at(&links, x, y) else {
         return Outcome::default();
     };

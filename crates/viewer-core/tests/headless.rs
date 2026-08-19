@@ -176,8 +176,15 @@ fn a_frame_comes_back_and_the_viewer_hands_it_out_again() {
         "a frame that arrived is a viewport that changed"
     );
 
-    let Answer::Frame(frame) = viewer.query(Query::Frame) else {
+    let Answer::Frame(frames) = viewer.query(Query::Frame) else {
         panic!("the viewer is holding the pixels it was handed");
+    };
+    // One entry, because Table 29's default is `SinglePage` and this document states nothing.
+    let [frame] = frames.as_slice() else {
+        panic!(
+            "a single-page arrangement holds one frame: {} held",
+            frames.len()
+        );
     };
     assert_eq!(frame.page, 0);
     assert_eq!((frame.raster.width, frame.raster.height), (width, height));
@@ -250,15 +257,16 @@ fn a_render_answered_after_the_page_turned_is_dropped() {
         "an answer about page one is not news: {late:?}"
     );
     assert!(
-        matches!(viewer.query(Query::Frame), Answer::None),
-        "and it is not held either"
+        matches!(viewer.query(Query::Frame), Answer::Frame(ref frames) if frames.is_empty()),
+        "and it is not held either — an empty list rather than no answer, because a tier-1 host \
+         waiting for its first frame is not a tier-2 host that hands none back"
     );
 
     serve(&mut viewer, &fresh);
-    let Answer::Frame(frame) = viewer.query(Query::Frame) else {
+    let Answer::Frame(frames) = viewer.query(Query::Frame) else {
         panic!("the answer to the outstanding request is kept");
     };
-    assert_eq!(frame.page, 1);
+    assert_eq!(frames.first().map(|frame| frame.page), Some(1));
 }
 
 #[test]
@@ -380,7 +388,7 @@ fn an_encrypted_document_asks_for_a_password_and_opens_with_it() {
     );
     let request = request(&events).clone();
     serve(&mut viewer, &request);
-    assert!(matches!(viewer.query(Query::Frame), Answer::Frame(_)));
+    assert!(matches!(viewer.query(Query::Frame), Answer::Frame(ref frames) if !frames.is_empty()));
 }
 
 #[test]
@@ -785,7 +793,7 @@ fn a_request_can_be_sent_to_another_thread() {
             rendered: Rendered::Raster(raster),
         })
         .for_each(drop);
-    assert!(matches!(viewer.query(Query::Frame), Answer::Frame(_)));
+    assert!(matches!(viewer.query(Query::Frame), Answer::Frame(ref frames) if !frames.is_empty()));
 }
 
 #[test]
@@ -6283,4 +6291,293 @@ fn a_drag_across_a_hollow_ocr_layer_selects_under_a_full_height_band() {
              {height}"
         );
     }
+}
+
+// -------------------------------------------------------------------------------------------
+// ISO 32000-2 Table 29's `/PageLayout`
+// -------------------------------------------------------------------------------------------
+
+/// The space `crate::layout` puts between two neighbouring pages, in logical pixels.
+///
+/// Written here as the number the tests below expect rather than read out of the crate, so that a
+/// change to the gap has to be made twice — once as a choice and once as a consequence.
+const GAP: f32 = 8.0;
+
+/// The geometry of one page of the arrangement, or `None` where it is not on the screen.
+fn placed(viewer: &Viewer, page: usize) -> Option<viewer_core::PageGeometry> {
+    match viewer.query(Query::PageGeometry(page)) {
+        Answer::Geometry(geometry) => Some(geometry),
+        _ => None,
+    }
+}
+
+/// Opens the five-page note and draws whatever the arrangement asks for.
+///
+/// A layout is the one thing in this vocabulary that makes `settle` produce **several** render
+/// requests, so a fixture that served only the first would leave every page but one without a
+/// geometry — which is the failure this helper exists to make impossible.
+fn arranged(layout: pdf_model::viewer_preferences::PageLayout) -> Viewer {
+    let (mut viewer, events) = opened(800, 1000);
+    for request in requests(&events) {
+        serve(&mut viewer, &request);
+    }
+    // Half size, so that more than one page fits the window. At `Zoom::FitPage` — which is what a
+    // document with no `/OpenAction` opens at — a column has exactly one page on the screen, which
+    // is correct and shows nothing about the arrangement.
+    let events: Vec<Event> = viewer
+        .handle(Command::Zoom {
+            zoom: Zoom::Scale(0.5),
+            at: None,
+        })
+        .collect();
+    for request in requests(&events) {
+        serve(&mut viewer, &request);
+    }
+    let events: Vec<Event> = viewer.handle(Command::Layout(layout)).collect();
+    for request in requests(&events) {
+        serve(&mut viewer, &request);
+    }
+    viewer
+}
+
+/// Every render request in a batch of events, cloned so the viewer can be borrowed again.
+fn requests(events: &[Event]) -> Vec<viewer_core::RenderRequest> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            Event::NeedsRender(request) => Some(request.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Table 29's `OneColumn` — "Display the pages in one column" — puts page two under page one.
+///
+/// The distance is the first page's *raster* height and the gap, and the two share an x origin:
+/// that is what a column is, and it is the whole geometric claim the value makes.
+#[test]
+fn table_29s_one_column_puts_the_next_page_below_the_one_showing() {
+    use pdf_model::viewer_preferences::PageLayout;
+
+    let viewer = arranged(PageLayout::OneColumn);
+    let first = placed(&viewer, 0).expect("page one is on the screen");
+    let second = placed(&viewer, 1).expect("page two is below it, which is what a column means");
+    assert!(
+        (second.origin.0 - first.origin.0).abs() < 0.5,
+        "one column, so one x: {:?} then {:?}",
+        first.origin,
+        second.origin
+    );
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a raster height in pixels, which is thousands"
+    )]
+    let below = first.origin.1 + first.height as f32 + GAP;
+    assert!(
+        (second.origin.1 - below).abs() < 0.5,
+        "page two starts a gap below page one's raster: {below} against {}",
+        second.origin.1
+    );
+}
+
+/// A scroll that crosses a row makes the next page current, and nothing on the screen moves.
+///
+/// Both halves matter. The first is what "which page am I on" has to mean once a scroll can leave
+/// a page behind — and it raises §12.6.3's page events, exactly as an arrow key's turn does. The
+/// second is what makes a continuous view one surface rather than a sequence: the scroll is
+/// measured from the current page's row, so moving the row has to move the origin by the same
+/// distance in the other direction.
+#[test]
+fn a_scroll_across_a_page_boundary_makes_the_next_page_current() {
+    use pdf_model::viewer_preferences::PageLayout;
+
+    let mut viewer = arranged(PageLayout::OneColumn);
+    let first = placed(&viewer, 0).expect("page one is on the screen");
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a raster height in pixels, which is thousands"
+    )]
+    let step = first.height as f32 + GAP;
+    // Not yet: page one's row is still on the screen, so it is still the page being read.
+    let events: Vec<Event> = viewer
+        .handle(Command::Scroll {
+            dx: 0.0,
+            dy: step - 50.0,
+        })
+        .collect();
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, Event::PageChanged { .. })),
+        "a page still on the screen has not been turned away from: {events:?}"
+    );
+    assert!(
+        matches!(
+            viewer.query(Query::CurrentPage),
+            Answer::Page { index: 0, .. }
+        ),
+        "the topmost page of the column is the one being read"
+    );
+    let second = placed(&viewer, 1).expect("page two is on the screen below it");
+    assert!(
+        (second.origin.1 - 50.0).abs() < 0.5,
+        "fifty pixels of page two are showing: {:?}",
+        second.origin
+    );
+
+    // And now: the row has gone above the window, so the page below it is the one being read —
+    // and the seventy pixels past the boundary are still seventy pixels, which is what makes the
+    // rebase invisible.
+    let events: Vec<Event> = viewer
+        .handle(Command::Scroll { dx: 0.0, dy: 70.0 })
+        .collect();
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, Event::PageChanged { index: 1, .. })),
+        "a page that has scrolled off the top is a page turned: {events:?}"
+    );
+    assert!(
+        matches!(
+            viewer.query(Query::CurrentPage),
+            Answer::Page { index: 1, .. }
+        ),
+        "the topmost page of the column is the one being read"
+    );
+    let second = placed(&viewer, 1).expect("page two is now the current one");
+    assert!(
+        (second.origin.1 + 20.0).abs() < 0.5,
+        "the twenty pixels past the boundary are still twenty pixels: {:?}",
+        second.origin
+    );
+    assert!(
+        placed(&viewer, 0).is_none(),
+        "and page one, which is off the top, is no longer interpreted — the eviction rule the \
+         arrangement supplies"
+    );
+}
+
+/// Table 29's `TwoPageLeft` shows two pages side by side and **only** two.
+///
+/// "Display the pages two at a time" is the phrase that separates it from `TwoColumnLeft`: what
+/// is on the screen is one row, and the row below it is not reached by scrolling.
+#[test]
+fn table_29s_two_page_left_shows_exactly_two_pages_side_by_side() {
+    use pdf_model::viewer_preferences::PageLayout;
+
+    let viewer = arranged(PageLayout::TwoPageLeft);
+    let left = placed(&viewer, 0).expect("page one is on the left");
+    let right = placed(&viewer, 1).expect("page two is beside it");
+    assert!(
+        (left.origin.1 - right.origin.1).abs() < 0.5,
+        "a spread shares a top edge: {:?} and {:?}",
+        left.origin,
+        right.origin
+    );
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a raster width in pixels, which is hundreds"
+    )]
+    let beside = left.origin.0 + left.width as f32 + GAP;
+    assert!(
+        (right.origin.0 - beside).abs() < 0.5,
+        "page two starts a gap to the right of page one: {beside} against {}",
+        right.origin.0
+    );
+    assert!(
+        placed(&viewer, 2).is_none(),
+        "two at a time is two, and page three is on the next spread"
+    );
+}
+
+/// Table 29's `TwoColumnRight` leaves page one alone, which is what "odd-numbered … on the right"
+/// says once the first page is counted as page **one**.
+///
+/// The arrangement a bound book has: a lone cover on the right, then two-page spreads. The test
+/// is that page two is *not* beside page one — it opens the next row, with page three.
+#[test]
+fn table_29s_two_column_right_leaves_page_one_alone_on_its_row() {
+    use pdf_model::viewer_preferences::PageLayout;
+
+    let viewer = arranged(PageLayout::TwoColumnRight);
+    let first = placed(&viewer, 0).expect("page one is on the screen");
+    let second = placed(&viewer, 1).expect("page two opens the row below it");
+    assert!(
+        second.origin.1 > first.origin.1,
+        "page two is on the next row, not beside page one: {:?} and {:?}",
+        first.origin,
+        second.origin
+    );
+    let third = placed(&viewer, 2).expect("page three is beside page two");
+    assert!(
+        (third.origin.1 - second.origin.1).abs() < 0.5,
+        "pages two and three share a row: {:?} and {:?}",
+        second.origin,
+        third.origin
+    );
+    assert!(
+        second.origin.0 < third.origin.0,
+        "and page three — odd-numbered — is the right-hand one: {:?} and {:?}",
+        second.origin,
+        third.origin
+    );
+}
+
+/// A link is still a link after a continuous scroll has moved the page under the pointer.
+///
+/// Trap 12a's rule twice over: the point comes from the **document** — `basicapi.pdf` states the
+/// rectangle — and the mapping is asked of the viewer rather than reproduced here. What it
+/// catches is a hit test that kept using the placement the page had before the scroll, which is
+/// the defect a continuous layout makes possible and a single-page one cannot.
+#[test]
+fn a_link_is_hit_where_the_column_has_moved_the_page_to() {
+    use pdf_model::viewer_preferences::PageLayout;
+
+    let Some(bytes) = corpus_bytes("basicapi.pdf") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    let events: Vec<Event> = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password: None,
+            fragment: None,
+        })
+        .collect();
+    for request in requests(&events) {
+        serve(&mut viewer, &request);
+    }
+    let before = device_point(&viewer, LINK_RECT, PAGE_HEIGHT);
+    assert!(matches!(
+        viewer.query(Query::LinkAt(before)),
+        Answer::Link(true)
+    ));
+
+    let events: Vec<Event> = viewer
+        .handle(Command::Layout(PageLayout::OneColumn))
+        .collect();
+    for request in requests(&events) {
+        serve(&mut viewer, &request);
+    }
+    let events: Vec<Event> = viewer
+        .handle(Command::Scroll { dx: 0.0, dy: 100.0 })
+        .collect();
+    for request in requests(&events) {
+        serve(&mut viewer, &request);
+    }
+    let after = device_point(&viewer, LINK_RECT, PAGE_HEIGHT);
+    assert!(
+        (before.1 - after.1 - 100.0).abs() < 0.5,
+        "a hundred pixels of scroll moved the link a hundred pixels up: {before:?} then {after:?}"
+    );
+    assert!(
+        matches!(viewer.query(Query::LinkAt(after)), Answer::Link(true)),
+        "and the link is where the geometry says it is: {after:?}"
+    );
+    assert!(
+        matches!(viewer.query(Query::LinkAt(before)), Answer::Link(false)),
+        "and no longer where it was: {before:?}"
+    );
 }

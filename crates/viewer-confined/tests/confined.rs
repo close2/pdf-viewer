@@ -145,8 +145,14 @@ fn differing_bytes(ours: &[u8], theirs: &[u8]) -> usize {
 
 /// The pixels the viewer in this process is holding.
 fn frame_here(viewer: &Viewer) -> (usize, pdf_render::Raster, (f32, f32)) {
-    let Answer::Frame(frame) = viewer.query(Query::Frame) else {
+    let Answer::Frame(frames) = viewer.query(Query::Frame) else {
         panic!("a tier-1 viewer holds the frame it was handed");
+    };
+    let [frame] = frames.as_slice() else {
+        panic!(
+            "a single-page arrangement holds one frame: {} held",
+            frames.len()
+        );
     };
     (frame.page, frame.raster.clone(), frame.origin)
 }
@@ -171,14 +177,23 @@ fn a_document_opens_in_the_confined_process_and_says_how_many_pages_it_has() {
 #[test]
 fn the_confined_process_draws_the_page_this_one_would_have() {
     let (mut confined, _events) = opened();
-    let Reply::Frame {
-        page,
-        raster,
-        origin,
-    } = confined.query(Query::Frame).expect("a frame crosses")
-    else {
+    let Reply::Frame(frames) = confined.query(Query::Frame).expect("a frame crosses") else {
         panic!("the confined viewer holds the frame it drew");
     };
+    let [
+        viewer_confined::Framed {
+            page,
+            raster,
+            origin,
+        },
+    ] = frames.as_slice()
+    else {
+        panic!(
+            "a single-page arrangement crosses as one frame: {}",
+            frames.len()
+        );
+    };
+    let (page, origin) = (*page, *origin);
 
     let here = drawn_here(&[
         Command::Resize {
@@ -262,10 +277,16 @@ fn turning_a_page_and_magnifying_it_both_draw_behind_the_filter() {
     let here = drawn_here(&commands);
     let (page_here, raster_here, _) = frame_here(&here);
 
-    let Reply::Frame { page, raster, .. } = confined.query(Query::Frame).expect("a frame crosses")
-    else {
+    let Reply::Frame(frames) = confined.query(Query::Frame).expect("a frame crosses") else {
         panic!("the confined viewer holds the frame it drew");
     };
+    let [frame] = frames.as_slice() else {
+        panic!(
+            "a single-page arrangement crosses as one frame: {}",
+            frames.len()
+        );
+    };
+    let (page, raster) = (frame.page, &frame.raster);
     assert_eq!(page, page_here);
     assert_eq!(
         (raster.width, raster.height),
@@ -812,9 +833,16 @@ fn a_free_text_annotation_is_drawn_typed_and_saved_behind_the_filter() {
 
     // The pixels, which is what this boundary exists to carry: the confined process interpreted
     // and rasterised the page, and the red is a `/DA` this side never laid out.
-    let Ok(Reply::Frame { raster, .. }) = confined.query(Query::Frame) else {
+    let Ok(Reply::Frame(frames)) = confined.query(Query::Frame) else {
         panic!("the confined process has drawn a frame");
     };
+    let [frame] = frames.as_slice() else {
+        panic!(
+            "a single-page arrangement crosses as one frame: {}",
+            frames.len()
+        );
+    };
+    let raster = &frame.raster;
     let red = raster
         .data
         .chunks_exact(4)
@@ -872,9 +900,16 @@ fn a_document_with_a_sandboxed_codec_draws_inside_the_confinement() {
             .any(|event| matches!(event, Event::Opened { .. })),
         "{events:?}"
     );
-    let Reply::Frame { raster, .. } = confined.query(Query::Frame).expect("a frame crosses") else {
+    let Reply::Frame(frames) = confined.query(Query::Frame).expect("a frame crosses") else {
         panic!("the confined viewer holds the frame it drew");
     };
+    let [frame] = frames.as_slice() else {
+        panic!(
+            "a single-page arrangement crosses as one frame: {}",
+            frames.len()
+        );
+    };
+    let raster = &frame.raster;
     let ink = raster.data.chunks_exact(4).filter(|p| p[0] < 200).count();
     assert!(
         ink > 100,

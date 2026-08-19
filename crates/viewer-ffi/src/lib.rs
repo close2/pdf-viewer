@@ -144,8 +144,9 @@ mod status;
 pub use events::{Events, Searched, TransitionNumbers};
 pub use form::Form;
 pub use kinds::{
-    ControlKind, DelegateKind, EventKind, FocusKind, MarkupKind, PageTargetKind, PixelFormat,
-    PointerKind, PresentKind, PurposeKind, RestrictKind, RowKind, SelectKind, TextKind, ZoomKind,
+    ControlKind, DelegateKind, EventKind, FocusKind, LayoutKind, MarkupKind, PageTargetKind,
+    PixelFormat, PointerKind, PresentKind, PurposeKind, RestrictKind, RowKind, SelectKind,
+    TextKind, ZoomKind,
 };
 pub use panels::{Outline, Panel};
 pub use session::{FrameInfo, Session, rasterise};

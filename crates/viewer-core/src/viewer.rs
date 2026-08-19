@@ -15,7 +15,7 @@ use crate::command::{
 };
 use crate::event::{Event, Extraction, Found, RenderRequest};
 use crate::interact;
-use crate::open::{Frame, Interpreted, Open, Pending};
+use crate::open::{Chosen, Interpreted, Open, Pending};
 use crate::query::{Answer, FrameView, Layer, PageGeometry, PopupWindow, Query, Selected};
 use crate::readback::ReadbackCache;
 
@@ -232,15 +232,14 @@ impl Viewer {
                 .map_or(Answer::None, Answer::Thumbnail),
             Query::LinkAt(at) => Answer::Link(
                 self.user_space(open, at)
-                    .and_then(|(x, y)| interact::link_at(open, x, y))
+                    .and_then(|(page, (x, y))| interact::link_at(open, page, x, y))
                     .is_some(),
             ),
             Query::FieldAt(at) => self
-                .page_point(open, at)
-                .and_then(|(x, y)| {
-                    let page = open.shown_page()?;
-                    let (x, y) = pdf_model::content::user_space_at(page, x, y)?;
-                    pdf_model::view::field_at(&open.document, page, x, y)
+                .user_space(open, at)
+                .and_then(|(page, (x, y))| {
+                    let object = open.placed_page(page)?;
+                    pdf_model::view::field_at(&open.document, object, x, y)
                 })
                 .map_or(Answer::None, |name| {
                     // The value is the *view*'s and the names are the document's, which is why
@@ -264,9 +263,9 @@ impl Viewer {
                 .map_or(Answer::None, Answer::FieldSelection),
             Query::FreeTextAt { at } => self
                 .user_space(open, at)
-                .and_then(|(x, y)| {
-                    let page = open.shown_page()?;
-                    open.view.free_text_at(&open.document, page, x, y)
+                .and_then(|(page, (x, y))| {
+                    let object = open.placed_page(page)?;
+                    open.view.free_text_at(&open.document, object, x, y)
                 })
                 .map_or(Answer::None, |(annotation, text)| Answer::FreeText {
                     annotation,
@@ -296,17 +295,25 @@ impl Viewer {
             Query::LogicalSelection => {
                 Self::logical_selection(open).map_or(Answer::None, Answer::LogicalSelection)
             }
-            Query::Frame => open.frame.as_ref().map_or(Answer::None, |frame| {
-                Answer::Frame(FrameView {
-                    page: frame.page,
-                    raster: &frame.raster,
-                    origin: open.origin(self.viewport, (frame.target.width, frame.target.height)),
-                })
-            }),
+            // `Answer::None` for a tier-2 host, which hands back no pixels at all, and a list —
+            // possibly empty — for a tier-1 host. The two are told apart by the same flag the
+            // pixel budget is: a host that has answered `Rendered::Presented` holds its own.
+            Query::Frame if !self.holds_rasters => Answer::None,
+            Query::Frame => Answer::Frame(
+                open.on_screen
+                    .iter()
+                    .filter_map(|on_screen| {
+                        Some(FrameView {
+                            page: on_screen.page,
+                            raster: on_screen.frame.as_ref()?,
+                            origin: on_screen.origin,
+                        })
+                    })
+                    .collect(),
+            ),
             Query::AccessibilityTree => Answer::Accessibility(self.accessibility(open)),
             Query::Reports => open
-                .interpreted
-                .as_ref()
+                .interpreted()
                 .map_or(Answer::Reports(&[]), |interpreted| {
                     Answer::Reports(&interpreted.reports)
                 }),
@@ -314,12 +321,9 @@ impl Viewer {
             // "nothing was lost" and "nothing has been read yet" are different answers, and a
             // host that showed the first for the second would be reassuring a person about a
             // page it has not looked at.
-            Query::Readback => open
-                .interpreted
-                .as_ref()
-                .map_or(Answer::None, |interpreted| {
-                    Answer::Readback(interpreted.shortfall)
-                }),
+            Query::Readback => open.interpreted().map_or(Answer::None, |interpreted| {
+                Answer::Readback(interpreted.shortfall)
+            }),
         }
     }
 
@@ -371,6 +375,22 @@ impl Viewer {
             Command::Zoom { zoom, at } => self.set_zoom(zoom, at, events),
             Command::Scroll { dx, dy } => self.scroll(dx, dy, events),
             Command::Restrict(level) => self.restrictions = level,
+            // Table 29's arrangement, as the person reading has now chosen it. The scroll is
+            // measured from the current page's row and a row is what has just changed, so it
+            // starts again at that page's top — the same reset a page turn makes, and for the
+            // same reason: carrying a distance across a change of arrangement would land a reader
+            // somewhere neither they nor the document named.
+            Command::Layout(layout) => {
+                let viewport = self.viewport;
+                let Some(open) = self.focused_mut() else {
+                    return;
+                };
+                if open.layout != layout {
+                    open.layout = layout;
+                    open.scroll = (0.0, 0.0);
+                }
+                events.push(damage(viewport));
+            }
             // Recorded here and applied in `settle`, where the magnification is: both are facts
             // about the window that have to reach every open document's view state, and a
             // document opened after this command has to get it too.
@@ -386,10 +406,13 @@ impl Viewer {
                     return;
                 };
                 open.selection = match selection {
-                    CommandSelection::All => open
-                        .interpreted
-                        .as_ref()
-                        .map(|interpreted| (0, interpreted.text.len())),
+                    // The *current* page's text, which is what "all" has always meant here: a
+                    // range is into one page's readback, and Table 29's arrangements do not make
+                    // several pages into one string.
+                    CommandSelection::All => open.interpreted().map(|interpreted| Chosen {
+                        page: open.page_index,
+                        range: (0, interpreted.text.len()),
+                    }),
                     CommandSelection::None => None,
                 };
                 events.push(damage(viewport));
@@ -537,31 +560,34 @@ impl Viewer {
         let Some(open) = self.focused_mut() else {
             return;
         };
-        // A token that is not the one outstanding answers a question that has been asked again
-        // since. Dropping it is the whole reason the token exists.
-        if open.pending.as_ref().map(|pending| pending.token) != Some(token) {
-            return;
-        }
-        let Some(pending) = open.pending.take() else {
+        // A token that is not one of those outstanding answers a question that has been asked
+        // again since. Dropping it is the whole reason the token exists — and an arrangement has
+        // one outstanding request per page on the screen rather than one, so the token is what
+        // says *which* page an answer is about.
+        let Some(index) = open.on_screen.iter().position(|on_screen| {
+            on_screen
+                .pending
+                .as_ref()
+                .is_some_and(|pending| pending.token == token)
+        }) else {
             return;
         };
+        let Some(pending) = open.on_screen[index].pending.take() else {
+            return;
+        };
+        let on_screen = &mut open.on_screen[index];
         match rendered {
             Rendered::Raster(raster) => {
-                open.clamp_scroll(viewport, (pending.target.width, pending.target.height));
-                open.shown = Some((pending.page, pending.target, pending.revision));
-                open.frame = Some(Frame {
-                    page: pending.page,
-                    target: pending.target,
-                    raster,
-                });
+                on_screen.shown = Some((pending.target, pending.revision));
+                on_screen.frame = Some(raster);
                 events.push(damage(viewport));
             }
             // Tier 2: the host drew it onto its own surface, so there is nothing here to hold
             // and nothing to repaint from — but it *is* on the screen, and saying so is what
             // stops the scheduler asking for it again.
             Rendered::Presented => {
-                open.shown = Some((pending.page, pending.target, pending.revision));
-                open.frame = None;
+                on_screen.shown = Some((pending.target, pending.revision));
+                on_screen.frame = None;
                 // Said once and remembered: this host draws its own frames at its own size, so
                 // nothing here will hold a whole-page raster for it and `MAX_PIXELS` has
                 // nothing to bound.
@@ -574,8 +600,8 @@ impl Viewer {
             // changes the answer is the question changing: another page, another zoom, another
             // interpretation, all of which move the tuple below.
             Rendered::Failed(reason) => {
-                open.shown = Some((pending.page, pending.target, pending.revision));
-                open.frame = None;
+                on_screen.shown = Some((pending.target, pending.revision));
+                on_screen.frame = None;
                 events.push(Event::Reported {
                     document: id,
                     page: Some(pending.page),
@@ -604,9 +630,19 @@ impl Viewer {
     /// function filters by `annotation::interacts`, and §12.5.3's `ReadOnly` says an annotation
     /// "should not respond to mouse clicks or change its appearance in response to mouse
     /// motions". Reading the region through it is what makes that sentence true here.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one arm per pointer action, and each arm is a different clause: §12.6.3's four \
+                  triggers, §12.5.1's activation, §12.5.5's appearance and the selection. \
+                  Splitting it would separate the state they all read from the state they set"
+    )]
     fn pointer(&mut self, at: (f32, f32), action: PointerAction, events: &mut Vec<Event>) {
         let Some(id) = self.focused else { return };
         let viewport = self.viewport;
+        // **Which page of Table 29's arrangement the pointer is over**, and where on it. Under
+        // `SinglePage` that is always the page showing and every answer below is what it was;
+        // under a column or a spread it is whichever page the point landed on, so that a link on
+        // the page beside or below the current one is still a link.
         let point = self.focused().and_then(|open| self.user_space(open, at));
         let on_page = self.focused().and_then(|open| self.page_point(open, at));
         // **Where in the text this pointer message lands, decided against the display list the
@@ -618,21 +654,28 @@ impl Viewer {
         // `viewer-core/tests/selection_census.rs` on its first run, on 44 corpus documents; ADR
         // 0424. Asked once here for both arms below, which is also what a drag over a widget
         // costs least.
-        let position = on_page.and_then(|point| self.focused()?.position_at(point));
+        let position = on_page.and_then(|(page, point)| self.focused()?.position_at(page, point));
         let Some(open) = self.focused_mut() else {
             return;
         };
         // What a *click* activates is the link one, and only that: §12.5.6.5's activation region
         // is a link's, and `open.pressed` below decides whether a release follows one.
-        let under = point.and_then(|(x, y)| interact::link_at(open, x, y));
+        let under = point.and_then(|(page, (x, y))| interact::link_at(open, page, x, y));
         // §12.6.3's events belong to *any* annotation, and so — since the two-hundred-and-fifty-
         // third session — does §12.5.5's appearance. Asked once per pointer message, which is
         // what a `/Rect` test over a page's annotation array costs: the same shape
         // `Query::FieldAt` already pays at pointer speed.
-        let over = point.and_then(|(x, y)| {
-            let page = open.shown_page()?;
-            let (x, y) = pdf_model::content::user_space_at(page, x, y)?;
-            pdf_model::view::annotation_at(&open.document, page, &open.view, x, y)
+        // **`point` is already in default user space**, which is what §12.5.2 states an
+        // annotation's `/Rect` in, so it is handed straight to `annotation_at`. This arm used to
+        // put it through `user_space_at` a *second* time — `Self::user_space` had already applied
+        // it — so on every page whose crop box does not start at the origin, and on every page
+        // §7.7.3.3 turns, §12.5.5's appearance, §12.6.3's four pointer triggers, the focus a press
+        // gives a widget and §12.5.1's popup all hit-tested somewhere the pointer was not. No gate
+        // clicks and `Query::LinkAt` next door was right, which is why it survived; trap 12a is
+        // the shape of it and this is the third instance.
+        let over = point.and_then(|(page, (x, y))| {
+            let object = open.placed_page(page)?;
+            pdf_model::view::annotation_at(&open.document, object, &open.view, x, y)
         });
 
         let wanted = match action {
@@ -691,12 +734,24 @@ impl Viewer {
                 // A press starts an empty selection where it landed, so that the first drag
                 // has an anchor. An empty selection highlights nothing and is not a selection
                 // a person can see.
-                open.selection = position.map(|position| (position, position));
+                open.selection = position.zip(on_page).map(|(position, (page, _))| Chosen {
+                    page,
+                    range: (position, position),
+                });
                 events.push(damage(viewport));
             }
             PointerAction::Dragged => {
-                if let (Some((anchor, _)), Some(position)) = (open.selection, position) {
-                    open.selection = Some((anchor, position));
+                // A drag extends the selection on the page it *started* on: the anchor is a byte
+                // offset into that page's readback and a pointer that has crossed onto the page
+                // below is not naming a position in it. Selecting across a page boundary is a
+                // second range and a second question, and this crate has neither.
+                if let (Some(chosen), Some(position)) = (open.selection, position)
+                    && on_page.is_some_and(|(page, _)| page == chosen.page)
+                {
+                    open.selection = Some(Chosen {
+                        page: chosen.page,
+                        range: (chosen.range.0, position),
+                    });
                     events.push(damage(viewport));
                 }
             }
@@ -710,7 +765,7 @@ impl Viewer {
                 // person dragging across a paragraph of links expects.
                 let selecting = open
                     .selection
-                    .is_some_and(|(anchor, focus)| anchor != focus);
+                    .is_some_and(|chosen| chosen.range.0 != chosen.range.1);
                 let clicked = !selecting;
                 // Table 197's `/U` — "an action that shall be performed when the mouse button is
                 // released inside the annotation's active area" — for anything that is not the
@@ -744,7 +799,7 @@ impl Viewer {
                     self.raise(id, raised, events);
                     return;
                 }
-                let Some((x, y)) = point else {
+                let Some((page, (x, y))) = point else {
                     self.raise(id, raised, events);
                     return;
                 };
@@ -752,7 +807,7 @@ impl Viewer {
                 let Some(open) = self.focused_mut() else {
                     return;
                 };
-                let outcome = interact::activate(open, x, y);
+                let outcome = interact::activate(open, page, x, y);
                 self.apply(id, outcome, events);
                 return;
             }
@@ -1005,7 +1060,7 @@ impl Viewer {
         let drag = match &edit {
             crate::command::Edit::FreeText { from, to, .. } => {
                 let Some(open) = self.focused() else { return };
-                let (Some(from), Some(to)) =
+                let (Some((_, from)), Some((_, to))) =
                     (self.user_space(open, *from), self.user_space(open, *to))
                 else {
                     return;
@@ -1045,14 +1100,9 @@ impl Viewer {
         let Some(open) = self.focused_mut() else {
             return;
         };
-        let raster = open
-            .frame
-            .as_ref()
-            .map(|frame| (frame.target.width, frame.target.height));
         open.scroll = (open.scroll.0 + dx, open.scroll.1 + dy);
-        if let Some(raster) = raster {
-            open.clamp_scroll(viewport, raster);
-        }
+        // Clamped — and, under a continuous arrangement, carried across the row boundary — in
+        // `settle`, which is where the magnification the arrangement is measured in is known.
         events.push(damage(viewport));
     }
 
@@ -1136,13 +1186,18 @@ impl Viewer {
                 // off it rather than finding it again — and with nothing selected, the whole
                 // page in that direction. `usize::MAX` going backwards is the end of any
                 // readback there could be, which is what "before nothing in particular" means.
+                // Only where the selection is on the page a search starts from, which is the
+                // current one: an offset into another page's readback would name a place in this
+                // one that nobody selected.
+                let here = open
+                    .selection
+                    .filter(|chosen| chosen.page == open.page_index)
+                    .map(|chosen| chosen.range);
                 let from = match direction {
-                    FindDirection::Forward => open
-                        .selection
-                        .map_or(0, |(anchor, focus)| anchor.max(focus)),
-                    FindDirection::Backward => open
-                        .selection
-                        .map_or(usize::MAX, |(anchor, focus)| anchor.min(focus)),
+                    FindDirection::Forward => here.map_or(0, |(anchor, focus)| anchor.max(focus)),
+                    FindDirection::Backward => {
+                        here.map_or(usize::MAX, |(anchor, focus)| anchor.min(focus))
+                    }
                 };
                 let pages = open.page_count;
                 open.searching = crate::search::Searching::new(
@@ -1246,7 +1301,7 @@ impl Viewer {
         // "[S]electing the first matching word in the document" — the annex's own verb, and this
         // crate has exactly one thing that means: the range a host draws its selection over. It
         // waits for the page because the turn below ends the selection that was on the old one.
-        open.pending_selection = Some(range);
+        open.pending_selection = Some(Chosen { page, range });
         let viewport = self.viewport;
         self.act(Command::GoTo(PageTarget::Index(page)), events);
         events.push(Event::Searched {
@@ -1260,24 +1315,25 @@ impl Viewer {
 
     /// Every occurrence of `needle` on the page being shown, as shapes in device pixels.
     fn found(&self, open: &Open, needle: &str) -> Vec<Vec<[f32; 8]>> {
-        let Some(interpreted) = open.interpreted.as_ref() else {
+        let Some(interpreted) = open.interpreted() else {
             return Vec::new();
         };
         crate::select::find(&interpreted.text, needle)
             .into_iter()
-            .map(|range| self.device_quads(open, range))
+            .map(|range| self.device_quads(open, open.page_index, range))
             .collect()
     }
 
     /// What is selected, with its shapes in device pixels.
     fn selected<'a>(&self, open: &'a Open) -> Option<Selected<'a>> {
-        let (anchor, focus) = open.selection?;
-        let interpreted = open.interpreted.as_ref()?;
+        let chosen = open.selection?;
+        let interpreted = open.interpretation(chosen.page)?;
+        let (anchor, focus) = chosen.range;
         let (from, to) = (anchor.min(focus), anchor.max(focus));
         let text = interpreted.text.get(from..to).unwrap_or_default();
         Some(Selected {
             text,
-            quads: self.device_quads(open, (from, to)),
+            quads: self.device_quads(open, chosen.page, (from, to)),
         })
     }
 
@@ -1289,6 +1345,14 @@ impl Viewer {
     /// would be that defect again one crate over.
     fn focus_quad(&self, open: &Open) -> Option<(ObjectId, [f32; 8])> {
         let object = open.focus?;
+        // Which page of the arrangement the focused annotation is on: the current one under
+        // `SinglePage`, and under a column whichever placed page carries it — a ring drawn
+        // against the wrong page's origin would be a ring in the wrong place.
+        let on = open
+            .on_screen
+            .iter()
+            .find(|on_screen| annotations_of(open, &on_screen.object).contains(&object))
+            .map_or(open.page_index, |on_screen| on_screen.page);
         let resolved = open.document.get(object);
         let dict = resolved.as_dict()?;
         let rect = open.document.get_key(dict, "Rect");
@@ -1307,7 +1371,7 @@ impl Viewer {
         }
         let (x0, x1) = (values[0].min(values[2]), values[0].max(values[2]));
         let (y0, y1) = (values[1].min(values[3]), values[1].max(values[3]));
-        Some((object, self.device_quad(open, [x0, y0, x1, y1])?))
+        Some((object, self.device_quad(open, on, [x0, y0, x1, y1])?))
     }
 
     /// ISO 32000-2 Annex O's highlighted rectangles that are on the page being shown.
@@ -1322,8 +1386,8 @@ impl Viewer {
     fn highlight_quads(&self, open: &Open) -> Vec<[f32; 8]> {
         open.highlights
             .iter()
-            .filter(|highlighted| highlighted.page == open.page_index)
-            .filter_map(|highlighted| self.device_quad(open, highlighted.rect))
+            .filter(|highlighted| open.on(highlighted.page).is_some())
+            .filter_map(|highlighted| self.device_quad(open, highlighted.page, highlighted.rect))
             .collect()
     }
 
@@ -1332,22 +1396,27 @@ impl Viewer {
     /// The state is the file's `/Open` unless a person has said otherwise since, which is what
     /// `Open::popups` holds and why Table 186's word "initially" is load-bearing.
     fn popup_windows(&self, open: &Open) -> Vec<PopupWindow> {
-        let Some(page) = open.shown_page() else {
-            return Vec::new();
-        };
-        pdf_model::popup::popups(&open.document, page, &open.view)
-            .into_iter()
-            .filter(|popup| open.popup_is_open(popup))
-            .filter_map(|popup| {
-                Some(PopupWindow {
-                    annotation: popup.annotation,
-                    parent: popup.parent,
-                    quad: self.device_quad(open, popup.rect)?,
-                    title: popup.title,
-                    text: popup.text,
-                    modified: popup.modified,
-                    colour: popup.colour,
-                })
+        // Every page the arrangement shows rather than the current one alone: a window belongs to
+        // the page its annotation is on, and a `OneColumn` reader looking at two pages would
+        // otherwise see the notes of one of them.
+        open.on_screen
+            .iter()
+            .flat_map(|on_screen| {
+                pdf_model::popup::popups(&open.document, &on_screen.object, &open.view)
+                    .into_iter()
+                    .filter(|popup| open.popup_is_open(popup))
+                    .filter_map(|popup| {
+                        Some(PopupWindow {
+                            annotation: popup.annotation,
+                            parent: popup.parent,
+                            quad: self.device_quad(open, on_screen.page, popup.rect)?,
+                            title: popup.title,
+                            text: popup.text,
+                            modified: popup.modified,
+                            colour: popup.colour,
+                        })
+                    })
+                    .collect::<Vec<PopupWindow>>()
             })
             .collect()
     }
@@ -1361,38 +1430,42 @@ impl Viewer {
     /// out rather than given a guessed quadrilateral, and a field left with no widget at all is
     /// left out with them, because a control with nowhere to go is not one a host can place.
     fn form_fields(&self, open: &Open) -> Vec<crate::FormField> {
-        let Some(page) = open.shown_page() else {
-            return Vec::new();
-        };
-        pdf_model::form::fields(&open.document, page, &open.view)
-            .into_iter()
-            .filter_map(|field| {
-                let widgets: Vec<crate::FormWidget> = field
-                    .widgets
+        // Every page the arrangement shows, for [`Self::popup_windows`]'s reason: a host that
+        // places real controls over the page places them over every page it is drawing.
+        open.on_screen
+            .iter()
+            .flat_map(|on_screen| {
+                pdf_model::form::fields(&open.document, &on_screen.object, &open.view)
                     .into_iter()
-                    .filter_map(|widget| {
-                        Some(crate::FormWidget {
-                            annotation: widget.annotation,
-                            quad: self.device_quad(open, widget.rect)?,
-                            on_state: widget.on_state,
-                            export: widget.export,
-                            on: widget.on,
+                    .filter_map(|field| {
+                        let widgets: Vec<crate::FormWidget> = field
+                            .widgets
+                            .into_iter()
+                            .filter_map(|widget| {
+                                Some(crate::FormWidget {
+                                    annotation: widget.annotation,
+                                    quad: self.device_quad(open, on_screen.page, widget.rect)?,
+                                    on_state: widget.on_state,
+                                    export: widget.export,
+                                    on: widget.on,
+                                })
+                            })
+                            .collect();
+                        if widgets.is_empty() {
+                            return None;
+                        }
+                        Some(crate::FormField {
+                            name: field.name,
+                            partial: field.partial,
+                            control: field.control,
+                            value: field.value,
+                            read_only: field.read_only,
+                            required: field.required,
+                            no_export: field.no_export,
+                            widgets,
                         })
                     })
-                    .collect();
-                if widgets.is_empty() {
-                    return None;
-                }
-                Some(crate::FormField {
-                    name: field.name,
-                    partial: field.partial,
-                    control: field.control,
-                    value: field.value,
-                    read_only: field.read_only,
-                    required: field.required,
-                    no_export: field.no_export,
-                    widgets,
-                })
+                    .collect::<Vec<crate::FormField>>()
             })
             .collect()
     }
@@ -1405,12 +1478,12 @@ impl Viewer {
     /// that defect again. `[x0, y0, x1, y1]`, normalised, in; clockwise from the top-left as it
     /// appears on the screen, out — for a page §7.7.3.3 does not turn, where the corner that is
     /// lowest and leftmost in the document is also the one at the bottom left of the screen.
-    fn device_quad(&self, open: &Open, rect: [f32; 4]) -> Option<[f32; 8]> {
+    fn device_quad(&self, open: &Open, page: usize, rect: [f32; 4]) -> Option<[f32; 8]> {
         let [x0, y0, x1, y1] = rect;
         let corners = [(x0, y1), (x1, y1), (x1, y0), (x0, y0)];
         let mut out = [0.0_f32; 8];
         for (corner, place) in corners.iter().zip(out.chunks_exact_mut(2)) {
-            let (x, y) = self.device_point(open, *corner)?;
+            let (x, y) = self.device_point(open, page, *corner)?;
             place[0] = x;
             place[1] = y;
         }
@@ -1430,10 +1503,10 @@ impl Viewer {
     /// unrotated with its crop box at the origin. Both are true of every corpus document that has
     /// a widget — none of the 974 states a rotated page with one — which is why no gate saw it and
     /// why this is arithmetic rather than a picture (ADR 0211).
-    fn device_point(&self, open: &Open, at: (f32, f32)) -> Option<(f32, f32)> {
-        let page = open.shown_page()?;
-        let (x, y) = pdf_model::content::page_space_at(page, at.0, at.1);
-        self.on_screen(open, (x, y))
+    fn device_point(&self, open: &Open, page: usize, at: (f32, f32)) -> Option<(f32, f32)> {
+        let object = open.placed_page(page)?;
+        let (x, y) = pdf_model::content::page_space_at(object, at.0, at.1);
+        self.on_screen(open, page, (x, y))
     }
 
     /// A point in the **display list's** space, in device pixels of the viewport.
@@ -1441,15 +1514,13 @@ impl Viewer {
     /// The inverse of [`Self::page_point`], and the arithmetic every shape this crate hands over
     /// goes through: the text layer's quadrilaterals are already in this space, and a rectangle
     /// the *document* states reaches it through [`Self::device_point`].
-    fn on_screen(&self, open: &Open, at: (f32, f32)) -> Option<(f32, f32)> {
-        let interpreted = open.interpreted.as_ref()?;
+    fn on_screen(&self, open: &Open, page: usize, at: (f32, f32)) -> Option<(f32, f32)> {
+        let placed = open.on(page)?;
         let magnification = open.magnification(self.viewport, self.scale)?;
-        let height = open.page_size(open.page_index).map(|size| size.height)?;
-        let raster = crate::open::raster_extent(interpreted.list.page_size, magnification);
-        let origin = open.origin(self.viewport, raster);
+        let height = open.page_size(page).map(|size| size.height)?;
         Some((
-            origin.0 + at.0 * magnification,
-            origin.1 + (height - at.1) * magnification,
+            placed.origin.0 + at.0 * magnification,
+            placed.origin.1 + (height - at.1) * magnification,
         ))
     }
 
@@ -1464,11 +1535,11 @@ impl Viewer {
         at: (f32, f32),
         offset: usize,
     ) -> Option<((f32, f32), (f32, f32))> {
-        let (x, y) = self.user_space(open, at)?;
-        let page = open.shown_page()?;
-        let segment = open.view.caret_at(&open.document, page, x, y, offset)?;
-        let from = self.device_point(open, (segment[0], segment[1]))?;
-        let to = self.device_point(open, (segment[2], segment[3]))?;
+        let (page, (x, y)) = self.user_space(open, at)?;
+        let object = open.placed_page(page)?;
+        let segment = open.view.caret_at(&open.document, object, x, y, offset)?;
+        let from = self.device_point(open, page, (segment[0], segment[1]))?;
+        let to = self.device_point(open, page, (segment[2], segment[3]))?;
         Some((from, to))
     }
 
@@ -1479,10 +1550,12 @@ impl Viewer {
     /// turns that into an offset. Both points are mapped, because the second is where the pointer
     /// is now and the first is only what names the field.
     fn offset(&self, open: &Open, at: (f32, f32), point: (f32, f32)) -> Option<usize> {
-        let (x, y) = self.user_space(open, at)?;
-        let point = self.user_space(open, point)?;
-        let page = open.shown_page()?;
-        open.view.offset_at(&open.document, page, (x, y), point)
+        let (page, (x, y)) = self.user_space(open, at)?;
+        // The moving point is measured against the *field's* page: a drag that has left the
+        // widget is still a drag inside its value, which is what the second point is for.
+        let (_, point) = self.user_space(open, point)?;
+        let object = open.placed_page(page)?;
+        open.view.offset_at(&open.document, object, (x, y), point)
     }
 
     /// The shapes covering a range of the value of the field at a viewport point.
@@ -1497,17 +1570,17 @@ impl Viewer {
         at: (f32, f32),
         range: (usize, usize),
     ) -> Option<Vec<[f32; 8]>> {
-        let (x, y) = self.user_space(open, at)?;
-        let page = open.shown_page()?;
+        let (page, (x, y)) = self.user_space(open, at)?;
+        let object = open.placed_page(page)?;
         let quads = open
             .view
-            .field_selection(&open.document, page, (x, y), range)?;
+            .field_selection(&open.document, object, (x, y), range)?;
         quads
             .into_iter()
             .map(|quad| {
                 let mut out = [0.0_f32; 8];
                 for (corner, place) in quad.chunks_exact(2).zip(out.chunks_exact_mut(2)) {
-                    let (x, y) = self.device_point(open, (corner[0], corner[1]))?;
+                    let (x, y) = self.device_point(open, page, (corner[0], corner[1]))?;
                     place[0] = x;
                     place[1] = y;
                 }
@@ -1579,12 +1652,13 @@ impl Viewer {
     /// [`Query::LogicalSelection`]. The page's object is needed because §14.7's tree is the
     /// document's and its content items name the page they are on.
     fn logical_selection(open: &Open) -> Option<String> {
-        let (anchor, focus) = open.selection?;
-        let interpreted = open.interpreted.as_ref()?;
+        let chosen = open.selection?;
+        let (anchor, focus) = chosen.range;
+        let interpreted = open.interpretation(chosen.page)?;
         let tree = pdf_model::structure::Tree::of(&open.document)?;
         // As `accessibility` does, and for the same reason: Table 355's `/Pg` names a page
         // *object* and what this crate holds is an index.
-        let page = page_object(&pdf_model::Pages::new(&open.document), interpreted.page)?;
+        let page = page_object(&pdf_model::Pages::new(&open.document), chosen.page)?;
         tree.logical_range(
             &open.document,
             page,
@@ -1600,12 +1674,12 @@ impl Viewer {
     /// page change, and no other consumer asks at all — while a drag asks
     /// [`Query::Selection`] sixty times a second, which is why *that* one's inputs are cached.
     fn accessibility(&self, open: &Open) -> Vec<crate::AccessibilityNode> {
-        let Some(interpreted) = open.interpreted.as_ref() else {
+        let Some(interpreted) = open.interpreted() else {
             return Vec::new();
         };
         // Table 355's `/Pg` names a page *object*, and what this crate holds is an index.
         let pages = pdf_model::Pages::new(&open.document);
-        let Some(page) = page_object(&pages, interpreted.page) else {
+        let Some(page) = page_object(&pages, open.page_index) else {
             return Vec::new();
         };
         let gathered =
@@ -1618,7 +1692,7 @@ impl Viewer {
             .iter()
             .any(|(_, element)| !element.objects.is_empty());
         let (places, controls) = if referenced {
-            referenced_objects(open, &pages, interpreted.page)
+            referenced_objects(open, &pages, open.page_index)
         } else {
             (BTreeMap::new(), BTreeMap::new())
         };
@@ -1636,9 +1710,9 @@ impl Viewer {
                     gathered,
                     parent,
                     &page,
-                    |start, end| self.device_quads(open, (start, end)),
-                    |ranges| self.device_lines(open, ranges),
-                    |rect| self.device_rect(open, rect),
+                    |start, end| self.device_quads(open, open.page_index, (start, end)),
+                    |ranges| self.device_lines(open, open.page_index, ranges),
+                    |rect| self.device_rect(open, open.page_index, rect),
                 )
             })
             .collect()
@@ -1678,15 +1752,13 @@ impl Viewer {
     /// said nothing about where on this page the element is. A rectangle that merely touches an
     /// edge crosses as a degenerate one: §7.9.5's own NOTE is that "[r]ectangles can have a width
     /// of zero or height of zero".
-    fn device_rect(&self, open: &Open, rect: [f32; 4]) -> Option<[f32; 4]> {
-        let interpreted = open.interpreted.as_ref()?;
+    fn device_rect(&self, open: &Open, page: usize, rect: [f32; 4]) -> Option<[f32; 4]> {
         let magnification = open.magnification(self.viewport, self.scale)?;
-        let size = open.page_size(open.page_index)?;
-        let raster = crate::open::raster_extent(interpreted.list.page_size, magnification);
-        let origin = open.origin(self.viewport, raster);
-        let page = open.shown_page()?;
-        let first = pdf_model::content::page_space_at(page, rect[0], rect[1]);
-        let second = pdf_model::content::page_space_at(page, rect[2], rect[3]);
+        let size = open.page_size(page)?;
+        let origin = open.on(page)?.origin;
+        let object = open.placed_page(page)?;
+        let first = pdf_model::content::page_space_at(object, rect[0], rect[1]);
+        let second = pdf_model::content::page_space_at(object, rect[2], rect[3]);
         let (x0, x1) = (first.0.min(second.0), first.0.max(second.0));
         let (y0, y1) = (first.1.min(second.1), first.1.max(second.1));
         if x1 < 0.0 || y1 < 0.0 || x0 > size.width || y0 > size.height {
@@ -1708,18 +1780,19 @@ impl Viewer {
     /// The mapping a host would otherwise have to do, and the reason it does not: it would mean
     /// re-deriving the magnification, the centring and the y flip, which is exactly the
     /// arithmetic ADR 0118 found wrong in the one place it existed.
-    fn device_quads(&self, open: &Open, range: (usize, usize)) -> Vec<[f32; 8]> {
-        let Some(interpreted) = open.interpreted.as_ref() else {
+    fn device_quads(&self, open: &Open, page: usize, range: (usize, usize)) -> Vec<[f32; 8]> {
+        let Some(interpreted) = open.interpretation(page) else {
             return Vec::new();
         };
         let Some(magnification) = open.magnification(self.viewport, self.scale) else {
             return Vec::new();
         };
-        let Some(height) = open.page_size(open.page_index).map(|size| size.height) else {
+        let Some(height) = open.page_size(page).map(|size| size.height) else {
             return Vec::new();
         };
-        let raster = crate::open::raster_extent(interpreted.list.page_size, magnification);
-        let origin = open.origin(self.viewport, raster);
+        let Some(origin) = open.on(page).map(|on_screen| on_screen.origin) else {
+            return Vec::new();
+        };
         // [`Self::on_screen`]'s formula, inlined over four corners at a time: this is asked sixty
         // times a second during a drag and may answer with hundreds of quadrilaterals, so the
         // magnification, the page height and the origin are read once per call rather than once
@@ -1755,19 +1828,21 @@ impl Viewer {
     fn device_lines(
         &self,
         open: &Open,
+        page: usize,
         ranges: &[(usize, usize)],
     ) -> Vec<crate::accessibility::TextLine> {
-        let Some(interpreted) = open.interpreted.as_ref() else {
+        let Some(interpreted) = open.interpretation(page) else {
             return Vec::new();
         };
         let Some(magnification) = open.magnification(self.viewport, self.scale) else {
             return Vec::new();
         };
-        let Some(height) = open.page_size(open.page_index).map(|size| size.height) else {
+        let Some(height) = open.page_size(page).map(|size| size.height) else {
             return Vec::new();
         };
-        let raster = crate::open::raster_extent(interpreted.list.page_size, magnification);
-        let origin = open.origin(self.viewport, raster);
+        let Some(origin) = open.on(page).map(|on_screen| on_screen.origin) else {
+            return Vec::new();
+        };
         crate::select::lines_for(&interpreted.placed, ranges)
             .into_iter()
             .filter_map(|line| {
@@ -1825,18 +1900,24 @@ impl Viewer {
     /// The half of [`Self::user_space`] that stops before the page's own transform: the display
     /// list, the text layer and every quadrilateral this crate hands out are in *this* space, and
     /// only §12.5.2's annotation rectangles are in the other one.
-    fn page_point(&self, open: &Open, at: (f32, f32)) -> Option<(f32, f32)> {
+    fn page_point(&self, open: &Open, at: (f32, f32)) -> Option<(usize, (f32, f32))> {
         let magnification = open.magnification(self.viewport, self.scale)?;
         if magnification <= 0.0 {
             return None;
         }
-        let interpreted = open.interpreted.as_ref()?;
-        let raster = crate::open::raster_extent(interpreted.list.page_size, magnification);
-        let origin = open.origin(self.viewport, raster);
-        let height = open.page_size(open.page_index)?.height;
+        // Whichever page of Table 29's arrangement the point is inside, and the current one
+        // otherwise — which is what a drag past the bottom of a page needs: a point off the
+        // raster still names a position in the text, and refusing it would stop a selection
+        // extending the moment the pointer left the page.
+        let page = open.placed_at(at).map_or(open.page_index, |on| on.page);
+        let origin = open.on(page)?.origin;
+        let height = open.page_size(page)?.height;
         Some((
-            (at.0 - origin.0) / magnification,
-            height - (at.1 - origin.1) / magnification,
+            page,
+            (
+                (at.0 - origin.0) / magnification,
+                height - (at.1 - origin.1) / magnification,
+            ),
         ))
     }
 
@@ -1854,9 +1935,10 @@ impl Viewer {
     /// function's job. It is undone about the *page's* height rather than the raster's, because
     /// that is what the forward transform translates by — a raster is rounded up to contain the
     /// page and the leftover fraction of a row is at the bottom. ADR 0118.
-    fn user_space(&self, open: &Open, at: (f32, f32)) -> Option<(f32, f32)> {
-        let (x, y) = self.page_point(open, at)?;
-        pdf_model::content::user_space_at(open.shown_page()?, x, y)
+    fn user_space(&self, open: &Open, at: (f32, f32)) -> Option<(usize, (f32, f32))> {
+        let (page, (x, y)) = self.page_point(open, at)?;
+        let object = open.placed_page(page)?;
+        Some((page, pdf_model::content::user_space_at(object, x, y)?))
     }
 
     /// Resolves a zoom command into the magnification it lands on.
@@ -1881,7 +1963,7 @@ impl Viewer {
         if let (Some(before), Some(after)) = (before, open.magnification(viewport, scale))
             && before > 0.0
         {
-            open.hold(viewport, before, after, at);
+            open.hold(viewport, scale, before, after, at);
         }
         events.push(damage(viewport));
     }
@@ -1905,12 +1987,12 @@ impl Viewer {
     /// The one place a render is scheduled. Interpretation happens here too, which is what makes
     /// [`Event::NeedsRender`] self-contained — see the crate documentation on who interprets and
     /// who rasterises.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "the whole of what settling a viewer means, in the order it happens: the \
-                  magnification, the page, the interpretation, the scheduler's token. Splitting \
-                  it would put that order in two places"
-    )]
+    ///
+    /// **Table 29's `/PageLayout` made this a loop over the pages on the screen rather than a
+    /// statement about one page.** The order is what it always was and is the whole of what the
+    /// function is: the view state, then the magnification, then where the scroll now stands, then
+    /// which pages that shows, then their interpretations, then §12.3.2.1's pending view, then one
+    /// render request per page whose pixels are not the pixels it should have.
     fn settle(&mut self, events: &mut Vec<Event>) {
         let (viewport, scale) = (self.viewport, self.scale);
         // A viewport with no extent is a window that has not been laid out yet, and rendering
@@ -1919,13 +2001,10 @@ impl Viewer {
             return;
         }
         let Some(id) = self.focused else { return };
-        let token = RenderToken(self.next_token);
-        // Read before the document is borrowed: it is a fact about the host, not the page.
-        let budget = self.raster_budget();
+        let delegated = self.delegated;
         let Some(open) = self.documents.get_mut(&id) else {
             return;
         };
-        let page = open.page_index;
 
         // §12.5.3's `NoZoom` makes one annotation's placement a function of the magnification,
         // so the state interpretation reads has to carry it — and **logical** pixels per user
@@ -1937,13 +2016,15 @@ impl Viewer {
         // annotation and pay nothing for this, and the 51 that do pay exactly what the clause
         // asks for.
         let magnification = open
-            .magnification(self.viewport, scale)
+            .magnification(viewport, scale)
             .map(|device| device / scale);
         if open.view.set_magnification(magnification)
-            && open
-                .interpreted
-                .as_ref()
-                .is_some_and(|interpreted| interpreted.view_dependent)
+            && open.on_screen.iter().any(|on_screen| {
+                on_screen
+                    .interpreted
+                    .as_ref()
+                    .is_some_and(|interpreted| interpreted.view_dependent)
+            })
         {
             open.stale();
         }
@@ -1952,27 +2033,115 @@ impl Viewer {
         // Unconditional where it changed — unlike the magnification above, which asks whether
         // the page has anything that would notice: a page with no widget on it costs one field
         // walk that answers nothing, and a page with one would be wrong to keep.
-        if open.view.set_widget_appearances(self.delegated) {
+        if open.view.set_widget_appearances(delegated) {
             open.stale();
         }
 
-        if open
-            .interpreted
-            .as_ref()
-            .map(|interpreted| interpreted.page)
-            != Some(page)
+        let Some(magnification) = open.magnification(viewport, scale) else {
+            return;
+        };
+        // Table 29's continuous arrangements move the current page when the scroll crosses a row,
+        // and a page becoming current is a page turn however it happened — §12.6.3's `/O` and
+        // `/C` are owed for it exactly as they are owed for an arrow key.
+        let left = crate::layout::settle_scroll(open, viewport, scale, magnification);
+        if let Some(left) = left {
+            self.announce_page(events);
+            self.page_events(id, Some(left), events);
+        }
+
+        self.arrange(id, magnification, events);
+
+        // §12.3.2.1's location and magnification, applied here because this is the first place
+        // both of the things they need exist: a viewport, and — for the three `/FitB` forms —
+        // a display list to measure the page's contents from. ADR 0162.
+        let Some(open) = self.documents.get_mut(&id) else {
+            return;
+        };
+        if !open.pending_views.is_empty()
+            && let Some(list) = open
+                .interpreted()
+                .map(|interpreted| Arc::clone(&interpreted.list))
         {
-            // Whether this is a *different* page or the same one drawn again, which is the
-            // difference the selection turns on below. Asked of `current` rather than of
-            // `interpreted`, because the display list is what a re-interpretation throws away:
-            // by this line it is already `None` for both cases and could not tell them apart.
-            let turned = open
-                .current
-                .as_ref()
-                .is_none_or(|(interpreted, _)| *interpreted != page);
+            let bounds = content_bounds(&list);
+            let mut changed = false;
+            // In order: §O.2 makes left-to-right normative for a fragment identifier, and a
+            // document's own `/OpenAction` states at most one of these.
+            for view in std::mem::take(&mut open.pending_views) {
+                changed |= open.apply_view(view, viewport, scale, bounds);
+            }
+            if changed {
+                for on_screen in &mut open.on_screen {
+                    on_screen.shown = None;
+                }
+                let Some(magnification) = open.magnification(viewport, scale) else {
+                    return;
+                };
+                self.arrange(id, magnification, events);
+            }
+        }
+
+        self.schedule(id, events);
+    }
+
+    /// Places Table 29's arrangement and interprets whatever of it is not interpreted yet.
+    ///
+    /// Split from [`Self::settle`] because §12.3.2.1's pending view may change the magnification
+    /// after the first pass and the arrangement then has to be made again — the same work, and
+    /// one description of it rather than two.
+    fn arrange(&mut self, id: DocumentId, magnification: f32, events: &mut Vec<Event>) {
+        let (viewport, scale) = (self.viewport, self.scale);
+        let Some(open) = self.documents.get_mut(&id) else {
+            return;
+        };
+        let placements = crate::layout::place(open, viewport, scale, magnification);
+        // What has scrolled off the screen is forgotten, which is the eviction rule
+        // `Open::on_screen` did not have to invent: the view says what is kept.
+        open.on_screen.retain(|on_screen| {
+            placements
+                .iter()
+                .any(|placed| placed.page == on_screen.page)
+        });
+        for placed in &placements {
+            if let Some(on_screen) = open.on_mut(placed.page) {
+                on_screen.origin = placed.origin;
+                on_screen.raster = placed.raster;
+                continue;
+            }
+            // One page-tree walk per page *arriving* on the screen, and never per frame: this is
+            // the cache ADR 0124 put in, with the arrangement deciding its contents.
+            let Some(object) = open.page(placed.page) else {
+                continue;
+            };
+            open.on_screen.push(crate::open::OnScreen {
+                page: placed.page,
+                object,
+                origin: placed.origin,
+                raster: placed.raster,
+                interpreted: None,
+                revision: 0,
+                shown: None,
+                frame: None,
+                pending: None,
+            });
+        }
+        open.on_screen.sort_by_key(|on_screen| on_screen.page);
+        // A selection is a range of one page's readback, so it lives exactly as long as that page
+        // is on the screen — which under `SinglePage` is the page turn that used to end it.
+        if open
+            .selection
+            .is_some_and(|chosen| open.on(chosen.page).is_none())
+        {
+            open.selection = None;
+        }
+
+        for index in 0..open.on_screen.len() {
+            if open.on_screen[index].interpreted.is_some() {
+                continue;
+            }
+            let page = open.on_screen[index].page;
             let Some((interpretation, mut reports, object)) = crate::open::interpret(open, page)
             else {
-                return;
+                continue;
             };
             // §7.5.7's losses become known when a page reaches into an object stream, which is
             // here and never at open. The sentence is the document's rather than the page's and
@@ -1993,8 +2162,11 @@ impl Viewer {
             // saves.
             open.readbacks
                 .put(page, &Arc::from(interpretation.text.as_str()));
-            open.interpreted = Some(Interpreted {
-                page,
+            let revision = open.revision;
+            let on_screen = &mut open.on_screen[index];
+            on_screen.object = object;
+            on_screen.revision = revision;
+            on_screen.interpreted = Some(Interpreted {
                 shortfall: interpretation.shortfall(),
                 list: Arc::new(interpretation.display_list),
                 reports,
@@ -2005,84 +2177,80 @@ impl Viewer {
                 language: interpretation.language,
                 view_dependent: interpretation.view_dependent,
             });
-            open.current = Some((page, object));
-            // A selection is a range of *this page's* readback, so a page turn ends it — and a
-            // re-interpretation of the same page does not. The two are different events and this
-            // line treated them alike: a field edited, a layer switched or an annotation added
-            // rebuilds the display list, and every one of those took a person's selection away
-            // from them. The readback of a page is a function of the document and the view state
-            // and both are the same page's, so the range still names what it named.
-            if turned {
-                open.selection = None;
-            }
         }
-        // …unless a search put one there for this very page, which is the one range made *after*
-        // the turn rather than before it, and outside the block above because a search that lands
-        // on the page already showing interprets nothing. See `Open::pending_selection`.
-        if let Some(range) = open.pending_selection.take() {
-            open.selection = Some(range);
+        // …unless a search put one there for a page that has only now been interpreted, which is
+        // the one range made *after* a turn rather than before it. See `Open::pending_selection`.
+        if let Some(chosen) = open.pending_selection
+            && open.interpretation(chosen.page).is_some()
+        {
+            open.pending_selection = None;
+            open.selection = Some(chosen);
         }
-        let Some(interpreted) = open.interpreted.as_ref() else {
+    }
+
+    /// Asks for a render of every page whose pixels are not the pixels it should have.
+    fn schedule(&mut self, id: DocumentId, events: &mut Vec<Event>) {
+        let (viewport, scale) = (self.viewport, self.scale);
+        // Read before the document is borrowed: it is a fact about the host, not the page.
+        let budget = self.raster_budget();
+        let mut token = self.next_token;
+        let Some(open) = self.documents.get_mut(&id) else {
             return;
         };
-        let list = Arc::clone(&interpreted.list);
-
-        // §12.3.2.1's location and magnification, applied here because this is the first place
-        // both of the things they need exist: a viewport, and — for the three `/FitB` forms —
-        // a display list to measure the page's contents from. ADR 0162.
-        if !open.pending_views.is_empty() {
-            let bounds = content_bounds(&list);
-            let mut changed = false;
-            // In order: §O.2 makes left-to-right normative for a fragment identifier, and a
-            // document's own `/OpenAction` states at most one of these.
-            for view in std::mem::take(&mut open.pending_views) {
-                changed |= open.apply_view(view, viewport, scale, bounds);
-            }
-            if changed {
-                open.shown = None;
-            }
-        }
-
         let Some(magnification) = open.magnification(viewport, scale) else {
             return;
         };
-        let target = match TargetSpec::for_page(&list, magnification, budget) {
-            Ok(target) => target,
-            // Named rather than clamped, because a page silently drawn at a scale nobody chose
-            // is a page a person has been told something false about.
-            Err(error) => {
-                events.push(Event::Reported {
-                    document: id,
-                    page: Some(page),
-                    notes: vec![format!("this page cannot be drawn at this size: {error}")],
-                });
-                return;
+        let mut requests = Vec::new();
+        let mut refusals = Vec::new();
+        for on_screen in &mut open.on_screen {
+            let Some(interpreted) = on_screen.interpreted.as_ref() else {
+                continue;
+            };
+            let list = Arc::clone(&interpreted.list);
+            let target = match TargetSpec::for_page(&list, magnification, budget) {
+                Ok(target) => target,
+                // Named rather than clamped, because a page silently drawn at a scale nobody chose
+                // is a page a person has been told something false about.
+                Err(error) => {
+                    refusals.push((
+                        on_screen.page,
+                        format!("this page cannot be drawn at this size: {error}"),
+                    ));
+                    continue;
+                }
+            };
+            let showing = on_screen.shown == Some((target, on_screen.revision));
+            let asked = on_screen.pending.as_ref().is_some_and(|pending| {
+                pending.target == target && pending.revision == on_screen.revision
+            });
+            if showing || asked {
+                continue;
             }
-        };
-        open.clamp_scroll(viewport, (target.width, target.height));
-
-        let showing = open.shown == Some((page, target, open.revision));
-        let asked = open.pending.as_ref().is_some_and(|pending| {
-            pending.page == page && pending.target == target && pending.revision == open.revision
-        });
-        if showing || asked {
-            return;
+            let issued = RenderToken(token);
+            token = token.saturating_add(1);
+            on_screen.pending = Some(Pending {
+                token: issued,
+                page: on_screen.page,
+                target,
+                revision: on_screen.revision,
+            });
+            requests.push(Event::NeedsRender(RenderRequest {
+                token: issued,
+                document: id,
+                page: on_screen.page,
+                list,
+                target,
+            }));
         }
-
-        self.next_token = self.next_token.saturating_add(1);
-        open.pending = Some(Pending {
-            token,
-            page,
-            target,
-            revision: open.revision,
-        });
-        events.push(Event::NeedsRender(RenderRequest {
-            token,
-            document: id,
-            page,
-            list,
-            target,
-        }));
+        self.next_token = token;
+        for (page, note) in refusals {
+            events.push(Event::Reported {
+                document: id,
+                page: Some(page),
+                notes: vec![note],
+            });
+        }
+        events.extend(requests);
     }
 
     /// §12.4.4: enters or leaves presentation mode, in every open document.
@@ -2283,7 +2451,7 @@ impl Viewer {
         let Some(open) = self.focused_mut() else {
             return;
         };
-        let Some((_, page)) = open.current.as_ref() else {
+        let Some(page) = open.shown_page() else {
             return;
         };
         let Some(duration) = pdf_model::navigation::display_duration(&open.document, &page.dict)
@@ -2414,19 +2582,16 @@ impl Viewer {
 
     /// Where a page sits on the screen, for the page that is on it.
     fn geometry(&self, open: &Open, index: usize) -> Option<PageGeometry> {
-        if index != open.page_index {
-            return None;
-        }
-        let page = open.page_size(index)?;
-        let magnification = open.magnification(self.viewport, self.scale)?;
-        let interpreted = open.interpreted.as_ref()?;
-        let raster = crate::open::raster_extent(interpreted.list.page_size, magnification);
+        let on_screen = open.on(index)?;
+        // Answered only once the page has been interpreted, as it always was: a geometry taken
+        // from an extent nothing has drawn yet is a promise about a frame that may not arrive.
+        on_screen.interpreted.as_ref()?;
         Some(PageGeometry {
-            page,
-            scale: magnification,
-            width: raster.0,
-            height: raster.1,
-            origin: open.origin(self.viewport, raster),
+            page: open.page_size(index)?,
+            scale: open.magnification(self.viewport, self.scale)?,
+            width: on_screen.raster.0,
+            height: on_screen.raster.1,
+            origin: on_screen.origin,
         })
     }
 }
@@ -2504,6 +2669,11 @@ fn annotations_on(open: &Open, pages: &pdf_model::Pages, index: usize) -> Vec<Ob
     let Some(page) = pages.get(index) else {
         return Vec::new();
     };
+    annotations_of(open, &page)
+}
+
+/// The same, for a page this crate is already holding.
+fn annotations_of(open: &Open, page: &pdf_model::Page) -> Vec<ObjectId> {
     let entry = open.document.get_key(&page.dict, "Annots");
     let Some(array) = entry.as_array() else {
         return Vec::new();

@@ -505,9 +505,13 @@ impl App {
     /// exist here and is said once rather than ignored: a document asking for something and
     /// getting silence is trap 5 in an interface.
     ///
-    /// `/PageLayout` likewise. This window shows one page at a time, which is Table 29's own
-    /// default, so a document stating `SinglePage` — 24 of the corpus's 43 — is answered exactly
-    /// and says nothing.
+    /// **`/PageLayout` is now obeyed by `viewer-core` and asked *back* to `SinglePage` here**,
+    /// which is a statement of what this window can draw rather than an omission. The core
+    /// arranges the pages Table 29 names and hands one render request per page on the screen; a
+    /// tier-2 surface draws exactly one `Arc<DisplayList>` per frame, and `crate::stale`'s
+    /// reprojection is keyed on that one list's identity. So this host says which arrangement it
+    /// is able to draw — through the boundary, in one message — and goes on saying out loud what
+    /// the document asked for. `viewer-gtk` and `viewer-qt` are tier 1 and draw all six.
     fn obey_page_mode(&mut self) {
         use pdf_model::viewer_preferences::{PageLayout, PageMode};
         let Answer::Opening(opening) = self.viewer.query(Query::Opening) else {
@@ -526,11 +530,14 @@ impl App {
         }
         if opening.layout != PageLayout::SinglePage {
             println!(
-                "note: this document asks for the {:?} page layout (§7.7.2); this window shows \
-                 one page at a time",
+                "note: this document asks for the {:?} page layout (§7.7.2); this window draws \
+                 one page at a time and has asked the viewer for that arrangement",
                 opening.layout
             );
         }
+        // Said whatever the document asked for, because the *default* this host needs is the one
+        // it can draw and not the one it happened to be given.
+        self.dispatch(Command::Layout(PageLayout::SinglePage));
     }
 
     /// Whether anything on the page is selected.

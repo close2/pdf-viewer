@@ -128,7 +128,7 @@ fn every_entry_point_is_declared_once_in_the_header_and_nowhere_else() {
     let exported = exported_names();
     assert_eq!(
         exported.len(),
-        112,
+        114,
         "the count `unsafe_position.rs` also states"
     );
     let missing: Vec<&String> = exported.difference(&declared).collect();
@@ -222,6 +222,12 @@ fn the_event_kinds(expected: &mut BTreeMap<String, i64>) {
 }
 
 /// The enumerations this ABI *takes*, which refuse a number they do not define.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one block per enumeration a caller passes in, and the count is the ABI's. Splitting \
+              it would put half the header's constants in another function and lose what this \
+              hand-written map is for: a second statement of every number, made independently"
+)]
 fn the_argument_enumerations(expected: &mut BTreeMap<String, i64>) {
     for (name, kind) in [
         ("PDFV_PAGE_INDEX", PageTargetKind::Index),
@@ -275,6 +281,32 @@ fn the_argument_enumerations(expected: &mut BTreeMap<String, i64>) {
     for (name, kind) in [
         ("PDFV_PRESENT_OFF", PresentKind::Off),
         ("PDFV_PRESENT_ON", PresentKind::On),
+    ] {
+        expected.insert(name.to_owned(), kind as i64);
+    }
+    // Table 29's six arrangements, in the order that table states them.
+    for (name, kind) in [
+        (
+            "PDFV_LAYOUT_SINGLE_PAGE",
+            viewer_ffi::LayoutKind::SinglePage,
+        ),
+        ("PDFV_LAYOUT_ONE_COLUMN", viewer_ffi::LayoutKind::OneColumn),
+        (
+            "PDFV_LAYOUT_TWO_COLUMN_LEFT",
+            viewer_ffi::LayoutKind::TwoColumnLeft,
+        ),
+        (
+            "PDFV_LAYOUT_TWO_COLUMN_RIGHT",
+            viewer_ffi::LayoutKind::TwoColumnRight,
+        ),
+        (
+            "PDFV_LAYOUT_TWO_PAGE_LEFT",
+            viewer_ffi::LayoutKind::TwoPageLeft,
+        ),
+        (
+            "PDFV_LAYOUT_TWO_PAGE_RIGHT",
+            viewer_ffi::LayoutKind::TwoPageRight,
+        ),
     ] {
         expected.insert(name.to_owned(), kind as i64);
     }

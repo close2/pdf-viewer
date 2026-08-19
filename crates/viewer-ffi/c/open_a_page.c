@@ -562,7 +562,16 @@ int main(int argc, char **argv)
     /* And the pixels, into a buffer this program owns. Two calls: size, then copy. */
     pdfv_frame info;
     memset(&info, 0, sizeof info);
-    if (!check("pdfv_frame_info", pdfv_frame_info(viewer, &info))) {
+    /* Table 29's arrangement, counted: one under PDFV_LAYOUT_SINGLE_PAGE, which is what this
+     * document opens in, and the index below is into that list. */
+    size_t frames = pdfv_frame_count(viewer);
+    printf("frames on the screen: %zu\n", frames);
+    if (frames != 1) {
+        fprintf(stderr, "a single-page arrangement showing %zu page(s)\n", frames);
+        pdfv_viewer_free(viewer);
+        return 1;
+    }
+    if (!check("pdfv_frame_info", pdfv_frame_info(viewer, 0, &info))) {
         pdfv_viewer_free(viewer);
         return 1;
     }
@@ -576,7 +585,7 @@ int main(int argc, char **argv)
 
     /* The refusal half of the two-call idiom, checked rather than assumed. */
     uint8_t one = 0;
-    if (pdfv_frame_copy(viewer, &one, 1, NULL) != PDFV_BUFFER_TOO_SMALL) {
+    if (pdfv_frame_copy(viewer, 0, &one, 1, NULL) != PDFV_BUFFER_TOO_SMALL) {
         fprintf(stderr, "a one-byte buffer took a whole page\n");
         pdfv_viewer_free(viewer);
         return 1;
@@ -589,7 +598,7 @@ int main(int argc, char **argv)
     }
     size_t written = 0;
     double copy_began = now_us();
-    if (!check("pdfv_frame_copy", pdfv_frame_copy(viewer, pixels, info.bytes, &written))) {
+    if (!check("pdfv_frame_copy", pdfv_frame_copy(viewer, 0, pixels, info.bytes, &written))) {
         free(pixels);
         pdfv_viewer_free(viewer);
         return 1;

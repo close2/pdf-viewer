@@ -99,8 +99,12 @@ struct Ui {
     window: gtk4::ApplicationWindow,
     /// The page and the form controls.
     fixed: gtk4::Fixed,
-    /// The page's pixels.
-    picture: gtk4::Picture,
+    /// The pixels of every page Table 29's arrangement is showing, one widget apiece.
+    ///
+    /// Grown when a layout puts more pages on the screen and never shrunk — a `GtkPicture` with
+    /// no paintable and `set_visible(false)` costs a hidden widget, and destroying and rebuilding
+    /// them on every scroll would churn the widget tree at scroll speed.
+    pictures: Vec<gtk4::Picture>,
     /// The layer that measures the viewport and draws the interactive chrome.
     chrome: gtk4::DrawingArea,
     /// Where §12.3.3's tree goes.
@@ -181,6 +185,38 @@ pub struct Host {
     /// magnified a page by itself because a form is on it would be answering a question nobody
     /// asked — which gesture asks for it is chrome, and chrome is a host's (rule 5).
     fit_magnification: Option<f32>,
+    /// Table 29's arrangement, as this window last asked for it.
+    ///
+    /// Kept because `l` *cycles*: the value in force is the viewer's, and a host that wanted to
+    /// know it without remembering would have to ask a question this vocabulary does not have —
+    /// which is the right answer, because `Query::Opening` says what the *document* asked for and
+    /// that is a different sentence.
+    layout: pdf_model::viewer_preferences::PageLayout,
+}
+
+/// The next of Table 29's six arrangements, in the order that table states them.
+///
+/// A host's choice and not a clause's: the standard states the six and says nothing about moving
+/// between them, because moving between them is a user interface.
+/// How far one notch of the wheel moves the page, in logical pixels.
+///
+/// A choice, and written down as one: the standard says nothing about a wheel. Three lines of a
+/// document's body text is what every reader the project owner uses has converged on, and this is
+/// about that.
+const SCROLL_STEP: f64 = 48.0;
+
+const fn next_layout(
+    layout: pdf_model::viewer_preferences::PageLayout,
+) -> pdf_model::viewer_preferences::PageLayout {
+    use pdf_model::viewer_preferences::PageLayout as L;
+    match layout {
+        L::SinglePage => L::OneColumn,
+        L::OneColumn => L::TwoColumnLeft,
+        L::TwoColumnLeft => L::TwoColumnRight,
+        L::TwoColumnRight => L::TwoPageLeft,
+        L::TwoPageLeft => L::TwoPageRight,
+        L::TwoPageRight => L::SinglePage,
+    }
 }
 
 impl std::fmt::Debug for Host {
@@ -251,6 +287,7 @@ impl Host {
                 pages_left: 0,
                 widget_appearances,
                 fit_magnification: None,
+                layout: pdf_model::viewer_preferences::PageLayout::SinglePage,
             })
         }))
     }
@@ -345,6 +382,19 @@ impl Host {
             Event::Opened { pages, .. } => {
                 self.trace
                     .say(Topic::Launch, format_args!("opened, {pages} page(s)"));
+                // Table 29's `/PageLayout` is the *viewer's* to apply — it read the catalog when
+                // the document opened — and what this host needs from it is the value `l` cycles
+                // from, so that the first press moves off what the document asked for rather
+                // than back onto it.
+                if let Answer::Opening(opening) = self.viewer.query(Query::Opening) {
+                    self.layout = opening.layout;
+                    if opening.layout != pdf_model::viewer_preferences::PageLayout::SinglePage {
+                        self.say(&format!(
+                            "this document opens in the {:?} page layout (§7.7.2)",
+                            opening.layout
+                        ));
+                    }
+                }
                 self.build_panels();
             }
             Event::OpenFailed { reason, .. } => {
@@ -461,37 +511,63 @@ impl Host {
     /// viewer's state rather than of the order events arrived in.
     fn refresh(&mut self) {
         let began = std::time::Instant::now();
-        let placement = match self.viewer.query(Query::Frame) {
-            Answer::Frame(frame) => match page::texture(frame.raster) {
-                Ok(texture) => Some((texture, frame.origin, frame.raster.data.len())),
-                Err(error) => {
-                    eprintln!("note: {error}");
-                    None
-                }
-            },
-            _ => None,
-        };
-        if let Some((texture, origin, bytes)) = placement {
+        // **One texture per page of Table 29's arrangement**, since `/PageLayout` was obeyed.
+        // Under `SinglePage` this is the one placement it has always been.
+        let placements: Vec<(gtk4::gdk::MemoryTexture, (f32, f32), usize)> =
+            match self.viewer.query(Query::Frame) {
+                Answer::Frame(frames) => frames
+                    .into_iter()
+                    .filter_map(|frame| match page::texture(frame.raster) {
+                        Ok(texture) => Some((texture, frame.origin, frame.raster.data.len())),
+                        Err(error) => {
+                            eprintln!("note: {error}");
+                            None
+                        }
+                    })
+                    .collect(),
+                _ => Vec::new(),
+            };
+        if !placements.is_empty() {
             // Tier 1's whole cost, in the one place it is paid: `doc/ui-boundary.md` prices the
             // tier at "one copy per frame" and this is that copy, timed rather than assumed
             // (ADR 0244).
+            let bytes: usize = placements.iter().map(|(_, _, bytes)| bytes).sum();
             self.trace.say(
                 Topic::Frames,
-                format_args!("{bytes} bytes into a texture in {:?}", began.elapsed()),
+                format_args!(
+                    "{bytes} bytes into {} texture(s) in {:?}",
+                    placements.len(),
+                    began.elapsed()
+                ),
             );
             let scale = f64::from(self.scale);
-            let (width, height) = (texture.width(), texture.height());
-            self.ui.picture.set_paintable(Some(&texture));
-            self.ui.picture.set_size_request(
-                logical(f64::from(width), scale),
-                logical(f64::from(height), scale),
-            );
+            while self.ui.pictures.len() < placements.len() {
+                let picture = gtk4::Picture::new();
+                picture.set_content_fit(gtk4::ContentFit::Fill);
+                picture.set_can_shrink(false);
+                self.ui.fixed.put(&picture, 0.0, 0.0);
+                self.ui.pictures.push(picture);
+            }
+            for (slot, (texture, origin, _)) in self.ui.pictures.iter().zip(&placements) {
+                slot.set_paintable(Some(texture));
+                slot.set_size_request(
+                    logical(f64::from(texture.width()), scale),
+                    logical(f64::from(texture.height()), scale),
+                );
+                slot.set_visible(true);
+                self.ui.fixed.move_(
+                    slot,
+                    f64::from(origin.0) / scale,
+                    f64::from(origin.1) / scale,
+                );
+            }
+            // The widgets a smaller arrangement no longer needs: hidden rather than destroyed,
+            // because the next scroll will want them back.
+            for spare in self.ui.pictures.iter().skip(placements.len()) {
+                spare.set_paintable(gtk4::gdk::Paintable::NONE);
+                spare.set_visible(false);
+            }
             self.ui.fixed.set_visible(true);
-            self.ui.fixed.move_(
-                &self.ui.picture,
-                f64::from(origin.0) / scale,
-                f64::from(origin.1) / scale,
-            );
             if !self.presented {
                 self.presented = true;
                 self.trace.say(
@@ -894,8 +970,31 @@ impl Host {
             gtk4::gdk::Key::s => self.dispatch(Command::Save),
             gtk4::gdk::Key::z => self.dispatch(Command::Undo),
             gtk4::gdk::Key::y => self.dispatch(Command::Redo),
+            // Table 29's six arrangements, in the order that table states them. A key rather
+            // than a menu because this host has no menu bar; what matters for `doc/todo/30` is
+            // that the *message* is exercised by a person driving a real window.
+            gtk4::gdk::Key::l => {
+                self.layout = next_layout(self.layout);
+                self.dispatch(Command::Layout(self.layout));
+                self.say(&format!("page layout: {:?} (§7.7.2)", self.layout));
+            }
             _ => {}
         }
+    }
+
+    /// One notch of the wheel, in whichever direction it turned.
+    ///
+    /// The deltas GTK reports for a discrete device are notches rather than pixels, so the
+    /// distance is this host's choice and `SCROLL_STEP` is where it is written down. Device
+    /// pixels out, because that is what `Command::Scroll` speaks.
+    fn scrolled(&mut self, dx: f64, dy: f64) {
+        let step = f64::from(self.scale) * SCROLL_STEP;
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a notch count times a step in pixels, which is tens"
+        )]
+        let (dx, dy) = ((dx * step) as f32, (dy * step) as f32);
+        self.dispatch(Command::Scroll { dx, dy });
     }
 
     /// A step of the search reported. Says what it found, and how much is left to read.
@@ -1108,10 +1207,6 @@ fn build_window(
 
     let fixed = gtk4::Fixed::new();
     fixed.set_overflow(gtk4::Overflow::Hidden);
-    let picture = gtk4::Picture::new();
-    picture.set_content_fit(gtk4::ContentFit::Fill);
-    picture.set_can_shrink(false);
-    fixed.put(&picture, 0.0, 0.0);
 
     let chrome = gtk4::DrawingArea::new();
     // The chrome layer is over the page and over the controls, so it must not take a click that
@@ -1222,7 +1317,7 @@ fn build_window(
     Ui {
         window,
         fixed,
-        picture,
+        pictures: Vec::new(),
         chrome,
         outline_slot,
         layers_slot,
@@ -1256,6 +1351,21 @@ fn listen(
         glib::Propagation::Proceed
     });
     window.add_controller(keys);
+
+    // **The wheel, which this host had no binding for until Table 29's `/PageLayout` was
+    // obeyed.** Under `SinglePage` at `Zoom::FitPage` there is nothing to scroll, so the gap was
+    // invisible; a continuous arrangement is a thing a person moves through and a viewer that
+    // could not would be offering an arrangement it cannot use. GTK reports a discrete wheel in
+    // notches, so a notch is a distance this host chooses — see `SCROLL_STEP`.
+    let scrolling = gtk4::EventControllerScroll::new(
+        gtk4::EventControllerScrollFlags::BOTH_AXES | gtk4::EventControllerScrollFlags::DISCRETE,
+    );
+    let listener = me.clone();
+    scrolling.connect_scroll(move |_, dx, dy| {
+        with(&listener, |host| host.scrolled(dx, dy));
+        glib::Propagation::Stop
+    });
+    overlay.add_controller(scrolling);
 
     // §12.5.5's three appearances follow the pointer, and §12.5.6.19's `/H` with them — which is
     // why a move with no button down is a command and not only a cursor question.

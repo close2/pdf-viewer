@@ -226,6 +226,8 @@ pub mod ffi {
         fn key(self: &mut Host, code: u32);
         /// The pointer moved or a button changed: 0 moved, 1 pressed, 2 dragged, 3 released.
         fn pointer(self: &mut Host, x: f32, y: f32, action: u8);
+        /// The wheel turned, in device pixels of the viewport.
+        fn scrolled(self: &mut Host, dx: f32, dy: f32);
         /// A row of tree `tree` — 0 outline, 1 layers, 2 files — was activated.
         fn activate_row(self: &mut Host, tree: u8, index: usize);
         /// §8.11.4.3's switch on row `index` of tree `tree` was moved.
@@ -261,10 +263,12 @@ pub mod ffi {
 
         /// What has changed since this was last called, which also clears it.
         fn take_update(self: &mut Host) -> QtUpdate;
-        /// Where the pixels belong and how big they are.
-        fn frame(self: &Host) -> QtFrame;
+        /// How many pages Table 29's arrangement is showing pixels for.
+        fn frame_count(self: &Host) -> usize;
+        /// Where one page's pixels belong and how big they are.
+        fn frame(self: &Host, index: usize) -> QtFrame;
         /// The pixels themselves, borrowed rather than copied.
-        fn frame_pixels(self: &Host) -> &[u8];
+        fn frame_pixels(self: &Host, index: usize) -> &[u8];
         /// Tree `tree`'s rows, depth first.
         fn rows(self: &Host, tree: u8) -> Vec<QtRow>;
         /// Every control the page's form wants.

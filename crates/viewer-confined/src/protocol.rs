@@ -725,6 +725,7 @@ mod command_kind {
     pub(super) const DELEGATE: u8 = 21;
     pub(super) const FIND: u8 = 22;
     pub(super) const PRESENT: u8 = 23;
+    pub(super) const LAYOUT: u8 = 24;
 }
 
 /// Encodes one command.
@@ -794,6 +795,12 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
                 RestrictionLevel::On => 0,
                 RestrictionLevel::Off => 1,
             });
+        }
+        // Table 29's arrangement crosses for the reason every other policy value does: the
+        // confined process is the one that decides which pages to interpret and where each of
+        // them lands, and only the host knows what the person reading has chosen.
+        Command::Layout(layout) => {
+            writer.u8(k::LAYOUT).u8(panels::layout_code(*layout));
         }
         // §12.4.4's mode crosses for the reason every other policy does: the confined process
         // holds the document and therefore §12.4.4.2's current navigation node, and whether a
@@ -942,6 +949,7 @@ pub(crate) fn decode_command(bytes: &[u8]) -> Result<Command, ProtocolError> {
             dx: reader.f32("a scroll")?,
             dy: reader.f32("a scroll")?,
         },
+        k::LAYOUT => Command::Layout(panels::layout_of(reader.u8("a page layout")?)?),
         k::RESTRICT => Command::Restrict(match reader.u8("a restriction level")? {
             0 => RestrictionLevel::On,
             1 => RestrictionLevel::Off,
@@ -2217,7 +2225,7 @@ pub(crate) fn encode_answer(answer: &Answer<'_>) -> Result<Vec<u8>, Uncarried> {
         Answer::LogicalSelection(text) => {
             writer.u8(k::LOGICAL_SELECTION).str(text);
         }
-        Answer::Frame(frame) => {
+        Answer::Frame(frames) => {
             // The raster is why this boundary is worth having: the confined process draws the
             // page and the host is handed pixels, which is the whole of `doc/ui-boundary.md`'s
             // tier 1. `RasterFormat` is written out rather than assumed, because a second
@@ -2226,17 +2234,22 @@ pub(crate) fn encode_answer(answer: &Answer<'_>) -> Result<Vec<u8>, Uncarried> {
             // second pixel layout fails to compile here and has to be given a wire byte
             // deliberately. The *reading* side keeps its refusal, because a byte arriving from
             // the confined process is a claim rather than a variant.
-            let format = match frame.raster.format {
-                RasterFormat::Rgba8 => 0,
-            };
-            writer
-                .u8(k::FRAME)
-                .usize(frame.page)
-                .u32(frame.raster.width)
-                .u32(frame.raster.height)
-                .u8(format)
-                .bytes(&frame.raster.data)
-                .point(frame.origin);
+            // **A list since Table 29's `/PageLayout` was obeyed**: `OneColumn` puts several
+            // pages in one window, and a wire that carried the first of them would show the host
+            // a continuous view with a hole in it.
+            writer.u8(k::FRAME).usize(frames.len());
+            for frame in frames {
+                let format = match frame.raster.format {
+                    RasterFormat::Rgba8 => 0,
+                };
+                writer
+                    .usize(frame.page)
+                    .u32(frame.raster.width)
+                    .u32(frame.raster.height)
+                    .u8(format)
+                    .bytes(&frame.raster.data)
+                    .point(frame.origin);
+            }
         }
         Answer::Reports(notes) => {
             writer.u8(k::REPORTS).usize(notes.len());
@@ -2401,49 +2414,54 @@ pub(crate) fn decode_answer(bytes: &[u8]) -> Result<Reply, ProtocolError> {
         },
         k::LOGICAL_SELECTION => Reply::LogicalSelection(reader.string("the selected text")?),
         k::FRAME => {
-            let page = reader.usize("a page index")?;
-            let width = reader.u32("a raster width")?;
-            let height = reader.u32("a raster height")?;
-            let format = match reader.u8("a raster format")? {
-                0 => RasterFormat::Rgba8,
-                value => {
-                    return Err(ProtocolError::Unrecognised {
-                        what: "a raster format",
-                        value: u32::from(value),
+            let count = reader.usize("a frame count")?;
+            let mut frames = Vec::new();
+            for _ in 0..count {
+                let page = reader.usize("a page index")?;
+                let width = reader.u32("a raster width")?;
+                let height = reader.u32("a raster height")?;
+                let format = match reader.u8("a raster format")? {
+                    0 => RasterFormat::Rgba8,
+                    value => {
+                        return Err(ProtocolError::Unrecognised {
+                            what: "a raster format",
+                            value: u32::from(value),
+                        });
+                    }
+                };
+                let data = reader.bytes("a raster")?.to_vec();
+                // The worker is the untrusted side, so its dimensions are checked against the
+                // bytes it actually sent rather than believed — the same rule `pdf_sandbox`'s
+                // parent applies to a decoded image, and for the same reason.
+                let expected = usize::try_from(width)
+                    .ok()
+                    .zip(usize::try_from(height).ok())
+                    .and_then(|(width, height)| width.checked_mul(height))
+                    .and_then(|pixels| pixels.checked_mul(4))
+                    .ok_or(ProtocolError::Overlong {
+                        what: "a raster",
+                        claimed: usize::MAX,
+                        available: data.len(),
+                    })?;
+                if data.len() != expected {
+                    return Err(ProtocolError::Overlong {
+                        what: "a raster",
+                        claimed: expected,
+                        available: data.len(),
                     });
                 }
-            };
-            let data = reader.bytes("a raster")?.to_vec();
-            // The worker is the untrusted side, so its dimensions are checked against the bytes
-            // it actually sent rather than believed — the same rule `pdf_sandbox`'s parent
-            // applies to a decoded image, and for the same reason.
-            let expected = usize::try_from(width)
-                .ok()
-                .zip(usize::try_from(height).ok())
-                .and_then(|(width, height)| width.checked_mul(height))
-                .and_then(|pixels| pixels.checked_mul(4))
-                .ok_or(ProtocolError::Overlong {
-                    what: "a raster",
-                    claimed: usize::MAX,
-                    available: data.len(),
-                })?;
-            if data.len() != expected {
-                return Err(ProtocolError::Overlong {
-                    what: "a raster",
-                    claimed: expected,
-                    available: data.len(),
+                frames.push(crate::Framed {
+                    page,
+                    raster: Raster {
+                        width,
+                        height,
+                        format,
+                        data,
+                    },
+                    origin: reader.point("an origin")?,
                 });
             }
-            Reply::Frame {
-                page,
-                raster: Raster {
-                    width,
-                    height,
-                    format,
-                    data,
-                },
-                origin: reader.point("an origin")?,
-            }
+            Reply::Frame(frames)
         }
         k::REPORTS => Reply::Reports(reader.strings("a report's notes")?),
         k::READBACK => Reply::Readback(pdf_model::content::Shortfall {

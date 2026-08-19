@@ -123,7 +123,7 @@ fn widget(state: &str, defined: &str) -> String {
     )
 }
 
-/// §8.6.8's `cs`: "the name of a colour space in the ColorSpace subdictionary of the current
+/// §8.6.8's `cs`: "the name of a colour space in the `ColorSpace` subdictionary of the current
 /// resource dictionary".
 ///
 /// `/A#F4` expands to a name whose second byte is 0xF4, which is a byte no UTF-8 sequence begins.
@@ -167,7 +167,7 @@ fn two_colour_space_names_differing_only_outside_utf_8_are_two_names() {
 }
 
 /// §9.6.4 step b): the glyph name from the encoding "shall be used to look up the glyph
-/// description in the CharProcs dictionary".
+/// description in the `CharProcs` dictionary".
 ///
 /// > If the name is not present as a key in CharProcs , no glyph shall be painted.
 ///

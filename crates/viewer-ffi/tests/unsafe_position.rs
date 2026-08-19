@@ -117,7 +117,7 @@ fn every_unsafe_token_in_this_crate_is_in_one_file_and_is_one_of_three_forms() {
         "an `unsafe` of a form this crate does not use: {blocks:?}"
     );
     assert_eq!(lift, 1, "the module lifts `unsafe_op_in_unsafe_fn` once");
-    // 112 exported entry points, of which 102 take a pointer and are therefore `unsafe fn`, plus
+    // 114 exported entry points, of which 104 take a pointer and are therefore `unsafe fn`, plus
     // the two `unsafe fn` helpers they share. The numbers are here so that a function added
     // without a line in `include/pdf_viewer.h` fails a test rather than becoming a symbol nobody
     // has declared — `header_and_library_agree.rs` is the other half of that. Four arrived in the
@@ -129,9 +129,12 @@ fn every_unsafe_token_in_this_crate_is_in_one_file_and_is_one_of_three_forms() {
     // because a `Command` and a `Query` are symbols and only an `Event` is a number. **The
     // hundred-and-twelfth arrived in the five-hundred-and-twenty-second**, for Annex O's
     // `highlight`: a question the annex asks and no host can answer for itself, and a symbol
-    // again rather than a number (ADR 0357).
-    assert_eq!(no_mangle, 112, "one `#[unsafe(no_mangle)]` per entry point");
-    assert_eq!(signatures, 104, "102 `unsafe` entry points and two helpers");
+    // again rather than a number (ADR 0357). **Two more came with Table 29's `/PageLayout`**:
+    // `pdfv_layout`, which is the arrangement a reader chose, and `pdfv_frame_count`, which is
+    // the one thing a C caller could not have deduced — a C consumer cannot fail to compile, so
+    // an arrangement putting a second page on the screen has to be something it can *ask* about.
+    assert_eq!(no_mangle, 114, "one `#[unsafe(no_mangle)]` per entry point");
+    assert_eq!(signatures, 106, "104 `unsafe` entry points and two helpers");
 }
 
 #[test]

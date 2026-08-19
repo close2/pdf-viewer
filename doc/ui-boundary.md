@@ -29,7 +29,15 @@ point (ADR 0357). **And the five-hundred-and-ninety-sixth added nothing and chan
 shape**: `Event::Extracted` carries the rest of the URI's fragment beside the bytes, which is
 §O.2.1's "[a]ny remaining parameters after this parameter apply to the selected embedded file" —
 the annex's last unbuilt sentence, and the mechanism this file prefers to a new message whenever a
-host needs two things a variant carried one of (ADR 0431).
+host needs two things a variant carried one of (ADR 0431). **And the six-hundred-and-sixth added a
+`Command` and changed an `Answer`'s shape**: `Command::Layout(PageLayout)` is Table 29's own entry,
+which `viewer-core` reads out of the catalog for itself — the entry states the layout that "shall be
+used when the document is opened", an *initial* state — and which only a host can say the reader has
+since changed; and `Answer::Frame` carries a `Vec<FrameView>`, because `OneColumn` puts several pages
+in one window and a host drawing the first of them would draw a continuous view with a hole in it.
+Four consumers failed to compile, `PDFV_EVENT_KIND_COUNT` stayed 16, and the C ABI gained two entry
+points — `pdfv_layout` and `pdfv_frame_count`, the second because a C consumer cannot fail to compile
+and so has to be able to *ask* how many pages the arrangement is showing (ADR 0441).
 Read by: anybody writing a host, adding a `Command`, `Event` or `Query`, or asking what the
 crate boundary permits. `doc/HANDOVER.md`'s reader table points a round writing a host here, and ADRs 0116 to 0121
 are the argument.
@@ -120,7 +128,14 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
   bar's *next*, one page per step because rule 4 forbids blocking and rule 3 leaves no clock to
   budget with; 5.84 s is what a 1023-page sweep costs and no host may be blocked for it (ADR 0250) —
   `Supply { purpose, bytes }`, **`Restrict(RestrictionLevel)`**, **`Present(PresentationMode)`**,
-  `Tick { millis }`, `RenderReady { token, rendered }`.
+  **`Layout(PageLayout)`**, `Tick { millis }`, `RenderReady { token, rendered }`.
+  **`Layout` is the fourth policy value and the six-hundred-and-sixth session's**, on Table 29's
+  `/PageLayout`. What only this crate can do is *arrange* the pages — a host holds no page extents,
+  no display lists and none of ADR 0118's arithmetic — and what only a host knows is which of the six
+  the person reading has chosen, because the clause states the layout a document *opens* in and
+  nothing about what happens afterwards. It differs from the other three in one respect and the
+  difference is the clause's: those are facts about the window and reach every open document, and
+  this is a way of looking at one file. ADR 0441.
   **`Present` is the third policy value and the four-hundred-and-eighty-first session's**, on
   §12.4.4.2's NOTE 3: that clause conditions a *state machine* — the current navigation node it
   opens by requiring — on being in presentation mode, and whether a window is showing a slide show
@@ -168,7 +183,11 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
   `Selection`, **`LogicalSelection`** (§14.8.2.5), **`Focus`** (§12.5.1's ring),
   **`Highlight`** (Annex O's rectangle, ADR 0357), `Find`, `Dirty`, `Outline`, `Layers`, `Attachments`, `AccessibilityTree`,
   **`Opening`** (Table 29's `/PageMode` and `/PageLayout`), **`Properties`** (§14.3.3's Table 349),
-  `Preferences`, `Frame`, `Reports`. **`Selection` answers in device pixels
+  `Preferences`, `Frame`, `Reports`. **`Frame` answers with a *list* since the
+  six-hundred-and-sixth**, one entry per page Table 29's arrangement is showing, and `PageGeometry`
+  answers for every one of them rather than for the page showing — that question needed no change at
+  all, because its own documentation already said "a page that is not the one showing has no place on
+  the screen", and what moved is which pages those are. **`Selection` answers in device pixels
   and produces no events**: a drag emits `Damage` and never `NeedsRender`, which is what keeps
   chrome off the rendering path.
 - **Nothing is `#[non_exhaustive]`**, deliberately: it forces a catch-all arm on every host, and

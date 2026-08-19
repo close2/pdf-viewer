@@ -126,8 +126,11 @@ class PageArea : public QWidget
 public:
     explicit PageArea(QWidget* parent = nullptr);
 
-    /// The frame to paint, and where its top-left corner sits in the viewport.
-    void setFrame(QImage image, QPointF origin);
+    /// The frames to paint, each with where its top-left corner sits in the viewport.
+    ///
+    /// A list since Table 29's `/PageLayout` was obeyed: `OneColumn` puts several pages in one
+    /// window, and each of them is a raster of its own placed by the viewer.
+    void setFrames(QList<QPair<QImage, QPointF>> frames);
 
     /// The layer the chrome is drawn on, kept last in the child order.
     ChromeOverlay* chrome() const { return chrome_; }
@@ -137,6 +140,8 @@ Q_SIGNALS:
     void resizedTo(unsigned int width, unsigned int height, float scale);
     /// The pointer moved or a button changed: 0 moved, 1 pressed, 2 dragged, 3 released.
     void pointerAt(float x, float y, unsigned char action);
+    /// The wheel turned, in device pixels of the viewport.
+    void scrolledBy(float dx, float dy);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -144,13 +149,13 @@ protected:
     void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
+    void wheelEvent(QWheelEvent* event) override;
 
 private:
     /// One pointer event, in the device pixels the boundary speaks.
     void report(const QPointF& at, unsigned char action);
 
-    QImage image_;
-    QPointF origin_;
+    QList<QPair<QImage, QPointF>> frames_;
     ChromeOverlay* chrome_;
     bool pressed_ = false;
 };

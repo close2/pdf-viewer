@@ -144,6 +144,27 @@ pub enum Command {
     /// restrictions without being asked would be making the choice on the person's behalf in the
     /// other direction.
     Restrict(RestrictionLevel),
+    /// Table 29's `/PageLayout`: how the pages are arranged in the window.
+    ///
+    /// **The fourth host-supplied policy value, and it passes `doc/ui-boundary.md`'s test for the
+    /// same reason [`Self::Present`] does.** The entry states the layout that "shall be used when
+    /// the document is opened" — an *initial* state, which this crate reads for itself out of the
+    /// catalog when a document opens and needs no host for. What no state machine over a file can
+    /// know is what the person reading it has since chosen, and `CLAUDE.md`'s rule about a
+    /// document's assertions over its reader applies with full force here: an arrangement a
+    /// reader cannot leave is an arrangement somebody else's file imposed on them.
+    ///
+    /// **It is not a second way to say something a host can already say.** A layout decides which
+    /// pages are interpreted, where each one's raster sits and what a point on the screen lands
+    /// on, and every one of those is this crate's — a host holds no page sizes, no display lists
+    /// and none of ADR 0118's arithmetic. It is exactly the division rule 5 draws.
+    ///
+    /// Applies to the **focused document** rather than to every one, which is where it differs
+    /// from [`Self::Restrict`], [`Self::Present`] and [`Self::Delegate`]: those three are facts
+    /// about the window and this is a way of looking at one file, which Table 29 makes a
+    /// *document's* entry and which a person may reasonably want differently for two documents
+    /// open side by side.
+    Layout(pdf_model::viewer_preferences::PageLayout),
     /// Who draws §12.7's form widgets: this crate, or the host that placed real controls.
     ///
     /// **The second host-supplied policy value, and a different kind from [`Self::Restrict`].**

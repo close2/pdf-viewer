@@ -148,8 +148,11 @@ fn main() {
     }
 
     let at = Instant::now();
-    let Reply::Frame { raster, .. } = confined.query(Query::Frame).expect("a frame crosses") else {
+    let Reply::Frame(frames) = confined.query(Query::Frame).expect("a frame crosses") else {
         panic!("the confined viewer holds the frame it drew");
+    };
+    let Some(raster) = frames.first().map(|frame| &frame.raster) else {
+        panic!("a frame crossed with no pages in it");
     };
     println!(
         "{}x{} pixels crossed the pipe in {:.3} ms",

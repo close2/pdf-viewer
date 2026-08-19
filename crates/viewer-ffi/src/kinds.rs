@@ -451,6 +451,58 @@ impl RestrictKind {
     }
 }
 
+/// ISO 32000-2 Table 29's `/PageLayout`, in the order that table states its six values.
+///
+/// A kind of its own rather than a place in `pdfv_abi_check`, for the reason `RowKind` and
+/// `ControlKind` are: this is the answer to a call the caller wrote, and an event is what arrives
+/// unasked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum LayoutKind {
+    /// "Display one page at a time." Table 29's default.
+    SinglePage = 0,
+    /// "Display the pages in one column."
+    OneColumn = 1,
+    /// "Display the pages in two columns, with odd-numbered pages on the left."
+    TwoColumnLeft = 2,
+    /// "Display the pages in two columns, with odd-numbered pages on the right."
+    TwoColumnRight = 3,
+    /// "Display the pages two at a time, with odd-numbered pages on the left."
+    TwoPageLeft = 4,
+    /// "Display the pages two at a time, with odd-numbered pages on the right."
+    TwoPageRight = 5,
+}
+
+impl LayoutKind {
+    /// The kind for a number, or `None` for one this build does not define.
+    #[must_use]
+    pub const fn from_code(code: u32) -> Option<Self> {
+        Some(match code {
+            0 => Self::SinglePage,
+            1 => Self::OneColumn,
+            2 => Self::TwoColumnLeft,
+            3 => Self::TwoColumnRight,
+            4 => Self::TwoPageLeft,
+            5 => Self::TwoPageRight,
+            _ => return None,
+        })
+    }
+
+    /// What `pdf-model` calls it.
+    #[must_use]
+    pub const fn layout(self) -> pdf_model::viewer_preferences::PageLayout {
+        use pdf_model::viewer_preferences::PageLayout;
+        match self {
+            Self::SinglePage => PageLayout::SinglePage,
+            Self::OneColumn => PageLayout::OneColumn,
+            Self::TwoColumnLeft => PageLayout::TwoColumnLeft,
+            Self::TwoColumnRight => PageLayout::TwoColumnRight,
+            Self::TwoPageLeft => PageLayout::TwoPageLeft,
+            Self::TwoPageRight => PageLayout::TwoPageRight,
+        }
+    }
+}
+
 /// Whether §12.4.4's presentation is running, as the host has said.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u32)]

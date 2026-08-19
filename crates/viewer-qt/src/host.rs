@@ -157,6 +157,27 @@ pub struct Host {
     /// rather than applied, because a viewer that magnified a page by itself because a form is on
     /// it would be answering a question nobody asked (rule 5).
     fit_magnification: Option<f32>,
+    /// Table 29's arrangement, as this window last asked for it — what `l` cycles from.
+    layout: pdf_model::viewer_preferences::PageLayout,
+}
+
+/// The next of Table 29's six arrangements, in the order that table states them.
+///
+/// A host's choice and not a clause's: the standard states the six and says nothing about moving
+/// between them, because moving between them is a user interface. `viewer-gtk` has the same
+/// function, deliberately — the two hosts differ in the toolkit and in nothing else.
+const fn next_layout(
+    layout: pdf_model::viewer_preferences::PageLayout,
+) -> pdf_model::viewer_preferences::PageLayout {
+    use pdf_model::viewer_preferences::PageLayout as L;
+    match layout {
+        L::SinglePage => L::OneColumn,
+        L::OneColumn => L::TwoColumnLeft,
+        L::TwoColumnLeft => L::TwoColumnRight,
+        L::TwoColumnRight => L::TwoPageLeft,
+        L::TwoPageLeft => L::TwoPageRight,
+        L::TwoPageRight => L::SinglePage,
+    }
 }
 
 impl std::fmt::Debug for Host {
@@ -219,6 +240,7 @@ impl Host {
             needle: String::new(),
             pages_left: 0,
             fit_magnification: None,
+            layout: pdf_model::viewer_preferences::PageLayout::SinglePage,
         })
     }
 
@@ -267,9 +289,25 @@ impl Host {
             }
             return;
         }
+        // The second key whose meaning is this host's state rather than the key's: Table 29's
+        // six arrangements are cycled, so what to send depends on which one is in force.
+        if code == keys::NEXT_LAYOUT {
+            self.layout = next_layout(self.layout);
+            self.dispatch(Command::Layout(self.layout));
+            self.say(&format!("page layout: {:?} (§7.7.2)", self.layout));
+            return;
+        }
         if let Some(command) = keys::command(code) {
             self.dispatch(command);
         }
+    }
+
+    /// The wheel turned, already in the device pixels the boundary speaks.
+    ///
+    /// The conversion from Qt's notches is C++'s, beside the event that states them; what is here
+    /// is the message, so that the two hosts differ in the toolkit and in nothing else.
+    pub(crate) fn scrolled(&mut self, dx: f32, dy: f32) {
+        self.dispatch(Command::Scroll { dx, dy });
     }
 
     /// The pointer moved or a button changed.
@@ -496,25 +534,39 @@ impl Host {
         std::mem::replace(&mut self.update, nothing_changed())
     }
 
-    /// Where the pixels belong and how big they are.
-    pub(crate) fn frame(&self) -> QtFrame {
+    /// How many pages Table 29's arrangement is showing pixels for.
+    ///
+    /// One under `SinglePage`, which is what this host drew for two hundred sessions; more under
+    /// a column or a spread, and the window paints each of them where [`Self::frame`] says.
+    pub(crate) fn frame_count(&self) -> usize {
         match self.viewer.query(Query::Frame) {
-            Answer::Frame(frame) => match page::describe(frame.raster) {
-                Ok((width, height)) => QtFrame {
-                    present: true,
-                    width,
-                    height,
-                    origin_x: frame.origin.0,
-                    origin_y: frame.origin.1,
-                },
-                Err(error) => {
-                    // Trap 5: a host that quietly showed the previous page would be telling a
-                    // person something false about this one.
-                    eprintln!("note: {error}");
-                    no_frame()
-                }
+            Answer::Frame(frames) => frames.len(),
+            _ => 0,
+        }
+    }
+
+    /// Where one page's pixels belong and how big they are.
+    pub(crate) fn frame(&self, index: usize) -> QtFrame {
+        let Answer::Frame(frames) = self.viewer.query(Query::Frame) else {
+            return no_frame();
+        };
+        let Some(frame) = frames.get(index) else {
+            return no_frame();
+        };
+        match page::describe(frame.raster) {
+            Ok((width, height)) => QtFrame {
+                present: true,
+                width,
+                height,
+                origin_x: frame.origin.0,
+                origin_y: frame.origin.1,
             },
-            _ => no_frame(),
+            Err(error) => {
+                // Trap 5: a host that quietly showed the previous page would be telling a
+                // person something false about this one.
+                eprintln!("note: {error}");
+                no_frame()
+            }
         }
     }
 
@@ -522,9 +574,11 @@ impl Host {
     ///
     /// Tier 1 is priced at "one copy per frame" and this is what keeps it to one: the `QImage`
     /// the C++ side builds copies out of this slice, and nothing on this side copies into it.
-    pub(crate) fn frame_pixels(&self) -> &[u8] {
+    pub(crate) fn frame_pixels(&self, index: usize) -> &[u8] {
         match self.viewer.query(Query::Frame) {
-            Answer::Frame(frame) => &frame.raster.data,
+            Answer::Frame(frames) => frames
+                .get(index)
+                .map_or(&[][..], |frame| frame.raster.data.as_slice()),
             _ => &[],
         }
     }
@@ -806,6 +860,17 @@ impl Host {
             Event::Opened { pages, .. } => {
                 self.trace
                     .say(Topic::Launch, format_args!("opened, {pages} page(s)"));
+                // Table 29's `/PageLayout` is the viewer's to apply, and what this host needs
+                // from it is the value `l` cycles from — see `viewer-gtk`, which does the same.
+                if let Answer::Opening(opening) = self.viewer.query(Query::Opening) {
+                    self.layout = opening.layout;
+                    if opening.layout != pdf_model::viewer_preferences::PageLayout::SinglePage {
+                        self.say(&format!(
+                            "this document opens in the {:?} page layout (§7.7.2)",
+                            opening.layout
+                        ));
+                    }
+                }
                 self.build_panels();
             }
             Event::OpenFailed { reason, .. } => {
@@ -1401,15 +1466,15 @@ mod tests {
     #[test]
     fn the_frame_and_its_pixels_agree_about_how_many_bytes_there_are() {
         let host = opened(&committed());
-        let frame = host.frame();
+        let frame = host.frame(0);
         assert!(frame.present, "a page has been rasterised");
         let need = usize::try_from(frame.width).unwrap_or(0)
             * usize::try_from(frame.height).unwrap_or(0)
             * 4;
         assert!(
-            host.frame_pixels().len() >= need,
+            host.frame_pixels(0).len() >= need,
             "{} bytes for {}x{}",
-            host.frame_pixels().len(),
+            host.frame_pixels(0).len(),
             frame.width,
             frame.height
         );
