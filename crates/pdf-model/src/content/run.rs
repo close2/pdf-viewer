@@ -14,7 +14,7 @@ use super::colour::{BlackPoint, assign_colour};
 use super::font::Font;
 use super::marked::Marked;
 use super::path::{begin_subpath, close_subpath};
-use super::reader::{ContentReader, HeldContent, NestedContent, Word};
+use super::reader::{ContentReader, NestedContent, Word};
 use super::report::{ArtifactSpan, DamagedStream, MarkedSpan, Unsupported};
 use super::text::TextObject;
 use super::{
@@ -66,28 +66,6 @@ impl Interpreter<'_> {
             });
         }
         Some(content)
-    }
-
-    /// The same, for §8.7.3.1's tiling cell, which holds its decode for the whole tiling.
-    ///
-    /// See [`HeldContent`] for why that one is not routed the way the other three are, and for
-    /// the measurement that decided it.
-    pub(super) fn held_content_stream(
-        &mut self,
-        stream: &pdf_syntax::Stream,
-        what: &str,
-    ) -> Option<HeldContent> {
-        let held = HeldContent::of(self.document, stream, what.to_owned()).ok()?;
-        if let Some((damage, kept)) = held.content().stated_damage() {
-            self.note(Unsupported::DamagedContentStream {
-                stream: DamagedStream {
-                    detail: what.to_owned(),
-                    damage,
-                    kept,
-                },
-            });
-        }
-        Some(held)
     }
 
     /// Reads the inline image whose `BI` the reader has just consumed, ISO 32000-2 §8.9.7.

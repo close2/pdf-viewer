@@ -1,16 +1,16 @@
 //! §8.7's patterns and shadings: the `sh` operator, shading paints and tiling cells.
 //!
-//! A shading pattern travels into the display list as a paint; a tiling pattern is a
-//! content stream replayed once per cell, which is why most of this module is about
-//! placing, clipping and folding cells rather than about colour.
+//! A shading pattern travels into the display list as a paint; a tiling pattern is a content
+//! stream read **once** and its marks copied to every site the lattice reaches, which is why
+//! most of this module is about placing, clipping and folding cells rather than about colour.
 
 use std::rc::Rc;
 use std::sync::Arc;
 
 use pdf_render::display_list::Clip;
 use pdf_render::{
-    BlendMode, ClipId, Color, Command, FillRule, Paint, Path, PathCommand, Point, Rect, Shading,
-    ShadingKind, Transform,
+    BlendMode, ClipId, Color, Command, DisplayListError, FillRule, Paint, Path, PathCommand, Point,
+    Rect, Shading, ShadingKind, Transform,
 };
 use pdf_syntax::{Dictionary, Object};
 
@@ -20,14 +20,14 @@ use super::colour::{BlackPoint, convert};
 use super::report::Unsupported;
 use super::run::narrow;
 use super::transparency::{any_command, command_blends};
-use super::{GraphicsState, Interpreter, MAX_FORM_DEPTH};
+use super::{GraphicsState, Interpreter, MAX_FORM_DEPTH, MAX_OPERATIONS};
 
 /// What a `/Pattern` colour space's `scn` selected.
 ///
 /// The two kinds are drawn in completely different ways. A shading pattern is a paint and
-/// travels into the display list as one. A tiling pattern is a *content stream*, replayed
-/// once per tile inside a clip shaped like the path being filled — so it never becomes a
-/// paint and is expanded here instead.
+/// travels into the display list as one. A tiling pattern is a *content stream*, drawn once
+/// inside a clip shaped like the path being filled and copied to every other tile position —
+/// so it never becomes a paint and is expanded here instead.
 #[derive(Debug, Clone)]
 pub(super) enum PatternPaint {
     /// A shading pattern (`/PatternType 2`), with Table 77's `/BBox` where it states one.
@@ -44,18 +44,21 @@ pub(super) enum PatternPaint {
 /// What one pattern cell's commands fold, by position within the cell.
 ///
 /// Each entry names a command's offset from the cell's first and which of its subpaths are the
-/// second statement of a mark another cell also makes (§8.7.3.1, §11.6.2 — ADR 0213). The first
-/// cell decides it and every cell after it follows, for the reason
-/// [`Interpreter::fold_repeated_marks`] gives.
+/// second statement of a mark another cell also makes (§8.7.3.1, §11.6.2 — ADR 0213). It is
+/// decided on the one cell that is interpreted and every site inherits it by being a copy of
+/// that cell, for the reason [`Interpreter::fold_repeated_marks`] gives.
 type CellFold = Vec<(usize, pdf_render::Repeats)>;
 
 /// A tiling pattern: a cell of content, and how to repeat it.
 #[derive(Debug)]
 pub(super) struct Tiling {
-    /// The cell's content stream, held whole for the tiling's lifetime — which is why a
-    /// reader is made per cell and the bytes are not. The type is what keeps that decision:
-    /// see [`crate::content::reader::HeldContent`]. ADR 0427.
-    content: super::reader::HeldContent,
+    /// The cell's content stream, read **once** for the whole tiling (ADR 0430).
+    ///
+    /// Routed like the other three of §7.8.2's nested streams since the cell stopped being
+    /// re-interpreted per site: a decode the memo declines is windowed, and a window is read
+    /// once here rather than four thousand times. ADR 0427's exception ends with the loop that
+    /// caused it.
+    content: super::reader::NestedContent,
     /// The resources its operators name.
     resources: Dictionary,
     /// Spacing between cells, in pattern space. Never zero.
@@ -210,18 +213,20 @@ impl Interpreter<'_> {
         self.unclip_redundant(mark, box_in_pattern, to_pattern, outer)
     }
 
-    /// Runs the pattern's content stream once, for the cell `to_page` places.
+    /// Runs the pattern's content stream, once, for the cell `to_page` places.
+    ///
+    /// **Once for the whole tiling**, since ADR 0430: every other site is that cell's commands
+    /// displaced, so this is the one interpretation the pattern gets. See [`pdf_render::Cell`]
+    /// for why the two are the same picture.
     ///
     /// Returns the clip Table 74's box produced for it, which is what
     /// [`Interpreter::settle_cell_box`] may take back off the commands afterwards, or `None`
-    /// where the pattern states no usable box or the first cell already showed it removes
-    /// nothing.
+    /// where the pattern states no usable box.
     fn run_cell(
         &mut self,
         tiling: &Tiling,
         to_page: Transform,
         outer: Option<ClipId>,
-        box_clips: bool,
     ) -> Option<ClipId> {
         let mut cell = GraphicsState::initial(to_page);
         // Table 74: "These boundaries shall be used to clip the pattern cell." The box is in
@@ -230,7 +235,6 @@ impl Interpreter<'_> {
         // is unusable keeps the path clip alone.
         let box_clip = tiling
             .bbox
-            .filter(|_| box_clips)
             .and_then(|corners| self.rect_clip(corners, to_page, outer));
         cell.clip = box_clip.or(outer);
         // An uncoloured pattern is a stencil: the colour given alongside the pattern name is
@@ -244,24 +248,47 @@ impl Interpreter<'_> {
             cell.stroke_colour = tint;
             self.uncoloured = true;
         }
+        // §8.7.2's last sentence about nesting, which this reader did not apply until the
+        // five-hundred-and-ninety-fifth session:
+        //
+        // > A pattern can be used within another pattern
+        //
+        // — and the rest of that sentence says the inner pattern's matrix defines its
+        // relationship to the pattern space of the *outer* pattern. It is paraphrased rather
+        // than quoted because the standard sets "relationship" broken across a line.
+        //
+        // So a pattern named inside a cell is anchored to *this cell's* space, exactly as one
+        // named inside a form is anchored to the form's (`Interpreter::form`, which has done
+        // this since it was written). Anchoring it to the page instead made the tiles differ
+        // from one another, which §8.7.3.1's own picture forbids — "the effect is as if the
+        // figure were painted on the surface of a clear glass tile, **identical copies** of
+        // which were then laid down in an array" — and `issue8565.pdf` is the corpus document
+        // that showed it: one radial gradient, page-anchored, under a cell the size of the
+        // page.
+        let outer_base = std::mem::replace(&mut self.base, to_page);
         self.run(
-            tiling.content.content(),
+            &tiling.content,
             &tiling.resources,
             &cell,
             MAX_FORM_DEPTH - 1,
         );
+        self.base = outer_base;
         self.uncoloured = saved_uncoloured;
         box_clip
     }
 
-    /// What Table 74's box clip is doing to the first cell, answered once for the whole tiling.
+    /// What Table 74's box clip is doing to the cell, answered once for the whole tiling.
     ///
-    /// Returns whether the box still has to be applied to the cells that follow, and whether
-    /// they have a repeated mark to fold. The two questions are asked in this order because
-    /// they are the same question at two strengths: [`Interpreter::unclip_redundant_cell`]
-    /// removes a box that cuts nothing at all, and [`Interpreter::fold_repeated_marks`] deals
-    /// with a box that cuts a mark the cell states again a step away — a rule drawn on the
-    /// box's own edge, which is one mark of the tiling described twice.
+    /// Returns which of the cell's marks are to be folded, or nothing where the box came off
+    /// the cell entirely. The two questions are asked in this order because they are the same
+    /// question at two strengths: [`Interpreter::unclip_redundant_cell`] removes a box that
+    /// cuts nothing at all, and [`Interpreter::fold_repeated_marks`] deals with a box that cuts
+    /// a mark the cell states again a step away — a rule drawn on the box's own edge, which is
+    /// one mark of the tiling described twice.
+    ///
+    /// Both answers reach every site, and since ADR 0430 they reach it by being *copied* rather
+    /// than by being applied again: the cell is settled here and the sites are copies of what
+    /// this left.
     fn settle_cell_box(
         &mut self,
         mark: usize,
@@ -269,15 +296,12 @@ impl Interpreter<'_> {
         placement: (Transform, Transform),
         step: (f32, f32),
         clips: (Option<ClipId>, Option<ClipId>),
-    ) -> (bool, CellFold) {
+    ) -> CellFold {
         let (offset, to_pattern) = placement;
         if self.unclip_redundant_cell(mark, corners, offset, to_pattern, clips.1) {
-            return (false, CellFold::new());
+            return CellFold::new();
         }
-        (
-            true,
-            self.plan_repeated_marks(mark, corners, placement, step, clips.0),
-        )
+        self.plan_repeated_marks(mark, corners, placement, step, clips.0)
     }
 
     /// Finds a mark the cell states twice, a lattice step apart (§8.7.3.1, §11.6.2).
@@ -444,13 +468,68 @@ impl Interpreter<'_> {
         true
     }
 
+    /// Draws every site of a tiling but the one its cell was interpreted at.
+    ///
+    /// §8.7.3.1: "The pattern cell shall be replicated at fixed horizontal and vertical
+    /// intervals to fill the area to be painted" — so what each site needs is the cell's marks
+    /// displaced, which is [`pdf_render::Cell::repeat`].
+    ///
+    /// # What bounds it, which is what bounded it before
+    ///
+    /// Each copy is charged to [`MAX_OPERATIONS`], the budget the cell's *operators* were
+    /// charged to when every site interpreted the content stream again. The trade is exact in
+    /// the direction that matters: a command costs at least one operator to state, so no page
+    /// that finished its tiling before reaches the bound now, and a cell that copies four
+    /// million commands stops at the same place a cell that ran four million operators did.
+    /// `MAX_TILES` is still the bound on the site count itself.
+    fn repeat_cell(
+        &mut self,
+        cell: &pdf_render::Cell,
+        tiling: &Tiling,
+        spans: ((i32, i32), (i32, i32)),
+    ) {
+        let ((first_column, last_column), (first_row, last_row)) = spans;
+        for row in first_row..=last_row {
+            for column in first_column..=last_column {
+                if (column, row) == (first_column, first_row) {
+                    continue;
+                }
+                let by = displacement(
+                    tiling,
+                    column.saturating_sub(first_column),
+                    row.saturating_sub(first_row),
+                );
+                match cell.repeat(&mut self.list, by) {
+                    Ok(copied) => {
+                        self.operations = self.operations.saturating_add(copied);
+                        if self.operations > MAX_OPERATIONS {
+                            self.note(Unsupported::LimitReached {
+                                limit: "MAX_OPERATIONS",
+                            });
+                            return;
+                        }
+                    }
+                    Err(error) => {
+                        self.note(Unsupported::LimitReached {
+                            limit: match error {
+                                DisplayListError::TooManySoftMasks => "max_soft_masks",
+                                _ => "max_clips",
+                            },
+                        });
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
     /// Paints a tiling pattern over the area a path covers.
     ///
-    /// The path becomes a clip and the pattern's cell is replayed once per tile position
-    /// inside it. Expanding the tiling here rather than inventing a display-list paint for
-    /// it keeps the list flat: a backend never learns what a pattern is, and the result is
-    /// resolution-independent because the cell is real geometry rather than a rendered
-    /// image.
+    /// The path becomes a clip, the pattern's cell is drawn once inside it, and its marks are
+    /// copied to every other tile position. Expanding the tiling here rather than inventing a
+    /// display-list paint for it keeps the list flat: a backend never learns what a pattern is,
+    /// and the result is resolution-independent because the cell is real geometry rather than a
+    /// rendered image.
     pub(super) fn tile(
         &mut self,
         path: &Arc<Path>,
@@ -480,6 +559,12 @@ impl Interpreter<'_> {
         /// no safer**: `7680183.pdf` wants 42 282 tiles and takes 14.2 s while `2760154.pdf`
         /// wants 765 440 and takes 8.7. A bound on the *work* is what this should become, and
         /// `doc/todo/49` carries it. ADR 0271, `tests/hostile_budgets.rs`.
+        ///
+        /// **Since ADR 0430 the loop copies where it used to interpret**, so the work per site
+        /// is the cell's *commands* rather than its operators — and
+        /// [`Interpreter::repeat_cell`] charges each copy to [`MAX_OPERATIONS`], which is
+        /// where the second bound now bites. This one still bounds the trip count, which is
+        /// what an empty cell needs and what a bound on the work would replace.
         const MAX_TILES: usize = 4096;
 
         // The pattern is anchored to the page, so the question "which cells does this path
@@ -538,44 +623,41 @@ impl Interpreter<'_> {
         // graphics state's soft mask reached nothing at all.
         let mark = self.list.command_count();
 
-        // Whether the cell's own box has to be applied as a clip at all; see
-        // [`Interpreter::unclip_redundant_cell`], which answers it from the first cell and
-        // takes the clip back off it when the answer is no.
-        let mut box_clips = tiling.bbox.is_some();
-        // Which of the cell's marks it states twice, a lattice step apart, so that the box clip
-        // halves each and a neighbouring cell draws the other half; see
-        // [`Interpreter::plan_repeated_marks`]. Answered from the first cell for the same reason,
-        // and followed by every cell after it.
-        let mut plan = CellFold::new();
-        for row in first_row..=last_row {
-            for column in first_column..=last_column {
-                let offset = Transform::translate(
-                    tiling.step.0 * as_f32(column),
-                    tiling.step.1 * as_f32(row),
-                );
-                let first_cell = self.list.command_count();
-                let to_page = offset.then(tiling.to_page);
-                let box_clip = self.run_cell(tiling, to_page, clip, box_clips);
-                // Asked once, of the first cell, and the answer holds for every one of them:
-                // the cells are one figure at translations of each other.
-                if let Some(corners) = tiling.bbox
-                    && box_clips
-                {
-                    if first_cell == mark {
-                        (box_clips, plan) = self.settle_cell_box(
-                            mark,
-                            corners,
-                            (offset, to_pattern),
-                            tiling.step,
-                            (box_clip, clip),
-                        );
-                    }
-                    if !plan.is_empty() {
-                        self.fold_repeated_marks(first_cell, &plan, (box_clip, clip));
-                    }
-                }
+        // The one interpretation the whole tiling gets, at the first site the span reaches.
+        // §8.7.3.1's cell "shall be replicated at fixed horizontal and vertical intervals", and
+        // a replica is this cell's commands displaced: see [`pdf_render::Cell`] for what makes
+        // the two the same picture, and ADR 0430 for what it saves. Until the
+        // five-hundred-and-ninety-fifth session the content stream was run once per site, which
+        // is what made a bomb inside a cell cost its decode four thousand times over.
+        let at = pdf_render::Mark::of(&self.list);
+        let offset = Transform::translate(
+            tiling.step.0 * as_f32(first_column),
+            tiling.step.1 * as_f32(first_row),
+        );
+        let box_clip = self.run_cell(tiling, offset.then(tiling.to_page), clip);
+        // Table 74's box, and the marks it halves: both are settled on the cell itself, so
+        // every site is a copy of the settled figure rather than a repetition of the question.
+        if let Some(corners) = tiling.bbox {
+            let plan = self.settle_cell_box(
+                mark,
+                corners,
+                (offset, to_pattern),
+                tiling.step,
+                (box_clip, clip),
+            );
+            if !plan.is_empty() {
+                self.fold_repeated_marks(mark, &plan, (box_clip, clip));
             }
         }
+
+        // Taken after the box and the fold are settled, so that what every site copies is the
+        // finished cell rather than the question.
+        let cell = pdf_render::Cell::drawn(&self.list, at);
+        self.repeat_cell(
+            &cell,
+            tiling,
+            ((first_column, last_column), (first_row, last_row)),
+        );
 
         // The state's transparency parameters, applied once to the finished tiling. Where
         // they are all at their defaults there is nothing for a group to do and §11.4.4's
@@ -811,12 +893,20 @@ impl Interpreter<'_> {
         // in the same places, and the tiling replicates that shorter cell at the file's own
         // `/XStep` and `/YStep` — nothing stands in place of the marks the damage took.
         // See [`Interpreter::content_stream`].
-        // Held rather than windowed, which is the one exception to ADR 0427's rule and has a
-        // measurement behind it: this cell is run once per cell painted and `Tiling` keeps the
-        // bytes for all of them, so a window would inflate it again for each. See
-        // [`crate::content::reader::HeldContent`].
-        let content =
-            self.held_content_stream(stream, &format!("a tiling pattern /{name} (§8.7.3.1)"))?;
+        //
+        // A cell whose stream cannot be decoded at all is **reported**, which it was not before
+        // the five-hundred-and-ninety-fifth session: the refusal was dropped here and the page
+        // came back complete with the pattern silently unpainted. A form says
+        // `undecodable form /Fx` in the same circumstance and always has, and this is the same
+        // sentence for the other of §7.8.2's five.
+        let Some(content) =
+            self.content_stream(stream, &format!("a tiling pattern /{name} (§8.7.3.1)"))
+        else {
+            self.note(Unsupported::Operator {
+                operator: format!("undecodable tiling pattern /{name}"),
+            });
+            return None;
+        };
 
         // `/XStep` and `/YStep` may differ from the cell's bounding box, which is how a
         // pattern tiles with gaps or with overlap. Zero would mean an infinite number of
@@ -909,6 +999,23 @@ impl Interpreter<'_> {
             tint,
         }))
     }
+}
+
+/// Where one site of a tiling sits relative to the site its cell was drawn at, in page space.
+///
+/// ISO 32000-2 §8.7.3.1 puts site (i, j) at i × `/XStep` and j × `/YStep` in *pattern* space, so
+/// the displacement between two sites is that difference carried through the pattern matrix —
+/// and through its linear part alone, because the matrix's own translation is common to both
+/// sites and cancels. The result is therefore a pure translation of page space whatever the
+/// pattern matrix rotates or shears, which is what [`pdf_render::Cell::repeat`] wants.
+fn displacement(tiling: &Tiling, columns: i32, rows: i32) -> Transform {
+    let to_page = tiling.to_page;
+    let x = tiling.step.0 * as_f32(columns);
+    let y = tiling.step.1 * as_f32(rows);
+    Transform::translate(
+        to_page.a.mul_add(x, to_page.c * y),
+        to_page.b.mul_add(x, to_page.d * y),
+    )
 }
 
 /// The bounding box of a path once transformed, as `(min_x, min_y, max_x, max_y)`.

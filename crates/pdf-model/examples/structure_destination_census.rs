@@ -1,5 +1,6 @@
-//! Table 202's `/SD`, counted: how many go-to actions state a structure destination, and how
-//! many of them would go somewhere else if it were honoured.
+//! The `/SD` entry, counted where the standard states it: on §12.6.4.2's go-to action, and on
+//! §12.3.2.4's named destination. How many state one, and how many would go somewhere else if it
+//! were honoured.
 //!
 //! §12.6.4.2 gives a go-to action two destinations and an order between them:
 //!
@@ -16,6 +17,12 @@
 //! because a go-to action hangs off a link annotation, an outline item, a catalog `/OpenAction`,
 //! a widget's `/AA` and another action's `/Next` — and a census that visited only one of those
 //! would measure the walk rather than the corpus.
+//!
+//! **The named destination is the second population and it is the same entry.** §12.3.2.4 gives a
+//! name or a string "a dictionary with a D entry whose value is such an array and may optionally
+//! contain an SD entry as defined in" the go-to action's own table, so the precedence is one rule
+//! read in two places. Both of the clause's tables are walked — the catalog's `/Dests` dictionary
+//! (PDF 1.1) and the name dictionary's `/Dests` name tree (PDF 1.2 and later).
 //!
 //! `/S /GoToR` is counted beside it and is **not** the same question: `CLAUDE.md` excludes a
 //! remote go-to, and Table 203's `/SD` names a structure element in a file this reader will not
@@ -56,6 +63,12 @@ struct Counts {
     disagreeing_view: usize,
     /// Action dictionaries stating `/S /GoToR` with an `/SD`, which is a different clause.
     remote_with_structure: usize,
+    /// §12.3.2.4's named destinations, in either of the clause's two tables.
+    named: usize,
+    /// Of those, the ones whose value is a dictionary stating `/SD`.
+    named_with_structure: usize,
+    /// Of those, the ones whose `/SD` names a page or a view their `/D` does not.
+    named_disagreeing: usize,
 }
 
 impl Counts {
@@ -71,6 +84,13 @@ impl Counts {
         self.remote_with_structure = self
             .remote_with_structure
             .saturating_add(other.remote_with_structure);
+        self.named = self.named.saturating_add(other.named);
+        self.named_with_structure = self
+            .named_with_structure
+            .saturating_add(other.named_with_structure);
+        self.named_disagreeing = self
+            .named_disagreeing
+            .saturating_add(other.named_disagreeing);
     }
 }
 
@@ -88,17 +108,23 @@ fn main() {
         };
         opened = opened.saturating_add(1);
         let counts = document_counts(&document);
-        if counts.with_structure > 0 || counts.remote_with_structure > 0 {
+        if counts.with_structure > 0
+            || counts.remote_with_structure > 0
+            || counts.named_with_structure > 0
+        {
             let name = path.rsplit('/').next().unwrap_or(&path).to_owned();
             lines.push(format!(
                 "  {name}: {} go-to action(s), {} stating /SD ({} readable, {} naming a different \
-                 page from /D, {} a different view of the same page), {} remote",
+                 page from /D, {} a different view of the same page), {} remote, {} named \
+                 destination(s) with /SD of {}",
                 counts.go_to,
                 counts.with_structure,
                 counts.structure_readable,
                 counts.disagreeing,
                 counts.disagreeing_view,
-                counts.remote_with_structure
+                counts.remote_with_structure,
+                counts.named_with_structure,
+                counts.named
             ));
         }
         total.absorb(&counts);
@@ -119,15 +145,21 @@ fn main() {
         "  {} /S /GoToR action(s) state an /SD, which is Table 203's and excluded",
         total.remote_with_structure
     );
+    println!(
+        "  {} §12.3.2.4 named destination(s), {} stating /SD, {} of those naming a page or a \
+         view their /D does not",
+        total.named, total.named_with_structure, total.named_disagreeing
+    );
     for line in &lines {
         println!("{line}");
     }
 }
 
-/// Walks every object the cross-reference table lists in one document.
+/// Walks every object the cross-reference table lists in one document, and both `/Dests` tables.
 fn document_counts(document: &Document) -> Counts {
     let mut counts = Counts::default();
     let pages = Pages::new(document);
+    named_destinations(document, &pages, &mut counts);
     let numbers: Vec<u32> = document.xref().object_numbers().collect();
     for number in numbers {
         let object = document.get(ObjectId::new(number, 0));
@@ -167,4 +199,55 @@ fn document_counts(document: &Document) -> Counts {
         }
     }
     counts
+}
+
+/// §12.3.2.4's two tables: the catalog's `/Dests` dictionary and the name dictionary's tree.
+///
+/// A named destination's *value* is what carries the entry — "either an array defining the
+/// destination … or a dictionary with a D entry … and may optionally contain an SD entry" — so
+/// only the dictionary form can state one, and the array form is counted as a named destination
+/// that cannot.
+fn named_destinations(document: &Document, pages: &Pages<'_>, counts: &mut Counts) {
+    let Ok(catalog) = document.catalog() else {
+        return;
+    };
+    let mut values: Vec<pdf_syntax::Object> = Vec::new();
+    if let Some(dests) = document.get_key(&catalog, "Dests").as_dict() {
+        values.extend(dests.iter().map(|(_, value)| document.resolve(value)));
+    }
+    let names = document.get_key(&catalog, "Names");
+    if let Some(names) = names.as_dict() {
+        let root = document.get_key(names, "Dests");
+        if let Some(root) = root.as_dict() {
+            values.extend(
+                pdf_syntax::tree::name_pairs(root, &|object| document.resolve(object))
+                    .into_iter()
+                    .map(|(_, value)| value),
+            );
+        }
+    }
+
+    for value in values {
+        counts.named = counts.named.saturating_add(1);
+        let Some(dict) = value.as_dict() else {
+            continue;
+        };
+        let Some(entry) = dict.get("SD") else {
+            continue;
+        };
+        counts.named_with_structure = counts.named_with_structure.saturating_add(1);
+        let Some(structure) = Destination::read(document, entry) else {
+            continue;
+        };
+        let stated = dict
+            .get("D")
+            .and_then(|entry| Destination::read(document, entry));
+        let same = stated.is_some_and(|destination| {
+            destination.page_index(document, pages) == structure.page_index(document, pages)
+                && destination.view == structure.view
+        });
+        if !same {
+            counts.named_disagreeing = counts.named_disagreeing.saturating_add(1);
+        }
+    }
 }

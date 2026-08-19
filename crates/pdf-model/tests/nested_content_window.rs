@@ -27,7 +27,7 @@
 use std::fmt::Write as _;
 use std::io::Write as _;
 
-use pdf_model::content::reader::{HeldContent, NestedContent};
+use pdf_model::content::reader::NestedContent;
 use pdf_syntax::{Document, Limits, ObjectId, StreamSource};
 
 /// Content long enough that the memo declines its decode, with marks all through it.
@@ -246,16 +246,18 @@ fn an_lzw_form_is_read_through_the_window_and_draws_what_the_whole_decode_draws(
     );
 }
 
-/// §8.7.3.1's cell is decoded whole however large it is, which is the rule's one exception.
+/// §8.7.3.1's cell is windowed like the other three, which is what ADR 0430 bought.
 ///
-/// **Found by fuzzing rather than reasoned about.** A mutated tiling pattern the `page` target
-/// reached took 0.24 s held and 9.0 s windowed, because a cell is run once per cell painted and
-/// `Tiling` keeps its bytes for all of them — so `NestedContent::of`'s premise, that a decode the
-/// memo declines is re-run on every read anyway, is false for exactly this one of the four. What
-/// keeps the exception is the *type*: `Tiling::content` is a `HeldContent`, which only
-/// `HeldContent::of` produces. This asserts what that type means.
+/// **The exception it replaces was found by fuzzing.** A mutated tiling pattern the `page` target
+/// reached took 0.24 s held and 9.0 s windowed, because the cell's content stream was run once
+/// per site painted and `MAX_TILES` allows four thousand of them — so `NestedContent::of`'s
+/// premise, that a decode the memo declines is re-run on every read anyway, was false for exactly
+/// this one of the four. The cell is now interpreted **once** and every other site is its commands
+/// displaced, so the premise holds again and the type that kept the exception is gone. What this
+/// asserts is that the routing constructor is the one a tiling cell now takes, and
+/// `hostile_budgets.rs` asserts the reading itself happens once.
 #[test]
-fn a_tiling_cell_is_held_whole_where_a_form_of_the_same_size_is_windowed() {
+fn a_tiling_cell_is_windowed_like_the_form_of_the_same_size() {
     let content = long_form_content();
     let document = document_with_form(&content, Coding::Flate);
     let object = document.get(ObjectId::new(5, 0));
@@ -265,17 +267,11 @@ fn a_tiling_cell_is_held_whole_where_a_form_of_the_same_size_is_windowed() {
         matches!(route(&document), StreamSource::Pumped(_)),
         "the routing constructor windows a decode the memo would decline"
     );
-    let held =
-        HeldContent::of(&document, stream, "the same stream, held".to_owned()).expect("it decodes");
     assert!(
-        !held.content().windowed(),
-        "and the held constructor decodes the very same stream whole, which is what it is for"
-    );
-    assert!(
-        NestedContent::of(&document, stream, "the same stream, routed".to_owned())
+        NestedContent::of(&document, stream, "a tiling pattern's cell".to_owned())
             .expect("it decodes")
             .windowed(),
-        "which is a difference rather than a coincidence of this fixture"
+        "and a tiling cell is built by that same constructor since ADR 0430"
     );
 }
 

@@ -1,20 +1,28 @@
 # Road D — stream the decompression, so the bomb never becomes an allocation
 
-Status: **four of §7.8.2's five content streams are done and shipped, and the two streaming bombs'
-filters both pump** (ADRs 0365, 0427, 0429) — a bomb in a page's `/Contents` costs 8.4 MB (flate) or
-10 MB (LZW) where it cost 1032/1035 MB, one in a form XObject 10.7 MB where it cost 1032 MB, the
-witness 194 MB where it took 381, and every gate's output is identical. **One thing is left and it
-is §"What is still owed" below**: §8.7.3.1's tiling cell, which is an exception with a measurement
-behind it. The producer half was ADR 0343's, the measurement ADR 0362's, the page's rewrite
-ADR 0365's, the other four ADR 0427's and the LZW pump ADR 0429's; what remains of the argument
-lives in those five and this file keeps what is not yet done.
+Status: **closed — all five of §7.8.2's content streams are read through a window and both
+streaming bombs' filters pump** (ADRs 0365, 0427, 0429, 0430). A bomb in a page's `/Contents`
+costs 8.4 MB (flate) or 10 MB (LZW) where it cost 1032/1035 MB, one in a form XObject 10.7 MB
+where it cost 1032, one in a **tiling pattern's cell** 9.4 MB where it cost 1055, and the witness
+194 MB where it took 381 — every gate's output identical, and the corpus display lists identical
+but for the last `f32` digit on the 18 pages ADR 0430 moved.
+
+**The file is kept rather than deleted**, against `README.md`'s rule that a done item's file goes,
+for two reasons that are about memory rather than about status: fourteen comments in
+`pdf-syntax` and `pdf-model` point a reader here for the road's argument, and `doc/todo/01`'s
+sweeps read it. What it holds now is the argument and the measurements; the *decisions* live in
+the four ADRs, which is where `README.md` wants them. Nothing below is owed.
+
+The producer half was ADR 0343's, the measurement ADR 0362's, the page's rewrite ADR 0365's, the
+other three nested streams ADR 0427's, the LZW pump ADR 0429's, and §8.7.3.1's tiling cell — the
+last item, which needed the cell drawn once and its commands repeated before its decode could be
+windowed at all — ADR 0430's.
 Priority: 14 — the first road of [`10`](10-bounds-that-cap-size.md), whose §5 table prices all
-four and whose §6 binds whatever lands here. **The tiling cell is all that is left of road D**, and
-it is no longer what the owner's order is waiting on — road B
-([`15`](15-ship-the-confinement.md)) is next.
+four and whose §6 binds whatever lands here. **Road D is finished**; road B
+([`15`](15-ship-the-confinement.md)) is what the owner's order points at next.
 Witness: `tmp/Entwurf.pdf` — **not in the repository and not addable to it**, so no test may name
-that path; and Bomb B, which `doc/todo/10` §2 describes precisely enough to rebuild (sessions 519
-and 527 rebuilt both bombs to the byte from that description)
+that path; and Bomb B, which `doc/todo/10` §2 describes precisely enough to rebuild (sessions 519,
+527 and 595 rebuilt it from that description, the last of them inside a pattern cell)
 Instrument: `cargo run --profile gates -p pdf-model --example window_lexer_spike -- <pdf> <page>
 whole|window|both [bytes]` is the experiment, and `--example token_window_census -- <dir>…` the
 census behind both design questions; `content_budget_census` still prints a page's operators and
@@ -23,10 +31,11 @@ equal to the *spawning* process's resident set, which reads 13 MB for a 4 MB pro
 and `VmPeak` is what `RLIMIT_AS` compares against; callgrind for instructions, with
 `RAYON_NUM_THREADS=1`
 Clauses: §7.4 (filters), §7.8.2 (content stream syntax — including the array's token-boundary
-rule this road leans on), §8.9.7 (inline images)
+rule this road leans on), §8.7.3.1 (the tiling cell, whose loop was the last obstacle), §8.9.7
+(inline images)
 Code: `crates/pdf-syntax/src/filter.rs` (`inflate_buffer` — the pump), `crates/pdf-syntax/src/lexer.rs`
 (`Lexer::new(&'a [u8])` — the sink), `crates/pdf-model/src/inline_image.rs` (`scan`'s lookahead),
-`crates/pdf-syntax/src/document.rs` (`is_pumpable`, which decides the route for both
+`crates/pdf-syntax/src/document.rs` (`pumping`, which decides the route for both
 `stream_source` and `nested_content_source`, and is the one function a filter pump changes)
 
 ## Why this one is first
@@ -216,14 +225,21 @@ exactly what it cost before this round and no more. Whoever takes it needs the c
 its commands repeated, which is `pdf_render::Repeats` one step further than `fold_repeated_marks`
 takes it today.
 
-## What is still owed
+## What was owed and is done — the tiling cell (ADR 0430)
 
-**A bomb in a tiling pattern's cell**, which is the paragraph above: the one of §7.8.2's five
-that still costs its gibibyte, for a reason that is measured rather than assumed. It is a
-`pdf-render` change rather than a filter one — the cell drawn once and its commands repeated,
-`pdf_render::Repeats` one step past `fold_repeated_marks` — which removes the reason
-`Document::nested_content_source` has to exclude §8.7.3.1 from the window, and should also be
-*faster*, so measure both directions.
+**A bomb in a tiling pattern's cell** was this road's last item and the one exception to ADR
+0427's rule: `Tiling` held the cell's decode for the whole tiling, so windowing it inflated the
+cell once per site — 0.24 s against 9.0 s, with `MAX_TILES` allowing four thousand sites. The fix
+was the one this file named: **the cell drawn once and its commands repeated**, `pdf_render::Cell`
+one step past `fold_repeated_marks`. §8.7.3.1 asks for exactly that — "identical copies" of one
+glass tile — so it is the clause's construction rather than an optimisation of it, and the
+exclusion came off with the loop that caused it.
+
+Measured: the bomb **1055 MB → 9.4 MB** and 1.27 s → 0.12 s, its silence replaced by
+`MAX_OPERATIONS`; ordinary tiling pages **−90% instructions** (`issue2177.pdf` −94.1%), the
+non-tiling control +0.007%. And drawing the cell once made a §8.7.2 misreading visible that
+re-interpretation had hidden: a pattern named inside a cell was anchored to the page rather than
+to the cell, which `issue8565.pdf` showed as a lost radial glow. ADR 0430.
 
 ## What was owed and is done — the filter pump (ADR 0429)
 

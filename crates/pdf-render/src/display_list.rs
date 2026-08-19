@@ -811,6 +811,16 @@ impl DisplayList {
         self.soft_masks.len()
     }
 
+    /// Returns how many clips the list holds.
+    ///
+    /// Exists for [`crate::Cell`], which repeats a passage of commands and has to tell a clip
+    /// the passage built — and which therefore travels with it — from one that was already in
+    /// force and is shared by every copy.
+    #[must_use]
+    pub fn clip_count(&self) -> usize {
+        self.clips.len()
+    }
+
     /// Returns the commands in painting order.
     #[must_use]
     pub fn commands(&self) -> &[Command] {

@@ -58,7 +58,7 @@ pub use paint::{
     LineCap, LineJoin, Paint, Reduction, Stroke, thinnest_line,
 };
 pub use program::{ProgramOperator, ProgramRange, ProgramStep, ShadingProgram};
-pub use repeat::{Repeats, Tiles, repeated_subpaths, without_subpaths};
+pub use repeat::{Cell, Mark, Repeats, Tiles, repeated_subpaths, without_subpaths};
 pub use shading::{
     ColourGrid, ColoursAtDeviceScale, Corners, DeferredColours, MeshRaster, Patch, Radial,
     RadialRaster, Ramp, Shading, ShadingKind, Stop, Triangle, blend_parameter,

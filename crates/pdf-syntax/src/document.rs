@@ -1567,10 +1567,12 @@ impl Document {
     ///
     /// These differ from a page's `/Contents` in one respect that decides the route: they are
     /// read **more than once**. §11.6.6's paired runs interpret the same form twice and
-    /// sometimes three times, a tiling pattern's cell is run once per cell, and a Type 3 glyph
-    /// description once per character drawn with it. A window that re-inflated the stream for
-    /// each of those would trade an allocation for unbounded work, which is not the trade
-    /// `doc/todo/14` is about.
+    /// sometimes three times, and a Type 3 glyph description runs once per character drawn with
+    /// it. A window that re-inflated the stream for each of those would trade an allocation for
+    /// unbounded work, which is not the trade `doc/todo/14` is about. A tiling pattern's cell
+    /// used to be the sharpest case of that — once per site, with `MAX_TILES` allowing four
+    /// thousand — and is now read *once* for the whole tiling, its sites being copies of its
+    /// marks (ADR 0430).
     ///
     /// **So the memo decides, and it is not a new number.** [`DecodedStreams::put`] already
     /// declines any decode it cannot hold beside its encoded bytes, and that condition is

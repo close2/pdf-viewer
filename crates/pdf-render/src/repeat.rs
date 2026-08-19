@@ -35,9 +35,15 @@
 //! [`repeated_subpaths`] states the conditions under which the two are provably the same set, and
 //! [`without_subpaths`] carries the answer out.
 
-use crate::display_list::Command;
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
+use crate::display_list::{ClipId, Command, DisplayList, DisplayListError};
 use crate::geom::{Path, PathCommand, Point, Rect, Transform};
 use crate::outline::stroked_bounds;
+use crate::paint::Paint;
+use crate::shading::Shading;
+use crate::soft_mask::SoftMaskId;
 
 /// Most subpaths a cell's command may have and still be searched for repeats.
 ///
@@ -253,6 +259,294 @@ pub fn without_subpaths(path: &Path, repeats: &Repeats) -> Option<Path> {
         folded.extend(path.commands().get(range)?);
     }
     Some(folded)
+}
+
+/// Where a display list stood before a pattern cell was drawn.
+///
+/// Taken before the cell's content stream runs and handed to [`Cell::drawn`] afterwards, which
+/// is what tells a clip or a soft mask the cell built — and which therefore travels with it —
+/// from one that was already in force and is shared by every copy of the cell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Mark {
+    /// Commands the list held.
+    commands: usize,
+    /// Clips it held.
+    clips: usize,
+    /// Soft masks it held.
+    soft_masks: usize,
+}
+
+impl Mark {
+    /// Where `list` stands now.
+    #[must_use]
+    pub fn of(list: &DisplayList) -> Self {
+        Self {
+            commands: list.command_count(),
+            clips: list.clip_count(),
+            soft_masks: list.soft_mask_count(),
+        }
+    }
+}
+
+/// One pattern cell's marks, kept so that the sites after it are copies rather than re-readings.
+///
+/// # Why a tiling draws its cell once
+///
+/// ISO 32000-2 §8.7.3.1 defines a tiling pattern by one cell and a lattice: "[t]he pattern cell
+/// shall be replicated at fixed horizontal and vertical intervals to fill the area to be
+/// painted", and the cell's own appearance is "defined by a content stream containing the
+/// painting operators needed to paint **one** instance of the cell". So the cell is one figure
+/// and every site shows that same figure moved — which is the whole of why its commands may be
+/// copied instead of its content stream re-interpreted.
+///
+/// Three things make that an equality rather than an approximation, and each is a property of
+/// the interpretation rather than a hope about it:
+///
+/// - **The only input that differs between two sites is the transform**, and it differs by a
+///   translation in pattern space. The content stream, the resource dictionary, the optional
+///   content state and §8.7.3.3's tint are the pattern's, not the site's.
+/// - **The cell's graphics state is initial at every site.** §11.6.7 requires it — "[t]he
+///   definition shall not inherit the current values of the graphics state parameters at the
+///   time it is evaluated" — so no site can be reached with a state another site left behind.
+/// - **Every command carries its own absolute geometry** (see [`Command`]), so moving a
+///   command is composing one transform, and a clip or a soft mask the cell built moves with
+///   it because it is part of the same figure.
+///
+/// What a copy is *not* is bit-identical to a re-interpretation: `t.then(by)` adds the site's
+/// displacement to a translation the cell's own matrices already accumulated, and the same sum
+/// in a different order is the same number to within one `f32` rounding. That is the one
+/// documented cost of this construction, and it is smaller than the tolerance
+/// [`repeated_subpaths`] already works to.
+#[derive(Debug, Clone)]
+pub struct Cell {
+    /// Where the list stood before the cell was drawn.
+    at: Mark,
+    /// What it drew, taken once — a copy displaced is a copy of *this*, never of the list as it
+    /// stands after the sites already placed. Getting that wrong doubles the tiling per site,
+    /// which is why the template is owned here rather than re-read per repetition.
+    commands: Vec<Command>,
+}
+
+impl Cell {
+    /// The cell a display list has just drawn, since `at`.
+    #[must_use]
+    pub fn drawn(list: &DisplayList, at: Mark) -> Self {
+        Self {
+            at,
+            commands: list
+                .commands()
+                .get(at.commands..)
+                .unwrap_or_default()
+                .to_vec(),
+        }
+    }
+
+    /// How many commands the cell drew.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.commands.len()
+    }
+
+    /// Whether the cell drew nothing at all, in which case repeating it is free.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.commands.is_empty()
+    }
+
+    /// Appends a copy of the cell, displaced by `by`.
+    ///
+    /// `by` is applied *after* each command's own transform, so it is stated in the space the
+    /// commands were drawn into — page space — and for a tiling it is the lattice step carried
+    /// through the pattern matrix. Returns how many commands were appended, which is what a
+    /// caller charges to its own budget: the copies are the work.
+    ///
+    /// A clip or a soft mask the cell built is copied too, displaced the same way, because it
+    /// is part of the figure being moved; one that was already in force is referred to
+    /// unchanged, because it bounds the tiling rather than the cell.
+    ///
+    /// # Errors
+    ///
+    /// [`DisplayListError`] where the copies would exceed what a [`ClipId`] or a
+    /// [`SoftMaskId`] can address. The commands already appended stay: a tiling that runs out
+    /// of clips has painted the sites it painted, and the caller reports the limit.
+    pub fn repeat(&self, list: &mut DisplayList, by: Transform) -> Result<usize, DisplayListError> {
+        let mut copies = self.commands.clone();
+        {
+            let mut displaced = Displaced {
+                list,
+                by,
+                cell: self.at,
+                clips: BTreeMap::new(),
+                masks: BTreeMap::new(),
+            };
+            displaced.commands(&mut copies)?;
+        }
+        let count = copies.len();
+        for command in copies {
+            list.push(command);
+        }
+        Ok(count)
+    }
+}
+
+/// Carries [`Cell::repeat`] out: one displacement, applied to commands and to what they name.
+struct Displaced<'a> {
+    /// The list the copies are being added to, and the table the cell's clips and masks are in.
+    list: &'a mut DisplayList,
+    /// Applied after each command's own transform.
+    by: Transform,
+    /// Which clips and masks are the cell's own; see [`Mark`].
+    cell: Mark,
+    /// The displaced copy of each of the cell's clips, so a chain is copied once per repetition
+    /// however many commands name it.
+    clips: BTreeMap<usize, ClipId>,
+    /// The same for soft masks.
+    masks: BTreeMap<usize, SoftMaskId>,
+}
+
+impl Displaced<'_> {
+    /// Displaces a sequence of commands in place.
+    fn commands(&mut self, commands: &mut [Command]) -> Result<(), DisplayListError> {
+        for command in commands {
+            self.command(command)?;
+        }
+        Ok(())
+    }
+
+    /// Displaces one command in place, with whatever it names.
+    ///
+    /// The match is exhaustive on purpose: a command variant added later that carries geometry
+    /// is a variant this has to be taught, and the compiler is the only thing that will say so.
+    fn command(&mut self, command: &mut Command) -> Result<(), DisplayListError> {
+        match command {
+            Command::Fill {
+                transform,
+                paint,
+                clip,
+                mask,
+                ..
+            }
+            | Command::Stroke {
+                transform,
+                paint,
+                clip,
+                mask,
+                ..
+            } => {
+                *transform = transform.then(self.by);
+                // A shading carries a transform of its own — §8.7.4.3's pattern matrix rather
+                // than the filled path's — so the colours have to move with the geometry or
+                // every site would show the first site's gradient.
+                if let Paint::Shading(shading) = paint {
+                    *shading = Arc::new(Shading {
+                        kind: Arc::clone(&shading.kind),
+                        transform: shading.transform.then(self.by),
+                    });
+                }
+                self.refer(clip, mask)?;
+            }
+            Command::Image {
+                transform,
+                clip,
+                mask,
+                ..
+            } => {
+                // The samples are on the grid the file states and the unit square is placed by
+                // the transform alone, so a displaced image needs no new raster.
+                *transform = transform.then(self.by);
+                self.refer(clip, mask)?;
+            }
+            Command::Group {
+                commands,
+                clip,
+                mask,
+                blending,
+                ..
+            } => {
+                self.commands(commands)?;
+                if let Some(pair) = blending {
+                    // §11.7.2's second list is the same elements in the black component; it is
+                    // geometry too, and the two halves are composited per pixel.
+                    self.commands(&mut pair.black)?;
+                }
+                self.refer(clip, mask)?;
+            }
+            Command::Shaped { object, shape } => {
+                self.command(object)?;
+                self.command(shape)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Points a command's clip and soft mask at the copies that belong to this site.
+    fn refer(
+        &mut self,
+        clip: &mut Option<ClipId>,
+        mask: &mut Option<SoftMaskId>,
+    ) -> Result<(), DisplayListError> {
+        if let Some(id) = *clip {
+            *clip = Some(self.clip(id)?);
+        }
+        if let Some(id) = *mask {
+            *mask = Some(self.mask(id)?);
+        }
+        Ok(())
+    }
+
+    /// The displaced copy of one clip chain, built outermost first.
+    ///
+    /// The walk terminates because a clip's parent is added to the list before the clip itself
+    /// and therefore has a smaller identifier; the chain is bounded by the clips the cell built.
+    fn clip(&mut self, id: ClipId) -> Result<ClipId, DisplayListError> {
+        let mut chain: Vec<ClipId> = Vec::new();
+        let mut at = id;
+        loop {
+            if at.index() < self.cell.clips || self.clips.contains_key(&at.index()) {
+                break;
+            }
+            chain.push(at);
+            match self.list.clip(at).and_then(|clip| clip.parent) {
+                Some(parent) => at = parent,
+                None => break,
+            }
+        }
+        for original in chain.into_iter().rev() {
+            let Some(mut clip) = self.list.clip(original).cloned() else {
+                continue;
+            };
+            clip.transform = clip.transform.then(self.by);
+            clip.parent = clip.parent.map(|parent| self.mapped_clip(parent));
+            let copy = self.list.add_clip(clip)?;
+            self.clips.insert(original.index(), copy);
+        }
+        Ok(self.mapped_clip(id))
+    }
+
+    /// The copy of a clip this site uses, which is the clip itself where it is not the cell's.
+    fn mapped_clip(&self, id: ClipId) -> ClipId {
+        self.clips.get(&id.index()).copied().unwrap_or(id)
+    }
+
+    /// The displaced copy of one soft mask, whose group is displaced with it.
+    ///
+    /// A mask's elements may name a mask of their own; those were added to the list first, so
+    /// the recursion is as deep as the mask nesting the interpreter allowed and no deeper.
+    fn mask(&mut self, id: SoftMaskId) -> Result<SoftMaskId, DisplayListError> {
+        if id.index() < self.cell.soft_masks {
+            return Ok(id);
+        }
+        if let Some(copy) = self.masks.get(&id.index()) {
+            return Ok(*copy);
+        }
+        let Some(mut mask) = self.list.soft_mask(id).cloned() else {
+            return Ok(id);
+        };
+        self.commands(&mut mask.commands)?;
+        let copy = self.list.add_soft_mask(mask)?;
+        self.masks.insert(id.index(), copy);
+        Ok(copy)
+    }
 }
 
 /// Which subpaths survive: the first of each set that are lattice translations of one another.
@@ -675,5 +969,236 @@ mod tests {
         let repeats = repeated_subpaths(&command, unit_cell(), to_pattern)
             .expect("the lattice is the pattern's, whatever the cell is placed by");
         assert_eq!(repeats.dropped, vec![1], "the lattice is the pattern's");
+    }
+}
+
+#[cfg(test)]
+mod repetition {
+    use super::{Cell, Mark};
+    use crate::display_list::{Clip, Command, DisplayList};
+    use crate::geom::{Path, PathCommand, Point, Size, Transform};
+    use crate::paint::{BlendMode, Color, FillRule, Paint};
+    use crate::shading::{Ramp, Shading, ShadingKind, Stop};
+    use crate::soft_mask::{SoftMask, SoftMaskKind};
+    use std::sync::Arc;
+
+    /// A closed rectangle, which is every figure these fixtures need.
+    fn square(min: Point, max: Point) -> Path {
+        let mut path = Path::new();
+        path.extend(&[
+            PathCommand::MoveTo(min),
+            PathCommand::LineTo(Point::new(max.x, min.y)),
+            PathCommand::LineTo(max),
+            PathCommand::LineTo(Point::new(min.x, max.y)),
+            PathCommand::Close,
+        ]);
+        path
+    }
+
+    /// A black fill of `path`, unclipped and unmasked.
+    fn fill_of(path: Path) -> Command {
+        Command::Fill {
+            path: Arc::new(path),
+            transform: Transform::IDENTITY,
+            fill_rule: FillRule::NonZero,
+            paint: Paint::Solid(Color::BLACK),
+            clip: None,
+            mask: None,
+            blend: BlendMode::Normal,
+        }
+    }
+
+    /// A list with a clip already in force, which is the tiling's own and not the cell's.
+    fn list_with_an_outer_clip() -> (DisplayList, crate::display_list::ClipId) {
+        let mut list = DisplayList::new(Size {
+            width: 100.0,
+            height: 100.0,
+        });
+        let clip = list
+            .add_clip(Clip {
+                path: square(Point::new(0.0, 0.0), Point::new(100.0, 100.0)),
+                transform: Transform::IDENTITY,
+                fill_rule: FillRule::NonZero,
+                parent: None,
+            })
+            .expect("the first clip");
+        (list, clip)
+    }
+
+    /// A gradient, whose own transform has to move with the marks it paints.
+    fn gradient() -> Shading {
+        Shading {
+            kind: Arc::new(ShadingKind::Axial {
+                start: Point::new(0.0, 0.0),
+                end: Point::new(1.0, 0.0),
+                extend: (false, false),
+                ramp: Ramp {
+                    stops: Arc::from(vec![
+                        Stop {
+                            at: 0.0,
+                            colour: Color::BLACK,
+                        },
+                        Stop {
+                            at: 1.0,
+                            colour: Color::WHITE,
+                        },
+                    ]),
+                },
+            }),
+            transform: Transform::IDENTITY,
+        }
+    }
+
+    /// The whole of what a copy is: the marks, the cell's own clip and its gradient, all moved,
+    /// and the clip that was already in force shared rather than duplicated.
+    #[test]
+    fn a_copy_moves_the_cells_marks_its_clip_and_its_gradient_and_shares_what_was_in_force() {
+        let (mut list, outer) = list_with_an_outer_clip();
+        let at = Mark::of(&list);
+
+        let cell_clip = list
+            .add_clip(Clip {
+                path: square(Point::new(0.0, 0.0), Point::new(3.0, 3.0)),
+                transform: Transform::IDENTITY,
+                fill_rule: FillRule::NonZero,
+                parent: Some(outer),
+            })
+            .expect("the cell's own clip");
+        list.push(Command::Fill {
+            path: Arc::new(square(Point::new(0.0, 0.0), Point::new(2.0, 2.0))),
+            transform: Transform::IDENTITY,
+            fill_rule: FillRule::NonZero,
+            paint: Paint::Shading(Arc::new(gradient())),
+            clip: Some(cell_clip),
+            mask: None,
+            blend: BlendMode::Normal,
+        });
+
+        let cell = Cell::drawn(&list, at);
+        assert_eq!(cell.len(), 1, "the cell drew one command");
+        let copied = cell
+            .repeat(&mut list, Transform::translate(3.0, 0.0))
+            .expect("a copy fits");
+        assert_eq!(copied, 1, "and the copy is one command too");
+
+        let commands = list.commands();
+        let Some(Command::Fill {
+            transform,
+            paint,
+            clip,
+            ..
+        }) = commands.get(1)
+        else {
+            panic!("the copy is a fill");
+        };
+        assert!(
+            (transform.e - 3.0).abs() < 1e-6 && transform.f.abs() < 1e-6,
+            "the copy's marks moved by the displacement: {transform:?}"
+        );
+        let Paint::Shading(shading) = paint else {
+            panic!("the copy keeps its gradient");
+        };
+        assert!(
+            (shading.transform.e - 3.0).abs() < 1e-6,
+            "and the gradient moved with them: {:?}",
+            shading.transform
+        );
+        let copy_clip = clip.expect("the copy is clipped");
+        assert_ne!(copy_clip, cell_clip, "by a clip of its own");
+        let copied_clip = list.clip(copy_clip).expect("it is in the table");
+        assert!(
+            (copied_clip.transform.e - 3.0).abs() < 1e-6,
+            "which is the cell's box moved: {:?}",
+            copied_clip.transform
+        );
+        assert_eq!(
+            copied_clip.parent,
+            Some(outer),
+            "and whose parent is the clip that was already in force, shared rather than copied"
+        );
+    }
+
+    /// A soft mask the cell built is a mask of its own at every site, moved with it.
+    ///
+    /// §11.6.5.1 positions a mask's group by the transform in force when `gs` set it, so a mask
+    /// left where the first site drew it would show that site's shape at every other one.
+    #[test]
+    fn a_copy_moves_a_soft_mask_the_cell_built() {
+        let (mut list, _) = list_with_an_outer_clip();
+        let at = Mark::of(&list);
+
+        let mask = list
+            .add_soft_mask(SoftMask {
+                commands: vec![fill_of(square(Point::new(0.0, 0.0), Point::new(2.0, 2.0)))],
+                kind: SoftMaskKind::Alpha,
+                transfer: None,
+            })
+            .expect("the cell's own mask");
+        list.push(Command::Fill {
+            path: Arc::new(square(Point::new(0.0, 0.0), Point::new(2.0, 2.0))),
+            transform: Transform::IDENTITY,
+            fill_rule: FillRule::NonZero,
+            paint: Paint::Solid(Color::BLACK),
+            clip: None,
+            mask: Some(mask),
+            blend: BlendMode::Normal,
+        });
+
+        let cell = Cell::drawn(&list, at);
+        cell.repeat(&mut list, Transform::translate(0.0, 5.0))
+            .expect("a copy fits");
+
+        let copy = list.commands().get(1).expect("the copy");
+        let copied = copy.mask().expect("it keeps a mask");
+        assert_ne!(copied, mask, "a mask of its own");
+        let group = list.soft_mask(copied).expect("it is in the table");
+        let placed = group
+            .commands
+            .first()
+            .and_then(|command| match command {
+                Command::Fill { transform, .. } => Some(*transform),
+                _ => None,
+            })
+            .expect("the mask's group draws");
+        assert!(
+            (placed.f - 5.0).abs() < 1e-6,
+            "whose group moved with the marks it masks: {placed:?}"
+        );
+    }
+
+    /// An empty cell repeats to nothing, which is what a bounded loop over it costs.
+    #[test]
+    fn an_empty_cell_copies_nothing() {
+        let (mut list, _) = list_with_an_outer_clip();
+        let at = Mark::of(&list);
+        let cell = Cell::drawn(&list, at);
+        assert!(cell.is_empty(), "the cell drew nothing");
+        assert_eq!(
+            cell.repeat(&mut list, Transform::translate(1.0, 1.0))
+                .expect("nothing cannot overflow"),
+            0
+        );
+        assert_eq!(list.commands().len(), 0, "and nothing was appended");
+    }
+
+    /// Two copies of one cell are two copies of the *cell*, not of the list as it stands.
+    ///
+    /// The failure this pins is the one the construction invites: read the template off the
+    /// list at each repetition and the tiling doubles per site, which the budget then refuses
+    /// as a page too large to draw.
+    #[test]
+    fn a_second_copy_is_a_copy_of_the_cell_rather_than_of_what_came_before() {
+        let (mut list, _) = list_with_an_outer_clip();
+        let at = Mark::of(&list);
+        list.push(fill_of(square(Point::new(0.0, 0.0), Point::new(1.0, 1.0))));
+        let cell = Cell::drawn(&list, at);
+
+        for site in [1.0, 2.0, 3.0, 4.0] {
+            let copied = cell
+                .repeat(&mut list, Transform::translate(site, 0.0))
+                .expect("a copy fits");
+            assert_eq!(copied, 1, "each site copies the one command the cell drew");
+        }
+        assert_eq!(list.commands().len(), 5, "one cell and four copies");
     }
 }

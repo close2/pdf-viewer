@@ -144,7 +144,8 @@ impl Word {
 ///
 /// **This is a source rather than a buffer, and that is the whole of ADR 0427.** Each of those
 /// four is read more than once — §11.6.6's paired runs interpret the same form two and three
-/// times, a tiling pattern's cell runs once per cell, a glyph description once per character —
+/// times, a glyph description once per character, an appearance once per drawing (a tiling
+/// pattern's cell is read *once* since ADR 0430, which is what let it join the other three) —
 /// so a reader is *made* for each run instead of a decode being handed round. Which of the two
 /// shapes it makes is [`Document::nested_content_source`]'s decision and is the decoded-stream
 /// memo's own condition: a stream the memo keeps is held here whole, and one it declines is
@@ -209,36 +210,6 @@ impl NestedContent {
         Ok(Self { detail, source })
     }
 
-    /// The same, for a consumer that holds one decode across every read of it.
-    ///
-    /// Private, and reached through [`HeldContent`], so that a consumer which needs this cannot
-    /// be pointed at [`Self::of`] by a later round without the type changing under it.
-    ///
-    /// §8.7.3.1's tiling cell is the one of the four, and it is an exception with a measurement
-    /// behind it rather than a doubt. [`Self::of`]'s rule rests on a decode the memo declines
-    /// being re-run on every read *already* — true of a form, a glyph description and an
-    /// appearance, each of which asks for its bytes afresh every time it is drawn, and **false
-    /// of a tiling pattern**, whose `Tiling` keeps the bytes for the whole tiling. So a window
-    /// there would inflate the cell again for every cell painted, which is road D's trade
-    /// backwards: unbounded work in place of an allocation something already bounds. A mutated
-    /// pattern the `page` fuzz target reached costs 0.24 s whole and **9.0 s** windowed, and
-    /// `MAX_TILES` allows four thousand cells. The pattern is its own memo with exactly the
-    /// right lifetime; ADR 0427.
-    ///
-    /// # Errors
-    ///
-    /// [`StreamRefusal`], exactly as [`Document::decoded_stream_data_reported`] gives it.
-    fn held(document: &Document, stream: &Stream, detail: String) -> Result<Self, StreamRefusal> {
-        let decoded = document.decoded_stream_data_reported(stream)?;
-        Ok(Self {
-            detail,
-            source: Nested::Whole {
-                data: decoded.data,
-                damage: decoded.damage,
-            },
-        })
-    }
-
     /// Bytes that are already this program's own, with no stream behind them.
     ///
     /// §12.7.4.3's regenerated widget appearance is the case: what reaches the drawing is a
@@ -256,10 +227,12 @@ impl NestedContent {
     ///
     /// **A route decision is not observable from its output**, which is the whole difficulty: the
     /// bytes are the same bytes and the report is the same report either way, so a round that
-    /// pointed §8.7.3.1's cell at the wrong constructor would break nothing a gate can see and
-    /// would cost 0.24 s → 9.0 s on a document nobody times. This is what
-    /// `tests/nested_content_window.rs` asks instead — the same reason `inflate_buffer` exists
-    /// so that a test can read `Vec::capacity` (ADR 0354).
+    /// pointed §8.7.3.1's cell at the wrong constructor would break nothing a gate can see —
+    /// which cost 0.24 s → 9.0 s on a document nobody times for as long as that cell was
+    /// interpreted once per site (ADR 0427), and which is why the route is asserted rather than
+    /// assumed even now that ADR 0430 has made the cell one read like the others. This is what
+    /// `tests/nested_content_window.rs` asks — the same reason `inflate_buffer` exists so that a
+    /// test can read `Vec::capacity` (ADR 0354).
     #[must_use]
     pub fn windowed(&self) -> bool {
         matches!(self.source, Nested::Windowed { .. })
@@ -334,41 +307,6 @@ impl NestedContent {
                     })
             }
         }
-    }
-}
-
-/// One of §7.8.2's four whose *decode* is held for as long as the thing that reads it.
-///
-/// §8.7.3.1's tiling cell is the only one, and it is an exception with a measurement behind it
-/// rather than a doubt. [`NestedContent::of`]'s rule rests on a decode the memo declines being
-/// re-run on every read **already** — true of a form `XObject`, a Type 3 glyph description and
-/// an annotation appearance, each of which asks for its bytes afresh every time it is drawn,
-/// and **false of a tiling pattern**, because `Tiling` keeps the bytes for the whole tiling. So
-/// a window there would inflate the cell again for every cell painted, which is road D's trade
-/// backwards: unbounded work in place of an allocation something else already bounds, with
-/// `MAX_TILES` allowing four thousand cells. A mutated pattern the `page` fuzz target reached
-/// costs **0.24 s held and 9.0 s windowed**; ADR 0427.
-///
-/// It is a type rather than a comment for the reason the exception is easy to lose: a later
-/// round pointing the pattern at the routing constructor would cost no compile error and no
-/// gate, only a document nobody times.
-#[derive(Debug)]
-pub struct HeldContent(NestedContent);
-
-impl HeldContent {
-    /// Decodes `stream` whole, by the route every caller took before ADR 0427.
-    ///
-    /// # Errors
-    ///
-    /// [`StreamRefusal`], exactly as [`Document::decoded_stream_data_reported`] gives it.
-    pub fn of(document: &Document, stream: &Stream, detail: String) -> Result<Self, StreamRefusal> {
-        NestedContent::held(document, stream, detail).map(Self)
-    }
-
-    /// What the interpreter runs, which is a [`NestedContent`] like any other.
-    #[must_use]
-    pub fn content(&self) -> &NestedContent {
-        &self.0
     }
 }
 

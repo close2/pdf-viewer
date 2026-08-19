@@ -130,7 +130,8 @@ page's `/Contents` is read through a 64 KiB window, and Bomb B costs **8.4 MB** 
 it. **And since ADR 0427 the same bomb hidden in a form XObject costs 10.7 MB where it cost 1032**
 — the sentence here read "a bomb in a *form* still costs the gibibyte" until then. A bomb in a
 **tiling pattern's cell** still does, on a measurement that round's fuzzing produced rather than on
-an omission, and that plus a filter family is what is left of `doc/todo/14`.
+an omission. `doc/todo/14` is closed: the filter family was ADR 0429's and §8.7.3.1's cell
+ADR 0430's.
 
 The clean statement, and the test to apply to every bound in the tree:
 
@@ -258,7 +259,7 @@ argument and the table is the arithmetic.
 | **A** deadline + callback | unbounded *time* | one parameter on `interpret`, one check at `run.rs`'s existing increment site, two boundary messages, and a rule pinning the gates | **no** — the check point is where 471 left it |
 | **B** ship the confinement | unbounded *anything*, by killing | a tier change (`doc/todo/34`), a `try_reserve`/`Refused` path for the ceiling breach, worker restart, Linux-only | **cheaper** — see below |
 | **C** resumable interpretation | unbounded *latency* | a state-machine rewrite of `Interpreter::run`, against an oracle of 1794 pages | **no** |
-| **D** stream the decompression | the *allocation* | **shipped for four of the five content streams §7.8.2 names** — a page's `/Contents` in 530 (ADR 0365) and the other four in 592 (ADR 0427); what is left is a pump for the four filters that are not Flate — `doc/todo/14` §"What is still owed" | **done and measured: Bomb B costs 8.4 MB against 1032 in `/Contents` and 10.7 MB against 1032 in a form, the witness 194 MB against 381, every gate identical, +5.74% then +0.089% instructions on an ordinary page** |
+| **D** stream the decompression | the *allocation* | **shipped, all five of the content streams §7.8.2 names** — a page's `/Contents` in 530 (ADR 0365), the three beside it in 592 (ADR 0427), the LZW pump in 594 (ADR 0429) and §8.7.3.1's tiling cell in 595, once the cell was drawn once and its marks copied (ADR 0430) | **done and measured: Bomb B costs 8.4 MB against 1032 in `/Contents`, 10.7 against 1032 in a form and 9.4 against 1055 in a pattern cell; the witness 194 MB against 381; every gate identical, +5.74% then +0.089% instructions on an ordinary page and −94% on a tiling one** |
 
 **D is half-built and nobody set out to build it.** §5 D below says "`filter::flate` already holds a
 *streaming* decoder — `flate2::read::ZlibDecoder`, an `io::Read` — and then calls `read_to_end`".

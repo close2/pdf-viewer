@@ -624,6 +624,169 @@ fn a_pattern_that_composites_trivially_is_not_wrapped_in_a_group() {
     );
 }
 
+/// The cell's content stream is interpreted **once**, however many sites the tiling has.
+///
+/// §8.7.3.1 defines the cell as "the painting operators needed to paint one instance of the
+/// cell" and then replicates *the cell*, not the reading of it — so a site is the cell's marks
+/// moved. This asserts the difference where it is observable: the operators inside a cell are
+/// charged to `MAX_OPERATIONS` once rather than once per site, so a cell of two hundred thousand
+/// operators over a hundred and sixty-nine sites is thirty-four million operators when it is
+/// re-read and two hundred thousand when it is read once. The first refuses the page by name;
+/// the second draws it.
+///
+/// It is the observable that matters rather than the arithmetic: a route decision is invisible
+/// in its output (`nested_content_window.rs` says the same about the window), and this is the
+/// one thing a page can be asked that answers it.
+#[test]
+fn a_cells_operators_are_read_once_and_not_once_per_site() {
+    let mut content = String::from("1 0 0 rg 0 0 10 10 re f");
+    // `q`/`Q` mark nothing and cost an operator each, which is what makes this a test about the
+    // reading rather than about the drawing.
+    for _ in 0..100_000 {
+        content.push_str(" q Q");
+    }
+    let pattern = format!(
+        "<< /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 20 20] \
+         /XStep 10 /YStep 10 /Resources << >> /Length {} >>\nstream\n{content}\nendstream",
+        content.len().saturating_add(1)
+    );
+    let document = Document::open(pdf_with(&pattern, "/Pattern cs /P0 scn 0 0 100 100 re f"))
+        .expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let interpretation = pdf_model::interpret(&document, &page);
+
+    assert!(
+        interpretation.is_complete(),
+        "the cell is read once, so its operators are counted once: {:?}",
+        interpretation.unsupported
+    );
+    let fills = interpretation
+        .display_list
+        .commands()
+        .iter()
+        .filter(|command| matches!(command, pdf_render::Command::Fill { .. }))
+        .count();
+    assert_eq!(
+        fills, 169,
+        "and every site is still drawn: thirteen columns by thirteen rows, which is a \
+         hundred-unit path at a step of ten plus the sites whose twenty-unit box reaches it"
+    );
+}
+
+/// Every site is the cell's figure translated by the lattice, and by nothing else.
+///
+/// The direct statement of what a copy means, on the geometry rather than on the raster: the
+/// commands come out in painting order, so site *n*'s fill is site zero's with `/XStep` and
+/// `/YStep` added — through the pattern matrix, which here is the identity.
+#[test]
+fn each_site_is_the_cells_marks_displaced_by_the_lattice() {
+    let document = Document::open(pdf_with(
+        &dotted_cell(1, "1 0 0 rg"),
+        "/Pattern cs /P0 scn 0 0 60 60 re f",
+    ))
+    .expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let list = pdf_model::interpret(&document, &page).display_list;
+    let placements: Vec<(f32, f32)> = list
+        .commands()
+        .iter()
+        .filter_map(|command| match command {
+            pdf_render::Command::Fill { transform, .. } => Some((transform.e, transform.f)),
+            _ => None,
+        })
+        .collect();
+
+    // A 60-unit path at a step of 20 reaches five columns and five rows: `span` measures from
+    // the cell's own extent, so the site one step below the path is reached too.
+    assert_eq!(placements.len(), 25, "five columns by five rows");
+    let (x0, y0) = placements[0];
+    let mut sites = placements.iter();
+    for row in [0.0_f32, 1.0, 2.0, 3.0, 4.0] {
+        for column in [0.0_f32, 1.0, 2.0, 3.0, 4.0] {
+            let (x, y) = sites.next().expect("a site per lattice point");
+            assert!(
+                (x - column.mul_add(20.0, x0)).abs() < 1e-3
+                    && (y - row.mul_add(20.0, y0)).abs() < 1e-3,
+                "the site at column {column}, row {row} sits at ({x},{y}) rather than at the \
+                 lattice point it belongs to"
+            );
+        }
+    }
+}
+
+/// A pattern named inside a cell is anchored to **the cell**, not to the page (§8.7.2).
+///
+/// > A pattern can be used within another pattern
+///
+/// — and the sentence finishes by saying that the inner pattern's matrix defines its
+/// relationship to the pattern space of the *outer* pattern. (The standard breaks
+/// "relationship" across a line, so only the first clause is quoted.)
+///
+/// §8.7.3.1's own picture is what makes that observable: "the effect is as if the figure were
+/// painted on the surface of a clear glass tile, identical copies of which were then laid down
+/// in an array". A gradient anchored to the page instead of to the cell makes the tiles differ
+/// from one another, which is not an array of identical copies. `issue8565.pdf` is the corpus
+/// document that states one — a page-sized cell whose fill is a radial shading pattern under a
+/// luminosity mask — and it drew a flat colour until the five-hundred-and-ninety-fifth session
+/// noticed the anchoring while checking something else.
+///
+/// Asserted by putting the gradient's own space beside the marks it paints: the inner pattern
+/// states no `/Matrix`, so its space *is* the cell's, and a gradient anchored to the cell has
+/// exactly the transform the cell's fill has. Anchored to the page it has the page's, which is
+/// the same for every site and is what made the first site's gradient belong to a cell at the
+/// origin rather than to the cell being painted.
+#[test]
+fn a_shading_pattern_inside_a_cell_is_anchored_to_the_cell() {
+    let cell = "/Pattern cs /Inner scn 0 0 20 20 re f";
+    let pattern = format!(
+        "<< /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 20 20] \
+         /XStep 20 /YStep 20 /Resources << /Pattern << /Inner 6 0 R >> >> /Length {} >>\n\
+         stream\n{cell}\nendstream",
+        cell.len().saturating_add(1)
+    );
+    let inner = "6 0 obj\n<< /PatternType 2 /Shading << /ShadingType 2 /ColorSpace /DeviceRGB \
+                 /Coords [0 0 20 0] /Function << /FunctionType 2 /Domain [0 1] /C0 [1 0 0] \
+                 /C1 [0 0 1] /N 1 >> /Extend [true true] >> >>\nendobj\n";
+    let document = Document::open(with_extra_object(
+        &pattern,
+        "/Pattern cs /P0 scn 0 0 60 60 re f",
+        inner,
+    ))
+    .expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let list = pdf_model::interpret(&document, &page).display_list;
+    let sites: Vec<((f32, f32), (f32, f32))> = list
+        .commands()
+        .iter()
+        .filter_map(|command| match command {
+            pdf_render::Command::Fill {
+                transform,
+                paint: pdf_render::Paint::Shading(shading),
+                ..
+            } => Some((
+                (transform.e, transform.f),
+                (shading.transform.e, shading.transform.f),
+            )),
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(sites.len(), 25, "one gradient per site");
+    for (index, (marks, gradient)) in sites.iter().enumerate() {
+        assert!(
+            (marks.0 - gradient.0).abs() < 1e-3 && (marks.1 - gradient.1).abs() < 1e-3,
+            "site {index} paints its marks at {marks:?} out of a gradient anchored at \
+             {gradient:?}"
+        );
+    }
+    let first = sites[0].1;
+    let last = sites[24].1;
+    assert!(
+        (last.0 - (first.0 + 80.0)).abs() < 1e-3 && (last.1 - (first.1 + 80.0)).abs() < 1e-3,
+        "and the lattice still separates the first gradient from the last: {first:?} {last:?}"
+    );
+}
+
 /// A cell that stays inside its own box is not clipped to it.
 ///
 /// Table 74 says a cell's box "shall be used to clip the pattern cell", and where the cell

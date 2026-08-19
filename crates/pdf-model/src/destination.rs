@@ -205,11 +205,19 @@ impl Destination {
         }
         match document.resolve(object) {
             Object::Array(items) => Self::from_array(document, &items),
-            // A dictionary form: "a dictionary with a D entry whose value is such an array".
-            Object::Dictionary(dict) => {
-                let entry = dict.get("D")?;
-                Self::read_within(document, entry, depth.saturating_add(1))
-            }
+            // §12.3.2.4's dictionary form, which is the *destination's* own dictionary and not
+            // an action's: "the corresponding value is either an array defining the
+            // destination … or a dictionary with a D entry whose value is such an array and may
+            // optionally contain an SD entry as defined in "Table 201 -Action types"".
+            //
+            // **The `/SD` half of that sentence became reachable through an erratum**, which is
+            // why it went unread until the five-hundred-and-ninety-fifth session: Errata
+            // Collection 3 repointed the reference from Table 201 — a list of action *types*,
+            // where nothing is defined at all — to Tables 202–204, where §12.6.4.2's `/SD` is.
+            // With the reference broken there was nothing for this arm to read; with it
+            // repaired the entry is the same entry a go-to action states, so it is read by the
+            // same rule and in the same order.
+            Object::Dictionary(dict) => Self::preferring_structure(document, &dict, depth),
             Object::Name(name) => Self::named(document, &Key::Name(name.as_bytes()), depth),
             Object::String(bytes) => Self::named(document, &Key::String(&bytes), depth),
             _ => None,
@@ -333,10 +341,20 @@ impl Destination {
     /// assumed to be the first page in the document".
     #[must_use]
     pub fn of_go_to(document: &Document, action: &Dictionary) -> Option<Self> {
-        action
-            .get("SD")
-            .and_then(|entry| Self::read(document, entry))
-            .or_else(|| Self::read(document, action.get("D")?))
+        Self::preferring_structure(document, action, 0)
+    }
+
+    /// `/SD` where it names a destination and `/D` otherwise, counting the hops either costs.
+    ///
+    /// One function for §12.6.4.2's action dictionary and §12.3.2.4's destination dictionary,
+    /// because the clause makes them one entry: a named destination's dictionary "may
+    /// optionally contain an SD entry **as defined in**" the go-to action's own table. Two
+    /// readings of one sentence is how the two would come to disagree about which entry wins.
+    fn preferring_structure(document: &Document, dict: &Dictionary, depth: usize) -> Option<Self> {
+        let deeper = depth.saturating_add(1);
+        dict.get("SD")
+            .and_then(|entry| Self::read_within(document, entry, deeper))
+            .or_else(|| Self::read_within(document, dict.get("D")?, deeper))
     }
 
     /// The zero-based index of the page this destination displays, or `None`.
@@ -860,6 +878,56 @@ mod tests {
             (Some(0), View::Fit),
             "an /SD that is no destination leaves the required /D, which is what a `should` \
              permits"
+        );
+    }
+
+    /// The same entry in §12.3.2.4's own dictionary, reached through a name and through a string.
+    ///
+    /// The clause makes a named destination's dictionary carry the go-to action's `/SD` — "a
+    /// dictionary with a D entry whose value is such an array and may optionally contain an SD
+    /// entry as defined in" that action's table — and the erratum that repointed the reference
+    /// is what made the sentence readable at all. Both of §12.3.2.4's tables are asked, because
+    /// the entry is the destination's rather than the table's, and a name and a string reach it
+    /// by different routes here.
+    #[test]
+    fn a_named_destinations_structure_destination_takes_precedence_over_its_page_destination() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 5 0 R /Dests 6 0 R \
+              /Names << /Dests 7 0 R >> >>",
+            "<< /Type /Pages /Count 2 /Kids [3 0 R 4 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+            "<< /Type /StructElem /S /P /K [<< /Type /MCR /Pg 4 0 R /MCID 0 >>] >>",
+            "<< /Plain << /D [3 0 R /Fit] >> \
+               /Structured << /D [3 0 R /Fit] /SD [5 0 R /FitH 500] >> \
+               /Unreadable << /D [3 0 R /Fit] /SD 99 0 R >> >>",
+            "<< /Names [(Structured) << /D [3 0 R /Fit] /SD [5 0 R /FitH 500] >>] >>",
+        ]);
+        let pages = crate::page::Pages::new(&doc);
+        let jump = |text: &str| {
+            let object = pdf_syntax::Parser::new(text.as_bytes())
+                .parse_object()
+                .expect("a name or a string");
+            let destination = Destination::read(&doc, &object).expect("a destination");
+            (destination.page_index(&doc, &pages), destination.view)
+        };
+
+        assert_eq!(jump("/Plain"), (Some(0), View::Fit), "the /D alone");
+        assert_eq!(
+            jump("/Structured"),
+            (Some(1), View::FitH { top: Some(500.0) }),
+            "the /SD takes precedence in the catalog's own /Dests dictionary"
+        );
+        assert_eq!(
+            jump("(Structured)"),
+            (Some(1), View::FitH { top: Some(500.0) }),
+            "and in the name tree, which is where PDF 1.2 and later put the table"
+        );
+        assert_eq!(
+            jump("/Unreadable"),
+            (Some(0), View::Fit),
+            "an /SD that is no destination leaves the required /D, exactly as a go-to action's \
+             does"
         );
     }
 
