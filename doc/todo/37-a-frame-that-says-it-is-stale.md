@@ -171,3 +171,25 @@ device does. A retained page is the only thing that can stand in there.
 
 Open, and for the round to settle rather than for this file to guess: whether the proxy is one page
 or a small window of neighbouring pages, and what scale earns its keep.
+
+### The proxy's extent is configurable — the owner, 2026-08-20
+
+This file left one thing open for the round to settle: *"whether the proxy is one page or a small
+window of neighbouring pages, and what scale earns its keep"*. The first half is answered and it is
+answered by not choosing:
+
+> regarding the question if we should have only one page or a small window of neighbouring pages.
+> Make it configurable.
+
+**Where the configuration lives is decided by rule 2 and is not free.** The stand-in is a private
+module of a binary so that no gate, oracle or harness can link to one, so the neighbour count may
+**not** become a `Command`, a field of a boundary type, or anything below `crates/viewer-ui/src/bin`
+— that would make a wrong picture visible to the tree that judges pictures, which is the one thing
+rule 2 exists to prevent. It is the **host's** setting: a flag today, and whatever a host's own
+configuration becomes later, the same way `--cpu`, `--backend` and `--no-sandbox` are the host's.
+`doc/todo/30`'s "all three hosts stay level" applies to it as it does to a feature.
+
+Two things a round still owes, and being configurable does not excuse either. **A default is a
+decision**, so it is chosen from a measurement — what a neighbour costs to draw and what it saves on
+a page turn — and written down as one rather than picked. And **the scale is still open**, which was
+the other half of the sentence: an eighth was this file's illustration, not a finding.
