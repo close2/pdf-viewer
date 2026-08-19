@@ -1440,11 +1440,13 @@ fn decode_jbig2(
 /// refused with a note — but a refused logo and a black logo are two ways of not drawing the
 /// producer's page, and the clause asks for neither.
 ///
-/// **One case is still refused rather than drawn**, and it is the honest residue: `/EndOfBlock`
-/// false with a `/Rows` below `/Height`. There the clause *does* bind the filter to `/Rows`, so
-/// the raster is genuinely short of the image, and padding it to `/Height` would need the two
-/// numbers to travel separately over [`pdf_sandbox`]'s pipe — which carries one. Nothing in the
-/// corpus exercises it; `doc/todo/53` carries the note.
+/// **The one case where the two numbers differ is `/EndOfBlock` false with a `/Rows` below
+/// `/Height`**, and there the clause binds the filter to `/Rows` on purpose: the raster it
+/// delivers is genuinely shorter than the image. That is why this function's answer and the
+/// image's height travel *separately* over [`pdf_sandbox`]'s pipe — the first bounds the decode,
+/// the second is the grid the worker pads to — and why [`ccitt_bound_below_its_height`] says so
+/// beside the drawing. Until the five-hundred-and-ninety-ninth session the pipe carried one
+/// number for both jobs and such an image was refused for being the size the clause asked for.
 fn ccitt_rows(rows: u32, end_of_block: bool, height: u32) -> u32 {
     match rows {
         0 => height,
@@ -1504,6 +1506,7 @@ fn decode_ccitt(
             end_of_block,
             height,
         ),
+        height,
         end_of_line: flag("EndOfLine", false),
         encoded_byte_align: flag("EncodedByteAlign", false),
         end_of_block,
@@ -2598,6 +2601,60 @@ pub fn short_of_its_grid(
              {components} component(s) needs {need} (§7.3.8.2 infers the extent from the \
              dictionary); what the stream carries is drawn and the rest of the grid is left \
              unpainted"
+        )
+    })
+}
+
+/// Names a `CCITTFaxDecode` image whose filter Table 11 stops short of the grid §8.9.5.1 states,
+/// for the caller to report *beside* the drawing.
+///
+/// ISO 32000-2 §7.4.6 Table 11's `/EndOfBlock` row is the whole condition:
+///
+/// > A flag indicating whether the filter shall expect the encoded data to be terminated by an
+/// > end-of-block pattern, overriding the Rows parameter. If false , the filter shall stop when
+/// > it has decoded the number of lines indicated by Rows or when its data has been exhausted,
+/// > whichever occurs first.
+///
+/// So `/EndOfBlock false` with a `/Rows` below the image's `/Height` is not a malformed file: the
+/// producer has told the filter to stop before the image is full, and the filter obeys.
+/// [`ccitt_rows`] is that derivation. What the undelivered scan lines then show is stated
+/// **nowhere** in ISO 32000-2 — neither Table 11 nor §8.9.5.1 has a sentence about it — so this
+/// tree chooses blank, which is what an unsent fax scan line is, and `pdf_sandbox`'s
+/// `PackedRows::pad_to_height` is where the choice is made.
+///
+/// That choice is why this is a report rather than a refusal, and the pair is the test
+/// `doc/HANDOVER.md` sets for reporting while drawing: suppressing the drawing throws away the
+/// scan lines the file does carry, and suppressing the report makes a page whose lower half this
+/// program invented indistinguishable from one whose lower half the producer left white.
+///
+/// The condition is the clause's and nothing wider. An `/EndOfBlock` left at its default is
+/// silent because the default is true and `/Rows` then does not bind at all; a `/Rows` at or
+/// above `/Height` is silent because the filter reaches the whole grid; a `/Rows` of zero is
+/// silent because Table 11 makes that "not predetermined" rather than short. A decode that
+/// simply runs out of data early is also not this — it is the same padding for a different
+/// reason, and the clause's "or when its data has been exhausted" makes it as legal as an
+/// end-of-block pattern.
+#[must_use]
+pub fn ccitt_bound_below_its_height(document: &Document, stream: &Stream) -> Option<String> {
+    let height = positive_integer(document, &stream.dict, "Height").ok()?;
+    let source = document.image_stream(stream)?;
+    if !matches!(source.codec.as_deref(), Some(b"CCITTFaxDecode" | b"CCF")) {
+        return None;
+    }
+    let parms = source.parms.as_ref()?;
+    if !matches!(
+        document.get_key(parms, "EndOfBlock"),
+        Object::Boolean(false)
+    ) {
+        return None;
+    }
+    let rows = u32::try_from(document.get_key(parms, "Rows").as_integer()?).ok()?;
+    (rows > 0 && rows < height).then(|| {
+        format!(
+            "its /EndOfBlock is false and /Rows {rows} stops the filter short of the {height} \
+             scan lines /Height states (§7.4.6 Table 11); the {rows} the filter delivers are \
+             drawn and the remaining {} are blank, which the standard does not state",
+            height.saturating_sub(rows)
         )
     })
 }

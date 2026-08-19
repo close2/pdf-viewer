@@ -219,8 +219,10 @@ impl PackedRows {
 
     /// Fills any rows the decoder never produced with the sample value `one`.
     ///
-    /// Only `CCITTFaxDecode` uses this, and only because a stream that ends early is a legal
-    /// stream rather than a damaged one. ISO 32000-2 §7.4.6 Table 11 says so twice over, and
+    /// Only `CCITTFaxDecode` uses this, and only because a decode that ends early is a legal
+    /// decode rather than a damaged one — for either of two reasons, which end here alike: the
+    /// data ran out, or Table 11's `/Rows` bounded the filter below the image's height under an
+    /// `/EndOfBlock` of false. ISO 32000-2 §7.4.6 Table 11 says the first twice over, and
     /// the *unconditional* half is the `/Rows` row — "the encoded data shall be terminated by
     /// an end-of-block bit pattern or by the end of the filter's data". (The `/EndOfBlock`
     /// row's "whichever occurs first" says it again and used to be quoted here instead, but
@@ -264,7 +266,12 @@ impl hayro_jbig2::Decoder for PackedRows {
 ///   not distinguish between different positive K values" — so the sign selects, and the
 ///   magnitude is carried through for the mixed mode's own use rather than compared.
 /// - **The sense of a bit**, which `/BlackIs1` decides. See [`CcittRows`].
-/// - **Where the image ends**, which is [`PackedRows::pad_to_height`]'s paragraph.
+/// - **Where the decode stops and where the image ends**, which are two numbers and not one:
+///   [`CcittParameters::rows`] bounds the filter and [`CcittParameters::height`] is the grid
+///   §8.9.5.1 states. Table 11 lets the first fall short of the second on purpose — with
+///   `/EndOfBlock` false "the filter shall stop when it has decoded the number of lines
+///   indicated by Rows or when its data has been exhausted, whichever occurs first" — and what
+///   the rows between them show is [`PackedRows::pad_to_height`]'s paragraph.
 ///
 /// # Errors
 ///
@@ -274,17 +281,21 @@ impl hayro_jbig2::Decoder for PackedRows {
 pub(crate) fn ccitt(data: &[u8], parameters: CcittParameters) -> Result<Bilevel, String> {
     use hayro_ccitt::{DecodeSettings, DecoderContext, EncodingMode};
 
-    let (width, height) = (parameters.columns, parameters.rows);
-    let pixels = u64::from(width).saturating_mul(u64::from(height));
+    let (width, height, bound) = (parameters.columns, parameters.height, parameters.rows);
+    // Both numbers, because either can be the larger: the decode may legitimately stop short of
+    // the image (Table 11's `/Rows` under an `/EndOfBlock` of false), and a document may equally
+    // state more scan lines than its `/Height`, in which case the decoder writes them here.
+    let pixels = u64::from(width).saturating_mul(u64::from(height.max(bound)));
     if pixels > MAX_PIXELS {
         return Err(format!(
-            "CCITTFaxDecode: {width}x{height} exceeds {MAX_PIXELS} pixels"
+            "CCITTFaxDecode: {width}x{} exceeds {MAX_PIXELS} pixels",
+            height.max(bound)
         ));
     }
 
     let settings = DecodeSettings {
         columns: width,
-        rows: height,
+        rows: bound,
         end_of_block: parameters.end_of_block,
         end_of_line: parameters.end_of_line,
         rows_are_byte_aligned: parameters.encoded_byte_align,

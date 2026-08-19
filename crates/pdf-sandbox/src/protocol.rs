@@ -113,13 +113,25 @@ pub struct CcittParameters {
     pub k: i32,
     /// `/Columns`, the width of the image in pixels. Table 11's default is 1728.
     pub columns: u32,
-    /// How many rows to decode.
+    /// How many rows to decode: the bound, not the image.
     ///
-    /// `/Rows` where the document gives a non-zero one. Table 11 says a zero or absent
-    /// `/Rows` means "the image's height is not predetermined", and the only other statement
-    /// of that height is the image dictionary's `/Height` (§8.9.5.1) — which is on the other
-    /// side of this pipe, so the caller substitutes it and this field is never zero.
+    /// `/Rows` where Table 11 lets it bind — which is only where `/EndOfBlock` is false, since
+    /// that entry "[overrides] the Rows parameter" otherwise. Where it does not bind, the
+    /// caller substitutes the image's height, because Table 11 says a zero or absent `/Rows`
+    /// means "the image's height is not predetermined" and §8.9.5.1's `/Height` is the only
+    /// other statement of it. `pdf_model::ccitt_rows` is that derivation; this field is never
+    /// zero.
+    ///
+    /// It is **not** [`Self::height`], and the two travelled as one number until the
+    /// five-hundred-and-ninety-ninth session: with `/EndOfBlock` false and a `/Rows` below
+    /// `/Height` the clause bounds the decode short of the image on purpose, and a worker told
+    /// one number cannot both stop where the filter stops and fill the grid the image states.
     pub rows: u32,
+    /// The image's extent in scan lines — §8.9.5.1's `/Height`, not Table 11's `/Rows`.
+    ///
+    /// What the packed raster is padded to and checked against, so that a decode the clause
+    /// stopped early still delivers the grid the image dictionary describes.
+    pub height: u32,
     /// `/EndOfLine`: whether end-of-line bit patterns are present. Default false.
     pub end_of_line: bool,
     /// `/EncodedByteAlign`: whether each encoded line begins on a byte boundary. Default
@@ -133,12 +145,14 @@ pub struct CcittParameters {
 }
 
 impl Default for CcittParameters {
-    /// Table 11's defaults, except for [`Self::rows`] — see its documentation.
+    /// Table 11's defaults, except for [`Self::rows`] and [`Self::height`], which are the
+    /// caller's to state — see their documentation.
     fn default() -> Self {
         Self {
             k: 0,
             columns: 1728,
             rows: 0,
+            height: 0,
             end_of_line: false,
             encoded_byte_align: false,
             end_of_block: true,
@@ -148,7 +162,7 @@ impl Default for CcittParameters {
 }
 
 /// How many bytes [`CcittParameters`] occupies on the wire.
-const CCITT_PARAMETERS_LEN: usize = 4 + 4 + 4 + 1;
+const CCITT_PARAMETERS_LEN: usize = 4 + 4 + 4 + 4 + 1;
 
 /// Bit positions of the four booleans, in Table 11's order.
 const CCITT_END_OF_LINE: u8 = 1 << 0;
@@ -164,8 +178,10 @@ impl CcittParameters {
         k.copy_from_slice(&self.k.to_be_bytes());
         let (columns, rest) = rest.split_at_mut(4);
         columns.copy_from_slice(&self.columns.to_be_bytes());
-        let (rows, flags) = rest.split_at_mut(4);
+        let (rows, rest) = rest.split_at_mut(4);
         rows.copy_from_slice(&self.rows.to_be_bytes());
+        let (height, flags) = rest.split_at_mut(4);
+        height.copy_from_slice(&self.height.to_be_bytes());
         for (set, bit) in [
             (self.end_of_line, CCITT_END_OF_LINE),
             (self.encoded_byte_align, CCITT_ENCODED_BYTE_ALIGN),
@@ -190,11 +206,13 @@ impl CcittParameters {
         let k = i32::from_be_bytes(bytes.get(0..4)?.try_into().ok()?);
         let columns = u32::from_be_bytes(bytes.get(4..8)?.try_into().ok()?);
         let rows = u32::from_be_bytes(bytes.get(8..12)?.try_into().ok()?);
-        let flags = *bytes.get(12)?;
+        let height = u32::from_be_bytes(bytes.get(12..16)?.try_into().ok()?);
+        let flags = *bytes.get(16)?;
         Some(Self {
             k,
             columns,
             rows,
+            height,
             end_of_line: flags & CCITT_END_OF_LINE != 0,
             encoded_byte_align: flags & CCITT_ENCODED_BYTE_ALIGN != 0,
             end_of_block: flags & CCITT_END_OF_BLOCK != 0,

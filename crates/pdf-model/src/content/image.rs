@@ -223,6 +223,15 @@ impl Interpreter<'_> {
                 name: format!("{name}: {detail}"),
             });
         }
+        // §7.4.6 Table 11 lets `/EndOfBlock false` bound a CCITT decode by `/Rows`, which may be
+        // fewer scan lines than `/Height`. The lines the filter delivers are drawn and the rest
+        // are blank — a choice, because the standard states nothing about them — so this is a
+        // report beside the drawing: `image::ccitt_bound_below_its_height` has the reading.
+        if let Some(detail) = crate::image::ccitt_bound_below_its_height(self.document, stream) {
+            self.note(Unsupported::Image {
+                name: format!("{name}: {detail}"),
+            });
+        }
         // §8.9.6.2 with §8.7.3.3: a stencil "does not specify colours; instead, it
         // designates places where the current colour is painted", and the current colour may
         // be a *pattern*, which is not a colour this or any other command can carry.

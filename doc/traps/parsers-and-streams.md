@@ -44,8 +44,8 @@ oracle's judged set for nothing. **The condition on all three is `is_hidden()`**
 hidden content "as if there were no `Do` operator to invoke it", and a `Do` that was never invoked
 cannot have failed.
 
-**Eleven places report *while* drawing, each deliberate**, and the test for adding a twelfth is that
-suppressing either statement loses information: `/NeedAppearances` (stale appearances drawn
+**Twelve places report *while* drawing, each deliberate**, and the test for adding a thirteenth is
+that suppressing either statement loses information: `/NeedAppearances` (stale appearances drawn
 because they are all the file offers); §11.6.5.2's `/Matte` where pre-blending cannot be undone
 (refusing would draw a rectangle of pure matte colour); a constructed appearance drawing what its
 clause states while naming what it does not (ADR 0030); §8.11.4.4's `/User` and `/Language`
@@ -68,7 +68,12 @@ had always drawn and never mentioned, one sentence of one clause away from the r
 chose and nothing in ISO 32000-2 states, where the substituted thing is **not a mark but the frame
 every mark is measured in** — so the additive-or-substitutive question above does not decide it and
 a different one does: refusing throws away a whole document that draws, and saying nothing makes a
-guessed sheet look like a measured one (ADR 0389).
+guessed sheet look like a measured one (ADR 0389); and a `CCITTFaxDecode` whose `/EndOfBlock false`
+lets Table 11's `/Rows` stop the filter above the image's `/Height`, where the shortfall is **the
+clause obeyed rather than damage** — the producer told the filter to stop — so the scan lines that
+arrived are drawn, the ones between `/Rows` and `/Height` are blank because ISO 32000-2 states
+nothing about them, and the report is what keeps an invented lower half distinguishable from a
+white one (ADR 0434).
 
 **The additive-or-substitutive test is what decides the other direction too**, and ADR 0343 is
 where it drew a line through one clause: the *same* damaged-prefix rule that is right for a

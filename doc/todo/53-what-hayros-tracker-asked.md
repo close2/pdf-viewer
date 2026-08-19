@@ -1,44 +1,26 @@
-# Three residues from reading hayro's tracker
+# The residues left from reading hayro's tracker
 
 Status: **open**, from the five-hundred-and-fifty-seventh session.
-Priority: 53 — none of the three is witnessed by a corpus document, which is exactly why they are
-written down rather than left to be rediscovered.
-Clauses: §7.4.6 Table 11 (item 1), §7.2.3 and §7.8.2 (item 2), §9.6.5.2 (item 3)
-Code: `crates/pdf-model/src/image.rs`, `crates/pdf-sandbox/src/protocol.rs`,
-`crates/pdf-syntax/src/lexer.rs`, `crates/pdf-font/src/type1.rs`
+Priority: 53 — neither is witnessed by a corpus document, which is exactly why they are written
+down rather than left to be rediscovered.
+Clauses: §7.2.3 and §7.8.2 (item 1), §9.6.5.2 (item 2)
+Code: `crates/pdf-syntax/src/lexer.rs`, `crates/pdf-font/src/type1.rs`
 Reading: `doc/HAYRO_ISSUES.md`, ADR 0392
 
 Each of these was found by asking one of hayro's issues of this tree, and each is a case the round
-that found it deliberately did not fix. The reason is the same in all three: the fix is larger than
-the finding, and nothing in the corpus draws wrong because of it. That is a reason to record, not a
-reason to forget.
+that found it deliberately did not fix. The reason was the same in all three: the fix is larger
+than the finding, and nothing in the corpus draws wrong because of it. That is a reason to record,
+not a reason to forget.
 
-## 1. A CCITT decode bounded by `/Rows` cannot be padded to `/Height`
+**The third of the three is closed** (ADR 0434). It was the one whose shape was a correctness
+hazard rather than a missing diagnostic — a CCITT decode bound and an image height sharing one
+`u32` on the sandbox pipe, so a decode Table 11 legitimately stopped short of the image was
+refused for being the size the clause asked for. The pipe carries both numbers, the lines between
+them are blank and named, and the witness is a hand-built pair of pages in
+`crates/pdf-model/tests/ccitt_bound.rs` because the corpus has no such document. What is left is
+below, and neither has moved: both still need the thing their last paragraph names.
 
-`pdf_model::ccitt_rows` now reads Table 11 correctly: `/EndOfBlock` defaults to true and, being
-true, overrides `/Rows`, so the ordinary decode is bounded by the image's `/Height`. One case is
-left, and it is the one the clause *does* bind to `/Rows`:
-
-> If false , the filter shall stop when it has decoded the number of lines indicated by Rows or
-> when its data has been exhausted, whichever occurs first.
-
-With `/EndOfBlock` false and a `/Rows` below `/Height`, the filter legitimately delivers fewer scan
-lines than the image needs. What the image should then show for the undelivered rows is the same
-question `pad_to_height` already answers for a stream that runs out early — blank — but the padding
-cannot happen, because the worker is told **one** number and it does two jobs: it is the decode
-bound handed to `hayro_ccitt::DecodeSettings`, and it is the height `PackedRows` pads to and
-`finish` checks. So the short raster comes back short and `decode_ccitt`'s height check refuses the
-image.
-
-**What it needs.** A second `u32` in `pdf_sandbox::CcittParameters` — the image height beside the
-decode bound — which means `CCITT_PARAMETERS_LEN`, `encode` and `decode` in
-`crates/pdf-sandbox/src/protocol.rs`, and one more field to keep honest. Four lines of wire format
-for a case no corpus document exercises, which is why it was not done in the round that found it.
-
-**What would change the answer**: a document. A `/EndOfBlock false` with a short `/Rows` is exactly
-the sort of thing a fax gateway emits, so it is likelier to arrive than to be constructed.
-
-## 2. A digit run that swallows an operator is silent
+## 1. A digit run that swallows an operator is silent
 
 `5f` is one token (§7.2.3: `f` is a regular character, and a token ends only at a delimiter or
 white space). It spells no number and no operator, so §7.8.2's rule applies — "when a PDF reader
@@ -61,7 +43,7 @@ does not state, to improve a *report*, is the wrong trade to make without a witn
 nothing) because of the salvage. `doc/todo/00`'s step 7 is the instrument that would find it — our
 ink minus the lightest reference's — since the failure would show as a *missing* mark.
 
-## 3. A Type 1 program's unassigned codes claim glyph 0
+## 2. A Type 1 program's unassigned codes claim glyph 0
 
 `crates/pdf-font/src/type1.rs:129-139` walks all 256 codes of a Type 1 program's built-in encoding
 through `skrifa`'s `Type1Font::encoding`. `read-fonts` pre-fills a custom encoding table with

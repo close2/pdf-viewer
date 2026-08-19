@@ -96,13 +96,17 @@ fn scanned_image(name: &str) -> Option<(Vec<u8>, CcittParameters)> {
             .get_key(&stream.dict, "Height")
             .as_integer()
             .unwrap_or(0);
+        let height = u32::try_from(height).unwrap_or(0);
         let parameters = CcittParameters {
             k: i32::try_from(integer("K", 0)).unwrap_or(0),
             columns: u32::try_from(integer("Columns", 1728)).unwrap_or(1728),
-            rows: match u32::try_from(integer("Rows", 0)).unwrap_or(0) {
-                0 => u32::try_from(height).unwrap_or(0),
-                rows => rows,
-            },
+            // `/EndOfBlock` is forced true below, and Table 11 makes that flag override
+            // `/Rows`, so the decode is bounded by the image's own height and not by the
+            // parameter — `pdf_model::ccitt_rows` is the same derivation. The grid the raster
+            // is padded to is that height too, which is the ordinary case where the two
+            // numbers agree.
+            rows: height,
+            height,
             end_of_line: false,
             encoded_byte_align: false,
             end_of_block: true,
