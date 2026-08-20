@@ -111,7 +111,7 @@ fn render(bytes: Vec<u8>) -> (pdf_render::Raster, Vec<pdf_model::Unsupported>) {
     let list = interpretation.display_list;
     let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
     let raster = CpuRasterizer::new()
-        .with_background(pdf_render::Color::TRANSPARENT)
+        .with_medium(pdf_render::Medium::NONE)
         .rasterize(&list, target)
         .expect("supported");
     (raster, unsupported)

@@ -23,7 +23,7 @@
 #![forbid(unsafe_code)]
 
 use pdf_render::{
-    ClipId, Color, DisplayList, Raster, RasterFormat, Rasterizer, SoftMaskId, TargetSpec,
+    ClipId, DisplayList, Medium, Raster, RasterFormat, Rasterizer, SoftMaskId, TargetSpec,
 };
 use quorra_scene::ResourceId;
 
@@ -112,7 +112,7 @@ pub fn options() -> quorra_gpu::Options {
 #[derive(Debug)]
 pub struct QuorraRasterizer {
     device: quorra_gpu::Device,
-    background: Color,
+    medium: Medium,
     caches: cache::ResourceCaches,
     /// The window frame [`QuorraRasterizer::rasterize_frame`] last drew, kept for the next one.
     slot: present::FrameSlot,
@@ -164,7 +164,7 @@ impl QuorraRasterizer {
     pub fn with_options(options: &quorra_gpu::Options) -> Result<Self, QuorraRasterError> {
         Ok(Self {
             device: quorra_gpu::Device::headless(options)?,
-            background: Color::WHITE,
+            medium: Medium::PAGE_ONLY,
             caches: cache::ResourceCaches::new(),
             slot: present::FrameSlot::default(),
             last: FrameCost::default(),
@@ -174,11 +174,14 @@ impl QuorraRasterizer {
         })
     }
 
-    /// Sets the medium colour the finished page is imposed on (white by default,
-    /// as on the other backends).
+    /// Sets what the finished page is imposed on: §11.4.7's 𝑊, and what lies outside the page.
+    ///
+    /// [`Medium::PAGE_ONLY`] by default, as on the other backends — one white for the whole of a
+    /// target that is its own page. A window says [`Medium::WINDOW`], which is what
+    /// [`QuorraWindowRenderer`] is built with.
     #[must_use]
-    pub fn with_background(mut self, background: Color) -> Self {
-        self.background = background;
+    pub fn with_medium(mut self, medium: Medium) -> Self {
+        self.medium = medium;
         self
     }
 
@@ -236,7 +239,7 @@ impl QuorraRasterizer {
         let drawn = self.slot.render(
             &mut self.device,
             &mut self.caches,
-            Some(self.background),
+            Some(self.medium),
             frame,
             quorra_gpu::Target::Readback,
             &mut present::Reported {
@@ -333,7 +336,7 @@ impl Rasterizer for QuorraRasterizer {
         // medium in the space where that composite is exact. quorra hands back straight
         // alpha, so the round trip is here — and only where something below needs it, because
         // it is lossy at a partly transparent pixel.
-        if four_components.is_some() || self.background.a > 0.0 {
+        if four_components.is_some() || self.medium.marks_anything() {
             premultiply(&mut data);
             if let Some((space, black)) = four_components {
                 let mut ink_cost = FrameCost::default();
@@ -344,9 +347,17 @@ impl Rasterizer for QuorraRasterizer {
                 pdf_render::resolve_blending(&mut data, &ink, space);
             }
             // §11.4.7's page group is isolated, so the medium composites with the *result* —
-            // and after the conversion above, which is where the clause puts it.
-            if self.background.a > 0.0 {
-                pdf_render::impose_on_medium(&mut data, self.background);
+            // and after the conversion above, which is where the clause puts it. Where 𝑊 stops
+            // is §14.11.2.1's page boundary rather than the target's edge, which is the same
+            // rectangle for a page-sized target and is not for a window.
+            if self.medium.marks_anything() {
+                pdf_render::impose_within(
+                    &mut data,
+                    target.width,
+                    0,
+                    pdf_render::page_area(list, target),
+                    self.medium,
+                );
             }
             demultiply(&mut data);
         }

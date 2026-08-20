@@ -764,6 +764,35 @@ impl Host {
         vec![WINDOW.0, WINDOW.1]
     }
 
+    /// What the page area shows where no page lies: `pdf_render::SURROUND`, as three bytes.
+    ///
+    /// **Not §11.4.7's 𝑊.** The page's own colour is the standard's, is white, and is composited
+    /// by the rasteriser inside §14.11.2.1's crop box; this is the ground a window lays the pages
+    /// on, which no clause of ISO 32000-2 discusses — `pdf_render::medium` has the search that
+    /// establishes the silence and the argument for the value. Read from there rather than
+    /// restated here, for the same reason `window_size` is a method: a number written down twice
+    /// is a number that stops agreeing, and this one has to agree with `viewer-gtk`, with
+    /// `viewer-ui` and with all three rasterisers.
+    #[expect(
+        clippy::unused_self,
+        reason = "`cxx` carries methods on the opaque type; a free function would need a second \
+                  entry in the bridge for a value that belongs to this host"
+    )]
+    pub(crate) fn surround(&self) -> Vec<u8> {
+        let level = |component: f32| {
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "a colour component in 0..=1 scaled by 255"
+            )]
+            {
+                (component.clamp(0.0, 1.0) * 255.0 + 0.5) as u8
+            }
+        };
+        let colour = pdf_render::SURROUND;
+        vec![level(colour.r), level(colour.g), level(colour.b)]
+    }
+
     /// The C++ side finished putting a frame on the screen, with what the copy cost.
     pub(crate) fn painted(&mut self, bytes: usize, nanos: u64) {
         self.trace.say(

@@ -36,7 +36,7 @@ mod shading;
 mod soft_mask;
 
 use pdf_render::{
-    ClipId, Color, DisplayList, Raster, RasterFormat, Rasterizer, SoftMaskId, TargetSpec,
+    ClipId, DisplayList, Medium, Raster, RasterFormat, Rasterizer, SoftMaskId, TargetSpec,
 };
 use vello::wgpu;
 
@@ -638,7 +638,7 @@ impl GpuContext {
 #[derive(Debug)]
 pub struct GpuRasterizer {
     context: GpuContext,
-    background: Color,
+    medium: Medium,
     /// What the last page needed, so a document of dense pages pays the discovery once.
     bands: Bands,
 }
@@ -658,18 +658,20 @@ impl GpuRasterizer {
     pub fn with_context(context: GpuContext) -> Self {
         Self {
             context,
-            background: Color::WHITE,
+            medium: Medium::PAGE_ONLY,
             bands: Bands::default(),
         }
     }
 
-    /// Sets the background colour.
+    /// Sets what the page is imposed on: §11.4.7's 𝑊, and what lies outside the page.
     ///
-    /// Defaults to opaque white, matching `render_cpu::CpuRasterizer`, so that the two
-    /// backends are directly comparable without configuring either.
+    /// Defaults to [`Medium::PAGE_ONLY`], matching `render_cpu::CpuRasterizer`, so that the
+    /// backends are directly comparable without configuring any of them — and so that a target
+    /// larger than its page has to *say* it is a window rather than inheriting one backend's
+    /// habit, which is `doc/traps/pixels-and-rasterisers.md` trap 2's rule.
     #[must_use]
-    pub fn with_background(mut self, background: Color) -> Self {
-        self.background = background;
+    pub fn with_medium(mut self, medium: Medium) -> Self {
+        self.medium = medium;
         self
     }
 
@@ -702,14 +704,25 @@ impl GpuRasterizer {
     /// partly covered pixel for nothing.
     fn read_back(
         &self,
+        list: &DisplayList,
         texture: &wgpu::Texture,
         target: TargetSpec,
     ) -> Result<Raster, GpuRasterError> {
         let mut data = read_pixels(&self.context.device, &self.context.queue, texture, target)?;
 
-        if self.background.a > 0.0 {
+        if self.medium.marks_anything() {
             premultiply(&mut data);
-            pdf_render::impose_on_medium(&mut data, self.background);
+            // Where 𝑊 stops is §14.11.2.1's page boundary rather than the target's edge, which
+            // for a page-sized target is the same rectangle and for a window is not. The same
+            // `pdf_render` function all three backends end with, so none of them can decide it
+            // alone.
+            pdf_render::impose_within(
+                &mut data,
+                target.width,
+                0,
+                pdf_render::page_area(list, target),
+                self.medium,
+            );
             demultiply(&mut data);
         }
 
@@ -854,10 +867,10 @@ impl Rasterizer for GpuRasterizer {
         )?;
         let mut scene = scene::build(list, target, &masks)?;
 
-        // Transparent, not the background: §11.4.7's page group is isolated, so the medium's
+        // Transparent, not the medium: §11.4.7's page group is isolated, so the medium's
         // colour is composited with the *result* rather than being the backdrop the page's
-        // own blend modes see. `read_back` ends with `impose_on_medium`, which is the same
-        // function the CPU backend uses.
+        // own blend modes see. `read_back` ends with `impose_within`, which is the same
+        // function every other backend uses.
         let texture = render_to_texture(
             &self.context.device,
             &self.context.queue,
@@ -867,7 +880,7 @@ impl Rasterizer for GpuRasterizer {
             &mut self.bands,
         )?;
 
-        self.read_back(&texture, target)
+        self.read_back(list, &texture, target)
     }
 }
 

@@ -25,7 +25,7 @@ use std::num::NonZeroU32;
 use std::sync::Arc;
 
 use pdf_render::{
-    Color, DisplayList, Raster, RasterFormat, Rasterizer as _, TargetSpec, Transform,
+    DisplayList, Medium, Raster, RasterFormat, Rasterizer as _, TargetSpec, Transform,
 };
 use render_cpu::{CpuRasterError, CpuRasterizer};
 use winit::window::Window;
@@ -180,6 +180,14 @@ fn pixels(raster: &Raster) -> usize {
 /// source-over. There are at most `viewer_core`'s bound of them, and this is the path that is
 /// already the slow one.
 ///
+/// **The medium is [`Medium::WINDOW`] and the pages after the first carry only their own 𝑊.**
+/// A window is not a page: ISO 32000-2 §11.4.7's 𝑊 is the initial colour of the page and stops
+/// at §14.11.2.1's crop box, and what a window shows between two pages is this program's own
+/// choice — [`pdf_render::medium`] has the reading and the argument. The first page's raster
+/// paints the surround across the whole window because it is the bottom of the stack; every page
+/// after it is [`Medium::on_transparency`], so it carries its paper and not the ground beside
+/// its neighbour.
+///
 /// # Errors
 ///
 /// [`SoftwareError::NoExtent`] where the arrangement places no page at all, and
@@ -195,17 +203,19 @@ pub fn compose_pages(pages: &[(&DisplayList, TargetSpec)]) -> Result<Raster, Sof
     let Some(((first, target), rest)) = pages.split_first() else {
         return Err(SoftwareError::NoExtent);
     };
+    let medium = Medium::WINDOW;
     let mut composed = CpuRasterizer::new()
+        .with_medium(medium)
         .rasterize(first, *target)
         .map_err(refused(0))?;
     match composed.format {
         RasterFormat::Rgba8 => {}
     }
     for (index, (list, placed)) in rest.iter().enumerate() {
-        // Transparent for the same reason an overlay is: this is a layer over what is already
-        // drawn, and the medium under it has been painted once by the page above.
+        // Its own 𝑊 and no surround: this is a layer over what is already drawn, and the
+        // ground between the pages was painted once by the page below.
         let over = CpuRasterizer::new()
-            .with_background(Color::TRANSPARENT)
+            .with_medium(medium.on_transparency())
             .rasterize(list, *placed)
             .map_err(refused(index.saturating_add(1)))?;
         match over.format {
@@ -247,11 +257,11 @@ pub fn compose(page: &Raster, overlays: &[&DisplayList]) -> Result<Raster, Softw
             height: page.height,
             transform: Transform::IDENTITY,
         };
-        // Transparent rather than white: this is a layer over the page, and a white background
-        // would erase it. `Color::TRANSPARENT` is what `CpuRasterizer::with_background`'s own
-        // documentation names for exactly this.
+        // Nothing under it at all: this is a layer over the page, and any medium would erase
+        // it. `Medium::NONE` is what `CpuRasterizer::with_medium`'s own documentation names for
+        // exactly this.
         let over = CpuRasterizer::new()
-            .with_background(Color::TRANSPARENT)
+            .with_medium(Medium::NONE)
             .rasterize(list, spec)?;
         match over.format {
             RasterFormat::Rgba8 => {}

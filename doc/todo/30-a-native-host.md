@@ -247,15 +247,33 @@ change to both rasterisers.
   `Role::Document` node of its own with its own identifier band, its own extents and its own status
   group, and an untagged page in a mixed column keeps the one sentence saying the document states
   no structure. Read back off a real bus.
-- **The gap between pages is invisible on `viewer-ui`**, and the reason is a reading worth keeping.
-  §11.4.7 says the page group "shall be treated as an isolated group, whose results shall then be
-  composited with a backdrop colour appropriate for the medium. The backdrop is nominally white",
-  and Table 141 names that colour 𝑊, "[i]nitial colour of the page". So 𝑊 is a property of **the
-  page**, and what a window shows where there is *no* page is not §11.4.7's subject at all. This
-  tree has one colour for both — `render-quorra`'s medium fills the whole target and `render-cpu`'s
-  `impose_on_medium` the whole raster — which was invisible while one page filled the window and is
-  visible the moment a column puts white paper next to white surround. The two native hosts never
-  had it, because their surround is the toolkit's own window background. Splitting the two is a
-  change to both backends and belongs in a round of its own with its own ADR; the six-hundred-and-
-  seventh found it by looking at the screen and left the colour where it was rather than half-doing
-  it.
+- ~~**The gap between pages is invisible on `viewer-ui`**~~ — **taken in the six-hundred-and-eleventh**
+  (ADR 0446), and this entry was wrong about one thing in a way worth keeping. The reading it
+  recorded holds: §11.4.7's 𝑊 is Table 141's "[i]nitial colour of the page", so it is a property of
+  **the page** and stops at §14.11.2.1's crop box, while what a window shows where there is *no*
+  page is no clause's subject — searched across §11.3, §11.4.5, §11.4.7, Table 141, §14.11.2 and
+  Table 147, with `spec-errata`'s `emit` reporting nothing in clause 11. `pdf_render::medium` is the
+  pair now, `page_area` is where 𝑊 stops, and `impose_within` is the composite all three rasterisers
+  end with, so trap 2's rule holds. Nothing moved on any gate: `examples/raster_digest` is new and
+  says so — 957 corpus first pages byte-identical, because a page-sized target asks one colour on
+  both sides of a boundary.
+
+  **What this entry got wrong was "[t]he two native hosts never had it".** That was an inference
+  about somebody else's defaults, not an observation, and looking at the screen refuted it: GTK's
+  Adwaita background and Qt's palette are both within a few levels of paper white, so the gap was a
+  hairline in both. Both hosts take `pdf_render::SURROUND` now — GTK through a `CssProvider` rule,
+  Qt through `PageArea`'s palette with the value crossing the `cxx` bridge — because a toolkit has
+  no notion of *the surface a document is laid on* and so offers no platform value to inherit.
+
+- **§14.11.2.1's clip is not applied on a window-sized target**, which the separation above made
+  visible and which is a decision of its own. "The crop box defines the region to which the contents
+  of the page shall be clipped (cropped) when displayed or printed" is a `shall`;
+  `pdf_model::interpret` deliberately keeps the marks a stream made outside that box, and a
+  page-sized raster cuts them at its own edge. A **window**-sized one does not, so a mark outside the
+  box draws over the ground beside the page — and over a neighbouring page of a column. Invisible
+  while the ground was page white and one page filled the window; visible now on both counts. It is
+  not `impose_within`'s to do — a composite that erased ink would be a second, silent statement of a
+  rule that belongs in one place — so it is either a clip the interpreter applies or one the scene
+  carries, and `render-quorra`'s `Encoder` would need an outer clip chain for the second. **The
+  population is not measured**: nothing counts how many documents mark outside their crop box, and
+  that count is the first thing a round taking this should get.

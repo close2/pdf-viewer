@@ -28,6 +28,7 @@ pub mod crop;
 pub mod degenerate;
 pub mod display_list;
 pub mod geom;
+pub mod medium;
 pub mod mitre;
 pub mod outline;
 pub mod paint;
@@ -40,7 +41,6 @@ pub mod sub_pixel;
 
 pub use backend::{
     BackendError, MAX_EXTENT, MAX_GROUP_DEPTH, Raster, RasterFormat, Rasterizer, TargetSpec,
-    impose_on_medium,
 };
 pub use blending::{BlendingSpace, resolve as resolve_blending};
 pub use collapsed::{CollapsedFill, split_collapsed_fill};
@@ -51,6 +51,7 @@ pub use degenerate::{
 };
 pub use display_list::{Clip, ClipId, Command, DisplayList, DisplayListError, GroupBlending};
 pub use geom::{Path, PathCommand, Point, Rect, Size, Transform};
+pub use medium::{Medium, SURROUND, impose_on_medium, impose_within, page_area};
 pub use mitre::{mitre_wedges, sharpest_admitted_mitre};
 pub use outline::{marked_bounds, stroked_bounds};
 pub use paint::{

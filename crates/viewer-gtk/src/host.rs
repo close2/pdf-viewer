@@ -1216,6 +1216,59 @@ fn logical(device: f64, scale: f64) -> i32 {
     (device / scale).round().max(1.0) as i32
 }
 
+/// Paints [`pdf_render::SURROUND`] behind the pages, so that a reader can see a page's edge.
+///
+/// **This is not §11.4.7's 𝑊 and must never be confused with it.** The page's own colour is the
+/// standard's, is white, and is imposed by `render-cpu` inside the page's boundary; what lies
+/// *outside* every page is not any clause's subject and is this program's documented choice —
+/// `pdf_render::medium` has both readings. The colour is taken from there rather than restated
+/// here so that all three hosts and all three rasterisers say one thing.
+///
+/// **Why a native host does not simply take the toolkit's window background, which is what this
+/// crate did until the six-hundred-and-eleventh session.** It sounds like the native answer and
+/// it is not one: GTK's default background under Adwaita is within a few levels of white, so a
+/// continuous column drew white paper on almost-white ground and the gap between two pages was
+/// as good as invisible — measured on the screen, not assumed. The toolkit has no notion of
+/// "the surface a document is laid on", so there is no platform value to inherit; picking one is
+/// the application's job either way, and picking the same one in all three hosts is
+/// `doc/todo/30`'s standing decision that the hosts stay level.
+///
+/// A failure to load the rule is reported and nothing else: a window whose ground is the
+/// toolkit's default still shows every page, so refusing to open would be a worse answer than
+/// the faint boundary this exists to sharpen.
+fn surround(widget: &impl IsA<gtk4::Widget>) {
+    /// The class the rule below names, and the only widget that carries it.
+    const CLASS: &str = "pdf-page-surround";
+    let level = |component: f32| {
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "a colour component in 0..=1 scaled by 255"
+        )]
+        {
+            (component.clamp(0.0, 1.0) * 255.0 + 0.5) as u8
+        }
+    };
+    let colour = pdf_render::SURROUND;
+    let provider = gtk4::CssProvider::new();
+    provider.load_from_data(&format!(
+        ".{CLASS} {{ background-color: rgb({}, {}, {}); }}",
+        level(colour.r),
+        level(colour.g),
+        level(colour.b)
+    ));
+    let Some(display) = gtk4::gdk::Display::default() else {
+        eprintln!("note: no display to style the page's surround on; it stays the toolkit's");
+        return;
+    };
+    gtk4::style_context_add_provider_for_display(
+        &display,
+        &provider,
+        gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+    );
+    widget.as_ref().add_css_class(CLASS);
+}
+
 /// Everything the window is made of, and the callbacks that reach the host from it.
 fn build_window(
     app: &gtk4::Application,
@@ -1229,6 +1282,7 @@ fn build_window(
 
     let fixed = gtk4::Fixed::new();
     fixed.set_overflow(gtk4::Overflow::Hidden);
+    surround(&fixed);
 
     let chrome = gtk4::DrawingArea::new();
     // The chrome layer is over the page and over the controls, so it must not take a click that

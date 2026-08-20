@@ -24,13 +24,13 @@ mod convert;
 mod scan;
 mod shading;
 
-use rayon::iter::{IntoParallelIterator as _, ParallelIterator as _};
+use rayon::iter::{IndexedParallelIterator as _, IntoParallelIterator as _, ParallelIterator as _};
 use rayon::slice::ParallelSliceMut as _;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use pdf_render::{
-    BackendError, ClipId, Color, Command, DisplayList, MAX_EXTENT, MAX_GROUP_DEPTH, Paint, Path,
-    Raster, RasterFormat, Rasterizer, SoftMaskId, Stroke, TargetSpec, Transform, impose_on_medium,
+    BackendError, ClipId, Command, DisplayList, MAX_EXTENT, MAX_GROUP_DEPTH, Medium, Paint, Path,
+    Raster, RasterFormat, Rasterizer, SoftMaskId, Stroke, TargetSpec, Transform,
 };
 
 /// Every paint this backend hands `tiny-skia` asks for its high-precision pipeline, ISO 32000-2
@@ -70,22 +70,27 @@ const HIGH_PRECISION_PIPELINE: bool = true;
 /// Renders display lists on the CPU.
 #[derive(Debug, Clone)]
 pub struct CpuRasterizer {
-    background: Color,
+    medium: Medium,
     anti_alias: bool,
     strips: Option<u32>,
 }
 
 impl CpuRasterizer {
-    /// Creates a rasteriser that paints onto an opaque white background.
+    /// Creates a rasteriser whose whole target is the page, painted on §11.4.7's white 𝑊.
     ///
     /// White rather than transparent because a PDF page is conceptually opaque white
     /// unless the document paints otherwise, and because the reference renderers used
     /// by the comparison harness (`pdftoppm`, `mutool draw`) do the same. Matching
     /// them removes an entire class of spurious differences.
+    ///
+    /// [`Medium::PAGE_ONLY`] rather than [`Medium::WINDOW`] because a rasteriser is handed one
+    /// display list and a target for it: every target this tree builds for a single page is the
+    /// page's own extent, and a caller drawing into something *larger* than the page says so
+    /// with [`Self::with_medium`].
     #[must_use]
     pub fn new() -> Self {
         Self {
-            background: Color::WHITE,
+            medium: Medium::PAGE_ONLY,
             anti_alias: true,
             strips: None,
         }
@@ -110,13 +115,15 @@ impl CpuRasterizer {
         self
     }
 
-    /// Sets the background colour painted before any command.
+    /// Sets what the page is imposed on: §11.4.7's 𝑊, and what lies outside the page.
     ///
-    /// [`Color::TRANSPARENT`] is the right choice when compositing a page over
-    /// something else, such as a page-edge shadow in the viewer.
+    /// [`Medium::NONE`] is the right choice when compositing a page over something else — an
+    /// overlay, or another page of the same arrangement — and [`Medium::WINDOW`] when the target
+    /// is a window rather than a page. See [`pdf_render::medium`] for which of the two colours
+    /// the standard states and which is this program's.
     #[must_use]
-    pub fn with_background(mut self, background: Color) -> Self {
-        self.background = background;
+    pub fn with_medium(mut self, medium: Medium) -> Self {
+        self.medium = medium;
         self
     }
 
@@ -245,6 +252,11 @@ impl Rasterizer for CpuRasterizer {
         // conversion below, because `tiny-skia`'s pixels are premultiplied here and that is
         // where the composite is exact.
         //
+        // **Where 𝑊 stops is §14.11.2.1's page boundary and not the target's edge**, which is
+        // the whole of `page_area`: a target that *is* its page takes one colour everywhere and
+        // is unchanged by the distinction, and a window takes the surround wherever no page
+        // lies. See `pdf_render::medium` for which of the two colours the standard states.
+        //
         // Both this and the conversion below are per-pixel and independent, so they are run
         // across the same rows the strips used. **They are not an afterthought**: on a
         // 1192×1684 page they were together a third of what was left after the drawing was
@@ -256,10 +268,19 @@ impl Rasterizer for CpuRasterizer {
         // own; it is here because after the drawing is divided a serial pass over every pixel
         // is what is left to bound the speed-up.
         let stride = (target.width as usize).saturating_mul(4).max(4);
+        let area = pdf_render::page_area(list, target);
+        let medium = self.medium;
         pixmap
             .data_mut()
             .par_chunks_mut(stride.saturating_mul(PIXEL_PASS_ROWS))
-            .for_each(|rows| impose_on_medium(rows, self.background));
+            .enumerate()
+            .for_each(|(chunk, rows)| {
+                // Which row of the target this chunk starts at — the one thing a split pass
+                // has to know that a whole-target one does not.
+                let first =
+                    u32::try_from(chunk.saturating_mul(PIXEL_PASS_ROWS)).unwrap_or(u32::MAX);
+                pdf_render::impose_within(rows, target.width, first, area, medium);
+            });
 
         Ok(Raster {
             width: target.width,

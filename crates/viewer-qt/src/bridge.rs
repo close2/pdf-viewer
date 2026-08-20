@@ -301,6 +301,13 @@ pub mod ffi {
         fn status(self: &Host) -> String;
         /// The window's initial size in logical pixels: width, then height.
         fn window_size(self: &Host) -> Vec<i32>;
+        /// What the page area shows where no page lies: red, green, blue, in 0..=255.
+        ///
+        /// **Not §11.4.7's 𝑊**, which is the page's own colour and is imposed by the rasteriser
+        /// inside the page's boundary. This is the ground the pages are laid on, which the
+        /// standard says nothing about at all — `pdf_render::medium` has both readings and owns
+        /// the value, so that the three hosts and the three rasterisers state one fact once.
+        fn surround(self: &Host) -> Vec<u8>;
 
         /// The C++ side finished putting a frame on the screen, with what the copy cost.
         fn painted(self: &mut Host, bytes: usize, nanos: u64);

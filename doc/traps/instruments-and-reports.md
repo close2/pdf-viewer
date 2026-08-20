@@ -48,6 +48,26 @@ only removes a picture — which is how it went unbuilt by `doc/todo/02` §2 for
 noticed by a reference-render count falling 861 with nothing else moving (ADR 0222). Both are lines in
 §2 now, and the tell is the same one trap 10a names: the hit rate.
 
+### 10b. A *new module file* is a fifth thing Cargo will hand you stale
+
+Adding `crates/pdf-render/src/medium.rs` in the six-hundred-and-eleventh session left the
+**release-profile** fingerprint of every crate above it unaware that the file existed: editing it
+and running `cargo build --release -p pdf-model --example …` printed `Finished` in 0.10 s,
+recompiled nothing, and ran the *previous* revision's binary. `cargo build --release -p pdf-render`
+alone did rebuild the crate, and the build that depended on it still reported it `Fresh`.
+
+It cost this round its central measurement twice. The claim being made was that no corpus pixel
+moved; the first two runs of `examples/raster_digest` said so against a binary that did not contain
+the change, and the calibration that was supposed to prove the instrument could fail — moving
+`Medium::PAGE_ONLY`'s colour off white — reported **no difference either**, which is what finally
+gave it away. An instrument that cannot fail has not been shown to work, and neither has one whose
+inputs were not rebuilt.
+
+The fix is one word: `touch` each changed crate's `src/lib.rs` before either arm of a two-revision
+comparison, and before any measurement taken from a release binary in the same sitting as a source
+edit. The tell is a `Finished` with no `Compiling` line after an edit you know you made; `-v` prints
+`Fresh <crate>` for the crate you just changed, which is the sentence to disbelieve.
+
 ### 10a. A cached reference render is a fourth thing that can be stale
 
 The key is built from the invocation itself plus the renderer's version and the document's

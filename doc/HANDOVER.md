@@ -73,7 +73,7 @@ meant to be.
 | [`doc/traps/oracle-and-references.md`](traps/oracle-and-references.md) | reads a verdict, diagnoses a page, invokes another renderer, or moves a tolerance | 3, 9, 12 |
 | [`doc/traps/parsers-and-streams.md`](traps/parsers-and-streams.md) | touches `pdf-syntax`, a filter, a font program, an image codec, or decides what to do with input it cannot fully handle | 4, 5, 8 |
 | [`doc/traps/the-interactive-loop.md`](traps/the-interactive-loop.md) | turns a press into a command, or converts between the page's space, the display list's and the raster's | 12a |
-| [`doc/traps/instruments-and-reports.md`](traps/instruments-and-reports.md) | runs a gate, believes a number, adds a report, sweeps for a defect — **and any round that writes Rust at all**, for trap 7 | 7, 10, 10a, 11, 13 |
+| [`doc/traps/instruments-and-reports.md`](traps/instruments-and-reports.md) | runs a gate, believes a number, adds a report, sweeps for a defect — **and any round that writes Rust at all**, for trap 7 | 7, 10, 10a, 10b, 11, 13 |
 
 **Two of them are not optional for the round they are about.** If this round can change a pixel,
 **trap 1** — *the metrics lie, look at the page* — is the one that has paid every session since the
@@ -100,6 +100,7 @@ it (ADR 0232 §2). The index below resolves any such citation in one hop:
 | 9 | Two references can agree because they share code — or because they share a *gap* | oracle |
 | 10 | The sandbox worker is a separate binary, and Cargo will not rebuild it for you | instruments |
 | 10a | A cached reference render is a fourth thing that can be stale | instruments |
+| 10b | A *new module file* is a fifth thing Cargo will hand you stale | instruments |
 | 11 | A report is only as good as the condition it fires on | instruments |
 | 12 | A bound derived from two agreeing references is tighter than the arithmetic | oracle |
 | 12a | The display list's space is not the raster's, and a doc comment said it was | interactive loop |

@@ -451,6 +451,20 @@ MainWindow::MainWindow(rust::Box<Host> host)
     resize(size.size() >= 2 ? size[0] : 1000, size.size() >= 2 ? size[1] : 1100);
     setWindowTitle(text(host_->title()));
 
+    // The ground the pages are laid on. **Not ISO 32000-2 §11.4.7's 𝑊**, which is the page's own
+    // colour and is composited by the rasteriser inside §14.11.2.1's crop box; what lies outside
+    // every page is no clause's subject and is this program's documented choice. Read from the
+    // Rust side (`pdf_render::SURROUND`, through `Host::surround`) rather than written here, so
+    // that the three hosts and the three rasterisers state one fact once — and taken at all
+    // because the toolkit's own window background is within a few levels of paper white, which
+    // made the gap between two pages of a column as good as invisible.
+    const rust::Vec<std::uint8_t> ground = host_->surround();
+    if (ground.size() >= 3) {
+        QPalette laid = page_->palette();
+        laid.setColor(QPalette::Window, QColor(ground[0], ground[1], ground[2]));
+        page_->setPalette(laid);
+    }
+
     static const char* const kTabs[3] = {"Outline", "Layers", "Files"};
     for (unsigned char which = 0; which < 3; ++which) {
         trees_[which] = buildTree(which);

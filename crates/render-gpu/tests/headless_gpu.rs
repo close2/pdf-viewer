@@ -531,11 +531,11 @@ fn vello_hands_back_straight_alpha() {
     // A transparent medium, because an opaque one hides exactly this: it takes every alpha
     // back to 255 before the raster leaves the backend.
     let raster = gpu()
-        .with_background(Color::TRANSPARENT)
+        .with_medium(pdf_render::Medium::NONE)
         .rasterize(&list, target)
         .expect("supported");
     let cpu = CpuRasterizer::new()
-        .with_background(Color::TRANSPARENT)
+        .with_medium(pdf_render::Medium::NONE)
         .rasterize(&list, target)
         .expect("supported");
 

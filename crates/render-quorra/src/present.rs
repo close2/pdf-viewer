@@ -26,7 +26,7 @@
 
 use std::sync::Arc;
 
-use pdf_render::{Color, DisplayList, Raster, TargetSpec, Transform};
+use pdf_render::{Color, DisplayList, Medium, Raster, TargetSpec, Transform};
 use quorra_scene::ResourceId;
 
 use crate::QuorraRasterError;
@@ -231,7 +231,11 @@ struct SceneKey {
     /// slot because it decides the bottom of the scene: a frame drawn over a medium and the same
     /// frame drawn over nothing are two pictures, and a key that could not tell them apart would
     /// let one replay for the other.
-    medium: Option<Color>,
+    ///
+    /// **Both of its colours are in the key**, because both reach the pixels: §11.4.7's 𝑊 under
+    /// each page and the surround outside every page are two rectangles of the scene, so a frame
+    /// that changed either is a frame that has to be built again.
+    medium: Option<Medium>,
     /// Where each page of the arrangement was placed, in the order they are drawn.
     ///
     /// *Which* pages these are is not here: identity lives in [`Retained::pages`], which are the
@@ -364,7 +368,7 @@ impl FrameSlot {
         &mut self,
         device: &mut quorra_gpu::Device,
         caches: &mut crate::cache::ResourceCaches,
-        medium: Option<Color>,
+        medium: Option<Medium>,
         frame: &PresentFrame<'_>,
         into: quorra_gpu::Target<'_>,
         reported: &mut Reported<'_>,
@@ -486,7 +490,7 @@ impl FrameSlot {
 
 impl SceneKey {
     /// The key of the frame about to be drawn.
-    fn of(frame: &PresentFrame<'_>, medium: Option<Color>, rasters: &mut u64) -> Self {
+    fn of(frame: &PresentFrame<'_>, medium: Option<Medium>, rasters: &mut u64) -> Self {
         Self {
             width: frame.width,
             height: frame.height,
@@ -598,7 +602,14 @@ impl Lane {
 #[derive(Debug)]
 pub struct QuorraWindowRenderer {
     device: quorra_gpu::Device,
-    background: Color,
+    /// §11.4.7's 𝑊 under each page, and what the window shows outside every page.
+    ///
+    /// **[`Medium::WINDOW`] rather than a rasteriser's [`Medium::PAGE_ONLY`]**, and the type is
+    /// what makes that a decision rather than a habit: this renderer's whole subject is a
+    /// surface larger than a page, so it is the one place in the tree where the two colours are
+    /// different by default. A `Rasterizer` is handed one list and a target for it and takes one
+    /// colour for the whole of it, which is what a page-sized raster wants.
+    medium: Medium,
     /// The page, over the medium.
     page: Lane,
     /// The chrome, over transparency. See [`Lane`] for why it is not the page's.
@@ -700,7 +711,7 @@ impl QuorraWindowRenderer {
             }));
         Self {
             device,
-            background: Color::WHITE,
+            medium: Medium::WINDOW,
             page: Lane::new(),
             chrome: Lane::new(),
             last: FrameCost::default(),
@@ -834,7 +845,7 @@ impl QuorraWindowRenderer {
         let drawn = self.page.slot.render(
             &mut self.device,
             &mut self.page.caches,
-            Some(self.background),
+            Some(self.medium),
             &PresentFrame {
                 overlays: &[],
                 ..frame
@@ -908,10 +919,14 @@ impl QuorraWindowRenderer {
     ///
     /// **A window's background is not a page and is not drawn by one.** A host that moves a
     /// finished page about reveals whatever the page does not cover, and what belongs there is
-    /// the medium this renderer draws under the page — never page white, which would assert that
-    /// the page is blank there. One texel scaled over the window says exactly that and costs one
-    /// textured quad; a window-sized medium texture would spend the bytes of a whole window to
-    /// hold one colour.
+    /// the surround this renderer draws outside every page — never page white, which would assert
+    /// that the page is blank there. One texel scaled over the window says exactly that and costs
+    /// one textured quad; a window-sized medium texture would spend the bytes of a whole window
+    /// to hold one colour.
+    ///
+    /// **This doc comment described the separation before the code had it.** Until the
+    /// six-hundred-and-eleventh session `self.background` was one colour serving as both 𝑊 and
+    /// the surround, so "never page white" was exactly what this texel was.
     ///
     /// Premultiplied, as every layer is — which for the opaque medium this renderer draws under
     /// every page is the same four bytes as the straight-alpha form `crate::scene` quantises to.
@@ -936,7 +951,7 @@ impl QuorraWindowRenderer {
         });
         queue.write_texture(
             texture.as_image_copy(),
-            &crate::scene::byte_colour(self.background),
+            &crate::scene::byte_colour(self.medium.surround),
             quorra_gpu::wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(4),
@@ -994,42 +1009,54 @@ pub(crate) struct Reported<'a> {
 /// window, and [`crate::QuorraRasterizer::rasterize_frame`] draws the same scene into a readback
 /// so that a test can look at it. A second copy of this would be two scenes that drift.
 ///
-/// `medium` is the colour under everything, or `None` for a scene drawn straight onto
+/// `medium` is what lies under everything, or `None` for a scene drawn straight onto
 /// transparency — which is what a chrome layer is, and what lets it composite over a page the
 /// host places wherever the view now is.
+///
+/// **A medium is two colours and they go in two places.** [`pdf_render::medium`] has the
+/// reading: §11.4.7's 𝑊 is the initial colour of *the page* and covers §14.11.2.1's crop box and
+/// no more, while what a window shows where there is no page is this program's own choice. So the
+/// surround is one rectangle over the whole frame and 𝑊 is one rectangle per placed page, at that
+/// page's own boundary — which is what makes the gap between two pages of a column visible at all.
 pub(crate) fn build(
     device: &mut quorra_gpu::Device,
     caches: &mut crate::cache::ResourceCaches,
-    medium: Option<Color>,
+    medium: Option<Medium>,
     builder: &mut quorra_scene::SceneBuilder,
     frame: &PresentFrame<'_>,
     transient: &mut Vec<ResourceId>,
     functions: &mut FunctionPaints,
 ) -> Result<(), QuorraRasterError> {
-    // The medium first, where there is one: a window frame has no compositor behind it to impose
-    // on, so the background is the bottom of the scene itself.
-    if let Some(background) = medium {
+    // The surround first, where there is one: a window frame has no compositor behind it to
+    // impose on, so what lies outside every page is the bottom of the scene itself.
+    if let Some(medium) = medium {
         #[expect(
             clippy::cast_precision_loss,
             reason = "window dimensions are far below f32's exact integer range"
         )]
         let (w, h) = (frame.width as f32, frame.height as f32);
-        builder.rect(
-            quorra_scene::Rect::new(
-                quorra_scene::Point::new(0.0, 0.0),
-                quorra_scene::Point::new(w, h),
-            ),
-            quorra_scene::Affine::IDENTITY,
-            crate::scene::colour(background),
-            None,
-            None,
-        )?;
+        fill(builder, 0.0, 0.0, w, h, medium.surround)?;
     }
 
     // One encoder per page, in the order the arrangement placed them. Table 29's `SinglePage` is
     // the one-element case and is what this loop was before ADR 0442; the pages of a column do
     // not overlap, so the order is the arrangement's rather than a compositing decision.
     for (list, target) in frame.pages {
+        // §11.4.7's 𝑊 under *this* page and nowhere else. Drawn as part of the scene rather than
+        // imposed afterwards for the reason `QuorraRasterizer::rasterize_frame` states: a window
+        // has no compositor behind it, so the bottom of the scene is the medium. Its extent is
+        // `pdf_render::page_area`, which every backend asks the same question of.
+        if let Some(medium) = medium {
+            let area = pdf_render::page_area(list, *target);
+            fill(
+                builder,
+                area.min.x,
+                area.min.y,
+                area.max.x,
+                area.max.y,
+                medium.page,
+            )?;
+        }
         Encoder::new(device, list, *target, caches, transient, functions)
             .commands(builder, list.commands())?;
     }
@@ -1080,5 +1107,27 @@ pub(crate) fn build(
         Encoder::new(device, list, spec, caches, transient, functions)
             .commands(builder, list.commands())?;
     }
+    Ok(())
+}
+
+/// One flat rectangle in window pixels, which is what both halves of the medium are.
+fn fill(
+    builder: &mut quorra_scene::SceneBuilder,
+    left: f32,
+    top: f32,
+    right: f32,
+    bottom: f32,
+    colour: Color,
+) -> Result<(), QuorraRasterError> {
+    builder.rect(
+        quorra_scene::Rect::new(
+            quorra_scene::Point::new(left, top),
+            quorra_scene::Point::new(right, bottom),
+        ),
+        quorra_scene::Affine::IDENTITY,
+        crate::scene::colour(colour),
+        None,
+        None,
+    )?;
     Ok(())
 }

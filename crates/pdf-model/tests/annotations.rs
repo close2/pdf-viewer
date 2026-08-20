@@ -76,7 +76,7 @@ fn render(bytes: Vec<u8>) -> pdf_render::Raster {
     let list = interpretation.display_list;
     let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
     CpuRasterizer::new()
-        .with_background(pdf_render::Color::TRANSPARENT)
+        .with_medium(pdf_render::Medium::NONE)
         .rasterize(&list, target)
         .expect("supported")
 }
@@ -86,7 +86,7 @@ fn render_incomplete(interpretation: &pdf_model::Interpretation) -> pdf_render::
     let list = &interpretation.display_list;
     let target = TargetSpec::for_page(list, 1.0, GENEROUS).expect("valid target");
     CpuRasterizer::new()
-        .with_background(pdf_render::Color::TRANSPARENT)
+        .with_medium(pdf_render::Medium::NONE)
         .rasterize(list, target)
         .expect("supported")
 }
@@ -252,7 +252,7 @@ fn an_appearance_with_no_bounding_box_is_placed_by_the_clauses_default() {
     let list = interpretation.display_list;
     let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
     let raster = CpuRasterizer::new()
-        .with_background(pdf_render::Color::TRANSPARENT)
+        .with_medium(pdf_render::Medium::NONE)
         .rasterize(&list, target)
         .expect("supported");
     assert_eq!(extent(&raster), (20, 30, 29, 39));
@@ -1692,7 +1692,7 @@ fn render_at(bytes: Vec<u8>, magnification: Option<f32>) -> pdf_render::Raster {
     let list = interpretation.display_list;
     let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
     CpuRasterizer::new()
-        .with_background(pdf_render::Color::TRANSPARENT)
+        .with_medium(pdf_render::Medium::NONE)
         .rasterize(&list, target)
         .expect("supported")
 }
@@ -1894,7 +1894,7 @@ fn a_text_annotation_behaves_as_though_both_flags_were_set() {
         let list = interpretation.display_list;
         let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
         let raster = CpuRasterizer::new()
-            .with_background(pdf_render::Color::TRANSPARENT)
+            .with_medium(pdf_render::Medium::NONE)
             .rasterize(&list, target)
             .expect("supported");
         (extent(&raster), interpretation.view_dependent)

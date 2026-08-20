@@ -116,7 +116,7 @@ fn draw(bytes: Vec<u8>) -> (Vec<String>, pdf_render::Raster) {
     let list = interpretation.display_list;
     let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
     let raster = CpuRasterizer::new()
-        .with_background(pdf_render::Color::TRANSPARENT)
+        .with_medium(pdf_render::Medium::NONE)
         .rasterize(&list, target)
         .expect("supported");
     (reports, raster)
@@ -134,7 +134,7 @@ fn draw_with(
     let list = pdf_model::content::interpret_with(document, page, view).display_list;
     let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
     CpuRasterizer::new()
-        .with_background(pdf_render::Color::TRANSPARENT)
+        .with_medium(pdf_render::Medium::NONE)
         .rasterize(&list, target)
         .expect("supported")
 }

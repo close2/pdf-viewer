@@ -93,7 +93,7 @@ fn render_at(bytes: Vec<u8>, scale: f32) -> pdf_render::Raster {
     // vacuous — which is how the first draft of these tests managed to pass while
     // checking nothing.
     CpuRasterizer::new()
-        .with_background(pdf_render::Color::TRANSPARENT)
+        .with_medium(pdf_render::Medium::NONE)
         .rasterize(&list, target)
         .expect("supported")
 }
@@ -1230,7 +1230,7 @@ fn a_window_of_a_magnified_page_draws_what_the_whole_page_has_there() {
 
     let draw = |target| {
         CpuRasterizer::new()
-            .with_background(pdf_render::Color::TRANSPARENT)
+            .with_medium(pdf_render::Medium::NONE)
             .rasterize(&list, target)
             .expect("supported")
     };

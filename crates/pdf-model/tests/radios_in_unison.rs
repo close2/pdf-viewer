@@ -176,7 +176,7 @@ fn inked(flags: u32) -> Vec<usize> {
     let list = pdf_model::content::interpret_with(&document, &page, &view).display_list;
     let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
     let raster = CpuRasterizer::new()
-        .with_background(pdf_render::Color::TRANSPARENT)
+        .with_medium(pdf_render::Medium::NONE)
         .rasterize(&list, target)
         .expect("supported");
     [FIRST, SECOND, THIRD]
