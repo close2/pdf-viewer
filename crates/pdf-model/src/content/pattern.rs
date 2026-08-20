@@ -654,7 +654,9 @@ impl Interpreter<'_> {
 
         // Taken after the box and the fold are settled, so that what every site copies is the
         // finished cell rather than the question.
-        let cell = pdf_render::Cell::drawn(&self.list, at);
+        // `clip` is the path's own, which bounds the whole tiling: it is what tells a clip the
+        // cell built from one that was already in force. See [`pdf_render::Cell`].
+        let cell = pdf_render::Cell::drawn(&self.list, at, clip);
         self.repeat_cell(
             &cell,
             tiling,

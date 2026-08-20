@@ -12,7 +12,7 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
-use pdf_syntax::{Dictionary, Document};
+use pdf_syntax::{Damage, Dictionary, Document};
 use skrifa::prelude::{LocationRef, Size};
 use skrifa::{FontRef, MetadataProvider};
 
@@ -84,33 +84,9 @@ pub(crate) fn embedded_program(
                 detail: format!("/{key} did not decode"),
             });
         };
-        // **A prefix of a font program is not a shorter font program**, which is the line
-        // ADR 0343 draws between this and a content stream. §7.8.2 makes a content stream "a
-        // sequence of instructions", so a prefix of one is a shorter sequence of the same kind
-        // and every instruction in it is the producer's own. A font program is a *structure*:
-        // §9.9's `/FontFile2` and `/FontFile3` hold a table directory whose offsets point
-        // forward, so a prefix is a directory describing bytes that are not there, and reading
-        // one produces glyphs the producer never wrote rather than fewer of the ones it did.
-        //
-        // The witness is `issue13316_reduced.pdf`, whose `/FontFile2` is corrupt: read as a
-        // whole program its 863 surviving bytes draw **A C E F** where the file's six CJK
-        // glyphs belong. Trap 5's own test decides it — the marks a refusal gives up here are
-        // substitutive rather than additive (ADR 0106), because the wrong glyphs stand *in
-        // place of* the right ones instead of beside them.
-        //
-        // `truncation` below is the same rule read off the structure, and kept: it catches a
-        // program whose stream decoded whole and whose directory still overruns it.
-        if let Some(damage) = decoded.damage {
-            return Err(FontError::Malformed {
-                name: name.to_owned(),
-                detail: format!(
-                    "/{key} decoded only as far as its damage ({damage:?}, {} bytes): a prefix \
-                     of a font program is a directory describing bytes that are not there",
-                    decoded.data.len()
-                ),
-            });
-        }
-        let data = decoded.data;
+        // `truncation` below is the structural half of [`whole_program`]'s rule, and kept: it
+        // catches a program whose stream decoded whole and whose directory still overruns it.
+        let data = whole_program(document, &stream.dict, &decoded, key, name)?;
 
         // `/FontFile3` holds either a full OpenType file or a *bare* CFF font program.
         // Its `/Subtype` says which — `Type1C` and `CIDFontType0C` for a bare CFF — but
@@ -203,16 +179,10 @@ pub(crate) fn embedded_program(
                 })?;
         // Type 1's own structure is a sequence of PostScript definitions rather than a table
         // directory, but its eexec-encrypted private portion is one blob with a checksum, so a
-        // prefix is no more readable than a truncated sfnt is. Same refusal, same reason.
-        if let Some(damage) = decoded.damage {
-            return Err(FontError::Malformed {
-                name: name.to_owned(),
-                detail: format!(
-                    "/FontFile decoded only as far as its damage ({damage:?}, {} bytes)",
-                    decoded.data.len()
-                ),
-            });
-        }
+        // prefix is no more readable than a truncated sfnt is. Same refusal, same reason — and
+        // the same exception, for the same clause: [`stated_extent`] adds this program's three
+        // sections up, and a decode that reaches their sum is not a prefix of anything.
+        let decoded_data = whole_program(document, &stream.dict, &decoded, "FontFile", name)?;
         // **The signature decides here too, and this door did not ask it.** This module's own
         // first paragraph says the reader is chosen "by the bytes' own signature rather than by
         // the key's spelling", and `/FontFile3` above asks; `/FontFile` assumed Type 1 from the
@@ -237,19 +207,127 @@ pub(crate) fn embedded_program(
         // Type 1's own formats cannot collide with it: a PFA begins `%!`, a PFB `80 01`, and
         // neither can begin `01 00`. So this reroutes a program that could not be read at all
         // and leaves every readable one where it was.
-        let program = if is_bare_cff(&decoded.data) {
+        let program = if is_bare_cff(&decoded_data) {
             Program::BareCff
         } else {
             Program::Type1
         };
         return Ok(Embedded {
-            data: decoded.data,
+            data: decoded_data,
             program,
         });
     }
     Err(FontError::NotEmbedded {
         name: name.to_owned(),
     })
+}
+
+/// The whole font program `decoded` carries, or the refusal a prefix of one earns.
+///
+/// **A prefix of a font program is not a shorter font program**, which is the line ADR 0343 draws
+/// between this and a content stream. §7.8.2 makes a content stream "a sequence of instructions",
+/// so a prefix of one is a shorter sequence of the same kind and every instruction in it is the
+/// producer's own. A font program is a *structure*: §9.9's `/FontFile2` and `/FontFile3` hold a
+/// table directory whose offsets point forward, so a prefix is a directory describing bytes that
+/// are not there, and reading one produces glyphs the producer never wrote rather than fewer of
+/// the ones it did.
+///
+/// The witness is `issue13316_reduced.pdf`, whose `/FontFile2` is corrupt: read as a whole program
+/// its 863 surviving bytes draw **A C E F** where the file's six CJK glyphs belong. Trap 5's own
+/// test decides it — the marks a refusal gives up here are substitutive rather than additive (ADR
+/// 0106), because the wrong glyphs stand *in place of* the right ones instead of beside them.
+///
+/// **Unless the bytes that arrived are the whole program**, which is a question the standard
+/// answers rather than one this code has to guess at: [`stated_extent`] has Table 125's sentence.
+/// A decode that reaches the length the file itself states has produced every byte of the program,
+/// and what stopped short is the *filter's* end-of-data marker, which is outside it. That is not a
+/// prefix, and the paragraph above does not reach it.
+///
+/// **Two conditions, and the second is not the length.** [`Damage::Truncated`] is the encoded data
+/// running out before the filter's end-of-data, and every byte it produced is what the producer's
+/// own compressor emitted from bytes the producer wrote — §7.4.1's "convert the information back
+/// to its original form", achieved as far as it goes. [`Damage::Corrupt`] is the input violating
+/// the filter's grammar at a definite point, past which nothing is the producer's; a program of
+/// the right *length* whose tail is not its own is the wrong-glyph failure ADR 0343 refuses, not a
+/// whole program. `issue13316_reduced.pdf` is why that is a condition rather than a remark: its
+/// `/FontFile2` decodes to **168 808 bytes, which is its `/Length1` exactly**, and draws
+/// **A C E F** where the file's six CJK glyphs belong.
+///
+/// # Errors
+///
+/// [`FontError::Malformed`] where the decode stopped short of the program the file states, where
+/// no clause states an extent, or where the damage is a corruption rather than a truncation.
+fn whole_program(
+    document: &Document,
+    dict: &Dictionary,
+    decoded: &pdf_syntax::Decoded,
+    key: &str,
+    name: &str,
+) -> Result<Arc<[u8]>, FontError> {
+    let Some(damage) = decoded.damage else {
+        return Ok(Arc::clone(&decoded.data));
+    };
+    let whole = (damage == Damage::Truncated)
+        .then(|| stated_extent(document, dict, key))
+        .flatten()
+        .and_then(|extent| decoded.data.get(..extent));
+    whole.map(Arc::from).ok_or_else(|| FontError::Malformed {
+        name: name.to_owned(),
+        detail: format!(
+            "/{key} decoded only as far as its damage ({damage:?}, {} bytes): a prefix of a font \
+             program is a directory describing bytes that are not there",
+            decoded.data.len()
+        ),
+    })
+}
+
+/// How many decoded bytes §9.9's Table 125 says this font program is, where it says at all.
+///
+/// The entry is the standard's own statement of an embedded program's extent, and it is stated
+/// in terms of the *decoded* bytes, which is what makes it usable here:
+///
+/// > Length1 | integer | ( Required for Type 1 and TrueType font programs ) The length in bytes
+/// > of the clear-text portion of the Type 1 font program, or the entire TrueType font program,
+/// > after it has been decoded using the filters specified by the stream's Filter entry, if any.
+///
+/// So `/FontFile2`'s extent is `/Length1` alone — "the entire TrueType font program" — while
+/// `/FontFile`'s is the sum of the three sections a Type 1 program has, `/Length2` being "the
+/// length in bytes of the encrypted portion" and `/Length3` "the length in bytes of the
+/// fixed-content portion". Where `/Length3` is zero the clause says the 512 zeros and the
+/// `cleartomark` are absent from the stream and are the reader's to add, so the sum is still the
+/// whole of what the stream carries.
+///
+/// **`/FontFile3` has no extent and gets `None` deliberately.** §9.9 says of a CFF program that
+/// the three lengths "are not needed in that case and shall not be present", so there is nothing
+/// to compare a short decode against and the caller's refusal stands.
+///
+/// This is ADR 0356's rule read one clause along: ask whether the standard states the thing's
+/// extent before asking whether a filter failed, because a decode that reached a stated extent
+/// is whole however it ended.
+fn stated_extent(document: &Document, dict: &Dictionary, key: &str) -> Option<usize> {
+    let length = |name: &str| {
+        usize::try_from(document.get_key(dict, name).as_integer().unwrap_or(0)).unwrap_or(0)
+    };
+    match key {
+        "FontFile2" => match length("Length1") {
+            0 => None,
+            stated => Some(stated),
+        },
+        // Table 125 makes `/Length1` and `/Length2` required of a Type 1 program and this asks
+        // for both, because a file that states only the first has described the clear-text
+        // header and said nothing about where the charstrings end — which is the prefix the
+        // caller is right to refuse. `/Length3` may legitimately be zero, by the clause's own
+        // sentence about the 512 zeros, so it is added rather than demanded.
+        "FontFile" => match (length("Length1"), length("Length2")) {
+            (0, _) | (_, 0) => None,
+            (clear, encrypted) => Some(
+                clear
+                    .saturating_add(encrypted)
+                    .saturating_add(length("Length3")),
+            ),
+        },
+        _ => None,
+    }
 }
 
 /// Returns `true` for a bare CFF font program.
@@ -358,14 +436,16 @@ fn units_per_em(data: &[u8], program: Program, name: &str) -> Result<f32, FontEr
 mod font_file_signature {
     use pdf_syntax::{Document, ObjectId};
 
-    use super::{Embedded, Program, embedded_program};
+    use super::{Embedded, FontError, Program, embedded_program};
 
     /// A two-object document: object 1 is a font descriptor whose `key` is object 2.
     ///
     /// Table 120 gives the descriptor three keys for a program and this module chooses its
     /// reader by the bytes rather than by the key, so which one the fixture writes is a variable
     /// rather than a constant.
-    fn descriptor_with(key: &[u8], program: &[u8]) -> Document {
+    /// `entries` is written into the stream dictionary beside its `/Length`, which is where
+    /// Table 125's `/Length1` and Table 5's `/Filter` go — the two the damage tests below vary.
+    fn descriptor_with(key: &[u8], entries: &str, program: &[u8]) -> Document {
         let mut out = Vec::from(*b"%PDF-1.7\n");
         let mut offsets = Vec::new();
 
@@ -376,7 +456,11 @@ mod font_file_signature {
 
         offsets.push(out.len());
         out.extend_from_slice(
-            format!("2 0 obj\n<< /Length {} >>\nstream\n", program.len()).as_bytes(),
+            format!(
+                "2 0 obj\n<< /Length {} {entries} >>\nstream\n",
+                program.len()
+            )
+            .as_bytes(),
         );
         out.extend_from_slice(program);
         out.extend_from_slice(b"\nendstream\nendobj\n");
@@ -397,7 +481,11 @@ mod font_file_signature {
     }
 
     fn embedded_of(key: &[u8], bytes: &[u8]) -> Embedded {
-        let document = descriptor_with(key, bytes);
+        try_embedded_of(key, "", bytes).expect("the descriptor embeds a program")
+    }
+
+    fn try_embedded_of(key: &[u8], entries: &str, bytes: &[u8]) -> Result<Embedded, FontError> {
+        let document = descriptor_with(key, entries, bytes);
         let descriptor = document
             .get(ObjectId {
                 number: 1,
@@ -406,7 +494,7 @@ mod font_file_signature {
             .as_dict()
             .expect("object 1 is the descriptor")
             .clone();
-        embedded_program(&document, &descriptor, "/F1").expect("the descriptor embeds a program")
+        embedded_program(&document, &descriptor, "/F1")
     }
 
     /// `/FontFile` names a Type 1 program in Table 120 and Table 124, and this module chooses a
@@ -505,5 +593,141 @@ mod font_file_signature {
         head[18..20].copy_from_slice(&1000u16.to_be_bytes());
         let wrapped = otto(&[(b"CFF ", cff), (b"cmap", &[0, 0, 0, 0]), (b"head", &head)]);
         assert_eq!(embedded_of(b"FontFile3", &wrapped).program, Program::Sfnt);
+    }
+
+    /// `data` as a zlib stream of one stored block, with or without RFC 1951's final-block bit.
+    ///
+    /// A stored block needs no compressor, which is why the fixture uses one: RFC 1951 section 3.2.4
+    /// gives it a header byte, a sixteen-bit length and its complement, and then the bytes
+    /// themselves. Written non-final and with no adler32 after it, the input runs out before any
+    /// block with `BFINAL` set — which is `Damage::Truncated` in this tree's words and is
+    /// byte-for-byte the shape `0669424.pdf` carries: every byte of the program present, the
+    /// filter's own end never written.
+    fn zlib_stored(data: &[u8], last: bool) -> Vec<u8> {
+        let length = u16::try_from(data.len()).expect("a fixture under 64 KiB");
+        // CMF 0x78: deflate with a 32 KiB window. FLG 0x01 makes the pair a multiple of 31.
+        let mut out = vec![0x78, 0x01, u8::from(last)];
+        out.extend_from_slice(&length.to_le_bytes());
+        out.extend_from_slice(&(!length).to_le_bytes());
+        out.extend_from_slice(data);
+        if last {
+            let (mut a, mut b) = (1u32, 0u32);
+            for byte in data {
+                a = a.saturating_add(u32::from(*byte)) % 65521;
+                b = b.saturating_add(a) % 65521;
+            }
+            out.extend_from_slice(&(b.saturating_mul(65536).saturating_add(a)).to_be_bytes());
+        }
+        out
+    }
+
+    /// A program whose `/Length1` the decode reaches is whole, however the filter ended.
+    ///
+    /// §9.9's Table 125 states the extent — "the entire TrueType font program, after it has been
+    /// decoded using the filters specified by the stream's Filter entry, if any" — so a decode
+    /// that produced that many bytes has produced every byte of the program. What stopped short
+    /// is RFC 1951's final block, which is the filter's framing and not the font's.
+    ///
+    /// `0669424.pdf` of the `SafeDocs` crawl is the witness (session 625): three `/FontFile2`
+    /// streams, each decoding to exactly its `/Length1` and each ending without a final block,
+    /// and 941 text operations refused for it while `poppler`, `mupdf` and `ghostscript` drew
+    /// the page.
+    #[test]
+    fn a_font_program_that_reaches_its_stated_length_survives_a_truncated_filter() {
+        let cff: &[u8] = include_bytes!("../../../data/standard-fonts/FoxitSerif.pfb");
+        let wrapped = otto(&[(b"CFF ", cff), (b"cmap", &[0, 0, 0, 0])]);
+        let entries = format!("/Filter /FlateDecode /Length1 {}", wrapped.len());
+
+        let whole = try_embedded_of(b"FontFile2", &entries, &zlib_stored(&wrapped, true))
+            .expect("an undamaged stream is read");
+        let damaged = try_embedded_of(b"FontFile2", &entries, &zlib_stored(&wrapped, false))
+            .expect("a stream that reached its /Length1 is read");
+        assert_eq!(damaged.program, whole.program);
+        assert_eq!(
+            &*damaged.data, &*whole.data,
+            "the same program comes out of both"
+        );
+    }
+
+    /// And the other side of it: bytes short of the stated extent are the prefix ADR 0343 refuses.
+    ///
+    /// The fixture is the same truncated stream under a `/Length1` one byte past what arrived,
+    /// which is the only difference between the two tests — so what is being pinned is the
+    /// comparison rather than the presence of the entry.
+    #[test]
+    fn a_font_program_short_of_its_stated_length_is_still_refused() {
+        let cff: &[u8] = include_bytes!("../../../data/standard-fonts/FoxitSerif.pfb");
+        let wrapped = otto(&[(b"CFF ", cff), (b"cmap", &[0, 0, 0, 0])]);
+        let entries = format!(
+            "/Filter /FlateDecode /Length1 {}",
+            wrapped.len().saturating_add(1)
+        );
+
+        let Err(FontError::Malformed { detail, .. }) =
+            try_embedded_of(b"FontFile2", &entries, &zlib_stored(&wrapped, false))
+        else {
+            panic!("a program short of its stated length is a prefix and is refused")
+        };
+        assert!(
+            detail.contains("decoded only as far as its damage"),
+            "unexpected refusal: {detail}"
+        );
+    }
+
+    /// A `/FontFile3` states no extent at all, so its refusal is unchanged.
+    ///
+    /// §9.9 says of a CFF program that `/Length1`, `/Length2` and `/Length3` "are not needed in
+    /// that case and shall not be present". Nothing states where such a program ends, so there
+    /// is nothing to compare a short decode against — which is why the exception is written as a
+    /// question about the *clause* rather than about the damage.
+    #[test]
+    fn a_compact_font_program_has_no_stated_extent_and_is_refused() {
+        let cff: &[u8] = include_bytes!("../../../data/standard-fonts/FoxitSerif.pfb");
+        let wrapped = otto(&[(b"CFF ", cff), (b"cmap", &[0, 0, 0, 0])]);
+        let entries = format!("/Filter /FlateDecode /Length1 {}", wrapped.len());
+        assert!(
+            try_embedded_of(b"FontFile3", &entries, &zlib_stored(&wrapped, false)).is_err(),
+            "no clause states a CFF program's length"
+        );
+    }
+
+    /// A program of the stated *length* whose bytes are not the producer's is still refused.
+    ///
+    /// The two damages are not two grades of the same thing. `Damage::Truncated` is the encoded
+    /// data running out before the filter's end-of-data, and every byte it produced is what the
+    /// producer's compressor emitted; `Damage::Corrupt` is the input violating RFC 1951's grammar
+    /// at a definite point, past which nothing is the producer's. Table 125 says how many decoded
+    /// bytes the program is and says nothing about whether they are the right ones, so the length
+    /// alone cannot separate the two.
+    ///
+    /// **And a length test alone would not have separated these two, on the corpus's own
+    /// witness.** `issue13316_reduced.pdf`'s `/FontFile2` decodes to 168 808 bytes with a corrupt
+    /// tail and its `/Length1` is 168 808, so it reaches its stated extent exactly — and read as a
+    /// whole program it draws **A C E F** where the file's six CJK glyphs belong, which is the
+    /// substitutive failure ADR 0343 exists to refuse. `tests/silent_fonts.rs` holds that page;
+    /// this is the same rule on a fixture, so the rule is pinned where the code is.
+    ///
+    /// The fixture puts the whole program in a stored block and follows it with a block header
+    /// whose type is RFC 1951's reserved `11`, so the decode produces every byte the length asks
+    /// for and *then* meets something the grammar does not admit. The refusal is asserted to name
+    /// `Corrupt`, which is what keeps the test from passing because the bytes ran out instead.
+    #[test]
+    fn a_corrupt_program_of_the_stated_length_is_refused() {
+        let cff: &[u8] = include_bytes!("../../../data/standard-fonts/FoxitSerif.pfb");
+        let wrapped = otto(&[(b"CFF ", cff), (b"cmap", &[0, 0, 0, 0])]);
+        let entries = format!("/Filter /FlateDecode /Length1 {}", wrapped.len());
+
+        let mut corrupt = zlib_stored(&wrapped, false);
+        corrupt.push(0b0000_0110);
+
+        let Err(FontError::Malformed { detail, .. }) =
+            try_embedded_of(b"FontFile2", &entries, &corrupt)
+        else {
+            panic!("a corrupt stream is not a whole program however long it is")
+        };
+        assert!(
+            detail.contains("Corrupt"),
+            "and it is refused for the corruption rather than for a shortfall: {detail}"
+        );
     }
 }
