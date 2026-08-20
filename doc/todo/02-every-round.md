@@ -43,7 +43,7 @@ at all. `tools/round.sh` says whether this is a fifth round.
 
 ```sh
 cargo fmt --all --check
-cargo clippy --workspace --all-targets      # must be silent of lints
+RUSTFLAGS="-D warnings" cargo clippy --workspace --all-targets   # `RUSTFLAGS` is not optional
 cargo nextest run --workspace
 cargo test --workspace --doc                # the one doctest nextest does not run
 cargo build --profile gates -p pdf-sandbox --bins   # trap 10: Cargo will not do this for you
@@ -60,9 +60,18 @@ cargo test  --profile gates -p render-quorra  --test corpus          -- --ignore
 cargo test -p conformance -- --nocapture
 ```
 
+**`RUSTFLAGS="-D warnings"` on the clippy line is not decoration**, and it is the same sentence
+`doc/verify.md` already writes over the cross-target checks: the workspace's lint levels are `warn`
+so that an ordinary build stays usable, and CI turns them into errors — so a lint run without it is
+a *weaker gate than the one that gates a push*, and `CLAUDE.md` principle 1's "warnings are errors
+in CI" was true of one machine only. A round that runs it without the flag can be silent here and
+red there, which is the shape of failure ADR 0450 was written about.
+
 `tools/state.sh` runs the same sequence and prints each gate's own summary lines; run that when
 what you want is the state, and run the list above when what you want is a gate to fail. Either
-way the numbers come off the run, never off a document.
+way the numbers come off the run, never off a document. **It runs neither of the first two lines**,
+and honestly so — its whole subject is figures, and a silent lint run has none — so a round that
+reaches for the script has not linted or checked formatting at all, and owes those two here.
 
 **This section owns the sequence, and nothing else states it.** `doc/HANDOVER.md` used to carry a
 second copy under "Verify it" and the two drifted — one said 1369 tests where the gate printed

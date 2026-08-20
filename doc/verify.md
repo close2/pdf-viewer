@@ -24,6 +24,13 @@ cargo deny check                           # from the workspace root: fuzz/ is i
 RUSTFLAGS="-D warnings" cargo check --target x86_64-pc-windows-msvc -p pdf-sandbox -p pdf-render -p viewer-confined --all-targets
 RUSTFLAGS="-D warnings" cargo check --target aarch64-apple-darwin  -p pdf-sandbox -p pdf-render -p viewer-confined --all-targets
 RUSTFLAGS="-D warnings" cargo check --target x86_64-pc-windows-msvc -p viewer-ui --all-targets
+RUSTFLAGS="-D warnings" cargo check --target aarch64-apple-darwin  -p viewer-ui --all-targets
+  # **This is the line that stands in for CI's `platforms` job**, and it is worth knowing what it
+  # reaches: `-p viewer-ui` drags `viewer-accessibility` in, whose `Bridge::new` takes a waker that
+  # only the Linux build has an adapter to give — and one unused parameter off Linux failed *both*
+  # platform jobs for five pushes while everything here was silent, because these two lines are
+  # nobody's core gate and nothing asked for them. The darwin one was added in the same round
+  # (ADR 0450); the Windows one alone would have caught it, and two say which platform.
   # `--all-targets` rather than `--bins` since the three-hundred-and-eighty-fourth: `DEFAULT_BACKEND`
   # is a `#[cfg(windows)]` constant and the test that states it is DX12 lives in the binary's own
   # `mod tests`, which `--bins` does not build. `-p viewer-ui` has no `criterion` in its dev tree,

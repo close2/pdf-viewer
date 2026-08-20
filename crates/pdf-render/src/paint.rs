@@ -1312,6 +1312,22 @@ mod resampling {
     /// two paths must be indistinguishable in their output — which is the whole argument for
     /// dividing it at all (ADR 0228). This straddles the floor at a size where the shape of
     /// the source is the same on both sides of it, so a difference could only be the split.
+    ///
+    /// **It declines to run under Miri, and the reason is a dependency's rather than this
+    /// tree's.** It is the only test in this crate that crosses `PARALLEL_FLOOR`, so it is the
+    /// only one that starts rayon's pool — and a `rayon` worker that goes looking for work pins
+    /// `crossbeam-epoch` 0.9.20, whose `Local::element_of` builds a `&Local` from a pointer
+    /// retagged over eight bytes and then reads three hundred and eighty-four through it.
+    /// Stacked Borrows rejects that ("trying to retag … but that tag does not exist in the borrow
+    /// stack for this location"), which is a provenance rule about *`crossbeam`'s* unsafe: no
+    /// line of this crate is on the stack at the point it fires, and the interpreter never
+    /// reaches the arithmetic the test is about. Miri is here to check the code that parses
+    /// untrusted input, and a job that fails inside a work-stealing deque checks nothing.
+    /// ADR 0450 has the argument for the declination living here rather than on CI's line.
+    #[cfg_attr(
+        miri,
+        ignore = "crossbeam-epoch's retag under rayon, not this tree's — see the doc comment"
+    )]
     #[test]
     fn the_divided_reduction_answers_what_the_serial_one_does() {
         let sample = |x: u32, y: u32, channel: u32| {

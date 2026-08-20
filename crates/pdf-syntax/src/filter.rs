@@ -1274,6 +1274,23 @@ fn run_length(data: &[u8], limits: Limits) -> Result<Decoded, FilterRefusal> {
     }
 }
 
+/// Three tests here decline to run under Miri, and each says so itself.
+///
+/// **The defect is `zlib-rs` 0.6.6's and not this tree's**: it deallocates through a pointer other
+/// than the one its allocation was made through, which *both* of Miri's aliasing models reject —
+/// Stacked Borrows with "deallocating while item is strongly protected", Tree Borrows with
+/// "deallocation through the root of the allocation is forbidden". `doc/todo/52` holds the
+/// reduction and the report owed upstream, and says what to delete when a fixed version lands.
+///
+/// **Why the declination is here rather than in the workflow.** It used to be `--skip flate` on
+/// CI's Miri line, and a name-substring filter turned out to be a poor instrument twice over: it
+/// silently took a *third* test with it — `an_inflate_never_buys_a_buffer_past_the_bound`, whose
+/// name contains `flate` inside `inflate` — while the note beside it said two; and it could only
+/// ever exclude what somebody had remembered to name in a file the test does not live in, which
+/// is how a second dependency's unsafe went unnoticed until it failed the job. A test that must
+/// not run under an interpreter declines *by itself*, for the same reason `doc/todo/02` §2 gives
+/// for a gate binary's: an invocation can be copied without its guard, and a test cannot be run
+/// without itself. ADR 0450.
 #[cfg(test)]
 mod tests {
     use super::{Dictionary, Limits, Object, Stopped, decode, inflate_buffer};
@@ -1451,6 +1468,10 @@ mod tests {
         assert_eq!(&*out, &[0, 0, 0, 0], "'z' stands for four zero bytes");
     }
 
+    #[cfg_attr(
+        miri,
+        ignore = "zlib-rs's deallocation, not this tree's — see the note above"
+    )]
     #[test]
     fn flate_round_trips() {
         use std::io::Write as _;
@@ -1463,6 +1484,10 @@ mod tests {
     }
 
     /// Streams missing the two-byte zlib header are common; the raw fallback handles them.
+    #[cfg_attr(
+        miri,
+        ignore = "zlib-rs's deallocation, not this tree's — see the note above"
+    )]
     #[test]
     fn flate_falls_back_to_raw_deflate() {
         use std::io::Write as _;
@@ -1486,6 +1511,10 @@ mod tests {
     /// the same refusal — which is why the defect survived the round that wrote the loop and the
     /// round that measured its output. Reading `capacity()` is the only instrument that sees it,
     /// and [`inflate_buffer`] exists to hand it over. ADR 0354.
+    #[cfg_attr(
+        miri,
+        ignore = "zlib-rs's deallocation, not this tree's — see the note above"
+    )]
     #[test]
     fn an_inflate_never_buys_a_buffer_past_the_bound() {
         use std::io::Write as _;

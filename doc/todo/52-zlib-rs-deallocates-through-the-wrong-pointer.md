@@ -1,10 +1,12 @@
 # `zlib-rs` deallocates through a pointer its allocation was not made through
 
-Status: **owed upstream**, and skipped in CI with the reason written beside the skip.
+Status: **owed upstream**, and declined by the tests themselves with the reason beside each.
 Priority: 52 — blocked on a dependency. Nothing in this tree can fix it.
 Corpus: — (every deflated stream runs this code; nothing has ever gone wrong at run time)
 Clauses: §7.4.4's `FlateDecode`, only as the caller.
-Code: `crates/pdf-syntax/src/filter.rs`, `.github/workflows/ci.yml`'s Miri step.
+Code: `crates/pdf-syntax/src/filter.rs` — `mod tests`' own doc comment and three
+`#[cfg_attr(miri, ignore)]`. **Not `.github/workflows/ci.yml` any more**, and the move is the
+correction below.
 
 ## What Miri says
 
@@ -22,8 +24,21 @@ Borrows the same line says "deallocation through <…> (root of the allocation) 
 forbidden", so **it is not an artefact of Stacked Borrows being the experimental model** — both
 aliasing disciplines reject it, which is the evidence worth putting in the report.
 
-Skipping the two tests whose names contain `flate` leaves 56 of `pdf-syntax`'s 58 running, all
-green.
+## The skip was a substring, and it was wrong in both directions
+
+This file used to say the CI line skipped "the two tests whose names contain `flate`". **It
+skipped three**: `an_inflate_never_buys_a_buffer_past_the_bound` contains `flate` inside `inflate`,
+so a test about a bomb's *buffer* — ADR 0354's, exactly the kind of arithmetic an interpreter is
+worth pointing at — was excluded by an accident of spelling that nobody could see from either end.
+It does drive `zlib-rs` and does have to decline; that it declined for no stated reason is the
+point.
+
+The other direction cost more. A name filter in a workflow can only ever exclude what somebody
+remembered to write there, and when a **second** dependency's unsafe appeared — `crossbeam-epoch`
+0.9.20, reached through `rayon` from `pdf-render`'s divided reduction — the Miri job simply began
+failing, and went on failing across five pushes with nothing on this machine able to say so. So
+each test that must not run under the interpreter now declines by itself, naming its dependency
+and its aliasing rule; the CI line carries no `--skip` at all. ADR 0450.
 
 ## Why it is here and not in `10`–`19`
 
@@ -43,7 +58,8 @@ for that reason above any other.
 2. **Check it against `zlib-rs` `main`** before reporting; 0.6.6 is what `Cargo.lock` pins and the
    allocator shim is exactly the kind of code that gets rewritten.
 3. **Report it** at <https://github.com/trifectatechfoundation/zlib-rs>, with both models' messages.
-4. **Un-skip the two tests** when a fixed version is released, and delete this file.
+4. **Take the three `#[cfg_attr(miri, ignore)]`s off** when a fixed version is released — and the
+   note above `mod tests` with them — then delete this file.
 
 ## What not to do
 

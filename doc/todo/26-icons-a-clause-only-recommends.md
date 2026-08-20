@@ -21,7 +21,7 @@ finding rather than the drawing:
   §12.5.6.4 describes `NewParagraph`, whose seven mandatory shapes had to be invented out of a
   typographer's convention. Drawn, in `icon.rs`'s unit square, and recorded as a choice under a
   recommendation.
-- §12.5.6.12's Table 186 names `Approved`, `Experimental`, `NotApproved`, `AsIs`, `Expired`,
+- §12.5.6.12's Table 184 names `Approved`, `Experimental`, `NotApproved`, `AsIs`, `Expired`,
   `NotForPublicRelease`, `Confidential`, `Final`, `Sold`, `Departmental`, `ForComment`,
   `TopSecret`, `Draft`, `ForPublicRelease`. **Legends rather than symbols.** Drawing one means
   choosing a typeface, a size, a border and a rotation, and what a reader would see is a *word this

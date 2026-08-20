@@ -7,9 +7,10 @@
 # about, which of `doc/todo/02` §2's gates that kind of change actually needs, and whether this
 # round owes the full sequence and §5's binaries. Then it checks the four things a round has
 # actually got wrong here — an uninitialised submodule, a build script baked against a checkout
-# that no longer exists, installed binaries older than `HEAD`, and an exported `CARGO_TARGET_DIR`.
+# that no longer exists, installed binaries older than `HEAD`, an exported `CARGO_TARGET_DIR`, and
+# a pipeline on `main` that has been failing since a push no round watched (ADR 0450).
 #
-# **It changes nothing.** Every command below reads: `ls`, `git`, `grep`, `test`. A round that
+# **It changes nothing.** Every command below reads: `ls`, `git`, `grep`, `test`, `gh`. A round that
 # wants something fixed fixes it itself, because a script that silently repaired the tree would
 # be the instrument altering what it measures.
 #
@@ -210,7 +211,38 @@ else
     pass "CARGO_TARGET_DIR is not exported"
 fi
 
-# 5. refs/stash lives in the common git directory, so every worktree shares one stack and a
+# 5. Whether the pipeline on `main` is green, which is the one gate this project runs and cannot
+#    see. Every round's gates are run in a worktree that branched before its neighbours' files
+#    existed, and the merge round pushes and moves on — so a push that fails CI is nobody's news.
+#    One did, for five runs and a week, on a Qt enumerator no machine here is old enough to lack
+#    (ADR 0450). This is where the next round finds out, because a round reads this file first.
+#
+#    A *report*, not a gate, and the distinction is trap 10's: this asks GitHub, so it depends on
+#    a network and a token and could not be a `✗` a round is obliged to clear. It says which of
+#    the three it is — green, red, or not asked — and a silence is never read as green.
+if command -v gh > /dev/null 2>&1; then
+    #    The token is a file beside the *main* worktree rather than inside the repository, which
+    #    is what keeps it out of every commit — so it is found through git's common directory and
+    #    never through a relative climb, a worktree being an arbitrary distance away.
+    token=${GH_TOKEN-}
+    if [ -z "$token" ]; then
+        common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
+        beside=$(dirname "${common:-.}")/github-token.txt
+        [ -r "$beside" ] && token=$(cat "$beside")
+    fi
+    run=$(GH_TOKEN="$token" gh run list --branch main --limit 1 \
+              --json conclusion,displayTitle,databaseId \
+              --jq '.[] | "\(.conclusion)\t\(.databaseId)\t\(.displayTitle)"' 2>/dev/null)
+    case ${run%%$'\t'*} in
+    success) pass "CI's last run on main passed — $(printf '%s' "$run" | cut -f2-3 | tr '\t' ' ')" ;;
+    '') printf '  ! CI was not asked (no token, or no network) — its state here is unknown, not green\n' ;;
+    *) fail "CI's last run on main is $(printf '%s' "$run" | cut -f1): gh run view $(printf '%s' "$run" | cut -f2) --log-failed" ;;
+    esac
+else
+    printf '  ! CI was not asked (no gh on PATH) — its state here is unknown, not green\n'
+fi
+
+# 6. refs/stash lives in the common git directory, so every worktree shares one stack and a
 #    parallel round will take yours. Not a failure — a thing to know before reaching for it.
 if [ -n "$(git stash list 2>/dev/null)" ]; then
     printf '  ! the shared stash is not empty, and it is shared between worktrees — do not pop it\n'

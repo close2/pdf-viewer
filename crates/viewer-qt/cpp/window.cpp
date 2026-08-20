@@ -22,6 +22,7 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
+#include <QPalette>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QRadioButton>
@@ -33,6 +34,7 @@
 #include <QToolBar>
 #include <QTreeView>
 #include <QVBoxLayout>
+#include <QtGlobal>
 
 namespace pdf_viewer_qt {
 namespace {
@@ -80,6 +82,39 @@ QPainterPath pathOf(const QtQuad& quad, qreal scale)
     path.lineTo(quad.x3 / scale, quad.y3 / scale);
     path.closeSubpath();
     return path;
+}
+
+/// The desktop's accent colour, and the name of the palette role it actually came from.
+struct Accented
+{
+    QColor colour;
+    QString role;
+};
+
+/// §12.5.1's focus ring, in whichever of two palette roles this Qt has.
+///
+/// **`QPalette::Accent` is Qt 6.6's, and a long-term distribution ships older.** Asking for the
+/// enumerator unconditionally is not a portable request but a version requirement, and this file
+/// made it silently: on Ubuntu's LTS — which is what CI's `qt6-base-dev` is — `window.cpp` did
+/// not compile at all, and the whole workspace's `clippy` and `test` failed behind it for weeks.
+/// So the floor this crate builds against is the Qt 6 that is actually installed, and the accent
+/// is asked for where the enumerator exists.
+///
+/// `Highlight` is what stands in, because it is the same idea one step less specific: it is the
+/// selection brush, which on most colour schemes *is* the accent, and it is a colour from the
+/// desktop rather than one invented here. What must not happen is the host reporting an accent it
+/// did not get — `doc/ui-boundary.md`'s argument for chrome crossing as geometry rests on that
+/// sentence being checkable — so the role's own name travels beside the colour and `MainWindow`
+/// prints whichever one this build asked for. ADR 0246, ADR 0450.
+Accented accentOf(const QPalette& colours)
+{
+#if QT_VERSION >= QT_VERSION_CHECK(6, 6, 0)
+    return {colours.color(QPalette::Accent), QStringLiteral("QPalette::Accent")};
+#else
+    return {colours.color(QPalette::Highlight),
+            QStringLiteral("QPalette::Highlight, this Qt being older than 6.6, which is where "
+                           "QPalette::Accent begins")};
+#endif
 }
 
 } // namespace
@@ -301,7 +336,8 @@ void ChromeOverlay::paintEvent(QPaintEvent*)
     // theme's foreground. `QPalette::Accent` has existed since Qt 6.6 and is the desktop's own —
     // KDE writes it from the colour scheme — and `QPalette::Highlight` is the selection brush
     // beside it. Both are asked for here, which is the argument for chrome crossing as geometry
-    // paying off rather than being defended. ADR 0246.
+    // paying off rather than being defended. ADR 0246. Which of the two a build older than Qt 6.6
+    // gets, and why it says so out loud, is `accentOf` above.
     const QPalette& colours = palette();
     painter.setPen(Qt::NoPen);
 
@@ -337,7 +373,7 @@ void ChromeOverlay::paintEvent(QPaintEvent*)
     // §12.5.1: an annotation with the input focus. What a focus ring looks like is the platform's,
     // which is why this crosses as one quadrilateral and not as pixels.
     painter.setBrush(Qt::NoBrush);
-    painter.setPen(QPen(colours.color(QPalette::Accent), 2.0));
+    painter.setPen(QPen(accentOf(colours).colour, 2.0));
     for (const QtQuad& quad : focus_) {
         painter.drawPath(pathOf(quad, scale_));
     }
@@ -506,10 +542,11 @@ MainWindow::MainWindow(rust::Box<Host> host)
     // desktop's own, and ADR 0244 had to record that GTK4 would part with neither.
     {
         const QPalette& colours = palette();
+        const Accented accent = accentOf(colours);
         const QString said = QStringLiteral("chrome in the platform's colours: selection %1 "
-                                            "(QPalette::Highlight), focus ring %2 (QPalette::Accent)")
+                                            "(QPalette::Highlight), focus ring %2 (%3)")
                                  .arg(colours.color(QPalette::Highlight).name(),
-                                      colours.color(QPalette::Accent).name());
+                                      accent.colour.name(), accent.role);
         const QByteArray utf8 = said.toUtf8();
         host_->note(rust::Str(utf8.constData(), static_cast<std::size_t>(utf8.size())));
     }

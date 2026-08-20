@@ -25,6 +25,26 @@ can and cannot open a window on, and where the build lands.
   the neighbour had pushed in between and `pop` takes `stash@{0}`. Both trees were wrong and
   neither said so.
 
+- **Name the worktree in every `git` command: `git -C /…/worktrees/rNNN …`.** A round's shell
+  working directory is not a guarantee. In the six-hundred-and-fourteenth session it moved, without
+  any `cd` to a worktree, from `r614` to **`r616` — a parallel round's tree** — and the next
+  `git commit --amend` landed on *their* branch, rewriting the commit `round-616` had just made.
+  Nothing was lost: the amend had nothing staged, so the tree, the parent, the message and the
+  author date were identical and only the committer timestamp and the SHA changed, and the original
+  is still in that worktree's reflog. But it could as easily have been an `--amend` with a diff.
+  **`pwd` before believing a `git` command, or better, do not depend on `pwd` at all** — every
+  command in a parallel round can carry `-C` and then no cwd can move under it.
+
+- **And do not `git add -A` here either, for a neighbouring reason.** A parallel worktree reaches
+  the submodules through *symlinks* into the main one, so `-A` sees six paths whose type disagrees
+  with the index and helpfully stages the disagreement: the gitlinks become 120000 blobs and the
+  commit ships a symlink where a submodule was. It is invisible in `git status --short` afterwards
+  and `git restore --staged` does not put it back. `cargo test -p conformance` catches it —
+  `every_declared_submodule_is_still_tracked_as_one` prints the six paths and the `update-index
+  --cacheinfo` loop that restores them — which is exactly what that gate is for, and the
+  six-hundred-and-fourteenth session is the round it caught. **Name the paths you mean**, or run
+  the gate before believing a commit.
+
   So **do not `git stash` here**. To take a before-and-after measurement, use a patch of your own:
   `git diff > x.patch`, `git apply -R x.patch`, measure, `git apply x.patch` — plus a copy of any
   *untracked* file, which `git diff` does not carry. If a stash has already gone wrong, the popped
@@ -152,6 +172,16 @@ as user `AI` via `sudo -u AI`, reaching `/home/cl/projects/pdf-viewer` through t
   hazard above likelier. And **it must not be allowed to make a measurement**: a round timing a
   build says which wrapper was in place, and a round measuring the program rather than the build is
   unaffected, because `sccache` touches compilation and nothing the binary does.
+
+  **A third, written down because it is what this wrapper is *not*: it has nothing to do with
+  `cargo miri` being slow here.** The six-hundred-and-fourteenth session spent an hour on a Miri
+  run, blamed `sccache`, and was wrong twice over. `cargo-miri` sets `RUSTC_WRAPPER` to **itself**
+  before invoking Cargo, so this machine's wrapper is never in front of the interpreter and
+  `RUSTC_WRAPPER= cargo +nightly miri test …` changes nothing; and with it "cleared" anyway,
+  `-p pdf-syntax` still ran past half an hour of CPU inside the *runner* phase — not compilation —
+  where `-p pdf-render` is 3 min 54 s end to end and CI does both crates in 2 min 39 s. **That
+  discrepancy is open** (ADR 0450). The lesson that generalises is the older one two bullets up: a
+  wrapper must not be allowed to make a measurement, and *neither must a hypothesis about one*.
 - **`cargo-fuzz` needs `+nightly`** explicitly; `rust-toolchain.toml` pins stable 1.97.1
   deliberately. `cargo-deny` is in the agent's `~/.cargo/bin` — **and so is `cargo-fuzz`, which is
   not on `PATH`**, so `which cargo-fuzz` answers nothing and `cargo fuzz` fails with "no such

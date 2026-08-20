@@ -4,6 +4,13 @@ on:
   push:
     branches: [main]
   pull_request:
+  # So that a branch can be put through these jobs *before* it is merged, without opening a pull
+  # request for it. A round works in a worktree off `main` and every gate it runs is a statement
+  # about that worktree, so the first time this file sees a round's work is the push that has
+  # already landed -- which is how five pushes in a row went red with nobody watching (ADR 0450).
+  # GitHub only offers this trigger for a workflow that is on the default branch, so it is a
+  # standing capability rather than something a red branch can reach for.
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -15,6 +22,12 @@ jobs:
   # Fast feedback: formatting and lints before anything expensive runs.
   check:
     runs-on: ubuntu-latest
+    # A ceiling, because the runner's own apt mirrors stalled for six hours on 2026-08-19 and
+    # GitHub's default is to let a job run until its six-hour maximum. Nothing here takes more
+    # than a small fraction of these numbers on a healthy runner, so a job that reaches one has
+    # hung rather than grown -- and a hang that ends in minutes is legible where one that ends at
+    # the platform ceiling looks like a platform problem. ADR 0450.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
         with:
@@ -46,6 +59,7 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 45  # see `check` above
     steps:
       - uses: actions/checkout@v5
         with:
@@ -108,6 +122,7 @@ jobs:
   # genuine test failure, and vice versa.
   deny:
     runs-on: ubuntu-latest
+    timeout-minutes: 15  # see `check` above
     steps:
       - uses: actions/checkout@v5
       - uses: EmbarkStudios/cargo-deny-action@v2
@@ -117,6 +132,7 @@ jobs:
   nightly:
     runs-on: ubuntu-latest
     continue-on-error: true # advisory until the parser exists and this earns its keep
+    timeout-minutes: 60  # see `check` above
     steps:
       - uses: actions/checkout@v5
         with:
@@ -132,16 +148,20 @@ jobs:
       # anything else that touches a driver. It is pointed at the pure-Rust crates,
       # which are precisely the ones that parse untrusted input.
       #
-      # `--skip flate` skips exactly two tests, and names a defect that is not this
-      # tree's: zlib-rs 0.6.6 deallocates through a pointer other than the one its
-      # allocation was made through, which BOTH aliasing models reject -- Stacked
-      # Borrows with "deallocating while item is strongly protected", Tree Borrows with
-      # "deallocation through the root of the allocation is forbidden". It is a
-      # dependency's unsafe, in a crate this project chose for being pure Rust at C
-      # speed, and Miri here exists to check this tree's code. doc/todo/52 holds the
-      # upstream report; the other 56 pdf-syntax tests and all 82 of pdf-render's run.
+      # No `--skip` here, and its absence is the decision. This line used to carry
+      # `-- --skip flate`, a name-substring filter standing in for "the tests that drive a
+      # dependency's unsafe" -- and it was wrong in both directions. It took a third test
+      # with it (`an_inflate_never_buys_a_buffer_past_the_bound` contains `flate` inside
+      # `inflate`) while the note beside it said two; and it could only exclude what
+      # somebody had thought to name here, so when a SECOND dependency's unsafe appeared --
+      # crossbeam-epoch, reached through rayon from pdf-render's divided reduction -- the
+      # job simply failed, for weeks, and this file could not say why.
+      #
+      # Each test that must not run under the interpreter now declines by itself, with the
+      # dependency and the aliasing rule named beside it: `filter.rs`'s `mod tests` for
+      # zlib-rs (doc/todo/52) and `paint.rs` for crossbeam-epoch. ADR 0450.
       - name: Miri on the pure-Rust core
-        run: cargo +nightly miri test -p pdf-render -p pdf-syntax --lib -- --skip flate
+        run: cargo +nightly miri test -p pdf-render -p pdf-syntax --lib
 
       # Building the fuzz targets every push is what stops them rotting: a target that no
       # longer compiles is discovered here rather than the next time someone wants to fuzz.
@@ -178,6 +198,7 @@ jobs:
             name: Windows
     runs-on: ${{ matrix.os }}
     name: build (${{ matrix.name }})
+    timeout-minutes: 45  # see `check` above
     steps:
       - uses: actions/checkout@v5
         with:

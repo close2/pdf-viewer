@@ -241,6 +241,14 @@ impl Bridge {
             // is `shortfall`, which says so in a sentence the host prints. The tree is still
             // built and still stored, so the half of this crate that maps §14.8.4 onto AccessKit
             // compiles and is tested here exactly as it is on Linux.
+            //
+            // `wake` is *dropped* rather than renamed to `_wake`, and the difference is the
+            // whole reason this line exists. The parameter stays in the signature on every
+            // platform so that a host writes one call, and dropping it here releases whatever
+            // it captured at the same point in `new` where the Linux build hands it to
+            // `Actions` — an underscore would say the argument is unused, where this says
+            // where it goes and when.
+            drop(wake);
             Self {
                 current,
                 asked,
