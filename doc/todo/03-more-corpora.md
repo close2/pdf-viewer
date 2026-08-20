@@ -946,12 +946,22 @@ was trusted, and reproduces them to the thousandth.
 - **Below +20 the positive head is 613's finding and not ours** — `poppler` alone drawing almost
   nothing — which is now a note in `doc/traps/oracle-and-references.md` and was read there instead
   of being derived again. That is what a trap entry is for.
-- **What the head still holds**: two silent rows below −8, both trap 9's family — one document
-  whose every image is `DCTDecode` under one `ICCBased` space, differing from three references by
-  a few levels over the whole page, and one of `/DeviceCMYK` JPEGs, which is 613's `6327765.pdf`
-  again. And a second document for `doc/todo/_image-codecs-and-the-sandbox.md` §7's `hayro-jbig2`
-  release: once its `/Mask` was admitted, `3375154.pdf` reaches the same flat 10 000-instance cap
-  `1653119.pdf` did.
+- **What the head still held, and what the six-hundred-and-twenty-first session found there**: two
+  silent rows below −8, called trap 9's family on sight. **One of the two was, and one was not, and
+  the one that was not was a defect of this tree.** `6696954.pdf` is trap 9 exactly — a probe page
+  of colour patches through the document's own embedded CMYK profile has `poppler`, `mupdf` and
+  `ghostscript` agreeing to four levels because all three are Little CMS at its default
+  *perceptual* intent, while Table 51, §8.6.5.8 and §11.4.7 each say the default is
+  RelativeColorimetric; the page stays contradicted with the evidence beside it. `5589519.pdf`,
+  filed as "`/DeviceCMYK` JPEGs" and so as 613's `6327765.pdf` again, is **not** that: a probe of
+  plain `DeviceCMYK` patches puts this tree and `poppler` on the same values, `hayro` agrees with
+  the other three about the page, and the disagreement is one shading pattern inside a soft mask
+  landing in the page's default space instead of the mask's (§8.7.2, ADR 0456). −8.212 → +0.713.
+  **A diagnosis written from a document's dictionary rather than from a measurement is a guess**,
+  and the cost of this one was a silent defect carried for six rounds.
+- **And `doc/todo/_image-codecs-and-the-sandbox.md` §7's `hayro-jbig2` bound is gone**, taken as
+  the commit because no release carries it: `1653119.pdf` −35.695 → +0.012, `3375154.pdf`
+  −16.417 → +0.032, `3252105.pdf` −6.390 → −0.215.
 
 **What this chunk leaves: 51 944 crawled documents unranked**, in archive-sized pieces. Three
 rounds running, the crawl's head has been a defect no curated corpus states — and this is the

@@ -38,6 +38,25 @@ evidence. Four ways for that to fail.
   with each other to under a level, because they run the same ICC profile. What settled it was
   *this tree's own* A2B evaluator pointed at `default_cmyk.icc`. **When two references agree
   suspiciously closely, ask what data they are both reading, and evaluate it yourself.** ADR 0048.
+- **A shared *default*, which is neither of the two above and needed a third instrument.** On a page
+  whose images run through a profile the *document* embeds, all three references sit within four
+  levels of each other and up to twenty from us — and the data is not shared, because it came out of
+  the file. What is shared is the engine and the argument it is called with: `objdump -p` says
+  `libpoppler` and `libgs` link the same `liblcms2.so.2` and `libmupdf` defines 445 `lcms2mt_*`
+  symbols of Artifex's fork, so **on an `ICCBased` page the three voting references are one colour
+  library**, and `INTENT_PERCEPTUAL` is 0, which is what a caller passing nothing passes. Pointing
+  this tree's own evaluator at the profile's `A2B0` reproduced `poppler` byte for byte where its
+  `A2B1` is twenty levels away; ISO 32000-2 says RelativeColorimetric three times (Table 51,
+  §8.6.5.8, §11.4.7) and `A2B1` is that table. **The instrument worth copying is the probe**: a
+  four-object PDF holding nothing but colour patches in the space under test, rendered by all four
+  programs, so the answer is a number per colour instead of a page. ADR 0456.
+- **And the sentence "this is trap 9's family" is a hypothesis, not a diagnosis.** Two crawled pages
+  were filed under this trap from their *dictionaries* — one all `DCTDecode` under one `ICCBased`
+  space, one all `/DeviceCMYK` JPEGs — and six rounds later the second turned out to be a silent
+  defect of this tree that the probe above cleared in one run: on plain `DeviceCMYK` patches we and
+  `poppler` agree exactly, so whatever the page was, it was not the conversion. **What a page's
+  objects are is evidence about where to look and never about who is right**; the trap costs a round
+  when it is used as an explanation. ADR 0456.
 - **Shared code, wider than `jbig2dec` — and wider than this entry said.** `objdump -p | grep
   NEEDED`, which is what a binary asks for rather than `ldd`'s transitive closure: all three link
   the same `libjpeg.so.8` and the same `libopenjp2.so.7`, so **on a JPEG or JPEG 2000 page the

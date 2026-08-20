@@ -162,25 +162,34 @@ what the gate would answer.
 `hayro-jpeg2000` 0.4.0 is the latest published version as of this session, so there is no upstream
 fix waiting to be picked up.
 
-**There is one for JBIG2, and it is a release to take rather than work to do.** `hayro-jbig2`
-0.3.0 — what this tree depends on — caps a text region at a flat 10 000 symbol instances, with the
-comment "[a]rbitrarily chosen, but we need some limit to prevent timeouts". A full page of text has
-more than that: the crawl's `1653119.pdf` is a 4256×6258 scan whose one text region declares
-**13 264** instances, and this tree drew it as a blank sheet where `poppler`, `mupdf` and
-`ghostscript` each drew the page (session 613, ADR 0448). **Upstream replaced the cap** with
-pdfium's heuristic — `segment_data_len × 32`, which admits 852 096 here — in `hayro-jbig2: Use
-heuristic for maximum symbol instances (#1278)`, and the published version predates it. So the item
-is: take the next `hayro-jbig2` release, and check that document. A bound belonging to a decoder is
-still a bound this program's pages pay, which is `doc/todo/10`'s subject one crate out.
+**There was one for JBIG2, and the six-hundred-and-twenty-first session took it — as the commit,
+because there is still no release.** `hayro-jbig2` 0.3.0 caps a text region at a flat 10 000 symbol
+instances, with the comment "[a]rbitrarily chosen, but we need some limit to prevent timeouts". A
+full page of text has more than that: the crawl's `1653119.pdf` is a 4256×6258 scan whose one text
+region declares **13 264** instances, and this tree drew it as a blank sheet where `poppler`,
+`mupdf` and `ghostscript` each drew the page (session 613, ADR 0448). Two more arrived from behind a
+bound of our own — `3375154.pdf`, a scan whose `/Mask` is a 9364×13030 `JBIG2Decode` stencil, and
+`3252105.pdf`, a book cover whose foreground layer is another; until session 615 both were refused
+for the size of the grid the mask and its image would be combined on, so the JBIG2 was never
+reached (ADR 0451).
 
-**There are two more documents now, and both arrived from behind a bound of our own.** The
-crawl's `3375154.pdf` is a scan whose `/Mask` is a 9364×13030 `JBIG2Decode` stencil, and
-`3252105.pdf` — in session 613's own archives — is a book cover whose foreground layer is another;
-until session 615 both were refused for the size of the grid the mask and its image would be
-combined on, so the JBIG2 was never reached and the pages came out as an unmasked colour layer.
-With that ceiling corrected (ADR 0451) each stencil decodes as far as the same flat cap, and the
-two pages are short of three references by 16 and 6 of 255. **Three documents of 14 000 crawled
-ones wait on one release**, which is what makes this an item rather than a note.
+**Upstream replaced the cap** with pdfium's heuristic — `segment_data_len × 32`, which admits
+852 096 on the first of them — in `hayro-jbig2: Use heuristic for maximum symbol instances (#1278)`,
+`1be7ab10`. `cargo search` still answers 0.3.0, so the release never came; `Cargo.toml` takes the
+commit instead, and the commit it takes is the one the JPEG 2000 fork was already pinned to. What
+the three documents do now is in ADR 0456, and it is the whole of what the bound was costing: three
+blank-or-short pages become three pages within a third of a level of the references. `hayro-ccitt`
+moved with it, because `hayro-jbig2` reaches MMR through it and two copies of one crate from two
+sources is a version nobody chose; that crate's `Decoder` trait changed shape upstream in the same
+window (#1304 folded `push_pixel` and `push_pixel_chunk` into one `push_pixels`), so
+`pdf-sandbox`'s packer counts pixels for both filters now instead of eight-pixel chunks for one.
+**Nothing on the curated corpus moved**: the 125 pdf.js documents naming any of the three codecs
+rasterise byte-identically before and after, which is what says the release is about the crawl.
+
+**A bound belonging to a decoder is still a bound this program's pages pay**, which is
+`doc/todo/10`'s subject one crate out, and it is the reason this stays written down after the
+item is closed. **The next one is `hayro-ccitt` and `hayro-jbig2` going back to crates.io**, which
+is a release to wait for rather than work to do.
 
 ## 8. What this means for the platform question
 

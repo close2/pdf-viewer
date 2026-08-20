@@ -236,7 +236,19 @@ zune-png = "0.5.2"
 # project does not own, so a disagreement with ITU-T T.88 or T.800 is an issue to report
 # rather than a defect to fix. Against that, they are 19 400 lines of the most error-prone
 # code in the format, already validated against corpora far larger than this one.
-hayro-jbig2 = { version = "0.3.0", default-features = false, features = ["std"] }
+# **Pinned to the same git revision as `hayro-jpeg2000` below, and for a bound rather than a
+# defect.** 0.3.0 refuses a §7.4.7 text region declaring more than a flat 10 000 symbol
+# instances — "[a]rbitrarily chosen, but we need some limit to prevent timeouts" — and a full
+# page of scanned text has more: three crawled documents state 13 264, 22 043 and 4 794
+# instances and three of them drew short or blank here. Upstream replaced the constant with
+# pdfium's heuristic, `segment_data_len × 32`, in `1be7ab10` (#1278), which is a bound
+# proportional to the bytes the segment actually carries and so cannot refuse a region a small
+# segment could not have encoded. No release carries it — 0.3.0 is still the newest on
+# crates.io — so this takes the commit, which `64efcaca` already contains.
+#
+# `hayro-ccitt` moves with it, because `hayro-jbig2` reaches MMR through it and two copies of
+# one crate from two sources is a version nobody chose.
+hayro-jbig2 = { git = "https://github.com/close2/hayro", rev = "64efcaca54cdc71cf8a1cd3bfd2333b1ce85cda2", version = "0.3.0", default-features = false, features = ["std"] }
 # **Pinned to a git revision of a fork, and that is a departure with an expiry date.** Two
 # defects, one clause. ISO/IEC 15444-1 E-6 reconstructs a nonzero coefficient at
 # `r * 2 ^ (Mb - Nb)` above its decoded magnitude: 0.4.0 applied none of that term, and
@@ -352,7 +364,12 @@ getrandom = "0.4.3"
 # is untrue here, and what decides it is instead that a decoder already compiled into this
 # binary and exercised by every MMR-coded JBIG2 region has been tested by more documents
 # than a fresh one would be.
-hayro-ccitt = { version = "0.3.0", default-features = false }
+#
+# **Pinned to the same git revision as `hayro-jbig2`**, and only because that crate is: the
+# two are one dependency here, `hayro-jbig2` names `hayro-ccitt` by path inside its own
+# workspace, and a crates.io `hayro-ccitt` beside a git one would be two crates with one name
+# compiled into one binary. Nothing about `CCITTFaxDecode` asked for the move.
+hayro-ccitt = { git = "https://github.com/close2/hayro", rev = "64efcaca54cdc71cf8a1cd3bfd2333b1ce85cda2", version = "0.3.0", default-features = false }
 
 # The whole `hayro` renderer, used by `tools/hayro-compare` and by nothing else. It is the
 # only other feature-complete pure-Rust PDF rasteriser, which makes it two things this
