@@ -131,7 +131,7 @@ struct Job {
     /// **A list since ADR 0442**, because `OneColumn` puts several pages in one window. Owned by
     /// the `Arc`s for the reason the whole job is owned — it crosses a thread — and each page's
     /// placement travels with it because it is that page's and nothing here can recompute one.
-    pages: Vec<(Arc<DisplayList>, TargetSpec)>,
+    pages: Vec<crate::stale::Placed>,
     /// The chrome, in window pixels.
     overlays: Vec<DisplayList>,
     /// Which coverage lane this frame's magnification asks for (`crate::surface::coverage_for`).
@@ -144,7 +144,7 @@ struct Job {
 #[derive(Debug)]
 struct Done {
     textures: Pair,
-    pages: Vec<(Arc<DisplayList>, TargetSpec)>,
+    pages: Vec<crate::stale::Placed>,
     cost: FrameCost,
     /// What the device refused, where the processor then drew the page instead. A note the host
     /// prints once per occurrence, as it always has.
@@ -201,7 +201,7 @@ impl Drop for Link {
 pub(crate) struct Shown {
     textures: Pair,
     /// The pages it draws and where each was placed — empty for a window showing no page.
-    pub(crate) pages: Vec<(Arc<DisplayList>, TargetSpec)>,
+    pub(crate) pages: Vec<crate::stale::Placed>,
 }
 
 /// What one adopted frame tells the host about itself.
@@ -212,7 +212,7 @@ pub(crate) struct Shown {
 #[derive(Debug)]
 pub(crate) struct Landed {
     /// The pages it drew and where, for [`crate::stale`] to record as the view now settled.
-    pub(crate) pages: Vec<(Arc<DisplayList>, TargetSpec)>,
+    pub(crate) pages: Vec<crate::stale::Placed>,
     /// What the whole frame cost on the render thread, in the parts quorra measures it in.
     pub(crate) cost: FrameCost,
     /// How long the event thread waited for it — which is what rule 5 predicts the next one by.
@@ -435,7 +435,7 @@ impl Window {
     /// would be a queue of answers to questions nobody is still asking.
     pub(crate) fn ask(
         &mut self,
-        pages: Vec<(Arc<DisplayList>, TargetSpec)>,
+        pages: Vec<crate::stale::Placed>,
         overlays: Vec<DisplayList>,
         coverage: quorra_gpu::Coverage,
         now: Instant,
@@ -476,10 +476,7 @@ impl Window {
 
     /// Where each retained page goes so that it depicts this arrangement — [`crate::stale`]'s
     /// answer, asked here because the store lives here.
-    pub(crate) fn underlay(
-        &self,
-        pages: &[(Arc<DisplayList>, TargetSpec)],
-    ) -> Vec<(usize, Transform)> {
+    pub(crate) fn underlay(&self, pages: &[crate::stale::Placed]) -> Vec<(usize, Transform)> {
         self.proxies.placements(pages)
     }
 
@@ -605,7 +602,7 @@ fn draw_until_told_to_stop(
     let mut proxies: crate::stale::Proxies<Arc<wgpu::Texture>> =
         crate::stale::Proxies::new(proxy_pages);
     // What the last frame drew, which is the only set of pages this thread has display lists for.
-    let mut showing: Vec<(Arc<DisplayList>, TargetSpec)> = Vec::new();
+    let mut showing: Vec<crate::stale::Placed> = Vec::new();
     // The chrome lane needs a target of its own even where there is no chrome, so one scratch
     // texture is kept for whatever size the proxies are and remade when a page of another shape
     // arrives. One allocation per page shape rather than one per proxy.
@@ -637,7 +634,7 @@ fn draw_until_told_to_stop(
             // Kept here as well as sent, because this thread is the one that decides what to draw
             // next and a store that forgot would draw the same page for ever.
             proxies.keep(crate::stale::Retained {
-                page: Arc::clone(&retained.page),
+                of: retained.of,
                 target: retained.target,
                 pixels: Arc::clone(&retained.pixels),
             });
@@ -663,10 +660,10 @@ fn draw_until_told_to_stop(
 /// than once per turn round the loop.
 fn draw_whole_page(
     renderer: &mut QuorraWindowRenderer,
-    page: &Arc<DisplayList>,
+    page: &crate::stale::Placed,
     scratch: &mut Option<(u32, u32, wgpu::Texture)>,
 ) -> Option<crate::stale::Retained<Arc<wgpu::Texture>>> {
-    let target = crate::stale::proxy_target(page)?;
+    let target = crate::stale::proxy_target(&page.list)?;
     let (width, height) = (target.width, target.height);
     // A whole page at a few hundred pixels is far below the magnification at which quorra's GPU
     // coverage lane is the cheaper one, whatever the window is showing (`crate::surface`), so the
@@ -685,7 +682,7 @@ fn draw_whole_page(
         _ => renderer.layer_texture("a retained page's unused chrome", width, height),
     };
     let texture = renderer.layer_texture("a retained page", width, height);
-    let placed = [(page, target)];
+    let placed = [(&page.list, target)];
     let drawn = renderer.render(
         PresentFrame {
             width,
@@ -702,7 +699,7 @@ fn draw_whole_page(
     *scratch = Some((width, height, chrome));
     drawn.ok()?;
     Some(crate::stale::Retained {
-        page: Arc::clone(page),
+        of: page.of,
         target,
         pixels: Arc::new(texture),
     })
@@ -725,8 +722,10 @@ fn draw(renderer: &mut QuorraWindowRenderer, job: Job) -> Done {
     // thread that knows it (`crate::surface::coverage_for`) and carried here.
     renderer.set_coverage(coverage);
     let borrowed: Vec<&DisplayList> = overlays.iter().collect();
-    let placed: Vec<(&Arc<DisplayList>, TargetSpec)> =
-        pages.iter().map(|(list, target)| (list, *target)).collect();
+    let placed: Vec<(&Arc<DisplayList>, TargetSpec)> = pages
+        .iter()
+        .map(|placed| (&placed.list, placed.target))
+        .collect();
     let into = WindowTextures {
         page: &textures.page,
         chrome: &textures.chrome,
@@ -750,7 +749,7 @@ fn draw(renderer: &mut QuorraWindowRenderer, job: Job) -> Done {
         fell_back = Some(problem.to_string());
         let borrowed_pages: Vec<(&DisplayList, TargetSpec)> = pages
             .iter()
-            .map(|(list, target)| (list.as_ref(), *target))
+            .map(|placed| (placed.list.as_ref(), placed.target))
             .collect();
         let drawn = if borrowed_pages.is_empty() {
             Err("there is no page to draw on the processor".to_owned())

@@ -1,9 +1,9 @@
 # A frame that says it is stale — the one window it does not cover yet
 
-Status: **built for the window with a graphics device** (ADR 0378, extended by ADR 0383, rule 5
-corrected by ADR 0384, the base's lifetime by ADR 0385, and **the retained low-resolution page by
-ADR 0443**, each after the owner found it did not fire on a real one), which is every run without
-`--cpu`. A view change whose last frame was slow
+Status: **built for both windows** (ADR 0378, extended by ADR 0383, rule 5 corrected by ADR 0384,
+the base's lifetime by ADR 0385, the retained low-resolution page by ADR 0443, and **the processor's
+window and the identity of a page's picture by ADR 0457**), each after the owner found it did not
+fire on a real one. A view change whose last frame was slow
 now shows the pixels already on the screen, moved to where the new view puts them, and the real
 frame replaces it — the frame line says `approximated`, the summary counts them **and counts what
 was refused**, and `crates/viewer-ui/src/bin/pdf-viewer/stale.rs` carries the five rules with the
@@ -116,42 +116,57 @@ ADR 0378.
 
 ## What is left
 
-**The base's comparison is no longer on this list** — the six-hundred-and-ninth session took it, and
-the two items below with the identity above them are what remains.
+**Both of the items this section carried are taken** — the processor's window and the identity of a
+page's picture, in the six-hundred-and-twenty-second session (ADR 0457), after the base's comparison
+went in the six-hundred-and-ninth. What remains is the two open questions at the foot of this
+section, neither of which is a defect.
 
-**The processor's window**: `--cpu`, and a machine whose graphics device would not come up. There
-is no retained encode to replay there, so the device path's mechanism does not apply — the attempt
-is made once, refused, and never repeated, which is why nothing on that path is wrong today, only
-absent.
+**The processor's window has a stand-in since the six-hundred-and-twenty-second session** (ADR
+0457), and what it needed was the resample and rule 4 back — the sections below are kept because
+their *argument* is what the code rests on, and what running it corrected is here.
 
-It is a **smaller** piece of work than the device path was, and for a reason worth writing down:
-`viewer_ui::software::SoftwareSurface` presents a raster the processor produced, so the host
-already **has** the pixels of the frame on the screen. There is no capture to arrange and no
-readback to price. What it needs is a resample of one window of RGBA under the same
-`new ∘ old⁻¹` affine — on the processor, where every other pixel of that path is already produced —
-and the same policy object deciding when.
+- **The shape is not the device path's shape and could not be.** There is no other thread there, so
+  the stand-in is drawn **in front of** the frame it stands in for rather than beside it: one call
+  resamples, presents, and then draws the true frame and presents that, before it returns. Rule 1 is
+  therefore met *sooner* than a clock could meet it — `MustFollow::drawn_in_the_same_frame` is the
+  discharge — and the alternative, standing in on one tick and rendering on the next, would have
+  needed a second mechanism to stop the loop standing in for ever.
+- **Rule 4 is back for that surface and only that surface**, which is the argument this file said
+  the round would owe: the premise ADR 0391 deleted it under is genuinely reintroduced, so the rule
+  returns in ADR 0384's form — `resample + period ≤ frame`, unmeasured permits, no constant.
+  `crate::stale::Standing` is what asks it of one arrangement and not the other, and the device path
+  gains no gate.
+- **The cost is the machine's and is not written down here.** `Stale::resampling` holds whatever the
+  run measured and the frame line prints the resample and the copy apart, so the next round
+  re-measures without instrumenting anything. What *is* written down, in `bilinear`'s own doc
+  comment, is the one optimisation that showed a number — `f32::floor` and `f32::round` are `libm`
+  calls on this target, six a pixel — and the one that did not and was therefore rejected.
+- **The retained low-resolution pages are still device-only**, because they are drawn by a render
+  thread that is idle and this window has none. So a page turn under `--cpu` is still
+  `Refusal::AnotherPage`, said out loud. Giving that surface the second layer means giving it a
+  render thread, which is `doc/todo/36`'s work done again for the other window and is what is left
+  of this item.
+- ~~**Its refusal already says which kind it is** … a round that builds this path deletes both
+  lines.~~ Both were deleted before this round reached them, for two different reasons: ADR 0391
+  removed `Refusal::NoDevice`, and this session removed the state it described.
 
-Three things bind it, and none of them is new:
+**The identity of a page's picture is decided** (ADR 0457), which is the second thing this section
+owed. It is `(document, page, ink)` — `crate::stale::Picture` — and not the address of the
+`Arc<DisplayList>`: a page returned to is interpreted again and arrives as a new address over the
+same commands, which is what made every `SinglePage` page turn print `another page — nothing to
+show`. `viewer_core::RenderRequest::ink` is where the third of the three comes from, because
+`Open::stale` is already the one place that decides what a change to the ink *is*. A picture of
+superseded ink is dropped rather than kept, and the reason is the one that makes this a decision
+rather than a key change: blur says *approximation* by itself, and a §8.11 layer switched off going
+on being drawn sharp says nothing and asserts something false. The memory bound is unchanged —
+`PROXY_PAGES` × `PROXY_EDGE` — and the same bytes now buy more.
 
-- **The five rules are the same five**, and they are already enforced by `Stale` and by
-  `MustFollow`; what a processor path adds is a second producer of pixels, not a second policy.
-- **Rule 2 is still structural**: the resample belongs in `stale.rs`, a private module of the
-  binary, and not in `viewer_ui::software`, which is a *library* and is what
-  `viewer-confined`'s worker and the software-surface tests link to.
-- **Rule 4 needs its own measurement.** A processor-side resample of 800×1000 is not free, and the
-  check is what it actually costs plus a refresh, rather than what the device path measured.
-  `Stale::affordable` already takes whatever the run measures, so the code needs nothing; the round
-  that builds it owes the number. **Rule 5 needs nothing from it at all** — a miss is a miss on any
-  surface, which is one thing ADR 0384's re-grounding bought that was not the point of it.
-- **And the base is already the right shape for it** — more so since ADR 0385, which moved it out
-  of `Settled` and gave it the page and placement it is a picture of. A software surface has those
-  pixels without a readback at all, so what a processor path adds is `Base::of` being fed from
-  `SoftwareSurface` rather than from a capture. The composition, the re-basing, the refusal
-  vocabulary and the clock are all shared and none of them knows which surface it is on.
-- **Its refusal already says which kind it is**, and it is the one `Refusal::NoDevice` names: today
-  the processor's window declines once, says *impossible*, and every view change after it says that
-  no pixels are held and none can be read back. A round that builds this path deletes both lines
-  rather than adding one.
+**What is still open here**, and neither is a defect:
+
+- **A render thread for the processor's window**, which would give it the retained pages and would
+  make rule 4 a question again rather than an answer.
+- **A placement per page in the presenter**, which is what would remove `Refusal::Rearranged` rather
+  than bound it — see the section on Table 29's column above. Nobody has asked for it.
 
 ## What is deliberately not here
 
@@ -174,14 +189,13 @@ claims have been corrected by running it and the corrections are here.
   the outgoing one, so the base carries — and what the retained layer adds there is *the other page
   of the pair*, which used to vanish for the length of the render. The frame line says which:
   `approximated, over a retained page`.
-- **The `SinglePage` page turn is still not answered, and the reason is the identity.** A retained
-  picture is keyed by the `Arc<DisplayList>` it was drawn from, and `viewer_core::open` keeps "one
-  entry rather than a cache of them" — so a page turn drops the outgoing page's interpretation and
-  returning to it produces a new `Arc` with no picture held. Every such turn prints `another page —
-  nothing to show`. **What is owed is a decision rather than a mechanism**: whether a stand-in may
-  be a picture of a *superseded* interpretation of the same page. That is a different kind of wrong
-  from blur — a layer toggled off would still be drawn for one frame — and it needs the argument
-  rule 2's siblings all got, not a key changed in passing.
+- ~~**The `SinglePage` page turn is still not answered, and the reason is the identity.**~~ **Taken
+  in the six-hundred-and-twenty-second session** (ADR 0457), in the order this entry asked for: the
+  decision first — a picture is of `(document, page, ink)` and a superseded *interpretation* is the
+  same picture where a superseded *ink* is not — and the key second. The distinction this entry drew
+  is the one the decision turns on and it was drawn the right way round: a layer toggled off going
+  on being drawn is a different kind of wrong from blur, so ink is part of the identity and the
+  address is not.
 - **The scale was free in time and the file's illustration was the wrong axis.** "An eighth of
   device scale" assumed the cost was pixels; it is the display-list walk, flat over a sixty-fourfold
   range of raster sizes. What binds is memory, and the second thing the ladder showed: a proxy scale

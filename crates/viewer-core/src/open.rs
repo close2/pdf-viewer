@@ -101,6 +101,14 @@ pub(crate) struct Open {
     /// *at the same page and the same target*, and without this the scheduler would see a frame
     /// that matched and leave the old picture on the screen.
     pub(crate) revision: u64,
+    /// How many times this document's ink has changed — [`crate::RenderRequest::ink`].
+    ///
+    /// **Not [`Self::revision`], and the difference is the whole of what it is for.** That one
+    /// counts *interpretations*, so it moves when a page is interpreted again after leaving the
+    /// arrangement and coming back — the same commands, a new number. This one moves only when
+    /// [`Self::stale`] says the ink is no longer what it was, which is the one place that decides
+    /// it. Two interpretations under the same value of this are the same picture of the same page.
+    pub(crate) ink: u64,
     /// Every page Table 29's arrangement puts in the viewport, in page order.
     ///
     /// **One entry rather than a cache of them, and the bound is the view's rather than
@@ -634,6 +642,7 @@ impl Open {
             node_shown_for: 0.0,
             saved_groups: None,
             revision: 0,
+            ink: 0,
             pointer: None,
             pressed: None,
             pressed_on: None,
@@ -669,7 +678,11 @@ impl Open {
     /// returned different results after this change would be a defect rather than a speed-up.
     /// The cost is that a layer switch makes the next search cold again, which is written down
     /// in ADR 0256 as the deliberate half of the trade.
+    /// **And it is where [`Self::ink`] moves**, for the same reason it is where the display lists
+    /// go: a host holding pixels of a page cannot tell a re-interpretation of unchanged ink from
+    /// an interpretation of changed ink, and this is the only place in this crate that knows.
     pub(crate) fn stale(&mut self) {
+        self.ink = self.ink.saturating_add(1);
         for on_screen in &mut self.on_screen {
             on_screen.interpreted = None;
         }

@@ -239,6 +239,16 @@ pub(crate) struct Stages {
     /// approximate layers now and they are different amounts of wrong: a frame line that said
     /// only `approximated` for both had stopped saying what it was showing.
     pub(crate) approximated: Option<crate::stale::Source>,
+    /// The stand-in this frame put up **before** drawing itself, and what it cost.
+    ///
+    /// **The processor's window and nothing else** (ADR 0457). There is no render thread there, so
+    /// a stand-in is not what the tick *showed* — it is what the tick showed first, before the
+    /// true frame it stands in for went up in the same call. That is why it is beside
+    /// [`Self::approximated`] rather than in it: this tick presented twice, and a frame line
+    /// saying `approximated` would be describing the picture that is no longer on the window.
+    ///
+    /// Rule 3 counts both presents and names this one, in the frame line and in the summary.
+    pub(crate) stood_in: Option<(crate::stale::Source, std::time::Duration)>,
     /// Whether this frame put anything on the window at all.
     ///
     /// `doc/todo/36`'s sixth rule counts *presents*, and the two things that are not one are a
@@ -340,6 +350,14 @@ impl FrameLog {
         if self.samples.len() < FRAME_SAMPLES {
             self.samples.push(*stages);
         }
+        // A stand-in drawn in front of this frame is a present of its own, and an approximate one:
+        // the window showed it, and then showed the true frame. Counted before the frame's own so
+        // that "we present every N ms" and "we show the right pixels" stay the two separate claims
+        // `doc/todo/36`'s rule 6 asks for.
+        if stages.stood_in.is_some() {
+            self.presents = self.presents.saturating_add(1);
+            self.approximated = self.approximated.saturating_add(1);
+        }
         if stages.presented {
             let now = std::time::Instant::now();
             self.presents = self.presents.saturating_add(1);
@@ -376,6 +394,11 @@ impl FrameLog {
         // the pathology rather than the event.
         if stages.gpu.atlas_repacked {
             unusual = format!("{unusual} repacked");
+        }
+        // The fourth, and the only one that is about a picture rather than about a cost: this
+        // frame was preceded on the window by a stand-in for it (ADR 0457).
+        if let Some((from, cost)) = stages.stood_in {
+            unusual = format!("{unusual} after {} {:.1}", from.word(), ms(cost));
         }
         // Whether this frame's device commands were encoded or replayed, one character wide,
         // beside the number it explains. A frame loop that means to reuse its scene and does
