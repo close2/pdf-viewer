@@ -1488,8 +1488,25 @@ fn decode_ccitt(
         });
     }
 
+    // §7.4.6 Table 11 defines `/Columns` and then says what the filter does with it:
+    //
+    // > The width of the image in pixels. If the value is not a multiple of 8, the filter shall
+    // > adjust the width of the unencoded image to the next multiple of 8 so that each line
+    // > starts on a byte boundary.
+    //
+    // **So a `/Columns` above `/Width` is not necessarily a disagreement**: a producer that wrote
+    // the *adjusted* width wrote the width this sentence hands the filter, and the runs in the
+    // data are for that many columns — believing `/Columns` is what decodes them at all, which is
+    // why it and not `width` is what travels over the pipe below. §8.9.5.1's `/Width` then says
+    // how many of each line's samples are the image, and the two round to the same number of
+    // bytes a line, so nothing has to be reshaped and not one sample moves.
+    //
+    // Anything wider than the padding *is* a disagreement, because then the runs are for a line
+    // this image is not and §7.3.8.2's "[a]ll of these constraints shall be consistent" has been
+    // broken in a way that shifts every sample after the first run. That stays a refusal.
     let columns = u32::try_from(integer("Columns", 1728)).unwrap_or(0);
-    if columns != width {
+    let padded = width.checked_next_multiple_of(8).unwrap_or(width);
+    if columns != width && columns != padded {
         return Err(ImageError::Malformed {
             detail: format!("CCITTFaxDecode /Columns {columns} is not the image's width {width}"),
         });
@@ -1523,7 +1540,10 @@ fn decode_ccitt(
             detail: "CCITTFaxDecode did not decode to bilevel samples".to_owned(),
         });
     };
-    if (bilevel.width, bilevel.height) != (width, height) {
+    // The raster comes back on the filter's own line width, which is `columns` — the same
+    // number that went in, and the one the sentence above makes the line's extent. `unpack`
+    // below reads `width` samples from each line and both round to the same stride.
+    if (bilevel.width, bilevel.height) != (columns, height) {
         return Err(ImageError::Malformed {
             detail: format!(
                 "CCITTFaxDecode produced {}x{} but the dictionary says {width}x{height}",
@@ -1932,6 +1952,36 @@ struct DecodedJpeg {
 /// states the constraint this one does not — "Width and Height shall match the corresponding
 /// width and height values in the JPEG 2000 data".
 ///
+/// The decoder options every `DCTDecode` codestream in this crate is read with.
+///
+/// **What this exists for is a single number, and it is a budget rather than a format limit.**
+/// `zune-jpeg`'s `DecoderOptions` default a frame to 16384 samples in each axis, and §7.4.8 puts
+/// no ceiling anywhere:
+///
+/// > The values of these parameters, which include the dimensions of the image and the number of
+/// > components per sample, are entirely under the control of the encoder and shall be stored in
+/// > the encoded data.
+///
+/// ISO/IEC 10918-1 gives each axis sixteen bits, so 65535 is the largest a codestream can *say*
+/// and there is nothing below it for a reader to enforce on the clause's behalf. What bounds this
+/// crate is [`MAX_SAMPLES`], which is an allocation this crate makes and has its argument written
+/// beside it — and a library default that fires first has answered a question this project
+/// answers deliberately. The witness is a crawled full-page scan 28341 rows tall, refused as
+/// `Image height 28341 greater than height limit 16384` and drawn as a blank sheet where three
+/// reference renderers agree (session 619); 28341 × its width is far inside [`MAX_SAMPLES`].
+///
+/// The bomb the default was written against is refused by [`MAX_SAMPLES`] for the reason it
+/// always was: a frame of 65535 by 65535 is 4.29 G samples against a budget of 268 M.
+fn jpeg_options() -> zune_jpeg::zune_core::options::DecoderOptions {
+    /// The largest either axis of a JPEG frame can state, from ISO/IEC 10918-1's two-byte
+    /// number of lines and samples per line.
+    const AXIS: usize = 0xFFFF;
+
+    zune_jpeg::zune_core::options::DecoderOptions::default()
+        .set_max_width(AXIS)
+        .set_max_height(AXIS)
+}
+
 /// # Errors
 ///
 /// See [`ImageError`]. The grid the codestream states is bounded by [`MAX_SAMPLES`] here,
@@ -1939,8 +1989,10 @@ struct DecodedJpeg {
 fn decode_jpeg(data: &[u8]) -> Result<DecodedJpeg, ImageError> {
     // `ZCursor` is the reader `zune-jpeg` wants; a bare slice does not implement its
     // trait because the decoder needs to seek.
-    let mut decoder =
-        zune_jpeg::JpegDecoder::new(zune_jpeg::zune_core::bytestream::ZCursor::new(data));
+    let mut decoder = zune_jpeg::JpegDecoder::new_with_options(
+        zune_jpeg::zune_core::bytestream::ZCursor::new(data),
+        jpeg_options(),
+    );
     decoder
         .decode_headers()
         .map_err(|e| ImageError::Malformed {
@@ -2005,9 +2057,7 @@ fn decode_jpeg(data: &[u8]) -> Result<DecodedJpeg, ImageError> {
             )
         );
     if let Some(space) = input.filter(|_| four) {
-        decoder.set_options(
-            zune_jpeg::zune_core::options::DecoderOptions::default().jpeg_set_out_colorspace(space),
-        );
+        decoder.set_options(jpeg_options().jpeg_set_out_colorspace(space));
     }
 
     let components = decoder
@@ -2552,9 +2602,10 @@ pub fn contradicted_frame(document: &Document, stream: &Stream) -> Option<String
     if !matches!(source.codec.as_deref(), Some(b"DCTDecode" | b"DCT")) {
         return None;
     }
-    let mut decoder = zune_jpeg::JpegDecoder::new(zune_jpeg::zune_core::bytestream::ZCursor::new(
-        &*source.data,
-    ));
+    let mut decoder = zune_jpeg::JpegDecoder::new_with_options(
+        zune_jpeg::zune_core::bytestream::ZCursor::new(&*source.data),
+        jpeg_options(),
+    );
     decoder.decode_headers().ok()?;
     let info = decoder.info()?;
     (u32::from(info.width) != width || u32::from(info.height) != height).then(|| {

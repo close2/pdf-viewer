@@ -68,6 +68,15 @@ fn one_component_jpeg() -> Vec<u8> {
 
 /// An 8×8 baseline JPEG of `components` components, every coefficient zero.
 fn jpeg(components: u8, transform: Option<u8>) -> Vec<u8> {
+    jpeg_of(8, 8, components, transform)
+}
+
+/// The same codestream at a chosen frame size, which must be a multiple of eight in both axes.
+///
+/// Every component is sampled 1×1, so an MCU is one 8×8 block per component and the number of
+/// them is fixed by the frame alone. Kept apart from [`jpeg`] because only one test states a
+/// frame larger than a single MCU and the arithmetic is worth having in one place.
+fn jpeg_of(width: u16, height: u16, components: u8, transform: Option<u8>) -> Vec<u8> {
     let mut out = vec![0xFF, 0xD8];
 
     if let Some(code) = transform {
@@ -86,7 +95,10 @@ fn jpeg(components: u8, transform: Option<u8>) -> Vec<u8> {
     let frame_header = 8 + 3 * u16::from(components);
     out.extend_from_slice(&[0xFF, 0xC0]);
     out.extend_from_slice(&frame_header.to_be_bytes());
-    out.extend_from_slice(&[0x08, 0x00, 0x08, 0x00, 0x08, components]);
+    out.push(0x08);
+    out.extend_from_slice(&height.to_be_bytes());
+    out.extend_from_slice(&width.to_be_bytes());
+    out.push(components);
     for id in 1..=components {
         out.extend_from_slice(&[id, 0x11, 0x00]);
     }
@@ -111,9 +123,11 @@ fn jpeg(components: u8, transform: Option<u8>) -> Vec<u8> {
     }
     out.extend_from_slice(&[0x00, 0x3F, 0x00]);
 
-    // One block per component of `DC category 0` then `end of block`, which is `00` twice: four
-    // zero bits apiece, padded to a byte boundary with ones as ISO/IEC 10918-1 requires.
-    let bits = 4 * usize::from(components);
+    // One block per component per MCU of `DC category 0` then `end of block`, which is `00`
+    // twice: four zero bits apiece, padded to a byte boundary with ones as ISO/IEC 10918-1
+    // requires.
+    let blocks = (usize::from(width) / 8) * (usize::from(height) / 8);
+    let bits = 4 * usize::from(components) * blocks;
     out.resize(out.len() + bits / 8, 0x00);
     if bits % 8 != 0 {
         out.push(0x0F);
@@ -381,5 +395,40 @@ fn an_indexed_space_over_a_jpeg_reads_the_sample_as_an_index() {
         sample,
         (0, 128, 255),
         "sample 128 selects table entry 128; entry 1 is what dividing by 255 selects"
+    );
+}
+
+/// A frame taller than sixteen thousand rows is this crate's budget to refuse, not a decoder's.
+///
+/// §7.4.8 says where a frame's dimensions come from and puts no ceiling on them:
+///
+/// > The values of these parameters, which include the dimensions of the image and the number of
+/// > components per sample, are entirely under the control of the encoder and shall be stored in
+/// > the encoded data.
+///
+/// ISO/IEC 10918-1 allows sixteen bits for each, so a codestream may state up to 65535 rows, and
+/// what bounds this tree is `pdf_model::image`'s own `MAX_SAMPLES` — an explicit budget with an
+/// argument written beside it. `zune-jpeg`'s `DecoderOptions` carries an unrelated default of
+/// 16384 in each axis, and it was reached first: a crawled full-page scan 28341 rows tall came
+/// back as `Image height 28341 greater than height limit 16384` and the page was blank where
+/// `pdftoppm`, `mutool` and `gs` agree on 84.2 of 255 (session 619).
+///
+/// 20000 rows is above that default and far below the budget, so the two answers differ and this
+/// test can only pass for the right reason. Eight columns wide keeps the fixture at 2500 blocks.
+#[test]
+fn a_frame_past_the_decoders_default_dimension_limit_is_still_this_crates_budget() {
+    let image = first_image(pdf_with_image(
+        &jpeg_of(8, 20000, 1, None),
+        "/DeviceGray",
+        (8, 20000),
+    ))
+    .expect("a frame of 20000 rows is inside MAX_SAMPLES and decodes");
+    let pdf_render::ImageSource::Decoded(decoded) = &image else {
+        panic!("a DCTDecode image is decoded rather than deferred to the device scale");
+    };
+    assert_eq!(
+        (decoded.width, decoded.height),
+        (8, 20000),
+        "the samples are on the grid §7.4.8 puts in the encoded data"
     );
 }

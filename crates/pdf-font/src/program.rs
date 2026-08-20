@@ -145,6 +145,34 @@ pub(crate) fn embedded_program(
             data
         };
 
+        // **An sfnt with no `head` is not a broken font when its outlines are a `CFF ` table.**
+        // §9.9's Table 124, for a `/FontFile3` whose `/Subtype` is `OpenType`, says which tables
+        // such a program owes:
+        //
+        // > A Type1 font dictionary or CIDFontType0 CIDFont dictionary, if the embedded font
+        // > program contains a "CFF " table without CIDFont operators. In addition to the "CFF "
+        // > table, the font program shall include the "cmap" table.
+        //
+        // and says outright that the container's own list does not bind:
+        //
+        // > ISO/IEC 14496-22 describes a set of required tables; however, not all tables are
+        // > required in the font file, as described for each type of font dictionary that can
+        // > include this entry.
+        //
+        // So `head` may legitimately be absent — and `head` is where every sfnt reader looks for
+        // the em square, which is why `units_per_em` answered such a program "units per em is
+        // zero" and the page lost every glyph of it. The `CFF ` table is a whole font program
+        // with its own `FontMatrix`, a charset and an encoding, so it is read as the bare CFF it
+        // is and the rest of this crate needs to know nothing about the wrapper.
+        //
+        // The condition is the *absent table* rather than the container, deliberately: a program
+        // that states a `head` states its scale, and its `cmap` and `hmtx` are what §9.6.5.4's
+        // route reads, so it stays where it was.
+        let (data, program) = match extracted_cff(program, &data) {
+            Some(cff) => (Arc::from(cff), Program::BareCff),
+            None => (data, program),
+        };
+
         if program == Program::Sfnt
             && let Some((table, end)) = truncation(&data)
         {
@@ -229,6 +257,23 @@ pub(crate) fn embedded_program(
 /// A CFF file starts with a header whose first two bytes are its major and minor version,
 /// conventionally 1 and 0. An sfnt file starts with a recognisable tag instead — `0x00010000`,
 /// `OTTO`, `true` or `ttcf` — so a leading `01 00` that is none of those is CFF.
+/// The `CFF ` table of an sfnt that states no `head`, which is the program to read instead.
+///
+/// `None` for everything else, which is every ordinary font: a container that states a `head`
+/// states its em square and is read through `skrifa` as before, and a program that is already
+/// bare is already the CFF. See the call site for §9.9 Table 124's two sentences.
+fn extracted_cff(program: Program, data: &[u8]) -> Option<Vec<u8>> {
+    if program != Program::Sfnt {
+        return None;
+    }
+    let tables = crate::sfnt::sfnt_tables(data)?;
+    if tables.contains_key(b"head".as_slice()) {
+        return None;
+    }
+    let &(at, length) = tables.get(b"CFF ".as_slice())?;
+    Some(data.get(at..at.checked_add(length)?)?.to_vec())
+}
+
 fn is_bare_cff(data: &[u8]) -> bool {
     match data.get(..4) {
         // The four sfnt container signatures.
@@ -313,15 +358,21 @@ fn units_per_em(data: &[u8], program: Program, name: &str) -> Result<f32, FontEr
 mod font_file_signature {
     use pdf_syntax::{Document, ObjectId};
 
-    use super::{Program, embedded_program};
+    use super::{Embedded, Program, embedded_program};
 
-    /// A two-object document: object 1 is a font descriptor whose `/FontFile` is object 2.
-    fn descriptor_with_font_file(program: &[u8]) -> Document {
+    /// A two-object document: object 1 is a font descriptor whose `key` is object 2.
+    ///
+    /// Table 120 gives the descriptor three keys for a program and this module chooses its
+    /// reader by the bytes rather than by the key, so which one the fixture writes is a variable
+    /// rather than a constant.
+    fn descriptor_with(key: &[u8], program: &[u8]) -> Document {
         let mut out = Vec::from(*b"%PDF-1.7\n");
         let mut offsets = Vec::new();
 
         offsets.push(out.len());
-        out.extend_from_slice(b"1 0 obj\n<< /Flags 4 /FontFile 2 0 R >>\nendobj\n");
+        out.extend_from_slice(b"1 0 obj\n<< /Flags 4 /");
+        out.extend_from_slice(key);
+        out.extend_from_slice(b" 2 0 R >>\nendobj\n");
 
         offsets.push(out.len());
         out.extend_from_slice(
@@ -342,7 +393,11 @@ mod font_file_signature {
     }
 
     fn program_of(bytes: &[u8]) -> Program {
-        let document = descriptor_with_font_file(bytes);
+        embedded_of(b"FontFile", bytes).program
+    }
+
+    fn embedded_of(key: &[u8], bytes: &[u8]) -> Embedded {
+        let document = descriptor_with(key, bytes);
         let descriptor = document
             .get(ObjectId {
                 number: 1,
@@ -351,9 +406,7 @@ mod font_file_signature {
             .as_dict()
             .expect("object 1 is the descriptor")
             .clone();
-        embedded_program(&document, &descriptor, "/F1")
-            .expect("the descriptor embeds a program")
-            .program
+        embedded_program(&document, &descriptor, "/F1").expect("the descriptor embeds a program")
     }
 
     /// `/FontFile` names a Type 1 program in Table 120 and Table 124, and this module chooses a
@@ -374,5 +427,83 @@ mod font_file_signature {
         assert_eq!(program_of(b"%!PS-AdobeFont-1.0: Fixture\n"), Program::Type1);
         // The PFB segment header, which is the other way a Type 1 program arrives.
         assert_eq!(program_of(b"\x80\x01\x20\x00\x00\x00rest"), Program::Type1);
+    }
+
+    /// An `OTTO` container holding `tables`, in the order given, with a `head` only if named.
+    ///
+    /// The directory's search fields are left zero: nothing in this tree reads them, and a font
+    /// this small has no binary search to describe.
+    fn otto(tables: &[(&[u8; 4], &[u8])]) -> Vec<u8> {
+        let count = u16::try_from(tables.len()).expect("a fixture of a few tables");
+        let mut out = Vec::from(*b"OTTO");
+        out.extend_from_slice(&count.to_be_bytes());
+        out.extend_from_slice(&[0; 6]);
+        let mut at = u32::try_from(12usize.saturating_add(16usize.saturating_mul(tables.len())))
+            .expect("a fixture of a few tables");
+        let mut body: Vec<u8> = Vec::new();
+        for (tag, data) in tables {
+            let length = u32::try_from(data.len()).expect("a fixture of small tables");
+            out.extend_from_slice(*tag);
+            out.extend_from_slice(&[0; 4]);
+            out.extend_from_slice(&at.to_be_bytes());
+            out.extend_from_slice(&length.to_be_bytes());
+            body.extend_from_slice(data);
+            // Every table begins on a four-byte boundary, so the padding is part of the offset.
+            let padded = length.next_multiple_of(4);
+            let pad = usize::try_from(padded.saturating_sub(length)).expect("at most three bytes");
+            body.resize(body.len().saturating_add(pad), 0);
+            at = at.saturating_add(padded);
+        }
+        out.extend_from_slice(&body);
+        out
+    }
+
+    /// Table 124 requires a `CFF ` table and a `cmap`, and this file has exactly those.
+    ///
+    /// §9.9's Table 124, for a `/FontFile3` whose `/Subtype` is `OpenType`:
+    ///
+    /// > A Type1 font dictionary or CIDFontType0 CIDFont dictionary, if the embedded font program
+    /// > contains a "CFF " table without CIDFont operators. In addition to the "CFF " table, the
+    /// > font program shall include the "cmap" table.
+    ///
+    /// and, of the tables ISO/IEC 14496-22 would otherwise require:
+    ///
+    /// > ISO/IEC 14496-22 describes a set of required tables; however, not all tables are required
+    /// > in the font file, as described for each type of font dictionary that can include this
+    /// > entry.
+    ///
+    /// So `head` may be absent, and with it the em square every sfnt reader asks for. This tree
+    /// refused two crawled documents with "units per em is zero" for exactly that (session 619):
+    /// a Minion Pro subset under a `/Subtype /Type1` font dictionary, carrying `BASE`, `CFF `,
+    /// `GPOS`, `GSUB`, `OS/2` and `cmap` and nothing else. The `CFF ` table is a whole font
+    /// program with its own `FontMatrix`, so it is read as the bare CFF it is.
+    #[test]
+    fn an_opentype_program_with_no_head_is_read_as_the_cff_it_carries() {
+        let cff: &[u8] = include_bytes!("../../../data/standard-fonts/FoxitSerif.pfb");
+        let wrapped = otto(&[(b"CFF ", cff), (b"cmap", &[0, 0, 0, 0])]);
+        let embedded = embedded_of(b"FontFile3", &wrapped);
+        assert_eq!(embedded.program, Program::BareCff);
+        assert_eq!(&*embedded.data, cff, "the CFF table is handed on unchanged");
+        assert!(
+            super::units_per_em(&embedded.data, embedded.program, "/F1").is_ok(),
+            "the em square comes from the CFF's own FontMatrix"
+        );
+    }
+
+    /// An `OTTO` that *does* carry a `head` stays on the sfnt route, which is the ordinary file.
+    ///
+    /// The rule above turns on the one table whose absence leaves an sfnt reader without a scale,
+    /// and not on the container: a font with a `head` states its own em square and may carry
+    /// `hmtx` widths and a `cmap` this tree reads through `skrifa`. Narrowing it that way is what
+    /// keeps the change to the programs that could not be read at all.
+    #[test]
+    fn an_opentype_program_with_a_head_is_still_an_sfnt() {
+        let cff: &[u8] = include_bytes!("../../../data/standard-fonts/FoxitSerif.pfb");
+        // A `head` table's fifty-four bytes, of which only the units per em at offset 18 is read
+        // here; 1000 is what a CFF-based face ordinarily states.
+        let mut head = vec![0u8; 54];
+        head[18..20].copy_from_slice(&1000u16.to_be_bytes());
+        let wrapped = otto(&[(b"CFF ", cff), (b"cmap", &[0, 0, 0, 0]), (b"head", &head)]);
+        assert_eq!(embedded_of(b"FontFile3", &wrapped).program, Program::Sfnt);
     }
 }

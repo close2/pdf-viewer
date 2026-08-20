@@ -221,6 +221,8 @@ fn scan(content: &[u8]) -> pdf_model::inline_image::Scan {
         content,
         2,
         &pdf_syntax::Dictionary::new(),
+        // These fixtures are whole content streams rather than a window over one.
+        true,
     )
 }
 
