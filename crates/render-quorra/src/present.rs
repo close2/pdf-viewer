@@ -39,16 +39,26 @@ pub struct PresentFrame<'a> {
     pub width: u32,
     /// See [`PresentFrame::width`].
     pub height: u32,
-    /// The page and its placement — or `None` when a raster stands in for it.
+    /// The pages on the screen and where each goes — empty when a raster stands in for them.
     ///
-    /// **The `Arc` is the identity a frame is reused by, and it is why this is not a plain
-    /// reference** (ADR 0351). [`FrameSlot`] keeps the page's scene across frames and decides
-    /// whether to rebuild it by the address of these samples, so it must be able to *pin* that
-    /// address — the same ABA argument [`crate::cache`] makes for every other key in this
+    /// **A list since ISO 32000-2 Table 29's `/PageLayout` reached a tier-2 host** (ADR 0442).
+    /// `OneColumn` puts several pages in one window and each carries its own [`TargetSpec`], so
+    /// the frame is a sequence of placed lists exactly as [`Self::overlays`] already was; they
+    /// are drawn in the order given. One entry is `SinglePage`, which is Table 29's own default.
+    ///
+    /// **How the pages compose is not decided here and could not be**: each list's placement is
+    /// stated by its own `TargetSpec`, so a backend executes an arrangement rather than choosing
+    /// one — which is what keeps `doc/traps/pixels-and-rasterisers.md` trap 2 satisfied with two
+    /// backends drawing the same frame.
+    ///
+    /// **The `Arc` is the identity a frame is reused by, and it is why these are not plain
+    /// references** (ADR 0351). [`FrameSlot`] keeps the pages' scene across frames and decides
+    /// whether to rebuild it by the address of these samples, so it must be able to *pin* those
+    /// addresses — the same ABA argument [`crate::cache`] makes for every other key in this
     /// crate. A borrowed `&DisplayList` could be dropped between two frames and the allocator
     /// could hand the same address to the next page, which is a stale page drawn with no
     /// report; holding the `Arc` makes the address unique for as long as the slot keeps it.
-    pub page: Option<(&'a Arc<DisplayList>, TargetSpec)>,
+    pub pages: &'a [(&'a Arc<DisplayList>, TargetSpec)],
     /// A pre-rendered page, drawn 1:1 from the window's top-left corner: the CPU
     /// fallback path, which must stay presentable even when the page itself is
     /// something the device refused.
@@ -222,12 +232,14 @@ struct SceneKey {
     /// frame drawn over nothing are two pictures, and a key that could not tell them apart would
     /// let one replay for the other.
     medium: Option<Color>,
-    /// Where the page was placed, and whether there was one.
+    /// Where each page of the arrangement was placed, in the order they are drawn.
     ///
-    /// *Which* page is not here: identity lives in [`Retained::page`], which is the `Arc` that
-    /// makes the address mean something, and [`Retained::draws`] asks it. One representation of
-    /// one fact, rather than an address here and the pin that keeps it unique somewhere else.
-    page: Option<TargetSpec>,
+    /// *Which* pages these are is not here: identity lives in [`Retained::pages`], which are the
+    /// `Arc`s that make the addresses mean something, and [`Retained::draws`] asks them. One
+    /// representation of one fact, rather than an address here and the pin that keeps it unique
+    /// somewhere else. The **count** is part of the key by construction, which is what makes a
+    /// scroll that puts a further page on the screen rebuild rather than replay.
+    pages: Vec<TargetSpec>,
     /// Which CPU raster stood in for the page, by a serial rather than by identity.
     ///
     /// **A raster frame never reuses a scene, and the serial is how that is stated rather than
@@ -245,15 +257,15 @@ struct SceneKey {
 #[derive(Debug)]
 struct Retained {
     key: SceneKey,
-    /// The page this scene was built from — **the identity, and the pin that makes it one**.
+    /// The pages this scene was built from — **the identities, and the pins that make them ones**.
     ///
-    /// Its address is what [`Self::draws`] compares, and holding the `Arc` is what stops the
-    /// allocator handing that address to the next page ([`crate::cache`]'s argument, and
-    /// [`PresentFrame::page`]'s). The outlines the list carries stay reachable for the same
-    /// reason [`Self::overlays`] gives. It costs one display list held past the page turn that
-    /// replaced it — the posture the host's own `presentation.rs` already has, for the transition
-    /// that may want to draw from it.
-    page: Option<Arc<DisplayList>>,
+    /// Their addresses are what [`Self::draws`] compares, and holding the `Arc`s is what stops the
+    /// allocator handing one of those addresses to the next page ([`crate::cache`]'s argument, and
+    /// [`PresentFrame::pages`]'s). The outlines the lists carry stay reachable for the same
+    /// reason [`Self::overlays`] gives. It costs the arrangement's display lists held past the
+    /// page turn that replaced them — the posture the host's own `presentation.rs` already has,
+    /// for the transition that may want to draw from one.
+    pages: Vec<Arc<DisplayList>>,
     /// The chrome this scene was built from, by value.
     ///
     /// Held rather than keyed by address for two reasons, and the second is the one that makes
@@ -279,10 +291,17 @@ impl Retained {
     /// Whether this is the scene `frame` asks for.
     ///
     /// Three questions, in the order that rejects soonest: [`SceneKey`]'s derived comparison, the
-    /// page by identity ([`Self::page`]), the chrome by value ([`Self::overlays`]).
+    /// pages by identity ([`Self::pages`]), the chrome by value ([`Self::overlays`]).
+    ///
+    /// The pages need no length check of their own: [`SceneKey::pages`] holds one placement per
+    /// page, so a key that compared equal has already said the two frames show as many.
     fn draws(&self, frame: &PresentFrame<'_>, key: &SceneKey) -> bool {
         self.key == *key
-            && self.page.as_ref().map(identity) == frame.page.map(|(list, _)| identity(list))
+            && self
+                .pages
+                .iter()
+                .zip(frame.pages)
+                .all(|(kept, (asked, _))| identity(kept) == identity(asked))
             && self.overlays.len() == frame.overlays.len()
             && self
                 .overlays
@@ -407,7 +426,11 @@ impl FrameSlot {
                 }
                 slot.insert(Retained {
                     key,
-                    page: frame.page.map(|(list, _)| Arc::clone(list)),
+                    pages: frame
+                        .pages
+                        .iter()
+                        .map(|(list, _)| Arc::clone(list))
+                        .collect(),
                     overlays: frame.overlays.iter().map(|list| (*list).clone()).collect(),
                     scene: quorra_gpu::RetainedScene::new(builder.finish()),
                     transient,
@@ -468,7 +491,7 @@ impl SceneKey {
             width: frame.width,
             height: frame.height,
             medium,
-            page: frame.page.map(|(_, target)| target),
+            pages: frame.pages.iter().map(|(_, target)| *target).collect(),
             raster: frame.raster.map(|_| {
                 *rasters = rasters.saturating_add(1);
                 *rasters
@@ -836,7 +859,7 @@ impl QuorraWindowRenderer {
             &mut self.chrome.caches,
             None,
             &PresentFrame {
-                page: None,
+                pages: &[],
                 raster: None,
                 ..frame
             },
@@ -1003,8 +1026,11 @@ pub(crate) fn build(
         )?;
     }
 
-    if let Some((list, target)) = frame.page {
-        Encoder::new(device, list, target, caches, transient, functions)
+    // One encoder per page, in the order the arrangement placed them. Table 29's `SinglePage` is
+    // the one-element case and is what this loop was before ADR 0442; the pages of a column do
+    // not overlap, so the order is the arrangement's rather than a compositing decision.
+    for (list, target) in frame.pages {
+        Encoder::new(device, list, *target, caches, transient, functions)
             .commands(builder, list.commands())?;
     }
     if let Some(raster) = frame.raster {

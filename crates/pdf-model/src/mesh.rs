@@ -31,7 +31,7 @@
 use pdf_render::{Color, Corners, Point, Ramp, Triangle};
 use pdf_syntax::{Dictionary, Document, Stream};
 
-use crate::colour::{ColourSpace, Compositing};
+use crate::colour::{ColourSpace, Conversion};
 use crate::function::{BitReader, Function};
 
 /// How finely a Bézier patch is evaluated along each axis.
@@ -63,7 +63,7 @@ pub(crate) fn read(
     space: &ColourSpace,
     functions: &[Function],
     resolution: usize,
-    into: &Compositing,
+    into: &Conversion,
 ) -> Option<(Vec<Triangle>, Option<Ramp>)> {
     let dict = &stream.dict;
     let data = document.decoded_stream_data(stream)?;
@@ -210,7 +210,7 @@ impl Corner for Color {
             let raw = bits.read(reader.component_bits)?;
             values.push(reader.decode_at(index.checked_add(2)?, raw, reader.component_bits));
         }
-        Some(reader.into.paint(reader.space, &values, true))
+        Some(reader.into.paint(reader.space, &values))
     }
 
     fn mix(self, other: Self, t: f32) -> Self {
@@ -259,8 +259,8 @@ struct MeshReader<'a> {
     flag_bits: u32,
     space: &'a ColourSpace,
     functions: &'a [Function],
-    /// What the mesh's vertex colours are being composited into (`crate::colour`).
-    into: &'a Compositing,
+    /// How the mesh's vertex colours are converted (`crate::colour::Conversion`).
+    into: &'a Conversion,
 }
 
 impl MeshReader<'_> {
@@ -348,7 +348,7 @@ impl MeshReader<'_> {
         for function in self.functions {
             components.extend(function.eval(&[parameter]));
         }
-        self.into.paint(self.space, &components, true)
+        self.into.paint(self.space, &components)
     }
 
     /// Reads a vertex, including the byte padding each one carries in a triangle mesh.

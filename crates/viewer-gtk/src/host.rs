@@ -34,6 +34,7 @@ use viewer_core::{
 
 use crate::controls::{FieldChange, Placed};
 use viewer_host::ControlFit;
+use viewer_host::arrangement::next_layout;
 use viewer_host::panel::{self, RowAction};
 use viewer_host::trace::{Topic, Trace};
 
@@ -204,20 +205,6 @@ pub struct Host {
 /// document's body text is what every reader the project owner uses has converged on, and this is
 /// about that.
 const SCROLL_STEP: f64 = 48.0;
-
-const fn next_layout(
-    layout: pdf_model::viewer_preferences::PageLayout,
-) -> pdf_model::viewer_preferences::PageLayout {
-    use pdf_model::viewer_preferences::PageLayout as L;
-    match layout {
-        L::SinglePage => L::OneColumn,
-        L::OneColumn => L::TwoColumnLeft,
-        L::TwoColumnLeft => L::TwoColumnRight,
-        L::TwoColumnRight => L::TwoPageLeft,
-        L::TwoPageLeft => L::TwoPageRight,
-        L::TwoPageRight => L::SinglePage,
-    }
-}
 
 impl std::fmt::Debug for Host {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

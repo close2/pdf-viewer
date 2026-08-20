@@ -178,6 +178,20 @@ pub(crate) enum Refusal {
     /// *Impossible.* The placement the held rendering was drawn at does not invert, or the
     /// composition is not a finite affine — so nothing carries it onto this view.
     NoPlacement,
+    /// *Impossible.* Table 29's arrangement is not one affine of itself, so no single placement
+    /// carries every page of the picture held onto the view being asked for.
+    ///
+    /// **What produces it is a zoom in a column** (ADR 0442): `viewer_core::layout`'s gap between
+    /// rows is stated in logical pixels and does not scale with the magnification, while the pages
+    /// either side of it do. A scroll moves every page by the same distance and so never reaches
+    /// this. The two placements are carried because a reader has to be able to see how far apart
+    /// they are before deciding it matters.
+    Rearranged {
+        /// The placement the first page of the arrangement asked for.
+        first: Transform,
+        /// The placement a later page asked for, which is not the same one.
+        then: Transform,
+    },
     /// *Impossible.* The presenter declined to put the approximated frame on the window.
     DeviceRefused(String),
     /// *Unwise.* Rule 5: the frame this view is waiting for is expected to land inside one
@@ -204,6 +218,7 @@ impl Refusal {
             | Self::AnotherPage
             | Self::Resized
             | Self::NoPlacement
+            | Self::Rearranged { .. }
             | Self::DeviceRefused(_) => "impossible",
             Self::InsideTheRefresh { .. } => "unwise",
         }
@@ -235,6 +250,25 @@ impl std::fmt::Display for Refusal {
             ),
             Self::NoPlacement => formatter.write_str(
                 "the placement the rendering held was drawn at does not invert onto this view",
+            ),
+            Self::Rearranged { first, then } => write!(
+                formatter,
+                "Table 29's arrangement is not one affine of itself — the first page of the \
+                 picture held moves by ({:.3} {:.3} {:.3} {:.3} {:.3} {:.3}) and a later one by \
+                 ({:.3} {:.3} {:.3} {:.3} {:.3} {:.3}), and the window puts its pages up as one \
+                 texture under one placement",
+                first.a,
+                first.b,
+                first.c,
+                first.d,
+                first.e,
+                first.f,
+                then.a,
+                then.b,
+                then.c,
+                then.d,
+                then.e,
+                then.f,
             ),
             Self::DeviceRefused(problem) => {
                 write!(
@@ -332,11 +366,96 @@ impl MustFollow {
 /// [`Stale::building`] and ADR 0384.
 #[derive(Debug)]
 struct Settled {
-    /// The page, by the `Arc` that makes its address mean something — the identity
-    /// `render-quorra` reuses a scene by, for the same ABA reason (ADR 0351).
-    page: Arc<DisplayList>,
-    /// Where it was placed, in this window's own device pixels.
-    target: TargetSpec,
+    /// The pages of Table 29's arrangement and where each was placed, in this window's own
+    /// device pixels.
+    ///
+    /// Each page by the `Arc` that makes its address mean something — the identity
+    /// `render-quorra` reuses a scene by, for the same ABA reason (ADR 0351). **A list since ADR
+    /// 0442**: `OneColumn` puts several pages in one texture, and which pages those are is what
+    /// decides whether one placement carries the whole picture.
+    pages: Vec<(Arc<DisplayList>, TargetSpec)>,
+}
+
+impl Settled {
+    /// The extent of the window this picture is of, or `None` where it is of no page at all.
+    ///
+    /// Read off the first placement rather than kept beside them: every page of one frame was
+    /// drawn into the same window-sized target, so they all state it and one is the answer.
+    fn extent(&self) -> Option<(u32, u32)> {
+        self.pages
+            .first()
+            .map(|(_, target)| (target.width, target.height))
+    }
+}
+
+/// Whether the picture held already depicts the arrangement being asked for.
+///
+/// The same pages, in the same order, at the same placements — all three, because Table 29's
+/// arrangement is a *set* of placed pages and a picture that is right about two of three is a
+/// window with a hole in it. Under `SinglePage` this is the one comparison it has always been.
+fn depicts(
+    settled: &[(Arc<DisplayList>, TargetSpec)],
+    asked: &[(Arc<DisplayList>, TargetSpec)],
+) -> bool {
+    settled.len() == asked.len()
+        && settled
+            .iter()
+            .zip(asked)
+            .all(|((was, placed), (now, asked))| Arc::ptr_eq(was, now) && placed == asked)
+}
+
+/// The one affine that carries every page of the settled picture onto the view being asked for.
+///
+/// **This is what replaced a single page's `settled⁻¹ ∘ asked` when a column arrived**, and it is
+/// an exact question rather than a tolerant one. The window presents its pages as *one* texture
+/// under *one* placement, so a reprojection is defensible only where one affine is true of every
+/// page in the picture. For each page in both the settled arrangement and the one being asked for
+/// — matched by the `Arc`'s address, which is what identifies a page here — this composes that
+/// page's own `settled⁻¹ ∘ asked`, and answers only where they all agree.
+///
+/// The three ways it answers `None` are three different facts, and the caller tells them apart:
+///
+/// - **no page is in both**, which is a page turn — nothing about the outgoing pages' pixels is
+///   true of the incoming ones, at any placement;
+/// - **a placement does not invert**, or the composition is not finite;
+/// - **the pages disagree**, which is the case a column introduced. A *scroll* moves every page by
+///   the same distance, so they agree exactly and a column reprojects as a single page always did.
+///   A *zoom* does not: `viewer_core::layout`'s gap between rows is stated in logical pixels and so
+///   does not scale with the magnification, while the pages either side of it do — so no one affine
+///   carries both, and the honest answer is to wait for the real frame rather than to move a page
+///   to a place it is not.
+fn one_placement(
+    settled: &[(Arc<DisplayList>, TargetSpec)],
+    asked: &[(Arc<DisplayList>, TargetSpec)],
+) -> Result<Transform, Refusal> {
+    let mut agreed: Option<Transform> = None;
+    for (page, target) in asked {
+        let Some((_, was)) = settled
+            .iter()
+            .find(|(settled_page, _)| Arc::ptr_eq(settled_page, page))
+        else {
+            continue;
+        };
+        let Some(moved) = was
+            .transform
+            .invert()
+            .map(|back| back.then(target.transform))
+        else {
+            return Err(Refusal::NoPlacement);
+        };
+        if ![moved.a, moved.b, moved.c, moved.d, moved.e, moved.f]
+            .iter()
+            .all(|coefficient| coefficient.is_finite())
+        {
+            return Err(Refusal::NoPlacement);
+        }
+        match agreed {
+            None => agreed = Some(moved),
+            Some(first) if first == moved => {}
+            Some(first) => return Err(Refusal::Rearranged { first, then: moved }),
+        }
+    }
+    agreed.ok_or(Refusal::AnotherPage)
 }
 
 /// Whether the window is showing a reprojection, and what it would take to draw the next one.
@@ -411,25 +530,18 @@ impl Stale {
     /// is whether a render asked for at an earlier tick is still out.
     pub(crate) fn plan(
         &self,
-        page: &Arc<DisplayList>,
-        target: TargetSpec,
+        pages: &[(Arc<DisplayList>, TargetSpec)],
         period: Duration,
         drawing: bool,
     ) -> Plan {
         let Some(settled) = self.settled.as_ref() else {
             return Plan::Refused(Refusal::NothingRendered);
         };
-        // A different page is not this page moved. Nothing about the outgoing page's pixels
-        // says anything true about the incoming one, at any placement — **asked before the
-        // question below**, because "the picture up already depicts this view" is a claim about
-        // the placement alone, and a page turn at an unchanged magnification satisfies it while
-        // being the one thing this may never approximate.
-        if !Arc::ptr_eq(&settled.page, page) {
-            return Plan::Refused(Refusal::AnotherPage);
-        }
         // Not a view change: the rendering held *is* of the view being asked for, so it goes up
         // as it is and nothing is being stood in for. This is every tick of a document nobody is
-        // touching, and it says nothing.
+        // touching, and it says nothing. **The arrangement has to be the same arrangement** —
+        // same pages, same order, same placements — because a further page arriving at the bottom
+        // of a column is a picture the one held does not contain.
         //
         // **The second half of this test is gone, and it was load-bearing before ADR 0391.** It
         // read `|| self.showing == Some(target.transform)` — rule 1 refusing to approximate the
@@ -439,14 +551,24 @@ impl Stale {
         // is a jump backwards on the screen. So a view that keeps being asked for keeps being
         // stood in for, at three quads a refresh, until the rendering lands — which is what a
         // picture every refresh means.
-        if settled.target.transform == target.transform {
+        if depicts(&settled.pages, pages) {
             return Plan::Render;
         }
-        // A resize changes what the window is as well as where the page is in it, and what is
+        // A resize changes what the window is as well as where the pages are in it, and what is
         // held is that window's whole picture — see [`Refusal::Resized`] for why the chrome in it
         // makes this an impossibility rather than the revealed edge under another name.
-        if settled.target.width != target.width || settled.target.height != target.height {
+        let extent = pages
+            .first()
+            .map(|(_, target)| (target.width, target.height));
+        if extent.is_some() && settled.extent() != extent {
             return Plan::Refused(Refusal::Resized);
+        }
+        // Whether one placement is true of every page in the picture — **asked before rule 5**,
+        // because a page turn and a rearrangement are impossibilities and rule 5 is a judgement
+        // about two measurements. Nothing about the outgoing pages' pixels says anything true
+        // about the incoming ones, at any placement.
+        if let Err(why) = one_placement(&settled.pages, pages) {
+            return Plan::Refused(why);
         }
         // Rule 5: a frame the machine delivers inside one refresh *is* the frame every refresh
         // the owner asked for, so there is nothing to stand in for. **Rule 4 used to be the next
@@ -460,25 +582,6 @@ impl Stale {
             });
         }
         Plan::Reproject
-    }
-
-    /// The transform that carries the last rendering's own pixels onto `view`.
-    ///
-    /// **This one expression is the whole of `doc/todo/36`'s "compose, do not chain".** Whatever
-    /// the window is showing, the transform carries the pixels of the last *rendering* onto the
-    /// view being asked for — so a run of reprojections is a run of single resamples of true
-    /// pixels rather than a chain, and a late frame that re-based simply changes which placement
-    /// is inverted here.
-    ///
-    /// `None` where the placement does not invert, or where the composition is not finite: a
-    /// coordinate that is not a finite number is not a placement, and handing one to the presenter
-    /// would earn `LayerProblem::Placement` mid-frame instead of a refusal this file can name.
-    fn composed(&self, view: Transform) -> Option<Transform> {
-        let moved = self.settled.as_ref()?.target.transform.invert()?.then(view);
-        [moved.a, moved.b, moved.c, moved.d, moved.e, moved.f]
-            .iter()
-            .all(|coefficient| coefficient.is_finite())
-            .then_some(moved)
     }
 
     /// Forgets what the window is showing, so that nothing is reprojected from it.
@@ -543,8 +646,7 @@ impl Stale {
     /// measures the replay, and rule 5 is a question about what the *next* render will cost.
     pub(crate) fn settled(
         &mut self,
-        page: &Arc<DisplayList>,
-        target: TargetSpec,
+        pages: &[(Arc<DisplayList>, TargetSpec)],
         cost: Duration,
         built: bool,
     ) {
@@ -552,8 +654,7 @@ impl Stale {
             self.building = Some(cost);
         }
         self.settled = Some(Settled {
-            page: Arc::clone(page),
-            target,
+            pages: pages.to_vec(),
         });
     }
 
@@ -599,19 +700,18 @@ impl Stale {
     /// never been one, the page changed, or the window did.
     pub(crate) fn reproject(
         &self,
-        page: &Arc<DisplayList>,
-        target: TargetSpec,
+        pages: &[(Arc<DisplayList>, TargetSpec)],
     ) -> Result<Transform, Refusal> {
         let Some(settled) = self.settled.as_ref() else {
             return Err(Refusal::NothingRendered);
         };
-        if !Arc::ptr_eq(&settled.page, page) {
-            return Err(Refusal::AnotherPage);
-        }
-        if settled.target.width != target.width || settled.target.height != target.height {
+        let extent = pages
+            .first()
+            .map(|(_, target)| (target.width, target.height));
+        if extent.is_some() && settled.extent() != extent {
             return Err(Refusal::Resized);
         }
-        self.composed(target.transform).ok_or(Refusal::NoPlacement)
+        one_placement(&settled.pages, pages)
     }
 }
 
@@ -639,6 +739,50 @@ mod tests {
         Arc::new(DisplayList::new(Size::new(595.0, 842.0)))
     }
 
+    /// Table 29's default arrangement: one page, at a magnification.
+    ///
+    /// Every test but the column's below asks about this, because `SinglePage` is what the table
+    /// states as its own default and what every document that says nothing opens in.
+    fn alone(page: &Arc<DisplayList>, magnification: f32) -> Vec<(Arc<DisplayList>, TargetSpec)> {
+        vec![(Arc::clone(page), view(magnification))]
+    }
+
+    /// One page at a placement stated outright, for the two cases a magnification cannot express:
+    /// a window that changed shape, and a transform that does not invert.
+    fn at(page: &Arc<DisplayList>, target: TargetSpec) -> Vec<(Arc<DisplayList>, TargetSpec)> {
+        vec![(Arc::clone(page), target)]
+    }
+
+    /// A column of `pages`, laid out as `viewer_core::layout` lays one out: each page under the
+    /// same magnification, stacked down the window with `GAP` logical pixels between them, the
+    /// whole scrolled by `scroll` device pixels.
+    ///
+    /// The gap is 8 and it is **not** multiplied by the magnification, which is that module's own
+    /// documented choice — "a gap is a thing a person sees" — and the whole reason a zoom in a
+    /// column is not one affine of itself.
+    fn column(
+        pages: &[Arc<DisplayList>],
+        magnification: f32,
+        scroll: f32,
+    ) -> Vec<(Arc<DisplayList>, TargetSpec)> {
+        let mut placed = Vec::new();
+        let mut top = -scroll;
+        for page in pages {
+            placed.push((
+                Arc::clone(page),
+                TargetSpec {
+                    width: 800,
+                    height: 1000,
+                    transform: Transform::scale(magnification, -magnification)
+                        .then(Transform::translate(0.0, 842.0 * magnification))
+                        .then(Transform::translate(0.0, top)),
+                },
+            ));
+            top += 842.0 * magnification + 8.0;
+        }
+        placed
+    }
+
     /// One refresh of a 60 Hz surface, which is what rule 5 compares a frame against.
     const REFRESH: Duration = Duration::from_nanos(1_000_000_000 / 60);
 
@@ -654,7 +798,7 @@ mod tests {
     /// A frame that missed the refresh by a long way, which is the case the feature is for: the
     /// view moved, the page did not, and the machine will be most of a second.
     fn slow(stale: &mut Stale, page: &Arc<DisplayList>) {
-        stale.settled(page, view(1.0), Duration::from_millis(700), true);
+        stale.settled(&alone(page, 1.0), Duration::from_millis(700), true);
     }
 
     /// Rule 1. A reprojection is never the state the window settles in, and what enforces that is
@@ -672,19 +816,22 @@ mod tests {
         let mut stale = Stale::default();
         slow(&mut stale, &page);
         assert!(
-            stale.plan(&page, view(1.2), REFRESH, LANDED).stands_in(),
+            stale.plan(&alone(&page, 1.2), REFRESH, LANDED).stands_in(),
             "a slow frame and a new magnification is what this exists for"
         );
         let follow = stale.drawn();
         assert!(stale.showing_approximation());
         assert!(
-            stale.plan(&page, view(1.2), REFRESH, DRAWING).stands_in(),
+            stale.plan(&alone(&page, 1.2), REFRESH, DRAWING).stands_in(),
             "the same view again while the render is still out: the same three quads, which is \
              what a picture every refresh means"
         );
         // And the view the *rendering* is of goes up as it is, which is the answer that must not
         // be given to any other view.
-        assert_eq!(stale.plan(&page, view(1.0), REFRESH, DRAWING), Plan::Render);
+        assert_eq!(
+            stale.plan(&alone(&page, 1.0), REFRESH, DRAWING),
+            Plan::Render
+        );
         drop(follow);
         // Every frame that is not one clears it, including a frame that drew nothing: the guard
         // in `about_to_wait` asks for a redraw while this holds, and a flag that could outlive
@@ -699,17 +846,17 @@ mod tests {
     fn a_frame_inside_the_refresh_is_shown_and_one_outside_it_is_stood_in_for() {
         let page = page();
         let mut stale = Stale::default();
-        stale.settled(&page, view(1.0), REFRESH / 2, true);
+        stale.settled(&alone(&page, 1.0), REFRESH / 2, true);
         assert_eq!(
-            stale.plan(&page, view(1.2), REFRESH, LANDED),
+            stale.plan(&alone(&page, 1.2), REFRESH, LANDED),
             Plan::Refused(Refusal::InsideTheRefresh {
                 frame: REFRESH / 2,
                 period: REFRESH,
             }),
             "a view whose frame lands inside the refresh must show that frame, and say so"
         );
-        stale.settled(&page, view(1.0), REFRESH * 2, true);
-        assert!(stale.plan(&page, view(1.2), REFRESH, LANDED).stands_in());
+        stale.settled(&alone(&page, 1.0), REFRESH * 2, true);
+        assert!(stale.plan(&alone(&page, 1.2), REFRESH, LANDED).stands_in());
     }
 
     /// **Rule 5's second way of knowing, and it is ADR 0391's.** A prediction can be wrong; a
@@ -724,13 +871,13 @@ mod tests {
     fn a_render_still_out_at_the_next_tick_has_missed_however_quick_the_last_one_was() {
         let page = page();
         let mut stale = Stale::default();
-        stale.settled(&page, view(1.0), REFRESH / 4, true);
+        stale.settled(&alone(&page, 1.0), REFRESH / 4, true);
         assert!(
-            !stale.plan(&page, view(1.2), REFRESH, LANDED).stands_in(),
+            !stale.plan(&alone(&page, 1.2), REFRESH, LANDED).stands_in(),
             "the prediction says this one lands in time, so the first tick waits for it"
         );
         assert!(
-            stale.plan(&page, view(1.2), REFRESH, DRAWING).stands_in(),
+            stale.plan(&alone(&page, 1.2), REFRESH, DRAWING).stands_in(),
             "and the tick after it, with the render still out, has watched it miss"
         );
     }
@@ -758,18 +905,18 @@ mod tests {
                 cost < Duration::from_millis(510),
                 "the point of the case is that it never reaches the bar that used to be there"
             );
-            stale.settled(&page, view(1.0), cost, true);
+            stale.settled(&alone(&page, 1.0), cost, true);
             assert!(
-                stale.plan(&page, view(1.2), REFRESH, LANDED).stands_in(),
+                stale.plan(&alone(&page, 1.2), REFRESH, LANDED).stands_in(),
                 "{frame} ms is {} refreshes and must be stood in for",
                 cost.as_secs_f64() / REFRESH.as_secs_f64()
             );
         }
         // And the property behind it, stated directly: nothing that *gates* a reprojection may
         // depend on a measurement only a reprojection can produce.
-        stale.settled(&page, view(1.0), REFRESH * 3, true);
+        stale.settled(&alone(&page, 1.0), REFRESH * 3, true);
         assert!(
-            stale.plan(&page, view(1.2), REFRESH, LANDED).stands_in(),
+            stale.plan(&alone(&page, 1.2), REFRESH, LANDED).stands_in(),
             "a run that has drawn none must still be able to draw its first"
         );
     }
@@ -792,9 +939,9 @@ mod tests {
         // plus a frame that overruns the refresh by a fraction of a millisecond.
         for frame in [8.4_f64, 16.3, 57.7, 71.0, 90.2, 104.5, 155.5, 156.3] {
             let cost = Duration::from_secs_f64(frame / 1e3);
-            stale.settled(&page, view(1.0), cost, true);
+            stale.settled(&alone(&page, 1.0), cost, true);
             assert!(
-                stale.plan(&page, view(1.3), period, LANDED).stands_in(),
+                stale.plan(&alone(&page, 1.3), period, LANDED).stands_in(),
                 "{frame} ms misses a 8.333 ms refresh, and standing in now costs that frame \
                  nothing at all"
             );
@@ -815,23 +962,23 @@ mod tests {
         let page = page();
         let mut stale = Stale::default();
         let render = Duration::from_millis(778);
-        stale.settled(&page, view(1.0), render, true);
+        stale.settled(&alone(&page, 1.0), render, true);
         assert_eq!(stale.expected(), render);
         // The same view, redrawn for a reason that has nothing to do with the page.
-        stale.settled(&page, view(1.0), Duration::from_millis(2), false);
+        stale.settled(&alone(&page, 1.0), Duration::from_millis(2), false);
         assert_eq!(
             stale.expected(),
             render,
             "a replay says what a replay costs and nothing about the next render"
         );
         assert!(
-            stale.plan(&page, view(1.2), REFRESH, LANDED).stands_in(),
+            stale.plan(&alone(&page, 1.2), REFRESH, LANDED).stands_in(),
             "the zoom after a harmless redraw is the one the owner waited through"
         );
         // A frame that genuinely built a cheap picture *does* move it.
-        stale.settled(&page, view(1.0), REFRESH / 2, true);
+        stale.settled(&alone(&page, 1.0), REFRESH / 2, true);
         assert_eq!(stale.expected(), REFRESH / 2);
-        assert!(!stale.plan(&page, view(1.3), REFRESH, LANDED).stands_in());
+        assert!(!stale.plan(&alone(&page, 1.3), REFRESH, LANDED).stands_in());
     }
 
     /// A different page is not this page moved, and no placement makes it one.
@@ -846,15 +993,15 @@ mod tests {
         let mut stale = Stale::default();
         slow(&mut stale, &first);
         assert_eq!(
-            stale.plan(&second, view(1.0), REFRESH, LANDED),
+            stale.plan(&alone(&second, 1.0), REFRESH, LANDED),
             Plan::Refused(Refusal::AnotherPage)
         );
         assert_eq!(
-            stale.plan(&second, view(1.3), REFRESH, LANDED),
+            stale.plan(&alone(&second, 1.3), REFRESH, LANDED),
             Plan::Refused(Refusal::AnotherPage)
         );
         assert_eq!(
-            stale.reproject(&second, view(1.3)).unwrap_err(),
+            stale.reproject(&alone(&second, 1.3)).unwrap_err(),
             Refusal::AnotherPage,
             "a rendering of the outgoing page places nothing of the incoming one"
         );
@@ -868,7 +1015,7 @@ mod tests {
         let mut stale = Stale::default();
         slow(&mut stale, &page);
         assert_eq!(
-            stale.plan(&page, view(1.0), REFRESH, LANDED),
+            stale.plan(&alone(&page, 1.0), REFRESH, LANDED),
             Plan::Render,
             "the view already on the screen is drawn, not approximated — and not refused either"
         );
@@ -877,11 +1024,11 @@ mod tests {
             ..view(1.2)
         };
         assert_eq!(
-            stale.plan(&page, resized, REFRESH, LANDED),
+            stale.plan(&at(&page, resized), REFRESH, LANDED),
             Plan::Refused(Refusal::Resized)
         );
         assert_eq!(
-            stale.reproject(&page, resized).unwrap_err(),
+            stale.reproject(&at(&page, resized)).unwrap_err(),
             Refusal::Resized,
             "the texture held is the old window's whole picture, chrome beside it"
         );
@@ -894,9 +1041,9 @@ mod tests {
         let page = page();
         let mut stale = Stale::default();
         slow(&mut stale, &page);
-        assert!(stale.plan(&page, view(2.0), REFRESH, LANDED).stands_in());
+        assert!(stale.plan(&alone(&page, 2.0), REFRESH, LANDED).stands_in());
         let moved = stale
-            .reproject(&page, view(2.0))
+            .reproject(&alone(&page, 2.0))
             .expect("a doubled magnification");
         // A point of the page, mapped both ways: through the old placement and then the
         // reprojection, and through the new placement directly.
@@ -926,7 +1073,7 @@ mod tests {
         let mut stale = Stale::default();
         slow(&mut stale, &page);
         let placed = stale
-            .reproject(&page, view(1.0))
+            .reproject(&alone(&page, 1.0))
             .expect("the view the rendering is of");
         for (was, expected) in [
             (placed.a, 1.0),
@@ -952,9 +1099,9 @@ mod tests {
             transform: Transform::scale(0.0, 1.0),
             ..view(1.0)
         };
-        stale.settled(&page, flat, Duration::from_millis(700), true);
+        stale.settled(&at(&page, flat), Duration::from_millis(700), true);
         assert_eq!(
-            stale.reproject(&page, view(1.2)).unwrap_err(),
+            stale.reproject(&alone(&page, 1.2)).unwrap_err(),
             Refusal::NoPlacement
         );
     }
@@ -976,10 +1123,12 @@ mod tests {
         for magnification in [1.2_f32, 1.44, 1.728, 2.0736] {
             let asked = view(magnification);
             assert!(
-                stale.plan(&page, asked, REFRESH, DRAWING).stands_in(),
+                stale.plan(&at(&page, asked), REFRESH, DRAWING).stands_in(),
                 "the view keeps moving and the frame stays slow"
             );
-            let moved = stale.reproject(&page, asked).expect("a rendering is held");
+            let moved = stale
+                .reproject(&at(&page, asked))
+                .expect("a rendering is held");
             // Through the pixels of the last *rendering*, which is the only thing composed
             // against however many reprojections have been drawn since.
             let through = moved.apply(base.apply(corner));
@@ -1005,11 +1154,11 @@ mod tests {
         slow(&mut stale, &page);
         drop(stale.drawn());
         // The frame for the 1.2× view finally lands, while the person has already asked for 2×.
-        stale.settled(&page, view(1.2), Duration::from_millis(700), true);
+        stale.settled(&alone(&page, 1.2), Duration::from_millis(700), true);
         stale.real();
-        assert!(stale.plan(&page, view(2.0), REFRESH, LANDED).stands_in());
+        assert!(stale.plan(&alone(&page, 2.0), REFRESH, LANDED).stands_in());
         let moved = stale
-            .reproject(&page, view(2.0))
+            .reproject(&alone(&page, 2.0))
             .expect("the view moved on");
         let corner = pdf_render::Point::new(100.0, 700.0);
         let through = moved.apply(view(1.2).transform.apply(corner));
@@ -1018,6 +1167,101 @@ mod tests {
             (through.x - directly.x).abs() < 1e-3 && (through.y - directly.y).abs() < 1e-3,
             "composed against the frame that landed, not against the one before it: \
              {through:?} {directly:?}"
+        );
+    }
+
+    /// **A scroll of Table 29's column reprojects exactly**, which is the case ADR 0442 had to
+    /// keep working: every page of the arrangement moves by the same distance, so one placement
+    /// is true of the whole texture and the window answers the wheel at once.
+    ///
+    /// Checked as a *property of the pages* rather than of the answer: a point of each page is
+    /// carried through that page's own settled placement and then through the one placement, and
+    /// it must land where that page's new placement puts it. A composition read off the first
+    /// page alone would pass this for page one and be wrong for page two.
+    #[test]
+    fn a_scroll_of_a_column_moves_every_page_by_the_same_placement() {
+        let pages = [page(), page(), page()];
+        let mut stale = Stale::default();
+        let settled = column(&pages, 1.0, 0.0);
+        stale.settled(&settled, Duration::from_millis(700), true);
+        let asked = column(&pages, 1.0, 240.0);
+        assert!(stale.plan(&asked, REFRESH, LANDED).stands_in());
+        let moved = stale.reproject(&asked).expect("a column that scrolled");
+        let corner = pdf_render::Point::new(100.0, 700.0);
+        for (index, ((_, was), (_, now))) in settled.iter().zip(&asked).enumerate() {
+            let through = moved.apply(was.transform.apply(corner));
+            let directly = now.transform.apply(corner);
+            assert!(
+                (through.x - directly.x).abs() < 1e-3 && (through.y - directly.y).abs() < 1e-3,
+                "page {index}: {through:?} {directly:?}"
+            );
+        }
+    }
+
+    /// **A zoom of a column is refused, and the refusal is exact rather than tolerant.**
+    ///
+    /// The window presents its pages as one texture under one placement, and
+    /// `viewer_core::layout`'s gap between rows is stated in logical pixels — it does not scale
+    /// with the magnification while the pages either side of it do. So no single affine carries
+    /// both pages, and moving one of them to a place it is not would be the plausible-looking lie
+    /// `CLAUDE.md`'s first principle is about. The window waits for the real frame and says why.
+    ///
+    /// One page under the same zoom is *not* refused, which is the half that says this is about
+    /// the arrangement and not about zooming.
+    #[test]
+    fn a_zoom_of_a_column_is_refused_because_no_one_placement_carries_it() {
+        let pages = [page(), page()];
+        let mut stale = Stale::default();
+        stale.settled(&column(&pages, 1.0, 0.0), Duration::from_millis(700), true);
+        let refused = stale.reproject(&column(&pages, 1.25, 0.0)).unwrap_err();
+        assert!(
+            matches!(refused, Refusal::Rearranged { .. }),
+            "a zoom leaves the gap where it was and moves the pages: {refused:?}"
+        );
+        assert_eq!(refused.kind(), "impossible");
+        assert_eq!(
+            stale.plan(&column(&pages, 1.25, 0.0), REFRESH, LANDED),
+            Plan::Refused(refused)
+        );
+        // And the single page it is not about.
+        let mut alone_stale = Stale::default();
+        alone_stale.settled(
+            &column(&pages[..1], 1.0, 0.0),
+            Duration::from_millis(700),
+            true,
+        );
+        assert!(
+            alone_stale
+                .plan(&column(&pages[..1], 1.25, 0.0), REFRESH, LANDED)
+                .stands_in(),
+            "one page has one placement and always did"
+        );
+    }
+
+    /// A further row of the column arriving is a picture the one held does not contain, so it is
+    /// not the view already on the screen — and it is still a scroll, so it is stood in for.
+    ///
+    /// The revealed edge shows the window's medium, which is `doc/todo/37`'s standing gap and not
+    /// something this refuses over.
+    #[test]
+    fn a_row_arriving_is_not_the_picture_already_up() {
+        let pages = [page(), page(), page()];
+        let mut stale = Stale::default();
+        stale.settled(
+            &column(&pages[..2], 1.0, 0.0),
+            Duration::from_millis(700),
+            true,
+        );
+        let asked = column(&pages, 1.0, 100.0);
+        assert_ne!(
+            stale.plan(&asked, REFRESH, LANDED),
+            Plan::Render,
+            "a third page on the screen is not the frame that showed two"
+        );
+        assert!(stale.plan(&asked, REFRESH, LANDED).stands_in());
+        assert!(
+            stale.reproject(&asked).is_ok(),
+            "the two pages in both pictures agree on one placement"
         );
     }
 
@@ -1038,11 +1282,11 @@ mod tests {
         for magnification in [1.2_f32, 1.44, 1.728, 2.0736, 2.488] {
             assert!(
                 stale
-                    .plan(&page, view(magnification), REFRESH, DRAWING)
+                    .plan(&alone(&page, magnification), REFRESH, DRAWING)
                     .stands_in(),
                 "{magnification}: nothing about a frame's atlas reaches a texture already drawn"
             );
-            assert!(stale.reproject(&page, view(magnification)).is_ok());
+            assert!(stale.reproject(&alone(&page, magnification)).is_ok());
             drop(stale.drawn());
         }
         assert_eq!(stale.refusals().total(), 0);
@@ -1108,7 +1352,7 @@ mod tests {
         slow(&mut stale, &page);
         for _ in 0..100 {
             assert_eq!(
-                stale.plan(&page, view(1.0), REFRESH, LANDED),
+                stale.plan(&alone(&page, 1.0), REFRESH, LANDED),
                 Plan::Render,
                 "the same view, redrawn: quorra replays it and nothing is being stood in for"
             );

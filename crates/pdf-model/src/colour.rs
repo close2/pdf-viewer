@@ -200,6 +200,71 @@ impl Compositing {
     }
 }
 
+/// Everything one colour conversion needs beyond the colour: what the result is composited
+/// into, and whether ISO 32000-2 §8.6.5.9's black point compensation applies.
+///
+/// The two travel together because a conversion needs both and neither belongs to the colour.
+/// [`Compositing`] is a property of the *raster* being painted (ADR 0220); the black point is a
+/// property of the **object** being painted, which is how §8.6.5.9 states it:
+///
+/// > If the current render intent of an object is AbsColorimetric then the value of
+/// > UseBlackPtComp shall be treated as OFF .
+///
+/// §8.6.5.8 gives an object three routes to that intent, the third of which is Table 87's
+/// `/Intent` on an image dictionary.
+///
+/// **This type is why the third route is obeyed at all.** Until the six-hundred-and-seventh
+/// session every caller in `crate::image`, `crate::shading` and `crate::mesh` passed a literal
+/// `true` to [`Compositing::paint`], so the intent reached a path's colour and a glyph's and no
+/// image sample, shading ramp or mesh vertex by any route. Pairing the flag with the target
+/// that was already threaded through all three is what made that a compile error rather than a
+/// habit: there is no longer a `paint` call that can omit it.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Conversion {
+    /// What the converted colour is composited into.
+    into: Compositing,
+    /// Whether black point compensation applies, per §8.6.5.9.
+    black_point: bool,
+}
+
+impl Conversion {
+    /// A conversion into `into`, compensating or not as §8.6.5.9's parameters decide.
+    #[must_use]
+    pub fn new(into: Compositing, black_point: bool) -> Self {
+        Self { into, black_point }
+    }
+
+    /// A conversion onto the device with compensation on.
+    ///
+    /// The pair a caller wants where the question is the *colour space* rather than the state:
+    /// a mask's own samples, a `/Decode` array's bounds, an image whose colours are read only
+    /// to be counted. `Compositing::Device` says the first half, and the second is
+    /// `/UseBlackPtComp Default`, which §8.6.5.9 leaves to the processor and which this one
+    /// compensates.
+    #[must_use]
+    pub fn device() -> Self {
+        Self::new(Compositing::Device, true)
+    }
+
+    /// What the converted colour is composited into.
+    #[must_use]
+    pub fn target(&self) -> &Compositing {
+        &self.into
+    }
+
+    /// The same black point decision, composited into something else.
+    #[must_use]
+    pub fn into_target(&self, into: Compositing) -> Self {
+        Self::new(into, self.black_point)
+    }
+
+    /// The colour `values` become, through [`Compositing::paint`].
+    #[must_use]
+    pub fn paint(&self, space: &ColourSpace, values: &[f32]) -> Color {
+        self.into.paint(space, values, self.black_point)
+    }
+}
+
 /// How much ink one channel of a `/Luminosity` mask group's raster has to hold.
 ///
 /// §11.5.3 composites the group *first* and takes §10.4.2.3's `1 − min(1, ink)` of the

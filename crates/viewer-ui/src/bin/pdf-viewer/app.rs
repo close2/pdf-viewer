@@ -57,10 +57,22 @@ pub(crate) struct App {
     pub(crate) directory: Option<PathBuf>,
     /// What the title bar says about the page, from the last `PageChanged`.
     pub(crate) caption: String,
-    /// The render `viewer-core` last asked for, kept so an expose can redraw it.
-    pub(crate) request: Option<viewer_core::RenderRequest>,
-    /// Whether the core has been told that request was drawn.
-    pub(crate) acknowledged: bool,
+    /// The renders `viewer-core` has asked for, one per page of Table 29's arrangement, in page
+    /// order — kept so an expose can redraw them.
+    ///
+    /// **A list since ADR 0442.** `Command::Layout`'s five continuous and two-page values put
+    /// several pages in one window and the core asks for one render apiece; a host holding the
+    /// newest would draw a column with a hole in it. What takes an entry *out* is
+    /// [`App::arrangement`]: `Query::PageGeometry` answers `Answer::None` for a page the
+    /// arrangement no longer shows, which is the only thing this host needed in order to follow a
+    /// scroll and is why obeying the clause added no message to the boundary.
+    pub(crate) requests: Vec<viewer_core::RenderRequest>,
+    /// The tokens of those requests the core has not yet been told about.
+    ///
+    /// One per page rather than one flag, because an arrangement has one outstanding request per
+    /// page on the screen and the token is what says which page an answer is about. Drained when
+    /// a frame reaches the window.
+    pub(crate) unacknowledged: Vec<viewer_core::RenderToken>,
     /// The page and placement last put on the screen, for §12.4.4's transition to draw from.
     ///
     /// **The page being left, exactly where it was.** A transition is a picture between two
@@ -70,6 +82,11 @@ pub(crate) struct App {
     pub(crate) presented: Option<(Arc<pdf_render::DisplayList>, TargetSpec)>,
     /// §12.4.4's presentation, while `p` has one running. `None` is a window reading a document.
     pub(crate) presentation: Option<Presentation>,
+    /// Table 29's arrangement as this window last asked for it — what `l` cycles from.
+    ///
+    /// The *document's* value until somebody presses the key, because §7.7.2 states the layout a
+    /// document opens in and says nothing about what a reader chooses afterwards.
+    pub(crate) layout: pdf_model::viewer_preferences::PageLayout,
     /// A transition named but not yet begun, waiting for the arriving page's own display list.
     ///
     /// See [`App::arm_transition`]: the core settles after the page turn, so the render request
@@ -505,13 +522,13 @@ impl App {
     /// exist here and is said once rather than ignored: a document asking for something and
     /// getting silence is trap 5 in an interface.
     ///
-    /// **`/PageLayout` is now obeyed by `viewer-core` and asked *back* to `SinglePage` here**,
-    /// which is a statement of what this window can draw rather than an omission. The core
-    /// arranges the pages Table 29 names and hands one render request per page on the screen; a
-    /// tier-2 surface draws exactly one `Arc<DisplayList>` per frame, and `crate::stale`'s
-    /// reprojection is keyed on that one list's identity. So this host says which arrangement it
-    /// is able to draw — through the boundary, in one message — and goes on saying out loud what
-    /// the document asked for. `viewer-gtk` and `viewer-qt` are tier 1 and draw all six.
+    /// **`/PageLayout` is obeyed here as it stands**, and this host asks the viewer for nothing.
+    ///
+    /// The six-hundred-and-sixth session left this asking the viewer *back* for `SinglePage`,
+    /// because a tier-2 surface drew exactly one `Arc<DisplayList>` per frame. It draws the
+    /// arrangement now (ADR 0442), so what is left is the value `l` cycles **from** — the core
+    /// read the catalog for itself when the document opened, and a host that started its cycle at
+    /// `SinglePage` would move the first press onto what the document already asked for.
     fn obey_page_mode(&mut self) {
         use pdf_model::viewer_preferences::{PageLayout, PageMode};
         let Answer::Opening(opening) = self.viewer.query(Query::Opening) else {
@@ -528,16 +545,24 @@ impl App {
                  program does not have"
             ),
         }
+        self.layout = opening.layout;
         if opening.layout != PageLayout::SinglePage {
             println!(
-                "note: this document asks for the {:?} page layout (§7.7.2); this window draws \
-                 one page at a time and has asked the viewer for that arrangement",
+                "note: this document opens in the {:?} page layout (§7.7.2) — press l for the \
+                 next of Table 29's six",
                 opening.layout
             );
         }
-        // Said whatever the document asked for, because the *default* this host needs is the one
-        // it can draw and not the one it happened to be given.
-        self.dispatch(Command::Layout(PageLayout::SinglePage));
+    }
+
+    /// The next of Table 29's six arrangements, which is what `l` asks for.
+    ///
+    /// The *order* is `viewer_host::next_layout`, shared with the other two hosts because what
+    /// the next arrangement is is not a fact about a toolkit; which key says so is this host's.
+    pub(crate) fn cycle_layout(&mut self) {
+        self.layout = viewer_host::next_layout(self.layout);
+        println!("page layout: {:?} (§7.7.2)", self.layout);
+        self.dispatch(Command::Layout(self.layout));
     }
 
     /// Whether anything on the page is selected.

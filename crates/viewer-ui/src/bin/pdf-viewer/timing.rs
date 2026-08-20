@@ -199,9 +199,15 @@ const FRAME_SAMPLES: usize = 16_384;
 /// were being reported as though they were.
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct Stages {
-    /// The page this frame drew, counting from one.
+    /// The first page this frame drew, counting from one.
     pub(crate) page: usize,
-    /// How many display-list commands the page carried.
+    /// How many pages Table 29's arrangement put in this frame.
+    ///
+    /// One under `SinglePage`, which is the table's own default; more under `OneColumn` and the
+    /// four two-page values. Beside [`Self::page`] rather than replacing it, because a person
+    /// reading a trace of a scroll wants to know *where* they are as well as how much is up.
+    pub(crate) pages: usize,
+    /// How many display-list commands the pages carried between them.
     pub(crate) commands: usize,
     /// This host's own work before anything is handed over: the page's geometry, the selection,
     /// the focus ring, the caret, the popup windows and the panel, each a query into the core.
@@ -376,10 +382,18 @@ impl FrameLog {
             Some(quorra_gpu::EncodeSource::Encoded) => " encoded",
             None => "",
         };
+        // Table 29's arrangement, in the page column: `p3` is one page and `p3+1` is page three
+        // with one more of the column beside or below it. Said rather than left to be inferred
+        // from a command count that doubled.
+        let column = if stages.pages > 1 {
+            format!("+{}", stages.pages.saturating_sub(1))
+        } else {
+            String::new()
+        };
         trace.say(
             Topic::Frames,
             format_args!(
-                "frame p{} {}cmd {outcome} {:.1} | present {:.2} | host {:.1} scene {:.1} \
+                "frame p{}{column} {}cmd {outcome} {:.1} | present {:.2} | host {:.1} scene {:.1} \
                  device {:.1}{source} settle {:.1}{unusual} | {} up, {} culled",
                 stages.page,
                 stages.commands,

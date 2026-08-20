@@ -7,19 +7,26 @@
 use pdf_render::Color;
 use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId};
 
-use crate::colour::{ColourSpace, Compositing};
+use crate::colour::{ColourSpace, Compositing, Conversion};
 
 use super::report::Unsupported;
 use super::run::{name_at, number_at};
 use super::{GraphicsState, Interpreter};
 
-/// Whether black point compensation applies, per ISO 32000-2 §8.6.5.9.
+/// What Table 57's `/UseBlackPtComp` says, per ISO 32000-2 §8.6.5.9.
+///
+/// This is the *entry's* value and nothing else. The rendering intent that can override it is
+/// [`Intent`], and the two are combined by `GraphicsState::black_point` at the moment an object
+/// is painted, because §8.6.5.9 states the override as a property of an object rather than as
+/// something one operator does to another:
+///
+/// > If the current render intent of an object is AbsColorimetric then the value of
+/// > UseBlackPtComp shall be treated as OFF .
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum BlackPoint {
-    /// `/UseBlackPtComp ON`, or the processor's own default.
+    /// `/UseBlackPtComp ON`.
     On,
-    /// `/UseBlackPtComp OFF`, or any rendering intent of `AbsColorimetric` — for which
-    /// the specification says the entry "shall be treated as OFF" whatever it holds.
+    /// `/UseBlackPtComp OFF`.
     Off,
     /// `/UseBlackPtComp Default`, which the specification leaves to the processor.
     Default,
@@ -27,8 +34,50 @@ pub(super) enum BlackPoint {
 
 impl BlackPoint {
     /// Whether to compensate. `Default` does, which is this processor's determination.
-    fn applies(self) -> bool {
+    pub(super) fn applies(self) -> bool {
         self != Self::Off
+    }
+}
+
+/// A rendering intent, per ISO 32000-2 §8.6.5.8 Table 69.
+///
+/// Three of the four reach nothing further in this tree — selecting an ICC profile's `A2B1` or
+/// `A2B2` table by intent is not done — and they are still kept apart rather than collapsed
+/// into "absolute or not", because §8.6.5.9's override is stated over *the current render
+/// intent of an object* and an object's intent is a parameter in its own right. Collapsing the
+/// two is what let a `ri` of any other name silently switch black point compensation back on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Intent {
+    /// Table 69's `AbsoluteColorimetric`, the one name that changes what this renderer does.
+    Absolute,
+    /// Table 69's `RelativeColorimetric`, which Table 52 also makes the initial value and
+    /// which §8.6.5.8 makes the answer to a name this processor does not recognise.
+    Relative,
+    /// Table 69's `Saturation`.
+    Saturation,
+    /// Table 69's `Perceptual`.
+    Perceptual,
+}
+
+impl Intent {
+    /// The intent a name selects.
+    ///
+    /// Table 69 "lists the standard rendering intents that shall be recognised", and §8.6.5.8
+    /// disposes of every other name in one sentence:
+    ///
+    /// > If a PDF processor does not recognise the specified name, it shall use the
+    /// > RelativeColorimetric intent by default.
+    ///
+    /// The name tested is Table 69's. §8.6.5.9 spells the same intent `AbsColorimetric` in its
+    /// own prose, and a *file* states what Table 69 defines, so the short spelling is a name
+    /// this processor does not recognise and the sentence above sends it to `Relative`.
+    pub(super) fn read(name: &[u8]) -> Self {
+        match name {
+            b"AbsoluteColorimetric" => Self::Absolute,
+            b"Saturation" => Self::Saturation,
+            b"Perceptual" => Self::Perceptual,
+            _ => Self::Relative,
+        }
     }
 }
 
@@ -46,6 +95,19 @@ impl Interpreter<'_> {
         black_point: BlackPoint,
     ) -> Color {
         convert(space, values, black_point, &self.compositing)
+    }
+
+    /// How an object painted under `state` converts its colours.
+    ///
+    /// The two halves an image's samples, a shading's ramp and a mesh's vertices need and an
+    /// operator's colour does not: those three convert *later*, in `crate::image`,
+    /// `crate::shading` and `crate::mesh`, so the parameters in force have to travel with them.
+    /// §11.7.5.3 is the clause that says which parameters those are — "[t]he rendering intent,
+    /// black-generation, undercolour-removal and black point compensation parameters control
+    /// certain colour conversions … they may need to be applied earlier than the actual
+    /// rendering of colour onto the page".
+    pub(super) fn conversion(&self, state: &GraphicsState) -> Conversion {
+        Conversion::new(self.compositing.clone(), state.black_point().applies())
     }
 
     /// Sets a colour space, which decides how the operands of `sc`/`scn` are read.
@@ -118,7 +180,7 @@ impl Interpreter<'_> {
         let colour = if initial.is_empty() {
             Color::TRANSPARENT
         } else {
-            self.colour(&space, &initial, state.black_point)
+            self.colour(&space, &initial, state.black_point())
         };
         if fill {
             state.fill_space = space;
@@ -178,11 +240,11 @@ impl Interpreter<'_> {
             (0, _) => return,
             (given, expected) if given == expected => {
                 let space = space.clone();
-                self.colour(&space, &values, state.black_point)
+                self.colour(&space, &values, state.black_point())
             }
-            (1, _) => self.colour(&ColourSpace::Gray, &values, state.black_point),
-            (3, _) => self.colour(&ColourSpace::Rgb, &values, state.black_point),
-            (4, _) => self.colour(&ColourSpace::Cmyk, &values, state.black_point),
+            (1, _) => self.colour(&ColourSpace::Gray, &values, state.black_point()),
+            (3, _) => self.colour(&ColourSpace::Rgb, &values, state.black_point()),
+            (4, _) => self.colour(&ColourSpace::Cmyk, &values, state.black_point()),
             (given, expected) => {
                 self.note(Unsupported::Shading {
                     name: format!("{given} colour components (expected {expected})"),

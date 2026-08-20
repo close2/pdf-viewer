@@ -259,10 +259,13 @@ fn main() {
             .parent()
             .map(std::path::Path::to_path_buf),
         caption: String::new(),
-        request: None,
-        acknowledged: true,
+        requests: Vec::new(),
+        unacknowledged: Vec::new(),
         presented: None,
         presentation: None,
+        // Table 29's own default, replaced by whatever the catalog states the moment the document
+        // opens (`App::obey_page_mode`).
+        layout: pdf_model::viewer_preferences::PageLayout::SinglePage,
         arming: None,
         trace,
         processor,

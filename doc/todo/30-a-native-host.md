@@ -184,17 +184,62 @@ the clause states the arrangement a document *opens* in and says nothing about w
 afterwards; and `Answer::Frame` carries one entry per page on the screen, because a column has
 several. `Query::PageGeometry` needed nothing at all.
 
-**Two of the three hosts took it and the third owes it, which is where this file's "all three stay
-level" decision stands today.** `viewer-gtk` draws one `gdk::MemoryTexture` per page and `viewer-qt`
-one `QImage`, both with `l` cycling the six and both now with a wheel binding they had never had —
-neither host had ever sent `Command::Scroll`, because under `SinglePage` at `Zoom::FitPage` there is
-nothing to scroll. **`viewer-ui` asks the viewer for `SinglePage`** and says so out loud: a tier-2
-surface draws exactly one `Arc<DisplayList>` per frame and `crate::stale`'s reprojection is keyed on
-that list's identity, so a column needs either a merge of display lists in `pdf-render` — which would
-have to remap clip and soft-mask identifiers through nested groups — or a second rendering path in
-`surface.rs`. **That is the next round's item**, and until it is done `viewer-ui` is a host declaring
-a capability rather than a host quietly drawing one page of a column.
+**All three hosts have it since the six-hundred-and-seventh** (ADR 0442), which is where this
+file's "all three stay level" decision stands: `viewer-gtk` draws one `gdk::MemoryTexture` per page,
+`viewer-qt` one `QImage`, `viewer-ui` one frame carrying every page of the arrangement — and all
+three bind `l` to `viewer_host::next_layout`, which is in that crate because the third copy of a
+function is where two hosts stop agreeing. Both native hosts also gained a wheel binding they had
+never had, because under `SinglePage` at `Zoom::FitPage` there is nothing to scroll.
+
+**The route the tier-2 host took, and the argument, because 606 named two and chose neither.** Not a
+display-list merge in `pdf-render`: `DisplayList` carries §11.4.7's page-group blending space and its
+companion black list *per list*, so two pages stating different page groups are not one list at all;
+`Command::Group` carries no transform, so placing a page inside a merged list means rewriting the
+transform of every command, clip and soft mask, at every magnification; and the merged list is a new
+allocation, which is the identity `render-quorra`'s retained scene and `crate::cache`'s pinned
+resources are keyed on (ADR 0351). The frame carries **several placed lists** instead — which is
+what `PresentFrame::overlays` already was — and trap 2 is satisfied by there being one statement of
+the arrangement rather than by where the drawing happens: `viewer_core::layout` decides where the
+pages go and states it as a `TargetSpec` apiece, so a backend executes an arrangement and never
+chooses one.
+
+**And it needed no message**, which is this file's own claim tested rather than repeated:
+`Query::PageGeometry` answers `Answer::None` for a page the arrangement does not show, and that is
+the whole of what a tier-2 host needs in order to know which of the render requests it is holding
+have scrolled off.
 
 It sharpens [`37`](37-a-frame-that-says-it-is-stale.md)'s new item rather than competing with it: a
 continuous scroll reveals area that was not on the screen *constantly*, which is exactly what the
 retained low-resolution page is for — and on the tier-2 host the two items are now the same item.
+
+### What the column still owes, named rather than left implicit — 607
+
+Three things, and none of them is architecture:
+
+- **A selection is a range of one page's readback.** `Answer::Selected` carries the text and the
+  quadrilaterals of one page, and `Open::selection` a `page` beside its range — so a sweep that
+  starts on one page of a column and ends on the next selects the first page's half and stops.
+  §12.4.2 gives no notion of a document-wide offset, so what this needs is a *shape* decision on the
+  boundary — a selection that is a list of per-page ranges — and every consumer failing to compile,
+  which is the mechanism ADRs 0166, 0167, 0247, 0248 and 0431 established. Not taken in the
+  six-hundred-and-seventh because it is a boundary change with six consumers and not a host's gap.
+- **`Query::Reports`, `Query::Readback` and `Query::AccessibilityTree` answer for the current page
+  alone**, which under a column is no longer what is on the screen. All three read
+  `Open::interpreted()`, which is `on_screen`'s entry for `page_index`. The first two borrow the
+  page's own storage (`&'a [String]`, a `Shortfall` by value), so answering for several pages is
+  again a variant's shape rather than a new question; the third builds a tree per page and §14.7's
+  structure is a *document's*, so what a column should publish is a question about AT-SPI rather
+  than about this crate. **What is not owed is a guess**: a host that showed the current page's
+  reports for a screen holding four pages would be reassuring a person about pages nothing looked at.
+- **The gap between pages is invisible on `viewer-ui`**, and the reason is a reading worth keeping.
+  §11.4.7 says the page group "shall be treated as an isolated group, whose results shall then be
+  composited with a backdrop colour appropriate for the medium. The backdrop is nominally white",
+  and Table 141 names that colour 𝑊, "[i]nitial colour of the page". So 𝑊 is a property of **the
+  page**, and what a window shows where there is *no* page is not §11.4.7's subject at all. This
+  tree has one colour for both — `render-quorra`'s medium fills the whole target and `render-cpu`'s
+  `impose_on_medium` the whole raster — which was invisible while one page filled the window and is
+  visible the moment a column puts white paper next to white surround. The two native hosts never
+  had it, because their surround is the toolkit's own window background. Splitting the two is a
+  change to both backends and belongs in a round of its own with its own ADR; the six-hundred-and-
+  seventh found it by looking at the screen and left the colour where it was rather than half-doing
+  it.

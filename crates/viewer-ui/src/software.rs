@@ -42,6 +42,18 @@ pub enum SoftwareError {
     /// An overlay could not be drawn on the processor.
     #[error("an overlay could not be drawn: {0}")]
     Overlay(#[from] CpuRasterError),
+    /// A page of Table 29's arrangement could not be drawn on the processor.
+    ///
+    /// Named apart from [`Self::Overlay`] although both are the same rasteriser's refusal, because
+    /// the two are different sentences to a person: a page that will not draw is a fact about the
+    /// document, and an overlay that will not draw is a defect in this host's own chrome.
+    #[error("page {page} could not be drawn: {problem}")]
+    Page {
+        /// Which page of the arrangement, counting from one as a reader does.
+        page: usize,
+        /// What the processor said.
+        problem: CpuRasterError,
+    },
     /// The window has no extent — minimised, or between a resize and its first frame.
     ///
     /// Not an error the caller reports: there is nothing to present *to*, which is different
@@ -152,6 +164,56 @@ impl SoftwareSurface {
 /// about and a truncated buffer answers with what it actually holds.
 fn pixels(raster: &Raster) -> usize {
     raster.data.chunks_exact(4).len()
+}
+
+/// Draws every page of Table 29's arrangement into one window-sized raster, in the order given.
+///
+/// ISO 32000-2 §7.7.2's `OneColumn` and the four two-page values put several pages in one window,
+/// and each arrives with its own [`TargetSpec`] whose extent is the window's and whose transform
+/// carries that page's placement — the same specs the graphics device is handed. So the first
+/// page is drawn as it always was, onto the medium, and every page after it onto transparency and
+/// composited over what is there. The pages do not overlap, so the order is the arrangement's
+/// rather than a compositing decision.
+///
+/// **The same shape as [`compose`], and for the same reason**: [`CpuRasterizer`] answers with a
+/// new raster rather than drawing into one, so a page costs a window's worth of pixels and a
+/// source-over. There are at most `viewer_core`'s bound of them, and this is the path that is
+/// already the slow one.
+///
+/// # Errors
+///
+/// [`SoftwareError::NoExtent`] where the arrangement places no page at all, and
+/// [`SoftwareError::Page`] where one would not rasterise.
+pub fn compose_pages(pages: &[(&DisplayList, TargetSpec)]) -> Result<Raster, SoftwareError> {
+    /// Which page of the arrangement refused, counting from one.
+    fn refused(index: usize) -> impl Fn(CpuRasterError) -> SoftwareError {
+        move |problem| SoftwareError::Page {
+            page: index.saturating_add(1),
+            problem,
+        }
+    }
+    let Some(((first, target), rest)) = pages.split_first() else {
+        return Err(SoftwareError::NoExtent);
+    };
+    let mut composed = CpuRasterizer::new()
+        .rasterize(first, *target)
+        .map_err(refused(0))?;
+    match composed.format {
+        RasterFormat::Rgba8 => {}
+    }
+    for (index, (list, placed)) in rest.iter().enumerate() {
+        // Transparent for the same reason an overlay is: this is a layer over what is already
+        // drawn, and the medium under it has been painted once by the page above.
+        let over = CpuRasterizer::new()
+            .with_background(Color::TRANSPARENT)
+            .rasterize(list, *placed)
+            .map_err(refused(index.saturating_add(1)))?;
+        match over.format {
+            RasterFormat::Rgba8 => {}
+        }
+        source_over(&mut composed, &over);
+    }
+    Ok(composed)
 }
 
 /// Draws every overlay over `page`, in order, and answers the result.
@@ -334,6 +396,57 @@ mod tests {
             "half of white over black is a middle grey, not {}",
             composed.data[0]
         );
+    }
+
+    /// Table 29's column on the processor: two pages, each under its own placement, in one
+    /// window-sized raster.
+    ///
+    /// The property that matters is that the **second page reaches the window at all** — a
+    /// composition that drew the first and stopped would be the tier-2 host drawing one page of a
+    /// column, which is exactly what ADR 0442 was for. Each list here fills the whole target under
+    /// its own transform, so the second covers the first and the result is the second's colour.
+    #[test]
+    fn every_page_of_the_arrangement_reaches_the_raster() {
+        let first = left_half(8, 4, Color::BLACK);
+        let second = left_half(
+            8,
+            4,
+            Color {
+                r: 0.0,
+                g: 0.0,
+                b: 1.0,
+                a: 1.0,
+            },
+        );
+        // The second page placed four pixels to the right of the first, which is what a column's
+        // second entry is: the same list at a different origin.
+        let whole = pdf_render::TargetSpec {
+            width: 8,
+            height: 4,
+            transform: pdf_render::Transform::IDENTITY,
+        };
+        let moved = pdf_render::TargetSpec {
+            transform: pdf_render::Transform::translate(4.0, 0.0),
+            ..whole
+        };
+        let composed =
+            super::compose_pages(&[(&first, whole), (&second, moved)]).expect("two pages");
+        assert_eq!(&composed.data[0..4], &[0, 0, 0, 255], "the first page");
+        assert_eq!(
+            &composed.data[5 * 4..6 * 4],
+            &[0, 0, 255, 255],
+            "the second page, at the origin the arrangement gave it"
+        );
+    }
+
+    /// An arrangement that places no page has nothing to compose, and says so rather than
+    /// answering with an empty raster a caller would present.
+    #[test]
+    fn no_pages_is_not_a_frame() {
+        assert!(matches!(
+            super::compose_pages(&[]),
+            Err(super::SoftwareError::NoExtent)
+        ));
     }
 
     /// Overlays are drawn in the order they are given: the modal card is over the sidebar

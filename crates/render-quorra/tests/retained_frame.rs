@@ -112,7 +112,7 @@ fn placed(scale: f32) -> TargetSpec {
 /// or replayed from an earlier frame.
 fn draw(
     gpu: &mut QuorraRasterizer,
-    list: Option<(&Arc<DisplayList>, TargetSpec)>,
+    pages: &[(&Arc<DisplayList>, TargetSpec)],
     raster: Option<&Raster>,
     overlays: &[&DisplayList],
     size: (u32, u32),
@@ -121,7 +121,7 @@ fn draw(
         .rasterize_frame(&PresentFrame {
             width: size.0,
             height: size.1,
-            page: list,
+            pages,
             raster,
             overlays,
         })
@@ -135,7 +135,7 @@ fn draw(
 
 /// The common case: one page, at page scale, with no chrome and no stand-in.
 fn plain(gpu: &mut QuorraRasterizer, list: &Arc<DisplayList>) -> (Raster, EncodeSource) {
-    draw(gpu, Some((list, placed(1.0))), None, &[], WINDOW)
+    draw(gpu, &[(list, placed(1.0))], None, &[], WINDOW)
 }
 
 /// Asserts two rasters are the same bytes, and says how many differ when they are not.
@@ -171,13 +171,7 @@ fn a_replayed_frame_is_byte_identical_to_the_encode_it_replaces() {
     let list = page(Color::rgb(0.9, 0.1, 0.1));
     let overlay = chrome(24.0);
 
-    let (encoded, first) = draw(
-        &mut gpu,
-        Some((&list, placed(1.0))),
-        None,
-        &[&overlay],
-        WINDOW,
-    );
+    let (encoded, first) = draw(&mut gpu, &[(&list, placed(1.0))], None, &[&overlay], WINDOW);
     assert_eq!(
         first,
         EncodeSource::Encoded,
@@ -191,13 +185,7 @@ fn a_replayed_frame_is_byte_identical_to_the_encode_it_replaces() {
     // The same frame again, built the way a host builds it: a fresh chrome list carrying the
     // same picture, and the page's own `Arc` unmoved.
     let again = chrome(24.0);
-    let (replayed, second) = draw(
-        &mut gpu,
-        Some((&list, placed(1.0))),
-        None,
-        &[&again],
-        WINDOW,
-    );
+    let (replayed, second) = draw(&mut gpu, &[(&list, placed(1.0))], None, &[&again], WINDOW);
     assert_eq!(
         second,
         EncodeSource::Replayed,
@@ -209,7 +197,7 @@ fn a_replayed_frame_is_byte_identical_to_the_encode_it_replaces() {
     // ADR 0351 and what every other gate still compares against.
     let (fresh, source) = draw(
         &mut backend(),
-        Some((&list, placed(1.0))),
+        &[(&list, placed(1.0))],
         None,
         &[&overlay],
         WINDOW,
@@ -280,19 +268,13 @@ fn a_resized_window_misses() {
     assert_eq!(source, EncodeSource::Replayed);
 
     let smaller = (WINDOW.0 - 40, WINDOW.1 - 30);
-    let (drawn, source) = draw(&mut gpu, Some((&list, placed(1.0))), None, &[], smaller);
+    let (drawn, source) = draw(&mut gpu, &[(&list, placed(1.0))], None, &[], smaller);
     assert_eq!(
         source,
         EncodeSource::Encoded,
         "every clip and cull in an encode is against the target rectangle"
     );
-    let (expected, _) = draw(
-        &mut backend(),
-        Some((&list, placed(1.0))),
-        None,
-        &[],
-        smaller,
-    );
+    let (expected, _) = draw(&mut backend(), &[(&list, placed(1.0))], None, &[], smaller);
     identical("the frame after a resize", &drawn, &expected);
 }
 
@@ -306,19 +288,13 @@ fn a_zoom_step_misses() {
     let (_, source) = plain(&mut gpu, &list);
     assert_eq!(source, EncodeSource::Replayed);
 
-    let (drawn, source) = draw(&mut gpu, Some((&list, placed(1.4))), None, &[], WINDOW);
+    let (drawn, source) = draw(&mut gpu, &[(&list, placed(1.4))], None, &[], WINDOW);
     assert_eq!(
         source,
         EncodeSource::Encoded,
         "the placement is baked into every command, so a new scale is a new scene"
     );
-    let (expected, _) = draw(
-        &mut backend(),
-        Some((&list, placed(1.4))),
-        None,
-        &[],
-        WINDOW,
-    );
+    let (expected, _) = draw(&mut backend(), &[(&list, placed(1.4))], None, &[], WINDOW);
     identical("the frame after a zoom step", &drawn, &expected);
 }
 
@@ -334,30 +310,18 @@ fn chrome_misses_when_it_changes_and_not_when_it_is_merely_rebuilt() {
     let narrow = chrome(24.0);
     let wide = chrome(48.0);
 
-    let (_, source) = draw(
-        &mut gpu,
-        Some((&list, placed(1.0))),
-        None,
-        &[&narrow],
-        WINDOW,
-    );
+    let (_, source) = draw(&mut gpu, &[(&list, placed(1.0))], None, &[&narrow], WINDOW);
     assert_eq!(source, EncodeSource::Encoded);
 
     let rebuilt = chrome(24.0);
-    let (_, source) = draw(
-        &mut gpu,
-        Some((&list, placed(1.0))),
-        None,
-        &[&rebuilt],
-        WINDOW,
-    );
+    let (_, source) = draw(&mut gpu, &[(&list, placed(1.0))], None, &[&rebuilt], WINDOW);
     assert_eq!(
         source,
         EncodeSource::Replayed,
         "the same chrome at a new address is the same chrome"
     );
 
-    let (drawn, source) = draw(&mut gpu, Some((&list, placed(1.0))), None, &[&wide], WINDOW);
+    let (drawn, source) = draw(&mut gpu, &[(&list, placed(1.0))], None, &[&wide], WINDOW);
     assert_eq!(
         source,
         EncodeSource::Encoded,
@@ -365,7 +329,7 @@ fn chrome_misses_when_it_changes_and_not_when_it_is_merely_rebuilt() {
     );
     let (expected, _) = draw(
         &mut backend(),
-        Some((&list, placed(1.0))),
+        &[(&list, placed(1.0))],
         None,
         &[&wide],
         WINDOW,
@@ -397,7 +361,7 @@ fn a_raster_stand_in_never_replays() {
         data: vec![200; (WINDOW.0 as usize) * (WINDOW.1 as usize) * 4],
     };
     for round in 0..3 {
-        let (_, source) = draw(&mut gpu, None, Some(&stand_in), &[], WINDOW);
+        let (_, source) = draw(&mut gpu, &[], Some(&stand_in), &[], WINDOW);
         assert_eq!(
             source,
             EncodeSource::Encoded,
@@ -420,7 +384,7 @@ fn the_page_settles_again_after_a_fallback_frame() {
     };
 
     let (before, _) = plain(&mut gpu, &list);
-    let (_, source) = draw(&mut gpu, None, Some(&stand_in), &[], WINDOW);
+    let (_, source) = draw(&mut gpu, &[], Some(&stand_in), &[], WINDOW);
     assert_eq!(source, EncodeSource::Encoded);
 
     let (again, source) = plain(&mut gpu, &list);

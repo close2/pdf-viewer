@@ -38,6 +38,11 @@ in one window and a host drawing the first of them would draw a continuous view 
 Four consumers failed to compile, `PDFV_EVENT_KIND_COUNT` stayed 16, and the C ABI gained two entry
 points — `pdfv_layout` and `pdfv_frame_count`, the second because a C consumer cannot fail to compile
 and so has to be able to *ask* how many pages the arrangement is showing (ADR 0441).
+**And the six-hundred-and-seventh added nothing at all**, which is the half of ADR 0441 that was
+still owed: the tier-2 host draws the arrangement now, and what it needed in order to follow one was
+already answered — `Query::PageGeometry` says `Answer::None` for a page the arrangement does not
+show, so a host holding one render request per page learns from that question alone which of them
+have scrolled off. Three hosts on all six of Table 29's values, one message between them (ADR 0442).
 Read by: anybody writing a host, adding a `Command`, `Event` or `Query`, or asking what the
 crate boundary permits. `doc/HANDOVER.md`'s reader table points a round writing a host here, and ADRs 0116 to 0121
 are the argument.

@@ -28,7 +28,7 @@ use pdf_syntax::{Dictionary, Document, Object, ObjectId};
 use crate::colour::{ColourSpace, Compositing};
 use crate::page::Page;
 
-use colour::{BlackPoint, output_intent_space};
+use colour::{BlackPoint, Intent, output_intent_space};
 use ext_gstate::Transfer;
 use font::{Font, FontKey};
 use pattern::{PatternPaint, shading_with_alpha};
@@ -168,11 +168,21 @@ struct GraphicsState {
     blend: BlendMode,
     fill_alpha: f32,
     stroke_alpha: f32,
-    /// Whether black point compensation applies to CIE-based conversions.
+    /// Table 57's `/UseBlackPtComp`, which says whether black point compensation applies to
+    /// CIE-based conversions.
     ///
     /// ISO 32000-2 §8.6.5.9. `Default` is the initial value and leaves the choice to the
-    /// processor; this one compensates, which is what makes blacks black.
-    black_point: BlackPoint,
+    /// processor; this one compensates, which is what makes blacks black. Read through
+    /// [`GraphicsState::black_point`] rather than directly, because the rendering intent can
+    /// override it.
+    use_black_pt_comp: BlackPoint,
+    /// The rendering intent parameter, set by `ri` and by `/RI` (§8.6.5.8).
+    ///
+    /// §8.4.1 Table 52 states the initial value, and it is not the absent answer a `bool` would
+    /// have given: an object painted before any `ri` has an intent, and it is a named one.
+    ///
+    /// > Initial value: RelativeColorimetric .
+    intent: Intent,
     /// The current fill colour space, which decides how `sc`/`scn` operands are read.
     fill_space: ColourSpace,
     /// As above, for stroking.
@@ -271,11 +281,44 @@ impl GraphicsState {
             blend: BlendMode::Normal,
             fill_alpha: 1.0,
             stroke_alpha: 1.0,
-            black_point: BlackPoint::Default,
+            use_black_pt_comp: BlackPoint::Default,
+            intent: Intent::Relative,
             fill_space: ColourSpace::Gray,
             stroke_space: ColourSpace::Gray,
             text: TextState::default(),
         }
+    }
+
+    /// Whether §8.6.5.9's black point compensation applies to an object painted now.
+    ///
+    /// The clause states the override over the object rather than over the entry:
+    ///
+    /// > If the current render intent of an object is AbsColorimetric then the value of
+    /// > UseBlackPtComp shall be treated as OFF .
+    ///
+    /// So it is asked here, where an object's colour is converted, rather than performed as an
+    /// assignment when either parameter is set. **The difference is two orderings, and both
+    /// were wrong until the six-hundred-and-seventh session**, when the two parameters shared
+    /// one field: a `ri` naming any other intent used to reset an explicit `/UseBlackPtComp
+    /// OFF` back to compensating, and a `/UseBlackPtComp ON` set *after* an absolute intent
+    /// used to compensate although the intent still in force says it shall not.
+    fn black_point(&self) -> BlackPoint {
+        self.black_point_under(self.intent)
+    }
+
+    /// As [`GraphicsState::black_point`], for an object that states an intent of its own.
+    ///
+    /// The clause says *the current render intent of an object*, and §8.6.5.8 gives an object
+    /// three routes to one: the `ri` operator, an `/ExtGState`'s `/RI`, and §8.9.5.1 Table 87's
+    /// `/Intent`, which is an image's own. Only the third can differ from the state's, which is
+    /// why this takes the intent as an argument rather than reading it.
+    fn black_point_under(&self, intent: Intent) -> BlackPoint {
+        if intent == Intent::Absolute {
+            // Absolute colorimetry reproduces the source's measured colours, including its own
+            // paper white and black; compensating for the black point would defeat that.
+            return BlackPoint::Off;
+        }
+        self.use_black_pt_comp
     }
 
     /// Returns the fill colour with the constant alpha applied.

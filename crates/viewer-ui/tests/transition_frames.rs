@@ -160,7 +160,7 @@ fn both_backends_draw_the_same_transition_frame() {
         .rasterize_frame(&PresentFrame {
             width: WINDOW.0,
             height: WINDOW.1,
-            page: Some((&list, target)),
+            pages: &[(&list, target)],
             raster: None,
             overlays: &[],
         })

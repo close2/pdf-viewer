@@ -345,6 +345,14 @@ impl ApplicationHandler for App {
                     };
                     return;
                 }
+                // Table 29's six arrangements, and the seventh key this program answers itself:
+                // §7.7.2 states the layout a document *opens* in, so which of the six a reader
+                // has moved on to is a fact about this window and the command to send depends on
+                // which one is in force. The other two hosts bind the same letter (ADR 0442).
+                if matches!(logical_key.as_ref(), Key::Character("l")) {
+                    self.cycle_layout();
+                    return;
+                }
                 // Everything else goes to the page, and the About card is over it: a key press
                 // that turned a page nobody can see would be answering the wrong question.
                 if self.about.shown {

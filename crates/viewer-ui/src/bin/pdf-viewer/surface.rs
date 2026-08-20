@@ -14,8 +14,7 @@
 
 use std::sync::Arc;
 
-use pdf_render::{Rasterizer as _, TargetSpec, Transform};
-use render_cpu::CpuRasterizer;
+use pdf_render::{TargetSpec, Transform};
 use render_quorra::QuorraWindowRenderer;
 use viewer_core::{Answer, Command, Query, Rendered};
 use viewer_ui::software::SoftwareSurface;
@@ -64,7 +63,7 @@ fn coverage_for(transform: Transform) -> quorra_gpu::Coverage {
     }
 }
 
-/// Draws the page with [`CpuRasterizer`] and copies it onto a window that has no device.
+/// Draws Table 29's arrangement with `render-cpu` and copies it onto a window that has no device.
 ///
 /// **This is one of the two jobs `CLAUDE.md` keeps the CPU backend for**: the correctness oracle,
 /// and the frame the graphics device refuses. (It was three until the two-hundred-and-seventy-third
@@ -82,13 +81,11 @@ fn coverage_for(transform: Transform) -> quorra_gpu::Coverage {
 /// the time they reach the caller, which formats them into one report.
 fn on_the_processor(
     surface: &mut SoftwareSurface,
-    list: &pdf_render::DisplayList,
-    target: TargetSpec,
+    pages: &[(&pdf_render::DisplayList, TargetSpec)],
     overlays: &[&pdf_render::DisplayList],
 ) -> Result<(), String> {
-    let raster = CpuRasterizer::new()
-        .rasterize(list, target)
-        .map_err(|problem| format!("the processor {problem}"))?;
+    let raster = viewer_ui::software::compose_pages(pages)
+        .map_err(|problem| format!("the processor: {problem}"))?;
     surface
         .present(&raster, overlays)
         .map_err(|problem| format!("presenting the processor's page {problem}"))
@@ -159,15 +156,16 @@ impl App {
     /// and nothing about it is approximated.
     fn on_the_device(
         &mut self,
-        list: &Arc<pdf_render::DisplayList>,
-        target: TargetSpec,
+        pages: &[(Arc<pdf_render::DisplayList>, TargetSpec)],
         stand_in: bool,
         chrome: &Overlays,
         stages: &mut Stages,
     ) -> Option<Rendered> {
         let now = std::time::Instant::now();
         self.adopt(now, stages);
-        let coverage = coverage_for(target.transform);
+        // The magnification is the arrangement's rather than one page's: every page of a column
+        // is placed at the same magnification by `viewer_core::layout`, so the first states it.
+        let coverage = coverage_for(pages.first()?.1.transform);
         let overlays = chrome.owned();
         let drawing = {
             let window = self.device_window()?;
@@ -177,16 +175,23 @@ impl App {
             // would make every view change observe its own dispatch as a miss, and the prediction
             // — the half that decides whether a quick frame is waited for — would never be asked.
             let was_drawing = window.drawing();
-            // A rendering of exactly this list at exactly this target needs no successor. The
+            // A rendering of exactly these lists at exactly these targets needs no successor. Each
             // page is compared by the `Arc` that makes its address mean something, because a page
             // turn at an unchanged magnification is a different picture at the same placement;
-            // the target by value, because a resize is a different frame at the same transform.
-            let of_this_view = window
-                .shown()
-                .and_then(|shown| shown.page.as_ref())
-                .is_some_and(|(drawn, placed)| Arc::ptr_eq(drawn, list) && *placed == target);
+            // the targets by value, because a resize is a different frame at the same transform.
+            // The *count* is compared with them: a scroll that brings a further row of a column
+            // onto the screen leaves every page already up exactly where it was.
+            let of_this_view =
+                window.shown().is_some_and(|shown| {
+                    shown.pages.len() == pages.len()
+                        && shown.pages.iter().zip(pages).all(
+                            |((drawn, placed), (asked, target))| {
+                                Arc::ptr_eq(drawn, asked) && placed == target
+                            },
+                        )
+                });
             if !of_this_view {
-                window.ask(Some((Arc::clone(list), target)), overlays, coverage, now);
+                window.ask(pages.to_vec(), overlays, coverage, now);
             }
             was_drawing
         };
@@ -204,12 +209,10 @@ impl App {
         // Every rule that makes an approximation defensible is in `crate::stale` rather than
         // here. The period is the one number rule 5 is measured against (ADR 0384), and `drawing`
         // is its second way of knowing that a frame has missed (ADR 0391).
-        let planned = self
-            .stale
-            .plan(list, target, self.cadence.period(), drawing);
+        let planned = self.stale.plan(pages, self.cadence.period(), drawing);
         let placement = match planned {
             crate::stale::Plan::Render => Transform::IDENTITY,
-            crate::stale::Plan::Reproject => match self.stale.reproject(list, target) {
+            crate::stale::Plan::Reproject => match self.stale.reproject(pages) {
                 Ok(moved) => {
                     stages.approximated = true;
                     moved
@@ -289,12 +292,12 @@ impl App {
         // observable rather than an inference from a small duration: a frame that replayed a
         // retained encode (ADR 0351) says what a replay costs and nothing about what the next
         // render will, and a view change never replays.
-        if let Some((page, target)) = landed.page {
+        if !landed.pages.is_empty() {
             let built = !matches!(
                 landed.cost.encode_source,
                 Some(quorra_gpu::EncodeSource::Replayed)
             );
-            self.stale.settled(&page, target, landed.waited, built);
+            self.stale.settled(&landed.pages, landed.waited, built);
         }
     }
 
@@ -384,15 +387,6 @@ impl App {
         // §12.3.4's list is built here and nowhere else: this is the one place that holds
         // `&mut self` and runs before the panel is drawn.
         self.ensure_pages();
-        let request = self.request.clone()?;
-        stages.page = request.page.saturating_add(1);
-        stages.commands = request.list.commands().len();
-        // Where the page sits in the window: the core centres it and scrolls it, and the host
-        // draws it there by composing that offset into the target's own transform.
-        let origin = match self.viewer.query(Query::PageGeometry(request.page)) {
-            Answer::Geometry(geometry) => geometry.origin,
-            _ => (0.0, 0.0),
-        };
         let (width, height) = {
             let state = self.state.as_ref()?;
             state.size
@@ -402,52 +396,107 @@ impl App {
             reason = "a panel width in pixels, which is hundreds"
         )]
         let edge = self.inset() as f32;
-        let target = TargetSpec {
-            width,
-            height,
-            transform: request
-                .target
-                .transform
-                .then(Transform::translate(origin.0 + edge, origin.1)),
-        };
+        let pages = self.arrangement(edge, width, height);
+        let first = pages.first()?;
+        stages.page = first.0.saturating_add(1);
+        stages.pages = pages.len();
+        stages.commands = pages.iter().map(|(_, list, _)| list.commands().len()).sum();
+        let placed: Vec<(Arc<pdf_render::DisplayList>, TargetSpec)> = pages
+            .iter()
+            .map(|(_, list, target)| (Arc::clone(list), *target))
+            .collect();
 
-        // §12.4.4: a transition in flight substitutes its own picture of *two* pages for the one,
-        // and it is a display list, so everything below this line is unchanged by it — which is
-        // the point of shaping a frame in `viewer_core::transition` rather than compositing here.
-        let (playing, drawn) = self.frame_to_draw(&request, target, width, height);
-        let list = playing.clone().unwrap_or_else(|| Arc::clone(&request.list));
+        // §12.4.4: a transition in flight substitutes its own picture of *two* pages for the
+        // arrangement, and it is a display list, so everything below this line is unchanged by it
+        // — which is the point of shaping a frame in `viewer_core::transition` rather than
+        // compositing here. A transition runs in §12.4.4's presentation mode, which shows one
+        // page, so it stands in for the whole arrangement rather than for one entry of it.
+        let (playing, drawn) = self.frame_to_draw(&first.1, first.2, width, height);
+        let transitioning = playing.is_some();
+        let for_the_device = match playing {
+            Some(frame) => vec![(frame, drawn)],
+            None => placed,
+        };
 
         let chrome = Overlays::of(self, edge, width, height);
         stages.host = began.elapsed();
 
         // A transition is already a picture of two pages moving, drawn from rasters this host
         // took for it: there is no stall to cover and the pixels on the screen are not a page.
-        if playing.is_some() {
+        if transitioning {
             self.stale.forget();
         }
 
         if self.device_window().is_some() {
-            return self.on_the_device(&list, drawn, playing.is_none(), &chrome, stages);
+            return self.on_the_device(&for_the_device, !transitioning, &chrome, stages);
         }
 
         // No device: the processor's window is this run's only path, and it draws to completion
         // here exactly as it always did.
         let overlays = chrome.lists();
+        let borrowed: Vec<(&pdf_render::DisplayList, TargetSpec)> = for_the_device
+            .iter()
+            .map(|(list, target)| (list.as_ref(), *target))
+            .collect();
         let fell_back = std::time::Instant::now();
         let Some(Surface::Processor(surface)) = self.state.as_mut().map(|state| &mut state.surface)
         else {
             return None;
         };
-        let outcome = on_the_processor(surface, &list, drawn, &overlays);
+        let outcome = on_the_processor(surface, &borrowed, &overlays);
         stages.fallback = fell_back.elapsed();
         if let Err(problem) = outcome {
             return Some(Rendered::Failed(problem));
         }
-        if playing.is_none() {
-            self.stale
-                .settled(&request.list, target, began.elapsed(), true);
+        if !transitioning {
+            self.stale.settled(&for_the_device, began.elapsed(), true);
         }
         Some(Rendered::Presented)
+    }
+
+    /// Table 29's arrangement as this window is about to draw it: every page, placed.
+    ///
+    /// **The whole of what a tier-2 host needs in order to obey `/PageLayout`, and it needed no
+    /// message.** `viewer-core` hands one [`viewer_core::RenderRequest`] per page on the screen
+    /// and answers `Query::PageGeometry` for each of them; a page the arrangement no longer shows
+    /// has no geometry — that question's own documentation says so — which is what says a request
+    /// this host is still holding has scrolled off. So the requests kept are exactly the pages
+    /// placed, and the list comes back in page order because that is the order they arrived in and
+    /// the order `viewer_core::layout` sorts its placements into.
+    ///
+    /// Each target is the *window's* extent with the page's placement composed into its transform,
+    /// which is the one thing this host adds to what the core said: the core centres and scrolls
+    /// the arrangement, and the panel's edge is the host's own.
+    fn arrangement(
+        &mut self,
+        edge: f32,
+        width: u32,
+        height: u32,
+    ) -> Vec<(usize, Arc<pdf_render::DisplayList>, TargetSpec)> {
+        let mut placed = Vec::with_capacity(self.requests.len());
+        for request in &self.requests {
+            let Answer::Geometry(geometry) = self.viewer.query(Query::PageGeometry(request.page))
+            else {
+                continue;
+            };
+            placed.push((
+                request.page,
+                Arc::clone(&request.list),
+                TargetSpec {
+                    width,
+                    height,
+                    transform: request.target.transform.then(Transform::translate(
+                        geometry.origin.0 + edge,
+                        geometry.origin.1,
+                    )),
+                },
+            ));
+        }
+        // What the arrangement dropped is dropped here, so that a thousand-page document scrolled
+        // from end to end holds one request per page on the screen rather than one per page read.
+        self.requests
+            .retain(|request| placed.iter().any(|(page, _, _)| *page == request.page));
+        placed
     }
 
     /// Brings up whatever will put pixels on this window, or says why nothing can.
@@ -782,10 +831,23 @@ impl App {
         let Some(rendered) = outcome else {
             return;
         };
-        if !self.acknowledged
-            && let Some(token) = self.request.as_ref().map(|request| request.token)
-        {
-            self.acknowledged = true;
+        // **One acknowledgement per page of the arrangement**, because the core holds one
+        // outstanding request per page and a page never answered for is a page it goes on
+        // believing is not yet on the screen. A token the core has since superseded drops itself,
+        // which is the whole reason a token exists.
+        //
+        // `Rendered` is deliberately not `Clone` — tier 1's variant carries a whole page of
+        // pixels — so what is repeated is the *answer* rather than the value. This host is tier 2
+        // and the only two it can produce are a present and a refusal; `Rendered::Raster` is tier
+        // 1's and nothing here builds one.
+        let refused = match &rendered {
+            Rendered::Failed(why) => Some(why.clone()),
+            Rendered::Presented | Rendered::Raster(_) => None,
+        };
+        for token in std::mem::take(&mut self.unacknowledged) {
+            let rendered = refused
+                .clone()
+                .map_or(Rendered::Presented, Rendered::Failed);
             self.dispatch(Command::RenderReady { token, rendered });
         }
     }

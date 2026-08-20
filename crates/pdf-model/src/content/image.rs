@@ -10,8 +10,9 @@ use std::sync::Arc;
 use pdf_render::{BlendMode, Color, Command, FillRule, Path, PathCommand, Point};
 use pdf_syntax::{Dictionary, Object};
 
-use crate::colour::Compositing;
+use crate::colour::Conversion;
 
+use super::colour::Intent;
 use super::ext_gstate::Transfer;
 use super::pattern::PatternPaint;
 use super::report::Unsupported;
@@ -32,7 +33,7 @@ fn transferred_image(image: pdf_render::Image, transfer: Option<&Transfer>) -> p
     };
     let mut image = image;
     // A memo over the 8-bit triple, because a transfer is a pure function of a colour and a
-    // photograph repeats its colours: the same argument `image::Conversion` records for
+    // photograph repeats its colours: the same argument `image::SampleMemo` records for
     // §8.6's spaces, one clause along.
     let mut memo: std::collections::HashMap<[u8; 3], [u8; 3]> = std::collections::HashMap::new();
     // The samples are shared, so a transfer takes a copy — which is right rather than merely
@@ -70,6 +71,36 @@ fn transferred_image(image: pdf_render::Image, transfer: Option<&Transfer>) -> p
 }
 
 impl Interpreter<'_> {
+    /// How this image's samples are converted: §11.4's target, and §8.6.5.9's black point under
+    /// the intent Table 87 lets the image state for itself.
+    ///
+    /// ISO 32000-2 §8.6.5.8 names three routes to a rendering intent and this is the third:
+    ///
+    /// > Rendering intents shall be specified with the ri operator (see 8.4.4, "Graphics state
+    /// > operators"), the RI entry in a graphics state parameter dictionary (see 8.4.5,
+    /// > "Graphics state parameter dictionaries"), or with the Intent entry in image
+    /// > dictionaries (see 8.9.5, "Image dictionaries").
+    ///
+    /// §8.9.5.1 Table 87 states the entry and its two conditions:
+    ///
+    /// > The name of a colour rendering intent that shall be used in rendering any image that
+    /// > is not an image mask (see 8.6.5.8, "Rendering intents"). This value is ignored if
+    /// > ImageMask is true . Default value: the current rendering intent in the graphics state.
+    ///
+    /// The second condition needs no branch and is left to `ImageMask` itself: §8.9.6.2's
+    /// stencil "does not specify colours", so its samples carry the fill colour, which was
+    /// converted under the graphics state's own intent before it ever reached this function.
+    fn image_conversion(&mut self, dict: &Dictionary, state: &GraphicsState) -> Conversion {
+        let intent = match self.document.get_key(dict, "Intent") {
+            Object::Name(name) => Intent::read(name.as_bytes()),
+            _ => state.intent,
+        };
+        Conversion::new(
+            self.compositing.clone(),
+            state.black_point_under(intent).applies(),
+        )
+    }
+
     /// §8.9.5.4 step d): which of a base image's `/Alternates` is drawn in its place.
     ///
     /// # The algorithm this implements is Errata Collection 3's, not `doc/md/`'s
@@ -252,12 +283,13 @@ impl Interpreter<'_> {
         // says what its key claims. Everything reported about this image was reported above,
         // out of the dictionary, so a raster answered from the cache says what a fresh decode
         // says — which is the property trap 5 is about, and `tests/image_reuse.rs` pins it.
+        let conversion = self.image_conversion(&stream.dict, state);
         match self.image_rasters.parts(
             self.document,
             image,
             resources,
             state.fill,
-            &self.compositing,
+            &conversion,
             &mut self.image_masks,
         ) {
             Ok(decoded) => self.list.push(Command::Image {
@@ -346,13 +378,13 @@ impl Interpreter<'_> {
         // the mask "from the alpha of the group", so only the samples' coverage is read.
         // The stencil carries no colour of its own — §11.5.2 derives the mask "from the
         // alpha of the group" — so what is composited into decides nothing here, and
-        // `Compositing::Device` says that rather than borrowing an answer from the state.
+        // `Conversion::device()` says that rather than borrowing an answer from the state.
         let image = match crate::image::decode(
             self.document,
             stream,
             resources,
             Color::BLACK,
-            &Compositing::Device,
+            &Conversion::device(),
         ) {
             Ok(image) => image,
             Err(error) => {

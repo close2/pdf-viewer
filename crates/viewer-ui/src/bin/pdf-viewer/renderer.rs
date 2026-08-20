@@ -32,8 +32,12 @@
 //! 1. **the medium**, one opaque texel scaled over the window. A page moved under a new view
 //!    reveals what it does not cover, and what belongs there is the window's background — never
 //!    page white, which would assert that the page is blank there (ADR 0378).
-//! 2. **the page**, under the placement [`crate::stale`] computes. The identity where the frame
-//!    on hand is of the view being asked for; `settled⁻¹ ∘ asked` where it is not.
+//! 2. **the pages**, drawn into one texture and put up under the single placement
+//!    [`crate::stale`] computes. The identity where the frame on hand is of the view being asked
+//!    for; `settled⁻¹ ∘ asked` where it is not. **One texture and one placement whatever Table
+//!    29's arrangement is** — the pages of a column move together, so what carries one onto the
+//!    view carries all of them, and [`crate::stale`] refuses outright where that is not true
+//!    rather than moving a page to somewhere it is not (ADR 0442).
 //! 3. **the chrome**, at the identity, on transparency. It is drawn in window pixels and it does
 //!    not move with the page, which is what keeps a sidebar still while a page is being zoomed.
 //!
@@ -53,9 +57,8 @@ use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
-use pdf_render::{DisplayList, Rasterizer as _, TargetSpec, Transform};
+use pdf_render::{DisplayList, TargetSpec, Transform};
 use quorra_gpu::wgpu;
-use render_cpu::CpuRasterizer;
 use render_quorra::{FrameCost, PresentFrame, QuorraWindowRenderer, WindowTextures};
 
 /// The two window-sized textures one frame is drawn into, travelling as one thing.
@@ -95,15 +98,20 @@ impl Pair {
 
 /// One window frame the event thread asks the render thread to draw.
 ///
-/// Everything in it is **owned**, because it crosses a thread: the page by the `Arc` whose address
-/// is its identity for as long as something pins it (`render_quorra::PresentFrame::page`), the
+/// Everything in it is **owned**, because it crosses a thread: each page by the `Arc` whose address
+/// is its identity for as long as something pins it (`render_quorra::PresentFrame::pages`), the
 /// chrome by value because this host rebuilds it from its own state every frame anyway.
 #[derive(Debug)]
 struct Job {
     width: u32,
     height: u32,
-    /// The page and where it goes, or `None` for a window with no document page to show.
-    page: Option<(Arc<DisplayList>, TargetSpec)>,
+    /// Every page of Table 29's arrangement and where each goes, empty for a window with no
+    /// document page to show.
+    ///
+    /// **A list since ADR 0442**, because `OneColumn` puts several pages in one window. Owned by
+    /// the `Arc`s for the reason the whole job is owned — it crosses a thread — and each page's
+    /// placement travels with it because it is that page's and nothing here can recompute one.
+    pages: Vec<(Arc<DisplayList>, TargetSpec)>,
     /// The chrome, in window pixels.
     overlays: Vec<DisplayList>,
     /// Which coverage lane this frame's magnification asks for (`crate::surface::coverage_for`).
@@ -116,7 +124,7 @@ struct Job {
 #[derive(Debug)]
 struct Done {
     textures: Pair,
-    page: Option<(Arc<DisplayList>, TargetSpec)>,
+    pages: Vec<(Arc<DisplayList>, TargetSpec)>,
     cost: FrameCost,
     /// What the device refused, where the processor then drew the page instead. A note the host
     /// prints once per occurrence, as it always has.
@@ -158,8 +166,8 @@ impl Drop for Link {
 #[derive(Debug)]
 pub(crate) struct Shown {
     textures: Pair,
-    /// The page it draws and where that page was placed, or `None` for a window showing no page.
-    pub(crate) page: Option<(Arc<DisplayList>, TargetSpec)>,
+    /// The pages it draws and where each was placed — empty for a window showing no page.
+    pub(crate) pages: Vec<(Arc<DisplayList>, TargetSpec)>,
 }
 
 /// What one adopted frame tells the host about itself.
@@ -169,8 +177,8 @@ pub(crate) struct Shown {
 /// after it.
 #[derive(Debug)]
 pub(crate) struct Landed {
-    /// The page it drew and where, for [`crate::stale`] to record as the view now settled.
-    pub(crate) page: Option<(Arc<DisplayList>, TargetSpec)>,
+    /// The pages it drew and where, for [`crate::stale`] to record as the view now settled.
+    pub(crate) pages: Vec<(Arc<DisplayList>, TargetSpec)>,
     /// What the whole frame cost on the render thread, in the parts quorra measures it in.
     pub(crate) cost: FrameCost,
     /// How long the event thread waited for it — which is what rule 5 predicts the next one by.
@@ -348,11 +356,11 @@ impl Window {
             .shown
             .replace(Shown {
                 textures: done.textures,
-                page: done.page.clone(),
+                pages: done.pages.clone(),
             })
             .map(|previous| previous.textures);
         Some(Landed {
-            page: done.page,
+            pages: done.pages,
             cost: done.cost,
             waited,
             fell_back: done.fell_back,
@@ -367,7 +375,7 @@ impl Window {
     /// would be a queue of answers to questions nobody is still asking.
     pub(crate) fn ask(
         &mut self,
-        page: Option<(Arc<DisplayList>, TargetSpec)>,
+        pages: Vec<(Arc<DisplayList>, TargetSpec)>,
         overlays: Vec<DisplayList>,
         coverage: quorra_gpu::Coverage,
         now: Instant,
@@ -394,7 +402,7 @@ impl Window {
         let job = Job {
             width,
             height,
-            page,
+            pages,
             overlays,
             coverage,
             reuse: self.spare.take(),
@@ -506,7 +514,7 @@ fn draw(renderer: &mut QuorraWindowRenderer, job: Job) -> Done {
     let Job {
         width,
         height,
-        page,
+        pages,
         overlays,
         coverage,
         reuse,
@@ -518,6 +526,8 @@ fn draw(renderer: &mut QuorraWindowRenderer, job: Job) -> Done {
     // thread that knows it (`crate::surface::coverage_for`) and carried here.
     renderer.set_coverage(coverage);
     let borrowed: Vec<&DisplayList> = overlays.iter().collect();
+    let placed: Vec<(&Arc<DisplayList>, TargetSpec)> =
+        pages.iter().map(|(list, target)| (list, *target)).collect();
     let into = WindowTextures {
         page: &textures.page,
         chrome: &textures.chrome,
@@ -525,7 +535,7 @@ fn draw(renderer: &mut QuorraWindowRenderer, job: Job) -> Done {
     let frame = PresentFrame {
         width,
         height,
-        page: page.as_ref().map(|(list, target)| (list, *target)),
+        pages: &placed,
         raster: None,
         overlays: &borrowed,
     };
@@ -535,18 +545,27 @@ fn draw(renderer: &mut QuorraWindowRenderer, job: Job) -> Done {
         // **One of the two jobs `CLAUDE.md` keeps the CPU backend for**: a page the device refuses
         // is a page this program can still show, more slowly, which is a cost a person can see
         // past where a page that never appears is not. The raster goes back through the device as
-        // one image, because a window's pixels have one path and this is it.
+        // one image, because a window's pixels have one path and this is it — and it is the whole
+        // arrangement's raster since ADR 0442, because a column the device refused is still a
+        // column.
         fell_back = Some(problem.to_string());
-        match page
-            .as_ref()
-            .map(|(list, target)| CpuRasterizer::new().rasterize(list, *target))
-        {
-            Some(Ok(raster)) => {
+        let borrowed_pages: Vec<(&DisplayList, TargetSpec)> = pages
+            .iter()
+            .map(|(list, target)| (list.as_ref(), *target))
+            .collect();
+        let drawn = if borrowed_pages.is_empty() {
+            Err("there is no page to draw on the processor".to_owned())
+        } else {
+            viewer_ui::software::compose_pages(&borrowed_pages)
+                .map_err(|problem| problem.to_string())
+        };
+        match drawn {
+            Ok(raster) => {
                 let second = renderer.render(
                     PresentFrame {
                         width,
                         height,
-                        page: None,
+                        pages: &[],
                         raster: Some(&raster),
                         overlays: &borrowed,
                     },
@@ -556,13 +575,12 @@ fn draw(renderer: &mut QuorraWindowRenderer, job: Job) -> Done {
                     refused = Some(format!("and the processor's page {second}"));
                 }
             }
-            Some(Err(second)) => refused = Some(format!("and the processor {second}")),
-            None => refused = Some("and there is no page to draw on the processor".to_owned()),
+            Err(second) => refused = Some(format!("and {second}")),
         }
     }
     Done {
         textures,
-        page,
+        pages,
         cost: renderer.last_frame(),
         fell_back,
         refused,

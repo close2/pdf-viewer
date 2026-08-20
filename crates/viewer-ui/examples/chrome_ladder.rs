@@ -222,7 +222,7 @@ fn ladder(
         let frame = PresentFrame {
             width: WINDOW.0,
             height: WINDOW.1,
-            page: Some((&request.list, target)),
+            pages: &[(&request.list, target)],
             raster: None,
             overlays: &overlays,
         };

@@ -66,7 +66,7 @@ fn attempt(
     let frame = PresentFrame {
         width: target.width,
         height: target.height,
-        page: Some((list, target)),
+        pages: &[(list, target)],
         raster: None,
         overlays: &[],
     };

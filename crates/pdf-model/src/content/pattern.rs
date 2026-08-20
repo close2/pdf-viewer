@@ -758,7 +758,7 @@ impl Interpreter<'_> {
             resources,
             state.transform,
             state.smoothness,
-            &self.compositing,
+            &self.conversion(state),
         ) {
             Ok(shading) => {
                 // §8.7.4.5.2's domain, which for a type 1 shading is where it marks at all.
@@ -860,7 +860,7 @@ impl Interpreter<'_> {
             resources,
             matrix.then(self.base),
             state.smoothness,
-            &self.compositing,
+            &self.conversion(state),
         ) {
             Ok(shading) => Some(PatternPaint::Shading(
                 Arc::new(shading),

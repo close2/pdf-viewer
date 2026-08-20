@@ -87,6 +87,30 @@ reaches two rules here and the sections below were written before it.*
   the sentence at the foot of this section — "a round that builds this path deletes both lines" —
   has had one of its two lines deleted already, for a different reason.
 
+## A sixth refusal arrived with Table 29's column — 607
+
+`Refusal::Rearranged`, and it is worth knowing because it is the first refusal in this file that is
+about the *arrangement* rather than about the frame. The window presents its pages as **one texture
+under one placement**, so a reprojection is defensible only where one affine is true of every page
+in the picture. `stale::one_placement` composes each page's own `settled⁻¹ ∘ asked` — matched by the
+`Arc`'s address — and answers only where they all agree.
+
+- A **scroll** moves every page by the same distance, so they agree exactly and a column reprojects
+  as a single page always did. This is the common gesture and it is the one that works.
+- A **zoom** does not, and the reason is `viewer_core::layout`'s own documented choice: the gap
+  between rows is stated in *logical* pixels and does not scale with the magnification, while the
+  pages either side of it do. So a placement read off the first page would move the second to
+  somewhere it is not — `GAP × (1 − k)` per gap, two pixels at one zoom step — and the window waits
+  for the real frame and says why.
+
+**It is exact rather than tolerant, deliberately.** A threshold here would be a number nobody
+measured a purpose for, which is the mistake this file already records twice at two scales. What
+would remove the refusal rather than tune it is a placement *per page* — the presenter putting up
+one textured quad per page instead of one for the frame — and that is a change to
+`crate::renderer`'s three layers rather than to the policy. Nobody has asked for it; a zoom in a
+column shows the previous frame unmoved for one render, which is what every view change did before
+ADR 0378.
+
 ## What is left
 
 **The processor's window**: `--cpu`, and a machine whose graphics device would not come up. There

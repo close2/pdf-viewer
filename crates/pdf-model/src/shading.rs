@@ -20,7 +20,7 @@ use pdf_syntax::{Dictionary, Document, Object, ObjectId};
 use rayon::iter::{IndexedParallelIterator as _, ParallelIterator as _};
 use rayon::slice::ParallelSliceMut as _;
 
-use crate::colour::{ColourSpace, Compositing};
+use crate::colour::{ColourSpace, Compositing, Conversion};
 use crate::function::{Function, Value};
 
 /// The most cells a function-based shading's grid will carry, whatever the device asks for.
@@ -77,7 +77,7 @@ pub enum ShadingError {
 pub struct Cache {
     /// The kind and the shading's own matrix, which is `/Matrix` for a type 1 and the
     /// identity for every other type.
-    built: BTreeMap<(ObjectId, usize, Compositing), (Arc<ShadingKind>, Transform)>,
+    built: BTreeMap<(ObjectId, usize, Conversion), (Arc<ShadingKind>, Transform)>,
     /// A `/ColorSpace` stated as an **indirect object**, parsed once.
     ///
     /// [`Self::built`] cannot help a page of *distinct* shadings, and one exists:
@@ -113,7 +113,7 @@ impl Cache {
         resources: &Dictionary,
         transform: Transform,
         smoothness: Option<f32>,
-        into: &Compositing,
+        into: &Conversion,
     ) -> Result<Shading, ShadingError> {
         // §10.7.3's tolerance is part of the key rather than of the object: the same shading
         // painted under two `/SM` values is two sets of colours, and a page that changes it
@@ -202,7 +202,7 @@ pub fn build(
         object,
         resources,
         Ramp::RESOLUTION,
-        &Compositing::Device,
+        &Conversion::device(),
         None,
     )?;
     Ok(Shading {
@@ -221,7 +221,7 @@ fn kind_of(
     object: &Object,
     resources: &Dictionary,
     resolution: usize,
-    into: &Compositing,
+    into: &Conversion,
     space: Option<ColourSpace>,
 ) -> Result<(ShadingKind, Transform), ShadingError> {
     let resolved = document.resolve(object);
@@ -360,7 +360,7 @@ fn ramp(
     dict: &Dictionary,
     space: &ColourSpace,
     resolution: usize,
-    into: &Compositing,
+    into: &Conversion,
 ) -> Result<Ramp, ShadingError> {
     let functions =
         Function::parse_group(document, &document.get_key(dict, "Function")).map_err(|e| {
@@ -415,7 +415,7 @@ fn colour_from(
     functions: &[Function],
     inputs: &[f32],
     space: &ColourSpace,
-    into: &Compositing,
+    into: &Conversion,
 ) -> Color {
     colour_into(functions, inputs, space, into, &mut Components::default())
 }
@@ -446,7 +446,7 @@ fn colour_into(
     functions: &[Function],
     inputs: &[f32],
     space: &ColourSpace,
-    into: &Compositing,
+    into: &Conversion,
     scratch: &mut Components,
 ) -> Color {
     if let [only] = functions {
@@ -458,7 +458,7 @@ fn colour_into(
             scratch.all.extend_from_slice(&scratch.one);
         }
     }
-    into.paint(space, &scratch.all, true)
+    into.paint(space, &scratch.all)
 }
 
 fn axial(
@@ -466,7 +466,7 @@ fn axial(
     dict: &Dictionary,
     space: &ColourSpace,
     resolution: usize,
-    into: &Compositing,
+    into: &Conversion,
 ) -> Result<ShadingKind, ShadingError> {
     let coords = coords(document, dict, 4).ok_or_else(|| ShadingError::Malformed {
         detail: "an axial shading needs four /Coords".to_owned(),
@@ -484,7 +484,7 @@ fn radial(
     dict: &Dictionary,
     space: &ColourSpace,
     resolution: usize,
-    into: &Compositing,
+    into: &Conversion,
 ) -> Result<ShadingKind, ShadingError> {
     let coords = coords(document, dict, 6).ok_or_else(|| ShadingError::Malformed {
         detail: "a radial shading needs six /Coords".to_owned(),
@@ -513,7 +513,7 @@ fn mesh(
     space: &ColourSpace,
     kind: i64,
     resolution: usize,
-    into: &Compositing,
+    into: &Conversion,
 ) -> Result<ShadingKind, ShadingError> {
     let stream = object.as_stream().ok_or_else(|| ShadingError::Malformed {
         detail: "a mesh shading must be a stream".to_owned(),
@@ -547,7 +547,7 @@ fn function_based(
     document: &Document,
     dict: &Dictionary,
     space: &ColourSpace,
-    into: &Compositing,
+    into: &Conversion,
 ) -> Result<ShadingKind, ShadingError> {
     let functions =
         Function::parse_group(document, &document.get_key(dict, "Function")).map_err(|e| {
@@ -630,12 +630,16 @@ fn function_based(
 fn device_program(
     functions: &[Function],
     space: &ColourSpace,
-    into: &Compositing,
+    into: &Conversion,
     rectangle: [f32; 4],
 ) -> Option<pdf_render::ShadingProgram> {
-    if *into != Compositing::Device {
+    if *into.target() != Compositing::Device {
         return None;
     }
+    // §8.6.5.9's black point is deliberately *not* a fourth condition, and the `range` below is
+    // why: this program is built only for `DeviceGray` and `DeviceRGB`, and compensation moves
+    // no colour of either — `ColourSpace::to_rgb_at` applies it in the `Icc` arm alone. A
+    // condition here would refuse a device path on a parameter that cannot change its answer.
     let [function] = functions else {
         return None;
     };
@@ -673,8 +677,8 @@ struct FunctionColours {
     functions: Vec<Function>,
     /// The shading's colour space, resolved when the shading was built.
     space: ColourSpace,
-    /// What the colours are being composited into (ADR 0220).
-    into: Compositing,
+    /// How the colours are converted: the target (ADR 0220) and §8.6.5.9's black point.
+    into: Conversion,
     /// The domain rectangle the grid covers, as `[x0, x1, y0, y1]`.
     domain: [f32; 4],
     /// Whether every colour the space can produce is opaque; see `function_based`.

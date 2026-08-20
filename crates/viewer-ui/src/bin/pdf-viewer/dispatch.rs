@@ -149,12 +149,23 @@ impl App {
                 // page. Every request after the first is the steady state, and the method
                 // keeps only the first (ADR 0332).
                 self.launch.interpreted(request.list.commands().len());
-                self.request = Some(request);
-                self.acknowledged = false;
+                // **Held by page rather than replacing what came before**, because Table 29's
+                // arrangement asks for one render per page on the screen and they arrive one
+                // after another. In page order, which is the order they arrive in and the order
+                // `viewer_core::layout` places them; a second request for a page already held is
+                // that page at a new placement and replaces it.
+                self.unacknowledged.push(request.token);
+                match self
+                    .requests
+                    .binary_search_by_key(&request.page, |held| held.page)
+                {
+                    Ok(at) => self.requests[at] = request.clone(),
+                    Err(at) => self.requests.insert(at, request.clone()),
+                }
                 // §12.4.4: the page a transition moves *to* is the one whose list has just
                 // arrived, so this is where one that was armed can be drawn.
                 if let Some(transition) = self.arming.take() {
-                    self.begin_transition(transition);
+                    self.begin_transition(&request, transition);
                 }
                 self.redraw();
             }

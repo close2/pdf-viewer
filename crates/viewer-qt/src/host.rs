@@ -31,6 +31,7 @@ use viewer_core::{
     PageTarget, PointerAction, Query, Rendered, Viewer, Zoom,
 };
 use viewer_host::ControlFit;
+use viewer_host::arrangement::next_layout;
 use viewer_host::form::{ControlKind, control_kind};
 use viewer_host::panel::{PanelRow, RowAction};
 use viewer_host::trace::{Topic, Trace};
@@ -159,25 +160,6 @@ pub struct Host {
     fit_magnification: Option<f32>,
     /// Table 29's arrangement, as this window last asked for it — what `l` cycles from.
     layout: pdf_model::viewer_preferences::PageLayout,
-}
-
-/// The next of Table 29's six arrangements, in the order that table states them.
-///
-/// A host's choice and not a clause's: the standard states the six and says nothing about moving
-/// between them, because moving between them is a user interface. `viewer-gtk` has the same
-/// function, deliberately — the two hosts differ in the toolkit and in nothing else.
-const fn next_layout(
-    layout: pdf_model::viewer_preferences::PageLayout,
-) -> pdf_model::viewer_preferences::PageLayout {
-    use pdf_model::viewer_preferences::PageLayout as L;
-    match layout {
-        L::SinglePage => L::OneColumn,
-        L::OneColumn => L::TwoColumnLeft,
-        L::TwoColumnLeft => L::TwoColumnRight,
-        L::TwoColumnRight => L::TwoPageLeft,
-        L::TwoPageLeft => L::TwoPageRight,
-        L::TwoPageRight => L::SinglePage,
-    }
 }
 
 impl std::fmt::Debug for Host {

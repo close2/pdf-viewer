@@ -24,6 +24,8 @@
 //!
 //! # What is in it
 //!
+//! - [`arrangement`] — moving between Table 29's six `/PageLayout` values, which the clause states
+//!   and says nothing about cycling. The third host would have been the third copy.
 //! - [`panel`] — §12.3.3's outline, §8.11.4.3's `/Order` and §7.11.4's embedded files, as one
 //!   [`PanelRow`] tree with a [`RowAction`] per row. Three answers, three types, one shape a
 //!   platform tree can hold.
@@ -48,12 +50,14 @@
 
 #![forbid(unsafe_code)]
 
+pub mod arrangement;
 pub mod fit;
 pub mod form;
 pub mod panel;
 pub mod policy;
 pub mod trace;
 
+pub use arrangement::next_layout;
 pub use fit::ControlFit;
 pub use form::{ControlKind, control_kind};
 pub use panel::{PanelRow, RowAction, attachment_rows, layer_rows, outline_rows};

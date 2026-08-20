@@ -17,6 +17,7 @@
 //! | the resource dictionary | §8.6.5.1's named colour space, §8.6.5.6's `/Default*` | [`a_raster_is_not_shared_across_resource_dictionaries`] |
 //! | the fill colour | §8.9.6.2's stencil paints the current colour | [`a_raster_is_not_shared_across_fill_colours`] |
 //! | what it composites into | §11.4.7's halves, §11.6.5.1's mask group | [`a_raster_is_not_shared_across_compositing`] |
+//! | …and whether the black point is compensated | §8.6.5.9 under §8.9.5.1 Table 87's `/Intent` | [`a_raster_is_not_shared_across_black_points`] |
 //! | the document | — | not in the key: the cache belongs to one interpretation |
 //!
 //! One test is `doc/HANDOVER.md`'s trap 5 rather than a component: a raster answered from the
@@ -30,13 +31,15 @@
 
 #![expect(
     clippy::expect_used,
-    reason = "test code: a malformed fixture should fail loudly"
+    clippy::cast_possible_truncation,
+    reason = "test code: a malformed fixture should fail loudly, and the ICC fixture's constants \
+              are written as the fixed-point values it encodes"
 )]
 
 use std::fmt::Write as _;
 use std::sync::Arc;
 
-use pdf_model::colour::{Compositing, Half};
+use pdf_model::colour::{Compositing, Conversion, Half};
 use pdf_model::image::{MaskCache, NamedStream, Parts, RasterCache, StreamIdentity, decode_parts};
 use pdf_render::Color;
 use pdf_syntax::{Dictionary, Document, Name, Object, Stream};
@@ -50,13 +53,65 @@ use pdf_syntax::{Dictionary, Document, Name, Object, Stream};
 /// of a file could not put the pin under any pressure. What the document is still needed for is
 /// resolution — `decode_parts` reads every entry through it.
 fn document() -> Document {
-    Document::open(assembled(
+    let mut hex = String::new();
+    for byte in dark_black_profile() {
+        let _ = write!(hex, "{byte:02X}");
+    }
+    Document::open(assembled(&format!(
         "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] \
-         /Resources << >> >>\nendobj\n",
-    ))
+         /Resources << >> >>\nendobj\n\
+         4 0 obj\n<< /N 1 /Filter /ASCIIHexDecode /Length {} >>\nstream\n{hex}>\n\
+         endstream\nendobj\n",
+        hex.len().saturating_add(1)
+    )))
     .expect("the fixture opens")
+}
+
+/// Object four: an ICC profile whose darkest colour is a tenth of its white point.
+///
+/// The only colour space family §8.6.5.9's black point moves is `ICCBased`, so it is the only
+/// one that can show the fourth key component's second half. `tests/rendering_intent.rs` builds
+/// the same shape and says what each field of the `lut16Type` encoding is.
+fn dark_black_profile() -> Vec<u8> {
+    let white: [u16; 3] = [31599, 32768, 27030];
+    let dark: [u16; 3] = [white[0] / 10, white[1] / 10, white[2] / 10];
+
+    let mut header = vec![0u8; 128];
+    header[8] = 2;
+    header[16..20].copy_from_slice(b"GRAY");
+    header[20..24].copy_from_slice(b"XYZ ");
+    header[36..40].copy_from_slice(b"acsp");
+
+    let mut tag = Vec::new();
+    tag.extend_from_slice(b"mft2");
+    tag.extend_from_slice(&[0; 4]);
+    tag.extend_from_slice(&[1, 3, 2, 0]);
+    for value in [1.0f32, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0] {
+        tag.extend_from_slice(&((value * 65536.0) as i32).to_be_bytes());
+    }
+    tag.extend_from_slice(&2u16.to_be_bytes());
+    tag.extend_from_slice(&2u16.to_be_bytes());
+    for value in [0u16, 0xFFFF] {
+        tag.extend_from_slice(&value.to_be_bytes());
+    }
+    for value in white.iter().chain(dark.iter()) {
+        tag.extend_from_slice(&value.to_be_bytes());
+    }
+    for _ in 0..3 {
+        for value in [0u16, 0xFFFF] {
+            tag.extend_from_slice(&value.to_be_bytes());
+        }
+    }
+
+    let mut out = header;
+    out.extend_from_slice(&1u32.to_be_bytes());
+    out.extend_from_slice(b"A2B1");
+    out.extend_from_slice(&144u32.to_be_bytes());
+    out.extend_from_slice(&(tag.len() as u32).to_be_bytes());
+    out.extend_from_slice(&tag);
+    out
 }
 
 /// A body of numbered objects with the cross-reference section its offsets need.
@@ -153,7 +208,7 @@ fn decoded(
     stream: &Stream,
     resources: &Dictionary,
     fill: Color,
-    into: &Compositing,
+    into: &Conversion,
 ) -> Arc<[u8]> {
     let mut masks = MaskCache::default();
     let parts = decode_parts(document, stream, resources, fill, into, &mut masks)
@@ -168,7 +223,7 @@ fn cached(
     stream: &Arc<Stream>,
     resources: &Dictionary,
     fill: Color,
-    into: &Compositing,
+    into: &Conversion,
 ) -> Arc<[u8]> {
     named(
         cache,
@@ -187,7 +242,7 @@ fn named(
     image: NamedStream<'_>,
     resources: &Dictionary,
     fill: Color,
-    into: &Compositing,
+    into: &Conversion,
 ) -> Arc<[u8]> {
     let mut masks = MaskCache::default();
     let parts = cache
@@ -215,7 +270,7 @@ fn a_second_do_of_one_stream_reuses_its_raster() {
         &stream,
         &resources,
         Color::BLACK,
-        &Compositing::Device,
+        &Conversion::device(),
     );
     let second = cached(
         &mut cache,
@@ -223,7 +278,7 @@ fn a_second_do_of_one_stream_reuses_its_raster() {
         &stream,
         &resources,
         Color::BLACK,
-        &Compositing::Device,
+        &Conversion::device(),
     );
 
     assert!(
@@ -259,14 +314,14 @@ fn a_stream_cannot_inherit_the_raster_of_one_whose_allocation_it_reuses() {
             &stream,
             &resources,
             Color::BLACK,
-            &Compositing::Device,
+            &Conversion::device(),
         );
         let fresh = decoded(
             &document,
             &stream,
             &resources,
             Color::BLACK,
-            &Compositing::Device,
+            &Conversion::device(),
         );
         assert_eq!(
             &*through_the_cache, &*fresh,
@@ -305,7 +360,7 @@ fn a_second_bi_of_one_inline_image_reuses_its_raster() {
         NamedStream::inline(&first_stream),
         &resources,
         Color::BLACK,
-        &Compositing::Device,
+        &Conversion::device(),
     );
     let second = named(
         &mut cache,
@@ -313,7 +368,7 @@ fn a_second_bi_of_one_inline_image_reuses_its_raster() {
         NamedStream::inline(&second_stream),
         &resources,
         Color::BLACK,
-        &Compositing::Device,
+        &Conversion::device(),
     );
 
     assert!(
@@ -346,7 +401,7 @@ fn two_inline_images_do_not_share_a_raster() {
         NamedStream::inline(&first_stream),
         &resources,
         Color::BLACK,
-        &Compositing::Device,
+        &Conversion::device(),
     );
     let second = named(
         &mut cache,
@@ -354,7 +409,7 @@ fn two_inline_images_do_not_share_a_raster() {
         NamedStream::inline(&second_stream),
         &resources,
         Color::BLACK,
-        &Compositing::Device,
+        &Conversion::device(),
     );
 
     assert_ne!(
@@ -368,7 +423,7 @@ fn two_inline_images_do_not_share_a_raster() {
             &second_stream,
             &resources,
             Color::BLACK,
-            &Compositing::Device,
+            &Conversion::device(),
         ),
         "the second inline image was answered with the first's raster"
     );
@@ -387,7 +442,7 @@ fn a_raster_is_not_shared_across_resource_dictionaries() {
         &stream,
         &resources_naming("DeviceRGB"),
         Color::BLACK,
-        &Compositing::Device,
+        &Conversion::device(),
     );
     let grey = cached(
         &mut cache,
@@ -395,7 +450,7 @@ fn a_raster_is_not_shared_across_resource_dictionaries() {
         &stream,
         &resources_naming("DeviceGray"),
         Color::BLACK,
-        &Compositing::Device,
+        &Conversion::device(),
     );
 
     assert_ne!(&*rgb, &*grey, "the fixture does not distinguish the two");
@@ -406,7 +461,7 @@ fn a_raster_is_not_shared_across_resource_dictionaries() {
             &stream,
             &resources_naming("DeviceGray"),
             Color::BLACK,
-            &Compositing::Device,
+            &Conversion::device(),
         ),
         "the second resource dictionary was answered with the first's raster"
     );
@@ -439,7 +494,7 @@ fn a_raster_is_not_shared_across_fill_colours() {
         &stream,
         &resources,
         red,
-        &Compositing::Device,
+        &Conversion::device(),
     );
     let in_blue = cached(
         &mut cache,
@@ -447,7 +502,7 @@ fn a_raster_is_not_shared_across_fill_colours() {
         &stream,
         &resources,
         blue,
-        &Compositing::Device,
+        &Conversion::device(),
     );
 
     assert_ne!(
@@ -456,7 +511,7 @@ fn a_raster_is_not_shared_across_fill_colours() {
     );
     assert_eq!(
         &*in_blue,
-        &*decoded(&document, &stream, &resources, blue, &Compositing::Device),
+        &*decoded(&document, &stream, &resources, blue, &Conversion::device()),
         "the second fill colour was answered with the first's raster"
     );
 }
@@ -469,7 +524,10 @@ fn a_raster_is_not_shared_across_compositing() {
     let stream = named_space_image();
     let resources = resources_naming("DeviceRGB");
     let mut cache = RasterCache::default();
-    let press = Compositing::Subtractive(Half::Black, pdf_model::colour::assumed_press());
+    let press = Conversion::new(
+        Compositing::Subtractive(Half::Black, pdf_model::colour::assumed_press()),
+        true,
+    );
 
     let on_the_device = cached(
         &mut cache,
@@ -477,7 +535,7 @@ fn a_raster_is_not_shared_across_compositing() {
         &stream,
         &resources,
         Color::BLACK,
-        &Compositing::Device,
+        &Conversion::device(),
     );
     let on_the_press = cached(
         &mut cache,
@@ -496,6 +554,64 @@ fn a_raster_is_not_shared_across_compositing() {
         &*on_the_press,
         &*decoded(&document, &stream, &resources, Color::BLACK, &press),
         "the second quantity was answered with the first's raster"
+    );
+}
+
+/// **§8.6.5.9**: the same samples under two black point settings are two rasters.
+///
+/// The fourth key component is the whole of `crate::colour::Conversion`, which is what is
+/// composited into *and* whether black point compensation applies — and the second half changes
+/// within an interpretation exactly as the first does: §8.6.5.8 gives an image three routes to a
+/// rendering intent, one of which (Table 87's `/Intent`) is the image dictionary's own, so one
+/// page can draw one stream under both answers. §8.6.5.9 is what makes the intent decide it:
+///
+/// > If the current render intent of an object is AbsColorimetric then the value of
+/// > UseBlackPtComp shall be treated as OFF .
+///
+/// `ICCBased` is the only family the setting moves, which is why this fixture states one where
+/// its neighbours name a device space.
+#[test]
+fn a_raster_is_not_shared_across_black_points() {
+    let document = document();
+    let stream = named_space_image();
+    let resources = dict(vec![(
+        "ColorSpace",
+        Object::Dictionary(dict(vec![(
+            "CS0",
+            Object::Array(vec![
+                name("ICCBased"),
+                Object::Reference(pdf_syntax::ObjectId::new(4, 0)),
+            ]),
+        )])),
+    )]);
+    let mut cache = RasterCache::default();
+    let without = Conversion::new(Compositing::Device, false);
+
+    let compensated = cached(
+        &mut cache,
+        &document,
+        &stream,
+        &resources,
+        Color::BLACK,
+        &Conversion::device(),
+    );
+    let uncompensated = cached(
+        &mut cache,
+        &document,
+        &stream,
+        &resources,
+        Color::BLACK,
+        &without,
+    );
+
+    assert_ne!(
+        &*compensated, &*uncompensated,
+        "the fixture does not distinguish the two"
+    );
+    assert_eq!(
+        &*uncompensated,
+        &*decoded(&document, &stream, &resources, Color::BLACK, &without),
+        "the second black point setting was answered with the first's raster"
     );
 }
 

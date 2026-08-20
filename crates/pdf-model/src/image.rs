@@ -37,7 +37,7 @@ use pdf_syntax::{Dictionary, Document, ImageStream, Object, ObjectId, Stream};
 use rayon::iter::ParallelIterator as _;
 use rayon::slice::ParallelSliceMut as _;
 
-use crate::colour::Compositing;
+use crate::colour::{Compositing, Conversion};
 
 /// Largest image this will decode, in samples.
 ///
@@ -128,7 +128,7 @@ impl ColourSpace {
     /// ink rather than a colour (`crate::colour::Compositing`), and that is the identity on
     /// no device space at all: a grey `g` painted into a `DeviceCMYK` group is `(1 + g) ÷ 2`
     /// on the channel. So the fast arms are not taken and every sample goes through the one
-    /// conversion, memoised by [`Conversion`] or tabulated by [`palette`] as it would be for
+    /// conversion, memoised by [`SampleMemo`] or tabulated by [`palette`] as it would be for
     /// any other space. That costs a mask group's images the fast path and nothing else pays
     /// (ADR 0220).
     ///
@@ -367,7 +367,7 @@ pub fn decode(
     stream: &Stream,
     resources: &Dictionary,
     fill: pdf_render::Color,
-    into: &Compositing,
+    into: &Conversion,
 ) -> Result<Image, ImageError> {
     let mut masks = MaskCache::default();
     Ok(
@@ -400,7 +400,7 @@ pub fn decode_parts(
     stream: &Stream,
     resources: &Dictionary,
     fill: pdf_render::Color,
-    into: &Compositing,
+    into: &Conversion,
     masks: &mut MaskCache,
 ) -> Result<Parts, ImageError> {
     let dict = &stream.dict;
@@ -545,7 +545,7 @@ fn samples_of(
     is_mask: bool,
     fill: pdf_render::Color,
     colour_key: Option<&[(u32, u32)]>,
-    into: &Compositing,
+    into: &Conversion,
 ) -> Result<SamplesOnGrid, ImageError> {
     let Dictionaries {
         document,
@@ -662,7 +662,7 @@ fn colour_space(
     document: &Document,
     dict: &Dictionary,
     resources: &Dictionary,
-    into: &Compositing,
+    into: &Conversion,
 ) -> Result<ColourSpace, ImageError> {
     let space = document.get_key(dict, "ColorSpace");
     // §8.9.5.1 Table 87, of `/ColorSpace`: "it can be any type of colour space except
@@ -704,7 +704,7 @@ fn colour_space(
                 space: String::from_utf8_lossy(&family).into_owned(),
             }
         })?;
-    Ok(ColourSpace::reduced(resolved, into.clone()))
+    Ok(ColourSpace::reduced(resolved, into.target().clone()))
 }
 
 /// How a row of raw bytes becomes colour: the layout, and what a value means.
@@ -728,12 +728,12 @@ struct Samples<'a> {
     colour_key: Option<&'a [(u32, u32)]>,
     /// The current fill colour, which a stencil paints through the bits that mark the page.
     fill: pdf_render::Color,
-    /// What the samples are being composited into (`crate::colour::Compositing`).
+    /// How the samples are converted (`crate::colour::Conversion`).
     ///
     /// A sample is a colour like any other, and §11.6.5.1's mask group composites in a
     /// quantity that is not the device's — so a raster that ignored this would be the one
     /// thing in such a group painted in the wrong units (ADR 0220).
-    into: &'a Compositing,
+    into: &'a Conversion,
 }
 
 /// Unpacks raw samples into RGBA8.
@@ -787,7 +787,7 @@ fn unpack(data: &[u8], width: u32, height: u32, samples: &Samples) -> Result<Vec
     let mut cache = matches!(space, ColourSpace::Resolved(_))
         .then(|| palette.is_none() && components <= 4 && bits <= 8)
         .filter(|fits| *fits)
-        .map(|_| Conversion::for_pixels(width_usize.saturating_mul(height_usize)));
+        .map(|_| SampleMemo::for_pixels(width_usize.saturating_mul(height_usize)));
 
     let mut out = Vec::with_capacity(width_usize.saturating_mul(height_usize).saturating_mul(4));
 
@@ -843,7 +843,7 @@ fn unpack(data: &[u8], width: u32, height: u32, samples: &Samples) -> Result<Vec
 
 /// Converts a three-component raster in place, optionally on more than one thread.
 ///
-/// **A band's memo is its own, and that is what makes the split exact**: [`Conversion`]
+/// **A band's memo is its own, and that is what makes the split exact**: [`SampleMemo`]
 /// memoises a pure function of a sample tuple, so two bands meeting the same tuple convert it
 /// twice and agree. Nothing in the result depends on how the raster was divided, which is the
 /// property `a_band_boundary_changes_no_pixel` exists to check — and it is the difference
@@ -856,10 +856,10 @@ fn convert_three(
     space: &crate::colour::ColourSpace,
     rgba: &mut [u8],
     band: Option<usize>,
-    into: &Compositing,
+    into: &Conversion,
 ) {
     let convert = |chunk: &mut [u8], slots: usize| {
-        let mut cache = Conversion::for_pixels(slots.max(1));
+        let mut cache = SampleMemo::for_pixels(slots.max(1));
         for pixel in chunk.chunks_exact_mut(4) {
             let Some(rgb) = pixel.get_mut(..3) else {
                 continue;
@@ -879,7 +879,6 @@ fn convert_three(
                         f32::from(read(1)) / 255.0,
                         f32::from(read(2)) / 255.0,
                     ],
-                    true,
                 );
                 cache.put(key, colour);
                 colour
@@ -905,10 +904,10 @@ fn convert_four(
     space: &crate::colour::ColourSpace,
     rgba: &mut [u8],
     band: Option<usize>,
-    into: &Compositing,
+    into: &Conversion,
 ) {
     let convert = |chunk: &mut [u8], slots: usize| {
-        let mut cache = Conversion::for_pixels(slots.max(1));
+        let mut cache = SampleMemo::for_pixels(slots.max(1));
         for pixel in chunk.chunks_exact_mut(4) {
             let read = |index: usize| pixel.get(index).copied().unwrap_or(0);
             // A tag of its own, so a four-component tuple cannot collide with a
@@ -929,7 +928,6 @@ fn convert_four(
                         f32::from(read(2)) / 255.0,
                         f32::from(read(3)) / 255.0,
                     ],
-                    true,
                 );
                 cache.put(key, colour);
                 colour
@@ -961,7 +959,7 @@ fn convert_four(
 /// | 24 (one per core) | ~55 ms | 1 605 M |
 ///
 /// So the cap is 8: it is the whole of the clock and two thirds of the extra processor time.
-/// What the extra buys nothing is a [`Conversion`] table per band — each is allocated and
+/// What the extra buys nothing is a [`SampleMemo`] table per band — each is allocated and
 /// zeroed, and a table proportioned to a 24th of the image collides no less than one
 /// proportioned to an eighth.
 ///
@@ -1013,7 +1011,7 @@ fn colour_key_masks(
 fn sample_rgba(
     samples: &Samples,
     palette: Option<&[pdf_render::Color]>,
-    cache: &mut Option<Conversion>,
+    cache: &mut Option<SampleMemo>,
     row: &[u8],
     x: usize,
 ) -> [u8; 4] {
@@ -1093,8 +1091,8 @@ fn resolved_sample(
     x: usize,
     bits: u32,
     decode: &Decode,
-    cache: &mut Option<Conversion>,
-    into: &Compositing,
+    cache: &mut Option<SampleMemo>,
+    into: &Conversion,
 ) -> pdf_render::Color {
     let count = space.components();
     let at = x.saturating_mul(count);
@@ -1107,7 +1105,7 @@ fn resolved_sample(
     // **The tag is not decoration and this line had lost it**, which the
     // three-hundred-and-eighty-third session found. `key` was seeded with the tag and then
     // shifted left eight bits per component, so four components pushed it out of the word
-    // entirely and an all-zero sample tuple keyed on 0 — which is what [`Conversion`]'s slots
+    // entirely and an all-zero sample tuple keyed on 0 — which is what [`SampleMemo`]'s slots
     // hold before anything is put in one, so `get` answered a *hit* out of an empty table and
     // every such pixel came back `Color::BLACK`. **Four components exactly**, because three
     // leave the tag at bit 56 and a wider key is never built: a `DeviceN` of four colourants
@@ -1136,7 +1134,7 @@ fn resolved_sample(
     {
         return colour;
     }
-    let colour = into.paint(space, &values, true);
+    let colour = into.paint(space, &values);
     if let Some(cache) = cache.as_mut() {
         cache.put(key, colour);
     }
@@ -1151,12 +1149,12 @@ fn palette(
     space: &crate::colour::ColourSpace,
     bits: u32,
     decode: &Decode,
-    into: &Compositing,
+    into: &Conversion,
 ) -> Vec<pdf_render::Color> {
     let max = (1u32 << bits.min(8)).saturating_sub(1);
     debug_assert!(bits <= 8, "the caller keeps a 16-bit image off this path");
     (0..=max)
-        .map(|raw| into.paint(space, &[decode.value(0, raw as usize)], true))
+        .map(|raw| into.paint(space, &[decode.value(0, raw as usize)]))
         .collect()
 }
 
@@ -1178,14 +1176,14 @@ fn palette(
 /// colour or a near one, so a fixed table with no chaining and no growth answers most of
 /// them. A collision costs one conversion, which is what the code did before, so the worst
 /// case is the old cost plus a bounded probe.
-struct Conversion {
+struct SampleMemo {
     /// Packed sample tuple, with bit 32 set where the entry is occupied.
     keys: Vec<u64>,
     /// What that tuple converted to.
     values: Vec<pdf_render::Color>,
 }
 
-impl Conversion {
+impl SampleMemo {
     /// Smallest and largest table, in entries.
     ///
     /// Sized from the image rather than fixed, because both ends cost. A 2^18-entry table
@@ -1318,7 +1316,7 @@ fn decode_jbig2(
     height: u32,
     is_mask: bool,
     fill: pdf_render::Color,
-    into: &Compositing,
+    into: &Conversion,
 ) -> Result<Vec<u8>, ImageError> {
     let Dictionaries {
         document,
@@ -1462,7 +1460,7 @@ fn decode_ccitt(
     height: u32,
     is_mask: bool,
     fill: pdf_render::Color,
-    into: &Compositing,
+    into: &Conversion,
 ) -> Result<Vec<u8>, ImageError> {
     let Dictionaries {
         document,
@@ -1574,7 +1572,7 @@ fn decode_jpx(
     height: u32,
     is_mask: bool,
     fill: pdf_render::Color,
-    into: &Compositing,
+    into: &Conversion,
 ) -> Result<SamplesOnGrid, ImageError> {
     let Dictionaries {
         document,
@@ -1666,7 +1664,7 @@ fn decode_jpx(
                     fill,
                     // A stencil carries no colour, so nothing here depends on what the
                     // samples are composited into; the fill has been redirected already.
-                    into: &Compositing::Device,
+                    into: &Conversion::device(),
                 },
             )?,
             grid: (raster.width, raster.height),
@@ -1701,7 +1699,7 @@ fn jpx_samples_to_rgba(
     space: &crate::colour::ColourSpace,
     use_opacity: bool,
     premultiplied: bool,
-    into: &Compositing,
+    into: &Conversion,
 ) -> Vec<u8> {
     // An `Indexed` space takes an *index*, not a fraction: `to_rgb` rounds its input and
     // looks it up. Every other space takes components in 0..1.
@@ -1735,7 +1733,7 @@ fn jpx_samples_to_rgba(
                 *slot /= opacity;
             }
         }
-        let colour = into.paint(space, &values, true);
+        let colour = into.paint(space, &values);
         out.extend_from_slice(&[
             channel(colour.r),
             channel(colour.g),
@@ -2139,7 +2137,7 @@ fn convert_channels(
     is_mask: bool,
     components: usize,
     rgba: &mut [u8],
-    into: &Compositing,
+    into: &Conversion,
 ) -> Result<(), ImageError> {
     if is_mask {
         return Ok(());
@@ -2170,7 +2168,7 @@ fn convert_channels(
             // against a photograph's millions.
             let table: Vec<[u8; 3]> = (0..=255u8)
                 .map(|value| {
-                    let colour = into.paint(&space, &[f32::from(value) / 255.0], true);
+                    let colour = into.paint(&space, &[f32::from(value) / 255.0]);
                     [channel(colour.r), channel(colour.g), channel(colour.b)]
                 })
                 .collect();
@@ -2321,7 +2319,7 @@ fn colour_key_entry(
     }
     // Asked for its component count and nothing else, so what the samples are composited
     // into does not enter: `Compositing::Device` is the question rather than an assumption.
-    let Ok(space) = colour_space(document, dict, resources, &Compositing::Device) else {
+    let Ok(space) = colour_space(document, dict, resources, &Conversion::device()) else {
         return MaskEntry::Unusable(
             "colour-key /Mask on an image whose colour space this cannot read".to_owned(),
         );
@@ -2804,7 +2802,7 @@ fn apply_explicit_mask(
         resources,
         pdf_render::Color::BLACK,
         // A stencil is read for where it marks, so it carries no colour to redirect.
-        &Compositing::Device,
+        &Conversion::device(),
     )
     .map_err(|error| ImageError::Malformed {
         detail: format!("/Mask did not decode: {error}"),
@@ -2946,7 +2944,7 @@ fn soft_mask_entry(
             "/SMask carries a /Mask of its own, which Table 143 says shall be absent".to_owned(),
         );
     }
-    match colour_space(document, &mask.dict, resources, &Compositing::Device) {
+    match colour_space(document, &mask.dict, resources, &Conversion::device()) {
         Ok(space) if space.components() == 1 => {}
         Ok(space) => {
             return SoftMaskEntry::Unusable(format!(
@@ -3041,7 +3039,7 @@ fn matte_colour(
     // this can invert; anything outside that is clamped by `channel` rather than refused,
     // which is what §8.9.5.2 does with an out-of-range sample.
     match (
-        colour_space(document, dict, resources, &Compositing::Device),
+        colour_space(document, dict, resources, &Conversion::device()),
         components.as_slice(),
     ) {
         (Ok(ColourSpace::Gray), [grey]) => {
@@ -3161,7 +3159,7 @@ fn eligible_for_the_device_scale(
         return false;
     }
     if !matches!(
-        colour_space(document, mask_dict, resources, &Compositing::Device),
+        colour_space(document, mask_dict, resources, &Conversion::device()),
         Ok(ColourSpace::Gray)
     ) {
         return false;
@@ -3498,11 +3496,13 @@ const RASTER_BUDGET: usize = 64 << 20;
 ///   out", so the same stencil under two fill colours is two rasters. Compared as bit patterns,
 ///   which is conservative in the one direction that matters: `-0.0` and `0.0` paint alike and
 ///   miss, and no two distinct colours can collide.
-/// - **What the samples are composited into** (`crate::colour::Compositing`), because §11.4.7's
-///   four-component page is interpreted twice, once per half (ADR 0262), and because a
-///   `/Luminosity` mask group paints in the ink §10.4.2.3 weighs rather than in colour (ADR 0220)
-///   — and that one changes *within* an interpretation, which is why it cannot be left to the
-///   cache's lifetime the way the fifth input is.
+/// - **How the samples are converted** (`crate::colour::Conversion`), which is two things. What
+///   they are composited into, because §11.4.7's four-component page is interpreted twice, once
+///   per half (ADR 0262), and because a `/Luminosity` mask group paints in the ink §10.4.2.3
+///   weighs rather than in colour (ADR 0220). And whether §8.6.5.9's black point compensation
+///   applies, because §8.9.5.1 Table 87's `/Intent` is an image's *own* rendering intent — so one
+///   page can draw one stream under both answers. Both change *within* an interpretation, which
+///   is why neither can be left to the cache's lifetime the way the fifth input is.
 ///
 /// The fifth input is the [`Document`], and it is not in the key because the cache belongs to one
 /// interpretation of one page and cannot outlive it.
@@ -3626,8 +3626,8 @@ struct Cached {
     resources: Dictionary,
     /// The fill colour, as bit patterns.
     fill: [u32; 4],
-    /// What the samples were composited into.
-    into: Compositing,
+    /// How the samples were converted: the target, and §8.6.5.9's black point.
+    into: Conversion,
     /// The answer.
     parts: Parts,
     /// What this entry charges against [`RASTER_BUDGET`].
@@ -3652,7 +3652,7 @@ impl RasterCache {
         image: NamedStream<'_>,
         resources: &Dictionary,
         fill: pdf_render::Color,
-        into: &Compositing,
+        into: &Conversion,
         masks: &mut MaskCache,
     ) -> Result<Parts, ImageError> {
         let NamedStream { stream, identity } = image;
@@ -3724,7 +3724,7 @@ impl Cached {
         identity: StreamIdentity,
         resources: &Dictionary,
         fill: [u32; 4],
-        into: &Compositing,
+        into: &Conversion,
     ) -> bool {
         self.identity == identity
             && match identity {
@@ -3830,7 +3830,7 @@ fn apply_soft_mask(
         resources,
         pdf_render::Color::BLACK,
         // §11.6.5.2's mask is read for its one channel of opacity, not for colour.
-        &Compositing::Device,
+        &Conversion::device(),
     ) else {
         return image;
     };
@@ -3852,7 +3852,7 @@ fn apply_soft_mask(
 
 #[cfg(test)]
 mod tests {
-    use super::{Conversion, ccitt_rows, convert_three};
+    use super::{SampleMemo, ccitt_rows, convert_three};
     use crate::colour::ColourSpace;
 
     /// ISO 32000-2 §7.4.6 Table 11: `/EndOfBlock` overrides `/Rows`, and its default is true.
@@ -3916,7 +3916,7 @@ mod tests {
     /// The property the parallel split rests on, checked the way `render-cpu`'s
     /// `strip_parallelism` checks its own: run the same conversion at several band sizes and
     /// demand the bytes are identical. It holds here for a reason that does *not* hold there —
-    /// [`Conversion`] memoises a pure function of a sample tuple, so a band boundary changes
+    /// [`SampleMemo`] memoises a pure function of a sample tuple, so a band boundary changes
     /// which conversions are *repeated* and never which answer is given, while a curve clipped
     /// by a strip's edge is genuinely a different curve (ADR 0138).
     ///
@@ -3931,7 +3931,7 @@ mod tests {
             &space,
             &mut serial,
             None,
-            &crate::colour::Compositing::Device,
+            &crate::colour::Conversion::device(),
         );
         // A conversion that changed nothing would pass every comparison below.
         assert_ne!(serial, raster(pixels), "the space converts nothing");
@@ -3942,7 +3942,7 @@ mod tests {
                 &space,
                 &mut split,
                 Some(band),
-                &crate::colour::Compositing::Device,
+                &crate::colour::Conversion::device(),
             );
             assert_eq!(split, serial, "band of {band} pixels");
         }
@@ -4034,7 +4034,7 @@ mod tests {
     /// obvious on nothing.
     #[test]
     fn the_memo_answers_only_for_the_key_it_holds() {
-        let mut cache = Conversion::for_pixels(64);
+        let mut cache = SampleMemo::for_pixels(64);
         let colour = pdf_render::Color {
             r: 0.25,
             g: 0.5,

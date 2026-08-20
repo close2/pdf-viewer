@@ -137,7 +137,7 @@ fn the_sidebar_does_not_depend_on_the_pages_magnification() {
             .rasterize_frame(&PresentFrame {
                 width: WINDOW.0,
                 height: WINDOW.1,
-                page: Some((&request.list, target)),
+                pages: &[(&request.list, target)],
                 raster: None,
                 overlays: &overlays,
             })

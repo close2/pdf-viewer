@@ -8,7 +8,7 @@ use std::sync::Arc;
 use pdf_render::{BlendMode, Color};
 use pdf_syntax::{Dictionary, Document, Object};
 
-use super::colour::BlackPoint;
+use super::colour::{BlackPoint, Intent};
 use super::report::Unsupported;
 use super::run::{name_at, narrow};
 use super::{GraphicsState, Interpreter, apply_dash, line_cap, line_join, miter_limit};
@@ -304,16 +304,19 @@ impl Interpreter<'_> {
         // line width §9.6.4 asks a glyph description to set explicitly among it.
         if !self.uncoloured {
             if let Object::Name(value) = self.document.get_key(dict, "UseBlackPtComp") {
-                state.black_point = match value.as_bytes() {
+                state.use_black_pt_comp = match value.as_bytes() {
                     b"ON" => BlackPoint::On,
                     b"OFF" => BlackPoint::Off,
                     _ => BlackPoint::Default,
                 };
             }
-            if let Object::Name(intent) = self.document.get_key(dict, "RI")
-                && intent.as_bytes() == b"AbsoluteColorimetric"
-            {
-                state.black_point = BlackPoint::Off;
+            // §8.6.5.8's second route to the intent: "the RI entry in a graphics state
+            // parameter dictionary". Every name is kept rather than only the absolute one,
+            // because §8.6.5.9's override is asked of the intent in force when an object is
+            // painted — so a `/RI` naming any other intent has to *replace* an absolute one
+            // rather than leave a decision the previous one made standing.
+            if let Object::Name(intent) = self.document.get_key(dict, "RI") {
+                state.intent = Intent::read(intent.as_bytes());
             }
         }
         match self.document.get_key(dict, "BM") {

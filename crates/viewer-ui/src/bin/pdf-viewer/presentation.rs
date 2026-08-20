@@ -175,15 +175,16 @@ impl App {
     ///
     /// Two rasters are taken here and none per frame: see [`App::arm_transition`] for why this
     /// is not the moment the event arrived.
-    pub(crate) fn begin_transition(&mut self, transition: pdf_model::navigation::Transition) {
+    pub(crate) fn begin_transition(
+        &mut self,
+        request: &RenderRequest,
+        transition: pdf_model::navigation::Transition,
+    ) {
         let began = std::time::Instant::now();
         let Some((width, height, _)) = self.window() else {
             return;
         };
         let Some((list, target)) = self.presented.clone() else {
-            return;
-        };
-        let Some(request) = self.request.clone() else {
             return;
         };
         let origin = match self.viewer.query(Query::PageGeometry(request.page)) {
@@ -283,7 +284,7 @@ impl App {
     /// one is a fresh `Arc` and each one rebuilds — which is what a moving picture is.
     pub(crate) fn frame_to_draw(
         &mut self,
-        request: &RenderRequest,
+        list: &Arc<pdf_render::DisplayList>,
         target: TargetSpec,
         width: u32,
         height: u32,
@@ -300,7 +301,9 @@ impl App {
         }
         // What the screen is about to show, kept so that the next transition has a page to move
         // *from*. Only the page itself: a transition frame is already a picture of two of them.
-        self.presented = Some((Arc::clone(&request.list), target));
+        // The **first** page of Table 29's arrangement, because §12.4.4's presentation mode shows
+        // one page at a time and a transition is a picture between two of those.
+        self.presented = Some((Arc::clone(list), target));
         (None, target)
     }
 }

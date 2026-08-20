@@ -10,7 +10,7 @@ use std::sync::Arc;
 use pdf_render::{FillRule, Path, PathCommand, Point, Transform};
 use pdf_syntax::{Dictionary, Name, Object};
 
-use super::colour::{BlackPoint, assign_colour};
+use super::colour::{Intent, assign_colour};
 use super::font::Font;
 use super::marked::Marked;
 use super::path::{begin_subpath, close_subpath};
@@ -567,21 +567,21 @@ impl Interpreter<'_> {
                 b"g" | b"G" => {
                     if let Some(grey) = number_at(operands, 0) {
                         let space = self.device_space("DeviceGray", resources);
-                        let colour = self.colour(&space, &[grey], state.black_point);
+                        let colour = self.colour(&space, &[grey], state.black_point());
                         assign_colour(&mut state, operator == b"g", colour, space);
                     }
                 }
                 b"rg" | b"RG" => {
                     if let Some(values) = numbers_from::<3>(operands) {
                         let space = self.device_space("DeviceRGB", resources);
-                        let colour = self.colour(&space, &values, state.black_point);
+                        let colour = self.colour(&space, &values, state.black_point());
                         assign_colour(&mut state, operator == b"rg", colour, space);
                     }
                 }
                 b"k" | b"K" => {
                     if let Some(values) = numbers_from::<4>(operands) {
                         let space = self.device_space("DeviceCMYK", resources);
-                        let colour = self.colour(&space, &values, state.black_point);
+                        let colour = self.colour(&space, &values, state.black_point());
                         assign_colour(&mut state, operator == b"k", colour, space);
                     }
                 }
@@ -806,15 +806,13 @@ impl Interpreter<'_> {
                 // rendering intent needs colour management; and flatness tolerance is a
                 // hint about curve subdivision that the rasteriser decides for itself.
                 b"ri" => {
-                    // Absolute colorimetry reproduces the source's measured colours,
-                    // including its own paper white and black; compensating for the black
-                    // point would defeat that, so the specification forbids it here.
+                    // §8.6.5.8's first route to the intent: "Rendering intents shall be
+                    // specified with the ri operator". What the intent then does to black point
+                    // compensation is §8.6.5.9's and is asked of the state when an object is
+                    // painted — setting it here would make the *order* of `ri` and `gs` decide
+                    // an answer neither clause makes conditional on one.
                     if let Some(name) = name_at(operands, 0) {
-                        state.black_point = if name.as_bytes() == b"AbsoluteColorimetric" {
-                            BlackPoint::Off
-                        } else {
-                            BlackPoint::Default
-                        };
+                        state.intent = Intent::read(name.as_bytes());
                     }
                 }
                 // §8.11.3.2: a marked-content section is optional content when its tag is
