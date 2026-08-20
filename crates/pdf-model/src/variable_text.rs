@@ -181,7 +181,7 @@ pub(crate) enum Owed {
     NoFont,
     /// The `/DA`'s font name matches no entry in `/DR`'s `/Font`, which the clause requires it
     /// to. The name is carried so the report can say which.
-    FontNotInResources(String),
+    FontNotInResources(pdf_syntax::Name),
     /// The named font could not be loaded, or is one this crate cannot address by character.
     FontUnusable(String),
     /// The `/DA` names a composite font whose `CMap` sets §9.7.5.1's writing mode 1.
@@ -189,12 +189,12 @@ pub(crate) enum Owed {
     /// The name is carried so the report can say which. A whole refusal rather than a report
     /// beside a drawing: the clause makes the mode decide which metrics place the next glyph,
     /// and this module places them along one axis.
-    VerticalWritingMode(String),
+    VerticalWritingMode(pdf_syntax::Name),
     /// `/DR` defines no font under the `/DA`'s name, **and** the one stood in for it cannot
     /// encode the value. Both halves, because either alone misnames what happened.
     InventedFontFellShort {
         /// The `/DA`'s font name, which `/DR` does not define.
-        name: String,
+        name: pdf_syntax::Name,
         /// The characters the stand-in states no code for.
         characters: String,
     },
@@ -225,19 +225,26 @@ impl Owed {
             Self::NoFont => {
                 "§12.7.4.3 requires a /DA holding a /Tf, and this one holds none".to_owned()
             }
+            // §7.3.5 permits a name to be treated as text "to be presented to a human user",
+            // and a report is that need. It is presented in the form the clause *writes* a name
+            // in rather than folded into text, so that two names differing outside UTF-8 read
+            // differently here as well as compare differently above.
             Self::FontNotInResources(name) => format!(
-                "its /DA names the font /{name}, which the interactive form dictionary's /DR \
-                 does not define"
+                "its /DA names the font /{}, which the interactive form dictionary's /DR \
+                 does not define",
+                name.escaped()
             ),
             Self::FontUnusable(detail) => format!("its /DA's font is unusable: {detail}"),
             Self::VerticalWritingMode(name) => format!(
-                "its /DA names the font /{name}, whose CMap sets §9.7.5.1's writing mode 1, and \
-                 the variable text of §12.7.4.3 is laid out along the horizontal axis here"
+                "its /DA names the font /{}, whose CMap sets §9.7.5.1's writing mode 1, and \
+                 the variable text of §12.7.4.3 is laid out along the horizontal axis here",
+                name.escaped()
             ),
             Self::InventedFontFellShort { name, characters } => format!(
-                "its /DA names the font /{name}, which the interactive form dictionary's /DR \
+                "its /DA names the font /{}, which the interactive form dictionary's /DR \
                  does not define, and the standard font stood in for it states no code for \
-                 {characters} — so the value is not drawn at all rather than in part"
+                 {characters} — so the value is not drawn at all rather than in part",
+                name.escaped()
             ),
             Self::CharactersNotInFont(characters) => {
                 format!("its value contains {characters}, for which its /DA's font states no code")
@@ -313,13 +320,17 @@ pub(crate) struct LaidOut {
 fn resolve_font(
     document: &Document,
     resources: &Dictionary,
-    name: &str,
+    name: &pdf_syntax::Name,
 ) -> (Dictionary, Resolution) {
     let fonts = document.get_key(resources, "Font");
     let entry = fonts
         .as_dict()
-        .and_then(|fonts| fonts.get(name))
+        .and_then(|fonts| fonts.get_by_name(name))
         .map(|font| document.resolve(font));
+    // §9.6.2.2's fourteen and [`STANDARD_ABBREVIATIONS`]'s fourteen are all ASCII, so a name
+    // that is not text is not one of them and `as_str` refusing is the right answer rather than
+    // a lossy one. It is the *lookup* above that §7.3.5 binds, and that one is bytes.
+    let text = name.as_str();
     match entry.as_ref().and_then(|font| font.as_dict()) {
         Some(dict) => (dict.clone(), Resolution::Named),
         // A name that *conventionally* denotes one of §9.6.2.2's fourteen is not a stand-in
@@ -328,11 +339,14 @@ fn resolve_font(
         // A name that is *itself* one of §9.6.2.2's fourteen is the same case a fortiori, and
         // §7.8.3's route into it is ADR 0183 — a `Tf` in a stream whose resources define nothing.
         // The two questions are one question and this is where they meet.
-        None if pdf_font::standard::is_standard_name(name) => {
+        None if text.is_some_and(pdf_font::standard::is_standard_name) => {
             (substituted_font(name), Resolution::Abbreviated)
         }
-        None => match standard_abbreviation(name) {
-            Some(standard) => (substituted_font(standard), Resolution::Abbreviated),
+        None => match text.and_then(standard_abbreviation) {
+            Some(standard) => (
+                substituted_font(&pdf_syntax::Name::new(standard.as_bytes())),
+                Resolution::Abbreviated,
+            ),
             None => (substituted_font(name), Resolution::StoodIn),
         },
     }
@@ -426,10 +440,13 @@ fn standard_abbreviation(name: &str) -> Option<&'static str> {
 fn set_in(
     document: &Document,
     request: &Request,
-    font_name: &str,
+    font_name: &pdf_syntax::Name,
 ) -> Result<(Dictionary, pdf_font::LoadedFont, Encoded, Resolution), Owed> {
     let (dict, resolution) = resolve_font(document, request.resources, font_name);
-    let font = pdf_font::LoadedFont::load(document, &dict, font_name)
+    // The label `FontError` puts in its message, which is §7.3.5's text exception rather than a
+    // lookup — so it is the escaped form, which names the name exactly.
+    let label = font_name.escaped();
+    let font = pdf_font::LoadedFont::load(document, &dict, &label)
         .map_err(|error| Owed::FontUnusable(error.to_string()))?;
     // **The whole layout below is horizontal**, and §9.7.5.1 makes the writing mode decide
     // "which metrics shall be used when glyphs are painted from that font". A field's text
@@ -437,11 +454,11 @@ fn set_in(
     // be a confident wrong mark rather than a partial one, and refusing here leaves the
     // document's own appearance stream standing where it has one.
     if font.is_vertical() {
-        return Err(Owed::VerticalWritingMode(font_name.to_owned()));
+        return Err(Owed::VerticalWritingMode(font_name.clone()));
     }
     if !font.addresses_characters() {
         return Err(Owed::FontUnusable(format!(
-            "/{font_name}'s /Encoding CMap states more codes than can be inverted, so no \
+            "/{label}'s /Encoding CMap states more codes than can be inverted, so no \
              character of the value can be turned into one (§9.7.6.2)"
         )));
     }
@@ -462,7 +479,7 @@ fn set_in(
     if resolution != Resolution::Named
         && !runs.missing.is_empty()
         && let Some((named, reloaded, again)) =
-            named_glyphs_reach_more(document, &dict, font_name, request, &runs)
+            named_glyphs_reach_more(document, &dict, &label, request, &runs)
     {
         return Ok((named, reloaded, again, resolution));
     }
@@ -477,12 +494,12 @@ fn set_in(
 fn named_glyphs_reach_more(
     document: &Document,
     dict: &Dictionary,
-    font_name: &str,
+    label: &str,
     request: &Request,
     runs: &Encoded,
 ) -> Option<(Dictionary, pdf_font::LoadedFont, Encoded)> {
     let named = with_differences(dict, &runs.missing)?;
-    let reloaded = pdf_font::LoadedFont::load(document, &named, font_name).ok()?;
+    let reloaded = pdf_font::LoadedFont::load(document, &named, label).ok()?;
     let again = encode(&reloaded, request.text, request.asked);
     (again.missing.len() < runs.missing.len()).then_some((named, reloaded, again))
 }
@@ -549,18 +566,17 @@ fn with_differences(dict: &Dictionary, missing: &str) -> Option<Dictionary> {
 /// the same answer as passing no name at all. What is never done is silence — the report says
 /// which name `/DR` failed to define, so the page says the document is malformed while still
 /// showing what the document says.
-fn substituted_font(name: &str) -> Dictionary {
-    let entry = |key: &str, value: &str| {
-        (
-            pdf_syntax::Name::new(key.as_bytes().to_vec()),
-            Object::Name(pdf_syntax::Name::new(value.as_bytes().to_vec())),
-        )
-    };
+fn substituted_font(name: &pdf_syntax::Name) -> Dictionary {
+    let entry =
+        |key: &[u8], value: pdf_syntax::Name| (pdf_syntax::Name::new(key), Object::Name(value));
     let mut dict = Dictionary::new();
     for (key, value) in [
-        entry("Type", "Font"),
-        entry("Subtype", "Type1"),
-        entry("BaseFont", name),
+        entry(b"Type", pdf_syntax::Name::new(&b"Font"[..])),
+        entry(b"Subtype", pdf_syntax::Name::new(&b"Type1"[..])),
+        // The `/DA`'s own bytes, not a text form of them: this dictionary is a font object like
+        // any other and §9.6.2.1's `/BaseFont` is a name, so what a stand-in is named after is
+        // what the document wrote.
+        entry(b"BaseFont", name.clone()),
     ] {
         dict.insert(key, value);
     }
@@ -758,9 +774,10 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
         // The invented dictionary has to reach the appearance's `/Resources` under the name
         // the `/DA` used, whichever of the two ways this crate arrived at it — the stream says
         // `/{name} {size} Tf` either way, and a resource the interpreter cannot find is a
-        // stream that names nothing.
-        font: (resolution != Resolution::Named)
-            .then(|| (pdf_syntax::Name::new(font_name.into_bytes()), dict)),
+        // stream that names nothing. The *same* [`pdf_syntax::Name`] the `Tf` was written from,
+        // so the two cannot drift: §7.3.5 makes the key and the operand one name only while the
+        // bytes are an exact binary match, and this is that match by construction.
+        font: (resolution != Resolution::Named).then_some((font_name, dict)),
     })
 }
 
@@ -773,7 +790,7 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
 fn open_marked_content(
     stream: &mut String,
     appearance: &DefaultAppearance,
-    font: (&str, f32),
+    font: (&pdf_syntax::Name, f32),
     box_: [f32; 4],
 ) {
     let (width, height) = ((box_[2] - box_[0]).max(0.0), (box_[3] - box_[1]).max(0.0));
@@ -786,7 +803,10 @@ fn open_marked_content(
     stream.push_str("BT\n");
     stream.push_str(&appearance.operators);
     let (name, size) = font;
-    let _ = writeln!(stream, "/{name} {size} Tf");
+    // §7.3.5's escaping, on the way *out*. A `/DA` font name holding a space, a delimiter or a
+    // number sign written raw here would name a different resource — or end the token early and
+    // leave the size as an operand of nothing — which is what this stream did before ADR 0453.
+    let _ = writeln!(stream, "/{} {size} Tf", name.escaped());
 }
 
 /// The size a run is set at and the font's vertical metrics at one em.
@@ -1627,8 +1647,8 @@ struct DefaultAppearance {
     /// The operators to replay verbatim, in order, minus the `Tm` and anything the clause
     /// does not permit here.
     operators: String,
-    /// The `Tf`'s first operand.
-    font: Option<String>,
+    /// The `Tf`'s first operand, as the bytes §7.3.5 makes a name.
+    font: Option<pdf_syntax::Name>,
     /// The `Tf`'s second operand; `Some(0.0)` is the clause's auto-size request.
     size: Option<f32>,
     /// The one `Tm` the string may carry, whose translation this module replaces.
@@ -1705,8 +1725,12 @@ impl DefaultAppearance {
             b"Tf" => {
                 // The clause names the operands in order: "a Tf (text font) operator along
                 // with its two operands, font and size".
+                // **Bytes, not text.** The lexer has already expanded §7.3.5's `#xx`, so what
+                // arrives here is the name itself, and it stays that way all the way to the
+                // `/DR` probe: a name outside UTF-8 folded to a `String` here missed the font
+                // the document defined, and two such names became one (ADR 0453).
                 self.font = operands.first().and_then(|token| match token {
-                    Token::Name(name) => Some(String::from_utf8_lossy(name).into_owned()),
+                    Token::Name(name) => Some(pdf_syntax::Name::new(name.as_slice())),
                     _ => None,
                 });
                 self.size = number(1);
@@ -1745,8 +1769,17 @@ fn write(out: &mut String, token: &Token<'_>) {
         Token::Real(value) => {
             let _ = write!(out, "{} ", narrow(*value));
         }
+        // The other name this module writes, and it had the same two defects as the `Tf`
+        // operand: a `/DA` may set a colour space with `cs`, a graphics state with `gs` or a
+        // pattern with `scn`, and each of those operands is a name the *document* invented and
+        // this module replays into the stream it builds. Folded to text it named something else;
+        // written raw it broke the token. `Name::escaped` is §7.3.5 in one place for both.
         Token::Name(name) => {
-            let _ = write!(out, "/{} ", String::from_utf8_lossy(name));
+            let _ = write!(
+                out,
+                "/{} ",
+                pdf_syntax::Name::new(name.as_slice()).escaped()
+            );
         }
         Token::ArrayOpen => out.push_str("[ "),
         Token::ArrayClose => out.push_str("] "),

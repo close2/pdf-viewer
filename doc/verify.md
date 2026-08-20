@@ -115,7 +115,10 @@ cargo run --release -p pdf-model --example variable_text_census -- doc/pdf.js/te
   # of a text field or a combo box, 305 with no /AP /N stream, and 73 of §12.5.6.6's free text
   # annotations — with each one's /DA font classified by what its descriptor says about a baseline,
   # and §12.7.5.4's list boxes counted beside them. `font_metric_census` counts the fonts a *page*
-  # draws with, which is a different population and was mistaken for this one (ADR 0240)
+  # draws with, which is a different population and was mistaken for this one (ADR 0240). **It also
+  # counts the /DA font names §7.3.5's escaping is about and prints each one**, and it takes
+  # directories as well as files so that the crawl is one argument rather than an xargs batch per
+  # census — which is what the write half of ADR 0453 was measured with
 cargo run --release -p pdf-model --example presentation_census -- doc/pdf.js/test/pdfs/*.pdf doc/*.pdf
   # what any real document says about §12.4.4: 978 opened, 1971 pages walked, and **not one**
   # states a /Trans, a /Dur or a /PresSteps — asked of the page tree rather than of the raw bytes,

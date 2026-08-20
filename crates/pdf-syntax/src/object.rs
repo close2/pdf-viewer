@@ -13,6 +13,7 @@
 //! higher-level state to configure.
 
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::sync::Arc;
 
 /// An object number and generation, identifying an indirect object.
@@ -64,6 +65,59 @@ impl Name {
     #[must_use]
     pub fn as_str(&self) -> Option<&str> {
         std::str::from_utf8(&self.0).ok()
+    }
+
+    /// ISO 32000-2 §7.3.5's written form of this name: what follows the SOLIDUS in a PDF file.
+    ///
+    /// > When writing a name in a PDF file, a SOLIDUS (2Fh) (/) shall be used to introduce a
+    /// > name. The SOLIDUS is not part of the name but is a prefix indicating that what follows
+    /// > is a sequence of characters representing the name in the PDF file and shall follow these
+    /// > rules:
+    ///
+    /// The three rules, verbatim:
+    ///
+    /// > a) A NUMBER SIGN (23h) (#) in a name shall be written by using its 2-digit hexadecimal
+    /// > code (23), preceded by the NUMBER SIGN.
+    ///
+    /// > b) Any character in a name that is a regular character (other than NUMBER SIGN) shall be
+    /// > written as itself or by using its 2-digit hexadecimal code, preceded by the NUMBER SIGN.
+    ///
+    /// > c) Any character that is not a regular character shall be written using its 2-digit
+    /// > hexadecimal code, preceded by the NUMBER SIGN only.
+    ///
+    /// The SOLIDUS is the caller's, because the clause says it is not part of the name — which is
+    /// also why a name written into a *dictionary key* and one written into a *content stream*
+    /// can share this one function and differ only in what surrounds it.
+    ///
+    /// Rule b) offers a choice, and the clause narrows it two paragraphs later:
+    ///
+    /// > Regular characters that are outside the range EXCLAMATION MARK(21h) (!) to TILDE (7Eh)
+    /// > (~) should be written using the hexadecimal notation.
+    ///
+    /// So a byte goes out as itself exactly when it is regular by §7.2.3, lies inside that range,
+    /// and is not the number sign; the nine delimiters, the six white-space bytes, `#` and every
+    /// byte above 126 go out as `#xx`. Whitespace is not a choice at all — "[w]hitespace used as
+    /// part of a name shall always be coded using the 2-digit hexadecimal notation" — and it falls
+    /// out of the same test rather than being a second rule.
+    ///
+    /// **What comes back is therefore always ASCII**, which is what lets a content stream this
+    /// program builds be a `String` while the name inside it is bytes.
+    ///
+    /// The inverse is [`crate::Lexer`], which expands `#xx` as it reads a name, so this function
+    /// and that one are §7.3.5 written down once in each direction. Nothing else in this tree
+    /// spells either of them.
+    #[must_use]
+    pub fn escaped(&self) -> String {
+        let mut out = String::with_capacity(self.0.len());
+        for byte in self.0.iter().copied() {
+            if byte != b'#' && (0x21..=0x7e).contains(&byte) && crate::lexer::is_regular(byte) {
+                out.push(char::from(byte));
+            } else {
+                // Infallible: a `String` sink never fails, and every byte written here is ASCII.
+                let _ = write!(out, "#{byte:02X}");
+            }
+        }
+        out
     }
 }
 

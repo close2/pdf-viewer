@@ -1,13 +1,12 @@
 # §12.7.4.3's remaining edges
 
-Status: **one document, which is `doc/todo/21`'s, and one defect with no witness at all.** Table 231's `DoNotScroll` closed in the
+Status: **one document, which is `doc/todo/21`'s.** Table 231's `DoNotScroll` closed in the
 three-hundred-and-thirty-eighth session (ADR 0197), the baseline's guard and the list box's cost
 both closed in the four-hundred-and-third (ADR 0240), **the composite `/DA` font closed in the
-five-hundred-and-second** (ADR 0337), and **the list box itself drew in the
-five-hundred-and-seventy-first** (ADR 0407), reversing what this file had concluded about it. What
-is left is one refusal that belongs to another item, one §7.3.5 defect the six-hundred-and-fourth
-session's sweep found and costed here rather than fixing (ADR 0439), and the reasoning behind four
-closed ones.
+five-hundred-and-second** (ADR 0337), **the list box itself drew in the
+five-hundred-and-seventy-first** (ADR 0407), reversing what this file had concluded about it, and
+**§7.3.5's font name closed in the six-hundred-and-seventeenth** (ADR 0453). What is left is one
+refusal that belongs to another item, and the reasoning behind five closed ones.
 Priority: 22
 Corpus: 1 document
 Clauses: §12.7.4.3, §12.7.5.3, §12.7.5.4, §9.6.5.2, §9.7.6.2
@@ -50,32 +49,29 @@ Still owed, and it is one file — **and it is the only thing this item still ow
   blank and the report. Until a round takes ADR 0348's list whole, this file is kept for the
   closed arguments below, which are the reason a later round will not reopen any of them.
 
-## A `/DA` font name that is not text, and the escaping that goes with it — **no witness, owed**
+## ~~A `/DA` font name that is not text, and the escaping that goes with it~~ — **done in the six-hundred-and-seventeenth session**
 
-Found by the six-hundred-and-fourth session's sweep (ADR 0439) and left here rather than fixed,
-because the fix is one decision covering a read *and* a write.
+ADR 0453, and the reason it is worth keeping as a paragraph is the shape of the argument that
+deferred it rather than the fix. The six-hundred-and-fourth session's sweep found the read defect —
+the `Tf` operand folded to a `String` before probing `/DR` — and declined to fix it, because this
+module **writes** the same name into the appearance stream it constructs and wrote it with no `#xx`
+escaping at all. Correcting the lookup alone would have found the document's font and then named a
+different one, so read and write were one decision and the sweep costed it here instead of taking
+half of it. **That was right**, and it is the standing example of a deferral that names its
+condition: the note said what the round after it owed, and that round did exactly that list.
 
-The read: `DefaultAppearance::parse` tokenises the `/DA` string and keeps the `Tf` operand as a
-`String` built with `from_utf8_lossy`, so `resolve_font` probes `/DR`'s `/Font` with text where
-§7.3.5 makes two names one only when "the resulting sequences of bytes are … an exact binary
-match". A `/DA` naming a font whose name carries a byte outside UTF-8 therefore gets the stand-in
-and a `FontNotInResources` report, and two such names are one font.
+`pdf_syntax::Name::escaped` is §7.3.5's writing direction in one place, called by the object
+serialiser and by this module; a `pdf_syntax::Name` runs from the `Tf` operand to the `/DR` probe to
+the appearance's `/Resources` key, so the operand and the key cannot drift.
 
-The write is why the read cannot be fixed alone. This module **constructs** an appearance stream
-saying `/{name} {size} Tf`, and for an invented font it registers the dictionary in that stream's
-own `/Resources` under the same spelling. Both halves use the folded text today, which is
-self-consistent and therefore invisible; correcting only the lookup would find the document's font
-and then name a different one in the stream. And the write has a defect of its own that predates
-all of this and that no test covers: **the name is written with no `#xx` escaping at all**, so a
-`/DA` whose font name contains a space, a delimiter or a `#` already produces a stream naming
-something else — §7.3.5's other half, which this tree implements when it *reads* a name and not
-when it writes one.
-
-So what a round owes here is: a `Name` carried from the `Tf` operand to the `/DR` probe and to the
-appearance's `/Resources` key, a writer that escapes a name into a content stream by §7.3.5's rule,
-and a hand-built pair in each direction — `crates/pdf-model/tests/names_are_bytes.rs` is where the
-other five vocabularies' pairs are. No corpus or crawled document is known to reach it; the seven
-`/DA` documents this file counts all name ASCII.
+**The write half is the one with witnesses and this file predicted the opposite**, which is the
+lesson worth keeping: it said "[n]o corpus or crawled document is known to reach it; the seven
+`/DA` documents this file counts all name ASCII", and both halves of that were about the wrong
+population. `examples/variable_text_census` counts the crawl and prints what it matched — five
+objects over two documents, every one a font name with **spaces** in it, which is ASCII and is
+exactly what a writer with no escaping breaks. Not one is outside UTF-8, so it is the *read* half
+that has no witness anywhere. All five carry an `/AP`, so nothing on this disk draws differently
+and what they reach is a save or an edit.
 
 Closed and kept here for the reasoning:
 

@@ -4393,7 +4393,11 @@ impl Stream {
             placement.d,
             placement.e,
             placement.f,
-            name.as_str().unwrap_or("Icon")
+            // §7.3.5's escaping, the same one `variable_text` writes a `Tf` operand with. Today
+            // this name is `Icon` or `Icon<n>` and needs none of it, and the `unwrap_or` it
+            // replaces was the shape rather than the bug: a name that failed to be text used to
+            // become `/Icon`, which is a *different* resource from the one inserted below.
+            name.escaped()
         );
         self.icon = Some((name, reference));
     }
