@@ -5,12 +5,17 @@
 //! therefore measured; drawing on it is the frame, and the frame is where every other module's
 //! work arrives, the page from `viewer-core` and the overlays from this host.
 //!
-//! **A frame with a graphics device is now two things happening at once**, which is ADR 0391:
-//! [`crate::renderer`] draws pages on a thread of its own and this module presents, on the clock,
-//! whatever that thread has finished — moved to where the view now is where it is not of the view
-//! now being asked for. What one call to [`App::present`] does is therefore *adopt, ask, place*
-//! rather than *draw and wait*, and the whole of the difference to how long a person waits for
-//! a window to answer them is in that.
+//! **A frame is two things happening at once on both of them**, which is ADR 0391 for the window
+//! with a device and ADR 0461 for the one without: [`crate::renderer`] and [`crate::composer`] draw
+//! pages on a thread of their own and this module presents, on the clock, whatever that thread has
+//! finished — moved to where the view now is where it is not of the view now being asked for. What
+//! one call to [`App::present`] does is therefore *adopt, ask, place* rather than *draw and wait*,
+//! and the whole of the difference to how long a person waits for a window to answer them is in
+//! that.
+//!
+//! So the two paths differ in their rasteriser and in **one** thing about the policy: what a
+//! stand-in costs the thread that presents ([`crate::stale::Standing`]). Everything else —
+//! `doc/todo/37`'s five rules, the retained pages, the clock — is one implementation asked twice.
 
 use std::sync::Arc;
 
@@ -63,46 +68,16 @@ fn coverage_for(transform: Transform) -> quorra_gpu::Coverage {
     }
 }
 
-/// Draws Table 29's arrangement with `render-cpu` and copies it onto a window that has no device.
-///
-/// **This is one of the two jobs `CLAUDE.md` keeps the CPU backend for**: the correctness oracle,
-/// and the frame the graphics device refuses. (It was three until the two-hundred-and-seventy-third
-/// session, where the project owner decided page one goes to the device.) So a page the device
-/// refuses is a page this program can still show — more slowly, which is a cost a person can see
-/// past, where a page that never appears is not.
-///
-/// **The device's half of that fallback is no longer here**, and that is ADR 0391: a page the
-/// device refuses is rasterised on the render thread and drawn into the very texture the window
-/// presents, because that thread is the only one holding a device. What is left here is the
-/// window that never had one — `--cpu`, and a machine whose device would not come up — where
-/// `SoftwareSurface` composites the overlays on the processor and copies the result.
-///
-/// The error is a sentence rather than a type because both of its sources are already strings by
-/// the time they reach the caller, which formats them into one report.
-///
-/// **The composed raster comes back rather than being dropped**, because it is this window's base:
-/// the pixels a stand-in for the next view change resamples (ADR 0457). It is the picture without
-/// the chrome, which is what the device path's base is too — the chrome is drawn in window pixels
-/// and does not move with the page.
-fn on_the_processor(
-    surface: &mut SoftwareSurface,
-    pages: &[(&pdf_render::DisplayList, TargetSpec)],
-    overlays: &[&pdf_render::DisplayList],
-) -> Result<pdf_render::Raster, String> {
-    let raster = viewer_ui::software::compose_pages(pages)
-        .map_err(|problem| format!("the processor: {problem}"))?;
-    surface
-        .present(&raster, overlays)
-        .map_err(|problem| format!("presenting the processor's page {problem}"))?;
-    Ok(raster)
-}
-
 /// How this window's pixels reach it: with a graphics device, or without one.
 ///
 /// **Never both, and that is the point.** A process holding [`Surface::Processor`] has created no
 /// `wgpu::Instance`, selected no adapter and made no device, so a driver that faults while it
 /// loads cannot reach it. Before the three-hundred-and-eighty-fourth session there was one
 /// variant and `--cpu` chose only which rasteriser drew into it (ADR 0221).
+///
+/// **Both variants are now the same arrangement over two rasterisers** (ADR 0461): a thread that
+/// draws pages, a store of finished pictures on this thread, and a present on the clock's tick.
+/// What they do not share is the price of a stand-in, which is [`crate::stale::Standing`].
 pub(crate) enum Surface {
     /// The window's surface, held apart from the device that made it (quorra's ADR 0056): this
     /// thread presents finished rasters and [`crate::renderer`]'s thread draws them.
@@ -110,24 +85,18 @@ pub(crate) enum Surface {
     /// The processor's raster copied onto the window, with the overlays composited into it
     /// first. `--cpu`, and a device that would not come up.
     ///
-    /// **It carries the last frame's pixels beside the surface** (ADR 0457), which the device
-    /// path's variant does not need to: there the base is a texture `crate::renderer` never gave
-    /// up, and here it is the raster this host composed on its way to the window. Both are the
-    /// same fact — the window's own picture, chrome excluded — held wherever it already exists.
-    Processor {
-        /// What copies a raster onto a window with no device behind it.
-        surface: SoftwareSurface,
-        /// The frame it last copied, for [`crate::stale::Canvas::stand_in`] to resample.
-        held: crate::stale::Canvas,
-    },
+    /// **It carries the last frame's pixels and the retained pages beside the surface**, which the
+    /// device path's variant keeps in `crate::renderer` for the same reason: the base is the
+    /// window's own picture, chrome excluded, held wherever it already exists.
+    Processor(Box<crate::composer::Composer>),
 }
 
 impl std::fmt::Debug for Surface {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Device(window) => formatter.debug_tuple("Device").field(window).finish(),
-            Self::Processor { surface, .. } => {
-                formatter.debug_tuple("Processor").field(surface).finish()
+            Self::Processor(composer) => {
+                formatter.debug_tuple("Processor").field(composer).finish()
             }
         }
     }
@@ -152,7 +121,19 @@ impl App {
     fn device_window(&mut self) -> Option<&mut crate::renderer::Window> {
         match self.state.as_mut()?.surface {
             Surface::Device(ref mut window) => Some(window),
-            Surface::Processor { .. } => None,
+            Surface::Processor(_) => None,
+        }
+    }
+
+    /// The presenting half of this window where the processor is what draws on it.
+    ///
+    /// The same shape as [`Self::device_window`] and for the same borrow reason: the clock and the
+    /// stand-in policy are fields beside `state`, and a composer held across a call to either is a
+    /// borrow the compiler is right to refuse.
+    fn composer(&mut self) -> Option<&mut crate::composer::Composer> {
+        match self.state.as_mut()?.surface {
+            Surface::Processor(ref mut composer) => Some(composer),
+            Surface::Device(_) => None,
         }
     }
 
@@ -232,9 +213,9 @@ impl App {
             under.len(),
             self.cadence.period(),
             drawing,
-            // Beside rather than in front of: `crate::renderer` draws on a thread of its own, so
-            // three textured quads take nothing from the frame they stand in for (ADR 0391).
-            crate::stale::Standing::Beside,
+            // Three textured quads, issued while `crate::renderer` draws on a thread of its own:
+            // they take nothing from the frame they stand in for (ADR 0391).
+            crate::stale::Standing::Quads,
         );
         let stand = match planned {
             crate::stale::Plan::Render => {
@@ -495,148 +476,245 @@ impl App {
         if self.device_window().is_some() {
             return self.on_the_device(&for_the_frame, !transitioning, &chrome, stages);
         }
-
-        // No device: the processor's window draws its frame on this very thread, so the stand-in
-        // goes up **in front of** that frame rather than beside it (ADR 0457). Everything about
-        // the decision is `crate::stale`'s; what is here is the order, and the order is the whole
-        // of rule 1 on this surface — the resample is presented, and then the true frame is drawn
-        // and presented by the same call, before it returns.
-        let overlays = chrome.lists();
-        if !transitioning {
-            self.stand_in_on_the_processor(&for_the_frame, &overlays, stages);
-        }
-        let borrowed: Vec<(&pdf_render::DisplayList, TargetSpec)> = for_the_frame
-            .iter()
-            .map(|placed| (placed.list.as_ref(), placed.target))
-            .collect();
-        let fell_back = std::time::Instant::now();
-        let Some(Surface::Processor { surface, held }) =
-            self.state.as_mut().map(|state| &mut state.surface)
-        else {
-            return None;
-        };
-        let outcome = on_the_processor(surface, &borrowed, &overlays);
-        stages.fallback = fell_back.elapsed();
-        let frame = match outcome {
-            Ok(frame) => frame,
-            Err(problem) => return Some(Rendered::Failed(problem)),
-        };
-        if !transitioning {
-            // The base and the record of what it is a picture of, adopted together — see
-            // [`crate::stale::Canvas`] for the defect that arrangement exists to make
-            // unrepresentable.
-            held.keep(frame);
-            // **What this frame cost, and not what this tick did**, which is rule 5's whole
-            // subject: the stand-in above is not part of what the next render will take, and a
-            // prediction that included it would grow every time it fired (ADR 0384).
-            let drawing = began.elapsed().saturating_sub(
-                stages
-                    .stood_in
-                    .map_or(std::time::Duration::ZERO, |(_, cost)| cost),
-            );
-            self.stale.settled(&for_the_frame, drawing, true);
-        }
-        Some(Rendered::Presented)
+        self.on_the_processor(&for_the_frame, !transitioning, &chrome, stages)
     }
 
-    /// Puts the last frame's own pixels up, moved to where this view puts them, before drawing the
-    /// real frame — the processor's window, which has no other thread to draw on.
+    /// Everything a tick does with a window the processor draws on: adopt, ask, place.
     ///
-    /// **Every rule that makes this defensible is `crate::stale`'s and none of them is new**
-    /// (`doc/todo/37`, ADR 0457). Rule 5 decides whether the frame about to be drawn will miss the
-    /// refresh; rule 4 decides whether the resample buys the refresh it spends, which is a
-    /// question again on this surface and only on this surface; rule 3 says what was shown, in the
-    /// trace and in the summary's count; and rule 1 is met by the caller, which draws the true
-    /// frame before it returns.
+    /// **The same three steps in the same order as [`Self::on_the_device`]** (ADR 0461), which is
+    /// the whole of what giving this surface a composing thread bought: the two windows had two
+    /// policies — one drew its stand-in beside the frame and the other in front of it, one had the
+    /// retained pages and the other could not — and they now differ in one number, which is what a
+    /// stand-in costs the thread that presents ([`crate::stale::Standing`]).
     ///
-    /// The retained low-resolution pages are deliberately **not** here: they are drawn by an idle
-    /// render thread, and this window has none. So the picture is the base alone, which is
-    /// [`crate::stale::Source::LastFrame`], and a page turn on this surface is still refused —
-    /// `doc/todo/37` carries what that would take.
-    fn stand_in_on_the_processor(
+    /// `stand_in` is false for §12.4.4's transition, whose frames are pictures of *two* pages
+    /// moving: no transform of one is any view of either.
+    fn on_the_processor(
         &mut self,
         pages: &[crate::stale::Placed],
-        overlays: &[&pdf_render::DisplayList],
+        stand_in: bool,
+        chrome: &Overlays,
         stages: &mut Stages,
-    ) {
-        // A window that has never drawn is not a view change; see `Stale::has_rendering`.
-        if !self.stale.has_rendering() {
-            return;
+    ) -> Option<Rendered> {
+        let now = std::time::Instant::now();
+        // A page that would not draw is reported before anything is asked for again, so that a
+        // document this program cannot rasterise refuses once per redraw rather than spinning.
+        if let Some(problem) = self.adopt_composed(stages) {
+            return Some(Rendered::Failed(problem));
         }
+        let overlays = chrome.lists();
+        let drawing = {
+            let composer = self.composer()?;
+            // **Read before the ask below**, and that is not an ordering accident — see
+            // [`Self::on_the_device`], where the same line has the same reason.
+            let was_drawing = composer.drawing();
+            if !composer.depicts(pages) {
+                composer.ask(pages.to_vec(), now);
+            }
+            was_drawing
+        };
+        if !stand_in || !self.stale.has_rendering() {
+            // The clock stays armed, so page one arrives on the tick after it is drawn rather than
+            // waiting for an event that is not coming.
+            self.cadence.owed(now);
+            return self.put_up_composed(&overlays, stages);
+        }
+        // Which retained pages have pixels for this view — asked before the plan, because whether
+        // a page turn is a refusal or a blurred picture depends on it (ADR 0443).
+        let under = self.composer()?.underlay(pages);
         let planned = self.stale.plan(
             pages,
-            // No retained pages on this surface: nothing draws them here.
-            0,
+            under.len(),
             self.cadence.period(),
-            // Nothing is out: on this surface a render is this call, so there is never one still
-            // being drawn when the tick comes round. Rule 5's *prediction* is the whole of what
-            // answers here, which is what it was written for.
-            false,
-            crate::stale::Standing::InFrontOf,
+            drawing,
+            // A resample of a window of pixels, on the thread that presents: beside the frame it
+            // stands in for, as on the other surface, but not free (ADR 0461).
+            crate::stale::Standing::Resample,
         );
         let stand = match planned {
-            // The picture held already depicts this view: the frame below will draw it again and
-            // there is nothing to stand in for.
-            crate::stale::Plan::Render => return,
+            crate::stale::Plan::Render => return self.put_up_composed(&overlays, stages),
             crate::stale::Plan::Approximate(stand) => stand,
             crate::stale::Plan::Refused(why) => {
                 let trace = self.trace;
                 self.stale.declined(&why, trace);
-                return;
+                // The clock stays armed, so the tick that follows carries the frame this one
+                // waited for.
+                self.cadence.owed(now);
+                return self.put_up_unshown(&overlays, stages);
             }
         };
-        let carried = match self.stale.reproject(pages) {
-            Ok(carried) => carried,
-            Err(why) => {
+        let base = if stand.from.has_base() {
+            match self.stale.reproject(pages) {
+                Ok(carried) => {
+                    crate::stale::absorbed(carried, pages.len(), self.trace);
+                    Some(carried.placement)
+                }
+                Err(why) => {
+                    let trace = self.trace;
+                    self.stale.declined(&why, trace);
+                    return self.put_up_unshown(&overlays, stages);
+                }
+            }
+        } else {
+            // Rule 3: the refusal of the sharp layer is said and counted even though the window is
+            // about to move, because "a low-resolution page was shown" and "nothing was shown" are
+            // two answers and a person reading a page turn's trace needs to know which.
+            if let Some(why) = &stand.instead_of_the_base {
+                let trace = self.trace;
+                self.stale.without_base(why, under.len(), trace);
+            }
+            None
+        };
+        stages.approximated = Some(stand.from);
+        self.stand_in_composed(pages, base, &under, &overlays, stages)
+    }
+
+    /// Takes whatever the composing thread has finished, and records what it is.
+    ///
+    /// Answers the sentence a page that would not draw produced, and `None` for every other tick —
+    /// including the ones where nothing has finished, which is most of them.
+    fn adopt_composed(&mut self, stages: &mut Stages) -> Option<String> {
+        let landed = self
+            .composer()
+            .and_then(crate::composer::Composer::collect)?;
+        stages.composed = landed.cost;
+        if landed.refused.is_some() {
+            return landed.refused;
+        }
+        // What the window is now able to draw, and what waiting for it cost. The next view change
+        // reads both: the placement to carry the pixels *from*, and the cost to predict whether the
+        // frame after it will miss its refresh (`doc/todo/37` rule 5, ADR 0384). Every frame on
+        // this surface builds its picture — there is no encode to replay — so the prediction is
+        // updated by all of them.
+        if !landed.pages.is_empty() {
+            self.stale.settled(&landed.pages, landed.waited, true);
+        }
+        None
+    }
+
+    /// Puts up a rendering the window is holding and has never shown, where a stand-in was refused.
+    ///
+    /// **What a refusal costs is not the same on the two surfaces, and this is the difference**
+    /// (ADR 0461). On the device the only *judged* refusal is [`crate::stale::Refusal::InsideTheRefresh`],
+    /// which says the true frame is expected within one refresh — so waiting costs one refresh and
+    /// bounds itself. Here rule 4 refuses precisely when the frame is **slow**, and a frame that
+    /// landed while the view was still moving is then never put up at all: the window would go on
+    /// showing a picture older than the one it is holding, for as long as the gesture lasts. It
+    /// was measured doing exactly that — three renderings finished and discarded inside one scroll.
+    ///
+    /// So the refusal keeps its meaning — *do not stand in* — and stops meaning *show nothing*. A
+    /// rendering nobody has seen is the truest picture this window has, at the placement it was
+    /// drawn for, which is what every viewer showed before `doc/todo/37` existed. It is a
+    /// rendering rather than an approximation and is counted as one: the pixels are right, and
+    /// what is old is the view they are of.
+    fn put_up_unshown(
+        &mut self,
+        overlays: &[&pdf_render::DisplayList],
+        stages: &mut Stages,
+    ) -> Option<Rendered> {
+        if !self.composer()?.unshown() {
+            return None;
+        }
+        self.trace.say(
+            Topic::Frames,
+            format_args!(
+                "the rendering on hand is of the view before this one and has not been on the \
+                 window at all, so it goes up unmoved rather than being held back"
+            ),
+        );
+        self.put_up_composed(overlays, stages)
+    }
+
+    /// Puts the frame on hand on the window as it is, under the chrome.
+    ///
+    /// `None` where nothing has been drawn yet, which is every tick between the window appearing
+    /// and the first frame landing, and `None` where the surface refused — which is reported by
+    /// name rather than counted as a frame.
+    fn put_up_composed(
+        &mut self,
+        overlays: &[&pdf_render::DisplayList],
+        stages: &mut Stages,
+    ) -> Option<Rendered> {
+        let began = std::time::Instant::now();
+        let outcome = self.composer()?.put_up(overlays);
+        stages.present = began.elapsed();
+        match outcome {
+            Ok(true) => Some(Rendered::Presented),
+            Ok(false) => None,
+            Err(problem) => Some(Rendered::Failed(format!(
+                "presenting the processor's page {problem}"
+            ))),
+        }
+    }
+
+    /// Resamples the last frame's own pixels onto this view, over whatever retained pages have
+    /// pixels for it, and puts that on the window.
+    ///
+    /// **Every rule that makes this defensible is `crate::stale`'s and none of them is new.** Rule
+    /// 5 decided that the frame being drawn will miss the refresh; rule 4 decided that the resample
+    /// finishes a refresh before it, which is a question on this surface and only on this one; rule
+    /// 3 says what was shown, in the trace and in the summary's count; and rule 1 is
+    /// [`crate::stale::MustFollow`], discharged of the clock exactly as the other surface
+    /// discharges it.
+    fn stand_in_composed(
+        &mut self,
+        pages: &[crate::stale::Placed],
+        base: Option<Transform>,
+        under: &[(usize, Transform)],
+        overlays: &[&pdf_render::DisplayList],
+        stages: &mut Stages,
+    ) -> Option<Rendered> {
+        let extent = pages
+            .first()
+            .map(|placed| (placed.target.width, placed.target.height))?;
+        let began = std::time::Instant::now();
+        let (retained, outcome) = {
+            let composer = self.composer()?;
+            (
+                composer.retained(),
+                composer.stand_in(extent, base, under, overlays),
+            )
+        };
+        let costs = match outcome {
+            Ok(costs) => costs,
+            Err(problem) => {
+                let why = crate::stale::Refusal::DeviceRefused(problem.to_string());
                 let trace = self.trace;
                 self.stale.declined(&why, trace);
-                return;
+                stages.approximated = None;
+                return None;
             }
         };
-        crate::stale::absorbed(carried, pages.len(), self.trace);
-        let began = std::time::Instant::now();
-        let Some(Surface::Processor { surface, held }) =
-            self.state.as_mut().map(|state| &mut state.surface)
-        else {
-            return;
+        // `None` is a picture made of no layers at all, which the plan has already ruled out: it
+        // answers `Approximate` only where the base carries or a retained page has pixels.
+        let Some((resample, cost)) = costs else {
+            stages.approximated = None;
+            return None;
         };
-        // `None` is a canvas with no frame in it, which `has_rendering` above has already ruled
-        // out, and a placement that does not invert, which `reproject` refuses before this point.
-        let Some(picture) = held.stand_in(carried.placement) else {
-            return;
-        };
-        // The two halves are timed apart and reported apart, because they are two different
-        // questions: what a resample of a window of pixels costs is this program's to improve, and
-        // what a copy onto the window costs is the frame's own price and is paid again by the true
-        // frame a moment later. Rule 4 is judged on the **sum**, which is what the person waits.
-        let resampled = began.elapsed();
-        let refused = surface.present(&picture, overlays).err();
-        let cost = began.elapsed();
-        if let Some(problem) = refused {
-            let why = crate::stale::Refusal::DeviceRefused(problem.to_string());
-            let trace = self.trace;
-            self.stale.declined(&why, trace);
-            return;
-        }
-        // Rule 4's only possible sample, taken from the thing itself.
+        // Rule 4's only possible sample, taken from the thing itself, on the machine it ran on.
         self.stale.resampled(cost);
-        stages.stood_in = Some((stand.from, cost));
+        stages.present = cost.saturating_sub(resample);
+        let from = stages.approximated?;
         self.trace.say(
             Topic::Frames,
             format_args!(
                 "{}: this view's frame is expected to cost {:.1} ms against a {:.1} ms refresh, \
-                 so it misses, and the last frame's own pixels stand in while it is drawn on this \
-                 thread (resample {:.2} ms, present {:.2} ms — rule 4 judges their sum)",
-                stand.from.word(),
+                 so it misses, and {} of {retained} retained low-resolution page(s) stand in \
+                 under composed placements (resample {:.2} ms, present {:.2} ms — rule 4 judges \
+                 their sum); the real frame is being drawn",
+                from.word(),
                 self.stale.expected().as_secs_f64() * 1e3,
                 self.cadence.period().as_secs_f64() * 1e3,
-                resampled.as_secs_f64() * 1e3,
-                cost.saturating_sub(resampled).as_secs_f64() * 1e3,
+                under.len(),
+                resample.as_secs_f64() * 1e3,
+                cost.saturating_sub(resample).as_secs_f64() * 1e3,
             ),
         );
-        // Rule 1, as a value that cannot be dropped. The frame replacing this one is not asked of
-        // a clock: the caller draws it before it returns, which is sooner than a tick.
-        self.stale.drawn(stand.from).drawn_in_the_same_frame();
+        // Rule 1, as a value that cannot be dropped: the frame that replaces this one is asked for
+        // here, of the clock rather than of the window, so that a view still moving is answered
+        // again on the next tick.
+        self.stale.drawn(from).follow(&mut self.cadence, began);
+        None
     }
 
     /// Table 29's arrangement as this window is about to draw it: every page, placed.
@@ -694,7 +772,7 @@ impl App {
     /// page past.
     pub(crate) fn bring_up(&mut self, window: &Arc<Window>) -> Option<Surface> {
         if self.processor {
-            let surface = Self::software(window);
+            let surface = self.software(window);
             self.launch.mark("software surface");
             return surface;
         }
@@ -762,7 +840,7 @@ impl App {
                      page is drawn on the processor instead",
                     renderer.adapter_description()
                 );
-                return Self::software(window);
+                return self.software(window);
             }
         };
         if self.trace.on(Topic::Launch) {
@@ -809,12 +887,15 @@ impl App {
     }
 
     /// The window written to by the processor, or a sentence saying why there is not one.
-    fn software(window: &Arc<Window>) -> Option<Surface> {
+    ///
+    /// **A method rather than an associated function since ADR 0461**, because this surface has a
+    /// setting of its own now: `--proxy-pages` reaches the composing thread exactly as it reaches
+    /// the render thread, and the host is where it lives (`doc/todo/37` rule 2).
+    fn software(&self, window: &Arc<Window>) -> Option<Surface> {
         match SoftwareSurface::new(Arc::clone(window)) {
-            Ok(surface) => Some(Surface::Processor {
-                surface,
-                held: crate::stale::Canvas::default(),
-            }),
+            Ok(surface) => Some(Surface::Processor(Box::new(
+                crate::composer::Composer::new(surface, self.proxy_pages),
+            ))),
             Err(problem) => {
                 eprintln!(
                     "this window cannot be drawn on without a graphics device: {problem}\n\
@@ -884,7 +965,7 @@ impl App {
         eprintln!(
             "Drawing on the processor instead, which opens no graphics driver. Pages will be slower."
         );
-        Self::software(window)
+        self.software(window)
     }
 
     /// Asks the surface once more what it refreshes at, until it answers.

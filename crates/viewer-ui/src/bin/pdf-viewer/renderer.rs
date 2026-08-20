@@ -58,7 +58,9 @@
 //!
 //! # What the render thread does when nothing is asked of it
 //!
-//! **The proxies are produced there, and only there** (`doc/todo/37`, ADR 0443). Nothing on the
+//! **The proxies are produced on a thread that draws, never on the one that presents**
+//! (`doc/todo/37`, ADR 0443; [`crate::composer`] does the same for the window with no device since
+//! ADR 0461, which is why this sentence no longer says "only here"). Nothing on the
 //! launch path makes one: the thread does not exist until the first job, it draws that job first,
 //! and it looks for a page with no picture only when [`Job`]'s channel is empty. One page per idle
 //! turn, so a view change arriving mid-way waits for one low-resolution frame rather than for the

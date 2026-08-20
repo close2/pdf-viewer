@@ -62,6 +62,8 @@
 //! | [`overlays`] | the geometry drawn over the page, in colours no clause states |
 //! | [`presentation`] | §12.4.4's clock and the transitions it draws |
 //! | [`surface`] | the graphics device or the processor's window, and one frame on it |
+//! | [`renderer`] | the graphics device on a thread of its own, and the frames that cross back |
+//! | [`composer`] | the processor on a thread of its own, for the window that has no device |
 //! | [`stale`] | the reprojection a slow view change shows until the real frame lands |
 //! | [`access`] | §14.7's tree handed to AccessKit |
 //! | [`window`] | winit's callbacks and the key table |
@@ -86,6 +88,8 @@ mod app;
 mod arguments;
 #[path = "pdf-viewer/cadence.rs"]
 mod cadence;
+#[path = "pdf-viewer/composer.rs"]
+mod composer;
 #[path = "pdf-viewer/dispatch.rs"]
 mod dispatch;
 #[path = "pdf-viewer/files.rs"]

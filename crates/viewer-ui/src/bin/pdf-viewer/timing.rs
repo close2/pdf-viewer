@@ -152,7 +152,7 @@ impl Launch {
                 Topic::Launch,
                 format_args!(
                     "the first frame was drawn on the processor in {:.1} ms — no device phases",
-                    ms(first.fallback)
+                    ms(first.composed)
                 ),
             );
             return;
@@ -215,8 +215,14 @@ pub(crate) struct Stages {
     /// What `render-quorra` reported for the same frame, which is where the device's own
     /// accounting arrives from.
     pub(crate) gpu: render_quorra::FrameCost,
-    /// `render-cpu` rasterising the page and presenting it, on a window with no device.
-    pub(crate) fallback: std::time::Duration,
+    /// What drawing this frame cost the composing thread, on a window with no device.
+    ///
+    /// **Somebody else's thread since ADR 0461**, which is why it is beside [`Self::total`] rather
+    /// than inside it: `render-cpu` walks the arrangement on `crate::composer`'s thread and this
+    /// is what it reported, so a tick whose `total` is a tenth of this is the window keeping the
+    /// cadence while a frame of hundreds of milliseconds is drawn beside it. It was the event
+    /// thread's own elapsed time until then, and the two numbers were the same number.
+    pub(crate) composed: std::time::Duration,
     /// Acquiring the swapchain, recording three textured quads and presenting them.
     ///
     /// **The whole of what the event thread spends on a picture, since ADR 0391**, and the number
@@ -239,16 +245,6 @@ pub(crate) struct Stages {
     /// approximate layers now and they are different amounts of wrong: a frame line that said
     /// only `approximated` for both had stopped saying what it was showing.
     pub(crate) approximated: Option<crate::stale::Source>,
-    /// The stand-in this frame put up **before** drawing itself, and what it cost.
-    ///
-    /// **The processor's window and nothing else** (ADR 0457). There is no render thread there, so
-    /// a stand-in is not what the tick *showed* — it is what the tick showed first, before the
-    /// true frame it stands in for went up in the same call. That is why it is beside
-    /// [`Self::approximated`] rather than in it: this tick presented twice, and a frame line
-    /// saying `approximated` would be describing the picture that is no longer on the window.
-    ///
-    /// Rule 3 counts both presents and names this one, in the frame line and in the summary.
-    pub(crate) stood_in: Option<(crate::stale::Source, std::time::Duration)>,
     /// Whether this frame put anything on the window at all.
     ///
     /// `doc/todo/36`'s sixth rule counts *presents*, and the two things that are not one are a
@@ -334,7 +330,7 @@ const SUMMARY_ROWS: [(&str, StageOf); 11] = [
         )
     }),
     ("settle", |frame| frame.gpu.settle),
-    ("fallback", |frame| frame.fallback),
+    ("composed", |frame| frame.composed),
 ];
 
 impl FrameLog {
@@ -349,14 +345,6 @@ impl FrameLog {
         self.count = self.count.saturating_add(1);
         if self.samples.len() < FRAME_SAMPLES {
             self.samples.push(*stages);
-        }
-        // A stand-in drawn in front of this frame is a present of its own, and an approximate one:
-        // the window showed it, and then showed the true frame. Counted before the frame's own so
-        // that "we present every N ms" and "we show the right pixels" stay the two separate claims
-        // `doc/todo/36`'s rule 6 asks for.
-        if stages.stood_in.is_some() {
-            self.presents = self.presents.saturating_add(1);
-            self.approximated = self.approximated.saturating_add(1);
         }
         if stages.presented {
             let now = std::time::Instant::now();
@@ -383,7 +371,7 @@ impl FrameLog {
         // are not zero. An ordinary frame is therefore no longer than the two lines this
         // replaced (ADR 0227).
         let mut unusual = String::new();
-        for (name, spent) in [("fallback", stages.fallback), ("attend", stages.attend)] {
+        for (name, spent) in [("composed", stages.composed), ("attend", stages.attend)] {
             if spent > std::time::Duration::ZERO {
                 unusual = format!("{unusual} {name} {:.1}", ms(spent));
             }
@@ -394,11 +382,6 @@ impl FrameLog {
         // the pathology rather than the event.
         if stages.gpu.atlas_repacked {
             unusual = format!("{unusual} repacked");
-        }
-        // The fourth, and the only one that is about a picture rather than about a cost: this
-        // frame was preceded on the window by a stand-in for it (ADR 0457).
-        if let Some((from, cost)) = stages.stood_in {
-            unusual = format!("{unusual} after {} {:.1}", from.word(), ms(cost));
         }
         // Whether this frame's device commands were encoded or replayed, one character wide,
         // beside the number it explains. A frame loop that means to reuse its scene and does
@@ -472,8 +455,9 @@ impl FrameLog {
                  a rebuild's work, so zero on a frame that reused its scene",
             ),
             (
-                "fallback",
-                "render-cpu drawing a frame the device refused — absent when there was none",
+                "composed",
+                "render-cpu drawing this frame on the composing thread, for a window with no \
+                 graphics device — absent on every frame that had one",
             ),
             (
                 "attend",
