@@ -143,6 +143,15 @@ owner. The page agrees now.
   not only a timeout: over 7000 crawled documents ranked twice with nothing changed between the
   runs, one `poppler` panel was absent in the first and present in the second, which is a row moving
   for a reason that is not the tree's.
+- **An instrument built into a fresh target directory is missing `pdf-sandbox-worker`, and every
+  codec behind the sandbox then refuses in silence.** `cargo build -p pdf-model --example
+  render_at` does not build the worker, and without it a JBIG2, CCITT or JPEG 2000 image reports
+  `the sandbox worker … was not found` and the page draws without it — so the ranking measures a
+  tree with no bilevel decoder. Session 619 caught it only because it re-measured the previously
+  fixed documents first: seven of sixteen came back *worse than before their fix*, one of them
+  −156.436 against a recorded −6.390. **A round that had skipped that check would have read seven
+  regressions off its own missing binary**, which is why the check is not a formality. Two
+  commands, and the second is `cargo build --release -p pdf-sandbox --bins`.
 - **A ranking against the *lightest* live reference is sensitive to one reference failing
   quietly**, and on the open web that is commoner than a defect of ours. `doc/todo/00` step 7's
   number is our ink minus the smallest of the references', so a renderer that draws a page's rules

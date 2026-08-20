@@ -92,7 +92,7 @@ impl Interpreter<'_> {
         let mut want = crate::content::reader::WINDOW;
         loop {
             let (ahead, complete) = reader.lookahead(want);
-            let scanned = crate::inline_image::scan(self.document, ahead, 0, resources);
+            let scanned = crate::inline_image::scan(self.document, ahead, 0, resources, complete);
             if complete || scanned.image.is_ok() {
                 return scanned;
             }

@@ -184,6 +184,9 @@ fn walk(document: &Document, page: &pdf_model::Page, name: &str, index: usize, t
                         content.as_slice(),
                         lexer.position(),
                         &page.resources,
+                        // The census decodes each content stream whole, so the slice it hands
+                        // over is all there is.
+                        true,
                     );
                     tally.images += 1;
                     match &scanned.image {

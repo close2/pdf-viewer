@@ -295,3 +295,80 @@ fn a_truncated_deflated_part_reports_its_damage_with_what_it_kept() {
         "and what did inflate is on the page"
     );
 }
+
+/// A derived length past the end of the window is a request for more bytes, not a wrong answer.
+///
+/// §8.9.7 makes an inline image's data a stream's data:
+///
+/// > The bytes between the ID operator and a white-space token, but before the EI operator shall
+/// > be treated the same as a stream object's data ( see 7.3.8, "Stream objects"), even though
+/// > they do not follow the standard stream syntax.
+///
+/// and §7.3.8.2 says such an extent is inferable rather than guessable:
+///
+/// > Finally, streams are used to represent many objects from whose attributes a length can be
+/// > inferred. All of these constraints shall be consistent.
+///
+/// So for unfiltered samples the byte count is arithmetic — `pdf_model::inline_image` computes it
+/// and its own module comment says the forward search for `EI` "is only reached for *filtered*
+/// data with no `/L`". **Through a window that sentence was false**: the arithmetic answer could
+/// not be *checked* against the `EI` it predicts while the buffer was shorter than the image, so
+/// the derived length was dropped and the search ran — and the search stopped at the first
+/// whitespace-delimited `EI` the samples happened to spell.
+///
+/// The witness is a crawled architectural drawing whose second inline image is 1024×716 in
+/// `/DeviceRGB`: 2 199 552 bytes of samples that spell ` EI ` 817 411 bytes in, so 63% of the
+/// picture was lost and the remaining 1.4 MB was tokenised as content operators (session 619).
+///
+/// This fixture is that shape in miniature: an image two windows long whose samples spell an
+/// `EI` in the first one. Getting it wrong draws a short image *and* executes the rest as
+/// operators, so the marker rectangle after `EI` is what says the stream resumed where it should.
+#[test]
+fn a_derived_length_beyond_the_window_grows_the_window_rather_than_guessing() {
+    const WIDE: usize = 256;
+    let tall = WINDOW * 2 / WIDE;
+    let mut content: Vec<u8> = format!("BI /W {WIDE} /H {tall} /BPC 8 /CS /G ID ").into_bytes();
+    let samples = WIDE * tall;
+    content.extend(std::iter::repeat_n(b'\xC0', samples));
+    // A whitespace-delimited `EI` inside the first window, which is the only thing a search can
+    // find and is not where the data ends.
+    let decoy = content.len() - samples + WINDOW / 2;
+    content
+        .get_mut(decoy..decoy + 4)
+        .expect("the samples are longer than half a window")
+        .copy_from_slice(b" EI ");
+    content.extend_from_slice(b" EI\n0 0 0 rg 10 10 20 20 re f\n");
+
+    let document = page_of_deflated_parts(&[deflate(&content)]);
+    let page_one = pdf_model::Pages::new(&document)
+        .get(0)
+        .expect("the fixture has a page");
+    let interpretation = pdf_model::interpret(&document, &page_one);
+    let reported = format!("{:?}", interpretation.unsupported);
+    assert_eq!(
+        reported, "[]",
+        "the image is whole and the stream resumes at its EI, so there is nothing to report"
+    );
+
+    let drawn = interpretation.display_list.commands();
+    let image = drawn
+        .iter()
+        .find_map(|command| match command {
+            pdf_render::Command::Image { image, .. } => Some(image.clone()),
+            _ => None,
+        })
+        .expect("the inline image is drawn");
+    let pdf_render::ImageSource::Decoded(decoded) = &image else {
+        panic!("an unfiltered inline image is decoded rather than deferred");
+    };
+    assert_eq!(
+        (decoded.width as usize, decoded.height as usize),
+        (WIDE, tall),
+        "every sample the dictionary describes is in the image"
+    );
+    assert_eq!(
+        drawn.len(),
+        2,
+        "the image and the rectangle after EI: {drawn:?}"
+    );
+}

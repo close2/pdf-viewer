@@ -191,6 +191,15 @@ rasterise byte-identically before and after, which is what says the release is a
 item is closed. **The next one is `hayro-ccitt` and `hayro-jbig2` going back to crates.io**, which
 is a release to wait for rather than work to do.
 
+**Five of 22 000 now**, and the two the six-hundred-and-nineteenth session added arrived through no
+bound of ours at all — they reach the cap directly, which is what the first two would have done had
+the `/Mask` ceiling not hidden them. `0546561.pdf` is a 792×943 page whose full-page `/Mask`
+stencil says `JBIG2: too many symbol instances` and is short of three agreeing references by
+**30.018** of 255; `4974796.pdf` draws *nothing at all* for the same reason, at **−15.417**. Both
+are in the ranking `doc/todo/03` §19 records. The rate is worth stating because it is what a
+release buys: **five documents of 22 000 crawled ones, one in 4400**, every one of them a page a
+reader sees blank or half-drawn.
+
 ## 8. What this means for the platform question
 
 Nothing here unblocks macOS or Windows, and that is worth stating plainly because it was the

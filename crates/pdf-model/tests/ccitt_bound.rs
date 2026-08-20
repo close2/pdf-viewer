@@ -54,9 +54,17 @@ const FOUR_BLACK_LINES: [u8; 7] = [0x35, 0x14, 0xD4, 0x53, 0x51, 0x4D, 0x45];
 ///
 /// `parms` is the `/DecodeParms` dictionary's body and is the only thing the fixtures vary.
 fn page_with_ccitt_image(parms: &str, data: &[u8]) -> Vec<u8> {
+    page_with_ccitt_image_of_width(8, parms, data)
+}
+
+/// The same page, with the image's own `/Width` chosen by the caller.
+///
+/// `/Width` is separate from Table 11's `/Columns` and the last test below is about exactly that
+/// difference, so the fixture has to be able to state the two apart.
+fn page_with_ccitt_image_of_width(width: u32, parms: &str, data: &[u8]) -> Vec<u8> {
     let content = "40 0 0 40 0 0 cm /Im Do";
     let dict = format!(
-        "/Type /XObject /Subtype /Image /Width 8 /Height 4 /ColorSpace /DeviceGray \
+        "/Type /XObject /Subtype /Image /Width {width} /Height 4 /ColorSpace /DeviceGray \
          /BitsPerComponent 1 /Filter /CCITTFaxDecode /DecodeParms << {parms} >>"
     );
     let objects = vec![
@@ -202,5 +210,75 @@ fn end_of_block_false_reaching_the_whole_height_says_nothing() {
     assert!(
         said.is_empty(),
         "a filter bounded at the image's own height substitutes nothing: {said:?}"
+    );
+}
+
+/// Four scan lines of a white run of four, a black run of eight and a white run of four.
+///
+/// Sixteen columns to the line, which is twelve rounded up to the next multiple of eight. T.4's
+/// terminating codes spell a white run of four `1011` and a black run of eight `000101`, so a
+/// line is fourteen bits and four of them fill seven bytes exactly — the same arithmetic
+/// [`FOUR_BLACK_LINES`] rests on, over a wider line.
+const FOUR_LINES_OF_SIXTEEN: [u8; 7] = [0xB1, 0x6E, 0xC5, 0xBB, 0x16, 0xEC, 0x5B];
+
+/// `/Columns` is the image's width taken to the next multiple of eight, which is not a
+/// disagreement.
+///
+/// §7.4.6 Table 11 defines the entry and then says what the filter does with it:
+///
+/// > The width of the image in pixels. If the value is not a multiple of 8, the filter shall
+/// > adjust the width of the unencoded image to the next multiple of 8 so that each line starts
+/// > on a byte boundary.
+///
+/// So a producer that writes the *adjusted* width has written the width the filter works on, and
+/// the encoded runs are for that many columns: believing `/Columns` is what decodes the data at
+/// all. §8.9.5.1's `/Width` then says how many of each line's samples are the image, and since
+/// both numbers round to the same number of bytes per line, not one sample moves.
+///
+/// This tree refused the pair outright until the six-hundred-and-nineteenth session, on two
+/// crawled scans whose `/Columns` were 872 against a `/Width` of 869 and 896 against 892 —
+/// both of them exactly this arithmetic.
+#[test]
+fn columns_may_be_the_width_rounded_up_to_a_byte_boundary() {
+    let (raster, said) = interpret(page_with_ccitt_image_of_width(
+        12,
+        "/K 0 /Columns 16 /Rows 4 /EndOfBlock false",
+        &FOUR_LINES_OF_SIXTEEN,
+    ));
+    // Column 1 of twelve across a forty-unit page, and column 9: the first is inside the white
+    // run of four and the second inside the black run of eight.
+    let at = |column: u32, row: u32| -> u8 {
+        let x = column * 40 / 12 + 1;
+        let y = row * 10 + 5;
+        raster.data[((y * raster.width + x) * 4) as usize]
+    };
+    for row in 0..4 {
+        assert_eq!(at(1, row), 255, "line {row} opens with a white run of four");
+        assert_eq!(at(9, row), 0, "and continues with a black run of eight");
+    }
+    assert!(
+        said.is_empty(),
+        "the adjusted width is what Table 11 asks the filter for, so there is nothing to \
+         report: {said:?}"
+    );
+}
+
+/// A `/Columns` that is not the width nor its byte-aligned form is still a refusal.
+///
+/// The relaxation above is Table 11's own sentence and nothing wider. Where the two numbers
+/// disagree by more than the padding, the runs in the data are for a line this image is not, and
+/// §7.3.8.2's "[a]ll of these constraints shall be consistent" has been broken in a way that
+/// moves samples — so the picture is refused and named rather than drawn shifted.
+#[test]
+fn a_columns_that_is_not_the_padded_width_is_refused() {
+    let (_, said) = interpret(page_with_ccitt_image_of_width(
+        12,
+        "/K 0 /Columns 24 /Rows 4 /EndOfBlock false",
+        &FOUR_LINES_OF_SIXTEEN,
+    ));
+    assert!(
+        said.iter()
+            .any(|report| report.contains("/Columns 24") && report.contains("12")),
+        "the refusal should name both numbers, and said {said:?}"
     );
 }

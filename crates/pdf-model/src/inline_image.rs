@@ -36,6 +36,13 @@
 //!
 //! The order matters: it puts the two answers the file states or implies ahead of the one
 //! that reads the data looking for something that might not be a token at all.
+//!
+//! **And the order only holds if the first two can be checked**, which is why [`scan`] is told
+//! whether its bytes are all there are. Each derived end is verified against the `EI` it
+//! predicts, and a page's `/Contents` arrives through a window — so an end past the window is a
+//! request for more bytes ([`InlineImageError::Truncated`]) rather than a failed check that lets
+//! the search run. Until the six-hundred-and-nineteenth session it let the search run, and the
+//! claim above about answer 3 was false for every unfiltered image larger than a window.
 
 use std::sync::Arc;
 
@@ -97,7 +104,22 @@ pub struct Scan {
 ///
 /// `resources` supplies the `/ColorSpace` subdictionary a `/CS` name may refer into
 /// (§8.9.7, and §7.8.3 for what it is a key into).
-pub fn scan(document: &Document, content: &[u8], at: usize, resources: &Dictionary) -> Scan {
+///
+/// `complete` says whether `content` is all of the content stream that is left, and it is part
+/// of the question rather than a convenience. A page's `/Contents` reaches the interpreter
+/// through a window (`crate::content::reader`), and the two answers this module derives — `/L`
+/// and the arithmetic below — are *checked* against the `EI` they predict. A derived end past
+/// the bytes held cannot be checked, and where more bytes exist the honest answer is
+/// [`InlineImageError::Truncated`], which asks the caller for them. Answering it with the
+/// forward search instead is what made this module's own "only for filtered data" claim false,
+/// and it cost a crawled drawing 63% of an image (ADR 0454).
+pub fn scan(
+    document: &Document,
+    content: &[u8],
+    at: usize,
+    resources: &Dictionary,
+    complete: bool,
+) -> Scan {
     let mut lexer = Lexer::at(content, at);
     let dict = match read_dictionary(document, &mut lexer, resources) {
         Ok(dict) => dict,
@@ -133,11 +155,20 @@ pub fn scan(document: &Document, content: &[u8], at: usize, resources: &Dictiona
         }
     }
 
-    let Some((end, resume)) = data_extent(document, &dict, content, start) else {
-        return Scan {
-            resume: content.len(),
-            image: Err(InlineImageError::NoTerminator),
-        };
+    let (end, resume) = match data_extent(document, &dict, content, start, complete) {
+        Extent::At { end, resume } => (end, resume),
+        Extent::PastTheBuffer => {
+            return Scan {
+                resume: content.len(),
+                image: Err(InlineImageError::Truncated),
+            };
+        }
+        Extent::Missing => {
+            return Scan {
+                resume: content.len(),
+                image: Err(InlineImageError::NoTerminator),
+            };
+        }
     };
 
     let data = content.get(start..end).unwrap_or_default();
@@ -366,16 +397,49 @@ fn expand_space(name: &Name) -> Name {
     expand_device_space(name).unwrap_or_else(|| name.clone())
 }
 
+/// Where an inline image's data ends, as far as the bytes in hand can say.
+enum Extent {
+    /// The data ends at `end` and the content stream resumes at `resume`.
+    At {
+        /// End of the data, before the white space delimiting `EI`.
+        end: usize,
+        /// The offset after the terminator.
+        resume: usize,
+    },
+    /// A length the file states or implies reaches past the bytes held.
+    ///
+    /// Nothing here can be checked, and the caller holds only a window: more bytes exist and
+    /// the answer is one of the other two once they arrive.
+    PastTheBuffer,
+    /// No `EI` ends the data.
+    Missing,
+}
+
 /// Finds where the image data ends, and where the content stream resumes past `EI`.
 ///
-/// Returns the end of the data and the offset after the terminator. See this module's own
-/// documentation for why there are three answers and why they are tried in this order.
+/// See this module's own documentation for why there are three answers and why they are tried
+/// in this order. `complete` is what makes the order hold through a window: without it, a
+/// derived end the buffer is merely too short to *check* falls through to the search, which is
+/// the one answer this module calls a guess.
 fn data_extent(
     document: &Document,
     dict: &Dictionary,
     content: &[u8],
     start: usize,
-) -> Option<(usize, usize)> {
+    complete: bool,
+) -> Extent {
+    // A derived end past the bytes held is unanswerable rather than wrong. Where `content` is
+    // the whole of what is left, it *is* wrong — the file's own arithmetic overruns its content
+    // stream — and the search below is what draws the samples that did arrive.
+    let mut past_the_buffer = false;
+    let mut check = |end: usize| -> Option<usize> {
+        let found = terminator_at(content, end);
+        if found.is_none() {
+            past_the_buffer |= !complete && end > content.len();
+        }
+        found
+    };
+
     // §8.9.7: `/L` "shall be present on all inline images" and is "the length of the data
     // between the ID and EI operators excluding the white-space delimiting those operators".
     // It is still checked against the `EI` it predicts rather than believed: a wrong length
@@ -387,8 +451,8 @@ fn data_extent(
         .and_then(|value| usize::try_from(value).ok());
     if let Some(length) = stated {
         let end = start.saturating_add(length);
-        if let Some(resume) = terminator_at(content, end) {
-            return Some((end, resume));
+        if let Some(resume) = check(end) {
+            return Extent::At { end, resume };
         }
     }
 
@@ -399,12 +463,19 @@ fn data_extent(
         && let Some(length) = unfiltered_length(document, dict)
     {
         let end = start.saturating_add(length);
-        if let Some(resume) = terminator_at(content, end) {
-            return Some((end, resume));
+        if let Some(resume) = check(end) {
+            return Extent::At { end, resume };
         }
     }
 
-    search_for_terminator(content, start)
+    if past_the_buffer {
+        return Extent::PastTheBuffer;
+    }
+
+    match search_for_terminator(content, start) {
+        Some((end, resume)) => Extent::At { end, resume },
+        None => Extent::Missing,
+    }
 }
 
 /// The byte count of unfiltered sample data, from §8.9.3's layout.

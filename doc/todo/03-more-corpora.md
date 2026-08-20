@@ -967,6 +967,60 @@ was trusted, and reproduces them to the thousandth.
 rounds running, the crawl's head has been a defect no curated corpus states — and this is the
 first of the three where *every* row of the head was ours.
 
+### 19. The chunk the six-hundred-and-nineteenth took: eight archives, and four ceilings that were not ours
+
+**Taken: `0546`, `1284`, `2022`, `2760`, `3498`, `4236`, `4974` and `5712`, whole, 8000
+documents**, on §16's instrument unchanged and *reused* — page one at 72 dpi against `pdftoppm`,
+`mutool` and `gs`, every invocation explicit about the page box, ranked by our ink minus the
+lightest live reference's.
+
+- **Check the instrument, and check what the instrument needs.** Sixteen documents named by ADRs
+  0438, 0448 and 0451 were re-measured before anything else, and seven came back *worse than
+  before their fix* — `3252105.pdf` at −156.436 against 615's −6.390. Nothing had regressed:
+  **`pdf-sandbox-worker` must be built into the same target directory as the example**, or every
+  codec behind the sandbox refuses and the ranking measures a tree with no bilevel decoder. Two
+  commands, not one: `cargo build --release -p pdf-model --example render_at` **and**
+  `cargo build --release -p pdf-sandbox --bins`. With it built all sixteen reproduce to the
+  thousandth.
+- **Four defects of this tree, and each is a bound belonging to something else** — ADR 0454.
+  `2022009.pdf` at **−84.152** is a blank sheet because `zune-jpeg`'s default 16384-row limit
+  fired before this crate's own `MAX_SAMPLES`, on a scan of 28341 rows (§7.4.8 puts no ceiling
+  anywhere). `3498294.pdf` at **−26.015** lost 63% of an inline image and tokenised 1.4 MB of its
+  samples as operators, because a derived length the 64 KiB window was too short to *check* was
+  dropped for the forward search (§8.9.7, §7.3.8.2). `4236390.pdf` at **−15.235** and
+  `2022430.pdf` at **−12.618** were refused for a `/Columns` of 872 against a `/Width` of 869 —
+  which is Table 11's own "the filter shall adjust the width … to the next multiple of 8".
+  `0546308.pdf` at **−6.785** and `3498231.pdf` at **−7.131** lost every glyph of a font whose
+  `/FontFile3` `OpenType` program has no `head`, which Table 124 exempts in as many words.
+- **The reach is measured rather than argued**: all twenty-two ranked archives re-ranked whole
+  after the fixes, and the rows that move are the documents the four fixes are about and nothing
+  else. §7.4.6's, §7.4.8's, §8.9.7's and §9.9's rows.
+- **The positive head is 613's finding and not ours** — `poppler` alone drawing almost nothing —
+  read out of `doc/traps/oracle-and-references.md` rather than derived again. Two rows above it
+  are the *other* half of that note: `1284136.pdf` +47.956 is `ghostscript` light, and
+  `1284295.pdf` +28.502 is `ghostscript` rendering a different page box, which is trap 3 arriving
+  as a size rather than as ink.
+
+**What the head still holds**, each named so the next round does not re-derive it:
+
+- **`hayro-jbig2` 0.3.0's flat 10 000-instance cap now has five documents of 22 000 waiting on
+  it** — `0546561.pdf` −30.018 and `4974796.pdf` −15.417 join 613's `1653119.pdf` and 615's
+  `3375154.pdf` and `3252105.pdf`. `doc/todo/_image-codecs-and-the-sandbox.md` §7.
+- **Four silent rows this round diagnosed and did not take.** `2022794.pdf` −12.743 states
+  **1451 `DCTDecode` images**, one of them 1400×2, which is `doc/todo/11`'s subject and 613's
+  aerial photograph again. `4236552.pdf` −10.930 is **one command** — a single `DCTDecode` under
+  an `ICCBased` space with an `/SMask` — at 182.784 against 193.714 / 195.641 / 194.921, which is
+  trap 9's family. `4236836.pdf` −10.001 is a **text-only page** of five Type 1 subsets at 20.414
+  against 30.415 to 35.758, with nothing reported, so it is glyph weight or a glyph absent
+  silently — the one row of the head that is not about an image. `2022216.pdf` **+20.141** is
+  twenty `/SMask`s and is the only positive row where the three references agree within 7 and we
+  are 13 above the heaviest.
+- **615's two remain**: `6696954.pdf` −10.252 and `5589519.pdf` −8.212.
+- **44 rows of the 8000 produce no number**, the same three shapes 613 and 615 opened by hand.
+
+**What this chunk leaves: 43 944 crawled documents unranked**, in archive-sized pieces. Four
+rounds running, the crawl's head has been a defect no curated corpus states.
+
 
 ## What not to do
 
