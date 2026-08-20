@@ -274,6 +274,90 @@ pub(crate) struct Window {
     pipelines: Option<Duration>,
     /// The window's size in device pixels, as the presenter was last told it.
     size: (u32, u32),
+    /// What the graphics device has said that no call returned — the other end of the handler
+    /// `render-quorra` installs, taken from on this thread once per present.
+    uncaptured: Arc<render_quorra::UncapturedErrors>,
+}
+
+/// A presenter whose surface has never been configured — and the only way to reach a [`Window`].
+///
+/// # The abort this type exists to make unrepresentable
+///
+/// `wgpu` 30.0.0 answers an acquire that finds an unconfigured surface in one of two ways, and
+/// which one it chooses is decided by a single field. `CoreSurface::error_sink` is set **only on a
+/// configure that succeeded** (`wgpu-30.0.0/src/backend/wgpu_core.rs:3979-3985`), and
+/// `get_current_texture` reads it: with a sink it reports `CurrentSurfaceTexture::Validation`,
+/// which quorra turns into a typed refusal this host already handles; **without one it calls
+/// `handle_error_fatal`, which panics** (`ibid.:4023-4037`) — and under `panic = "abort"` that is
+/// a core dump. So the fatal branch is reachable on the first configure of a process and never
+/// again.
+///
+/// And the first configure is exactly the one this program used to race. `Surface::configure`
+/// waits for the device to come idle, and wgpu's own documentation of it says what happens when
+/// that wait meets a busy queue: "Submissions that happen _during_ the configure may cause the
+/// internal wait-for-idle to fail, raising a validation error"
+/// (`wgpu-30.0.0/src/api/surface.rs`). This viewer submits from [`Self::ask`]'s render thread and
+/// configures from the event thread's present, microseconds apart, by design (ADR 0391) — so the
+/// race is structural rather than unlucky, which is why the project owner met it once and not
+/// twice.
+///
+/// # What the type says
+///
+/// [`Window::ask`] is what spawns the render thread, and therefore the only way anything on this
+/// device can submit. A `Window` cannot be obtained except through [`Ungrounded::ground`], which
+/// configures the surface *before* returning one. Nothing left in the program can put a
+/// submission alongside the first configure, and no rule has to be kept for that to hold.
+pub(crate) struct Ungrounded(Window);
+
+impl std::fmt::Debug for Ungrounded {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.debug_tuple("Ungrounded").field(&self.0).finish()
+    }
+}
+
+impl Ungrounded {
+    /// Puts the window's own background on the surface, which is what configures it.
+    ///
+    /// **Not a probe frame**, which `CLAUDE.md` forbids on the launch path outright, and the
+    /// distinction is not a quibble: nothing here waits for warmth, compiles a pipeline "to be
+    /// safe" or draws a page. It is the window's first honest picture — the medium a moved page
+    /// reveals at its edge — put up at the one moment in the process when the device's queue is
+    /// provably empty, and it is the *same* configure and acquire the first page's present would
+    /// have paid a moment later. What it adds to the launch path is one textured quad; what it
+    /// buys is that the configure cannot fail for the one reason that is fatal.
+    ///
+    /// # Errors
+    ///
+    /// The presenter's own refusal, or the device's words where it refused nothing — either way
+    /// the sentence a caller reports. A device that cannot put one opaque texel on its window
+    /// cannot show a page on it either, so this is a launch decision and not a lost frame: the
+    /// caller draws on the processor instead (`CLAUDE.md`'s second job for the CPU backend).
+    pub(crate) fn ground(mut self) -> Result<Window, String> {
+        let (width, height) = self.0.size;
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "window dimensions are far below f32's exact integer range"
+        )]
+        let extent = Transform::scale(width as f32, height as f32);
+        let layers = [quorra_gpu::Layer {
+            texture: &self.0.medium,
+            placement: affine(extent),
+            filter: quorra_scene::ImageFilter::Nearest,
+        }];
+        let refused = self.0.presenter.present(&layers).err();
+        // Taken whether the present refused or not: `Surface::configure` returns `()`, so a
+        // configure that failed under a present that then succeeded would be silent — and this is
+        // the one call in the program that knows a failure here is not survivable.
+        let said = self.0.uncaptured.take();
+        match (refused, said) {
+            (None, None) => Ok(self.0),
+            (Some(problem), Some(said)) => {
+                Err(format!("{problem}, and the device said: {}", said.last))
+            }
+            (Some(problem), None) => Err(problem.to_string()),
+            (None, Some(said)) => Err(said.last),
+        }
+    }
 }
 
 impl std::fmt::Debug for Window {
@@ -304,7 +388,9 @@ impl Window {
     /// Splits a freshly built renderer into a presenter this thread keeps and a device a thread
     /// will take, or gives the renderer back where it has no surface to detach.
     ///
-    /// The renderer is *not* moved to a thread here: see [`Self::idle`].
+    /// The renderer is *not* moved to a thread here: see [`Self::idle`]. **Nor is a `Window`
+    /// produced here** — what comes back is an [`Ungrounded`], and that type carries the whole
+    /// argument for why.
     ///
     /// The renderer comes back boxed on the failing path rather than by value, because a
     /// `QuorraWindowRenderer` is thousands of bytes and a `Result` is as wide as its widest arm —
@@ -317,10 +403,11 @@ impl Window {
         mut renderer: QuorraWindowRenderer,
         size: (u32, u32),
         proxy_pages: usize,
-    ) -> Result<Self, Box<QuorraWindowRenderer>> {
+    ) -> Result<Ungrounded, Box<QuorraWindowRenderer>> {
         let description = renderer.adapter_description().to_owned();
         let startup = renderer.startup();
         let medium = renderer.medium_texture();
+        let uncaptured = renderer.uncaptured();
         let Some(mut presenter) = renderer.detach_presenter() else {
             return Err(Box::new(renderer));
         };
@@ -328,7 +415,7 @@ impl Window {
         // a host: a resize configures nothing and the swapchain follows at the next present, so
         // it is cheap to say whenever the window system speaks.
         presenter.resize(size.0, size.1);
-        Ok(Self {
+        Ok(Ungrounded(Self {
             presenter,
             medium,
             idle: Some(renderer),
@@ -342,7 +429,18 @@ impl Window {
             startup,
             pipelines: None,
             size,
-        })
+            uncaptured,
+        }))
+    }
+
+    /// What the graphics device has said since this was last asked, or `None` — the ordinary
+    /// answer — where it has said nothing.
+    ///
+    /// **Taken once per present and nowhere else**, so that there is one place a device's
+    /// complaint becomes a decision rather than several that each see part of it. See
+    /// [`render_quorra::UncapturedErrors`] for why the channel exists at all.
+    pub(crate) fn device_said(&self) -> Option<render_quorra::Uncaptured> {
+        self.uncaptured.take()
     }
 
     /// The adapter quorra selected, for reports.

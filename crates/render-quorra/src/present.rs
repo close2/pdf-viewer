@@ -617,6 +617,8 @@ pub struct QuorraWindowRenderer {
     last: FrameCost,
     functions: FunctionPaints,
     phases: Vec<(&'static str, std::time::Duration)>,
+    /// What the device has said that no call returned. See [`crate::UncapturedErrors`].
+    uncaptured: Arc<crate::UncapturedErrors>,
 }
 
 impl QuorraWindowRenderer {
@@ -703,11 +705,19 @@ impl QuorraWindowRenderer {
         // wgpu reports validation failures and lost devices to a handler whose
         // default is silence — the one way this window could stop updating
         // without a word. Same lesson, same sentence as the Vello host had.
+        //
+        // **It records as well as saying, since the six-hundred-and-twenty-eighth session**, and
+        // that is the whole of [`crate::UncapturedErrors`]'s reason for existing: a note is not a
+        // decision, and `Surface::configure` reports its failure *only* here — so a host that
+        // could not ask afterwards had no way to know that the call it made next was about to
+        // meet a surface the device had refused to configure.
+        let uncaptured = Arc::new(crate::UncapturedErrors::default());
+        let recorder = Arc::clone(&uncaptured);
         device
             .wgpu()
             .0
-            .on_uncaptured_error(Arc::new(|error: quorra_gpu::wgpu::Error| {
-                eprintln!("note: the graphics device reported: {error}");
+            .on_uncaptured_error(Arc::new(move |error: quorra_gpu::wgpu::Error| {
+                recorder.record(error.to_string());
             }));
         Self {
             device,
@@ -717,7 +727,18 @@ impl QuorraWindowRenderer {
             last: FrameCost::default(),
             functions: FunctionPaints::default(),
             phases: Vec::new(),
+            uncaptured,
         }
+    }
+
+    /// What the graphics device has reported that no call returned.
+    ///
+    /// A handle rather than a borrow, because the renderer moves to a thread of its own the
+    /// moment a host has one (`viewer-ui`'s `renderer` module) and goes on recording into this
+    /// from there. The host keeps the other end and takes from it on the thread that presents.
+    #[must_use]
+    pub fn uncaptured(&self) -> Arc<crate::UncapturedErrors> {
+        Arc::clone(&self.uncaptured)
     }
 
     /// What the scene last built did with §8.7.4.5.2's type 1 shadings: how many the device

@@ -68,6 +68,61 @@ fn coverage_for(transform: Transform) -> quorra_gpu::Coverage {
     }
 }
 
+/// What a swapchain state means for the tick after it, which is the whole of what a host decides.
+///
+/// A free function over an enum rather than a `match` inside [`App::put_up`], for one reason: the
+/// decision is now made from **two** inputs — the state quorra reports and whatever the device
+/// said to its uncaptured-error handler on the way — and a decision with two inputs is one worth
+/// being able to test without a graphics device. Its tests are at the foot of this file.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Swapchain {
+    /// Nothing was presented, and the window should ask for a frame again at once: the swapchain
+    /// has been replaced and the next acquire will find a fresh one.
+    AskAgain,
+    /// Nothing was presented and nothing is owed. The next tick tries, which is soon enough for a
+    /// window that is occluded or whose queue is momentarily full.
+    Wait,
+    /// The swapchain could not be provided for a reason trying again does not clear, and this is
+    /// the sentence to say about it.
+    Refused(String),
+}
+
+/// [`Swapchain`]'s decision, with the device's own words where it left any.
+///
+/// **`Validation` is the one that changed in the six-hundred-and-twenty-eighth session.** It used
+/// to be `swapchain validation failed`, four words that name no cause and suggest no action —
+/// and by construction there *is* a cause to name: quorra reaches this state by asking wgpu for a
+/// texture and being refused, and the refusal that reaches a surface which has been configured
+/// once is very nearly always a *re*configure that failed. `Surface::configure` returns `()`, so
+/// the only account of it is what the device told the handler, which is why `said` is here.
+pub(crate) fn swapchain(
+    reason: quorra_gpu::SurfaceProblem,
+    said: Option<&render_quorra::Uncaptured>,
+) -> Swapchain {
+    match reason {
+        // The window system has moved under the swapchain — a resize, a monitor change, a
+        // compositor restart. quorra has already marked the surface for reconfiguration, so the
+        // frame that follows this one will replace it.
+        quorra_gpu::SurfaceProblem::Outdated | quorra_gpu::SurfaceProblem::Lost => {
+            Swapchain::AskAgain
+        }
+        // Both are ordinary and neither is this program's to fix: an occluded window is one
+        // nobody can see, and a timeout is a swapchain whose images are all still in flight.
+        quorra_gpu::SurfaceProblem::Timeout | quorra_gpu::SurfaceProblem::Occluded => {
+            Swapchain::Wait
+        }
+        quorra_gpu::SurfaceProblem::Validation => Swapchain::Refused(match said {
+            Some(said) => format!(
+                "the window's swapchain could not be rebuilt, and the graphics device said: {}",
+                said.last.trim()
+            ),
+            None => "the window's swapchain could not be rebuilt, and the graphics device gave \
+                     no account of why"
+                .to_owned(),
+        }),
+    }
+}
+
 /// How this window's pixels reach it: with a graphics device, or without one.
 ///
 /// **Never both, and that is the point.** A process holding [`Surface::Processor`] has created no
@@ -346,14 +401,24 @@ impl App {
         let began = std::time::Instant::now();
         let expected = self.stale.expected();
         let period = self.cadence.period();
-        let (outcome, cost, retained) = {
+        let (outcome, cost, retained, said) = {
             let window = self.device_window()?;
             (
                 window.present(placement, under),
                 window.last_present(),
                 window.retained(),
+                // **The one place a device's uncaptured complaint is taken**, and it is here
+                // rather than once a frame because this is the call that can provoke one:
+                // `Surface::configure` returns `()` and says what it thought only through the
+                // handler `render-quorra` installs. Taken whether the present refused or not, so
+                // that a failure under a present that then succeeded is not left in the record to
+                // be attributed to some later frame.
+                window.device_said(),
             )
         };
+        if let Some(said) = &said {
+            self.device_reported(said, outcome.is_err());
+        }
         match outcome {
             Ok(true) => {}
             // Nothing has been drawn yet, which is every tick between the window appearing and
@@ -362,16 +427,15 @@ impl App {
             // Swapchain states are events, not failures: nothing was presented, nothing is stale,
             // and the processor cannot help a window that is not presentable.
             Err(quorra_gpu::RenderError::SurfaceUnavailable { reason }) => {
-                return match reason {
-                    quorra_gpu::SurfaceProblem::Outdated | quorra_gpu::SurfaceProblem::Lost => {
+                return match swapchain(reason, said.as_ref()) {
+                    Swapchain::AskAgain => {
                         self.redraw();
                         None
                     }
-                    quorra_gpu::SurfaceProblem::Timeout | quorra_gpu::SurfaceProblem::Occluded => {
-                        None
-                    }
-                    quorra_gpu::SurfaceProblem::Validation => {
-                        Some(Rendered::Failed("swapchain validation failed".to_owned()))
+                    Swapchain::Wait => None,
+                    Swapchain::Refused(why) => {
+                        self.swapchain_refused(&why);
+                        Some(Rendered::Failed(why))
                     }
                 };
             }
@@ -418,6 +482,59 @@ impl App {
         // window, so that a view still moving is answered again on the next tick.
         self.stale.drawn(from).follow(&mut self.cadence, began);
         None
+    }
+
+    /// Says what the program did about something the device reported that no call returned.
+    ///
+    /// **The half that was missing when the project owner's viewer aborted.** The device's own
+    /// sentence was printed by the handler, and then nothing said what became of it — so a person
+    /// reading the output could not tell whether the program had noticed. Two sentences, two
+    /// authors: `render-quorra`'s handler says what the device said, and this says what was done.
+    ///
+    /// `refused` is whether the present that provoked it went on to refuse, because those are two
+    /// different reports: an error under a present that succeeded is a fact about the device that
+    /// cost this frame nothing, and one under a present that refused is this frame's cause.
+    fn device_reported(&mut self, said: &render_quorra::Uncaptured, refused: bool) {
+        if refused {
+            // The refusal itself is reported by the arm that classifies it, which has the state
+            // quorra named and can therefore say something this cannot; a second sentence here
+            // would be the same event twice.
+            self.trace.say(
+                Topic::Frames,
+                format_args!(
+                    "{} uncaptured device error(s) arrived with this frame's refusal",
+                    said.since
+                ),
+            );
+            return;
+        }
+        // Loud rather than traced: nothing refused, so no other line will mention this at all,
+        // and an error the device raised on its own is exactly the thing that goes unnoticed
+        // until a window stops updating.
+        println!(
+            "note: the graphics device reported {} error(s) that no call returned; the frame was \
+             presented anyway, so this is being carried on past deliberately",
+            said.since
+        );
+    }
+
+    /// Says, once, that this window's swapchain is not coming back — and what a person can do.
+    ///
+    /// **A sentence rather than a crash, and a sentence rather than a silent fallback.** The
+    /// processor path exists and could draw here, but taking it without being asked would make
+    /// this a different program from the one `CLAUDE.md` describes: page one goes to the graphics
+    /// device by the project owner's decision, and a run that quietly stopped using it would hide
+    /// exactly the fault a person needs to see. So the two things that *are* offered are named.
+    fn swapchain_refused(&mut self, why: &str) {
+        if self.frames.refused_swapchain {
+            return;
+        }
+        self.frames.refused_swapchain = true;
+        eprintln!("{why}");
+        eprintln!(
+            "This window cannot present again until it is restarted. --cpu opens no graphics \
+             driver at all and draws every page on the processor."
+        );
     }
 
     /// `stages` is filled in as the frame goes: see [`Stages`] for why one number was not enough.
@@ -824,12 +941,12 @@ impl App {
         // (quorra's ADR 0056). The *thread* is not started here — that is the first job's, which
         // is `CLAUDE.md`'s rule about scheduler decisions in front of a launch milestone.
         let size = window.inner_size();
-        let presenter = match crate::renderer::Window::split(
+        let ungrounded = match crate::renderer::Window::split(
             renderer,
             (size.width.max(1), size.height.max(1)),
             self.proxy_pages,
         ) {
-            Ok(presenter) => presenter,
+            Ok(ungrounded) => ungrounded,
             Err(renderer) => {
                 // A device built with `for_surface` always has one to hand over, so this is a
                 // proof about quorra's constructors rather than a state anybody has seen — and it
@@ -843,6 +960,28 @@ impl App {
                 return self.software(window);
             }
         };
+        // **The surface is configured here and it is a launch milestone.** `Ungrounded` carries
+        // the whole argument; what it comes to is that the *first* configure of a process is the
+        // one wgpu answers with a panic rather than a status, and this is the only moment where
+        // no other thread of this program can be submitting while it happens. A device that
+        // cannot put its own background on its window cannot show a page on it either, so the
+        // refusal is a launch decision — the processor draws instead, out loud, exactly as it
+        // does for a device that would not come up at all.
+        let grounded = std::time::Instant::now();
+        let presenter = match ungrounded.ground() {
+            Ok(presenter) => presenter,
+            Err(why) => {
+                eprintln!("the graphics device could not put anything on this window: {why}");
+                eprintln!("  asked for: {}", self.backend_description());
+                eprintln!(
+                    "Drawing on the processor instead, which opens no graphics driver. Pages \
+                     will be slower."
+                );
+                return self.software(window);
+            }
+        };
+        let grounding = grounded.elapsed();
+        self.launch.mark("surface configured");
         if self.trace.on(Topic::Launch) {
             let startup = presenter.startup();
             // Two lines about one choice, and they answer different questions. The first is what
@@ -871,6 +1010,17 @@ impl App {
                     startup
                         .pipeline_compilation
                         .map_or_else(|| "still compiling".to_owned(), |d| format!("{d:?}"))
+                ),
+            );
+            // What grounding cost, said on its own line because it is a *number to keep small*
+            // rather than a step to take on trust: it is the swapchain's creation and the
+            // window's first acquire, moved off page one's present onto a moment where the
+            // configure cannot race a submission (`crate::renderer::Ungrounded`).
+            self.trace.say(
+                Topic::Launch,
+                format_args!(
+                    "surface configured and the window's ground put up in {grounding:?} — the \
+                     first configure of this process, with no render thread to submit beside it"
                 ),
             );
         }
@@ -1124,8 +1274,72 @@ impl App {
 #[cfg(test)]
 mod tests {
     use pdf_render::Transform;
+    use quorra_gpu::SurfaceProblem;
+    use render_quorra::Uncaptured;
 
-    use super::{GPU_COVERAGE_MAGNIFICATION, coverage_for};
+    use super::{GPU_COVERAGE_MAGNIFICATION, Swapchain, coverage_for, swapchain};
+
+    /// The device's words after a `Surface::configure` that failed, as wgpu formats them — the
+    /// project owner's own launch, verbatim from their session.
+    fn what_the_owner_saw() -> Uncaptured {
+        Uncaptured {
+            since: 1,
+            last: "Validation Error\n\nCaused by:\n  In Surface::configure\n    Failed to wait \
+                   for GPU to come idle before reconfiguring the Surface\n"
+                .to_owned(),
+        }
+    }
+
+    /// A surface the window system has moved under is one the next frame replaces, so the window
+    /// asks again rather than waiting for an event that may not come.
+    #[test]
+    fn a_moved_surface_is_asked_for_again() {
+        assert_eq!(
+            swapchain(SurfaceProblem::Outdated, None),
+            Swapchain::AskAgain
+        );
+        assert_eq!(swapchain(SurfaceProblem::Lost, None), Swapchain::AskAgain);
+    }
+
+    /// Neither of these is anybody's fault and neither is cleared by asking harder.
+    #[test]
+    fn an_occluded_or_busy_swapchain_is_waited_out() {
+        assert_eq!(swapchain(SurfaceProblem::Timeout, None), Swapchain::Wait);
+        assert_eq!(swapchain(SurfaceProblem::Occluded, None), Swapchain::Wait);
+    }
+
+    /// **The refusal the project owner's crash would have produced, had it not aborted first.**
+    /// The device's own account of a failed configure is what makes this sentence actionable, and
+    /// carrying it is the whole reason `swapchain` takes a second argument.
+    #[test]
+    fn a_validation_refusal_carries_what_the_device_said() {
+        let said = what_the_owner_saw();
+        let Swapchain::Refused(why) = swapchain(SurfaceProblem::Validation, Some(&said)) else {
+            panic!("a validation state is not something a retry clears");
+        };
+        assert!(
+            why.contains("could not be rebuilt"),
+            "it says what happened: {why}"
+        );
+        assert!(
+            why.contains("In Surface::configure"),
+            "and it names the call the device refused: {why}"
+        );
+        assert!(
+            !why.ends_with('\n'),
+            "wgpu's message ends in a newline and a sentence must not: {why:?}"
+        );
+    }
+
+    /// A device that said nothing still gets a sentence, and it says that it said nothing —
+    /// rather than an empty clause a reader would take for a truncated message.
+    #[test]
+    fn a_validation_refusal_with_no_account_says_so() {
+        let Swapchain::Refused(why) = swapchain(SurfaceProblem::Validation, None) else {
+            panic!("a validation state is not something a retry clears");
+        };
+        assert!(why.contains("gave no account"), "{why}");
+    }
 
     /// The lane follows the magnification, and the page transform a frame is drawn
     /// with is what states it: scale, y flip, translation.
